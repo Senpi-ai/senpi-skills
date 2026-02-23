@@ -1,4 +1,4 @@
-[SKILL (1).md](https://github.com/user-attachments/files/25499910/SKILL.1.md)
+[SKILL.md](https://github.com/user-attachments/files/25499918/SKILL.md)
 ---
 name: wolf-strategy
 description: >-
