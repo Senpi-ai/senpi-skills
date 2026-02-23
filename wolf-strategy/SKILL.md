@@ -1,10 +1,12 @@
+[SKILL (1).md](https://github.com/user-attachments/files/25499910/SKILL.1.md)
 ---
 name: wolf-strategy
 description: >-
   Aggressive 2-slot autonomous trading strategy for Hyperliquid perps.
   IMMEDIATE_MOVER as primary entry trigger, mechanical DSL exits,
   concentration over diversification. 7-cron architecture with race
-  condition prevention. Proven: +$750 across 14 trades, 64% win rate.
+  condition prevention. Scales to any budget ($500+).
+  Proven: +$750 across 14 trades, 64% win rate.
   Use when running aggressive autonomous trading with concentrated
   positions, IMMEDIATE_MOVER entries, or 2-slot position management.
 license: Apache-2.0
@@ -13,24 +15,92 @@ compatibility: >-
   opportunity-scanner, and emerging-movers skills.
 metadata:
   author: jason-goldberg
-  version: "3.0"
+  version: "3.1"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# WOLF v3 — Aggressive Autonomous Trading
+# WOLF v3.1 — Aggressive Autonomous Trading
 
-2-slot concentrated position management. Mechanical exits, discretionary entries. DSL v4 handles all exit logic — human/AI judgment on entry signals only.
+2-slot concentrated position management. Mechanical exits, discretionary entries. DSL v4 handles all exit logic — human/AI judgment on entry signals only. Scales to any budget from $500 to $50k+.
 
-**Proven:** +$750 realized across 14 trades, 64% win rate in a single session.
+**Proven:** +$750 realized across 14 trades, 64% win rate in a single session ($6.5k budget).
 
 ## Core Design
 
-- **2 slots max** — concentration beats diversification at small account sizes
+- **2 slots max** — concentration beats diversification
 - **Mechanical exits** via DSL v4 — no discretion on exits
 - **IMMEDIATE_MOVER** is the primary entry trigger (not scanner score)
 - **Aggressive rotation** — favor swapping into higher-conviction setups
 - **Every slot must maximize ROI** — empty slot > mediocre position
+- **Budget-scaled** — all sizing, limits, and stops derived from user's budget
+
+## Budget-Scaled Parameters
+
+All position sizing and risk limits are calculated from the user's budget. Nothing is hard-coded.
+
+### Formulas
+
+```
+margin_per_slot    = budget × 0.30          (30% of budget per slot, 2 slots = 60% deployed max)
+margin_buffer      = budget × 0.40          (40% reserve for margin health)
+notional_per_slot  = margin_per_slot × leverage
+daily_loss_limit   = budget × -0.15         (max 15% loss per day)
+drawdown_cap       = budget × -0.30         (max 30% total drawdown → hard stop)
+```
+
+### Examples at Different Budgets
+
+| Budget | Margin/Slot | Notional/Slot (10x) | Daily Loss Limit | Drawdown Cap |
+|--------|-------------|---------------------|------------------|--------------|
+| $500 | $150 | $1,500 | -$75 | -$150 |
+| $1,000 | $300 | $3,000 | -$150 | -$300 |
+| $2,000 | $600 | $6,000 | -$300 | -$600 |
+| $4,000 | $1,200 | $12,000 | -$600 | -$1,200 |
+| $6,500 | $1,950 | $19,500 | -$975 | -$1,950 |
+| $10,000 | $3,000 | $30,000 | -$1,500 | -$3,000 |
+| $25,000 | $7,500 | $75,000 | -$3,750 | -$7,500 |
+
+### Why 30/30/40 Split
+
+- **30% Slot A + 30% Slot B = 60% max deployed.** Concentration, not diversification.
+- **40% margin buffer.** Cross-margin health degrades fast with 2 leveraged positions. At 10x with 2 positions, 40% buffer keeps margin ratio healthy even during drawdowns.
+  - 2 positions at 60% deployed → ~89% margin buffer
+  - If one position is losing 5% ROE, buffer is still ~84%
+  - Buffer below 70% → the agent should cut the weaker position
+
+### Minimum Budget
+
+**$500.** At $150/slot margin with 10x leverage, you're trading $1,500 notional. This works on Hyperliquid but leaves tight margin — the agent should use conservative leverage (5-7x) at this budget.
+
+| Budget | Recommended Leverage | Rationale |
+|--------|---------------------|-----------|
+| $500-$1k | 5-7x | Tight margin, need room for drawdown |
+| $1k-$5k | 7-10x | Standard range, good margin buffer |
+| $5k-$15k | 10-15x | Comfortable buffer, can be more aggressive |
+| $15k+ | 10-20x | Scale notional, not just leverage |
+
+### Configuration
+
+When the agent sets up WOLF, it asks the user for budget and calculates everything:
+
+```json
+{
+  "budget": 4000,
+  "slots": 2,
+  "marginPerSlot": 1200,
+  "marginBuffer": 1600,
+  "defaultLeverage": 10,
+  "maxLeverage": 20,
+  "notionalPerSlot": 12000,
+  "dailyLossLimit": -600,
+  "drawdownCap": -1200,
+  "wallet": "0x...",
+  "strategyId": "uuid"
+}
+```
+
+The agent MUST calculate these from budget at setup — never use fixed dollar amounts.
 
 ## Cron Architecture
 
@@ -61,10 +131,22 @@ Emerging Movers fires IMMEDIATE_MOVER when an asset jumps 10+ ranks from #25+ in
 4. Max leverage ≥ 10x (check `max-leverage.json`)
 5. Not already holding this asset
 6. Slot available (max 2 positions)
+7. Position size = `marginPerSlot` at configured leverage
 
 ### Secondary Signal: Opportunity Scanner (Score 175+)
 
 Scanner runs every 15 min. Use for entries when no IMMEDIATE is firing.
+
+### Position Sizing by Score
+
+| Scanner Score | Size |
+|---|---|
+| 250+ | Full `marginPerSlot` |
+| 200-250 | 75% of `marginPerSlot` |
+| 175-200 | 50% of `marginPerSlot` |
+| < 175 | Skip |
+
+IMMEDIATE_MOVER entries always use full `marginPerSlot` — the signal is time-sensitive and already quality-filtered.
 
 ### What to Skip
 
@@ -119,7 +201,7 @@ Auto-close if ROE ≥ 8% and high-water stale for 1 hour.
 
 See [references/session-results.md](references/session-results.md) for the complete Feb 23, 2026 trade log.
 
-**Summary:** 14 trades, 9 wins / 5 losses, 64% win rate, +$750 realized.
+**Summary:** 14 trades, 9 wins / 5 losses, 64% win rate, +$750 realized (on $6.5k budget).
 
 ## Key Learnings
 
@@ -128,7 +210,9 @@ See [references/learnings.md](references/learnings.md) for bugs, footguns, and t
 ## Setup Checklist
 
 1. Install companion skills: `dsl-dynamic-stop-loss`, `opportunity-scanner`, `emerging-movers`
-2. Create strategy wallet with budget
-3. Set up all 7 cron jobs
-4. Create `max-leverage.json` reference file
-5. Agent watches Emerging Movers for IMMEDIATE_MOVER signals and acts
+2. Agent asks user for **budget** (minimum $500)
+3. Agent calculates all parameters from budget (margin/slot, limits, leverage)
+4. Create strategy wallet, fund with budget
+5. Set up all 7 cron jobs
+6. Create `max-leverage.json` reference file
+7. Agent watches Emerging Movers for IMMEDIATE_MOVER signals and acts
