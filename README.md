@@ -51,7 +51,7 @@ Each skill folder is self-contained — SKILL.md has the core instructions, `scr
 | **[DSL-Tight](#dsl-tight)** | Opinionated DSL preset with tighter defaults. 4 tiers with per-tier breach counts that tighten as profit grows, auto-calculated price floors, stagnation take-profit. | [`SKILL.md`](dsl-tight/SKILL.md) |
 | **[Opportunity Scanner](#opportunity-scanner)** | 4-stage funnel screening all 500+ Hyperliquid perps. Scores 0–400 across smart money, market structure, technicals, and funding. Hourly trend gate, BTC macro filter. | [`SKILL.md`](opportunity-scanner/SKILL.md) |
 | **[Autonomous Trading](#autonomous-trading)** | Give your agent a budget, target, and deadline — it does the rest. Orchestrates DSL + Scanner + Emerging Movers with race condition prevention and conviction collapse cuts. | [`SKILL.md`](autonomous-trading/SKILL.md) |
-| **[WOLF Strategy](#wolf-strategy)** | Aggressive 2-slot autonomous trading. IMMEDIATE_MOVER as primary entry, mechanical DSL exits. Proven: +$750 across 14 trades, 64% win rate. | [`SKILL.md`](wolf-strategy/SKILL.md) |
+| **[WOLF Strategy](#wolf-strategy)** | Aggressive 2-slot autonomous trading. IMMEDIATE_MOVER as primary entry, mechanical DSL exits. Proven: in first 24h +$1100 across 16 trades, 64% win rate. | [`SKILL.md`](wolf-strategy/SKILL.md) |
 | **[Emerging Movers Detector](#emerging-movers-detector)** | Tracks SM concentration across all Hyperliquid assets. Quality-filtered IMMEDIATE signals, runs every 60 seconds. One API call per scan. | [`SKILL.md`](emerging-movers/SKILL.md) |
 | **[Whale Index](#whale-index)** | Auto-mirror top Discovery traders. Scores on PnL rank, win rate, consistency, drawdown. 2–5 mirror strategies, daily rebalance with 2-day watch period. | [`SKILL.md`](whale-index/SKILL.md) |
 
