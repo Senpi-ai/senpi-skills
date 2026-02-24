@@ -1,23 +1,66 @@
-[SKILL.md](https://github.com/user-attachments/files/25528015/SKILL.md)
 ---
 name: wolf-strategy
 description: >-
-  WOLF v5 — Fully autonomous aggressive trading strategy for Hyperliquid perps via Senpi MCP.
-  7-cron architecture with Emerging Movers scanner (90s, FIRST_JUMP + IMMEDIATE_MOVER signals),
+  WOLF v6 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
+  Manages multiple strategies simultaneously, each with independent wallets, budgets, slots,
+  and DSL configs. 7-cron architecture with Emerging Movers scanner (90s, FIRST_JUMP + IMMEDIATE_MOVER),
   DSL v4 trailing stops (combined runner every 3min, 4-tier at 5/10/15/20% ROE),
   SM flip detector (5min), watchdog (5min), portfolio updates (15min),
-  opportunity scanner (15min, broken/optional), and health checks (10min).
-  Handles entries, exits, rotation, and race condition prevention fully autonomously.
-  Minimum 7x leverage required. Enter early on first jumps, not at confirmed peaks.
+  opportunity scanner v6 (15min, BTC macro + hourly trend + disqualifiers),
+  and health checks (10min). Same asset can be traded in different strategies simultaneously.
+  Enter early on first jumps, not at confirmed peaks. Minimum 7x leverage required.
   Requires Senpi MCP connection, python3, mcporter CLI, and OpenClaw cron system.
-  
+
 ---
 
-# WOLF v5 — Autonomous Trading Strategy
+# WOLF v6 — Autonomous Multi-Strategy Trading
 
 The WOLF hunts for its human. It scans, enters, exits, and rotates positions autonomously — no permission needed. When criteria are met, it acts. Speed is edge.
 
 **Proven:** +$1,500 realized, 25+ trades, 65% win rate, single session on $6.5k budget.
+
+**v6: Multi-strategy support.** Each strategy has independent wallet, budget, slots, and DSL config. Same asset can be held in different strategies simultaneously (e.g., Strategy A LONG HYPE + Strategy B SHORT HYPE).
+
+---
+
+## Multi-Strategy Architecture
+
+### Strategy Registry (`wolf-strategies.json`)
+Central config holding all strategies. Created/updated by `wolf-setup.py`.
+
+```
+wolf-strategies.json
+├── strategies
+│   ├── wolf-abc123 (Aggressive Momentum, 3 slots, 10x)
+│   └── wolf-xyz789 (Conservative XYZ, 2 slots, 7x)
+└── global (telegram, workspace)
+```
+
+### Per-Strategy State
+Each strategy gets its own state directory:
+```
+state/
+├── wolf-abc123/
+│   ├── dsl-HYPE.json
+│   └── dsl-SOL.json
+└── wolf-xyz789/
+    ├── dsl-HYPE.json    # Same asset, different strategy, no collision
+    └── dsl-GOLD.json
+```
+
+### Signal Routing
+When a signal fires, it's routed to the best-fit strategy:
+1. Which strategies have empty slots?
+2. Does any strategy already hold this asset? (skip within strategy, allow cross-strategy)
+3. Which strategy's risk profile matches? (aggressive gets FIRST_JUMPs, conservative gets DEEP_CLIMBERs)
+4. Route to best-fit -> open on that wallet -> create DSL state in that strategy's dir
+
+### Adding a Strategy
+```bash
+python3 scripts/wolf-setup.py --wallet 0x... --strategy-id UUID --budget 2000 \
+    --chat-id 12345 --name "Conservative XYZ" --dsl-preset conservative
+```
+This adds to the registry without disrupting running strategies. Disable with `enabled: false` in the registry.
 
 ---
 
@@ -25,9 +68,7 @@ The WOLF hunts for its human. It scans, enters, exits, and rotates positions aut
 
 **Enter before the peak, not at the top.**
 
-Leaderboard rank confirmation LAGS price. When an asset jumps from #31→#16 in one scan, the price is moving NOW. By the time it reaches #7 with clean history, the move is over. Speed is edge.
-
-The old approach (wait for 4+ reasons, clean rank history, vel ≥ 0.03) filters out the BEST entries. An asset bouncing around #30-40 then jumping to #16 will always look "erratic" — but that's the entry signal, not noise.
+Leaderboard rank confirmation LAGS price. When an asset jumps from #31->#16 in one scan, the price is moving NOW. By the time it reaches #7 with clean history, the move is over. Speed is edge.
 
 **Core principle:** 2 reasons at rank #25 with a big jump = ENTER. 4+ reasons at rank #5 = SKIP (already peaked).
 
@@ -38,9 +79,11 @@ The old approach (wait for 4+ reasons, clean rank history, vel ≥ 0.03) filters
 1. Ensure Senpi MCP is connected (`mcporter list` should show `senpi`)
 2. Create a custom strategy wallet: use `strategy_create_custom_strategy` via mcporter
 3. Fund the wallet via `strategy_top_up` with your budget
-4. Run setup: `python3 scripts/wolf-setup.py` — it will ask for wallet, strategy ID, budget, Telegram chat ID
+4. Run setup: `python3 scripts/wolf-setup.py --wallet 0x... --strategy-id UUID --budget 6500 --chat-id 12345`
 5. Create the 7 OpenClaw crons using templates from `references/cron-templates.md`
 6. The WOLF is hunting
+
+To add a second strategy, run `wolf-setup.py` again with a different wallet/budget. It adds to the registry.
 
 ---
 
@@ -49,36 +92,24 @@ The old approach (wait for 4+ reasons, clean rank history, vel ≥ 0.03) filters
 | # | Job | Interval | Script | Purpose |
 |---|-----|----------|--------|---------|
 | 1 | Emerging Movers | **90s** | `scripts/emerging-movers.py` | Hunt FIRST_JUMP + IMMEDIATE_MOVER signals — primary entry trigger |
-| 2 | DSL Combined | **3min** | `scripts/dsl-combined.py` | Trailing stop exits for ALL open positions (single runner) |
+| 2 | DSL Combined | **3min** | `scripts/dsl-combined.py` | Trailing stop exits for ALL open positions across ALL strategies |
 | 3 | SM Flip Detector | 5min | `scripts/sm-flip-check.py` | Cut positions where SM conviction collapses |
-| 4 | Watchdog | 5min | `scripts/wolf-monitor.py` | Cross-margin buffer, liq distances, rotation candidates |
-| 5 | Portfolio Update | 15min | (agent-driven) | PnL reporting to user |
-| 6 | Opportunity Scanner | 15min | `scripts/opportunity-scan.py` | Deep-dive 4-pillar scoring, threshold 175+ **(broken, optional)** |
-| 7 | Health Check | 10min | `scripts/job-health-check.py` | Orphan DSL detection, stale cron alerts |
+| 4 | Watchdog | 5min | `scripts/wolf-monitor.py` | Per-strategy margin buffer, liq distances, rotation candidates |
+| 5 | Portfolio Update | 15min | (agent-driven) | Per-strategy PnL reporting to user |
+| 6 | Opportunity Scanner | 15min | `scripts/opportunity-scan-v6.py` | Deep-dive 4-pillar scoring with BTC macro, hourly trend, disqualifiers |
+| 7 | Health Check | 10min | `scripts/job-health-check.py` | Per-strategy orphan DSL detection, state validation |
 
-**v5 change:** DSL uses a combined runner (`dsl-combined.py`) every 3min instead of per-position crons. No more ephemeral DSL cron creation/destruction — one cron iterates all active DSL state files.
+**v6 change:** One set of crons for all strategies. Each script reads `wolf-strategies.json` and iterates all enabled strategies internally.
 
-**v5 change:** Scanner interval is 90s (was 60s) — reduces token burn without missing signals.
+**v6 change:** Opportunity Scanner v6 replaces the old scanner with BTC macro context, hourly trend filter, hard disqualifiers, parallel candle fetches, and cross-scan momentum tracking.
 
 ## Cron Setup
 
-**Critical:** Crons are **OpenClaw systemEvent crons**, NOT senpi crons. Each cron fires a systemEvent that wakes the agent with a MANDATE — explicit instructions telling the agent what to run and how to act on the output.
+**Critical:** Crons are **OpenClaw systemEvent crons**, NOT senpi crons. Each cron fires a systemEvent that wakes the agent with a MANDATE.
 
-Create each cron using the OpenClaw cron tool:
+Create each cron using the OpenClaw cron tool. The exact mandate text for each cron is in **`references/cron-templates.md`**. Read that file, replace the placeholders (only `{TELEGRAM}` and `{SCRIPTS}` in v6), and create all 7 crons.
 
-```
-cron add job={
-  "name": "WOLF Emerging Movers (90s)",
-  "schedule": { "kind": "every", "everyMs": 90000 },
-  "sessionTarget": "main",
-  "wakeMode": "now",
-  "payload": { "kind": "systemEvent", "text": "<MANDATE TEXT>" }
-}
-```
-
-The exact mandate text for each cron (with placeholders for wallet, budget, etc.) is in **`references/cron-templates.md`**. Read that file, replace the placeholders with your config values, and create all 7 crons.
-
-**The mandate text is the secret sauce.** Without it, the agent just runs a script and stares at the output. The mandate tells the agent: "If FIRST_JUMP fires → OPEN position immediately, set up DSL state, alert user."
+**v6 simplification:** No more per-wallet/per-strategy placeholders in cron mandates. Scripts read all strategy info from the registry.
 
 ---
 
@@ -96,73 +127,49 @@ The agent DOES notify the user (via Telegram) after every action.
 
 ## Entry Signals — Priority Order
 
-### 1. FIRST_JUMP ⚡ (Highest Priority)
+### 1. FIRST_JUMP (Highest Priority)
 
-**What:** Asset jumps 10+ ranks from #25+ in ONE scan AND was not in previous scan's top 50 (or was at rank ≥ #30).
+**What:** Asset jumps 10+ ranks from #25+ in ONE scan AND was not in previous scan's top 50 (or was at rank >= #30).
 
-**Action:** Enter IMMEDIATELY. This is the money signal. By next scan it's too late.
+**Action:** Enter IMMEDIATELY. This is the money signal. Route to best-fit strategy with available slots.
 
 **Checklist:**
 - `isFirstJump: true` in scanner output
 - **2+ reasons is enough** (don't require 4+)
 - **vel > 0 is sufficient** (velocity hasn't had time to build on a first jump)
-- Max leverage ≥ 7x (check `max-leverage.json`)
-- Slot available (or rotation justified)
-- ≥ 10 SM traders (crypto); for XYZ equities, ignore trader count
+- Max leverage >= 7x (check `max-leverage.json`)
+- Slot available in target strategy (or rotation justified)
+- >= 10 SM traders (crypto); for XYZ equities, ignore trader count
 
 **What to ignore:**
-- Erratic rank history — the scanner excludes the current jump from erratic checks. Pre-jump bouncing at #30-40 is normal.
+- Erratic rank history — the scanner excludes the current jump from erratic checks.
 - Low velocity — first jumps haven't had time to build velocity.
 
 **If CONTRIB_EXPLOSION accompanies it:** Double confirmation. Even stronger entry.
 
-### 2. CONTRIB_EXPLOSION 💥
+### 2. CONTRIB_EXPLOSION
 
 **What:** 3x+ contribution increase in one scan from asset at rank #20+.
 
 **Action:** Enter even if rank history looks "erratic." The contrib spike IS the signal regardless of prior rank bouncing.
 
-**Checklist:**
-- `isContribExplosion: true` in scanner output
-- Asset currently at rank #20+
-- 2+ reasons
-- vel > 0
-- Max leverage ≥ 7x
-- Slot available
-
 **Never downgraded for erratic history.** Often accompanies FIRST_JUMP for double confirmation.
 
-### 3. DEEP_CLIMBER 📈
+### 3. DEEP_CLIMBER
 
-**What:** Steady climb from #30+, positive velocity (≥ 0.03), 3+ reasons, clean rank history.
+**What:** Steady climb from #30+, positive velocity (>= 0.03), 3+ reasons, clean rank history.
 
-**Action:** Enter when it crosses into top 20. This is the "safe" entry for steady movers.
+**Action:** Enter when it crosses into top 20. Route to conservative strategy if available.
 
-**Checklist:**
-- `isDeepClimber: true`, `erratic: false`, `lowVelocity: false`
-- contribVelocity ≥ 0.03
-- 3+ reasons
-- ≥ 10 SM traders (crypto)
-- Max leverage ≥ 7x
-- Slot available
-
-**Requires more confirmation than FIRST_JUMP.** This catches the grinders, not the explosive movers.
-
-### 4. NEW_ENTRY_DEEP 🆕
+### 4. NEW_ENTRY_DEEP
 
 **What:** Appears in top 20 from nowhere (wasn't in top 50 last scan).
 
-**Action:** Instant entry — something is happening.
-
-**Checklist:**
-- Scanner shows `NEW_ENTRY_DEEP` in reasons
-- 2+ reasons
-- Max leverage ≥ 7x
-- Slot available
+**Action:** Instant entry.
 
 ### 5. Opportunity Scanner (Score 175+)
 
-Runs every 15min. 3-stage funnel across all Hyperliquid perps. Score ≥ 175 with 0 risk flags. **(Currently broken/optional — Emerging Movers is the primary entry source.)**
+Runs every 15min. v6 scanner with BTC macro context, hourly trend classification, and hard disqualifiers. Complements Emerging Movers as a secondary signal source for deeper technical analysis.
 
 ---
 
@@ -172,7 +179,7 @@ Runs every 15min. 3-stage funnel across all Hyperliquid perps. Score ≥ 175 wit
 - **NEVER wait for a signal to "clean up."** By the time rank history is smooth and velocity is high, the move is priced in.
 - **4+ reasons at rank #5 = SKIP.** The asset already peaked. You'd be buying the top.
 - **2 reasons at rank #25 with a big jump = ENTER.** The move is just starting.
-- **Leaderboard rank ≠ future price direction.** Rank reflects past trader concentration. Price moves first, rank follows.
+- **Leaderboard rank != future price direction.** Rank reflects past trader concentration. Price moves first, rank follows.
 - **Negative velocity + no jump = skip.** Slow bleeders going nowhere.
 - **Oversold shorts** (RSI < 30 + extended 24h move) = skip.
 
@@ -182,7 +189,7 @@ Runs every 15min. 3-stage funnel across all Hyperliquid perps. Score ≥ 175 wit
 
 This deserves its own section because it's the #1 way to lose money with WOLF.
 
-**The pattern:** Scanner fires FIRST_JUMP for ASSET at #25→#14. You hesitate. Next scan it's #10. Next scan #7 with 5 reasons and clean history. NOW it looks "safe." You enter. It reverses from #5.
+**The pattern:** Scanner fires FIRST_JUMP for ASSET at #25->#14. You hesitate. Next scan it's #10. Next scan #7 with 5 reasons and clean history. NOW it looks "safe." You enter. It reverses from #5.
 
 **The fix:** Enter on the FIRST signal or don't enter at all. If you missed it, wait for the next asset. There's always another FIRST_JUMP coming.
 
@@ -196,8 +203,8 @@ Positions that never gain momentum get cut automatically.
 
 **Rules:**
 - **90-minute maximum** in Phase 1 (pre-Tier 1 DSL). If ROE never hits 5% in 90 minutes, close.
-- **Weak peak early cut:** If peak ROE was < 3% and ROE is now declining → close after 45 minutes. Don't wait 90.
-- **Dead weight:** SM conviction = 0, negative ROE, position open 30+ minutes → instant cut regardless of phase.
+- **Weak peak early cut:** If peak ROE was < 3% and ROE is now declining -> close after 45 minutes. Don't wait 90.
+- **Dead weight:** SM conviction = 0, negative ROE, position open 30+ minutes -> instant cut regardless of phase.
 
 **Why:** Phase 1 positions have no trailing stop protection. They're running on faith. If SM conviction doesn't materialize in 90 min, the thesis is wrong.
 
@@ -207,33 +214,33 @@ Positions that never gain momentum get cut automatically.
 
 ### 1. DSL v4 Mechanical Exit (Trailing Stops)
 
-All trailing stops handled automatically by `dsl-combined.py`.
+All trailing stops handled automatically by `dsl-combined.py` across all strategies.
 
 ### 2. SM Conviction Collapse
-Conv drops to 0 or 4→1 with mass trader exodus → instant cut.
+Conv drops to 0 or 4->1 with mass trader exodus -> instant cut.
 
 ### 3. Dead Weight
-Conv 0, negative ROE, 30+ min → instant cut.
+Conv 0, negative ROE, 30+ min -> instant cut.
 
 ### 4. SM Flip
-Conviction 4+ in the OPPOSITE direction with 100+ traders → cut immediately.
+Conviction 4+ in the OPPOSITE direction with 100+ traders -> cut immediately.
 
 ### 5. Race Condition Prevention
-When ANY job closes a position → immediately:
-1. Set DSL state `active: false` in the state file
+When ANY job closes a position -> immediately:
+1. Set DSL state `active: false` in `state/{strategyKey}/dsl-{ASSET}.json`
 2. Alert user
-3. Evaluate: empty slot for next signal?
+3. Evaluate: empty slot in that strategy for next signal?
 
-**v5 change:** Since DSL is now a combined runner, no need to destroy per-position crons. Just set `active: false` in the state file.
+**v6 note:** Since DSL is a combined runner iterating all strategies, no per-position crons to manage. Just set `active: false` in the state file.
 
 ---
 
 ## DSL v4 — Trailing Stop System
 
 ### Phase 1 (Pre-Tier 1): Absolute floor
-- LONG floor = entry × (1 - 5%/leverage)
-- SHORT floor = entry × (1 + 5%/leverage)
-- 3 consecutive breaches → close
+- LONG floor = entry x (1 - 5%/leverage)
+- SHORT floor = entry x (1 + 5%/leverage)
+- 3 consecutive breaches -> close
 - **Max duration: 90 minutes** (see Phase 1 Auto-Cut above)
 
 ### Phase 2 (Tier 1+): Trailing tiers
@@ -246,18 +253,47 @@ When ANY job closes a position → immediately:
 | 4 | 20% | 85% | 1 |
 
 ### Stagnation Take-Profit
-Auto-close if ROE ≥ 8% and high-water stale for 1 hour.
+Auto-close if ROE >= 8% and high-water stale for 1 hour.
 
 ### DSL State File
-Each position gets `dsl-state-WOLF-{ASSET}.json`. The combined runner iterates all active state files. See `references/state-schema.md` for the full schema and critical gotchas (triggerPct not threshold, lockPct not retracePct, etc.).
+Each position gets `state/{strategyKey}/dsl-{ASSET}.json`. The combined runner iterates all active state files across all strategies. See `references/state-schema.md` for the full schema and critical gotchas (triggerPct not threshold, lockPct not retracePct, etc.).
+
+---
+
+## Opportunity Scanner v6
+
+The v6 scanner addresses all reliability issues from the previous version:
+
+| Fix | What Changed |
+|-----|-------------|
+| **BTC Macro Context** | Stage 0 analyzes BTC 4h+1h trend. Prevents alt longs during BTC crashes. |
+| **Hourly Trend Filter** | `classify_hourly_trend()` analyzes swing structure. Counter-trend on hourly = hard skip. |
+| **Hard Disqualifiers** | 6 conditions that skip assets entirely (not just penalize score). |
+| **Parallel Fetches** | ThreadPoolExecutor for candle fetches (~20s vs ~60s). |
+| **Cross-Scan Momentum** | `scoreDelta` and `scanStreak` from scan history. |
+| **Configurable Thresholds** | Read from `history/scanner-config.json`. |
+| **Per-TF Error Recovery** | One failed timeframe doesn't kill the asset. |
+| **Position Awareness** | Checks ALL strategies' DSL states for conflicts. |
+| **No Cold Start** | First scan produces baseline results immediately. |
+
+### Hard Disqualifiers
+1. Counter-trend on hourly (the "$346 lesson")
+2. Extreme RSI (<20 shorts, >80 longs)
+3. Counter-trend on 4h with strength >50
+4. Volume dying (<0.5x on both timeframes)
+5. Heavy unfavorable funding (>50% annualized)
+6. BTC macro headwind >30 points
+
+Disqualified assets appear in output with `reason` and `wouldHaveScored` for transparency.
 
 ---
 
 ## Rotation Rules
 
-When slots are full and a new FIRST_JUMP or IMMEDIATE fires:
-- **Rotate if:** new signal is FIRST_JUMP or has 3+ reasons + positive velocity AND weakest position is flat/negative ROE with SM conv 0-1
+When slots are full in a strategy and a new FIRST_JUMP or IMMEDIATE fires:
+- **Rotate if:** new signal is FIRST_JUMP or has 3+ reasons + positive velocity AND weakest position in that strategy is flat/negative ROE with SM conv 0-1
 - **Hold if:** current position in Tier 2+ or trending up with SM conv 3+
+- **Cross-strategy:** If one strategy is full but another has slots, route to the available strategy instead of rotating
 
 ---
 
@@ -274,22 +310,23 @@ All sizing is calculated from budget (30% per slot):
 
 **Minimum leverage: 7x.** If max leverage for an asset is below 7x, skip it. Low leverage = low ROE = DSL tiers never trigger = dead position.
 
-**Auto-Delever:** If account drops below threshold → reduce max slots by 1, close weakest.
+**Auto-Delever:** If a strategy's account drops below its `autoDeleverThreshold` -> reduce max slots by 1, close weakest in that strategy.
 
 ---
 
 ## Position Lifecycle
 
 ### Opening
-1. Signal fires → validate checklist → `create_position` (use `leverageType: "ISOLATED"` for XYZ assets)
-2. Create DSL state file (`dsl-state-WOLF-{ASSET}.json`) — see `references/state-schema.md`
-3. Alert user
+1. Signal fires -> validate checklist -> route to best-fit strategy
+2. `create_position` on that strategy's wallet (use `leverageType: "ISOLATED"` for XYZ assets)
+3. Create DSL state file in `state/{strategyKey}/dsl-{ASSET}.json` with `strategyKey` field
+4. Alert user
 
 ### Closing
 1. Close via `close_position` (or DSL auto-closes)
 2. **Immediately** set DSL state `active: false`
-3. Alert user
-4. Evaluate: empty slot or new signal?
+3. Alert user with strategy name for context
+4. Evaluate: empty slot in that strategy for next signal?
 
 ---
 
@@ -315,17 +352,25 @@ XYZ DEX assets (GOLD, SILVER, TSLA, AAPL, etc.) behave differently:
 ## Token Optimization
 
 - Skip redundant checks when data < 3 min old
-- If all slots full and no FIRST_JUMPs → skip scanner processing
-- If SM check shows no flips and < 5 min old → skip
+- If all strategy slots full and no FIRST_JUMPs -> skip scanner processing
+- If SM check shows no flips and < 5 min old -> skip
 
 ---
 
 ## Known Limitations
 
 - **Watchdog blind spot for XYZ isolated:** The watchdog monitors cross-margin buffer but can't see isolated position liquidation distances in the same way. XYZ positions rely on DSL for protection.
-- **Health check only sees crypto wallet:** The health check script checks wallet balance but doesn't account for margin locked in isolated XYZ positions. Total equity may differ from reported balance.
-- **Opportunity Scanner is broken:** The 4-pillar scoring system (`scripts/opportunity-scan.py`) has reliability issues. Emerging Movers is the primary and proven entry source. The opportunity scanner cron is optional.
-- **Scanner needs history:** The scanner requires ≥ 2 scans in history before it can generate alerts. First 2 scans after a fresh start produce no signals.
+- **Health check only sees crypto wallet:** The health check can't see XYZ positions for margin calculations. Total equity may differ.
+- **Scanner needs history for momentum:** Cross-scan momentum (scoreDelta, scanStreak) requires at least 2 scans. First scan produces scored results immediately but without momentum data.
+
+---
+
+## Backward Compatibility
+
+- `wolf_config.py` auto-migrates legacy `wolf-strategy.json` to registry format on first load
+- Old `dsl-state-WOLF-*.json` files detected and migrated to `state/wolf-{id}/dsl-*.json`
+- All scripts work with both layouts during transition
+- Legacy `dsl-v4.py` still works for single-position use via `DSL_STATE_FILE` env var
 
 ---
 
@@ -333,10 +378,9 @@ XYZ DEX assets (GOLD, SILVER, TSLA, AAPL, etc.) behave differently:
 
 See `references/learnings.md` for known bugs, gotchas, and trading discipline rules. Key ones:
 - **`dryRun: true` actually executes** — NEVER use dryRun
-- **DSL reads `DSL_STATE_FILE` env var ONLY** — positional args silently ignored
 - **Max leverage varies per asset** — always check `max-leverage.json`
 - **`close_position` is the close tool** — not `edit_position`
-- **Tier 1 lock ≠ guaranteed profit** — lock is from high-water, not entry
+- **Tier 1 lock != guaranteed profit** — lock is from high-water, not entry
 
 ---
 
@@ -344,11 +388,12 @@ See `references/learnings.md` for known bugs, gotchas, and trading discipline ru
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/wolf-setup.py` | Setup wizard — creates config from budget |
+| `scripts/wolf-setup.py` | Setup wizard — adds strategy to registry from budget |
+| `scripts/wolf_config.py` | Shared config loader — all scripts import this |
 | `scripts/emerging-movers.py` | Emerging Movers v4 scanner (FIRST_JUMP, IMMEDIATE, CONTRIB_EXPLOSION) |
-| `scripts/dsl-combined.py` | DSL v4 combined trailing stop engine (all positions) |
+| `scripts/dsl-combined.py` | DSL v4 combined trailing stop engine (all positions, all strategies) |
 | `scripts/dsl-v4.py` | DSL v4 single-position engine (legacy, still works) |
-| `scripts/sm-flip-check.py` | SM conviction flip detector |
-| `scripts/wolf-monitor.py` | Watchdog — margin buffer + position health |
-| `scripts/opportunity-scan.py` | Opportunity Scanner v5 (broken/optional) |
-| `scripts/job-health-check.py` | Orphan DSL / stale cron detector |
+| `scripts/sm-flip-check.py` | SM conviction flip detector (multi-strategy) |
+| `scripts/wolf-monitor.py` | Watchdog — per-strategy margin buffer + position health |
+| `scripts/opportunity-scan-v6.py` | Opportunity Scanner v6 (BTC macro, hourly trend, disqualifiers) |
+| `scripts/job-health-check.py` | Per-strategy orphan DSL / state validation |
