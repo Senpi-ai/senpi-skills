@@ -1,4 +1,3 @@
-[howl-README.md](https://github.com/user-attachments/files/25532273/howl-README.md)
 # 🐺🌙 HOWL — Hunt, Optimize, Win, Learn
 
 The WOLF hunts all day. At night, it HOWLs — reviewing every trade, finding patterns, and sharpening itself for tomorrow.
