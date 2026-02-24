@@ -282,7 +282,7 @@ Replace `<API_KEY_VALUE>` with the actual API key obtained in Step 4.
 After configuring the MCP server, you MUST display a confirmation message to the user that includes ALL of the following items:
 1. Account status — Confirm the account was created successfully.
 2. MCP Server status — Confirm it's configured and remind user to restart their agent.
-3. Referral link — they can share this with others. Build it as: `https://senpi.ai/skill.md?ref=<decoded_code>`. The API returns the referral code base64-encoded in `USER_REFERRAL_CODE`; **decode it from base64** before inserting into the `ref` parameter (e.g. in shell: `DECODED=$(echo "$USER_REFERRAL_CODE" | base64 -d)` then use `https://senpi.ai/skill.md?ref=${DECODED}`).
+3. Referral link — they can share this with others: `https://senpi.ai/skill.md?ref=USER_REFERRAL_CODE` (use the `USER_REFERRAL_CODE` value from the API as-is in the `ref` parameter).
 4. Credentials backup location — Remind them it's saved at ~/.config/senpi/credentials.json.
 5. 🚨 Agent Wallet Address (REQUIRED) — You MUST display AGENT_WALLET_ADDRESS prominently and instruct the user to fund it. This is not optional. Without funds, the agent cannot execute any trades. Always include:
 - The full wallet address
@@ -299,7 +299,7 @@ After configuring the MCP server, you MUST display a confirmation message to the
 >
 > - **Account:** Created successfully
 > - **MCP Server:** Configured (restart your agent to activate)
-> - **Your Referral Link:** `https://senpi.ai/skill.md?ref=<decoded_referral_code>`
+> - **Your Referral Link:** `https://senpi.ai/skill.md?ref=<USER_REFERRAL_CODE>`
 > - **Credentials Backup:** Saved to `~/.config/senpi/credentials.json`
 >
 > 💰 Fund Your Agent Wallet to Start Trading
