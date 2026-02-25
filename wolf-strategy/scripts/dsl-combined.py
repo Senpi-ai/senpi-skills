@@ -1,35 +1,36 @@
 #!/usr/bin/env python3
-"""DSL Combined Runner v1.0 — Single cron manages ALL active WOLF positions.
+"""DSL Combined Runner v2.0 — Multi-strategy support.
 
-Replaces per-position DSL crons. One cron fires every 3 minutes, iterates all
-dsl-state-WOLF-*.json files, runs the same DSL v4.1 logic on each.
+Iterates ALL enabled strategies, processes ALL active DSL state files per strategy.
+Each position uses its own strategy's wallet for close operations.
 
-Advantages over per-position crons:
-  - No ephemeral cron creation/destruction on position open/close
-  - No orphan DSL crons when a position is closed by another job
-  - Single cron to monitor in health checks
-  - Reduced token burn (1 cron vs N crons)
+v2.0 changes (WOLF v6):
+  - Multi-strategy: iterates load_all_strategies(), uses per-strategy state dirs
+  - Each result includes strategyKey for routing
+  - Two HYPE positions in different strategies processed independently
+  - Uses wolf_config for paths and config loading
+
+v1.0 (WOLF v5):
+  - Single cron manages ALL active WOLF positions
+  - Batch pricing, per-position DSL v4.1 logic
 
 Usage:
   PYTHONUNBUFFERED=1 python3 dsl-combined.py
-
-Env vars:
-  DSL_STATE_DIR  — directory containing dsl-state-WOLF-*.json files
-                   (default: /data/workspace)
 
 Output: JSON with per-position results + summary.
 """
 import json, subprocess, os, sys, glob, time
 from datetime import datetime, timezone
 
-STATE_DIR = os.environ.get("DSL_STATE_DIR", "/data/workspace")
-STATE_PATTERN = os.path.join(STATE_DIR, "dsl-state-WOLF-*.json")
+# Add scripts dir to path for wolf_config import
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wolf_config import load_all_strategies, dsl_state_glob, atomic_write
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def fetch_all_mids():
-    """Fetch all mid prices in one call (crypto only). Returns dict of asset→price."""
+    """Fetch all mid prices in one call (crypto only). Returns dict of asset->price."""
     try:
         r = subprocess.run(
             ["curl", "-s", "https://api.hyperliquid.xyz/info",
@@ -43,7 +44,7 @@ def fetch_all_mids():
 
 
 def fetch_xyz_positions(wallet):
-    """Fetch XYZ clearinghouse state for a wallet. Returns dict of coin→price."""
+    """Fetch XYZ clearinghouse state for a wallet. Returns dict of coin->price."""
     try:
         r = subprocess.run(
             ["mcporter", "call", "senpi.strategy_get_clearinghouse_state",
@@ -89,7 +90,7 @@ def close_position(wallet, coin, reason):
     return False, last_error
 
 
-def process_position(state_file, state, price):
+def process_position(state_file, state, price, strategy_cfg):
     """Run DSL v4.1 logic on a single position. Returns result dict."""
     direction = state.get("direction", "LONG").upper()
     is_long = direction == "LONG"
@@ -108,14 +109,14 @@ def process_position(state_file, state, price):
     tiers = state["tiers"]
     force_close = state.get("pendingClose", False)
 
-    # ─── Stagnation config ───
+    # --- Stagnation config ---
     stag_cfg = state.get("stagnation", {})
     stag_enabled = stag_cfg.get("enabled", True)
     stag_min_roe = stag_cfg.get("minROE", 8.0)
     stag_stale_hours = stag_cfg.get("staleHours", 1.0)
     stag_range_pct = stag_cfg.get("priceRangePct", 1.0)
 
-    # ─── Auto-fix absoluteFloor ───
+    # --- Auto-fix absoluteFloor ---
     retrace_roe = state["phase1"]["retraceThreshold"]
     retrace_decimal = retrace_roe / 100 if retrace_roe > 1 else retrace_roe
     retrace_price = retrace_decimal / leverage
@@ -131,7 +132,7 @@ def process_position(state_file, state, price):
     state["phase1"]["absoluteFloor"] = final_floor
     state["floorPrice"] = final_floor
 
-    # ─── uPnL ───
+    # --- uPnL ---
     if is_long:
         upnl = (price - entry) * size
     else:
@@ -139,7 +140,7 @@ def process_position(state_file, state, price):
     margin = entry * size / leverage
     upnl_pct = upnl / margin * 100
 
-    # ─── Update high water ───
+    # --- Update high water ---
     hw_updated = False
     if is_long and price > hw:
         hw = price
@@ -153,7 +154,7 @@ def process_position(state_file, state, price):
     if hw_updated or "hwTimestamp" not in state:
         state["hwTimestamp"] = now
 
-    # ─── Tier upgrades ───
+    # --- Tier upgrades ---
     previous_tier_idx = tier_idx
     tier_changed = False
     for i, tier in enumerate(tiers):
@@ -176,7 +177,7 @@ def process_position(state_file, state, price):
                     breach_count = 0
                     state["currentBreachCount"] = 0
 
-    # ─── Effective floor ───
+    # --- Effective floor ---
     if phase == 1:
         p1_retrace = state["phase1"]["retraceThreshold"]
         p1_retrace_price = p1_retrace / leverage
@@ -206,7 +207,7 @@ def process_position(state_file, state, price):
 
     state["floorPrice"] = round(effective_floor, 4)
 
-    # ─── Stagnation check ───
+    # --- Stagnation check ---
     stagnation_triggered = False
     stag_hours_stale = 0.0
     if stag_enabled and upnl_pct >= stag_min_roe and state.get("hwTimestamp"):
@@ -222,7 +223,7 @@ def process_position(state_file, state, price):
         except (ValueError, TypeError):
             pass
 
-    # ─── Phase 1 auto-cut (90min max, 45min weak peak) ───
+    # --- Phase 1 auto-cut (90min max, 45min weak peak) ---
     phase1_autocut = False
     phase1_autocut_reason = None
     elapsed_minutes = 0
@@ -249,7 +250,7 @@ def process_position(state_file, state, price):
             phase1_autocut = True
             phase1_autocut_reason = f"Weak peak early cut: {round(elapsed_minutes)}min, peak ROE {round(peak_roe,1)}%, now declining"
 
-    # ─── Breach check ───
+    # --- Breach check ---
     if is_long:
         breached = price <= effective_floor
     else:
@@ -267,13 +268,13 @@ def process_position(state_file, state, price):
     should_close = (breach_count >= breaches_needed or force_close
                     or stagnation_triggered or phase1_autocut)
 
-    # ─── Close if needed ───
+    # --- Close if needed ---
     closed = False
     close_result = None
     close_reason = None
 
     if should_close:
-        wallet = state.get("wallet", "")
+        wallet = state.get("wallet", strategy_cfg.get("wallet", ""))
         asset = state["asset"]
         close_coin = asset if asset.startswith("xyz:") else f"xyz:{asset}" if is_xyz else asset
 
@@ -296,19 +297,18 @@ def process_position(state_file, state, price):
             else:
                 state["pendingClose"] = True
 
-    # ─── Save state ───
+    # --- Save state ---
     state["lastCheck"] = now
     state["lastPrice"] = price
-    with open(state_file, "w") as f:
-        json.dump(state, f, indent=2)
+    atomic_write(state_file, state)
 
-    # ─── Build result ───
+    # --- Build result ---
     if is_long:
         retrace_from_hw = (1 - price / hw) * 100 if hw > 0 else 0
     else:
         retrace_from_hw = (price / hw - 1) * 100 if hw > 0 else 0
 
-    tier_name = (f"Tier {tier_idx+1} ({tiers[tier_idx]['triggerPct']}%→lock {tiers[tier_idx]['lockPct']}%)"
+    tier_name = (f"Tier {tier_idx+1} ({tiers[tier_idx]['triggerPct']}%->lock {tiers[tier_idx]['lockPct']}%)"
                  if tier_idx is not None and tier_idx >= 0 else "None")
 
     locked_profit = 0
@@ -318,6 +318,7 @@ def process_position(state_file, state, price):
     return {
         "asset": state["asset"],
         "direction": direction,
+        "strategyKey": strategy_cfg.get("_key", "unknown"),
         "status": "closed" if closed else ("pending_close" if state.get("pendingClose") else "active"),
         "price": price,
         "upnl": round(upnl, 2),
@@ -342,35 +343,44 @@ def process_position(state_file, state, price):
     }
 
 
-# ═══════════════════════════════════════════════════════════════
-# Main: iterate all active DSL state files
-# ═══════════════════════════════════════════════════════════════
+# ===============================================================
+# Main: iterate all strategies and their active DSL state files
+# ===============================================================
 
-state_files = sorted(glob.glob(STATE_PATTERN))
+strategies = load_all_strategies()
 
-if not state_files:
+if not strategies:
     print(json.dumps({
         "status": "ok",
         "time": now,
+        "strategies": 0,
         "positions": 0,
         "results": [],
-        "message": "No active DSL state files found"
+        "message": "No enabled strategies found"
     }))
     sys.exit(0)
 
 # Batch-fetch prices: one call for all crypto, one per unique XYZ wallet
 all_mids = fetch_all_mids()
-xyz_prices = {}  # wallet → {coin → price}
+xyz_prices = {}  # wallet -> {coin -> price}
+
+# Collect all state files across strategies
+all_state_entries = []  # (state_file_path, strategy_cfg)
+
+for key, cfg in strategies.items():
+    state_files = sorted(glob.glob(dsl_state_glob(key)))
+    for sf in state_files:
+        all_state_entries.append((sf, cfg))
 
 # Pre-scan state files to find XYZ wallets
-for sf in state_files:
+for sf, cfg in all_state_entries:
     try:
         with open(sf) as f:
             s = json.load(f)
         if not s.get("active") and not s.get("pendingClose"):
             continue
         if s.get("dex") == "xyz" or s.get("asset", "").startswith("xyz:"):
-            w = s.get("wallet", "")
+            w = s.get("wallet", cfg.get("wallet", ""))
             if w and w not in xyz_prices:
                 xyz_prices[w] = fetch_xyz_positions(w)
     except (json.JSONDecodeError, FileNotFoundError):
@@ -381,12 +391,12 @@ results = []
 closed_positions = []
 errors = []
 
-for sf in state_files:
+for sf, cfg in all_state_entries:
     try:
         with open(sf) as f:
             state = json.load(f)
     except (json.JSONDecodeError, FileNotFoundError) as e:
-        errors.append({"file": os.path.basename(sf), "error": str(e)})
+        errors.append({"file": os.path.basename(sf), "strategyKey": cfg.get("_key"), "error": str(e)})
         continue
 
     if not state.get("active") and not state.get("pendingClose"):
@@ -398,7 +408,7 @@ for sf in state_files:
     # Resolve price
     price = None
     if is_xyz:
-        wallet = state.get("wallet", "")
+        wallet = state.get("wallet", cfg.get("wallet", ""))
         xyz_coin = asset if asset.startswith("xyz:") else f"xyz:{asset}"
         wp = xyz_prices.get(wallet, {})
         price = wp.get(xyz_coin)
@@ -416,10 +426,10 @@ for sf in state_files:
         if fails >= max_ff:
             state["active"] = False
             state["closeReason"] = f"Auto-deactivated: {fails} consecutive fetch failures"
-        with open(sf, "w") as f:
-            json.dump(state, f, indent=2)
+        atomic_write(sf, state)
         errors.append({
             "file": os.path.basename(sf),
+            "strategyKey": cfg.get("_key"),
             "asset": asset,
             "error": "price_fetch_failed",
             "consecutive_failures": fails,
@@ -428,19 +438,20 @@ for sf in state_files:
         continue
 
     state["consecutiveFetchFailures"] = 0
-    result = process_position(sf, state, price)
+    result = process_position(sf, state, price, cfg)
     results.append(result)
 
     if result.get("closed"):
         closed_positions.append(result)
 
-# ─── Output ───
+# --- Output ---
 any_closed = len(closed_positions) > 0
 any_tier_change = any(r.get("tier_changed") for r in results)
 
 print(json.dumps({
     "status": "ok",
     "time": now,
+    "strategies": len(strategies),
     "positions": len(results),
     "active": len([r for r in results if r["status"] == "active"]),
     "closed_this_run": len(closed_positions),
@@ -449,5 +460,5 @@ print(json.dumps({
     "errors": errors if errors else None,
     "any_closed": any_closed,
     "any_tier_change": any_tier_change,
-    "state_files_found": len(state_files)
+    "state_files_found": len(all_state_entries)
 }))

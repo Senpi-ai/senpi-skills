@@ -1,35 +1,163 @@
-# WOLF v4 State & Config Schemas
+# WOLF v6 State & Config Schemas
 
-## DSL State File (`dsl-state-WOLF-{ASSET}.json`)
+## Strategy Registry (`wolf-strategies.json`)
 
-Created per position, read by `dsl-v4.py` via `DSL_STATE_FILE` env var.
+The central config file. Holds multiple strategies, each with independent wallets, budgets, slots, DSL config, and leverage. Created by `wolf-setup.py`.
 
 ```json
 {
+  "version": 1,
+  "defaultStrategy": "wolf-abc12345",
+  "strategies": {
+    "wolf-abc12345": {
+      "name": "Aggressive Momentum",
+      "wallet": "0xaaa...",
+      "strategyId": "abc12345-...",
+      "xyzWallet": "0xbbb...",
+      "xyzStrategyId": "def67890-...",
+      "budget": 6500,
+      "slots": 3,
+      "marginPerSlot": 1950,
+      "defaultLeverage": 10,
+      "dailyLossLimit": 975,
+      "autoDeleverThreshold": 5200,
+      "dsl": {
+        "preset": "aggressive",
+        "tiers": [
+          { "triggerPct": 5, "lockPct": 50, "breaches": 3 },
+          { "triggerPct": 10, "lockPct": 65, "breaches": 2 },
+          { "triggerPct": 15, "lockPct": 75, "breaches": 2 },
+          { "triggerPct": 20, "lockPct": 85, "breaches": 1 }
+        ]
+      },
+      "enabled": true
+    },
+    "wolf-xyz78901": {
+      "name": "Conservative XYZ",
+      "wallet": "0xccc...",
+      "strategyId": "xyz78901-...",
+      "xyzWallet": null,
+      "xyzStrategyId": null,
+      "budget": 2000,
+      "slots": 2,
+      "marginPerSlot": 600,
+      "defaultLeverage": 7,
+      "dailyLossLimit": 300,
+      "autoDeleverThreshold": 1600,
+      "dsl": {
+        "preset": "conservative",
+        "tiers": [
+          { "triggerPct": 3, "lockPct": 60, "breaches": 4 },
+          { "triggerPct": 7, "lockPct": 75, "breaches": 3 },
+          { "triggerPct": 12, "lockPct": 85, "breaches": 2 },
+          { "triggerPct": 18, "lockPct": 90, "breaches": 1 }
+        ]
+      },
+      "enabled": true
+    }
+  },
+  "global": {
+    "telegramChatId": "12345",
+    "workspace": "/data/workspace",
+    "notifications": {
+      "provider": "telegram",
+      "alertDedupeMinutes": 15
+    }
+  }
+}
+```
+
+### Strategy Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `name` | string | Human-readable name |
+| `wallet` | string | Strategy wallet address (0x...) |
+| `strategyId` | string | Strategy UUID |
+| `xyzWallet` | string\|null | XYZ DEX wallet (optional, can be same as wallet) |
+| `xyzStrategyId` | string\|null | XYZ strategy UUID (optional) |
+| `budget` | number | Total trading budget in USD |
+| `slots` | number | Max concurrent positions for this strategy |
+| `marginPerSlot` | number | USD margin per slot (budget * 0.30) |
+| `defaultLeverage` | number | Default leverage for new positions |
+| `dailyLossLimit` | number | Max daily loss before reducing exposure |
+| `autoDeleverThreshold` | number | Account value below which to reduce slots by 1 |
+| `dsl.preset` | string | "aggressive" or "conservative" |
+| `dsl.tiers` | array | 4-tier DSL config |
+| `enabled` | boolean | false pauses strategy without deleting config |
+
+### Key Design Decisions
+
+- **Strategy key format:** `wolf-{first 8 chars of strategyId}`
+- **`defaultStrategy`:** Used when scripts called without `--strategy` flag or `WOLF_STRATEGY` env var
+- **Global settings** (telegram, workspace) shared across all strategies
+- **`enabled: false`** pauses a strategy without deleting config — all scripts skip disabled strategies
+
+---
+
+## Directory Structure
+
+```
+{workspace}/
+├── wolf-strategies.json              # Strategy registry
+├── max-leverage.json                 # Shared across strategies
+├── state/
+│   ├── wolf-abc12345/                # Strategy A state dir
+│   │   ├── dsl-HYPE.json
+│   │   ├── dsl-SOL.json
+│   │   └── watchdog-last.json
+│   └── wolf-xyz78901/                # Strategy B state dir
+│       ├── dsl-HYPE.json             # Same asset, different strategy = OK
+│       └── watchdog-last.json
+├── history/
+│   ├── emerging-movers.json          # Shared (market data)
+│   ├── scan-history.json             # Shared (scanner cross-scan momentum)
+│   └── scanner-config.json           # Shared (scanner thresholds)
+├── memory/
+│   └── MEMORY.md
+└── logs/
+    └── wolf-2026-02-24.log
+```
+
+**Why `state/` is per-strategy:** DSL state files must be scoped to prevent collision when the same asset is traded in multiple strategies simultaneously.
+
+**Why `history/` is shared:** Emerging movers and scanner detect market-wide signals. The signal is the same regardless of which strategy acts on it.
+
+---
+
+## DSL State File (`state/{strategyKey}/dsl-{ASSET}.json`)
+
+Created per position, scoped to its strategy. Read by `dsl-combined.py`.
+
+```json
+{
+  "version": 2,
+  "strategyKey": "wolf-abc12345",
   "active": true,
-  "asset": "APT",
-  "direction": "SHORT",
-  "entryPrice": 0.8167,
+  "asset": "HYPE",
+  "direction": "LONG",
+  "entryPrice": 28.87,
   "leverage": 10,
-  "size": 24452.87,
-  "wallet": "0x...",
+  "size": 1890.28,
+  "wallet": "0xaaa...",
+  "strategyId": "abc12345-...",
   "dex": null,
-  "highWaterPrice": 0.8085,
+  "highWaterPrice": 29.50,
   "phase": 1,
   "currentTierIndex": 0,
   "tierFloorPrice": null,
   "currentBreachCount": 0,
-  "floorPrice": 0.820783,
-  "createdAt": "2026-02-23T10:00:00Z",
-  "hwTimestamp": "2026-02-23T10:05:00Z",
-  "lastCheck": "2026-02-23T10:06:00Z",
-  "lastPrice": 0.8100,
+  "floorPrice": 28.726,
+  "createdAt": "2026-02-24T10:00:00Z",
+  "hwTimestamp": "2026-02-24T10:05:00Z",
+  "lastCheck": "2026-02-24T10:06:00Z",
+  "lastPrice": 29.10,
   "consecutiveFetchFailures": 0,
   "pendingClose": false,
   "phase1": {
     "retraceThreshold": 5,
     "consecutiveBreachesRequired": 3,
-    "absoluteFloor": 0.820783
+    "absoluteFloor": 28.726
   },
   "phase2": {
     "retraceFromHW": 3,
@@ -50,12 +178,21 @@ Created per position, read by `dsl-v4.py` via `DSL_STATE_FILE` env var.
 }
 ```
 
+### v6 Changes to DSL State
+
+| Field | Change |
+|---|---|
+| `version` | New field. Set to `2` for v6 format. |
+| `strategyKey` | **New.** Links back to the strategy in the registry. |
+| `strategyId` | **New optional.** Copy of strategy UUID for redundancy. |
+| File location | **Changed.** `state/{strategyKey}/dsl-{ASSET}.json` instead of `dsl-state-WOLF-{ASSET}.json` |
+
 ### Required Fields
 
 | Field | Type | Description |
 |---|---|---|
 | `active` | boolean | `true` = DSL is running. Set to `false` on close. |
-| `asset` | string | Asset name (e.g. "APT", "PAXG"). No `xyz:` prefix. |
+| `asset` | string | Asset name (e.g. "HYPE", "PAXG"). No `xyz:` prefix. |
 | `direction` | string | "LONG" or "SHORT" |
 | `entryPrice` | number | Position entry price |
 | `leverage` | number | Position leverage |
@@ -74,54 +211,91 @@ Created per position, read by `dsl-v4.py` via `DSL_STATE_FILE` env var.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
+| `version` | number | 2 | State file schema version |
+| `strategyKey` | string | — | Strategy key for back-reference |
 | `createdAt` | string | — | ISO timestamp for elapsed time calc |
 | `hwTimestamp` | string | — | When HW was last updated (for stagnation) |
 | `pendingClose` | boolean | false | Retry close on next run |
 | `consecutiveFetchFailures` | number | 0 | Auto-deactivate at 10 |
 | `breachDecay` | string | "hard" | "hard" = reset to 0, "soft" = decay by 1 |
-| `closeRetries` | number | 2 | Close API retry count |
 | `maxFetchFailures` | number | 10 | Failures before auto-deactivate |
 | `stagnation` | object | enabled | Stagnation take-profit config |
 
 ---
 
-## wolf-strategy.json (Strategy Config)
+## Scanner Config (`history/scanner-config.json`)
 
-Created by `wolf-setup.py`, read by cron mandates.
+Optional file to override opportunity scanner defaults.
 
 ```json
 {
-  "budget": 6500,
-  "slots": 3,
-  "marginPerSlot": 1950,
-  "marginBuffer": 650,
-  "defaultLeverage": 10,
-  "maxLeverage": 20,
-  "notionalPerSlot": 19500,
-  "dailyLossLimit": -975,
-  "drawdownCap": -1950,
-  "autoDeleverThreshold": 6000,
-  "wallet": "0x...",
-  "strategyId": "uuid",
-  "telegramChatId": 5183731261,
-  "telegramTarget": "telegram:5183731261"
+  "topNDeep": 15,
+  "minVolume24h": 500000,
+  "maxWorkers": 8,
+  "pillarWeights": {
+    "smartMoney": 0.25,
+    "marketStructure": 0.25,
+    "technicals": 0.25,
+    "funding": 0.25
+  },
+  "macroModifiers": {
+    "strong_downLong": -30,
+    "strong_downShort": 15,
+    "downLong": -15,
+    "downShort": 8,
+    "neutralLong": 0,
+    "neutralShort": 0,
+    "upLong": 8,
+    "upShort": -15,
+    "strong_upLong": 15,
+    "strong_upShort": -30
+  },
+  "disqualifyThresholds": {
+    "counterTrendStrength": 50,
+    "extremeRsiLow": 20,
+    "extremeRsiHigh": 80,
+    "volumeDeadThreshold": 0.5,
+    "heavyFundingAnnualized": 50,
+    "btcHeadwindPoints": 30
+  }
 }
 ```
 
 ---
 
+## Shared Config Loader (`scripts/wolf_config.py`)
+
+All scripts import from `wolf_config.py`:
+
+```python
+from wolf_config import load_strategy, load_all_strategies, dsl_state_path
+
+cfg = load_strategy("wolf-abc12345")   # Specific strategy
+cfg = load_strategy()                  # Default strategy
+strategies = load_all_strategies()     # All enabled strategies
+path = dsl_state_path("wolf-abc12345", "HYPE")
+```
+
+**Legacy auto-migration:** If `wolf-strategies.json` doesn't exist but `wolf-strategy.json` does, `wolf_config.py` automatically wraps the legacy config into a registry with one strategy. Old `dsl-state-WOLF-*.json` files are migrated to `state/{key}/dsl-*.json`.
+
+---
+
 ## Key Gotchas
 
-1. **`triggerPct` not `threshold`** — Tiers use `triggerPct: 5` (percentage), NOT `threshold: 0.05` (decimal). The DSL script expects percentage values.
+1. **`triggerPct` not `threshold`** — Tiers use `triggerPct: 5` (percentage), NOT `threshold: 0.05` (decimal).
 
-2. **`lockPct` not `retracePct`** — Tiers use `lockPct: 50` (lock 50% of HW profit), NOT `retracePct`. The lock percentage determines the trailing floor.
+2. **`lockPct` not `retracePct`** — Tiers use `lockPct: 50` (lock 50% of HW profit), NOT `retracePct`.
 
-3. **`active` is boolean** — Use `"active": true`, NOT `"status": "active"`. The DSL script checks `state.get("active")`.
+3. **`active` is boolean** — Use `"active": true`, NOT `"status": "active"`.
 
-4. **`DSL_STATE_FILE` env var ONLY** — The DSL script reads state file path from the `DSL_STATE_FILE` environment variable. Positional args are silently ignored. Always set it: `DSL_STATE_FILE=/path/to/file.json python3 dsl-v4.py`
+4. **`absoluteFloor` is auto-calculated** — The DSL script recalculates it from entryPrice, retraceThreshold, and leverage on every run.
 
-5. **`absoluteFloor` is auto-calculated** — The DSL script recalculates it from entryPrice, retraceThreshold, and leverage on every run. You only need to set `phase1.retraceThreshold` (default: 5 = 5% ROE).
+5. **XYZ assets** — Set `dex: "xyz"` in state file. Use `coin=xyz:ASSET` when closing. Use `leverageType: "ISOLATED"` when opening.
 
-6. **XYZ assets** — Set `dex: "xyz"` in state file. Use `coin=xyz:ASSET` when closing (e.g. `xyz:SILVER`). Use `leverageType: "ISOLATED"` when opening.
+6. **4 tiers, not 6** — 5/10/15/20% ROE with 50/65/75/85% locks.
 
-7. **4 tiers, not 6** — The proven tier structure is 5/10/15/20% ROE with 50/65/75/85% locks. NOT the old 6-tier (10/20/30/50/75/100%) version.
+7. **`strategyKey` in state files** — v6 state files include `strategyKey` to link back to the registry. Scripts use it to load the correct strategy config.
+
+8. **State dir per strategy** — `state/wolf-abc12345/dsl-HYPE.json`, NOT `dsl-state-WOLF-HYPE.json`. Same asset in two strategies = two files in different dirs, no collision.
+
+9. **Atomic writes** — All state file updates use `atomic_write()` (write to .tmp, then `os.replace`) to prevent corruption from concurrent access.
