@@ -315,32 +315,40 @@ def process_position(state_file, state, price, strategy_cfg):
     if tier_floor:
         locked_profit = round(((tier_floor - entry) if is_long else (entry - tier_floor)) * size, 2)
 
-    return {
+    verbose = os.environ.get("WOLF_DSL_VERBOSE") == "1"
+
+    result = {
         "asset": state["asset"],
         "direction": direction,
         "strategyKey": strategy_cfg.get("_key", "unknown"),
         "status": "closed" if closed else ("pending_close" if state.get("pendingClose") else "active"),
-        "price": price,
         "upnl": round(upnl, 2),
         "upnl_pct": round(upnl_pct, 2),
-        "phase": phase,
-        "hw": hw,
-        "floor": effective_floor,
-        "tier_name": tier_name,
-        "locked_profit": locked_profit,
-        "retrace_pct": round(retrace_from_hw, 2),
-        "breach_count": breach_count,
-        "breaches_needed": breaches_needed,
-        "breached": breached,
-        "should_close": should_close,
-        "closed": closed,
         "close_reason": close_reason,
-        "close_result": close_result,
         "tier_changed": tier_changed,
-        "elapsed_minutes": round(elapsed_minutes),
-        "stagnation_triggered": stagnation_triggered,
-        "phase1_autocut": phase1_autocut
+        "phase1_autocut": phase1_autocut,
     }
+    if phase1_autocut:
+        result["elapsed_minutes"] = round(elapsed_minutes)
+    if verbose:
+        result.update({
+            "price": price,
+            "phase": phase,
+            "hw": hw,
+            "floor": effective_floor,
+            "tier_name": tier_name,
+            "locked_profit": locked_profit,
+            "retrace_pct": round(retrace_from_hw, 2),
+            "breach_count": breach_count,
+            "breaches_needed": breaches_needed,
+            "breached": breached,
+            "should_close": should_close,
+            "closed": closed,
+            "close_result": close_result,
+            "elapsed_minutes": round(elapsed_minutes),
+            "stagnation_triggered": stagnation_triggered,
+        })
+    return result
 
 
 # ===============================================================
@@ -441,7 +449,7 @@ for sf, cfg in all_state_entries:
     result = process_position(sf, state, price, cfg)
     results.append(result)
 
-    if result.get("closed"):
+    if result.get("status") == "closed":
         closed_positions.append(result)
 
 # --- Output ---
@@ -456,7 +464,6 @@ print(json.dumps({
     "active": len([r for r in results if r["status"] == "active"]),
     "closed_this_run": len(closed_positions),
     "results": results,
-    "closed": closed_positions if closed_positions else None,
     "errors": errors if errors else None,
     "any_closed": any_closed,
     "any_tier_change": any_tier_change,

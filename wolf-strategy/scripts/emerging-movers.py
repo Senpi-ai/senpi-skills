@@ -336,12 +336,6 @@ output = {
     "hasContribExplosion": any(a.get("isContribExplosion") for a in alerts),
     "hasEmergingMover": len(alerts) > 0,
     "hasDeepClimber": any(a.get("isDeepClimber") for a in alerts),
-    "top5": [
-        {"signal": f"{m['token']} {m['direction'].upper()}", "rank": m["rank"],
-         "contribution": round(m["contribution"]*100, 2), "traders": m["traders"],
-         "priceChg4h": m["price_chg_4h"]}
-        for m in current_scan["markets"][:5]
-    ]
 }
 
 print(json.dumps(output))

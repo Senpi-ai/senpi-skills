@@ -1018,27 +1018,63 @@ def main():
         save_scan_history(scan_history)
 
         # --- Output ---
-        output = {
-            "success": True,
-            "scanTime": scan_time,
-            "btcMacro": btc_macro,
-            "assetsScanned": len(meta_info),
-            "passedStage1": len(assets),
-            "passedStage2": len(top_assets),
-            "deepDived": len(deep_results),
-            "qualified": len(results),
-            "disqualifiedCount": len(disqualified),
-            "pillarWeights": W,
-            "opportunities": results[:15],
-            "disqualified": disqualified[:5],
-            "activePositions": {k: v for k, v in active_positions.items()},
-            "scanHistory": {
-                "totalScans": len(scan_history["scans"]),
-                "isFirstScan": len(scan_history["scans"]) <= 1,
-            }
-        }
+        verbose = os.environ.get("WOLF_SCANNER_VERBOSE") == "1"
 
-        print(json.dumps(output, indent=2))
+        if verbose:
+            output = {
+                "success": True,
+                "scanTime": scan_time,
+                "btcMacro": btc_macro,
+                "assetsScanned": len(meta_info),
+                "passedStage1": len(assets),
+                "passedStage2": len(top_assets),
+                "deepDived": len(deep_results),
+                "qualified": len(results),
+                "disqualifiedCount": len(disqualified),
+                "pillarWeights": W,
+                "opportunities": results[:15],
+                "disqualified": disqualified[:5],
+                "activePositions": {k: v for k, v in active_positions.items()},
+                "scanHistory": {
+                    "totalScans": len(scan_history["scans"]),
+                    "isFirstScan": len(scan_history["scans"]) <= 1,
+                }
+            }
+        else:
+            def compact_opportunity(r):
+                if r["finalScore"] >= 175:
+                    return {
+                        "asset": r["asset"],
+                        "direction": r["direction"],
+                        "finalScore": r["finalScore"],
+                        "pillarScores": r["pillarScores"],
+                        "smTraders": r.get("smartMoney", {}).get("traders", 0),
+                        "risks": r.get("risks", []),
+                        "conflict": r.get("conflict", False),
+                        "existingPositions": r.get("existingPositions"),
+                        "momentum": r.get("momentum"),
+                    }
+                return {"asset": r["asset"], "direction": r["direction"], "finalScore": r["finalScore"]}
+
+            def compact_disqualified(d):
+                return {
+                    "asset": d["asset"],
+                    "direction": d["direction"],
+                    "wouldHaveScored": d.get("wouldHaveScored", d.get("finalScore")),
+                    "disqualifyReason": d.get("disqualifyReason", ""),
+                }
+
+            output = {
+                "success": True,
+                "scanTime": scan_time,
+                "btcMacro": {"trend": btc_macro["trend"], "modifier": btc_macro["modifier"]},
+                "qualified": len(results),
+                "disqualifiedCount": len(disqualified),
+                "opportunities": [compact_opportunity(r) for r in results[:15]],
+                "disqualified": [compact_disqualified(d) for d in disqualified[:5]],
+            }
+
+        print(json.dumps(output))
         log("info", f"Done. {len(results)} qualified, {len(disqualified)} disqualified.")
 
     except Exception as e:
