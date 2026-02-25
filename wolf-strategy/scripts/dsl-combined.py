@@ -116,8 +116,11 @@ def process_position(state_file, state, price, strategy_cfg):
     stag_stale_hours = stag_cfg.get("staleHours", 1.0)
     stag_range_pct = stag_cfg.get("priceRangePct", 1.0)
 
+    # --- DSL config from registry (with backward-compatible defaults) ---
+    dsl_cfg = strategy_cfg.get("dsl", {})
+
     # --- Auto-fix absoluteFloor ---
-    retrace_roe = state["phase1"]["retraceThreshold"]
+    retrace_roe = abs(state["phase1"]["retraceThreshold"])
     retrace_decimal = retrace_roe / 100 if retrace_roe > 1 else retrace_roe
     retrace_price = retrace_decimal / leverage
     if is_long:
@@ -179,8 +182,8 @@ def process_position(state_file, state, price, strategy_cfg):
 
     # --- Effective floor ---
     if phase == 1:
-        p1_retrace = state["phase1"]["retraceThreshold"]
-        p1_retrace_price = p1_retrace / leverage
+        p1_retrace = abs(state["phase1"]["retraceThreshold"])
+        p1_retrace_price = (p1_retrace / 100 if p1_retrace > 1 else p1_retrace) / leverage
         breaches_needed = state["phase1"]["consecutiveBreachesRequired"]
         abs_floor = state["phase1"]["absoluteFloor"]
         if is_long:
@@ -223,7 +226,11 @@ def process_position(state_file, state, price, strategy_cfg):
         except (ValueError, TypeError):
             pass
 
-    # --- Phase 1 auto-cut (90min max, 45min weak peak) ---
+    # --- Phase 1 auto-cut (configurable via registry dsl key) ---
+    phase1_max_minutes    = dsl_cfg.get("phase1MaxMinutes", 90)
+    weak_peak_cut_minutes = dsl_cfg.get("weakPeakCutMinutes", 45)
+    weak_peak_threshold   = dsl_cfg.get("weakPeakThreshold", 3.0)
+
     phase1_autocut = False
     phase1_autocut_reason = None
     elapsed_minutes = 0
@@ -241,12 +248,12 @@ def process_position(state_file, state, price, strategy_cfg):
             peak_roe = upnl_pct
             state["peakROE"] = peak_roe
 
-        # 90-minute hard cap
-        if elapsed_minutes >= 90:
+        # Hard cap
+        if elapsed_minutes >= phase1_max_minutes:
             phase1_autocut = True
             phase1_autocut_reason = f"Phase 1 timeout: {round(elapsed_minutes)}min, ROE never hit Tier 1 (5%)"
-        # 45-minute weak peak early cut
-        elif elapsed_minutes >= 45 and peak_roe < 3 and upnl_pct < peak_roe:
+        # Weak peak early cut
+        elif elapsed_minutes >= weak_peak_cut_minutes and peak_roe < weak_peak_threshold and upnl_pct < peak_roe:
             phase1_autocut = True
             phase1_autocut_reason = f"Weak peak early cut: {round(elapsed_minutes)}min, peak ROE {round(peak_roe,1)}%, now declining"
 
