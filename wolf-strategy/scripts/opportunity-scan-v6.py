@@ -93,49 +93,26 @@ def log(level, msg):
 
 # --- Helpers ---
 
-def fetch_json(payload):
-    """Fetch from Hyperliquid info API."""
-    try:
-        r = subprocess.run(
-            ["curl", "-s", "https://api.hyperliquid.xyz/info",
-             "-H", "Content-Type: application/json",
-             "-d", json.dumps(payload)],
-            capture_output=True, text=True, timeout=30
-        )
-        return json.loads(r.stdout)
-    except Exception as e:
-        log("warn", f"fetch_json failed: {e}")
-        return None
-
-
-def fetch_candles(coin, interval, hours):
-    """Fetch candle data for a coin at given interval and lookback hours."""
-    now_ms = int(time.time() * 1000)
-    start = now_ms - (hours * 3600 * 1000)
-    return fetch_json({
-        "type": "candleSnapshot",
-        "req": {"coin": coin, "interval": interval, "startTime": start, "endTime": now_ms}
-    })
-
-
-def fetch_mcporter(tool, args=""):
-    """Call mcporter tool, return parsed JSON."""
-    import tempfile
-    tmp = tempfile.mktemp(suffix=".json")
-    cmd = f"mcporter call senpi.{tool} --output json {args} > {tmp} 2>/dev/null"
-    try:
-        subprocess.run(cmd, shell=True, timeout=60)
-        with open(tmp) as f:
-            data = json.load(f)
-        return data
-    except Exception as e:
-        log("warn", f"mcporter call failed: {e}")
-        return {}
-    finally:
+def call_mcp(tool, **kwargs):
+    """Call a Senpi MCP tool with 3 retries. Returns parsed response dict."""
+    args = []
+    for k, v in kwargs.items():
+        if isinstance(v, (list, dict, bool)):
+            args.append(f"{k}={json.dumps(v)}")
+        else:
+            args.append(f"{k}={v}")
+    cmd = ["mcporter", "call", f"senpi.{tool}"] + args
+    last_error = None
+    for attempt in range(3):
         try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            return json.loads(r.stdout)
+        except Exception as e:
+            last_error = e
+            if attempt < 2:
+                time.sleep(3)
+    log("warn", f"{tool} failed after 3 attempts: {last_error}")
+    return {}
 
 
 def calc_rsi(closes, period=14):
@@ -246,8 +223,13 @@ def detect_patterns(candles):
 def fetch_btc_macro(config):
     """Analyze BTC 4h+1h trend for macro context."""
     try:
-        candles_4h = fetch_candles("BTC", "4h", hours=168)
-        candles_1h = fetch_candles("BTC", "1h", hours=24)
+        raw = call_mcp("market_get_asset_data", asset="BTC",
+                       candle_intervals=["4h", "1h"],
+                       include_order_book=False, include_funding=False)
+        btc_data = raw.get("data", raw)
+        candle_map = btc_data.get("candles", {})
+        candles_4h = candle_map.get("4h", []) or []
+        candles_1h = candle_map.get("1h", []) or []
         if not candles_4h or not candles_1h:
             return {"trend": "neutral", "strength": 50, "chg1h": 0,
                     "modifier": {"LONG": 0, "SHORT": 0}, "error": "candle_fetch_failed"}
@@ -636,10 +618,15 @@ def deep_dive_asset(name, direction, meta, btc_macro, config):
     """Full multi-TF analysis for a single asset. Runs in thread pool."""
     result = {"asset": name, "direction": direction, "error": None}
     try:
-        # Fetch 3 timeframes (per-TF error recovery)
-        candles_4h = fetch_candles(name, "4h", hours=168) or []
-        candles_1h = fetch_candles(name, "1h", hours=24) or []
-        candles_15m = fetch_candles(name, "15m", hours=6) or []
+        # Fetch all 3 timeframes in a single MCP call
+        raw = call_mcp("market_get_asset_data", asset=name,
+                       candle_intervals=["4h", "1h", "15m"],
+                       include_order_book=False, include_funding=False)
+        asset_data = raw.get("data", raw)
+        candle_map = asset_data.get("candles", {})
+        candles_4h = candle_map.get("4h", []) or []
+        candles_1h = candle_map.get("1h", []) or []
+        candles_15m = candle_map.get("15m", []) or []
 
         if not candles_1h:
             result["error"] = "no_1h_candles"
@@ -772,23 +759,24 @@ def main():
         log("info", f"Stage 0: BTC trend={btc_macro['trend']}, strength={btc_macro['strength']}, mods={btc_macro['modifier']}")
 
         # --- Stage 1: Bulk screen ---
-        log("info", "Stage 1: Fetching market structure for all assets...")
-        meta_raw = fetch_json({"type": "metaAndAssetCtxs"})
-        if not meta_raw or len(meta_raw) < 2:
-            print(json.dumps({"success": False, "error": "Failed to fetch metaAndAssetCtxs", "stage": "stage1"}))
+        log("info", "Stage 1: Fetching market structure via market_list_instruments...")
+        instruments_raw = call_mcp("market_list_instruments")
+        instruments = instruments_raw.get("data", [])
+        if not instruments:
+            print(json.dumps({"success": False, "error": "Failed to fetch market_list_instruments", "stage": "stage1"}))
             sys.exit(1)
 
-        meta_info = meta_raw[0]["universe"]
-        meta_ctx = meta_raw[1]
-
         assets = {}
-        for i, (info, ctx) in enumerate(zip(meta_info, meta_ctx)):
-            name = info["name"]
+        for inst in instruments:
+            name = inst.get("name", "")
+            # Skip XYZ DEX instruments (equities, metals, indices — not crypto perps)
+            if not name or inst.get("dex"):
+                continue
             try:
-                funding = float(ctx.get("funding", 0))
-                vol24h = float(ctx.get("dayNtlVlm", 0))
-                oi = float(ctx.get("openInterest", 0))
-                mark = float(ctx.get("markPx", 0))
+                funding = float(inst.get("funding", 0))
+                vol24h = float(inst.get("dayNtlVlm", 0))
+                oi = float(inst.get("openInterest", 0))
+                mark = float(inst.get("markPx", 0))
             except (ValueError, TypeError):
                 continue
             if vol24h < MIN_VOLUME_24H:
@@ -798,13 +786,13 @@ def main():
                 "openInterest": oi, "markPrice": mark,
             }
 
-        log("info", f"Stage 1: {len(assets)} assets pass volume filter (of {len(meta_info)} total)")
+        log("info", f"Stage 1: {len(assets)} assets pass volume filter (of {len(instruments)} total)")
 
         # --- Stage 2: Smart money overlay ---
         log("info", "Stage 2: Fetching smart money data...")
         sm_by_asset = {}
         try:
-            momentum_raw = fetch_mcporter("leaderboard_get_markets")
+            momentum_raw = call_mcp("leaderboard_get_markets")
             markets_list = momentum_raw.get("data", {}).get("markets", {}).get("markets", [])
             for item in markets_list:
                 name = item.get("token", "")
@@ -823,7 +811,7 @@ def main():
 
             # Freshness data
             try:
-                top_traders_raw = fetch_mcporter("leaderboard_get_top", "-p limit=100")
+                top_traders_raw = call_mcp("leaderboard_get_top", limit=100)
                 top_traders = top_traders_raw.get("data", {}).get("leaderboard", {}).get("data", [])
                 from collections import defaultdict
                 market_peaks = defaultdict(list)

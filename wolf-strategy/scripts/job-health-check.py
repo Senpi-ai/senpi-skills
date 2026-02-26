@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import load_all_strategies, state_dir, dsl_state_glob
+from wolf_config import load_all_strategies, dsl_state_glob
 
 
 def run_cmd(args, timeout=30):

@@ -30,17 +30,22 @@ now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def fetch_all_mids():
-    """Fetch all mid prices in one call (crypto only). Returns dict of asset->price."""
-    try:
-        r = subprocess.run(
-            ["curl", "-s", "https://api.hyperliquid.xyz/info",
-             "-H", "Content-Type: application/json",
-             "-d", '{"type":"allMids"}'],
-            capture_output=True, text=True, timeout=15
-        )
-        return json.loads(r.stdout)
-    except Exception:
-        return {}
+    """Fetch all mid prices via Senpi MCP market_get_prices. Returns dict of asset->price."""
+    for attempt in range(3):
+        try:
+            r = subprocess.run(
+                ["mcporter", "call", "senpi.market_get_prices"],
+                capture_output=True, text=True, timeout=15
+            )
+            d = json.loads(r.stdout)
+            prices = d.get("data", d)
+            if isinstance(prices, dict):
+                return prices
+        except Exception:
+            pass
+        if attempt < 2:
+            time.sleep(3)
+    return {}
 
 
 def fetch_xyz_positions(wallet):
