@@ -19,7 +19,7 @@ from wolf_config import load_all_strategies, dsl_state_glob
 def get_active_positions():
     """Read all active DSL state files across ALL strategies."""
     positions = []
-    for key, cfg in load_all_strategies().items():
+    for key, _ in load_all_strategies().items():
         for f in glob.glob(dsl_state_glob(key)):
             try:
                 with open(f) as fh:
@@ -37,12 +37,21 @@ def get_active_positions():
 
 
 def get_sm_data():
-    """Fetch smart money data via leaderboard_get_markets."""
-    result = subprocess.run(
-        ["mcporter", "call", "senpi", "leaderboard_get_markets", "--args", "{}"],
-        capture_output=True, text=True, timeout=30
-    )
-    return json.loads(result.stdout)
+    """Fetch smart money data via leaderboard_get_markets. Retries up to 3 times."""
+    import time
+    last_error = None
+    for attempt in range(3):
+        try:
+            result = subprocess.run(
+                ["mcporter", "call", "senpi", "leaderboard_get_markets", "--args", "{}"],
+                capture_output=True, text=True, timeout=30
+            )
+            return json.loads(result.stdout)
+        except Exception as e:
+            last_error = e
+            if attempt < 2:
+                time.sleep(3)
+    raise last_error
 
 
 def analyze(positions, sm_data):
@@ -70,7 +79,11 @@ def analyze(positions, sm_data):
         asset = m.get("token") or m.get("asset") or m.get("coin", "")
         if not asset:
             continue
-        pnl_pct = float(m.get("pct_of_top_traders_gain", m.get("pnlContribution", 0)) or 0) * 100
+        raw_pnl = m.get("pct_of_top_traders_gain")
+        if raw_pnl is not None:
+            pnl_pct = float(raw_pnl or 0) * 100   # decimal → percent
+        else:
+            pnl_pct = float(m.get("pnlContribution", 0) or 0)  # already a percent
         traders = int(m.get("trader_count", m.get("traderCount", 0)) or 0)
         direction = (m.get("direction") or "").upper()
 
@@ -145,6 +158,10 @@ if __name__ == "__main__":
         print(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "positions": 0, "alerts": [], "hasFlipSignal": False}))
         sys.exit(0)
 
-    sm_data = get_sm_data()
+    try:
+        sm_data = get_sm_data()
+    except Exception as e:
+        print(json.dumps({"error": f"sm_fetch_failed: {e}", "hasFlipSignal": False}))
+        sys.exit(1)
     result = analyze(positions, sm_data)
     print(json.dumps(result))
