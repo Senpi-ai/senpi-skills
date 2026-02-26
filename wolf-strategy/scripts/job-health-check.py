@@ -132,11 +132,8 @@ def check_strategy(strategy_key, cfg):
         })
         positions = {}
 
-    # Get XYZ positions if configured
-    xyz_wallet = cfg.get("xyzWallet")
-    xyz_positions = {}
-    if xyz_wallet:
-        xyz_positions = get_xyz_positions(xyz_wallet)
+    # Get XYZ positions (same wallet, dex=xyz)
+    xyz_positions = get_xyz_positions(wallet)
 
     # Merge positions (XYZ coins might have xyz: prefix)
     all_positions = dict(positions)

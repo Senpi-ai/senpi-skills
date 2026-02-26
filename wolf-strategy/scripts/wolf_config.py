@@ -46,8 +46,6 @@ def _load_registry():
             "name": "Default Strategy",
             "wallet": legacy.get("wallet", ""),
             "strategyId": legacy.get("strategyId", ""),
-            "xyzWallet": legacy.get("xyzWallet"),
-            "xyzStrategyId": legacy.get("xyzStrategyId"),
             "budget": legacy.get("budget", 0),
             "slots": legacy.get("slots", 2),
             "marginPerSlot": legacy.get("marginPerSlot", 0),

@@ -9,10 +9,6 @@ Usage:
   # Agent passes what it knows, only asks user for budget:
   python3 wolf-setup.py --wallet 0x... --strategy-id UUID --chat-id 12345 --budget 6500
 
-  # With optional XYZ wallet:
-  python3 wolf-setup.py --wallet 0x... --strategy-id UUID --chat-id 12345 --budget 6500 \
-      --xyz-wallet 0x... --xyz-strategy-id UUID
-
   # With custom name and DSL preset:
   python3 wolf-setup.py --wallet 0x... --strategy-id UUID --chat-id 12345 --budget 6500 \
       --name "Aggressive Momentum" --dsl-preset aggressive
@@ -51,8 +47,6 @@ parser.add_argument("--wallet", help="Strategy wallet address (0x...)")
 parser.add_argument("--strategy-id", help="Strategy ID (UUID)")
 parser.add_argument("--budget", type=float, help="Trading budget in USD (min $500)")
 parser.add_argument("--chat-id", type=int, help="Telegram chat ID")
-parser.add_argument("--xyz-wallet", help="XYZ DEX wallet address (optional)")
-parser.add_argument("--xyz-strategy-id", help="XYZ DEX strategy ID (optional)")
 parser.add_argument("--name", help="Human-readable strategy name (optional)")
 parser.add_argument("--dsl-preset", choices=["aggressive", "conservative"], default="aggressive",
                     help="DSL tier preset (default: aggressive)")
@@ -117,8 +111,6 @@ if args.chat_id:
     validate_chat_id(str(args.chat_id))
 
 strategy_name = args.name or f"Strategy {strategy_id[:8]}"
-xyz_wallet = args.xyz_wallet
-xyz_strategy_id = args.xyz_strategy_id
 dsl_preset = args.dsl_preset
 
 # Calculate parameters
@@ -156,8 +148,6 @@ strategy_entry = {
     "name": strategy_name,
     "wallet": wallet,
     "strategyId": strategy_id,
-    "xyzWallet": xyz_wallet,
-    "xyzStrategyId": xyz_strategy_id,
     "budget": budget,
     "slots": slots,
     "marginPerSlot": margin_per_slot,
@@ -324,7 +314,6 @@ print(f"""
   Strategy Name:    {strategy_name}
   Wallet:           {wallet}
   Strategy ID:      {strategy_id}
-  XYZ Wallet:       {xyz_wallet or 'None'}
   Budget:           ${budget:,.2f}
   Slots:            {slots}
   Margin/Slot:      ${margin_per_slot:,.2f}

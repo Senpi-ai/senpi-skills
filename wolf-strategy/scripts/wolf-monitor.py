@@ -46,6 +46,10 @@ def get_clearinghouse(wallet):
     return mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
 
 
+def get_clearinghouse_xyz(wallet):
+    return mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet, dex="xyz")
+
+
 def get_dsl_state_for_strategy(strategy_key, asset):
     """Read DSL state file for a specific strategy+asset."""
     path = os.path.join(WORKSPACE, "state", strategy_key, f"dsl-{asset}.json")
@@ -59,7 +63,6 @@ def get_dsl_state_for_strategy(strategy_key, asset):
 def analyze_strategy(strategy_key, cfg):
     """Analyze a single strategy's positions and health."""
     wallet = cfg.get("wallet", "")
-    xyz_wallet = cfg.get("xyzWallet")
     results = {"strategyKey": strategy_key, "name": cfg.get("name", ""), "positions": [], "alerts": [], "summary": {}}
 
     if not wallet:
@@ -158,9 +161,9 @@ def analyze_strategy(strategy_key, cfg):
                 "msg": f"[{strategy_key}] Cross-margin buffer: {buf}% (account ${round(acct_value, 2)}, maint margin ${round(maint_margin, 2)})"
             })
 
-    # XYZ wallet (if configured)
-    if xyz_wallet:
-        ch2 = get_clearinghouse(xyz_wallet)
+    # XYZ positions (same wallet, dex=xyz)
+    if wallet:
+        ch2 = get_clearinghouse_xyz(wallet)
         if ch2.get("success") or ch2.get("data"):
             data2 = ch2.get("data", ch2)
             xyz = data2.get("xyz", {})

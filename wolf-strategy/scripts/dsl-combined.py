@@ -250,7 +250,7 @@ def process_position(state_file, state, price, strategy_cfg):
 
     if phase == 1 and elapsed_minutes > 0:
         # Peak ROE tracking
-        peak_roe = state.get("peakROE", 0)
+        peak_roe = state.get("peakROE", upnl_pct)
         if upnl_pct > peak_roe:
             peak_roe = upnl_pct
             state["peakROE"] = peak_roe
