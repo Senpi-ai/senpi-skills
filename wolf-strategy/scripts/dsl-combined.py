@@ -113,7 +113,7 @@ def process_position(state_file, state, price, strategy_cfg):
     stag_cfg = state.get("stagnation", {})
     stag_enabled = stag_cfg.get("enabled", True)
     stag_min_roe = stag_cfg.get("minROE", 8.0)
-    stag_stale_hours = stag_cfg.get("staleHours", 1.0)
+    stag_stale_hours = stag_cfg.get("thresholdHours", 1.0)
     stag_range_pct = stag_cfg.get("priceRangePct", 1.0)
 
     # --- DSL config from registry (with backward-compatible defaults) ---
@@ -193,10 +193,12 @@ def process_position(state_file, state, price, strategy_cfg):
             trailing_floor = round(hw * (1 + p1_retrace_price), 4)
             effective_floor = min(abs_floor, trailing_floor)
     else:
+        p2_retrace_pct = state.get("phase2", {}).get("retraceFromHW", 5)
+        p2_retrace = p2_retrace_pct / 100
         if tier_idx is not None and tier_idx >= 0:
-            t_retrace = tiers[tier_idx].get("retrace", state.get("phase2", {}).get("retraceThreshold", 0.05))
+            t_retrace = tiers[tier_idx].get("retrace", p2_retrace)
         else:
-            t_retrace = state.get("phase2", {}).get("retraceThreshold", 0.05)
+            t_retrace = p2_retrace
         t_retrace_price = t_retrace / leverage
         breaches_needed = (tiers[tier_idx].get("breachesRequired", tiers[tier_idx].get("retraceClose", 2))
                            if tier_idx is not None and tier_idx >= 0
@@ -243,7 +245,7 @@ def process_position(state_file, state, price, strategy_cfg):
 
     if phase == 1 and elapsed_minutes > 0:
         # Peak ROE tracking
-        peak_roe = state.get("peakROE", upnl_pct)
+        peak_roe = state.get("peakROE", 0)
         if upnl_pct > peak_roe:
             peak_roe = upnl_pct
             state["peakROE"] = peak_roe
@@ -251,7 +253,8 @@ def process_position(state_file, state, price, strategy_cfg):
         # Hard cap
         if elapsed_minutes >= phase1_max_minutes:
             phase1_autocut = True
-            phase1_autocut_reason = f"Phase 1 timeout: {round(elapsed_minutes)}min, ROE never hit Tier 1 (5%)"
+            tier1_pct = tiers[0]["triggerPct"] if tiers else 5
+            phase1_autocut_reason = f"Phase 1 timeout: {round(elapsed_minutes)}min, ROE never hit Tier 1 ({tier1_pct}%)"
         # Weak peak early cut
         elif elapsed_minutes >= weak_peak_cut_minutes and peak_roe < weak_peak_threshold and upnl_pct < peak_roe:
             phase1_autocut = True

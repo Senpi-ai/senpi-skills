@@ -388,7 +388,7 @@ XYZ DEX assets (GOLD, SILVER, TSLA, AAPL, etc.) behave differently:
 - `wolf_config.py` auto-migrates legacy `wolf-strategy.json` to registry format on first load
 - Old `dsl-state-WOLF-*.json` files detected and migrated to `state/wolf-{id}/dsl-*.json`
 - All scripts work with both layouts during transition
-- Legacy `dsl-v4.py` still works for single-position use via `DSL_STATE_FILE` env var
+- All DSL logic is handled by `dsl-combined.py` (multi-strategy runner)
 
 ---
 
@@ -410,7 +410,6 @@ See `references/learnings.md` for known bugs, gotchas, and trading discipline ru
 | `scripts/wolf_config.py` | Shared config loader — all scripts import this |
 | `scripts/emerging-movers.py` | Emerging Movers v4 scanner (FIRST_JUMP, IMMEDIATE, CONTRIB_EXPLOSION) |
 | `scripts/dsl-combined.py` | DSL v4 combined trailing stop engine (all positions, all strategies) |
-| `scripts/dsl-v4.py` | DSL v4 single-position engine (legacy, still works) |
 | `scripts/sm-flip-check.py` | SM conviction flip detector (multi-strategy) |
 | `scripts/wolf-monitor.py` | Watchdog — per-strategy margin buffer + position health |
 | `scripts/opportunity-scan-v6.py` | Opportunity Scanner v6 (BTC macro, hourly trend, disqualifiers) |
