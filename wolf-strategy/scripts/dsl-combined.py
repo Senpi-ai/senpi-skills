@@ -29,16 +29,24 @@ from wolf_config import load_all_strategies, dsl_state_glob, atomic_write
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def fetch_all_mids():
-    """Fetch all mid prices in one call (crypto only). Returns dict of asset->price."""
+def fetch_all_mids(dex=None):
+    """Fetch all mid prices via Senpi MCP market_get_prices (senpi-hyperliquid-mcp).
+    Returns dict of asset->price (string). If dex is passed, it is sent to the tool."""
     try:
+        args = {}
+        if dex is not None and dex != "":
+            args["dex"] = dex
         r = subprocess.run(
-            ["curl", "-s", "https://api.hyperliquid.xyz/info",
-             "-H", "Content-Type: application/json",
-             "-d", '{"type":"allMids"}'],
+            ["mcporter", "call", "senpi", "market_get_prices", "--args", json.dumps(args)],
             capture_output=True, text=True, timeout=15
         )
-        return json.loads(r.stdout)
+        data = json.loads(r.stdout)
+        # MCP response shape: { success, data: { prices, count }, meta } (see response.service.ts)
+        inner = data.get("data", data.get("result", data))
+        prices = inner.get("prices") if isinstance(inner, dict) else data.get("prices")
+        if isinstance(prices, dict):
+            return prices
+        return {}
     except Exception:
         return {}
 
@@ -360,9 +368,9 @@ if not strategies:
     }))
     sys.exit(0)
 
-# Batch-fetch prices: one call for all crypto, one per unique XYZ wallet
-all_mids = fetch_all_mids()
-xyz_prices = {}  # wallet -> {coin -> price}
+# Batch-fetch prices: main DEX and XYZ DEX via MCP market_get_prices
+all_mids = fetch_all_mids()           # main DEX (crypto)
+xyz_mids = fetch_all_mids(dex="xyz")  # XYZ DEX (keys like xyz:XYZ100, xyz:TSLA)
 
 # Collect all state files across strategies
 all_state_entries = []  # (state_file_path, strategy_cfg)
@@ -371,20 +379,6 @@ for key, cfg in strategies.items():
     state_files = sorted(glob.glob(dsl_state_glob(key)))
     for sf in state_files:
         all_state_entries.append((sf, cfg))
-
-# Pre-scan state files to find XYZ wallets
-for sf, cfg in all_state_entries:
-    try:
-        with open(sf) as f:
-            s = json.load(f)
-        if not s.get("active") and not s.get("pendingClose"):
-            continue
-        if s.get("dex") == "xyz" or s.get("asset", "").startswith("xyz:"):
-            w = s.get("wallet", cfg.get("wallet", ""))
-            if w and w not in xyz_prices:
-                xyz_prices[w] = fetch_xyz_positions(w)
-    except (json.JSONDecodeError, FileNotFoundError):
-        continue
 
 # Process each position
 results = []
@@ -405,16 +399,16 @@ for sf, cfg in all_state_entries:
     asset = state.get("asset", "")
     is_xyz = state.get("dex") == "xyz" or asset.startswith("xyz:")
 
-    # Resolve price
+    # Resolve price (main DEX from all_mids, XYZ DEX from xyz_mids via market_get_prices)
     price = None
     if is_xyz:
-        wallet = state.get("wallet", cfg.get("wallet", ""))
         xyz_coin = asset if asset.startswith("xyz:") else f"xyz:{asset}"
-        wp = xyz_prices.get(wallet, {})
-        price = wp.get(xyz_coin)
+        price_str = xyz_mids.get(xyz_coin) or xyz_mids.get(asset)
+        if price_str is not None:
+            price = float(price_str)
     else:
         price_str = all_mids.get(asset)
-        if price_str:
+        if price_str is not None:
             price = float(price_str)
 
     if price is None:

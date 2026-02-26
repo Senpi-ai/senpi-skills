@@ -43,6 +43,23 @@ stag_min_roe = stag_cfg.get("minROE", 8.0)          # minimum ROE% to trigger
 stag_stale_hours = stag_cfg.get("staleHours", 1.0)   # hours HW must be stale
 stag_range_pct = stag_cfg.get("priceRangePct", 1.0)  # max price movement % in window
 
+
+def _fetch_prices(dex=None):
+    """Fetch mid prices via Senpi MCP market_get_prices. Returns dict of asset->price (string)."""
+    try:
+        args = {} if dex is None or dex == "" else {"dex": dex}
+        r = subprocess.run(
+            ["mcporter", "call", "senpi", "market_get_prices", "--args", json.dumps(args)],
+            capture_output=True, text=True, timeout=15
+        )
+        data = json.loads(r.stdout)
+        inner = data.get("data", data.get("result", data))
+        prices = inner.get("prices") if isinstance(inner, dict) else data.get("prices")
+        return prices if isinstance(prices, dict) else {}
+    except Exception:
+        return {}
+
+
 # ─── Fetch price ───
 try:
     asset_name = state["asset"]
@@ -50,35 +67,18 @@ try:
     if not asset_name.startswith("xyz:") and is_xyz:
         asset_name = "xyz:" + asset_name
     if is_xyz:
-        # XYZ DEX uses a different endpoint
-        xyz_coin = asset_name  # e.g. "xyz:GOLD"
-        r = subprocess.run(
-            ["mcporter", "call", "senpi.strategy_get_clearinghouse_state",
-             f"strategy_wallet={state['wallet']}", "dex=xyz"],
-            capture_output=True, text=True, timeout=15
-        )
-        data = json.loads(r.stdout)
-        found = False
-        for pos in data.get("data", {}).get("xyz", {}).get("assetPositions", []):
-            if pos["position"]["coin"] == xyz_coin:
-                # Use mid between entry and current value to approximate price
-                # Actually get mark price from position value / size
-                pval = float(pos["position"]["positionValue"])
-                sz = abs(float(pos["position"]["szi"]))
-                price = pval / sz if sz > 0 else 0
-                found = True
-                break
-        if not found:
-            raise Exception(f"XYZ position {xyz_coin} not found in clearinghouse")
+        # XYZ DEX: use market mids from MCP (keys like xyz:XYZ100, xyz:TSLA)
+        prices = _fetch_prices(dex="xyz")
+        price_str = prices.get(asset_name) or prices.get(asset_name.replace("xyz:", "", 1))
+        if price_str is None:
+            raise Exception(f"XYZ asset {asset_name} not found in market_get_prices(dex=xyz)")
+        price = float(price_str)
     else:
-        r = subprocess.run(
-            ["curl", "-s", "https://api.hyperliquid.xyz/info",
-             "-H", "Content-Type: application/json",
-             "-d", '{"type":"allMids"}'],
-            capture_output=True, text=True, timeout=15
-        )
-        mids = json.loads(r.stdout)
-        price = float(mids[asset_name])
+        # Main DEX: use market mids from MCP
+        prices = _fetch_prices()
+        if asset_name not in prices:
+            raise Exception(f"Asset {asset_name} not found in market_get_prices")
+        price = float(prices[asset_name])
     state["consecutiveFetchFailures"] = 0
 except Exception as e:
     fails = state.get("consecutiveFetchFailures", 0) + 1

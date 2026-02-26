@@ -40,6 +40,21 @@ def get_clearinghouse(wallet):
     return mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
 
 
+def fetch_xyz_mids():
+    """Fetch XYZ DEX mid prices via Senpi MCP market_get_prices. Returns dict of coin->price (string)."""
+    try:
+        r = subprocess.run(
+            ["mcporter", "call", "senpi", "market_get_prices", "--args", '{"dex":"xyz"}'],
+            capture_output=True, text=True, timeout=15
+        )
+        data = json.loads(r.stdout)
+        inner = data.get("data", data.get("result", data))
+        prices = inner.get("prices") if isinstance(inner, dict) else data.get("prices")
+        return prices if isinstance(prices, dict) else {}
+    except Exception:
+        return {}
+
+
 def get_dsl_state_for_strategy(strategy_key, asset):
     """Read DSL state file for a specific strategy+asset."""
     path = os.path.join(WORKSPACE, "state", strategy_key, f"dsl-{asset}.json")
@@ -50,8 +65,9 @@ def get_dsl_state_for_strategy(strategy_key, asset):
         return None
 
 
-def analyze_strategy(strategy_key, cfg):
-    """Analyze a single strategy's positions and health."""
+def analyze_strategy(strategy_key, cfg, xyz_mids=None):
+    """Analyze a single strategy's positions and health. xyz_mids: optional dict of XYZ coin->price from market_get_prices(dex=xyz)."""
+    xyz_mids = xyz_mids or {}
     wallet = cfg.get("wallet", "")
     xyz_wallet = cfg.get("xyzWallet")
     results = {"strategyKey": strategy_key, "name": cfg.get("name", ""), "positions": [], "alerts": [], "summary": {}}
@@ -171,7 +187,9 @@ def analyze_strategy(strategy_key, cfg):
                 liq = float(pos["liquidationPx"]) if pos.get("liquidationPx") else None
                 upnl = float(pos["unrealizedPnl"])
                 roe = float(pos["returnOnEquity"]) * 100
-                price = float(pos["positionValue"]) / abs(szi)
+                # Use market mid from MCP when available, else clearinghouse-derived price
+                price_str = xyz_mids.get(coin) or xyz_mids.get(coin.replace("xyz:", "", 1))
+                price = float(price_str) if price_str is not None else (float(pos["positionValue"]) / abs(szi))
 
                 liq_dist_pct = None
                 if liq and direction == "LONG":
@@ -219,8 +237,11 @@ def main():
     output = {"strategies": {}, "alerts": [], "summary": {}}
     all_held_coins = set()
 
+    # Fetch XYZ market mids once if any strategy uses XYZ (for correct XYZ position price display)
+    xyz_mids = fetch_xyz_mids() if any(cfg.get("xyzWallet") for cfg in strategies.values()) else {}
+
     for key, cfg in strategies.items():
-        strategy_result = analyze_strategy(key, cfg)
+        strategy_result = analyze_strategy(key, cfg, xyz_mids=xyz_mids)
         output["strategies"][key] = strategy_result
         output["alerts"].extend(strategy_result.get("alerts", []))
         for p in strategy_result.get("positions", []):
