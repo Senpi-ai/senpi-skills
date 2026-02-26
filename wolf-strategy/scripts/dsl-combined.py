@@ -323,7 +323,13 @@ def process_position(state_file, state, price, strategy_cfg):
             with open(state_file) as _f:
                 _current = json.load(_f)
             if not _current.get("active", True):
-                return result
+                return {
+                    "asset": state["asset"],
+                    "direction": direction,
+                    "strategyKey": strategy_cfg.get("_key", "unknown"),
+                    "status": "externally_closed",
+                    "skipped_write": True,
+                }
         except (json.JSONDecodeError, IOError):
             pass
     atomic_write(state_file, state)
