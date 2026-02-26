@@ -315,6 +315,17 @@ def process_position(state_file, state, price, strategy_cfg):
     # --- Save state ---
     state["lastCheck"] = now
     state["lastPrice"] = price
+    # Guard: if this run didn't trigger a close, check whether the agent
+    # externally set active=false (e.g. SM flip close) since we read the file.
+    # If so, skip writing to avoid resurrecting a closed position.
+    if not should_close:
+        try:
+            with open(state_file) as _f:
+                _current = json.load(_f)
+            if not _current.get("active", True):
+                return result
+        except (json.JSONDecodeError, IOError):
+            pass
     atomic_write(state_file, state)
 
     # --- Build result ---

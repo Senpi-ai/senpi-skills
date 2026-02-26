@@ -614,7 +614,7 @@ def score_funding(funding_rate, direction):
 
 # --- Deep dive with parallel fetches ---
 
-def deep_dive_asset(name, direction, meta, btc_macro, config):
+def deep_dive_asset(name, direction, _meta, _btc_macro, _config):
     """Full multi-TF analysis for a single asset. Runs in thread pool."""
     result = {"asset": name, "direction": direction, "error": None}
     try:
@@ -1013,7 +1013,7 @@ def main():
                 "success": True,
                 "scanTime": scan_time,
                 "btcMacro": btc_macro,
-                "assetsScanned": len(meta_info),
+                "assetsScanned": len(instruments),
                 "passedStage1": len(assets),
                 "passedStage2": len(top_assets),
                 "deepDived": len(deep_results),

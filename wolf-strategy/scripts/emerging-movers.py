@@ -30,6 +30,9 @@ Uses: leaderboard_get_markets (single API call)
 import json, subprocess, sys, os, time
 from datetime import datetime, timezone
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wolf_config import atomic_write
+
 HISTORY_FILE = os.environ.get("EMERGING_HISTORY", "/data/workspace/emerging-movers-history.json")
 MAX_HISTORY = 60
 TOP_N = 50
@@ -311,8 +314,7 @@ history["scans"].append(current_scan)
 if len(history["scans"]) > MAX_HISTORY:
     history["scans"] = history["scans"][-MAX_HISTORY:]
 
-with open(HISTORY_FILE, "w") as f:
-    json.dump(history, f, indent=2)
+atomic_write(HISTORY_FILE, history)
 
 # ─── Output ───
 # Sort: first_jump > immediate > deep climber > velocity > reason count
