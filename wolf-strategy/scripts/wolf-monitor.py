@@ -9,7 +9,7 @@ WOLF Strategy Monitor v2 — Multi-strategy
 - Per-strategy alerts and summary
 - Outputs JSON with per-strategy results
 """
-import subprocess, json, sys, os, glob
+import subprocess, json, sys, os, glob, time
 from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
@@ -24,16 +24,22 @@ if not os.path.exists(EMERGING_HISTORY):
 
 
 def mcporter_call(tool, **kwargs):
+    """Call mcporter tool with 3 retries."""
     args = [f"{k}={v}" for k, v in kwargs.items()]
     cmd = ["mcporter", "call", f"senpi.{tool}"] + args + ["--output", "json"]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        d = json.loads(r.stdout)
-        if d.get("content"):
-            return json.loads(d["content"][0]["text"])
-        return d
-    except Exception as e:
-        return {"success": False, "error": str(e)}
+    last_error = None
+    for attempt in range(3):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+            d = json.loads(r.stdout)
+            if d.get("content"):
+                return json.loads(d["content"][0]["text"])
+            return d
+        except Exception as e:
+            last_error = e
+            if attempt < 2:
+                time.sleep(3)
+    return {"success": False, "error": str(last_error)}
 
 
 def get_clearinghouse(wallet):
@@ -145,9 +151,9 @@ def analyze_strategy(strategy_key, cfg):
 
         # Cross-margin alert
         buf = results["summary"].get("crypto_liq_buffer_pct", 100)
-        if buf < 30:
+        if buf < 50:
             results["alerts"].append({
-                "level": "CRITICAL" if buf < 15 else "WARNING",
+                "level": "CRITICAL" if buf < 30 else "WARNING",
                 "strategyKey": strategy_key,
                 "msg": f"[{strategy_key}] Cross-margin buffer: {buf}% (account ${round(acct_value, 2)}, maint margin ${round(maint_margin, 2)})"
             })
@@ -173,24 +179,44 @@ def analyze_strategy(strategy_key, cfg):
                 roe = float(pos["returnOnEquity"]) * 100
                 price = float(pos["positionValue"]) / abs(szi)
 
+                # DSL floor from strategy-scoped state (strip xyz: prefix for file lookup)
+                state_coin = coin.replace("xyz:", "") if coin.startswith("xyz:") else coin
+                dsl = get_dsl_state_for_strategy(strategy_key, state_coin)
+                dsl_floor = float(dsl["floorPrice"]) if dsl and dsl.get("active") else None
+
                 liq_dist_pct = None
+                dsl_dist_pct = None
                 if liq and direction == "LONG":
                     liq_dist_pct = round((price - liq) / price * 100, 1)
                 elif liq and direction == "SHORT":
                     liq_dist_pct = round((liq - price) / price * 100, 1)
 
+                if dsl_floor and direction == "LONG":
+                    dsl_dist_pct = round((price - dsl_floor) / price * 100, 1)
+                elif dsl_floor and direction == "SHORT":
+                    dsl_dist_pct = round((dsl_floor - price) / price * 100, 1)
+
                 p = {
                     "coin": coin, "direction": direction, "entry": entry,
                     "price": round(price, 4), "liq": liq, "upnl": round(upnl, 2),
                     "roe_pct": round(roe, 2), "liq_distance_pct": liq_dist_pct,
-                    "dsl_floor": None, "dsl_distance_pct": None,
+                    "dsl_floor": dsl_floor, "dsl_distance_pct": dsl_dist_pct,
                     "wallet_type": "xyz", "margin": round(float(pos["marginUsed"]), 2),
                     "strategyKey": strategy_key
                 }
                 results["positions"].append(p)
 
+                # Alert: liq closer than DSL floor
+                if liq_dist_pct is not None and dsl_dist_pct is not None:
+                    if liq_dist_pct < dsl_dist_pct:
+                        results["alerts"].append({
+                            "level": "CRITICAL",
+                            "strategyKey": strategy_key,
+                            "msg": f"[{strategy_key}] {coin} {direction}: Liquidation ({liq_dist_pct}% away) CLOSER than DSL floor ({dsl_dist_pct}% away)!"
+                        })
+
                 # XYZ isolated -- liq distance warning
-                if liq_dist_pct is not None and liq_dist_pct < 25:
+                if liq_dist_pct is not None and liq_dist_pct < 30:
                     results["alerts"].append({
                         "level": "WARNING",
                         "strategyKey": strategy_key,

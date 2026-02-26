@@ -11,7 +11,7 @@ Verifies per-strategy:
 Outputs JSON with per-strategy issues[] array.
 """
 
-import json, subprocess, sys, os, glob
+import json, subprocess, sys, os, glob, time
 from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
@@ -20,8 +20,17 @@ from wolf_config import load_all_strategies, state_dir, dsl_state_glob
 
 
 def run_cmd(args, timeout=30):
-    r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
-    return r.stdout.strip()
+    """Run a subprocess command with 3 retries."""
+    last_error = None
+    for attempt in range(3):
+        try:
+            r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+            return r.stdout.strip()
+        except Exception as e:
+            last_error = e
+            if attempt < 2:
+                time.sleep(3)
+    raise last_error
 
 
 def get_wallet_positions(wallet):

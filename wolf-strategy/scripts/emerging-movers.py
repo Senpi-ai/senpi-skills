@@ -27,7 +27,7 @@ v2 changes:
 
 Uses: leaderboard_get_markets (single API call)
 """
-import json, subprocess, sys, os
+import json, subprocess, sys, os, time
 from datetime import datetime, timezone
 
 HISTORY_FILE = os.environ.get("EMERGING_HISTORY", "/data/workspace/emerging-movers-history.json")
@@ -46,21 +46,25 @@ try:
 except (FileNotFoundError, json.JSONDecodeError):
     history = {"scans": []}
 
-# ─── Fetch current market concentration ───
-try:
-    r = subprocess.run(
-        ["mcporter", "call", "senpi", "leaderboard_get_markets", "limit=100"],
-        capture_output=True, text=True, timeout=30
-    )
-    result = json.loads(r.stdout)
-    if not result.get("success"):
-        print(json.dumps({"status": "error", "error": "API call failed", "detail": r.stdout[:500]}))
-        sys.exit(1)
-
-    raw_markets = result["data"]["markets"]["markets"]
-except Exception as e:
-    print(json.dumps({"status": "error", "error": str(e)}))
-    sys.exit(1)
+# ─── Fetch current market concentration (3 retries) ───
+raw_markets = None
+for _attempt in range(3):
+    try:
+        r = subprocess.run(
+            ["mcporter", "call", "senpi", "leaderboard_get_markets", "limit=100"],
+            capture_output=True, text=True, timeout=30
+        )
+        result = json.loads(r.stdout)
+        if not result.get("success"):
+            raise ValueError(f"API call failed: {r.stdout[:500]}")
+        raw_markets = result["data"]["markets"]["markets"]
+        break
+    except Exception as e:
+        if _attempt < 2:
+            time.sleep(3)
+        else:
+            print(json.dumps({"status": "error", "error": str(e)}))
+            sys.exit(1)
 
 # ─── Parse current scan ───
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
