@@ -50,7 +50,7 @@ use the default value from the table above.
 Install and execute the onboarding skill:
 
 ```bash
-npx skills add senpi-ai/senpi-skills --skill agent-onboarding -g -y
+npx skills add senpi-ai/senpi-skills --skill senpi-onboard -g -y
 ```
 
 Load and follow the `agent-onboarding` skill instructions. Pass this context:
