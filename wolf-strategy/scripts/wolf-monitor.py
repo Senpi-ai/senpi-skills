@@ -40,11 +40,12 @@ def get_clearinghouse(wallet):
     return mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
 
 
-def fetch_xyz_mids():
-    """Fetch XYZ DEX mid prices via Senpi MCP market_get_prices. Returns dict of coin->price (string)."""
+def _fetch_mids(dex=None):
+    """Fetch mid prices via Senpi MCP market_get_prices. dex=None or '' = main DEX, dex='xyz' = XYZ. Returns dict of coin->price (string)."""
     try:
+        args = {} if dex is None or dex == "" else {"dex": dex}
         r = subprocess.run(
-            ["mcporter", "call", "senpi", "market_get_prices", "--args", '{"dex":"xyz"}'],
+            ["mcporter", "call", "senpi", "market_get_prices", "--args", json.dumps(args)],
             capture_output=True, text=True, timeout=15
         )
         data = json.loads(r.stdout)
@@ -53,6 +54,16 @@ def fetch_xyz_mids():
         return prices if isinstance(prices, dict) else {}
     except Exception:
         return {}
+
+
+def fetch_main_mids():
+    """Main DEX (crypto) mid prices. Uses market_get_prices with no dex (dex='')."""
+    return _fetch_mids(dex="")
+
+
+def fetch_xyz_mids():
+    """XYZ DEX mid prices. Uses market_get_prices(dex='xyz')."""
+    return _fetch_mids(dex="xyz")
 
 
 def get_dsl_state_for_strategy(strategy_key, asset):
@@ -65,8 +76,11 @@ def get_dsl_state_for_strategy(strategy_key, asset):
         return None
 
 
-def analyze_strategy(strategy_key, cfg, xyz_mids=None):
-    """Analyze a single strategy's positions and health. xyz_mids: optional dict of XYZ coin->price from market_get_prices(dex=xyz)."""
+def analyze_strategy(strategy_key, cfg, main_mids=None, xyz_mids=None):
+    """Analyze a single strategy's positions and health.
+    main_mids: optional dict of main DEX (crypto) coin->price from market_get_prices(dex='').
+    xyz_mids: optional dict of XYZ coin->price from market_get_prices(dex=xyz)."""
+    main_mids = main_mids or {}
     xyz_mids = xyz_mids or {}
     wallet = cfg.get("wallet", "")
     xyz_wallet = cfg.get("xyzWallet")
@@ -105,7 +119,9 @@ def analyze_strategy(strategy_key, cfg, xyz_mids=None):
             liq = float(pos["liquidationPx"]) if pos.get("liquidationPx") else None
             upnl = float(pos["unrealizedPnl"])
             roe = float(pos["returnOnEquity"]) * 100
-            price = float(pos["positionValue"]) / abs(szi)
+            # Use main DEX market mid when available (dex=''), else clearinghouse-derived price
+            price_str = main_mids.get(coin)
+            price = float(price_str) if price_str is not None else (float(pos["positionValue"]) / abs(szi))
 
             # DSL floor from strategy-scoped state
             dsl = get_dsl_state_for_strategy(strategy_key, coin)
@@ -237,11 +253,12 @@ def main():
     output = {"strategies": {}, "alerts": [], "summary": {}}
     all_held_coins = set()
 
-    # Fetch XYZ market mids once if any strategy uses XYZ (for correct XYZ position price display)
+    # Fetch market mids once: main DEX (dex='') for crypto, XYZ (dex='xyz') for XYZ positions
+    main_mids = fetch_main_mids()
     xyz_mids = fetch_xyz_mids() if any(cfg.get("xyzWallet") for cfg in strategies.values()) else {}
 
     for key, cfg in strategies.items():
-        strategy_result = analyze_strategy(key, cfg, xyz_mids=xyz_mids)
+        strategy_result = analyze_strategy(key, cfg, main_mids=main_mids, xyz_mids=xyz_mids)
         output["strategies"][key] = strategy_result
         output["alerts"].extend(strategy_result.get("alerts", []))
         for p in strategy_result.get("positions", []):
