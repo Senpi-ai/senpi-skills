@@ -2,6 +2,8 @@
 
 The Senpi MCP server is a hosted HTTP endpoint accessed via `mcp-remote`. Choose the configuration method based on the detected agent platform.
 
+**Variables used below:** `API_KEY` comes from Step 4 (API response). `SENPI_MCP_ENDPOINT` comes from the defaults in the main skill (default: `https://mcp.prod.senpi.ai`).
+
 ## Detection Order
 
 1. If `mcporter` CLI is available (`MCPORTER_AVAILABLE=true` from Step 0) -> Option A

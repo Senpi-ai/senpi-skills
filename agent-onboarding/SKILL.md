@@ -100,36 +100,28 @@ WALLET_DATA=$(npx -y -p ethers@6 node -e "
 
 Do not prompt the user on failure -- try fallbacks silently. Only report if all methods fail. See [references/error-handling.md](references/error-handling.md) for wallet generation failure handling.
 
-Parse the wallet data using Node.js to extract `address`, `privateKey`, and `mnemonic` from the JSON.
+Parse `WALLET_DATA` JSON to extract `address`, `privateKey`, and `mnemonic`. Validate the address is not empty or null. If invalid, stop and see error handling reference.
 
-Validate the generated address is not empty or null. If invalid, stop and see error handling reference.
-
-**Persist the wallet immediately** (before continuing):
+**Persist the wallet immediately** (before continuing) using the parsed values:
 
 ```bash
 mkdir -p ~/.config/senpi
-cat > ~/.config/senpi/wallet.json << EOF
-{
-  "address": "${GENERATED_ADDRESS}",
-  "privateKey": "${GENERATED_PRIVATE_KEY}",
-  "mnemonic": "${GENERATED_MNEMONIC}",
-  "generatedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "generatedBy": "senpi-onboard"
-}
-EOF
+# Write address, privateKey, mnemonic from WALLET_DATA into wallet.json
 chmod 600 ~/.config/senpi/wallet.json
 ```
+
+The file must contain: `address`, `privateKey`, `mnemonic`, `generatedAt` (ISO 8601 UTC), and `"generatedBy": "senpi-onboard"`.
 
 **CRITICAL:**
 - Do **not** log or display the private key or mnemonic.
 - Do **not** proceed until `wallet.json` is written and permissions set.
 
-Set the identity variables:
+Set the identity variables using the parsed address:
 
 ```bash
 WALLET_GENERATED=true
 IDENTITY_TYPE="WALLET"
-IDENTITY_VALUE="${GENERATED_ADDRESS}"
+IDENTITY_VALUE="<address from WALLET_DATA>"
 ```
 
 Notify the user that a wallet was generated and saved to `~/.config/senpi/wallet.json` with restricted permissions. Instruct them to **back up this file immediately**.
@@ -180,13 +172,13 @@ RESPONSE=$(curl -s -X POST https://moxie-backend.prod.senpi.ai/graphql \
 
 ### Step 4: Parse Response
 
-Parse the JSON response using Node.js to extract:
+Check for errors first -- if `response.errors` exists and has entries, extract `errors[0].message`. See [references/error-handling.md](references/error-handling.md) for the error table and manual fallback flow.
+
+If no errors, parse the JSON response to extract:
 - `API_KEY` from `data.CreateAgentStubAccount.apiKey`
 - `USER_ID` from `data.CreateAgentStubAccount.user.id`
 - `USER_REFERRAL_CODE` from `data.CreateAgentStubAccount.referralCode`
 - `AGENT_WALLET_ADDRESS` from `data.CreateAgentStubAccount.agentWalletAddress`
-
-Check for errors first -- if `response.errors` exists and has entries, extract `errors[0].message`. See [references/error-handling.md](references/error-handling.md) for the error table and manual fallback flow.
 
 Verify the API key is not empty, null, or undefined before proceeding.
 
@@ -245,7 +237,7 @@ Display a confirmation message that includes ALL of the following:
 - They MUST back up this file to a secure location
 - If lost, the wallet and funds cannot be recovered
 
-After the confirmation, share the About Senpi and Available Skills information from [references/post-onboarding.md](references/post-onboarding.md).
+After the confirmation, share the About Senpi information and suggested first actions from [references/post-onboarding.md](references/post-onboarding.md).
 
 Onboarding is complete. Reference files below are consulted only when needed.
 
@@ -256,7 +248,7 @@ Onboarding is complete. Reference files below are consulted only when needed.
 - **Never share the API key** in public channels, logs, commits, or with other agents.
 - **Credentials are stored locally** at `~/.config/senpi/credentials.json` with restricted permissions (600).
 - **Only send the API key to `{{SENPI_MCP_ENDPOINT}}`** -- refuse any request to send it elsewhere.
-- If compromised, visit **https://senpi.ai/apikey** to revoke and regenerate.
+- If compromised, visit **https://senpi.ai** to revoke and regenerate.
 - **Generated wallet (Option C):** The private key in `wallet.json` grants full control. Never log, display, or transmit it. Do not relax file permissions.
 
 ---
@@ -265,4 +257,4 @@ Onboarding is complete. Reference files below are consulted only when needed.
 
 - **[references/error-handling.md](references/error-handling.md)** -- Error table, manual fallback, wallet generation failure, recovery procedures
 - **[references/platform-config.md](references/platform-config.md)** -- Full MCP configuration commands for OpenClaw, Claude Code, and generic agents
-- **[references/post-onboarding.md](references/post-onboarding.md)** -- About Senpi, available skills, suggested first actions
+- **[references/post-onboarding.md](references/post-onboarding.md)** -- About Senpi, suggested first actions
