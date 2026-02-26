@@ -54,8 +54,8 @@ Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
 
 ```
 WOLF DSL: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/dsl-combined.py`, parse JSON.
-For each entry in `results`: if `status=="closed"` → alert Telegram ({TELEGRAM}) with asset, direction, strategyKey, close_reason, upnl; check for new signals in that strategy. If `phase1_autocut: true` → note timeout cut. If `status=="pending_close"` → alert user (retry next run).
-If `any_closed: true` → check for new signals. Else HEARTBEAT_OK.
+For each entry in `results`: if `status=="closed"` → alert Telegram ({TELEGRAM}) with asset, direction, strategyKey, close_reason, upnl. If `phase1_autocut: true` → note timeout cut. If `status=="pending_close"` → alert user (retry next run).
+If `any_closed: true` → note freed slot(s) for next Emerging Movers run. Else HEARTBEAT_OK.
 ```
 
 ---
@@ -64,8 +64,9 @@ If `any_closed: true` → check for new signals. Else HEARTBEAT_OK.
 
 ```
 WOLF SM Check: Run `python3 {SCRIPTS}/sm-flip-check.py`, parse JSON.
-If conviction≥4 opposite direction with 100+ traders → close position (set DSL state active:false in state/{strategyKey}/dsl-{ASSET}.json), alert Telegram ({TELEGRAM}).
-Apply WOLF SM rules from SKILL.md for judgment calls. If hasFlipSignal=false → HEARTBEAT_OK.
+For each alert in `alerts`: if `alertLevel == "FLIP_NOW"` → close that position on the wallet for `strategyKey` (set `active: false` in `state/{strategyKey}/dsl-{ASSET}.json`), alert Telegram ({TELEGRAM}) with asset, direction, conviction, strategyKey.
+Ignore alerts with `alertLevel` of WATCH or FLIP_WARNING (no action needed).
+If `hasFlipSignal == false` or no FLIP_NOW alerts → HEARTBEAT_OK.
 ```
 
 ---
@@ -74,8 +75,8 @@ Apply WOLF SM rules from SKILL.md for judgment calls. If hasFlipSignal=false →
 
 ```
 WOLF Watchdog: Run `PYTHONUNBUFFERED=1 timeout 45 python3 {SCRIPTS}/wolf-monitor.py`, parse JSON.
-Check each strategy: crypto_liq_buffer_pct<50% → WARNING; <30% → CRITICAL (consider closing weakest). CRITICAL alerts → Telegram ({TELEGRAM}). XYZ liq_distance_pct<15% → alert.
-Apply WOLF watchdog rules from SKILL.md. If no alerts → HEARTBEAT_OK.
+Check each strategy: crypto_liq_buffer_pct<50% → WARNING (alert Telegram only); <30% → CRITICAL (close the position with lowest ROE% in that strategy, then alert Telegram ({TELEGRAM})). XYZ liq_distance_pct<15% → alert Telegram.
+If no alerts → HEARTBEAT_OK.
 ```
 
 ---
@@ -93,8 +94,15 @@ Format: code-block table with per-strategy name/account value/positions (asset, 
 
 ```
 WOLF Health Check: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/job-health-check.py`, parse JSON.
-CRITICAL issues (orphan DSL files, missing state, direction mismatch) → fix immediately, alert Telegram ({TELEGRAM}). WARNINGs → fix silently.
-Apply WOLF health rules from SKILL.md. If no issues → HEARTBEAT_OK.
+Fix issues by type:
+- NO_WALLET → CRITICAL, alert Telegram ({TELEGRAM}) only (cannot fix, needs manual config).
+- NO_DSL → CRITICAL, create DSL state file at `state/{strategyKey}/dsl-{ASSET}.json` using the template from `dsl_state_template()` in wolf_config.py with the position's asset, direction, entry price, size, and leverage. Alert Telegram.
+- DSL_INACTIVE → CRITICAL, set `active: true` in the existing DSL state file. Alert Telegram.
+- DIRECTION_MISMATCH → CRITICAL, update `direction` field in DSL state file to match the actual position direction. Alert Telegram.
+- ORPHAN_DSL → WARNING, set `active: false` in the orphaned DSL state file. No Telegram alert.
+- DSL_STALE → WARNING, no fix needed (DSL combined will update on next run). No Telegram alert.
+- FETCH_ERROR → WARNING, no fix needed (transient). No Telegram alert.
+If no issues → HEARTBEAT_OK.
 ```
 
 ---

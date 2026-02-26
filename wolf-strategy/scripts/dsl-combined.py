@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import load_all_strategies, dsl_state_glob, atomic_write
+from wolf_config import load_all_strategies, dsl_state_glob, atomic_write, validate_dsl_state
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -440,6 +440,17 @@ for sf, cfg in all_state_entries:
         continue
 
     if not state.get("active") and not state.get("pendingClose"):
+        continue
+
+    valid, err_msg = validate_dsl_state(state, sf)
+    if not valid:
+        errors.append({
+            "file": os.path.basename(sf),
+            "strategyKey": cfg.get("_key"),
+            "error": f"invalid_state: {err_msg}",
+            "skipped": True,
+        })
+        print(f"WARNING: Skipping malformed state file {sf}: {err_msg}", file=sys.stderr)
         continue
 
     asset = state.get("asset", "")

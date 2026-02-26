@@ -215,3 +215,101 @@ def atomic_write(path, data):
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
+
+
+# --- DSL state file validation ---
+
+DSL_REQUIRED_KEYS = [
+    "asset", "entryPrice", "size", "leverage",
+    "highWaterPrice", "phase", "currentBreachCount",
+    "currentTierIndex", "tierFloorPrice", "tiers", "phase1",
+]
+
+PHASE1_REQUIRED_KEYS = ["retraceThreshold", "consecutiveBreachesRequired"]
+
+
+def validate_dsl_state(state, state_file=None):
+    """Validate a DSL state dict has all required keys.
+
+    Args:
+        state: The parsed JSON state dict.
+        state_file: Optional file path for error messages.
+
+    Returns:
+        (True, None) if valid, (False, error_message) if invalid.
+    """
+    if not isinstance(state, dict):
+        return False, f"state is not a dict ({state_file or 'unknown'})"
+
+    missing = [k for k in DSL_REQUIRED_KEYS if k not in state]
+    if missing:
+        return False, f"missing keys {missing} ({state_file or 'unknown'})"
+
+    phase1 = state.get("phase1")
+    if not isinstance(phase1, dict):
+        return False, f"phase1 is not a dict ({state_file or 'unknown'})"
+
+    missing_p1 = [k for k in PHASE1_REQUIRED_KEYS if k not in phase1]
+    if missing_p1:
+        return False, f"phase1 missing keys {missing_p1} ({state_file or 'unknown'})"
+
+    if not isinstance(state.get("tiers"), list):
+        return False, f"tiers is not a list ({state_file or 'unknown'})"
+
+    return True, None
+
+
+def dsl_state_template(asset, direction, entry_price, size, leverage,
+                       strategy_key=None, tiers=None):
+    """Create a minimal valid DSL state dict for a new position.
+
+    Used by health check to create missing DSL state files.
+
+    Args:
+        asset: Coin symbol (e.g. "HYPE").
+        direction: "LONG" or "SHORT".
+        entry_price: Position entry price.
+        size: Position size.
+        leverage: Position leverage.
+        strategy_key: Optional strategy key to embed.
+        tiers: Optional tier list. Uses aggressive defaults if None.
+
+    Returns:
+        A valid DSL state dict ready for atomic_write.
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if tiers is None:
+        tiers = [
+            {"triggerPct": 5, "lockPct": 50, "breaches": 3},
+            {"triggerPct": 10, "lockPct": 65, "breaches": 2},
+            {"triggerPct": 15, "lockPct": 75, "breaches": 2},
+            {"triggerPct": 20, "lockPct": 85, "breaches": 1},
+        ]
+
+    return {
+        "version": 2,
+        "asset": asset,
+        "direction": direction.upper(),
+        "entryPrice": entry_price,
+        "size": size,
+        "leverage": leverage,
+        "active": True,
+        "highWaterPrice": entry_price,
+        "phase": 1,
+        "currentBreachCount": 0,
+        "currentTierIndex": None,
+        "tierFloorPrice": 0,
+        "floorPrice": 0,
+        "tiers": tiers,
+        "phase1": {
+            "retraceThreshold": 10,
+            "absoluteFloor": 0,
+            "consecutiveBreachesRequired": 3,
+        },
+        "phase2TriggerTier": 0,
+        "createdAt": now,
+        "lastCheck": now,
+        "strategyKey": strategy_key,
+    }
