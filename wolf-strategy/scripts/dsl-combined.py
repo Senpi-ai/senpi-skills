@@ -29,12 +29,15 @@ from wolf_config import load_all_strategies, dsl_state_glob, atomic_write, valid
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def fetch_all_mids():
+def fetch_all_mids(dex=None):
     """Fetch all mid prices via Senpi MCP market_get_prices. Returns dict of asset->price."""
     for attempt in range(3):
         try:
+            cmd = ["mcporter", "call", "senpi.market_get_prices"]
+            if dex:
+                cmd.append(f"dex={dex}")
             r = subprocess.run(
-                ["mcporter", "call", "senpi.market_get_prices"],
+                cmd,
                 capture_output=True, text=True, timeout=15
             )
             d = json.loads(r.stdout)
@@ -46,27 +49,6 @@ def fetch_all_mids():
         if attempt < 2:
             time.sleep(3)
     return {}
-
-
-def fetch_xyz_positions(wallet):
-    """Fetch XYZ clearinghouse state for a wallet. Returns dict of coin->price."""
-    try:
-        r = subprocess.run(
-            ["mcporter", "call", "senpi.strategy_get_clearinghouse_state",
-             f"strategy_wallet={wallet}", "dex=xyz"],
-            capture_output=True, text=True, timeout=15
-        )
-        data = json.loads(r.stdout)
-        positions = {}
-        for pos in data.get("data", {}).get("xyz", {}).get("assetPositions", []):
-            coin = pos["position"]["coin"]
-            pval = float(pos["position"]["positionValue"])
-            sz = abs(float(pos["position"]["szi"]))
-            if sz > 0:
-                positions[coin] = pval / sz
-        return positions
-    except Exception:
-        return {}
 
 
 def close_position(wallet, coin, reason):
@@ -400,9 +382,9 @@ if not strategies:
     }))
     sys.exit(0)
 
-# Batch-fetch prices: one call for all crypto, one per unique XYZ wallet
+# Batch-fetch prices: one call for all crypto, one for all XYZ
 all_mids = fetch_all_mids()
-xyz_prices = {}  # wallet -> {coin -> price}
+xyz_mids = fetch_all_mids(dex="xyz")
 
 # Collect all state files across strategies
 all_state_entries = []  # (state_file_path, strategy_cfg)
@@ -411,20 +393,6 @@ for key, cfg in strategies.items():
     state_files = sorted(glob.glob(dsl_state_glob(key)))
     for sf in state_files:
         all_state_entries.append((sf, cfg))
-
-# Pre-scan state files to find XYZ wallets
-for sf, cfg in all_state_entries:
-    try:
-        with open(sf) as f:
-            s = json.load(f)
-        if not s.get("active") and not s.get("pendingClose"):
-            continue
-        if s.get("dex") == "xyz" or s.get("asset", "").startswith("xyz:"):
-            w = s.get("wallet", cfg.get("wallet", ""))
-            if w and w not in xyz_prices:
-                xyz_prices[w] = fetch_xyz_positions(w)
-    except (json.JSONDecodeError, FileNotFoundError):
-        continue
 
 # Process each position
 results = []
@@ -459,10 +427,10 @@ for sf, cfg in all_state_entries:
     # Resolve price
     price = None
     if is_xyz:
-        wallet = state.get("wallet", cfg.get("wallet", ""))
         xyz_coin = asset if asset.startswith("xyz:") else f"xyz:{asset}"
-        wp = xyz_prices.get(wallet, {})
-        price = wp.get(xyz_coin)
+        price_str = xyz_mids.get(xyz_coin) or xyz_mids.get(asset)
+        if price_str is not None:
+            price = float(price_str)
     else:
         price_str = all_mids.get(asset)
         if price_str:
