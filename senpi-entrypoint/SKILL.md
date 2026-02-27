@@ -33,7 +33,31 @@ use the default value from the table above.
 
 ---
 
+## Initial check: Skip to Step 2 if already authenticated
+
+Before Step 1, check whether the machine already has a Senpi API key available:
+
+```bash
+if [ -n "${SENPI_AUTH_TOKEN}" ]; then
+  # Optional: verify MCP responds (e.g. call a read-only tool)
+  # If verification fails, clear or ignore and continue to Step 1
+  echo "SENPI_AUTH_TOKEN is set; skipping onboarding. Proceed to Step 2."
+  SKIP_ONBOARDING=true
+else
+  SKIP_ONBOARDING=false
+fi
+```
+
+- **If `SENPI_AUTH_TOKEN` is set and (optionally) MCP responds:** Jump directly to **Step 2: Discover**. Do not run Step 1 (onboarding).
+- **If `SENPI_AUTH_TOKEN` is unset or empty:** Proceed to **Step 1: Onboard** as usual.
+
+After the initial check, follow the step flow: Step 1 (unless skipped) → Step 2 → Step 3 → Step 4.
+
+---
+
 ## Step 1: Onboard
+
+**Run this step only when** `SENPI_AUTH_TOKEN` is not set (i.e. `SKIP_ONBOARDING` is false). If you skipped here from the initial check, go to Step 2.
 
 Install the onboarding skill:
 
@@ -53,6 +77,8 @@ Load and follow the `senpi-onboard` skill instructions. Pass this context:
 ---
 
 ## Step 2: Discover
+
+**Run this step** after onboarding completes, or immediately when the initial check found `SENPI_AUTH_TOKEN` set.
 
 List available trading skills:
 
