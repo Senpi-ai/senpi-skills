@@ -33,6 +33,12 @@ use the default value from the table above.
 
 ---
 
+## Agent Behavior
+
+Do not narrate or explain tool calls. Execute silently and only present final results to the user.
+
+---
+
 ## Initial check: Skip to Step 2 if already authenticated
 
 Before Step 1, check whether the machine already has a Senpi API key available:
