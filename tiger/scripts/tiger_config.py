@@ -28,6 +28,57 @@ CONFIG_FILE = os.path.join(WORKSPACE, "tiger-config.json")
 VERBOSE = os.environ.get("TIGER_VERBOSE") == "1"
 
 
+# ─── Snake-to-Camel Key Aliasing ─────────────────────────────
+
+def _snake_to_camel(name):
+    """Convert snake_case to camelCase. e.g. max_slots -> maxSlots"""
+    parts = name.split("_")
+    return parts[0] + "".join(p.capitalize() for p in parts[1:])
+
+
+class AliasDict(dict):
+    """Dict that transparently maps snake_case key lookups to camelCase.
+    Allows scripts written with snake_case keys (e.g. config["max_slots"])
+    to read from a camelCase backing store (e.g. config["maxSlots"]).
+    Direct camelCase access also works. Writes go through as-is."""
+
+    def __getitem__(self, key):
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            camel = _snake_to_camel(key)
+            if camel != key and camel in self:
+                return super().__getitem__(camel)
+            raise
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def __contains__(self, key):
+        if super().__contains__(key):
+            return True
+        camel = _snake_to_camel(key)
+        return camel != key and super().__contains__(camel)
+
+    def __setitem__(self, key, value):
+        # If camelCase version exists, write to that; otherwise write as-is
+        camel = _snake_to_camel(key)
+        if camel != key and camel in self and key not in dict.keys(self):
+            super().__setitem__(camel, value)
+        else:
+            super().__setitem__(key, value)
+
+
+def _to_alias_dict(d):
+    """Recursively wrap dicts as AliasDict."""
+    if isinstance(d, dict) and not isinstance(d, AliasDict):
+        return AliasDict({k: _to_alias_dict(v) for k, v in d.items()})
+    return d
+
+
 # ─── Atomic Write ────────────────────────────────────────────
 
 def atomic_write(path, data):
@@ -98,14 +149,29 @@ DEFAULT_CONFIG = {
 }
 
 
+_cached_config = None
+
+
 def load_config():
-    """Load TIGER config with deep merge of defaults."""
+    """Load TIGER config with deep merge of defaults. Returns AliasDict for snake_case compat."""
+    global _cached_config
     try:
         with open(CONFIG_FILE) as f:
             user_config = json.load(f)
-        return deep_merge(DEFAULT_CONFIG, user_config)
+        _cached_config = _to_alias_dict(deep_merge(DEFAULT_CONFIG, user_config))
     except FileNotFoundError:
-        return dict(DEFAULT_CONFIG)
+        _cached_config = _to_alias_dict(dict(DEFAULT_CONFIG))
+    return _cached_config
+
+
+def _get_config(config=None):
+    """Get config — uses passed config, cached, or loads fresh."""
+    if config is not None:
+        return config
+    global _cached_config
+    if _cached_config is not None:
+        return _cached_config
+    return load_config()
 
 
 def save_config(config):
@@ -157,8 +223,9 @@ DEFAULT_STATE = {
 }
 
 
-def load_state(config):
-    """Load state with defaults. Re-reads from disk."""
+def load_state(config=None):
+    """Load state with defaults. Re-reads from disk. Config is optional (uses cached)."""
+    config = _get_config(config)
     state_file = os.path.join(_instance_dir(config), "tiger-state.json")
     state = deep_merge(DEFAULT_STATE, {})
     state["instanceKey"] = config.get("strategyId", "default")
@@ -169,33 +236,49 @@ def load_state(config):
             state = deep_merge(state, saved)
         except (json.JSONDecodeError, IOError):
             pass
-    return state
+    return _to_alias_dict(state)
 
 
-def save_state(config, state):
-    """Save state atomically. Re-read before write for race condition guard."""
+def save_state(state_or_config, state=None):
+    """Save state atomically. Accepts save_state(state) or save_state(config, state)."""
+    if state is None:
+        # Called as save_state(state) — config is implicit
+        state = state_or_config
+        config = _get_config()
+    else:
+        # Called as save_state(config, state) — explicit config
+        config = state_or_config
     state_file = os.path.join(_instance_dir(config), "tiger-state.json")
     # Race condition guard: preserve halt flag set by other crons
     if os.path.exists(state_file):
         try:
             with open(state_file) as f:
                 current = json.load(f)
-            if current.get("safety", {}).get("halted") and not state.get("safety", {}).get("halted"):
+            cur_safety = current.get("safety", {})
+            st_safety = state.get("safety", {})
+            if cur_safety.get("halted") and not st_safety.get("halted"):
+                if "safety" not in state or not isinstance(state.get("safety"), dict):
+                    state["safety"] = {}
                 state["safety"]["halted"] = True
-                state["safety"]["haltReason"] = current["safety"].get("haltReason")
+                state["safety"]["haltReason"] = cur_safety.get("haltReason")
+            # Also preserve halted at top level for scripts using flat access
+            if current.get("halted") and not state.get("halted"):
+                state["halted"] = True
+                state["haltReason"] = current.get("haltReason", current.get("halt_reason"))
         except (json.JSONDecodeError, IOError):
             pass
     state["updatedAt"] = datetime.now(timezone.utc).isoformat()
-    atomic_write(state_file, state)
+    atomic_write(state_file, dict(state))
 
 
 # ─── OI History ──────────────────────────────────────────────
 
-def _oi_file(config):
+def _oi_file(config=None):
+    config = _get_config(config)
     return os.path.join(_instance_dir(config), "oi-history.json")
 
 
-def load_oi_history(config):
+def load_oi_history(config=None):
     """Load OI history. Format: {asset: [{ts, oi, price}, ...]}"""
     path = _oi_file(config)
     if os.path.exists(path):
@@ -207,8 +290,9 @@ def load_oi_history(config):
     return {}
 
 
-def append_oi_snapshot(config, asset, oi, price):
+def append_oi_snapshot(asset, oi, price, config=None):
     """Append OI datapoint. Keep last 288 per asset (24h at 5min)."""
+    config = _get_config(config)
     history = load_oi_history(config)
     if asset not in history:
         history[asset] = []
@@ -223,8 +307,9 @@ def append_oi_snapshot(config, asset, oi, price):
 
 # ─── Trade Log ───────────────────────────────────────────────
 
-def log_trade(config, trade):
+def log_trade(trade, config=None):
     """Append trade to log atomically."""
+    config = _get_config(config)
     path = os.path.join(_instance_dir(config), "trade-log.json")
     trades = []
     if os.path.exists(path):
@@ -241,8 +326,9 @@ def log_trade(config, trade):
 
 # ─── DSL State ───────────────────────────────────────────────
 
-def load_dsl_state(config, asset):
+def load_dsl_state(asset, config=None):
     """Load DSL state for a position."""
+    config = _get_config(config)
     path = os.path.join(_instance_dir(config), f"dsl-{asset}.json")
     if os.path.exists(path):
         try:
@@ -253,8 +339,9 @@ def load_dsl_state(config, asset):
     return None
 
 
-def save_dsl_state(config, asset, dsl_state):
+def save_dsl_state(asset, dsl_state, config=None):
     """Save DSL state atomically."""
+    config = _get_config(config)
     path = os.path.join(_instance_dir(config), f"dsl-{asset}.json")
     dsl_state["updatedAt"] = datetime.now(timezone.utc).isoformat()
     atomic_write(path, dsl_state)

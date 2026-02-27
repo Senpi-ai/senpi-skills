@@ -9,8 +9,16 @@ v4 over v3:
   - Enriched output: tier_changed, elapsed_minutes, distance_to_next_tier
 Backward-compatible with v3/v2 state files (all new fields have defaults).
 """
-import json, sys, subprocess, os, time
+import json, sys, os, time
 from datetime import datetime, timezone
+
+# Use shared infra for atomic writes, mcporter, and price fetching
+from tiger_config import (
+    atomic_write, mcporter_call, get_prices, close_position, load_config
+)
+
+# Load config once (caches for other imports)
+_config = load_config()
 
 STATE_FILE = os.environ.get("DSL_STATE_FILE", "/data/workspace/trailing-stop-state.json")
 
@@ -31,15 +39,16 @@ close_retries = state.get("closeRetries", 2)
 close_retry_delay = state.get("closeRetryDelaySec", 3)
 max_fetch_failures = state.get("maxFetchFailures", 10)
 
-# ─── Fetch price ───
+# ─── Fetch price via shared mcporter infra ───
 try:
-    r = subprocess.run(
-        ["curl", "-s", "https://api.hyperliquid.xyz/info",
-         "-H", "Content-Type: application/json",
-         "-d", '{"type":"allMids"}'],
-        capture_output=True, text=True, timeout=15
-    )
-    mids = json.loads(r.stdout)
+    prices_result = get_prices()
+    prices_data = prices_result.get("data", prices_result)
+    if isinstance(prices_data, dict) and "prices" in prices_data:
+        mids = prices_data["prices"]
+    elif isinstance(prices_data, dict):
+        mids = prices_data
+    else:
+        mids = {}
     price = float(mids[state["asset"]])
     state["consecutiveFetchFailures"] = 0
 except Exception as e:
@@ -49,8 +58,7 @@ except Exception as e:
     if fails >= max_fetch_failures:
         state["active"] = False
         state["closeReason"] = f"Auto-deactivated: {fails} consecutive fetch failures"
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+    atomic_write(STATE_FILE, state)
     print(json.dumps({
         "status": "error",
         "error": f"price_fetch_failed: {str(e)}",
@@ -154,7 +162,7 @@ state["currentBreachCount"] = breach_count
 
 should_close = breach_count >= breaches_needed or force_close
 
-# ─── Auto-close on breach (with retry) ───
+# ─── Auto-close on breach (with retry via shared infra) ───
 closed = False
 close_result = None
 
@@ -162,43 +170,27 @@ if should_close:
     wallet = state.get("wallet", "")
     asset = state["asset"]
     if wallet:
-        for attempt in range(close_retries):
-            try:
-                cr = subprocess.run(
-                    ["mcporter", "call", "senpi", "close_position", "--args",
-                     json.dumps({
-                         "strategyWalletAddress": wallet,
-                         "coin": asset,
-                         "reason": f"DSL breach: Phase {phase}, {breach_count}/{breaches_needed} breaches, price {price}, floor {effective_floor}"
-                     })],
-                    capture_output=True, text=True, timeout=30
-                )
-                result_text = cr.stdout.strip()
-                if cr.returncode == 0 and "error" not in result_text.lower():
-                    closed = True
-                    close_result = result_text
-                    state["active"] = False
-                    state["pendingClose"] = False
-                    state["closedAt"] = now
-                    state["closeReason"] = f"DSL breach: Phase {phase}, price {price}, floor {effective_floor}"
-                    break
-                else:
-                    close_result = f"api_error_attempt_{attempt+1}: {result_text}"
-            except Exception as e:
-                close_result = f"error_attempt_{attempt+1}: {str(e)}"
-            if attempt < close_retries - 1:
-                time.sleep(close_retry_delay)
-        if not closed:
+        reason = f"DSL breach: Phase {phase}, {breach_count}/{breaches_needed} breaches, price {price}, floor {effective_floor}"
+        # close_position already has 3-retry built in via mcporter_call
+        result = close_position(wallet, asset, reason=reason)
+        if isinstance(result, dict) and not result.get("error"):
+            closed = True
+            close_result = json.dumps(result)
+            state["active"] = False
+            state["pendingClose"] = False
+            state["closedAt"] = now
+            state["closeReason"] = reason
+        else:
+            close_result = f"close_failed: {result.get('error', 'unknown')}"
             state["pendingClose"] = True
     else:
         close_result = "error: no wallet in state file"
         state["pendingClose"] = True
 
-# ─── Save state ───
+# ─── Save state atomically ───
 state["lastCheck"] = now
 state["lastPrice"] = price
-with open(STATE_FILE, "w") as f:
-    json.dump(state, f, indent=2)
+atomic_write(STATE_FILE, state)
 
 # ─── Output ───
 if is_long:

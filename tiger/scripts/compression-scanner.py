@@ -89,16 +89,16 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
 
     # Confluence scoring
     factors = {
-        "bb_squeeze": (squeeze_pctl is not None and squeeze_pctl < config["min_bb_squeeze_percentile"], 0.25),
-        "breakout": (breakout_direction is not None, 0.25),
-        "oi_building": (oi_change is not None and oi_change > config["min_oi_change_pct"], 0.20),
-        "oi_price_diverge": (oi_price_divergence, 0.15),
+        "bb_squeeze": (squeeze_pctl is not None and squeeze_pctl < config["min_bb_squeeze_percentile"], 0.20),
+        "breakout": (breakout_direction is not None, 0.20),
+        "oi_building": (oi_change is not None and oi_change > config["min_oi_change_pct"], 0.15),
+        "oi_price_diverge": (oi_price_divergence, 0.10),
         "volume_surge": (vol_ratio is not None and vol_ratio > 1.5, 0.15),
         "rsi_not_extreme": (current_rsi is not None and 30 < current_rsi < 70, 0.10),
         "funding_aligned": (
             (breakout_direction == "LONG" and funding_rate < 0) or
             (breakout_direction == "SHORT" and funding_rate > 0),
-            0.10
+            0.05
         ),
         "atr_expanding": (atr_pct > 2.0, 0.05),
     }

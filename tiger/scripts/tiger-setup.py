@@ -32,7 +32,7 @@ def main():
     parser.add_argument("--chat-id", required=True, help="Telegram chat ID for notifications")
     parser.add_argument("--max-slots", type=int, default=3, help="Max concurrent positions (default: 3)")
     parser.add_argument("--max-leverage", type=int, default=10, help="Max leverage (default: 10)")
-    parser.add_argument("--min-leverage", type=int, default=7, help="Min leverage (default: 7)")
+    parser.add_argument("--min-leverage", type=int, default=5, help="Min leverage (default: 5)")
 
     args = parser.parse_args()
 
