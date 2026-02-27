@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import load_all_strategies, dsl_state_glob, atomic_write
+from wolf_config import load_all_strategies, dsl_state_glob, atomic_write, parse_mcp_prices_response
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -41,33 +41,7 @@ def fetch_all_mids(dex=None):
             capture_output=True, text=True, timeout=15
         )
         data = json.loads(r.stdout)
-        # MCP response shape: { success, data: { prices, count }, meta } (see response.service.ts)
-        inner = data.get("data", data.get("result", data))
-        prices = inner.get("prices") if isinstance(inner, dict) else data.get("prices")
-        if isinstance(prices, dict):
-            return prices
-        return {}
-    except Exception:
-        return {}
-
-
-def fetch_xyz_positions(wallet):
-    """Fetch XYZ clearinghouse state for a wallet. Returns dict of coin->price."""
-    try:
-        r = subprocess.run(
-            ["mcporter", "call", "senpi.strategy_get_clearinghouse_state",
-             f"strategy_wallet={wallet}", "dex=xyz"],
-            capture_output=True, text=True, timeout=15
-        )
-        data = json.loads(r.stdout)
-        positions = {}
-        for pos in data.get("data", {}).get("xyz", {}).get("assetPositions", []):
-            coin = pos["position"]["coin"]
-            pval = float(pos["position"]["positionValue"])
-            sz = abs(float(pos["position"]["szi"]))
-            if sz > 0:
-                positions[coin] = pval / sz
-        return positions
+        return parse_mcp_prices_response(data)
     except Exception:
         return {}
 
@@ -403,7 +377,9 @@ for sf, cfg in all_state_entries:
     price = None
     if is_xyz:
         xyz_coin = asset if asset.startswith("xyz:") else f"xyz:{asset}"
-        price_str = xyz_mids.get(xyz_coin) or xyz_mids.get(asset)
+        price_str = xyz_mids.get(xyz_coin)
+        if price_str is None:
+            price_str = xyz_mids.get(asset)
         if price_str is not None:
             price = float(price_str)
     else:

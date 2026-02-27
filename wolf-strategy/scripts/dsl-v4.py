@@ -17,6 +17,9 @@ Backward-compatible with v3/v2 state files (all new fields have defaults).
 import json, sys, subprocess, os, time
 from datetime import datetime, timezone
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wolf_config import parse_mcp_prices_response
+
 STATE_FILE = os.environ.get("DSL_STATE_FILE", "/data/workspace/trailing-stop-state.json")
 
 with open(STATE_FILE) as f:
@@ -53,9 +56,7 @@ def _fetch_prices(dex=None):
             capture_output=True, text=True, timeout=15
         )
         data = json.loads(r.stdout)
-        inner = data.get("data", data.get("result", data))
-        prices = inner.get("prices") if isinstance(inner, dict) else data.get("prices")
-        return prices if isinstance(prices, dict) else {}
+        return parse_mcp_prices_response(data)
     except Exception:
         return {}
 
@@ -69,7 +70,9 @@ try:
     if is_xyz:
         # XYZ DEX: use market mids from MCP (keys like xyz:XYZ100, xyz:TSLA)
         prices = _fetch_prices(dex="xyz")
-        price_str = prices.get(asset_name) or prices.get(asset_name.replace("xyz:", "", 1))
+        price_str = prices.get(asset_name)
+        if price_str is None:
+            price_str = prices.get(asset_name.replace("xyz:", "", 1))
         if price_str is None:
             raise Exception(f"XYZ asset {asset_name} not found in market_get_prices(dex=xyz)")
         price = float(price_str)

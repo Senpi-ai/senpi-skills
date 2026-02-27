@@ -215,3 +215,16 @@ def atomic_write(path, data):
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
+
+
+def parse_mcp_prices_response(data):
+    """Parse MCP market_get_prices response. Returns dict of asset->price (string) or {}.
+
+    Handles response shapes: { data: { prices }, result: { prices }, or root-level prices }.
+    If the MCP response shape changes, update this single place.
+    """
+    if not isinstance(data, dict):
+        return {}
+    inner = data.get("data", data.get("result", data))
+    prices = inner.get("prices") if isinstance(inner, dict) else data.get("prices")
+    return prices if isinstance(prices, dict) else {}

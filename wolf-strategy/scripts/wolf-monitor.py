@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_all_strategies, state_dir, dsl_state_glob,
-                         WORKSPACE)
+                         WORKSPACE, parse_mcp_prices_response)
 
 EMERGING_HISTORY = os.path.join(WORKSPACE, "history", "emerging-movers.json")
 # Fallback to legacy location
@@ -49,9 +49,7 @@ def _fetch_mids(dex=None):
             capture_output=True, text=True, timeout=15
         )
         data = json.loads(r.stdout)
-        inner = data.get("data", data.get("result", data))
-        prices = inner.get("prices") if isinstance(inner, dict) else data.get("prices")
-        return prices if isinstance(prices, dict) else {}
+        return parse_mcp_prices_response(data)
     except Exception:
         return {}
 
@@ -204,7 +202,9 @@ def analyze_strategy(strategy_key, cfg, main_mids=None, xyz_mids=None):
                 upnl = float(pos["unrealizedPnl"])
                 roe = float(pos["returnOnEquity"]) * 100
                 # Use market mid from MCP when available, else clearinghouse-derived price
-                price_str = xyz_mids.get(coin) or xyz_mids.get(coin.replace("xyz:", "", 1))
+                price_str = xyz_mids.get(coin)
+                if price_str is None:
+                    price_str = xyz_mids.get(coin.replace("xyz:", "", 1))
                 price = float(price_str) if price_str is not None else (float(pos["positionValue"]) / abs(szi))
 
                 liq_dist_pct = None
