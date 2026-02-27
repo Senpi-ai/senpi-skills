@@ -92,8 +92,8 @@ def get_xyz_positions(wallet):
                         "positionValue": pos_value,
                     }
         return positions
-    except Exception:
-        return {}
+    except Exception as e:
+        return {"_error": str(e)}
 
 
 def get_active_dsl_states(strategy_key):
@@ -175,6 +175,16 @@ def check_strategy(strategy_key, cfg):
 
     # Get XYZ positions (same wallet, dex=xyz)
     xyz_positions = get_xyz_positions(wallet)
+    if "_error" in xyz_positions:
+        had_fetch_error = True
+        issues.append({
+            "level": "WARNING",
+            "type": "FETCH_ERROR",
+            "strategyKey": strategy_key,
+            "action": "alert_only",
+            "message": f"Strategy {strategy_key}: failed to fetch XYZ positions: {xyz_positions['_error']}"
+        })
+        xyz_positions = {}
 
     # Merge positions (XYZ coins might have xyz: prefix)
     all_positions = dict(positions)
