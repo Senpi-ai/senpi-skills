@@ -2,7 +2,7 @@
 
 ## Model Tier Configuration
 
-Set per-cron in OpenClaw. **Tier 1** = fast/cheap (e.g. claude-haiku-4-5, gpt-4o-mini, gemini-flash). **Tier 2** = capable (e.g. claude-sonnet-4-6, gpt-4o, gemini-pro).
+Set per-cron in OpenClaw. **Tier 1** = fast/cheap (e.g. claude-haiku-4-5, gpt-4o-mini, gemini-flash). **Tier 2** = capable (e.g. anthropic/claude-sonnet-4-20250514,Opus, gpt-4o, gemini-pro).
 
 | Cron | Frequency | Model Tier |
 |------|-----------|-----------|
