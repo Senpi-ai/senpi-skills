@@ -83,6 +83,15 @@ tiger-strategy/
 
 ## Changelog
 
+### v2.1 (current)
+- Merged live trading lessons & gotchas from production usage
+- DSL `active: true` gotcha documented (the #1 setup mistake)
+- API latency notes (6s/call, 8 asset max per scan window)
+- Correlation scanner timeout handling guidance
+- Trading rules from real P&L: don't short compressed+OI-building, re-entry opposite direction valid, high-score overrides blacklists
+- `create_position` order format and `CLOSE_NO_POSITION` handling documented
+- Updated setup-guide.md with DSL state file format
+
 ### v2.0
 - Conforms to Senpi Skill Development Guide
 - atomic_write(), deep_merge(), mcporter_call() with 3-retry
