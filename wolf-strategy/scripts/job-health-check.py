@@ -13,87 +13,52 @@ Each issue includes an `action` field: auto_deactivated, auto_created,
 auto_replaced, updated_state, skipped_fetch_error, or alert_only.
 """
 
-import json, subprocess, sys, os, glob, time
+import json, sys, os, glob
 from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import load_all_strategies, dsl_state_glob, atomic_write, dsl_state_path, dsl_state_template
+from wolf_config import (load_all_strategies, dsl_state_glob, atomic_write,
+                         dsl_state_path, dsl_state_template, mcporter_call_safe)
 
 
-def run_cmd(args, timeout=30):
-    """Run a subprocess command with 3 retries."""
-    last_error = None
-    for attempt in range(3):
-        try:
-            r = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
-            return r.stdout.strip()
-        except Exception as e:
-            last_error = e
-            if attempt < 2:
-                time.sleep(3)
-    raise last_error
+def _extract_positions(section_data):
+    """Extract non-zero positions from a clearinghouse section."""
+    positions = {}
+    for p in section_data.get("assetPositions", []):
+        pos = p.get("position", {})
+        coin = pos.get("coin")
+        if not coin:
+            continue
+        szi = float(pos.get("szi", 0))
+        if szi == 0:
+            continue
+        margin_used = float(pos.get("marginUsed", 0))
+        pos_value = float(pos.get("positionValue", 0))
+        positions[coin] = {
+            "direction": "SHORT" if szi < 0 else "LONG",
+            "size": abs(szi),
+            "entryPx": pos.get("entryPx"),
+            "unrealizedPnl": pos.get("unrealizedPnl"),
+            "returnOnEquity": pos.get("returnOnEquity"),
+            "leverage": round(pos_value / margin_used, 1) if margin_used > 0 else None,
+            "marginUsed": margin_used,
+            "positionValue": pos_value,
+        }
+    return positions
 
 
-def get_wallet_positions(wallet):
-    """Get actual positions from clearinghouse for a specific wallet."""
-    try:
-        raw = run_cmd(["mcporter", "call", "senpi", "strategy_get_clearinghouse_state",
-                       f"strategy_wallet={wallet}"])
-        data = json.loads(raw).get("data", {})
-        positions = {}
-        for section in ["main", "crypto"]:
-            if section in data and "assetPositions" in data[section]:
-                for p in data[section]["assetPositions"]:
-                    pos = p.get("position", {})
-                    coin = pos.get("coin")
-                    if coin:
-                        szi = float(pos.get("szi", 0))
-                        if szi != 0:
-                            margin_used = float(pos.get("marginUsed", 0))
-                            pos_value = float(pos.get("positionValue", 0))
-                            positions[coin] = {
-                                "direction": "SHORT" if szi < 0 else "LONG",
-                                "size": abs(szi),
-                                "entryPx": pos.get("entryPx"),
-                                "unrealizedPnl": pos.get("unrealizedPnl"),
-                                "returnOnEquity": pos.get("returnOnEquity"),
-                                "leverage": round(pos_value / margin_used, 1) if margin_used > 0 else None,
-                                "marginUsed": margin_used,
-                                "positionValue": pos_value,
-                            }
-        return positions
-    except Exception as e:
-        return {"_error": str(e)}
+def get_all_wallet_positions(wallet):
+    """Get all positions (crypto + xyz) from a single clearinghouse call.
 
-
-def get_xyz_positions(wallet):
-    """Get XYZ positions from clearinghouse."""
-    try:
-        raw = run_cmd(["mcporter", "call", "senpi", "strategy_get_clearinghouse_state",
-                       f"strategy_wallet={wallet}", "dex=xyz"])
-        data = json.loads(raw).get("data", {})
-        positions = {}
-        xyz = data.get("xyz", {})
-        for p in xyz.get("assetPositions", []):
-            pos = p.get("position", {})
-            coin = pos.get("coin")
-            if coin:
-                szi = float(pos.get("szi", 0))
-                if szi != 0:
-                    margin_used = float(pos.get("marginUsed", 0))
-                    pos_value = float(pos.get("positionValue", 0))
-                    positions[coin] = {
-                        "direction": "SHORT" if szi < 0 else "LONG",
-                        "size": abs(szi),
-                        "entryPx": pos.get("entryPx"),
-                        "leverage": round(pos_value / margin_used, 1) if margin_used > 0 else None,
-                        "marginUsed": margin_used,
-                        "positionValue": pos_value,
-                    }
-        return positions
-    except Exception as e:
-        return {"_error": str(e)}
+    Returns (crypto_positions, xyz_positions, error_string_or_None).
+    """
+    data = mcporter_call_safe("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+    if data is None:
+        return {}, {}, "clearinghouse fetch failed"
+    crypto = _extract_positions(data.get("main", {}))
+    xyz = _extract_positions(data.get("xyz", {}))
+    return crypto, xyz, None
 
 
 def get_active_dsl_states(strategy_key):
@@ -160,33 +125,18 @@ def check_strategy(strategy_key, cfg):
         })
         return issues, [], []
 
-    # Get actual positions
-    positions = get_wallet_positions(wallet)
-    if "_error" in positions:
+    # Single clearinghouse call returns both crypto and xyz positions
+    positions, xyz_positions, fetch_err = get_all_wallet_positions(wallet)
+    if fetch_err:
         had_fetch_error = True
         issues.append({
             "level": "WARNING",
             "type": "FETCH_ERROR",
             "strategyKey": strategy_key,
             "action": "alert_only",
-            "message": f"Strategy {strategy_key}: failed to fetch positions: {positions['_error']}"
+            "message": f"Strategy {strategy_key}: {fetch_err}"
         })
-        positions = {}
 
-    # Get XYZ positions (same wallet, dex=xyz)
-    xyz_positions = get_xyz_positions(wallet)
-    if "_error" in xyz_positions:
-        had_fetch_error = True
-        issues.append({
-            "level": "WARNING",
-            "type": "FETCH_ERROR",
-            "strategyKey": strategy_key,
-            "action": "alert_only",
-            "message": f"Strategy {strategy_key}: failed to fetch XYZ positions: {xyz_positions['_error']}"
-        })
-        xyz_positions = {}
-
-    # Merge positions (XYZ coins might have xyz: prefix)
     all_positions = dict(positions)
     for coin, pos in xyz_positions.items():
         all_positions[coin] = pos

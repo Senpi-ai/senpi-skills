@@ -17,13 +17,13 @@ Fixes from v5:
 3-stage funnel, 4-pillar scoring. Scans all Hyperliquid perps.
 """
 
-import json, sys, subprocess, time, os
+import json, sys, os
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import get_all_active_positions, WORKSPACE, atomic_write
+from wolf_config import get_all_active_positions, WORKSPACE, atomic_write, mcporter_call
 
 # --- Config ---
 HISTORY_DIR = os.path.join(WORKSPACE, "history")
@@ -94,25 +94,12 @@ def log(level, msg):
 # --- Helpers ---
 
 def call_mcp(tool, **kwargs):
-    """Call a Senpi MCP tool with 3 retries. Returns parsed response dict."""
-    args = []
-    for k, v in kwargs.items():
-        if isinstance(v, (list, dict, bool)):
-            args.append(f"{k}={json.dumps(v)}")
-        else:
-            args.append(f"{k}={v}")
-    cmd = ["mcporter", "call", f"senpi.{tool}"] + args
-    last_error = None
-    for attempt in range(3):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            return json.loads(r.stdout)
-        except Exception as e:
-            last_error = e
-            if attempt < 2:
-                time.sleep(3)
-    log("warn", f"{tool} failed after 3 attempts: {last_error}")
-    return {}
+    """Call a Senpi MCP tool with 3 retries. Returns the `data` portion of the response."""
+    try:
+        return mcporter_call(tool, retries=3, timeout=60, **kwargs)
+    except RuntimeError as e:
+        log("warn", f"{tool} failed: {e}")
+        return {}
 
 
 def calc_rsi(closes, period=14):
@@ -223,10 +210,9 @@ def detect_patterns(candles):
 def fetch_btc_macro(config):
     """Analyze BTC 4h+1h trend for macro context."""
     try:
-        raw = call_mcp("market_get_asset_data", asset="BTC",
-                       candle_intervals=["4h", "1h"],
-                       include_order_book=False, include_funding=False)
-        btc_data = raw.get("data", raw)
+        btc_data = call_mcp("market_get_asset_data", asset="BTC",
+                            candle_intervals=["4h", "1h"],
+                            include_order_book=False, include_funding=False)
         candle_map = btc_data.get("candles", {})
         candles_4h = candle_map.get("4h", []) or []
         candles_1h = candle_map.get("1h", []) or []
@@ -619,10 +605,9 @@ def deep_dive_asset(name, direction, _meta, _btc_macro, _config):
     result = {"asset": name, "direction": direction, "error": None}
     try:
         # Fetch all 3 timeframes in a single MCP call
-        raw = call_mcp("market_get_asset_data", asset=name,
-                       candle_intervals=["4h", "1h", "15m"],
-                       include_order_book=False, include_funding=False)
-        asset_data = raw.get("data", raw)
+        asset_data = call_mcp("market_get_asset_data", asset=name,
+                              candle_intervals=["4h", "1h", "15m"],
+                              include_order_book=False, include_funding=False)
         candle_map = asset_data.get("candles", {})
         candles_4h = candle_map.get("4h", []) or []
         candles_1h = candle_map.get("1h", []) or []
@@ -760,8 +745,8 @@ def main():
 
         # --- Stage 1: Bulk screen ---
         log("info", "Stage 1: Fetching market structure via market_list_instruments...")
-        instruments_raw = call_mcp("market_list_instruments")
-        instruments = instruments_raw.get("data", [])
+        instruments_data = call_mcp("market_list_instruments")
+        instruments = instruments_data.get("instruments", [])
         if not instruments:
             print(json.dumps({"success": False, "error": "Failed to fetch market_list_instruments", "stage": "stage1"}))
             sys.exit(1)
@@ -792,8 +777,8 @@ def main():
         log("info", "Stage 2: Fetching smart money data...")
         sm_by_asset = {}
         try:
-            momentum_raw = call_mcp("leaderboard_get_markets")
-            markets_list = momentum_raw.get("data", {}).get("markets", {}).get("markets", [])
+            momentum_data = call_mcp("leaderboard_get_markets")
+            markets_list = momentum_data.get("markets", {}).get("markets", [])
             for item in markets_list:
                 name = item.get("token", "")
                 if name not in assets:
@@ -811,8 +796,8 @@ def main():
 
             # Freshness data
             try:
-                top_traders_raw = call_mcp("leaderboard_get_top", limit=100)
-                top_traders = top_traders_raw.get("data", {}).get("leaderboard", {}).get("data", [])
+                top_traders_data = call_mcp("leaderboard_get_top", limit=100)
+                top_traders = top_traders_data.get("leaderboard", {}).get("data", [])
                 from collections import defaultdict
                 market_peaks = defaultdict(list)
                 for t in top_traders:

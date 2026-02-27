@@ -16,7 +16,10 @@ Usage:
   # Interactive mode (prompts for everything):
   python3 wolf-setup.py
 """
-import json, subprocess, sys, os, math, argparse
+import json, sys, os, math, argparse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wolf_config import mcporter_call
 
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
@@ -211,24 +214,24 @@ for d in ["history", "memory", "logs"]:
 # Fetch max-leverage via MCP (covers both crypto and XYZ instruments)
 print("\nFetching max-leverage data...")
 try:
-    r = subprocess.run(
-        ["mcporter", "call", "senpi.market_list_instruments"],
-        capture_output=True, text=True, timeout=30
-    )
-    data = json.loads(r.stdout)
-    instruments = data.get("data", [])
+    data = mcporter_call("market_list_instruments")
+    instruments = data.get("instruments", [])
+    if not isinstance(instruments, list):
+        instruments = []
     max_lev = {}
     for inst in instruments:
+        if not isinstance(inst, dict):
+            continue
         name = inst.get("name", "")
         if not name:
             continue
-        lev = inst.get("maxLeverage")
+        lev = inst.get("max_leverage") or inst.get("maxLeverage")
         if lev is not None:
             max_lev[name] = int(lev)
     with open(MAX_LEV_FILE, "w") as f:
         json.dump(max_lev, f, indent=2)
-    crypto_count = sum(1 for inst in instruments if not inst.get("dex"))
-    xyz_count = sum(1 for inst in instruments if inst.get("dex"))
+    crypto_count = sum(1 for inst in instruments if isinstance(inst, dict) and not inst.get("dex"))
+    xyz_count = sum(1 for inst in instruments if isinstance(inst, dict) and inst.get("dex"))
     print(f"  Max leverage data saved ({len(max_lev)} assets: {crypto_count} crypto, {xyz_count} XYZ) to {MAX_LEV_FILE}")
 except Exception as e:
     print(f"  Failed to fetch max-leverage: {e}")

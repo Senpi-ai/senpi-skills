@@ -8,12 +8,12 @@ Usage: python3 sm-flip-check.py
 Reads active DSL state files from all strategy state dirs.
 """
 
-import json, subprocess, sys, os, glob
+import json, sys, os, glob
 from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import load_all_strategies, dsl_state_glob
+from wolf_config import load_all_strategies, dsl_state_glob, mcporter_call
 
 
 def get_active_positions():
@@ -37,39 +37,15 @@ def get_active_positions():
 
 
 def get_sm_data():
-    """Fetch smart money data via leaderboard_get_markets. Retries up to 3 times."""
-    import time
-    last_error = None
-    for attempt in range(3):
-        try:
-            result = subprocess.run(
-                ["mcporter", "call", "senpi", "leaderboard_get_markets", "--args", "{}"],
-                capture_output=True, text=True, timeout=30
-            )
-            return json.loads(result.stdout)
-        except Exception as e:
-            last_error = e
-            if attempt < 2:
-                time.sleep(3)
-    raise last_error
+    """Fetch smart money data via leaderboard_get_markets."""
+    return mcporter_call("leaderboard_get_markets")
 
 
 def analyze(positions, sm_data):
     """Check for SM flips against our positions."""
     alerts = []
 
-    # Parse SM data
-    raw = sm_data.get("data", sm_data.get("result", {}))
-    if isinstance(raw, dict):
-        inner = raw.get("markets", raw)
-        if isinstance(inner, dict):
-            markets = inner.get("markets", [])
-        elif isinstance(inner, list):
-            markets = inner
-        else:
-            markets = []
-    else:
-        markets = []
+    markets = sm_data.get("markets", {}).get("markets", [])
     if not isinstance(markets, list):
         return {"error": "unexpected SM data format", "raw_keys": str(type(markets))}
 

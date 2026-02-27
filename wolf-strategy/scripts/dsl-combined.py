@@ -19,62 +19,40 @@ Usage:
 
 Output: JSON with per-position results + summary.
 """
-import json, subprocess, os, sys, glob, time
+import json, os, sys, glob
 from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import load_all_strategies, dsl_state_glob, atomic_write, validate_dsl_state
+from wolf_config import (load_all_strategies, dsl_state_glob, atomic_write,
+                         validate_dsl_state, mcporter_call, mcporter_call_safe)
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def fetch_all_mids(dex=None):
     """Fetch all mid prices via Senpi MCP market_get_prices. Returns dict of asset->price."""
-    for attempt in range(3):
-        try:
-            cmd = ["mcporter", "call", "senpi.market_get_prices"]
-            if dex:
-                cmd.append(f"dex={dex}")
-            r = subprocess.run(
-                cmd,
-                capture_output=True, text=True, timeout=15
-            )
-            d = json.loads(r.stdout)
-            prices = d.get("data", d)
-            if isinstance(prices, dict):
-                return prices
-        except Exception:
-            pass
-        if attempt < 2:
-            time.sleep(3)
+    kwargs = {"dex": dex} if dex else {}
+    data = mcporter_call_safe("market_get_prices", **kwargs)
+    if data:
+        return data.get("prices", {})
     return {}
 
 
 def close_position(wallet, coin, reason):
     """Close a position via mcporter with retry."""
-    for attempt in range(2):
-        try:
-            cr = subprocess.run(
-                ["mcporter", "call", "senpi", "close_position", "--args",
-                 json.dumps({
-                     "strategyWalletAddress": wallet,
-                     "coin": coin,
-                     "reason": reason
-                 })],
-                capture_output=True, text=True, timeout=30
-            )
-            result_text = cr.stdout.strip()
-            no_position = "CLOSE_NO_POSITION" in result_text
-            if cr.returncode == 0 and ("error" not in result_text.lower() or no_position):
-                return True, result_text if not no_position else "position_already_closed"
-            else:
-                last_error = f"api_error_attempt_{attempt+1}: {result_text}"
-        except Exception as e:
-            last_error = f"error_attempt_{attempt+1}: {str(e)}"
-        if attempt < 1:
-            time.sleep(3)
-    return False, last_error
+    try:
+        data = mcporter_call("close_position", retries=2, timeout=30,
+                             strategyWalletAddress=wallet, coin=coin, reason=reason)
+        result_text = json.dumps(data)
+        if "CLOSE_NO_POSITION" in result_text:
+            return True, "position_already_closed"
+        return True, result_text
+    except RuntimeError as e:
+        err_str = str(e)
+        if "CLOSE_NO_POSITION" in err_str:
+            return True, "position_already_closed"
+        return False, err_str
 
 
 def process_position(state_file, state, price, strategy_cfg):

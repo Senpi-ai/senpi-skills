@@ -13,7 +13,7 @@ Usage:
     path = dsl_state_path("wolf-abc123", "HYPE")
 """
 
-import json, os, sys, glob
+import json, os, sys, glob, subprocess, time, tempfile, shlex
 
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
@@ -204,6 +204,75 @@ def get_all_active_positions():
             except (json.JSONDecodeError, IOError, KeyError):
                 continue
     return positions
+
+
+def mcporter_call(tool, retries=3, timeout=30, **kwargs):
+    """Call a Senpi MCP tool via mcporter. Returns the `data` portion of the response.
+
+    Standardized invocation across all wolf-strategy scripts:
+      mcporter call senpi.{tool} key=value ...
+
+    Args:
+        tool: Tool name (e.g. "market_get_prices", "close_position").
+        retries: Number of attempts before giving up.
+        timeout: Subprocess timeout in seconds.
+        **kwargs: Tool arguments as key=value pairs.
+
+    Returns:
+        The `data` dict from the MCP response envelope.
+
+    Raises:
+        RuntimeError: If all retries fail or the tool returns success=false.
+    """
+    args = []
+    for k, v in kwargs.items():
+        if v is None:
+            continue
+        if isinstance(v, (list, dict)):
+            args.append(f"{k}={json.dumps(v)}")
+        elif isinstance(v, bool):
+            args.append(f"{k}={json.dumps(v)}")
+        else:
+            args.append(f"{k}={v}")
+
+    mcporter_bin = os.environ.get("MCPORTER_CMD", "mcporter")
+    cmd_str = " ".join(
+        [shlex.quote(mcporter_bin), "call", shlex.quote(f"senpi.{tool}")]
+        + [shlex.quote(a) for a in args]
+    )
+    last_error = None
+
+    for attempt in range(retries):
+        fd, tmp = None, None
+        try:
+            fd, tmp = tempfile.mkstemp(suffix=".json")
+            os.close(fd)
+            subprocess.run(
+                f"{cmd_str} > {tmp} 2>/dev/null",
+                shell=True, timeout=timeout,
+            )
+            with open(tmp) as f:
+                d = json.load(f)
+            if d.get("success"):
+                return d.get("data", {})
+            last_error = d.get("error", d)
+        except (json.JSONDecodeError, subprocess.TimeoutExpired, OSError) as e:
+            last_error = str(e)
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
+        if attempt < retries - 1:
+            time.sleep(3)
+
+    raise RuntimeError(f"mcporter {tool} failed after {retries} attempts: {last_error}")
+
+
+def mcporter_call_safe(tool, retries=3, timeout=30, **kwargs):
+    """Like mcporter_call but returns None instead of raising on failure."""
+    try:
+        return mcporter_call(tool, retries=retries, timeout=timeout, **kwargs)
+    except RuntimeError:
+        return None
 
 
 def atomic_write(path, data):
