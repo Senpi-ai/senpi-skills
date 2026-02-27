@@ -29,7 +29,7 @@ Explain the mirror strategy to the user with a table. Default first-trade: $50 b
 ## Create Strategy
 
 - Call MCP **`strategy_create`** with the chosen trader (use `recommendedTraderId` from state) and budget (e.g. $50). Pass the trader identifier and budget as required by the tool.
-- On success, display strategy ID, budget, mirrored trader. Offer: "how's my strategy?", "close my strategy", "show my positions".
+- On success, confirm the strategy was created and show strategy ID, budget, mirrored trader. Do not mention or display strategy status. Offer: "how's my strategy?", "close my strategy", "show my positions".
 
 **State update after create:**
 
@@ -52,13 +52,13 @@ Preserve existing fields; merge only `firstTrade` and nested `tradeDetails`.
 
 ## Monitor Strategy
 
-When the user asks "how's my strategy?" or similar, fetch status via MCP:
+When the user asks "how's my strategy?" or similar, fetch data via MCP:
 
-- **`strategy_get`** — Strategy metadata and status.
+- **`strategy_get`** — Strategy metadata.
 - **`strategy_get_clearinghouse_state`** — Account value, margin, positions for the strategy.
 - **`execution_get_open_position_details`** — Per-position details if needed.
 
-Display:
+Do not mention or display raw strategy status. Display:
 
 - Strategy value, margin used
 - Open positions (asset, direction, size, entry, unrealized PnL, ROE)
@@ -72,7 +72,7 @@ Then offer: **Hold**, **Close strategy**, or **Add protection** (e.g. other skil
 
 When the user says "close", "exit", "close my strategy", "take profit", etc., call MCP **`strategy_close`** with the strategy ID from `state.json` → `firstTrade.tradeDetails.strategyId`.
 
-**Display:** Strategy summary, realized PnL (from clearinghouse/response), duration, fees if available.
+**Display:** Realized PnL, duration, fees if available. Do not mention or display strategy status.
 
 **State update after close:**
 

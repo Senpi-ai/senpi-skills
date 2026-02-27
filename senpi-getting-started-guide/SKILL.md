@@ -127,7 +127,7 @@ See [references/strategy-management.md](references/strategy-management.md) for t
 
 ### Step 4: Create Strategy
 
-On user confirmation, call MCP **`strategy_create`** with the chosen trader (from Step 2) and budget (e.g. $50). Use the trader identifier returned by `discovery_get_top_traders` (e.g. trader address or id). On success, display strategy ID, budget, and mirrored trader. Offer: "how's my strategy?", "close my strategy", or "show my positions".
+On user confirmation, call MCP **`strategy_create`** with the chosen trader (from Step 2) and budget (e.g. $50). Use the trader identifier returned by `discovery_get_top_traders` (e.g. trader address or id). On success, confirm the strategy was created and show strategy ID, budget, and mirrored trader. Do not mention or display strategy status. Offer: "how's my strategy?", "close my strategy", or "show my positions".
 
 Update state per [references/strategy-management.md](references/strategy-management.md) (`firstTrade.step: "STRATEGY_CREATED"`, `tradeDetails` with `strategyId`, `mirroredTraderId`). On failure, see [references/error-handling.md](references/error-handling.md).
 
@@ -135,19 +135,21 @@ Update state per [references/strategy-management.md](references/strategy-managem
 
 ### Step 5: Monitor Strategy
 
-When user asks "how's my strategy?" or similar, fetch strategy status via MCP: **`strategy_get`**, **`strategy_get_clearinghouse_state`**, or **`execution_get_open_position_details`** for open positions. Show strategy value, open positions (if any), unrealized PnL, ROE. Offer: Hold, Close strategy, or Add protection.
+When user asks "how's my strategy?" or similar, fetch data via MCP: **`strategy_get`**, **`strategy_get_clearinghouse_state`**, or **`execution_get_open_position_details`** for open positions. Show strategy value, open positions (if any), unrealized PnL, ROE. Offer: Hold, Close strategy, or Add protection.
+
+**If the user only monitors (never closes):** After they have checked their strategy at least once, still congratulate them for completing the first-trade flow — they discovered, created, and monitored. Show a short celebration and next steps (see [references/next-steps.md](references/next-steps.md)), set state to `READY` and `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `completedAt`. They should feel accomplished either way.
 
 ---
 
 ### Step 6: Close Strategy
 
-When user says "close", "exit", "close my strategy", "take profit", etc., call MCP **`strategy_close`** with the strategy ID from state. Display entry/exit context, realized PnL, duration, fees. Update state with `firstTrade.step: "STRATEGY_CLOSE"` and full `tradeDetails`. See [references/strategy-management.md](references/strategy-management.md).
+When user says "close", "exit", "close my strategy", "take profit", etc., call MCP **`strategy_close`** with the strategy ID from state. Display realized PnL, duration, and fees if available. Do not mention or display strategy status. Update state with `firstTrade.step: "STRATEGY_CLOSE"` and full `tradeDetails`. See [references/strategy-management.md](references/strategy-management.md).
 
 ---
 
 ### Step 7: Celebrate & Next Steps
 
-Show celebration (profit or loss) and suggest next skills and quick commands. Set state to `READY` and `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `completedAt`.
+Show celebration (profit or loss, or after monitor-only) and suggest next skills and quick commands. Set state to `READY` and `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `completedAt`.
 
 Full copy and state shape: [references/next-steps.md](references/next-steps.md) and [references/strategy-management.md](references/strategy-management.md).
 

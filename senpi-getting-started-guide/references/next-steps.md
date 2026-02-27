@@ -1,6 +1,6 @@
 # Next Steps Reference
 
-Use this for **celebration**, **skip tutorial**, and **resume** handling in the first-trade guide.
+Use this for **celebration** (after close or after monitor-only), **skip tutorial**, and **resume** handling in the first-trade guide.
 
 ---
 
@@ -43,6 +43,24 @@ Use this for **celebration**, **skip tutorial**, and **resume** handling in the 
 > Explore: DSL, Scanner, WOLF, Whale Index. Say "find opportunities" to discover more traders.
 
 Then update state to `READY` and set `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt`. See [references/strategy-management.md](references/strategy-management.md) for the full state shape (strategy flow).
+
+---
+
+## Celebrate (After Monitor — No Close)
+
+If the user completed discovery and created a strategy but only monitored (e.g. asked "how's my strategy?" one or more times) and did not close, still congratulate them so they feel accomplished:
+
+> 🎉 **You've completed your first trade flow!**
+>
+> You discovered top traders, created a mirror strategy, and checked how it's doing. Nice work!
+>
+> Your strategy is still running. You can say **"close my strategy"** anytime to close it and bring funds back to your wallet, or keep it open and check back with "how's my strategy?"
+>
+> **What you learned:** Discovery, mirroring a trader, creating a strategy, and monitoring.
+>
+> **Next:** Try "show my portfolio", "find opportunities", or install more skills — e.g. **Whale Index** to auto-mirror top traders, or **DSL** for protection.
+
+Then update state to `READY`, `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt`. Preserve existing `tradeDetails` (strategyId, etc.); no need for PnL if they didn't close.
 
 ---
 
@@ -97,7 +115,7 @@ case $STEP in
     # User saw top traders — ask if ready to create strategy with recommended trader
     ;;
   "STRATEGY_CREATED")
-    # Strategy is active — check status and offer to close
+    # Strategy is active — show value/positions and offer to close or congratulate (monitor-only completion)
     ;;
   "STRATEGY_CLOSE")
     # Just closed — show celebration
@@ -109,6 +127,6 @@ esac
 
 > 👋 Welcome back! You were in the middle of your first trade tutorial.
 >
-> [Show current status based on step: discovery → recommend trader; strategy created → show strategy status and offer to close.]
+> [Show current situation based on step: discovery → recommend trader; strategy created → show strategy value/positions and offer to close or congratulate.]
 >
 > Want to continue? Say "yes" or "start over" to begin fresh.
