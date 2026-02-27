@@ -286,15 +286,26 @@ Use `SENPI_MCP_ENDPOINT` (default: `https://mcp.prod.senpi.ai`) and `API_KEY` fr
 
 ### Step 7: Verify and Confirm
 
-Update state to `UNFUNDED`:
+Update state to `UNFUNDED`. Preserve `onboarding.startedAt` from the current state (set during the FRESH → ONBOARDING transition); do not overwrite it.
 
 ```bash
+ONBOARDING_STARTED_AT=$(node -e "
+  try {
+    const fs = require('fs');
+    const p = require('os').homedir() + '/.config/senpi/state.json';
+    const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+    const v = j.onboarding && j.onboarding.startedAt;
+    console.log(v ? JSON.stringify(v) : 'null');
+  } catch (e) { console.log('null'); }
+")
 cat > ~/.config/senpi/state.json << EOF
 {
   "version": "1.0.0",
   "state": "UNFUNDED",
+  "error": null,
   "onboarding": {
     "step": "COMPLETE",
+    "startedAt": ${ONBOARDING_STARTED_AT},
     "completedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
     "identityType": "${IDENTITY_TYPE}",
     "subject": "${IDENTITY_VALUE}",
