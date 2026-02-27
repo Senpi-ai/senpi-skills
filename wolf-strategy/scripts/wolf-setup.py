@@ -208,26 +208,31 @@ print(f"  State directory created: {state_dir}")
 for d in ["history", "memory", "logs"]:
     os.makedirs(os.path.join(WORKSPACE, d), exist_ok=True)
 
-# Fetch max-leverage from Hyperliquid
-print("\nFetching max-leverage data from Hyperliquid...")
+# Fetch max-leverage via MCP (covers both crypto and XYZ instruments)
+print("\nFetching max-leverage data...")
 try:
     r = subprocess.run(
-        ["curl", "-s", "https://api.hyperliquid.xyz/info",
-         "-H", "Content-Type: application/json",
-         "-d", '{"type":"meta"}'],
+        ["mcporter", "call", "senpi.market_list_instruments"],
         capture_output=True, text=True, timeout=30
     )
-    meta = json.loads(r.stdout)
+    data = json.loads(r.stdout)
+    instruments = data.get("data", [])
     max_lev = {}
-    for asset in meta.get("universe", []):
-        name = asset["name"]
-        max_lev[name] = asset.get("maxLeverage", 50)
+    for inst in instruments:
+        name = inst.get("name", "")
+        if not name:
+            continue
+        lev = inst.get("maxLeverage")
+        if lev is not None:
+            max_lev[name] = int(lev)
     with open(MAX_LEV_FILE, "w") as f:
         json.dump(max_lev, f, indent=2)
-    print(f"  Max leverage data saved ({len(max_lev)} assets) to {MAX_LEV_FILE}")
+    crypto_count = sum(1 for inst in instruments if not inst.get("dex"))
+    xyz_count = sum(1 for inst in instruments if inst.get("dex"))
+    print(f"  Max leverage data saved ({len(max_lev)} assets: {crypto_count} crypto, {xyz_count} XYZ) to {MAX_LEV_FILE}")
 except Exception as e:
     print(f"  Failed to fetch max-leverage: {e}")
-    print("   You can manually fetch later.")
+    print("  You can manually fetch later.")
 
 # Build cron templates
 tg = f"telegram:{chat_id}"

@@ -94,14 +94,15 @@ Format: code-block table with per-strategy name/account value/positions (asset, 
 
 ```
 WOLF Health Check: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/job-health-check.py`, parse JSON.
-Fix issues by type:
-- NO_WALLET → CRITICAL, alert Telegram ({TELEGRAM}) only (cannot fix, needs manual config).
-- NO_DSL → CRITICAL, create DSL state file at `state/{strategyKey}/dsl-{ASSET}.json` using the template from `dsl_state_template()` in wolf_config.py with the position's asset, direction, entry price, size, and leverage. Alert Telegram.
-- DSL_INACTIVE → CRITICAL, set `active: true` in the existing DSL state file. Alert Telegram.
-- DIRECTION_MISMATCH → CRITICAL, update `direction` field in DSL state file to match the actual position direction. Alert Telegram.
-- ORPHAN_DSL → WARNING, set `active: false` in the orphaned DSL state file. No Telegram alert.
-- DSL_STALE → WARNING, no fix needed (DSL combined will update on next run). No Telegram alert.
-- FETCH_ERROR → WARNING, no fix needed (transient). No Telegram alert.
+The script auto-fixes most issues (check the `action` field per issue):
+- auto_created → DSL was missing, script created it. Alert Telegram ({TELEGRAM}).
+- auto_deactivated → Orphan DSL deactivated (position closed externally). No alert needed.
+- auto_replaced → Direction mismatch fixed with fresh DSL. Alert Telegram ({TELEGRAM}).
+- updated_state → Size/entry/leverage reconciled to match on-chain. No alert needed.
+- skipped_fetch_error → Orphan check skipped due to API error. No alert needed (transient).
+- alert_only → Script could not auto-fix. Handle manually:
+  - NO_WALLET → CRITICAL, needs manual config. Alert Telegram ({TELEGRAM}).
+  - DSL_INACTIVE → CRITICAL, set `active: true` in the DSL state file. Alert Telegram ({TELEGRAM}).
 If no issues → HEARTBEAT_OK.
 ```
 

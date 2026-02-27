@@ -258,7 +258,7 @@ def validate_dsl_state(state, state_file=None):
 
 
 def dsl_state_template(asset, direction, entry_price, size, leverage,
-                       strategy_key=None, tiers=None):
+                       strategy_key=None, tiers=None, created_by="entry_flow"):
     """Create a minimal valid DSL state dict for a new position.
 
     Used by health check to create missing DSL state files.
@@ -310,4 +310,5 @@ def dsl_state_template(asset, direction, entry_price, size, leverage,
         "createdAt": now,
         "lastCheck": now,
         "strategyKey": strategy_key,
+        "createdBy": created_by,
     }
