@@ -12,7 +12,7 @@ If the user tries to create a strategy but balance is less than the required amo
 
 > ⚠️ **Not enough balance**
 >
-> You need at least $50 to create this strategy.
+> You need at least **$100** to create this strategy.
 >
 > Current balance: $10.00
 >
