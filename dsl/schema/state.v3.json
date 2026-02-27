@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dsl-state-v3",
+  "title": "DSL Position State v3",
+  "description": "Position state: meta + config (immutable) + runtime (engine-owned)",
+  "type": "object",
+  "properties": {
+    "meta": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": { "const": 3 },
+        "namespace": { "type": "string" },
+        "owner": { "type": "object", "properties": { "skill": { "type": "string" }, "ref": { "type": "string" } } },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "config": {
+      "type": "object",
+      "properties": {
+        "asset": { "type": "string" },
+        "direction": { "type": "string", "enum": ["long", "short"] },
+        "entryPrice": { "type": "number" },
+        "size": { "type": "number" },
+        "leverage": { "type": "integer" },
+        "wallet": { "type": "string" },
+        "strategyKey": { "type": "string" },
+        "phase1": { "type": "object" },
+        "phase2": { "type": "object" },
+        "tiers": { "type": "array", "items": { "type": "object" } },
+        "stagnation": { "type": "object" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "phase": { "type": "integer" },
+        "active": { "type": "boolean" },
+        "pendingClose": { "type": "boolean" },
+        "highWaterPrice": { "type": "number" },
+        "hwTimestamp": { "type": "string" },
+        "currentTierIndex": { "type": "integer" },
+        "tierFloorPrice": { "type": ["number", "null"] },
+        "floorPrice": { "type": "number" },
+        "currentBreachCount": { "type": "integer" },
+        "peakROE": { "type": "number" }
+      }
+    }
+  }
+}

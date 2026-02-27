@@ -10,8 +10,7 @@ description: >-
 license: Apache-2.0
 compatibility: >-
   Requires python3, mcporter (configured with Senpi auth), and cron.
-  Hyperliquid perp positions only. Uses the same dsl-v4.py script as
-  the dsl-dynamic-stop-loss skill.
+  Hyperliquid perp positions only.   Uses the same dsl engine as the dsl skill (scripts/dsl.py or dsl-v4.py).
 metadata:
   author: jason-goldberg
   version: "1.0"
@@ -146,4 +145,4 @@ Every 3 minutes per position. Script location: `scripts/dsl-v4.py` (same script 
 
 ## Script Location
 
-Uses the same `dsl-v4.py` script from the `dsl-dynamic-stop-loss` skill. Install that skill first, then use this state file template for the tighter preset.
+Uses the same DSL engine from the `dsl` skill. Install the `dsl` skill first, then use this state file template for the tighter preset.

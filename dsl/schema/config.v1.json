@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dsl-config-v1",
+  "title": "DSL Config",
+  "description": "Layered config contract for DSL skill",
+  "type": "object",
+  "properties": {
+    "model": {
+      "type": "object",
+      "properties": {
+        "primary": { "type": "string", "description": "Model ID for cron" },
+        "fallback": { "type": "string" },
+        "allowOverride": { "type": "boolean", "default": true }
+      }
+    },
+    "cron": {
+      "type": "object",
+      "properties": {
+        "intervalSeconds": { "type": "integer", "minimum": 60, "default": 180 },
+        "mode": { "type": "string", "enum": ["single", "strategy", "multi"], "default": "multi" },
+        "maxConcurrent": { "type": "integer", "minimum": 1, "default": 5 },
+        "pauseOnError": { "type": "boolean", "default": false },
+        "backoffSeconds": { "type": "integer", "default": 30 },
+        "maxRetries": { "type": "integer", "default": 3 }
+      }
+    },
+    "state": {
+      "type": "object",
+      "properties": {
+        "retentionDays": { "type": "integer", "minimum": 0, "default": 30 },
+        "maxHistoryPerPosition": { "type": "integer", "minimum": 0, "default": 0 },
+        "cleanupOnClose": { "type": "boolean", "default": false },
+        "persistInactive": { "type": "boolean", "default": true },
+        "namespace": { "type": "string", "default": "default" }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "default": "multi" },
+        "outputLevel": { "type": "string", "enum": ["full", "minimal", "silent"], "default": "full" },
+        "priceSource": { "type": "string", "default": "auto" }
+      }
+    }
+  }
+}

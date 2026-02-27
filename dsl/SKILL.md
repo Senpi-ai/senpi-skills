@@ -1,27 +1,29 @@
 ---
-name: dsl-dynamic-stop-loss
-description: >-
-  Automated trailing stop loss for leveraged perpetual positions on Hyperliquid.
-  Monitors price via cron, ratchets profit floors through configurable tiers,
-  and auto-closes positions on breach via mcporter — no agent intervention for
-  the critical path. Works for LONG and SHORT. ROE-based (return on margin)
-  tier triggers that automatically account for leverage.
-  Use when protecting an open Hyperliquid perp position, setting up trailing
-  stops, managing profit tiers, or automating position exits on breach.
+name: dsl
+description: >
+  Dynamic stop-loss engine for Hyperliquid leveraged positions.
+  Use when running a trailing stop cron, checking a floor price,
+  managing an open position, or processing a DSL heartbeat tick.
 license: Apache-2.0
-compatibility: >-
-  Requires python3, mcporter (configured with Senpi auth), and cron.
-  Hyperliquid perp positions only.
 metadata:
-  author: jason-goldberg
-  version: "4.0"
+  author: senpi
+  version: "5.0.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# Dynamic Stop Loss (DSL) v4
+# DSL — Dynamic Stop-Loss Engine v5
 
 Automated trailing stop loss for leveraged perp positions on Hyperliquid. Monitors price via cron, ratchets profit floors upward through configurable tiers, and **auto-closes positions on breach** — no agent intervention required for the critical path.
+
+## Unified DSL — Single Executor
+
+This skill is the **single place** where DSL logic runs. Other skills depend on it:
+
+- **wolf-strategy**, **dsl-tight**, etc. are **producers**: they create DSL state files when opening positions (canonical schema defined here).
+- They are **consumers**: they run this skill (single or batch), parse JSON output, and handle alerts/slots.
+
+No duplicated DSL engines; one codebase for tier/breach/close. See [design/dsl-unified-architecture.md](../design/dsl-unified-architecture.md) for the full design, migration plan, and optimization (batch mode, registry discovery, events, presets, token reduction).
 
 ## Self-Contained Design
 
@@ -135,7 +137,8 @@ For LONGs, "best" = maximum. For SHORTs, "best" = minimum.
 
 | File | Purpose |
 |------|---------|
-| `scripts/dsl-v4.py` | Core DSL engine — monitors, closes, outputs JSON |
+| `scripts/dsl_common.py` | Shared module — state I/O, MCP price fetch, close_position |
+| `scripts/dsl-v4.py` | Entry point — loads state, uses dsl_common for I/O and MCP, runs tier/breach logic, outputs JSON |
 | State file (JSON) | Per-position config + runtime state |
 
 **Multiple positions:** Set `DSL_STATE_FILE=/path/to/state.json` to run separate instances per position. Each gets its own state file and cron job.

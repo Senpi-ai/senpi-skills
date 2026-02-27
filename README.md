@@ -16,7 +16,7 @@ Skills give your Senpi agent superpowers — pre-built trading strategies and to
 ## Install a skill (OpenClaw / ClawHub)
 
 ```bash
-clawhub install dsl-dynamic-stop-loss
+clawhub install dsl
 clawhub install dsl-tight
 clawhub install opportunity-scanner
 clawhub install autonomous-trading
@@ -31,7 +31,7 @@ clawhub install wolf-howl
 🤖 Grab the raw URL and go:
 
 ```
-https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dsl-dynamic-stop-loss/SKILL.md
+https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dsl/SKILL.md
 https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dsl-tight/SKILL.md
 https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/opportunity-scanner/SKILL.md
 https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/autonomous-trading/SKILL.md
@@ -49,7 +49,7 @@ Each skill folder is self-contained — SKILL.md has the core instructions, `scr
 
 | Skill | What it does | Install |
 |-------|-------------|---------|
-| **[DSL (Dynamic Stop Loss)](#dsl-dynamic-stop-loss)** | 2-phase trailing stop loss with per-tier retrace tightening. ROE-based tier triggers, auto-closes on breach with retry. Works for LONG and SHORT. | [`SKILL.md`](dsl-dynamic-stop-loss/SKILL.md) |
+| **[DSL (Dynamic Stop Loss)](#dsl)** | 2-phase trailing stop loss with per-tier retrace tightening. ROE-based tier triggers, auto-closes on breach with retry. Works for LONG and SHORT. | [`SKILL.md`](dsl/SKILL.md) |
 | **[DSL-Tight](#dsl-tight)** | Opinionated DSL preset with tighter defaults. 4 tiers with per-tier breach counts that tighten as profit grows, auto-calculated price floors, stagnation take-profit. | [`SKILL.md`](dsl-tight/SKILL.md) |
 | **[Opportunity Scanner](#opportunity-scanner)** | 4-stage funnel screening all 500+ Hyperliquid perps. Scores 0–400 across smart money, market structure, technicals, and funding. Hourly trend gate, BTC macro filter. | [`SKILL.md`](opportunity-scanner/SKILL.md) |
 | **[Autonomous Trading](#autonomous-trading)** | Give your agent a budget, target, and deadline — it does the rest. Orchestrates DSL + Scanner + Emerging Movers with race condition prevention and conviction collapse cuts. | [`SKILL.md`](autonomous-trading/SKILL.md) |
@@ -62,7 +62,7 @@ Each skill folder is self-contained — SKILL.md has the core instructions, `scr
 
 ## Skill details
 
-### DSL (Dynamic Stop Loss)
+### DSL
 
 Automated trailing stop loss for leveraged perp positions on Hyperliquid. All tier triggers are ROE-based (return on margin), so they automatically account for leverage.
 
@@ -70,7 +70,7 @@ Automated trailing stop loss for leveraged perp positions on Hyperliquid. All ti
 
 **Key features:** ROE-based tier ratcheting, per-tier retrace, breach decay modes, error handling with close retry and `pendingClose` recovery. Self-contained: one Python script + one JSON state file.
 
-📥 **[Download SKILL.md](dsl-dynamic-stop-loss/SKILL.md)**
+📥 **[Download SKILL.md](dsl/SKILL.md)**
 
 ---
 

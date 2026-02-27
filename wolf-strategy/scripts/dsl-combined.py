@@ -4,15 +4,8 @@
 Iterates ALL enabled strategies, processes ALL active DSL state files per strategy.
 Each position uses its own strategy's wallet for close operations.
 
-v2.0 changes (WOLF v6):
-  - Multi-strategy: iterates load_all_strategies(), uses per-strategy state dirs
-  - Each result includes strategyKey for routing
-  - Two HYPE positions in different strategies processed independently
-  - Uses wolf_config for paths and config loading
-
-v1.0 (WOLF v5):
-  - Single cron manages ALL active WOLF positions
-  - Batch pricing, per-position DSL v4.1 logic
+When dsl skill (>=5.0.0) is installed, uses dsl_engine.process_position (canonical engine).
+Otherwise uses built-in DSL v4.1 logic.
 
 Usage:
   PYTHONUNBUFFERED=1 python3 dsl-combined.py
@@ -22,14 +15,33 @@ Output: JSON with per-position results + summary.
 import json, subprocess, os, sys, glob, time
 from datetime import datetime, timezone
 
-# Add scripts dir to path for wolf_config import
+# Add scripts dir for wolf_config; optionally dsl/scripts for canonical engine
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import load_all_strategies, dsl_state_glob, atomic_write
+
+_use_dsl_engine = False
+_process_position_dsl = None
+_save_state_dsl = None
+_close_position_dsl = None
+try:
+    skills_root = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    dsl_scripts = os.path.join(skills_root, "dsl", "scripts")
+    if os.path.isdir(dsl_scripts) and dsl_scripts not in sys.path:
+        sys.path.insert(0, dsl_scripts)
+    from dsl_skill import require_skill
+    dsl_engine = require_skill("dsl", min_version="5.0.0")
+    import dsl_common
+    _process_position_dsl = dsl_engine.process_position
+    _save_state_dsl = dsl_common.save_state
+    _close_position_dsl = dsl_common.close_position
+    _use_dsl_engine = True
+except ImportError:
+    pass
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def fetch_all_mids(dex=None):
+def _fetch_all_mids_local(dex=None):
     """Fetch all mid prices via Senpi MCP market_get_prices (senpi-hyperliquid-mcp).
     Returns dict of asset->price (string). If dex is passed, it is sent to the tool."""
     try:
@@ -369,8 +381,15 @@ if not strategies:
     sys.exit(0)
 
 # Batch-fetch prices: main DEX and XYZ DEX via MCP market_get_prices
-all_mids = fetch_all_mids()           # main DEX (crypto)
-xyz_mids = fetch_all_mids(dex="xyz")  # XYZ DEX (keys like xyz:XYZ100, xyz:TSLA)
+if _use_dsl_engine and hasattr(dsl_common, "fetch_all_prices"):
+    all_mids = dsl_common.fetch_all_prices()
+    xyz_mids = dsl_common.fetch_all_prices(dex="xyz")
+else:
+    all_mids = _fetch_all_mids_local()
+    xyz_mids = _fetch_all_mids_local(dex="xyz")
+# Normalize to float
+all_mids = {k: float(v) if v is not None else None for k, v in (all_mids or {}).items()}
+xyz_mids = {k: float(v) if v is not None else None for k, v in (xyz_mids or {}).items()}
 
 # Collect all state files across strategies
 all_state_entries = []  # (state_file_path, strategy_cfg)
@@ -432,7 +451,21 @@ for sf, cfg in all_state_entries:
         continue
 
     state["consecutiveFetchFailures"] = 0
-    result = process_position(sf, state, price, cfg)
+    if _use_dsl_engine and _process_position_dsl and _save_state_dsl and _close_position_dsl:
+        def close_fn(w, c, r):
+            return _close_position_dsl(w, c, r)
+        proc_result = _process_position_dsl(
+            state, float(price), now_iso=now,
+            close_fn=close_fn,
+            strategy_wallet=cfg.get("wallet"),
+        )
+        _save_state_dsl(sf, state)
+        result = proc_result.to_dict()
+        result["strategyKey"] = cfg.get("_key", "unknown")
+        result["close_reason"] = proc_result.close_reason
+        result["close_result"] = proc_result.close_result
+    else:
+        result = process_position(sf, state, price, cfg)
     results.append(result)
 
     if result.get("closed"):

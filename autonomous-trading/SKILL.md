@@ -10,7 +10,7 @@ description: >-
   or running a scan-evaluate-trade-protect loop.
 license: Apache-2.0
 compatibility: >-
-  Requires python3, mcporter, and cron. Depends on dsl-dynamic-stop-loss,
+  Requires python3, mcporter, and cron. Depends on dsl,
   opportunity-scanner, and emerging-movers skills.
 metadata:
   author: jason-goldberg
@@ -27,7 +27,7 @@ Give your agent a budget, a target, and a deadline — then let it trade. The ag
 
 Install these companion skills first:
 
-1. **dsl-dynamic-stop-loss** — trailing stops, auto-closing, per-tier retrace
+1. **dsl** — trailing stops, auto-closing, per-tier retrace
 2. **opportunity-scanner** — market scanning, scoring, hourly trend gate
 3. **emerging-movers** — SM rotation detection, IMMEDIATE_MOVER signals
 

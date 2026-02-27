@@ -1,0 +1,14 @@
+{
+  "name": "wolf-strategy",
+  "version": "3.0.0",
+  "description": "Multi-strategy autonomous trading for Hyperliquid",
+  "peerDependencies": {
+    "dsl": ">=5.0.0"
+  },
+  "skillConfig": {
+    "dsl": {
+      "cron": { "intervalSeconds": 60, "mode": "strategy" },
+      "state": { "namespace": "wolf", "cleanupOnClose": false }
+    }
+  }
+}

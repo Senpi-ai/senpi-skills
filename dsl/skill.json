@@ -1,0 +1,54 @@
+{
+  "name": "dsl",
+  "version": "5.0.0",
+  "description": "Dynamic stop-loss engine for Hyperliquid perpetual positions",
+  "author": "senpi",
+  "license": "Apache-2.0",
+  "main": "scripts/dsl.py",
+  "scripts": {
+    "run": "scripts/dsl.py",
+    "init": "scripts/dsl-init.py",
+    "migrate": "scripts/dsl-migrate.py"
+  },
+  "provides": {
+    "engine": "scripts/dsl_engine.py",
+    "presets": "scripts/dsl_presets.py",
+    "config": "scripts/dsl_config.py",
+    "stateSchema": "schema/state.v3.json",
+    "eventSchema": "schema/event.v1.json",
+    "configSchema": "schema/config.v1.json"
+  },
+  "peerDependencies": {},
+  "state": {
+    "owns": "state/dsl",
+    "namespaced": true,
+    "events": "events/dsl"
+  },
+  "defaultConfig": {
+    "model": {
+      "primary": "<primary-model-id>",
+      "fallback": "<fallback-model-id>",
+      "allowOverride": true
+    },
+    "cron": {
+      "intervalSeconds": 180,
+      "mode": "multi",
+      "maxConcurrent": 5,
+      "pauseOnError": false,
+      "backoffSeconds": 30,
+      "maxRetries": 3
+    },
+    "state": {
+      "retentionDays": 30,
+      "maxHistoryPerPosition": 0,
+      "cleanupOnClose": false,
+      "persistInactive": true,
+      "namespace": "default"
+    },
+    "execution": {
+      "mode": "multi",
+      "outputLevel": "full",
+      "priceSource": "auto"
+    }
+  }
+}

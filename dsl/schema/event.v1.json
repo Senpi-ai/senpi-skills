@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dsl-event-v1",
+  "title": "DSL Event Log Entry",
+  "description": "Append-only event record per strategy",
+  "type": "object",
+  "properties": {
+    "v": { "const": 1 },
+    "event": { "type": "string" },
+    "ts": { "type": "string", "format": "date-time" },
+    "source": { "type": "string" },
+    "namespace": { "type": "string" },
+    "payload": { "type": "object" }
+  },
+  "required": ["v", "event", "ts", "payload"]
+}

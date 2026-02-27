@@ -5,18 +5,26 @@ wolf_config.py — Multi-strategy config loader for WOLF v6
 Provides a single importable module every script uses to load strategy config,
 resolve state file paths, and handle legacy migration.
 
-Usage:
-    from wolf_config import load_strategy, load_all_strategies, dsl_state_path
-    cfg = load_strategy("wolf-abc123")   # Specific strategy
-    cfg = load_strategy()                # Default strategy
-    strategies = load_all_strategies()   # All enabled strategies
-    path = dsl_state_path("wolf-abc123", "HYPE")
+When the dsl skill (>=5.0.0) is installed as a peer, uses dsl path helpers and
+EventReader for consistency. Otherwise uses local path logic.
 """
 
 import json, os, sys, glob
 
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
+
+# Optional: use dsl skill path helpers and EventReader when available
+_dsl_engine = None
+try:
+    skills_root = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    dsl_scripts = os.path.join(skills_root, "dsl", "scripts")
+    if os.path.isdir(dsl_scripts) and dsl_scripts not in sys.path:
+        sys.path.insert(0, dsl_scripts)
+    from dsl_skill import require_skill
+    _dsl_engine = require_skill("dsl", min_version="5.0.0")
+except ImportError:
+    pass
 REGISTRY_FILE = os.path.join(WORKSPACE, "wolf-strategies.json")
 LEGACY_CONFIG = os.path.join(WORKSPACE, "wolf-strategy.json")
 LEGACY_STATE_PATTERN = os.path.join(WORKSPACE, "dsl-state-WOLF-*.json")
@@ -174,12 +182,27 @@ def state_dir(strategy_key):
 
 def dsl_state_path(strategy_key, asset):
     """Get the DSL state file path for a strategy + asset."""
+    if _dsl_engine is not None:
+        return _dsl_engine.dsl_state_path(strategy_key, asset, base=WORKSPACE)
     return os.path.join(state_dir(strategy_key), f"dsl-{asset}.json")
 
 
 def dsl_state_glob(strategy_key):
     """Get the glob pattern for all DSL state files in a strategy."""
+    if _dsl_engine is not None:
+        return _dsl_engine.dsl_state_glob(strategy_key, base=WORKSPACE)
     return os.path.join(state_dir(strategy_key), "dsl-*.json")
+
+
+def strategy_has_slot(strategy_key):
+    """True if the strategy has at least one free slot for a new position."""
+    if _dsl_engine is not None:
+        return _dsl_engine.strategy_has_slot(strategy_key, base=WORKSPACE)
+    # Fallback: count dsl-*.json vs slots from registry
+    cfg = load_strategy(strategy_key)
+    slots = cfg.get("slots", 2)
+    existing = len(glob.glob(dsl_state_glob(strategy_key)))
+    return existing < slots
 
 
 def get_all_active_positions():
