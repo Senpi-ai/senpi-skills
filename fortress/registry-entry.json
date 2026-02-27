@@ -1,0 +1,24 @@
+{
+  "name": "fortress",
+  "displayName": "Fortress — Multi-Agent Trading Fortress for Hyperliquid",
+  "description": "Unanimous multi-agent trading consensus using Smart Money, TA, Volatility, and Risk pillars with capital-protection defaults.",
+  "category": "Trading",
+  "tags": [
+    "hyperliquid",
+    "risk-management",
+    "multi-agent",
+    "consensus"
+  ],
+  "pricing": {
+    "free": {
+      "label": "Basic",
+      "notes": "Consensus alerts + baseline controls"
+    },
+    "paid": {
+      "label": "Premium",
+      "amount": "$29/mo",
+      "notes": "Persistent agents + advanced reporting; Senpi auto-billing from trading account or trade profits"
+    }
+  },
+  "version": "1.0.0"
+}
