@@ -100,7 +100,7 @@ def process_position(state_file, state, price, strategy_cfg):
     stag_cfg = state.get("stagnation", {})
     stag_enabled = stag_cfg.get("enabled", True)
     stag_min_roe = stag_cfg.get("minROE", 8.0)
-    stag_stale_hours = stag_cfg.get("thresholdHours", 1.0)
+    stag_stale_hours = stag_cfg.get("thresholdHours", stag_cfg.get("staleHours", 1.0))
     stag_range_pct = stag_cfg.get("priceRangePct", 1.0)
 
     # --- DSL config from registry (with backward-compatible defaults) ---

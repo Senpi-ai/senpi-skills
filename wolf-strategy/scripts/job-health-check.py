@@ -209,8 +209,9 @@ def check_strategy(strategy_key, cfg):
                 leverage = pos.get("leverage")
                 if entry_px and size and leverage:
                     try:
+                        clean_coin = coin.replace("xyz:", "")
                         new_state = dsl_state_template(
-                            asset=coin, direction=pos["direction"],
+                            asset=clean_coin, direction=pos["direction"],
                             entry_price=float(entry_px), size=float(size),
                             leverage=float(leverage), strategy_key=strategy_key,
                             tiers=_get_strategy_tiers(cfg),
@@ -218,7 +219,7 @@ def check_strategy(strategy_key, cfg):
                         )
                         new_state["wallet"] = wallet
                         new_state["dex"] = _detect_dex(coin)
-                        path = dsl_state_path(strategy_key, coin)
+                        path = dsl_state_path(strategy_key, clean_coin)
                         atomic_write(path, new_state)
                         issues.append({
                             "level": "CRITICAL",
@@ -261,14 +262,8 @@ def check_strategy(strategy_key, cfg):
         elif dsl["direction"] != pos["direction"]:
             # --- DIRECTION_MISMATCH auto-replace ---
             try:
-                # Deactivate old DSL
-                raw = dsl["_raw"]
-                raw["active"] = False
-                raw["closeReason"] = "direction_mismatch_replaced_by_healthcheck"
-                raw["deactivatedAt"] = now_str
-                atomic_write(dsl["file"], raw)
-
-                # Create fresh DSL with correct direction
+                # Build new DSL first, only write once to avoid leaving
+                # a deactivated DSL if the second write fails (same file path).
                 entry_px = pos.get("entryPx")
                 size = pos.get("size")
                 leverage = pos.get("leverage", dsl.get("leverage"))
@@ -283,6 +278,7 @@ def check_strategy(strategy_key, cfg):
                 )
                 new_state["wallet"] = wallet
                 new_state["dex"] = _detect_dex(coin)
+                new_state["previousDirection"] = dsl["direction"]
                 path = dsl_state_path(strategy_key, asset_key)
                 atomic_write(path, new_state)
                 issues.append({

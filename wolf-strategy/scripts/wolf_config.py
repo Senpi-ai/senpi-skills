@@ -218,7 +218,7 @@ def atomic_write(path, data):
 # --- DSL state file validation ---
 
 DSL_REQUIRED_KEYS = [
-    "asset", "entryPrice", "size", "leverage",
+    "asset", "direction", "entryPrice", "size", "leverage",
     "highWaterPrice", "phase", "currentBreachCount",
     "currentTierIndex", "tierFloorPrice", "tiers", "phase1",
 ]
