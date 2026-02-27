@@ -1,3 +1,4 @@
+[README.md](https://github.com/user-attachments/files/25615844/README.md)
 # 🐯 TIGER v2 — Multi-Scanner Goal-Based Trading
 
 **5 scanners. 1 goal. Configurable aggression. Mechanical exits.**
@@ -83,7 +84,16 @@ tiger-strategy/
 
 ## Changelog
 
-### v2.1 (current)
+### v2.2 (current)
+- **AliasDict**: snake_case config/state key access now works transparently alongside camelCase (fixes all KeyError crashes)
+- **Function signatures**: `load_state()`, `save_state(state)`, `load_oi_history()`, `append_oi_snapshot()` now work without explicit config arg
+- **dsl-v4.py**: migrated to shared infra (atomic_write, mcporter_call, get_prices) — no more raw curl or non-atomic writes
+- **Confluence weights**: compression (1.25→1.00) and reversion (1.15→1.00) scanner weights now sum correctly
+- **min_leverage**: unified default to 5 across tiger_config.py, tiger-setup.py, and oi-tracker.py
+- **Bare except** fixed to `except Exception` in tiger-exit.py
+- **Doc fix**: setup-guide.md reference corrected from cron-setup.md to cron-templates.md
+
+### v2.1
 - Merged live trading lessons & gotchas from production usage
 - DSL `active: true` gotcha documented (the #1 setup mistake)
 - API latency notes (6s/call, 8 asset max per scan window)
