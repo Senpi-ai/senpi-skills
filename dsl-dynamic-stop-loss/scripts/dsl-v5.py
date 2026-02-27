@@ -55,21 +55,23 @@ def dex_and_lookup_symbol(asset: str) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 def fetch_price_mcp(dex: str, lookup_symbol: str) -> tuple[float | None, str | None]:
-    """Fetch mid price via senpi:market_get_prices or allMids. Returns (price, error)."""
-    args_mgp = {"assets": [lookup_symbol], "dex": dex}
-    r = subprocess.run(
-        ["mcporter", "call", "senpi", "market_get_prices", "--args", json.dumps(args_mgp)],
-        capture_output=True, text=True, timeout=15,
-    )
-    if r.returncode != 0:
-        args_am = {"dex": dex} if dex else {}
+    """Fetch mid price via senpi:market_get_prices or allMids. Returns (price, error).
+    Catches TimeoutExpired, FileNotFoundError, and OSError so caller can update state and emit JSON.
+    """
+    try:
+        args_mgp = {"assets": [lookup_symbol], "dex": dex}
         r = subprocess.run(
-            ["mcporter", "call", "senpi", "allMids", "--args", json.dumps(args_am)],
+            ["mcporter", "call", "senpi", "market_get_prices", "--args", json.dumps(args_mgp)],
             capture_output=True, text=True, timeout=15,
         )
         if r.returncode != 0:
-            return None, (r.stderr or r.stdout or "non-zero exit")
-    try:
+            args_am = {"dex": dex} if dex else {}
+            r = subprocess.run(
+                ["mcporter", "call", "senpi", "allMids", "--args", json.dumps(args_am)],
+                capture_output=True, text=True, timeout=15,
+            )
+            if r.returncode != 0:
+                return None, (r.stderr or r.stdout or "non-zero exit")
         data = json.loads(r.stdout)
         if "prices" in data:
             price_str = data["prices"].get(lookup_symbol)
@@ -78,6 +80,8 @@ def fetch_price_mcp(dex: str, lookup_symbol: str) -> tuple[float | None, str | N
         if price_str is None:
             return None, f"no price for {lookup_symbol} (dex={dex or 'main'})"
         return float(price_str), None
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return None, str(e)
     except (json.JSONDecodeError, TypeError, ValueError) as e:
         return None, str(e)
 
@@ -235,13 +239,21 @@ def try_close_position(
 def save_or_delete_state(
     state: dict, state_file: str, closed: bool, now: str, close_result: str | None
 ) -> str | None:
-    """Persist state (save or delete file). Caller must set state['lastPrice'] before calling."""
+    """Persist state (save or delete file). Caller must set state['lastPrice'] before calling.
+    If closed but delete fails, writes state (active: False) so cleanup can proceed later.
+    """
     state["lastCheck"] = now
     if closed:
         try:
             os.remove(state_file)
             return close_result
         except OSError as e:
+            # Fallback: write state so dsl-cleanup sees active: false and can clean strategy
+            try:
+                with open(state_file, "w") as f:
+                    json.dump(state, f, indent=2)
+            except OSError:
+                pass
             return (close_result or "") + f"; delete_failed: {e}"
     with open(state_file, "w") as f:
         json.dump(state, f, indent=2)
@@ -354,7 +366,8 @@ def main() -> None:
         err = {"status": "error", "error": path_error}
         if path_error == "state_file_not_found":
             err["path"] = state_file
-        print(json.dumps(err), file=sys.stderr)
+        # stdout so agent can see it (e.g. after close-and-delete, cron keeps running until disabled)
+        print(json.dumps(err))
         sys.exit(1)
 
     with open(state_file) as f:

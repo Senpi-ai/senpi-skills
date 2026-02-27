@@ -47,7 +47,8 @@ for name in os.listdir(strategy_dir):
             asset = state.get("asset", name[:-5])
             blocked.append(asset)
     except (json.JSONDecodeError, OSError):
-        pass
+        # Corrupted or unreadable: treat as potentially active so we don't delete strategy dir
+        blocked.append(name[:-5] if name.endswith(".json") else name)
 
 if blocked:
     print(json.dumps({
