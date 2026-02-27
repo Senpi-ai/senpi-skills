@@ -1,22 +1,31 @@
 # WOLF v6 Cron Templates — Multi-Strategy
 
-## Model Tier Configuration
+## Session & Model Tier Configuration
 
-Set per-cron in OpenClaw. **Tier 1** = fast/cheap (e.g. claude-haiku-4-5, gpt-4o-mini, gemini-flash). **Tier 2** = capable (e.g. anthropic/claude-sonnet-4-20250514,Opus, gpt-4o, gemini-pro).
+WOLF uses two session types and a 3-tier model approach. Configure per-cron in OpenClaw.
 
-| Cron | Frequency | Model Tier |
-|------|-----------|-----------|
-| Emerging Movers | 90s (40x/hr) | **Tier 2 (capable)** |
-| Opportunity Scanner | 15min (4x/hr) | **Tier 2 (capable)** |
-| DSL Combined | 3min (20x/hr) | Tier 1 (fast/cheap) |
-| SM Flip Detector | 5min (12x/hr) | Tier 1 (fast/cheap) |
-| Watchdog | 5min (12x/hr) | Tier 1 (fast/cheap) |
-| Portfolio Update | 15min (4x/hr) | Tier 1 (fast/cheap) |
-| Health Check | 10min (6x/hr) | Tier 1 (fast/cheap) |
+| Cron | Frequency | Session | Payload | Model Tier |
+|------|-----------|---------|---------|------------|
+| Emerging Movers | 90s (40x/hr) | **main** | systemEvent | **Primary** (your configured model) |
+| Opportunity Scanner | 15min (4x/hr) | **main** | systemEvent | **Primary** (your configured model) |
+| DSL Combined | 3min (20x/hr) | isolated | agentTurn | Mid (one tier down) |
+| Portfolio Update | 15min (4x/hr) | isolated | agentTurn | Mid (one tier down) |
+| Health Check | 10min (6x/hr) | isolated | agentTurn | Mid (one tier down) |
+| SM Flip Detector | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
+| Watchdog | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
+
+**3-tier model approach:**
+- **Primary** — Your configured model. Complex judgment, multi-strategy routing, entry decisions.
+- **Mid** — One tier down from primary. Structured tasks, script output parsing, rule-based actions.
+- **Budget** — Cheapest from the same provider. Simple threshold checks, binary decisions.
+
+All 7 crons can also run on a single model if you prefer simplicity over cost savings.
 
 ---
 
-All crons use OpenClaw's systemEvent format:
+Two cron formats depending on session type:
+
+**Main session** (systemEvent) — shares the primary session context:
 ```json
 {
   "name": "...",
@@ -27,9 +36,21 @@ All crons use OpenClaw's systemEvent format:
 }
 ```
 
+**Isolated session** (agentTurn) — runs in its own session, no context pollution:
+```json
+{
+  "name": "...",
+  "schedule": { "kind": "every", "everyMs": ... },
+  "sessionTarget": "isolated",
+  "payload": { "kind": "agentTurn", "message": "..." }
+}
+```
+
 **These are OpenClaw crons, NOT Senpi crons.** They wake the agent with a mandate text that the agent executes.
 
 **v6 change: One set of crons for ALL strategies.** Each script iterates all enabled strategies from `wolf-strategies.json` internally. You do NOT need separate crons per strategy.
+
+**Session isolation rationale:** Only Emerging Movers and Opportunity Scanner need the main session's accumulated context (position history, routing decisions). The other 5 crons do self-contained work — they run a script, parse JSON, and act on rules. Isolating them prevents context bloat in the main session and enables cheaper model tiers.
 
 Replace these placeholders in all templates:
 - `{TELEGRAM}` — telegram:CHAT_ID (e.g. telegram:5183731261)
@@ -50,7 +71,7 @@ Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
 
 ---
 
-## 2. DSL Combined Runner (every 3min)
+## 2. DSL Combined Runner (every 3min) — isolated / agentTurn
 
 ```
 WOLF DSL: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/dsl-combined.py`, parse JSON.
@@ -60,7 +81,7 @@ If `any_closed: true` → note freed slot(s) for next Emerging Movers run. Else 
 
 ---
 
-## 3. SM Flip Detector (every 5min)
+## 3. SM Flip Detector (every 5min) — isolated / agentTurn
 
 ```
 WOLF SM Check: Run `python3 {SCRIPTS}/sm-flip-check.py`, parse JSON.
@@ -71,7 +92,7 @@ If `hasFlipSignal == false` or no FLIP_NOW alerts → HEARTBEAT_OK.
 
 ---
 
-## 4. Watchdog (every 5min)
+## 4. Watchdog (every 5min) — isolated / agentTurn
 
 ```
 WOLF Watchdog: Run `PYTHONUNBUFFERED=1 timeout 45 python3 {SCRIPTS}/wolf-monitor.py`, parse JSON.
@@ -81,7 +102,7 @@ If no alerts → HEARTBEAT_OK.
 
 ---
 
-## 5. Portfolio Update (every 15min)
+## 5. Portfolio Update (every 15min) — isolated / agentTurn
 
 ```
 WOLF Portfolio: Read wolf-strategies.json, get clearinghouse state per wallet, send Telegram ({TELEGRAM}).
@@ -90,7 +111,7 @@ Format: code-block table with per-strategy name/account value/positions (asset, 
 
 ---
 
-## 6. Health Check (every 10min)
+## 6. Health Check (every 10min) — isolated / agentTurn
 
 ```
 WOLF Health Check: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/job-health-check.py`, parse JSON.
