@@ -147,11 +147,11 @@ Created per position, scoped to its strategy. Read by `dsl-combined.py`.
   "currentTierIndex": 0,
   "tierFloorPrice": null,
   "currentBreachCount": 0,
-  "floorPrice": 28.726,
+  "floorPrice": 29.353,
   "createdAt": "2026-02-24T10:00:00Z",
   "hwTimestamp": "2026-02-24T10:05:00Z",
   "lastCheck": "2026-02-24T10:06:00Z",
-  "lastPrice": 29.10,
+  "lastPrice": 29.45,
   "consecutiveFetchFailures": 0,
   "pendingClose": false,
   "phase1": {
