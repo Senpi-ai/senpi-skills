@@ -1,27 +1,24 @@
 ---
 name: dsl-dynamic-stop-loss
 description: >-
-  Automated trailing stop loss for leveraged perpetual positions on Hyperliquid.
-  Monitors price via cron, ratchets profit floors through configurable tiers,
-  and auto-closes positions on breach via mcporter — no agent intervention for
-  the critical path. Works for LONG and SHORT. ROE-based (return on margin)
+  Manages automated trailing stop losses for leveraged perpetual positions on
+  Hyperliquid. Monitors price via cron, ratchets profit floors through configurable tiers, and auto-closes positions on breach via mcporter — no agent intervention for the critical path. Supports LONG and SHORT, strategy-scoped state isolation, and automatic cleanup on position or strategy close. ROE-based (return on margin)
   tier triggers that automatically account for leverage.
-  Use when protecting an open Hyperliquid perp position, setting up trailing
-  stops, managing profit tiers, or automating position exits on breach.
+  Use when protecting an open Hyperliquid perp position, setting up trailing stops, managing profit tiers, or automating position exits on breach.
 license: Apache-2.0
 compatibility: >-
   Requires python3, mcporter (configured with Senpi auth), and cron.
-  Hyperliquid perp positions only.
+  Hyperliquid perp positions only (main dex and xyz dex).
 metadata:
   author: jason-goldberg
-  version: "4.0"
+  version: "5.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# Dynamic Stop Loss (DSL) v4
+# Dynamic Stop Loss (DSL) v5
 
-Automated trailing stop loss for leveraged perp positions on Hyperliquid. Monitors price via cron, ratchets profit floors upward through configurable tiers, and **auto-closes positions on breach** — no agent intervention required for the critical path.
+Automated trailing stop loss for leveraged perp positions on Hyperliquid (main and xyz dex). Monitors price via cron, ratchets profit floors upward through configurable tiers, and **auto-closes positions on breach** — no agent intervention required for the critical path. v5 adds strategy-scoped state paths and delete-on-close cleanup.
 
 ## Self-Contained Design
 
@@ -69,7 +66,7 @@ Tiers are defined as `{triggerPct, lockPct}` pairs. Each tier can optionally spe
 ]
 ```
 
-The gap between trigger and lock (e.g., 10% trigger → 5% lock) gives breathing room so a minor pullback after hitting a tier doesn't immediately close. **Ratchets never go down** — once you hit Tier 2, Tier 1's floor is permanently superseded.
+The tier floor locks a **fraction of the move from entry to high water** (lockPct % of that range). The gap between trigger and lock gives breathing room so a minor pullback after hitting a tier doesn't immediately close. **Ratchets never go down** — once you hit Tier 2, Tier 1's floor is permanently superseded.
 
 See [references/tier-examples.md](references/tier-examples.md) for LONG and SHORT worked examples with exact price calculations.
 
@@ -79,7 +76,7 @@ See [references/tier-examples.md](references/tier-examples.md) for LONG and SHOR
 
 | | LONG | SHORT |
 |---|---|---|
-| **Tier floor** | `entry × (1 + lockPct / 100 / leverage)` | `entry × (1 - lockPct / 100 / leverage)` |
+| **Tier floor** | `entry + (hw − entry) × lockPct / 100` | `entry − (entry − hw) × lockPct / 100` |
 | **Absolute floor** | Below entry (e.g., entry × 0.97) | Above entry (e.g., entry × 1.03) |
 | **High water** | Highest price seen | Lowest price seen |
 | **Trailing floor** | `hw × (1 - retrace)` | `hw × (1 + retrace)` |
@@ -109,9 +106,9 @@ For LONGs, "best" = maximum. For SHORTs, "best" = minimum.
 ┌──────────────────────────────────────────┐
 │ Cron: every 3-5 min (per position)       │
 ├──────────────────────────────────────────┤
-│ scripts/dsl-v4.py                        │
-│ • Reads state from JSON file             │
-│ • Fetches price from allMids API         │
+│ scripts/dsl-v5.py                        │
+│ • Reads state (v5: strategy dir + asset) │
+│ • Fetches price via MCP (main + xyz)     │
 │ • Direction-aware (LONG + SHORT)         │
 │ • Updates high water mark                │
 │ • Checks tier upgrades (ROE-based)       │
@@ -119,11 +116,12 @@ For LONGs, "best" = maximum. For SHORTs, "best" = minimum.
 │ • Calculates effective floor             │
 │ • Detects breaches (with decay modes)    │
 │ • ON BREACH: closes via mcporter w/retry │
-│ • pendingClose if close fails            │
-│ • Outputs enriched JSON status           │
+│ • Deletes state file on close (no archive)   │
+│ • pendingClose if close fails                 │
+│ • Outputs enriched JSON status                │
 ├──────────────────────────────────────────┤
 │ Agent reads JSON output:                 │
-│ • closed=true → alert user, disable cron │
+│ • closed=true → alert user, disable cron (script already deleted state file) │
 │ • pending_close=true → alert, will retry │
 │ • tier_changed=true → notify user        │
 │ • status=error → log, check failures     │
@@ -135,10 +133,11 @@ For LONGs, "best" = maximum. For SHORTs, "best" = minimum.
 
 | File | Purpose |
 |------|---------|
-| `scripts/dsl-v4.py` | Core DSL engine — monitors, closes, outputs JSON |
-| State file (JSON) | Per-position config + runtime state |
+| `scripts/dsl-v5.py` | Core DSL engine — monitors, closes, deletes state on close, outputs JSON |
+| `scripts/dsl-cleanup.py` | Strategy-level cleanup — deletes strategy dir when all positions closed |
+| State file (JSON) | Per-position config + runtime state; path: `{DSL_STATE_DIR}/{strategyId}/{asset}.json` |
 
-**Multiple positions:** Set `DSL_STATE_FILE=/path/to/state.json` to run separate instances per position. Each gets its own state file and cron job.
+Use `DSL_STATE_DIR` + `DSL_STRATEGY_ID` + `DSL_ASSET` per position. See [references/state-schema.md](references/state-schema.md) for path conventions. Cleanup: [references/cleanup.md](references/cleanup.md).
 
 ## State File Schema
 
@@ -211,10 +210,10 @@ Key fields for agent decision-making:
 Per-position cron (every 3-5 min):
 
 ```
-DSL_STATE_FILE=/data/workspace/dsl-state-BTC.json python3 scripts/dsl-v4.py
+DSL_STATE_DIR=/data/workspace/dsl DSL_STRATEGY_ID=strat-abc-123 DSL_ASSET=ETH python3 scripts/dsl-v5.py
 ```
 
-Stagger multiple positions by offsetting start times (:00, :01, :02).
+For xyz dex: `DSL_ASSET=xyz:SILVER` (state file: `xyz--SILVER.json`). Stagger multiple positions by offsetting start times (:00, :01, :02).
 
 ## How to Set Up a New Position
 
@@ -227,12 +226,12 @@ Stagger multiple positions by offsetting start times (:00, :01, :02).
 
 ### When a Position Closes
 
-1. ✅ Script closes position via `mcporter call senpi close_position` (with retry)
-2. ✅ Script sets `active: false` (or `pendingClose: true` if close fails)
+1. ✅ Script closes position via `senpi:close_position` (coin with `xyz:` prefix as-is; with retry)
+2. ✅ Script deletes the state file (no archive)
 3. 🤖 Agent disables the cron (reads `closed=true`)
 4. 🤖 Agent sends alert to user
 
-If close fails, script sets `pendingClose: true` and retries next cron tick.
+If close fails, script sets `pendingClose: true` and retries next cron tick. When all crons for a strategy are disabled, run `dsl-cleanup.py` for strategy-level cleanup — see [references/cleanup.md](references/cleanup.md).
 
 ## Customization
 
@@ -240,16 +239,17 @@ See [references/customization.md](references/customization.md) for conservative/
 
 ## API Dependencies
 
-- **Price**: Hyperliquid `allMids` API (direct HTTP, no auth)
-- **Close position**: Senpi `close_position` via mcporter
+- **Price**: `senpi:market_get_prices` or `senpi:allMids` via mcporter (main + xyz dex)
+- **Close position**: `senpi:close_position` via mcporter (pass `coin` with `xyz:` prefix for xyz assets)
 
 > ⚠️ **Do NOT use `strategy_close_strategy`** to close individual positions. That closes the **entire strategy** (irreversible). Use `close_position`.
 
 ## Setup Checklist
 
-1. Extract `scripts/dsl-v4.py` and `chmod +x`
+1. Extract `scripts/dsl-v5.py` and `scripts/dsl-cleanup.py`; `chmod +x`
 2. Ensure `mcporter` is configured with Senpi auth
-3. Create state file(s) per position
-4. Set up cron: `DSL_STATE_FILE=/path/to/state.json python3 scripts/dsl-v4.py`
-5. Agent reads output for alerts and cron cleanup
-6. If `pending_close=true`, script auto-retries on next tick
+3. Create state file(s) per position under `{DSL_STATE_DIR}/{strategyId}/{asset}.json` (see [references/state-schema.md](references/state-schema.md))
+4. Set up cron per position with `DSL_STATE_DIR`, `DSL_STRATEGY_ID`, `DSL_ASSET`
+5. Agent reads output for alerts and cron cleanup; on `closed=true`, disable cron (script already deleted state file)
+6. When all positions in a strategy are closed, run `dsl-cleanup.py` — see [references/cleanup.md](references/cleanup.md)
+7. If `pending_close=true`, script auto-retries on next tick
