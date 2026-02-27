@@ -1,59 +1,79 @@
 #!/usr/bin/env python3
 """
 tiger-setup.py — Setup wizard for TIGER.
-Creates config, initializes state directory.
+Creates config from user parameters, validates wallet, and initializes state.
 
 Usage:
-  python3 scripts/tiger-setup.py --wallet 0x... --strategy-id UUID \
-    --budget 1000 --target 2000 --deadline-days 7 --chat-id 12345
+  python3 tiger-setup.py --wallet 0x... --strategy-id UUID --budget 5000 \
+    --target 10000 --days 7 --chat-id 12345 [--max-slots 3] [--max-leverage 10]
 """
 
+import sys
+import os
 import argparse
 import json
-import os
-import sys
+import math
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(__file__))
+
 from tiger_config import (
-    WORKSPACE, DEFAULT_CONFIG, atomic_write, deep_merge, _instance_dir
+    WORKSPACE, DEFAULT_CONFIG, deep_merge, atomic_write, save_config
 )
 
 
 def main():
     parser = argparse.ArgumentParser(description="TIGER Setup Wizard")
     parser.add_argument("--wallet", required=True, help="Strategy wallet address")
-    parser.add_argument("--strategy-id", required=True, help="Strategy UUID")
-    parser.add_argument("--budget", type=float, required=True, help="Starting budget USD")
-    parser.add_argument("--target", type=float, required=True, help="Profit target USD")
-    parser.add_argument("--deadline-days", type=int, required=True, help="Timeframe in days")
-    parser.add_argument("--chat-id", required=True, help="Telegram chat ID")
+    parser.add_argument("--strategy-id", required=True, help="Senpi strategy ID")
+    parser.add_argument("--budget", type=float, required=True, help="Starting budget in USD")
+    parser.add_argument("--target", type=float, required=True, help="Target balance in USD")
+    parser.add_argument("--days", type=int, default=7, help="Days to hit target (default: 7)")
+    parser.add_argument("--chat-id", required=True, help="Telegram chat ID for notifications")
+    parser.add_argument("--max-slots", type=int, default=3, help="Max concurrent positions (default: 3)")
+    parser.add_argument("--max-leverage", type=int, default=10, help="Max leverage (default: 10)")
+    parser.add_argument("--min-leverage", type=int, default=7, help="Min leverage (default: 7)")
+
     args = parser.parse_args()
 
-    now = datetime.now(timezone.utc).isoformat()
+    # Validate
+    if args.budget <= 0:
+        print(json.dumps({"error": "Budget must be positive"}))
+        sys.exit(1)
+    if args.target <= args.budget:
+        print(json.dumps({"error": "Target must be greater than budget"}))
+        sys.exit(1)
+    if args.days < 1 or args.days > 30:
+        print(json.dumps({"error": "Days must be between 1 and 30"}))
+        sys.exit(1)
 
+    now = datetime.now(timezone.utc).isoformat()
+    daily_rate = (math.pow(args.target / args.budget, 1 / args.days) - 1) * 100
+
+    # Build config via deep_merge (preserves nested defaults)
     config = deep_merge(DEFAULT_CONFIG, {
         "strategyWallet": args.wallet,
         "strategyId": args.strategy_id,
         "budget": args.budget,
         "target": args.target,
-        "deadlineDays": args.deadline_days,
+        "deadlineDays": args.days,
         "startTime": now,
         "telegramChatId": args.chat_id,
+        "maxSlots": args.max_slots,
+        "maxLeverage": args.max_leverage,
+        "minLeverage": args.min_leverage,
     })
 
     # Create directories
     instance_dir = os.path.join(WORKSPACE, "state", args.strategy_id)
-    scan_hist_dir = os.path.join(instance_dir, "scan-history")
-    memory_dir = os.path.join(WORKSPACE, "memory")
-    for d in [instance_dir, scan_hist_dir, memory_dir]:
+    for d in [instance_dir, os.path.join(instance_dir, "scan-history"),
+              os.path.join(WORKSPACE, "memory")]:
         os.makedirs(d, exist_ok=True)
 
-    # Write config
-    config_path = os.path.join(WORKSPACE, "tiger-config.json")
-    atomic_write(config_path, config)
+    # Write config (atomic)
+    save_config(config)
 
-    # Initialize state
+    # Initialize state (atomic)
     state = {
         "version": 1,
         "active": True,
@@ -70,15 +90,15 @@ def main():
         "totalTrades": 0,
         "totalWins": 0,
         "aggression": "NORMAL",
-        "dailyRateNeeded": 0,
-        "daysRemaining": args.deadline_days,
+        "dailyRateNeeded": round(daily_rate, 2),
+        "daysRemaining": args.days,
         "dayNumber": 1,
         "activePositions": {},
         "safety": {
             "halted": False,
             "haltReason": None,
             "dailyLossPct": 0,
-            "tradesToday": 0
+            "tradesToday": 0,
         },
         "lastGoalRecalc": None,
         "lastBtcPrice": None,
@@ -88,12 +108,26 @@ def main():
     atomic_write(os.path.join(instance_dir, "trade-log.json"), [])
     atomic_write(os.path.join(instance_dir, "oi-history.json"), {})
 
+    # Summary
     print(json.dumps({
         "success": True,
-        "message": f"TIGER initialized. Budget: ${args.budget}, Target: ${args.target}, Deadline: {args.deadline_days}d",
-        "configPath": config_path,
-        "statePath": instance_dir
-    }))
+        "status": "TIGER configured",
+        "budget": f"${args.budget:,.0f}",
+        "target": f"${args.target:,.0f}",
+        "returnNeeded": f"{((args.target / args.budget) - 1) * 100:.0f}%",
+        "days": args.days,
+        "dailyCompoundRate": f"{daily_rate:.1f}%",
+        "strategyId": args.strategy_id,
+        "wallet": args.wallet,
+        "maxSlots": args.max_slots,
+        "maxLeverage": args.max_leverage,
+        "statePath": instance_dir,
+        "nextSteps": [
+            "Create 10 OpenClaw crons from references/cron-templates.md",
+            "OI tracker needs ~1h before scanners can use OI data",
+            "TIGER will start hunting on next cron cycle",
+        ]
+    }, indent=2))
 
 
 if __name__ == "__main__":

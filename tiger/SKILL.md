@@ -330,3 +330,26 @@ Scanners are staggered by 1-2 minutes to avoid mcporter rate limits (see cron-te
 - DSL reads `DSL_STATE_FILE` env var ONLY — positional args are silently ignored.
 - `timeout 55` on all scanner scripts to prevent cron overlap.
 - Cron stagger offsets: :00 compression, :01 momentum, :02 reversion, :03 OI, :04 risk+exit.
+
+---
+
+## Lessons from Live Trading
+
+### Operational
+
+- **DSL state file `active` field**: MUST include `active: true` or `dsl-v4.py` returns `{"status": "inactive"}` (line 22 check). This is the #1 gotcha when setting up new positions.
+- **DSL invocation syntax**: `DSL_STATE_FILE=/path/to/file.json python3 scripts/dsl-v4.py COIN`
+- **API latency**: `market_get_asset_data` ~4s/call, `market_list_instruments` ~6s. Max 8 assets per 55s scan window.
+- **Correlation scanner timeouts**: Frequently times out — skip after consecutive timeouts rather than waste 55s per attempt.
+- **Compression scanner signals**: Requires `breakout: true` AND a `direction` to be actionable — a high compression score alone is not enough.
+
+### Trading
+
+- **Don't short compressed assets with building OI** — compression often resolves upward.
+- **No duplicate positions**: Skip signals for assets already in `active_positions`.
+- **Re-entry in opposite direction IS valid**: When signals are strong, entering the same asset in the opposite direction works.
+- **DSL trailing stops >> fixed TP**: Every winning trade ran past where a fixed TP would have closed. Let winners run.
+- **High-score signals (0.85+) justify overriding blacklists**: If original loss was small and new direction differs, take the trade.
+- **`create_position` format**: Requires `orders` array with `coin`, `direction`, `leverage`, `marginAmount`, `orderType` fields.
+- **`close_position` syntax**: `mcporter call 'senpi.close_position(...)'`
+- **CLOSE_NO_POSITION pattern**: Position may already be closed on-chain before DSL's close call — handle gracefully (not an error).
