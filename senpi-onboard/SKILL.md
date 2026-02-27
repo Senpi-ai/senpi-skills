@@ -340,6 +340,9 @@ Display a confirmation message that includes ALL of the following:
 4. **Credentials backup location** -- `~/.config/senpi/credentials.json`
 5. **Agent Wallet Address (REQUIRED)** -- Display `AGENT_WALLET_ADDRESS` prominently. Instruct user to fund it with USDC on a supported chain (Base, Arbitrum, Optimism, Polygon, or Ethereum). Without funds, the agent cannot trade.
 6. **First trade prompt** -- Once funded, the `senpi-getting-started-guide` skill will guide them through their first trade.
+7. **Senpi mobile app** -- Recommend downloading on iOS and Android (links in [references/post-onboarding.md](references/post-onboarding.md)).
+8. **Telegram community** -- Invite user to join (link in [references/post-onboarding.md](references/post-onboarding.md)).
+9. **Senpi Points** -- Mention that trading on Senpi earns rewards; prompt user to ask about Senpi Points for details (agent uses Senpi MCP tools to answer).
 
 **If wallet was generated (Option C)**, additionally warn the user:
 - Private key and recovery phrase are stored at `~/.config/senpi/wallet.json`
