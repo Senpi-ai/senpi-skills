@@ -38,10 +38,13 @@ Use this template for the Step 7 confirmation:
 ```
 ✅ **Your Senpi account is ready!**
 
-💰 **NEXT STEP: Fund your wallet to start trading**
+💰 **NEXT STEP: Fund your wallet to start trading (at least $100 USDC)**
    Address: {AGENT_WALLET_ADDRESS}
    Chains: Base, Arbitrum, Optimism, Polygon, Ethereum
    Currency: USDC
+   Minimum: $100 to start your first trade
+
+   When you've sent at least $100 USDC, say **"I funded my wallet"** or **"check my balance"** so I can verify and we can start your first trade.
 
 🔗 **Your referral link:** senpi.ai/skill.md?ref={USER_REFERRAL_CODE}
 
@@ -62,6 +65,27 @@ Your wallet credentials are stored at: ~/.config/senpi/wallet.json
 
 **Back up this file immediately.** If lost, the wallet and any funds cannot be recovered.
 ```
+
+---
+
+## Funding Reminder Template (UNFUNDED)
+
+When showing a funding reminder (balance < $100, up to 3 times — or when user says "let's trade" but still unfunded), **always include the agent wallet address** so the user can easily send USDC. Read the address from `state.json` → `account.agentWalletAddress` or `wallet.address`.
+
+**Template:**
+
+```
+💰 **Fund your wallet to start trading**
+   You need at least **$100 USDC** to start your first trade.
+
+   **Address:** {AGENT_WALLET_ADDRESS}
+   **Chains:** Base, Arbitrum, Optimism, Polygon, Ethereum
+   **Currency:** USDC
+
+   When you've sent the funds, say **"I funded my wallet"** or **"check my balance"** so I can verify.
+```
+
+Use this for each of the 3 automatic reminders and when responding to "let's trade" / "first trade" while still UNFUNDED.
 
 ---
 

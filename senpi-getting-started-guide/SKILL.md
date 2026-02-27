@@ -26,7 +26,7 @@ Guide users through their first complete trade on Hyperliquid via Senpi. This sk
 Before starting the tutorial, verify:
 
 1. **MCP Connected** — Senpi MCP server is configured and accessible.
-2. **Wallet Funded** — User has USDC in their agent wallet (minimum $50 recommended).
+2. **Wallet Funded** — User has at least $100 USDC in their agent wallet (required to start the first-trade tutorial).
 3. **State** — User's state is `AWAITING_FIRST_TRADE` or they explicitly asked for help trading.
 
 Ensure state file exists; if missing, create it and redirect to onboarding:
@@ -68,7 +68,7 @@ Start this tutorial when:
 - State is `AWAITING_FIRST_TRADE` and user sends a trading-related message
 - User explicitly asks for trading guidance
 
-**Do NOT start if:** Wallet not funded (redirect to funding), MCP not connected (redirect to onboarding), or user says "skip tutorial" — then set state to `READY` and exit. See [references/next-steps.md](references/next-steps.md) for skip handling.
+**Do NOT start if:** Wallet has less than $100 (redirect to funding), MCP not connected (redirect to onboarding), or user says "skip tutorial" — then set state to `READY` and exit. See [references/next-steps.md](references/next-steps.md) for skip handling.
 
 ---
 

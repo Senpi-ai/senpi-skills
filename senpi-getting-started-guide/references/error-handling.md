@@ -6,7 +6,7 @@ Consult this file when the first-trade tutorial hits errors during discovery, po
 
 ## Insufficient Balance
 
-If the user tries to open a position but balance is less than required margin:
+If the user tries to open a position but balance is less than required margin (or wallet has less than $100 at tutorial start, redirect to funding — at least $100 USDC is required to start the first-trade tutorial):
 
 **Display:**
 

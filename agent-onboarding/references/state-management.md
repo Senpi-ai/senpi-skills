@@ -28,7 +28,7 @@ FRESH ─────▶ ONBOARDING ─────▶ UNFUNDED ─────�
 |------|----|---------|
 | `FRESH` | `ONBOARDING` | User sends first message |
 | `ONBOARDING` | `UNFUNDED` | Credentials saved, MCP configured |
-| `UNFUNDED` | `AWAITING_FIRST_TRADE` | Wallet balance > $0 |
+| `UNFUNDED` | `AWAITING_FIRST_TRADE` | Wallet balance >= $100 |
 | `AWAITING_FIRST_TRADE` | `READY` | First trade completed or skipped |
 | Any state | `FAILED` | Error occurs |
 
@@ -90,14 +90,18 @@ When state transitions to `AWAITING_FIRST_TRADE`:
 On each user message when state is `UNFUNDED`:
 
 ```bash
-# Check balance via MCP
-# If balance > 0:
+# Check balance via MCP (USD/USDC equivalent)
+# If balance >= 100:
 #   Update state.json: state = "AWAITING_FIRST_TRADE", wallet.funded = true
 #   Prompt: "🎉 Your wallet is funded! Ready for your first trade?"
-# If balance = 0:
-#   Prepend funding reminder (max 3 times)
+# If balance < 100:
+#   Prepend funding reminder: at least $100 required (max 3 times).
+#   Always include the agent wallet address in the reminder (state.account.agentWalletAddress or state.wallet.address).
+#   Example: "💰 Fund with at least $100 USDC. Address: {address} — Base, Arbitrum, Optimism, Polygon, Ethereum."
 #   Continue processing user's request
 ```
+
+**First-trade intent while UNFUNDED:** If the user says "let's trade", "first trade", "teach me to trade", or similar, check balance first. If balance is still under $100, do **not** hand off to senpi-getting-started-guide. Remind them to fund **at least $100 USDC** and **include the agent wallet address** in the message. Say: "When you've sent the funds, tell me **'I funded my wallet'** or **'check my balance'** so I can confirm." User-triggered phrases like "I funded my wallet" or "check my balance" trigger a manual balance check and do not count toward the 3-reminder limit.
 
 ## Reading State on Startup
 
