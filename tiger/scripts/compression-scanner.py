@@ -89,7 +89,7 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
 
     # Confluence scoring
     factors = {
-        "bb_squeeze": (squeeze_pctl is not None and squeeze_pctl < config["min_bb_squeeze_percentile"], 0.25),
+        "bb_squeeze": (squeeze_pctl is not None and squeeze_pctl < config["bb_squeeze_percentile"], 0.25),
         "breakout": (breakout_direction is not None, 0.25),
         "oi_building": (oi_change is not None and oi_change > config["min_oi_change_pct"], 0.20),
         "oi_price_diverge": (oi_price_divergence, 0.15),
