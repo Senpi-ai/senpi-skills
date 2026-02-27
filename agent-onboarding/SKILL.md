@@ -12,7 +12,7 @@ description: >
 compatibility: Supports OpenClaw and Claude Code. Requires Node.js and shell access.
 metadata:
   author: Senpi
-  version: 2.0.0
+  version: 2.1.0
   homepage: https://agents.senpi.ai
 ---
 
@@ -32,6 +32,39 @@ Onboard an AI agent into the Senpi trading platform. After this flow the agent w
 ## Onboarding Flow
 
 Follow every step in order. Do not skip steps.
+
+### Before you begin: State initialization
+
+Per the [state lifecycle](references/state-management.md), ensure `state.json` exists so routing and transitions are well-defined. If it does not exist, create it with initial `FRESH` state:
+
+```bash
+SENPI_STATE_DIR="${SENPI_STATE_DIR:-$HOME/.config/senpi}"
+if [ ! -f "$SENPI_STATE_DIR/state.json" ]; then
+  mkdir -p "$SENPI_STATE_DIR"
+  cat > "$SENPI_STATE_DIR/state.json" << 'STATEEOF'
+{
+  "version": "1.0.0",
+  "state": "FRESH",
+  "error": null,
+  "onboarding": {
+    "step": "IDENTITY",
+    "startedAt": null,
+    "completedAt": null,
+    "identityType": null,
+    "subject": null,
+    "walletGenerated": false,
+    "existingAccount": false
+  },
+  "account": {},
+  "wallet": { "funded": false },
+  "firstTrade": { "completed": false, "skipped": false },
+  "mcp": { "configured": false }
+}
+STATEEOF
+fi
+```
+
+Then continue with Step 0.
 
 ### Step 0: Verify mcporter (OpenClaw only)
 
@@ -223,6 +256,41 @@ Use `SENPI_MCP_ENDPOINT` (default: `https://mcp.prod.senpi.ai`) and `API_KEY` fr
 
 ### Step 7: Verify and Confirm
 
+Update state to `UNFUNDED`:
+
+```bash
+cat > ~/.config/senpi/state.json << EOF
+{
+  "version": "1.0.0",
+  "state": "UNFUNDED",
+  "onboarding": {
+    "step": "COMPLETE",
+    "completedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "identityType": "${IDENTITY_TYPE}",
+    "subject": "${IDENTITY_VALUE}",
+    "walletGenerated": ${WALLET_GENERATED:-false}
+  },
+  "account": {
+    "userId": "${USER_ID}",
+    "referralCode": "${USER_REFERRAL_CODE}",
+    "agentWalletAddress": "${AGENT_WALLET_ADDRESS}"
+  },
+  "wallet": {
+    "address": "${AGENT_WALLET_ADDRESS}",
+    "funded": false
+  },
+  "mcp": {
+    "configured": true,
+    "endpoint": "${SENPI_MCP_ENDPOINT}"
+  },
+  "firstTrade": {
+    "completed": false,
+    "skipped": false
+  }
+}
+EOF
+```
+
 Display a confirmation message that includes ALL of the following:
 
 1. **Account status** -- Confirm created successfully.
@@ -230,14 +298,30 @@ Display a confirmation message that includes ALL of the following:
 3. **Referral link** -- `https://senpi.ai/skill.md?ref=<USER_REFERRAL_CODE>`
 4. **Credentials backup location** -- `~/.config/senpi/credentials.json`
 5. **Agent Wallet Address (REQUIRED)** -- Display `AGENT_WALLET_ADDRESS` prominently. Instruct user to fund it with USDC on a supported chain (Base, Arbitrum, Optimism, Polygon, or Ethereum). Without funds, the agent cannot trade.
-6. **Suggested next actions** -- "Show me the top traders on Hyperliquid" or "What's my portfolio?"
+6. **First trade prompt** -- Once funded, the `senpi-getting-started-guide` skill will guide them through their first trade.
 
 **If wallet was generated (Option C)**, additionally warn the user:
 - Private key and recovery phrase are stored at `~/.config/senpi/wallet.json`
 - They MUST back up this file to a secure location
 - If lost, the wallet and funds cannot be recovered
 
-After the confirmation, share the About Senpi information and suggested first actions from [references/post-onboarding.md](references/post-onboarding.md).
+After the confirmation, share the About Senpi information from [references/post-onboarding.md](references/post-onboarding.md).
+
+---
+
+## Balance Monitoring
+
+After onboarding completes (state = `UNFUNDED`), check wallet balance on each user message:
+
+1. Use MCP to fetch portfolio/balance
+2. If balance > 0:
+   - Update state to `AWAITING_FIRST_TRADE`
+   - Prompt: "🎉 Your wallet is funded! Ready for your first trade? Say **'let's trade'** to start, or **'skip tutorial'** if you're experienced."
+3. If balance = 0:
+   - Prepend funding reminder (max 3 automatic reminders)
+   - Continue processing user's request
+
+When state transitions to `AWAITING_FIRST_TRADE`, the `senpi-getting-started-guide` skill takes over.
 
 Onboarding is complete. Reference files below are consulted only when needed.
 
@@ -257,4 +341,5 @@ Onboarding is complete. Reference files below are consulted only when needed.
 
 - **[references/error-handling.md](references/error-handling.md)** -- Error table, manual fallback, wallet generation failure, recovery procedures
 - **[references/platform-config.md](references/platform-config.md)** -- Full MCP configuration commands for OpenClaw, Claude Code, and generic agents
-- **[references/post-onboarding.md](references/post-onboarding.md)** -- About Senpi, suggested first actions
+- **[references/post-onboarding.md](references/post-onboarding.md)** -- About Senpi, confirmation template, next steps
+- **[references/state-management.md](references/state-management.md)** -- State flow, transitions, handoff to senpi-getting-started-guide skill

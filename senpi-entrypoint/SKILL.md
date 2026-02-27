@@ -75,7 +75,7 @@ Ask the user:
 > "Would you like to learn how to trade on Senpi? I can walk you through
 > your first trade with an interactive guide."
 
-If the user agrees, install the getting-started guide:
+If the user agrees, install the Senpi getting started guide:
 
 ```bash
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-getting-started-guide -g -y
