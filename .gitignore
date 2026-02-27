@@ -1,0 +1,65 @@
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+*.pyo
+*.pyd
+.env
+.venv
+env/
+venv/
+ENV/
+*.env
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# VSCode & IDE
+.vscode/
+.idea/
+
+# MacOS
+.DS_Store
+
+# Log and test output
+*.log
+
+# Agent skills state/output
+*.state.json
+*.cache.json
+*.output.json
+*.tmp
+*.bak
+
+# Coverage and test
+htmlcov/
+.coverage
+.tox/
+.cache/
+.nox/
+.pytest_cache/
+
+# Agent data directories
+data/
+workspace/
+outputs/
+checkpoints/
+runs/
+
+# Misc
+*.swp
+*.swo
+
+# Node/npm for agent toolchains
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+.DS_Store

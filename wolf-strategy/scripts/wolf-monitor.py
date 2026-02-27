@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_all_strategies, state_dir, dsl_state_glob,
-                         WORKSPACE)
+                         WORKSPACE, parse_mcp_prices_response)
 
 EMERGING_HISTORY = os.path.join(WORKSPACE, "history", "emerging-movers.json")
 # Fallback to legacy location
@@ -40,6 +40,30 @@ def get_clearinghouse(wallet):
     return mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
 
 
+def _fetch_mids(dex=None):
+    """Fetch mid prices via Senpi MCP market_get_prices. dex=None or '' = main DEX, dex='xyz' = XYZ. Returns dict of coin->price (string)."""
+    try:
+        args = {} if dex is None or dex == "" else {"dex": dex}
+        r = subprocess.run(
+            ["mcporter", "call", "senpi", "market_get_prices", "--args", json.dumps(args)],
+            capture_output=True, text=True, timeout=15
+        )
+        data = json.loads(r.stdout)
+        return parse_mcp_prices_response(data)
+    except Exception:
+        return {}
+
+
+def fetch_main_mids():
+    """Main DEX (crypto) mid prices. Uses market_get_prices with no dex (dex='')."""
+    return _fetch_mids(dex="")
+
+
+def fetch_xyz_mids():
+    """XYZ DEX mid prices. Uses market_get_prices(dex='xyz')."""
+    return _fetch_mids(dex="xyz")
+
+
 def get_dsl_state_for_strategy(strategy_key, asset):
     """Read DSL state file for a specific strategy+asset."""
     path = os.path.join(WORKSPACE, "state", strategy_key, f"dsl-{asset}.json")
@@ -50,8 +74,12 @@ def get_dsl_state_for_strategy(strategy_key, asset):
         return None
 
 
-def analyze_strategy(strategy_key, cfg):
-    """Analyze a single strategy's positions and health."""
+def analyze_strategy(strategy_key, cfg, main_mids=None, xyz_mids=None):
+    """Analyze a single strategy's positions and health.
+    main_mids: optional dict of main DEX (crypto) coin->price from market_get_prices(dex='').
+    xyz_mids: optional dict of XYZ coin->price from market_get_prices(dex=xyz)."""
+    main_mids = main_mids or {}
+    xyz_mids = xyz_mids or {}
     wallet = cfg.get("wallet", "")
     xyz_wallet = cfg.get("xyzWallet")
     results = {"strategyKey": strategy_key, "name": cfg.get("name", ""), "positions": [], "alerts": [], "summary": {}}
@@ -89,7 +117,9 @@ def analyze_strategy(strategy_key, cfg):
             liq = float(pos["liquidationPx"]) if pos.get("liquidationPx") else None
             upnl = float(pos["unrealizedPnl"])
             roe = float(pos["returnOnEquity"]) * 100
-            price = float(pos["positionValue"]) / abs(szi)
+            # Use main DEX market mid when available (dex=''), else clearinghouse-derived price
+            price_str = main_mids.get(coin)
+            price = float(price_str) if price_str is not None else (float(pos["positionValue"]) / abs(szi))
 
             # DSL floor from strategy-scoped state
             dsl = get_dsl_state_for_strategy(strategy_key, coin)
@@ -171,7 +201,11 @@ def analyze_strategy(strategy_key, cfg):
                 liq = float(pos["liquidationPx"]) if pos.get("liquidationPx") else None
                 upnl = float(pos["unrealizedPnl"])
                 roe = float(pos["returnOnEquity"]) * 100
-                price = float(pos["positionValue"]) / abs(szi)
+                # Use market mid from MCP when available, else clearinghouse-derived price
+                price_str = xyz_mids.get(coin)
+                if price_str is None:
+                    price_str = xyz_mids.get(coin.replace("xyz:", "", 1))
+                price = float(price_str) if price_str is not None else (float(pos["positionValue"]) / abs(szi))
 
                 liq_dist_pct = None
                 if liq and direction == "LONG":
@@ -219,8 +253,12 @@ def main():
     output = {"strategies": {}, "alerts": [], "summary": {}}
     all_held_coins = set()
 
+    # Fetch market mids once: main DEX (dex='') for crypto, XYZ (dex='xyz') for XYZ positions
+    main_mids = fetch_main_mids()
+    xyz_mids = fetch_xyz_mids() if any(cfg.get("xyzWallet") for cfg in strategies.values()) else {}
+
     for key, cfg in strategies.items():
-        strategy_result = analyze_strategy(key, cfg)
+        strategy_result = analyze_strategy(key, cfg, main_mids=main_mids, xyz_mids=xyz_mids)
         output["strategies"][key] = strategy_result
         output["alerts"].extend(strategy_result.get("alerts", []))
         for p in strategy_result.get("positions", []):
