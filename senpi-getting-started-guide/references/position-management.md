@@ -1,6 +1,6 @@
 # Position Management Reference
 
-Use this for **position sizing**, **open**, **monitor**, and **close** steps of the first-trade tutorial. State updates use `$SENPI_STATE_DIR/state.json` (default: `~/.config/senpi/state.json`).
+Use this for **position sizing**, **open**, **monitor**, and **close** steps of the first-trade tutorial. State updates use `~/.config/senpi/state.json`.
 
 ---
 

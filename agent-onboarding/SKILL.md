@@ -38,10 +38,9 @@ Follow every step in order. Do not skip steps.
 Per the [state lifecycle](references/state-management.md), ensure `state.json` exists so routing and transitions are well-defined. If it does not exist, create it with initial `FRESH` state:
 
 ```bash
-SENPI_STATE_DIR="${SENPI_STATE_DIR:-$HOME/.config/senpi}"
-if [ ! -f "$SENPI_STATE_DIR/state.json" ]; then
-  mkdir -p "$SENPI_STATE_DIR"
-  cat > "$SENPI_STATE_DIR/state.json" << 'STATEEOF'
+if [ ! -f ~/.config/senpi/state.json ]; then
+  mkdir -p ~/.config/senpi
+  cat > ~/.config/senpi/state.json << 'STATEEOF'
 {
   "version": "1.0.0",
   "state": "FRESH",
@@ -69,10 +68,9 @@ Then continue with Step 0.
 **Transition to ONBOARDING:** Before running Step 0, if state is `FRESH`, update `state.json` so the state machine and resume behavior work. Set `state` to `ONBOARDING`, set `onboarding.startedAt` to current ISO 8601 UTC, and keep `onboarding.step` as `IDENTITY`. Use a read-modify-write (merge) so other fields are preserved:
 
 ```bash
-SENPI_STATE_DIR="${SENPI_STATE_DIR:-$HOME/.config/senpi}"
 node -e "
   const fs = require('fs');
-  const p = process.env.SENPI_STATE_DIR + '/state.json';
+  const p = require('os').homedir() + '/.config/senpi/state.json';
   const s = JSON.parse(fs.readFileSync(p, 'utf8'));
   if (s.state === 'FRESH') {
     s.state = 'ONBOARDING';
@@ -186,7 +184,7 @@ Before Step 2, confirm these are set:
 - `IDENTITY_VALUE` -- wallet address (with `0x`) or Telegram username (without `@`)
 - `WALLET_GENERATED` -- `true` if Option C was used, unset otherwise
 
-**Persist progress for resume:** Update `$SENPI_STATE_DIR/state.json`: set `onboarding.step` to `REFERRAL`, and if available set `onboarding.identityType`, `onboarding.subject`, `onboarding.walletGenerated` from current variables. Use read-modify-write so other fields are preserved.
+**Persist progress for resume:** Update `~/.config/senpi/state.json`: set `onboarding.step` to `REFERRAL`, and if available set `onboarding.identityType`, `onboarding.subject`, `onboarding.walletGenerated` from current variables. Use read-modify-write so other fields are preserved.
 
 ---
 
@@ -198,7 +196,7 @@ REFERRAL_CODE="{{REFERRAL_CODE}}"
 
 If empty and user hasn't provided one, that's fine -- it's optional. Do not prompt unless the user mentions having one.
 
-**Persist progress for resume:** Update `$SENPI_STATE_DIR/state.json`: set `onboarding.step` to `API_CALL`. Use read-modify-write.
+**Persist progress for resume:** Update `~/.config/senpi/state.json`: set `onboarding.step` to `API_CALL`. Use read-modify-write.
 
 ---
 
@@ -225,7 +223,7 @@ RESPONSE=$(curl -s -X POST https://moxie-backend.prod.senpi.ai/graphql \
 
 **Note for TELEGRAM identity:** Include the additional `"userName"` field set to `IDENTITY_VALUE` in the input.
 
-**Persist progress for resume:** Update `$SENPI_STATE_DIR/state.json`: set `onboarding.step` to `PARSE`. Use read-modify-write.
+**Persist progress for resume:** Update `~/.config/senpi/state.json`: set `onboarding.step` to `PARSE`. Use read-modify-write.
 
 ---
 
@@ -241,7 +239,7 @@ If no errors, parse the JSON response to extract:
 
 Verify the API key is not empty, null, or undefined before proceeding.
 
-**Persist progress for resume:** Update `$SENPI_STATE_DIR/state.json`: set `onboarding.step` to `CREDENTIALS`. Use read-modify-write.
+**Persist progress for resume:** Update `~/.config/senpi/state.json`: set `onboarding.step` to `CREDENTIALS`. Use read-modify-write.
 
 ---
 
@@ -268,7 +266,7 @@ chmod 600 ~/.config/senpi/credentials.json
 
 If wallet was generated (Option C), verify `~/.config/senpi/wallet.json` still exists. If missing, **stop onboarding** and alert the user.
 
-**Persist progress for resume:** Update `$SENPI_STATE_DIR/state.json`: set `onboarding.step` to `MCP_CONFIG`. Use read-modify-write.
+**Persist progress for resume:** Update `~/.config/senpi/state.json`: set `onboarding.step` to `MCP_CONFIG`. Use read-modify-write.
 
 ---
 
@@ -291,8 +289,7 @@ Use `SENPI_MCP_ENDPOINT` (default: `https://mcp.prod.senpi.ai`) and `API_KEY` fr
 Update state to `UNFUNDED`:
 
 ```bash
-SENPI_STATE_DIR="${SENPI_STATE_DIR:-$HOME/.config/senpi}"
-cat > "$SENPI_STATE_DIR/state.json" << EOF
+cat > ~/.config/senpi/state.json << EOF
 {
   "version": "1.0.0",
   "state": "UNFUNDED",

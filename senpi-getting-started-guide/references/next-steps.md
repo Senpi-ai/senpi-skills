@@ -87,8 +87,7 @@ Preserve other fields in `state.json`.
 If the tutorial was interrupted (user closed chat, etc.), on the next message read state and resume from the current step:
 
 ```bash
-SENPI_STATE_DIR="${SENPI_STATE_DIR:-$HOME/.config/senpi}"
-STEP=$(cat "$SENPI_STATE_DIR/state.json" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).firstTrade?.step || ''")
+STEP=$(cat ~/.config/senpi/state.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).firstTrade?.step || ''")
 
 case $STEP in
   "INTRODUCTION")

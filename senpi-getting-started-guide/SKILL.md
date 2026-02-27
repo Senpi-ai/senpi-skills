@@ -33,10 +33,9 @@ Ensure state file exists; if missing, create it and redirect to onboarding:
 
 ```bash
 # Ensure state file exists (per state lifecycle); if missing, create and redirect to onboarding
-SENPI_STATE_DIR="${SENPI_STATE_DIR:-$HOME/.config/senpi}"
-if [ ! -f "$SENPI_STATE_DIR/state.json" ]; then
-  mkdir -p "$SENPI_STATE_DIR"
-  cat > "$SENPI_STATE_DIR/state.json" << 'STATEEOF'
+if [ ! -f ~/.config/senpi/state.json ]; then
+  mkdir -p ~/.config/senpi
+  cat > ~/.config/senpi/state.json << 'STATEEOF'
 {
   "version": "1.0.0",
   "state": "FRESH",
@@ -51,7 +50,7 @@ STATEEOF
   exit 1
 fi
 
-STATE=$(cat "$SENPI_STATE_DIR/state.json" | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).state")
+STATE=$(cat ~/.config/senpi/state.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).state")
 if [ "$STATE" != "AWAITING_FIRST_TRADE" ] && [ "$STATE" != "READY" ]; then
   echo "User needs to complete onboarding first"
   exit 1

@@ -34,7 +34,7 @@ FRESH ─────▶ ONBOARDING ─────▶ UNFUNDED ─────�
 
 ## State File Location
 
-`$SENPI_STATE_DIR/state.json` (default: `~/.config/senpi/state.json`)
+`~/.config/senpi/state.json`
 
 ## State File Schema
 
