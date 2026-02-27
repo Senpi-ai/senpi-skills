@@ -141,7 +141,12 @@ def main():
 
     instruments = get_all_instruments()
     if not instruments:
-        output({"error": "Failed to fetch instruments"})
+        # Retry once — instruments fetch occasionally fails
+        import time
+        time.sleep(3)
+        instruments = get_all_instruments()
+    if not instruments:
+        output({"error": "Failed to fetch instruments after retry"})
         return
 
     # Fetch SM data once
@@ -171,7 +176,7 @@ def main():
 
     # Sort by funding magnitude
     candidates.sort(key=lambda x: x[2], reverse=True)
-    candidates = candidates[:15]
+    candidates = candidates[:8]  # Reduced from 15 — prevents API timeouts (~4s per candle fetch)
 
     signals = []
     for name, ctx, _ in candidates:

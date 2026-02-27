@@ -12,7 +12,7 @@ compatibility: >-
   (configured with Senpi auth) and OpenClaw cron system.
 metadata:
   author: jason-goldberg
-  version: "2.2"
+  version: "2.3"
   platform: senpi
   exchange: hyperliquid
 ---

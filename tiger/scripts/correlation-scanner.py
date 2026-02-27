@@ -242,10 +242,11 @@ def main():
             unique_scan.append(a)
 
     signals = []
-    # SPEED: Scan HIGH_CORR_ALTS first (top 10), these are most likely to lag
-    # Only scan extended list if we haven't found actionable signals in top 10
-    fast_scan = unique_scan[:10]
-    extended_scan = unique_scan[10:]
+    # SPEED: Scan HIGH_CORR_ALTS first (top 6), these are most likely to lag
+    # Only scan extended list if we haven't found actionable signals
+    # Reduced from 10+10 to 6+2 to prevent API timeouts (~4s per candle fetch)
+    fast_scan = unique_scan[:6]
+    extended_scan = unique_scan[6:]
 
     for asset in fast_scan:
         result = check_alt_lag(
@@ -260,7 +261,7 @@ def main():
     strong_fast = [s for s in signals if s["score"] >= min_score and s.get("window_quality") != "CLOSING"]
     
     if not strong_fast:
-        for asset in extended_scan[:10]:
+        for asset in extended_scan[:2]:
             result = check_alt_lag(
                 asset, btc["direction"], btc["move_4h_pct"],
                 instruments_map, sm_data, config

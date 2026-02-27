@@ -83,7 +83,13 @@ tiger-strategy/
 
 ## Changelog
 
-### v2.2 (current)
+### v2.3 (current)
+- **correlation-scanner.py**: Reduced alt scan from 10+10 to 6+2 (max 8 alts). Prevents API timeouts.
+- **funding-scanner.py**: Added retry on instruments fetch failure. Reduced candidates from 15→8. Prevents timeouts.
+- **cron-templates.md**: Notification policy — only notify Telegram on actionable events (trades, closures, risk halts). Silent on heartbeats.
+- **DSL cron mandate**: Checks activePositions before invoking dsl-v4.py. No positions = HEARTBEAT_OK, no session spam.
+
+### v2.2
 - **AliasDict**: snake_case config/state key access now works transparently alongside camelCase (fixes all KeyError crashes)
 - **Function signatures**: `load_state()`, `save_state(state)`, `load_oi_history()`, `append_oi_snapshot()` now work without explicit config arg
 - **dsl-v4.py**: migrated to shared infra (atomic_write, mcporter_call, get_prices) — no more raw curl or non-atomic writes
