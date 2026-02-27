@@ -95,7 +95,7 @@ Preserve all other `firstTrade` and top-level fields when merging.
 
 ## Transition to READY
 
-After celebration (see [references/next-steps.md](next-steps.md)), set state to `READY` and mark first trade complete:
+After the user creates their first strategy (Step 4), show the celebration (see [references/next-steps.md](next-steps.md) — "Celebrate (After First Strategy Created)") and set state to `READY` and mark first trade complete:
 
 ```json
 "state": "READY",

@@ -133,31 +133,27 @@ See [references/strategy-management.md](references/strategy-management.md) for t
 
 ### Step 4: Create Strategy
 
-On user confirmation, call MCP **`strategy_create`** with the chosen trader (from Step 2) and budget (**minimum $100**). On success, tell the user in plain language that their strategy is set up (e.g. "Your strategy is created and running."). Optionally mention budget and the trader they’re mirroring. Do not show strategy status or raw IDs. Offer: "how's my strategy?", "close my strategy", or "show my positions".
+On user confirmation, call MCP **`strategy_create`** with the chosen trader (from Step 2) and budget (**minimum $100**). On success, **show the celebration** (see [references/next-steps.md](references/next-steps.md) — "Celebrate (After First Strategy Created)"): congratulate the user for opening their first strategy, then offer "how's my strategy?", "close my strategy", or "show my positions". Do not show strategy status or raw IDs.
 
-Update state per [references/strategy-management.md](references/strategy-management.md) (`firstTrade.step: "STRATEGY_CREATED"`, `tradeDetails` with `strategyId`, `mirroredTraderId`). On failure, see [references/error-handling.md](references/error-handling.md).
+Update state per [references/strategy-management.md](references/strategy-management.md): set `firstTrade.step: "STRATEGY_CREATED"`, `tradeDetails` (strategyId, mirroredTraderId, etc.), **and** set `firstTrade.completed: true`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt`. On failure, see [references/error-handling.md](references/error-handling.md).
 
 ---
 
 ### Step 5: Monitor Strategy
 
-When user asks "how's my strategy?" or similar, fetch data via MCP: **`strategy_get`**, **`strategy_get_clearinghouse_state`**, or **`execution_get_open_position_details`** for open positions. Show strategy value, open positions (if any), unrealized PnL, ROE. Offer: Hold, Close strategy, or Add protection.
-
-**If the user only monitors (never closes):** After they have checked their strategy at least once, still congratulate them for completing the first-trade flow — they discovered, created, and monitored. Show a short celebration and next steps (see [references/next-steps.md](references/next-steps.md)), set state to `READY` and `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `completedAt`. They should feel accomplished either way.
+When user asks "how's my strategy?" or similar, fetch data via MCP: **`strategy_get`**, **`strategy_get_clearinghouse_state`**, or **`execution_get_open_position_details`** for open positions. Show strategy value, open positions (if any), unrealized PnL, ROE. Offer: Hold, Close strategy, or Add protection. Do **not** show a separate congratulations here — that was already shown when they created their first strategy (Step 4).
 
 ---
 
 ### Step 6: Close Strategy
 
-When user says "close", "exit", "close my strategy", "take profit", etc., call MCP **`strategy_close`** with the strategy ID from state. Tell the user the strategy is closed and show **realized PnL, duration, and fees** in plain language. Do not mention strategy status or internal codes. Update state (STRATEGY_CLOSE, tradeDetails). See [references/strategy-management.md](references/strategy-management.md).
+When user says "close", "exit", "close my strategy", "take profit", etc., call MCP **`strategy_close`** with the strategy ID from state. Tell the user the strategy is closed and show **realized PnL, duration, and fees** in plain language. Show the "After Close" result and next steps from [references/next-steps.md](references/next-steps.md) (no separate congratulations — already shown when they created the strategy). Do not mention strategy status or internal codes. Update state (STRATEGY_CLOSE, tradeDetails with closedAt, pnl, etc.). See [references/strategy-management.md](references/strategy-management.md).
 
 ---
 
-### Step 7: Celebrate & Next Steps
+### Step 7: After Close — Result & Next Steps
 
-Show celebration (profit or loss, or after monitor-only) and suggest next skills and quick commands. Set state to `READY` and `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `completedAt`.
-
-Full copy and state shape: [references/next-steps.md](references/next-steps.md) and [references/strategy-management.md](references/strategy-management.md).
+When the user has closed their strategy (Step 6), the result and next steps are shown there. No separate celebration step — state was already set to `READY` and `firstTrade.completed` when they created their first strategy (Step 4). Full "After Close" copy: [references/next-steps.md](references/next-steps.md). State shape: [references/strategy-management.md](references/strategy-management.md).
 
 ---
 
@@ -172,7 +168,7 @@ If the user returns mid-tutorial, read firstTrade.step from state and resume fro
 - **[references/error-handling.md](references/error-handling.md)** — Insufficient balance, strategy_create failed, strategy_close failed, recovery
 - **[references/discovery-guide.md](references/discovery-guide.md)** — discovery_get_top_strategies, recommend a trader to mirror, display template
 - **[references/strategy-management.md](references/strategy-management.md)** — Strategy sizing, strategy_create/strategy_close flow, state updates for firstTrade
-- **[references/next-steps.md](references/next-steps.md)** — Celebration copy, skip tutorial, resume handling
+- **[references/next-steps.md](references/next-steps.md)** — Celebration (after first strategy created), after close, skip tutorial, resume handling
 
 ---
 
