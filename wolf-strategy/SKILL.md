@@ -103,6 +103,20 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 
 **v6 change:** Opportunity Scanner v6 replaces the old scanner with BTC macro context, hourly trend filter, hard disqualifiers, parallel candle fetches, and cross-scan momentum tracking.
 
+### Model Selection Per Cron
+
+Configure these tiers in OpenClaw per-cron settings. Tier 1 = fast/cheap (e.g. claude-haiku-4-5, gpt-4o-mini, gemini-flash). Tier 2 = capable (e.g. anthropic/claude-sonnet-4-20250514, opus, gpt-4o, gemini-pro).
+
+| Cron | Model Tier | Reason |
+|------|-----------|--------|
+| Emerging Movers | **Tier 2 (capable)** | Multi-strategy routing judgment, entry decisions |
+| Opportunity Scanner | **Tier 2 (capable)** | Complex 4-pillar analysis, conflict resolution |
+| DSL Combined | Tier 1 (fast/cheap) | Binary: `status=="closed"` → alert, else HEARTBEAT_OK |
+| SM Flip Detector | Tier 1 (fast/cheap) | Binary: conviction≥4 + 100 traders → close |
+| Watchdog | Tier 1 (fast/cheap) | Threshold checks → alert |
+| Portfolio Update | Tier 1 (fast/cheap) | Text formatting, no decisions |
+| Health Check | Tier 1 (fast/cheap) | Rule-based file repair |
+
 ## Cron Setup
 
 **Critical:** Crons are **OpenClaw systemEvent crons**, NOT senpi crons. Each cron fires a systemEvent that wakes the agent with a MANDATE.
@@ -349,11 +363,15 @@ XYZ DEX assets (GOLD, SILVER, TSLA, AAPL, etc.) behave differently:
 
 ---
 
-## Token Optimization
+## Token Optimization & Context Management
 
-- Skip redundant checks when data < 3 min old
-- If all strategy slots full and no FIRST_JUMPs -> skip scanner processing
-- If SM check shows no flips and < 5 min old -> skip
+**Model tiers:** See table in "Architecture — 7 Cron Jobs" section. Configure fast/cheap (Tier 1) vs capable (Tier 2) models in OpenClaw per-cron settings.
+
+**Heartbeat policy:** If script output contains no actionable signals, output HEARTBEAT_OK immediately. Do not reason about what wasn't found.
+
+**Context isolation (multi-signal runs):** Read `wolf-strategies.json` ONCE per cron run. Build a complete action plan before executing any tool calls. Send ONE consolidated Telegram per run, not one per signal.
+
+**Skip rules:** Skip redundant checks when data < 3 min old. If all slots full and no FIRST_JUMPs → skip scanner processing. If SM check shows no flips and < 5 min old → skip.
 
 ---
 
@@ -370,7 +388,7 @@ XYZ DEX assets (GOLD, SILVER, TSLA, AAPL, etc.) behave differently:
 - `wolf_config.py` auto-migrates legacy `wolf-strategy.json` to registry format on first load
 - Old `dsl-state-WOLF-*.json` files detected and migrated to `state/wolf-{id}/dsl-*.json`
 - All scripts work with both layouts during transition
-- Legacy `dsl-v4.py` still works for single-position use via `DSL_STATE_FILE` env var
+- All DSL logic is handled by `dsl-combined.py` (multi-strategy runner)
 
 ---
 
@@ -392,7 +410,6 @@ See `references/learnings.md` for known bugs, gotchas, and trading discipline ru
 | `scripts/wolf_config.py` | Shared config loader — all scripts import this |
 | `scripts/emerging-movers.py` | Emerging Movers v4 scanner (FIRST_JUMP, IMMEDIATE, CONTRIB_EXPLOSION) |
 | `scripts/dsl-combined.py` | DSL v4 combined trailing stop engine (all positions, all strategies) |
-| `scripts/dsl-v4.py` | DSL v4 single-position engine (legacy, still works) |
 | `scripts/sm-flip-check.py` | SM conviction flip detector (multi-strategy) |
 | `scripts/wolf-monitor.py` | Watchdog — per-strategy margin buffer + position health |
 | `scripts/opportunity-scan-v6.py` | Opportunity Scanner v6 (BTC macro, hourly trend, disqualifiers) |

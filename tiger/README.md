@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/25615844/README.md)
 # 🐯 TIGER v2 — Multi-Scanner Goal-Based Trading
 
 **5 scanners. 1 goal. Configurable aggression. Mechanical exits.**
@@ -84,7 +83,19 @@ tiger-strategy/
 
 ## Changelog
 
-### v2.2 (current)
+### v2.4 (current)
+- **correlation-scanner.py**: Reduced alt scan from 10+10 to 6+2 (max 8 alts). Prevents API timeouts.
+- **funding-scanner.py**: Added retry on instruments fetch failure. Reduced candidates from 15→8. Prevents timeouts.
+- **cron-templates.md**: Complete rewrite following [OpenClaw cron best practices](https://docs.openclaw.ai/automation/cron-jobs):
+  - Tier 1 scanners → isolated sessions with `delivery.mode: "none"` (no main session pollution)
+  - Tier 2 decision-makers → isolated sessions with `delivery.mode: "announce"` (HEARTBEAT_OK auto-suppressed)
+  - DSL stays main session (needs position state context)
+  - Model overrides per job (`model` field in payload)
+  - `agentTurn` payload for isolated jobs, `systemEvent` for main only
+  - Eliminates session lock contention and notification spam
+- **DSL cron mandate**: Checks activePositions before invoking dsl-v4.py. No positions = HEARTBEAT_OK, no session spam.
+
+### v2.2
 - **AliasDict**: snake_case config/state key access now works transparently alongside camelCase (fixes all KeyError crashes)
 - **Function signatures**: `load_state()`, `save_state(state)`, `load_oi_history()`, `append_oi_snapshot()` now work without explicit config arg
 - **dsl-v4.py**: migrated to shared infra (atomic_write, mcporter_call, get_prices) — no more raw curl or non-atomic writes

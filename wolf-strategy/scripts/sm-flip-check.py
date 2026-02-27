@@ -8,18 +8,18 @@ Usage: python3 sm-flip-check.py
 Reads active DSL state files from all strategy state dirs.
 """
 
-import json, subprocess, sys, os, glob
+import json, sys, os, glob
 from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import load_all_strategies, dsl_state_glob
+from wolf_config import load_all_strategies, dsl_state_glob, mcporter_call
 
 
 def get_active_positions():
     """Read all active DSL state files across ALL strategies."""
     positions = []
-    for key, cfg in load_all_strategies().items():
+    for key, _ in load_all_strategies().items():
         for f in glob.glob(dsl_state_glob(key)):
             try:
                 with open(f) as fh:
@@ -38,29 +38,14 @@ def get_active_positions():
 
 def get_sm_data():
     """Fetch smart money data via leaderboard_get_markets."""
-    result = subprocess.run(
-        ["mcporter", "call", "senpi", "leaderboard_get_markets", "--args", "{}"],
-        capture_output=True, text=True, timeout=30
-    )
-    return json.loads(result.stdout)
+    return mcporter_call("leaderboard_get_markets")
 
 
 def analyze(positions, sm_data):
     """Check for SM flips against our positions."""
     alerts = []
 
-    # Parse SM data
-    raw = sm_data.get("data", sm_data.get("result", {}))
-    if isinstance(raw, dict):
-        inner = raw.get("markets", raw)
-        if isinstance(inner, dict):
-            markets = inner.get("markets", [])
-        elif isinstance(inner, list):
-            markets = inner
-        else:
-            markets = []
-    else:
-        markets = []
+    markets = sm_data.get("markets", {}).get("markets", [])
     if not isinstance(markets, list):
         return {"error": "unexpected SM data format", "raw_keys": str(type(markets))}
 
@@ -70,7 +55,11 @@ def analyze(positions, sm_data):
         asset = m.get("token") or m.get("asset") or m.get("coin", "")
         if not asset:
             continue
-        pnl_pct = float(m.get("pct_of_top_traders_gain", m.get("pnlContribution", 0)) or 0) * 100
+        raw_pnl = m.get("pct_of_top_traders_gain")
+        if raw_pnl is not None:
+            pnl_pct = float(raw_pnl or 0) * 100   # decimal → percent
+        else:
+            pnl_pct = float(m.get("pnlContribution", 0) or 0)  # already a percent
         traders = int(m.get("trader_count", m.get("traderCount", 0)) or 0)
         direction = (m.get("direction") or "").upper()
 
@@ -145,6 +134,10 @@ if __name__ == "__main__":
         print(json.dumps({"time": datetime.now(timezone.utc).isoformat(), "positions": 0, "alerts": [], "hasFlipSignal": False}))
         sys.exit(0)
 
-    sm_data = get_sm_data()
+    try:
+        sm_data = get_sm_data()
+    except Exception as e:
+        print(json.dumps({"error": f"sm_fetch_failed: {e}", "hasFlipSignal": False}))
+        sys.exit(1)
     result = analyze(positions, sm_data)
     print(json.dumps(result))

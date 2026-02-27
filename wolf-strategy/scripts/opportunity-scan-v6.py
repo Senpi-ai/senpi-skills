@@ -17,13 +17,13 @@ Fixes from v5:
 3-stage funnel, 4-pillar scoring. Scans all Hyperliquid perps.
 """
 
-import json, sys, subprocess, time, os
+import json, sys, os
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import get_all_active_positions, WORKSPACE, atomic_write
+from wolf_config import get_all_active_positions, WORKSPACE, atomic_write, mcporter_call
 
 # --- Config ---
 HISTORY_DIR = os.path.join(WORKSPACE, "history")
@@ -93,49 +93,13 @@ def log(level, msg):
 
 # --- Helpers ---
 
-def fetch_json(payload):
-    """Fetch from Hyperliquid info API."""
+def call_mcp(tool, **kwargs):
+    """Call a Senpi MCP tool with 3 retries. Returns the `data` portion of the response."""
     try:
-        r = subprocess.run(
-            ["curl", "-s", "https://api.hyperliquid.xyz/info",
-             "-H", "Content-Type: application/json",
-             "-d", json.dumps(payload)],
-            capture_output=True, text=True, timeout=30
-        )
-        return json.loads(r.stdout)
-    except Exception as e:
-        log("warn", f"fetch_json failed: {e}")
-        return None
-
-
-def fetch_candles(coin, interval, hours):
-    """Fetch candle data for a coin at given interval and lookback hours."""
-    now_ms = int(time.time() * 1000)
-    start = now_ms - (hours * 3600 * 1000)
-    return fetch_json({
-        "type": "candleSnapshot",
-        "req": {"coin": coin, "interval": interval, "startTime": start, "endTime": now_ms}
-    })
-
-
-def fetch_mcporter(tool, args=""):
-    """Call mcporter tool, return parsed JSON."""
-    import tempfile
-    tmp = tempfile.mktemp(suffix=".json")
-    cmd = f"mcporter call senpi.{tool} --output json {args} > {tmp} 2>/dev/null"
-    try:
-        subprocess.run(cmd, shell=True, timeout=60)
-        with open(tmp) as f:
-            data = json.load(f)
-        return data
-    except Exception as e:
-        log("warn", f"mcporter call failed: {e}")
+        return mcporter_call(tool, retries=3, timeout=60, **kwargs)
+    except RuntimeError as e:
+        log("warn", f"{tool} failed: {e}")
         return {}
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
 
 
 def calc_rsi(closes, period=14):
@@ -246,8 +210,12 @@ def detect_patterns(candles):
 def fetch_btc_macro(config):
     """Analyze BTC 4h+1h trend for macro context."""
     try:
-        candles_4h = fetch_candles("BTC", "4h", hours=168)
-        candles_1h = fetch_candles("BTC", "1h", hours=24)
+        btc_data = call_mcp("market_get_asset_data", asset="BTC",
+                            candle_intervals=["4h", "1h"],
+                            include_order_book=False, include_funding=False)
+        candle_map = btc_data.get("candles", {})
+        candles_4h = candle_map.get("4h", []) or []
+        candles_1h = candle_map.get("1h", []) or []
         if not candles_4h or not candles_1h:
             return {"trend": "neutral", "strength": 50, "chg1h": 0,
                     "modifier": {"LONG": 0, "SHORT": 0}, "error": "candle_fetch_failed"}
@@ -632,14 +600,18 @@ def score_funding(funding_rate, direction):
 
 # --- Deep dive with parallel fetches ---
 
-def deep_dive_asset(name, direction, meta, btc_macro, config):
+def deep_dive_asset(name, direction, _meta, _btc_macro, _config):
     """Full multi-TF analysis for a single asset. Runs in thread pool."""
     result = {"asset": name, "direction": direction, "error": None}
     try:
-        # Fetch 3 timeframes (per-TF error recovery)
-        candles_4h = fetch_candles(name, "4h", hours=168) or []
-        candles_1h = fetch_candles(name, "1h", hours=24) or []
-        candles_15m = fetch_candles(name, "15m", hours=6) or []
+        # Fetch all 3 timeframes in a single MCP call
+        asset_data = call_mcp("market_get_asset_data", asset=name,
+                              candle_intervals=["4h", "1h", "15m"],
+                              include_order_book=False, include_funding=False)
+        candle_map = asset_data.get("candles", {})
+        candles_4h = candle_map.get("4h", []) or []
+        candles_1h = candle_map.get("1h", []) or []
+        candles_15m = candle_map.get("15m", []) or []
 
         if not candles_1h:
             result["error"] = "no_1h_candles"
@@ -772,23 +744,24 @@ def main():
         log("info", f"Stage 0: BTC trend={btc_macro['trend']}, strength={btc_macro['strength']}, mods={btc_macro['modifier']}")
 
         # --- Stage 1: Bulk screen ---
-        log("info", "Stage 1: Fetching market structure for all assets...")
-        meta_raw = fetch_json({"type": "metaAndAssetCtxs"})
-        if not meta_raw or len(meta_raw) < 2:
-            print(json.dumps({"success": False, "error": "Failed to fetch metaAndAssetCtxs", "stage": "stage1"}))
+        log("info", "Stage 1: Fetching market structure via market_list_instruments...")
+        instruments_data = call_mcp("market_list_instruments")
+        instruments = instruments_data.get("instruments", [])
+        if not instruments:
+            print(json.dumps({"success": False, "error": "Failed to fetch market_list_instruments", "stage": "stage1"}))
             sys.exit(1)
 
-        meta_info = meta_raw[0]["universe"]
-        meta_ctx = meta_raw[1]
-
         assets = {}
-        for i, (info, ctx) in enumerate(zip(meta_info, meta_ctx)):
-            name = info["name"]
+        for inst in instruments:
+            name = inst.get("name", "")
+            # Skip XYZ DEX instruments (equities, metals, indices — not crypto perps)
+            if not name or inst.get("dex"):
+                continue
             try:
-                funding = float(ctx.get("funding", 0))
-                vol24h = float(ctx.get("dayNtlVlm", 0))
-                oi = float(ctx.get("openInterest", 0))
-                mark = float(ctx.get("markPx", 0))
+                funding = float(inst.get("funding", 0))
+                vol24h = float(inst.get("dayNtlVlm", 0))
+                oi = float(inst.get("openInterest", 0))
+                mark = float(inst.get("markPx", 0))
             except (ValueError, TypeError):
                 continue
             if vol24h < MIN_VOLUME_24H:
@@ -798,14 +771,14 @@ def main():
                 "openInterest": oi, "markPrice": mark,
             }
 
-        log("info", f"Stage 1: {len(assets)} assets pass volume filter (of {len(meta_info)} total)")
+        log("info", f"Stage 1: {len(assets)} assets pass volume filter (of {len(instruments)} total)")
 
         # --- Stage 2: Smart money overlay ---
         log("info", "Stage 2: Fetching smart money data...")
         sm_by_asset = {}
         try:
-            momentum_raw = fetch_mcporter("leaderboard_get_markets")
-            markets_list = momentum_raw.get("data", {}).get("markets", {}).get("markets", [])
+            momentum_data = call_mcp("leaderboard_get_markets")
+            markets_list = momentum_data.get("markets", {}).get("markets", [])
             for item in markets_list:
                 name = item.get("token", "")
                 if name not in assets:
@@ -823,8 +796,8 @@ def main():
 
             # Freshness data
             try:
-                top_traders_raw = fetch_mcporter("leaderboard_get_top", "-p limit=100")
-                top_traders = top_traders_raw.get("data", {}).get("leaderboard", {}).get("data", [])
+                top_traders_data = call_mcp("leaderboard_get_top", limit=100)
+                top_traders = top_traders_data.get("leaderboard", {}).get("data", [])
                 from collections import defaultdict
                 market_peaks = defaultdict(list)
                 for t in top_traders:
@@ -1018,27 +991,63 @@ def main():
         save_scan_history(scan_history)
 
         # --- Output ---
-        output = {
-            "success": True,
-            "scanTime": scan_time,
-            "btcMacro": btc_macro,
-            "assetsScanned": len(meta_info),
-            "passedStage1": len(assets),
-            "passedStage2": len(top_assets),
-            "deepDived": len(deep_results),
-            "qualified": len(results),
-            "disqualifiedCount": len(disqualified),
-            "pillarWeights": W,
-            "opportunities": results[:15],
-            "disqualified": disqualified[:5],
-            "activePositions": {k: v for k, v in active_positions.items()},
-            "scanHistory": {
-                "totalScans": len(scan_history["scans"]),
-                "isFirstScan": len(scan_history["scans"]) <= 1,
-            }
-        }
+        verbose = os.environ.get("WOLF_SCANNER_VERBOSE") == "1"
 
-        print(json.dumps(output, indent=2))
+        if verbose:
+            output = {
+                "success": True,
+                "scanTime": scan_time,
+                "btcMacro": btc_macro,
+                "assetsScanned": len(instruments),
+                "passedStage1": len(assets),
+                "passedStage2": len(top_assets),
+                "deepDived": len(deep_results),
+                "qualified": len(results),
+                "disqualifiedCount": len(disqualified),
+                "pillarWeights": W,
+                "opportunities": results[:15],
+                "disqualified": disqualified[:5],
+                "activePositions": {k: v for k, v in active_positions.items()},
+                "scanHistory": {
+                    "totalScans": len(scan_history["scans"]),
+                    "isFirstScan": len(scan_history["scans"]) <= 1,
+                }
+            }
+        else:
+            def compact_opportunity(r):
+                if r["finalScore"] >= 175:
+                    return {
+                        "asset": r["asset"],
+                        "direction": r["direction"],
+                        "finalScore": r["finalScore"],
+                        "pillarScores": r["pillarScores"],
+                        "smTraders": r.get("smartMoney", {}).get("traders", 0),
+                        "risks": r.get("risks", []),
+                        "conflict": r.get("conflict", False),
+                        "existingPositions": r.get("existingPositions"),
+                        "momentum": r.get("momentum"),
+                    }
+                return {"asset": r["asset"], "direction": r["direction"], "finalScore": r["finalScore"]}
+
+            def compact_disqualified(d):
+                return {
+                    "asset": d["asset"],
+                    "direction": d["direction"],
+                    "wouldHaveScored": d.get("wouldHaveScored", d.get("finalScore")),
+                    "disqualifyReason": d.get("disqualifyReason", ""),
+                }
+
+            output = {
+                "success": True,
+                "scanTime": scan_time,
+                "btcMacro": {"trend": btc_macro["trend"], "modifier": btc_macro["modifier"]},
+                "qualified": len(results),
+                "disqualifiedCount": len(disqualified),
+                "opportunities": [compact_opportunity(r) for r in results[:15]],
+                "disqualified": [compact_disqualified(d) for d in disqualified[:5]],
+            }
+
+        print(json.dumps(output))
         log("info", f"Done. {len(results)} qualified, {len(disqualified)} disqualified.")
 
     except Exception as e:

@@ -27,8 +27,11 @@ v2 changes:
 
 Uses: leaderboard_get_markets (single API call)
 """
-import json, subprocess, sys, os
+import json, sys, os
 from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wolf_config import atomic_write, mcporter_call
 
 HISTORY_FILE = os.environ.get("EMERGING_HISTORY", "/data/workspace/emerging-movers-history.json")
 MAX_HISTORY = 60
@@ -48,16 +51,8 @@ except (FileNotFoundError, json.JSONDecodeError):
 
 # ─── Fetch current market concentration ───
 try:
-    r = subprocess.run(
-        ["mcporter", "call", "senpi", "leaderboard_get_markets", "limit=100"],
-        capture_output=True, text=True, timeout=30
-    )
-    result = json.loads(r.stdout)
-    if not result.get("success"):
-        print(json.dumps({"status": "error", "error": "API call failed", "detail": r.stdout[:500]}))
-        sys.exit(1)
-
-    raw_markets = result["data"]["markets"]["markets"]
+    data = mcporter_call("leaderboard_get_markets", limit=100)
+    raw_markets = data["markets"]["markets"]
 except Exception as e:
     print(json.dumps({"status": "error", "error": str(e)}))
     sys.exit(1)
@@ -307,8 +302,7 @@ history["scans"].append(current_scan)
 if len(history["scans"]) > MAX_HISTORY:
     history["scans"] = history["scans"][-MAX_HISTORY:]
 
-with open(HISTORY_FILE, "w") as f:
-    json.dump(history, f, indent=2)
+atomic_write(HISTORY_FILE, history)
 
 # ─── Output ───
 # Sort: first_jump > immediate > deep climber > velocity > reason count
@@ -336,12 +330,6 @@ output = {
     "hasContribExplosion": any(a.get("isContribExplosion") for a in alerts),
     "hasEmergingMover": len(alerts) > 0,
     "hasDeepClimber": any(a.get("isDeepClimber") for a in alerts),
-    "top5": [
-        {"signal": f"{m['token']} {m['direction'].upper()}", "rank": m["rank"],
-         "contribution": round(m["contribution"]*100, 2), "traders": m["traders"],
-         "priceChg4h": m["price_chg_4h"]}
-        for m in current_scan["markets"][:5]
-    ]
 }
 
 print(json.dumps(output))

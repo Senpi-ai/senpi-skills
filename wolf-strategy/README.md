@@ -13,7 +13,6 @@ Fully autonomous multi-strategy trading for Hyperliquid perps. The WOLF hunts fo
 | `scripts/wolf-setup.py` | **Setup wizard** — adds strategy to multi-strategy registry |
 | `scripts/emerging-movers.py` | Emerging Movers v4 — primary entry signal (90s scans, FIRST_JUMP priority) |
 | `scripts/dsl-combined.py` | DSL v4 combined runner — trailing stops for all positions, all strategies |
-| `scripts/dsl-v4.py` | DSL v4 single-position engine (legacy, still works) |
 | `scripts/opportunity-scan-v6.py` | **Opportunity Scanner v6** — BTC macro, hourly trend, disqualifiers, parallel fetches |
 | `scripts/opportunity-scan.py` | Opportunity Scanner v5 (legacy, replaced by v6) |
 | `scripts/sm-flip-check.py` | SM conviction flip detector (multi-strategy) |

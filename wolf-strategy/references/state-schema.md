@@ -147,11 +147,11 @@ Created per position, scoped to its strategy. Read by `dsl-combined.py`.
   "currentTierIndex": 0,
   "tierFloorPrice": null,
   "currentBreachCount": 0,
-  "floorPrice": 28.726,
+  "floorPrice": 29.353,
   "createdAt": "2026-02-24T10:00:00Z",
   "hwTimestamp": "2026-02-24T10:05:00Z",
   "lastCheck": "2026-02-24T10:06:00Z",
-  "lastPrice": 29.10,
+  "lastPrice": 29.45,
   "consecutiveFetchFailures": 0,
   "pendingClose": false,
   "phase1": {
@@ -160,7 +160,7 @@ Created per position, scoped to its strategy. Read by `dsl-combined.py`.
     "absoluteFloor": 28.726
   },
   "phase2": {
-    "retraceFromHW": 3,
+    "retraceFromHW": 5,
     "breachesRequired": 2
   },
   "tiers": [
@@ -299,3 +299,7 @@ path = dsl_state_path("wolf-abc12345", "HYPE")
 8. **State dir per strategy** — `state/wolf-abc12345/dsl-HYPE.json`, NOT `dsl-state-WOLF-HYPE.json`. Same asset in two strategies = two files in different dirs, no collision.
 
 9. **Atomic writes** — All state file updates use `atomic_write()` (write to .tmp, then `os.replace`) to prevent corruption from concurrent access.
+
+10. **`phase2.retraceFromHW` is a percentage** — Use `5` for 5%, matching `phase1.retraceThreshold` convention. The code divides by 100 internally. Do NOT use `0.05`.
+
+11. **`stagnation.thresholdHours` not `staleHours`** — The stagnation idle duration field is `thresholdHours`. Using `staleHours` will be silently ignored (defaults to 1.0h).
