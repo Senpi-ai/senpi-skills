@@ -15,11 +15,11 @@ Onboard an AI agent into the Senpi trading platform on Hyperliquid via
 modular skills: account setup, skill discovery, and trading strategies.
 
 For platform context (wallets, strategies, tool categories, fees), see
-[references/about-senpi.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/staging/senpi-entrypoint/references/about-senpi.md).
+[references/about-senpi.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/about-senpi.md).
 
 
 If any `npx` command fails, consult
-[references/error-handling.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/staging/senpi-entrypoint/references/error-handling.md) for recovery
+[references/error-handling.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/error-handling.md) for recovery
 steps.
 
 ## Environment Variable Defaults
