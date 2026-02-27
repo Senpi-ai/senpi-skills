@@ -1,6 +1,6 @@
 # First Trade Error Handling Reference
 
-Consult this file when the first-trade tutorial hits errors during discovery, strategy create, monitor, or strategy close.
+Consult this file when the first-trade tutorial hits errors. **All "Display" blocks are user-facing:** use only plain language; do not show raw errors, state names, file paths, or MCP/tool names.
 
 ---
 
@@ -8,17 +8,15 @@ Consult this file when the first-trade tutorial hits errors during discovery, st
 
 If the user tries to create a strategy but balance is less than the required amount (or wallet has less than $100 at tutorial start, redirect to funding — at least $100 USDC is required to start the first-trade tutorial):
 
-**Display:**
+**Display (user-friendly only):**
 
-> ⚠️ **Insufficient balance**
+> ⚠️ **Not enough balance**
 >
-> You need at least $50 to create a mirror strategy (or reduce the budget).
+> You need at least $50 to create this strategy.
 >
 > Current balance: $10.00
 >
-> Options:
-> 1. Fund your wallet with more USDC
-> 2. Use a smaller budget when the tool supports it
+> Add more USDC to your wallet, or we can try a smaller amount when supported.
 
 Then pause the tutorial until the user funds or chooses a smaller budget.
 
@@ -28,18 +26,13 @@ Then pause the tutorial until the user funds or chooses a smaller budget.
 
 If the MCP returns an error when creating the strategy (e.g. `strategy_create` fails):
 
-**Display:**
+**Display (user-friendly only; do not show raw MCP error):**
 
-> ❌ **Couldn't create strategy**
+> ❌ **Couldn't create your strategy**
 >
-> Error: {error message from MCP}
+> Something went wrong. Common causes: the trader isn't available to mirror right now, or there was a temporary network issue.
 >
-> This might be due to:
-> - Trader not available for mirroring
-> - Market/network issues
-> - Invalid trader id or budget
->
-> Want to try again? Say "yes" to retry, or "pick another trader" to go back to discovery.
+> Want to try again? Say **"yes"** to retry, or **"pick another trader"** to choose someone else.
 
 Do not update `firstTrade.step` to `STRATEGY_CREATED`; leave at `DISCOVERY` or previous step so the user can retry.
 
@@ -49,13 +42,11 @@ Do not update `firstTrade.step` to `STRATEGY_CREATED`; leave at `DISCOVERY` or p
 
 If the MCP returns an error when closing the strategy:
 
-**Display:**
+**Display (user-friendly only; do not show raw MCP error):**
 
-> ❌ **Couldn't close strategy**
+> ❌ **Couldn't close your strategy**
 >
-> Error: {error message from MCP}
->
-> You can try again: "close my strategy". If it keeps failing, check your portfolio or reconnect MCP.
+> Something went wrong. You can try again: say **"close my strategy"**. If it keeps failing, check your connection or try again in a moment.
 
 Leave `firstTrade.step` at `STRATEGY_CREATED` until close succeeds.
 
@@ -65,16 +56,11 @@ Leave `firstTrade.step` at `STRATEGY_CREATED` until close succeeds.
 
 If the user already has an active strategy from this tutorial (or tries to create a second mirror with the same scope):
 
-**Display:**
+**Display (user-friendly only; do not show strategy ID unless user asks):**
 
-> ℹ️ **You already have an active strategy from this tutorial**
+> ℹ️ **You already have a strategy running**
 >
-> Strategy ID: {strategyId from state}
->
-> Options:
-> - "how's my strategy?" — Check status
-> - "close my strategy" — Close it and finish the tutorial
-> - To mirror another trader later, close this one first or create a new strategy with a different name/budget
+> From this tutorial. You can ask **"how's my strategy?"** to check it, or **"close my strategy"** to close it and finish. To mirror a different trader later, close this one first.
 
 Resume the tutorial from monitor/close using the existing strategy.
 
@@ -82,5 +68,5 @@ Resume the tutorial from monitor/close using the existing strategy.
 
 ## Recovery
 
-- **MCP disconnected mid-tutorial:** Direct user to ensure MCP is configured (see agent-onboarding or platform-config). Do not update state until they reconnect.
-- **User closes chat mid-flow:** On next message, read `firstTrade.step` from state and resume from the appropriate step. See [references/next-steps.md](references/next-steps.md) for resume handling.
+- **MCP disconnected mid-tutorial:** Tell the user in plain language: "Your connection was lost. Please check that Senpi is set up and try again." Do not mention MCP or state. Do not update state until they reconnect.
+- **User closes chat mid-flow:** On next message, read firstTrade.step from state and resume from the appropriate step. See [references/next-steps.md](references/next-steps.md). Use only user-friendly resume messages.

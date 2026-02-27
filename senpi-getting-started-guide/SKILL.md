@@ -19,7 +19,9 @@ metadata:
 
 Guide users through their first complete trade on Hyperliquid via Senpi. This skill teaches the core loop: **discover top traders** → **create a strategy** that mirrors a chosen trader → **monitor** → **close strategy**.
 
-**Prerequisites:** Senpi MCP connected. State must not be `FRESH` or `ONBOARDING` (onboarding must be complete). If state is not found or not `READY`, the guide will prompt for wallet funding before starting the tutorial when needed; if `AWAITING_FIRST_TRADE` or `READY`, the tutorial runs directly (wallet must be funded to create a strategy).
+**Prerequisites (agent-only):** Senpi MCP connected. Onboarding complete (see state check below). Wallet funded for creating a strategy; if not yet funded, show a funding reminder and do not start until balance ≥ $100 or user confirms they funded.
+
+**User-facing rule:** Never show the user internal details. Do **not** mention state names (e.g. UNFUNDED, READY, FRESH), file paths (e.g. state.json, ~/.config/senpi), step codes (e.g. STRATEGY_CREATED), or MCP/tool names. Use only plain, friendly language (e.g. "You're all set to start", "Fund your wallet to begin", "Your strategy is running").
 
 ---
 
@@ -28,13 +30,13 @@ Guide users through their first complete trade on Hyperliquid via Senpi. This sk
 Before starting the tutorial, verify:
 
 1. **MCP Connected** — Senpi MCP server is configured and accessible.
-2. **Onboarding complete** — State is not `FRESH` or `ONBOARDING` (see state check below).
-3. **Wallet funded (for creating a strategy)** — When state is not found or not `READY`, the guide shows a funding reminder first if balance is low; do not start Step 1 until balance ≥ $100 or user confirms they funded.
+2. **Onboarding complete** — If not complete (state FRESH or ONBOARDING), redirect with a user-friendly message only (see below). Do not mention "state" or "onboarding" to the user.
+3. **Wallet funded (for creating a strategy)** — If not yet funded, show a single friendly funding reminder; do not start the tutorial until balance ≥ $100 or user confirms they funded.
 
-Ensure state file exists; if missing, create it and redirect to onboarding:
+Ensure state file exists; if missing, create it and redirect. **When redirecting, tell the user only:** "You need to complete setup first. Say **'set up Senpi'** or **'connect to Senpi'** to get started." Do not mention state file, FRESH, or any internal state.
 
 ```bash
-# Ensure state file exists (per state lifecycle); if missing, create and redirect to onboarding
+# Ensure state file exists (per state lifecycle); if missing, create and redirect
 if [ ! -f ~/.config/senpi/state.json ]; then
   mkdir -p ~/.config/senpi
   cat > ~/.config/senpi/state.json << 'STATEEOF'
@@ -57,13 +59,15 @@ if [ ! -f ~/.config/senpi/state.json ]; then
   "mcp": { "configured": false }
 }
 STATEEOF
-  echo "State file was missing; created with FRESH. User must complete onboarding first."
+  # Tell user only (do not echo internal messages):
+  # "You need to complete setup first. Say 'set up Senpi' or 'connect to Senpi' to get started."
   exit 1
 fi
 
 STATE=$(cat ~/.config/senpi/state.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).state")
 if [ "$STATE" = "FRESH" ] || [ "$STATE" = "ONBOARDING" ]; then
-  echo "User needs to complete onboarding first"
+  # Tell user only (do not echo "User needs to complete onboarding" or state names):
+  # "You need to complete setup first. Say 'set up Senpi' or 'connect to Senpi' to get started."
   exit 1
 fi
 ```
@@ -78,7 +82,7 @@ Start this tutorial when:
 - State is `AWAITING_FIRST_TRADE` and user sends a trading-related message
 - User explicitly asks for trading guidance
 
-**Do NOT start if:** MCP not connected (redirect to onboarding), or user says "skip tutorial" — then set state to `READY` and exit. See [references/next-steps.md](references/next-steps.md) for skip handling. If wallet has less than $100 when starting the tutorial, do not create a strategy until funded; see "When state is not found or not READY" below.
+**Do NOT start if:** MCP not connected — then tell the user to set up Senpi first (do not mention MCP or state). If user says "skip tutorial", set state to READY and show the skip message from [references/next-steps.md](references/next-steps.md). If wallet has less than $100 when starting, do not create a strategy until funded; use the funding reminder below (user-friendly wording only).
 
 ---
 
@@ -86,18 +90,18 @@ Start this tutorial when:
 
 Follow steps in order. Reference files contain display copy, state schemas, and error handling.
 
-### When state is not found or not READY (before Step 1)
+### When the wallet isn’t funded yet (before Step 1)
 
-If the user asked for the first-trade guide (e.g. from the entrypoint or "let's trade") but state is missing or not `READY`:
+If the user asked for the first-trade guide (e.g. "let's trade") but the wallet is not yet funded:
 
 1. **Check balance** — Use MCP to fetch portfolio/balance.
-2. **If balance < $100:** Do **not** start Step 1 (Introduction). Show a single clear message:
-   - Include the **agent wallet address** from `state.json` → `account.agentWalletAddress` or `wallet.address`.
-   - Say they need at least $100 USDC on a supported chain (Base, Arbitrum, Optimism, Polygon, or Ethereum).
-   - Say: "When you've sent the funds, tell me **'I funded my wallet'** or **'let's trade'** and I'll start the tutorial."
-3. **If balance ≥ $100:** Update state to `AWAITING_FIRST_TRADE` and `wallet.funded: true` (read-modify-write `~/.config/senpi/state.json`), then proceed to Step 1.
+2. **If balance < $100:** Do **not** start the introduction. Show **one clear, user-friendly message** only:
+   - Your **trading wallet address** (from state; do not say "agent wallet" or "state.json").
+   - That they need to send at least **$100 USDC** on a supported network (Base, Arbitrum, Optimism, Polygon, or Ethereum).
+   - "Once you’ve sent the funds, say **'I funded my wallet'** or **'let’s trade'** and we’ll start the tutorial."
+3. **If balance ≥ $100:** Update state (AWAITING_FIRST_TRADE, wallet.funded true), then proceed to Step 1.
 
-Do not show "User needs to complete onboarding first" when onboarding is already complete (i.e. state is not `FRESH` or `ONBOARDING`).
+If onboarding is not complete (state FRESH or ONBOARDING), tell the user only: "Complete setup first — say **'set up Senpi'** to get started." Do not say "onboarding", "state", or "User needs to complete onboarding first."
 
 ### Step 1: Introduction
 
@@ -127,7 +131,7 @@ See [references/strategy-management.md](references/strategy-management.md) for t
 
 ### Step 4: Create Strategy
 
-On user confirmation, call MCP **`strategy_create`** with the chosen trader (from Step 2) and budget (e.g. $50). Use the trader identifier returned by `discovery_get_top_traders` (e.g. trader address or id). On success, confirm the strategy was created and show strategy ID, budget, and mirrored trader. Do not mention or display strategy status. Offer: "how's my strategy?", "close my strategy", or "show my positions".
+On user confirmation, call MCP **`strategy_create`** with the chosen trader (from Step 2) and budget (e.g. $50). On success, tell the user in plain language that their strategy is set up (e.g. "Your strategy is created and running."). Optionally mention budget and the trader they’re mirroring. Do not show strategy status or raw IDs. Offer: "how's my strategy?", "close my strategy", or "show my positions".
 
 Update state per [references/strategy-management.md](references/strategy-management.md) (`firstTrade.step: "STRATEGY_CREATED"`, `tradeDetails` with `strategyId`, `mirroredTraderId`). On failure, see [references/error-handling.md](references/error-handling.md).
 
@@ -143,7 +147,7 @@ When user asks "how's my strategy?" or similar, fetch data via MCP: **`strategy_
 
 ### Step 6: Close Strategy
 
-When user says "close", "exit", "close my strategy", "take profit", etc., call MCP **`strategy_close`** with the strategy ID from state. Display realized PnL, duration, and fees if available. Do not mention or display strategy status. Update state with `firstTrade.step: "STRATEGY_CLOSE"` and full `tradeDetails`. See [references/strategy-management.md](references/strategy-management.md).
+When user says "close", "exit", "close my strategy", "take profit", etc., call MCP **`strategy_close`** with the strategy ID from state. Tell the user the strategy is closed and show **realized PnL, duration, and fees** in plain language. Do not mention strategy status or internal codes. Update state (STRATEGY_CLOSE, tradeDetails). See [references/strategy-management.md](references/strategy-management.md).
 
 ---
 
@@ -157,7 +161,7 @@ Full copy and state shape: [references/next-steps.md](references/next-steps.md) 
 
 ## Interrupted Tutorial / Resume
 
-If the user returns mid-tutorial, read `firstTrade.step` from state and resume from the matching step: `INTRODUCTION` → `DISCOVERY` → `STRATEGY_CREATED` → `STRATEGY_CLOSE` → `COMPLETE`. See [references/next-steps.md](references/next-steps.md) for resume logic and welcome-back message.
+If the user returns mid-tutorial, read firstTrade.step from state and resume from the matching step. See [references/next-steps.md](references/next-steps.md) for resume logic. **Resume message must be user-friendly only** — e.g. "You were in the middle of your first trade. Here’s where we left off…" Do not mention step names (INTRODUCTION, DISCOVERY, STRATEGY_CREATED, etc.) or state.
 
 ---
 

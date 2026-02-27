@@ -29,7 +29,7 @@ Explain the mirror strategy to the user with a table. Default first-trade: $50 b
 ## Create Strategy
 
 - Call MCP **`strategy_create`** with the chosen trader (use `recommendedTraderId` from state) and budget (e.g. $50). Pass the trader identifier and budget as required by the tool.
-- On success, confirm the strategy was created and show strategy ID, budget, mirrored trader. Do not mention or display strategy status. Offer: "how's my strategy?", "close my strategy", "show my positions".
+- On success, tell the user in **plain language only** (e.g. "Your strategy is created and running."). Optionally mention budget and the trader they’re mirroring. Do not show strategy ID, status, or any internal codes. Offer: "how's my strategy?", "close my strategy", "show my positions".
 
 **State update after create:**
 
@@ -72,7 +72,7 @@ Then offer: **Hold**, **Close strategy**, or **Add protection** (e.g. other skil
 
 When the user says "close", "exit", "close my strategy", "take profit", etc., call MCP **`strategy_close`** with the strategy ID from `state.json` → `firstTrade.tradeDetails.strategyId`.
 
-**Display:** Realized PnL, duration, fees if available. Do not mention or display strategy status.
+**Display:** Tell the user the strategy is closed. Show **realized PnL, duration, and fees** in plain language. Do not mention strategy status or internal codes.
 
 **State update after close:**
 

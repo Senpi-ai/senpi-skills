@@ -68,21 +68,21 @@ Then update state to `READY`, `firstTrade.completed`, `firstTrade.step: "COMPLET
 
 When the user says "skip", "skip tutorial", "I know how to trade":
 
-**Display:**
+**Display (user-friendly only; no tool names or internal references):**
 
 > 👍 **Tutorial skipped!**
 >
 > You're all set to trade on your own. Quick reference:
 >
-> | Action | Command |
-> |--------|---------|
-> | Find top traders | "find opportunities" / discovery_get_top_traders |
-> | Mirror a trader | "create strategy mirroring [trader]" / strategy_create |
-> | Check strategies | "show my portfolio" / strategy_list, account_get_portfolio |
-> | Close a strategy | "close my strategy" / strategy_close |
+> | What you want | Say or do |
+> |---------------|------------|
+> | Find top traders | "find opportunities" |
+> | Mirror a trader | "create a strategy mirroring [trader]" |
+> | Check your strategies | "show my portfolio" |
+> | Close a strategy | "close my strategy" |
 > | Get help | "how do I trade?" |
 >
-> **Recommended skills:** `npx skills add Senpi-ai/senpi-skills --list`
+> You can also browse more skills: ask to **list Senpi skills** or visit the Senpi Skills repo.
 
 **State update:**
 
@@ -123,10 +123,10 @@ case $STEP in
 esac
 ```
 
-**Resume message:**
+**Resume message (user-friendly only; do not mention step names or state):**
 
 > 👋 Welcome back! You were in the middle of your first trade tutorial.
 >
-> [Show current situation based on step: discovery → recommend trader; strategy created → show strategy value/positions and offer to close or congratulate.]
+> [Describe where they left off in plain language: e.g. "We’d just found some top traders" or "Your strategy is running — want to check it or close it?"]
 >
-> Want to continue? Say "yes" or "start over" to begin fresh.
+> Want to continue? Say **"yes"** or **"start over"** to begin fresh.
