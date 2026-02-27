@@ -286,8 +286,9 @@ Only speak (chat or Telegram) when something actionable happens: trade opened, t
 | 9 | Exit Checker | 5 min | `tiger-exit.py` | Tier 2 |
 | 10 | DSL Combined | 30 sec | `dsl-v4.py` | Tier 1 |
 
-**Tier 1** (fast/cheap): threshold checks, data collection, DSL math.
-**Tier 2** (capable): aggression decisions, risk judgment, exit evaluation.
+**Tier 1** (fast/cheap): threshold checks, data collection, DSL math. Runs `isolated` with `delivery.mode: "none"` and explicit model (`claude-haiku-4-5`).
+**Tier 2** (capable): aggression decisions, risk judgment, exit evaluation. Runs `isolated` with `delivery.mode: "announce"` and explicit model (`claude-sonnet-4-5`). OpenClaw auto-suppresses HEARTBEAT_OK — only real content gets delivered.
+**DSL** (Cron 10): Runs in `main` session (`systemEvent`) — needs position state context.
 
 Scanners are staggered by 1-2 minutes to avoid mcporter rate limits (see cron-templates.md).
 
