@@ -108,7 +108,7 @@ def process_position(state_file, state, price, strategy_cfg):
 
     # --- Auto-fix absoluteFloor ---
     retrace_roe = abs(state["phase1"]["retraceThreshold"])
-    retrace_decimal = retrace_roe / 100 if retrace_roe > 1 else retrace_roe
+    retrace_decimal = retrace_roe / 100
     retrace_price = retrace_decimal / leverage
     if is_long:
         correct_floor = round(entry * (1 - retrace_price), 6)
@@ -170,7 +170,7 @@ def process_position(state_file, state, price, strategy_cfg):
     # --- Effective floor ---
     if phase == 1:
         p1_retrace = abs(state["phase1"]["retraceThreshold"])
-        p1_retrace_price = (p1_retrace / 100 if p1_retrace > 1 else p1_retrace) / leverage
+        p1_retrace_price = (p1_retrace / 100) / leverage
         breaches_needed = state["phase1"]["consecutiveBreachesRequired"]
         abs_floor = state["phase1"]["absoluteFloor"]
         if is_long:
@@ -181,12 +181,11 @@ def process_position(state_file, state, price, strategy_cfg):
             effective_floor = min(abs_floor, trailing_floor)
     else:
         p2_retrace_pct = state.get("phase2", {}).get("retraceFromHW", 5)
-        p2_retrace = p2_retrace_pct / 100
         if tier_idx is not None and tier_idx >= 0:
-            t_retrace = tiers[tier_idx].get("retrace", p2_retrace)
+            t_retrace_pct = tiers[tier_idx].get("retrace", p2_retrace_pct)
         else:
-            t_retrace = p2_retrace
-        t_retrace_price = t_retrace / leverage
+            t_retrace_pct = p2_retrace_pct
+        t_retrace_price = t_retrace_pct / 100 / leverage
         breaches_needed = (tiers[tier_idx].get("breachesRequired", tiers[tier_idx].get("retraceClose", 2))
                            if tier_idx is not None and tier_idx >= 0
                            else state.get("phase2", {}).get("consecutiveBreachesRequired", 2))
