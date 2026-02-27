@@ -41,7 +41,16 @@ if [ ! -f ~/.config/senpi/state.json ]; then
   "version": "1.0.0",
   "state": "FRESH",
   "error": null,
-  "onboarding": { "step": "IDENTITY", "walletGenerated": false },
+  "onboarding": {
+    "step": "IDENTITY",
+    "startedAt": null,
+    "completedAt": null,
+    "identityType": null,
+    "subject": null,
+    "walletGenerated": false,
+    "existingAccount": false
+  },
+  "account": {},
   "wallet": { "funded": false },
   "firstTrade": { "completed": false, "skipped": false },
   "mcp": { "configured": false }
