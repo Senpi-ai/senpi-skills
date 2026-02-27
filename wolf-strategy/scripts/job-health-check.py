@@ -54,7 +54,7 @@ def get_all_wallet_positions(wallet):
     Returns (crypto_positions, xyz_positions, error_string_or_None).
     """
     data = mcporter_call_safe("strategy_get_clearinghouse_state", strategy_wallet=wallet)
-    if data is None:
+    if not data:
         return {}, {}, "clearinghouse fetch failed"
     crypto = _extract_positions(data.get("main", {}))
     xyz = _extract_positions(data.get("xyz", {}))
