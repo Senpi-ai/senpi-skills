@@ -107,7 +107,14 @@ If onboarding is not complete (state FRESH or ONBOARDING), tell the user only: "
 
 ### Step 1: Introduction
 
-Display the trade cycle: **Discover top traders** → **Create a strategy** (mirror a chosen trader) → **Monitor** → **Close strategy**. Recommend a **$100 minimum** budget for the first strategy and include a short risk disclaimer. Ask user to say **"yes"** to continue or **"skip"** if experienced.
+Display the trade cycle. **When showing the 4-step list to the user, use this exact wording:**
+
+> 1️⃣ **Discover** — Find top-performing traders on Hyperliquid  
+> 2️⃣ **Create a strategy** — Mirror a chosen trader's positions ($100 budget)  
+> 3️⃣ **Monitor** — Watch how the strategy performs  
+> 4️⃣ **Close** — Exit when you're ready  
+
+Recommend a **$100 minimum** budget for the first strategy and include a short risk disclaimer. Ask user to say **"yes"** to continue or **"skip"** if experienced.
 
 Update state: set `firstTrade.step` to `INTRODUCTION`, `firstTrade.started` true, `startedAt` (ISO 8601). Preserve existing fields in `state.json`.
 
@@ -117,7 +124,7 @@ Wait for user confirmation before proceeding.
 
 ### Step 2: Discovery
 
-Use MCP **`discovery_get_top_strategies`** to fetch top traders. **Only present as options traders that currently have open positions** — filter out or verify with **`discovery_get_trader_state`** (or equivalent) so you do not offer traders with no open positions. Optionally use **`discovery_get_trader_history`** for extra detail. Show a short table of top traders with open positions (e.g. by PnL, win rate) and **recommend one trader** to mirror for the first trade.
+Use MCP **`discovery_get_top_traders`** to fetch top traders. Optionally use **`discovery_get_trader_state`** or **`discovery_get_trader_history`** for extra detail. Show a short table of top traders (e.g. by PnL, win rate) and **recommend one trader** to mirror for the first trade.
 
 See [references/discovery-guide.md](references/discovery-guide.md) for display template and state update (`firstTrade.step: "DISCOVERY"`, `recommendedTraderId`, `recommendedTraderName`).
 
@@ -166,7 +173,7 @@ If the user returns mid-tutorial, read firstTrade.step from state and resume fro
 ## Reference Files
 
 - **[references/error-handling.md](references/error-handling.md)** — Insufficient balance, strategy_create failed, strategy_close failed, recovery
-- **[references/discovery-guide.md](references/discovery-guide.md)** — discovery_get_top_strategies, recommend a trader to mirror, display template
+- **[references/discovery-guide.md](references/discovery-guide.md)** — discovery_get_top_traders, recommend a trader to mirror, display template
 - **[references/strategy-management.md](references/strategy-management.md)** — Strategy sizing, strategy_create/strategy_close flow, state updates for firstTrade
 - **[references/next-steps.md](references/next-steps.md)** — Celebration (after first strategy created), after close, skip tutorial, resume handling
 

@@ -116,7 +116,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-getting-st
 
 If the guide skill is not yet available, suggest these first actions instead:
 - "Check your portfolio" (uses `account_get_portfolio` tool)
-- "Discover top traders" (uses `discovery_get_top_strategies` tool)
+- "Discover top traders" (uses `discovery_get_top_traders` tool)
 - "View market data" (uses `market_get_prices` tool)
 
 ---
