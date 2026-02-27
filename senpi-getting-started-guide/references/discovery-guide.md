@@ -1,22 +1,20 @@
 # Discovery Guide Reference
 
-Use this when running **Step 2: Discovery** of the first-trade tutorial. This step is about **finding top traders and recommending one to mirror** (not opening individual asset/direction positions). Use **`discovery_get_top_strategies`**; optionally **`discovery_get_trader_state`** or **`discovery_get_trader_history`** to confirm a trader has open positions. **Only present as options traders that currently have open positions** — do not offer traders with no open positions. **Show the user only user-friendly copy;** do not mention state, step names, or MCP/tool names.
+Use this when running **Step 2: Discovery** of the first-trade tutorial. This step is about **finding top traders and recommending one to mirror** (not opening individual asset/direction positions). Use **`discovery_get_top_traders`**; optionally **`discovery_get_trader_state`** or **`discovery_get_trader_history`** for extra detail. **Show the user only user-friendly copy;** do not mention state, step names, or MCP/tool names.
 
 ---
 
 ## MCP Usage
 
-- **`discovery_get_top_strategies`** — Fetch top strategies (e.g. by PnL, win rate, or consistency).
-- **Filter to traders with open positions** — Only show options for traders that **currently have open positions**. Use **`discovery_get_trader_state`** (or equivalent) to confirm open positions before including a trader in the list. Do not offer traders with no open positions.
-- Optionally **`discovery_get_trader_history`** — Get extra detail for a specific trader before recommending.
+- **`discovery_get_top_traders`** — Fetch top traders (e.g. by PnL, win rate, or consistency).
+- Optionally **`discovery_get_trader_state`** or **`discovery_get_trader_history`** — Get extra detail for a specific trader before recommending.
 - Prefer traders whose positions are in liquid assets (ETH, BTC, SOL) so the mirror strategy has smooth entry/exit.
 
 ---
 
 ## What to Look For
 
-- **Open positions** — Only include traders that **currently have open positions** (so the mirror strategy has something to copy).
-- **Strong performance** — Among those, prefer top traders by PnL, win rate, or consistency.
+- **Strong performance** — Prefer top traders by PnL, win rate, or consistency.
 - **Liquid assets** — Traders with positions in ETH, BTC, SOL are better for a first mirror strategy.
 - **Recent activity** — Traders with recent activity so the mirror has clear positions to follow.
 
@@ -24,11 +22,11 @@ Use this when running **Step 2: Discovery** of the first-trade tutorial. This st
 
 ## Display Template
 
-After fetching with **`discovery_get_top_strategies`** and **filtering to traders with open positions**, show the user something like:
+After fetching with **`discovery_get_top_traders`**, show the user something like:
 
 > 🔍 **Scanning top traders...**
 >
-> Here are some of the best performers **with open positions** right now:
+> Here are some of the best performers right now:
 >
 > **Top Traders:**
 >
@@ -56,7 +54,7 @@ After discovery, update `firstTrade` in state with the **recommended trader** (f
 ```json
 "firstTrade": {
   "step": "DISCOVERY",
-  "recommendedTraderId": "<trader id or address from discovery_get_top_strategies>",
+  "recommendedTraderId": "<trader id or address from discovery_get_top_traders>",
   "recommendedTraderName": "<optional display name or truncated address>"
 }
 ```
