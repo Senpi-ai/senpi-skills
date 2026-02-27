@@ -26,8 +26,8 @@ FRESH ─────▶ ONBOARDING ─────▶ UNFUNDED ─────�
 
 | From | To | Trigger |
 |------|----|---------|
-| `FRESH` | `ONBOARDING` | User sends first message |
-| `ONBOARDING` | `UNFUNDED` | Credentials saved, MCP configured |
+| `FRESH` | `ONBOARDING` | User sends first message; onboarding skill sets `state` to `ONBOARDING` and `onboarding.startedAt` when starting the flow |
+| `ONBOARDING` | `UNFUNDED` | Credentials saved, MCP configured (Step 7 writes `state: UNFUNDED`, `onboarding.step: COMPLETE`) |
 | `UNFUNDED` | `AWAITING_FIRST_TRADE` | Wallet balance >= $100 |
 | `AWAITING_FIRST_TRADE` | `READY` | First trade completed or skipped |
 | Any state | `FAILED` | Error occurs |
@@ -76,6 +76,21 @@ FRESH ─────▶ ONBOARDING ─────▶ UNFUNDED ─────�
 }
 ```
 
+## Resume from ONBOARDING
+
+When state is `ONBOARDING`, the onboarding skill must read `onboarding.step` and resume from that step instead of starting at Step 0. Step values and corresponding flow steps:
+
+| `onboarding.step` | Resume at |
+|-------------------|-----------|
+| `IDENTITY` | Step 1 (Collect Identity) |
+| `REFERRAL` | Step 2 (Set Referral Code) |
+| `API_CALL` | Step 3 (Call Onboarding API) |
+| `PARSE` | Step 4 (Parse Response) |
+| `CREDENTIALS` | Step 5 (Persist Credentials) |
+| `MCP_CONFIG` | Step 6 (Configure MCP Server) |
+
+The onboarding skill sets `state` to `ONBOARDING` when transitioning from `FRESH` at flow start, and updates `onboarding.step` after each step so interruption and resume work correctly.
+
 ## Handoff to senpi-getting-started-guide
 
 When state transitions to `AWAITING_FIRST_TRADE`:
@@ -117,7 +132,8 @@ case $STATE in
     # Start onboarding
     ;;
   "ONBOARDING")
-    # Resume from saved step
+    # Resume from saved step: read onboarding.step and continue from that step.
+    # Step values: IDENTITY → REFERRAL → API_CALL → PARSE → CREDENTIALS → MCP_CONFIG. See agent-onboarding SKILL.md.
     ;;
   "UNFUNDED")
     # Check balance, show funding reminder
