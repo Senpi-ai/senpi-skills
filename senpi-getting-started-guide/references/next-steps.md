@@ -12,12 +12,12 @@ Use this for **celebration**, **skip tutorial**, and **resume** handling in the 
 >
 > ```
 >  ╔═══════════════════════════════════════╗
->  ║   🏆  FIRST TRADE COMPLETE  🏆        ║
+>  ║   🏆  FIRST STRATEGY COMPLETE  🏆    ║
 >  ║      You made: +$X.XX (+X.XX%)       ║
 >  ╚═══════════════════════════════════════╝
 > ```
 >
-> **What you learned:** Discovery, sizing, open, monitor, close.
+> **What you learned:** Discovery, mirroring a top trader, creating a strategy, monitoring, and closing.
 >
 > **Your trading journey begins!** Explore next:
 >
@@ -32,17 +32,17 @@ Use this for **celebration**, **skip tutorial**, and **resume** handling in the 
 
 **If loss:**
 
-> 📊 **FIRST TRADE COMPLETE**
+> 📊 **FIRST STRATEGY COMPLETE**
 >
-> Trade Result: -$X.XX (-X.X%)
+> Strategy Result: -$X.XX (-X.X%)
 >
-> **That's okay!** You kept size small, learned the cycle, and controlled the exit.
+> **That's okay!** You kept size small, learned the mirror flow, and closed when you wanted.
 >
 > **Pro tip:** Install **DSL** for automatic protection: `npx skills add Senpi-ai/senpi-skills/dsl-dynamic-stop-loss`
 >
-> Explore: DSL, Scanner, WOLF. Say "find opportunities" to scan again.
+> Explore: DSL, Scanner, WOLF, Whale Index. Say "find opportunities" to discover more traders.
 
-Then update state to `READY` and set `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt`. See [references/position-management.md](position-management.md) for the full state shape.
+Then update state to `READY` and set `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt`. See [references/strategy-management.md](references/strategy-management.md) for the full state shape (strategy flow).
 
 ---
 
@@ -58,10 +58,10 @@ When the user says "skip", "skip tutorial", "I know how to trade":
 >
 > | Action | Command |
 > |--------|---------|
-> | Find setups | "find opportunities" |
-> | Open trade | "open ETH long $100" |
-> | Check positions | "show my portfolio" |
-> | Close trade | "close my ETH position" |
+> | Find top traders | "find opportunities" / discovery_get_top_traders |
+> | Mirror a trader | "create strategy mirroring [trader]" / strategy_create |
+> | Check strategies | "show my portfolio" / strategy_list, account_get_portfolio |
+> | Close a strategy | "close my strategy" / strategy_close |
 > | Get help | "how do I trade?" |
 >
 > **Recommended skills:** `npx skills add Senpi-ai/senpi-skills --list`
@@ -94,12 +94,12 @@ case $STEP in
     # User confirmed but didn't proceed — go to discovery
     ;;
   "DISCOVERY")
-    # User saw opportunities — ask if ready to open
+    # User saw top traders — ask if ready to create strategy with recommended trader
     ;;
-  "POSITION_OPEN")
-    # Position is open — check status and offer to close
+  "STRATEGY_CREATED")
+    # Strategy is active — check status and offer to close
     ;;
-  "POSITION_CLOSE")
+  "STRATEGY_CLOSE")
     # Just closed — show celebration
     ;;
 esac
@@ -109,6 +109,6 @@ esac
 
 > 👋 Welcome back! You were in the middle of your first trade tutorial.
 >
-> [Show current status based on step]
+> [Show current status based on step: discovery → recommend trader; strategy created → show strategy status and offer to close.]
 >
 > Want to continue? Say "yes" or "start over" to begin fresh.

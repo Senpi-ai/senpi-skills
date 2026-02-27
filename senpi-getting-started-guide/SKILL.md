@@ -2,11 +2,12 @@
 name: senpi-getting-started-guide
 description: >
   Guides users through their first trade on Senpi/Hyperliquid. Walks through
-  discovery, position opening, monitoring, and closing with celebration.
-  Use when user says "let's trade", "first trade", "teach me to trade",
-  "how do I trade", or when state is AWAITING_FIRST_TRADE. Can also run when
-  state is not READY (e.g. after entrypoint Step 3); then prompts for wallet
-  funding before starting when needed. Requires Senpi MCP to be connected.
+  discovery (top traders), creating a mirror strategy with a chosen trader,
+  monitoring, and closing the strategy. Use when user says "let's trade",
+  "first trade", "teach me to trade", "how do I trade", or when state is
+  AWAITING_FIRST_TRADE. Can also run when state is not READY (e.g. after
+  entrypoint Step 3); then prompts for wallet funding before starting when
+  needed. Requires Senpi MCP to be connected.
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
@@ -16,9 +17,9 @@ metadata:
 
 # Getting Started: Your First Trade
 
-Guide users through their first complete trade on Hyperliquid via Senpi. This skill teaches the core trading loop: discover → open → monitor → close.
+Guide users through their first complete trade on Hyperliquid via Senpi. This skill teaches the core loop: **discover top traders** → **create a strategy** that mirrors a chosen trader → **monitor** → **close strategy**.
 
-**Prerequisites:** Senpi MCP connected. State must not be `FRESH` or `ONBOARDING` (onboarding must be complete). If state is not found or not `READY`, the guide will prompt for wallet funding before starting the tutorial when needed; if `AWAITING_FIRST_TRADE` or `READY`, the tutorial runs directly (wallet must be funded for opening positions).
+**Prerequisites:** Senpi MCP connected. State must not be `FRESH` or `ONBOARDING` (onboarding must be complete). If state is not found or not `READY`, the guide will prompt for wallet funding before starting the tutorial when needed; if `AWAITING_FIRST_TRADE` or `READY`, the tutorial runs directly (wallet must be funded to create a strategy).
 
 ---
 
@@ -28,7 +29,7 @@ Before starting the tutorial, verify:
 
 1. **MCP Connected** — Senpi MCP server is configured and accessible.
 2. **Onboarding complete** — State is not `FRESH` or `ONBOARDING` (see state check below).
-3. **Wallet funded (for opening positions)** — When state is not found or not `READY`, the guide shows a funding reminder first if balance is low; do not start Step 1 until balance ≥ $100 or user confirms they funded.
+3. **Wallet funded (for creating a strategy)** — When state is not found or not `READY`, the guide shows a funding reminder first if balance is low; do not start Step 1 until balance ≥ $100 or user confirms they funded.
 
 Ensure state file exists; if missing, create it and redirect to onboarding:
 
@@ -77,7 +78,7 @@ Start this tutorial when:
 - State is `AWAITING_FIRST_TRADE` and user sends a trading-related message
 - User explicitly asks for trading guidance
 
-**Do NOT start if:** MCP not connected (redirect to onboarding), or user says "skip tutorial" — then set state to `READY` and exit. See [references/next-steps.md](references/next-steps.md) for skip handling. If wallet has less than $100 when starting the tutorial, do not open a position until funded; see "When state is not found or not READY" below.
+**Do NOT start if:** MCP not connected (redirect to onboarding), or user says "skip tutorial" — then set state to `READY` and exit. See [references/next-steps.md](references/next-steps.md) for skip handling. If wallet has less than $100 when starting the tutorial, do not create a strategy until funded; see "When state is not found or not READY" below.
 
 ---
 
@@ -100,7 +101,7 @@ Do not show "User needs to complete onboarding first" when onboarding is already
 
 ### Step 1: Introduction
 
-Display the trade cycle (Discover → Open → Monitor → Close), recommend $50 and 3x leverage, and include a short risk disclaimer. Ask user to say **"yes"** to continue or **"skip"** if experienced.
+Display the trade cycle: **Discover top traders** → **Create a strategy** (mirror a chosen trader) → **Monitor** → **Close strategy**. Recommend a small budget (e.g. $50) for the first strategy and include a short risk disclaimer. Ask user to say **"yes"** to continue or **"skip"** if experienced.
 
 Update state: set `firstTrade.step` to `INTRODUCTION`, `firstTrade.started` true, `startedAt` (ISO 8601). Preserve existing fields in `state.json`.
 
@@ -110,37 +111,37 @@ Wait for user confirmation before proceeding.
 
 ### Step 2: Discovery
 
-Use MCP to fetch top traders and current positions. Prefer liquid assets (ETH, BTC, SOL) and high conviction. Show a short opportunities table and recommend one asset/direction.
+Use MCP **`discovery_get_top_traders`** to fetch top traders. Optionally use **`discovery_get_trader_state`** or **`discovery_get_trader_history`** for detail. Show a short table of top traders (e.g. by PnL, win rate) and **recommend one trader** to mirror for the first trade.
 
-See [references/discovery-guide.md](references/discovery-guide.md) for display template and state update (`firstTrade.step: "DISCOVERY"`, `recommendedAsset`, `recommendedDirection`).
-
----
-
-### Step 3: Position Sizing
-
-Before opening, explain asset, direction, size ($50), leverage (3x), margin, and a brief risk/reward table. Warn about liquidation. Ask user to say **"confirm"** to execute.
-
-See [references/position-management.md](references/position-management.md) for the full sizing table and wording.
+See [references/discovery-guide.md](references/discovery-guide.md) for display template and state update (`firstTrade.step: "DISCOVERY"`, `recommendedTraderId`, `recommendedTraderName`).
 
 ---
 
-### Step 4: Open Position
+### Step 3: Strategy Sizing
 
-On user confirmation, create the position via MCP (asset, direction, size $50, leverage 3x). On success, display entry price, size, leverage, margin, strategy ID. Offer: "how's my position?", "close my position", "set stop loss at $X".
+Before creating the strategy, explain: chosen trader, budget ($50), and that the strategy will mirror that trader's positions. Warn about risk and liquidation. Ask user to say **"confirm"** to create the strategy.
 
-Update state per [references/position-management.md](references/position-management.md) (`firstTrade.step: "POSITION_OPEN"`, `tradeDetails`). On failure, see [references/error-handling.md](references/error-handling.md).
-
----
-
-### Step 5: Monitor Position
-
-When user asks "how's my position?" or similar, fetch position via MCP and show entry, current price, % change, unrealized PnL, ROE, duration. Offer: Hold, Close, or Add protection.
+See [references/strategy-management.md](references/strategy-management.md) for the sizing table and wording.
 
 ---
 
-### Step 6: Close Position
+### Step 4: Create Strategy
 
-When user says "close", "exit", "take profit", etc., execute close via MCP. Display entry, exit, PnL, ROE, duration, fees. Update state with `firstTrade.step: "POSITION_CLOSE"` and full `tradeDetails`. See [references/position-management.md](references/position-management.md).
+On user confirmation, call MCP **`strategy_create`** with the chosen trader (from Step 2) and budget (e.g. $50). Use the trader identifier returned by `discovery_get_top_traders` (e.g. trader address or id). On success, display strategy ID, budget, and mirrored trader. Offer: "how's my strategy?", "close my strategy", or "show my positions".
+
+Update state per [references/strategy-management.md](references/strategy-management.md) (`firstTrade.step: "STRATEGY_CREATED"`, `tradeDetails` with `strategyId`, `mirroredTraderId`). On failure, see [references/error-handling.md](references/error-handling.md).
+
+---
+
+### Step 5: Monitor Strategy
+
+When user asks "how's my strategy?" or similar, fetch strategy status via MCP: **`strategy_get`**, **`strategy_get_clearinghouse_state`**, or **`execution_get_open_position_details`** for open positions. Show strategy value, open positions (if any), unrealized PnL, ROE. Offer: Hold, Close strategy, or Add protection.
+
+---
+
+### Step 6: Close Strategy
+
+When user says "close", "exit", "close my strategy", "take profit", etc., call MCP **`strategy_close`** with the strategy ID from state. Display entry/exit context, realized PnL, duration, fees. Update state with `firstTrade.step: "STRATEGY_CLOSE"` and full `tradeDetails`. See [references/strategy-management.md](references/strategy-management.md).
 
 ---
 
@@ -148,21 +149,21 @@ When user says "close", "exit", "take profit", etc., execute close via MCP. Disp
 
 Show celebration (profit or loss) and suggest next skills and quick commands. Set state to `READY` and `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `completedAt`.
 
-Full copy and state shape: [references/next-steps.md](references/next-steps.md) and [references/position-management.md](references/position-management.md).
+Full copy and state shape: [references/next-steps.md](references/next-steps.md) and [references/strategy-management.md](references/strategy-management.md).
 
 ---
 
 ## Interrupted Tutorial / Resume
 
-If the user returns mid-tutorial, read `firstTrade.step` from state and resume from the matching step. See [references/next-steps.md](references/next-steps.md) for resume logic and welcome-back message.
+If the user returns mid-tutorial, read `firstTrade.step` from state and resume from the matching step: `INTRODUCTION` → `DISCOVERY` → `STRATEGY_CREATED` → `STRATEGY_CLOSE` → `COMPLETE`. See [references/next-steps.md](references/next-steps.md) for resume logic and welcome-back message.
 
 ---
 
 ## Reference Files
 
-- **[references/error-handling.md](references/error-handling.md)** — Insufficient balance, position open failed, position already exists, recovery
-- **[references/discovery-guide.md](references/discovery-guide.md)** — MCP usage for discovery, what to look for, display template
-- **[references/position-management.md](references/position-management.md)** — Sizing table, open/monitor/close flow, state updates for firstTrade
+- **[references/error-handling.md](references/error-handling.md)** — Insufficient balance, strategy_create failed, strategy_close failed, recovery
+- **[references/discovery-guide.md](references/discovery-guide.md)** — discovery_get_top_traders, recommend a trader to mirror, display template
+- **[references/strategy-management.md](references/strategy-management.md)** — Strategy sizing, strategy_create/strategy_close flow, state updates for firstTrade
 - **[references/next-steps.md](references/next-steps.md)** — Celebration copy, skip tutorial, resume handling
 
 ---
