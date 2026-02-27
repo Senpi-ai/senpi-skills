@@ -4,8 +4,9 @@ description: >
   Guides users through their first trade on Senpi/Hyperliquid. Walks through
   discovery, position opening, monitoring, and closing with celebration.
   Use when user says "let's trade", "first trade", "teach me to trade",
-  "how do I trade", or when state is AWAITING_FIRST_TRADE. Requires Senpi
-  MCP to be connected and wallet to be funded.
+  "how do I trade", or when state is AWAITING_FIRST_TRADE. Can also run when
+  state is UNFUNDED (e.g. after entrypoint Step 3); then prompts for wallet
+  funding before starting. Requires Senpi MCP to be connected.
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
@@ -17,7 +18,7 @@ metadata:
 
 Guide users through their first complete trade on Hyperliquid via Senpi. This skill teaches the core trading loop: discover → open → monitor → close.
 
-**Prerequisites:** Senpi MCP connected, wallet funded, state `AWAITING_FIRST_TRADE` or `READY` (or user explicitly asked for trading help).
+**Prerequisites:** Senpi MCP connected. State must not be `FRESH` or `ONBOARDING` (onboarding must be complete). If state is `UNFUNDED`, the guide will prompt for wallet funding before starting the tutorial; if `AWAITING_FIRST_TRADE` or `READY`, the tutorial runs directly (wallet must be funded for opening positions).
 
 ---
 
@@ -26,8 +27,8 @@ Guide users through their first complete trade on Hyperliquid via Senpi. This sk
 Before starting the tutorial, verify:
 
 1. **MCP Connected** — Senpi MCP server is configured and accessible.
-2. **Wallet Funded** — User has at least $100 USDC in their agent wallet (required to start the first-trade tutorial).
-3. **State** — User's state is `AWAITING_FIRST_TRADE` or they explicitly asked for help trading.
+2. **Onboarding complete** — State is not `FRESH` or `ONBOARDING` (see state check below).
+3. **Wallet funded (for opening positions)** — When state is `UNFUNDED`, the guide shows a funding reminder first; do not start Step 1 until balance ≥ $100 or user confirms they funded.
 
 Ensure state file exists; if missing, create it and redirect to onboarding:
 
@@ -51,7 +52,7 @@ STATEEOF
 fi
 
 STATE=$(cat ~/.config/senpi/state.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).state")
-if [ "$STATE" != "AWAITING_FIRST_TRADE" ] && [ "$STATE" != "READY" ]; then
+if [ "$STATE" = "FRESH" ] || [ "$STATE" = "ONBOARDING" ]; then
   echo "User needs to complete onboarding first"
   exit 1
 fi
@@ -67,13 +68,26 @@ Start this tutorial when:
 - State is `AWAITING_FIRST_TRADE` and user sends a trading-related message
 - User explicitly asks for trading guidance
 
-**Do NOT start if:** Wallet has less than $100 (redirect to funding), MCP not connected (redirect to onboarding), or user says "skip tutorial" — then set state to `READY` and exit. See [references/next-steps.md](references/next-steps.md) for skip handling.
+**Do NOT start if:** MCP not connected (redirect to onboarding), or user says "skip tutorial" — then set state to `READY` and exit. See [references/next-steps.md](references/next-steps.md) for skip handling. If wallet has less than $100 when starting the tutorial, do not open a position until funded; see "When state is UNFUNDED" below.
 
 ---
 
 ## Tutorial Flow
 
 Follow steps in order. Reference files contain display copy, state schemas, and error handling.
+
+### When state is UNFUNDED (before Step 1)
+
+If the user asked for the first-trade guide (e.g. from the entrypoint or "let's trade") but state is still `UNFUNDED`:
+
+1. **Check balance** — Use MCP to fetch portfolio/balance.
+2. **If balance < $100:** Do **not** start Step 1 (Introduction). Show a single clear message:
+   - Include the **agent wallet address** from `state.json` → `account.agentWalletAddress` or `wallet.address`.
+   - Say they need at least $100 USDC on a supported chain (Base, Arbitrum, Optimism, Polygon, or Ethereum).
+   - Say: "When you've sent the funds, tell me **'I funded my wallet'** or **'let's trade'** and I'll start the tutorial."
+3. **If balance ≥ $100:** Update state to `AWAITING_FIRST_TRADE` and `wallet.funded: true` (read-modify-write `~/.config/senpi/state.json`), then proceed to Step 1.
+
+Do not show "User needs to complete onboarding first" when onboarding is already complete (state is UNFUNDED).
 
 ### Step 1: Introduction
 
