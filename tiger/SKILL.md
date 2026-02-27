@@ -12,7 +12,7 @@ compatibility: >-
   (configured with Senpi auth) and OpenClaw cron system.
 metadata:
   author: jason-goldberg
-  version: "2.3"
+  version: "2.4"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -265,7 +265,13 @@ All state files include `version`, `active`, `instanceKey`, `createdAt`, `update
 
 See `references/cron-templates.md` for ready-to-use OpenClaw cron payloads.
 
-**Notification Policy — IMPORTANT**: Only notify Telegram when something actionable happens (trade opened/closed, aggression changed, risk halt, errors). NEVER notify for HEARTBEAT_OK, NO_POSITIONS, routine scans with no signals, or data collection. Silent when idle.
+**Silence Policy — CRITICAL**: When a cron fires and the result is HEARTBEAT_OK, NO_POSITIONS, or no actionable signals:
+- Do NOT notify Telegram
+- Do NOT reply in chat
+- Do NOT explain what the cron did
+- Do NOT summarize the scan results
+- Produce NO output of any kind — complete silence
+Only speak (chat or Telegram) when something actionable happens: trade opened, trade closed, aggression changed, risk halt triggered, or an error that needs attention. Idle cycles = total silence.
 
 | # | Job | Interval | Script | Model Tier |
 |---|-----|----------|--------|------------|

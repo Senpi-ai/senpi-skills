@@ -83,10 +83,16 @@ tiger-strategy/
 
 ## Changelog
 
-### v2.3 (current)
+### v2.4 (current)
 - **correlation-scanner.py**: Reduced alt scan from 10+10 to 6+2 (max 8 alts). Prevents API timeouts.
 - **funding-scanner.py**: Added retry on instruments fetch failure. Reduced candidates from 15→8. Prevents timeouts.
-- **cron-templates.md**: Notification policy — only notify Telegram on actionable events (trades, closures, risk halts). Silent on heartbeats.
+- **cron-templates.md**: Complete rewrite following [OpenClaw cron best practices](https://docs.openclaw.ai/automation/cron-jobs):
+  - Tier 1 scanners → isolated sessions with `delivery.mode: "none"` (no main session pollution)
+  - Tier 2 decision-makers → isolated sessions with `delivery.mode: "announce"` (HEARTBEAT_OK auto-suppressed)
+  - DSL stays main session (needs position state context)
+  - Model overrides per job (`model` field in payload)
+  - `agentTurn` payload for isolated jobs, `systemEvent` for main only
+  - Eliminates session lock contention and notification spam
 - **DSL cron mandate**: Checks activePositions before invoking dsl-v4.py. No positions = HEARTBEAT_OK, no session spam.
 
 ### v2.2
