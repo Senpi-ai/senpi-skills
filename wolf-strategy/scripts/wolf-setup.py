@@ -9,10 +9,6 @@ Usage:
   # Agent passes what it knows, only asks user for budget:
   python3 wolf-setup.py --wallet 0x... --strategy-id UUID --chat-id 12345 --budget 6500
 
-  # With optional XYZ wallet:
-  python3 wolf-setup.py --wallet 0x... --strategy-id UUID --chat-id 12345 --budget 6500 \
-      --xyz-wallet 0x... --xyz-strategy-id UUID
-
   # With custom name and DSL preset:
   python3 wolf-setup.py --wallet 0x... --strategy-id UUID --chat-id 12345 --budget 6500 \
       --name "Aggressive Momentum" --dsl-preset aggressive
@@ -20,7 +16,10 @@ Usage:
   # Interactive mode (prompts for everything):
   python3 wolf-setup.py
 """
-import json, subprocess, sys, os, math, argparse
+import json, sys, os, math, argparse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from wolf_config import mcporter_call
 
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
@@ -51,8 +50,6 @@ parser.add_argument("--wallet", help="Strategy wallet address (0x...)")
 parser.add_argument("--strategy-id", help="Strategy ID (UUID)")
 parser.add_argument("--budget", type=float, help="Trading budget in USD (min $500)")
 parser.add_argument("--chat-id", type=int, help="Telegram chat ID")
-parser.add_argument("--xyz-wallet", help="XYZ DEX wallet address (optional)")
-parser.add_argument("--xyz-strategy-id", help="XYZ DEX strategy ID (optional)")
 parser.add_argument("--name", help="Human-readable strategy name (optional)")
 parser.add_argument("--dsl-preset", choices=["aggressive", "conservative"], default="aggressive",
                     help="DSL tier preset (default: aggressive)")
@@ -117,8 +114,6 @@ if args.chat_id:
     validate_chat_id(str(args.chat_id))
 
 strategy_name = args.name or f"Strategy {strategy_id[:8]}"
-xyz_wallet = args.xyz_wallet
-xyz_strategy_id = args.xyz_strategy_id
 dsl_preset = args.dsl_preset
 
 # Calculate parameters
@@ -156,8 +151,6 @@ strategy_entry = {
     "name": strategy_name,
     "wallet": wallet,
     "strategyId": strategy_id,
-    "xyzWallet": xyz_wallet,
-    "xyzStrategyId": xyz_strategy_id,
     "budget": budget,
     "slots": slots,
     "marginPerSlot": margin_per_slot,
@@ -218,26 +211,31 @@ print(f"  State directory created: {state_dir}")
 for d in ["history", "memory", "logs"]:
     os.makedirs(os.path.join(WORKSPACE, d), exist_ok=True)
 
-# Fetch max-leverage from Hyperliquid
-print("\nFetching max-leverage data from Hyperliquid...")
+# Fetch max-leverage via MCP (covers both crypto and XYZ instruments)
+print("\nFetching max-leverage data...")
 try:
-    r = subprocess.run(
-        ["curl", "-s", "https://api.hyperliquid.xyz/info",
-         "-H", "Content-Type: application/json",
-         "-d", '{"type":"meta"}'],
-        capture_output=True, text=True, timeout=30
-    )
-    meta = json.loads(r.stdout)
+    data = mcporter_call("market_list_instruments")
+    instruments = data.get("instruments", [])
+    if not isinstance(instruments, list):
+        instruments = []
     max_lev = {}
-    for asset in meta.get("universe", []):
-        name = asset["name"]
-        max_lev[name] = asset.get("maxLeverage", 50)
+    for inst in instruments:
+        if not isinstance(inst, dict):
+            continue
+        name = inst.get("name", "")
+        if not name:
+            continue
+        lev = inst.get("max_leverage") or inst.get("maxLeverage")
+        if lev is not None:
+            max_lev[name] = int(lev)
     with open(MAX_LEV_FILE, "w") as f:
         json.dump(max_lev, f, indent=2)
-    print(f"  Max leverage data saved ({len(max_lev)} assets) to {MAX_LEV_FILE}")
+    crypto_count = sum(1 for inst in instruments if isinstance(inst, dict) and not inst.get("dex"))
+    xyz_count = sum(1 for inst in instruments if isinstance(inst, dict) and inst.get("dex"))
+    print(f"  Max leverage data saved ({len(max_lev)} assets: {crypto_count} crypto, {xyz_count} XYZ) to {MAX_LEV_FILE}")
 except Exception as e:
     print(f"  Failed to fetch max-leverage: {e}")
-    print("   You can manually fetch later.")
+    print("  You can manually fetch later.")
 
 # Build cron templates
 tg = f"telegram:{chat_id}"
@@ -324,7 +322,6 @@ print(f"""
   Strategy Name:    {strategy_name}
   Wallet:           {wallet}
   Strategy ID:      {strategy_id}
-  XYZ Wallet:       {xyz_wallet or 'None'}
   Budget:           ${budget:,.2f}
   Slots:            {slots}
   Margin/Slot:      ${margin_per_slot:,.2f}

@@ -157,9 +157,9 @@ All external data must go through Senpi MCP via `mcporter`. Never `curl` third-p
 r = subprocess.run(["curl", "-s", "-X", "POST", "https://api.hyperliquid.xyz/info",
     "-d", json.dumps({"type": "allMids"})], capture_output=True, text=True)
 
-# GOOD — MCP call
-r = subprocess.run(["mcporter", "call", "senpi.market_get_prices"],
-    capture_output=True, text=True, timeout=15)
+# GOOD — MCP call via centralized helper (see Section 3.2)
+data = mcporter_call("market_get_prices")
+prices = data.get("prices", {})
 ```
 
 **Why MCP over direct APIs:**
@@ -170,34 +170,125 @@ r = subprocess.run(["mcporter", "call", "senpi.market_get_prices"],
 
 ### 3.2 Unified MCP Call Helper
 
-Create a single helper function for all MCP calls in your skill:
+Create **one** centralized helper in your shared config module (`{skill}_config.py`). All scripts import and use this — no script should invoke `mcporter` directly.
 
 ```python
-def call_mcp(tool, **kwargs):
-    """Call a Senpi MCP tool with retry."""
-    cmd = ["mcporter", "call", f"senpi.{tool}"]
-    for k, v in kwargs.items():
-        if isinstance(v, (list, dict, bool)):
-            cmd.append(f"{k}={json.dumps(v)}")
-        else:
-            cmd.append(f"{k}={v}")
+import json, os, subprocess, time, tempfile, shlex
 
+def mcporter_call(tool, retries=3, timeout=30, **kwargs):
+    """Call a Senpi MCP tool via mcporter. Returns the `data` portion of the response.
+
+    Args:
+        tool: Tool name (e.g. "market_get_prices", "close_position").
+        retries: Number of attempts before giving up.
+        timeout: Subprocess timeout in seconds.
+        **kwargs: Tool arguments as key=value pairs.
+
+    Returns:
+        The `data` dict from the MCP response envelope (envelope already stripped).
+
+    Raises:
+        RuntimeError: If all retries fail or the tool returns success=false.
+    """
+    args = []
+    for k, v in kwargs.items():
+        if v is None:
+            continue
+        if isinstance(v, (list, dict, bool)):
+            args.append(f"{k}={json.dumps(v)}")
+        else:
+            args.append(f"{k}={v}")
+
+    mcporter_bin = os.environ.get("MCPORTER_CMD", "mcporter")
+    cmd_str = " ".join(
+        [shlex.quote(mcporter_bin), "call", shlex.quote(f"senpi.{tool}")]
+        + [shlex.quote(a) for a in args]
+    )
     last_error = None
-    for attempt in range(3):
+
+    for attempt in range(retries):
+        fd, tmp = None, None
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            data = json.loads(r.stdout)
-            if isinstance(data, dict) and data.get("success") is False:
-                raise ValueError(data.get("error", "unknown"))
-            return data
-        except Exception as e:
-            last_error = e
-            if attempt < 2:
-                time.sleep(3)
-    raise last_error
+            fd, tmp = tempfile.mkstemp(suffix=".json")
+            os.close(fd)
+            subprocess.run(
+                f"{cmd_str} > {tmp} 2>/dev/null",
+                shell=True, timeout=timeout,
+            )
+            with open(tmp) as f:
+                d = json.load(f)
+            if d.get("success"):
+                return d.get("data", {})       # ← strip envelope here
+            last_error = d.get("error", d)
+        except (json.JSONDecodeError, subprocess.TimeoutExpired, OSError) as e:
+            last_error = str(e)
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
+        if attempt < retries - 1:
+            time.sleep(3)
+
+    raise RuntimeError(f"mcporter {tool} failed after {retries} attempts: {last_error}")
+
+
+def mcporter_call_safe(tool, retries=3, timeout=30, **kwargs):
+    """Like mcporter_call but returns None instead of raising on failure."""
+    try:
+        return mcporter_call(tool, retries=retries, timeout=timeout, **kwargs)
+    except RuntimeError:
+        return None
 ```
 
-### 3.3 Batch MCP Calls
+**Key design decisions:**
+- **Temp file, not `capture_output`** — mcporter output can exceed pipe buffer limits on large responses. Writing to a temp file avoids silent truncation.
+- **`shlex.quote` on all args** — prevents shell injection even with `shell=True`.
+- **Envelope stripped in one place** — callers never see `{success, data}`. They get the inner `data` dict directly.
+- **Two variants** — `mcporter_call` raises on failure (for critical paths), `mcporter_call_safe` returns `None` (for best-effort fetches).
+- **`tempfile.mkstemp` not `mktemp`** — `mktemp` is deprecated (race condition). `mkstemp` atomically creates the file.
+
+### 3.3 Response Envelope Parsing
+
+MCP responses are wrapped in a `{success, data}` envelope. The centralized helper strips it (see 3.2), so callers work directly with the inner data. But the inner data itself has tool-specific nesting that callers must handle.
+
+```python
+# The raw MCP response looks like:
+# {"success": true, "data": {"prices": {"BTC": "65000", "ETH": "3500", ...}}}
+#
+# After mcporter_call strips the envelope, you get:
+# {"prices": {"BTC": "65000", "ETH": "3500", ...}}
+#
+# Callers extract the specific field they need:
+prices = data.get("prices", {})
+```
+
+**Common extraction patterns (after envelope is stripped):**
+
+```python
+# market_get_prices → nested under "prices"
+data = mcporter_call("market_get_prices")
+prices = data.get("prices", {})
+
+# market_list_instruments → nested under "instruments"
+data = mcporter_call("market_list_instruments")
+instruments = data.get("instruments", [])
+
+# leaderboard_get_markets → double-nested
+data = mcporter_call("leaderboard_get_markets")
+markets = data.get("markets", {}).get("markets", [])
+
+# leaderboard_get_top → double-nested differently
+data = mcporter_call("leaderboard_get_top", limit=100)
+traders = data.get("leaderboard", {}).get("data", [])
+
+# clearinghouse state → separate sections
+data = mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+crypto = data.get("main", {})
+xyz = data.get("xyz", {})
+```
+
+**The #1 bug pattern:** Forgetting to strip the envelope (doing `data["prices"]` on the raw response → `KeyError`) or double-stripping (adding `.get("data", raw)` when the helper already stripped it → missing data). Pick ONE place to strip the envelope and never strip it again.
+
+### 3.4 Batch MCP Calls
 
 Prefer single batched calls over multiple separate calls:
 
@@ -215,12 +306,61 @@ data = call_mcp("market_get_asset_data",
     include_funding=False)
 ```
 
-### 3.4 Subprocess Safety
+### 3.5 Reduce Redundant API Calls
 
-- **No `shell=True`** — always use list-based args: `subprocess.run(["mcporter", "call", ...])`.
-- **No temp files** — read stdout directly: `capture_output=True, text=True`.
-- **No `2>/dev/null`** — capture stderr for debugging: it's in `r.stderr`.
-- **Always set `timeout`** — prevent hung processes: `timeout=15` (or `timeout=30` for heavy calls).
+If a single API call returns data for multiple contexts, use it instead of making separate calls:
+
+```python
+# BAD — two separate calls for crypto and equities
+crypto = mcporter_call("get_clearinghouse_state", wallet=w)
+xyz = mcporter_call("get_clearinghouse_state", wallet=w, dex="xyz")
+
+# GOOD — one call returns both sections
+data = mcporter_call("get_clearinghouse_state", wallet=w)
+crypto = data.get("main", {})
+xyz = data.get("xyz", {})
+```
+
+When processing similar data from multiple sections, extract a shared helper:
+
+```python
+def _extract_positions(section_data):
+    """Extract non-zero positions from a clearinghouse section."""
+    positions = {}
+    for p in section_data.get("assetPositions", []):
+        pos = p.get("position", {})
+        coin = pos.get("coin")
+        szi = float(pos.get("szi", 0))
+        if not coin or szi == 0:
+            continue
+        positions[coin] = {
+            "direction": "SHORT" if szi < 0 else "LONG",
+            "size": abs(szi),
+            # ... other fields
+        }
+    return positions
+
+# One helper, two calls — no duplicated parsing
+crypto_positions = _extract_positions(data.get("main", {}))
+xyz_positions = _extract_positions(data.get("xyz", {}))
+```
+
+### 3.6 Subprocess Safety
+
+- **`shlex.quote()` all arguments** — when using `shell=True` for output redirection, quote every variable part of the command to prevent injection.
+- **`tempfile.mkstemp` for temp files** — atomically creates a unique file. Always clean up in a `finally` block.
+- **Always set `timeout`** — prevent hung processes: `timeout=15` for lightweight calls, `timeout=30` for data-heavy calls, `timeout=60` for batch operations.
+- **Capture errors, don't silence them** — surface error info so callers can decide how to handle it:
+
+```python
+# BAD — error silently returns empty, caller can't distinguish "no data" from "call failed"
+except Exception:
+    return {}
+
+# GOOD — error info returned for caller to handle
+except Exception as e:
+    return {}, {}, f"fetch failed: {e}"
+```
 
 ---
 
@@ -442,7 +582,32 @@ except Exception as e:
     sys.exit(1)
 ```
 
-### 6.3 Graceful Degradation
+### 6.3 Self-Healing Scripts
+
+When a script can detect AND fix an issue, do it in the script — don't rely on the LLM to interpret the problem and run manual fixes. Include an `action` field so the cron mandate knows what already happened:
+
+```python
+# Script detects orphaned state and auto-fixes
+if orphan_detected and not had_fetch_error:
+    raw["active"] = False
+    raw["closeReason"] = "externally_closed_detected_by_healthcheck"
+    atomic_write(dsl_file, raw)
+    issues.append({
+        "type": "ORPHAN_DSL",
+        "action": "auto_deactivated",       # ← script already fixed it
+        "message": f"{asset} DSL was active but no position found -- auto-deactivated"
+    })
+elif orphan_detected and had_fetch_error:
+    issues.append({
+        "type": "ORPHAN_DSL",
+        "action": "skipped_fetch_error",    # ← script couldn't safely fix
+        "message": f"{asset} DSL appears orphaned but skipping due to fetch error"
+    })
+```
+
+**Why:** Tier 1 models are unreliable at multi-step remediation. Moving fix logic into the script makes it deterministic. The cron mandate just routes the `action` field to "alert" or "ignore."
+
+### 6.4 Graceful Degradation
 
 When a non-critical component fails, continue with reduced functionality instead of aborting:
 
@@ -486,16 +651,35 @@ All crons use OpenClaw's `systemEvent` format:
 }
 ```
 
-### 7.2 Mandate Text Pattern
+### 7.2 Mandate Text Pattern — Explicit Rules for Lower-Tier Models
 
-Keep mandates short. Reference SKILL.md for rules.
+Cron mandates run on the cheapest model possible (Tier 1). These models **cannot make judgment calls** — they need deterministic, per-case rules. Never say "apply rules from SKILL.md" in a Tier 1 mandate.
 
 ```
-{SKILL} {JOB}: Run `python3 {SCRIPTS}/{script}.py`, parse JSON.
-{Conditional logic — 1-2 lines max}.
-Apply {SKILL} rules from SKILL.md. Alert Telegram ({TELEGRAM}).
-If no signals → HEARTBEAT_OK.
+# BAD — vague, requires judgment (Tier 1 model will hallucinate)
+"Parse JSON. Apply WOLF SM rules from SKILL.md for judgment calls.
+If hasFlipSignal=false → HEARTBEAT_OK."
+
+# GOOD — explicit per-case branching (Tier 1 model follows steps)
+"Parse JSON. For each alert in `alerts`:
+if `alertLevel == "FLIP_NOW"` → close that position, alert Telegram ({TELEGRAM}).
+Ignore alerts with `alertLevel` of WATCH or FLIP_WARNING (no action needed).
+If `hasFlipSignal == false` or no FLIP_NOW alerts → HEARTBEAT_OK."
 ```
+
+```
+# BAD — "fix immediately" is vague
+"CRITICAL issues → fix immediately, alert Telegram."
+
+# GOOD — explicit per-type instructions
+"Fix issues by type:
+- auto_created → DSL was missing, script created it. Alert Telegram.
+- auto_deactivated → Orphan DSL deactivated. No alert needed.
+- alert_only → Script could not auto-fix. Alert Telegram.
+If no issues → HEARTBEAT_OK."
+```
+
+**Rule of thumb:** If the mandate says "judgment" or "apply rules," it's too vague for Tier 1. Rewrite with explicit `if/then` per output field.
 
 ### 7.3 One Set of Crons, Scripts Iterate Internally
 
@@ -536,40 +720,54 @@ If a config field name differs from what you'd expect, document it explicitly:
 
 ### 8.1 Validate Agent-Generated State
 
-Values written by agents (LLMs) may have wrong signs, units, or types. Defend against this:
+Values written by agents (LLMs) may have wrong signs or types. Defend against this:
 
 ```python
 # Agent may write negative values for fields that should be positive
 retrace = abs(state["retraceThreshold"])
 
-# Agent may use percent (5) or decimal (0.05) — handle both
-retrace_decimal = retrace / 100 if retrace > 1 else retrace
+# Enforce percentage convention — always whole numbers, always /100
+retrace_decimal = retrace / 100
 ```
 
-### 8.2 Field-Aware Unit Conversion
+### 8.2 Prefer Extending Functions Over Creating New Ones
 
-Different API fields may return the same concept in different units. Check which field is present:
+When a new context needs the same data (e.g., a second DEX), add a parameter to the existing function instead of creating a new one:
 
 ```python
-# API v1 returns decimal (0.15), API v2 returns percentage (15)
-raw = data.get("pct_of_total")
-if raw is not None:
-    pct = float(raw) * 100      # decimal -> percent
-else:
-    pct = float(data.get("percentage", 0))  # already percent
+# BAD — separate function per context (code duplication)
+def fetch_crypto_prices(): ...
+def fetch_xyz_prices(): ...
+
+# GOOD — one function with optional parameter
+def fetch_all_mids(dex=None):
+    kwargs = {"dex": dex} if dex else {}
+    data = mcporter_call("market_get_prices", **kwargs)
+    return data.get("prices", {})
+
+# Usage
+crypto_prices = fetch_all_mids()
+xyz_prices = fetch_all_mids(dex="xyz")
 ```
 
 ### 8.3 Safe Initialization
 
-Initialize tracking values to neutral, not current:
+Choose defaults carefully — they depend on the field's semantics:
 
 ```python
-# BAD — if position starts at -2%, peak stays at -2% forever
+# Tracking fields (peak, high water) — default to current value
+# BAD — peak starts at 0, never reflects the actual entry state
+peak_roe = state.get("peakROE", 0)
+
+# GOOD — peak starts at current ROE, tracks upward from actual entry
 peak_roe = state.get("peakROE", current_roe)
 
-# GOOD — peak starts at 0, will be updated when ROE goes positive
-peak_roe = state.get("peakROE", 0)
+# Counter fields (breaches, failures) — default to zero
+breach_count = state.get("currentBreachCount", 0)
+fetch_failures = state.get("consecutiveFetchFailures", 0)
 ```
+
+**Rule:** Tracking values (peaks, high water marks) default to the current observed value. Counters default to zero.
 
 ### 8.4 Config-Driven Magic Numbers
 
@@ -583,6 +781,67 @@ if minutes_elapsed > 90:  # hardcoded
 max_minutes = config.get("phase1MaxMinutes", 90)
 if minutes_elapsed > max_minutes:
 ```
+
+### 8.5 Backward-Compatible Key Fallbacks
+
+When config keys get renamed, chain `.get()` calls so old configs still work:
+
+```python
+# Field was renamed from "staleHours" to "thresholdHours"
+stale_hours = cfg.get("thresholdHours", cfg.get("staleHours", 1.0))
+```
+
+This is cheaper than writing a migration and avoids breaking existing deployments.
+
+### 8.6 API Field Name Conventions
+
+External APIs may return the same field under different naming conventions or different field names across versions/endpoints. Handle with `or` fallbacks:
+
+```python
+# snake_case vs camelCase for same field
+lev = inst.get("max_leverage") or inst.get("maxLeverage")
+
+# Different field names across API versions for the same concept
+asset = m.get("token") or m.get("asset") or m.get("coin", "")
+traders = int(m.get("trader_count", m.get("traderCount", 0)) or 0)
+```
+
+When the same value has different **units** across fields, check which field is present:
+
+```python
+# pct_of_top_traders_gain is decimal (0.15), pnlContribution is already percent (15)
+raw_pnl = data.get("pct_of_top_traders_gain")
+if raw_pnl is not None:
+    pnl_pct = float(raw_pnl) * 100      # decimal → percent
+else:
+    pnl_pct = float(data.get("pnlContribution", 0))  # already percent
+```
+
+### 8.7 Percentage Convention — Always Divide by 100
+
+Never write "smart" detection logic that guesses whether a value is a percentage or a decimal:
+
+```python
+# BAD — ambiguous, breaks when value is exactly 1
+retrace_decimal = retrace / 100 if retrace > 1 else retrace
+
+# GOOD — enforce "all percentages are whole numbers" and always divide
+retrace_decimal = retrace / 100
+```
+
+Enforce the convention at the config layer (see Section 5.5) and trust it in the code. If the value is wrong, fix the config — don't add branching logic.
+
+### 8.8 Path Hygiene with Prefixed Identifiers
+
+When identifiers carry scope prefixes (e.g., `xyz:BTC`), strip them before using as file paths:
+
+```python
+# Coin might be "xyz:AAPL" — can't use colon in filenames
+clean_coin = coin.replace("xyz:", "")
+path = os.path.join(state_dir, f"dsl-{clean_coin}.json")
+```
+
+Always strip prefixes at the boundary where you create file paths, not inside business logic.
 
 ---
 
@@ -718,18 +977,25 @@ Before shipping a new skill, verify:
 
 - [ ] `SKILL.md` has frontmatter, architecture, quick start, rules, API deps, cron setup
 - [ ] Directory layout: `scripts/`, `references/`, `SKILL.md`
-- [ ] All MCP calls go through `call_mcp()` helper — no direct `curl`
+- [ ] All MCP calls go through centralized `mcporter_call()` — no direct subprocess invocations
+- [ ] Response envelope (`{success, data}`) stripped in ONE place (the helper), never re-stripped
+- [ ] Tool-specific nested data extraction documented per tool used
 - [ ] All state writes use `atomic_write()` — no bare `open("w")`
 - [ ] All external calls have 3-attempt retry with 3s delay
+- [ ] Errors surfaced (not silently swallowed) — callers can distinguish "no data" from "call failed"
 - [ ] Error output is structured JSON, not tracebacks
 - [ ] Cron mandates are short, reference SKILL.md for detailed rules
 - [ ] Model tier (Tier 1 / Tier 2) documented per cron
 - [ ] `HEARTBEAT_OK` early exit when nothing actionable
 - [ ] Default output is minimal; verbose behind env var
 - [ ] Config has deep merge, backward-compatible defaults
+- [ ] Renamed config keys have chained `.get()` fallbacks for backward compatibility
 - [ ] State files have `version`, `active`, `createdAt` fields
-- [ ] Percentage convention documented (5 = 5%, not 0.05)
+- [ ] Percentage convention: whole numbers only (5 = 5%), always `/ 100` — no guessing logic
 - [ ] One consolidated notification per cron run
 - [ ] No hardcoded magic numbers — all from config with defaults
-- [ ] No `shell=True`, no temp files, no `2>/dev/null`
+- [ ] Redundant API calls eliminated — use single calls that return multiple sections
+- [ ] Shared helpers for duplicated parsing logic (DRY)
+- [ ] `shlex.quote()` on all subprocess args; `tempfile.mkstemp` for temp files with `finally` cleanup
+- [ ] Prefixed identifiers (e.g., `xyz:BTC`) stripped before use in file paths
 - [ ] Dead/legacy code deleted (git history is the reference)

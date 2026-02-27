@@ -13,7 +13,7 @@ Usage:
     path = dsl_state_path("wolf-abc123", "HYPE")
 """
 
-import json, os, sys, glob
+import json, os, sys, glob, subprocess, time, tempfile, shlex
 
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
@@ -46,8 +46,6 @@ def _load_registry():
             "name": "Default Strategy",
             "wallet": legacy.get("wallet", ""),
             "strategyId": legacy.get("strategyId", ""),
-            "xyzWallet": legacy.get("xyzWallet"),
-            "xyzStrategyId": legacy.get("xyzStrategyId"),
             "budget": legacy.get("budget", 0),
             "slots": legacy.get("slots", 2),
             "marginPerSlot": legacy.get("marginPerSlot", 0),
@@ -208,6 +206,75 @@ def get_all_active_positions():
     return positions
 
 
+def mcporter_call(tool, retries=3, timeout=30, **kwargs):
+    """Call a Senpi MCP tool via mcporter. Returns the `data` portion of the response.
+
+    Standardized invocation across all wolf-strategy scripts:
+      mcporter call senpi.{tool} key=value ...
+
+    Args:
+        tool: Tool name (e.g. "market_get_prices", "close_position").
+        retries: Number of attempts before giving up.
+        timeout: Subprocess timeout in seconds.
+        **kwargs: Tool arguments as key=value pairs.
+
+    Returns:
+        The `data` dict from the MCP response envelope.
+
+    Raises:
+        RuntimeError: If all retries fail or the tool returns success=false.
+    """
+    args = []
+    for k, v in kwargs.items():
+        if v is None:
+            continue
+        if isinstance(v, (list, dict)):
+            args.append(f"{k}={json.dumps(v)}")
+        elif isinstance(v, bool):
+            args.append(f"{k}={json.dumps(v)}")
+        else:
+            args.append(f"{k}={v}")
+
+    mcporter_bin = os.environ.get("MCPORTER_CMD", "mcporter")
+    cmd_str = " ".join(
+        [shlex.quote(mcporter_bin), "call", shlex.quote(f"senpi.{tool}")]
+        + [shlex.quote(a) for a in args]
+    )
+    last_error = None
+
+    for attempt in range(retries):
+        fd, tmp = None, None
+        try:
+            fd, tmp = tempfile.mkstemp(suffix=".json")
+            os.close(fd)
+            subprocess.run(
+                f"{cmd_str} > {tmp} 2>/dev/null",
+                shell=True, timeout=timeout,
+            )
+            with open(tmp) as f:
+                d = json.load(f)
+            if d.get("success"):
+                return d.get("data", {})
+            last_error = d.get("error", d)
+        except (json.JSONDecodeError, subprocess.TimeoutExpired, OSError) as e:
+            last_error = str(e)
+        finally:
+            if tmp and os.path.exists(tmp):
+                os.unlink(tmp)
+        if attempt < retries - 1:
+            time.sleep(3)
+
+    raise RuntimeError(f"mcporter {tool} failed after {retries} attempts: {last_error}")
+
+
+def mcporter_call_safe(tool, retries=3, timeout=30, **kwargs):
+    """Like mcporter_call but returns None instead of raising on failure."""
+    try:
+        return mcporter_call(tool, retries=retries, timeout=timeout, **kwargs)
+    except RuntimeError:
+        return None
+
+
 def atomic_write(path, data):
     """Atomically write JSON data to a file."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -215,3 +282,102 @@ def atomic_write(path, data):
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
+
+
+# --- DSL state file validation ---
+
+DSL_REQUIRED_KEYS = [
+    "asset", "direction", "entryPrice", "size", "leverage",
+    "highWaterPrice", "phase", "currentBreachCount",
+    "currentTierIndex", "tierFloorPrice", "tiers", "phase1",
+]
+
+PHASE1_REQUIRED_KEYS = ["retraceThreshold", "consecutiveBreachesRequired"]
+
+
+def validate_dsl_state(state, state_file=None):
+    """Validate a DSL state dict has all required keys.
+
+    Args:
+        state: The parsed JSON state dict.
+        state_file: Optional file path for error messages.
+
+    Returns:
+        (True, None) if valid, (False, error_message) if invalid.
+    """
+    if not isinstance(state, dict):
+        return False, f"state is not a dict ({state_file or 'unknown'})"
+
+    missing = [k for k in DSL_REQUIRED_KEYS if k not in state]
+    if missing:
+        return False, f"missing keys {missing} ({state_file or 'unknown'})"
+
+    phase1 = state.get("phase1")
+    if not isinstance(phase1, dict):
+        return False, f"phase1 is not a dict ({state_file or 'unknown'})"
+
+    missing_p1 = [k for k in PHASE1_REQUIRED_KEYS if k not in phase1]
+    if missing_p1:
+        return False, f"phase1 missing keys {missing_p1} ({state_file or 'unknown'})"
+
+    if not isinstance(state.get("tiers"), list):
+        return False, f"tiers is not a list ({state_file or 'unknown'})"
+
+    return True, None
+
+
+def dsl_state_template(asset, direction, entry_price, size, leverage,
+                       strategy_key=None, tiers=None, created_by="entry_flow"):
+    """Create a minimal valid DSL state dict for a new position.
+
+    Used by health check to create missing DSL state files.
+
+    Args:
+        asset: Coin symbol (e.g. "HYPE").
+        direction: "LONG" or "SHORT".
+        entry_price: Position entry price.
+        size: Position size.
+        leverage: Position leverage.
+        strategy_key: Optional strategy key to embed.
+        tiers: Optional tier list. Uses aggressive defaults if None.
+
+    Returns:
+        A valid DSL state dict ready for atomic_write.
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if tiers is None:
+        tiers = [
+            {"triggerPct": 5, "lockPct": 50, "breaches": 3},
+            {"triggerPct": 10, "lockPct": 65, "breaches": 2},
+            {"triggerPct": 15, "lockPct": 75, "breaches": 2},
+            {"triggerPct": 20, "lockPct": 85, "breaches": 1},
+        ]
+
+    return {
+        "version": 2,
+        "asset": asset,
+        "direction": direction.upper(),
+        "entryPrice": entry_price,
+        "size": size,
+        "leverage": leverage,
+        "active": True,
+        "highWaterPrice": entry_price,
+        "phase": 1,
+        "currentBreachCount": 0,
+        "currentTierIndex": None,
+        "tierFloorPrice": 0,
+        "floorPrice": 0,
+        "tiers": tiers,
+        "phase1": {
+            "retraceThreshold": 10,
+            "absoluteFloor": 0,
+            "consecutiveBreachesRequired": 3,
+        },
+        "phase2TriggerTier": 0,
+        "createdAt": now,
+        "lastCheck": now,
+        "strategyKey": strategy_key,
+        "createdBy": created_by,
+    }
