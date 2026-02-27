@@ -113,12 +113,12 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
             current_rsi_1h is not None and (
                 (overbought and current_rsi_1h >= 70) or
                 (oversold and current_rsi_1h <= 30)
-            ), 0.15),
+            ), 0.10),
         "divergence": (divergence_aligned, 0.20),
         "price_extended": (extended, 0.10),
-        "volume_exhaustion": (volume_exhaustion, 0.15),
+        "volume_exhaustion": (volume_exhaustion, 0.10),
         "at_extreme_bb": (at_extreme_bb, 0.10),
-        "oi_crowded": (oi_at_high, 0.15),
+        "oi_crowded": (oi_at_high, 0.10),
         "funding_pays_us": (funding_pays_us, 0.10),
     }
 

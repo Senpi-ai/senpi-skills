@@ -107,7 +107,7 @@ This fetches current balance from clearinghouse and creates `state/tiger-state.j
 
 ### 5. Set up cron jobs
 
-See [cron-setup.md](cron-setup.md) for all cron definitions. Start with:
+See [cron-templates.md](cron-templates.md) for all cron definitions. Start with:
 1. OI tracker (needs 1h of history before scanners use OI data)
 2. Goal engine
 3. Risk guardian + exit checker
