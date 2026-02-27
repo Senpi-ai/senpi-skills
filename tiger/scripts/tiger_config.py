@@ -11,6 +11,7 @@ THE config loader. All scripts import this. No script reads config independently
 
 import json
 import os
+import re
 import sys
 import time
 import subprocess
@@ -50,6 +51,33 @@ def deep_merge(base, override):
         else:
             result[key] = value
     return result
+
+
+# ─── Key Normalization ───────────────────────────────────────
+
+def _camel_to_snake(name):
+    """Convert camelCase to snake_case. E.g. maxSlots → max_slots."""
+    s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+    return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
+
+
+def _add_snake_case_keys(d):
+    """Add snake_case aliases for camelCase keys (top-level only).
+    Does NOT overwrite existing keys — saved snake_case values take precedence."""
+    if not isinstance(d, dict):
+        return d
+    extras = {}
+    for key in list(d.keys()):
+        snake = _camel_to_snake(key)
+        if snake != key and snake not in d:
+            val = d[key]
+            # Recurse one level for nested dicts like minConfluenceScore
+            extras[snake] = val
+    d.update(extras)
+    return d
+
+
+_cached_config = None
 
 
 # ─── Config ──────────────────────────────────────────────────
@@ -99,13 +127,18 @@ DEFAULT_CONFIG = {
 
 
 def load_config():
-    """Load TIGER config with deep merge of defaults."""
+    """Load TIGER config with deep merge of defaults.
+    Adds snake_case aliases for all camelCase keys so both conventions work."""
+    global _cached_config
     try:
         with open(CONFIG_FILE) as f:
             user_config = json.load(f)
-        return deep_merge(DEFAULT_CONFIG, user_config)
+        config = deep_merge(DEFAULT_CONFIG, user_config)
     except FileNotFoundError:
-        return dict(DEFAULT_CONFIG)
+        config = dict(DEFAULT_CONFIG)
+    _add_snake_case_keys(config)
+    _cached_config = config
+    return config
 
 
 def save_config(config):
@@ -157,8 +190,11 @@ DEFAULT_STATE = {
 }
 
 
-def load_state(config):
-    """Load state with defaults. Re-reads from disk."""
+def load_state(config=None):
+    """Load state with defaults. Re-reads from disk.
+    Config is optional — uses cached config if not provided."""
+    if config is None:
+        config = _cached_config or load_config()
     state_file = os.path.join(_instance_dir(config), "tiger-state.json")
     state = deep_merge(DEFAULT_STATE, {})
     state["instanceKey"] = config.get("strategyId", "default")
@@ -169,11 +205,19 @@ def load_state(config):
             state = deep_merge(state, saved)
         except (json.JSONDecodeError, IOError):
             pass
+    _add_snake_case_keys(state)
     return state
 
 
-def save_state(config, state):
-    """Save state atomically. Re-read before write for race condition guard."""
+def save_state(config_or_state, state=None):
+    """Save state atomically. Re-read before write for race condition guard.
+    Supports both save_state(config, state) and save_state(state)."""
+    if state is None:
+        # Called as save_state(state) — use cached config
+        state = config_or_state
+        config = _cached_config or load_config()
+    else:
+        config = config_or_state
     state_file = os.path.join(_instance_dir(config), "tiger-state.json")
     # Race condition guard: preserve halt flag set by other crons
     if os.path.exists(state_file):
@@ -195,8 +239,10 @@ def _oi_file(config):
     return os.path.join(_instance_dir(config), "oi-history.json")
 
 
-def load_oi_history(config):
+def load_oi_history(config=None):
     """Load OI history. Format: {asset: [{ts, oi, price}, ...]}"""
+    if config is None:
+        config = _cached_config or load_config()
     path = _oi_file(config)
     if os.path.exists(path):
         try:
@@ -207,8 +253,20 @@ def load_oi_history(config):
     return {}
 
 
-def append_oi_snapshot(config, asset, oi, price):
-    """Append OI datapoint. Keep last 288 per asset (24h at 5min)."""
+def append_oi_snapshot(config_or_asset, asset_or_oi=None, oi_or_price=None, price=None):
+    """Append OI datapoint. Keep last 288 per asset (24h at 5min).
+    Supports both append_oi_snapshot(config, asset, oi, price) and
+    append_oi_snapshot(asset, oi, price)."""
+    if price is None:
+        # Called as append_oi_snapshot(asset, oi, price)
+        asset = config_or_asset
+        oi = asset_or_oi
+        price = oi_or_price
+        config = _cached_config or load_config()
+    else:
+        config = config_or_asset
+        asset = asset_or_oi
+        oi = oi_or_price
     history = load_oi_history(config)
     if asset not in history:
         history[asset] = []
