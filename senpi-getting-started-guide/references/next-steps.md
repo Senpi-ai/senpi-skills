@@ -1,6 +1,6 @@
 # Next Steps Reference
 
-Use this for **celebration**, **skip tutorial**, and **resume** handling in the first-trade guide.
+Use this for **celebration** (after close or after monitor-only), **skip tutorial**, and **resume** handling in the first-trade guide.
 
 ---
 
@@ -12,12 +12,12 @@ Use this for **celebration**, **skip tutorial**, and **resume** handling in the 
 >
 > ```
 >  ╔═══════════════════════════════════════╗
->  ║   🏆  FIRST TRADE COMPLETE  🏆        ║
+>  ║   🏆  FIRST STRATEGY COMPLETE  🏆    ║
 >  ║      You made: +$X.XX (+X.XX%)       ║
 >  ╚═══════════════════════════════════════╝
 > ```
 >
-> **What you learned:** Discovery, sizing, open, monitor, close.
+> **What you learned:** Discovery, mirroring a top trader, creating a strategy, monitoring, and closing.
 >
 > **Your trading journey begins!** Explore next:
 >
@@ -32,17 +32,35 @@ Use this for **celebration**, **skip tutorial**, and **resume** handling in the 
 
 **If loss:**
 
-> 📊 **FIRST TRADE COMPLETE**
+> 📊 **FIRST STRATEGY COMPLETE**
 >
-> Trade Result: -$X.XX (-X.X%)
+> Strategy Result: -$X.XX (-X.X%)
 >
-> **That's okay!** You kept size small, learned the cycle, and controlled the exit.
+> **That's okay!** You kept size small, learned the mirror flow, and closed when you wanted.
 >
 > **Pro tip:** Install **DSL** for automatic protection: `npx skills add Senpi-ai/senpi-skills/dsl-dynamic-stop-loss`
 >
-> Explore: DSL, Scanner, WOLF. Say "find opportunities" to scan again.
+> Explore: DSL, Scanner, WOLF, Whale Index. Say "find opportunities" to discover more traders.
 
-Then update state to `READY` and set `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt`. See [references/position-management.md](position-management.md) for the full state shape.
+Then update state to `READY` and set `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt`. See [references/strategy-management.md](references/strategy-management.md) for the full state shape (strategy flow).
+
+---
+
+## Celebrate (After Monitor — No Close)
+
+If the user completed discovery and created a strategy but only monitored (e.g. asked "how's my strategy?" one or more times) and did not close, still congratulate them so they feel accomplished:
+
+> 🎉 **You've completed your first trade flow!**
+>
+> You discovered top traders, created a mirror strategy, and checked how it's doing. Nice work!
+>
+> Your strategy is still running. You can say **"close my strategy"** anytime to close it and bring funds back to your wallet, or keep it open and check back with "how's my strategy?"
+>
+> **What you learned:** Discovery, mirroring a trader, creating a strategy, and monitoring.
+>
+> **Next:** Try "show my portfolio", "find opportunities", or install more skills — e.g. **Whale Index** to auto-mirror top traders, or **DSL** for protection.
+
+Then update state to `READY`, `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt`. Preserve existing `tradeDetails` (strategyId, etc.); no need for PnL if they didn't close.
 
 ---
 
@@ -50,21 +68,21 @@ Then update state to `READY` and set `firstTrade.completed`, `firstTrade.step: "
 
 When the user says "skip", "skip tutorial", "I know how to trade":
 
-**Display:**
+**Display (user-friendly only; no tool names or internal references):**
 
 > 👍 **Tutorial skipped!**
 >
 > You're all set to trade on your own. Quick reference:
 >
-> | Action | Command |
-> |--------|---------|
-> | Find setups | "find opportunities" |
-> | Open trade | "open ETH long $100" |
-> | Check positions | "show my portfolio" |
-> | Close trade | "close my ETH position" |
+> | What you want | Say or do |
+> |---------------|------------|
+> | Find top traders | "find opportunities" |
+> | Mirror a trader | "create a strategy mirroring [trader]" |
+> | Check your strategies | "show my portfolio" |
+> | Close a strategy | "close my strategy" |
 > | Get help | "how do I trade?" |
 >
-> **Recommended skills:** `npx skills add Senpi-ai/senpi-skills --list`
+> You can also browse more skills: ask to **list Senpi skills** or visit the Senpi Skills repo.
 
 **State update:**
 
@@ -94,21 +112,21 @@ case $STEP in
     # User confirmed but didn't proceed — go to discovery
     ;;
   "DISCOVERY")
-    # User saw opportunities — ask if ready to open
+    # User saw top traders — ask if ready to create strategy with recommended trader
     ;;
-  "POSITION_OPEN")
-    # Position is open — check status and offer to close
+  "STRATEGY_CREATED")
+    # Strategy is active — show value/positions and offer to close or congratulate (monitor-only completion)
     ;;
-  "POSITION_CLOSE")
+  "STRATEGY_CLOSE")
     # Just closed — show celebration
     ;;
 esac
 ```
 
-**Resume message:**
+**Resume message (user-friendly only; do not mention step names or state):**
 
 > 👋 Welcome back! You were in the middle of your first trade tutorial.
 >
-> [Show current status based on step]
+> [Describe where they left off in plain language: e.g. "We’d just found some top traders" or "Your strategy is running — want to check it or close it?"]
 >
-> Want to continue? Say "yes" or "start over" to begin fresh.
+> Want to continue? Say **"yes"** or **"start over"** to begin fresh.

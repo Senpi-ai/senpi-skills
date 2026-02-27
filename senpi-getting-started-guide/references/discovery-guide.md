@@ -1,6 +1,6 @@
 # Discovery Guide Reference
 
-Use this when running **Step 2: Discovery** of the first-trade tutorial. It describes how to use MCP for discovery and what to show the user.
+Use this when running **Step 2: Discovery** of the first-trade tutorial. **Show the user only user-friendly copy;** do not mention state, step names, or MCP/tool names.
 
 ---
 
