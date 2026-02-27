@@ -117,7 +117,7 @@ Wait for user confirmation before proceeding.
 
 ### Step 2: Discovery
 
-Use MCP **`discovery_get_top_traders`** to fetch top traders. **Only present as options traders that currently have open positions** — filter out or verify with **`discovery_get_trader_state`** (or equivalent) so you do not offer traders with no open positions. Optionally use **`discovery_get_trader_history`** for extra detail. Show a short table of top traders with open positions (e.g. by PnL, win rate) and **recommend one trader** to mirror for the first trade.
+Use MCP **`discovery_get_top_strategies`** to fetch top traders. **Only present as options traders that currently have open positions** — filter out or verify with **`discovery_get_trader_state`** (or equivalent) so you do not offer traders with no open positions. Optionally use **`discovery_get_trader_history`** for extra detail. Show a short table of top traders with open positions (e.g. by PnL, win rate) and **recommend one trader** to mirror for the first trade.
 
 See [references/discovery-guide.md](references/discovery-guide.md) for display template and state update (`firstTrade.step: "DISCOVERY"`, `recommendedTraderId`, `recommendedTraderName`).
 
@@ -170,7 +170,7 @@ If the user returns mid-tutorial, read firstTrade.step from state and resume fro
 ## Reference Files
 
 - **[references/error-handling.md](references/error-handling.md)** — Insufficient balance, strategy_create failed, strategy_close failed, recovery
-- **[references/discovery-guide.md](references/discovery-guide.md)** — discovery_get_top_traders, recommend a trader to mirror, display template
+- **[references/discovery-guide.md](references/discovery-guide.md)** — discovery_get_top_strategies, recommend a trader to mirror, display template
 - **[references/strategy-management.md](references/strategy-management.md)** — Strategy sizing, strategy_create/strategy_close flow, state updates for firstTrade
 - **[references/next-steps.md](references/next-steps.md)** — Celebration copy, skip tutorial, resume handling
 
