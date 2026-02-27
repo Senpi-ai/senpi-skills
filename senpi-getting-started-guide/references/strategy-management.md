@@ -6,7 +6,7 @@ Use this for **strategy sizing**, **create**, **monitor**, and **close** steps o
 
 ## Strategy Sizing (Before Create)
 
-Explain the mirror strategy to the user with a table. Default first-trade: $50 budget, chosen trader from Step 2 (Discovery).
+Explain the mirror strategy to the user with a table. **Minimum first-trade budget: $100.** Chosen trader from Step 2 (Discovery).
 
 **Display:**
 
@@ -15,20 +15,20 @@ Explain the mirror strategy to the user with a table. Default first-trade: $50 b
 > | Parameter | Value | Explanation |
 > |-----------|-------|-------------|
 > | Mirrored trader | &lt;name or 0x…&gt; | Top trader from discovery |
-> | Budget | $50 | Amount allocated to this strategy |
+> | Budget | $100 (min) | Amount allocated to this strategy |
 > | Type | Mirror | Copies this trader's positions |
 >
 > **Risk:** Your strategy will open and manage positions in line with the chosen trader. PnL depends on market moves and trader behavior.
 >
 > ⚠️ **You can close the strategy anytime** with "close my strategy" — funds return to your wallet.
 >
-> Ready to create this strategy? Say **"confirm"** to execute.
+> Ready to create this strategy? Say **"confirm"** to execute. (Minimum budget: $100.)
 
 ---
 
 ## Create Strategy
 
-- Call MCP **`strategy_create`** with the chosen trader (use `recommendedTraderId` from state) and budget (e.g. $50). Pass the trader identifier and budget as required by the tool.
+- Call MCP **`strategy_create`** with the chosen trader (use `recommendedTraderId` from state) and budget (**minimum $100**). Pass the trader identifier and budget as required by the tool.
 - On success, tell the user in **plain language only** (e.g. "Your strategy is created and running."). Optionally mention budget and the trader they’re mirroring. Do not show strategy ID, status, or any internal codes. Offer: "how's my strategy?", "close my strategy", "show my positions".
 
 **State update after create:**
@@ -40,7 +40,7 @@ Explain the mirror strategy to the user with a table. Default first-trade: $50 b
   "tradeDetails": {
     "strategyId": "<id returned by strategy_create>",
     "mirroredTraderId": "<recommendedTraderId from DISCOVERY step>",
-    "budgetUsd": 50,
+    "budgetUsd": 100,
     "createdAt": "<ISO8601 UTC>"
   }
 }

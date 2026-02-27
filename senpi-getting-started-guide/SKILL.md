@@ -23,6 +23,8 @@ Guide users through their first complete trade on Hyperliquid via Senpi. This sk
 
 **User-facing rule:** Never show the user internal details. Do **not** mention state names (e.g. UNFUNDED, READY, FRESH), file paths (e.g. state.json, ~/.config/senpi), step codes (e.g. STRATEGY_CREATED), or MCP/tool names. Use only plain, friendly language (e.g. "You're all set to start", "Fund your wallet to begin", "Your strategy is running").
 
+**Minimum strategy budget:** Use **$100** as the minimum when creating the first-trade mirror strategy. Do not suggest or use $50 or any amount below $100.
+
 ---
 
 ## Prerequisites
@@ -105,7 +107,7 @@ If onboarding is not complete (state FRESH or ONBOARDING), tell the user only: "
 
 ### Step 1: Introduction
 
-Display the trade cycle: **Discover top traders** → **Create a strategy** (mirror a chosen trader) → **Monitor** → **Close strategy**. Recommend a small budget (e.g. $50) for the first strategy and include a short risk disclaimer. Ask user to say **"yes"** to continue or **"skip"** if experienced.
+Display the trade cycle: **Discover top traders** → **Create a strategy** (mirror a chosen trader) → **Monitor** → **Close strategy**. Recommend a **$100 minimum** budget for the first strategy and include a short risk disclaimer. Ask user to say **"yes"** to continue or **"skip"** if experienced.
 
 Update state: set `firstTrade.step` to `INTRODUCTION`, `firstTrade.started` true, `startedAt` (ISO 8601). Preserve existing fields in `state.json`.
 
@@ -123,7 +125,7 @@ See [references/discovery-guide.md](references/discovery-guide.md) for display t
 
 ### Step 3: Strategy Sizing
 
-Before creating the strategy, explain: chosen trader, budget ($50), and that the strategy will mirror that trader's positions. Warn about risk and liquidation. Ask user to say **"confirm"** to create the strategy.
+Before creating the strategy, explain: chosen trader, budget (**$100 minimum**), and that the strategy will mirror that trader's positions. Warn about risk and liquidation. Ask user to say **"confirm"** to create the strategy.
 
 See [references/strategy-management.md](references/strategy-management.md) for the sizing table and wording.
 
@@ -131,7 +133,7 @@ See [references/strategy-management.md](references/strategy-management.md) for t
 
 ### Step 4: Create Strategy
 
-On user confirmation, call MCP **`strategy_create`** with the chosen trader (from Step 2) and budget (e.g. $50). On success, tell the user in plain language that their strategy is set up (e.g. "Your strategy is created and running."). Optionally mention budget and the trader they’re mirroring. Do not show strategy status or raw IDs. Offer: "how's my strategy?", "close my strategy", or "show my positions".
+On user confirmation, call MCP **`strategy_create`** with the chosen trader (from Step 2) and budget (**minimum $100**). On success, tell the user in plain language that their strategy is set up (e.g. "Your strategy is created and running."). Optionally mention budget and the trader they’re mirroring. Do not show strategy status or raw IDs. Offer: "how's my strategy?", "close my strategy", or "show my positions".
 
 Update state per [references/strategy-management.md](references/strategy-management.md) (`firstTrade.step: "STRATEGY_CREATED"`, `tradeDetails` with `strategyId`, `mirroredTraderId`). On failure, see [references/error-handling.md](references/error-handling.md).
 
