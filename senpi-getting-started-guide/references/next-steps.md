@@ -1,66 +1,60 @@
 # Next Steps Reference
 
-Use this for **celebration** (after close or after monitor-only), **skip tutorial**, and **resume** handling in the first-trade guide.
+Use this for **celebration** (after first strategy is created), **after close** (result + next steps), **skip tutorial**, and **resume** handling in the first-trade guide.
 
 ---
 
-## Celebrate (After Close)
+## Celebrate (After First Strategy Created)
 
-**If profitable:**
+**Right after** the user's first strategy is successfully created (Step 4), congratulate them and show next steps:
 
-> 🎊 **CONGRATULATIONS ON YOUR FIRST TRADE!**
+> 🎉 **You opened your first strategy!**
 >
-> ```
->  ╔═══════════════════════════════════════╗
->  ║   🏆  FIRST STRATEGY COMPLETE  🏆    ║
->  ║      You made: +$X.XX (+X.XX%)       ║
->  ╚═══════════════════════════════════════╝
-> ```
+> You discovered top traders, picked one to mirror, and created a strategy — nice work!
 >
-> **What you learned:** Discovery, mirroring a top trader, creating a strategy, monitoring, and closing.
+> Your strategy is running. You can:
+> - Ask **"how's my strategy?"** to see value and positions
+> - Say **"close my strategy"** anytime to close and return funds to your wallet
 >
-> **Your trading journey begins!** Explore next:
->
-> | Skill | What it does | Command |
-> |-------|--------------|---------|
-> | 🛡️ **DSL** | Auto stop-loss protection | `npx skills add Senpi-ai/senpi-skills/dsl-dynamic-stop-loss` |
-> | 🐺 **WOLF** | Fully autonomous trading | `npx skills add Senpi-ai/senpi-skills/wolf-strategy` |
-> | 📊 **Scanner** | Find best setups | `npx skills add Senpi-ai/senpi-skills/opportunity-scanner` |
-> | 🐋 **Whale Index** | Copy top traders | `npx skills add Senpi-ai/senpi-skills/whale-index` |
->
-> **Quick commands:** "find opportunities", "show my portfolio", "open BTC short $100"
-
-**If loss:**
-
-> 📊 **FIRST STRATEGY COMPLETE**
->
-> Strategy Result: -$X.XX (-X.X%)
->
-> **That's okay!** You kept size small, learned the mirror flow, and closed when you wanted.
->
-> **Pro tip:** Install **DSL** for automatic protection: `npx skills add Senpi-ai/senpi-skills/dsl-dynamic-stop-loss`
->
-> Explore: DSL, Scanner, WOLF, Whale Index. Say "find opportunities" to discover more traders.
-
-Then update state to `READY` and set `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt`. See [references/strategy-management.md](references/strategy-management.md) for the full state shape (strategy flow).
-
----
-
-## Celebrate (After Monitor — No Close)
-
-If the user completed discovery and created a strategy but only monitored (e.g. asked "how's my strategy?" one or more times) and did not close, still congratulate them so they feel accomplished:
-
-> 🎉 **You've completed your first trade flow!**
->
-> You discovered top traders, created a mirror strategy, and checked how it's doing. Nice work!
->
-> Your strategy is still running. You can say **"close my strategy"** anytime to close it and bring funds back to your wallet, or keep it open and check back with "how's my strategy?"
->
-> **What you learned:** Discovery, mirroring a trader, creating a strategy, and monitoring.
+> **What you learned:** Discovery, mirroring a top trader, and creating a strategy.
 >
 > **Next:** Try "show my portfolio", "find opportunities", or install more skills — e.g. **Whale Index** to auto-mirror top traders, or **DSL** for protection.
 
-Then update state to `READY`, `firstTrade.completed`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt`. Preserve existing `tradeDetails` (strategyId, etc.); no need for PnL if they didn't close.
+Then update state to `READY` and set `firstTrade.completed: true`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt` (ISO 8601). Preserve `tradeDetails` (strategyId, mirroredTraderId, budgetUsd, etc.). See [references/strategy-management.md](references/strategy-management.md) for the full state shape.
+
+---
+
+## After Close (Result + Next Steps)
+
+When the user closes their first strategy, show the result and suggest next steps. **Do not repeat the main congratulations** — that was already shown when they opened their first strategy.
+
+**If profitable:**
+
+> 📊 **Strategy closed**
+>
+> Result: +$X.XX (+X.XX%)
+>
+> **Next:** Explore more skills (DSL, Scanner, WOLF, Whale Index) or say "find opportunities" to discover more strategies.
+
+**If loss:**
+
+> 📊 **Strategy closed**
+>
+> Result: -$X.XX (-X.X%). You kept size small and closed when you wanted.
+>
+> **Pro tip:** Install **DSL** for automatic protection. Say "find opportunities" to discover more.
+
+Update state: set `firstTrade.step: "STRATEGY_CLOSE"`, add `tradeDetails.closedAt`, `tradeDetails.pnl`, `tradeDetails.pnlPercent`, `tradeDetails.duration`. State remains `READY` with `firstTrade.completed: true` (already set when they created the strategy).
+
+---
+
+## After Monitor (No Close)
+
+If the user only monitors (e.g. asks "how's my strategy?" one or more times) and does not close: do **not** show a separate congratulations (already shown when they created the strategy). Show strategy value and positions, then offer:
+
+> Your strategy is still running. Say **"close my strategy"** anytime to close, or ask **"how's my strategy?"** to check again.
+
+No state change — `firstTrade.completed` and `step: "COMPLETE"` were already set when they created the strategy.
 
 ---
 
@@ -115,10 +109,10 @@ case $STEP in
     # User saw top traders — ask if ready to create strategy with recommended trader
     ;;
   "STRATEGY_CREATED")
-    # Strategy is active — show value/positions and offer to close or congratulate (monitor-only completion)
+    # Strategy is active — show value/positions and offer to close or keep monitoring
     ;;
   "STRATEGY_CLOSE")
-    # Just closed — show celebration
+    # Just closed — show result (PnL) and next steps
     ;;
 esac
 ```
