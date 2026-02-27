@@ -117,7 +117,7 @@ Wait for user confirmation before proceeding.
 
 ### Step 2: Discovery
 
-Use MCP **`discovery_get_top_traders`** to fetch top traders. Optionally use **`discovery_get_trader_state`** or **`discovery_get_trader_history`** for detail. Show a short table of top traders (e.g. by PnL, win rate) and **recommend one trader** to mirror for the first trade.
+Use MCP **`discovery_get_top_traders`** to fetch top traders. **Only present as options traders that currently have open positions** — filter out or verify with **`discovery_get_trader_state`** (or equivalent) so you do not offer traders with no open positions. Optionally use **`discovery_get_trader_history`** for extra detail. Show a short table of top traders with open positions (e.g. by PnL, win rate) and **recommend one trader** to mirror for the first trade.
 
 See [references/discovery-guide.md](references/discovery-guide.md) for display template and state update (`firstTrade.step: "DISCOVERY"`, `recommendedTraderId`, `recommendedTraderName`).
 
