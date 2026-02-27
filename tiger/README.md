@@ -1,4 +1,3 @@
-[README.md](https://github.com/user-attachments/files/25615844/README.md)
 # 🐯 TIGER v2 — Multi-Scanner Goal-Based Trading
 
 **5 scanners. 1 goal. Configurable aggression. Mechanical exits.**

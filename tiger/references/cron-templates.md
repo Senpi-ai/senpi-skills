@@ -6,6 +6,24 @@ Replace:
 - `{SCRIPTS}` → full scripts path (default: `$TIGER_WORKSPACE/scripts`)
 - `{TELEGRAM}` → Telegram chat ID
 
+## Notification Policy
+
+**ONLY notify Telegram when something actionable happens:**
+- Trade opened or closed
+- Aggression level changed
+- Risk limit breached or halt triggered
+- Position resized or stop adjusted by risk guardian
+- Errors that need human attention
+
+**NEVER notify Telegram for:**
+- HEARTBEAT_OK (idle cycles)
+- NO_POSITIONS (DSL has nothing to trail)
+- Scanner ran but found no signals
+- Data collection completed normally
+- Any routine cycle with no state change
+
+When in doubt: if the output is HEARTBEAT_OK or signals_found is 0, do NOT notify.
+
 ---
 
 ## Model Tier Reference
@@ -29,7 +47,7 @@ Every 5 minutes. BB squeeze + OI breakout detection.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER COMPRESSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/compression-scanner.py`, parse JSON.\nIf actionable > 0 + slots available + not halted: evaluate top signal per SKILL.md.\nIf confluence ≥ threshold for current aggression: enter via create_position.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER COMPRESSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/compression-scanner.py`, parse JSON.\nIf actionable > 0 + slots available + not halted: evaluate top signal per SKILL.md.\nIf confluence ≥ threshold for current aggression: enter via create_position → notify Telegram ({TELEGRAM}).\nIf no actionable signals or no entry made: HEARTBEAT_OK. Do NOT notify Telegram."
   }
 }
 ```
@@ -48,7 +66,7 @@ Every 3 minutes. BTC correlation lag detection.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER CORRELATION SCANNER: Run `timeout 55 python3 {SCRIPTS}/correlation-scanner.py`, parse JSON.\nIf actionable > 0 + BTC move confirmed + lag ratio ≥ 0.5 + slots available:\nEnter via create_position. Notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER CORRELATION SCANNER: Run `timeout 55 python3 {SCRIPTS}/correlation-scanner.py`, parse JSON.\nIf actionable > 0 + BTC move confirmed + lag ratio ≥ 0.5 + slots available:\nEnter via create_position → notify Telegram ({TELEGRAM}).\nIf no actionable signals or no entry made: HEARTBEAT_OK. Do NOT notify Telegram."
   }
 }
 ```
@@ -67,7 +85,7 @@ Every 5 minutes (offset 1 min from compression).
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER MOMENTUM SCANNER: Run `timeout 55 python3 {SCRIPTS}/momentum-scanner.py`, parse JSON.\nIf actionable > 0 + slots available: evaluate per SKILL.md momentum rules.\nUse tighter Phase 1 retrace (0.012) for DSL on momentum positions.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER MOMENTUM SCANNER: Run `timeout 55 python3 {SCRIPTS}/momentum-scanner.py`, parse JSON.\nIf actionable > 0 + slots available: evaluate per SKILL.md momentum rules.\nUse tighter Phase 1 retrace (0.012) for DSL on momentum positions.\nIf entry made → notify Telegram ({TELEGRAM}).\nIf no actionable signals or no entry made: HEARTBEAT_OK. Do NOT notify Telegram."
   }
 }
 ```
@@ -86,7 +104,7 @@ Every 5 minutes (offset 2 min from compression).
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER REVERSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/reversion-scanner.py`, parse JSON.\nIf actionable > 0 + 4h RSI extreme confirmed + slots available:\nEnter counter-trend per SKILL.md reversion rules.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER REVERSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/reversion-scanner.py`, parse JSON.\nIf actionable > 0 + 4h RSI extreme confirmed + slots available:\nEnter counter-trend per SKILL.md reversion rules.\nIf entry made → notify Telegram ({TELEGRAM}).\nIf no actionable signals or no entry made: HEARTBEAT_OK. Do NOT notify Telegram."
   }
 }
 ```
@@ -105,7 +123,7 @@ Every 30 minutes.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER FUNDING SCANNER: Run `timeout 55 python3 {SCRIPTS}/funding-scanner.py`, parse JSON.\nIf actionable > 0 + extreme funding confirmed + slots available:\nEnter opposite crowd per SKILL.md funding rules. Use wider DSL retrace (0.02+).\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER FUNDING SCANNER: Run `timeout 55 python3 {SCRIPTS}/funding-scanner.py`, parse JSON.\nIf actionable > 0 + extreme funding confirmed + slots available:\nEnter opposite crowd per SKILL.md funding rules. Use wider DSL retrace (0.02+).\nIf entry made → notify Telegram ({TELEGRAM}).\nIf no actionable signals or no entry made: HEARTBEAT_OK. Do NOT notify Telegram."
   }
 }
 ```
@@ -124,7 +142,7 @@ Every 5 minutes (offset 3 min). Data collection only.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER OI TRACKER: Run `timeout 55 python3 {SCRIPTS}/oi-tracker.py`, parse JSON.\nData collection only — no trading actions.\nIf error → notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER OI TRACKER: Run `timeout 55 python3 {SCRIPTS}/oi-tracker.py`, parse JSON.\nData collection only — no trading actions. NEVER notify Telegram.\nIf error → notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK silently."
   }
 }
 ```
@@ -143,7 +161,7 @@ Every 1 hour. Requires judgment: evaluate aggression level.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER GOAL ENGINE: Run `python3 {SCRIPTS}/goal-engine.py`, parse JSON.\nUpdate aggression level. If aggression changed → notify Telegram ({TELEGRAM}).\nIf ABORT → tighten all stops, stop new entries.\nElse HEARTBEAT_OK."
+    "text": "TIGER GOAL ENGINE: Run `python3 {SCRIPTS}/goal-engine.py`, parse JSON.\nUpdate aggression level.\nOnly notify Telegram ({TELEGRAM}) if: aggression changed, ABORT triggered, or target reached.\nIf no change: HEARTBEAT_OK silently. Do NOT notify Telegram for routine recalculations."
   }
 }
 ```
@@ -162,7 +180,7 @@ Every 5 minutes (offset 4 min). Enforces all risk limits.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER RISK GUARDIAN: Run `python3 {SCRIPTS}/risk-guardian.py`, parse JSON.\n\nPROCESSING ORDER:\n1. Read state ONCE.\n2. Check daily loss, drawdown, single position limits per SKILL.md.\n3. Check OI collapse, funding reversal for FUNDING_ARB positions.\n4. If critical → close via close_position. Set halted if needed.\n5. Send ONE Telegram ({TELEGRAM}).\n\nElse HEARTBEAT_OK."
+    "text": "TIGER RISK GUARDIAN: Run `python3 {SCRIPTS}/risk-guardian.py`, parse JSON.\n\nPROCESSING ORDER:\n1. Read state ONCE.\n2. Check daily loss, drawdown, single position limits per SKILL.md.\n3. Check OI collapse, funding reversal for FUNDING_ARB positions.\n4. If critical → close via close_position. Set halted if needed.\n\nOnly notify Telegram ({TELEGRAM}) if: position closed, position resized, halt triggered, or critical alert raised.\nIf all clear with no actions taken: HEARTBEAT_OK silently. Do NOT notify Telegram for routine checks."
   }
 }
 ```
@@ -181,7 +199,7 @@ Every 5 minutes (runs with risk guardian).
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER EXIT CHECKER: Run `python3 {SCRIPTS}/tiger-exit.py`, parse JSON.\nProcess exit signals by priority. Pattern-specific exits per SKILL.md.\nDeadline proximity: tighten stops in final 24h.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER EXIT CHECKER: Run `python3 {SCRIPTS}/tiger-exit.py`, parse JSON.\nProcess exit signals by priority. Pattern-specific exits per SKILL.md.\nDeadline proximity: tighten stops in final 24h.\nOnly notify Telegram ({TELEGRAM}) if: position closed, stop tightened, or deadline action taken.\nIf no exits triggered: HEARTBEAT_OK silently. Do NOT notify Telegram."
   }
 }
 ```
@@ -200,7 +218,7 @@ Every 30 seconds. Iterates all active DSL state files.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER DSL: Run `python3 {SCRIPTS}/dsl-v4.py`, parse JSON.\nDSL is self-contained — auto-closes via close_position on breach.\nIf position closed → set DSL active: false, notify Telegram ({TELEGRAM}).\nElse HEARTBEAT_OK."
+    "text": "TIGER DSL: First check TIGER state file for activePositions. If activePositions is empty (no open positions), output HEARTBEAT_OK immediately and STOP — do NOT run dsl-v4.py. Do NOT notify Telegram.\nOnly if positions exist: for each active position's DSL state file, run `python3 {SCRIPTS}/dsl-v4.py` with DSL_STATE_FILE pointed at that file, parse JSON.\nDSL is self-contained — auto-closes via close_position on breach.\nOnly notify Telegram ({TELEGRAM}) if: position closed by DSL breach or tier upgrade occurred.\nRoutine trailing (no close, no tier change): HEARTBEAT_OK silently. Do NOT notify Telegram."
   }
 }
 ```

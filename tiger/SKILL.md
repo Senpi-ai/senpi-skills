@@ -173,6 +173,8 @@ Extreme funding → go opposite the crowd, collect income.
 
 Per-position DSL state file. Combined runner (`dsl-v4.py`) checks all active positions every 30s.
 
+**IMPORTANT**: The DSL cron must first check `activePositions` in TIGER state. If no positions are open, output `HEARTBEAT_OK` immediately and do NOT invoke `dsl-v4.py`. This prevents unnecessary session spam when TIGER is idle.
+
 **Phase 1** (pre-Tier 1): Absolute floor. 3 consecutive breaches → close. Max duration: 90 minutes.
 
 **Phase 2** (Tier 1+): Trailing tiers.
@@ -262,6 +264,8 @@ All state files include `version`, `active`, `instanceKey`, `createdAt`, `update
 ## Cron Setup
 
 See `references/cron-templates.md` for ready-to-use OpenClaw cron payloads.
+
+**Notification Policy — IMPORTANT**: Only notify Telegram when something actionable happens (trade opened/closed, aggression changed, risk halt, errors). NEVER notify for HEARTBEAT_OK, NO_POSITIONS, routine scans with no signals, or data collection. Silent when idle.
 
 | # | Job | Interval | Script | Model Tier |
 |---|-----|----------|--------|------------|
