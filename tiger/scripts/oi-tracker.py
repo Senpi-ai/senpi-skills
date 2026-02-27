@@ -45,7 +45,7 @@ def main():
             name in active_coins or
             name in ("BTC", "ETH") or
             day_vol > 5_000_000 or
-            (inst.get("max_leverage", 0) >= config.get("min_leverage", 7) and day_vol > 1_000_000)
+            (inst.get("max_leverage", 0) >= config.get("min_leverage", 5) and day_vol > 1_000_000)
         )
 
         if should_track and oi > 0 and price > 0:

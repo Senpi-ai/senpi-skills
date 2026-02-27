@@ -139,7 +139,7 @@ def evaluate_position(pos_data: dict, active_pos: dict, config: dict, state: dic
                     "reason": f"Negative ROE ({roe_pct:.1f}%) after {elapsed_min:.0f}min. Cut loss.",
                     "priority": "MEDIUM"
                 })
-        except:
+        except Exception:
             pass
 
     # 6. Deadline close: Day 7+ = close everything
