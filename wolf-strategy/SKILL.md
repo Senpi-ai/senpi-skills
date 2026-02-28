@@ -89,39 +89,58 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 
 ## Architecture — 7 Cron Jobs
 
-| # | Job | Interval | Script | Purpose |
-|---|-----|----------|--------|---------|
-| 1 | Emerging Movers | **90s** | `scripts/emerging-movers.py` | Hunt FIRST_JUMP + IMMEDIATE_MOVER signals — primary entry trigger |
-| 2 | DSL Combined | **3min** | `scripts/dsl-combined.py` | Trailing stop exits for ALL open positions across ALL strategies |
-| 3 | SM Flip Detector | 5min | `scripts/sm-flip-check.py` | Cut positions where SM conviction collapses |
-| 4 | Watchdog | 5min | `scripts/wolf-monitor.py` | Per-strategy margin buffer, liq distances, rotation candidates |
-| 5 | Portfolio Update | 15min | (agent-driven) | Per-strategy PnL reporting to user |
-| 6 | Opportunity Scanner | 15min | `scripts/opportunity-scan-v6.py` | Deep-dive 4-pillar scoring with BTC macro, hourly trend, disqualifiers |
-| 7 | Health Check | 10min | `scripts/job-health-check.py` | Per-strategy orphan DSL detection, state validation |
+| # | Job | Interval | Session | Script | Purpose |
+|---|-----|----------|---------|--------|---------|
+| 1 | Emerging Movers | **90s** | **main** | `scripts/emerging-movers.py` | Hunt FIRST_JUMP + IMMEDIATE_MOVER signals — primary entry trigger |
+| 2 | DSL Combined | **3min** | isolated | `scripts/dsl-combined.py` | Trailing stop exits for ALL open positions across ALL strategies |
+| 3 | SM Flip Detector | 5min | isolated | `scripts/sm-flip-check.py` | Cut positions where SM conviction collapses |
+| 4 | Watchdog | 5min | isolated | `scripts/wolf-monitor.py` | Per-strategy margin buffer, liq distances, rotation candidates |
+| 5 | Portfolio Update | 15min | isolated | (agent-driven) | Per-strategy PnL reporting to user |
+| 6 | Opportunity Scanner | 15min | **main** | `scripts/opportunity-scan-v6.py` | Deep-dive 4-pillar scoring with BTC macro, hourly trend, disqualifiers |
+| 7 | Health Check | 10min | isolated | `scripts/job-health-check.py` | Per-strategy orphan DSL detection, state validation |
 
 **v6 change:** One set of crons for all strategies. Each script reads `wolf-strategies.json` and iterates all enabled strategies internally.
 
 **v6 change:** Opportunity Scanner v6 replaces the old scanner with BTC macro context, hourly trend filter, hard disqualifiers, parallel candle fetches, and cross-scan momentum tracking.
 
-### Model Selection Per Cron
+### Model Selection Per Cron — 3-Tier Approach
 
-Configure these tiers in OpenClaw per-cron settings. Tier 1 = fast/cheap (e.g. claude-haiku-4-5, gpt-4o-mini, gemini-flash). Tier 2 = capable (e.g. anthropic/claude-sonnet-4-20250514, opus, gpt-4o, gemini-pro).
+Configure per-cron in OpenClaw. Step down from your primary model for isolated crons to save ~60-70% on those runs.
 
-| Cron | Model Tier | Reason |
-|------|-----------|--------|
-| Emerging Movers | **Tier 2 (capable)** | Multi-strategy routing judgment, entry decisions |
-| Opportunity Scanner | **Tier 2 (capable)** | Complex 4-pillar analysis, conflict resolution |
-| DSL Combined | Tier 1 (fast/cheap) | Binary: `status=="closed"` → alert, else HEARTBEAT_OK |
-| SM Flip Detector | Tier 1 (fast/cheap) | Binary: conviction≥4 + 100 traders → close |
-| Watchdog | Tier 1 (fast/cheap) | Threshold checks → alert |
-| Portfolio Update | Tier 1 (fast/cheap) | Text formatting, no decisions |
-| Health Check | Tier 1 (fast/cheap) | Rule-based file repair |
+**Example model IDs** (confirmed working on OpenClaw):
+
+| Tier | Role | Crons | Example Model IDs |
+|------|------|-------|--------------------|
+| **Primary** | Complex judgment, multi-strategy routing | Emerging Movers, Opportunity Scanner | Your configured model (runs on main session) |
+| **Mid** | Structured tasks, script output parsing | DSL Combined, Portfolio Update, Health Check | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash` |
+| **Budget** | Simple threshold checks, binary decisions | SM Flip, Watchdog | `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite` |
+
+| Cron | Session | Model Tier | Reason |
+|------|---------|-----------|--------|
+| Emerging Movers | main | **Primary** | Multi-strategy routing judgment, entry decisions |
+| Opportunity Scanner | main | **Primary** | Complex 4-pillar analysis, conflict resolution |
+| DSL Combined | isolated | Mid | Script output parsing, rule-based close/alert |
+| Portfolio Update | isolated | Mid | Clearinghouse data formatting, no decisions |
+| Health Check | isolated | Mid | Rule-based file repair, action routing |
+| SM Flip Detector | isolated | Budget | Binary: conviction≥4 + 100 traders → close |
+| Watchdog | isolated | Budget | Threshold checks → alert |
+
+**Single-model option:** All 7 crons can run on one model. Simpler but costs more for the 5 isolated crons that do structured/binary work.
+
+**Model ID gotchas:**
+- Pick one model per tier from your provider. The tier concept (Primary / Mid / Budget) matters more than the specific model — any provider's equivalent works.
+- Budget should be the cheapest model that can follow explicit if/then rules. Mid should handle structured JSON parsing reliably.
+- Agents are often not model-aware — they may suggest deprecated IDs (e.g. `claude-3-5-haiku-20241022`) or hallucinate model names. Always use the exact IDs from the table above.
+- If a cron fails to create or run due to an invalid model ID, fall back to your primary model for that cron. A working cron on the "wrong" tier is better than a broken cron.
+- When in doubt, use your primary model for all 7 crons (single-model option) and optimize tiers later.
 
 ## Cron Setup
 
-**Critical:** Crons are **OpenClaw systemEvent crons**, NOT senpi crons. Each cron fires a systemEvent that wakes the agent with a MANDATE.
+**Critical:** Crons are **OpenClaw crons**, NOT senpi crons. WOLF uses two session types:
+- **Main session** (`systemEvent`): Emerging Movers + Opportunity Scanner. These share the primary session context for accumulated routing knowledge.
+- **Isolated session** (`agentTurn`): DSL Combined, Portfolio, Health Check, SM Flip, Watchdog. Each runs in its own session — no context pollution, enables cheaper model tiers.
 
-Create each cron using the OpenClaw cron tool. The exact mandate text for each cron is in **`references/cron-templates.md`**. Read that file, replace the placeholders (only `{TELEGRAM}` and `{SCRIPTS}` in v6), and create all 7 crons.
+Create each cron using the OpenClaw cron tool. The exact mandate text for each cron is in **`references/cron-templates.md`**. Read that file, replace the placeholders (`{TELEGRAM}`, `{SCRIPTS}`, and `{WORKSPACE}` in v6), and create all 7 crons.
 
 **v6 simplification:** No more per-wallet/per-strategy placeholders in cron mandates. Scripts read all strategy info from the registry.
 
@@ -365,7 +384,7 @@ XYZ DEX assets (GOLD, SILVER, TSLA, AAPL, etc.) behave differently:
 
 ## Token Optimization & Context Management
 
-**Model tiers:** See table in "Architecture — 7 Cron Jobs" section. Configure fast/cheap (Tier 1) vs capable (Tier 2) models in OpenClaw per-cron settings.
+**Model tiers:** See "Model Selection Per Cron" table. Primary for main-session crons, Mid/Budget for isolated crons. Configure per-cron in OpenClaw.
 
 **Heartbeat policy:** If script output contains no actionable signals, output HEARTBEAT_OK immediately. Do not reason about what wasn't found.
 

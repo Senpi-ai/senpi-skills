@@ -850,6 +850,33 @@ def main():
         # --- Multi-strategy position awareness ---
         active_positions = get_all_active_positions()
 
+        # --- Per-strategy slot availability ---
+        strategy_slots = {}
+        try:
+            from wolf_config import load_all_strategies, dsl_state_glob
+            import glob as globmod
+            all_strats = load_all_strategies()
+            for key, cfg in all_strats.items():
+                max_slots = cfg.get("slots", 2)
+                active_count = 0
+                for sf in globmod.glob(dsl_state_glob(key)):
+                    try:
+                        with open(sf) as f_dsl:
+                            s = json.load(f_dsl)
+                        if s.get("active"):
+                            active_count += 1
+                    except (json.JSONDecodeError, IOError, KeyError):
+                        continue
+                strategy_slots[key] = {
+                    "name": cfg.get("name", key),
+                    "slots": max_slots,
+                    "used": active_count,
+                    "available": max(0, max_slots - active_count),
+                }
+        except Exception as e:
+            log("warn", f"Slot counting failed: {e}")
+        any_slots_available = any(s["available"] > 0 for s in strategy_slots.values()) if strategy_slots else True
+
         # --- Stage 3: Deep dive (PARALLEL) ---
         log("info", "Stage 3: Parallel candle fetches for top assets...")
         deep_results = {}
@@ -1005,6 +1032,8 @@ def main():
                 "qualified": len(results),
                 "disqualifiedCount": len(disqualified),
                 "pillarWeights": W,
+                "strategySlots": strategy_slots,
+                "anySlotsAvailable": any_slots_available,
                 "opportunities": results[:15],
                 "disqualified": disqualified[:5],
                 "activePositions": {k: v for k, v in active_positions.items()},
@@ -1043,6 +1072,8 @@ def main():
                 "btcMacro": {"trend": btc_macro["trend"], "modifier": btc_macro["modifier"]},
                 "qualified": len(results),
                 "disqualifiedCount": len(disqualified),
+                "strategySlots": strategy_slots,
+                "anySlotsAvailable": any_slots_available,
                 "opportunities": [compact_opportunity(r) for r in results[:15]],
                 "disqualified": [compact_disqualified(d) for d in disqualified[:5]],
             }

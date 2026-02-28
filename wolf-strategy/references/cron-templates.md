@@ -1,22 +1,31 @@
 # WOLF v6 Cron Templates — Multi-Strategy
 
-## Model Tier Configuration
+## Session & Model Tier Configuration
 
-Set per-cron in OpenClaw. **Tier 1** = fast/cheap (e.g. claude-haiku-4-5, gpt-4o-mini, gemini-flash). **Tier 2** = capable (e.g. anthropic/claude-sonnet-4-20250514,Opus, gpt-4o, gemini-pro).
+WOLF uses two session types and a 3-tier model approach. Configure per-cron in OpenClaw.
 
-| Cron | Frequency | Model Tier |
-|------|-----------|-----------|
-| Emerging Movers | 90s (40x/hr) | **Tier 2 (capable)** |
-| Opportunity Scanner | 15min (4x/hr) | **Tier 2 (capable)** |
-| DSL Combined | 3min (20x/hr) | Tier 1 (fast/cheap) |
-| SM Flip Detector | 5min (12x/hr) | Tier 1 (fast/cheap) |
-| Watchdog | 5min (12x/hr) | Tier 1 (fast/cheap) |
-| Portfolio Update | 15min (4x/hr) | Tier 1 (fast/cheap) |
-| Health Check | 10min (6x/hr) | Tier 1 (fast/cheap) |
+| Cron | Frequency | Session | Payload | Model Tier |
+|------|-----------|---------|---------|------------|
+| Emerging Movers | 90s (40x/hr) | **main** | systemEvent | **Primary** (your configured model) |
+| Opportunity Scanner | 15min (4x/hr) | **main** | systemEvent | **Primary** (your configured model) |
+| DSL Combined | 3min (20x/hr) | isolated | agentTurn | Mid (one tier down) |
+| Portfolio Update | 15min (4x/hr) | isolated | agentTurn | Mid (one tier down) |
+| Health Check | 10min (6x/hr) | isolated | agentTurn | Mid (one tier down) |
+| SM Flip Detector | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
+| Watchdog | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
+
+**3-tier model approach** (configure per-cron in OpenClaw):
+- **Primary** — Your configured model. Complex judgment, multi-strategy routing, entry decisions.
+- **Mid** — Structured tasks, script output parsing, rule-based actions. Examples: `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash`.
+- **Budget** — Simple threshold checks, binary decisions. Examples: `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite`.
+
+All 7 crons can also run on a single model if you prefer simplicity over cost savings.
 
 ---
 
-All crons use OpenClaw's systemEvent format:
+Two cron formats depending on session type:
+
+**Main session** (systemEvent) — shares the primary session context:
 ```json
 {
   "name": "...",
@@ -27,13 +36,28 @@ All crons use OpenClaw's systemEvent format:
 }
 ```
 
+**Isolated session** (agentTurn) — runs in its own session, no context pollution:
+```json
+{
+  "name": "...",
+  "schedule": { "kind": "every", "everyMs": ... },
+  "sessionTarget": "isolated",
+  "payload": { "kind": "agentTurn", "message": "...", "model": "<Mid or Budget tier model ID>" }
+}
+```
+
+**Critical payload differences:** systemEvent uses `"text"`, agentTurn uses `"message"`. Do NOT use `"text"` for agentTurn — the cron will silently fail. Model is set inside `payload` for agentTurn, not at the job root level.
+
 **These are OpenClaw crons, NOT Senpi crons.** They wake the agent with a mandate text that the agent executes.
 
 **v6 change: One set of crons for ALL strategies.** Each script iterates all enabled strategies from `wolf-strategies.json` internally. You do NOT need separate crons per strategy.
 
+**Session isolation rationale:** Only Emerging Movers and Opportunity Scanner need the main session's accumulated context (position history, routing decisions). The other 5 crons do self-contained work — they run a script, parse JSON, and act on rules. Isolating them prevents context bloat in the main session and enables cheaper model tiers.
+
 Replace these placeholders in all templates:
 - `{TELEGRAM}` — telegram:CHAT_ID (e.g. telegram:5183731261)
 - `{SCRIPTS}` — path to scripts dir (e.g. /data/workspace/skills/wolf-strategy/scripts)
+- `{WORKSPACE}` — path to workspace root (e.g. /data/workspace)
 
 **Wallet/strategy-specific placeholders are gone in v6.** Scripts read wallets from `wolf-strategies.json`.
 
@@ -43,14 +67,15 @@ Replace these placeholders in all templates:
 
 ```
 WOLF Emerging Movers: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/emerging-movers.py`, parse JSON.
-On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals: read wolf-strategies.json ONCE, route to best-fit strategy (available slot + risk profile match), open position on that wallet, create DSL state in state/{strategyKey}/dsl-{ASSET}.json.
+SLOT GUARD (MANDATORY): Check `anySlotsAvailable` — if false, output HEARTBEAT_OK immediately. Do NOT open any position when all strategies show 0 available slots. Check `strategySlots` per strategy before routing.
+On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals: use `strategySlots` to route to a strategy with available > 0 (skip strategies at capacity), open position on that wallet, create DSL state in {WORKSPACE}/state/{strategyKey}/dsl-{ASSET}.json.
 Apply WOLF entry rules from SKILL.md (min 7x leverage, rank #25+ entry, no top-10 entries, rotation logic).
 Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
 ```
 
 ---
 
-## 2. DSL Combined Runner (every 3min)
+## 2. DSL Combined Runner (every 3min) — isolated / agentTurn
 
 ```
 WOLF DSL: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/dsl-combined.py`, parse JSON.
@@ -60,18 +85,18 @@ If `any_closed: true` → note freed slot(s) for next Emerging Movers run. Else 
 
 ---
 
-## 3. SM Flip Detector (every 5min)
+## 3. SM Flip Detector (every 5min) — isolated / agentTurn
 
 ```
 WOLF SM Check: Run `python3 {SCRIPTS}/sm-flip-check.py`, parse JSON.
-For each alert in `alerts`: if `alertLevel == "FLIP_NOW"` → close that position on the wallet for `strategyKey` (set `active: false` in `state/{strategyKey}/dsl-{ASSET}.json`), alert Telegram ({TELEGRAM}) with asset, direction, conviction, strategyKey.
+For each alert in `alerts`: if `alertLevel == "FLIP_NOW"` → close that position on the wallet for `strategyKey` (set `active: false` in `{WORKSPACE}/state/{strategyKey}/dsl-{ASSET}.json`), alert Telegram ({TELEGRAM}) with asset, direction, conviction, strategyKey.
 Ignore alerts with `alertLevel` of WATCH or FLIP_WARNING (no action needed).
 If `hasFlipSignal == false` or no FLIP_NOW alerts → HEARTBEAT_OK.
 ```
 
 ---
 
-## 4. Watchdog (every 5min)
+## 4. Watchdog (every 5min) — isolated / agentTurn
 
 ```
 WOLF Watchdog: Run `PYTHONUNBUFFERED=1 timeout 45 python3 {SCRIPTS}/wolf-monitor.py`, parse JSON.
@@ -81,16 +106,16 @@ If no alerts → HEARTBEAT_OK.
 
 ---
 
-## 5. Portfolio Update (every 15min)
+## 5. Portfolio Update (every 15min) — isolated / agentTurn
 
 ```
-WOLF Portfolio: Read wolf-strategies.json, get clearinghouse state per wallet, send Telegram ({TELEGRAM}).
+WOLF Portfolio: Read {WORKSPACE}/wolf-strategies.json, get clearinghouse state per wallet, send Telegram ({TELEGRAM}).
 Format: code-block table with per-strategy name/account value/positions (asset, direction, ROE, PnL, DSL tier)/slot usage + global totals.
 ```
 
 ---
 
-## 6. Health Check (every 10min)
+## 6. Health Check (every 10min) — isolated / agentTurn
 
 ```
 WOLF Health Check: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/job-health-check.py`, parse JSON.
@@ -112,11 +137,12 @@ If no issues → HEARTBEAT_OK.
 
 ```
 WOLF Scanner: Run `PYTHONUNBUFFERED=1 timeout 180 python3 {SCRIPTS}/opportunity-scan-v6.py 2>/dev/null`, parse JSON.
+SLOT GUARD (MANDATORY): Check `anySlotsAvailable` — if false, skip all entries and output HEARTBEAT_OK. Never open positions when strategySlots shows 0 available for all strategies.
 Act on opportunities with finalScore≥175. Use btcMacro.trend for macro context; be cautious with LONGs if "strong_down".
 
 PROCESSING ORDER (prevents context growth):
-1. Read wolf-strategies.json ONCE. Map available slots per strategy.
-2. Build complete action plan: [(asset, direction, strategyKey, margin, leverage), ...]
+1. Check `strategySlots` — only consider strategies with available > 0. If none → HEARTBEAT_OK.
+2. Build complete action plan: [(asset, direction, strategyKey, margin, leverage), ...] — cap entries at total available slots.
 3. Execute entries sequentially. No re-reads of wolf-strategies.json.
 4. Send ONE consolidated Telegram ({TELEGRAM}) after all entries: "Wolf entered N positions: ASSET1 LONG (Strategy A), ASSET2 SHORT (Strategy B)"
 

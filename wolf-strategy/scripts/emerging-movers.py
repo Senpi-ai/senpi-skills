@@ -31,7 +31,7 @@ import json, sys, os
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import atomic_write, mcporter_call
+from wolf_config import atomic_write, mcporter_call, load_all_strategies, dsl_state_glob
 
 HISTORY_FILE = os.environ.get("EMERGING_HISTORY", "/data/workspace/emerging-movers-history.json")
 MAX_HISTORY = 60
@@ -315,11 +315,40 @@ alerts.sort(key=lambda a: (
     len(a["reasons"])
 ), reverse=True)
 
+# ─── Slot availability per strategy ───
+import glob as globmod
+strategy_slots = {}
+try:
+    all_strategies = load_all_strategies()
+    for key, cfg in all_strategies.items():
+        max_slots = cfg.get("slots", 2)
+        active_count = 0
+        for sf in globmod.glob(dsl_state_glob(key)):
+            try:
+                with open(sf) as f:
+                    s = json.load(f)
+                if s.get("active"):
+                    active_count += 1
+            except (json.JSONDecodeError, IOError, KeyError):
+                continue
+        strategy_slots[key] = {
+            "name": cfg.get("name", key),
+            "slots": max_slots,
+            "used": active_count,
+            "available": max(0, max_slots - active_count),
+        }
+except Exception:
+    pass  # Don't fail the whole script if slot counting errors
+
+any_slots_available = any(s["available"] > 0 for s in strategy_slots.values()) if strategy_slots else True
+
 output = {
     "status": "ok",
     "time": now,
     "totalMarkets": len(current_scan["markets"]),
     "scansInHistory": len(history["scans"]),
+    "strategySlots": strategy_slots,
+    "anySlotsAvailable": any_slots_available,
     "alerts": alerts,
     "firstJumps": [a for a in alerts if a.get("isFirstJump")],
     "immediateMovers": [a for a in alerts if a.get("isImmediate")],
