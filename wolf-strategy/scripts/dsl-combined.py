@@ -164,7 +164,7 @@ def process_position(state_file, state, price, strategy_cfg):
         else:
             t_retrace_pct = p2_retrace_pct
         t_retrace_price = t_retrace_pct / 100 / leverage
-        breaches_needed = (tiers[tier_idx].get("breachesRequired", tiers[tier_idx].get("retraceClose", 2))
+        breaches_needed = (tiers[tier_idx].get("breachesRequired", tiers[tier_idx].get("breaches", tiers[tier_idx].get("retraceClose", 2)))
                            if tier_idx is not None and tier_idx >= 0
                            else state.get("phase2", {}).get("consecutiveBreachesRequired", 2))
         if is_long:
@@ -385,6 +385,16 @@ for sf, cfg in all_state_entries:
         continue
 
     if not state.get("active") and not state.get("pendingClose"):
+        continue
+
+    if state.get("approximate"):
+        errors.append({
+            "file": os.path.basename(sf),
+            "strategyKey": cfg.get("_key"),
+            "asset": state.get("asset", ""),
+            "error": "approximate_dsl_skipped",
+            "message": "DSL has approximate data (clearinghouse delayed), waiting for health check reconciliation"
+        })
         continue
 
     valid, err_msg = validate_dsl_state(state, sf)

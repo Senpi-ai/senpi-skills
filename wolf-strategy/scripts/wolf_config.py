@@ -355,6 +355,14 @@ def dsl_state_template(asset, direction, entry_price, size, leverage,
             {"triggerPct": 20, "lockPct": 85, "breaches": 1},
         ]
 
+    # Calculate absoluteFloor from entry price, leverage, and retrace threshold
+    retrace_roe = 10  # matches phase1.retraceThreshold
+    retrace_price = (retrace_roe / 100) / leverage
+    if direction.upper() == "LONG":
+        abs_floor = round(entry_price * (1 - retrace_price), 6)
+    else:
+        abs_floor = round(entry_price * (1 + retrace_price), 6)
+
     return {
         "version": 2,
         "asset": asset,
@@ -368,11 +376,11 @@ def dsl_state_template(asset, direction, entry_price, size, leverage,
         "currentBreachCount": 0,
         "currentTierIndex": None,
         "tierFloorPrice": 0,
-        "floorPrice": 0,
+        "floorPrice": abs_floor,
         "tiers": tiers,
         "phase1": {
             "retraceThreshold": 10,
-            "absoluteFloor": 0,
+            "absoluteFloor": abs_floor,
             "consecutiveBreachesRequired": 3,
         },
         "phase2TriggerTier": 0,
