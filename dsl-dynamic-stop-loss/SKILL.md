@@ -1,10 +1,10 @@
 ---
 name: dsl-dynamic-stop-loss
 description: >-
-  Manages automated trailing stop losses for leveraged perpetual positions on
+  Manages automated **dynamic/trailing** stop losses (DSL only) for leveraged perpetual positions on
   Hyperliquid. Monitors price via cron, ratchets profit floors through configurable tiers, and auto-closes positions on breach via mcporter — no agent intervention for the critical path. Supports LONG and SHORT, strategy-scoped state isolation, and automatic cleanup on position or strategy close. ROE-based (return on margin)
   tier triggers that automatically account for leverage.
-  Use when protecting an open Hyperliquid perp position, setting up trailing stops, managing profit tiers, or automating position exits on breach.
+  Use only when the user wants a **trailing/dynamic** stop loss (DSL). Do not use for normal/static stop loss. If the user says "stop loss" without specifying DSL vs normal, ask which they mean before proceeding.
 license: Apache-2.0
 compatibility: >-
   Requires python3, mcporter (configured with Senpi auth), and cron.
@@ -18,6 +18,12 @@ metadata:
 
 # Dynamic Stop Loss (DSL) v5
 
+**Scope — DSL only.** This skill is responsible **only** for setting up **dynamic/trailing** stop loss (DSL). It does **not** handle normal (static) stop loss. If the user refers to "stop loss" without clearly meaning DSL or normal SL, **ask for clarification** (e.g. "Do you want a trailing stop that moves up with profit, or a fixed price stop loss?") before acting.
+
+**Communication with users.** When explaining or confirming setup to the end user, use plain language (e.g. "trailing stop", "dynamic stop", "profit protection"). Do **not** reveal implementation details such as storage locations, script names, file paths, or internal file names unless the user explicitly asks for technical or implementation details.
+
+---
+
 Automated trailing stop loss for leveraged perp positions on Hyperliquid (main and xyz dex). Monitors price via cron, ratchets profit floors upward through configurable tiers, and **auto-closes positions on breach** — no agent intervention required for the critical path. v5 adds strategy-scoped state paths and delete-on-close cleanup.
 
 ## Self-Contained Design
@@ -25,10 +31,10 @@ Automated trailing stop loss for leveraged perp positions on Hyperliquid (main a
 ```
 Script handles:              Agent handles:
 ✅ Price monitoring           📢 Telegram alerts
-✅ High water tracking        🧹 Cron cleanup (disable after close)
+✅ High water tracking        🧹 Cron cleanup (disable after close; run strategy cleanup when all closed)
 ✅ Tier upgrades              📊 Portfolio reporting
 ✅ Breach detection           🔄 Retry awareness (pendingClose alerts)
-✅ Position closing (via mcporter, with retry)
+✅ Position closing (via mcporter, with retry)   ⏰ Set up cron automatically when user sets up DSL
 ✅ State deactivation
 ✅ Error handling (fetch failures)
 ```
@@ -207,7 +213,7 @@ Key fields for agent decision-making:
 
 ## Cron Setup
 
-Per-position cron (every 3-5 min):
+Per-position cron (every 3-5 min). **The agent must create this cron automatically when setting up DSL** — do not leave cron setup to the user.
 
 ```
 DSL_STATE_DIR=/data/workspace/dsl DSL_STRATEGY_ID=strat-abc-123 DSL_ASSET=ETH python3 scripts/dsl-v5.py
@@ -217,21 +223,32 @@ For xyz dex: `DSL_ASSET=xyz:SILVER` (state file: `xyz--SILVER.json`). Stagger mu
 
 ## How to Set Up a New Position
 
-1. Open position via Senpi API (`create_position`)
-2. Create a state file with position details (see schema above)
-   - **Double-check `direction`** — controls all LONG/SHORT math
-   - **Calculate `absoluteFloor` correctly** for the direction
-3. Create a cron job (every 3-5 min)
-4. DSL handles everything from there
+**Agent must complete all steps; cron setup is automatic, not optional.**
+
+1. Open position via Senpi API (`create_position`) if not already open.
+2. **Create state directory and file** (see "State directory and file creation" below) — pay close attention to path and filename so the cron can find the state.
+3. **Create the cron job automatically** (every 3–5 min) for this position. User must not have to set up cron manually.
+4. DSL handles monitoring and close from there.
+
+### State directory and file creation
+
+- **Base directory:** Use `DSL_STATE_DIR` (e.g. `/data/workspace/dsl`). Ensure it exists; create it if missing.
+- **Strategy directory:** `{DSL_STATE_DIR}/{strategyId}` — create this directory if it does not exist. One directory per strategy.
+- **State filename (must match cron's `DSL_ASSET`):**
+  - Main dex: `{asset}.json` (e.g. `ETH` → `ETH.json`, `HYPE` → `HYPE.json`).
+  - xyz dex: replace colon with double-dash — `xyz:SILVER` → `xyz--SILVER.json`, `xyz:AAPL` → `xyz--AAPL.json`.
+- **Full path:** `{DSL_STATE_DIR}/{strategyId}/{filename}.json`. The script reads state from this path using env vars `DSL_STATE_DIR`, `DSL_STRATEGY_ID`, `DSL_ASSET`; the filename is derived from `DSL_ASSET` (xyz assets: colon → double-dash).
+- **State file contents:** Include all required fields from the schema. **Double-check `direction`** (LONG/SHORT) — it controls all floor and breach math. **Calculate `absoluteFloor`** correctly for the direction (see Absolute Floor Calculation below). Set `highWaterPrice` to entry price, `currentBreachCount` to 0, `currentTierIndex` to -1, `tierFloorPrice` to null, `floorPrice` to the absolute floor.
 
 ### When a Position Closes
 
 1. ✅ Script closes position via `senpi:close_position` (coin with `xyz:` prefix as-is; with retry)
 2. ✅ Script deletes the state file (no archive)
-3. 🤖 Agent disables the cron (reads `closed=true`)
-4. 🤖 Agent sends alert to user
+3. 🤖 **Agent:** On `closed=true` in script output — disable this position's cron immediately; script has already deleted the state file.
+4. 🤖 **Agent:** Send alert to user.
+5. 🤖 **Agent:** When all positions in a strategy are closed (all crons for that strategy disabled), run strategy cleanup so the strategy directory is removed. Cleanup works only when run after all position crons are disabled — see [references/cleanup.md](references/cleanup.md).
 
-If close fails, script sets `pendingClose: true` and retries next cron tick. When all crons for a strategy are disabled, run `dsl-cleanup.py` for strategy-level cleanup — see [references/cleanup.md](references/cleanup.md).
+If close fails, script sets `pendingClose: true` and retries next cron tick.
 
 ## Customization
 
@@ -244,12 +261,11 @@ See [references/customization.md](references/customization.md) for conservative/
 
 > ⚠️ **Do NOT use `strategy_close_strategy`** to close individual positions. That closes the **entire strategy** (irreversible). Use `close_position`.
 
-## Setup Checklist
+## Setup Checklist (agent responsibilities)
 
-1. Extract `scripts/dsl-v5.py` and `scripts/dsl-cleanup.py`; `chmod +x`
-2. Ensure `mcporter` is configured with Senpi auth
-3. Create state file(s) per position under `{DSL_STATE_DIR}/{strategyId}/{asset}.json` (see [references/state-schema.md](references/state-schema.md))
-4. Set up cron per position with `DSL_STATE_DIR`, `DSL_STRATEGY_ID`, `DSL_ASSET`
-5. Agent reads output for alerts and cron cleanup; on `closed=true`, disable cron (script already deleted state file)
-6. When all positions in a strategy are closed, run `dsl-cleanup.py` — see [references/cleanup.md](references/cleanup.md)
-7. If `pending_close=true`, script auto-retries on next tick
+1. Ensure required scripts and mcporter (Senpi auth) are available.
+2. **State:** Create base dir if needed; create strategy dir `{DSL_STATE_DIR}/{strategyId}`; create state file with correct filename (main: `{asset}.json`, xyz: `xyz--SYMBOL.json`). See [references/state-schema.md](references/state-schema.md).
+3. **Cron:** Set up cron automatically for each position (every 3–5 min) — user must not do this manually.
+4. **Alerts:** Read script output; on `closed=true`, disable that position's cron and alert user.
+5. **Cleanup:** When all positions in a strategy are closed, run strategy cleanup so the strategy directory is removed — see [references/cleanup.md](references/cleanup.md).
+6. If `pending_close=true`, script auto-retries on next tick; alert user.
