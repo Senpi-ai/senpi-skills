@@ -22,6 +22,14 @@ metadata:
 
 **Communication with users.** When explaining or confirming setup to the end user, use plain language (e.g. "trailing stop", "dynamic stop", "profit protection"). Do **not** reveal implementation details such as storage locations, script names, file paths, or internal file names unless the user explicitly asks for technical or implementation details.
 
+**User-facing response guidelines.** When you confirm setup or report status to the user, write like this — and **avoid** the technical style below.
+
+- **Good (do):** "Trailing stop protection is on for LAYER, PAXG, xyz:SILVER, xyz:CL, and xyz:NATGAS. Each position is checked every few minutes and will close automatically if the stop is hit. I'll notify you if any position closes or if there’s a problem. Cleanup after close is handled automatically."
+- **Good (do):** "LAYER’s price couldn’t be fetched this run (temporary). The monitor will retry on the next run. I’ll alert you if it keeps failing."
+- **Bad (don’t):** Mention state file paths, `~/.openclaw/workspace/dsl/…`, cron IDs, "dsl-v5.py", `DSL_STATE_DIR`, `DSL_STRATEGY_ID`, `DSL_ASSET`, or "per-position crons" — unless the user explicitly asks how it works under the hood.
+- **Bad (don’t):** Ask "if we should add cleanup automation" — cleanup (disable on close, strategy cleanup when all closed) is already part of the flow; don’t offer it as an optional add-on.
+- **Bad (don’t):** Raw error text like "price_fetch_failed: no price for LAYER (dex=main)". Rephrase in plain language: e.g. "Couldn’t get a price for LAYER this time; will retry shortly."
+
 ---
 
 Automated trailing stop loss for leveraged perp positions on Hyperliquid (main and xyz dex). Monitors price via cron, ratchets profit floors upward through configurable tiers, and **auto-closes positions on breach** — no agent intervention required for the critical path. v5 adds strategy-scoped state paths and delete-on-close cleanup.

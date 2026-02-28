@@ -54,35 +54,71 @@ def dex_and_lookup_symbol(asset: str) -> tuple[str, str]:
 # Price fetch (MCP)
 # ---------------------------------------------------------------------------
 
+def _parse_price_from_response(data: dict, response_key: str) -> str | None:
+    """Extract price string from MCP response (market_get_prices envelope or flat allMids).
+    response_key: for main use bare symbol (e.g. ETH); for xyz use prefixed (e.g. xyz:SILVER).
+    """
+    if "prices" in data:
+        return data["prices"].get(response_key)
+    return data.get(response_key)
+
+
+def _unwrap_mcp_response(raw: dict) -> dict | None:
+    """Unwrap MCP envelope if present: { success, data: { prices, ... } } -> { prices, ... }."""
+    if not raw or not isinstance(raw, dict):
+        return None
+    if "data" in raw and isinstance(raw.get("data"), dict):
+        return raw["data"]
+    return raw
+
+
 def fetch_price_mcp(dex: str, lookup_symbol: str) -> tuple[float | None, str | None]:
-    """Fetch mid price via senpi:market_get_prices or allMids. Returns (price, error).
-    Catches TimeoutExpired, FileNotFoundError, and OSError so caller can update state and emit JSON.
+    """Fetch mid price via MCP only: senpi market_get_prices then allMids fallback.
+    MCP expects dex '' for main (passing 'main' causes INTERNAL error). xyz response uses keys like xyz:SILVER.
     """
     try:
+        dex = dex.strip() if dex else ""
+        if dex.lower() == "main":
+            dex = ""
+        is_xyz = dex.lower() == "xyz"
+        response_key = f"xyz:{lookup_symbol}" if is_xyz else lookup_symbol
+
         args_mgp = {"assets": [lookup_symbol], "dex": dex}
         r = subprocess.run(
             ["mcporter", "call", "senpi", "market_get_prices", "--args", json.dumps(args_mgp)],
             capture_output=True, text=True, timeout=15,
         )
-        if r.returncode != 0:
+        data = None
+        if r.returncode == 0 and r.stdout:
+            try:
+                raw = json.loads(r.stdout)
+                data = _unwrap_mcp_response(raw)
+            except json.JSONDecodeError:
+                pass
+        price_str = _parse_price_from_response(data, response_key) if data else None
+
+        if price_str is None:
             args_am = {"dex": dex} if dex else {}
             r = subprocess.run(
                 ["mcporter", "call", "senpi", "allMids", "--args", json.dumps(args_am)],
                 capture_output=True, text=True, timeout=15,
             )
-            if r.returncode != 0:
+            if r.returncode == 0 and r.stdout:
+                try:
+                    raw = json.loads(r.stdout)
+                    data = _unwrap_mcp_response(raw)
+                    price_str = _parse_price_from_response(data, response_key)
+                except json.JSONDecodeError:
+                    pass
+            elif r.returncode != 0 and data is None:
                 return None, (r.stderr or r.stdout or "non-zero exit")
-        data = json.loads(r.stdout)
-        if "prices" in data:
-            price_str = data["prices"].get(lookup_symbol)
-        else:
-            price_str = data.get(lookup_symbol)
+
         if price_str is None:
             return None, f"no price for {lookup_symbol} (dex={dex or 'main'})"
         return float(price_str), None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return None, str(e)
-    except (json.JSONDecodeError, TypeError, ValueError) as e:
+    except (TypeError, ValueError) as e:
         return None, str(e)
 
 
