@@ -57,6 +57,7 @@ Each skill folder is self-contained — SKILL.md has the core instructions, `scr
 | **[HOWL](#howl)** | 🐺🌙 Hunt, Optimize, Win, Learn. Nightly self-improvement loop — analyzes every trade, finds patterns, suggests strategy improvements. | [`SKILL.md`](wolf-howl/SKILL.md) |
 | **[Emerging Movers Detector](#emerging-movers-detector)** | Tracks SM concentration across all Hyperliquid assets. Quality-filtered IMMEDIATE signals, runs every 60 seconds. One API call per scan. | [`SKILL.md`](emerging-movers/SKILL.md) |
 | **[Whale Index](#whale-index)** | Auto-mirror top Discovery traders. Scores on PnL rank, win rate, consistency, drawdown. 2–5 mirror strategies, daily rebalance with 2-day watch period. | [`SKILL.md`](whale-index/SKILL.md) |
+| **Fortress** | Multi-agent trading consensus with HyperSurge, ROE ladder, partial de-risk and strict risk protection. 4 specialized persistent agents must unanimously agree before any trade. | [`SKILL.md`](fortress/SKILL.md) |
 
 ---
 
