@@ -106,19 +106,20 @@ def analyze(positions, sm_data):
         elif flipped:
             alert_level = "WATCH"
 
-        alerts.append({
-            "asset": asset,
-            "myDirection": my_dir,
-            "smDirection": sm_dir,
-            "flipped": flipped,
-            "alertLevel": alert_level,
-            "conviction": conviction,
-            "smPnlPct": sm["pnlPct"],
-            "smTraders": sm["traders"],
-            "avgAtPeak": sm["avgAtPeak"],
-            "nearPeakPct": sm["nearPeakPct"],
-            "strategyKey": pos["strategyKey"]
-        })
+        if flipped:
+            alerts.append({
+                "asset": asset,
+                "myDirection": my_dir,
+                "smDirection": sm_dir,
+                "flipped": flipped,
+                "alertLevel": alert_level,
+                "conviction": conviction,
+                "smPnlPct": sm["pnlPct"],
+                "smTraders": sm["traders"],
+                "avgAtPeak": sm["avgAtPeak"],
+                "nearPeakPct": sm["nearPeakPct"],
+                "strategyKey": pos["strategyKey"]
+            })
 
     return {
         "time": datetime.now(timezone.utc).isoformat(),
