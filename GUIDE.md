@@ -65,14 +65,20 @@ Token burn is the single biggest operational cost. These patterns reduce it dram
 
 ### 2.1 Model Tiering
 
-Classify each cron job by the reasoning it requires:
+Classify each cron job by the reasoning it requires. The 3-tier approach maps directly to session type (see Section 2.6):
 
-| Tier | Use When | Model Examples |
-|------|----------|---------------|
-| **Tier 1** (fast/cheap) | Binary/threshold checks, status parsing, health validation | claude-haiku-4-5, gpt-4o-mini, gemini-flash |
-| **Tier 2** (capable) | Judgment calls, signal routing, multi-factor scoring | anthropic/claude-sonnet-4-20250514, anthropic/claude-opus-4-20250514, gpt-4o, gemini-pro |
+| Tier | Use When | Tested Model IDs |
+|------|----------|-----------------|
+| **Primary** | Complex judgment, multi-strategy routing, entry decisions | Your configured model (runs on main session) |
+| **Mid** | Structured tasks, script output parsing, rule-based actions | `anthropic/claude-sonnet-4-20250514` |
+| **Budget** | Simple threshold checks, binary decisions | `anthropic/claude-haiku-4-5` |
 
-Document the tier for each cron in your `cron-templates.md`. Most crons should be Tier 1.
+Most crons should be Mid or Budget. Only crons requiring accumulated context or complex judgment need Primary.
+
+- **Primary** crons run on the main session and share context (position history, routing decisions).
+- **Mid / Budget** crons run on isolated sessions with the model specified in the cron payload.
+
+Document the tier and session type for each cron in your `cron-templates.md`.
 
 ### 2.2 Heartbeat Early Exit
 
@@ -139,10 +145,27 @@ This prevents: config re-reads per action, multiple Telegram messages, context g
 
 ### 2.6 Context Isolation
 
+**Within a cron run:**
 - Read config files ONCE per cron run
 - Build a complete action plan before executing any tool calls
 - Send ONE consolidated notification per run, not one per signal
 - Skip redundant checks when data is fresh (e.g., < 3 min old)
+
+**Across cron runs — session isolation:**
+
+Crons run in one of two session types:
+
+| Session Type | When to Use | Behavior |
+|-------------|-------------|----------|
+| **Main** (`sessionTarget: "main"`) | Cron needs accumulated context — routing history, position knowledge, multi-step judgment | Shares context with other main-session crons. Uses the agent's configured Primary model. |
+| **Isolated** (`sessionTarget: "isolated"`) | Cron is self-contained — script output has everything the LLM needs to decide | Fresh session per run. No context pollution. Runs a cheaper Mid/Budget model specified in the payload. |
+
+**Default to isolated.** Most crons are self-contained: run script → parse JSON → act or HEARTBEAT_OK. Only promote to main session when the cron genuinely needs cross-run context (e.g., remembering which strategies were routed to previously).
+
+**Why this matters:**
+- Isolated crons don't pollute the main session's context window with repetitive heartbeats
+- Cheaper models (Mid/Budget) run on isolated sessions, reducing cost
+- Main session stays lean — only crons that need shared context contribute to it
 
 ---
 
@@ -605,7 +628,7 @@ elif orphan_detected and had_fetch_error:
     })
 ```
 
-**Why:** Tier 1 models are unreliable at multi-step remediation. Moving fix logic into the script makes it deterministic. The cron mandate just routes the `action` field to "alert" or "ignore."
+**Why:** Budget/Mid models are unreliable at multi-step remediation. Moving fix logic into the script makes it deterministic. The cron mandate just routes the `action` field to "alert" or "ignore."
 
 ### 6.4 Graceful Degradation
 
@@ -636,7 +659,9 @@ print(json.dumps({"alerts": alerts, "partial": True}))
 
 ### 7.1 Cron Template Format
 
-All crons use OpenClaw's `systemEvent` format:
+Crons use one of two formats depending on session type (see Section 2.6):
+
+**Main session** — `systemEvent` format (Primary model, shared context):
 
 ```json
 {
@@ -651,16 +676,43 @@ All crons use OpenClaw's `systemEvent` format:
 }
 ```
 
-### 7.2 Mandate Text Pattern — Explicit Rules for Lower-Tier Models
+**Isolated session** — `agentTurn` format (Mid/Budget model, fresh context):
 
-Cron mandates run on the cheapest model possible (Tier 1). These models **cannot make judgment calls** — they need deterministic, per-case rules. Never say "apply rules from SKILL.md" in a Tier 1 mandate.
+```json
+{
+  "name": "{Skill Name} — {Job Name}",
+  "schedule": { "kind": "every", "everyMs": 90000 },
+  "sessionTarget": "isolated",
+  "payload": {
+    "kind": "agentTurn",
+    "model": "anthropic/claude-haiku-4-5",
+    "message": "..."
+  }
+}
+```
+
+**Critical differences:**
+
+| | Main (systemEvent) | Isolated (agentTurn) |
+|---|---|---|
+| `sessionTarget` | `"main"` | `"isolated"` |
+| `wakeMode` | `"now"` (required) | Not used (omit it) |
+| `payload.kind` | `"systemEvent"` | `"agentTurn"` |
+| Mandate key | `"text"` | `"message"` |
+| Model | Agent's configured model | Specified in `payload.model` |
+
+> **Warning:** `systemEvent` uses `"text"`, `agentTurn` uses `"message"`. Using the wrong key silently fails — the cron fires but the LLM receives an empty prompt.
+
+### 7.2 Mandate Text Pattern — Explicit Rules for Budget/Mid Models
+
+Cron mandates typically run on Budget or Mid tier models. These models **cannot make judgment calls** — they need deterministic, per-case rules. Never say "apply rules from SKILL.md" in a Budget/Mid mandate.
 
 ```
-# BAD — vague, requires judgment (Tier 1 model will hallucinate)
+# BAD — vague, requires judgment (Budget model will hallucinate)
 "Parse JSON. Apply WOLF SM rules from SKILL.md for judgment calls.
 If hasFlipSignal=false → HEARTBEAT_OK."
 
-# GOOD — explicit per-case branching (Tier 1 model follows steps)
+# GOOD — explicit per-case branching (Budget model follows steps)
 "Parse JSON. For each alert in `alerts`:
 if `alertLevel == "FLIP_NOW"` → close that position, alert Telegram ({TELEGRAM}).
 Ignore alerts with `alertLevel` of WATCH or FLIP_WARNING (no action needed).
@@ -679,7 +731,7 @@ If `hasFlipSignal == false` or no FLIP_NOW alerts → HEARTBEAT_OK."
 If no issues → HEARTBEAT_OK."
 ```
 
-**Rule of thumb:** If the mandate says "judgment" or "apply rules," it's too vague for Tier 1. Rewrite with explicit `if/then` per output field.
+**Rule of thumb:** If the mandate says "judgment" or "apply rules," it's too vague for Budget/Mid. Rewrite with explicit `if/then` per output field.
 
 ### 7.3 One Set of Crons, Scripts Iterate Internally
 
@@ -713,6 +765,42 @@ If a config field name differs from what you'd expect, document it explicitly:
 - `stagnation.thresholdHours` is the correct key. Using `staleHours` will be silently ignored.
 - `phase2.retraceFromHW` is a percentage — use `5` for 5%.
 ```
+
+### 7.7 Slot Guard Pattern
+
+When a skill has resource limits (e.g., max concurrent positions, strategy slots, budget caps), the **script** must surface availability — the agent should never count state files or compute capacity itself.
+
+**Script surfaces availability in JSON output:**
+
+```python
+# In your script — count active state files and report
+active_states = [f for f in os.listdir(state_dir) if f.endswith(".json")]
+active_count = sum(1 for f in active_states if load_json(f).get("active"))
+max_slots = config.get("maxSlots", 5)
+
+output["strategySlots"] = {
+    "active": active_count,
+    "max": max_slots,
+    "available": max_slots - active_count,
+    "anySlotsAvailable": active_count < max_slots
+}
+```
+
+**Mandate includes a SLOT GUARD directive:**
+
+```
+SLOT GUARD (MANDATORY):
+Check `strategySlots.anySlotsAvailable` BEFORE opening any new position.
+If false → skip entry, log "no slots available", continue to next signal.
+Never open a position without confirming slot availability first.
+```
+
+**Key principles:**
+
+- **Script is the source of truth** — the script counts state files, computes capacity, and reports it. The agent reads the field and acts on it.
+- **Agent never globs state files** — if the agent is counting files to determine capacity, the script contract is broken. Fix the script.
+- **Pattern generalizes** — any resource limit (slots, budget remaining, rate limits, cooldowns) should be surfaced the same way: script computes, outputs a guard field, mandate enforces checking it.
+- **Guard is mandatory, not advisory** — the mandate must include explicit "MANDATORY" language. Budget/Mid models skip soft suggestions.
 
 ---
 
@@ -985,7 +1073,7 @@ Before shipping a new skill, verify:
 - [ ] Errors surfaced (not silently swallowed) — callers can distinguish "no data" from "call failed"
 - [ ] Error output is structured JSON, not tracebacks
 - [ ] Cron mandates are short, reference SKILL.md for detailed rules
-- [ ] Model tier (Tier 1 / Tier 2) documented per cron
+- [ ] Model tier (Primary / Mid / Budget) and session type (main / isolated) documented per cron
 - [ ] `HEARTBEAT_OK` early exit when nothing actionable
 - [ ] Default output is minimal; verbose behind env var
 - [ ] Config has deep merge, backward-compatible defaults
@@ -998,4 +1086,5 @@ Before shipping a new skill, verify:
 - [ ] Shared helpers for duplicated parsing logic (DRY)
 - [ ] `shlex.quote()` on all subprocess args; `tempfile.mkstemp` for temp files with `finally` cleanup
 - [ ] Prefixed identifiers (e.g., `xyz:BTC`) stripped before use in file paths
+- [ ] Resource limits (slots, capacity) surfaced in script output, not left to agent counting
 - [ ] Dead/legacy code deleted (git history is the reference)
