@@ -41,7 +41,7 @@ def count_active_dsls(strategy_key):
                 state = json.load(f)
             if state.get("active"):
                 count += 1
-        except (json.JSONDecodeError, IOError):
+        except (json.JSONDecodeError, IOError, AttributeError):
             continue
     return count
 
@@ -55,7 +55,7 @@ def has_active_dsl(strategy_key, asset):
         with open(path) as f:
             state = json.load(f)
         return state.get("active", False)
-    except (json.JSONDecodeError, IOError):
+    except (json.JSONDecodeError, IOError, AttributeError):
         return False
 
 

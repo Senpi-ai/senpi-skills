@@ -201,7 +201,7 @@ def get_all_active_positions():
                         "direction": s["direction"],
                         "stateFile": sf
                     })
-            except (json.JSONDecodeError, IOError, KeyError):
+            except (json.JSONDecodeError, IOError, KeyError, AttributeError):
                 continue
     return positions
 
@@ -277,6 +277,8 @@ def mcporter_call_safe(tool, retries=3, timeout=30, **kwargs):
 
 def atomic_write(path, data):
     """Atomically write JSON data to a file."""
+    if isinstance(data, str):
+        data = json.loads(data)  # recover from pre-serialized input
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:

@@ -384,6 +384,11 @@ for sf, cfg in all_state_entries:
         errors.append({"file": os.path.basename(sf), "strategyKey": cfg.get("_key"), "error": str(e)})
         continue
 
+    if not isinstance(state, dict):
+        errors.append({"file": os.path.basename(sf), "strategyKey": cfg.get("_key"),
+                        "error": "state_not_dict", "skipped": True})
+        continue
+
     if not state.get("active") and not state.get("pendingClose"):
         continue
 
