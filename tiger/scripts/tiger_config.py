@@ -363,10 +363,16 @@ def mcporter_call(tool, **kwargs):
     last_error = None
     for attempt in range(3):
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
-            if result.returncode != 0:
-                raise RuntimeError(result.stderr.strip())
-            data = json.loads(result.stdout)
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                stdout, stderr = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                raise RuntimeError("timeout")
+            if proc.returncode != 0:
+                raise RuntimeError(stderr.strip())
+            data = json.loads(stdout)
             if isinstance(data, dict) and data.get("success") is False:
                 raise ValueError(data.get("error", "unknown"))
             return data

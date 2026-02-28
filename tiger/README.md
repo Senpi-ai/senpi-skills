@@ -83,7 +83,16 @@ tiger-strategy/
 
 ## Changelog
 
-### v2.4 (current)
+### v2.5 (current)
+- **dsl-v4.py — CRITICAL**: Fixed units mismatch causing instant position closes. `triggerPct` (decimal 0.05) was compared directly to `upnl_pct` (whole number 2.1) — any positive PnL triggered all tiers instantly. Now multiplies by 100. Also fixed `lockPct` floor calc that was double-dividing by 100. This bug caused premature closes and ~$138 in avoidable losses.
+- **tiger_config.py**: Fixed zombie process leak in `mcporter_call()`. Switched from `subprocess.run(timeout)` to `Popen + communicate(timeout) + proc.kill()` to ensure child mcporter processes are killed on timeout. Keeps 3-attempt retry.
+- **correlation-scanner.py**: Reduced alt scan from 10+10 to 6+2 (max 8 alts). Prevents API timeouts.
+- **funding-scanner.py**: Added retry on instruments fetch failure. Reduced candidates from 15→8. Prevents timeouts.
+- **dsl-v4.py**: Now uses shared infra (atomic_write, get_prices, close_position) instead of raw curl and non-atomic writes.
+
+### v2.4
+- **dsl-v4.py — CRITICAL**: Fixed units mismatch causing instant position closes. `triggerPct` (decimal 0.05) was compared directly to `upnl_pct` (whole number 2.1) — any positive PnL triggered all tiers instantly. Now multiplies by 100. Also fixed `lockPct` floor calc that was double-dividing by 100.
+- **tiger_config.py**: Fixed zombie process leak in `mcporter_call()`. Switched from `subprocess.run(timeout)` to `Popen + communicate(timeout) + proc.kill()` to ensure child mcporter processes are killed on timeout. Keeps 3-attempt retry.
 - **correlation-scanner.py**: Reduced alt scan from 10+10 to 6+2 (max 8 alts). Prevents API timeouts.
 - **funding-scanner.py**: Added retry on instruments fetch failure. Reduced candidates from 15→8. Prevents timeouts.
 - **cron-templates.md**: Complete rewrite following [OpenClaw cron best practices](https://docs.openclaw.ai/automation/cron-jobs):
