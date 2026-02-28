@@ -67,7 +67,8 @@ Replace these placeholders in all templates:
 
 ```
 WOLF Emerging Movers: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/emerging-movers.py`, parse JSON.
-On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals: read {WOLF}/wolf-strategies.json ONCE, route to best-fit strategy (available slot + risk profile match), open position on that wallet, create DSL state in {WOLF}/state/{strategyKey}/dsl-{ASSET}.json.
+SLOT GUARD (MANDATORY): Check `anySlotsAvailable` — if false, output HEARTBEAT_OK immediately. Do NOT open any position when all strategies show 0 available slots. Check `strategySlots` per strategy before routing.
+On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals: use `strategySlots` to route to a strategy with available > 0 (skip strategies at capacity), open position on that wallet, create DSL state in {WOLF}/state/{strategyKey}/dsl-{ASSET}.json.
 Apply WOLF entry rules from SKILL.md (min 7x leverage, rank #25+ entry, no top-10 entries, rotation logic).
 Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
 ```
@@ -136,11 +137,12 @@ If no issues → HEARTBEAT_OK.
 
 ```
 WOLF Scanner: Run `PYTHONUNBUFFERED=1 timeout 180 python3 {SCRIPTS}/opportunity-scan-v6.py 2>/dev/null`, parse JSON.
+SLOT GUARD (MANDATORY): Check `anySlotsAvailable` — if false, skip all entries and output HEARTBEAT_OK. Never open positions when strategySlots shows 0 available for all strategies.
 Act on opportunities with finalScore≥175. Use btcMacro.trend for macro context; be cautious with LONGs if "strong_down".
 
 PROCESSING ORDER (prevents context growth):
-1. Read {WOLF}/wolf-strategies.json ONCE. Map available slots per strategy.
-2. Build complete action plan: [(asset, direction, strategyKey, margin, leverage), ...]
+1. Check `strategySlots` — only consider strategies with available > 0. If none → HEARTBEAT_OK.
+2. Build complete action plan: [(asset, direction, strategyKey, margin, leverage), ...] — cap entries at total available slots.
 3. Execute entries sequentially. No re-reads of wolf-strategies.json.
 4. Send ONE consolidated Telegram ({TELEGRAM}) after all entries: "Wolf entered N positions: ASSET1 LONG (Strategy A), ASSET2 SHORT (Strategy B)"
 
