@@ -385,6 +385,21 @@ except Exception as e:
     return {}, {}, f"fetch failed: {e}"
 ```
 
+### 3.7 Empty Response Guard
+
+When checking MCP responses for failure, use `if not data` instead of `if data is None`. An MCP call can return an empty dict `{}` which passes `is not None` but is still unusable.
+
+```python
+# BAD — empty dict {} passes this check, downstream code crashes on missing keys
+data = mcporter_call_safe("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+if data is None:
+    return {}, {}, "fetch failed"
+
+# GOOD — catches both None and empty dict
+if not data:
+    return {}, {}, "fetch failed"
+```
+
 ---
 
 ## 4. Storage & State Management
@@ -802,6 +817,48 @@ Never open a position without confirming slot availability first.
 - **Pattern generalizes** — any resource limit (slots, budget remaining, rate limits, cooldowns) should be surfaced the same way: script computes, outputs a guard field, mandate enforces checking it.
 - **Guard is mandatory, not advisory** — the mandate must include explicit "MANDATORY" language. Budget/Mid models skip soft suggestions.
 
+### 7.8 Setup Script Conventions
+
+When a skill has a setup script that generates cron configurations, follow these conventions:
+
+**Parameterize model IDs via CLI args:**
+
+```python
+parser.add_argument("--mid-model", default="anthropic/claude-sonnet-4-20250514",
+                    help="Model ID for Mid-tier isolated crons")
+parser.add_argument("--budget-model", default="anthropic/claude-haiku-4-5",
+                    help="Model ID for Budget-tier isolated crons")
+```
+
+This makes the skill provider-agnostic — users on OpenAI or Google can pass their own model IDs without editing the script.
+
+**Inject model into cron payloads:**
+
+```python
+# Setup script generates cron payloads with the user's chosen models
+"payload": {
+    "kind": "agentTurn",
+    "model": mid_model,    # ← from CLI arg, not hardcoded
+    "message": "..."
+}
+```
+
+**Show model assignments in setup output** so users can verify before creating crons.
+
+### 7.9 Placeholder Scope Hygiene
+
+Cron template placeholders must match the actual file location scope. Common scopes:
+
+| Placeholder | Scope | Example |
+|------------|-------|---------|
+| `{WORKSPACE}` | Workspace root | `/data/workspace` — for config files, state dirs |
+| `{SCRIPTS}` | Skill's scripts dir | `/data/workspace/skills/{skill}/scripts` |
+| `{SKILL}` | Skill root dir | `/data/workspace/skills/{skill}` |
+
+**Rule:** If a file lives at the workspace root (e.g., `wolf-strategies.json`, `state/`), use `{WORKSPACE}`. If it lives inside the skill directory, use `{SCRIPTS}` or `{SKILL}`. Mismatched placeholders cause the LLM to reference non-existent paths.
+
+Verify placeholder accuracy by cross-checking against the config loader (e.g., `wolf_config.py`) which defines the canonical paths.
+
 ---
 
 ## 8. Defensive Coding
@@ -981,6 +1038,23 @@ if VERBOSE:
 print(json.dumps(output))
 ```
 
+### 9.5 Action-Only Output Filtering
+
+Scripts should only include items the LLM needs to act on. Filter out non-actionable items at the script level — don't leave it to the LLM to skip them.
+
+```python
+# BAD — includes all positions, LLM must figure out which need action
+for pos in positions:
+    alerts.append({"asset": pos["asset"], "flipped": pos["flipped"], ...})
+
+# GOOD — only include items that need action
+for pos in positions:
+    if pos["flipped"]:
+        alerts.append({"asset": pos["asset"], ...})
+```
+
+**Why:** Budget/Mid models waste tokens reasoning about non-actionable items. Every item in the output array implies "do something with this." Filtering at the script level reduces tokens and prevents false-positive actions.
+
 ---
 
 ## 10. Notification Consolidation
@@ -1088,3 +1162,5 @@ Before shipping a new skill, verify:
 - [ ] Prefixed identifiers (e.g., `xyz:BTC`) stripped before use in file paths
 - [ ] Resource limits (slots, capacity) surfaced in script output, not left to agent counting
 - [ ] Dead/legacy code deleted (git history is the reference)
+- [ ] Script output contains only actionable items — non-actionable data filtered at script level
+- [ ] Cron template placeholders match actual file location scope (workspace root vs skill dir)
