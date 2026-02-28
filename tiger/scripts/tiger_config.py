@@ -324,6 +324,25 @@ def log_trade(trade, config=None):
     atomic_write(path, trades)
 
 
+def get_trade_log_path(config=None):
+    """Return the trade log file path for the current instance."""
+    config = _get_config(config)
+    return os.path.join(_instance_dir(config), "trade-log.json")
+
+
+def load_trade_log(config=None):
+    """Load trade log. Returns list of trade dicts."""
+    path = get_trade_log_path(config)
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                data = json.load(f)
+            return data if isinstance(data, list) else []
+        except (json.JSONDecodeError, IOError):
+            pass
+    return []
+
+
 # ─── DSL State ───────────────────────────────────────────────
 
 def load_dsl_state(asset, config=None):

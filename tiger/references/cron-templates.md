@@ -207,6 +207,32 @@ Every 30 seconds. Iterates all active DSL state files.
 
 ---
 
+## Cron 11: ROAR Analyst — Tier 2
+
+Every 8 hours. Meta-optimizer that tunes TIGER's execution parameters. Isolated with announce — only delivers when changes are made.
+
+```json
+{
+  "name": "TIGER — ROAR Analyst",
+  "schedule": { "kind": "every", "everyMs": 28800000 },
+  "sessionTarget": "isolated",
+  "wakeMode": "next-heartbeat",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "TIGER ROAR: Run `python3 {SCRIPTS}/roar-analyst.py`, parse JSON.\nROAR analyzes TIGER's trade log and adjusts execution thresholds within bounded ranges.\nIt NEVER touches user risk limits (budget, target, maxDrawdownPct, etc).\nIf changes_applied is true: send ONE Telegram message to {TELEGRAM_CHAT_ID} summarizing what changed and why.\nIf reverted_previous is true: mention the revert.\nIf no changes: output HEARTBEAT_OK. Do NOT send Telegram for routine analysis.",
+    "model": "anthropic/claude-sonnet-4-5-20250929"
+  },
+  "delivery": {
+    "mode": "announce",
+    "channel": "telegram",
+    "to": "{TELEGRAM_CHAT_ID}",
+    "bestEffort": true
+  }
+}
+```
+
+---
+
 ## Stagger Schedule
 
 Scanners are offset to avoid simultaneous mcporter calls:
@@ -225,15 +251,16 @@ Correlation (3min) and Funding (30min) run on their own cadence. DSL runs every 
 
 ## Cron Creation Checklist
 
-| # | Name | Interval (ms) | Model Tier | Purpose |
-|---|------|---------------|------------|---------|
-| 1 | tiger-compression | 300000 (5m) | Tier 1 | BB squeeze breakout |
-| 2 | tiger-correlation | 180000 (3m) | Tier 1 | BTC lag detection |
-| 3 | tiger-momentum | 300000 (5m) | Tier 1 | Price move + volume |
-| 4 | tiger-reversion | 300000 (5m) | Tier 1 | Overextension fade |
-| 5 | tiger-funding | 1800000 (30m) | Tier 1 | Funding arb |
-| 6 | tiger-oi | 300000 (5m) | Tier 1 | Data collection |
-| 7 | tiger-goal | 3600000 (1h) | Tier 2 | Aggression |
-| 8 | tiger-risk | 300000 (5m) | Tier 2 | Risk limits |
-| 9 | tiger-exit | 300000 (5m) | Tier 2 | Pattern exits |
-| 10 | tiger-dsl | 30000 (30s) | Tier 1 | Trailing stops |
+| # | Name | Interval (ms) | Session | Delivery | Model Tier | Purpose |
+|---|------|---------------|---------|----------|------------|---------|
+| 1 | tiger-compression | 300000 (5m) | isolated | none | Tier 1 | BB squeeze breakout |
+| 2 | tiger-correlation | 180000 (3m) | isolated | none | Tier 1 | BTC lag detection |
+| 3 | tiger-momentum | 300000 (5m) | isolated | none | Tier 1 | Price move + volume |
+| 4 | tiger-reversion | 300000 (5m) | isolated | none | Tier 1 | Overextension fade |
+| 5 | tiger-funding | 1800000 (30m) | isolated | none | Tier 1 | Funding arb |
+| 6 | tiger-oi | 300000 (5m) | isolated | none | Tier 1 | Data collection |
+| 7 | tiger-goal | 3600000 (1h) | isolated | announce | Tier 2 | Aggression |
+| 8 | tiger-risk | 300000 (5m) | isolated | announce | Tier 2 | Risk limits |
+| 9 | tiger-exit | 300000 (5m) | isolated | announce | Tier 2 | Pattern exits |
+| 10 | tiger-dsl | 30000 (30s) | **main** | — | Tier 1 | Trailing stops |
+| 11 | tiger-roar | 28800000 (8h) | isolated | announce | Tier 2 | Meta-optimizer |
