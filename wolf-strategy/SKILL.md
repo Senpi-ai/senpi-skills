@@ -139,7 +139,7 @@ Configure per-cron in OpenClaw. Step down from your primary model for isolated c
 - **Main session** (`systemEvent`): Emerging Movers + Opportunity Scanner. These share the primary session context for accumulated routing knowledge.
 - **Isolated session** (`agentTurn`): DSL Combined, Portfolio, Health Check, SM Flip, Watchdog. Each runs in its own session — no context pollution, enables cheaper model tiers.
 
-Create each cron using the OpenClaw cron tool. The exact mandate text for each cron is in **`references/cron-templates.md`**. Read that file, replace the placeholders (only `{TELEGRAM}` and `{SCRIPTS}` in v6), and create all 7 crons.
+Create each cron using the OpenClaw cron tool. The exact mandate text for each cron is in **`references/cron-templates.md`**. Read that file, replace the placeholders (`{TELEGRAM}`, `{SCRIPTS}`, and `{WOLF}` in v6), and create all 7 crons.
 
 **v6 simplification:** No more per-wallet/per-strategy placeholders in cron mandates. Scripts read all strategy info from the registry.
 

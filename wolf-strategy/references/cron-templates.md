@@ -14,10 +14,10 @@ WOLF uses two session types and a 3-tier model approach. Configure per-cron in O
 | SM Flip Detector | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 | Watchdog | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 
-**3-tier model approach:**
+**3-tier model approach** (tested IDs for OpenClaw):
 - **Primary** — Your configured model. Complex judgment, multi-strategy routing, entry decisions.
-- **Mid** — One tier down from primary. Structured tasks, script output parsing, rule-based actions.
-- **Budget** — Cheapest from the same provider. Simple threshold checks, binary decisions.
+- **Mid** (`anthropic/claude-sonnet-4-20250514`) — Structured tasks, script output parsing, rule-based actions.
+- **Budget** (`anthropic/claude-haiku-4-5`) — Simple threshold checks, binary decisions.
 
 All 7 crons can also run on a single model if you prefer simplicity over cost savings.
 
@@ -42,9 +42,11 @@ Two cron formats depending on session type:
   "name": "...",
   "schedule": { "kind": "every", "everyMs": ... },
   "sessionTarget": "isolated",
-  "payload": { "kind": "agentTurn", "message": "..." }
+  "payload": { "kind": "agentTurn", "message": "...", "model": "<Mid or Budget tier model ID>" }
 }
 ```
+
+**Critical payload differences:** systemEvent uses `"text"`, agentTurn uses `"message"`. Do NOT use `"text"` for agentTurn — the cron will silently fail. Model is set inside `payload` for agentTurn, not at the job root level.
 
 **These are OpenClaw crons, NOT Senpi crons.** They wake the agent with a mandate text that the agent executes.
 
@@ -55,6 +57,7 @@ Two cron formats depending on session type:
 Replace these placeholders in all templates:
 - `{TELEGRAM}` — telegram:CHAT_ID (e.g. telegram:5183731261)
 - `{SCRIPTS}` — path to scripts dir (e.g. /data/workspace/skills/wolf-strategy/scripts)
+- `{WOLF}` — path to wolf-strategy skill dir (e.g. /data/workspace/skills/wolf-strategy)
 
 **Wallet/strategy-specific placeholders are gone in v6.** Scripts read wallets from `wolf-strategies.json`.
 
@@ -64,7 +67,7 @@ Replace these placeholders in all templates:
 
 ```
 WOLF Emerging Movers: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/emerging-movers.py`, parse JSON.
-On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals: read wolf-strategies.json ONCE, route to best-fit strategy (available slot + risk profile match), open position on that wallet, create DSL state in state/{strategyKey}/dsl-{ASSET}.json.
+On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals: read {WOLF}/wolf-strategies.json ONCE, route to best-fit strategy (available slot + risk profile match), open position on that wallet, create DSL state in {WOLF}/state/{strategyKey}/dsl-{ASSET}.json.
 Apply WOLF entry rules from SKILL.md (min 7x leverage, rank #25+ entry, no top-10 entries, rotation logic).
 Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
 ```
@@ -85,7 +88,7 @@ If `any_closed: true` → note freed slot(s) for next Emerging Movers run. Else 
 
 ```
 WOLF SM Check: Run `python3 {SCRIPTS}/sm-flip-check.py`, parse JSON.
-For each alert in `alerts`: if `alertLevel == "FLIP_NOW"` → close that position on the wallet for `strategyKey` (set `active: false` in `state/{strategyKey}/dsl-{ASSET}.json`), alert Telegram ({TELEGRAM}) with asset, direction, conviction, strategyKey.
+For each alert in `alerts`: if `alertLevel == "FLIP_NOW"` → close that position on the wallet for `strategyKey` (set `active: false` in `{WOLF}/state/{strategyKey}/dsl-{ASSET}.json`), alert Telegram ({TELEGRAM}) with asset, direction, conviction, strategyKey.
 Ignore alerts with `alertLevel` of WATCH or FLIP_WARNING (no action needed).
 If `hasFlipSignal == false` or no FLIP_NOW alerts → HEARTBEAT_OK.
 ```
@@ -105,7 +108,7 @@ If no alerts → HEARTBEAT_OK.
 ## 5. Portfolio Update (every 15min) — isolated / agentTurn
 
 ```
-WOLF Portfolio: Read wolf-strategies.json, get clearinghouse state per wallet, send Telegram ({TELEGRAM}).
+WOLF Portfolio: Read {WOLF}/wolf-strategies.json, get clearinghouse state per wallet, send Telegram ({TELEGRAM}).
 Format: code-block table with per-strategy name/account value/positions (asset, direction, ROE, PnL, DSL tier)/slot usage + global totals.
 ```
 
@@ -136,7 +139,7 @@ WOLF Scanner: Run `PYTHONUNBUFFERED=1 timeout 180 python3 {SCRIPTS}/opportunity-
 Act on opportunities with finalScore≥175. Use btcMacro.trend for macro context; be cautious with LONGs if "strong_down".
 
 PROCESSING ORDER (prevents context growth):
-1. Read wolf-strategies.json ONCE. Map available slots per strategy.
+1. Read {WOLF}/wolf-strategies.json ONCE. Map available slots per strategy.
 2. Build complete action plan: [(asset, direction, strategyKey, margin, leverage), ...]
 3. Execute entries sequentially. No re-reads of wolf-strategies.json.
 4. Send ONE consolidated Telegram ({TELEGRAM}) after all entries: "Wolf entered N positions: ASSET1 LONG (Strategy A), ASSET2 SHORT (Strategy B)"
