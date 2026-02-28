@@ -34,6 +34,29 @@ OpenClaw's announce delivery handles this automatically:
 
 ---
 
+## Cron 0: Prescreener — Tier 1
+
+Every 5 minutes. Scores all ~230 assets in one API call, writes top 30 candidates to prescreened.json. Scanners read from this instead of each doing their own filtering. Must run before scanners in the stagger schedule.
+
+```json
+{
+  "name": "TIGER — Prescreener",
+  "schedule": { "kind": "every", "everyMs": 300000 },
+  "sessionTarget": "isolated",
+  "wakeMode": "next-heartbeat",
+  "payload": {
+    "kind": "agentTurn",
+    "message": "TIGER PRESCREENER: Run `timeout 30 python3 {SCRIPTS}/prescreener.py`, parse JSON.\nScores all instruments and writes top 30 to prescreened.json.\nOutput HEARTBEAT_OK.",
+    "model": "anthropic/claude-haiku-4-5"
+  },
+  "delivery": {
+    "mode": "none"
+  }
+}
+```
+
+---
+
 ## Cron 1: Compression Scanner — Tier 1
 
 Every 5 minutes. Isolated, no delivery (agent acts on signals internally).
@@ -329,6 +352,7 @@ DSL stays in main session because it's the only cron that needs awareness of the
 
 | # | Name | Interval (ms) | Session | Delivery | Model Tier | Purpose |
 |---|------|---------------|---------|----------|------------|---------|
+| 0 | tiger-prescreen | 300000 (5m) | isolated | none | Tier 1 | Asset prescreening |
 | 1 | tiger-compression | 300000 (5m) | isolated | none | Tier 1 | BB squeeze breakout |
 | 2 | tiger-correlation | 180000 (3m) | isolated | none | Tier 1 | BTC lag detection |
 | 3 | tiger-momentum | 300000 (5m) | isolated | none | Tier 1 | Price move + volume |

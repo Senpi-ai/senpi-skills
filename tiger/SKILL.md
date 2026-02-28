@@ -4,7 +4,7 @@ description: >-
   TIGER v2 — Multi-scanner trading system for Hyperliquid perps via Senpi MCP.
   5 signal patterns (BB compression breakout, BTC correlation lag, momentum breakout,
   mean reversion, funding rate arb), DSL v4 trailing stops, goal-based aggression engine,
-  and risk guardrails. Configurable profit target over deadline. 11-cron architecture (10 TIGER + 1 ROAR meta-optimizer).
+  and risk guardrails. Configurable profit target over deadline. 12-cron architecture (10 TIGER + prescreener + ROAR meta-optimizer).
   Pure Python analysis. Requires Senpi MCP, python3, mcporter CLI, and OpenClaw cron system.
 license: Apache-2.0
 compatibility: >-
@@ -12,7 +12,7 @@ compatibility: >-
   (configured with Senpi auth) and OpenClaw cron system.
 metadata:
   author: jason-goldberg
-  version: "3.0"
+  version: "4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -275,6 +275,7 @@ Only speak (chat or Telegram) when something actionable happens: trade opened, t
 
 | # | Job | Interval | Script | Model Tier |
 |---|-----|----------|--------|------------|
+| 0 | Prescreener | 5 min | `prescreener.py` | Tier 1 |
 | 1 | Compression Scanner | 5 min | `compression-scanner.py` | Tier 1 |
 | 2 | Correlation Scanner | 3 min | `correlation-scanner.py` | Tier 1 |
 | 3 | Momentum Scanner | 5 min | `momentum-scanner.py` | Tier 1 |

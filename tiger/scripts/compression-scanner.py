@@ -9,11 +9,13 @@ MANDATE: Run TIGER compression scanner. Find BB squeeze breakouts with OI confir
 import sys
 import os
 import json
+import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
     load_config, load_state, save_state, get_all_instruments,
-    get_asset_candles, load_oi_history, output
+    get_asset_candles, load_oi_history, output, STATE_DIR,
+    load_prescreened_candidates
 )
 from tiger_lib import (
     parse_candles, bollinger_bands, bb_width, bb_width_percentile,
@@ -149,27 +151,27 @@ def main():
 
     # Filter: skip delisted, low leverage, and already-held assets in this strategy
     active_coins = set(state.get("active_positions", {}).keys())
-    candidates = []
-    for inst in instruments:
-        name = inst.get("name", "")
-        if inst.get("is_delisted"):
-            continue
-        max_lev = inst.get("max_leverage", 0)
-        if max_lev < config["min_leverage"]:
-            continue
-        # Skip XYZ for now (isolated margin complexity)
-        if name.startswith("xyz:"):
-            continue
-        ctx = inst.get("context", {})
-        # Need minimum volume
-        day_vol = float(ctx.get("dayNtlVlm", 0))
-        if day_vol < 1_000_000:  # $1M min daily volume
-            continue
-        candidates.append((name, ctx, max_lev))
 
-    # Scan top candidates (by volume, limit to 25 to manage API calls)
-    candidates.sort(key=lambda x: float(x[1].get("dayNtlVlm", 0)), reverse=True)
-    candidates = candidates[:8]
+    # Try prescreened candidates first
+    candidates = load_prescreened_candidates(instruments, config)
+
+    if candidates is None:
+        # Fallback: original behavior
+        candidates = []
+        for inst in instruments:
+            name = inst.get("name", "")
+            if inst.get("is_delisted"):
+                continue
+            max_lev = inst.get("max_leverage", 0)
+            if max_lev < config["min_leverage"]:
+                continue
+            ctx = inst.get("context", {})
+            day_vol = float(ctx.get("dayNtlVlm", 0))
+            if day_vol < 1_000_000:
+                continue
+            candidates.append((name, ctx, max_lev))
+        candidates.sort(key=lambda x: float(x[1].get("dayNtlVlm", 0)), reverse=True)
+        candidates = candidates[:12]
 
     signals = []
     for name, ctx, max_lev in candidates:

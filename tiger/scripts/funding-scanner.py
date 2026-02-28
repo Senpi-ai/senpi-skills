@@ -163,7 +163,7 @@ def main():
     candidates = []
     for inst in instruments:
         name = inst.get("name", "")
-        if inst.get("is_delisted") or name.startswith("xyz:"):
+        if inst.get("is_delisted"):
             continue
         if inst.get("max_leverage", 0) < config["min_leverage"]:
             continue

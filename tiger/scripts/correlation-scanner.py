@@ -225,7 +225,6 @@ def main():
          if i["name"] not in HIGH_CORR_ALTS
          and i["name"] != "BTC"
          and not i.get("is_delisted")
-         and not i["name"].startswith("xyz:")
          and i.get("max_leverage", 0) >= config["min_leverage"]
          and float(i.get("context", {}).get("dayNtlVlm", 0)) > 5_000_000],
         key=lambda n: float(instruments_map.get(n, {}).get("context", {}).get("dayNtlVlm", 0)),
