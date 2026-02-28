@@ -1,8 +1,8 @@
-# 🐯 TIGER v2 — Multi-Scanner Goal-Based Trading
+# 🐯 TIGER v3 — Multi-Scanner Goal-Based Trading with ROAR Meta-Optimizer
 
-**5 scanners. 1 goal. Configurable aggression. Mechanical exits.**
+**5 scanners. 1 goal. Configurable aggression. Mechanical exits. Self-optimizing.**
 
-TIGER targets a configurable profit over a deadline using 5 signal patterns, DSL v4 trailing stops, and automatic aggression adjustment. Give it a budget, a target, and a timeframe — it calculates how hard to hunt.
+TIGER targets a configurable profit over a deadline using 5 signal patterns, DSL v4 trailing stops, and automatic aggression adjustment. ROAR watches TIGER trade and continuously tunes execution parameters. Give it a budget, a target, and a timeframe — it calculates how hard to hunt.
 
 ## Quick Start
 
@@ -11,7 +11,7 @@ python3 scripts/tiger-setup.py --wallet 0x... --strategy-id UUID \
   --budget 1000 --target 2000 --deadline-days 7 --chat-id 12345
 ```
 
-Then create 10 crons from `references/cron-templates.md`. OI tracker needs ~1h to build history.
+Then create 11 crons from `references/cron-templates.md`. OI tracker needs ~1h to build history.
 
 ## 5 Signal Patterns
 
@@ -37,6 +37,7 @@ Then create 10 crons from `references/cron-templates.md`. OI tracker needs ~1h t
 | Risk Guardian | 5 min | Tier 2 | Risk limits |
 | Exit Checker | 5 min | Tier 2 | Pattern exits |
 | DSL Combined | 30 sec | Tier 1 | Trailing stops |
+| ROAR Analyst | 8 hour | Tier 2 | Meta-optimizer |
 
 ## Performance Targets
 
@@ -66,7 +67,9 @@ tiger-strategy/
 │   ├── goal-engine.py
 │   ├── risk-guardian.py
 │   ├── tiger-exit.py
-│   └── dsl-v4.py
+│   ├── dsl-v4.py
+│   ├── roar-analyst.py
+│   └── roar_config.py
 ├── references/
 │   ├── state-schema.md
 │   ├── cron-templates.md
@@ -78,31 +81,37 @@ tiger-strategy/
     ├── dsl-{ASSET}.json
     ├── oi-history.json
     ├── trade-log.json
+    ├── roar-state.json
     └── scan-history/
 ```
 
 ## Changelog
 
-### v2.5 (current)
-- **dsl-v4.py — CRITICAL**: Fixed units mismatch causing instant position closes. `triggerPct` (decimal 0.05) was compared directly to `upnl_pct` (whole number 2.1) — any positive PnL triggered all tiers instantly. Now multiplies by 100. Also fixed `lockPct` floor calc that was double-dividing by 100. This bug caused premature closes and ~$138 in avoidable losses.
-- **tiger_config.py**: Fixed zombie process leak in `mcporter_call()`. Switched from `subprocess.run(timeout)` to `Popen + communicate(timeout) + proc.kill()` to ensure child mcporter processes are killed on timeout. Keeps 3-attempt retry.
-- **correlation-scanner.py**: Reduced alt scan from 10+10 to 6+2 (max 8 alts). Prevents API timeouts.
-- **funding-scanner.py**: Added retry on instruments fetch failure. Reduced candidates from 15→8. Prevents timeouts.
-- **dsl-v4.py**: Now uses shared infra (atomic_write, get_prices, close_position) instead of raw curl and non-atomic writes.
+### v3.0 (current)
 
-### v2.4
-- **dsl-v4.py — CRITICAL**: Fixed units mismatch causing instant position closes. `triggerPct` (decimal 0.05) was compared directly to `upnl_pct` (whole number 2.1) — any positive PnL triggered all tiers instantly. Now multiplies by 100. Also fixed `lockPct` floor calc that was double-dividing by 100.
-- **tiger_config.py**: Fixed zombie process leak in `mcporter_call()`. Switched from `subprocess.run(timeout)` to `Popen + communicate(timeout) + proc.kill()` to ensure child mcporter processes are killed on timeout. Keeps 3-attempt retry.
-- **correlation-scanner.py**: Reduced alt scan from 10+10 to 6+2 (max 8 alts). Prevents API timeouts.
-- **funding-scanner.py**: Added retry on instruments fetch failure. Reduced candidates from 15→8. Prevents timeouts.
-- **cron-templates.md**: Complete rewrite following [OpenClaw cron best practices](https://docs.openclaw.ai/automation/cron-jobs):
-  - Tier 1 scanners → isolated sessions with `delivery.mode: "none"` (no main session pollution)
-  - Tier 2 decision-makers → isolated sessions with `delivery.mode: "announce"` (HEARTBEAT_OK auto-suppressed)
-  - DSL stays main session (needs position state context)
-  - Model overrides per job (`model` field in payload)
-  - `agentTurn` payload for isolated jobs, `systemEvent` for main only
-  - Eliminates session lock contention and notification spam
-- **DSL cron mandate**: Checks activePositions before invoking dsl-v4.py. No positions = HEARTBEAT_OK, no session spam.
+**ROAR Meta-Optimizer**
+- New `roar-analyst.py` and `roar_config.py`. Runs every 8h + ad-hoc every 5th trade.
+- Builds per-pattern scorecard from trade log. 6 rule-based adjustment engine.
+- Tunes: confluence thresholds (per-pattern), DSL retrace, scanner params — all within hard-bounded ranges.
+- Auto-reverts if both win rate and avg PnL degrade after an adjustment.
+- Disables patterns with negative expectancy over 20+ trades, auto-re-enables after 48h.
+- Never touches user risk limits (budget, target, drawdown, daily loss).
+- Cron 11 added to cron-templates.md. 11-cron architecture.
+
+**Critical Bug Fixes**
+- **dsl-v4.py**: Fixed units mismatch — `triggerPct` (decimal 0.05) was compared directly to `upnl_pct` (whole 2.1%), causing instant tier escalation and premature closes. Now multiplies by 100. Fixed `lockPct` floor calc double-dividing by 100.
+- **tiger_config.py**: Fixed zombie process leak — `subprocess.run(timeout)` → `Popen + communicate + proc.kill()`. Added `load_trade_log()` and `get_trade_log_path()` for ROAR.
+
+**Scanner Fixes**
+- **correlation-scanner.py**: Reduced alt scan from 20 to max 6. Prevents API timeouts.
+- **funding-scanner.py**: Added retry on instruments fetch failure. Reduced candidates 15→8.
+
+**Cron Architecture** (from [OpenClaw best practices](https://docs.openclaw.ai/automation/cron-jobs))
+- Tier 1 scanners → isolated sessions, `delivery.mode: "none"`, explicit `claude-haiku-4-5`
+- Tier 2 decision-makers → isolated sessions, `delivery.mode: "announce"`, `claude-sonnet-4-5`
+- DSL stays main session (needs position state context)
+- HEARTBEAT_OK auto-suppressed. Notification policy: silent when idle.
+- Eliminates session lock contention and notification spam.
 
 ### v2.2
 - **AliasDict**: snake_case config/state key access now works transparently alongside camelCase (fixes all KeyError crashes)

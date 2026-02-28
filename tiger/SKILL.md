@@ -4,7 +4,7 @@ description: >-
   TIGER v2 — Multi-scanner trading system for Hyperliquid perps via Senpi MCP.
   5 signal patterns (BB compression breakout, BTC correlation lag, momentum breakout,
   mean reversion, funding rate arb), DSL v4 trailing stops, goal-based aggression engine,
-  and risk guardrails. Configurable profit target over deadline. 10-cron architecture.
+  and risk guardrails. Configurable profit target over deadline. 11-cron architecture (10 TIGER + 1 ROAR meta-optimizer).
   Pure Python analysis. Requires Senpi MCP, python3, mcporter CLI, and OpenClaw cron system.
 license: Apache-2.0
 compatibility: >-
@@ -12,7 +12,7 @@ compatibility: >-
   (configured with Senpi auth) and OpenClaw cron system.
 metadata:
   author: jason-goldberg
-  version: "2.5"
+  version: "3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -285,12 +285,39 @@ Only speak (chat or Telegram) when something actionable happens: trade opened, t
 | 8 | Risk Guardian | 5 min | `risk-guardian.py` | Tier 2 |
 | 9 | Exit Checker | 5 min | `tiger-exit.py` | Tier 2 |
 | 10 | DSL Combined | 30 sec | `dsl-v4.py` | Tier 1 |
+| 11 | ROAR Analyst | 8 hour | `roar-analyst.py` | Tier 2 |
 
 **Tier 1** (fast/cheap): threshold checks, data collection, DSL math. Runs `isolated` with `delivery.mode: "none"` and explicit model (`claude-haiku-4-5`).
 **Tier 2** (capable): aggression decisions, risk judgment, exit evaluation. Runs `isolated` with `delivery.mode: "announce"` and explicit model (`claude-sonnet-4-5`). OpenClaw auto-suppresses HEARTBEAT_OK — only real content gets delivered.
 **DSL** (Cron 10): Runs in `main` session (`systemEvent`) — needs position state context.
 
 Scanners are staggered by 1-2 minutes to avoid mcporter rate limits (see cron-templates.md).
+
+---
+
+## ROAR — Recursive Optimization & Adjustment Runtime
+
+ROAR is TIGER's meta-optimizer. It runs every 8 hours (+ ad-hoc every 5th trade), analyzes TIGER's trade log, and tunes execution parameters within bounded ranges. User intent (budget, target, risk limits) is never touched.
+
+**What ROAR tunes** (within hard min/max bounds):
+- Per-pattern confluence thresholds (0.25–0.85)
+- Scanner thresholds (BB squeeze percentile, BTC correlation move, funding annualized)
+- DSL retrace thresholds per phase (0.008–0.03)
+- Trailing lock percentages per aggression level
+
+**What ROAR never touches** (protected): budget, target, deadline, max_slots, max_leverage, maxDrawdownPct, maxDailyLossPct, maxSingleLossPct.
+
+**Rules engine** (6 rules):
+1. Win rate < 40% over 10+ trades → raise pattern confluence threshold by 0.05
+2. Win rate > 70% over 10+ trades → lower threshold by 0.03 to catch more signals
+3. Avg DSL exit tier < 2 → loosen phase1 retrace by 0.002 (let positions run)
+4. Avg DSL exit tier ≥ 4 → tighten phase1 retrace by 0.001 (lock gains)
+5. No entries in 48h for a pattern with 5+ trades → lower threshold by 0.02
+6. Negative expectancy over 20+ trades → disable pattern for 48h (auto-re-enables)
+
+**Safety**: revert-if-worse checks every cycle. If both win rate AND avg PnL degraded since last adjustment, auto-reverts to previous config.
+
+Scripts: `roar-analyst.py` (engine), `roar_config.py` (bounds, state, revert logic).
 
 ---
 
