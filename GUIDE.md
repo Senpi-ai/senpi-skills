@@ -67,11 +67,11 @@ Token burn is the single biggest operational cost. These patterns reduce it dram
 
 Classify each cron job by the reasoning it requires. The 3-tier approach maps directly to session type (see Section 2.6):
 
-| Tier | Use When | Tested Model IDs |
-|------|----------|-----------------|
+| Tier | Use When | Example Model IDs |
+|------|----------|-------------------|
 | **Primary** | Complex judgment, multi-strategy routing, entry decisions | Your configured model (runs on main session) |
-| **Mid** | Structured tasks, script output parsing, rule-based actions | `anthropic/claude-sonnet-4-20250514` |
-| **Budget** | Simple threshold checks, binary decisions | `anthropic/claude-haiku-4-5` |
+| **Mid** | Structured tasks, script output parsing, rule-based actions | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash` |
+| **Budget** | Simple threshold checks, binary decisions | `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite` |
 
 Most crons should be Mid or Budget. Only crons requiring accumulated context or complex judgment need Primary.
 
@@ -685,7 +685,7 @@ Crons use one of two formats depending on session type (see Section 2.6):
   "sessionTarget": "isolated",
   "payload": {
     "kind": "agentTurn",
-    "model": "anthropic/claude-haiku-4-5",
+    "model": "<Mid or Budget tier model ID>",
     "message": "..."
   }
 }

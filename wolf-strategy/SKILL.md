@@ -107,13 +107,13 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 
 Configure per-cron in OpenClaw. Step down from your primary model for isolated crons to save ~60-70% on those runs.
 
-**Tested model IDs** (confirmed working on OpenClaw):
+**Example model IDs** (confirmed working on OpenClaw):
 
-| Tier | Role | Crons | Model ID |
-|------|------|-------|----------|
+| Tier | Role | Crons | Example Model IDs |
+|------|------|-------|--------------------|
 | **Primary** | Complex judgment, multi-strategy routing | Emerging Movers, Opportunity Scanner | Your configured model (runs on main session) |
-| **Mid** | Structured tasks, script output parsing | DSL Combined, Portfolio Update, Health Check | `anthropic/claude-sonnet-4-20250514` |
-| **Budget** | Simple threshold checks, binary decisions | SM Flip, Watchdog | `anthropic/claude-haiku-4-5` |
+| **Mid** | Structured tasks, script output parsing | DSL Combined, Portfolio Update, Health Check | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash` |
+| **Budget** | Simple threshold checks, binary decisions | SM Flip, Watchdog | `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite` |
 
 | Cron | Session | Model Tier | Reason |
 |------|---------|-----------|--------|
@@ -128,8 +128,9 @@ Configure per-cron in OpenClaw. Step down from your primary model for isolated c
 **Single-model option:** All 7 crons can run on one model. Simpler but costs more for the 5 isolated crons that do structured/binary work.
 
 **Model ID gotchas:**
-- The tested Mid/Budget IDs above are Anthropic models. If your primary is a different provider (OpenAI, Gemini, etc.), use single-model mode or substitute equivalent models from your provider at your own risk.
-- Agents are often not model-aware — they may suggest deprecated IDs (e.g. `claude-3-5-haiku-20241022`) or hallucinate model names. Always use the exact IDs listed above.
+- Pick one model per tier from your provider. The tier concept (Primary / Mid / Budget) matters more than the specific model — any provider's equivalent works.
+- Budget should be the cheapest model that can follow explicit if/then rules. Mid should handle structured JSON parsing reliably.
+- Agents are often not model-aware — they may suggest deprecated IDs (e.g. `claude-3-5-haiku-20241022`) or hallucinate model names. Always use the exact IDs from the table above.
 - If a cron fails to create or run due to an invalid model ID, fall back to your primary model for that cron. A working cron on the "wrong" tier is better than a broken cron.
 - When in doubt, use your primary model for all 7 crons (single-model option) and optimize tiers later.
 

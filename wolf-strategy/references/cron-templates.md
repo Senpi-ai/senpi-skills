@@ -14,10 +14,10 @@ WOLF uses two session types and a 3-tier model approach. Configure per-cron in O
 | SM Flip Detector | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 | Watchdog | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 
-**3-tier model approach** (tested IDs for OpenClaw):
+**3-tier model approach** (configure per-cron in OpenClaw):
 - **Primary** — Your configured model. Complex judgment, multi-strategy routing, entry decisions.
-- **Mid** (`anthropic/claude-sonnet-4-20250514`) — Structured tasks, script output parsing, rule-based actions.
-- **Budget** (`anthropic/claude-haiku-4-5`) — Simple threshold checks, binary decisions.
+- **Mid** — Structured tasks, script output parsing, rule-based actions. Examples: `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash`.
+- **Budget** — Simple threshold checks, binary decisions. Examples: `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite`.
 
 All 7 crons can also run on a single model if you prefer simplicity over cost savings.
 
