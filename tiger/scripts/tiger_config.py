@@ -23,6 +23,7 @@ WORKSPACE = os.environ.get("TIGER_WORKSPACE",
              os.environ.get("OPENCLAW_WORKSPACE",
              os.path.join(os.environ.get("HOME", "/data/workspace"), "tiger")))
 SCRIPTS_DIR = os.path.join(WORKSPACE, "scripts")
+STATE_DIR = os.path.join(WORKSPACE, "state")
 CONFIG_FILE = os.path.join(WORKSPACE, "tiger-config.json")
 
 VERBOSE = os.environ.get("TIGER_VERBOSE") == "1"
@@ -535,3 +536,52 @@ def shorten_address(addr):
     if not addr or len(addr) <= 10:
         return addr or ""
     return f"{addr[:6]}...{addr[-4:]}"
+
+
+# ─── Prescreener Integration ────────────────────────────────
+
+def load_prescreened_candidates(instruments, config=None, include_leverage=True):
+    """Load candidates from prescreened.json if fresh (<10min).
+    
+    Returns list of (name, ctx, max_lev) tuples if include_leverage=True,
+    or (name, ctx) tuples if False. Returns None if no fresh data.
+    
+    Respects SCAN_GROUP env var: 'a' = group_a, 'b' = group_b, unset = all.
+    """
+    import time as _time
+    prescreened_file = os.path.join(STATE_DIR, "prescreened.json")
+    scan_group = os.environ.get("SCAN_GROUP", "").lower()
+
+    try:
+        if not os.path.exists(prescreened_file):
+            return None
+        with open(prescreened_file) as f:
+            data = json.load(f)
+        if _time.time() - data.get("timestamp", 0) > 600:
+            return None
+
+        if scan_group == "b":
+            names = set(data.get("group_b", []))
+        elif scan_group == "a":
+            names = set(data.get("group_a", []))
+        else:
+            names = set(c["name"] for c in data.get("candidates", []))
+
+        if not names:
+            return None
+
+        inst_map = {i.get("name"): i for i in instruments}
+        result = []
+        for name in names:
+            inst = inst_map.get(name)
+            if not inst:
+                continue
+            ctx = inst.get("context", {})
+            if include_leverage:
+                max_lev = inst.get("max_leverage", 0)
+                result.append((name, ctx, max_lev))
+            else:
+                result.append((name, ctx))
+        return result if result else None
+    except Exception:
+        return None

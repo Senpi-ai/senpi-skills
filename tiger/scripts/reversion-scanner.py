@@ -9,11 +9,14 @@ MANDATE: Run TIGER reversion scanner. Find mean reversion setups. Report signals
 
 import sys
 import os
+import json
+import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
     load_config, load_state, get_all_instruments,
-    get_asset_candles, load_oi_history, output
+    get_asset_candles, load_oi_history, output, STATE_DIR,
+    load_prescreened_candidates
 )
 from tiger_lib import (
     parse_candles, rsi, bollinger_bands, atr, volume_ratio,
@@ -170,22 +173,24 @@ def main():
     oi_hist = load_oi_history()
     active_coins = set(state.get("active_positions", {}).keys())
 
-    # Filter candidates
-    candidates = []
-    for inst in instruments:
-        name = inst.get("name", "")
-        if inst.get("is_delisted") or name.startswith("xyz:"):
-            continue
-        if inst.get("max_leverage", 0) < config["min_leverage"]:
-            continue
-        ctx = inst.get("context", {})
-        if float(ctx.get("dayNtlVlm", 0)) < 1_000_000:
-            continue
-        candidates.append((name, ctx))
+    # Try prescreened candidates first
+    candidates = load_prescreened_candidates(instruments, config, include_leverage=False)
 
-    # Sort by volume, scan top 25
-    candidates.sort(key=lambda x: float(x[1].get("dayNtlVlm", 0)), reverse=True)
-    candidates = candidates[:8]
+    if candidates is None:
+        # Fallback: original behavior
+        candidates = []
+        for inst in instruments:
+            name = inst.get("name", "")
+            if inst.get("is_delisted"):
+                continue
+            if inst.get("max_leverage", 0) < config["min_leverage"]:
+                continue
+            ctx = inst.get("context", {})
+            if float(ctx.get("dayNtlVlm", 0)) < 1_000_000:
+                continue
+            candidates.append((name, ctx))
+        candidates.sort(key=lambda x: float(x[1].get("dayNtlVlm", 0)), reverse=True)
+        candidates = candidates[:12]
 
     signals = []
     for name, ctx in candidates:

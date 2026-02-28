@@ -1,8 +1,8 @@
-# 🐯 TIGER v3 — Multi-Scanner Goal-Based Trading with ROAR Meta-Optimizer
+# 🐯 TIGER v4 — Multi-Scanner Goal-Based Trading with Prescreener + ROAR
 
-**5 scanners. 1 goal. Configurable aggression. Mechanical exits. Self-optimizing.**
+**5 scanners. 1 prescreener. 1 goal. Configurable aggression. Mechanical exits. Self-optimizing.**
 
-TIGER targets a configurable profit over a deadline using 5 signal patterns, DSL v4 trailing stops, and automatic aggression adjustment. ROAR watches TIGER trade and continuously tunes execution parameters. Give it a budget, a target, and a timeframe — it calculates how hard to hunt.
+TIGER targets a configurable profit over a deadline using 5 signal patterns, DSL v4 trailing stops, and automatic aggression adjustment. The prescreener scores all ~230 assets in one API call and feeds the top 30 to scanners. ROAR watches TIGER trade and continuously tunes execution parameters. Give it a budget, a target, and a timeframe — it calculates how hard to hunt.
 
 ## Quick Start
 
@@ -11,7 +11,7 @@ python3 scripts/tiger-setup.py --wallet 0x... --strategy-id UUID \
   --budget 1000 --target 2000 --deadline-days 7 --chat-id 12345
 ```
 
-Then create 11 crons from `references/cron-templates.md`. OI tracker needs ~1h to build history.
+Then create 12 crons from `references/cron-templates.md`. OI tracker needs ~1h to build history.
 
 ## 5 Signal Patterns
 
@@ -27,6 +27,7 @@ Then create 11 crons from `references/cron-templates.md`. OI tracker needs ~1h t
 
 | Cron | Interval | Tier | Purpose |
 |------|----------|------|---------|
+| Prescreener | 5 min | Tier 1 | Score all assets, feed top 30 to scanners |
 | Compression Scanner | 5 min | Tier 1 | BB squeeze breakout |
 | Correlation Scanner | 3 min | Tier 1 | BTC lag detection |
 | Momentum Scanner | 5 min | Tier 1 | Price + volume |
@@ -58,6 +59,7 @@ tiger-strategy/
 │   ├── tiger_lib.py
 │   ├── tiger_config.py
 │   ├── tiger-setup.py
+│   ├── prescreener.py
 │   ├── compression-scanner.py
 │   ├── correlation-scanner.py
 │   ├── momentum-scanner.py
@@ -82,12 +84,28 @@ tiger-strategy/
     ├── oi-history.json
     ├── trade-log.json
     ├── roar-state.json
+    ├── prescreened.json
     └── scan-history/
 ```
 
 ## Changelog
 
-### v3.0 (current)
+### v4.0 (current)
+
+**Two-Phase Prescreener**
+- New `prescreener.py` scores all ~230 Hyperliquid assets in one API call (~6s).
+- Ranks by momentum + volume + funding + OI activity, outputs top 30 candidates.
+- Splits into two groups of 15 (group_a = higher volume, group_b = next 15).
+- Scanners read `SCAN_GROUP` env var (a/b) to pick their assigned group.
+- Without prescreener or SCAN_GROUP, scanners fall back to original top-12 behavior (fully backward compatible).
+- Cron 0 added. 12-cron architecture.
+- `load_prescreened_candidates()` extracted to tiger_config as shared utility (no duplication across scanners).
+
+**Scanner Updates**
+- `compression-scanner.py`, `momentum-scanner.py`, `reversion-scanner.py`: Updated to read prescreened.json when fresh (<10min), with graceful fallback.
+- `tiger_config.py`: Added `STATE_DIR` export and `load_prescreened_candidates()` shared utility.
+
+### v3.0
 
 **ROAR Meta-Optimizer**
 - New `roar-analyst.py` and `roar_config.py`. Runs every 8h + ad-hoc every 5th trade.

@@ -13,11 +13,13 @@ Looks for:
 import sys
 import os
 import json
+import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
     load_config, load_state, get_all_instruments,
-    get_asset_candles, output
+    get_asset_candles, output, STATE_DIR,
+    load_prescreened_candidates
 )
 from tiger_lib import (
     parse_candles, rsi, sma, atr, volume_ratio, confluence_score
@@ -143,24 +145,26 @@ def main():
 
     active_coins = set(state.get("active_positions", {}).keys())
 
-    # Filter candidates
-    candidates = []
-    for inst in instruments:
-        name = inst.get("name", "")
-        if inst.get("is_delisted") or name.startswith("xyz:"):
-            continue
-        max_lev = inst.get("max_leverage", 0)
-        if max_lev < config.get("min_leverage", 5):
-            continue
-        ctx = inst.get("context", {})
-        day_vol = float(ctx.get("dayNtlVlm", 0))
-        if day_vol < 500_000:  # Lower volume floor for momentum
-            continue
-        candidates.append((name, ctx, max_lev))
+    # Try prescreened candidates first
+    candidates = load_prescreened_candidates(instruments, config)
 
-    # Sort by volume, scan top 15
-    candidates.sort(key=lambda x: float(x[1].get("dayNtlVlm", 0)), reverse=True)
-    candidates = candidates[:8]
+    if candidates is None:
+        # Fallback: original behavior
+        candidates = []
+        for inst in instruments:
+            name = inst.get("name", "")
+            if inst.get("is_delisted"):
+                continue
+            max_lev = inst.get("max_leverage", 0)
+            if max_lev < config.get("min_leverage", 5):
+                continue
+            ctx = inst.get("context", {})
+            day_vol = float(ctx.get("dayNtlVlm", 0))
+            if day_vol < 500_000:
+                continue
+            candidates.append((name, ctx, max_lev))
+        candidates.sort(key=lambda x: float(x[1].get("dayNtlVlm", 0)), reverse=True)
+        candidates = candidates[:12]
 
     signals = []
     for name, ctx, max_lev in candidates:
