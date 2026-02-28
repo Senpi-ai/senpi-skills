@@ -275,7 +275,7 @@ cron_templates = {
         "payload": {
             "kind": "agentTurn",
             "model": budget_model,
-            "message": f"WOLF SM Check: Run `python3 {SCRIPTS_DIR}/sm-flip-check.py`, parse JSON.\n\nFor each alert in `alerts`: if `alertLevel == \"FLIP_NOW\"` -> close that position on the wallet for `strategyKey` (set `active: false` in `{WORKSPACE}/state/{{{{strategyKey}}}}/dsl-{{{{ASSET}}}}.json`), alert Telegram ({tg}) with asset, direction, conviction, strategyKey.\nIgnore alerts with `alertLevel` of WATCH or FLIP_WARNING (no action needed).\nIf `hasFlipSignal == false` or no FLIP_NOW alerts -> HEARTBEAT_OK."
+            "message": f"WOLF SM Check: Run `python3 {SCRIPTS_DIR}/sm-flip-check.py`, parse JSON.\n\nFor each alert in `alerts`: if `alertLevel == \"FLIP_NOW\"` -> close that position on the wallet for `strategyKey` (set `active: false` in `{WORKSPACE}/state/{{strategyKey}}/dsl-{{ASSET}}.json`), alert Telegram ({tg}) with asset, direction, conviction, strategyKey.\nIgnore alerts with `alertLevel` of WATCH or FLIP_WARNING (no action needed).\nIf `hasFlipSignal == false` or no FLIP_NOW alerts -> HEARTBEAT_OK."
         }
     },
     "watchdog": {
