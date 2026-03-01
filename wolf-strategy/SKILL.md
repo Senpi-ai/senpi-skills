@@ -349,36 +349,49 @@ All sizing is calculated from budget (30% per slot):
 
 ## Position Lifecycle
 
-**Use `wolf-enter.py` and `wolf-close.py` instead of calling MCP tools directly.** These scripts handle the full lifecycle atomically — no manual JSON state writes needed.
+WOLF uses the same generic `senpi-enter.py` and `senpi-close.py` scripts shared by all Senpi trading skills. The `wolf_config.get_lifecycle_adapter()` wires up multi-strategy state, DSL creation, and trade logging.
+
+**Agents MUST use these scripts instead of calling MCP tools directly.** They handle the full lifecycle atomically — no manual JSON state writes needed.
 
 ### Opening
 
 ```bash
-python3 scripts/wolf-enter.py --strategy-key wolf-abc123 --coin HYPE \
-  --direction LONG --leverage 7 --margin 400
+python3 {LIB}/senpi-enter.py --skill wolf --config-dir {SCRIPTS} \
+  --strategy wolf-abc123 --coin HYPE --direction LONG --leverage 10 \
+  --margin 500 --pattern FIRST_JUMP --score 0.80
 ```
 
 What it does:
-1. Guard checks (slots, duplicate positions)
+1. Guard checks (halted, slots, duplicate positions)
 2. Calls `create_position` via mcporter
-3. Creates `dsl-{ASSET}.json` using `dsl_state_template()` with strategy tiers
-4. Journals `POSITION_OPENED` + `DSL_CREATED` events
+3. Creates `dsl-{ASSET}.json` with correct floor price and strategy tiers
+4. Updates `wolf-state.json` with active positions
+5. Validates DSL schema before writing (catches malformed state early)
+6. Journals `POSITION_OPENED` + `DSL_CREATED` events
+7. Marks DSL as `approximate` if fill data unavailable (health check reconciles later)
 
 ### Closing
 
 ```bash
-python3 scripts/wolf-close.py --strategy-key wolf-abc123 --coin HYPE --reason "SM flip"
+python3 {LIB}/senpi-close.py --skill wolf --config-dir {SCRIPTS} \
+  --strategy wolf-abc123 --coin HYPE --reason "SM conviction collapse"
 ```
 
 What it does:
 1. Calls `close_position` via mcporter (handles `CLOSE_NO_POSITION` gracefully)
 2. Deactivates `dsl-{ASSET}.json` (`active: false`, `closedAt`, `closeReason`)
-3. Journals `POSITION_CLOSED` + `DSL_DEACTIVATED` events
+3. Removes from active positions in `wolf-state.json`
+4. Logs trade to `trade-log.json` with P&L calculation
+5. Journals `POSITION_CLOSED` + `DSL_DEACTIVATED` events
 
 ### Shared Library
 
-Both scripts use `lib/senpi_state/` for atomic writes, mcporter calls, and event journaling. See the TIGER SKILL.md for full library documentation.
-4. Evaluate: empty slot in that strategy for next signal?
+Both scripts delegate to `lib/senpi_state/` — a shared library providing:
+- `positions.py` — full position lifecycle with guard checks and journaling
+- `validation.py` — DSL schema validation (catches corrupt state before it breaks trailing stops)
+- `atomic.py` — crash-safe JSON writes via tmp + os.replace()
+- `mcporter.py` — unified mcporter CLI wrapper with retry
+- `journal.py` — append-only JSONL event audit trail
 
 ---
 
@@ -444,8 +457,10 @@ See `references/learnings.md` for known bugs, gotchas, and trading discipline ru
 
 | Script | Purpose |
 |--------|---------|
+| `lib/senpi-enter.py` | Generic deterministic position entry (shared across all skills) |
+| `lib/senpi-close.py` | Generic deterministic position close (shared across all skills) |
 | `scripts/wolf-setup.py` | Setup wizard — adds strategy to registry from budget |
-| `scripts/wolf_config.py` | Shared config loader — all scripts import this |
+| `scripts/wolf_config.py` | Shared config loader + lifecycle adapter — all scripts import this |
 | `scripts/emerging-movers.py` | Emerging Movers v4 scanner (FIRST_JUMP, IMMEDIATE, CONTRIB_EXPLOSION) |
 | `scripts/dsl-combined.py` | DSL v4 combined trailing stop engine (all positions, all strategies) |
 | `scripts/sm-flip-check.py` | SM conviction flip detector (multi-strategy) |

@@ -7,8 +7,9 @@ These functions handle the complete trade lifecycle atomically:
   3. Update the skill's state file
   4. Journal the event
 
-LLM agents call thin wrapper scripts (e.g. tiger-enter.py) that delegate
-here.  The agent never writes JSON state files directly.
+LLM agents call the generic senpi-enter.py / senpi-close.py scripts which
+delegate here via skill-specific adapters.  The agent never writes JSON
+state files directly.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import time
 from typing import Callable, Optional
 
 from senpi_state.mcporter import mcporter_call
+from senpi_state.validation import validate_dsl_state
 
 
 def enter_position(
@@ -63,12 +65,18 @@ def enter_position(
     Returns:
         Result dict with success/error status and position details.
     """
-    state = load_state()
+    try:
+        state = load_state()
+    except Exception as e:
+        return {"success": False, "error": "STATE_LOAD_FAILED", "reason": str(e)}
 
     if state.get("halted") or state.get("safety", {}).get("halted"):
         return {"success": False, "error": "HALTED", "reason": "Trading is halted"}
 
     active = state.get(active_positions_key, {})
+    if not isinstance(active, dict):
+        active = {}
+
     if coin in active:
         return {"success": False, "error": "DUPLICATE",
                 "reason": f"{coin} already in {active_positions_key}"}
@@ -89,6 +97,7 @@ def enter_position(
     entry_price = 0
     size = 0
     order_id = ""
+    approximate = False
 
     if not dry_run:
         try:
@@ -119,14 +128,32 @@ def enter_position(
             except Exception:
                 pass
 
+        if not entry_price:
+            approximate = True
+
         if not size and entry_price > 0:
             size = round(margin * leverage / entry_price, 4)
+        elif not size:
+            approximate = True
     else:
         entry_price = 1.0
         size = margin * leverage
 
     dsl_state = create_dsl(coin, direction.upper(), entry_price, size,
                            margin, leverage, pattern)
+
+    if approximate:
+        dsl_state["approximate"] = True
+
+    valid, err = validate_dsl_state(dsl_state, context=f"{skill}:{coin}")
+    if not valid:
+        if journal:
+            journal.record_error(
+                skill=skill, instance_key=instance_key, asset=coin,
+                reason=f"DSL validation failed: {err}", source=f"{skill}-enter",
+            )
+        return {"success": False, "error": "DSL_INVALID", "reason": err}
+
     save_dsl(coin, dsl_state)
 
     from datetime import datetime, timezone
@@ -147,6 +174,8 @@ def enter_position(
     }
     if order_id:
         active[coin]["orderId"] = order_id
+    if approximate:
+        active[coin]["approximate"] = True
 
     state[active_positions_key] = active
     state["availableSlots"] = max(0, max_slots - len(active))
@@ -162,10 +191,11 @@ def enter_position(
         journal.record_dsl(
             skill=skill, instance_key=instance_key, asset=coin,
             event_type="DSL_CREATED", source=f"{skill}-enter",
-            details={"pattern": pattern, "phase": 1},
+            details={"pattern": pattern, "phase": 1,
+                     "approximate": approximate},
         )
 
-    return {
+    result = {
         "success": True,
         "action": "POSITION_OPENED",
         "coin": coin,
@@ -179,6 +209,9 @@ def enter_position(
         "orderId": order_id,
         "slotsRemaining": state["availableSlots"],
     }
+    if approximate:
+        result["approximate"] = True
+    return result
 
 
 def close_position_safe(
@@ -221,8 +254,14 @@ def close_position_safe(
     Returns:
         Result dict with success/error status and close details.
     """
-    state = load_state()
+    try:
+        state = load_state()
+    except Exception as e:
+        state = {active_positions_key: {}}
+
     active = state.get(active_positions_key, {})
+    if not isinstance(active, dict):
+        active = {}
     pos_data = active.get(coin, {})
 
     close_result = None
@@ -246,15 +285,23 @@ def close_position_safe(
     from datetime import datetime, timezone
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    dsl_state = load_dsl(coin)
+    dsl_state = None
+    try:
+        dsl_state = load_dsl(coin)
+    except Exception:
+        pass
+
     exit_price = 0
-    if dsl_state:
+    if dsl_state and isinstance(dsl_state, dict):
         dsl_state["active"] = False
         dsl_state["closedAt"] = now_iso
         dsl_state["closeReason"] = reason
         if dsl_state.get("lastPrice"):
             exit_price = dsl_state["lastPrice"]
-        save_dsl(coin, dsl_state)
+        try:
+            save_dsl(coin, dsl_state)
+        except Exception:
+            pass
 
     if coin in active:
         del active[coin]
@@ -262,14 +309,21 @@ def close_position_safe(
         state["availableSlots"] = max(0, max_slots - len(active))
         save_state(state)
 
-    entry_price = pos_data.get("entryPrice", dsl_state.get("entryPrice", 0) if dsl_state else 0)
-    direction = pos_data.get("direction", dsl_state.get("direction", "") if dsl_state else "")
+    entry_price = pos_data.get("entryPrice", 0)
+    direction = pos_data.get("direction", "")
+    if not entry_price and dsl_state and isinstance(dsl_state, dict):
+        entry_price = dsl_state.get("entryPrice", 0)
+    if not direction and dsl_state and isinstance(dsl_state, dict):
+        direction = dsl_state.get("direction", "")
+
     pnl = 0
     if entry_price and exit_price and direction:
+        lev = pos_data.get("leverage", 1) if pos_data else 1
+        mar = pos_data.get("margin", 0) if pos_data else 0
         if direction == "LONG":
-            pnl = (exit_price - entry_price) / entry_price * pos_data.get("leverage", 1) * pos_data.get("margin", 0)
+            pnl = (exit_price - entry_price) / entry_price * lev * mar
         elif direction == "SHORT":
-            pnl = (entry_price - exit_price) / entry_price * pos_data.get("leverage", 1) * pos_data.get("margin", 0)
+            pnl = (entry_price - exit_price) / entry_price * lev * mar
 
     if log_trade_fn and pos_data:
         try:

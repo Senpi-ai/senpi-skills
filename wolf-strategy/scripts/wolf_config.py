@@ -346,11 +346,126 @@ def validate_dsl_state(state, state_file=None):
     return True, None
 
 
+def get_lifecycle_adapter(strategy_key=None):
+    """Return callbacks and config for generic senpi-enter/close scripts.
+
+    Synthesizes a state dict from wolf's per-strategy DSL files so that
+    the shared positions.py guard checks (halted, slots, duplicates) work
+    identically across all skills.
+
+    Args:
+        strategy_key: Strategy key (e.g. "wolf-abc123"). Falls back to
+                      WOLF_STRATEGY env var or defaultStrategy from registry.
+
+    Returns:
+        Dict with wallet, skill, instance_key, max_slots, and all the
+        load/save/create callbacks that positions.py expects.
+    """
+    cfg = load_strategy(strategy_key)
+    resolved_key = cfg["_key"]
+    sdir = cfg["_state_dir"]
+    os.makedirs(sdir, exist_ok=True)
+    wolf_state_file = os.path.join(sdir, "wolf-state.json")
+
+    def _load_state():
+        """Build state dict from wolf-state.json + DSL files."""
+        base = {"activePositions": {}, "halted": False, "availableSlots": 0,
+                "safety": {"halted": False}}
+        if os.path.exists(wolf_state_file):
+            try:
+                with open(wolf_state_file) as f:
+                    saved = json.load(f)
+                for k in ("halted", "safety"):
+                    if k in saved:
+                        base[k] = saved[k]
+            except (json.JSONDecodeError, IOError):
+                pass
+
+        positions = {}
+        for sf in glob.glob(dsl_state_glob(resolved_key)):
+            try:
+                with open(sf) as f:
+                    s = json.load(f)
+                if not isinstance(s, dict):
+                    continue
+                if s.get("active"):
+                    positions[s["asset"]] = {
+                        "direction": s.get("direction", ""),
+                        "leverage": s.get("leverage", 0),
+                        "margin": s.get("margin", 0),
+                        "entryPrice": s.get("entryPrice", 0),
+                        "size": s.get("size", 0),
+                        "pattern": s.get("createdBy", ""),
+                        "enteredAt": s.get("createdAt", ""),
+                    }
+            except (json.JSONDecodeError, IOError, KeyError, AttributeError):
+                continue
+
+        base["activePositions"] = positions
+        base["availableSlots"] = max(0, cfg.get("slots", 2) - len(positions))
+        return base
+
+    def _save_state(state):
+        atomic_write(wolf_state_file, state)
+
+    def _create_dsl(asset, direction, entry_price, size, margin, leverage, pattern):
+        dsl = dsl_state_template(asset, direction, entry_price, size, leverage,
+                                 strategy_key=resolved_key,
+                                 tiers=cfg.get("dsl", {}).get("tiers"),
+                                 created_by=pattern)
+        dsl["margin"] = margin
+        return dsl
+
+    def _save_dsl(asset, dsl):
+        path = dsl_state_path(resolved_key, asset)
+        from datetime import datetime, timezone
+        dsl["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        atomic_write(path, dsl)
+
+    def _load_dsl(asset):
+        return load_dsl_state(resolved_key, asset)
+
+    def _log_trade(trade):
+        from datetime import datetime, timezone
+        trades_file = os.path.join(sdir, "trade-log.json")
+        trades = []
+        if os.path.exists(trades_file):
+            try:
+                with open(trades_file) as f:
+                    trades = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                trades = []
+        trade["version"] = 1
+        trade["strategyKey"] = resolved_key
+        trade["timestamp"] = datetime.now(timezone.utc).isoformat()
+        trades.append(trade)
+        atomic_write(trades_file, trades)
+
+    journal_path = os.path.join(sdir, "trade-journal.jsonl")
+
+    return {
+        "wallet": cfg.get("wallet", ""),
+        "skill": "wolf",
+        "instance_key": resolved_key,
+        "max_slots": cfg.get("slots", 2),
+        "load_state": _load_state,
+        "save_state": _save_state,
+        "create_dsl": _create_dsl,
+        "save_dsl": _save_dsl,
+        "load_dsl": _load_dsl,
+        "log_trade": _log_trade,
+        "journal_path": journal_path,
+        "output": lambda data: print(json.dumps(data)),
+    }
+
+
 def dsl_state_template(asset, direction, entry_price, size, leverage,
                        strategy_key=None, tiers=None, created_by="entry_flow"):
     """Create a minimal valid DSL state dict for a new position.
 
-    Used by health check to create missing DSL state files.
+    Computes correct absoluteFloor/floorPrice from entry price and leverage
+    so Phase 1 protection is active immediately (addresses PR #24 gap where
+    floor was left at 0).
 
     Args:
         asset: Coin symbol (e.g. "HYPE").
@@ -375,7 +490,15 @@ def dsl_state_template(asset, direction, entry_price, size, leverage,
             {"triggerPct": 20, "lockPct": 85, "breaches": 1},
         ]
 
-    return {
+    retrace_pct = 5.0 / max(leverage, 1)
+    if direction.upper() == "LONG":
+        absolute_floor = round(entry_price * (1 - retrace_pct / 100), 6)
+    else:
+        absolute_floor = round(entry_price * (1 + retrace_pct / 100), 6)
+
+    approximate = entry_price <= 0 or size <= 0
+
+    state = {
         "version": 2,
         "asset": asset,
         "direction": direction.upper(),
@@ -388,11 +511,11 @@ def dsl_state_template(asset, direction, entry_price, size, leverage,
         "currentBreachCount": 0,
         "currentTierIndex": None,
         "tierFloorPrice": 0,
-        "floorPrice": 0,
+        "floorPrice": absolute_floor if not approximate else 0,
         "tiers": tiers,
         "phase1": {
-            "retraceThreshold": 10,
-            "absoluteFloor": 0,
+            "retraceThreshold": retrace_pct,
+            "absoluteFloor": absolute_floor if not approximate else 0,
             "consecutiveBreachesRequired": 3,
         },
         "phase2TriggerTier": 0,
@@ -401,3 +524,8 @@ def dsl_state_template(asset, direction, entry_price, size, leverage,
         "strategyKey": strategy_key,
         "createdBy": created_by,
     }
+
+    if approximate:
+        state["approximate"] = True
+
+    return state
