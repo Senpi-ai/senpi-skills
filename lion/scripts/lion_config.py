@@ -395,3 +395,165 @@ def minutes_since(iso_timestamp):
 
 def hours_since(iso_timestamp):
     return minutes_since(iso_timestamp) / 60
+
+
+# ─── Lifecycle Adapter ───────────────────────────────────────
+# Used by generic senpi-enter.py / senpi-close.py scripts.
+# After rebase onto main, lib/senpi_state/ provides the shared
+# positions.py that calls these callbacks.
+
+def get_lifecycle_adapter(**kwargs):
+    """Return callbacks for generic senpi-enter/close scripts.
+
+    Returns:
+        Dict with wallet, skill, instance_key, max_slots, and all the
+        load/save/create callbacks that positions.py expects.
+    """
+    config = load_config()
+    wallet = config.get("strategyWallet", "")
+    instance_key = config.get("strategyId", "default")
+    max_slots = config.get("maxSlots", 2)
+    inst_dir = _instance_dir(config)
+    journal_path = os.path.join(inst_dir, "trade-journal.jsonl")
+
+    def _load_state_cb():
+        return load_state(config)
+
+    def _save_state_cb(state):
+        save_state(config, state)
+
+    def _create_dsl(asset, direction, entry_price, size, margin, leverage, pattern):
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        retrace_pct = 5.0 / max(leverage, 1)
+        if direction.upper() == "LONG":
+            absolute_floor = round(entry_price * (1 - retrace_pct / 100), 6)
+        else:
+            absolute_floor = round(entry_price * (1 + retrace_pct / 100), 6)
+
+        approximate = entry_price <= 0 or size <= 0
+
+        return {
+            "version": 1,
+            "asset": asset,
+            "direction": direction.upper(),
+            "entryPrice": entry_price,
+            "size": size,
+            "margin": margin,
+            "leverage": leverage,
+            "pattern": pattern,
+            "active": True,
+            "highWaterPrice": entry_price,
+            "phase": 1,
+            "currentBreachCount": 0,
+            "currentTierIndex": None,
+            "tierFloorPrice": 0,
+            "floorPrice": absolute_floor if not approximate else 0,
+            "tiers": [
+                {"triggerPct": 5, "lockPct": 50, "breaches": 3},
+                {"triggerPct": 10, "lockPct": 65, "breaches": 2},
+                {"triggerPct": 15, "lockPct": 75, "breaches": 2},
+                {"triggerPct": 20, "lockPct": 85, "breaches": 1},
+            ],
+            "phase1": {
+                "retraceThreshold": retrace_pct,
+                "absoluteFloor": absolute_floor if not approximate else 0,
+                "consecutiveBreachesRequired": 3,
+            },
+            "phase2TriggerTier": 0,
+            "createdAt": now_iso,
+            "lastCheck": now_iso,
+            "createdBy": pattern,
+            "approximate": approximate or None,
+            "wallet": wallet,
+            "strategyId": instance_key,
+        }
+
+    def _save_dsl(asset, dsl_state):
+        path = os.path.join(inst_dir, f"dsl-{asset}.json")
+        dsl_state["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        atomic_write(path, dsl_state)
+
+    def _load_dsl(asset):
+        path = os.path.join(inst_dir, f"dsl-{asset}.json")
+        if os.path.exists(path):
+            try:
+                with open(path) as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError):
+                pass
+        return None
+
+    def _log_trade_cb(trade):
+        log_trade(config, trade)
+
+    import glob as _glob
+
+    def _create_dsl_for_healthcheck(asset, direction, entry_price, size,
+                                    leverage, instance_key=None):
+        """Adapter for healthcheck auto-create (different signature)."""
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        retrace_pct = 5.0 / max(leverage, 1)
+        if direction.upper() == "LONG":
+            absolute_floor = round(entry_price * (1 - retrace_pct / 100), 6)
+        else:
+            absolute_floor = round(entry_price * (1 + retrace_pct / 100), 6)
+        approximate = entry_price <= 0 or size <= 0
+        return {
+            "version": 1, "asset": asset, "direction": direction.upper(),
+            "entryPrice": entry_price, "size": size, "leverage": leverage,
+            "active": True, "highWaterPrice": entry_price, "phase": 1,
+            "currentBreachCount": 0, "currentTierIndex": None,
+            "tierFloorPrice": 0,
+            "floorPrice": absolute_floor if not approximate else 0,
+            "tiers": [
+                {"triggerPct": 5, "lockPct": 50, "breaches": 3},
+                {"triggerPct": 10, "lockPct": 65, "breaches": 2},
+                {"triggerPct": 15, "lockPct": 75, "breaches": 2},
+                {"triggerPct": 20, "lockPct": 85, "breaches": 1},
+            ],
+            "phase1": {
+                "retraceThreshold": retrace_pct,
+                "absoluteFloor": absolute_floor if not approximate else 0,
+                "consecutiveBreachesRequired": 3,
+            },
+            "phase2TriggerTier": 0,
+            "createdAt": now_iso, "lastCheck": now_iso,
+            "createdBy": "healthcheck_auto_create",
+            "wallet": wallet, "strategyId": instance_key,
+        }
+
+    dsl_glob = os.path.join(inst_dir, "dsl-*.json")
+
+    return {
+        "wallet": wallet,
+        "skill": "lion",
+        "instance_key": instance_key,
+        "max_slots": max_slots,
+        "load_state": _load_state_cb,
+        "save_state": _save_state_cb,
+        "create_dsl": _create_dsl,
+        "save_dsl": _save_dsl,
+        "load_dsl": _load_dsl,
+        "log_trade": _log_trade_cb,
+        "journal_path": journal_path,
+        "output": output,
+        # Healthcheck adapter keys
+        "dsl_glob": dsl_glob,
+        "dsl_state_path": lambda asset: os.path.join(inst_dir, f"dsl-{asset}.json"),
+        "create_dsl_for_healthcheck": _create_dsl_for_healthcheck,
+        "tiers": None,
+    }
+
+
+def get_healthcheck_adapter(**kwargs):
+    """Return adapter dict for senpi-healthcheck.py."""
+    adapter = get_lifecycle_adapter(**kwargs)
+    return {
+        "wallet": adapter["wallet"],
+        "skill": adapter["skill"],
+        "instance_key": adapter["instance_key"],
+        "dsl_glob": adapter["dsl_glob"],
+        "dsl_state_path": adapter["dsl_state_path"],
+        "create_dsl": adapter["create_dsl_for_healthcheck"],
+        "tiers": adapter.get("tiers"),
+    }
