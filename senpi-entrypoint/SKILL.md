@@ -40,7 +40,7 @@ Do not narrate or explain tool calls. Execute silently and only present final re
 
 ---
 
-## Initial check: Skip to Step 2 if already authenticated
+## Initial check: Skip only Step 1 if already authenticated
 
 Before Step 1, check whether the machine already has a Senpi API key available:
 
@@ -48,17 +48,17 @@ Before Step 1, check whether the machine already has a Senpi API key available:
 if [ -n "${SENPI_AUTH_TOKEN}" ]; then
   # Optional: verify MCP responds (e.g. call a read-only tool)
   # If verification fails, clear or ignore and continue to Step 1
-  echo "SENPI_AUTH_TOKEN is set; skipping onboarding. Proceed to Step 2."
+  echo "SENPI_AUTH_TOKEN is set; skipping Step 1 only. You MUST still run Step 2, then Step 3, then Step 4."
   SKIP_ONBOARDING=true
 else
   SKIP_ONBOARDING=false
 fi
 ```
 
-- **If `SENPI_AUTH_TOKEN` is set and (optionally) MCP responds:** Jump directly to **Step 2: Discover**. Do not run Step 1 (onboarding).
+- **If `SENPI_AUTH_TOKEN` is set and (optionally) MCP responds:** Skip **only Step 1** (Onboard). You **MUST** still run **Step 2: Discover** (list skills and present the catalog to the user), then **Step 3: Guide**, then **Step 4: Expand**. Do not treat "token is set" as "onboarding complete — do nothing."
 - **If `SENPI_AUTH_TOKEN` is unset or empty:** Proceed to **Step 1: Onboard** as usual.
 
-After the initial check, follow the step flow: Step 1 (unless skipped) → Step 2 → Step 3 → Step 4.
+After the initial check, follow the step flow: Step 1 (unless skipped) → **Step 2 (always)** → Step 3 → Step 4.
 
 ---
 
@@ -85,7 +85,7 @@ Load and follow the `senpi-onboard` skill instructions. Pass this context:
 
 ## Step 2: Discover
 
-**Run this step** after onboarding completes, or immediately when the initial check found `SENPI_AUTH_TOKEN` set.
+**Run this step always:** after Step 1 completes, or immediately when the initial check found `SENPI_AUTH_TOKEN` set. Do not skip this step when the user already has a token — they still need to see the skill catalog.
 
 List available trading skills:
 
