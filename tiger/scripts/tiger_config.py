@@ -705,3 +705,88 @@ def load_prescreened_candidates(instruments, config=None, include_leverage=True)
         return result if result else None
     except Exception:
         return None
+
+
+# ─── Lifecycle & Health Check Adapters ───────────────────────
+# Used by generic senpi-enter.py / senpi-close.py / senpi-healthcheck.py.
+# After rebase onto main, lib/senpi_state/ provides the shared engine.
+
+import glob as _glob
+
+
+def _dsl_glob_pattern(config=None):
+    config = _get_config(config)
+    return os.path.join(_instance_dir(config), "dsl-*.json")
+
+
+def _dsl_path(asset, config=None):
+    config = _get_config(config)
+    return os.path.join(_instance_dir(config), f"dsl-{asset}.json")
+
+
+def get_lifecycle_adapter(**kwargs):
+    """Return callbacks for generic senpi-enter/close scripts."""
+    config = load_config()
+    wallet = config.get("strategyWallet", config.get("strategy_wallet", ""))
+    instance_key = config.get("strategyId", "default")
+    max_slots = config.get("maxSlots", 3)
+    inst_dir = _instance_dir(config)
+    journal_path = os.path.join(inst_dir, "trade-journal.jsonl")
+
+    def _load_state_cb():
+        return load_state(config)
+
+    def _save_state_cb(state):
+        save_state(state)
+
+    def _create_dsl(asset, direction, entry_price, size, margin, leverage, pattern):
+        return create_dsl_state(asset, direction, entry_price, size, margin,
+                                leverage, pattern, config)
+
+    def _save_dsl(asset, dsl_state):
+        save_dsl_state(asset, dsl_state, config)
+
+    def _load_dsl(asset):
+        return load_dsl_state(asset, config)
+
+    def _log_trade_cb(trade):
+        log_trade(trade, config)
+
+    def _create_dsl_for_healthcheck(asset, direction, entry_price, size,
+                                    leverage, instance_key=None):
+        return create_dsl_state(asset, direction, entry_price, size, 0,
+                                leverage, "HEALTHCHECK_AUTO_CREATE", config)
+
+    return {
+        "wallet": wallet,
+        "skill": "tiger",
+        "instance_key": instance_key,
+        "max_slots": max_slots,
+        "load_state": _load_state_cb,
+        "save_state": _save_state_cb,
+        "create_dsl": _create_dsl,
+        "save_dsl": _save_dsl,
+        "load_dsl": _load_dsl,
+        "log_trade": _log_trade_cb,
+        "journal_path": journal_path,
+        "output": output,
+        # Healthcheck adapter keys
+        "dsl_glob": _dsl_glob_pattern(config),
+        "dsl_state_path": lambda asset: _dsl_path(asset, config),
+        "create_dsl_for_healthcheck": _create_dsl_for_healthcheck,
+        "tiers": None,
+    }
+
+
+def get_healthcheck_adapter(**kwargs):
+    """Return adapter dict for senpi-healthcheck.py."""
+    adapter = get_lifecycle_adapter(**kwargs)
+    return {
+        "wallet": adapter["wallet"],
+        "skill": adapter["skill"],
+        "instance_key": adapter["instance_key"],
+        "dsl_glob": adapter["dsl_glob"],
+        "dsl_state_path": adapter["dsl_state_path"],
+        "create_dsl": adapter["create_dsl_for_healthcheck"],
+        "tiers": adapter.get("tiers"),
+    }
