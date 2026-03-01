@@ -165,7 +165,7 @@ if should_close:
         for attempt in range(close_retries):
             try:
                 cr = subprocess.run(
-                    ["mcporter", "call", "senpi", "close_position", "--args",
+                    [os.environ.get("MCPORTER_CMD", "mcporter"), "call", "senpi", "close_position", "--args",
                      json.dumps({
                          "strategyWalletAddress": wallet,
                          "coin": asset,
