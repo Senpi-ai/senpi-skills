@@ -371,7 +371,8 @@ def save_dsl_state(asset, dsl_state, config=None):
 
 def mcporter_call(tool, **kwargs):
     """Call a Senpi MCP tool via mcporter with 3-attempt retry."""
-    cmd = ["mcporter", "call", f"senpi.{tool}"]
+    mcporter_bin = os.environ.get("MCPORTER_CMD", "mcporter")
+    cmd = [mcporter_bin, "call", f"senpi.{tool}"]
     for k, v in kwargs.items():
         if isinstance(v, (list, dict)):
             cmd.append(f"{k}={json.dumps(v)}")
