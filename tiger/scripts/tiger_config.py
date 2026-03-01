@@ -367,6 +367,125 @@ def save_dsl_state(asset, dsl_state, config=None):
     atomic_write(path, dsl_state)
 
 
+# ─── DSL State Creation ──────────────────────────────────────
+
+# Per-pattern DSL tier presets from SKILL.md
+_DSL_PRESETS = {
+    "COMPRESSION_BREAKOUT": {
+        "phase1_retrace": 0.015,
+        "tiers": [
+            {"triggerPct": 5, "lockPct": 20, "retrace": 0.015, "maxBreaches": 2},
+            {"triggerPct": 10, "lockPct": 50, "retrace": 0.012, "maxBreaches": 2},
+            {"triggerPct": 20, "lockPct": 70, "retrace": 0.01, "maxBreaches": 2},
+            {"triggerPct": 35, "lockPct": 80, "retrace": 0.008, "maxBreaches": 1},
+        ],
+    },
+    "MOMENTUM_BREAKOUT": {
+        "phase1_retrace": 0.012,
+        "tiers": [
+            {"triggerPct": 5, "lockPct": 60, "breachesNeeded": 3},
+            {"triggerPct": 10, "lockPct": 60, "breachesNeeded": 2},
+            {"triggerPct": 15, "lockPct": 65, "breachesNeeded": 2},
+            {"triggerPct": 20, "lockPct": 70, "breachesNeeded": 1},
+        ],
+    },
+    "CORRELATION_LAG": {
+        "phase1_retrace": 0.015,
+        "tiers": [
+            {"triggerPct": 5, "lockPct": 20, "retrace": 0.015, "maxBreaches": 2},
+            {"triggerPct": 10, "lockPct": 50, "retrace": 0.012, "maxBreaches": 2},
+            {"triggerPct": 20, "lockPct": 70, "retrace": 0.01, "maxBreaches": 2},
+            {"triggerPct": 35, "lockPct": 80, "retrace": 0.008, "maxBreaches": 1},
+        ],
+    },
+    "MEAN_REVERSION": {
+        "phase1_retrace": 0.015,
+        "tiers": [
+            {"triggerPct": 5, "lockPct": 30, "retrace": 0.015, "maxBreaches": 2},
+            {"triggerPct": 10, "lockPct": 55, "retrace": 0.012, "maxBreaches": 2},
+            {"triggerPct": 20, "lockPct": 70, "retrace": 0.01, "maxBreaches": 2},
+            {"triggerPct": 35, "lockPct": 80, "retrace": 0.008, "maxBreaches": 1},
+        ],
+    },
+    "FUNDING_ARB": {
+        "phase1_retrace": 0.020,
+        "tiers": [
+            {"triggerPct": 5, "lockPct": 20, "retrace": 0.020, "maxBreaches": 3},
+            {"triggerPct": 10, "lockPct": 40, "retrace": 0.018, "maxBreaches": 2},
+            {"triggerPct": 20, "lockPct": 60, "retrace": 0.015, "maxBreaches": 2},
+            {"triggerPct": 35, "lockPct": 75, "retrace": 0.012, "maxBreaches": 1},
+        ],
+    },
+}
+
+
+def create_dsl_state(asset, direction, entry_price, size, margin,
+                     leverage, pattern, config=None):
+    """Create a correctly-structured DSL state dict for a new position.
+
+    Uses per-pattern tier presets from SKILL.md.  Falls back to
+    MOMENTUM_BREAKOUT defaults if pattern is unknown.
+    """
+    config = _get_config(config)
+    preset = _DSL_PRESETS.get(pattern, _DSL_PRESETS["MOMENTUM_BREAKOUT"])
+    retrace = preset["phase1_retrace"]
+
+    if direction.upper() == "LONG":
+        absolute_floor = round(entry_price * (1 - retrace), 6)
+    else:
+        absolute_floor = round(entry_price * (1 + retrace), 6)
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    return {
+        "version": 1,
+        "active": True,
+        "instanceKey": config.get("strategyId", "default"),
+        "asset": asset,
+        "direction": direction.upper(),
+        "entryPrice": entry_price,
+        "size": size,
+        "margin": margin,
+        "leverage": leverage,
+        "pattern": pattern,
+        "wallet": config.get("strategyWallet", config.get("strategy_wallet", "")),
+        "strategyWallet": config.get("strategyWallet", config.get("strategy_wallet", "")),
+        "strategyId": config.get("strategyId", config.get("strategy_id", "")),
+        "createdAt": now_iso,
+        "updatedAt": now_iso,
+        "phase": 1,
+        "currentTierIndex": -1,
+        "currentBreachCount": 0,
+        "tierFloorPrice": 0,
+        "highWaterPrice": entry_price,
+        "highWaterRoe": 0,
+        "highWaterTime": now_iso,
+        "consecutiveBreaches": 0,
+        "consecutiveFetchFailures": 0,
+        "floorPrice": absolute_floor,
+        "phase1": {
+            "retraceThreshold": retrace,
+            "consecutiveBreachesRequired": 3,
+            "absoluteFloor": absolute_floor,
+            "maxMinutes": 90,
+        },
+        "phase2": {
+            "retraceThreshold": retrace * 0.8,
+            "consecutiveBreachesRequired": 2,
+            "stagnationTpRoe": 0.08,
+            "stagnationTpStaleMinutes": 60,
+        },
+        "phase2TriggerTier": 0,
+        "tiers": preset["tiers"],
+        "lastCheck": None,
+        "lastPrice": None,
+        "pendingClose": False,
+        "closedAt": None,
+        "closeReason": None,
+        "closePrice": None,
+    }
+
+
 # ─── MCP Helpers ─────────────────────────────────────────────
 
 def mcporter_call(tool, **kwargs):

@@ -69,7 +69,7 @@ Every 5 minutes. Isolated, no delivery (agent acts on signals internally).
   "wakeMode": "next-heartbeat",
   "payload": {
     "kind": "agentTurn",
-    "message": "TIGER COMPRESSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/compression-scanner.py`, parse JSON.\nIf actionable > 0 + slots available + not halted: evaluate top signal per SKILL.md.\nIf confluence ≥ threshold for current aggression: enter via create_position.\nIf entry made, send ONE Telegram message to {TELEGRAM_CHAT_ID} with asset, direction, score, leverage.\nIf no actionable signals or no entry made: output HEARTBEAT_OK.",
+    "message": "TIGER COMPRESSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/compression-scanner.py`, parse JSON.\nIf actionable > 0 + slots available + not halted: evaluate top signal per SKILL.md.\nIf confluence ≥ threshold for current aggression: enter via `python3 {SCRIPTS}/tiger-enter.py --coin ASSET --direction DIR --leverage LEV --margin MARGIN --pattern COMPRESSION_BREAKOUT --score SCORE`. Parse JSON output.\nIf entry success, send ONE Telegram message to {TELEGRAM_CHAT_ID} with asset, direction, score, leverage.\nIf no actionable signals or no entry made: output HEARTBEAT_OK.",
     "model": "anthropic/claude-haiku-4-5"
   },
   "delivery": {
@@ -92,7 +92,7 @@ Every 3 minutes. Isolated, no delivery.
   "wakeMode": "next-heartbeat",
   "payload": {
     "kind": "agentTurn",
-    "message": "TIGER CORRELATION SCANNER: Run `timeout 55 python3 {SCRIPTS}/correlation-scanner.py`, parse JSON.\nIf actionable > 0 + BTC move confirmed + lag ratio ≥ 0.5 + slots available:\nEnter via create_position.\nIf entry made, send ONE Telegram message to {TELEGRAM_CHAT_ID} with asset, direction, lag ratio, window quality.\nIf no actionable signals or no entry made: output HEARTBEAT_OK.",
+    "message": "TIGER CORRELATION SCANNER: Run `timeout 55 python3 {SCRIPTS}/correlation-scanner.py`, parse JSON.\nIf actionable > 0 + BTC move confirmed + lag ratio ≥ 0.5 + slots available:\nEnter via `python3 {SCRIPTS}/tiger-enter.py --coin ASSET --direction DIR --leverage LEV --margin MARGIN --pattern CORRELATION_LAG --score SCORE`. Parse JSON output.\nIf entry success, send ONE Telegram message to {TELEGRAM_CHAT_ID} with asset, direction, lag ratio, window quality.\nIf no actionable signals or no entry made: output HEARTBEAT_OK.",
     "model": "anthropic/claude-haiku-4-5"
   },
   "delivery": {
@@ -115,7 +115,7 @@ Every 5 minutes (offset 1 min from compression).
   "wakeMode": "next-heartbeat",
   "payload": {
     "kind": "agentTurn",
-    "message": "TIGER MOMENTUM SCANNER: Run `timeout 55 python3 {SCRIPTS}/momentum-scanner.py`, parse JSON.\nIf actionable > 0 + slots available: evaluate per SKILL.md momentum rules.\nUse tighter Phase 1 retrace (0.012) for DSL on momentum positions.\nIf entry made, send ONE Telegram message to {TELEGRAM_CHAT_ID}.\nIf no actionable signals or no entry made: output HEARTBEAT_OK.",
+    "message": "TIGER MOMENTUM SCANNER: Run `timeout 55 python3 {SCRIPTS}/momentum-scanner.py`, parse JSON.\nIf actionable > 0 + slots available: evaluate per SKILL.md momentum rules.\nEnter via `python3 {SCRIPTS}/tiger-enter.py --coin ASSET --direction DIR --leverage LEV --margin MARGIN --pattern MOMENTUM_BREAKOUT --score SCORE`. Parse JSON output. DSL is auto-created with tighter Phase 1 retrace (0.012).\nIf entry success, send ONE Telegram message to {TELEGRAM_CHAT_ID}.\nIf no actionable signals or no entry made: output HEARTBEAT_OK.",
     "model": "anthropic/claude-haiku-4-5"
   },
   "delivery": {
@@ -138,7 +138,7 @@ Every 5 minutes (offset 2 min from compression).
   "wakeMode": "next-heartbeat",
   "payload": {
     "kind": "agentTurn",
-    "message": "TIGER REVERSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/reversion-scanner.py`, parse JSON.\nIf actionable > 0 + 4h RSI extreme confirmed + slots available:\nEnter counter-trend per SKILL.md reversion rules.\nIf entry made, send ONE Telegram message to {TELEGRAM_CHAT_ID}.\nIf no actionable signals or no entry made: output HEARTBEAT_OK.",
+    "message": "TIGER REVERSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/reversion-scanner.py`, parse JSON.\nIf actionable > 0 + 4h RSI extreme confirmed + slots available:\nEnter via `python3 {SCRIPTS}/tiger-enter.py --coin ASSET --direction DIR --leverage LEV --margin MARGIN --pattern MEAN_REVERSION --score SCORE`. Parse JSON output.\nIf entry success, send ONE Telegram message to {TELEGRAM_CHAT_ID}.\nIf no actionable signals or no entry made: output HEARTBEAT_OK.",
     "model": "anthropic/claude-haiku-4-5"
   },
   "delivery": {
@@ -161,7 +161,7 @@ Every 30 minutes.
   "wakeMode": "next-heartbeat",
   "payload": {
     "kind": "agentTurn",
-    "message": "TIGER FUNDING SCANNER: Run `timeout 55 python3 {SCRIPTS}/funding-scanner.py`, parse JSON.\nIf actionable > 0 + extreme funding confirmed + slots available:\nEnter opposite crowd per SKILL.md funding rules. Use wider DSL retrace (0.02+).\nIf entry made, send ONE Telegram message to {TELEGRAM_CHAT_ID}.\nIf no actionable signals or no entry made: output HEARTBEAT_OK.",
+    "message": "TIGER FUNDING SCANNER: Run `timeout 55 python3 {SCRIPTS}/funding-scanner.py`, parse JSON.\nIf actionable > 0 + extreme funding confirmed + slots available:\nEnter via `python3 {SCRIPTS}/tiger-enter.py --coin ASSET --direction DIR --leverage LEV --margin MARGIN --pattern FUNDING_ARB --score SCORE`. Parse JSON output. DSL is auto-created with wider retrace (0.02+).\nIf entry success, send ONE Telegram message to {TELEGRAM_CHAT_ID}.\nIf no actionable signals or no entry made: output HEARTBEAT_OK.",
     "model": "anthropic/claude-haiku-4-5"
   },
   "delivery": {
@@ -233,7 +233,7 @@ Every 5 minutes (offset 4 min). Isolated with announce — only delivers on clos
   "wakeMode": "next-heartbeat",
   "payload": {
     "kind": "agentTurn",
-    "message": "TIGER RISK GUARDIAN: Run `python3 {SCRIPTS}/risk-guardian.py`, parse JSON.\n\nPROCESSING ORDER:\n1. Read state ONCE.\n2. Check daily loss, drawdown, single position limits per SKILL.md.\n3. Check OI collapse, funding reversal for FUNDING_ARB positions.\n4. If critical → close via close_position. Set halted if needed.\n\nOnly send Telegram message to {TELEGRAM_CHAT_ID} if: position closed, position resized, halt triggered, or critical alert raised.\nIf all clear: output HEARTBEAT_OK. Do NOT send Telegram for routine checks.",
+    "message": "TIGER RISK GUARDIAN: Run `python3 {SCRIPTS}/risk-guardian.py`, parse JSON.\n\nPROCESSING ORDER:\n1. Read state ONCE.\n2. Check daily loss, drawdown, single position limits per SKILL.md.\n3. Check OI collapse, funding reversal for FUNDING_ARB positions.\n4. If critical → close via `python3 {SCRIPTS}/tiger-close.py --coin ASSET --reason REASON`. This atomically closes the position, deactivates DSL, updates state, and journals the event. Set halted if needed.\n\nOnly send Telegram message to {TELEGRAM_CHAT_ID} if: position closed, position resized, halt triggered, or critical alert raised.\nIf all clear: output HEARTBEAT_OK. Do NOT send Telegram for routine checks.",
     "model": "anthropic/claude-sonnet-4-5-20250929"
   },
   "delivery": {
@@ -259,7 +259,7 @@ Every 5 minutes (runs with risk guardian). Isolated with announce.
   "wakeMode": "next-heartbeat",
   "payload": {
     "kind": "agentTurn",
-    "message": "TIGER EXIT CHECKER: Run `python3 {SCRIPTS}/tiger-exit.py`, parse JSON.\nProcess exit signals by priority. Pattern-specific exits per SKILL.md.\nDeadline proximity: tighten stops in final 24h.\nOnly send Telegram message to {TELEGRAM_CHAT_ID} if: position closed, stop tightened, or deadline action taken.\nIf no exits triggered: output HEARTBEAT_OK. Do NOT send Telegram.",
+    "message": "TIGER EXIT CHECKER: Run `python3 {SCRIPTS}/tiger-exit.py`, parse JSON.\nProcess exit signals by priority. Pattern-specific exits per SKILL.md.\nFor each CLOSE action: run `python3 {SCRIPTS}/tiger-close.py --coin ASSET --reason REASON`. This atomically closes the position, deactivates DSL, updates state, and journals the event.\nDeadline proximity: tighten stops in final 24h.\nOnly send Telegram message to {TELEGRAM_CHAT_ID} if: position closed, stop tightened, or deadline action taken.\nIf no exits triggered: output HEARTBEAT_OK. Do NOT send Telegram.",
     "model": "anthropic/claude-sonnet-4-5-20250929"
   },
   "delivery": {
