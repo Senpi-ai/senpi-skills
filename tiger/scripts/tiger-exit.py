@@ -185,9 +185,53 @@ def main():
         return
 
     ch_data = ch.get("data", ch)
+    # Handle nested structure: data.main.assetPositions
+    if "main" in ch_data:
+        ch_data = ch_data["main"]
     positions = ch_data.get("assetPositions", [])
 
-    active_pos = state.get("active_positions", {})
+    # ─── Reconcile state with on-chain positions ───
+    on_chain_coins = {}
+    for p in positions:
+        pos = p.get("position", p)
+        coin = pos.get("coin", "")
+        on_chain_coins[coin] = pos
+
+    # Support both camelCase and snake_case keys
+    active_pos = state.get("activePositions", state.get("active_positions", {}))
+
+    changed = False
+
+    # Remove positions from state that are no longer on-chain
+    stale_coins = [c for c in list(active_pos.keys()) if c not in on_chain_coins]
+    for coin in stale_coins:
+        active_pos.pop(coin)
+        changed = True
+
+    # Add on-chain positions missing from state (e.g. opened by scanner, state lost)
+    for coin, pos in on_chain_coins.items():
+        if coin not in active_pos:
+            lev = pos.get("leverage", {})
+            active_pos[coin] = {
+                "direction": "LONG" if float(pos.get("szi", 0)) > 0 else "SHORT",
+                "leverage": lev.get("value", 7) if isinstance(lev, dict) else lev,
+                "margin": float(pos.get("marginUsed", 0)),
+                "entryPrice": float(pos.get("entryPx", 0)),
+                "size": abs(float(pos.get("szi", 0))),
+                "pattern": "RECONCILED",
+                "enteredAt": "",
+                "score": 0
+            }
+            changed = True
+
+    # Write back to both keys for compat
+    state["activePositions"] = active_pos
+    state["active_positions"] = active_pos
+    if changed:
+        max_slots = config.get("maxSlots", config.get("max_slots", 6))
+        state["availableSlots"] = max(0, max_slots - len(active_pos))
+        save_state(state)
+
     exit_signals = []
 
     for p in positions:

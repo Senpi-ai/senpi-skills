@@ -367,11 +367,131 @@ def save_dsl_state(asset, dsl_state, config=None):
     atomic_write(path, dsl_state)
 
 
+# ─── DSL State Creation ──────────────────────────────────────
+
+# Per-pattern DSL tier presets from SKILL.md
+_DSL_PRESETS = {
+    "COMPRESSION_BREAKOUT": {
+        "phase1_retrace": 0.015,
+        "tiers": [
+            {"triggerPct": 5, "lockPct": 20, "retrace": 0.015, "maxBreaches": 2},
+            {"triggerPct": 10, "lockPct": 50, "retrace": 0.012, "maxBreaches": 2},
+            {"triggerPct": 20, "lockPct": 70, "retrace": 0.01, "maxBreaches": 2},
+            {"triggerPct": 35, "lockPct": 80, "retrace": 0.008, "maxBreaches": 1},
+        ],
+    },
+    "MOMENTUM_BREAKOUT": {
+        "phase1_retrace": 0.012,
+        "tiers": [
+            {"triggerPct": 5, "lockPct": 60, "breachesNeeded": 3},
+            {"triggerPct": 10, "lockPct": 60, "breachesNeeded": 2},
+            {"triggerPct": 15, "lockPct": 65, "breachesNeeded": 2},
+            {"triggerPct": 20, "lockPct": 70, "breachesNeeded": 1},
+        ],
+    },
+    "CORRELATION_LAG": {
+        "phase1_retrace": 0.015,
+        "tiers": [
+            {"triggerPct": 5, "lockPct": 20, "retrace": 0.015, "maxBreaches": 2},
+            {"triggerPct": 10, "lockPct": 50, "retrace": 0.012, "maxBreaches": 2},
+            {"triggerPct": 20, "lockPct": 70, "retrace": 0.01, "maxBreaches": 2},
+            {"triggerPct": 35, "lockPct": 80, "retrace": 0.008, "maxBreaches": 1},
+        ],
+    },
+    "MEAN_REVERSION": {
+        "phase1_retrace": 0.015,
+        "tiers": [
+            {"triggerPct": 5, "lockPct": 30, "retrace": 0.015, "maxBreaches": 2},
+            {"triggerPct": 10, "lockPct": 55, "retrace": 0.012, "maxBreaches": 2},
+            {"triggerPct": 20, "lockPct": 70, "retrace": 0.01, "maxBreaches": 2},
+            {"triggerPct": 35, "lockPct": 80, "retrace": 0.008, "maxBreaches": 1},
+        ],
+    },
+    "FUNDING_ARB": {
+        "phase1_retrace": 0.020,
+        "tiers": [
+            {"triggerPct": 5, "lockPct": 20, "retrace": 0.020, "maxBreaches": 3},
+            {"triggerPct": 10, "lockPct": 40, "retrace": 0.018, "maxBreaches": 2},
+            {"triggerPct": 20, "lockPct": 60, "retrace": 0.015, "maxBreaches": 2},
+            {"triggerPct": 35, "lockPct": 75, "retrace": 0.012, "maxBreaches": 1},
+        ],
+    },
+}
+
+
+def create_dsl_state(asset, direction, entry_price, size, margin,
+                     leverage, pattern, config=None):
+    """Create a correctly-structured DSL state dict for a new position.
+
+    Uses per-pattern tier presets from SKILL.md.  Falls back to
+    MOMENTUM_BREAKOUT defaults if pattern is unknown.
+    """
+    config = _get_config(config)
+    preset = _DSL_PRESETS.get(pattern, _DSL_PRESETS["MOMENTUM_BREAKOUT"])
+    retrace = preset["phase1_retrace"]
+
+    if direction.upper() == "LONG":
+        absolute_floor = round(entry_price * (1 - retrace), 6)
+    else:
+        absolute_floor = round(entry_price * (1 + retrace), 6)
+
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    return {
+        "version": 1,
+        "active": True,
+        "instanceKey": config.get("strategyId", "default"),
+        "asset": asset,
+        "direction": direction.upper(),
+        "entryPrice": entry_price,
+        "size": size,
+        "margin": margin,
+        "leverage": leverage,
+        "pattern": pattern,
+        "wallet": config.get("strategyWallet", config.get("strategy_wallet", "")),
+        "strategyWallet": config.get("strategyWallet", config.get("strategy_wallet", "")),
+        "strategyId": config.get("strategyId", config.get("strategy_id", "")),
+        "createdAt": now_iso,
+        "updatedAt": now_iso,
+        "phase": 1,
+        "currentTierIndex": -1,
+        "currentBreachCount": 0,
+        "tierFloorPrice": 0,
+        "highWaterPrice": entry_price,
+        "highWaterRoe": 0,
+        "highWaterTime": now_iso,
+        "consecutiveBreaches": 0,
+        "consecutiveFetchFailures": 0,
+        "floorPrice": absolute_floor,
+        "phase1": {
+            "retraceThreshold": retrace,
+            "consecutiveBreachesRequired": 3,
+            "absoluteFloor": absolute_floor,
+            "maxMinutes": 90,
+        },
+        "phase2": {
+            "retraceThreshold": retrace * 0.8,
+            "consecutiveBreachesRequired": 2,
+            "stagnationTpRoe": 0.08,
+            "stagnationTpStaleMinutes": 60,
+        },
+        "phase2TriggerTier": 0,
+        "tiers": preset["tiers"],
+        "lastCheck": None,
+        "lastPrice": None,
+        "pendingClose": False,
+        "closedAt": None,
+        "closeReason": None,
+        "closePrice": None,
+    }
+
+
 # ─── MCP Helpers ─────────────────────────────────────────────
 
 def mcporter_call(tool, **kwargs):
     """Call a Senpi MCP tool via mcporter with 3-attempt retry."""
-    cmd = ["mcporter", "call", f"senpi.{tool}"]
+    mcporter_bin = os.environ.get("MCPORTER_CMD", "mcporter")
+    cmd = [mcporter_bin, "call", f"senpi.{tool}"]
     for k, v in kwargs.items():
         if isinstance(v, (list, dict)):
             cmd.append(f"{k}={json.dumps(v)}")
@@ -585,3 +705,88 @@ def load_prescreened_candidates(instruments, config=None, include_leverage=True)
         return result if result else None
     except Exception:
         return None
+
+
+# ─── Lifecycle & Health Check Adapters ───────────────────────
+# Used by generic senpi-enter.py / senpi-close.py / senpi-healthcheck.py.
+# After rebase onto main, lib/senpi_state/ provides the shared engine.
+
+import glob as _glob
+
+
+def _dsl_glob_pattern(config=None):
+    config = _get_config(config)
+    return os.path.join(_instance_dir(config), "dsl-*.json")
+
+
+def _dsl_path(asset, config=None):
+    config = _get_config(config)
+    return os.path.join(_instance_dir(config), f"dsl-{asset}.json")
+
+
+def get_lifecycle_adapter(**kwargs):
+    """Return callbacks for generic senpi-enter/close scripts."""
+    config = load_config()
+    wallet = config.get("strategyWallet", config.get("strategy_wallet", ""))
+    instance_key = config.get("strategyId", "default")
+    max_slots = config.get("maxSlots", 3)
+    inst_dir = _instance_dir(config)
+    journal_path = os.path.join(inst_dir, "trade-journal.jsonl")
+
+    def _load_state_cb():
+        return load_state(config)
+
+    def _save_state_cb(state):
+        save_state(state)
+
+    def _create_dsl(asset, direction, entry_price, size, margin, leverage, pattern):
+        return create_dsl_state(asset, direction, entry_price, size, margin,
+                                leverage, pattern, config)
+
+    def _save_dsl(asset, dsl_state):
+        save_dsl_state(asset, dsl_state, config)
+
+    def _load_dsl(asset):
+        return load_dsl_state(asset, config)
+
+    def _log_trade_cb(trade):
+        log_trade(trade, config)
+
+    def _create_dsl_for_healthcheck(asset, direction, entry_price, size,
+                                    leverage, instance_key=None):
+        return create_dsl_state(asset, direction, entry_price, size, 0,
+                                leverage, "HEALTHCHECK_AUTO_CREATE", config)
+
+    return {
+        "wallet": wallet,
+        "skill": "tiger",
+        "instance_key": instance_key,
+        "max_slots": max_slots,
+        "load_state": _load_state_cb,
+        "save_state": _save_state_cb,
+        "create_dsl": _create_dsl,
+        "save_dsl": _save_dsl,
+        "load_dsl": _load_dsl,
+        "log_trade": _log_trade_cb,
+        "journal_path": journal_path,
+        "output": output,
+        # Healthcheck adapter keys
+        "dsl_glob": _dsl_glob_pattern(config),
+        "dsl_state_path": lambda asset: _dsl_path(asset, config),
+        "create_dsl_for_healthcheck": _create_dsl_for_healthcheck,
+        "tiers": None,
+    }
+
+
+def get_healthcheck_adapter(**kwargs):
+    """Return adapter dict for senpi-healthcheck.py."""
+    adapter = get_lifecycle_adapter(**kwargs)
+    return {
+        "wallet": adapter["wallet"],
+        "skill": adapter["skill"],
+        "instance_key": adapter["instance_key"],
+        "dsl_glob": adapter["dsl_glob"],
+        "dsl_state_path": adapter["dsl_state_path"],
+        "create_dsl": adapter["create_dsl_for_healthcheck"],
+        "tiers": adapter.get("tiers"),
+    }

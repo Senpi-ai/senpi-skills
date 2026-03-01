@@ -53,7 +53,7 @@ except (FileNotFoundError, json.JSONDecodeError):
 # ─── Fetch current market concentration ───
 try:
     r = subprocess.run(
-        ["mcporter", "call", "senpi", "leaderboard_get_markets", "limit=100"],
+        [os.environ.get("MCPORTER_CMD", "mcporter"), "call", "senpi", "leaderboard_get_markets", "limit=100"],
         capture_output=True, text=True, timeout=30
     )
     result = json.loads(r.stdout)

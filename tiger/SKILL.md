@@ -237,9 +237,56 @@ All percentage values are whole numbers (5 = 5%).
 | `leaderboard_get_markets` | correlation, funding scanners | SM alignment |
 | `account_get_portfolio` | goal-engine | Portfolio balance |
 | `strategy_get_clearinghouse_state` | goal-engine, risk-guardian | Margin, positions |
-| `create_position` | agent (from scanner output) | Open positions |
-| `close_position` | dsl-v4, risk-guardian, tiger-exit | Close positions |
+| `create_position` | tiger-enter.py | Open positions |
+| `close_position` | tiger-close.py, dsl-v4 | Close positions |
 | `edit_position` | risk-guardian | Resize positions |
+
+---
+
+## Entry & Close Scripts
+
+**Agents MUST use these scripts instead of calling `create_position`/`close_position` directly.** These scripts handle the full lifecycle atomically — position execution, DSL state creation, tiger-state.json updates, and event journaling — so the agent never needs to write JSON state files.
+
+### `tiger-enter.py` — Deterministic Entry
+
+```bash
+python3 scripts/tiger-enter.py --coin SOL --direction SHORT --leverage 7 \
+  --margin 400 --pattern MOMENTUM_BREAKOUT --score 0.65
+```
+
+What it does:
+1. Guards: rejects if halted, no slots, or duplicate position
+2. Calls `create_position` via mcporter
+3. Creates `dsl-{ASSET}.json` with correct per-pattern tier presets
+4. Adds to `activePositions` in `tiger-state.json`
+5. Updates `availableSlots`
+6. Journals `POSITION_OPENED` + `DSL_CREATED` events
+
+Returns JSON: `{"success": true, "action": "POSITION_OPENED", "coin": "SOL", ...}` or `{"success": false, "error": "NO_SLOTS", ...}`
+
+### `tiger-close.py` — Deterministic Close
+
+```bash
+python3 scripts/tiger-close.py --coin SOL --reason "DSL Tier 2 breach"
+```
+
+What it does:
+1. Calls `close_position` via mcporter (handles `CLOSE_NO_POSITION` gracefully)
+2. Deactivates `dsl-{ASSET}.json` (sets `active: false`, `closedAt`, `closeReason`)
+3. Removes from `activePositions` in `tiger-state.json`
+4. Updates `availableSlots`
+5. Logs trade to `trade-log.json`
+6. Journals `POSITION_CLOSED` + `DSL_DEACTIVATED` events
+
+Returns JSON: `{"success": true, "action": "POSITION_CLOSED", "coin": "SOL", "pnl": -12.50, ...}`
+
+### Shared Library
+
+Both scripts use `lib/senpi_state/` — a shared library providing:
+- `atomic_write()` — crash-safe JSON writes
+- `mcporter_call()` — unified MCP wrapper with retry
+- `TradeJournal` — append-only JSONL event audit trail
+- `enter_position()` / `close_position_safe()` — full lifecycle functions
 
 ---
 
@@ -255,6 +302,8 @@ state/{instanceKey}/
 ├── oi-history.json               # 24h OI time-series
 ├── trade-log.json                # All trades with outcomes
 └── scan-history/                 # Scanner output history
+state/
+└── trade-journal.jsonl           # Append-only event audit trail (shared)
 ```
 
 All state files include `version`, `active`, `instanceKey`, `createdAt`, `updatedAt`. All writes use `atomic_write()`.
