@@ -15,15 +15,15 @@ This suite catches all of these before they cause real losses.
 
 ## Test Phases
 
-| # | Phase | Tests | What It Catches |
-|---|-------|-------|-----------------|
-| 1 | Environment | 6 | Missing binaries, broken symlinks, missing gate adapter |
-| 2 | Cron Config | per-cron | Missing scripts, bare mcporter in payloads, wrong model tiers |
-| 3 | Tool Connectivity | 7 | Senpi API unreachable, auth broken, wallet misconfigured |
-| 4 | Source Audit | per-script | Bare mcporter subprocess calls, direct Hyperliquid curl |
-| 5 | Script Execution | per-scanner + DSL | Scripts crash, produce invalid output, timeout |
-| 6 | Close Path | 3 | Gate auth chain broken, MCPORTER_CMD not routing through gate |
-| 7 | State Lifecycle | 5 | DSL crashes on missing fields, state not updated correctly |
+| #   | Phase             | Tests             | What It Catches                                               |
+| --- | ----------------- | ----------------- | ------------------------------------------------------------- |
+| 1   | Environment       | 6                 | Missing binaries, broken symlinks, missing gate adapter       |
+| 2   | Cron Config       | per-cron          | Missing scripts, bare mcporter in payloads, wrong model tiers |
+| 3   | Tool Connectivity | 7                 | Senpi API unreachable, auth broken, wallet misconfigured      |
+| 4   | Source Audit      | per-script        | Bare mcporter subprocess calls, direct Hyperliquid curl       |
+| 5   | Script Execution  | per-scanner + DSL | Scripts crash, produce invalid output, timeout                |
+| 6   | Close Path        | 3                 | Gate auth chain broken, MCPORTER_CMD not routing through gate |
+| 7   | State Lifecycle   | 5                 | DSL crashes on missing fields, state not updated correctly    |
 
 ## Usage
 
@@ -49,12 +49,12 @@ python3 diagnostics/scripts/run-diagnostics.py -w ~/.openclaw/workspace -s tiger
 
 ### Environment Variables
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `WORKSPACE` | `/home/arnold/.openclaw/workspace` | Workspace root (override with `--workspace`) |
-| `DIAG_PYTHON` | `/home/arnold/openclaw/venv/bin/python` | Python interpreter to use |
-| `MCPORTER_CMD` | `mcporter` (PATH) | mcporter binary/wrapper path |
-| `NPM_CONFIG_CACHE` | `/tmp/npm-cache` | Prevents npm from writing to read-only home |
+| Variable           | Default                                 | Purpose                                      |
+| ------------------ | --------------------------------------- | -------------------------------------------- |
+| `WORKSPACE`        | `/home/arnold/.openclaw/workspace`      | Workspace root (override with `--workspace`) |
+| `DIAG_PYTHON`      | `/home/arnold/openclaw/venv/bin/python` | Python interpreter to use                    |
+| `MCPORTER_CMD`     | `mcporter` (PATH)                       | mcporter binary/wrapper path                 |
+| `NPM_CONFIG_CACHE` | `/tmp/npm-cache`                        | Prevents npm from writing to read-only home  |
 
 ### Exit Codes
 

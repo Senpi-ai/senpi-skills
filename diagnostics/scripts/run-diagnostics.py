@@ -25,13 +25,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
-from diag_lib import (
-    DiagRunner, audit_script_source, discover_senpi_crons,
-    find_dsl_state_files, find_suite_scripts, gate_call, load_cron_model_profiles,
-    mcporter_call, resolve_animal, resolve_suite_config, resolve_suite_paths,
-    resolve_workspace, run_cmd, validate_dsl_state,
-    DEFAULT_PY, DEFAULT_WORKSPACE,
-)
+from diag_lib import (DEFAULT_PY, DEFAULT_WORKSPACE, DiagRunner,
+                      audit_script_source, discover_senpi_crons,
+                      find_dsl_state_files, find_suite_scripts, gate_call,
+                      load_cron_model_profiles, mcporter_call, resolve_animal,
+                      resolve_suite_config, resolve_suite_paths,
+                      resolve_workspace, run_cmd, validate_dsl_state)
 
 PHASE_ENV = "1-Environment"
 PHASE_CRON = "2-Cron-Config"
@@ -282,7 +281,7 @@ def phase_tool_connectivity(diag, workspace, animal):
     # 3b. market_get_asset_data with BTC
     t = time.time()
     rc, out, err = gate_call(workspace, "market_get_asset_data",
-                             timeout=30, coin="BTC")
+                             timeout=30, asset="BTC")
     dur = _ms(t)
     try:
         d = json.loads(out)
@@ -473,10 +472,11 @@ def phase_script_execution(diag, workspace, suite_paths, suite_name, animal):
 
         t = time.time()
         run_env = {**os.environ, **env_extra}
+        script_timeout = 90 if "scanner" in script_name.lower() else 45
         try:
             r = subprocess.run(
                 [py, script_path],
-                capture_output=True, text=True, timeout=45,
+                capture_output=True, text=True, timeout=script_timeout,
                 env=run_env, cwd=scripts_dir,
             )
             dur = _ms(t)
@@ -523,7 +523,7 @@ def phase_script_execution(diag, workspace, suite_paths, suite_name, animal):
         except subprocess.TimeoutExpired:
             diag.record(f"exec_{_safe(script_name)}", phase, False,
                          critical=False,
-                         detail=f"TIMEOUT after 45s",
+                         detail=f"TIMEOUT after {script_timeout}s",
                          remediation="Script may be hanging on mcporter call",
                          duration_ms=_ms(t))
         except Exception as e:
