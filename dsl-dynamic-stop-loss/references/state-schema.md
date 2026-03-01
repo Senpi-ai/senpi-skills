@@ -1,6 +1,6 @@
 # State File Schema
 
-Complete JSON schema for DSL v4 state files. One state file per position.
+Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 adds path conventions; the JSON schema is unchanged.
 
 ## Full Example
 
@@ -55,7 +55,7 @@ Complete JSON schema for DSL v4 state files. One state file per position.
 | Field | Type | Description |
 |-------|------|-------------|
 | `active` | bool | Must be `true` to monitor. Script sets to `false` on close. |
-| `asset` | string | Ticker symbol (e.g., "HYPE", "BTC", "ETH") |
+| `asset` | string | Ticker symbol (e.g., "HYPE", "BTC", "ETH"). For xyz dex use prefix: "xyz:SILVER", "xyz:AAPL". |
 | `direction` | string | `"LONG"` or `"SHORT"` — controls all math |
 | `leverage` | number | Position leverage (used for ROE calculation) |
 | `entryPrice` | number | Average entry price |
@@ -92,7 +92,7 @@ Complete JSON schema for DSL v4 state files. One state file per position.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `triggerPct` | float | Yes | ROE % that activates this tier |
-| `lockPct` | float | Yes | ROE % to lock as floor |
+| `lockPct` | float | Yes | % of (entry→high water) range to lock as floor (e.g. 50 = lock half the gain) |
 | `retrace` | float | No | Per-tier retrace override (uses `phase2.retraceThreshold` if omitted) |
 
 ## v4 Optional Fields (all have defaults)
@@ -109,3 +109,19 @@ Complete JSON schema for DSL v4 state files. One state file per position.
 | `floorPrice` | (calculated) | Effective floor — set by script each run |
 | `lastCheck` | `null` | Last check timestamp — set by script |
 | `lastPrice` | `null` | Last fetched price — set by script |
+
+## v5 Path Conventions
+
+State files are stored under a directory per strategy. Required env vars:
+
+| Env var | Description |
+|---------|-------------|
+| `DSL_STATE_DIR` | Base directory (default: `/data/workspace/dsl`) |
+| `DSL_STRATEGY_ID` | Strategy UUID (required) |
+| `DSL_ASSET` | Asset symbol (required) |
+
+**Path:** `{DSL_STATE_DIR}/{DSL_STRATEGY_ID}/{asset_filename}.json`
+
+**Asset → filename:** xyz dex: `xyz:SILVER` → `xyz--SILVER.json` (colon → double-dash). Main dex: `ETH` → `ETH.json`.
+
+**Example:** `DSL_STATE_DIR=/data/workspace/dsl DSL_STRATEGY_ID=strat-abc-123 DSL_ASSET=xyz:SILVER` → `/data/workspace/dsl/strat-abc-123/xyz--SILVER.json`

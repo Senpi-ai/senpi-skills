@@ -97,10 +97,11 @@ for i, tier in enumerate(tiers):
     if upnl_pct >= tier["triggerPct"]:
         tier_idx = i
         tier_changed = True
+        # Floor = entry + fraction of (entry → hw) range; lockPct = that fraction
         if is_long:
-            tier_floor = round(entry * (1 + tier["lockPct"] / 100 / state["leverage"]), 4)
+            tier_floor = round(entry + (hw - entry) * tier["lockPct"] / 100, 4)
         else:
-            tier_floor = round(entry * (1 - tier["lockPct"] / 100 / state["leverage"]), 4)
+            tier_floor = round(entry - (entry - hw) * tier["lockPct"] / 100, 4)
         state["currentTierIndex"] = tier_idx
         state["tierFloorPrice"] = tier_floor
         if phase == 1:
