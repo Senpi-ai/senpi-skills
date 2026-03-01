@@ -13,7 +13,14 @@ Usage:
     path = dsl_state_path("wolf-abc123", "HYPE")
 """
 
-import json, os, sys, glob, subprocess, time, tempfile, shlex
+import glob
+import json
+import os
+import shlex
+import subprocess
+import sys
+import tempfile
+import time
 
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
@@ -443,6 +450,17 @@ def get_lifecycle_adapter(strategy_key=None):
 
     journal_path = os.path.join(sdir, "trade-journal.jsonl")
 
+    def _create_dsl_for_healthcheck(asset, direction, entry_price, size,
+                                    leverage, instance_key=None):
+        """Adapter for healthcheck auto-create (different signature)."""
+        return dsl_state_template(
+            asset=asset, direction=direction, entry_price=entry_price,
+            size=size, leverage=leverage,
+            strategy_key=instance_key or resolved_key,
+            tiers=cfg.get("dsl", {}).get("tiers"),
+            created_by="healthcheck_auto_create",
+        )
+
     return {
         "wallet": cfg.get("wallet", ""),
         "skill": "wolf",
@@ -456,6 +474,33 @@ def get_lifecycle_adapter(strategy_key=None):
         "log_trade": _log_trade,
         "journal_path": journal_path,
         "output": lambda data: print(json.dumps(data)),
+        # Healthcheck adapter keys
+        "dsl_glob": dsl_state_glob(resolved_key),
+        "dsl_state_path": lambda asset: dsl_state_path(resolved_key, asset),
+        "create_dsl_for_healthcheck": _create_dsl_for_healthcheck,
+        "tiers": cfg.get("dsl", {}).get("tiers"),
+    }
+
+
+def list_instances(enabled_only=True):
+    """Return all strategy keys for multi-strategy health checks."""
+    return list(load_all_strategies(enabled_only=enabled_only).keys())
+
+
+def get_healthcheck_adapter(strategy_key=None):
+    """Return an adapter dict shaped for senpi-healthcheck.py.
+
+    Reuses get_lifecycle_adapter() and maps keys to the healthcheck interface.
+    """
+    adapter = get_lifecycle_adapter(strategy_key=strategy_key)
+    return {
+        "wallet": adapter["wallet"],
+        "skill": adapter["skill"],
+        "instance_key": adapter["instance_key"],
+        "dsl_glob": adapter["dsl_glob"],
+        "dsl_state_path": adapter["dsl_state_path"],
+        "create_dsl": adapter["create_dsl_for_healthcheck"],
+        "tiers": adapter.get("tiers"),
     }
 
 
