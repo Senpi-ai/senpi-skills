@@ -180,6 +180,26 @@ def dsl_state_glob(strategy_key):
     return os.path.join(state_dir(strategy_key), "dsl-*.json")
 
 
+def load_dsl_state(strategy_key, asset):
+    """Load DSL state for a strategy + asset.  Returns dict or None."""
+    path = dsl_state_path(strategy_key, asset)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return None
+
+
+def save_dsl_state(strategy_key, asset, dsl_state):
+    """Save DSL state atomically for a strategy + asset."""
+    path = dsl_state_path(strategy_key, asset)
+    from datetime import datetime, timezone
+    dsl_state["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    atomic_write(path, dsl_state)
+
+
 def get_all_active_positions():
     """Get all active positions across ALL strategies.
 

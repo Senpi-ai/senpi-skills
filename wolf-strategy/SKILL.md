@@ -349,16 +349,35 @@ All sizing is calculated from budget (30% per slot):
 
 ## Position Lifecycle
 
+**Use `wolf-enter.py` and `wolf-close.py` instead of calling MCP tools directly.** These scripts handle the full lifecycle atomically — no manual JSON state writes needed.
+
 ### Opening
-1. Signal fires -> validate checklist -> route to best-fit strategy
-2. `create_position` on that strategy's wallet (use `leverageType: "ISOLATED"` for XYZ assets)
-3. Create DSL state file in `state/{strategyKey}/dsl-{ASSET}.json` with `strategyKey` field
-4. Alert user
+
+```bash
+python3 scripts/wolf-enter.py --strategy-key wolf-abc123 --coin HYPE \
+  --direction LONG --leverage 7 --margin 400
+```
+
+What it does:
+1. Guard checks (slots, duplicate positions)
+2. Calls `create_position` via mcporter
+3. Creates `dsl-{ASSET}.json` using `dsl_state_template()` with strategy tiers
+4. Journals `POSITION_OPENED` + `DSL_CREATED` events
 
 ### Closing
-1. Close via `close_position` (or DSL auto-closes)
-2. **Immediately** set DSL state `active: false`
-3. Alert user with strategy name for context
+
+```bash
+python3 scripts/wolf-close.py --strategy-key wolf-abc123 --coin HYPE --reason "SM flip"
+```
+
+What it does:
+1. Calls `close_position` via mcporter (handles `CLOSE_NO_POSITION` gracefully)
+2. Deactivates `dsl-{ASSET}.json` (`active: false`, `closedAt`, `closeReason`)
+3. Journals `POSITION_CLOSED` + `DSL_DEACTIVATED` events
+
+### Shared Library
+
+Both scripts use `lib/senpi_state/` for atomic writes, mcporter calls, and event journaling. See the TIGER SKILL.md for full library documentation.
 4. Evaluate: empty slot in that strategy for next signal?
 
 ---
