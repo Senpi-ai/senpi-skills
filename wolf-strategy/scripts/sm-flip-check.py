@@ -31,7 +31,7 @@ def get_active_positions():
                         "strategyKey": key,
                         "file": f
                     })
-            except (json.JSONDecodeError, IOError, KeyError):
+            except (json.JSONDecodeError, IOError, KeyError, AttributeError):
                 continue
     return positions
 

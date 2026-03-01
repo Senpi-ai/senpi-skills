@@ -329,7 +329,7 @@ try:
                     s = json.load(f)
                 if s.get("active"):
                     active_count += 1
-            except (json.JSONDecodeError, IOError, KeyError):
+            except (json.JSONDecodeError, IOError, KeyError, AttributeError):
                 continue
         strategy_slots[key] = {
             "name": cfg.get("name", key),
