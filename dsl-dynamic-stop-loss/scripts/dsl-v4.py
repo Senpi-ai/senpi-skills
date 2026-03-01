@@ -31,16 +31,18 @@ close_retries = state.get("closeRetries", 2)
 close_retry_delay = state.get("closeRetryDelaySec", 3)
 max_fetch_failures = state.get("maxFetchFailures", 10)
 
-# ─── Fetch price ───
+# ─── Fetch price via mcporter ───
 try:
+    mcporter_bin = os.environ.get("MCPORTER_CMD", "mcporter")
     r = subprocess.run(
-        ["curl", "-s", "https://api.hyperliquid.xyz/info",
-         "-H", "Content-Type: application/json",
-         "-d", '{"type":"allMids"}'],
-        capture_output=True, text=True, timeout=15
+        [mcporter_bin, "call", "senpi.market_get_prices"],
+        capture_output=True, text=True, timeout=20
     )
-    mids = json.loads(r.stdout)
-    price = float(mids[state["asset"]])
+    data = json.loads(r.stdout)
+    prices = data.get("data", data) if isinstance(data, dict) else data
+    if isinstance(prices, dict) and "prices" in prices:
+        prices = prices["prices"]
+    price = float(prices[state["asset"]])
     state["consecutiveFetchFailures"] = 0
 except Exception as e:
     fails = state.get("consecutiveFetchFailures", 0) + 1
@@ -64,13 +66,23 @@ except Exception as e:
 
 entry = state["entryPrice"]
 size = state["size"]
-hw = state["highWaterPrice"]
-phase = state["phase"]
-breach_count = state["currentBreachCount"]
-tier_idx = state["currentTierIndex"]
-tier_floor = state["tierFloorPrice"]
-tiers = state["tiers"]
+hw = state.get("highWaterPrice", entry)
+if "highWaterPrice" not in state:
+    state["highWaterPrice"] = hw
+phase = state.get("phase", 1)
+breach_count = state.get("currentBreachCount", 0)
+tier_idx = state.get("currentTierIndex", -1)
+tier_floor = state.get("tierFloorPrice", 0)
+tiers = state.get("tiers", [])
 force_close = state.get("pendingClose", False)
+
+_default_phase1 = {"retraceThreshold": 0.02, "consecutiveBreachesRequired": 3,
+                   "absoluteFloor": round(entry * 0.98, 4) if is_long else round(entry * 1.02, 4)}
+_default_phase2 = {"retraceThreshold": 0.015, "consecutiveBreachesRequired": 2}
+if "phase1" not in state:
+    state["phase1"] = _default_phase1
+if "phase2" not in state:
+    state["phase2"] = _default_phase2
 
 # ─── uPnL ───
 if is_long:
