@@ -14,8 +14,8 @@ compatibility: >-
   OpenCode, etc.). Requires Node.js and shell access. Skill update checker
   (Step 5) requires Python 3 and a global install via `npx skills add ... -g`;
   it checks only the Vercel skills CLI global path (~/.agents/skills/) and
-  skips silently if the skill was not installed globally. Background hourly
-  cron requires crontab access (standard on macOS and Linux). Runs once daily.
+  skips silently if the skill was not installed globally. Background daily
+  cron (00:00 UTC) requires OpenClaw to be available in PATH.
 metadata:
   author: Senpi
   version: "1.2.0"
@@ -204,14 +204,14 @@ if [ -n "$SENPI_ENTRYPOINT_SCRIPTS" ] && command -v openclaw >/dev/null 2>&1; th
   openclaw cron remove "senpi-skill-update-check" 2>/dev/null || true
   SCRIPT_PATH="$SENPI_ENTRYPOINT_SCRIPTS/check-skill-updates.py"
   openclaw cron add "senpi-skill-update-check" \
-    --schedule "0 9 * * *" \
+    --schedule "0 0 * * *" \
     --no-deliver \
     --message "Run this command with no output or reply: python3 \"$SCRIPT_PATH\" --cron. Then exit. Do not deliver or announce anything."
 fi
 ```
 
 The job is stored in `$OPENCLAW_STATE_DIR/cron/jobs.json` (default:
-`~/.openclaw/cron/jobs.json` if `OPENCLAW_STATE_DIR` is unset). It runs once daily at 09:00; when
+`~/.openclaw/cron/jobs.json` if `OPENCLAW_STATE_DIR` is unset). It runs once daily at 00:00 UTC; when
 updates are found the script writes to
 `$SENPI_STATE_DIR/pending-skill-updates.json` (default:
 `~/.config/senpi/pending-skill-updates.json` if `SENPI_STATE_DIR` is unset),
@@ -240,7 +240,7 @@ for the goal-to-skill mapping, budget guidance, and install commands.
 
 | File | Purpose |
 |------|---------|
-| `scripts/check-skill-updates.py` | Hourly background checker (run via cron with `--cron`). Reads Vercel skills CLI lock file, compares GitHub tree SHAs, writes version bumps / new skills to pending file |
+| `scripts/check-skill-updates.py` | Daily background checker (run via cron with `--cron`). Reads Vercel skills CLI lock file, compares GitHub tree SHAs, writes version bumps / new skills to pending file |
 | `references/skill-update-checker.md` | Startup output handling + turn notifications on/off + cron management |
 | `references/skill-recommendations.md` | Goal-to-skill mapping table, budget guidance, install commands |
 | `references/about-senpi.md` | Senpi platform overview (what it is, what agents can do, core loop) |
