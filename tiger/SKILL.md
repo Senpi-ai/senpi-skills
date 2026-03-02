@@ -207,6 +207,7 @@ Per-position DSL state file. Combined runner (`dsl-v4.py`) checks all active pos
 | Max drawdown from peak | 20% | `maxDrawdownPct` | 20 |
 | Max concurrent positions | 3 | `maxSlots` | 3 |
 | OI collapse exit | OI drops > 25% in 1h | `oiCollapseThresholdPct` | 25 |
+| OI drop reduce | OI drops > 10% in 1h | `oiReduceThresholdPct` | 10 |
 | Funding reversal exit | Funding flips on FUNDING_ARB | — | Auto |
 | Deadline proximity | Final 24h → tighten all stops | — | Auto |
 

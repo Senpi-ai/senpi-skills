@@ -39,6 +39,8 @@ Create `$TIGER_WORKSPACE/tiger-config.json`:
   "maxDrawdownPct": 20.0,
   "bbSqueezePercentile": 35,
   "btcCorrelationMovePct": 2.0,
+  "oiCollapseThresholdPct": 25,
+  "oiReduceThresholdPct": 10,
   "minConfluenceScore": {
     "CONSERVATIVE": 0.7,
     "NORMAL": 0.40,
