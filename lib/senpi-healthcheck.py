@@ -1,23 +1,30 @@
 #!/usr/bin/env python3
 """
-senpi-healthcheck.py — Generic self-healing DSL health check for any Senpi skill.
+senpi-healthcheck.py — Generic self-healing health check for any Senpi skill.
 
 Works with any skill that provides a get_healthcheck_adapter() (or extends
 get_lifecycle_adapter()) in its config module.
 
-Checks per instance / strategy:
-  - Every on-chain position has an active, correctly-directed DSL
-  - No orphan DSLs (active DSL with no matching position)
-  - DSL size/entry/leverage match on-chain values
-  - DSLs are being checked recently (not stale)
+Modes:
+  Default (DSL-only):
+    - Every on-chain position has an active, correctly-directed DSL
+    - No orphan DSLs (active DSL with no matching position)
+    - DSL size/entry/leverage match on-chain values
+    - DSLs are being checked recently (not stale)
 
-Auto-heals where safe, alerts where not.
+  --reconcile-state (State Doctor):
+    All of the above, PLUS:
+    - activePositions reconciled against on-chain data
+    - Slot count verification
+    - Margin utilization monitoring with configurable auto-downsize
+    - Liquidation proximity checks
 
 Usage:
-  python3 senpi-healthcheck.py --skill wolf --config-dir wolf-strategy/scripts
   python3 senpi-healthcheck.py --skill tiger --config-dir tiger/scripts
-  python3 senpi-healthcheck.py --skill wolf --config-dir wolf-strategy/scripts \
-      --strategy wolf-abc123
+  python3 senpi-healthcheck.py --skill tiger --config-dir tiger/scripts \\
+      --reconcile-state --margin-warn 70 --margin-critical 85
+  python3 senpi-healthcheck.py --skill wolf --config-dir wolf-strategy/scripts \\
+      --strategy wolf-abc123 --reconcile-state --no-auto-downsize
 """
 
 import argparse
@@ -31,6 +38,7 @@ LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
 
 from senpi_state.healthcheck import check_instance
+from senpi_state.state_doctor import MarginConfig, reconcile_state
 
 
 def _import_config(skill, config_dir):
@@ -53,7 +61,7 @@ def _import_config(skill, config_dir):
 
 
 def _run_single(adapter, stale_minutes):
-    """Run health check for one instance and return its result dict."""
+    """Run DSL-only health check for one instance."""
     issues, positions, active_dsl = check_instance(
         wallet=adapter["wallet"],
         instance_key=adapter["instance_key"],
@@ -73,18 +81,51 @@ def _run_single(adapter, stale_minutes):
     }
 
 
+def _run_state_doctor(adapter, stale_minutes, margin_config):
+    """Run full state reconciliation + margin safety for one instance."""
+    return reconcile_state(
+        wallet=adapter["wallet"],
+        instance_key=adapter["instance_key"],
+        load_state=adapter["load_state"],
+        save_state=adapter["save_state"],
+        max_slots=adapter.get("max_slots", 3),
+        dsl_glob_pattern=adapter["dsl_glob"],
+        dsl_state_path_fn=adapter["dsl_state_path"],
+        create_dsl_fn=adapter.get("create_dsl"),
+        tiers=adapter.get("tiers"),
+        stale_minutes=stale_minutes,
+        margin_config=margin_config,
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(
-        description="Senpi generic DSL health check")
+        description="Senpi generic health check + state doctor")
     parser.add_argument("--skill", required=True,
                         help="Skill name (tiger, wolf, lion, viper)")
     parser.add_argument("--config-dir", required=True,
                         help="Path to directory containing {skill}_config.py")
     parser.add_argument("--strategy", default=None,
-                        help="Strategy key (for multi-strategy skills like wolf). "
-                             "If omitted, checks all strategies/instances.")
+                        help="Strategy key (for multi-strategy skills like wolf)")
     parser.add_argument("--stale-minutes", type=float, default=10,
                         help="Alert if DSL not checked in N minutes (default 10)")
+
+    parser.add_argument("--reconcile-state", action="store_true",
+                        help="Enable full state reconciliation + margin safety")
+    parser.add_argument("--margin-warn", type=float, default=70,
+                        help="Margin utilization warning %% (default 70)")
+    parser.add_argument("--margin-critical", type=float, default=85,
+                        help="Margin utilization auto-downsize trigger %% (default 85)")
+    parser.add_argument("--margin-target", type=float, default=60,
+                        help="Target utilization after downsize %% (default 60)")
+    parser.add_argument("--liq-warn", type=float, default=30,
+                        help="Liquidation distance warning %% (default 30)")
+    parser.add_argument("--liq-critical", type=float, default=15,
+                        help="Liquidation distance auto-downsize trigger %% (default 15)")
+    parser.add_argument("--no-auto-downsize", action="store_true",
+                        help="Disable auto-downsizing (alert-only mode)")
+    parser.add_argument("--downsize-pct", type=float, default=25,
+                        help="Fallback position reduction %% (default 25)")
     args = parser.parse_args()
 
     config_dir = os.path.abspath(args.config_dir)
@@ -95,8 +136,6 @@ def main():
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # Prefer get_healthcheck_adapter if the skill provides it; fall back to
-    # get_lifecycle_adapter with healthcheck-specific keys.
     adapter_fn = getattr(mod, "get_healthcheck_adapter", None)
     if adapter_fn is None:
         adapter_fn = getattr(mod, "get_lifecycle_adapter", None)
@@ -108,8 +147,6 @@ def main():
         }))
         return
 
-    # Multi-instance: if the config module exposes list_instances(), iterate
-    # all of them.  Otherwise run for the single adapter returned.
     list_fn = getattr(mod, "list_instances", None)
 
     adapters = []
@@ -121,24 +158,49 @@ def main():
     else:
         adapters.append(adapter_fn())
 
+    margin_config = None
+    if args.reconcile_state:
+        margin_config = MarginConfig(
+            warn_utilization_pct=args.margin_warn,
+            critical_utilization_pct=args.margin_critical,
+            target_utilization_pct=args.margin_target,
+            warn_liq_distance_pct=args.liq_warn,
+            critical_liq_distance_pct=args.liq_critical,
+            auto_downsize=not args.no_auto_downsize,
+            downsize_reduce_pct=args.downsize_pct,
+        )
+
     all_issues = []
     instance_results = {}
 
     for adapter in adapters:
-        result = _run_single(adapter, args.stale_minutes)
-        instance_results[result["instance_key"]] = result
-        all_issues.extend(result["issues"])
+        if args.reconcile_state:
+            result = _run_state_doctor(adapter, args.stale_minutes, margin_config)
+            instance_results[result["instance_key"]] = result
+            all_issues.extend(result.get("all_issues", []))
+        else:
+            result = _run_single(adapter, args.stale_minutes)
+            instance_results[result["instance_key"]] = result
+            all_issues.extend(result["issues"])
+
+    actions = sum(1 for i in all_issues
+                  if i.get("action") not in ("alert_only", "skipped_fetch_error"))
+    downsizes = sum(r.get("downsizes_executed", 0)
+                    for r in instance_results.values())
 
     output = {
         "status": "ok" if not any(
             i["level"] == "CRITICAL" for i in all_issues) else "critical",
         "time": now,
         "skill": args.skill,
+        "mode": "state_doctor" if args.reconcile_state else "dsl_only",
         "instances": instance_results,
         "issues": all_issues,
         "issue_count": len(all_issues),
         "critical_count": sum(
             1 for i in all_issues if i["level"] == "CRITICAL"),
+        "actions_taken": actions,
+        "downsizes_executed": downsizes,
     }
     print(json.dumps(output, indent=2))
 
