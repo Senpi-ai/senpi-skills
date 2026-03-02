@@ -243,8 +243,7 @@ Zero external dependencies. All indicators implemented with only `math` and `sta
 | REDUCE | Advisory — recommends size reduction | risk-guardian |
 | PARTIAL_75 | Advisory — recommends 75% close | tiger-exit |
 
-Advisory actions remain so because they require position-size computation that benefits from agent contextual judgment (see `pending-enforcements.doc.md` for the full design rationale).
-
+Advisory actions remain so because they require position-size computation that benefits from agent contextual judgment.
 ---
 
 ## Trading Characteristics
