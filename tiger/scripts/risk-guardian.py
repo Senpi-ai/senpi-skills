@@ -16,7 +16,7 @@ from tiger_config import resolve_dependencies
 
 def check_daily_loss(config, state, current_balance):
     """Check if daily loss budget is exceeded."""
-    day_start = state.get("dayStartBalance", config["budget"])
+    day_start = state.get("dayStartBalance") or config.get("budget", 0)
     daily_loss = day_start - current_balance
     daily_loss_pct = (daily_loss / day_start) * 100 if day_start > 0 else 0
 
