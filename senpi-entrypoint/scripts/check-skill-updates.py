@@ -184,7 +184,7 @@ def github_get(url, max_attempts=3, delay=3):
     return None
 
 
-def github_raw(path, max_attempts=3, delay=3):
+def github_raw(path, max_attempts=2, delay=1):
     """Fetch raw file content from GitHub main branch. Returns text or None after all retries fail."""
     url = f"{GITHUB_RAW}/{SENPI_REPO}/main/{path}"
     req = urllib.request.Request(
@@ -389,7 +389,6 @@ def main(args):
 
     # 5. For each installed Senpi skill, check if the folder hash changed
     for skill_name, lock_entry in senpi_skills.items():
-        skill_path = lock_entry.get("skillPath") or skill_name
         stored_hash = lock_entry.get("skillFolderHash") or ""
 
         # The GitHub contents API returns each folder entry with its git tree SHA.
@@ -407,14 +406,14 @@ def main(args):
             # baseline and not None (which would produce a spurious "unknown → vX"
             # report even for docs-only changes where the version didn't bump).
             if skill_name not in known_versions:
-                skill_md_text = github_raw(f"{skill_path}/SKILL.md")
+                skill_md_text = github_raw(f"{skill_name}/SKILL.md")
                 version = parse_frontmatter_field(skill_md_text, "metadata.version")
                 if version:
                     known_versions[skill_name] = version
             continue
 
         # Hash changed — fetch SKILL.md to check if the version field bumped
-        skill_md_text = github_raw(f"{skill_path}/SKILL.md")
+        skill_md_text = github_raw(f"{skill_name}/SKILL.md")
         new_version = parse_frontmatter_field(skill_md_text, "metadata.version")
 
         if not new_version:
