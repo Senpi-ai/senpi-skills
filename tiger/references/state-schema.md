@@ -115,10 +115,10 @@ All state files use atomic writes (`os.replace()`). All percentage values are wh
   },
   "phase2TriggerTier": 1,
   "tiers": [
-    { "triggerPct": 5, "lockPct": 20, "retrace": 0.015 },
-    { "triggerPct": 10, "lockPct": 50, "retrace": 0.012 },
-    { "triggerPct": 20, "lockPct": 70, "retrace": 0.010 },
-    { "triggerPct": 35, "lockPct": 80, "retrace": 0.008 }
+    { "triggerPct": 0.05, "lockPct": 0.20, "retrace": 0.015 },
+    { "triggerPct": 0.10, "lockPct": 0.50, "retrace": 0.012 },
+    { "triggerPct": 0.20, "lockPct": 0.70, "retrace": 0.010 },
+    { "triggerPct": 0.35, "lockPct": 0.80, "retrace": 0.008 }
   ],
   "breachDecay": "soft",
   "createdAt": "2026-02-25T12:00:00.000Z",
@@ -130,13 +130,15 @@ All state files use atomic writes (`os.replace()`). All percentage values are wh
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `triggerPct` | int | ROE % to activate tier. `5` = 5% ROE. |
-| `lockPct` | int | % of high-water move to lock. `20` = lock 20%. |
+| `triggerPct` | float | ROE trigger as decimal fraction. `0.05` = 5% ROE. |
+| `lockPct` | float | Lock ratio as decimal fraction. `0.20` = lock 20%. |
 | `retrace` | float | Fraction, NOT percent. `0.015` = 1.5% retrace. |
 | `retraceThreshold` | float | Same as retrace — fraction. |
 | `absoluteFloor` | float | Price level, not percentage. |
 | `currentTierIndex` | int | -1 = no tier hit yet. 0-indexed. |
 | `breachDecay` | string | `"soft"` = breach count decays. `"hard"` = no decay. |
+
+`dsl-v4.py` is backward-compatible with legacy whole-number tier values (`5`, `20`), but decimal format is canonical.
 
 ---
 

@@ -284,6 +284,32 @@ def main():
     close_coins = [a["coin"] for a in all_alerts if a.get("action") == "CLOSE" and "coin" in a]
     reduce_coins = [a["coin"] for a in all_alerts if a.get("action") == "REDUCE" and "coin" in a]
     tp_coins = [a["coin"] for a in all_alerts if a.get("action") == "TAKE_PROFIT" and "coin" in a]
+    close_all = any(a.get("action") == "CLOSE_ALL" for a in all_alerts)
+
+    # Execute close actions deterministically.
+    # Note: REDUCE remains advisory because edit_position sizing params are strategy-specific.
+    close_targets = set(close_coins + tp_coins)
+    if close_all:
+        close_targets.update([p.get("coin", "") for p in parsed_positions if p.get("coin")])
+
+    execution = {
+        "close_attempted": [],
+        "close_succeeded": [],
+        "close_failed": [],
+        "reduce_advisory_only": sorted(set(reduce_coins)),
+    }
+
+    for coin in sorted(c for c in close_targets if c):
+        reason = "risk_guardian_action"
+        result = close_position(wallet, coin, reason=reason)
+        execution["close_attempted"].append(coin)
+        if isinstance(result, dict) and not result.get("error"):
+            execution["close_succeeded"].append(coin)
+        else:
+            execution["close_failed"].append({
+                "coin": coin,
+                "error": result.get("error", "unknown") if isinstance(result, dict) else "unknown"
+            })
 
     # Update state
     state["current_balance"] = current_balance
@@ -304,8 +330,9 @@ def main():
             "close": close_coins,
             "reduce": reduce_coins,
             "take_profit": tp_coins,
-            "close_all": any(a.get("action") == "CLOSE_ALL" for a in all_alerts)
-        }
+            "close_all": close_all
+        },
+        "execution": execution
     }
 
     output(report)

@@ -27,25 +27,25 @@ Create `$TIGER_WORKSPACE/tiger-config.json`:
 {
   "budget": 1000,
   "target": 2000,
-  "deadline_days": 7,
-  "start_time": "2026-01-01T00:00:00Z",
-  "strategy_id": "your-strategy-uuid",
-  "strategy_wallet": "0xYourWalletAddress",
-  "max_slots": 3,
-  "max_leverage": 10,
-  "min_leverage": 5,
-  "max_single_loss_pct": 5.0,
-  "max_daily_loss_pct": 12.0,
-  "max_drawdown_pct": 20.0,
-  "min_bb_squeeze_percentile": 35,
-  "btc_correlation_move_pct": 2.0,
-  "min_confluence_score": {
+  "deadlineDays": 7,
+  "startTime": "2026-01-01T00:00:00Z",
+  "strategyId": "your-strategy-uuid",
+  "strategyWallet": "0xYourStrategyWalletAddress",
+  "maxSlots": 3,
+  "maxLeverage": 10,
+  "minLeverage": 5,
+  "maxSingleLossPct": 5.0,
+  "maxDailyLossPct": 12.0,
+  "maxDrawdownPct": 20.0,
+  "bbSqueezePercentile": 35,
+  "btcCorrelationMovePct": 2.0,
+  "minConfluenceScore": {
     "CONSERVATIVE": 0.7,
     "NORMAL": 0.40,
     "ELEVATED": 0.4,
     "ABORT": 999
   },
-  "trailing_lock_pct": {
+  "trailingLockPct": {
     "CONSERVATIVE": 0.80,
     "NORMAL": 0.60,
     "ELEVATED": 0.40,
@@ -54,13 +54,13 @@ Create `$TIGER_WORKSPACE/tiger-config.json`:
 }
 ```
 
-Adjust `budget`, `target`, `deadline_days`, and wallet fields for your setup.
+Adjust `budget`, `target`, `deadlineDays`, and wallet fields for your setup.
 
 ### 4. Initialize state
 
 #### DSL State File Format
 
-When creating DSL state files for new positions, the file **MUST** include `"active": true` at the top level. Without this field, `dsl-v4.py` returns `{"status": "inactive"}` and will not manage the position (line 22 check).
+When creating DSL state files for new positions, the file **MUST** include `"active": true` at the top level. Without this field, `dsl-v4.py` returns `{"status": "inactive"}` and will not manage the position.
 
 Minimal DSL state file:
 ```json
@@ -81,10 +81,10 @@ Minimal DSL state file:
   "phase2": { "retraceThreshold": 0.012, "consecutiveBreachesRequired": 2 },
   "phase2TriggerTier": 1,
   "tiers": [
-    { "triggerPct": 5, "lockPct": 20, "retrace": 0.015 },
-    { "triggerPct": 10, "lockPct": 50, "retrace": 0.012 },
-    { "triggerPct": 20, "lockPct": 70, "retrace": 0.010 },
-    { "triggerPct": 35, "lockPct": 80, "retrace": 0.008 }
+    { "triggerPct": 0.05, "lockPct": 0.20, "retrace": 0.015 },
+    { "triggerPct": 0.10, "lockPct": 0.50, "retrace": 0.012 },
+    { "triggerPct": 0.20, "lockPct": 0.70, "retrace": 0.010 },
+    { "triggerPct": 0.35, "lockPct": 0.80, "retrace": 0.008 }
   ],
   "breachDecay": "soft",
   "createdAt": "2026-01-01T00:00:00Z"
@@ -92,8 +92,9 @@ Minimal DSL state file:
 ```
 
 ⚠️ **Gotcha**: Forgetting `"active": true` is the #1 setup mistake. DSL silently does nothing without it.
+`dsl-v4.py` accepts both decimal and whole-number tier percent inputs, but decimal is canonical.
 
-Invoke DSL with: `DSL_STATE_FILE=/path/to/state.json python3 scripts/dsl-v4.py COIN`
+Invoke DSL with: `DSL_STATE_FILE=/path/to/state.json python3 scripts/dsl-v4.py`
 
 #### Bootstrap with Goal Engine
 
@@ -119,10 +120,10 @@ Check scanner logs in `/tmp/tiger-*.log`. Each outputs JSON with `actionable` co
 
 ## Adjusting Parameters
 
-- **More signals**: Lower `min_confluence_score.NORMAL` (e.g., 0.35). Lower `min_bb_squeeze_percentile` (e.g., 25).
+- **More signals**: Lower `minConfluenceScore.NORMAL` (e.g., 0.35). Raise `bbSqueezePercentile` (e.g., 45).
 - **Fewer, higher-quality signals**: Raise confluence to 0.50+. 
-- **More aggressive**: Increase `max_leverage`, decrease `trailing_lock_pct`.
-- **More conservative**: Decrease `max_slots` to 2, increase `max_single_loss_pct` to 3%.
+- **More aggressive**: Increase `maxLeverage`, decrease `trailingLockPct`.
+- **More conservative**: Decrease `maxSlots` to 2, reduce `maxSingleLossPct` to 3%.
 
 ## Stopping Tiger
 

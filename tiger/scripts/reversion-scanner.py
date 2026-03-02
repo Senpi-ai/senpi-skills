@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from tiger_config import (
     load_config, load_state, get_all_instruments,
     get_asset_candles, load_oi_history, output, STATE_DIR,
-    load_prescreened_candidates
+    load_prescreened_candidates, get_pattern_min_confluence, get_disabled_patterns
 )
 from tiger_lib import (
     parse_candles, rsi, bollinger_bands, atr, volume_ratio,
@@ -160,9 +160,18 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
 def main():
     config = load_config()
     state = load_state()
+    pattern = "MEAN_REVERSION"
 
     if state.get("halted"):
         output({"action": "reversion_scan", "halted": True, "reason": state.get("halt_reason")})
+        return
+    if pattern in get_disabled_patterns():
+        output({
+            "action": "reversion_scan",
+            "disabled": True,
+            "disabled_pattern": pattern,
+            "reason": "Pattern disabled by ROAR."
+        })
         return
 
     instruments = get_all_instruments()
@@ -201,7 +210,7 @@ def main():
 
     signals.sort(key=lambda x: x["score"], reverse=True)
 
-    min_score = config["min_confluence_score"].get(state.get("aggression", "NORMAL"), 2.0)
+    min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score]
     available_slots = config["max_slots"] - len(active_coins)
 

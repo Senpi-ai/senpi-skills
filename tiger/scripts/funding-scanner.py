@@ -13,7 +13,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
     load_config, load_state, get_all_instruments,
-    get_asset_candles, get_sm_markets, load_oi_history, output
+    get_asset_candles, get_sm_markets, load_oi_history, output,
+    get_pattern_min_confluence, get_disabled_patterns
 )
 from tiger_lib import (
     parse_candles, rsi, sma, atr, volume_ratio,
@@ -134,9 +135,18 @@ def analyze_funding(asset: str, context: dict, config: dict, sm_data: dict, oi_h
 def main():
     config = load_config()
     state = load_state()
+    pattern = "FUNDING_ARB"
 
     if state.get("halted"):
         output({"action": "funding_scan", "halted": True, "reason": state.get("halt_reason")})
+        return
+    if pattern in get_disabled_patterns():
+        output({
+            "action": "funding_scan",
+            "disabled": True,
+            "disabled_pattern": pattern,
+            "reason": "Pattern disabled by ROAR."
+        })
         return
 
     instruments = get_all_instruments()
@@ -181,7 +191,7 @@ def main():
 
     signals.sort(key=lambda x: x["score"], reverse=True)
 
-    min_score = config["min_confluence_score"].get(state.get("aggression", "NORMAL"), 2.0)
+    min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score]
     active_coins = set(state.get("active_positions", {}).keys())
 

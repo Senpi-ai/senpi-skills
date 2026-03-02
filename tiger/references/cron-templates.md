@@ -1,6 +1,6 @@
 # TIGER Cron Templates
 
-All crons use OpenClaw `systemEvent` format targeting the `main` session.
+Crons use OpenClaw `systemEvent` or `agentTurn` format, with `main` or `isolated` session targets depending on task.
 
 Replace:
 - `{SCRIPTS}` → full scripts path (default: `$TIGER_WORKSPACE/scripts`)
@@ -185,7 +185,7 @@ Every 5 minutes (offset 4 min). Enforces all risk limits.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER RISK GUARDIAN: Run `python3 {SCRIPTS}/risk-guardian.py`, parse JSON.\n\nPROCESSING ORDER:\n1. Read state ONCE.\n2. Check daily loss, drawdown, single position limits per SKILL.md.\n3. Check OI collapse, funding reversal for FUNDING_ARB positions.\n4. If critical → close via close_position. Set halted if needed.\n5. Send ONE Telegram ({TELEGRAM}).\n\nElse HEARTBEAT_OK."
+    "text": "TIGER RISK GUARDIAN: Run `python3 {SCRIPTS}/risk-guardian.py`, parse JSON.\n\nPROCESSING ORDER:\n1. Read state ONCE.\n2. Check daily loss, drawdown, single position limits per SKILL.md.\n3. Check OI collapse, funding reversal for FUNDING_ARB positions.\n4. Script executes close actions directly and sets halted when critical.\n5. Send ONE Telegram ({TELEGRAM}).\n\nElse HEARTBEAT_OK."
   }
 }
 ```
@@ -204,7 +204,7 @@ Every 5 minutes (runs with risk guardian).
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER EXIT CHECKER: Run `python3 {SCRIPTS}/tiger-exit.py`, parse JSON.\nProcess exit signals by priority. Pattern-specific exits per SKILL.md.\nDeadline proximity: tighten stops in final 24h.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER EXIT CHECKER: Run `python3 {SCRIPTS}/tiger-exit.py`, parse JSON.\nScript executes CLOSE exits directly; PARTIAL actions remain advisory.\nPattern-specific exits per SKILL.md. Deadline proximity: tighten stops in final 24h.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
   }
 }
 ```
@@ -213,7 +213,7 @@ Every 5 minutes (runs with risk guardian).
 
 ## Cron 10: DSL Combined — Tier 1
 
-Every 30 seconds. Iterates all active DSL state files.
+Every 30 seconds. Iterates all active DSL state files for the strategy instance.
 
 ```json
 {
@@ -223,7 +223,7 @@ Every 30 seconds. Iterates all active DSL state files.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER DSL: Run `python3 {SCRIPTS}/dsl-v4.py`, parse JSON.\nDSL is self-contained — auto-closes via close_position on breach.\nIf position closed → set DSL active: false, notify Telegram ({TELEGRAM}).\nElse HEARTBEAT_OK."
+    "text": "TIGER DSL: Run `python3 {SCRIPTS}/dsl-v4.py`, parse JSON.\nWhen DSL_STATE_FILE is unset, dsl-v4 runs in combined mode across all dsl-*.json files.\nDSL is self-contained — auto-closes via close_position on breach.\nIf position closed → notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
   }
 }
 ```

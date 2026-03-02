@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from tiger_config import (
     load_config, load_state, save_state, get_all_instruments,
     get_asset_candles, load_oi_history, output, STATE_DIR,
-    load_prescreened_candidates
+    load_prescreened_candidates, get_pattern_min_confluence, get_disabled_patterns
 )
 from tiger_lib import (
     parse_candles, bollinger_bands, bb_width, bb_width_percentile,
@@ -136,9 +136,18 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
 def main():
     config = load_config()
     state = load_state()
+    pattern = "COMPRESSION_BREAKOUT"
 
     if state.get("halted"):
         output({"action": "compression_scan", "halted": True, "reason": state.get("halt_reason")})
+        return
+    if pattern in get_disabled_patterns():
+        output({
+            "action": "compression_scan",
+            "disabled": True,
+            "disabled_pattern": pattern,
+            "reason": "Pattern disabled by ROAR."
+        })
         return
 
     # Get all instruments
@@ -184,7 +193,7 @@ def main():
     signals.sort(key=lambda x: x["score"], reverse=True)
 
     # Filter by minimum confluence for current aggression
-    min_score = config["min_confluence_score"].get(state.get("aggression", "NORMAL"), 2.0)
+    min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score and s.get("breakout")]
     watching = [s for s in signals if s["score"] >= 1.0 and not s.get("breakout")]
 
