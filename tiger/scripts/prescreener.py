@@ -11,19 +11,18 @@ import sys
 import os
 import json
 import time
+from typing import Optional
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
-    load_config, load_state, get_all_instruments, output,
-    STATE_DIR, atomic_write
+    resolve_dependencies
 )
 
-PRESCREENED_FILE = os.path.join(STATE_DIR, "prescreened.json")
 BLACKLIST = {"PUMP"}
 TOP_N = 30
 
 
-def score_instrument(inst: dict, config: dict) -> dict | None:
+def score_instrument(inst: dict, config: dict) -> Optional[dict]:
     """Score a single instrument using cheap context data. Returns candidate dict or None."""
     name = inst.get("name", "")
     if inst.get("is_delisted"):
@@ -32,7 +31,7 @@ def score_instrument(inst: dict, config: dict) -> dict | None:
         return None
 
     max_lev = inst.get("max_leverage", 0)
-    if max_lev < config.get("min_leverage", 5):
+    if max_lev < config.get("minLeverage", 5):
         return None
 
     ctx = inst.get("context", {})
@@ -91,7 +90,15 @@ def score_instrument(inst: dict, config: dict) -> dict | None:
     }
 
 
-def main():
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    load_config = deps["load_config"]
+    get_all_instruments = deps["get_all_instruments"]
+    output = deps["output"]
+    atomic_write = deps["atomic_write"]
+    state_dir = deps["state_dir"]
+    prescreened_file = os.path.join(state_dir, "prescreened.json")
+
     config = load_config()
     instruments = get_all_instruments()
     if not instruments:
@@ -156,7 +163,7 @@ def main():
     }
 
     # Write prescreened.json atomically
-    atomic_write(PRESCREENED_FILE, result)
+    atomic_write(prescreened_file, result)
 
     # Output summary
     output({
@@ -166,7 +173,7 @@ def main():
         "group_a": group_a,
         "group_b": group_b,
         "top_5": [{"name": c["name"], "score": c["prescreen_score"], "change": c["price_change_pct"]} for c in candidates[:5]],
-        "file": PRESCREENED_FILE,
+        "file": prescreened_file,
     })
 
 

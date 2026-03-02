@@ -61,14 +61,15 @@ metadata:
 ## Quick Start
 
 1. Ensure Senpi MCP is connected (`mcporter list` shows `senpi`)
-2. Create a custom strategy: `strategy_create_custom_strategy`
-3. Fund the wallet: `strategy_top_up`
-4. Run setup:
+2. Set workspace env var: `export TIGER_WORKSPACE=/abs/path/to/tiger-workspace` (required; scripts exit if unset)
+3. Create a custom strategy: `strategy_create_custom_strategy`
+4. Fund the wallet: `strategy_top_up`
+5. Run setup:
    ```bash
    python3 scripts/tiger-setup.py --wallet 0x... --strategy-id UUID \
-     --budget 1000 --target 2000 --deadline-days 7 --chat-id 12345
+     --budget 1000 --target 2000 --days 7 --chat-id 12345
    ```
-5. Create 12 OpenClaw crons from `references/cron-templates.md`
+6. Create 12 OpenClaw crons from `references/cron-templates.md`
 
 **First hour:** OI Tracker needs ~1h of history before compression/reversion scanners can use OI data. Goal engine and risk guardian work immediately.
 
@@ -353,6 +354,7 @@ Scripts: `roar-analyst.py` (engine), `roar_config.py` (bounds, state, revert log
 ## Gotchas
 
 - `maxSingleLossPct` is a whole number: `5` = 5%.
+- Config/state canonical keys are camelCase. Snake_case is accepted for backward compatibility and normalized.
 - `minConfluenceScore` values are decimals (0.40 = 40%), NOT whole numbers — this is a weighted score 0-1.
 - `trailingLockPct` values are decimals (0.60 = lock 60%).
 - `triggerPct` and `lockPct` in DSL tiers are decimal fractions (`0.05` = 5%). Legacy whole-number values are still accepted.
@@ -378,7 +380,7 @@ Scripts: `roar-analyst.py` (engine), `roar_config.py` (bounds, state, revert log
 ### Trading
 
 - **Don't short compressed assets with building OI** — compression often resolves upward.
-- **No duplicate positions**: Skip signals for assets already in `active_positions`.
+- **No duplicate positions**: Skip signals for assets already in `activePositions`.
 - **Re-entry in opposite direction IS valid**: When signals are strong, entering the same asset in the opposite direction works.
 - **DSL trailing stops >> fixed TP**: Every winning trade ran past where a fixed TP would have closed. Let winners run.
 - **High-score signals (0.85+) justify overriding blacklists**: If original loss was small and new direction differs, take the trade.

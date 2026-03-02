@@ -17,18 +17,16 @@ import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
-    load_config, load_state, get_all_instruments,
-    get_asset_candles, output, STATE_DIR,
-    load_prescreened_candidates, get_pattern_min_confluence, get_disabled_patterns
+    resolve_dependencies
 )
 from tiger_lib import (
     parse_candles, rsi, sma, atr, volume_ratio, confluence_score
 )
 
 
-def scan_asset(asset: str, context: dict, config: dict) -> dict:
+def scan_asset(asset: str, context: dict, config: dict, get_asset_candles_fn) -> dict:
     """Scan for momentum breakout on a single asset."""
-    result = get_asset_candles(asset, ["1h", "4h"])
+    result = get_asset_candles_fn(asset, ["1h", "4h"])
     if not result.get("success") and not result.get("data"):
         return None
 
@@ -130,13 +128,26 @@ def scan_asset(asset: str, context: dict, config: dict) -> dict:
     }
 
 
-def main():
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    load_config = deps["load_config"]
+    load_state = deps["load_state"]
+    get_all_instruments = deps["get_all_instruments"]
+    get_asset_candles = deps["get_asset_candles"]
+    output = deps["output"]
+    load_prescreened_candidates = deps["load_prescreened_candidates"]
+    get_pattern_min_confluence = deps["get_pattern_min_confluence"]
+    get_disabled_patterns = deps["get_disabled_patterns"]
+    is_halted = deps["is_halted"]
+    halt_reason = deps["halt_reason"]
+    get_active_positions = deps["get_active_positions"]
+
     config = load_config()
-    state = load_state()
+    state = load_state(config=config)
     pattern = "MOMENTUM_BREAKOUT"
 
-    if state.get("halted"):
-        output({"action": "momentum_scan", "halted": True, "reason": state.get("halt_reason")})
+    if is_halted(state):
+        output({"action": "momentum_scan", "halted": True, "reason": halt_reason(state)})
         return
     if pattern in get_disabled_patterns():
         output({
@@ -152,10 +163,10 @@ def main():
         output({"error": "Failed to fetch instruments"})
         return
 
-    active_coins = set(state.get("active_positions", {}).keys())
+    active_coins = set(get_active_positions(state).keys())
 
     # Try prescreened candidates first
-    candidates = load_prescreened_candidates(instruments, config)
+    candidates = load_prescreened_candidates(instruments, config=config)
 
     if candidates is None:
         # Fallback: original behavior
@@ -165,7 +176,7 @@ def main():
             if inst.get("is_delisted"):
                 continue
             max_lev = inst.get("max_leverage", 0)
-            if max_lev < config.get("min_leverage", 5):
+            if max_lev < config.get("minLeverage", 5):
                 continue
             ctx = inst.get("context", {})
             day_vol = float(ctx.get("dayNtlVlm", 0))
@@ -178,7 +189,7 @@ def main():
     signals = []
     for name, ctx, max_lev in candidates:
         ctx["max_leverage"] = max_lev
-        result = scan_asset(name, ctx, config)
+        result = scan_asset(name, ctx, config, get_asset_candles)
         if result:
             signals.append(result)
 
@@ -186,7 +197,7 @@ def main():
 
     min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score and s.get("rsi_ok")]
-    available_slots = config["max_slots"] - len(active_coins)
+    available_slots = config["maxSlots"] - len(active_coins)
 
     output({
         "action": "momentum_scan",

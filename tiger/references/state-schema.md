@@ -1,6 +1,6 @@
 # TIGER State Schema
 
-All state files use atomic writes (`os.replace()`). All percentage values are whole numbers unless noted.
+All state files use atomic writes (`os.replace()`). Canonical keys are camelCase; snake_case inputs are accepted for backward compatibility and normalized on save/load. All percentage values are whole numbers unless noted.
 
 ---
 

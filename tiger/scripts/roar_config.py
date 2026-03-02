@@ -16,18 +16,18 @@ import json
 import os
 import copy
 import time
+from typing import Optional
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 # Import shared infra
-from tiger_config import WORKSPACE, atomic_write
+from tiger_config import build_runtime, atomic_write
 
-# ─── Paths ───────────────────────────────────────────────────
 
-STATE_DIR = os.path.join(WORKSPACE, "state")
-ROAR_STATE_FILE = os.path.join(STATE_DIR, "roar-state.json")
-
-os.makedirs(STATE_DIR, exist_ok=True)
+def _roar_state_file(runtime=None):
+    rt = runtime or build_runtime()
+    state_dir = rt["state_dir"] if isinstance(rt, dict) else rt.state_dir
+    return os.path.join(state_dir, "roar-state.json")
 
 # ─── Tunable Bounds ──────────────────────────────────────────
 # Hard min/max for every parameter ROAR is allowed to adjust.
@@ -99,20 +99,22 @@ DISABLE_DURATION_H = 48  # hours before auto-re-enable
 
 # ─── State Management ────────────────────────────────────────
 
-def load_roar_state() -> dict:
+def load_roar_state(runtime=None) -> dict:
     """Load ROAR state, merging with defaults."""
+    roar_state_file = _roar_state_file(runtime=runtime)
     state = copy.deepcopy(DEFAULT_ROAR_STATE)
-    if os.path.exists(ROAR_STATE_FILE):
-        with open(ROAR_STATE_FILE) as f:
+    if os.path.exists(roar_state_file):
+        with open(roar_state_file) as f:
             saved = json.load(f)
         state.update(saved)
     return state
 
 
-def save_roar_state(state: dict):
+def save_roar_state(state: dict, runtime=None):
     """Save ROAR state atomically."""
+    roar_state_file = _roar_state_file(runtime=runtime)
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
-    atomic_write(ROAR_STATE_FILE, state)
+    atomic_write(roar_state_file, state, runtime=runtime)
 
 
 # ─── Config Helpers ──────────────────────────────────────────
@@ -239,7 +241,7 @@ def should_revert(current_stats: dict, previous_stats: dict) -> bool:
     return False
 
 
-def revert_config(roar_state: dict) -> dict | None:
+def revert_config(roar_state: dict) -> Optional[dict]:
     """
     Revert to previous config snapshot.
     Returns the reverted config, or None if no snapshot exists.

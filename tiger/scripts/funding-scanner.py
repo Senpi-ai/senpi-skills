@@ -12,9 +12,7 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
-    load_config, load_state, get_all_instruments,
-    get_asset_candles, get_sm_markets, load_oi_history, output,
-    get_pattern_min_confluence, get_disabled_patterns
+    resolve_dependencies
 )
 from tiger_lib import (
     parse_candles, rsi, sma, atr, volume_ratio,
@@ -22,12 +20,12 @@ from tiger_lib import (
 )
 
 
-def analyze_funding(asset: str, context: dict, config: dict, sm_data: dict, oi_hist: dict) -> dict:
+def analyze_funding(asset: str, context: dict, config: dict, sm_data: dict, oi_hist: dict, get_asset_candles_fn) -> dict:
     """Analyze funding rate opportunity for a single asset."""
     funding_rate = float(context.get("funding", 0))
     funding_annualized = funding_rate * 3 * 365 * 100  # per-8h → annualized %
 
-    if abs(funding_annualized) < config["min_funding_annualized_pct"]:
+    if abs(funding_annualized) < config["minFundingAnnualizedPct"]:
         return None
 
     # Direction: go opposite to the crowd (collect funding)
@@ -38,12 +36,12 @@ def analyze_funding(asset: str, context: dict, config: dict, sm_data: dict, oi_h
     # Estimate daily funding income at leverage
     # Funding is per-8h on notional, 3x per day
     # At 10x: daily funding income = funding_rate * 3 * 10 * 100 (as % of margin)
-    leverage = min(config["max_leverage"], context.get("max_leverage", 10))
+    leverage = min(config["maxLeverage"], context.get("max_leverage", 10))
     daily_funding_pct_margin = abs(funding_rate) * 3 * leverage * 100
     weekly_funding_pct_margin = daily_funding_pct_margin * 7
 
     # Fetch candles for technical alignment check
-    result = get_asset_candles(asset, ["1h", "4h"])
+    result = get_asset_candles_fn(asset, ["1h", "4h"])
     if not result.get("success") and not result.get("data"):
         return None
 
@@ -132,13 +130,27 @@ def analyze_funding(asset: str, context: dict, config: dict, sm_data: dict, oi_h
     }
 
 
-def main():
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    load_config = deps["load_config"]
+    load_state = deps["load_state"]
+    get_all_instruments = deps["get_all_instruments"]
+    get_asset_candles = deps["get_asset_candles"]
+    get_sm_markets = deps["get_sm_markets"]
+    load_oi_history = deps["load_oi_history"]
+    output = deps["output"]
+    get_pattern_min_confluence = deps["get_pattern_min_confluence"]
+    get_disabled_patterns = deps["get_disabled_patterns"]
+    is_halted = deps["is_halted"]
+    halt_reason = deps["halt_reason"]
+    get_active_positions = deps["get_active_positions"]
+
     config = load_config()
-    state = load_state()
+    state = load_state(config=config)
     pattern = "FUNDING_ARB"
 
-    if state.get("halted"):
-        output({"action": "funding_scan", "halted": True, "reason": state.get("halt_reason")})
+    if is_halted(state):
+        output({"action": "funding_scan", "halted": True, "reason": halt_reason(state)})
         return
     if pattern in get_disabled_patterns():
         output({
@@ -162,7 +174,7 @@ def main():
         if token not in sm_data or m.get("pct_of_top_traders_gain", 0) > sm_data[token].get("pct_of_top_traders_gain", 0):
             sm_data[token] = m
 
-    oi_hist = load_oi_history()
+    oi_hist = load_oi_history(config=config)
 
     # Find assets with extreme funding
     candidates = []
@@ -170,12 +182,12 @@ def main():
         name = inst.get("name", "")
         if inst.get("is_delisted"):
             continue
-        if inst.get("max_leverage", 0) < config["min_leverage"]:
+        if inst.get("max_leverage", 0) < config["minLeverage"]:
             continue
         ctx = inst.get("context", {})
         funding = float(ctx.get("funding", 0))
         funding_ann = abs(funding) * 3 * 365 * 100
-        if funding_ann >= config["min_funding_annualized_pct"]:
+        if funding_ann >= config["minFundingAnnualizedPct"]:
             ctx["max_leverage"] = inst.get("max_leverage", 0)
             candidates.append((name, ctx, funding_ann))
 
@@ -185,7 +197,7 @@ def main():
 
     signals = []
     for name, ctx, _ in candidates:
-        result = analyze_funding(name, ctx, config, sm_data, oi_hist)
+        result = analyze_funding(name, ctx, config, sm_data, oi_hist, get_asset_candles)
         if result:
             signals.append(result)
 
@@ -193,7 +205,7 @@ def main():
 
     min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score]
-    active_coins = set(state.get("active_positions", {}).keys())
+    active_coins = set(get_active_positions(state).keys())
 
     output({
         "action": "funding_scan",
@@ -201,7 +213,7 @@ def main():
         "extreme_funding_assets": len(candidates),
         "signals_found": len(signals),
         "actionable": len(actionable),
-        "available_slots": config["max_slots"] - len(active_coins),
+        "available_slots": config["maxSlots"] - len(active_coins),
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
         "all_extreme_funding": [

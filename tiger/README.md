@@ -7,8 +7,9 @@ TIGER targets a configurable profit over a deadline using 5 signal patterns, DSL
 ## Quick Start
 
 ```bash
+export TIGER_WORKSPACE=/abs/path/to/tiger-workspace
 python3 scripts/tiger-setup.py --wallet 0x... --strategy-id UUID \
-  --budget 1000 --target 2000 --deadline-days 7 --chat-id 12345
+  --budget 1000 --target 2000 --days 7 --chat-id 12345
 ```
 
 Then create 12 crons from `references/cron-templates.md`. OI tracker needs ~1h to build history.

@@ -13,9 +13,7 @@ import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
-    load_config, load_state, save_state, get_all_instruments,
-    get_asset_candles, load_oi_history, output, STATE_DIR,
-    load_prescreened_candidates, get_pattern_min_confluence, get_disabled_patterns
+    resolve_dependencies
 )
 from tiger_lib import (
     parse_candles, bollinger_bands, bb_width, bb_width_percentile,
@@ -23,10 +21,10 @@ from tiger_lib import (
 )
 
 
-def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
+def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict, get_asset_candles_fn) -> dict:
     """Analyze a single asset for compression breakout potential."""
     # Fetch candles
-    result = get_asset_candles(asset, ["1h", "4h"])
+    result = get_asset_candles_fn(asset, ["1h", "4h"])
     if not result.get("success") and not result.get("data"):
         return None
 
@@ -91,9 +89,9 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
 
     # Confluence scoring
     factors = {
-        "bb_squeeze": (squeeze_pctl is not None and squeeze_pctl < config["bb_squeeze_percentile"], 0.20),
+        "bb_squeeze": (squeeze_pctl is not None and squeeze_pctl < config["bbSqueezePercentile"], 0.20),
         "breakout": (breakout_direction is not None, 0.20),
-        "oi_building": (oi_change is not None and oi_change > config["min_oi_change_pct"], 0.15),
+        "oi_building": (oi_change is not None and oi_change > config["minOiChangePct"], 0.15),
         "oi_price_diverge": (oi_price_divergence, 0.10),
         "volume_surge": (vol_ratio is not None and vol_ratio > 1.5, 0.15),
         "rsi_not_extreme": (current_rsi is not None and 30 < current_rsi < 70, 0.10),
@@ -133,13 +131,27 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
     return None
 
 
-def main():
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    load_config = deps["load_config"]
+    load_state = deps["load_state"]
+    get_all_instruments = deps["get_all_instruments"]
+    get_asset_candles = deps["get_asset_candles"]
+    load_oi_history = deps["load_oi_history"]
+    output = deps["output"]
+    load_prescreened_candidates = deps["load_prescreened_candidates"]
+    get_pattern_min_confluence = deps["get_pattern_min_confluence"]
+    get_disabled_patterns = deps["get_disabled_patterns"]
+    is_halted = deps["is_halted"]
+    halt_reason = deps["halt_reason"]
+    get_active_positions = deps["get_active_positions"]
+
     config = load_config()
-    state = load_state()
+    state = load_state(config=config)
     pattern = "COMPRESSION_BREAKOUT"
 
-    if state.get("halted"):
-        output({"action": "compression_scan", "halted": True, "reason": state.get("halt_reason")})
+    if is_halted(state):
+        output({"action": "compression_scan", "halted": True, "reason": halt_reason(state)})
         return
     if pattern in get_disabled_patterns():
         output({
@@ -156,13 +168,13 @@ def main():
         output({"error": "Failed to fetch instruments"})
         return
 
-    oi_hist = load_oi_history()
+    oi_hist = load_oi_history(config=config)
 
     # Filter: skip delisted, low leverage, and already-held assets in this strategy
-    active_coins = set(state.get("active_positions", {}).keys())
+    active_coins = set(get_active_positions(state).keys())
 
     # Try prescreened candidates first
-    candidates = load_prescreened_candidates(instruments, config)
+    candidates = load_prescreened_candidates(instruments, config=config)
 
     if candidates is None:
         # Fallback: original behavior
@@ -172,7 +184,7 @@ def main():
             if inst.get("is_delisted"):
                 continue
             max_lev = inst.get("max_leverage", 0)
-            if max_lev < config["min_leverage"]:
+            if max_lev < config["minLeverage"]:
                 continue
             ctx = inst.get("context", {})
             day_vol = float(ctx.get("dayNtlVlm", 0))
@@ -185,7 +197,7 @@ def main():
     signals = []
     for name, ctx, max_lev in candidates:
         ctx["max_leverage"] = max_lev
-        result = scan_asset(name, ctx, config, oi_hist)
+        result = scan_asset(name, ctx, config, oi_hist, get_asset_candles)
         if result:
             signals.append(result)
 
@@ -198,7 +210,7 @@ def main():
     watching = [s for s in signals if s["score"] >= 1.0 and not s.get("breakout")]
 
     # Check slot availability
-    available_slots = config["max_slots"] - len(active_coins)
+    available_slots = config["maxSlots"] - len(active_coins)
 
     report = {
         "action": "compression_scan",

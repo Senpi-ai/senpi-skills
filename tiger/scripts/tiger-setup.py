@@ -18,11 +18,16 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
-    WORKSPACE, DEFAULT_CONFIG, deep_merge, atomic_write, save_config
+    DEFAULT_CONFIG, deep_merge, resolve_dependencies
 )
 
 
-def main():
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    workspace = deps["workspace"]
+    atomic_write = deps["atomic_write"]
+    save_config = deps["save_config"]
+
     parser = argparse.ArgumentParser(description="TIGER Setup Wizard")
     parser.add_argument("--wallet", required=True, help="Strategy wallet address")
     parser.add_argument("--strategy-id", required=True, help="Senpi strategy ID")
@@ -68,9 +73,9 @@ def main():
     })
 
     # Create directories
-    instance_dir = os.path.join(WORKSPACE, "state", args.strategy_id)
+    instance_dir = os.path.join(workspace, "state", args.strategy_id)
     for d in [instance_dir, os.path.join(instance_dir, "scan-history"),
-              os.path.join(WORKSPACE, "memory")]:
+              os.path.join(workspace, "memory")]:
         os.makedirs(d, exist_ok=True)
 
     # Write config (atomic)

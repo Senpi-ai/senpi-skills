@@ -9,28 +9,22 @@ MANDATE: Run TIGER risk guardian. Check daily loss budget, drawdown, positions, 
 
 import sys
 import os
-import time
 sys.path.insert(0, os.path.dirname(__file__))
 
-from tiger_config import (
-    load_config, load_state, save_state, get_clearinghouse,
-    load_oi_history, close_position, edit_position,
-    get_all_instruments,
-    days_remaining, day_number, now_utc, output, shorten_address
-)
+from tiger_config import resolve_dependencies
 
 
 def check_daily_loss(config, state, current_balance):
     """Check if daily loss budget is exceeded."""
-    day_start = state.get("day_start_balance", config["budget"])
+    day_start = state.get("dayStartBalance", config["budget"])
     daily_loss = day_start - current_balance
     daily_loss_pct = (daily_loss / day_start) * 100 if day_start > 0 else 0
 
-    if daily_loss_pct >= config["max_daily_loss_pct"]:
+    if daily_loss_pct >= config["maxDailyLossPct"]:
         return {
             "breach": True,
             "type": "DAILY_LOSS",
-            "message": f"Daily loss limit breached: -{daily_loss_pct:.1f}% (limit {config['max_daily_loss_pct']}%)",
+            "message": f"Daily loss limit breached: -{daily_loss_pct:.1f}% (limit {config['maxDailyLossPct']}%)",
             "loss_usd": round(daily_loss, 2),
             "loss_pct": round(daily_loss_pct, 1)
         }
@@ -39,23 +33,23 @@ def check_daily_loss(config, state, current_balance):
 
 def check_drawdown(config, state, current_balance):
     """Check max drawdown from peak."""
-    peak = state.get("peak_balance", current_balance)
+    peak = state.get("peakBalance", current_balance)
     if peak <= 0:
         return {"breach": False}
     dd_pct = ((peak - current_balance) / peak) * 100
-    if dd_pct >= config["max_drawdown_pct"]:
+    if dd_pct >= config["maxDrawdownPct"]:
         return {
             "breach": True,
             "type": "MAX_DRAWDOWN",
-            "message": f"Max drawdown breached: {dd_pct:.1f}% from peak ${peak:.2f} (limit {config['max_drawdown_pct']}%)",
+            "message": f"Max drawdown breached: {dd_pct:.1f}% from peak ${peak:.2f} (limit {config['maxDrawdownPct']}%)",
             "drawdown_pct": round(dd_pct, 1)
         }
     return {"breach": False, "drawdown_pct": round(dd_pct, 1)}
 
 
-def check_deadline(config, state):
+def check_deadline(config, state, days_remaining_fn):
     """Check deadline proximity and enforce auto-close."""
-    remaining = days_remaining(config)
+    remaining = days_remaining_fn(config)
     alerts = []
 
     if remaining <= 0:
@@ -80,12 +74,17 @@ def check_deadline(config, state):
     return alerts
 
 
-def check_oi_shifts(config, state):
-    """Check OI changes for active positions. Flag if OI drops >10%."""
-    oi_history = load_oi_history()
+def check_oi_shifts(config, state, load_oi_history_fn):
+    """Check OI changes for active positions using config-driven thresholds."""
+    oi_history = load_oi_history_fn()
     alerts = []
+    collapse_threshold = abs(float(config.get("oiCollapseThresholdPct", 25)))
+    reduce_threshold = abs(float(config.get("oiReduceThresholdPct", 10)))
+    if reduce_threshold >= collapse_threshold:
+        reduce_threshold = max(1.0, collapse_threshold / 2.0)
+    oi_build_threshold = abs(float(config.get("minOiChangePct", 10)))
 
-    for coin, pos in state.get("active_positions", {}).items():
+    for coin, pos in state.get("activePositions", {}).items():
         if coin not in oi_history:
             continue
         history = oi_history[coin]
@@ -100,7 +99,7 @@ def check_oi_shifts(config, state):
 
         oi_change = ((current_oi - hour_ago_oi) / hour_ago_oi) * 100
 
-        if oi_change < -25:
+        if oi_change < -collapse_threshold:
             alerts.append({
                 "type": "OI_COLLAPSE",
                 "coin": coin,
@@ -108,7 +107,7 @@ def check_oi_shifts(config, state):
                 "message": f"{coin} OI collapsed {oi_change:.1f}% in 1h. Full exit recommended.",
                 "action": "CLOSE"
             })
-        elif oi_change < -10:
+        elif oi_change < -reduce_threshold:
             alerts.append({
                 "type": "OI_DROP",
                 "coin": coin,
@@ -116,7 +115,7 @@ def check_oi_shifts(config, state):
                 "message": f"{coin} OI dropped {oi_change:.1f}% in 1h. Reduce to 50% size.",
                 "action": "REDUCE"
             })
-        elif oi_change > 10 and pos.get("direction") in ("LONG", "SHORT"):
+        elif oi_change > oi_build_threshold and pos.get("direction") in ("LONG", "SHORT"):
             alerts.append({
                 "type": "OI_BUILDING",
                 "coin": coin,
@@ -128,14 +127,14 @@ def check_oi_shifts(config, state):
     return alerts
 
 
-def check_funding_reversal(config, state):
+def check_funding_reversal(config, state, get_all_instruments_fn):
     """Check if funding rate has flipped for FUNDING_ARB positions.
     If we entered to collect funding and funding has reversed direction, exit."""
     alerts = []
-    instruments = get_all_instruments()
+    instruments = get_all_instruments_fn()
     inst_map = {i["name"]: i for i in instruments if not i.get("is_delisted")}
 
-    for coin, pos in state.get("active_positions", {}).items():
+    for coin, pos in state.get("activePositions", {}).items():
         if pos.get("pattern") != "FUNDING_ARB":
             continue
 
@@ -190,21 +189,21 @@ def check_position_pnl(config, state, positions_data):
         roe_pct = (unrealized_pnl / margin * 100) if margin > 0 else 0
 
         # Check single trade loss limit
-        loss_of_balance = abs(unrealized_pnl) / state["current_balance"] * 100 if state["current_balance"] > 0 else 0
+        loss_of_balance = abs(unrealized_pnl) / state["currentBalance"] * 100 if state["currentBalance"] > 0 else 0
 
-        if unrealized_pnl < 0 and loss_of_balance >= config["max_single_loss_pct"]:
+        if unrealized_pnl < 0 and loss_of_balance >= config["maxSingleLossPct"]:
             alerts.append({
                 "type": "SINGLE_LOSS_LIMIT",
                 "coin": coin,
                 "loss_pct": round(loss_of_balance, 1),
                 "roe_pct": round(roe_pct, 1),
-                "message": f"{coin} losing {loss_of_balance:.1f}% of balance (limit {config['max_single_loss_pct']}%). Close immediately.",
+                "message": f"{coin} losing {loss_of_balance:.1f}% of balance (limit {config['maxSingleLossPct']}%). Close immediately.",
                 "action": "CLOSE"
             })
 
         # Check if position hit daily target (for take-profit)
-        daily_rate = state.get("daily_rate_needed", 10)
-        daily_target_usd = state["current_balance"] * (daily_rate / 100)
+        daily_rate = state.get("dailyRateNeeded", 10)
+        daily_target_usd = state["currentBalance"] * (daily_rate / 100)
         if unrealized_pnl > 0 and unrealized_pnl >= daily_target_usd:
             alerts.append({
                 "type": "DAILY_TARGET_HIT",
@@ -218,15 +217,30 @@ def check_position_pnl(config, state, positions_data):
     return alerts
 
 
-def main():
-    config = load_config()
-    state = load_state()
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    load_config = deps["load_config"]
+    load_state = deps["load_state"]
+    save_state = deps["save_state"]
+    get_clearinghouse = deps["get_clearinghouse"]
+    load_oi_history = deps["load_oi_history"]
+    close_position = deps["close_position"]
+    get_all_instruments = deps["get_all_instruments"]
+    days_remaining = deps["days_remaining"]
+    set_halt_state = deps["set_halt_state"]
+    is_halted = deps["is_halted"]
+    get_active_positions = deps["get_active_positions"]
+    output = deps["output"]
 
-    if not config.get("strategy_wallet"):
+    config = load_config()
+    state = load_state(config=config)
+    state["activePositions"] = get_active_positions(state)
+
+    if not config.get("strategyWallet"):
         output({"error": "TIGER not set up."})
         return
 
-    wallet = config["strategy_wallet"]
+    wallet = config["strategyWallet"]
 
     # Fetch current state
     ch = get_clearinghouse(wallet)
@@ -236,7 +250,7 @@ def main():
 
     ch_data = ch.get("data", ch)
     margin_summary = ch_data.get("marginSummary", ch_data.get("crossMarginSummary", {}))
-    current_balance = float(margin_summary.get("accountValue", state["current_balance"]))
+    current_balance = float(margin_summary.get("accountValue", state["currentBalance"]))
     positions = ch_data.get("assetPositions", [])
 
     # Parse positions
@@ -259,15 +273,15 @@ def main():
         all_alerts.append(dd_check)
 
     # 3. Deadline
-    deadline_alerts = check_deadline(config, state)
+    deadline_alerts = check_deadline(config, state, days_remaining)
     all_alerts.extend(deadline_alerts)
 
     # 4. OI shifts
-    oi_alerts = check_oi_shifts(config, state)
+    oi_alerts = check_oi_shifts(config, state, load_oi_history)
     all_alerts.extend(oi_alerts)
 
     # 5. Funding reversal (for FUNDING_ARB positions)
-    funding_alerts = check_funding_reversal(config, state)
+    funding_alerts = check_funding_reversal(config, state, get_all_instruments)
     all_alerts.extend(funding_alerts)
 
     # 6. Position P&L
@@ -277,8 +291,7 @@ def main():
     # Determine if we need to halt
     critical_alerts = [a for a in all_alerts if a.get("type") in ("DAILY_LOSS", "MAX_DRAWDOWN", "DEADLINE_REACHED")]
     if critical_alerts:
-        state["halted"] = True
-        state["halt_reason"] = critical_alerts[0].get("message", "Critical risk limit breached")
+        set_halt_state(state, True, critical_alerts[0].get("message", "Critical risk limit breached"))
 
     # Determine actions needed
     close_coins = [a["coin"] for a in all_alerts if a.get("action") == "CLOSE" and "coin" in a]
@@ -312,8 +325,8 @@ def main():
             })
 
     # Update state
-    state["current_balance"] = current_balance
-    save_state(state)
+    state["currentBalance"] = current_balance
+    save_state(config, state)
 
     report = {
         "action": "risk_check",
@@ -325,7 +338,7 @@ def main():
         "alerts": all_alerts,
         "alert_count": len(all_alerts),
         "critical": len(critical_alerts) > 0,
-        "halted": state["halted"],
+        "halted": is_halted(state),
         "actions_needed": {
             "close": close_coins,
             "reduce": reduce_coins,
