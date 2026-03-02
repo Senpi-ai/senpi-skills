@@ -155,9 +155,9 @@ Created per position, scoped to its strategy. Read by `dsl-combined.py`.
   "consecutiveFetchFailures": 0,
   "pendingClose": false,
   "phase1": {
-    "retraceThreshold": 5,
+    "retraceThreshold": 10,
     "consecutiveBreachesRequired": 3,
-    "absoluteFloor": 28.726
+    "absoluteFloor": 28.5813
   },
   "phase2": {
     "retraceFromHW": 5,

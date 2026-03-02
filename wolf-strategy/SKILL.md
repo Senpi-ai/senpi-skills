@@ -271,8 +271,8 @@ When ANY job closes a position -> immediately:
 ## DSL v4 — Trailing Stop System
 
 ### Phase 1 (Pre-Tier 1): Absolute floor
-- LONG floor = entry x (1 - 5%/leverage)
-- SHORT floor = entry x (1 + 5%/leverage)
+- LONG floor = entry x (1 - 10%/leverage)
+- SHORT floor = entry x (1 + 10%/leverage)
 - 3 consecutive breaches -> close
 - **Max duration: 90 minutes** (see Phase 1 Auto-Cut above)
 
@@ -351,9 +351,9 @@ All sizing is calculated from budget (30% per slot):
 
 ### Opening
 1. Signal fires -> validate checklist -> route to best-fit strategy
-2. `create_position` on that strategy's wallet (use `leverageType: "ISOLATED"` for XYZ assets)
-3. Create DSL state file in `state/{strategyKey}/dsl-{ASSET}.json` with `strategyKey` field
-4. Alert user
+2. Enter via `python3 scripts/open-position.py --strategy {strategyKey} --asset {ASSET} --direction {DIR} --leverage {LEV}`
+   This atomically opens the position AND creates the DSL state file. Do NOT manually create DSL JSON.
+3. Alert user
 
 ### Closing
 1. Close via `close_position` (or DSL auto-closes)

@@ -68,7 +68,10 @@ Replace these placeholders in all templates:
 ```
 WOLF Emerging Movers: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/emerging-movers.py`, parse JSON.
 SLOT GUARD (MANDATORY): Check `anySlotsAvailable` — if false, output HEARTBEAT_OK immediately. Do NOT open any position when all strategies show 0 available slots. Check `strategySlots` per strategy before routing.
-On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals: use `strategySlots` to route to a strategy with available > 0 (skip strategies at capacity), open position on that wallet, create DSL state in {WORKSPACE}/state/{strategyKey}/dsl-{ASSET}.json.
+On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals:
+use `strategySlots` to route to a strategy with available > 0 (skip strategies at capacity).
+Enter via: `python3 {SCRIPTS}/open-position.py --strategy {strategyKey} --asset {ASSET} --direction {DIR} --leverage {LEV}`
+This opens the position AND creates the DSL state file atomically. Do NOT manually call create_position or hand-write DSL JSON.
 Apply WOLF entry rules from SKILL.md (min 7x leverage, rank #25+ entry, no top-10 entries, rotation logic).
 Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
 ```
@@ -143,7 +146,7 @@ Act on opportunities with finalScore≥175. Use btcMacro.trend for macro context
 PROCESSING ORDER (prevents context growth):
 1. Check `strategySlots` — only consider strategies with available > 0. If none → HEARTBEAT_OK.
 2. Build complete action plan: [(asset, direction, strategyKey, margin, leverage), ...] — cap entries at total available slots.
-3. Execute entries sequentially. No re-reads of wolf-strategies.json.
+3. Execute entries via: `python3 {SCRIPTS}/open-position.py --strategy {strategyKey} --asset {ASSET} --direction {DIR} --leverage {LEV}`. No re-reads of wolf-strategies.json.
 4. Send ONE consolidated Telegram ({TELEGRAM}) after all entries: "Wolf entered N positions: ASSET1 LONG (Strategy A), ASSET2 SHORT (Strategy B)"
 
 Apply WOLF scanner rules from SKILL.md for routing/conflict judgment. If no opportunities≥175 → HEARTBEAT_OK.

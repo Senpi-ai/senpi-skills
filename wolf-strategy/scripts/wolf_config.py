@@ -275,6 +275,21 @@ def mcporter_call_safe(tool, retries=3, timeout=30, **kwargs):
         return None
 
 
+HEARTBEAT_FILE = os.path.join(WORKSPACE, "state", "cron-heartbeats.json")
+
+def heartbeat(cron_name):
+    """Record that a cron job just ran. Called at the start of each script."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        with open(HEARTBEAT_FILE) as f:
+            beats = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        beats = {}
+    beats[cron_name] = now
+    atomic_write(HEARTBEAT_FILE, beats)
+
+
 def atomic_write(path, data):
     """Atomically write JSON data to a file."""
     if isinstance(data, str):

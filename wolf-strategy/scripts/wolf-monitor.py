@@ -15,7 +15,9 @@ from datetime import datetime, timezone
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_all_strategies, state_dir, dsl_state_glob,
-                         WORKSPACE, mcporter_call_safe)
+                         WORKSPACE, mcporter_call_safe, heartbeat)
+
+heartbeat("watchdog")
 
 EMERGING_HISTORY = os.path.join(WORKSPACE, "history", "emerging-movers.json")
 # Fallback to legacy location

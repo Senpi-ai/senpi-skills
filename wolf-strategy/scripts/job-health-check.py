@@ -21,7 +21,9 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_all_strategies, dsl_state_glob, atomic_write,
                          dsl_state_path, dsl_state_template, mcporter_call_safe,
-                         validate_dsl_state)
+                         validate_dsl_state, heartbeat, HEARTBEAT_FILE)
+
+heartbeat("health_check")
 
 
 def _extract_positions(section_data):
@@ -479,6 +481,55 @@ def check_strategy(strategy_key, cfg):
     return issues, list(all_positions.keys()), [a for a, d in dsl_states.items() if d["active"]]
 
 
+EXPECTED_CRONS = {
+    "emerging_movers": 5,    # expect every 90s, alert at 5min
+    "dsl_combined": 10,      # expect every 3min, alert at 10min
+    "sm_flip": 15,           # expect every 5min, alert at 15min
+    "watchdog": 15,          # expect every 5min, alert at 15min
+    "opp_scanner": 30,       # expect every 15min, alert at 30min
+    "health_check": 20,      # expect every 10min, alert at 20min
+}
+
+
+def check_cron_heartbeats():
+    """Check cron heartbeat file for stale crons. Returns list of issues."""
+    issues = []
+    try:
+        with open(HEARTBEAT_FILE) as f:
+            beats = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return issues  # no heartbeat file yet, skip
+
+    now = datetime.now(timezone.utc)
+    for cron_name, threshold_min in EXPECTED_CRONS.items():
+        last_run = beats.get(cron_name)
+        if not last_run:
+            issues.append({
+                "level": "WARNING",
+                "type": "CRON_STALE",
+                "cron": cron_name,
+                "action": "alert_only",
+                "message": f"Cron '{cron_name}' has never recorded a heartbeat"
+            })
+            continue
+        try:
+            last_dt = datetime.fromisoformat(last_run.replace("Z", "+00:00"))
+            age_min = (now - last_dt).total_seconds() / 60
+            if age_min > threshold_min:
+                issues.append({
+                    "level": "WARNING",
+                    "type": "CRON_STALE",
+                    "cron": cron_name,
+                    "action": "alert_only",
+                    "ageMinutes": round(age_min, 1),
+                    "thresholdMinutes": threshold_min,
+                    "message": f"Cron '{cron_name}' last ran {round(age_min)}min ago (threshold: {threshold_min}min)"
+                })
+        except (ValueError, TypeError):
+            pass
+    return issues
+
+
 def main():
     now = datetime.now(timezone.utc)
     strategies = load_all_strategies()
@@ -502,6 +553,10 @@ def main():
             "critical_count": sum(1 for i in issues if i["level"] == "CRITICAL"),
         }
 
+    # Check cron heartbeats for stuck jobs
+    heartbeat_issues = check_cron_heartbeats()
+    all_issues.extend(heartbeat_issues)
+
     result = {
         "status": "ok" if not any(i["level"] == "CRITICAL" for i in all_issues) else "critical",
         "time": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -509,6 +564,7 @@ def main():
         "issues": all_issues,
         "issue_count": len(all_issues),
         "critical_count": sum(1 for i in all_issues if i["level"] == "CRITICAL"),
+        "cronHeartbeats": len(heartbeat_issues),
     }
 
     print(json.dumps(result, indent=2))

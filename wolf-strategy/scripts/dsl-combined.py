@@ -25,7 +25,9 @@ from datetime import datetime, timezone
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_all_strategies, dsl_state_glob, atomic_write,
-                         validate_dsl_state, mcporter_call, mcporter_call_safe)
+                         validate_dsl_state, mcporter_call, mcporter_call_safe, heartbeat)
+
+heartbeat("dsl_combined")
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 

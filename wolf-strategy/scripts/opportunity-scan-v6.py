@@ -23,7 +23,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import get_all_active_positions, WORKSPACE, atomic_write, mcporter_call
+from wolf_config import get_all_active_positions, WORKSPACE, atomic_write, mcporter_call, heartbeat
+
+heartbeat("opp_scanner")
 
 # --- Config ---
 HISTORY_DIR = os.path.join(WORKSPACE, "history")

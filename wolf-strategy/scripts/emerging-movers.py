@@ -31,7 +31,9 @@ import json, sys, os
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import atomic_write, mcporter_call, load_all_strategies, dsl_state_glob
+from wolf_config import atomic_write, mcporter_call, load_all_strategies, dsl_state_glob, heartbeat
+
+heartbeat("emerging_movers")
 
 HISTORY_FILE = os.environ.get("EMERGING_HISTORY", "/data/workspace/emerging-movers-history.json")
 MAX_HISTORY = 60
@@ -304,6 +306,9 @@ if len(history["scans"]) > MAX_HISTORY:
 
 atomic_write(HISTORY_FILE, history)
 
+# ─── Save full output for agent reference (prevents re-run signal loss) ───
+OUTPUT_FILE = os.path.join(os.path.dirname(HISTORY_FILE), "emerging-movers-output.json")
+
 # ─── Output ───
 # Sort: first_jump > immediate > deep climber > velocity > reason count
 alerts.sort(key=lambda a: (
@@ -362,3 +367,4 @@ output = {
 }
 
 print(json.dumps(output))
+atomic_write(OUTPUT_FILE, output)

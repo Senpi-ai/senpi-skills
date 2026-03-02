@@ -169,6 +169,9 @@ def main():
             entry_price = pos_data["entryPx"]
             size = pos_data["size"]
             actual_leverage = pos_data["leverage"] or leverage
+            # entryPx can be 0 during fill race window — treat as approximate
+            if not entry_price:
+                approximate = True
         else:
             # Position not found in clearinghouse — use approximate values
             approximate = True
