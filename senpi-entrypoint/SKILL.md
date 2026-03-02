@@ -1,12 +1,22 @@
 ---
 name: senpi-entrypoint
-description: >
+description: >-
   Onboard AI agents into the Senpi trading platform on Hyperliquid. Walks
   through account creation, API key setup, MCP server configuration, skill
-  discovery, and first-trade guidance. Use when user says "set up Senpi",
-  "get started with Senpi", "connect to Senpi", "install Senpi",
-  "onboard to Senpi", or when an agent needs to start trading on Hyperliquid
-  via Senpi.
+  discovery, and first-trade guidance. Includes a silent skill update checker
+  that surfaces new or updated skills after onboarding. Use when user says
+  "set up Senpi", "get started with Senpi", "connect to Senpi", "install
+  Senpi", "onboard to Senpi", or when an agent needs to start trading on
+  Hyperliquid via Senpi.
+license: Apache-2.0
+compatibility: >-
+  Supports OpenClaw and Claude Code. Requires Node.js and shell access.
+  Skill update checker (Step 5) additionally requires Python 3.
+metadata:
+  author: Senpi
+  version: "1.1.0"
+  platform: senpi
+  exchange: hyperliquid
 ---
 
 # Senpi Agent Entrypoint
@@ -248,3 +258,13 @@ the most complete autonomous option.
 If the user's goal is unclear, ask one question: **"Are you looking to
 protect existing positions, find new ones, or have the agent trade
 autonomously?"** — then map their answer to the table above.
+
+---
+
+## Reference Files
+
+| File | Purpose |
+|------|---------|
+| `scripts/check-skill-updates.py` | Skill update checker — reads the Vercel skills CLI lock file, compares GitHub tree SHAs, and surfaces version bumps or new skills |
+| `references/about-senpi.md` | Senpi platform overview (what it is, what agents can do, core loop) |
+| `references/error-handling.md` | Recovery steps for `npx` command failures |

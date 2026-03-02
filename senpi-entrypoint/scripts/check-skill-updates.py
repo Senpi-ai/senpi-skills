@@ -19,6 +19,7 @@ Output contract:
 import json
 import os
 import sys
+import time
 import urllib.request
 import urllib.error
 from datetime import datetime, timezone
@@ -58,31 +59,37 @@ def atomic_write(path, data):
     os.replace(tmp, path)
 
 
-def github_get(url):
-    """GET a GitHub API URL. Returns parsed JSON or None on any error."""
+def github_get(url, max_attempts=3, delay=3):
+    """GET a GitHub API URL. Returns parsed JSON or None after all retries fail."""
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "senpi-skill-update-checker/1.0"},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())
-    except Exception:
-        return None
+    for attempt in range(max_attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode())
+        except Exception:
+            if attempt < max_attempts - 1:
+                time.sleep(delay)
+    return None
 
 
-def github_raw(path):
-    """Fetch raw file content from GitHub main branch. Returns text or None."""
+def github_raw(path, max_attempts=3, delay=3):
+    """Fetch raw file content from GitHub main branch. Returns text or None after all retries fail."""
     url = f"{GITHUB_RAW}/{SENPI_REPO}/main/{path}"
     req = urllib.request.Request(
         url,
         headers={"User-Agent": "senpi-skill-update-checker/1.0"},
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            return resp.read().decode()
-    except Exception:
-        return None
+    for attempt in range(max_attempts):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return resp.read().decode()
+        except Exception:
+            if attempt < max_attempts - 1:
+                time.sleep(delay)
+    return None
 
 
 def parse_frontmatter_field(skill_md_text, field):
@@ -168,6 +175,7 @@ def main():
 
     # 3. Load local version catalog (tracks last-known versions + seen-available set)
     catalog = load_json(CATALOG_FILE, {
+        "version": 1,
         "knownVersions": {},
         "seenAvailable": [],
         "lastChecked": None,
@@ -270,11 +278,7 @@ def main():
     if not updated_skills and not new_skills:
         print(json.dumps({"heartbeat": "HEARTBEAT_OK"}))
     else:
-        print(json.dumps({
-            "success": True,
-            "updatedSkills": updated_skills,
-            "newSkills": new_skills,
-        }, indent=2))
+        print(json.dumps({"success": True, "updatedSkills": updated_skills, "newSkills": new_skills}))
 
 
 if __name__ == "__main__":
