@@ -274,17 +274,17 @@ Correlation (3min) and Funding (30min) run on their own cadence. DSL runs every 
 
 ## Cron Creation Checklist
 
-| # | Name | Interval (ms) | Session | Delivery | Model Tier | Purpose |
-|---|------|---------------|---------|----------|------------|---------|
-| 0 | tiger-prescreen | 300000 (5m) | isolated | none | Tier 1 | Asset prescreening |
-| 1 | tiger-compression | 300000 (5m) | isolated | none | Tier 1 | BB squeeze breakout |
-| 2 | tiger-correlation | 180000 (3m) | isolated | none | Tier 1 | BTC lag detection |
-| 3 | tiger-momentum | 300000 (5m) | isolated | none | Tier 1 | Price move + volume |
-| 4 | tiger-reversion | 300000 (5m) | isolated | none | Tier 1 | Overextension fade |
-| 5 | tiger-funding | 1800000 (30m) | isolated | none | Tier 1 | Funding arb |
-| 6 | tiger-oi | 300000 (5m) | isolated | none | Tier 1 | Data collection |
-| 7 | tiger-goal | 3600000 (1h) | isolated | announce | Tier 2 | Aggression |
-| 8 | tiger-risk | 300000 (5m) | isolated | announce | Tier 2 | Risk limits |
-| 9 | tiger-exit | 300000 (5m) | isolated | announce | Tier 2 | Pattern exits |
-| 10 | tiger-dsl | 30000 (30s) | **main** | — | Tier 1 | Trailing stops |
-| 11 | tiger-roar | 28800000 (8h) | isolated | announce | Tier 2 | Meta-optimizer |
+| # | Name | Interval (ms) | Session | Payload | Delivery | Model Tier | Purpose |
+|---|------|---------------|---------|---------|----------|------------|---------|
+| 0 | tiger-prescreen | 300000 (5m) | isolated | agentTurn | none | Tier 1 | Asset prescreening |
+| 1 | tiger-compression | 300000 (5m) | **main** | systemEvent | — | Tier 1 | BB squeeze breakout |
+| 2 | tiger-correlation | 180000 (3m) | **main** | systemEvent | — | Tier 1 | BTC lag detection |
+| 3 | tiger-momentum | 300000 (5m) | **main** | systemEvent | — | Tier 1 | Price move + volume |
+| 4 | tiger-reversion | 300000 (5m) | **main** | systemEvent | — | Tier 1 | Overextension fade |
+| 5 | tiger-funding | 1800000 (30m) | **main** | systemEvent | — | Tier 1 | Funding arb |
+| 6 | tiger-oi | 300000 (5m) | **main** | systemEvent | — | Tier 1 | Data collection |
+| 7 | tiger-goal | 3600000 (1h) | **main** | systemEvent | — | Tier 2 | Aggression |
+| 8 | tiger-risk | 300000 (5m) | **main** | systemEvent | — | Tier 2 | Risk limits |
+| 9 | tiger-exit | 300000 (5m) | **main** | systemEvent | — | Tier 2 | Pattern exits |
+| 10 | tiger-dsl | 30000 (30s) | **main** | systemEvent | — | Tier 1 | Trailing stops |
+| 11 | tiger-roar | 28800000 (8h) | isolated | agentTurn | announce | Tier 2 | Meta-optimizer |

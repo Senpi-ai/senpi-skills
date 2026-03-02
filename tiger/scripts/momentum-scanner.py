@@ -12,8 +12,6 @@ Looks for:
 
 import sys
 import os
-import json
-import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
@@ -188,6 +186,8 @@ def main(deps=None):
 
     signals = []
     for name, ctx, max_lev in candidates:
+        if name in active_coins:
+            continue
         ctx["max_leverage"] = max_lev
         result = scan_asset(name, ctx, config, get_asset_candles)
         if result:

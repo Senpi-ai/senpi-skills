@@ -258,7 +258,7 @@ def main(deps=None):
 
     config = load_config()
     tiger_state = load_state(config=config)
-    roar_state = load_roar_state(runtime=runtime)
+    roar_state = load_roar_state(config=config, runtime=runtime)
     trades = load_trade_log(config=config)
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -272,23 +272,34 @@ def main(deps=None):
     new_trade_count = len(trades) - prev_processed
     trade_count_trigger = new_trade_count >= TRADE_COUNT_TRIGGER
 
-    # ── Build scorecard ──
+    # ── Build scorecard (all trades, for rule engine) ──
     scorecard = build_scorecard(trades, roar_state)
 
     # ── Check if we should revert previous changes ──
+    # Compare only trades SINCE the last adjustment to isolate the effect
     reverted = False
     previous_stats = roar_state.get("previous_stats")
+    adj_idx = roar_state.get("trades_at_last_adjustment", 0)
+    post_adjustment_trades = trades[adj_idx:]
+    post_scorecard = build_scorecard(post_adjustment_trades, roar_state) if post_adjustment_trades else None
+
     current_stats = {
         "overall_win_rate": scorecard["overall_win_rate"],
         "overall_avg_pnl": scorecard["overall_avg_pnl"],
     }
 
-    if previous_stats and should_revert(current_stats, previous_stats):
-        reverted_config = revert_config(roar_state)
-        if reverted_config:
-            save_config(reverted_config)
-            config = reverted_config
-            reverted = True
+    if previous_stats and post_scorecard:
+        post_stats = {
+            "overall_win_rate": post_scorecard["overall_win_rate"],
+            "overall_avg_pnl": post_scorecard["overall_avg_pnl"],
+            "total_trades": post_scorecard["total_trades"],
+        }
+        if should_revert(post_stats, previous_stats):
+            reverted_config = revert_config(roar_state)
+            if reverted_config:
+                save_config(reverted_config)
+                config = reverted_config
+                reverted = True
 
     # ── Generate proposed changes ──
     proposed = generate_proposed_changes(scorecard, config, roar_state)
@@ -305,8 +316,10 @@ def main(deps=None):
         patterns_disabled = [c["key"].split(".", 1)[1] for c in disable_actions]
 
         if config_changes:
-            # Save stats snapshot for next-cycle revert check
+            # Save stats snapshot for next-cycle revert check (current overall stats)
             roar_state["previous_stats"] = copy.deepcopy(current_stats)
+            # Record trade count at adjustment for windowed revert comparison
+            roar_state["trades_at_last_adjustment"] = len(trades)
 
             # Apply
             config = apply_changeset(config_changes, config, roar_state)
@@ -325,7 +338,7 @@ def main(deps=None):
     # ── Update state ──
     roar_state["last_analysis_ts"] = now_iso
     roar_state["trades_processed"] = len(trades)
-    save_roar_state(roar_state, runtime=runtime)
+    save_roar_state(roar_state, config=config, runtime=runtime)
 
     # ── Build summary ──
     n_changes = len([c for c in proposed if not c["key"].startswith("_")])

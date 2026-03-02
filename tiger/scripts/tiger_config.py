@@ -553,6 +553,45 @@ def load_trade_log(config=None, runtime=None):
     return []
 
 
+# ─── BTC Cache ────────────────────────────────────────────────
+
+def _btc_cache_file(config=None, runtime=None):
+    config = _get_config(config, runtime=runtime)
+    return os.path.join(_instance_dir(config, runtime=runtime, create=True), "btc-cache.json")
+
+
+def load_btc_cache(config=None, runtime=None):
+    """Load BTC price cache (used by correlation scanner)."""
+    path = _btc_cache_file(config, runtime=runtime)
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
+
+def save_btc_cache(price, check_ts, scan_price=None, scan_ts=None, config=None, runtime=None):
+    """Save BTC price cache atomically.
+
+    Args:
+        price: Current BTC price.
+        check_ts: ISO timestamp of this check.
+        scan_price: BTC price at last full alt scan (set after alt scan completes).
+        scan_ts: ISO timestamp of last full alt scan.
+    """
+    path = _btc_cache_file(config, runtime=runtime)
+    data = load_btc_cache(config=config, runtime=runtime)
+    data["last_btc_price"] = price
+    data["last_btc_check"] = check_ts
+    if scan_price is not None:
+        data["last_scan_price"] = scan_price
+    if scan_ts is not None:
+        data["last_scan_ts"] = scan_ts
+    atomic_write(path, data, runtime=runtime)
+
+
 # ─── DSL State ───────────────────────────────────────────────
 
 def load_dsl_state(asset, config=None, runtime=None):
@@ -822,9 +861,10 @@ def _parse_iso_datetime(value):
         return None
 
 
-def get_disabled_patterns(runtime=None):
+def get_disabled_patterns(config=None, runtime=None):
     """Load currently-disabled patterns from ROAR state."""
-    path = os.path.join(_runtime_attr(runtime, "state_dir"), "roar-state.json")
+    config = _get_config(config, runtime=runtime)
+    path = os.path.join(_instance_dir(config, runtime=runtime, create=False), "roar-state.json")
     if not os.path.exists(path):
         return set()
     try:
@@ -859,16 +899,22 @@ def get_pattern_min_confluence(config, state, pattern):
 
 # ─── Prescreener Integration ────────────────────────────────
 
+def _prescreened_file(config=None, runtime=None):
+    config = _get_config(config, runtime=runtime)
+    return os.path.join(_instance_dir(config, runtime=runtime, create=False), "prescreened.json")
+
+
 def load_prescreened_candidates(instruments, config=None, include_leverage=True, runtime=None, env=None):
     """Load candidates from prescreened.json if fresh (<10min).
-    
+
     Returns list of (name, ctx, max_lev) tuples if include_leverage=True,
     or (name, ctx) tuples if False. Returns None if no fresh data.
-    
+
     Respects SCAN_GROUP env var: 'a' = group_a, 'b' = group_b, unset = all.
     """
     import time as _time
-    prescreened_file = os.path.join(_runtime_attr(runtime, "state_dir"), "prescreened.json")
+    config = _get_config(config, runtime=runtime)
+    prescreened_file = _prescreened_file(config, runtime=runtime)
     env = env or os.environ
     scan_group = env.get("SCAN_GROUP", "").lower()
 
@@ -950,7 +996,12 @@ def resolve_dependencies(runtime=None, overrides=None, require_workspace_env=Tru
             runtime=runtime,
         ),
         "get_pattern_min_confluence": get_pattern_min_confluence,
-        "get_disabled_patterns": lambda: get_disabled_patterns(runtime=runtime),
+        "get_disabled_patterns": lambda config=None: get_disabled_patterns(config=config, runtime=runtime),
+        "prescreened_file": lambda config=None: _prescreened_file(config=config, runtime=runtime),
+        "load_btc_cache": lambda config=None: load_btc_cache(config=config, runtime=runtime),
+        "save_btc_cache": lambda price, check_ts, scan_price=None, scan_ts=None, config=None: save_btc_cache(
+            price, check_ts, scan_price=scan_price, scan_ts=scan_ts, config=config, runtime=runtime
+        ),
         "atomic_write": lambda path, data: atomic_write(path, data, runtime=runtime),
         "workspace": _runtime_attr(runtime, "workspace"),
         "state_dir": _runtime_attr(runtime, "state_dir"),

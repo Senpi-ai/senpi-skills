@@ -83,13 +83,13 @@ BB squeeze with OI accumulation → price breaks bands.
 
 | Factor | Weight | Threshold |
 |--------|--------|-----------|
-| BB squeeze (4h) | 0.25 | Width < `bbSqueezePercentile` (default: 35th) |
-| BB breakout (1h) | 0.25 | Price closes outside 1h BB |
-| OI building | 0.20 | OI rising > 5% in 1h |
-| OI-price divergence | 0.15 | OI rising, price flat |
+| BB squeeze (4h) | 0.20 | Width < `bbSqueezePercentile` (default: 35th) |
+| BB breakout (1h) | 0.20 | Price closes outside 1h BB |
+| OI building | 0.15 | OI rising > 5% in 1h |
+| OI-price divergence | 0.10 | OI rising, price flat |
 | Volume surge | 0.15 | Short vol > 1.5× long avg |
 | RSI not extreme | 0.10 | RSI 30-70 |
-| Funding aligned | 0.10 | Funding favors direction |
+| Funding aligned | 0.05 | Funding favors direction |
 | ATR expanding | 0.05 | ATR > 2% |
 
 ### 2. BTC Correlation Lag
@@ -131,12 +131,12 @@ Overextended asset with exhaustion signals → counter-trend.
 | Factor | Weight | Threshold |
 |--------|--------|-----------|
 | RSI extreme (4h) | 0.20 | > `rsiOverbought` or < `rsiOversold` (required) |
-| RSI extreme (1h) | 0.15 | Confirms 4h |
+| RSI extreme (1h) | 0.10 | Confirms 4h |
 | RSI divergence | 0.20 | Divergence aligned with reversal |
 | Price extended | 0.10 | > 10% move in 24h |
-| Volume exhaustion | 0.15 | Declining volume on extension |
+| Volume exhaustion | 0.10 | Declining volume on extension |
 | At extreme BB | 0.10 | Price beyond BB bands |
-| OI crowded | 0.15 | OI 15%+ above avg |
+| OI crowded | 0.10 | OI 15%+ above avg |
 | Funding pays us | 0.10 | Collect funding in our direction |
 
 ### 5. Funding Rate Arb
@@ -280,9 +280,11 @@ See `references/cron-templates.md` for ready-to-use OpenClaw cron payloads.
 | 10 | DSL Combined | 30 sec | `dsl-v4.py` | Tier 1 |
 | 11 | ROAR Analyst | 8 hour | `roar-analyst.py` | Tier 2 |
 
-**Tier 1** (fast/cheap): threshold checks, data collection, DSL math. Runs `isolated` with `delivery.mode: "none"` and explicit model (`claude-haiku-4-5`).
-**Tier 2** (capable): aggression decisions, risk judgment, exit evaluation. Runs `isolated` with `delivery.mode: "announce"` and explicit model (`claude-sonnet-4-5`). OpenClaw auto-suppresses HEARTBEAT_OK — only real content gets delivered.
-**DSL** (Cron 10): Runs in `main` session (`systemEvent`) — needs position state context.
+**Prescreener** (Cron 0): Runs `isolated` with `delivery.mode: "none"` and explicit model (`claude-haiku-4-5`). Writes prescreened.json — no trade actions.
+**Scanners** (Crons 1-6): Run in `main` session (`systemEvent`) so the agent can evaluate signals and execute `create_position`. Tier 1 analysis — the scripts produce JSON signals, the agent decides.
+**Decision-makers** (Crons 7-9): Run in `main` session (`systemEvent`). Tier 2 — goal engine, risk guardian, and exit checker execute directly (close_position) and update state.
+**DSL** (Cron 10): Runs in `main` session (`systemEvent`) — auto-closes positions on breach.
+**ROAR** (Cron 11): Runs `isolated` with `delivery.mode: "announce"` and explicit model (`claude-sonnet-4-5`). Tunes config — only announces when changes are made.
 
 Scanners are staggered by 1-2 minutes to avoid mcporter rate limits (see cron-templates.md).
 

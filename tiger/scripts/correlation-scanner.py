@@ -9,7 +9,6 @@ MANDATE: Run TIGER correlation scanner. Check BTC moves and find lagging alts. R
 
 import sys
 import os
-import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import resolve_dependencies
@@ -17,6 +16,10 @@ from tiger_lib import (
     parse_candles, rsi, sma, atr, volume_ratio, confluence_score
 )
 
+
+# ─── Constants ────────────────────────────────────────────────
+SCAN_COOLDOWN_MIN = 15   # min minutes between full alt scans for same BTC event
+RESCAN_MOVE_PCT = 0.5    # BTC must move this much further (%) to force rescan before cooldown
 
 # Known high-correlation alts (BTC leads these)
 HIGH_CORR_ALTS = [
@@ -26,10 +29,11 @@ HIGH_CORR_ALTS = [
 ]
 
 
-def check_btc_move(config: dict, state: dict, get_asset_candles_fn, now_fn=time.time) -> dict:
-    """Check if BTC has made a significant move in the last 4 hours.
-    Uses cached BTC price checkpoints in state."""
-    
+def check_btc_move(config: dict, state: dict, get_asset_candles_fn, now_fn=None) -> dict:
+    """Check if BTC has made a significant move in the last 4 hours."""
+    from datetime import datetime, timezone
+    now_fn = now_fn or (lambda: datetime.now(timezone.utc).isoformat())
+
     result = get_asset_candles_fn("BTC", ["1h"])
     if not result.get("success") and not result.get("data"):
         return {"triggered": False, "error": "Failed to fetch BTC data"}
@@ -41,10 +45,7 @@ def check_btc_move(config: dict, state: dict, get_asset_candles_fn, now_fn=time.
 
     _, _, _, closes, volumes = parse_candles(candles)
     current_price = closes[-1]
-
-    # Update cache
-    state["lastBtcPrice"] = current_price
-    state["lastBtcCheck"] = int(now_fn())
+    check_ts = now_fn()
 
     # Check 4h move
     price_4h_ago = closes[-4] if len(closes) >= 4 else closes[0]
@@ -62,6 +63,7 @@ def check_btc_move(config: dict, state: dict, get_asset_candles_fn, now_fn=time.
     return {
         "triggered": triggered,
         "btc_price": current_price,
+        "check_ts": check_ts,
         "move_1h_pct": round(move_1h, 2),
         "move_4h_pct": round(move_4h, 2),
         "direction": btc_direction,
@@ -187,7 +189,6 @@ def main(deps=None):
     deps = deps or resolve_dependencies()
     load_config = deps["load_config"]
     load_state = deps["load_state"]
-    save_state = deps["save_state"]
     get_all_instruments = deps["get_all_instruments"]
     get_asset_candles = deps["get_asset_candles"]
     get_sm_markets = deps["get_sm_markets"]
@@ -197,6 +198,8 @@ def main(deps=None):
     is_halted = deps["is_halted"]
     halt_reason = deps["halt_reason"]
     get_active_positions = deps["get_active_positions"]
+    load_btc_cache = deps["load_btc_cache"]
+    save_btc_cache = deps["save_btc_cache"]
 
     config = load_config()
     state = load_state(config=config)
@@ -214,9 +217,10 @@ def main(deps=None):
         })
         return
 
-    # Step 1: Check if BTC has made a significant move
+    # Step 1a: Check if BTC has made a significant move
     btc = check_btc_move(config, state, get_asset_candles)
     if not btc["triggered"]:
+        save_btc_cache(btc["btc_price"], btc.get("check_ts"), config=config)
         output({
             "action": "correlation_scan",
             "btc_triggered": False,
@@ -226,6 +230,34 @@ def main(deps=None):
             "message": "BTC hasn't made a significant move. No lag scan needed."
         })
         return
+
+    # Step 1b: Fast-path — skip full alt scan if BTC hasn't moved further since last scan
+    cache = load_btc_cache(config=config)
+    last_scan_price = cache.get("last_scan_price")
+    last_scan_ts = cache.get("last_scan_ts")
+    if last_scan_price and last_scan_ts:
+        from datetime import datetime, timezone
+        try:
+            scan_dt = datetime.fromisoformat(str(last_scan_ts))
+            minutes_since = (datetime.now(timezone.utc) - scan_dt).total_seconds() / 60
+            price_delta_pct = abs(btc["btc_price"] - last_scan_price) / last_scan_price * 100
+
+            if minutes_since < SCAN_COOLDOWN_MIN and price_delta_pct < RESCAN_MOVE_PCT:
+                save_btc_cache(btc["btc_price"], btc.get("check_ts"), config=config)
+                output({
+                    "action": "correlation_scan",
+                    "btc_triggered": True,
+                    "cached_skip": True,
+                    "btc_direction": btc["direction"],
+                    "btc_move_4h_pct": btc["move_4h_pct"],
+                    "btc_price": btc["btc_price"],
+                    "price_delta_since_scan_pct": round(price_delta_pct, 2),
+                    "minutes_since_scan": round(minutes_since, 0),
+                    "message": f"BTC triggered but only +{price_delta_pct:.2f}% since last scan {minutes_since:.0f}m ago. Skipping alt scan."
+                })
+                return
+        except (ValueError, TypeError):
+            pass  # Malformed cache — proceed with full scan
 
     # Step 2: Fetch instruments for context
     instruments = get_all_instruments()
@@ -256,11 +288,11 @@ def main(deps=None):
     )
     scan_list.extend(other[:10])
 
-    # Deduplicate
+    # Deduplicate and filter active positions
     seen = set()
     unique_scan = []
     for a in scan_list:
-        if a not in seen and a != "BTC" and a in instruments_map:
+        if a not in seen and a != "BTC" and a in instruments_map and a not in active_coins:
             seen.add(a)
             unique_scan.append(a)
 
@@ -296,8 +328,12 @@ def main(deps=None):
     min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score]
 
-    # Save state for BTC price cache
-    save_state(config, state)
+    # Save BTC price cache with scan timestamp (enables fast-path on next run)
+    save_btc_cache(
+        btc["btc_price"], btc.get("check_ts"),
+        scan_price=btc["btc_price"], scan_ts=btc.get("check_ts"),
+        config=config
+    )
 
     output({
         "action": "correlation_scan",

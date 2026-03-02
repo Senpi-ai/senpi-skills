@@ -9,8 +9,6 @@ MANDATE: Run TIGER reversion scanner. Find mean reversion setups. Report signals
 
 import sys
 import os
-import json
-import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
@@ -214,8 +212,11 @@ def main(deps=None):
         candidates = candidates[:12]
 
     signals = []
+    inst_map = {i.get("name"): i for i in instruments}
     for name, ctx in candidates:
-        ctx["max_leverage"] = next((i.get("max_leverage", 0) for i in instruments if i.get("name") == name), 0)
+        if name in active_coins:
+            continue
+        ctx["max_leverage"] = inst_map.get(name, {}).get("max_leverage", 0)
         result = scan_asset(name, ctx, config, oi_hist, get_asset_candles)
         if result:
             signals.append(result)
