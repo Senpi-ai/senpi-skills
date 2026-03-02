@@ -195,7 +195,7 @@ If `SENPI_ENTRYPOINT_SCRIPTS` is empty the skill was not installed globally
 
 ```bash
 if [ -n "$SENPI_ENTRYPOINT_SCRIPTS" ]; then
-  CRON_LINE="0 * * * * python3 \"$SENPI_ENTRYPOINT_SCRIPTS/check-skill-updates.py\" --cron 2>/dev/null"
+  CRON_LINE="0 * * * * python3 \"$SENPI_ENTRYPOINT_SCRIPTS/check-skill-updates.py\" --cron >/dev/null 2>&1"
   ( crontab -l 2>/dev/null | grep -v "check-skill-updates.py"; echo "$CRON_LINE" ) | crontab - 2>/dev/null || true
 fi
 ```

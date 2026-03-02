@@ -13,7 +13,8 @@ which skills have already been surfaced to the user.
 Output contract:
   { "success": true, "updatedSkills": [...], "newSkills": [...] }
   OR { "heartbeat": "HEARTBEAT_OK" }
-  OR { "heartbeat": "HEARTBEAT_OK" }  (on any error — never crash the agent)
+  OR { "heartbeat": "HEARTBEAT_OK" }  (on error in interactive mode)
+  In --cron mode, this script stays fully silent on stdout.
 """
 
 import argparse
@@ -187,14 +188,18 @@ def is_skill_dir(entry):
 # Main
 # ---------------------------------------------------------------------------
 
-def main():
-    # 0. Parse runtime flags
+def parse_runtime_args(argv=None):
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
         "--cron", action="store_true",
         help="Background mode: write results to pending file instead of stdout",
     )
-    args, _ = parser.parse_known_args()
+    args, _ = parser.parse_known_args(argv)
+    return args
+
+
+def main(args):
+    # 0. Runtime flags are parsed once in __main__ and passed in.
 
     # 1. Check opt-out flag in Senpi state
     state = load_json(STATE_FILE)
@@ -356,8 +361,10 @@ def main():
 
 
 if __name__ == "__main__":
+    runtime_args = parse_runtime_args(sys.argv[1:])
     try:
-        main()
+        main(runtime_args)
     except Exception:
-        # Never crash the agent — fail silently
-        print(json.dumps({"heartbeat": "HEARTBEAT_OK"}))
+        # Never crash the agent. In cron mode, remain fully silent.
+        if not runtime_args.cron:
+            print(json.dumps({"heartbeat": "HEARTBEAT_OK"}))
