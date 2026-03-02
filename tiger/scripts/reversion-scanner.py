@@ -14,9 +14,7 @@ import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
-    load_config, load_state, get_all_instruments,
-    get_asset_candles, load_oi_history, output, STATE_DIR,
-    load_prescreened_candidates, get_pattern_min_confluence, get_disabled_patterns
+    resolve_dependencies
 )
 from tiger_lib import (
     parse_candles, rsi, bollinger_bands, atr, volume_ratio,
@@ -24,9 +22,9 @@ from tiger_lib import (
 )
 
 
-def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
+def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict, get_asset_candles_fn) -> dict:
     """Scan for mean reversion setup on a single asset."""
-    result = get_asset_candles(asset, ["1h", "4h"])
+    result = get_asset_candles_fn(asset, ["1h", "4h"])
     if not result.get("success") and not result.get("data"):
         return None
 
@@ -50,8 +48,8 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
         return None
 
     # Determine if overextended
-    overbought = current_rsi_4h >= config["rsi_overbought"]
-    oversold = current_rsi_4h <= config["rsi_oversold"]
+    overbought = current_rsi_4h >= config["rsiOverbought"]
+    oversold = current_rsi_4h <= config["rsiOversold"]
     if not overbought and not oversold:
         return None
 
@@ -157,13 +155,27 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict) -> dict:
     }
 
 
-def main():
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    load_config = deps["load_config"]
+    load_state = deps["load_state"]
+    get_all_instruments = deps["get_all_instruments"]
+    get_asset_candles = deps["get_asset_candles"]
+    load_oi_history = deps["load_oi_history"]
+    output = deps["output"]
+    load_prescreened_candidates = deps["load_prescreened_candidates"]
+    get_pattern_min_confluence = deps["get_pattern_min_confluence"]
+    get_disabled_patterns = deps["get_disabled_patterns"]
+    is_halted = deps["is_halted"]
+    halt_reason = deps["halt_reason"]
+    get_active_positions = deps["get_active_positions"]
+
     config = load_config()
-    state = load_state()
+    state = load_state(config=config)
     pattern = "MEAN_REVERSION"
 
-    if state.get("halted"):
-        output({"action": "reversion_scan", "halted": True, "reason": state.get("halt_reason")})
+    if is_halted(state):
+        output({"action": "reversion_scan", "halted": True, "reason": halt_reason(state)})
         return
     if pattern in get_disabled_patterns():
         output({
@@ -179,11 +191,11 @@ def main():
         output({"error": "Failed to fetch instruments"})
         return
 
-    oi_hist = load_oi_history()
-    active_coins = set(state.get("active_positions", {}).keys())
+    oi_hist = load_oi_history(config=config)
+    active_coins = set(get_active_positions(state).keys())
 
     # Try prescreened candidates first
-    candidates = load_prescreened_candidates(instruments, config, include_leverage=False)
+    candidates = load_prescreened_candidates(instruments, config=config, include_leverage=False)
 
     if candidates is None:
         # Fallback: original behavior
@@ -192,7 +204,7 @@ def main():
             name = inst.get("name", "")
             if inst.get("is_delisted"):
                 continue
-            if inst.get("max_leverage", 0) < config["min_leverage"]:
+            if inst.get("max_leverage", 0) < config["minLeverage"]:
                 continue
             ctx = inst.get("context", {})
             if float(ctx.get("dayNtlVlm", 0)) < 1_000_000:
@@ -204,7 +216,7 @@ def main():
     signals = []
     for name, ctx in candidates:
         ctx["max_leverage"] = next((i.get("max_leverage", 0) for i in instruments if i.get("name") == name), 0)
-        result = scan_asset(name, ctx, config, oi_hist)
+        result = scan_asset(name, ctx, config, oi_hist, get_asset_candles)
         if result:
             signals.append(result)
 
@@ -212,7 +224,7 @@ def main():
 
     min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score]
-    available_slots = config["max_slots"] - len(active_coins)
+    available_slots = config["maxSlots"] - len(active_coins)
 
     output({
         "action": "reversion_scan",

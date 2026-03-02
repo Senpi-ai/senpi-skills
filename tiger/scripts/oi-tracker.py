@@ -12,21 +12,29 @@ import os
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
-    load_config, load_state, get_all_instruments,
-    append_oi_snapshot, load_oi_history, output
+    resolve_dependencies
 )
 
 
-def main():
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    load_config = deps["load_config"]
+    load_state = deps["load_state"]
+    get_all_instruments = deps["get_all_instruments"]
+    append_oi_snapshot = deps["append_oi_snapshot"]
+    load_oi_history = deps["load_oi_history"]
+    get_active_positions = deps["get_active_positions"]
+    output = deps["output"]
+
     config = load_config()
-    state = load_state()
+    state = load_state(config=config)
 
     instruments = get_all_instruments()
     if not instruments:
         output({"error": "Failed to fetch instruments"})
         return
 
-    active_coins = set(state.get("active_positions", {}).keys())
+    active_coins = set(get_active_positions(state).keys())
     sampled = 0
     tracked_assets = set()
 
@@ -45,16 +53,16 @@ def main():
             name in active_coins or
             name in ("BTC", "ETH") or
             day_vol > 5_000_000 or
-            (inst.get("max_leverage", 0) >= config.get("min_leverage", 5) and day_vol > 1_000_000)
+            (inst.get("max_leverage", 0) >= config.get("minLeverage", 5) and day_vol > 1_000_000)
         )
 
         if should_track and oi > 0 and price > 0:
-            append_oi_snapshot(name, oi, price)
+            append_oi_snapshot(name, oi, price, config=config)
             tracked_assets.add(name)
             sampled += 1
 
     # Report
-    oi_history = load_oi_history()
+    oi_history = load_oi_history(config=config)
     history_stats = {}
     for asset in list(active_coins) + ["BTC", "ETH"]:
         if asset in oi_history:

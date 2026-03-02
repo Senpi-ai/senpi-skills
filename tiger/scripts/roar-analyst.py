@@ -20,7 +20,7 @@ from datetime import datetime, timezone, timedelta
 SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPTS_DIR)
 
-from tiger_config import load_config, save_config, load_state, load_trade_log
+from tiger_config import resolve_dependencies
 from roar_config import (
     load_roar_state, save_roar_state,
     apply_changeset, should_revert, revert_config,
@@ -248,11 +248,18 @@ def generate_proposed_changes(scorecard: dict, config: dict, roar_state: dict) -
 
 # ─── Main ────────────────────────────────────────────────────
 
-def main():
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    runtime = deps["runtime"]
+    load_config = deps["load_config"]
+    save_config = deps["save_config"]
+    load_state = deps["load_state"]
+    load_trade_log = deps["load_trade_log"]
+
     config = load_config()
-    tiger_state = load_state()
-    roar_state = load_roar_state()
-    trades = load_trade_log()
+    tiger_state = load_state(config=config)
+    roar_state = load_roar_state(runtime=runtime)
+    trades = load_trade_log(config=config)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     roar_state["run_count"] = roar_state.get("run_count", 0) + 1
@@ -318,7 +325,7 @@ def main():
     # ── Update state ──
     roar_state["last_analysis_ts"] = now_iso
     roar_state["trades_processed"] = len(trades)
-    save_roar_state(roar_state)
+    save_roar_state(roar_state, runtime=runtime)
 
     # ── Build summary ──
     n_changes = len([c for c in proposed if not c["key"].startswith("_")])

@@ -9,13 +9,9 @@ MANDATE: Run TIGER exit manager. Check positions for target-aware exits. Report 
 
 import sys
 import os
-import time
 sys.path.insert(0, os.path.dirname(__file__))
 
-from tiger_config import (
-    load_config, load_state, save_state, get_clearinghouse,
-    close_position, days_remaining, output
-)
+from tiger_config import resolve_dependencies
 
 
 def evaluate_position(pos_data: dict, active_pos: dict, config: dict, state: dict) -> dict:
@@ -36,30 +32,30 @@ def evaluate_position(pos_data: dict, active_pos: dict, config: dict, state: dic
 
     # Get tracked state for this position
     tracked = active_pos.get(coin, {})
-    high_water_roe = max(tracked.get("high_water_roe", roe_pct), roe_pct)
-    opened_at = tracked.get("opened_at", "")
+    high_water_roe = max(tracked.get("highWaterRoe", roe_pct), roe_pct)
+    opened_at = tracked.get("openedAt", "")
     pattern = tracked.get("pattern", "unknown")
 
     # Update high water mark
     if coin in active_pos:
-        active_pos[coin]["high_water_roe"] = high_water_roe
+        active_pos[coin]["highWaterRoe"] = high_water_roe
 
     # ─── Exit Logic ───
 
     aggression = state.get("aggression", "NORMAL")
-    remaining = state.get("days_remaining", 7)
-    daily_rate = state.get("daily_rate_needed", 10)
+    remaining = state.get("daysRemaining", 7)
+    daily_rate = state.get("dailyRateNeeded", 10)
 
     # Calculate daily target in USD
-    daily_target_usd = state["current_balance"] * (daily_rate / 100) if daily_rate else 0
+    daily_target_usd = state["currentBalance"] * (daily_rate / 100) if daily_rate else 0
 
     actions = []
 
     # 0. FALSE BREAKOUT CHECK (Compression Breakout only)
     # If price re-entered BB range within 2 candles of breakout, cut immediately
-    if pattern == "COMPRESSION_BREAKOUT" and tracked.get("breakout_candle_index"):
-        candles_since_breakout = tracked.get("candles_since_breakout", 0)
-        bb_reentry = tracked.get("bb_reentry", False)
+    if pattern == "COMPRESSION_BREAKOUT" and tracked.get("breakoutCandleIndex"):
+        candles_since_breakout = tracked.get("candlesSinceBreakout", 0)
+        bb_reentry = tracked.get("bbReentry", False)
         if candles_since_breakout <= 2 and bb_reentry and roe_pct < 3:
             actions.append({
                 "type": "FALSE_BREAKOUT",
@@ -78,7 +74,7 @@ def evaluate_position(pos_data: dict, active_pos: dict, config: dict, state: dic
         })
 
     # 2. Trailing lock based on aggression
-    lock_pct_map = config.get("trailing_lock_pct", {})
+    lock_pct_map = config.get("trailingLockPct", {})
     lock_pct = lock_pct_map.get(aggression, 0.60)
 
     # Deadline override: last day = 85%+ lock
@@ -109,7 +105,7 @@ def evaluate_position(pos_data: dict, active_pos: dict, config: dict, state: dic
 
     # 4. Stagnation: positive ROE but no new high in 2+ hours
     # (simplified: if high_water hasn't changed significantly and we're in profit)
-    if roe_pct > 3 and abs(high_water_roe - roe_pct) < 1 and tracked.get("stagnant_checks", 0) >= 24:
+    if roe_pct > 3 and abs(high_water_roe - roe_pct) < 1 and tracked.get("stagnantChecks", 0) >= 24:
         actions.append({
             "type": "STAGNATION",
             "action": "CLOSE",
@@ -119,12 +115,12 @@ def evaluate_position(pos_data: dict, active_pos: dict, config: dict, state: dic
 
     # Track stagnation
     if coin in active_pos:
-        prev_hw = tracked.get("prev_high_water", 0)
+        prev_hw = tracked.get("prevHighWater", 0)
         if abs(high_water_roe - prev_hw) < 0.5:
-            active_pos[coin]["stagnant_checks"] = tracked.get("stagnant_checks", 0) + 1
+            active_pos[coin]["stagnantChecks"] = tracked.get("stagnantChecks", 0) + 1
         else:
-            active_pos[coin]["stagnant_checks"] = 0
-        active_pos[coin]["prev_high_water"] = high_water_roe
+            active_pos[coin]["stagnantChecks"] = 0
+        active_pos[coin]["prevHighWater"] = high_water_roe
 
     # 5. Losing position past time limit (30 min + negative = cut)
     if opened_at and roe_pct < -2:
@@ -170,15 +166,25 @@ def evaluate_position(pos_data: dict, active_pos: dict, config: dict, state: dic
     }
 
 
-def main():
-    config = load_config()
-    state = load_state()
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    load_config = deps["load_config"]
+    load_state = deps["load_state"]
+    save_state = deps["save_state"]
+    get_clearinghouse = deps["get_clearinghouse"]
+    close_position = deps["close_position"]
+    get_active_positions = deps["get_active_positions"]
+    set_active_positions = deps["set_active_positions"]
+    output = deps["output"]
 
-    if not config.get("strategy_wallet"):
+    config = load_config()
+    state = load_state(config=config)
+
+    if not config.get("strategyWallet"):
         output({"error": "TIGER not set up."})
         return
 
-    wallet = config["strategy_wallet"]
+    wallet = config["strategyWallet"]
     ch = get_clearinghouse(wallet)
     if ch.get("error"):
         output({"error": f"Clearinghouse failed: {ch['error']}"})
@@ -187,7 +193,7 @@ def main():
     ch_data = ch.get("data", ch)
     positions = ch_data.get("assetPositions", [])
 
-    active_pos = state.get("active_positions", {})
+    active_pos = get_active_positions(state)
     exit_signals = []
 
     for p in positions:
@@ -198,8 +204,8 @@ def main():
             exit_signals.append(result)
 
     # Update state with high water marks
-    state["active_positions"] = active_pos
-    save_state(state)
+    set_active_positions(state, active_pos)
+    save_state(config, state)
 
     # Categorize actions
     close_needed = [e for e in exit_signals if e["primary_action"]["action"] == "CLOSE"]
@@ -233,7 +239,7 @@ def main():
         "partial_needed": [{"coin": e["coin"], "reason": e["primary_action"]["reason"]} for e in partial_needed],
         "all_signals": exit_signals,
         "aggression": state.get("aggression", "NORMAL"),
-        "days_remaining": round(state.get("days_remaining", 7), 1),
+        "days_remaining": round(state.get("daysRemaining", 7), 1),
         "execution": execution
     })
 

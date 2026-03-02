@@ -12,11 +12,7 @@ import os
 import time
 sys.path.insert(0, os.path.dirname(__file__))
 
-from tiger_config import (
-    load_config, load_state, save_state, get_all_instruments,
-    get_asset_candles, get_sm_markets, output,
-    get_pattern_min_confluence, get_disabled_patterns
-)
+from tiger_config import resolve_dependencies
 from tiger_lib import (
     parse_candles, rsi, sma, atr, volume_ratio, confluence_score
 )
@@ -30,14 +26,11 @@ HIGH_CORR_ALTS = [
 ]
 
 
-def check_btc_move(config: dict, state: dict) -> dict:
+def check_btc_move(config: dict, state: dict, get_asset_candles_fn, now_fn=time.time) -> dict:
     """Check if BTC has made a significant move in the last 4 hours.
-    Uses cached BTC price from state to skip redundant checks."""
-    # Fast path: if BTC price hasn't changed much since last check, skip full scan
-    last_btc = state.get("last_btc_price")
-    last_check = state.get("last_btc_check", 0)
+    Uses cached BTC price checkpoints in state."""
     
-    result = get_asset_candles("BTC", ["1h"])
+    result = get_asset_candles_fn("BTC", ["1h"])
     if not result.get("success") and not result.get("data"):
         return {"triggered": False, "error": "Failed to fetch BTC data"}
 
@@ -50,8 +43,8 @@ def check_btc_move(config: dict, state: dict) -> dict:
     current_price = closes[-1]
 
     # Update cache
-    state["last_btc_price"] = current_price
-    state["last_btc_check"] = int(time.time())
+    state["lastBtcPrice"] = current_price
+    state["lastBtcCheck"] = int(now_fn())
 
     # Check 4h move
     price_4h_ago = closes[-4] if len(closes) >= 4 else closes[0]
@@ -61,7 +54,7 @@ def check_btc_move(config: dict, state: dict) -> dict:
     price_1h_ago = closes[-2] if len(closes) >= 2 else closes[0]
     move_1h = ((current_price - price_1h_ago) / price_1h_ago) * 100
 
-    threshold = config["btc_correlation_move_pct"]
+    threshold = config["btcCorrelationMovePct"]
     triggered = abs(move_4h) >= threshold or abs(move_1h) >= threshold * 0.6
 
     btc_direction = "LONG" if move_4h > 0 else "SHORT"
@@ -76,10 +69,17 @@ def check_btc_move(config: dict, state: dict) -> dict:
     }
 
 
-def check_alt_lag(asset: str, btc_direction: str, btc_move_4h: float,
-                  instruments_map: dict, sm_data: dict, config: dict) -> dict:
+def check_alt_lag(
+    asset: str,
+    btc_direction: str,
+    btc_move_4h: float,
+    instruments_map: dict,
+    sm_data: dict,
+    config: dict,
+    get_asset_candles_fn,
+) -> dict:
     """Check if an alt is lagging behind BTC's move."""
-    result = get_asset_candles(asset, ["1h", "4h"])
+    result = get_asset_candles_fn(asset, ["1h", "4h"])
     if not result.get("success") and not result.get("data"):
         return None
 
@@ -157,7 +157,7 @@ def check_alt_lag(asset: str, btc_direction: str, btc_move_4h: float,
         "rsi_safe": (rsi_ok, 0.10),
         "sm_aligned": (sm_aligned, 0.15),
         "high_correlation_alt": (asset in HIGH_CORR_ALTS, 0.10),
-        "sufficient_leverage": (max_lev >= config["min_leverage"], 0.05),
+        "sufficient_leverage": (max_lev >= config["minLeverage"], 0.05),
     }
 
     score = confluence_score(factors)
@@ -183,13 +183,27 @@ def check_alt_lag(asset: str, btc_direction: str, btc_move_4h: float,
     }
 
 
-def main():
+def main(deps=None):
+    deps = deps or resolve_dependencies()
+    load_config = deps["load_config"]
+    load_state = deps["load_state"]
+    save_state = deps["save_state"]
+    get_all_instruments = deps["get_all_instruments"]
+    get_asset_candles = deps["get_asset_candles"]
+    get_sm_markets = deps["get_sm_markets"]
+    output = deps["output"]
+    get_pattern_min_confluence = deps["get_pattern_min_confluence"]
+    get_disabled_patterns = deps["get_disabled_patterns"]
+    is_halted = deps["is_halted"]
+    halt_reason = deps["halt_reason"]
+    get_active_positions = deps["get_active_positions"]
+
     config = load_config()
-    state = load_state()
+    state = load_state(config=config)
     pattern = "CORRELATION_LAG"
 
-    if state.get("halted"):
-        output({"action": "correlation_scan", "halted": True, "reason": state.get("halt_reason")})
+    if is_halted(state):
+        output({"action": "correlation_scan", "halted": True, "reason": halt_reason(state)})
         return
     if pattern in get_disabled_patterns():
         output({
@@ -201,7 +215,7 @@ def main():
         return
 
     # Step 1: Check if BTC has made a significant move
-    btc = check_btc_move(config, state)
+    btc = check_btc_move(config, state, get_asset_candles)
     if not btc["triggered"]:
         output({
             "action": "correlation_scan",
@@ -226,7 +240,7 @@ def main():
             sm_data[token] = m
 
     # Step 4: Scan high-correlation alts first, then other liquid assets
-    active_coins = set(state.get("active_positions", {}).keys())
+    active_coins = set(get_active_positions(state).keys())
     scan_list = list(HIGH_CORR_ALTS)
 
     # Add other liquid assets not in the corr list
@@ -235,7 +249,7 @@ def main():
          if i["name"] not in HIGH_CORR_ALTS
          and i["name"] != "BTC"
          and not i.get("is_delisted")
-         and i.get("max_leverage", 0) >= config["min_leverage"]
+         and i.get("max_leverage", 0) >= config["minLeverage"]
          and float(i.get("context", {}).get("dayNtlVlm", 0)) > 5_000_000],
         key=lambda n: float(instruments_map.get(n, {}).get("context", {}).get("dayNtlVlm", 0)),
         reverse=True
@@ -259,7 +273,7 @@ def main():
     for asset in fast_scan:
         result = check_alt_lag(
             asset, btc["direction"], btc["move_4h_pct"],
-            instruments_map, sm_data, config
+            instruments_map, sm_data, config, get_asset_candles
         )
         if result:
             signals.append(result)
@@ -272,7 +286,7 @@ def main():
         for asset in extended_scan[:10]:
             result = check_alt_lag(
                 asset, btc["direction"], btc["move_4h_pct"],
-                instruments_map, sm_data, config
+                instruments_map, sm_data, config, get_asset_candles
             )
             if result:
                 signals.append(result)
@@ -283,7 +297,7 @@ def main():
     actionable = [s for s in signals if s["score"] >= min_score]
 
     # Save state for BTC price cache
-    save_state(state)
+    save_state(config, state)
 
     output({
         "action": "correlation_scan",
@@ -294,7 +308,7 @@ def main():
         "alts_scanned": len(unique_scan),
         "lagging_found": len(signals),
         "actionable": len(actionable),
-        "available_slots": config["max_slots"] - len(active_coins),
+        "available_slots": config["maxSlots"] - len(active_coins),
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
         "active_positions": list(active_coins)

@@ -18,11 +18,7 @@ import os
 import sys
 from datetime import datetime, timezone
 
-from tiger_config import atomic_write, get_prices, close_position, load_config, WORKSPACE
-
-
-_config = load_config()
-STATE_FILE_ENV = os.environ.get("DSL_STATE_FILE")
+from tiger_config import resolve_dependencies
 
 
 def _iso_now():
@@ -57,21 +53,24 @@ def _apply_dsl_retrace_overrides(state, config):
         state.setdefault("phase2", {})["retraceThreshold"] = _safe_float(phase2, 0.012)
 
 
-def _resolve_state_files(config):
-    if STATE_FILE_ENV:
-        return [STATE_FILE_ENV]
+def _resolve_state_files(config, workspace, state_file_env):
+    if state_file_env:
+        return [state_file_env]
 
-    instance_key = config.get("strategyId") or config.get("strategy_id")
+    instance_key = config.get("strategyId")
     if instance_key:
-        pattern = os.path.join(WORKSPACE, "state", instance_key, "dsl-*.json")
+        pattern = os.path.join(workspace, "state", instance_key, "dsl-*.json")
         return sorted(glob.glob(pattern))
 
-    pattern = os.path.join(WORKSPACE, "state", "*", "dsl-*.json")
+    pattern = os.path.join(workspace, "state", "*", "dsl-*.json")
     return sorted(glob.glob(pattern))
 
 
-def _process_state_file(state_file, config):
+def _process_state_file(state_file, config, deps):
     now = _iso_now()
+    get_prices = deps["get_prices"]
+    close_position = deps["close_position"]
+    atomic_write = deps["atomic_write"]
 
     try:
         with open(state_file) as f:
@@ -333,11 +332,16 @@ def _process_state_file(state_file, config):
     return result, False
 
 
-def main():
-    files = _resolve_state_files(_config)
+def main(deps=None, env=None):
+    deps = deps or resolve_dependencies()
+    env = env or os.environ
+    config = deps["load_config"]()
+    workspace = deps["workspace"]
+    state_file_env = env.get("DSL_STATE_FILE")
+    files = _resolve_state_files(config, workspace, state_file_env)
 
-    if STATE_FILE_ENV:
-        result, errored = _process_state_file(files[0], _config)
+    if state_file_env:
+        result, errored = _process_state_file(files[0], config, deps)
         print(json.dumps(result))
         sys.exit(1 if errored else 0)
 
@@ -357,7 +361,7 @@ def main():
     pending_count = 0
 
     for state_file in files:
-        result, errored = _process_state_file(state_file, _config)
+        result, errored = _process_state_file(state_file, config, deps)
         results.append(result)
         if errored:
             error_count += 1
