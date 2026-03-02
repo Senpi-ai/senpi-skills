@@ -1,7 +1,7 @@
 ---
 name: tiger-strategy
 description: >-
-  TIGER v2 — Multi-scanner trading system for Hyperliquid perps via Senpi MCP.
+  TIGER v5 — Multi-scanner trading system for Hyperliquid perps via Senpi MCP.
   5 signal patterns (BB compression breakout, BTC correlation lag, momentum breakout,
   mean reversion, funding rate arb), DSL v4 trailing stops, goal-based aggression engine,
   and risk guardrails. Configurable profit target over deadline. 12-cron architecture (10 TIGER + prescreener + ROAR meta-optimizer).
