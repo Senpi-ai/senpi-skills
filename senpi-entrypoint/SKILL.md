@@ -180,84 +180,25 @@ may not be installed globally yet.
 
 ### Act on the output
 
-Parse `UPDATE_OUTPUT` as JSON:
-
-- **`heartbeat: "HEARTBEAT_OK"`** — Nothing new. Say nothing, do nothing.
-
-- **`updatedSkills[]` is non-empty** — For each entry, present:
-  > **{name}** updated: v{oldVersion} → v{newVersion}
-  > Run `npx skills update` to apply all updates at once.
-
-- **`newSkills[]` is non-empty** — For each entry, present:
-  > **New skill available: {name}** v{version} — {description}
-  > Install: `npx skills add https://github.com/Senpi-ai/senpi-skills --skill {name} -g -y`
-
-Do **not** announce that you ran the check. Only speak if there is
-something to surface.
+Handle `UPDATE_OUTPUT` per
+[references/skill-update-checker.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-update-checker.md).
 
 ---
 
-## Turning off skill update notifications
+## Turning skill update notifications on or off
 
-If at any point the user says something like "turn off skill update
-notifications", "stop notifying me about new skills", or similar:
-
-```bash
-node -e "
-  const fs = require('fs');
-  const p = require('os').homedir() + '/.config/senpi/state.json';
-  try {
-    const s = JSON.parse(fs.readFileSync(p, 'utf8'));
-    s.skillUpdates = { enabled: false };
-    fs.writeFileSync(p, JSON.stringify(s, null, 2));
-    console.log('done');
-  } catch(e) { console.log('state file not found'); }
-"
-```
-
-Confirm to the user that skill update notifications are off. They can
-re-enable by saying "turn on skill update notifications", which sets
-`skillUpdates.enabled` to `true` using the same pattern above.
+If the user asks to turn notifications off or back on, follow the procedure in
+[references/skill-update-checker.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-update-checker.md).
 
 ---
 
 ## Responding to Questions
 
-Handle these questions at any point — during onboarding or after it completes.
-
 ### "What skills should I install?" / "What should I use for [goal]?"
 
-First run:
-
-```bash
-npx skills add https://github.com/Senpi-ai/senpi-skills --list
-```
-
-Then match the user's stated goal to the table below and recommend the
-best-fit skill(s). Always include the minimum budget and install command.
-
-| User goal | Recommended skill | Min budget |
-|---|---|---|
-| Protect profits on open positions / trailing stop loss | `dsl-dynamic-stop-loss` or `dsl-tight` (tighter defaults) | $100 |
-| Scan all markets for high-conviction setups | `opportunity-scanner` | $100 |
-| Catch smart money moves early, before they hit the leaderboard | `emerging-movers` | $100 |
-| Fully autonomous trading — no manual decisions needed | `wolf-strategy` ⭐ (includes DSL, Scanner, Emerging Movers) | $500 |
-| Mirror the best-performing traders automatically | `whale-index` | $500 |
-| Orchestrate DSL + Scanner + Emerging Movers on one budget | `autonomous-trading` | $500 |
-| Nightly trade review and self-improvement loop | `wolf-howl` (requires `wolf-strategy`) | — |
-
-For each recommendation, present:
-- Skill name + one-sentence description
-- Minimum budget
-- Install command: `npx skills add https://github.com/Senpi-ai/senpi-skills --skill <name> -g -y`
-
-If the user's budget is under $500, steer toward `dsl-dynamic-stop-loss`
-or `opportunity-scanner` to start. If they have $500+, `wolf-strategy` is
-the most complete autonomous option.
-
-If the user's goal is unclear, ask one question: **"Are you looking to
-protect existing positions, find new ones, or have the agent trade
-autonomously?"** — then map their answer to the table above.
+Consult
+[references/skill-recommendations.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-recommendations.md)
+for the goal-to-skill mapping, budget guidance, and install commands.
 
 ---
 
@@ -266,5 +207,7 @@ autonomously?"** — then map their answer to the table above.
 | File | Purpose |
 |------|---------|
 | `scripts/check-skill-updates.py` | Skill update checker — reads the Vercel skills CLI lock file, compares GitHub tree SHAs, and surfaces version bumps or new skills |
+| `references/skill-update-checker.md` | Step 5 output handling + turn notifications on/off |
+| `references/skill-recommendations.md` | Goal-to-skill mapping table, budget guidance, install commands |
 | `references/about-senpi.md` | Senpi platform overview (what it is, what agents can do, core loop) |
 | `references/error-handling.md` | Recovery steps for `npx` command failures |
