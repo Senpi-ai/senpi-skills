@@ -136,16 +136,26 @@ def main():
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    adapter_fn = getattr(mod, "get_healthcheck_adapter", None)
-    if adapter_fn is None:
+    if args.reconcile_state:
         adapter_fn = getattr(mod, "get_lifecycle_adapter", None)
-    if adapter_fn is None:
-        print(json.dumps({
-            "status": "error",
-            "error": f"{args.skill}_config has neither "
-                     f"get_healthcheck_adapter() nor get_lifecycle_adapter()",
-        }))
-        return
+        if adapter_fn is None:
+            print(json.dumps({
+                "status": "error",
+                "error": f"{args.skill}_config has no get_lifecycle_adapter() "
+                         f"(required for --reconcile-state)",
+            }))
+            return
+    else:
+        adapter_fn = getattr(mod, "get_healthcheck_adapter", None)
+        if adapter_fn is None:
+            adapter_fn = getattr(mod, "get_lifecycle_adapter", None)
+        if adapter_fn is None:
+            print(json.dumps({
+                "status": "error",
+                "error": f"{args.skill}_config has neither "
+                         f"get_healthcheck_adapter() nor get_lifecycle_adapter()",
+            }))
+            return
 
     list_fn = getattr(mod, "list_instances", None)
 
