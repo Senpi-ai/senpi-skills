@@ -79,7 +79,8 @@ The central config file. Holds multiple strategies, each with independent wallet
 | `budget` | number | Total trading budget in USD |
 | `slots` | number | Max concurrent positions for this strategy |
 | `marginPerSlot` | number | USD margin per slot (budget * 0.30) |
-| `defaultLeverage` | number | Default leverage for new positions |
+| `defaultLeverage` | number | Fallback leverage when max-leverage data unavailable. Actual leverage is computed dynamically from `tradingRisk`. |
+| `tradingRisk` | string | Risk tier for dynamic leverage: `"conservative"`, `"moderate"`, or `"aggressive"`. Defaults to `"moderate"` if absent. |
 | `dailyLossLimit` | number | Max daily loss before reducing exposure |
 | `autoDeleverThreshold` | number | Account value below which to reduce slots by 1 |
 | `dsl.preset` | string | "aggressive" or "conservative" |

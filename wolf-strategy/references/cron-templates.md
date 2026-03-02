@@ -16,7 +16,7 @@ WOLF uses two session types and a 3-tier model approach. Configure per-cron in O
 
 **3-tier model approach** (configure per-cron in OpenClaw):
 - **Primary** — Your configured model. Complex judgment, multi-strategy routing, entry decisions.
-- **Mid** — Structured tasks, script output parsing, rule-based actions. Examples: `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash`.
+- **Mid** — Structured tasks, script output parsing, rule-based actions. Examples: `anthropic/claude-sonnet-4-5`, `openai/gpt-4o`, `google/gemini-2.0-flash`.
 - **Budget** — Simple threshold checks, binary decisions. Examples: `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite`.
 
 All 7 crons can also run on a single model if you prefer simplicity over cost savings.
@@ -70,9 +70,9 @@ WOLF Emerging Movers: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/emerging-movers.
 SLOT GUARD (MANDATORY): Check `anySlotsAvailable` — if false, output HEARTBEAT_OK immediately. Do NOT open any position when all strategies show 0 available slots. Check `strategySlots` per strategy before routing.
 On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals:
 use `strategySlots` to route to a strategy with available > 0 (skip strategies at capacity).
-Enter via: `python3 {SCRIPTS}/open-position.py --strategy {strategyKey} --asset {ASSET} --direction {DIR} --leverage {LEV}`
-This opens the position AND creates the DSL state file atomically. Do NOT manually call create_position or hand-write DSL JSON.
-Apply WOLF entry rules from SKILL.md (min 7x leverage, rank #25+ entry, no top-10 entries, rotation logic).
+Enter via: `python3 {SCRIPTS}/open-position.py --strategy {strategyKey} --asset {ASSET} --direction {DIR} --conviction {CONVICTION}`
+Conviction comes from scanner output (`conviction` field per alert). This opens the position AND creates the DSL state file atomically. Do NOT manually call create_position or hand-write DSL JSON.
+No leverage floor — all assets are tradeable. Leverage auto-calculated from strategy tradingRisk + asset maxLeverage + signal conviction. Apply WOLF entry rules from SKILL.md (rank #25+ entry, no top-10 entries, rotation logic).
 Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
 ```
 
@@ -146,7 +146,7 @@ Act on opportunities with finalScore≥175. Use btcMacro.trend for macro context
 PROCESSING ORDER (prevents context growth):
 1. Check `strategySlots` — only consider strategies with available > 0. If none → HEARTBEAT_OK.
 2. Build complete action plan: [(asset, direction, strategyKey, margin, leverage), ...] — cap entries at total available slots.
-3. Execute entries via: `python3 {SCRIPTS}/open-position.py --strategy {strategyKey} --asset {ASSET} --direction {DIR} --leverage {LEV}`. No re-reads of wolf-strategies.json.
+3. Execute entries via: `python3 {SCRIPTS}/open-position.py --strategy {strategyKey} --asset {ASSET} --direction {DIR} --conviction {CONVICTION}`. Conviction comes from scanner output. No re-reads of wolf-strategies.json.
 4. Send ONE consolidated Telegram ({TELEGRAM}) after all entries: "Wolf entered N positions: ASSET1 LONG (Strategy A), ASSET2 SHORT (Strategy B)"
 
 Apply WOLF scanner rules from SKILL.md for routing/conflict judgment. If no opportunities≥175 → HEARTBEAT_OK.

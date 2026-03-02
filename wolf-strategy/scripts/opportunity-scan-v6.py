@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import get_all_active_positions, WORKSPACE, atomic_write, mcporter_call, heartbeat
+from wolf_config import get_all_active_positions, WORKSPACE, atomic_write, mcporter_call, heartbeat, score_to_conviction
 
 heartbeat("opp_scanner")
 
@@ -768,9 +768,11 @@ def main():
                 continue
             if vol24h < MIN_VOLUME_24H:
                 continue
+            max_lev = inst.get("max_leverage") or inst.get("maxLeverage")
             assets[name] = {
                 "funding": funding, "volume24h": vol24h,
                 "openInterest": oi, "markPrice": mark,
+                "maxLeverage": int(max_lev) if max_lev is not None else None,
             }
 
         log("info", f"Stage 1: {len(assets)} assets pass volume filter (of {len(instruments)} total)")
@@ -977,6 +979,8 @@ def main():
                 "finalScore": final_with_macro,
                 "rawScore": final,
                 "macroModifier": macro_mod,
+                "maxLeverage": assets[name].get("maxLeverage"),
+                "conviction": round(score_to_conviction(final_with_macro), 3),
                 "pillarScores": {
                     "smartMoney": sm_score, "marketStructure": ms_score,
                     "technicals": tech_score, "funding": fund_score
@@ -1051,6 +1055,8 @@ def main():
                         "asset": r["asset"],
                         "direction": r["direction"],
                         "finalScore": r["finalScore"],
+                        "maxLeverage": r.get("maxLeverage"),
+                        "conviction": r.get("conviction"),
                         "pillarScores": r["pillarScores"],
                         "smTraders": r.get("smartMoney", {}).get("traders", 0),
                         "risks": r.get("risks", []),

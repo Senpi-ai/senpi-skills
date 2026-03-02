@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-wolf_config.py — Multi-strategy config loader for WOLF v6
+wolf_config.py — Multi-strategy config loader for WOLF v6.1
 
 Provides a single importable module every script uses to load strategy config,
 resolve state file paths, and handle legacy migration.
@@ -299,6 +299,49 @@ def atomic_write(path, data):
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
+
+
+# --- Risk-based leverage ---
+
+RISK_LEVERAGE_RANGES = {
+    "conservative": (0.15, 0.25),   # 15%-25% of max leverage
+    "moderate":     (0.25, 0.50),   # 25%-50% of max leverage
+    "aggressive":   (0.50, 0.75),   # 50%-75% of max leverage
+}
+
+SIGNAL_CONVICTION = {
+    "FIRST_JUMP": 0.9,
+    "CONTRIB_EXPLOSION": 0.8,
+    "IMMEDIATE_MOVER": 0.7,
+    "NEW_ENTRY_DEEP": 0.7,
+    "DEEP_CLIMBER": 0.5,
+}
+
+
+def calculate_leverage(max_leverage, trading_risk="moderate", conviction=0.5):
+    """Calculate leverage as a fraction of max leverage, scaled by risk tier and conviction.
+
+    Args:
+        max_leverage: Asset's maximum allowed leverage.
+        trading_risk: Risk tier — "conservative", "moderate", or "aggressive".
+        conviction: 0.0 to 1.0, where within the risk range to land.
+
+    Returns:
+        Integer leverage, clamped to [1, max_leverage].
+    """
+    min_pct, max_pct = RISK_LEVERAGE_RANGES.get(trading_risk, RISK_LEVERAGE_RANGES["moderate"])
+    range_min = max_leverage * min_pct
+    range_max = max_leverage * max_pct
+    leverage = range_min + (range_max - range_min) * conviction
+    return min(max(1, round(leverage)), max_leverage)
+
+
+def score_to_conviction(final_score):
+    """Convert opportunity scanner finalScore to conviction (0.0-1.0).
+
+    Normalizes from threshold (175) to practical max (~350).
+    """
+    return max(0.0, min(1.0, (final_score - 175) / (350 - 175)))
 
 
 # --- DSL state file validation ---

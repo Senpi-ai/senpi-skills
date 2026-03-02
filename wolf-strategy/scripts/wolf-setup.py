@@ -57,6 +57,8 @@ parser.add_argument("--mid-model", default="anthropic/claude-sonnet-4-20250514",
                     help="Model ID for Mid-tier isolated crons (DSL, Portfolio, Health)")
 parser.add_argument("--budget-model", default="anthropic/claude-haiku-4-5",
                     help="Model ID for Budget-tier isolated crons (SM Flip, Watchdog)")
+parser.add_argument("--trading-risk", choices=["conservative", "moderate", "aggressive"],
+                    default="moderate", help="Risk tier for dynamic leverage calculation (default: moderate)")
 args = parser.parse_args()
 
 def ask(prompt, default=None, validator=None):
@@ -121,6 +123,7 @@ strategy_name = args.name or f"Strategy {strategy_id[:8]}"
 dsl_preset = args.dsl_preset
 mid_model = args.mid_model
 budget_model = args.budget_model
+trading_risk = args.trading_risk
 
 # Calculate parameters
 if budget < 3000:
@@ -137,14 +140,9 @@ margin_buffer = round(budget * (1 - 0.30 * slots), 2)
 daily_loss_limit = round(budget * 0.15, 2)
 drawdown_cap = round(budget * 0.30, 2)
 
-if budget < 1000:
-    default_leverage = 5
-elif budget < 5000:
-    default_leverage = 7
-elif budget < 15000:
-    default_leverage = 10
-else:
-    default_leverage = 10
+# Reference leverage for notional display only; actual leverage is computed dynamically
+# from tradingRisk + asset maxLeverage + conviction at position-open time.
+default_leverage = 10
 
 notional_per_slot = round(margin_per_slot * default_leverage, 2)
 auto_delever_threshold = round(budget * 0.80, 2)
@@ -161,6 +159,7 @@ strategy_entry = {
     "slots": slots,
     "marginPerSlot": margin_per_slot,
     "defaultLeverage": default_leverage,
+    "tradingRisk": trading_risk,
     "dailyLossLimit": daily_loss_limit,
     "autoDeleverThreshold": auto_delever_threshold,
     "dsl": {
@@ -255,7 +254,7 @@ cron_templates = {
         "wakeMode": "now",
         "payload": {
             "kind": "systemEvent",
-            "text": f"WOLF v6 Scanner: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS_DIR}/emerging-movers.py`, parse JSON.\n\nMANDATE: Hunt runners before they peak. Multi-strategy aware.\n1. **FIRST_JUMP**: 10+ rank jump from #25+ AND wasn't in previous top 50 (or was >= #30) -> ENTER IMMEDIATELY.\n2. **CONTRIB_EXPLOSION**: 3x+ contrib spike -> ENTER. NEVER downgrade for erratic history.\n3. **IMMEDIATE_MOVER**: 10+ rank jump from #25+ in ONE scan -> ENTER if not downgraded.\n4. **NEW_ENTRY_DEEP**: Appears in top 20 from nowhere -> ENTER.\n5. **Signal routing**: Read wolf-strategies.json. For each signal, find the best-fit strategy: check available slots, existing positions, risk profile match. Route to the strategy with open slots that doesn't already hold the asset.\n6. Min 7x leverage (check max-leverage.json). Alert user on Telegram ({tg}).\n7. **DEAD WEIGHT RULE**: Negative ROE + SM conviction against it for 30+ min -> CUT immediately.\n8. **ROTATION RULE**: If target strategy slots FULL and FIRST_JUMP fires -> compare against weakest position in THAT strategy.\n9. If no actionable signals -> HEARTBEAT_OK.\n10. **AUTO-DELEVER**: Per-strategy threshold check.\n\n**POSITION OPENING**: Use `python3 {SCRIPTS_DIR}/open-position.py --strategy {{STRATEGY_KEY}} --asset {{ASSET}} --direction {{DIRECTION}} --leverage {{LEVERAGE}}` to open positions. This handles position creation + DSL state atomically. Do NOT hand-craft DSL JSON."
+            "text": f"WOLF v6 Scanner: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS_DIR}/emerging-movers.py`, parse JSON.\n\nMANDATE: Hunt runners before they peak. Multi-strategy aware.\n1. **FIRST_JUMP**: 10+ rank jump from #25+ AND wasn't in previous top 50 (or was >= #30) -> ENTER IMMEDIATELY.\n2. **CONTRIB_EXPLOSION**: 3x+ contrib spike -> ENTER. NEVER downgrade for erratic history.\n3. **IMMEDIATE_MOVER**: 10+ rank jump from #25+ in ONE scan -> ENTER if not downgraded.\n4. **NEW_ENTRY_DEEP**: Appears in top 20 from nowhere -> ENTER.\n5. **Signal routing**: Read wolf-strategies.json. For each signal, find the best-fit strategy: check available slots, existing positions, risk profile match. Route to the strategy with open slots that doesn't already hold the asset.\n6. Leverage auto-calculated from tradingRisk + asset maxLeverage + signal conviction. Alert user on Telegram ({tg}).\n7. **DEAD WEIGHT RULE**: Negative ROE + SM conviction against it for 30+ min -> CUT immediately.\n8. **ROTATION RULE**: If target strategy slots FULL and FIRST_JUMP fires -> compare against weakest position in THAT strategy.\n9. If no actionable signals -> HEARTBEAT_OK.\n10. **AUTO-DELEVER**: Per-strategy threshold check.\n\n**POSITION OPENING**: Use `python3 {SCRIPTS_DIR}/open-position.py --strategy {{STRATEGY_KEY}} --asset {{ASSET}} --direction {{DIRECTION}} --conviction {{CONVICTION}}` to open positions. Conviction comes from scanner output. This handles position creation + DSL state atomically. Do NOT hand-craft DSL JSON."
         }
     },
     "dsl_combined": {
@@ -315,7 +314,7 @@ cron_templates = {
         "wakeMode": "now",
         "payload": {
             "kind": "systemEvent",
-            "text": f"WOLF scanner: Run `PYTHONUNBUFFERED=1 timeout 180 python3 {SCRIPTS_DIR}/opportunity-scan-v6.py 2>/dev/null`. Parse JSON.\n\nMulti-strategy signal routing: For each scored opportunity (threshold 175+):\n1. Which strategies have empty slots?\n2. Does any strategy already hold this asset? (skip within strategy, allow cross-strategy)\n3. Which strategy's risk profile matches the signal?\n4. Route to best-fit strategy.\n5. **Open position**: Run `python3 {SCRIPTS_DIR}/open-position.py --strategy {{STRATEGY_KEY}} --asset {{ASSET}} --direction {{DIRECTION}} --leverage {{LEVERAGE}}`. This handles position creation + DSL state atomically. Do NOT hand-craft DSL JSON.\nAlert user ({tg}). Otherwise HEARTBEAT_OK."
+            "text": f"WOLF scanner: Run `PYTHONUNBUFFERED=1 timeout 180 python3 {SCRIPTS_DIR}/opportunity-scan-v6.py 2>/dev/null`. Parse JSON.\n\nMulti-strategy signal routing: For each scored opportunity (threshold 175+):\n1. Which strategies have empty slots?\n2. Does any strategy already hold this asset? (skip within strategy, allow cross-strategy)\n3. Which strategy's risk profile matches the signal?\n4. Route to best-fit strategy.\n5. **Open position**: Run `python3 {SCRIPTS_DIR}/open-position.py --strategy {{STRATEGY_KEY}} --asset {{ASSET}} --direction {{DIRECTION}} --conviction {{CONVICTION}}`. Conviction comes from scanner output. This handles position creation + DSL state atomically. Do NOT hand-craft DSL JSON.\nAlert user ({tg}). Otherwise HEARTBEAT_OK."
         }
     }
 }
@@ -331,7 +330,8 @@ print(f"""
   Budget:           ${budget:,.2f}
   Slots:            {slots}
   Margin/Slot:      ${margin_per_slot:,.2f}
-  Default Leverage:  {default_leverage}x
+  Default Leverage:  {default_leverage}x (fallback only)
+  Trading Risk:     {trading_risk}
   Notional/Slot:    ${notional_per_slot:,.2f}
   Daily Loss Limit: ${daily_loss_limit:,.2f}
   Auto-Delever:     Below ${auto_delever_threshold:,.2f}

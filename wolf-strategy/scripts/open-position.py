@@ -14,7 +14,7 @@ import json, sys, os, argparse, glob
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_strategy, dsl_state_path, dsl_state_glob,
                          dsl_state_template, atomic_write, mcporter_call,
-                         WORKSPACE)
+                         calculate_leverage, WORKSPACE)
 
 
 def fail(msg, **extra):
@@ -91,8 +91,10 @@ def main():
                         help="Asset symbol (e.g. HYPE, BTC, xyz:AAPL)")
     parser.add_argument("--direction", required=True, choices=["LONG", "SHORT"],
                         help="Trade direction")
-    parser.add_argument("--leverage", required=True, type=float,
-                        help="Leverage multiplier")
+    parser.add_argument("--leverage", required=False, type=float, default=None,
+                        help="Leverage multiplier (optional — auto-calculated from tradingRisk if omitted)")
+    parser.add_argument("--conviction", type=float, default=0.5,
+                        help="Signal conviction 0.0-1.0 for leverage calculation (default: 0.5)")
     parser.add_argument("--margin", type=float, default=None,
                         help="Margin override (default: strategy marginPerSlot)")
     args = parser.parse_args()
@@ -101,6 +103,7 @@ def main():
     asset = args.asset
     direction = args.direction.upper()
     leverage = args.leverage
+    conviction = args.conviction
     margin_override = args.margin
 
     # 1. Load strategy config
@@ -118,16 +121,29 @@ def main():
     if margin <= 0:
         fail("invalid_margin", margin=margin, strategyKey=strategy_key)
 
-    # 2. Validate leverage against max-leverage.json
+    # 2. Resolve leverage — auto-calculate or validate explicit value
     max_lev_data = load_max_leverage()
     clean_asset = asset.replace("xyz:", "")
     lookup_key = asset if asset in max_lev_data else clean_asset
     max_lev = max_lev_data.get(lookup_key)
     leverage_capped = False
-    if max_lev is not None and leverage > max_lev:
-        original_leverage = leverage
-        leverage = max_lev
-        leverage_capped = True
+    leverage_auto = False
+
+    if leverage is None:
+        # Auto-calculate from tradingRisk + maxLeverage + conviction
+        trading_risk = cfg.get("tradingRisk", "moderate")
+        if max_lev is not None:
+            leverage = calculate_leverage(max_lev, trading_risk, conviction)
+            leverage_auto = True
+        else:
+            # Fallback to defaultLeverage when max-leverage data unavailable
+            leverage = cfg.get("defaultLeverage", 10)
+    else:
+        # Explicit --leverage provided: cap against max as before
+        if max_lev is not None and leverage > max_lev:
+            original_leverage = leverage
+            leverage = max_lev
+            leverage_capped = True
 
     # 3. Check slot availability
     max_slots = cfg.get("slots", 2)
@@ -228,6 +244,12 @@ def main():
         result["leverageCapped"] = True
         result["requestedLeverage"] = original_leverage
         result["maxLeverage"] = max_lev
+    if leverage_auto:
+        result["leverageAutoCalculated"] = True
+        result["tradingRisk"] = cfg.get("tradingRisk", "moderate")
+        result["conviction"] = conviction
+        if max_lev is not None:
+            result["maxLeverage"] = max_lev
 
     print(json.dumps(result, indent=2))
 

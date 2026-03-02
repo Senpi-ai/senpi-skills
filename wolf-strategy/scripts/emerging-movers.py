@@ -31,11 +31,19 @@ import json, sys, os
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import atomic_write, mcporter_call, load_all_strategies, dsl_state_glob, heartbeat
+from wolf_config import atomic_write, mcporter_call, load_all_strategies, dsl_state_glob, heartbeat, SIGNAL_CONVICTION, WORKSPACE
 
 heartbeat("emerging_movers")
 
 HISTORY_FILE = os.environ.get("EMERGING_HISTORY", "/data/workspace/emerging-movers-history.json")
+MAX_LEV_FILE = os.path.join(WORKSPACE, "max-leverage.json")
+
+# Load max-leverage data (file-based, no API call — speed critical for 90s scanner)
+try:
+    with open(MAX_LEV_FILE) as f:
+        MAX_LEV_DATA = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    MAX_LEV_DATA = {}
 MAX_HISTORY = 60
 TOP_N = 50
 RANK_CLIMB_THRESHOLD = 3
@@ -216,6 +224,25 @@ if len(prev_scans) >= MIN_SCANS_FOR_TREND:
             rank_history.append(current_rank)
 
             dir_label = market["direction"].upper()
+
+            # Determine max leverage from file-based cache
+            lev_key = f"xyz:{token}" if dex else token
+            alert_max_lev = MAX_LEV_DATA.get(lev_key) or MAX_LEV_DATA.get(token)
+
+            # Map signal type to conviction
+            if is_first_jump:
+                alert_conviction = SIGNAL_CONVICTION["FIRST_JUMP"]
+            elif is_contrib_explosion:
+                alert_conviction = SIGNAL_CONVICTION["CONTRIB_EXPLOSION"]
+            elif is_immediate:
+                alert_conviction = SIGNAL_CONVICTION["IMMEDIATE_MOVER"]
+            elif is_deep_climber and any("NEW_ENTRY_DEEP" in r for r in alert_reasons):
+                alert_conviction = SIGNAL_CONVICTION["NEW_ENTRY_DEEP"]
+            elif is_deep_climber:
+                alert_conviction = SIGNAL_CONVICTION["DEEP_CLIMBER"]
+            else:
+                alert_conviction = 0.5
+
             alerts.append({
                 "token": token,
                 "dex": dex if dex else None,
@@ -226,6 +253,8 @@ if len(prev_scans) >= MIN_SCANS_FOR_TREND:
                 "contribVelocity": round(contrib_velocity * 100, 4),
                 "traders": market["traders"],
                 "priceChg4h": market["price_chg_4h"],
+                "maxLeverage": alert_max_lev,
+                "conviction": alert_conviction,
                 "reasons": alert_reasons,
                 "reasonCount": len(alert_reasons),
                 "rankHistory": rank_history,

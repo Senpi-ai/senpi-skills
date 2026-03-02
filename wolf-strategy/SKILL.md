@@ -1,25 +1,27 @@
 ---
 name: wolf-strategy
 description: >-
-  WOLF v6 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
+  WOLF v6.1 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
   Manages multiple strategies simultaneously, each with independent wallets, budgets, slots,
   and DSL configs. 7-cron architecture with Emerging Movers scanner (90s, FIRST_JUMP + IMMEDIATE_MOVER),
   DSL v4 trailing stops (combined runner every 3min, 4-tier at 5/10/15/20% ROE),
   SM flip detector (5min), watchdog (5min), portfolio updates (15min),
   opportunity scanner v6 (15min, BTC macro + hourly trend + disqualifiers),
   and health checks (10min). Same asset can be traded in different strategies simultaneously.
-  Enter early on first jumps, not at confirmed peaks. Minimum 7x leverage required.
+  Enter early on first jumps, not at confirmed peaks. Dynamic risk-based leverage per strategy.
   Requires Senpi MCP connection, python3, mcporter CLI, and OpenClaw cron system.
 
 ---
 
-# WOLF v6 — Autonomous Multi-Strategy Trading
+# WOLF v6.1 — Autonomous Multi-Strategy Trading
 
 The WOLF hunts for its human. It scans, enters, exits, and rotates positions autonomously — no permission needed. When criteria are met, it acts. Speed is edge.
 
 **Proven:** +$1,500 realized, 25+ trades, 65% win rate, single session on $6.5k budget.
 
 **v6: Multi-strategy support.** Each strategy has independent wallet, budget, slots, and DSL config. Same asset can be held in different strategies simultaneously (e.g., Strategy A LONG HYPE + Strategy B SHORT HYPE).
+
+**v6.1: Reduced leverage ranges.** All risk tiers lowered — aggressive now caps at 75% of max leverage (was 100%), moderate at 50% (was 75%), conservative at 25% (was 50%). Prevents over-leveraging on high-max-leverage assets.
 
 ---
 
@@ -31,8 +33,8 @@ Central config holding all strategies. Created/updated by `wolf-setup.py`.
 ```
 wolf-strategies.json
 ├── strategies
-│   ├── wolf-abc123 (Aggressive Momentum, 3 slots, 10x)
-│   └── wolf-xyz789 (Conservative XYZ, 2 slots, 7x)
+│   ├── wolf-abc123 (Aggressive Momentum, 3 slots, tradingRisk=aggressive)
+│   └── wolf-xyz789 (Conservative XYZ, 2 slots, tradingRisk=conservative)
 └── global (telegram, workspace)
 ```
 
@@ -170,7 +172,7 @@ The agent DOES notify the user (via Telegram) after every action.
 - `isFirstJump: true` in scanner output
 - **2+ reasons is enough** (don't require 4+)
 - **vel > 0 is sufficient** (velocity hasn't had time to build on a first jump)
-- Max leverage >= 7x (check `max-leverage.json`)
+- Leverage auto-calculated from `tradingRisk` + asset `maxLeverage` + signal `conviction`
 - Slot available in target strategy (or rotation justified)
 - >= 10 SM traders (crypto); for XYZ equities, ignore trader count
 
@@ -334,14 +336,14 @@ When slots are full in a strategy and a new FIRST_JUMP or IMMEDIATE fires:
 
 All sizing is calculated from budget (30% per slot):
 
-| Budget | Slots | Margin/Slot | Leverage | Daily Loss Limit |
-|--------|-------|-------------|----------|------------------|
-| $500 | 2 | $150 | 7x | -$75 |
-| $2,000 | 2 | $600 | 10x | -$300 |
-| $6,500 | 3 | $1,950 | 10x | -$975 |
-| $10,000+ | 3-4 | $3,000 | 10x | -$1,500 |
+| Budget | Slots | Margin/Slot | Daily Loss Limit |
+|--------|-------|-------------|------------------|
+| $500 | 2 | $150 | -$75 |
+| $2,000 | 2 | $600 | -$300 |
+| $6,500 | 3 | $1,950 | -$975 |
+| $10,000+ | 3-4 | $3,000 | -$1,500 |
 
-**Minimum leverage: 7x.** If max leverage for an asset is below 7x, skip it. Low leverage = low ROE = DSL tiers never trigger = dead position.
+Leverage is computed dynamically per position from `tradingRisk` + asset `maxLeverage` + signal `conviction`. See "Risk-Based Leverage" section below.
 
 **Auto-Delever:** If a strategy's account drops below its `autoDeleverThreshold` -> reduce max slots by 1, close weakest in that strategy.
 
@@ -351,8 +353,8 @@ All sizing is calculated from budget (30% per slot):
 
 ### Opening
 1. Signal fires -> validate checklist -> route to best-fit strategy
-2. Enter via `python3 scripts/open-position.py --strategy {strategyKey} --asset {ASSET} --direction {DIR} --leverage {LEV}`
-   This atomically opens the position AND creates the DSL state file. Do NOT manually create DSL JSON.
+2. Enter via `python3 scripts/open-position.py --strategy {strategyKey} --asset {ASSET} --direction {DIR} --conviction {CONVICTION}`
+   Leverage is auto-calculated from `tradingRisk` + asset `maxLeverage` + `conviction`. This atomically opens the position AND creates the DSL state file. Do NOT manually create DSL JSON.
 3. Alert user
 
 ### Closing
@@ -378,7 +380,7 @@ XYZ DEX assets (GOLD, SILVER, TSLA, AAPL, etc.) behave differently:
 - **Ignore trader count.** XYZ equities often have low SM trader counts — this doesn't invalidate the signal.
 - **Use reason count + rank velocity** as primary quality filter instead.
 - **Always use isolated margin** (`leverageType: "ISOLATED"`, `dex: "xyz"`).
-- **Check max leverage** — many XYZ assets cap at 5x or 3x. If below 7x, skip.
+- **Leverage auto-calculated** — many XYZ assets cap at 3-5x. No skip needed; leverage is computed dynamically from `tradingRisk`.
 
 ---
 
@@ -391,6 +393,43 @@ XYZ DEX assets (GOLD, SILVER, TSLA, AAPL, etc.) behave differently:
 **Context isolation (multi-signal runs):** Read `wolf-strategies.json` ONCE per cron run. Build a complete action plan before executing any tool calls. Send ONE consolidated Telegram per run, not one per signal.
 
 **Skip rules:** Skip redundant checks when data < 3 min old. If all slots full and no FIRST_JUMPs → skip scanner processing. If SM check shows no flips and < 5 min old → skip.
+
+---
+
+## Risk-Based Leverage
+
+Leverage is computed dynamically per position instead of being hardcoded. The formula uses the **strategy's risk tier**, the **asset's max leverage**, and **signal conviction**.
+
+### Formula
+
+```
+leverage = maxLeverage × (rangeLow + (rangeHigh - rangeLow) × conviction)
+clamped to [1, maxLeverage]
+```
+
+### Risk Tiers
+
+| Tier | Range of Max Leverage | Example (40x max, mid conviction) | Example (3x max, mid conviction) |
+|------|----------------------|----------------------------------|----------------------------------|
+| `conservative` | 15% – 25% | 8x | 1x |
+| `moderate` | 25% – 50% | 15x | 1x |
+| `aggressive` | 50% – 75% | 25x | 2x |
+
+### Conviction
+
+Conviction (0.0–1.0) determines where within a tier's range to land. It's **auto-derived** from scanner output:
+
+- **Opportunity Scanner**: normalized from `finalScore` (175→0.0, 350→1.0)
+- **Emerging Movers**: mapped from signal type (FIRST_JUMP=0.9, CONTRIB_EXPLOSION=0.8, IMMEDIATE_MOVER=0.7, NEW_ENTRY_DEEP=0.7, DEEP_CLIMBER=0.5)
+
+### Override
+
+Pass `--leverage N` to `open-position.py` to bypass auto-calculation (capped against max leverage as before).
+
+### Backward Compatibility
+
+- Existing strategies without `tradingRisk` default to `"moderate"`
+- `defaultLeverage` in the registry is used as fallback when `max-leverage.json` data is unavailable
 
 ---
 
