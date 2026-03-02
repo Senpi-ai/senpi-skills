@@ -201,7 +201,7 @@ fi
 ```
 
 The cron runs every hour in the background. When updates are found they are
-written to `~/.config/senpi/pending-skill-updates.json` and surfaced
+written to $SENPI_STATE_DIR/pending-skill-updates.json` (default: `~/.config/senpi/pending-skill-updates.json` if `SENPI_STATE_DIR` is unset) and surfaced
 automatically at the next session startup (see **Startup** section above).
 
 ---

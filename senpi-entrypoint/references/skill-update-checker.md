@@ -2,7 +2,7 @@
 
 ## Output Handling
 
-At session startup the entrypoint reads `~/.config/senpi/pending-skill-updates.json`
+At session startup the entrypoint reads $SENPI_STATE_DIR/pending-skill-updates.json` (default: `~/.config/senpi/pending-skill-updates.json` if `SENPI_STATE_DIR` is unset)
 (written by the background hourly cron) into `UPDATE_OUTPUT`. Parse it as JSON:
 
 - **`heartbeat: "HEARTBEAT_OK"`** — Nothing new. Say nothing, do nothing.
@@ -65,7 +65,7 @@ Confirm to the user that notifications are back on.
 
 Step 5 installs an hourly cron job that runs the checker with `--cron`.
 In cron mode the script is fully silent — no stdout, no agent interaction
-— and writes any found updates to `~/.config/senpi/pending-skill-updates.json`.
+— and writes any found updates to $SENPI_STATE_DIR/pending-skill-updates.json` (default: `~/.config/senpi/pending-skill-updates.json` if `SENPI_STATE_DIR` is unset).
 At the next session startup the entrypoint reads and clears that file, then
 surfaces the queued updates as described above.
 

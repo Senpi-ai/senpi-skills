@@ -7,8 +7,8 @@ all installed Senpi skills, then checks GitHub for:
   - Version bumps (hash change in skill folder + version field changed in SKILL.md)
   - New skills added to the repo that the user has never been shown
 
-Uses ~/.config/senpi/skills-catalog.json to track last-known versions and
-which skills have already been surfaced to the user.
+Uses $SENPI_STATE_DIR/pending-skill-updates.json` (default: `~/.config/senpi/pending-skill-updates.json` if `SENPI_STATE_DIR` is unset)
+to track last-known versions and which skills have already been surfaced to the user.
 
 Output contract:
   { "success": true, "updatedSkills": [...], "newSkills": [...] }
