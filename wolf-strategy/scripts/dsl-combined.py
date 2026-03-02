@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-"""DSL Combined Runner v2.0 — Multi-strategy support.
+"""DSL Combined Runner v2.1 — Multi-strategy support.
 
 Iterates ALL enabled strategies, processes ALL active DSL state files per strategy.
 Each position uses its own strategy's wallet for close operations.
+
+v2.1 changes (WOLF v6.2):
+  - Phase 1 auto-cut: 3-tier rules (dead weight → weak peak declining → hard cap)
+  - Dead weight cut: close if ROE never positive after N minutes (default 30)
+  - Weak peak fix: triggers on declining ROE (current < peak), not just flat/negative
 
 v2.0 changes (WOLF v6):
   - Multi-strategy: iterates load_all_strategies(), uses per-strategy state dirs
@@ -193,9 +198,11 @@ def process_position(state_file, state, price, strategy_cfg):
             pass
 
     # --- Phase 1 auto-cut (configurable via registry dsl key) ---
-    phase1_max_minutes    = dsl_cfg.get("phase1MaxMinutes", 90)
-    weak_peak_cut_minutes = dsl_cfg.get("weakPeakCutMinutes", 45)
-    weak_peak_threshold   = dsl_cfg.get("weakPeakThreshold", 3.0)
+    # v6.2: 3-tier Phase 1 rules (dead weight → weak peak → hard cap)
+    phase1_max_minutes      = dsl_cfg.get("phase1MaxMinutes", 90)
+    weak_peak_cut_minutes   = dsl_cfg.get("weakPeakCutMinutes", 45)
+    weak_peak_threshold     = dsl_cfg.get("weakPeakThreshold", 3.0)
+    dead_weight_cut_minutes = dsl_cfg.get("deadWeightCutMinutes", 30)
 
     phase1_autocut = False
     phase1_autocut_reason = None
@@ -214,15 +221,28 @@ def process_position(state_file, state, price, strategy_cfg):
             peak_roe = upnl_pct
             state["peakROE"] = peak_roe
 
-        # Hard cap
-        if elapsed_minutes >= phase1_max_minutes:
+        # Rule 1: Dead weight — ROE never went positive after N minutes
+        if elapsed_minutes >= dead_weight_cut_minutes and peak_roe <= 0:
             phase1_autocut = True
-            tier1_pct = tiers[0]["triggerPct"] if tiers else 5
-            phase1_autocut_reason = f"Phase 1 timeout: {round(elapsed_minutes)}min, ROE never hit Tier 1 ({tier1_pct}%)"
-        # Weak peak early cut
+            phase1_autocut_reason = (
+                f"Dead weight cut: {round(elapsed_minutes)}min, "
+                f"ROE never positive (peak {round(peak_roe, 1)}%)"
+            )
+        # Rule 2: Weak peak — peak < threshold AND currently declining (current < peak)
         elif elapsed_minutes >= weak_peak_cut_minutes and peak_roe < weak_peak_threshold and upnl_pct < peak_roe:
             phase1_autocut = True
-            phase1_autocut_reason = f"Weak peak early cut: {round(elapsed_minutes)}min, peak ROE {round(peak_roe,1)}%, now declining"
+            phase1_autocut_reason = (
+                f"Weak peak early cut: {round(elapsed_minutes)}min, "
+                f"peak ROE {round(peak_roe, 1)}%, now {round(upnl_pct, 1)}% (declining)"
+            )
+        # Rule 3: Hard cap — still in Phase 1 after max minutes, cut regardless
+        if not phase1_autocut and elapsed_minutes >= phase1_max_minutes:
+            phase1_autocut = True
+            tier1_pct = tiers[0]["triggerPct"] if tiers else 5
+            phase1_autocut_reason = (
+                f"Phase 1 hard timeout: {round(elapsed_minutes)}min, "
+                f"ROE never hit Tier 1 ({tier1_pct}%)"
+            )
 
     # --- Breach check ---
     if is_long:

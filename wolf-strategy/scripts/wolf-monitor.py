@@ -109,7 +109,7 @@ def analyze_strategy(strategy_key, cfg):
     results = {"strategyKey": strategy_key, "name": cfg.get("name", ""), "positions": [], "alerts": [], "summary": {}}
 
     if not wallet:
-        results["alerts"].append({"level": "ERROR", "msg": f"Strategy {strategy_key}: no wallet configured"})
+        # No wallet = no active strategy yet. Silent skip.
         return results
 
     # Single clearinghouse call returns both main (crypto) and xyz (equities)

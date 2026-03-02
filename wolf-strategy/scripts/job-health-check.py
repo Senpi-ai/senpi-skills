@@ -116,13 +116,8 @@ def check_strategy(strategy_key, cfg):
     had_fetch_error = False
 
     if not wallet:
-        issues.append({
-            "level": "CRITICAL",
-            "type": "NO_WALLET",
-            "strategyKey": strategy_key,
-            "action": "alert_only",
-            "message": f"Strategy {strategy_key}: no wallet configured"
-        })
+        # No wallet = no active strategy yet (new account flow).
+        # Not an error — strategy_create_custom_strategy will set wallet on first trade.
         return issues, [], []
 
     # Single clearinghouse call returns both crypto and xyz positions
