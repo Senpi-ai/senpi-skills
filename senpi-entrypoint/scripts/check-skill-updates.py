@@ -203,18 +203,6 @@ def main():
             print(json.dumps({"heartbeat": "HEARTBEAT_OK"}))
         return
 
-    # 1b. Normal mode only: surface any updates queued by a previous cron run.
-    #     Reading the pending file means no GitHub API call is needed this session.
-    if not args.cron:
-        pending = load_json(PENDING_FILE, {})
-        if pending.get("success"):
-            try:
-                os.remove(PENDING_FILE)
-            except OSError:
-                pass
-            print(json.dumps(pending))
-            return
-
     # 2. Read Vercel skills CLI global lock file
     lock = load_json(LOCK_FILE)
     if not lock:

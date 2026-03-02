@@ -1,8 +1,9 @@
-# Skill Update Checker — Step 5 Reference
+# Skill Update Checker Reference
 
 ## Output Handling
 
-Parse `UPDATE_OUTPUT` as JSON after running `check-skill-updates.py`:
+At session startup the entrypoint reads `~/.config/senpi/pending-skill-updates.json`
+(written by the background hourly cron) into `UPDATE_OUTPUT`. Parse it as JSON:
 
 - **`heartbeat: "HEARTBEAT_OK"`** — Nothing new. Say nothing, do nothing.
 
@@ -63,10 +64,10 @@ Confirm to the user that notifications are back on.
 ## Background Cron
 
 Step 5 installs an hourly cron job that runs the checker with `--cron`.
-In cron mode the script is fully silent — no stdout — and queues any found
-updates in `~/.config/senpi/pending-skill-updates.json`. The next time Step
-5 runs interactively it reads and clears that file instantly (no GitHub
-API call needed), then surfaces the updates exactly as described above.
+In cron mode the script is fully silent — no stdout, no agent interaction
+— and writes any found updates to `~/.config/senpi/pending-skill-updates.json`.
+At the next session startup the entrypoint reads and clears that file, then
+surfaces the queued updates as described above.
 
 The opt-out flag (`skillUpdates.enabled: false`) also suppresses the cron
 — it exits immediately without writing to the pending file.

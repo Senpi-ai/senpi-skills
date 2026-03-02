@@ -54,6 +54,24 @@ Do not narrate or explain tool calls. Execute silently and only present final re
 
 ---
 
+## Startup: Surface pending skill updates
+
+Before anything else, check whether the background cron has queued skill
+update notifications since the last session:
+
+```bash
+SENPI_PENDING="$HOME/.config/senpi/pending-skill-updates.json"
+if [ -f "$SENPI_PENDING" ]; then
+  UPDATE_OUTPUT=$(cat "$SENPI_PENDING") && rm -f "$SENPI_PENDING"
+fi
+```
+
+If `UPDATE_OUTPUT` is set, handle it per
+[references/skill-update-checker.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-update-checker.md)
+before continuing. Otherwise proceed silently.
+
+---
+
 ## Initial check: Skip only Step 1 if already authenticated
 
 Before Step 1, check whether the machine already has a Senpi API key available:
@@ -154,16 +172,13 @@ toolkit and can install more skills as needed.
 
 ---
 
-## Step 5: Skill Update Check (silent, always runs)
+## Step 5: Install Background Skill Update Checker
 
-Run this step after Step 4 completes. It installs a background hourly cron
-(first time only) and checks for new or updated Senpi skills, surfacing them
-only when there is something relevant.
+Run this step after Step 4 completes. It registers a one-time hourly cron
+that silently checks for new or updated Senpi skills and queues results for
+the next session startup.
 
 ### Locate the script
-
-The Vercel skills CLI installs global skills to `~/.agents/skills/`. Check
-that path for the `check-skill-updates.py` script:
 
 ```bash
 SENPI_ENTRYPOINT_SCRIPTS=$(node -e "
@@ -176,7 +191,7 @@ SENPI_ENTRYPOINT_SCRIPTS=$(node -e "
 If `SENPI_ENTRYPOINT_SCRIPTS` is empty the skill was not installed globally
 (`npx skills add ... -g`) — skip this step silently.
 
-### Install background checker (first time only, idempotent)
+### Install cron (idempotent)
 
 ```bash
 if [ -n "$SENPI_ENTRYPOINT_SCRIPTS" ]; then
@@ -185,21 +200,9 @@ if [ -n "$SENPI_ENTRYPOINT_SCRIPTS" ]; then
 fi
 ```
 
-This registers an hourly cron job. When the cron finds updates it queues them
-in `~/.config/senpi/pending-skill-updates.json`. The next time the step below
-runs, it reads that file instantly (no GitHub call) and surfaces the updates.
-
-### Run the check
-
-```bash
-[ -n "$SENPI_ENTRYPOINT_SCRIPTS" ] && \
-  UPDATE_OUTPUT=$(python3 "$SENPI_ENTRYPOINT_SCRIPTS/check-skill-updates.py" 2>/dev/null)
-```
-
-### Act on the output
-
-Handle `UPDATE_OUTPUT` per
-[references/skill-update-checker.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-update-checker.md).
+The cron runs every hour in the background. When updates are found they are
+written to `~/.config/senpi/pending-skill-updates.json` and surfaced
+automatically at the next session startup (see **Startup** section above).
 
 ---
 
@@ -224,8 +227,8 @@ for the goal-to-skill mapping, budget guidance, and install commands.
 
 | File | Purpose |
 |------|---------|
-| `scripts/check-skill-updates.py` | Skill update checker — reads the Vercel skills CLI lock file, compares GitHub tree SHAs, surfaces version bumps or new skills. `--cron` flag writes to pending file instead of stdout |
-| `references/skill-update-checker.md` | Step 5 output handling + turn notifications on/off |
+| `scripts/check-skill-updates.py` | Hourly background checker (run via cron with `--cron`). Reads Vercel skills CLI lock file, compares GitHub tree SHAs, writes version bumps / new skills to pending file |
+| `references/skill-update-checker.md` | Startup output handling + turn notifications on/off + cron management |
 | `references/skill-recommendations.md` | Goal-to-skill mapping table, budget guidance, install commands |
 | `references/about-senpi.md` | Senpi platform overview (what it is, what agents can do, core loop) |
 | `references/error-handling.md` | Recovery steps for `npx` command failures |
