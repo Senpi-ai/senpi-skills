@@ -9,13 +9,7 @@ description: >-
   Senpi", "onboard to Senpi", or when an agent needs to start trading on
   Hyperliquid via Senpi.
 license: Apache-2.0
-compatibility: >-
-  Supports any editor using the Vercel skills CLI (Claude Code, Cursor, Cline,
-  OpenCode, etc.). Requires Node.js and shell access. Skill update checker
-  (Step 5) requires Python 3 and a global install via `npx skills add ... -g`;
-  it checks only the Vercel skills CLI global path (~/.agents/skills/) and
-  skips silently if the skill was not installed globally. Background daily
-  cron (00:00 UTC) requires OpenClaw to be available in PATH.
+compatibility: "Node.js, shell, Python 3, OpenClaw (optional — Step 5 cron)"
 metadata:
   author: Senpi
   version: "1.2.0"
