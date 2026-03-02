@@ -22,10 +22,15 @@ from __future__ import annotations
 
 import glob
 import json
+import logging
 import os
+import urllib.error
+import urllib.request
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional
+
+log = logging.getLogger("senpi_state.state_doctor")
 
 from senpi_state.healthcheck import (
     check_instance,
@@ -493,3 +498,77 @@ def reconcile_state(
         result["margin"] = margin_summary
 
     return result
+
+
+# ─── Discord Notification ────────────────────────────────────────
+
+
+def notify_discord(result: dict, webhook_url: str, skill: str = "") -> bool:
+    """Post state doctor results to Discord via webhook. Only posts when actions taken."""
+    if not webhook_url:
+        return False
+
+    actions = result.get("actions_taken", 0)
+    downsizes = result.get("downsizes_executed", 0)
+    criticals = result.get("critical_count", 0)
+    status = result.get("status", "ok")
+
+    if status == "ok" and actions == 0:
+        return False
+
+    if status == "critical":
+        color = 16711680  # red
+        emoji = "\U0001f6a8"  # 🚨
+        title_suffix = "CRITICAL"
+    elif downsizes > 0:
+        color = 16711680  # red
+        emoji = "\u26a0\ufe0f"  # ⚠️
+        title_suffix = "DOWNSIZED"
+    elif actions > 0:
+        color = 16776960  # yellow
+        emoji = "\U0001f527"  # 🔧
+        title_suffix = "FIXED"
+    else:
+        color = 65280  # green
+        emoji = "\u2705"  # ✅
+        title_suffix = "OK"
+
+    label = skill.upper() if skill else result.get("instance_key", "")
+    title = f"{emoji} State Doctor — {label} — {title_suffix}"
+
+    lines = []
+    for issue in result.get("all_issues", []):
+        lvl = issue.get("level", "INFO")
+        icon = {"CRITICAL": "\U0001f534", "WARNING": "\U0001f7e1", "INFO": "\u2139\ufe0f"}.get(lvl, "\u2022")
+        lines.append(f"{icon} {issue.get('message', '')}")
+
+    margin = result.get("margin")
+    if margin:
+        lines.append("")
+        lines.append(
+            f"\U0001f4b0 Margin: {margin.get('utilization_pct', 0)}% used "
+            f"| Buffer: {margin.get('liq_buffer_pct', 0)}%"
+        )
+
+    description = "\n".join(lines)[:4000] if lines else f"Actions: {actions}, Downsizes: {downsizes}"
+
+    embed = {
+        "title": title,
+        "description": description,
+        "color": color,
+        "timestamp": result.get("time", _now_iso()),
+    }
+
+    payload = json.dumps({"embeds": [embed]}).encode("utf-8")
+    req = urllib.request.Request(
+        webhook_url,
+        data=payload,
+        headers={"Content-Type": "application/json", "User-Agent": "State-Doctor/1.0"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status in (200, 204)
+    except (urllib.error.URLError, Exception) as e:
+        log.error("Discord webhook failed: %s", e)
+        return False

@@ -38,7 +38,7 @@ LIB_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, LIB_DIR)
 
 from senpi_state.healthcheck import check_instance
-from senpi_state.state_doctor import MarginConfig, reconcile_state
+from senpi_state.state_doctor import MarginConfig, reconcile_state, notify_discord
 
 
 def _import_config(skill, config_dir):
@@ -126,6 +126,10 @@ def main():
                         help="Disable auto-downsizing (alert-only mode)")
     parser.add_argument("--downsize-pct", type=float, default=25,
                         help="Fallback position reduction %% (default 25)")
+    parser.add_argument("--discord-webhook", default=os.environ.get("DISCORD_WEBHOOK_STATE_DOCTOR", ""),
+                        help="Discord webhook URL for direct notifications (skips LLM)")
+    parser.add_argument("--quiet", action="store_true",
+                        help="Suppress JSON output (use with --discord-webhook)")
     args = parser.parse_args()
 
     config_dir = os.path.abspath(args.config_dir)
@@ -212,7 +216,13 @@ def main():
         "actions_taken": actions,
         "downsizes_executed": downsizes,
     }
-    print(json.dumps(output, indent=2))
+
+    if args.discord_webhook:
+        for inst_result in instance_results.values():
+            notify_discord(inst_result, args.discord_webhook, skill=args.skill)
+
+    if not args.quiet:
+        print(json.dumps(output, indent=2))
 
 
 if __name__ == "__main__":
