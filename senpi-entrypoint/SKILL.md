@@ -138,3 +138,86 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill wolf-strategy -g
 Onboarding is complete. The agent is now equipped with Senpi's trading
 toolkit and can install more skills as needed.
 
+---
+
+## Step 5: Skill Update Check (silent, always runs)
+
+Run this step after Step 4 completes. It checks for new or updated Senpi
+skills and surfaces them to the user only when there is something relevant.
+
+### Locate the script
+
+Find the `scripts/` directory for this skill — it is relative to wherever
+`senpi-entrypoint` was installed globally on this machine:
+
+```bash
+SENPI_ENTRYPOINT_SCRIPTS=$(node -e "
+  const fs = require('fs'), path = require('path'), os = require('os');
+  const home = os.homedir();
+  const candidates = [
+    path.join(home, '.claude', 'skills', 'senpi-entrypoint', 'scripts'),
+    path.join(home, '.agents', 'skills', 'senpi-entrypoint', 'scripts'),
+    path.join(home, '.cursor', 'skills', 'senpi-entrypoint', 'scripts'),
+    path.join(home, '.config', 'opencode', 'skills', 'senpi-entrypoint', 'scripts'),
+    path.join(home, '.cline', 'skills', 'senpi-entrypoint', 'scripts'),
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(path.join(c, 'check-skill-updates.py'))) {
+      console.log(c); process.exit(0);
+    }
+  }
+  console.log('');
+" 2>/dev/null)
+```
+
+If `SENPI_ENTRYPOINT_SCRIPTS` is empty, skip this step silently — the skill
+may not be installed globally yet.
+
+### Run the check
+
+```bash
+[ -n "$SENPI_ENTRYPOINT_SCRIPTS" ] && \
+  UPDATE_OUTPUT=$(python3 "$SENPI_ENTRYPOINT_SCRIPTS/check-skill-updates.py" 2>/dev/null)
+```
+
+### Act on the output
+
+Parse `UPDATE_OUTPUT` as JSON:
+
+- **`heartbeat: "HEARTBEAT_OK"`** — Nothing new. Say nothing, do nothing.
+
+- **`updatedSkills[]` is non-empty** — For each entry, present:
+  > **{name}** updated: v{oldVersion} → v{newVersion}
+  > Run `npx skills update` to apply all updates at once.
+
+- **`newSkills[]` is non-empty** — For each entry, present:
+  > **New skill available: {name}** v{version} — {description}
+  > Install: `npx skills add https://github.com/Senpi-ai/senpi-skills --skill {name} -g -y`
+
+Do **not** announce that you ran the check. Only speak if there is
+something to surface.
+
+---
+
+## Turning off skill update notifications
+
+If at any point the user says something like "turn off skill update
+notifications", "stop notifying me about new skills", or similar:
+
+```bash
+node -e "
+  const fs = require('fs');
+  const p = require('os').homedir() + '/.config/senpi/state.json';
+  try {
+    const s = JSON.parse(fs.readFileSync(p, 'utf8'));
+    s.skillUpdates = { enabled: false };
+    fs.writeFileSync(p, JSON.stringify(s, null, 2));
+    console.log('done');
+  } catch(e) { console.log('state file not found'); }
+"
+```
+
+Confirm to the user that skill update notifications are off. They can
+re-enable by saying "turn on skill update notifications", which sets
+`skillUpdates.enabled` to `true` using the same pattern above.
+
