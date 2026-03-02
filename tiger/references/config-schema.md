@@ -40,6 +40,8 @@ Canonical keys are camelCase. Snake_case inputs are accepted for backward compat
 | `rsiOversold` | 25 | RSI level for oversold (reversion scanner) |
 | `minFundingAnnualizedPct` | 30 | Min annualized funding rate for funding arb |
 | `btcCorrelationMovePct` | 2.0 | BTC move % to trigger correlation lag scan |
+| `oiCollapseThresholdPct` | 25 | 1h OI drop % that triggers full close recommendation |
+| `oiReduceThresholdPct` | 10 | 1h OI drop % that triggers reduce-size recommendation |
 
 ## Aggression-Dependent
 
