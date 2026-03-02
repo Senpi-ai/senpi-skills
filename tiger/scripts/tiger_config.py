@@ -29,6 +29,37 @@ CONFIG_FILE = os.path.join(WORKSPACE, "tiger-config.json")
 VERBOSE = os.environ.get("TIGER_VERBOSE") == "1"
 
 
+# ─── Config Key Normalization ────────────────────────────────
+
+# Canonical config uses camelCase keys. We accept snake_case inputs for
+# backward compatibility and normalize them at load-time.
+CONFIG_KEY_ALIASES = {
+    "deadline_days": "deadlineDays",
+    "start_time": "startTime",
+    "strategy_id": "strategyId",
+    "strategy_wallet": "strategyWallet",
+    "telegram_chat_id": "telegramChatId",
+    "max_slots": "maxSlots",
+    "max_leverage": "maxLeverage",
+    "min_leverage": "minLeverage",
+    "max_single_loss_pct": "maxSingleLossPct",
+    "max_daily_loss_pct": "maxDailyLossPct",
+    "max_drawdown_pct": "maxDrawdownPct",
+    "min_bb_squeeze_percentile": "bbSqueezePercentile",
+    "bb_squeeze_percentile": "bbSqueezePercentile",
+    "min_oi_change_pct": "minOiChangePct",
+    "rsi_overbought": "rsiOverbought",
+    "rsi_oversold": "rsiOversold",
+    "min_funding_annualized_pct": "minFundingAnnualizedPct",
+    "btc_correlation_move_pct": "btcCorrelationMovePct",
+    "oi_collapse_threshold_pct": "oiCollapseThresholdPct",
+    "min_confluence_score": "minConfluenceScore",
+    "trailing_lock_pct": "trailingLockPct",
+    "pattern_confluence_overrides": "patternConfluenceOverrides",
+    "dsl_retrace": "dslRetrace",
+}
+
+
 # ─── Snake-to-Camel Key Aliasing ─────────────────────────────
 
 def _snake_to_camel(name):
@@ -78,6 +109,30 @@ def _to_alias_dict(d):
     if isinstance(d, dict) and not isinstance(d, AliasDict):
         return AliasDict({k: _to_alias_dict(v) for k, v in d.items()})
     return d
+
+
+def _normalize_user_config(user_config):
+    """Normalize user config keys into canonical camelCase keys."""
+    if not isinstance(user_config, dict):
+        return {}
+    normalized = {}
+    for key, value in user_config.items():
+        canonical = CONFIG_KEY_ALIASES.get(key, key)
+        if canonical == "dslRetrace" and isinstance(value, dict):
+            dsl = {}
+            for dk, dv in value.items():
+                dsl_key = {"phase_1": "phase1", "phase_2": "phase2"}.get(dk, dk)
+                dsl[dsl_key] = dv
+            value = dsl
+        if canonical in normalized:
+            existing = normalized[canonical]
+            if isinstance(existing, dict) and isinstance(value, dict):
+                normalized[canonical] = deep_merge(existing, value)
+            elif (existing is None or existing == "") and value not in (None, ""):
+                normalized[canonical] = value
+        else:
+            normalized[canonical] = value
+    return normalized
 
 
 # ─── Atomic Write ────────────────────────────────────────────
@@ -158,7 +213,7 @@ def load_config():
     global _cached_config
     try:
         with open(CONFIG_FILE) as f:
-            user_config = json.load(f)
+            user_config = _normalize_user_config(json.load(f))
         _cached_config = _to_alias_dict(deep_merge(DEFAULT_CONFIG, user_config))
     except FileNotFoundError:
         _cached_config = _to_alias_dict(dict(DEFAULT_CONFIG))
@@ -182,7 +237,7 @@ def save_config(config):
 # ─── State ───────────────────────────────────────────────────
 
 def _instance_dir(config):
-    instance_key = config.get("strategyId", "default")
+    instance_key = config.get("strategyId") or config.get("strategy_id") or "default"
     d = os.path.join(WORKSPACE, "state", instance_key)
     os.makedirs(d, exist_ok=True)
     return d
@@ -536,6 +591,53 @@ def shorten_address(addr):
     if not addr or len(addr) <= 10:
         return addr or ""
     return f"{addr[:6]}...{addr[-4:]}"
+
+
+def _parse_iso_datetime(value):
+    if not value or not isinstance(value, str):
+        return None
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError):
+        return None
+
+
+def get_disabled_patterns():
+    """Load currently-disabled patterns from ROAR state."""
+    path = os.path.join(STATE_DIR, "roar-state.json")
+    if not os.path.exists(path):
+        return set()
+    try:
+        with open(path) as f:
+            data = json.load(f)
+        disabled = data.get("disabled_patterns", {})
+        now = datetime.now(timezone.utc)
+        active = set()
+        if isinstance(disabled, dict):
+            for pattern, ts in disabled.items():
+                expiry = _parse_iso_datetime(ts)
+                if expiry is None or now < expiry:
+                    active.add(pattern)
+        return active
+    except (json.JSONDecodeError, IOError):
+        return set()
+
+
+def get_pattern_min_confluence(config, state, pattern):
+    """Resolve min confluence using per-pattern override, then aggression default."""
+    overrides = config.get("patternConfluenceOverrides", {})
+    if isinstance(overrides, dict):
+        if pattern in overrides:
+            return float(overrides[pattern])
+        # Backward-compatible lookup for historical snake_case pattern keys.
+        snake = pattern.lower()
+        if snake in overrides:
+            return float(overrides[snake])
+    aggression = state.get("aggression", "NORMAL")
+    return float(config.get("minConfluenceScore", {}).get(aggression, 999))
 
 
 # ─── Prescreener Integration ────────────────────────────────

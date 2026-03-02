@@ -4,7 +4,7 @@
 
 **Pattern**: COMPRESSION_BREAKOUT — BB squeeze with OI confirmation.
 
-**Logic**: Finds assets where 4h BB width is below the `min_bb_squeeze_percentile` (tight bands = coiled spring). When price breaks above/below 1h BB bands, that's the breakout signal.
+**Logic**: Finds assets where 4h BB width is below `bbSqueezePercentile` (tight bands = coiled spring). When price breaks above/below 1h BB bands, that's the breakout signal.
 
 **Confluence factors** (weights):
 - `bb_squeeze` (0.25): 4h BB width below threshold percentile

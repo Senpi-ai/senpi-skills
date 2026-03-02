@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
     load_config, load_state, save_state, get_clearinghouse,
-    days_remaining, output
+    close_position, days_remaining, output
 )
 
 
@@ -205,6 +205,26 @@ def main():
     close_needed = [e for e in exit_signals if e["primary_action"]["action"] == "CLOSE"]
     partial_needed = [e for e in exit_signals if "PARTIAL" in e["primary_action"]["action"]]
 
+    execution = {
+        "close_attempted": [],
+        "close_succeeded": [],
+        "close_failed": [],
+        "partial_advisory_only": [{"coin": e["coin"], "action": e["primary_action"]["action"]} for e in partial_needed],
+    }
+
+    for signal in close_needed:
+        coin = signal["coin"]
+        reason = signal["primary_action"]["reason"]
+        result = close_position(wallet, coin, reason=reason)
+        execution["close_attempted"].append(coin)
+        if isinstance(result, dict) and not result.get("error"):
+            execution["close_succeeded"].append(coin)
+        else:
+            execution["close_failed"].append({
+                "coin": coin,
+                "error": result.get("error", "unknown") if isinstance(result, dict) else "unknown"
+            })
+
     output({
         "action": "exit_check",
         "positions_checked": len(positions),
@@ -213,7 +233,8 @@ def main():
         "partial_needed": [{"coin": e["coin"], "reason": e["primary_action"]["reason"]} for e in partial_needed],
         "all_signals": exit_signals,
         "aggression": state.get("aggression", "NORMAL"),
-        "days_remaining": round(state.get("days_remaining", 7), 1)
+        "days_remaining": round(state.get("days_remaining", 7), 1),
+        "execution": execution
     })
 
 

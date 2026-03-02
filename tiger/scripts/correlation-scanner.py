@@ -14,7 +14,8 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
     load_config, load_state, save_state, get_all_instruments,
-    get_asset_candles, get_sm_markets, output
+    get_asset_candles, get_sm_markets, output,
+    get_pattern_min_confluence, get_disabled_patterns
 )
 from tiger_lib import (
     parse_candles, rsi, sma, atr, volume_ratio, confluence_score
@@ -185,9 +186,18 @@ def check_alt_lag(asset: str, btc_direction: str, btc_move_4h: float,
 def main():
     config = load_config()
     state = load_state()
+    pattern = "CORRELATION_LAG"
 
     if state.get("halted"):
         output({"action": "correlation_scan", "halted": True, "reason": state.get("halt_reason")})
+        return
+    if pattern in get_disabled_patterns():
+        output({
+            "action": "correlation_scan",
+            "disabled": True,
+            "disabled_pattern": pattern,
+            "reason": "Pattern disabled by ROAR."
+        })
         return
 
     # Step 1: Check if BTC has made a significant move
@@ -255,7 +265,7 @@ def main():
             signals.append(result)
 
     # Only scan extended list if no strong signals found in fast scan
-    min_score = config["min_confluence_score"].get(state.get("aggression", "NORMAL"), 2.0)
+    min_score = get_pattern_min_confluence(config, state, pattern)
     strong_fast = [s for s in signals if s["score"] >= min_score and s.get("window_quality") != "CLOSING"]
     
     if not strong_fast:
@@ -269,7 +279,7 @@ def main():
 
     signals.sort(key=lambda x: x["score"], reverse=True)
 
-    min_score = config["min_confluence_score"].get(state.get("aggression", "NORMAL"), 2.0)
+    min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score]
 
     # Save state for BTC price cache

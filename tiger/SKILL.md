@@ -29,7 +29,7 @@ metadata:
 
 ```
 ┌──────────────────────────────────────────┐
-│           10 OpenClaw Crons              │
+│           12 OpenClaw Crons              │
 │  Compress(5m) Corr(3m) Momentum(5m)     │
 │  Reversion(5m) Funding(30m) OI(5m)      │
 │  Goal(1h) Risk(5m) Exit(5m) DSL(30s)    │
@@ -68,7 +68,7 @@ metadata:
    python3 scripts/tiger-setup.py --wallet 0x... --strategy-id UUID \
      --budget 1000 --target 2000 --deadline-days 7 --chat-id 12345
    ```
-5. Create 10 OpenClaw crons from `references/cron-templates.md`
+5. Create 12 OpenClaw crons from `references/cron-templates.md`
 
 **First hour:** OI Tracker needs ~1h of history before compression/reversion scanners can use OI data. Goal engine and risk guardian work immediately.
 
@@ -296,7 +296,7 @@ ROAR is TIGER's meta-optimizer. It runs every 8 hours (+ ad-hoc every 5th trade)
 - DSL retrace thresholds per phase (0.008–0.03)
 - Trailing lock percentages per aggression level
 
-**What ROAR never touches** (protected): budget, target, deadline, max_slots, max_leverage, maxDrawdownPct, maxDailyLossPct, maxSingleLossPct.
+**What ROAR never touches** (protected): budget, target, deadlineDays, maxSlots, maxLeverage, maxDrawdownPct, maxDailyLossPct, maxSingleLossPct.
 
 **Rules engine** (6 rules):
 1. Win rate < 40% over 10+ trades → raise pattern confluence threshold by 0.05
@@ -354,9 +354,9 @@ Scripts: `roar-analyst.py` (engine), `roar_config.py` (bounds, state, revert log
 - `maxSingleLossPct` is a whole number: `5` = 5%.
 - `minConfluenceScore` values are decimals (0.40 = 40%), NOT whole numbers — this is a weighted score 0-1.
 - `trailingLockPct` values are decimals (0.60 = lock 60%).
-- `triggerPct` in DSL tiers is ROE % (5 = 5% ROE), not price %.
-- `lockPct` in DSL is % of high-water move to lock, not a retrace threshold.
-- DSL reads `DSL_STATE_FILE` env var ONLY — positional args are silently ignored.
+- `triggerPct` and `lockPct` in DSL tiers are decimal fractions (`0.05` = 5%). Legacy whole-number values are still accepted.
+- `lockPct` is % of high-water move to lock, not a retrace threshold.
+- DSL supports single-file mode with `DSL_STATE_FILE` and combined mode when unset.
 - `timeout 55` on all scanner scripts to prevent cron overlap.
 - Cron stagger offsets: :00 compression, :01 momentum, :02 reversion, :03 OI, :04 risk+exit.
 
@@ -366,8 +366,10 @@ Scripts: `roar-analyst.py` (engine), `roar_config.py` (bounds, state, revert log
 
 ### Operational
 
-- **DSL state file `active` field**: MUST include `active: true` or `dsl-v4.py` returns `{"status": "inactive"}` (line 22 check). This is the #1 gotcha when setting up new positions.
-- **DSL invocation syntax**: `DSL_STATE_FILE=/path/to/file.json python3 scripts/dsl-v4.py COIN`
+- **DSL state file `active` field**: MUST include `active: true` or `dsl-v4.py` returns `{"status": "inactive"}` for that position.
+- **DSL invocation syntax**:
+  - Single-file: `DSL_STATE_FILE=/path/to/file.json python3 scripts/dsl-v4.py`
+  - Combined mode: `python3 scripts/dsl-v4.py`
 - **API latency**: `market_get_asset_data` ~4s/call, `market_list_instruments` ~6s. Max 8 assets per 55s scan window.
 - **Correlation scanner timeouts**: Frequently times out — skip after consecutive timeouts rather than waste 55s per attempt.
 - **Compression scanner signals**: Requires `breakout: true` AND a `direction` to be actionable — a high compression score alone is not enough.

@@ -1,48 +1,49 @@
 # Tiger Config Schema
 
 All options in `tiger-config.json`. Defaults shown.
+Canonical keys are camelCase. Snake_case inputs are accepted for backward compatibility.
 
 ## Required
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `strategy_wallet` | string | Hyperliquid strategy wallet address |
+| `strategyWallet` | string | Hyperliquid strategy wallet address |
 | `budget` | float | Starting capital in USD |
 | `target` | float | Profit target in USD |
-| `deadline_days` | int | Timeframe in days |
-| `start_time` | string | ISO timestamp of strategy start |
-| `strategy_id` | string | Strategy UUID (from Senpi) |
+| `deadlineDays` | int | Timeframe in days |
+| `startTime` | string | ISO timestamp of strategy start |
+| `strategyId` | string | Strategy UUID (from Senpi) |
 
 ## Position Limits
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `max_slots` | 3 | Max concurrent positions |
-| `max_leverage` | 10 | Maximum leverage per position |
-| `min_leverage` | 5 | Min leverage an asset must support to be scanned |
+| `maxSlots` | 3 | Max concurrent positions |
+| `maxLeverage` | 10 | Maximum leverage per position |
+| `minLeverage` | 5 | Min leverage an asset must support to be scanned |
 
 ## Risk Limits
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `max_single_loss_pct` | 5.0 | Max loss on one position as % of balance |
-| `max_daily_loss_pct` | 12.0 | Max daily loss as % of day-start balance |
-| `max_drawdown_pct` | 20.0 | Max drawdown from peak balance |
+| `maxSingleLossPct` | 5.0 | Max loss on one position as % of balance |
+| `maxDailyLossPct` | 12.0 | Max daily loss as % of day-start balance |
+| `maxDrawdownPct` | 20.0 | Max drawdown from peak balance |
 
 ## Scanner Thresholds
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `min_bb_squeeze_percentile` | 35 | BB width below this percentile = squeeze |
-| `min_oi_change_pct` | 5.0 | OI increase % to confirm accumulation |
-| `rsi_overbought` | 75 | RSI level for overbought (reversion scanner) |
-| `rsi_oversold` | 25 | RSI level for oversold (reversion scanner) |
-| `min_funding_annualized_pct` | 30 | Min annualized funding rate for funding arb |
-| `btc_correlation_move_pct` | 2.0 | BTC move % to trigger correlation lag scan |
+| `bbSqueezePercentile` | 35 | BB width below this percentile = squeeze |
+| `minOiChangePct` | 5.0 | OI increase % to confirm accumulation |
+| `rsiOverbought` | 75 | RSI level for overbought (reversion scanner) |
+| `rsiOversold` | 25 | RSI level for oversold (reversion scanner) |
+| `minFundingAnnualizedPct` | 30 | Min annualized funding rate for funding arb |
+| `btcCorrelationMovePct` | 2.0 | BTC move % to trigger correlation lag scan |
 
 ## Aggression-Dependent
 
-### `min_confluence_score`
+### `minConfluenceScore`
 
 Min weighted score for a signal to be actionable:
 
@@ -55,7 +56,7 @@ Min weighted score for a signal to be actionable:
 }
 ```
 
-### `trailing_lock_pct`
+### `trailingLockPct`
 
 Fraction of peak ROE to lock as trailing stop floor:
 
@@ -72,4 +73,4 @@ Fraction of peak ROE to lock as trailing stop floor:
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `telegram_chat_id` | null | Telegram chat ID for notifications |
+| `telegramChatId` | null | Telegram chat ID for notifications |

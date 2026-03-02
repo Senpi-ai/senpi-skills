@@ -160,11 +160,11 @@ def generate_proposed_changes(scorecard: dict, config: dict, roar_state: dict) -
 
         # ── Rule 1: Low win rate → raise confluence threshold ──
         if n >= MIN_TRADES_WIN_RATE and stats["win_rate"] < 0.40:
-            key = f"pattern_confluence_overrides.{pattern}"
+            key = f"patternConfluenceOverrides.{pattern}"
             old = get_nested(config, key)
             if old is None:
                 # Fall back to NORMAL aggression level
-                old = get_nested(config, "min_confluence_score.NORMAL") or 0.5
+                old = get_nested(config, "minConfluenceScore.NORMAL") or 0.5
             new_val = clamp_to_bounds(key, round(old + 0.05, 3))
             confidence = min(1.0, n / 30)  # more trades = more confident
             changes.append({
@@ -175,10 +175,10 @@ def generate_proposed_changes(scorecard: dict, config: dict, roar_state: dict) -
 
         # ── Rule 2: High win rate → lower confluence threshold ──
         elif n >= MIN_TRADES_WIN_RATE and stats["win_rate"] > 0.70:
-            key = f"pattern_confluence_overrides.{pattern}"
+            key = f"patternConfluenceOverrides.{pattern}"
             old = get_nested(config, key)
             if old is None:
-                old = get_nested(config, "min_confluence_score.NORMAL") or 0.5
+                old = get_nested(config, "minConfluenceScore.NORMAL") or 0.5
             new_val = clamp_to_bounds(key, round(old - 0.03, 3))
             confidence = min(1.0, n / 30)
             changes.append({
@@ -191,7 +191,7 @@ def generate_proposed_changes(scorecard: dict, config: dict, roar_state: dict) -
         avg_tier = stats.get("avg_dsl_exit_tier")
         if avg_tier is not None and n >= MIN_TRADES_FOR_ADJUST:
             if avg_tier < 2.0:
-                key = "dsl_retrace.phase1"
+                key = "dslRetrace.phase1"
                 old = get_nested(config, key) or 0.015
                 new_val = clamp_to_bounds(key, round(old + 0.002, 4))
                 changes.append({
@@ -201,7 +201,7 @@ def generate_proposed_changes(scorecard: dict, config: dict, roar_state: dict) -
                 })
             # ── Rule 4: DSL exit Tier 4+ → tighten phase1 retrace ──
             elif avg_tier >= 4.0:
-                key = "dsl_retrace.phase1"
+                key = "dslRetrace.phase1"
                 old = get_nested(config, key) or 0.015
                 new_val = clamp_to_bounds(key, round(old - 0.001, 4))
                 changes.append({
@@ -217,10 +217,10 @@ def generate_proposed_changes(scorecard: dict, config: dict, roar_state: dict) -
                 last_dt = datetime.fromisoformat(str(last_ts))
                 hours_since = (now - last_dt).total_seconds() / 3600
                 if hours_since >= SIGNAL_STALE_HOURS and n >= MIN_TRADES_FOR_ADJUST:
-                    key = f"pattern_confluence_overrides.{pattern}"
+                    key = f"patternConfluenceOverrides.{pattern}"
                     old = get_nested(config, key)
                     if old is None:
-                        old = get_nested(config, "min_confluence_score.NORMAL") or 0.5
+                        old = get_nested(config, "minConfluenceScore.NORMAL") or 0.5
                     new_val = clamp_to_bounds(key, round(old - 0.02, 3))
                     changes.append({
                         "key": key, "old": old, "new": new_val,

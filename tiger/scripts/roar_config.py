@@ -32,34 +32,34 @@ os.makedirs(STATE_DIR, exist_ok=True)
 # ─── Tunable Bounds ──────────────────────────────────────────
 # Hard min/max for every parameter ROAR is allowed to adjust.
 # Format: { "key_path": (min, max) }
-# For nested keys, use dot notation: "min_confluence_score.NORMAL"
+# For nested keys, use dot notation: "minConfluenceScore.NORMAL"
 
 TUNABLE_BOUNDS = {
     # minConfluenceScore per aggression level
-    "min_confluence_score.CONSERVATIVE": (0.25, 0.85),
-    "min_confluence_score.NORMAL":       (0.25, 0.85),
-    "min_confluence_score.ELEVATED":     (0.25, 0.85),
+    "minConfluenceScore.CONSERVATIVE": (0.25, 0.85),
+    "minConfluenceScore.NORMAL":       (0.25, 0.85),
+    "minConfluenceScore.ELEVATED":     (0.25, 0.85),
     # ABORT stays at 999, never tuned
 
     # Scanner thresholds
-    "min_bb_squeeze_percentile":   (15, 45),
-    "btc_correlation_move_pct":    (1.5, 5.0),
-    "min_funding_annualized_pct":  (15.0, 60.0),
+    "bbSqueezePercentile":      (15, 45),
+    "btcCorrelationMovePct":    (1.5, 5.0),
+    "minFundingAnnualizedPct":  (15.0, 60.0),
 
     # DSL retrace thresholds per tier (pattern-level overrides)
-    "dsl_retrace.phase1": (0.008, 0.03),
-    "dsl_retrace.phase2": (0.008, 0.03),
+    "dslRetrace.phase1": (0.008, 0.03),
+    "dslRetrace.phase2": (0.008, 0.03),
 
     # Trailing lock pct per aggression (±15% of current value)
     # These are dynamic bounds — checked at apply time relative to current
-    "trailing_lock_pct.CONSERVATIVE": (0.60, 0.95),
-    "trailing_lock_pct.NORMAL":       (0.40, 0.80),
-    "trailing_lock_pct.ELEVATED":     (0.25, 0.60),
+    "trailingLockPct.CONSERVATIVE": (0.60, 0.95),
+    "trailingLockPct.NORMAL":       (0.40, 0.80),
+    "trailingLockPct.ELEVATED":     (0.25, 0.60),
 }
 
 # Per-pattern confluence score overrides: new config key
-# Config shape: { "pattern_confluence_overrides": { "bb_squeeze_breakout": 0.5, ... } }
-# These override the aggression-level min_confluence_score for specific patterns.
+# Config shape: { "patternConfluenceOverrides": { "COMPRESSION_BREAKOUT": 0.5, ... } }
+# These override the aggression-level minConfluenceScore for specific patterns.
 
 # ─── Protected Keys ──────────────────────────────────────────
 # ROAR must NEVER modify these. They are user-controlled risk limits.
@@ -67,16 +67,16 @@ TUNABLE_BOUNDS = {
 PROTECTED_KEYS = [
     "budget",
     "target",
-    "deadline_days",
-    "start_time",
-    "strategy_id",
-    "strategy_wallet",
-    "telegram_chat_id",
-    "max_slots",
-    "max_leverage",
-    "max_drawdown_pct",
-    "max_daily_loss_pct",
-    "max_single_loss_pct",
+    "deadlineDays",
+    "startTime",
+    "strategyId",
+    "strategyWallet",
+    "telegramChatId",
+    "maxSlots",
+    "maxLeverage",
+    "maxDrawdownPct",
+    "maxDailyLossPct",
+    "maxSingleLossPct",
 ]
 
 # ─── Default ROAR State ─────────────────────────────────────
@@ -118,7 +118,7 @@ def save_roar_state(state: dict):
 # ─── Config Helpers ──────────────────────────────────────────
 
 def get_nested(config: dict, dotkey: str):
-    """Get a value from config using dot notation (e.g. 'min_confluence_score.NORMAL')."""
+    """Get a value from config using dot notation (e.g. 'minConfluenceScore.NORMAL')."""
     keys = dotkey.split(".")
     val = config
     for k in keys:
@@ -152,8 +152,8 @@ def is_within_bounds(key: str, value) -> bool:
     if key in TUNABLE_BOUNDS:
         lo, hi = TUNABLE_BOUNDS[key]
         return lo <= value <= hi
-    # For pattern_confluence_overrides, use the generic confluence bounds
-    if key.startswith("pattern_confluence_overrides."):
+    # For patternConfluenceOverrides, use the generic confluence bounds
+    if key.startswith("patternConfluenceOverrides."):
         return 0.25 <= value <= 0.85
     return True  # unknown key — allow (caller should validate)
 
@@ -163,7 +163,7 @@ def clamp_to_bounds(key: str, value):
     if key in TUNABLE_BOUNDS:
         lo, hi = TUNABLE_BOUNDS[key]
         return clamp(value, lo, hi)
-    if key.startswith("pattern_confluence_overrides."):
+    if key.startswith("patternConfluenceOverrides."):
         return clamp(value, 0.25, 0.85)
     return value
 

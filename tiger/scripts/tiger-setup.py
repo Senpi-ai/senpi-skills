@@ -5,7 +5,7 @@ Creates config from user parameters, validates wallet, and initializes state.
 
 Usage:
   python3 tiger-setup.py --wallet 0x... --strategy-id UUID --budget 5000 \
-    --target 10000 --days 7 --chat-id 12345 [--max-slots 3] [--max-leverage 10]
+    --target 10000 --deadline-days 7 --chat-id 12345 [--max-slots 3] [--max-leverage 10]
 """
 
 import sys
@@ -28,7 +28,10 @@ def main():
     parser.add_argument("--strategy-id", required=True, help="Senpi strategy ID")
     parser.add_argument("--budget", type=float, required=True, help="Starting budget in USD")
     parser.add_argument("--target", type=float, required=True, help="Target balance in USD")
-    parser.add_argument("--days", type=int, default=7, help="Days to hit target (default: 7)")
+    parser.add_argument("--days", dest="days", type=int, default=7,
+                        help="Days to hit target (default: 7)")
+    parser.add_argument("--deadline-days", dest="days", type=int,
+                        help="Alias for --days")
     parser.add_argument("--chat-id", required=True, help="Telegram chat ID for notifications")
     parser.add_argument("--max-slots", type=int, default=3, help="Max concurrent positions (default: 3)")
     parser.add_argument("--max-leverage", type=int, default=10, help="Max leverage (default: 10)")
@@ -123,7 +126,7 @@ def main():
         "maxLeverage": args.max_leverage,
         "statePath": instance_dir,
         "nextSteps": [
-            "Create 10 OpenClaw crons from references/cron-templates.md",
+            "Create 12 OpenClaw crons from references/cron-templates.md",
             "OI tracker needs ~1h before scanners can use OI data",
             "TIGER will start hunting on next cron cycle",
         ]
