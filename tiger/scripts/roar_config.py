@@ -15,19 +15,19 @@ config within strict bounds. This module handles:
 import json
 import os
 import copy
-import time
 from typing import Optional
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 # Import shared infra
-from tiger_config import build_runtime, atomic_write
+from tiger_config import build_runtime, atomic_write, load_config, _instance_dir
 
 
-def _roar_state_file(runtime=None):
+def _roar_state_file(config=None, runtime=None):
     rt = runtime or build_runtime()
-    state_dir = rt["state_dir"] if isinstance(rt, dict) else rt.state_dir
-    return os.path.join(state_dir, "roar-state.json")
+    if config is None:
+        config = load_config(runtime=rt)
+    return os.path.join(_instance_dir(config, runtime=rt, create=True), "roar-state.json")
 
 # ─── Tunable Bounds ──────────────────────────────────────────
 # Hard min/max for every parameter ROAR is allowed to adjust.
@@ -84,11 +84,12 @@ PROTECTED_KEYS = [
 DEFAULT_ROAR_STATE = {
     "last_analysis_ts": None,
     "trades_processed": 0,
+    "trades_at_last_adjustment": 0,  # index into trade log when last adjustment was applied
     "run_count": 0,
     "per_pattern": {},        # { pattern: { trades, wins, losses, total_pnl, ... } }
     "adjustment_history": [],  # [ { ts, changes, result } ]
     "previous_config": None,  # snapshot before last change (for revert)
-    "previous_stats": None,   # stats snapshot before last change
+    "previous_stats": None,   # stats snapshot before last change (post-adjustment window)
     "disabled_patterns": {},  # { pattern: re_enable_ts_iso }
     "confidence_scores": {},  # { pattern: float }
     "value_of_adjustments": 0.0,  # cumulative PnL delta attributed to ROAR changes
@@ -99,9 +100,9 @@ DISABLE_DURATION_H = 48  # hours before auto-re-enable
 
 # ─── State Management ────────────────────────────────────────
 
-def load_roar_state(runtime=None) -> dict:
+def load_roar_state(config=None, runtime=None) -> dict:
     """Load ROAR state, merging with defaults."""
-    roar_state_file = _roar_state_file(runtime=runtime)
+    roar_state_file = _roar_state_file(config=config, runtime=runtime)
     state = copy.deepcopy(DEFAULT_ROAR_STATE)
     if os.path.exists(roar_state_file):
         with open(roar_state_file) as f:
@@ -110,9 +111,9 @@ def load_roar_state(runtime=None) -> dict:
     return state
 
 
-def save_roar_state(state: dict, runtime=None):
+def save_roar_state(state: dict, config=None, runtime=None):
     """Save ROAR state atomically."""
-    roar_state_file = _roar_state_file(runtime=runtime)
+    roar_state_file = _roar_state_file(config=config, runtime=runtime)
     state["updated_at"] = datetime.now(timezone.utc).isoformat()
     atomic_write(roar_state_file, state, runtime=runtime)
 
@@ -215,18 +216,26 @@ def apply_changeset(changeset: list, config: dict, roar_state: dict) -> dict:
 
 # ─── Revert Logic ────────────────────────────────────────────
 
+MIN_POST_ADJUSTMENT_TRADES = 5  # Need at least this many trades after adjustment to evaluate
+
+
 def should_revert(current_stats: dict, previous_stats: dict) -> bool:
     """
-    Compare current performance with previous snapshot.
-    Revert if BOTH win rate AND avg PnL are worse.
+    Compare post-adjustment performance with pre-adjustment snapshot.
+    Revert if BOTH win rate AND avg PnL are worse, and enough trades
+    have occurred since the adjustment to make the comparison meaningful.
 
     Args:
-        current_stats:  { "overall_win_rate": float, "overall_avg_pnl": float }
-        previous_stats: same shape
+        current_stats:  { "overall_win_rate": float, "overall_avg_pnl": float, "total_trades": int }
+        previous_stats: same shape (snapshot from before adjustment was applied)
 
     Returns True if we should revert to previous_config.
     """
     if not previous_stats or not current_stats:
+        return False
+
+    # Need enough post-adjustment trades to judge
+    if current_stats.get("total_trades", 0) < MIN_POST_ADJUSTMENT_TRADES:
         return False
 
     prev_wr = previous_stats.get("overall_win_rate", 0)

@@ -26,9 +26,9 @@ def _iso_now():
 
 
 def _as_decimal_pct(value):
-    """Normalize percent inputs: 5 -> 0.05, 0.05 -> 0.05."""
+    """Normalize percent inputs: 5 -> 0.05, 0.05 -> 0.05, 1 -> 0.01."""
     v = float(value)
-    return v / 100.0 if v > 1 else v
+    return v / 100.0 if v >= 1 else v
 
 
 def _safe_float(value, default=0.0):

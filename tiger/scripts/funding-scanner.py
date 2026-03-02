@@ -195,8 +195,12 @@ def main(deps=None):
     candidates.sort(key=lambda x: x[2], reverse=True)
     candidates = candidates[:15]
 
+    active_coins = set(get_active_positions(state).keys())
+
     signals = []
     for name, ctx, _ in candidates:
+        if name in active_coins:
+            continue
         result = analyze_funding(name, ctx, config, sm_data, oi_hist, get_asset_candles)
         if result:
             signals.append(result)
@@ -205,7 +209,6 @@ def main(deps=None):
 
     min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score]
-    active_coins = set(get_active_positions(state).keys())
 
     output({
         "action": "funding_scan",

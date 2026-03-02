@@ -8,8 +8,6 @@ MANDATE: Run TIGER compression scanner. Find BB squeeze breakouts with OI confir
 
 import sys
 import os
-import json
-import time
 sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
@@ -196,6 +194,8 @@ def main(deps=None):
 
     signals = []
     for name, ctx, max_lev in candidates:
+        if name in active_coins:
+            continue
         ctx["max_leverage"] = max_lev
         result = scan_asset(name, ctx, config, oi_hist, get_asset_candles)
         if result:
@@ -207,7 +207,7 @@ def main(deps=None):
     # Filter by minimum confluence for current aggression
     min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score and s.get("breakout")]
-    watching = [s for s in signals if s["score"] >= 1.0 and not s.get("breakout")]
+    watching = [s for s in signals if s["score"] >= min_score and not s.get("breakout")]
 
     # Check slot availability
     available_slots = config["maxSlots"] - len(active_coins)

@@ -96,10 +96,10 @@ def main(deps=None):
     get_all_instruments = deps["get_all_instruments"]
     output = deps["output"]
     atomic_write = deps["atomic_write"]
-    state_dir = deps["state_dir"]
-    prescreened_file = os.path.join(state_dir, "prescreened.json")
+    get_prescreened_file = deps["prescreened_file"]
 
     config = load_config()
+    prescreened_file = get_prescreened_file(config=config)
     instruments = get_all_instruments()
     if not instruments:
         output({"error": "Failed to fetch instruments"})
