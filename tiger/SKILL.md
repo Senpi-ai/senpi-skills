@@ -75,6 +75,20 @@ metadata:
 
 ---
 
+## Lifecycle Walkthrough
+
+A compression breakout on HYPE, from signal to close:
+
+1. **Scanner fires** — Compression scanner (Cron 1) runs `compression-scanner.py`. Output: `{"signals": [{"asset": "HYPE", "direction": "LONG", "score": 0.72, "breakout": true, "risks": ["high_funding"]}], "strategySlots": {"available": 2, "anySlotsAvailable": true}}`.
+2. **Agent evaluates** — Score 0.72 exceeds NORMAL confluence threshold (0.40). Slots available. `breakout: true` and `direction` present (both required). Risk `high_funding` is noted but not blocking. Agent proceeds.
+3. **Agent enters** — Calls `create_position` with `coin: "HYPE"`, `direction: "LONG"`, `leverage: 10`, `marginAmount` from Half-Kelly sizing. Records position in `tiger-state.json`, creates `dsl-HYPE.json` with `active: true`, Phase 1 retrace at 0.015.
+4. **DSL monitors** — Cron 10 picks up `dsl-HYPE.json` every 30s. Position reaches 6% ROE → promotes to Tier 1 (locks 20% of high-water, retrace threshold 1.5%). Continues to 12% ROE → Tier 2 (locks 50%, retrace 1.2%).
+5. **Exit** — Price retraces 1.3% from high-water while in Tier 2. Two consecutive breaches → DSL auto-closes via `close_position`. Logs result to `trade-log.json`. Final ROE: ~8.5% after lock.
+
+If instead Risk Guardian (Cron 8) detects OI collapse > 25% during step 4, it closes the position directly and deactivates the DSL state file — DSL respects `active: false` on next tick.
+
+---
+
 ## 5 Signal Patterns
 
 ### 1. Compression Breakout (Primary)
