@@ -428,6 +428,140 @@ def update_breach_count(state: dict, breached: bool, decay_mode: str) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Edit position (sync SL) and open orders (MCP)
+# ---------------------------------------------------------------------------
+
+def _mcp_edit_position(
+    wallet: str, coin: str, stop_loss_price: float, order_type: str = "LIMIT"
+) -> tuple[bool, str | None, int | None]:
+    """Call senpi edit_position to set/update SL at price. Returns (success, error_message, sl_order_id_from_response).
+    sl_order_id_from_response is None if API does not return it (use strategy_get_open_orders to resolve).
+    """
+    args = {
+        "strategyWalletAddress": wallet,
+        "coin": coin,
+        "stopLoss": {"price": round(stop_loss_price, 4), "orderType": order_type},
+    }
+    try:
+        r = subprocess.run(
+            ["mcporter", "call", "senpi", "edit_position", "--args", json.dumps(args)],
+            capture_output=True, text=True, timeout=30,
+        )
+        raw = _unwrap_mcporter_response(r.stdout) if r.stdout else None
+        if r.returncode != 0:
+            return False, (r.stderr or r.stdout or "non-zero exit"), None
+        if not raw or not isinstance(raw, dict):
+            return False, "edit_position: invalid or empty response", None
+        if raw.get("success") is False:
+            err = raw.get("error", {})
+            msg = err.get("message", err.get("description", str(err))) if isinstance(err, dict) else str(err)
+            return False, msg, None
+        # MCP EditPosition returns data.ordersUpdated.stopLoss.orderId (or data = raw when unwrapped)
+        data = raw.get("data") or raw
+        oid = None
+        if isinstance(data, dict):
+            ou = data.get("ordersUpdated") or data.get("orders_updated")
+            if isinstance(ou, dict):
+                sl = ou.get("stopLoss") or ou.get("stop_loss")
+                if isinstance(sl, dict):
+                    oid = sl.get("orderId") or sl.get("order_id")
+            if oid is None:
+                oid = data.get("stopLossOrderId") or data.get("stop_loss_order_id")
+            if oid is not None:
+                try:
+                    oid = int(oid)
+                except (TypeError, ValueError):
+                    oid = None
+        return True, None, oid
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return False, str(e), None
+
+
+def _mcp_strategy_get_open_orders(wallet: str, dex: str = "") -> tuple[list[dict], str | None]:
+    """Call senpi strategy_get_open_orders. Returns (list of orders with oid, coin, triggerPx, etc.), error.
+    dex must match the position's dex (same as for market price): '' for main, 'xyz' for xyz assets."""
+    args = {"strategy_wallet": wallet, "dex": dex}
+    try:
+        r = subprocess.run(
+            ["mcporter", "call", "senpi", "strategy_get_open_orders", "--args", json.dumps(args)],
+            capture_output=True, text=True, timeout=20,
+        )
+        if r.returncode != 0:
+            return [], (r.stderr or r.stdout or "non-zero exit")
+        raw = _unwrap_mcporter_response(r.stdout) if r.stdout else None
+        if not raw or not isinstance(raw, dict):
+            return [], "strategy_get_open_orders: invalid or empty response"
+        data = raw.get("data") or raw
+        orders = data.get("orders") if isinstance(data, dict) else None
+        if not isinstance(orders, list):
+            return [], None
+        return orders, None
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return [], str(e)
+
+
+def _resolve_sl_order_id_after_edit(
+    wallet: str, dex: str, coin: str, trigger_price: float, orders: list[dict]
+) -> int | None:
+    """From strategy_get_open_orders list, find the SL order for this coin matching trigger_price. Return oid or None."""
+    for o in orders:
+        if not isinstance(o, dict):
+            continue
+        o_coin = o.get("coin")
+        if o_coin != coin:
+            continue
+        if not o.get("isTrigger", False) and not o.get("isPositionTpsl", False):
+            continue
+        try:
+            tp = float(o.get("triggerPx", 0))
+        except (TypeError, ValueError):
+            continue
+        if abs(tp - trigger_price) < 1e-6:
+            oid = o.get("oid")
+            if oid is not None:
+                try:
+                    return int(oid)
+                except (TypeError, ValueError):
+                    pass
+    return None
+
+
+def sync_sl_to_hyperliquid(
+    state: dict,
+    effective_floor: float,
+    now: str,
+    dex: str,
+) -> tuple[bool, bool, str | None]:
+    """Set or update SL on Hyperliquid at effective_floor via edit_position. Resolve slOrderId via open orders if needed.
+    Mutates state: slOrderId, lastSyncedFloorPrice, slOrderIdUpdatedAt.
+    Returns (success, sl_synced_this_tick, error_message)."""
+    wallet = state.get("wallet", "")
+    coin = state["asset"]
+    if not wallet:
+        return False, False, "no wallet in state"
+
+    success, err, oid_from_api = _mcp_edit_position(
+        wallet, coin, effective_floor, order_type="LIMIT"
+    )
+    if not success:
+        return False, False, err
+
+    oid = oid_from_api
+    if oid is None:
+        orders, orders_err = _mcp_strategy_get_open_orders(wallet, dex)
+        if orders_err:
+            return False, False, f"edit_ok_but_resolve_failed: {orders_err}"
+        # Use rounded price to match what was sent to Hyperliquid (round(..., 4))
+        oid = _resolve_sl_order_id_after_edit(wallet, dex, coin, round(effective_floor, 4), orders)
+
+    state["lastSyncedFloorPrice"] = round(effective_floor, 4)
+    state["slOrderIdUpdatedAt"] = now
+    if oid is not None:
+        state["slOrderId"] = oid
+    return True, True, None
+
+
+# ---------------------------------------------------------------------------
 # Close position (MCP)
 # ---------------------------------------------------------------------------
 
@@ -531,6 +665,8 @@ def build_output(
     closed: bool,
     close_result: str | None,
     now: str,
+    sl_synced: bool = False,
+    sl_initial_sync: bool = False,
 ) -> dict:
     """Build the single JSON object printed to stdout."""
     is_long = direction == "LONG"
@@ -597,6 +733,9 @@ def build_output(
         "distance_to_next_tier_pct": distance_to_next_tier,
         "pending_close": state.get("pendingClose", False),
         "consecutive_failures": state.get("consecutiveFetchFailures", 0),
+        "sl_synced": sl_synced,
+        "sl_initial_sync": sl_initial_sync,
+        "sl_order_id": state.get("slOrderId"),
     }
 
 
@@ -680,6 +819,38 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
     )
     state["floorPrice"] = round(effective_floor, 4)
 
+    # Optional: if we have slOrderId, verify it still exists on HL; if not, re-sync (SL cancelled externally)
+    last_synced = state.get("lastSyncedFloorPrice")
+    if state.get("slOrderId") is not None and last_synced is not None:
+        orders, _ = _mcp_strategy_get_open_orders(state.get("wallet", ""), dex)
+        oids_for_coin = []
+        for o in orders:
+            if not isinstance(o, dict) or o.get("coin") != asset:
+                continue
+            oid = o.get("oid")
+            if oid is not None:
+                try:
+                    oids_for_coin.append(int(oid))
+                except (TypeError, ValueError):
+                    pass  # ignore non-int OIDs
+        if state["slOrderId"] not in oids_for_coin:
+            state["lastSyncedFloorPrice"] = None  # force sync below
+
+    had_sl_order_before = state.get("slOrderId") is not None
+    effective_floor_rounded = round(effective_floor, 4)
+    # Sync SL to Hyperliquid: never synced or floor changed (compare rounded to match stored lastSyncedFloorPrice)
+    need_sync = (
+        state.get("lastSyncedFloorPrice") is None
+        or abs((state.get("lastSyncedFloorPrice") or 0) - effective_floor_rounded) > 1e-9
+    )
+    sl_synced_this_tick = False
+    if need_sync:
+        sync_ok, sl_synced_this_tick, sync_err = sync_sl_to_hyperliquid(state, effective_floor, now, dex)
+        if not sync_ok and sync_err:
+            # Log but continue; backup close on breach still available
+            state["lastSlSyncError"] = sync_err
+    sl_initial_sync = sl_synced_this_tick and not had_sl_order_before
+
     breached = price <= effective_floor if is_long else price >= effective_floor
     breach_count = update_breach_count(state, breached, state.get("breachDecay", "hard"))
     force_close = state.get("pendingClose", False)
@@ -717,6 +888,8 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
         closed=closed,
         close_result=close_result,
         now=now,
+        sl_synced=sl_synced_this_tick,
+        sl_initial_sync=sl_initial_sync,
     )
     out["strategy_id"] = strategy_id
     print(json.dumps(out))
