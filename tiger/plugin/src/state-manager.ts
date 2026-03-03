@@ -109,6 +109,35 @@ export class StateManager {
     }
   }
 
+  async dslStateExists(
+    strategyId: string,
+    asset: string,
+  ): Promise<boolean> {
+    const dir = this.instanceDir(strategyId);
+    const dslPath = path.join(dir, `dsl-${asset}.json`);
+
+    try {
+      await fs.access(dslPath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async writeDslState(
+    strategyId: string,
+    asset: string,
+    state: DslState,
+  ): Promise<void> {
+    const dir = this.instanceDir(strategyId);
+    await fs.mkdir(dir, { recursive: true });
+
+    const dslPath = path.join(dir, `dsl-${asset}.json`);
+    const tmpPath = `${dslPath}.tmp`;
+    await fs.writeFile(tmpPath, JSON.stringify(state, null, 2), 'utf-8');
+    await fs.rename(tmpPath, dslPath);
+  }
+
   async readTradeLog(strategyId: string): Promise<TradeLogEntry[]> {
     const dir = this.instanceDir(strategyId);
     const logPath = path.join(dir, 'trade-log.json');

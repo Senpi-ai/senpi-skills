@@ -145,6 +145,28 @@ export interface TigerState {
 }
 
 // ============================================================
+// Tiger Pattern & DSL Creation
+// ============================================================
+
+export type TigerPattern =
+  | 'COMPRESSION_BREAKOUT'
+  | 'CORRELATION_LAG'
+  | 'MOMENTUM_BREAKOUT'
+  | 'MEAN_REVERSION'
+  | 'FUNDING_ARB';
+
+export interface CreateDslParams {
+  asset: string;
+  direction: 'LONG' | 'SHORT';
+  entryPrice: number;
+  size: number;
+  leverage: number;
+  wallet: string;
+  pattern: TigerPattern;
+  absoluteFloor?: number;
+}
+
+// ============================================================
 // DSL State (dsl-{ASSET}.json)
 // ============================================================
 
@@ -189,6 +211,8 @@ export interface DslState {
   lastCheck: string;
   lastPrice: number;
   consecutiveFetchFailures: number;
+  closedAt?: string;
+  closeReason?: string;
 }
 
 // ============================================================
