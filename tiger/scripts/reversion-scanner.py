@@ -129,28 +129,25 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict, get_asset
     else:
         expected_move_pct = atr_pct * 2
 
-    return {
+    result = {
         "asset": asset,
         "pattern": "MEAN_REVERSION",
         "score": round(score, 2),
         "direction": direction,
         "current_price": current_price,
         "rsi_4h": round(current_rsi_4h, 1),
-        "rsi_1h": round(current_rsi_1h, 1) if current_rsi_1h else None,
-        "divergence": divergence,
         "divergence_aligned": divergence_aligned,
-        "price_change_24h_pct": round(price_change_24h, 1),
-        "volume_exhaustion": volume_exhaustion,
-        "volume_ratio": round(vol_ratio_val, 2) if vol_ratio_val else None,
-        "at_extreme_bb": at_extreme_bb,
-        "oi_crowded": oi_at_high,
-        "expected_move_pct": round(expected_move_pct, 1),
-        "atr_pct": round(atr_pct, 2),
-        "funding_annualized_pct": round(funding_annualized, 1),
-        "funding_pays_us": funding_pays_us,
         "max_leverage": context.get("max_leverage", 0),
-        "factors": {k: v[0] for k, v in factors.items()}
     }
+    if os.environ.get("TIGER_VERBOSE") == "1":
+        result["rsi_1h"] = round(current_rsi_1h, 1) if current_rsi_1h else None
+        result["price_change_24h_pct"] = round(price_change_24h, 1)
+        result["volume_exhaustion"] = volume_exhaustion
+        result["at_extreme_bb"] = at_extreme_bb
+        result["oi_crowded"] = oi_at_high
+        result["expected_move_pct"] = round(expected_move_pct, 1)
+        result["factors"] = {k: v[0] for k, v in factors.items()}
+    return result
 
 
 def main(deps=None):

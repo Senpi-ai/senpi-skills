@@ -237,14 +237,10 @@ def main(deps=None):
 
     output({
         "action": "exit_check",
-        "positions_checked": len(positions),
         "exit_signals": len(exit_signals),
         "close_needed": [{"coin": e["coin"], "reason": e["primary_action"]["reason"]} for e in close_needed],
         "partial_needed": [{"coin": e["coin"], "reason": e["primary_action"]["reason"]} for e in partial_needed],
-        "all_signals": exit_signals,
-        "aggression": state.get("aggression", "NORMAL"),
-        "days_remaining": round(state.get("daysRemaining", 7), 1),
-        "execution": execution
+        "execution": execution,
     })
 
 

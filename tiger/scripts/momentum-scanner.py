@@ -104,26 +104,23 @@ def scan_asset(asset: str, context: dict, config: dict, get_asset_candles_fn) ->
 
     score = confluence_score(factors)
 
-    return {
+    result = {
         "asset": asset,
         "pattern": "MOMENTUM_BREAKOUT",
         "score": round(score, 2),
         "direction": direction,
         "current_price": current_price,
-        "move_1h_pct": round(move_1h, 2),
-        "move_2h_pct": round(move_2h, 2),
-        "move_4h_pct": round(move_4h, 2),
-        "volume_ratio": round(vol_r, 2) if vol_r else None,
-        "volume_surging": volume_surging,
-        "rsi": round(current_rsi, 1) if current_rsi else None,
         "rsi_ok": rsi_ok,
-        "trend_aligned": trend_aligned,
-        "sma_aligned": sma_aligned,
-        "atr_pct": round(atr_pct, 2),
-        "funding_annualized_pct": round(funding_annualized, 1),
         "max_leverage": context.get("max_leverage", 0),
-        "factors": {k: v[0] for k, v in factors.items()}
     }
+    if os.environ.get("TIGER_VERBOSE") == "1":
+        result["move_1h_pct"] = round(move_1h, 2)
+        result["move_2h_pct"] = round(move_2h, 2)
+        result["volume_ratio"] = round(vol_r, 2) if vol_r else None
+        result["rsi"] = round(current_rsi, 1) if current_rsi else None
+        result["trend_aligned"] = trend_aligned
+        result["factors"] = {k: v[0] for k, v in factors.items()}
+    return result
 
 
 def main(deps=None):

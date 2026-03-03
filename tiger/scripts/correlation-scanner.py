@@ -164,25 +164,24 @@ def check_alt_lag(
 
     score = confluence_score(factors)
 
-    return {
+    result = {
         "asset": asset,
         "pattern": "CORRELATION_LAG",
         "score": round(score, 2),
         "direction": direction,
         "current_price": current_price,
-        "alt_move_4h_pct": round(alt_move_4h, 2),
-        "lag_pct": round(lag, 2),
         "lag_ratio": round(lag_ratio, 2),
         "window_quality": window_quality,
-        "expected_catchup_pct": round(expected_catchup, 2),
-        "volume_ratio": round(vol_r, 2) if vol_r else None,
-        "volume_quiet": low_volume,
-        "rsi": round(current_rsi, 1) if current_rsi else None,
-        "sm_aligned": sm_aligned,
-        "atr_pct": round(atr_pct, 2),
         "max_leverage": max_lev,
-        "factors": {k: v[0] for k, v in factors.items()}
     }
+    if os.environ.get("TIGER_VERBOSE") == "1":
+        result["alt_move_4h_pct"] = round(alt_move_4h, 2)
+        result["expected_catchup_pct"] = round(expected_catchup, 2)
+        result["volume_ratio"] = round(vol_r, 2) if vol_r else None
+        result["rsi"] = round(current_rsi, 1) if current_rsi else None
+        result["sm_aligned"] = sm_aligned
+        result["factors"] = {k: v[0] for k, v in factors.items()}
+    return result
 
 
 def main(deps=None):

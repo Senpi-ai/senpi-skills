@@ -212,8 +212,9 @@ class TestCheckAltLag:
 class TestConfluenceFactors:
     """Verify the confluence factor booleans are computed correctly."""
 
-    def test_high_corr_alt_factor(self):
+    def test_high_corr_alt_factor(self, monkeypatch):
         """Assets in HIGH_CORR_ALTS get the high_correlation_alt factor."""
+        monkeypatch.setenv("TIGER_VERBOSE", "1")
         closes_1h = [100] * 5 + [100.1]
         closes_4h = [100] * 20 + [100.1]
 
@@ -239,8 +240,9 @@ class TestConfluenceFactors:
         if result:
             assert result["factors"]["high_correlation_alt"] is True
 
-    def test_non_corr_alt_factor(self):
+    def test_non_corr_alt_factor(self, monkeypatch):
         """Assets NOT in HIGH_CORR_ALTS don't get the factor."""
+        monkeypatch.setenv("TIGER_VERBOSE", "1")
         closes_1h = [100] * 5 + [100.1]
         closes_4h = [100] * 20 + [100.1]
 

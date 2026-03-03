@@ -337,22 +337,11 @@ def main(deps=None):
 
     report = {
         "action": "risk_check",
-        "current_balance": round(current_balance, 2),
-        "daily_loss_pct": daily_check.get("loss_pct", 0),
-        "drawdown_pct": dd_check.get("drawdown_pct", 0),
-        "days_remaining": round(days_remaining(config), 1),
-        "active_positions": len(parsed_positions),
-        "alerts": all_alerts,
         "alert_count": len(all_alerts),
         "critical": len(critical_alerts) > 0,
         "halted": is_halted(state),
-        "actions_needed": {
-            "close": close_coins,
-            "reduce": reduce_coins,
-            "take_profit": tp_coins,
-            "close_all": close_all
-        },
-        "execution": execution
+        "alerts": all_alerts,
+        "execution": execution,
     }
 
     output(report)
