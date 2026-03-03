@@ -299,3 +299,32 @@ class TestCheckPositionPnl:
         # Should not crash on division by zero
         result = risk.check_position_pnl(config, state, positions)
         assert isinstance(result, list)
+
+
+class TestMainClearinghouseGuard:
+    """Tests for empty response guards in main()."""
+
+    def test_error_response_outputs_error(self, mock_deps):
+        """Clearinghouse returning error dict → output error, no crash."""
+        mock_deps["get_clearinghouse"] = lambda wallet: {"error": "timeout after 3 attempts"}
+        risk.main(deps=mock_deps)
+        captured = mock_deps["_captured_output"]
+        assert len(captured) == 1
+        assert "error" in captured[0]
+        assert "Clearinghouse failed" in captured[0]["error"]
+
+    def test_none_response_outputs_error(self, mock_deps):
+        """Clearinghouse returning None → output error, no crash."""
+        mock_deps["get_clearinghouse"] = lambda wallet: None
+        risk.main(deps=mock_deps)
+        captured = mock_deps["_captured_output"]
+        assert len(captured) == 1
+        assert "no response" in captured[0]["error"]
+
+    def test_empty_dict_response_outputs_error(self, mock_deps):
+        """Clearinghouse returning {} → falsy but not None."""
+        mock_deps["get_clearinghouse"] = lambda wallet: {}
+        risk.main(deps=mock_deps)
+        captured = mock_deps["_captured_output"]
+        assert len(captured) == 1
+        assert "error" in captured[0]

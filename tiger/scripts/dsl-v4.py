@@ -371,10 +371,12 @@ def main(deps=None, env=None):
         if result.get("status") == "active":
             active_count += 1
         # Only include results with meaningful state changes
-        if result.get("status") not in ("inactive",) and (
-            result.get("closed") or result.get("tier_changed") or
-            result.get("breached") or result.get("pending_close") or
-            result.get("status") == "error"
+        if result.get("closed") or (
+            result.get("status") not in ("inactive",) and (
+                result.get("tier_changed") or
+                result.get("breached") or result.get("pending_close") or
+                result.get("status") == "error"
+            )
         ):
             results.append(result)
 
