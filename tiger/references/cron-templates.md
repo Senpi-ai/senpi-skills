@@ -1,5 +1,7 @@
 # TIGER Cron Templates
 
+11 crons. DSL trailing stops are managed by the Tiger plugin service (not a cron).
+
 Crons use OpenClaw `systemEvent` or `agentTurn` format, with `main` or `isolated` session targets depending on task.
 
 Replace:
@@ -12,7 +14,7 @@ Replace:
 
 | Tier | Use | Models |
 |------|-----|--------|
-| Tier 1 (fast/cheap) | Scanners, OI tracker, DSL math | claude-haiku-4-5, gpt-4o-mini |
+| Tier 1 (fast/cheap) | Scanners, OI tracker | claude-haiku-4-5, gpt-4o-mini |
 | Tier 2 (capable) | Goal engine, risk guardian, exit evaluation | claude-sonnet-4-6, gpt-4o |
 
 ---
@@ -189,7 +191,7 @@ Every 5 minutes (offset 4 min). Enforces all risk limits.
   "wakeMode": "next-heartbeat",
   "payload": {
     "kind": "agentTurn",
-    "message": "TIGER RISK GUARDIAN: Run `python3 {SCRIPTS}/risk-guardian.py`, parse JSON.\n\nPROCESSING ORDER:\n1. Read state ONCE.\n2. Check daily loss, drawdown, single position limits per SKILL.md.\n3. Check OI collapse, funding reversal for FUNDING_ARB positions.\n4. Script executes close actions directly and sets halted when critical.\n5. Send ONE Telegram ({TELEGRAM}).\n\nElse HEARTBEAT_OK.",
+    "message": "TIGER RISK GUARDIAN: Run `python3 {SCRIPTS}/risk-guardian.py`, parse JSON.\n\nPROCESSING ORDER:\n1. Read state ONCE.\n2. Check daily loss, drawdown, single position limits per SKILL.md.\n3. Check OI collapse, funding reversal for FUNDING_ARB positions.\n4. Script executes close actions directly and sets halted when critical.\n5. Call `tiger_deactivate_dsl` for each closed position.\n6. Send ONE Telegram ({TELEGRAM}).\n\nElse HEARTBEAT_OK.",
     "model": "anthropic/claude-sonnet-4-5-20250929"
   },
   "delivery": {
@@ -212,7 +214,7 @@ Every 5 minutes (runs with risk guardian).
   "wakeMode": "next-heartbeat",
   "payload": {
     "kind": "agentTurn",
-    "message": "TIGER EXIT CHECKER: Run `python3 {SCRIPTS}/tiger-exit.py`, parse JSON.\nScript executes CLOSE exits directly; PARTIAL actions remain advisory.\nPattern-specific exits per SKILL.md. Deadline proximity: tighten stops in final 24h.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK.",
+    "message": "TIGER EXIT CHECKER: Run `python3 {SCRIPTS}/tiger-exit.py`, parse JSON.\nScript executes CLOSE exits directly; PARTIAL actions remain advisory.\nCall `tiger_deactivate_dsl` for each closed position.\nPattern-specific exits per SKILL.md. Deadline proximity: tighten stops in final 24h.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK.",
     "model": "anthropic/claude-sonnet-4-5-20250929"
   },
   "delivery": {
@@ -223,30 +225,13 @@ Every 5 minutes (runs with risk guardian).
 
 ---
 
-## Cron 10: DSL Combined — Tier 1
-
-Every 30 seconds. Iterates all active DSL state files for the strategy instance.
-
-```json
-{
-  "name": "TIGER — DSL Trailing Stops",
-  "schedule": { "kind": "every", "everyMs": 30000 },
-  "sessionTarget": "isolated",
-  "wakeMode": "next-heartbeat",
-  "payload": {
-    "kind": "agentTurn",
-    "message": "TIGER DSL: Run `python3 {SCRIPTS}/dsl-v4.py`, parse JSON.\nWhen DSL_STATE_FILE is unset, dsl-v4 runs in combined mode across all dsl-*.json files.\nDSL is self-contained — auto-closes via close_position on breach.\nIf position closed → notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK.",
-    "model": "anthropic/claude-haiku-4-5"
-  },
-  "delivery": {
-    "mode": "none"
-  }
-}
-```
+> **DSL trailing stops** are now managed by the Tiger plugin's `tiger-dsl-runner` service.
+> No cron needed. The plugin runs `dsl-v4.py` automatically at the configured interval (default: 30s).
+> Position closures are logged by the plugin. On-demand ticks available via `tiger_dsl_tick` tool.
 
 ---
 
-## Cron 11: ROAR Analyst — Tier 2
+## Cron 10: ROAR Analyst — Tier 2
 
 Every 8 hours. Meta-optimizer that tunes TIGER's execution parameters. Isolated with announce — only delivers when changes are made.
 
@@ -284,7 +269,7 @@ Scanners are offset to avoid simultaneous mcporter calls:
 | :03 | OI Tracker |
 | :04 | Risk Guardian + Exit Checker |
 
-Correlation (3min) and Funding (30min) run on their own cadence. DSL runs every 30s independently.
+Correlation (3min) and Funding (30min) run on their own cadence. DSL is managed by the Tiger plugin service (not a cron).
 
 ---
 
@@ -302,5 +287,5 @@ Correlation (3min) and Funding (30min) run on their own cadence. DSL runs every 
 | 7 | tiger-goal | 3600000 (1h) | **main** | systemEvent | — | Tier 2 | Aggression |
 | 8 | tiger-risk | 300000 (5m) | isolated | agentTurn | none | Tier 2 | Risk limits |
 | 9 | tiger-exit | 300000 (5m) | isolated | agentTurn | none | Tier 2 | Pattern exits |
-| 10 | tiger-dsl | 30000 (30s) | isolated | agentTurn | none | Tier 1 | Trailing stops |
-| 11 | tiger-roar | 28800000 (8h) | isolated | agentTurn | announce | Tier 2 | Meta-optimizer |
+| — | DSL | configurable | — | — | — | **Plugin** | Trailing stops (tiger-dsl-runner service) |
+| 10 | tiger-roar | 28800000 (8h) | isolated | agentTurn | announce | Tier 2 | Meta-optimizer |

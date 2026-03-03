@@ -4,17 +4,20 @@ description: >-
   TIGER — Multi-scanner trading system for Hyperliquid perps via Senpi MCP.
   5 signal patterns (BB compression breakout, BTC correlation lag, momentum breakout,
   mean reversion, funding rate arb), DSL v4 trailing stops, goal-based aggression engine,
-  and risk guardrails. Configurable profit target over deadline. 12-cron architecture (10 TIGER + prescreener + ROAR meta-optimizer).
-  Pure Python analysis. Requires Senpi MCP, python3, mcporter CLI, and OpenClaw cron system.
+  and risk guardrails. Configurable profit target over deadline. 11-cron + plugin architecture
+  (scanners via crons, DSL + state queries via Tiger plugin).
+  Pure Python analysis. Requires Senpi MCP, python3, mcporter CLI, OpenClaw cron system,
+  and Tiger plugin (@senpi/tiger-plugin).
 license: Apache-2.0
 compatibility: >-
   Python 3.8+, no external deps (stdlib only). Requires mcporter
-  (configured with Senpi auth) and OpenClaw cron system.
+  (configured with Senpi auth), OpenClaw cron system, and Tiger plugin.
 metadata:
   author: Jason & DanielM
-  version: "1.2.0"
+  version: "1.3.0"
   platform: senpi
   exchange: hyperliquid
+  plugin: tiger
 ---
 
 # TIGER v2 — Multi-Scanner Goal-Based Trading
@@ -29,10 +32,16 @@ metadata:
 
 ```
 ┌──────────────────────────────────────────┐
-│           12 OpenClaw Crons              │
+│           11 OpenClaw Crons              │
 │  Compress(5m) Corr(3m) Momentum(5m)     │
 │  Reversion(5m) Funding(30m) OI(5m)      │
-│  Goal(1h) Risk(5m) Exit(5m) DSL(30s)    │
+│  Goal(1h) Risk(5m) Exit(5m) ROAR(8h)    │
+├──────────────────────────────────────────┤
+│           Tiger Plugin                    │
+│  tiger_dsl_tick — DSL service (auto)     │
+│  tiger_get_state / tiger_get_dsl_state   │
+│  tiger_get_trade_log                     │
+│  tiger_create_dsl / tiger_deactivate_dsl │
 ├──────────────────────────────────────────┤
 │           Python Scripts                  │
 │  tiger_lib.py  tiger_config.py           │
@@ -54,14 +63,16 @@ metadata:
 └──────────────────────────────────────────┘
 ```
 
-**State flow:** OI Tracker samples all assets → Scanners score signals by confluence → Goal Engine sets aggression → Agent enters via `create_position` → DSL manages trailing stops → Risk Guardian enforces limits → Exit Checker handles pattern-specific exits.
+**State flow:** OI Tracker samples all assets → Scanners score signals by confluence → Goal Engine sets aggression → Agent enters via `create_position` → Tiger plugin runs DSL trailing stops automatically → Risk Guardian enforces limits → Exit Checker handles pattern-specific exits.
+
+**Plugin tools:** Use `tiger_get_state` to read strategy state, `tiger_get_dsl_state` to read DSL positions, `tiger_get_trade_log` to read trade history, `tiger_create_dsl` to create DSL state for new positions, and `tiger_deactivate_dsl` to deactivate DSL for closed positions. Do not read or write state files directly — use the plugin tools.
 
 ---
 
 ## Quick Start
 
 1. Ensure Senpi MCP is connected (`mcporter list` shows `senpi`)
-2. Set workspace env var: `export TIGER_WORKSPACE=/abs/path/to/tiger-workspace` (required; scripts exit if unset)
+2. Configure Tiger plugin workspace in `config.yaml`: `plugins.tiger.workspace: /abs/path/to/tiger-workspace` (or set `TIGER_WORKSPACE` env var as fallback)
 3. Create a custom strategy: `strategy_create_custom_strategy`
 4. Fund the wallet: `strategy_top_up`
 5. Run setup:
@@ -69,7 +80,7 @@ metadata:
    python3 scripts/tiger-setup.py --wallet 0x... --strategy-id UUID \
      --budget 1000 --target 2000 --days 7 --chat-id 12345
    ```
-6. Create 12 OpenClaw crons from `references/cron-templates.md`
+6. Create 11 OpenClaw crons from `references/cron-templates.md` (DSL is handled by the plugin automatically)
 
 **First hour:** OI Tracker needs ~1h of history before compression/reversion scanners can use OI data. Goal engine and risk guardian work immediately.
 
@@ -81,11 +92,11 @@ A compression breakout on HYPE, from signal to close:
 
 1. **Scanner fires** — Compression scanner (Cron 1) runs `compression-scanner.py`. Output: `{"signals": [{"asset": "HYPE", "direction": "LONG", "score": 0.72, "breakout": true, "risks": ["high_funding"]}], "strategySlots": {"available": 2, "anySlotsAvailable": true}}`.
 2. **Agent evaluates** — Score 0.72 exceeds NORMAL confluence threshold (0.40). Slots available. `breakout: true` and `direction` present (both required). Risk `high_funding` is noted but not blocking. Agent proceeds.
-3. **Agent enters** — Calls `create_position` with `coin: "HYPE"`, `direction: "LONG"`, `leverage: 10`, `marginAmount` from Half-Kelly sizing. Records position in `tiger-state.json`, creates `dsl-HYPE.json` with `active: true`, Phase 1 retrace at 0.015.
-4. **DSL monitors** — Cron 10 picks up `dsl-HYPE.json` every 30s. Position reaches 6% ROE → promotes to Tier 1 (locks 20% of high-water, retrace threshold 1.5%). Continues to 12% ROE → Tier 2 (locks 50%, retrace 1.2%).
+3. **Agent enters** — Calls `create_position` with `coin: "HYPE"`, `direction: "LONG"`, `leverage: 10`, `marginAmount` from Half-Kelly sizing. Records position in `tiger-state.json`, then calls `tiger_create_dsl` with `asset: "HYPE"`, `direction: "LONG"`, `pattern: "COMPRESSION_BREAKOUT"`, entry price, size, leverage, and wallet. Plugin creates `dsl-HYPE.json` with pattern-appropriate DSL tuning.
+4. **DSL monitors** — Tiger plugin's DSL service picks up `dsl-HYPE.json` automatically (default: every 30s, configurable via `dslTickInterval`). Position reaches 6% ROE → promotes to Tier 1 (locks 20% of high-water, retrace threshold 1.5%). Continues to 12% ROE → Tier 2 (locks 50%, retrace 1.2%).
 5. **Exit** — Price retraces 1.3% from high-water while in Tier 2. Two consecutive breaches → DSL auto-closes via `close_position`. Logs result to `trade-log.json`. Final ROE: ~8.5% after lock.
 
-If instead Risk Guardian (Cron 8) detects OI collapse > 25% during step 4, it closes the position directly and deactivates the DSL state file — DSL respects `active: false` on next tick.
+If instead Risk Guardian (Cron 8) detects OI collapse > 25% during step 4, it closes the position directly and calls `tiger_deactivate_dsl` with `asset` and `reason: "OI_COLLAPSE"` — DSL service respects `active: false` on next tick.
 
 ---
 
@@ -186,7 +197,7 @@ Extreme funding → go opposite the crowd, collect income.
 
 ## DSL v4 — Trailing Stop System
 
-Per-position DSL state file. Combined runner (`dsl-v4.py`) checks all active positions every 30s.
+Per-position DSL state file. Tiger plugin's DSL service runs `dsl-v4.py` in combined mode automatically (default: every 30s, configurable via `dslTickInterval`). On-demand ticks available via `tiger_dsl_tick` tool (combined or single-asset mode).
 
 **Phase 1** (pre-Tier 1): Absolute floor. 3 consecutive breaches → close. Max duration: 90 minutes.
 
@@ -210,6 +221,8 @@ Per-position DSL state file. Combined runner (`dsl-v4.py`) checks all active pos
 | MOMENTUM | 0.012 (tighter) | Standard | Fast reversals |
 | MEAN_REVERSION | 0.015 | Medium | Expect 2-3 ATR move |
 | FUNDING_ARB | 0.020+ (wider) | Wider | Income-based, needs room |
+
+Pattern-specific tuning is applied automatically by `tiger_create_dsl`. The agent only needs to pass the `pattern` parameter.
 
 ---
 
@@ -237,11 +250,13 @@ All percentage values are whole numbers (5 = 5%).
 3. **NEVER hold FUNDING_ARB after funding flips.** The thesis is dead.
 4. **NEVER chase momentum after 2h.** If you missed the 1h move, wait for the next one.
 5. **NEVER enter reversion without 4h RSI extreme.** That's the required filter, not optional.
-6. **NEVER run scanners without timeout wrapper.** `timeout 55` prevents overlap.
+6. **NEVER run scanners without timeout wrapper.** `timeout 55` prevents overlap. (DSL timeout is managed by the plugin.)
 
 ---
 
 ## API Dependencies
+
+### Senpi MCP Tools
 
 | Tool | Used By | Purpose |
 |------|---------|---------|
@@ -254,6 +269,17 @@ All percentage values are whole numbers (5 = 5%).
 | `create_position` | agent (from scanner output) | Open positions |
 | `close_position` | dsl-v4, risk-guardian, tiger-exit | Close positions |
 | `edit_position` | risk-guardian | Resize positions |
+
+### Tiger Plugin Tools
+
+| Tool | Purpose |
+|------|---------|
+| `tiger_dsl_tick` | On-demand DSL trailing stop tick (combined or single-asset mode) |
+| `tiger_get_state` | Read strategy state (balances, P&L, positions, aggression, safety) |
+| `tiger_get_dsl_state` | Read DSL state (single asset detail or summary list of all) |
+| `tiger_get_trade_log` | Read recent trade log entries (default: last 20) |
+| `tiger_create_dsl` | Create DSL trailing stop state for a new position (pattern-specific tuning applied automatically) |
+| `tiger_deactivate_dsl` | Deactivate DSL monitoring for a closed position |
 
 ---
 
@@ -273,6 +299,11 @@ state/{instanceKey}/
 
 All state files include `version`, `active`, `instanceKey`, `createdAt`, `updatedAt`. All writes use `atomic_write()`.
 
+**Reading state:** Use plugin tools instead of direct file access:
+- `tiger_get_state` → tiger-state.json (positions, aggression, safety, daily stats)
+- `tiger_get_dsl_state` → dsl-{ASSET}.json (single asset or summary list)
+- `tiger_get_trade_log` → trade-log.json (recent entries with limit param)
+
 ---
 
 ## Cron Setup
@@ -291,16 +322,16 @@ See `references/cron-templates.md` for ready-to-use OpenClaw cron payloads.
 | 7 | Goal Engine | 1 hour | `goal-engine.py` | Tier 2 |
 | 8 | Risk Guardian | 5 min | `risk-guardian.py` | Tier 2 |
 | 9 | Exit Checker | 5 min | `tiger-exit.py` | Tier 2 |
-| 10 | DSL Combined | 30 sec | `dsl-v4.py` | Tier 1 |
-| 11 | ROAR Analyst | 8 hour | `roar-analyst.py` | Tier 2 |
+| — | DSL | configurable | `dsl-v4.py` | **Plugin service** |
+| 10 | ROAR Analyst | 8 hour | `roar-analyst.py` | Tier 2 |
 
 **Prescreener** (Cron 0): Runs `isolated` with `delivery.mode: "none"` and explicit model (`claude-haiku-4-5`). Writes prescreened.json — no trade actions.
 **Scanners** (Crons 1-5): Run in `main` session (`systemEvent`) so the agent can evaluate signals and execute `create_position`. Tier 1 analysis — the scripts produce JSON signals, the agent decides.
 **OI Tracker** (Cron 6): Runs `isolated` (`agentTurn`, `claude-haiku-4-5`). Data collection only — no trade actions.
 **Goal Engine** (Cron 7): Runs in `main` session (`systemEvent`). Tier 2 — recalculates aggression and sizing.
 **Risk Guardian / Exit Checker** (Crons 8-9): Run `isolated` (`agentTurn`, `claude-sonnet-4-5`). Scripts execute close actions directly and update state.
-**DSL** (Cron 10): Runs `isolated` (`agentTurn`, `claude-haiku-4-5`) — auto-closes positions on breach.
-**ROAR** (Cron 11): Runs `isolated` with `delivery.mode: "announce"` and explicit model (`claude-sonnet-4-5`). Tunes config — only announces when changes are made.
+**DSL**: Managed by Tiger plugin's `tiger-dsl-runner` service (default: every 30s, configurable via `dslTickInterval`). No cron needed — the plugin runs DSL automatically and logs closures. On-demand ticks available via `tiger_dsl_tick` tool.
+**ROAR** (Cron 10): Runs `isolated` with `delivery.mode: "announce"` and explicit model (`claude-sonnet-4-5`). Tunes config — only announces when changes are made.
 
 Scanners are staggered by 1-2 minutes to avoid mcporter rate limits (see cron-templates.md).
 
@@ -377,8 +408,9 @@ Scripts: `roar-analyst.py` (engine), `roar_config.py` (bounds, state, revert log
 - `trailingLockPct` values are decimals (0.60 = lock 60%).
 - `triggerPct` and `lockPct` in DSL tiers are decimal fractions (`0.05` = 5%). Legacy whole-number values are still accepted.
 - `lockPct` is % of high-water move to lock, not a retrace threshold.
-- DSL supports single-file mode with `DSL_STATE_FILE` and combined mode when unset.
-- `timeout 55` on all scanner scripts to prevent cron overlap.
+- DSL state files are created via `tiger_create_dsl` and deactivated via `tiger_deactivate_dsl`. The plugin handles schema defaults, pattern-specific tuning, and atomic writes. DSL runs automatically via the Tiger plugin service. For on-demand ticks, use `tiger_dsl_tick` with `mode: "combined"` (default) or `mode: "single"` with `asset` param.
+- DSL tick interval is configurable via `dslTickInterval` in plugin config (default: 30000ms).
+- `timeout 55` on all scanner cron scripts to prevent cron overlap.
 - Cron stagger offsets: :00 compression, :01 momentum, :02 reversion, :03 OI, :04 risk+exit.
 
 ---
@@ -387,10 +419,8 @@ Scripts: `roar-analyst.py` (engine), `roar_config.py` (bounds, state, revert log
 
 ### Operational
 
-- **DSL state file `active` field**: MUST include `active: true` or `dsl-v4.py` returns `{"status": "inactive"}` for that position.
-- **DSL invocation syntax**:
-  - Single-file: `DSL_STATE_FILE=/path/to/file.json python3 scripts/dsl-v4.py`
-  - Combined mode: `python3 scripts/dsl-v4.py`
+- **DSL state file `active` field**: Handled by `tiger_create_dsl` (sets `active: true`) and `tiger_deactivate_dsl` (sets `active: false`). No manual file editing needed. Check via `tiger_get_dsl_state`.
+- **DSL invocation**: The plugin runs DSL automatically. For on-demand: `tiger_dsl_tick` (combined mode, default) or `tiger_dsl_tick mode:"single" asset:"ETH"` (single asset).
 - **API latency**: `market_get_asset_data` ~4s/call, `market_list_instruments` ~6s. Max 8 assets per 55s scan window.
 - **Correlation scanner timeouts**: Frequently times out — skip after consecutive timeouts rather than waste 55s per attempt.
 - **Compression scanner signals**: Requires `breakout: true` AND a `direction` to be actionable — a high compression score alone is not enough.
