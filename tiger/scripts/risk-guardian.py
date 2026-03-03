@@ -288,6 +288,13 @@ def main(deps=None):
     pnl_alerts = check_position_pnl(config, state, parsed_positions)
     all_alerts.extend(pnl_alerts)
 
+    # No alerts → heartbeat
+    if not all_alerts:
+        state["currentBalance"] = current_balance
+        save_state(config, state)
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
+
     # Determine if we need to halt
     critical_alerts = [a for a in all_alerts if a.get("type") in ("DAILY_LOSS", "MAX_DRAWDOWN", "DEADLINE_REACHED")]
     if critical_alerts:

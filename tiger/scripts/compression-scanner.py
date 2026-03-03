@@ -212,19 +212,17 @@ def main(deps=None):
     # Check slot availability
     available_slots = config["maxSlots"] - len(active_coins)
 
+    if not actionable:
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
+
     report = {
         "action": "compression_scan",
         "scanned": len(candidates),
-        "signals_found": len(signals),
         "actionable": len(actionable),
-        "watching": len(watching),
         "available_slots": available_slots,
-        "min_score": min_score,
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
-        "watching_list": watching[:5],
-        "all_signals": signals[:5],
-        "active_positions": list(active_coins)
     }
 
     output(report)

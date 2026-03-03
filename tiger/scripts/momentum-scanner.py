@@ -199,17 +199,16 @@ def main(deps=None):
     actionable = [s for s in signals if s["score"] >= min_score and s.get("rsi_ok")]
     available_slots = config["maxSlots"] - len(active_coins)
 
+    if not actionable:
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
+
     output({
         "action": "momentum_scan",
-        "scanned": len(candidates),
-        "signals_found": len(signals),
         "actionable": len(actionable),
         "available_slots": available_slots,
-        "min_score": min_score,
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
-        "all_signals": [s["asset"] + " " + s["direction"] + " " + str(s["score"]) for s in signals[:10]],
-        "active_positions": list(active_coins)
     })
 
 

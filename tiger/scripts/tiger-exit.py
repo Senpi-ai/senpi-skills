@@ -207,6 +207,10 @@ def main(deps=None):
     set_active_positions(state, active_pos)
     save_state(config, state)
 
+    if not exit_signals:
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
+
     # Categorize actions
     close_needed = [e for e in exit_signals if e["primary_action"]["action"] == "CLOSE"]
     partial_needed = [e for e in exit_signals if "PARTIAL" in e["primary_action"]["action"]]

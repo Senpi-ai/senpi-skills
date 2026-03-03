@@ -335,19 +335,18 @@ def main(deps=None):
         config=config
     )
 
+    if not actionable:
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
+
     output({
         "action": "correlation_scan",
-        "btc_triggered": True,
         "btc_direction": btc["direction"],
         "btc_move_4h_pct": btc["move_4h_pct"],
-        "btc_move_1h_pct": btc["move_1h_pct"],
-        "alts_scanned": len(unique_scan),
-        "lagging_found": len(signals),
         "actionable": len(actionable),
         "available_slots": config["maxSlots"] - len(active_coins),
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
-        "active_positions": list(active_coins)
     })
 
 

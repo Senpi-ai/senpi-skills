@@ -210,21 +210,16 @@ def main(deps=None):
     min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score]
 
+    if not actionable:
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
+
     output({
         "action": "funding_scan",
-        "scanned": len(candidates),
-        "extreme_funding_assets": len(candidates),
-        "signals_found": len(signals),
         "actionable": len(actionable),
         "available_slots": config["maxSlots"] - len(active_coins),
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
-        "all_extreme_funding": [
-            {"asset": s["asset"], "funding_ann": s["funding_annualized_pct"],
-             "daily_yield": s["daily_yield_pct_margin"], "direction": s["direction"]}
-            for s in signals[:10]
-        ],
-        "active_positions": list(active_coins)
     })
 
 
