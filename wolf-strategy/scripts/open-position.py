@@ -255,6 +255,17 @@ def main():
         if max_lev is not None:
             result["maxLeverage"] = max_lev
 
+    # Build pre-formatted notification message
+    notif_parts = [f"🟢 OPENED {clean_asset} {direction} [{strategy_key}]"]
+    notif_parts.append(f"Entry: ${entry_price:.4g}" if entry_price else "Entry: pending fill")
+    notif_parts.append(f"Size: {size:.4g}")
+    notif_parts.append(f"Leverage: {actual_leverage}x")
+    if leverage_auto:
+        notif_parts.append(f"(auto: {cfg.get('tradingRisk', 'moderate')} risk, {conviction} conviction)")
+    if leverage_capped:
+        notif_parts.append(f"(capped from {original_leverage}x, max {max_lev}x)")
+    result["notification"] = " | ".join(notif_parts)
+
     print(json.dumps(result, indent=2))
 
 

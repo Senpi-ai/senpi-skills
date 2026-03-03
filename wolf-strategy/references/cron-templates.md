@@ -87,7 +87,7 @@ Enter via: `python3 {SCRIPTS}/open-position.py --strategy {strategyKey} --asset 
 The `qualifiedAsset` field includes the `xyz:` prefix for XYZ equities (e.g., `xyz:SILVER`). Use it directly — do NOT strip the prefix.
 Conviction comes from scanner output (`conviction` field per alert). This opens the position AND creates the DSL state file atomically. Do NOT manually call create_position or hand-write DSL JSON.
 No leverage floor — all assets are tradeable. Leverage auto-calculated from strategy tradingRisk + asset maxLeverage + signal conviction. Apply WOLF entry rules from SKILL.md (rank #25+ entry, no top-10 entries, rotation logic).
-Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
+For each successful entry, send the `notification` field from the open-position.py output to Telegram ({TELEGRAM}). Else HEARTBEAT_OK.
 ```
 
 ---
