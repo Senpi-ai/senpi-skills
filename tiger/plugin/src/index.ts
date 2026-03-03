@@ -11,6 +11,10 @@ import {
   createGetDslStateHandler,
   getTradeLogSchema,
   createGetTradeLogHandler,
+  createDslSchema,
+  createCreateDslHandler,
+  deactivateDslSchema,
+  createDeactivateDslHandler,
 } from './tools/index.js';
 
 // Lightweight PluginApi interface — avoids compile-time dependency on openclaw peer package.
@@ -125,6 +129,24 @@ const tigerPlugin = {
         'Read recent trade log entries. Returns the last N entries (default 20) with P&L, exit reason, and confluence data.',
       parameters: getTradeLogSchema,
       execute: createGetTradeLogHandler(stateManager),
+    });
+
+    api.registerTool({
+      name: 'tiger_create_dsl',
+      label: 'Tiger Create DSL',
+      description:
+        'Create DSL trailing stop state for a new position. Pattern-specific tuning (retrace thresholds, breach decay) is applied automatically based on the pattern parameter. Writes dsl-{ASSET}.json atomically.',
+      parameters: createDslSchema,
+      execute: createCreateDslHandler(stateManager),
+    });
+
+    api.registerTool({
+      name: 'tiger_deactivate_dsl',
+      label: 'Tiger Deactivate DSL',
+      description:
+        'Deactivate DSL monitoring for a closed position. Sets active: false with timestamp and reason. Idempotent — safe to call on already-inactive or missing states.',
+      parameters: deactivateDslSchema,
+      execute: createDeactivateDslHandler(stateManager),
     });
 
     // --- DSL Runner Service ---
