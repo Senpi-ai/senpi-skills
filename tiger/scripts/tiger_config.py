@@ -618,7 +618,9 @@ def save_dsl_state(asset, dsl_state, config=None, runtime=None):
 # ─── MCP Helpers ─────────────────────────────────────────────
 
 def mcporter_call(tool, runner=None, sleep_fn=None, timeout_seconds=30, **kwargs):
-    """Call a Senpi MCP tool via mcporter with 3-attempt retry."""
+    """Call a Senpi MCP tool via mcporter with 3-attempt retry.
+    Uses temp file for stdout to prevent pipe buffer truncation on large responses."""
+    import tempfile
     runner = runner or subprocess.Popen
     sleep_fn = sleep_fn or time.sleep
     cmd = ["mcporter", "call", f"senpi.{tool}"]
@@ -632,17 +634,20 @@ def mcporter_call(tool, runner=None, sleep_fn=None, timeout_seconds=30, **kwargs
 
     last_error = None
     for attempt in range(3):
+        fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="mcporter_")
         try:
-            proc = runner(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            try:
-                stdout, stderr = proc.communicate(timeout=timeout_seconds)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-                raise RuntimeError("timeout")
-            if proc.returncode != 0:
-                raise RuntimeError(stderr.strip())
-            data = json.loads(stdout)
+            with os.fdopen(fd, "w+") as tmp_out:
+                proc = runner(cmd, stdout=tmp_out, stderr=subprocess.PIPE, text=True)
+                try:
+                    _, stderr = proc.communicate(timeout=timeout_seconds)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                    raise RuntimeError("timeout")
+                if proc.returncode != 0:
+                    raise RuntimeError(stderr.strip())
+            with open(tmp_path) as f:
+                data = json.load(f)
             if isinstance(data, dict) and data.get("success") is False:
                 raise ValueError(data.get("error", "unknown"))
             # Strip {success, data} envelope — callers get inner data directly
@@ -653,6 +658,11 @@ def mcporter_call(tool, runner=None, sleep_fn=None, timeout_seconds=30, **kwargs
             last_error = e
             if attempt < 2:
                 sleep_fn(3)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
     # Return error dict on total failure (don't crash)
     return {"error": str(last_error), "success": False}
 
