@@ -108,3 +108,17 @@ if distance_to_next_tier_pct < 2:
 otherwise:
   → silent (HEARTBEAT_OK)
 ```
+
+## dsl-cleanup.py Output (v5)
+
+Strategy-level cleanup script prints a single JSON line:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `status` | string | `"cleaned"` (directory deleted) or `"blocked"` (active positions remain) |
+| `strategy_id` | string | Strategy UUID |
+| `positions_deleted` | int | Number of state files removed (only when status=cleaned) |
+| `blocked_by_active` | string[] | Assets still active (only when status=blocked) |
+| `time` | string | ISO 8601 timestamp |
+
+See [references/cleanup.md](cleanup.md) for agent responsibilities and usage.

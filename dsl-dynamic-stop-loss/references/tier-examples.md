@@ -16,8 +16,8 @@ Worked examples showing exact price levels for LONG and SHORT positions.
 **Trigger price formula (LONG):** `entry × (1 + triggerPct / 100 / leverage)`
 - Tier 1: `28.87 × (1 + 10 / 100 / 10)` = `28.87 × 1.01` = $29.16
 
-**Floor price formula (LONG):** `entry × (1 + lockPct / 100 / leverage)`
-- Tier 1: `28.87 × (1 + 5 / 100 / 10)` = `28.87 × 1.005` = $29.01
+**Floor price formula (LONG):** `entry + (hw − entry) × lockPct / 100` (lockPct = fraction of entry→hw range to lock)
+- Tier 1 (hw at trigger): e.g. `28.87 + (29.16 − 28.87) × 5 / 100` ≈ $28.88 (hw is high water when tier triggers)
 
 **Protected profit:** `(floor - entry) × size`
 - Tier 1: `(29.01 - 28.87) × 1890` = ~$273
@@ -33,15 +33,15 @@ Worked examples showing exact price levels for LONG and SHORT positions.
 **Trigger price formula (SHORT):** `entry × (1 - triggerPct / 100 / leverage)`
 - Tier 1: `1955 × (1 - 10 / 100 / 7)` = `1955 × 0.9857` = $1,927
 
-**Floor price formula (SHORT):** `entry × (1 - lockPct / 100 / leverage)`
-- Tier 1: `1955 × (1 - 5 / 100 / 7)` = `1955 × 0.9929` = $1,941
+**Floor price formula (SHORT):** `entry − (entry − hw) × lockPct / 100`
+- Tier 1 (hw = 1927 at trigger): `1955 − (1955 − 1927) × 5 / 100` = 1955 − 1.4 = $1,953.60 (example; actual hw at trigger may differ)
 
 **Protected profit (SHORT):** `(entry - floor) × size`
 - Tier 1: `(1955 - 1941) × 3.58` = ~$50
 
 ## Key Concepts
 
-- **Trigger > Lock gap**: The difference between trigger and lock gives breathing room. At 10x leverage, a 10% ROE trigger means price moved ~1% — but the lock only protects at 5% ROE (~0.5% price move). This prevents immediate closure from a minor pullback after hitting a tier.
+- **Trigger > Lock gap**: The difference between trigger and lock gives breathing room. The floor locks lockPct% of the move from entry to high water (e.g. 5% = lock in 5% of that range). This prevents immediate closure from a minor pullback after hitting a tier.
 
 - **Ratchets never go down**: Once Tier 2 is hit, Tier 1's floor is permanently superseded. The floor can only go up (LONG) or down (SHORT).
 
