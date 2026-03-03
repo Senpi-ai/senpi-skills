@@ -12,7 +12,7 @@ license: Apache-2.0
 compatibility: "Node.js, shell, Python 3, OpenClaw (optional — Step 5 cron)"
 metadata:
   author: Senpi
-  version: "1.2.2"
+  version: "1.2.3"
   platform: senpi
   exchange: hyperliquid
 ---

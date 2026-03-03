@@ -19,13 +19,15 @@ Default response order (compact + actionable):
 2. Core capabilities
 3. Compact skill snapshot
 4. Install guidance
-5. What's new
+5. What's new (only if updates exist)
+6. Closing question
 
 Behavior rules:
 - Use queued startup `UPDATE_OUTPUT` for "what's new" when available.
 - Do not force a live update check in summary responses.
-- If no updates are queued, return neutral status and offer to run update/catalog refresh.
+- If no updates are queued, do not mention "what's new" at all.
 - Do not tell users to run CLI commands themselves; run install/update/list actions on their behalf.
+- End with: "Want me to recommend which skills to install next and set them up for you?"
 
 ## Core Capabilities
 
@@ -68,9 +70,7 @@ Use queued updates from the entrypoint startup pending file
 (`$SENPI_STATE_DIR/pending-skill-updates.json` when present). Do not force a
 live check in summary responses.
 
-If no updates are queued, return a neutral status and suggest:
-- the agent can apply installed skill updates now
-- the agent can fetch a fresh catalog now
+If no updates are queued, skip this section in the reply.
 
 ## Platform Reference
 
