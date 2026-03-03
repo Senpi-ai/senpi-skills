@@ -203,7 +203,6 @@ def main(deps=None):
     # Filter by minimum confluence for current aggression
     min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score and s.get("breakout")]
-    watching = [s for s in signals if s["score"] >= min_score and not s.get("breakout")]
 
     # Check slot availability
     available_slots = config["maxSlots"] - len(active_coins)
