@@ -281,9 +281,11 @@ See `references/cron-templates.md` for ready-to-use OpenClaw cron payloads.
 | 11 | ROAR Analyst | 8 hour | `roar-analyst.py` | Tier 2 |
 
 **Prescreener** (Cron 0): Runs `isolated` with `delivery.mode: "none"` and explicit model (`claude-haiku-4-5`). Writes prescreened.json — no trade actions.
-**Scanners** (Crons 1-6): Run in `main` session (`systemEvent`) so the agent can evaluate signals and execute `create_position`. Tier 1 analysis — the scripts produce JSON signals, the agent decides.
-**Decision-makers** (Crons 7-9): Run in `main` session (`systemEvent`). Tier 2 — goal engine, risk guardian, and exit checker execute directly (close_position) and update state.
-**DSL** (Cron 10): Runs in `main` session (`systemEvent`) — auto-closes positions on breach.
+**Scanners** (Crons 1-5): Run in `main` session (`systemEvent`) so the agent can evaluate signals and execute `create_position`. Tier 1 analysis — the scripts produce JSON signals, the agent decides.
+**OI Tracker** (Cron 6): Runs `isolated` (`agentTurn`, `claude-haiku-4-5`). Data collection only — no trade actions.
+**Goal Engine** (Cron 7): Runs in `main` session (`systemEvent`). Tier 2 — recalculates aggression and sizing.
+**Risk Guardian / Exit Checker** (Crons 8-9): Run `isolated` (`agentTurn`, `claude-sonnet-4-5`). Scripts execute close actions directly and update state.
+**DSL** (Cron 10): Runs `isolated` (`agentTurn`, `claude-haiku-4-5`) — auto-closes positions on breach.
 **ROAR** (Cron 11): Runs `isolated` with `delivery.mode: "announce"` and explicit model (`claude-sonnet-4-5`). Tunes config — only announces when changes are made.
 
 Scanners are staggered by 1-2 minutes to avoid mcporter rate limits (see cron-templates.md).

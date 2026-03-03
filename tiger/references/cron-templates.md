@@ -143,11 +143,15 @@ Every 5 minutes (offset 3 min). Data collection only.
 {
   "name": "TIGER — OI Tracker",
   "schedule": { "kind": "every", "everyMs": 300000 },
-  "sessionTarget": "main",
-  "wakeMode": "now",
+  "sessionTarget": "isolated",
+  "wakeMode": "next-heartbeat",
   "payload": {
-    "kind": "systemEvent",
-    "text": "TIGER OI TRACKER: Run `timeout 55 python3 {SCRIPTS}/oi-tracker.py`, parse JSON.\nData collection only — no trading actions.\nIf error → notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "kind": "agentTurn",
+    "message": "TIGER OI TRACKER: Run `timeout 55 python3 {SCRIPTS}/oi-tracker.py`, parse JSON.\nData collection only — no trading actions.\nIf error → notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK.",
+    "model": "anthropic/claude-haiku-4-5"
+  },
+  "delivery": {
+    "mode": "none"
   }
 }
 ```
@@ -181,11 +185,15 @@ Every 5 minutes (offset 4 min). Enforces all risk limits.
 {
   "name": "TIGER — Risk Guardian",
   "schedule": { "kind": "every", "everyMs": 300000 },
-  "sessionTarget": "main",
-  "wakeMode": "now",
+  "sessionTarget": "isolated",
+  "wakeMode": "next-heartbeat",
   "payload": {
-    "kind": "systemEvent",
-    "text": "TIGER RISK GUARDIAN: Run `python3 {SCRIPTS}/risk-guardian.py`, parse JSON.\n\nPROCESSING ORDER:\n1. Read state ONCE.\n2. Check daily loss, drawdown, single position limits per SKILL.md.\n3. Check OI collapse, funding reversal for FUNDING_ARB positions.\n4. Script executes close actions directly and sets halted when critical.\n5. Send ONE Telegram ({TELEGRAM}).\n\nElse HEARTBEAT_OK."
+    "kind": "agentTurn",
+    "message": "TIGER RISK GUARDIAN: Run `python3 {SCRIPTS}/risk-guardian.py`, parse JSON.\n\nPROCESSING ORDER:\n1. Read state ONCE.\n2. Check daily loss, drawdown, single position limits per SKILL.md.\n3. Check OI collapse, funding reversal for FUNDING_ARB positions.\n4. Script executes close actions directly and sets halted when critical.\n5. Send ONE Telegram ({TELEGRAM}).\n\nElse HEARTBEAT_OK.",
+    "model": "anthropic/claude-sonnet-4-5-20250929"
+  },
+  "delivery": {
+    "mode": "none"
   }
 }
 ```
@@ -200,11 +208,15 @@ Every 5 minutes (runs with risk guardian).
 {
   "name": "TIGER — Exit Checker",
   "schedule": { "kind": "every", "everyMs": 300000 },
-  "sessionTarget": "main",
-  "wakeMode": "now",
+  "sessionTarget": "isolated",
+  "wakeMode": "next-heartbeat",
   "payload": {
-    "kind": "systemEvent",
-    "text": "TIGER EXIT CHECKER: Run `python3 {SCRIPTS}/tiger-exit.py`, parse JSON.\nScript executes CLOSE exits directly; PARTIAL actions remain advisory.\nPattern-specific exits per SKILL.md. Deadline proximity: tighten stops in final 24h.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "kind": "agentTurn",
+    "message": "TIGER EXIT CHECKER: Run `python3 {SCRIPTS}/tiger-exit.py`, parse JSON.\nScript executes CLOSE exits directly; PARTIAL actions remain advisory.\nPattern-specific exits per SKILL.md. Deadline proximity: tighten stops in final 24h.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK.",
+    "model": "anthropic/claude-sonnet-4-5-20250929"
+  },
+  "delivery": {
+    "mode": "none"
   }
 }
 ```
@@ -219,11 +231,15 @@ Every 30 seconds. Iterates all active DSL state files for the strategy instance.
 {
   "name": "TIGER — DSL Trailing Stops",
   "schedule": { "kind": "every", "everyMs": 30000 },
-  "sessionTarget": "main",
-  "wakeMode": "now",
+  "sessionTarget": "isolated",
+  "wakeMode": "next-heartbeat",
   "payload": {
-    "kind": "systemEvent",
-    "text": "TIGER DSL: Run `python3 {SCRIPTS}/dsl-v4.py`, parse JSON.\nWhen DSL_STATE_FILE is unset, dsl-v4 runs in combined mode across all dsl-*.json files.\nDSL is self-contained — auto-closes via close_position on breach.\nIf position closed → notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "kind": "agentTurn",
+    "message": "TIGER DSL: Run `python3 {SCRIPTS}/dsl-v4.py`, parse JSON.\nWhen DSL_STATE_FILE is unset, dsl-v4 runs in combined mode across all dsl-*.json files.\nDSL is self-contained — auto-closes via close_position on breach.\nIf position closed → notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK.",
+    "model": "anthropic/claude-haiku-4-5"
+  },
+  "delivery": {
+    "mode": "none"
   }
 }
 ```
@@ -282,9 +298,9 @@ Correlation (3min) and Funding (30min) run on their own cadence. DSL runs every 
 | 3 | tiger-momentum | 300000 (5m) | **main** | systemEvent | — | Tier 1 | Price move + volume |
 | 4 | tiger-reversion | 300000 (5m) | **main** | systemEvent | — | Tier 1 | Overextension fade |
 | 5 | tiger-funding | 1800000 (30m) | **main** | systemEvent | — | Tier 1 | Funding arb |
-| 6 | tiger-oi | 300000 (5m) | **main** | systemEvent | — | Tier 1 | Data collection |
+| 6 | tiger-oi | 300000 (5m) | isolated | agentTurn | none | Tier 1 | Data collection |
 | 7 | tiger-goal | 3600000 (1h) | **main** | systemEvent | — | Tier 2 | Aggression |
-| 8 | tiger-risk | 300000 (5m) | **main** | systemEvent | — | Tier 2 | Risk limits |
-| 9 | tiger-exit | 300000 (5m) | **main** | systemEvent | — | Tier 2 | Pattern exits |
-| 10 | tiger-dsl | 30000 (30s) | **main** | systemEvent | — | Tier 1 | Trailing stops |
+| 8 | tiger-risk | 300000 (5m) | isolated | agentTurn | none | Tier 2 | Risk limits |
+| 9 | tiger-exit | 300000 (5m) | isolated | agentTurn | none | Tier 2 | Pattern exits |
+| 10 | tiger-dsl | 30000 (30s) | isolated | agentTurn | none | Tier 1 | Trailing stops |
 | 11 | tiger-roar | 28800000 (8h) | isolated | agentTurn | announce | Tier 2 | Meta-optimizer |
