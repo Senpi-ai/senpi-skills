@@ -619,7 +619,8 @@ def save_dsl_state(asset, dsl_state, config=None, runtime=None):
 
 def mcporter_call(tool, runner=None, sleep_fn=None, timeout_seconds=30, **kwargs):
     """Call a Senpi MCP tool via mcporter with 3-attempt retry.
-    Uses temp file for stdout to prevent pipe buffer truncation on large responses."""
+    Raises RuntimeError after 3 failed attempts.
+    Uses temp file for stdout to prevent pipe buffer truncation."""
     import tempfile
     runner = runner or subprocess.Popen
     sleep_fn = sleep_fn or time.sleep
@@ -663,13 +664,21 @@ def mcporter_call(tool, runner=None, sleep_fn=None, timeout_seconds=30, **kwargs
                 os.unlink(tmp_path)
             except OSError:
                 pass
-    # Return error dict on total failure (don't crash)
-    return {"error": str(last_error), "success": False}
+    raise RuntimeError(f"mcporter {tool} failed after 3 attempts: {last_error}")
+
+
+def mcporter_call_safe(tool, **kwargs):
+    """Like mcporter_call but returns error dict instead of raising.
+    Use for non-critical calls where the caller handles errors gracefully."""
+    try:
+        return mcporter_call(tool, **kwargs)
+    except RuntimeError as e:
+        return {"error": str(e)}
 
 
 def get_all_instruments(call_fn=None):
     """Fetch all instruments with OI, funding, volume."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     result = call("market_list_instruments")
     if not result or result.get("error"):
         return []
@@ -680,7 +689,7 @@ def get_asset_candles(asset, intervals=None, include_funding=False, call_fn=None
     """Fetch candle data for an asset."""
     if intervals is None:
         intervals = ["1h", "4h"]
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call(
         "market_get_asset_data",
         asset=asset,
@@ -695,13 +704,13 @@ def get_prices(assets=None, call_fn=None):
     kwargs = {}
     if assets:
         kwargs["assets"] = assets
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call("market_get_prices", **kwargs)
 
 
 def get_sm_markets(limit=50, call_fn=None):
     """Get smart money market concentration."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     result = call("leaderboard_get_markets", limit=limit)
     if not result or result.get("error"):
         return []
@@ -714,19 +723,19 @@ def get_sm_markets(limit=50, call_fn=None):
 
 def get_portfolio(call_fn=None):
     """Get current portfolio."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call("account_get_portfolio")
 
 
 def get_clearinghouse(wallet, call_fn=None):
     """Get clearinghouse state for a strategy wallet."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
 
 
 def create_position(wallet, orders, reason="", call_fn=None):
     """Create a position."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call(
         "create_position",
         strategyWalletAddress=wallet,
@@ -737,7 +746,7 @@ def create_position(wallet, orders, reason="", call_fn=None):
 
 def edit_position(wallet, coin, call_fn=None, **kwargs):
     """Edit a position."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call(
         "edit_position",
         strategyWalletAddress=wallet,
@@ -748,7 +757,7 @@ def edit_position(wallet, coin, call_fn=None, **kwargs):
 
 def close_position(wallet, coin, reason="", call_fn=None):
     """Close a position."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call(
         "close_position",
         strategyWalletAddress=wallet,
