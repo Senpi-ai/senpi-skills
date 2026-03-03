@@ -52,7 +52,7 @@ Every 5 minutes. BB squeeze + OI breakout detection.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER COMPRESSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/compression-scanner.py`, parse JSON.\nIf actionable > 0 + slots available + not halted: evaluate top signal per SKILL.md.\nIf confluence ≥ threshold for current aggression: enter via create_position.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER COMPRESSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/compression-scanner.py`, parse JSON.\nSLOT GUARD (MANDATORY): If strategySlots.anySlotsAvailable is false → HEARTBEAT_OK, do NOT enter.\nIf actionable > 0 + not halted: evaluate top signal per SKILL.md.\nIf confluence ≥ threshold for current aggression: enter via create_position.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
   }
 }
 ```
@@ -71,7 +71,7 @@ Every 3 minutes. BTC correlation lag detection.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER CORRELATION SCANNER: Run `timeout 55 python3 {SCRIPTS}/correlation-scanner.py`, parse JSON.\nIf actionable > 0 + BTC move confirmed + lag ratio ≥ 0.5 + slots available:\nEnter via create_position. Notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER CORRELATION SCANNER: Run `timeout 55 python3 {SCRIPTS}/correlation-scanner.py`, parse JSON.\nSLOT GUARD (MANDATORY): If strategySlots.anySlotsAvailable is false → HEARTBEAT_OK, do NOT enter.\nIf actionable > 0 + BTC move confirmed + lag ratio ≥ 0.5:\nEnter via create_position. Notify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
   }
 }
 ```
@@ -90,7 +90,7 @@ Every 5 minutes (offset 1 min from compression).
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER MOMENTUM SCANNER: Run `timeout 55 python3 {SCRIPTS}/momentum-scanner.py`, parse JSON.\nIf actionable > 0 + slots available: evaluate per SKILL.md momentum rules.\nUse tighter Phase 1 retrace (0.012) for DSL on momentum positions.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER MOMENTUM SCANNER: Run `timeout 55 python3 {SCRIPTS}/momentum-scanner.py`, parse JSON.\nSLOT GUARD (MANDATORY): If strategySlots.anySlotsAvailable is false → HEARTBEAT_OK, do NOT enter.\nIf actionable > 0: evaluate per SKILL.md momentum rules.\nUse tighter Phase 1 retrace (0.012) for DSL on momentum positions.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
   }
 }
 ```
@@ -109,7 +109,7 @@ Every 5 minutes (offset 2 min from compression).
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER REVERSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/reversion-scanner.py`, parse JSON.\nIf actionable > 0 + 4h RSI extreme confirmed + slots available:\nEnter counter-trend per SKILL.md reversion rules.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER REVERSION SCANNER: Run `timeout 55 python3 {SCRIPTS}/reversion-scanner.py`, parse JSON.\nSLOT GUARD (MANDATORY): If strategySlots.anySlotsAvailable is false → HEARTBEAT_OK, do NOT enter.\nIf actionable > 0 + 4h RSI extreme confirmed:\nEnter counter-trend per SKILL.md reversion rules.\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
   }
 }
 ```
@@ -128,7 +128,7 @@ Every 30 minutes.
   "wakeMode": "now",
   "payload": {
     "kind": "systemEvent",
-    "text": "TIGER FUNDING SCANNER: Run `timeout 55 python3 {SCRIPTS}/funding-scanner.py`, parse JSON.\nIf actionable > 0 + extreme funding confirmed + slots available:\nEnter opposite crowd per SKILL.md funding rules. Use wider DSL retrace (0.02+).\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
+    "text": "TIGER FUNDING SCANNER: Run `timeout 55 python3 {SCRIPTS}/funding-scanner.py`, parse JSON.\nSLOT GUARD (MANDATORY): If strategySlots.anySlotsAvailable is false → HEARTBEAT_OK, do NOT enter.\nIf actionable > 0 + extreme funding confirmed:\nEnter opposite crowd per SKILL.md funding rules. Use wider DSL retrace (0.02+).\nNotify Telegram ({TELEGRAM}). Else HEARTBEAT_OK."
   }
 }
 ```

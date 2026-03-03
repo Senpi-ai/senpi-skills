@@ -336,12 +336,17 @@ def main(deps=None):
         output({"success": True, "heartbeat": "HEARTBEAT_OK"})
         return
 
+    available_slots = config["maxSlots"] - len(active_coins)
     output({
         "action": "correlation_scan",
         "btc_direction": btc["direction"],
         "btc_move_4h_pct": btc["move_4h_pct"],
         "actionable": len(actionable),
-        "available_slots": config["maxSlots"] - len(active_coins),
+        "strategySlots": {
+            "available": available_slots,
+            "max": config["maxSlots"],
+            "anySlotsAvailable": available_slots > 0,
+        },
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
     })

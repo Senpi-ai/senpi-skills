@@ -216,7 +216,11 @@ def main(deps=None):
         "action": "compression_scan",
         "scanned": len(candidates),
         "actionable": len(actionable),
-        "available_slots": available_slots,
+        "strategySlots": {
+            "available": available_slots,
+            "max": config["maxSlots"],
+            "anySlotsAvailable": available_slots > 0,
+        },
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
     }
