@@ -103,12 +103,12 @@ def _process_state_file(state_file, config, deps):
 
     try:
         prices_result = get_prices([asset] if asset else None)
-        if isinstance(prices_result, dict) and "prices" in prices_result:
+        if not prices_result or prices_result.get("error"):
+            raise RuntimeError(prices_result.get("error", "empty response") if prices_result else "no response")
+        if "prices" in prices_result:
             mids = prices_result["prices"]
-        elif isinstance(prices_result, dict):
-            mids = prices_result
         else:
-            mids = {}
+            mids = prices_result
         price = float(mids[asset])
         state["consecutiveFetchFailures"] = 0
     except Exception as e:

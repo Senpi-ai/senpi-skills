@@ -244,8 +244,8 @@ def main(deps=None):
 
     # Fetch current state
     ch = get_clearinghouse(wallet)
-    if ch.get("error"):
-        output({"error": f"Clearinghouse failed: {ch['error']}"})
+    if not ch or ch.get("error"):
+        output({"error": f"Clearinghouse failed: {ch.get('error', 'empty response') if ch else 'no response'}"})
         return
 
     margin_summary = ch.get("marginSummary", ch.get("crossMarginSummary", {}))
