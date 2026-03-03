@@ -73,8 +73,8 @@ SENPI_ENTRYPOINT_SCRIPTS=$(node -e "
   console.log(fs.existsSync(path.join(p, 'check-skill-updates.py')) ? p : '');
 " 2>/dev/null)
 
-if [ -n \"$SENPI_ENTRYPOINT_SCRIPTS\" ]; then
-  LIVE_UPDATE_OUTPUT=$(python3 \"$SENPI_ENTRYPOINT_SCRIPTS/check-skill-updates.py\" 2>/dev/null || true)
+if [ -n "$SENPI_ENTRYPOINT_SCRIPTS" ]; then
+  LIVE_UPDATE_OUTPUT=$(python3 "$SENPI_ENTRYPOINT_SCRIPTS/check-skill-updates.py" 2>/dev/null || true)
 fi
 ```
 
