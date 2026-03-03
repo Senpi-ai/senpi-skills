@@ -359,24 +359,37 @@ def main(deps=None, env=None):
     error_count = 0
     closed_count = 0
     pending_count = 0
+    active_count = 0
 
     for state_file in files:
         result, errored = _process_state_file(state_file, config, deps)
-        results.append(result)
         if errored:
             error_count += 1
         if result.get("closed"):
             closed_count += 1
         if result.get("status") == "pending_close":
             pending_count += 1
+        if result.get("status") == "active":
+            active_count += 1
+        # Only include results with meaningful state changes
+        if result.get("status") not in ("inactive",) and (
+            result.get("closed") or result.get("tier_changed") or
+            result.get("breached") or result.get("pending_close") or
+            result.get("status") == "error"
+        ):
+            results.append(result)
+
+    # Nothing actionable → heartbeat
+    if not results:
+        print(json.dumps({"success": True, "heartbeat": "HEARTBEAT_OK"}))
+        return
 
     print(json.dumps({
         "status": "ok" if error_count == 0 else "partial_error",
         "mode": "combined",
-        "processed": len(results),
-        "errors": error_count,
+        "processed": len(files),
+        "active": active_count,
         "closed": closed_count,
-        "pending_close": pending_count,
         "results": results,
         "time": _iso_now(),
     }))
