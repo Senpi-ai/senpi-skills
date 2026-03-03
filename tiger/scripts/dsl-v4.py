@@ -103,11 +103,10 @@ def _process_state_file(state_file, config, deps):
 
     try:
         prices_result = get_prices([asset] if asset else None)
-        prices_data = prices_result.get("data", prices_result)
-        if isinstance(prices_data, dict) and "prices" in prices_data:
-            mids = prices_data["prices"]
-        elif isinstance(prices_data, dict):
-            mids = prices_data
+        if isinstance(prices_result, dict) and "prices" in prices_result:
+            mids = prices_result["prices"]
+        elif isinstance(prices_result, dict):
+            mids = prices_result
         else:
             mids = {}
         price = float(mids[asset])

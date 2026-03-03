@@ -42,12 +42,11 @@ def analyze_funding(asset: str, context: dict, config: dict, sm_data: dict, oi_h
 
     # Fetch candles for technical alignment check
     result = get_asset_candles_fn(asset, ["1h", "4h"])
-    if not result.get("success") and not result.get("data"):
+    if not result or result.get("error"):
         return None
 
-    data = result.get("data", result)
-    candles_1h = data.get("candles", {}).get("1h", [])
-    candles_4h = data.get("candles", {}).get("4h", [])
+    candles_1h = result.get("candles", {}).get("1h", [])
+    candles_4h = result.get("candles", {}).get("4h", [])
 
     if len(candles_4h) < 25:
         return None

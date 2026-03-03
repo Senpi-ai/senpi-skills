@@ -13,7 +13,7 @@ class TestCheckBtcMove:
     def _make_candles_result(self, closes):
         """Build a mock get_asset_candles return value from closes."""
         candles = make_candles(closes)
-        return {"success": True, "data": {"candles": {"1h": candles}}}
+        return {"candles": {"1h": candles}}
 
     def test_no_trigger_flat(self):
         # BTC barely moved: all closes ~65000
@@ -94,7 +94,7 @@ class TestCheckBtcMove:
         state = {}
 
         def get_candles(asset, intervals):
-            return {"success": False}
+            return {"error": "fetch failed"}
 
         result = corr.check_btc_move(config, state, get_candles)
         assert result["triggered"] is False
@@ -105,12 +105,9 @@ class TestCheckAltLag:
         """Build a mock get_asset_candles function."""
         def fn(asset, intervals):
             return {
-                "success": True,
-                "data": {
-                    "candles": {
-                        "1h": make_candles(closes_1h),
-                        "4h": make_candles(closes_4h),
-                    }
+                "candles": {
+                    "1h": make_candles(closes_1h),
+                    "4h": make_candles(closes_4h),
                 }
             }
         return fn
@@ -219,13 +216,10 @@ class TestConfluenceFactors:
         closes_4h = [100] * 20 + [100.1]
 
         def mock_candles(asset, intervals):
-            return {
-                "success": True,
-                "data": {"candles": {
-                    "1h": make_candles(closes_1h),
-                    "4h": make_candles(closes_4h),
-                }}
-            }
+            return {"candles": {
+                "1h": make_candles(closes_1h),
+                "4h": make_candles(closes_4h),
+            }}
 
         instruments_map = {
             "ETH": {"max_leverage": 20, "context": {"openInterest": "50000", "funding": "0.0001"}}
@@ -247,13 +241,10 @@ class TestConfluenceFactors:
         closes_4h = [100] * 20 + [100.1]
 
         def mock_candles(asset, intervals):
-            return {
-                "success": True,
-                "data": {"candles": {
-                    "1h": make_candles(closes_1h),
-                    "4h": make_candles(closes_4h),
-                }}
-            }
+            return {"candles": {
+                "1h": make_candles(closes_1h),
+                "4h": make_candles(closes_4h),
+            }}
 
         instruments_map = {
             "RANDOMCOIN": {"max_leverage": 20, "context": {"openInterest": "50000", "funding": "0.0001"}}

@@ -190,8 +190,7 @@ def main(deps=None):
         output({"error": f"Clearinghouse failed: {ch['error']}"})
         return
 
-    ch_data = ch.get("data", ch)
-    positions = ch_data.get("assetPositions", [])
+    positions = ch.get("assetPositions", [])
 
     active_pos = get_active_positions(state)
     exit_signals = []

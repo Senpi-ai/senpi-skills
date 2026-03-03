@@ -645,6 +645,9 @@ def mcporter_call(tool, runner=None, sleep_fn=None, timeout_seconds=30, **kwargs
             data = json.loads(stdout)
             if isinstance(data, dict) and data.get("success") is False:
                 raise ValueError(data.get("error", "unknown"))
+            # Strip {success, data} envelope — callers get inner data directly
+            if isinstance(data, dict) and "data" in data:
+                return data["data"]
             return data
         except Exception as e:
             last_error = e
@@ -658,8 +661,9 @@ def get_all_instruments(call_fn=None):
     """Fetch all instruments with OI, funding, volume."""
     call = call_fn or mcporter_call
     result = call("market_list_instruments")
-    data = result.get("data", result)
-    return data.get("instruments", [])
+    if not result or result.get("error"):
+        return []
+    return result.get("instruments", [])
 
 
 def get_asset_candles(asset, intervals=None, include_funding=False, call_fn=None):
@@ -689,8 +693,10 @@ def get_sm_markets(limit=50, call_fn=None):
     """Get smart money market concentration."""
     call = call_fn or mcporter_call
     result = call("leaderboard_get_markets", limit=limit)
-    data = result.get("data", {})
-    markets = data.get("markets", data)
+    if not result or result.get("error"):
+        return []
+    # leaderboard_get_markets nests: {markets: {markets: [...]}}
+    markets = result.get("markets", result)
     if isinstance(markets, dict):
         markets = markets.get("markets", [])
     return markets if isinstance(markets, list) else []

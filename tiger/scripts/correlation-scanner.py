@@ -35,11 +35,10 @@ def check_btc_move(config: dict, state: dict, get_asset_candles_fn, now_fn=None)
     now_fn = now_fn or (lambda: datetime.now(timezone.utc).isoformat())
 
     result = get_asset_candles_fn("BTC", ["1h"])
-    if not result.get("success") and not result.get("data"):
+    if not result or result.get("error"):
         return {"triggered": False, "error": "Failed to fetch BTC data"}
 
-    data = result.get("data", result)
-    candles = data.get("candles", {}).get("1h", [])
+    candles = result.get("candles", {}).get("1h", [])
     if len(candles) < 5:
         return {"triggered": False, "error": "Insufficient BTC candle data"}
 
@@ -82,12 +81,11 @@ def check_alt_lag(
 ) -> dict:
     """Check if an alt is lagging behind BTC's move."""
     result = get_asset_candles_fn(asset, ["1h", "4h"])
-    if not result.get("success") and not result.get("data"):
+    if not result or result.get("error"):
         return None
 
-    data = result.get("data", result)
-    candles_1h = data.get("candles", {}).get("1h", [])
-    candles_4h = data.get("candles", {}).get("4h", [])
+    candles_1h = result.get("candles", {}).get("1h", [])
+    candles_4h = result.get("candles", {}).get("4h", [])
 
     if len(candles_1h) < 5 or len(candles_4h) < 20:
         return None

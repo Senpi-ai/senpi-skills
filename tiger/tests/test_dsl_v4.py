@@ -130,7 +130,7 @@ class TestProcessStateFile:
         writes = {}
 
         def mock_get_prices(assets=None):
-            return {"data": {"prices": {"ETH": str(price)}}}
+            return {"prices": {"ETH": str(price)}}
 
         def mock_close_position(wallet, asset, reason=""):
             if close_success:

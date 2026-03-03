@@ -23,12 +23,11 @@ from tiger_lib import (
 def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict, get_asset_candles_fn) -> dict:
     """Scan for mean reversion setup on a single asset."""
     result = get_asset_candles_fn(asset, ["1h", "4h"])
-    if not result.get("success") and not result.get("data"):
+    if not result or result.get("error"):
         return None
 
-    data = result.get("data", result)
-    candles_1h = data.get("candles", {}).get("1h", [])
-    candles_4h = data.get("candles", {}).get("4h", [])
+    candles_1h = result.get("candles", {}).get("1h", [])
+    candles_4h = result.get("candles", {}).get("4h", [])
 
     if len(candles_1h) < 30 or len(candles_4h) < 25:
         return None

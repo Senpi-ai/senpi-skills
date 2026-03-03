@@ -104,10 +104,10 @@ def mock_deps(tmp_runtime):
         overrides={
             "output": lambda payload: captured.append(payload),
             "get_all_instruments": lambda: SAMPLE_INSTRUMENTS,
-            "get_asset_candles": lambda asset, intervals=None: {"success": False},
+            "get_asset_candles": lambda asset, intervals=None: {"error": "not mocked"},
             "get_prices": lambda assets=None: {},
             "get_sm_markets": lambda limit=50: [],
-            "get_clearinghouse": lambda wallet: {"data": {"marginSummary": {"accountValue": "1000"}, "assetPositions": []}},
+            "get_clearinghouse": lambda wallet: {"marginSummary": {"accountValue": "1000"}, "assetPositions": []},
             "close_position": lambda wallet, coin, reason="": {"success": True},
             "edit_position": lambda wallet, coin, **kw: {"success": True},
         }

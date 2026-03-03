@@ -248,10 +248,9 @@ def main(deps=None):
         output({"error": f"Clearinghouse failed: {ch['error']}"})
         return
 
-    ch_data = ch.get("data", ch)
-    margin_summary = ch_data.get("marginSummary", ch_data.get("crossMarginSummary", {}))
+    margin_summary = ch.get("marginSummary", ch.get("crossMarginSummary", {}))
     current_balance = float(margin_summary.get("accountValue", state["currentBalance"]))
-    positions = ch_data.get("assetPositions", [])
+    positions = ch.get("assetPositions", [])
 
     # Parse positions
     parsed_positions = []
