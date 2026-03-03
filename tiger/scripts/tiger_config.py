@@ -672,7 +672,7 @@ def mcporter_call_safe(tool, **kwargs):
     Use for non-critical calls where the caller handles errors gracefully."""
     try:
         return mcporter_call(tool, **kwargs)
-    except RuntimeError as e:
+    except Exception as e:
         return {"error": str(e)}
 
 
