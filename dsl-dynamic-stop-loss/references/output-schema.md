@@ -7,6 +7,7 @@ The script prints a single JSON line to stdout on each run. The agent reads this
 ```json
 {
   "status": "active",
+  "preset": "dsl-tight",
   "asset": "HYPE",
   "direction": "LONG",
   "price": 29.26,
@@ -53,6 +54,7 @@ The script prints a single JSON line to stdout on each run. The agent reads this
 | Field | Type | Description |
 |-------|------|-------------|
 | `status` | string | `"active"`, `"inactive"`, `"pending_close"`, or `"error"` |
+| `preset` | string | Preset name from state (`state.get("preset", "default")`) |
 | `asset` | string | Ticker symbol |
 | `direction` | string | `"LONG"` or `"SHORT"` |
 | `price` | float | Current price |
@@ -85,7 +87,7 @@ The script prints a single JSON line to stdout on each run. The agent reads this
 | `pending_close` | bool | True if close was attempted and failed |
 | `consecutive_failures` | int | Number of consecutive price fetch failures |
 
-### v5 Hyperliquid SL Fields
+### v5.1 Hyperliquid SL Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -123,7 +125,7 @@ otherwise:
   → silent (HEARTBEAT_OK)
 ```
 
-## dsl-cleanup.py Output (v5)
+## dsl-cleanup.py Output (v5.1)
 
 Strategy-level cleanup script prints a single JSON line:
 

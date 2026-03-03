@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DSL v5 strategy-level cleanup.
+"""DSL v5.1 strategy-level cleanup.
 When all positions in a strategy are closed, removes the strategy directory
 (no archiving). Run after disabling all crons for the strategy.
 
