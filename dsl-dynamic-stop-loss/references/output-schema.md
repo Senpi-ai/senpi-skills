@@ -32,7 +32,10 @@ The script prints a single JSON line to stdout on each run. The agent reads this
   "elapsed_minutes": 13,
   "distance_to_next_tier_pct": 6.54,
   "pending_close": false,
-  "consecutive_failures": 0
+  "consecutive_failures": 0,
+  "sl_synced": false,
+  "sl_initial_sync": false,
+  "sl_order_id": 12345678
 }
 ```
 
@@ -82,6 +85,14 @@ The script prints a single JSON line to stdout on each run. The agent reads this
 | `pending_close` | bool | True if close was attempted and failed |
 | `consecutive_failures` | int | Number of consecutive price fetch failures |
 
+### v5 Hyperliquid SL Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sl_synced` | bool | True if the SL was synced to Hyperliquid this tick (via `edit_position`) |
+| `sl_initial_sync` | bool | True if this tick was the first sync for this position (e.g. after upgrading to the Hyperliquid SL flow); state now has `slOrderId` and the position is protected by HL native SL |
+| `sl_order_id` | int/null | Hyperliquid order ID of the current SL for this position; null if not yet set or unavailable |
+
 ## Agent Response Logic
 
 ```
@@ -104,6 +115,9 @@ if breached == true (but not closing yet):
 
 if distance_to_next_tier_pct < 2:
   → optionally notify "approaching next tier lock"
+
+if sl_initial_sync == true:
+  → optionally notify user "Trailing stop is now synced to Hyperliquid for this position; it will close at the stop level even between cron runs."
 
 otherwise:
   → silent (HEARTBEAT_OK)

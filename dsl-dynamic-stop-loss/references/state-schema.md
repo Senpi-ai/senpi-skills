@@ -110,6 +110,19 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 | `lastCheck` | `null` | Last check timestamp — set by script |
 | `lastPrice` | `null` | Last fetched price — set by script |
 
+## v5 Hyperliquid SL Fields (optional)
+
+When the script syncs the dynamic stop loss to Hyperliquid via Senpi `edit_position`, it stores and updates these fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `slOrderId` | number \| null | Hyperliquid order ID of the current SL for this position. Set after a successful `edit_position` (or resolved via `strategy_get_open_orders`). |
+| `lastSyncedFloorPrice` | number \| null | The effective floor price at which the current SL was last placed on Hyperliquid. Used to detect when the floor has changed and a new SL must be set. |
+| `slOrderIdUpdatedAt` | string \| null | ISO 8601 timestamp when the SL was last synced (for debugging/audit). |
+| `lastSlSyncError` | string \| null | Set by script when `edit_position` or SL order resolution fails; next sync will retry. |
+
+Path and file naming stay the same; these fields are optional and backfilled by the script when syncing.
+
 ## v5 Path Conventions
 
 State files are stored under a directory per strategy. Required env vars:
