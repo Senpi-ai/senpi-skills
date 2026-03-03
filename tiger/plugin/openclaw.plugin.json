@@ -1,0 +1,47 @@
+{
+  "id": "tiger",
+  "name": "Tiger Plugin",
+  "description": "Multi-scanner goal-based trading system for Hyperliquid perpetuals",
+  "version": "1.0.0",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "workspace": {
+        "type": "string",
+        "description": "Absolute path to Tiger workspace directory"
+      },
+      "pythonPath": {
+        "type": "string",
+        "description": "Python interpreter path (default: python3)"
+      },
+      "scriptTimeout": {
+        "type": "number",
+        "description": "Script execution timeout in milliseconds (default: 55000)"
+      },
+      "dslTickInterval": {
+        "type": "number",
+        "description": "DSL trailing stop tick interval in milliseconds (default: 30000)"
+      }
+    },
+    "required": ["workspace"]
+  },
+  "uiHints": {
+    "workspace": {
+      "label": "Tiger Workspace",
+      "help": "Must contain scripts/ and state/ subdirectories"
+    },
+    "pythonPath": {
+      "label": "Python Path",
+      "help": "Full path to python3 executable (default: python3)"
+    },
+    "scriptTimeout": {
+      "label": "Script Timeout (ms)",
+      "help": "Maximum execution time per script call (default: 55000)"
+    },
+    "dslTickInterval": {
+      "label": "DSL Tick Interval (ms)",
+      "help": "How often the DSL trailing stop service runs (default: 30000)"
+    }
+  }
+}
