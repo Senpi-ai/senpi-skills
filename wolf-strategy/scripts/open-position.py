@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_strategy, dsl_state_path, dsl_state_glob,
                          dsl_state_template, atomic_write, mcporter_call,
                          mcporter_call_safe, calculate_leverage, strategy_lock,
-                         send_notification, WORKSPACE)
+                         send_notification, WORKSPACE, ROTATION_COOLDOWN_MINUTES)
 
 
 def fail(msg, **extra):
@@ -188,6 +188,22 @@ def main():
         just_closed_coin = None
         if args.close_asset:
             close_clean = args.close_asset.replace("xyz:", "")
+
+            # Enforce rotation cooldown — refuse to close positions younger than threshold
+            close_dsl_path = dsl_state_path(strategy_key, close_clean)
+            if os.path.exists(close_dsl_path):
+                try:
+                    with open(close_dsl_path) as f:
+                        close_state = json.load(f)
+                    if close_state.get("createdAt"):
+                        created = datetime.fromisoformat(close_state["createdAt"].replace("Z", "+00:00"))
+                        age_min = (datetime.now(timezone.utc) - created).total_seconds() / 60
+                        if age_min < ROTATION_COOLDOWN_MINUTES:
+                            fail("rotation_cooldown",
+                                 detail=f"{close_clean} is {round(age_min, 1)}min old, cooldown is {ROTATION_COOLDOWN_MINUTES}min",
+                                 closeAsset=close_clean, strategyKey=strategy_key)
+                except (json.JSONDecodeError, IOError, ValueError, TypeError):
+                    pass  # if we can't read the DSL, allow the rotation (edge case)
 
             # Determine on-chain coin name for close
             close_is_xyz = args.close_asset.startswith("xyz:") or cfg.get("dex") == "xyz"

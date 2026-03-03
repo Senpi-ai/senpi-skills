@@ -88,6 +88,7 @@ The `qualifiedAsset` field includes the `xyz:` prefix for XYZ equities (e.g., `x
 Conviction comes from scanner output (`conviction` field per alert). This opens the position AND creates the DSL state file atomically. Do NOT manually call create_position or hand-write DSL JSON.
 No leverage floor — all assets are tradeable. Leverage auto-calculated from strategy tradingRisk + asset maxLeverage + signal conviction. Apply WOLF entry rules from SKILL.md (rank #25+ entry, no top-10 entries, rotation logic).
 ROTATION COOLDOWN (MANDATORY): When slots are full and rotation is needed, only rotate a coin listed in `strategySlots[strategy].rotationEligibleCoins`. Do NOT rotate coins absent from that list — they are under cooldown. If `hasRotationCandidate` is false for all strategies, output HEARTBEAT_OK — no rotation is safe this cycle.
+SAME-RUN ANTI-ROTATION: NEVER rotate a position you opened earlier in THIS same cron run. After opening position(s), remaining signals with no available slots must be SKIPPED. Positions need 45 minutes of price action before rotation eligibility.
 For each successful entry, send the `notification` field from the open-position.py output to Telegram ({TELEGRAM}). Else HEARTBEAT_OK.
 ```
 

@@ -31,7 +31,7 @@ import json, sys, os
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import atomic_write, mcporter_call, mcporter_call_safe, load_all_strategies, dsl_state_glob, heartbeat, SIGNAL_CONVICTION, WORKSPACE
+from wolf_config import atomic_write, mcporter_call, mcporter_call_safe, load_all_strategies, dsl_state_glob, heartbeat, SIGNAL_CONVICTION, WORKSPACE, ROTATION_COOLDOWN_MINUTES
 
 heartbeat("emerging_movers")
 
@@ -354,7 +354,6 @@ alerts.sort(key=lambda a: (
 import glob as globmod
 
 APPROX_GRACE_MINUTES = 10  # approximate DSLs older than this don't count toward slots
-ROTATION_COOLDOWN_MINUTES = 45  # positions younger than this can't be rotated
 
 strategy_slots = {}
 try:

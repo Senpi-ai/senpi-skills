@@ -381,6 +381,8 @@ SIGNAL_CONVICTION = {
     "DEEP_CLIMBER": 0.5,
 }
 
+ROTATION_COOLDOWN_MINUTES = 45  # positions younger than this can't be rotated out
+
 
 def calculate_leverage(max_leverage, trading_risk="moderate", conviction=0.5):
     """Calculate leverage as a fraction of max leverage, scaled by risk tier and conviction.
