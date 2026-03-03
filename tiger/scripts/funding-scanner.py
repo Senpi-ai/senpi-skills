@@ -118,13 +118,12 @@ def analyze_funding(asset: str, context: dict, config: dict, sm_data: dict, oi_h
         "leverage": leverage,
         "max_leverage": context.get("max_leverage", 0),
     }
-    if os.environ.get("TIGER_VERBOSE") == "1":
-        result["funding_rate_8h"] = round(funding_rate * 100, 4)
-        result["weekly_yield_pct_margin"] = round(weekly_funding_pct_margin, 1)
-        result["rsi"] = round(current_rsi, 1) if current_rsi else None
-        result["rsi_safe"] = rsi_safe
-        result["sm_aligned"] = sm_aligned
-        result["factors"] = {k: v[0] for k, v in factors.items()}
+    result["funding_rate_8h"] = round(funding_rate * 100, 4)
+    result["weekly_yield_pct_margin"] = round(weekly_funding_pct_margin, 1)
+    result["rsi"] = round(current_rsi, 1) if current_rsi else None
+    result["rsi_safe"] = rsi_safe
+    result["sm_aligned"] = sm_aligned
+    result["factors"] = {k: v[0] for k, v in factors.items()}
     return result
 
 

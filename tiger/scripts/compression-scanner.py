@@ -113,13 +113,13 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict, get_asset
             "current_price": current_price,
             "max_leverage": context.get("max_leverage", 0),
         }
-        if os.environ.get("TIGER_VERBOSE") == "1":
-            result["bb_squeeze_percentile"] = round(squeeze_pctl, 1)
-            result["rsi"] = round(current_rsi, 1) if current_rsi else None
-            result["atr_pct"] = round(atr_pct, 2)
-            result["volume_ratio"] = round(vol_ratio, 2) if vol_ratio else None
-            result["oi_change_1h_pct"] = round(oi_change, 1) if oi_change else None
-            result["factors"] = {k: v[0] for k, v in factors.items()}
+        result["bb_squeeze_percentile"] = round(squeeze_pctl, 1)
+        result["rsi"] = round(current_rsi, 1) if current_rsi else None
+        result["atr_pct"] = round(atr_pct, 2)
+        result["volume_ratio"] = round(vol_ratio, 2) if vol_ratio else None
+        result["oi_change_1h_pct"] = round(oi_change, 1) if oi_change else None
+        result["funding_annualized_pct"] = round(funding_annualized, 1)
+        result["factors"] = {k: v[0] for k, v in factors.items()}
         return result
 
     return None

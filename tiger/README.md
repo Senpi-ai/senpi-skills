@@ -155,7 +155,7 @@ tiger-strategy/
 - atomic_write(), deep_merge(), mcporter_call() with 3-retry
 - Model tiering per cron (Tier 1/Tier 2)
 - HEARTBEAT_OK early exit pattern
-- Verbose mode via TIGER_VERBOSE=1
+- Full signal data always included (indicator values, factor breakdowns)
 - OpenClaw cron templates (systemEvent format)
 - State schema reference with full field documentation
 - Instance-scoped state (state/{instanceKey}/)

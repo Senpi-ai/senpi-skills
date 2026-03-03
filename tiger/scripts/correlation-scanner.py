@@ -172,13 +172,12 @@ def check_alt_lag(
         "window_quality": window_quality,
         "max_leverage": max_lev,
     }
-    if os.environ.get("TIGER_VERBOSE") == "1":
-        result["alt_move_4h_pct"] = round(alt_move_4h, 2)
-        result["expected_catchup_pct"] = round(expected_catchup, 2)
-        result["volume_ratio"] = round(vol_r, 2) if vol_r else None
-        result["rsi"] = round(current_rsi, 1) if current_rsi else None
-        result["sm_aligned"] = sm_aligned
-        result["factors"] = {k: v[0] for k, v in factors.items()}
+    result["alt_move_4h_pct"] = round(alt_move_4h, 2)
+    result["expected_catchup_pct"] = round(expected_catchup, 2)
+    result["volume_ratio"] = round(vol_r, 2) if vol_r else None
+    result["rsi"] = round(current_rsi, 1) if current_rsi else None
+    result["sm_aligned"] = sm_aligned
+    result["factors"] = {k: v[0] for k, v in factors.items()}
     return result
 
 

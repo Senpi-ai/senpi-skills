@@ -89,7 +89,6 @@ def tmp_runtime(tmp_path):
         scripts_dir=str(workspace / "scripts"),
         state_dir=str(state_dir),
         config_file=str(config_file),
-        verbose=False,
         source="test",
     )
 

@@ -112,13 +112,13 @@ def scan_asset(asset: str, context: dict, config: dict, get_asset_candles_fn) ->
         "rsi_ok": rsi_ok,
         "max_leverage": context.get("max_leverage", 0),
     }
-    if os.environ.get("TIGER_VERBOSE") == "1":
-        result["move_1h_pct"] = round(move_1h, 2)
-        result["move_2h_pct"] = round(move_2h, 2)
-        result["volume_ratio"] = round(vol_r, 2) if vol_r else None
-        result["rsi"] = round(current_rsi, 1) if current_rsi else None
-        result["trend_aligned"] = trend_aligned
-        result["factors"] = {k: v[0] for k, v in factors.items()}
+    result["move_1h_pct"] = round(move_1h, 2)
+    result["move_2h_pct"] = round(move_2h, 2)
+    result["volume_ratio"] = round(vol_r, 2) if vol_r else None
+    result["rsi"] = round(current_rsi, 1) if current_rsi else None
+    result["trend_aligned"] = trend_aligned
+    result["funding_annualized_pct"] = round(funding_annualized, 1)
+    result["factors"] = {k: v[0] for k, v in factors.items()}
     return result
 
 

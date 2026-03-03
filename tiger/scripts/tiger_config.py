@@ -37,11 +37,10 @@ class TigerRuntime:
     scripts_dir: str
     state_dir: str
     config_file: str
-    verbose: bool
     source: str
 
 
-def build_runtime(env=None, workspace=None, verbose=None, require_workspace_env=True):
+def build_runtime(env=None, workspace=None, require_workspace_env=True):
     env = env or os.environ
     source = "explicit"
     if workspace:
@@ -65,13 +64,11 @@ def build_runtime(env=None, workspace=None, verbose=None, require_workspace_env=
             # Non-strict fallback for imports/tests. Runtime entrypoints use strict mode.
             ws = _resolve_workspace(env)
             source = "fallback"
-    vb = (env.get("TIGER_VERBOSE") == "1") if verbose is None else bool(verbose)
     return TigerRuntime(
         workspace=ws,
         scripts_dir=os.path.join(ws, "scripts"),
         state_dir=os.path.join(ws, "state"),
         config_file=os.path.join(ws, "tiger-config.json"),
-        verbose=vb,
         source=source,
     )
 
@@ -215,11 +212,10 @@ def _normalize_dict_with_aliases(data, aliases):
 
 def atomic_write(path, data, runtime=None):
     """Write JSON atomically — crash-safe via os.replace()."""
-    verbose = _runtime_attr(runtime, "verbose")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
-        json.dump(data, f, indent=2 if verbose else None)
+        json.dump(data, f, indent=2)
     os.replace(tmp, path)
 
 
@@ -769,11 +765,8 @@ def close_position(wallet, coin, reason="", call_fn=None):
 # ─── Output ──────────────────────────────────────────────────
 
 def output(data, runtime=None):
-    """Print JSON output. Minimal by default, verbose opt-in via TIGER_VERBOSE=1."""
-    verbose = _runtime_attr(runtime, "verbose")
-    if not verbose and "debug" in data:
-        del data["debug"]
-    print(json.dumps(data) if not verbose else json.dumps(data, indent=2))
+    """Print JSON output with full signal data."""
+    print(json.dumps(data, indent=2))
 
 
 def output_heartbeat(runtime=None):
