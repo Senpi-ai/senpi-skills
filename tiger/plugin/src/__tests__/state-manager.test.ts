@@ -189,6 +189,179 @@ describe('StateManager', () => {
     });
   });
 
+  describe('dslStateExists', () => {
+    it('returns true when DSL state file exists', async () => {
+      const instanceDir = path.join(paths.stateDir, 's1');
+      await fs.mkdir(instanceDir, { recursive: true });
+      await fs.writeFile(path.join(instanceDir, 'dsl-ETH.json'), '{}');
+
+      const exists = await manager.dslStateExists('s1', 'ETH');
+      expect(exists).toBe(true);
+    });
+
+    it('returns false when DSL state file missing', async () => {
+      const exists = await manager.dslStateExists('s1', 'NONEXIST');
+      expect(exists).toBe(false);
+    });
+
+    it('returns false when instance dir missing', async () => {
+      const exists = await manager.dslStateExists('missing', 'ETH');
+      expect(exists).toBe(false);
+    });
+  });
+
+  describe('writeDslState', () => {
+    it('writes DSL state file atomically', async () => {
+      const state = {
+        active: true,
+        asset: 'ETH',
+        direction: 'LONG' as const,
+        entryPrice: 3500,
+        size: 1.5,
+        leverage: 10,
+        wallet: '0xabc',
+        highWaterPrice: 3500,
+        phase: 1,
+        currentBreachCount: 0,
+        currentTierIndex: -1,
+        tierFloorPrice: null,
+        pendingClose: false,
+        phase1: { retraceThreshold: 0.015, consecutiveBreachesRequired: 3, absoluteFloor: 3430 },
+        phase2: { retraceThreshold: 0.012, consecutiveBreachesRequired: 2 },
+        phase2TriggerTier: 0,
+        tiers: [{ triggerPct: 0.05, lockPct: 0.20, retrace: 0.015 }],
+        breachDecay: 'soft' as const,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        lastCheck: '2025-01-01T00:00:00Z',
+        lastPrice: 3500,
+        consecutiveFetchFailures: 0,
+      };
+
+      await manager.writeDslState('s1', 'ETH', state);
+
+      const written = await fs.readFile(
+        path.join(paths.stateDir, 's1', 'dsl-ETH.json'),
+        'utf-8',
+      );
+      const parsed = JSON.parse(written);
+      expect(parsed.active).toBe(true);
+      expect(parsed.asset).toBe('ETH');
+      expect(parsed.entryPrice).toBe(3500);
+    });
+
+    it('creates instance directory if it does not exist', async () => {
+      const state = {
+        active: true,
+        asset: 'BTC',
+        direction: 'SHORT' as const,
+        entryPrice: 65000,
+        size: 0.1,
+        leverage: 5,
+        wallet: '0xdef',
+        highWaterPrice: 65000,
+        phase: 1,
+        currentBreachCount: 0,
+        currentTierIndex: -1,
+        tierFloorPrice: null,
+        pendingClose: false,
+        phase1: { retraceThreshold: 0.015, consecutiveBreachesRequired: 3, absoluteFloor: 66300 },
+        phase2: { retraceThreshold: 0.012, consecutiveBreachesRequired: 2 },
+        phase2TriggerTier: 0,
+        tiers: [],
+        breachDecay: 'soft' as const,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        lastCheck: '2025-01-01T00:00:00Z',
+        lastPrice: 65000,
+        consecutiveFetchFailures: 0,
+      };
+
+      await manager.writeDslState('new-instance', 'BTC', state);
+
+      const exists = await manager.dslStateExists('new-instance', 'BTC');
+      expect(exists).toBe(true);
+    });
+
+    it('does not leave .tmp file after successful write', async () => {
+      const state = {
+        active: true,
+        asset: 'SOL',
+        direction: 'LONG' as const,
+        entryPrice: 100,
+        size: 10,
+        leverage: 5,
+        wallet: '0x123',
+        highWaterPrice: 100,
+        phase: 1,
+        currentBreachCount: 0,
+        currentTierIndex: -1,
+        tierFloorPrice: null,
+        pendingClose: false,
+        phase1: { retraceThreshold: 0.015, consecutiveBreachesRequired: 3, absoluteFloor: 98 },
+        phase2: { retraceThreshold: 0.012, consecutiveBreachesRequired: 2 },
+        phase2TriggerTier: 0,
+        tiers: [],
+        breachDecay: 'soft' as const,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T00:00:00Z',
+        lastCheck: '2025-01-01T00:00:00Z',
+        lastPrice: 100,
+        consecutiveFetchFailures: 0,
+      };
+
+      await manager.writeDslState('s1', 'SOL', state);
+
+      const dir = path.join(paths.stateDir, 's1');
+      const files = await fs.readdir(dir);
+      expect(files.filter((f) => f.endsWith('.tmp'))).toHaveLength(0);
+    });
+
+    it('overwrites existing DSL state', async () => {
+      const instanceDir = path.join(paths.stateDir, 's1');
+      await fs.mkdir(instanceDir, { recursive: true });
+      await fs.writeFile(
+        path.join(instanceDir, 'dsl-ETH.json'),
+        JSON.stringify({ active: true, entryPrice: 3000 }),
+      );
+
+      const newState = {
+        active: false,
+        asset: 'ETH',
+        direction: 'LONG' as const,
+        entryPrice: 3500,
+        size: 1.5,
+        leverage: 10,
+        wallet: '0xabc',
+        highWaterPrice: 3600,
+        phase: 2,
+        currentBreachCount: 0,
+        currentTierIndex: 1,
+        tierFloorPrice: 3520,
+        pendingClose: false,
+        phase1: { retraceThreshold: 0.015, consecutiveBreachesRequired: 3, absoluteFloor: 3430 },
+        phase2: { retraceThreshold: 0.012, consecutiveBreachesRequired: 2 },
+        phase2TriggerTier: 0,
+        tiers: [],
+        breachDecay: 'soft' as const,
+        createdAt: '2025-01-01T00:00:00Z',
+        updatedAt: '2025-01-01T02:00:00Z',
+        lastCheck: '2025-01-01T02:00:00Z',
+        lastPrice: 3580,
+        consecutiveFetchFailures: 0,
+        closedAt: '2025-01-01T02:00:00Z',
+        closeReason: 'OI_COLLAPSE',
+      };
+
+      await manager.writeDslState('s1', 'ETH', newState);
+
+      const read = await manager.readDslState('s1', 'ETH');
+      expect(read!.active).toBe(false);
+      expect(read!.entryPrice).toBe(3500);
+      expect(read!.closeReason).toBe('OI_COLLAPSE');
+    });
+  });
+
   describe('readTradeLog', () => {
     it('reads trade log entries', async () => {
       const instanceDir = path.join(paths.stateDir, 's1');

@@ -41,7 +41,7 @@ describe('Tiger Plugin', () => {
     expect(plugin.configSchema.parse(undefined)).toEqual({});
   });
 
-  it('registers 4 tools on valid config', () => {
+  it('registers 6 tools on valid config', () => {
     const registeredTools: Array<{ name: string }> = [];
 
     const mockApi = {
@@ -62,12 +62,14 @@ describe('Tiger Plugin', () => {
 
     plugin.register(mockApi);
 
-    expect(registeredTools).toHaveLength(4);
+    expect(registeredTools).toHaveLength(6);
     const toolNames = registeredTools.map((t) => t.name);
     expect(toolNames).toContain('tiger_dsl_tick');
     expect(toolNames).toContain('tiger_get_state');
     expect(toolNames).toContain('tiger_get_dsl_state');
     expect(toolNames).toContain('tiger_get_trade_log');
+    expect(toolNames).toContain('tiger_create_dsl');
+    expect(toolNames).toContain('tiger_deactivate_dsl');
   });
 
   it('registers tiger-dsl-runner service', () => {
