@@ -193,3 +193,107 @@ class TestMainIntegration:
 
         # ETH should NOT be scanned (active position)
         assert "ETH" not in scanned_assets
+
+
+class TestWatchingPipeline:
+    """Regression: two-stage pipeline (watching → actionable) must be preserved.
+
+    The compression scanner splits signals into:
+    - actionable: squeeze + breakout + score >= threshold
+    - watching: squeeze + score >= threshold, but NO breakout yet (coiled spring)
+
+    HEARTBEAT_OK should only fire when BOTH lists are empty.
+    """
+
+    def _make_deps(self, tmp_runtime, scan_asset_fn):
+        """Build deps with a patched scan_asset via prescreened candidates."""
+        instruments = [
+            {"name": "ETH", "max_leverage": 20, "is_delisted": False,
+             "context": {"dayNtlVlm": "100000000", "openInterest": "50000",
+                         "funding": "0.0001", "markPx": "3500", "prevDayPx": "3450"}},
+            {"name": "SOL", "max_leverage": 20, "is_delisted": False,
+             "context": {"dayNtlVlm": "80000000", "openInterest": "30000",
+                         "funding": "-0.0002", "markPx": "150", "prevDayPx": "145"}},
+        ]
+        candidates = [
+            ("ETH", instruments[0]["context"], 20),
+            ("SOL", instruments[1]["context"], 20),
+        ]
+        captured = []
+        deps = tiger_config.resolve_dependencies(
+            runtime=tmp_runtime,
+            overrides={
+                "output": lambda payload: captured.append(payload),
+                "get_all_instruments": lambda: instruments,
+                "get_asset_candles": lambda asset, intervals: {"error": "not mocked"},
+                "load_prescreened_candidates": lambda instruments, config=None, include_leverage=True: candidates,
+            },
+        )
+        return deps, captured
+
+    def test_watching_reported_when_no_actionable(self, tmp_runtime, monkeypatch):
+        """Squeeze signals without breakout must appear in watching_list, NOT swallowed by HEARTBEAT_OK."""
+        def mock_scan_asset(asset, context, config, oi_hist, get_asset_candles_fn):
+            return {
+                "asset": asset, "pattern": "COMPRESSION_BREAKOUT",
+                "score": 0.75, "direction": None,
+                "breakout": False,  # squeeze but no breakout → watching
+                "current_price": 100, "max_leverage": 20,
+                "factors": {},
+            }
+
+        monkeypatch.setattr(comp, "scan_asset", mock_scan_asset)
+        deps, captured = self._make_deps(tmp_runtime, mock_scan_asset)
+        comp.main(deps)
+
+        assert len(captured) == 1
+        report = captured[0]
+        assert "heartbeat" not in report, "watching signals must not be swallowed by HEARTBEAT_OK"
+        assert report["watching"] > 0
+        assert len(report["watching_list"]) > 0
+        assert report["actionable"] == 0
+
+    def test_heartbeat_when_both_empty(self, tmp_runtime, monkeypatch):
+        """HEARTBEAT_OK should fire only when no actionable AND no watching signals."""
+        monkeypatch.setattr(comp, "scan_asset", lambda *a, **kw: None)
+        deps, captured = self._make_deps(tmp_runtime, None)
+        comp.main(deps)
+
+        assert len(captured) == 1
+        assert captured[0].get("heartbeat") == "HEARTBEAT_OK"
+
+    def test_actionable_and_watching_both_in_report(self, tmp_runtime, monkeypatch):
+        """When both actionable and watching exist, report must include both."""
+        call_count = {"n": 0}
+
+        def mock_scan_asset(asset, context, config, oi_hist, get_asset_candles_fn):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                # First asset: actionable (breakout = True)
+                return {
+                    "asset": asset, "pattern": "COMPRESSION_BREAKOUT",
+                    "score": 0.80, "direction": "LONG",
+                    "breakout": True,
+                    "current_price": 100, "max_leverage": 20,
+                    "factors": {},
+                }
+            else:
+                # Second asset: watching (breakout = False)
+                return {
+                    "asset": asset, "pattern": "COMPRESSION_BREAKOUT",
+                    "score": 0.75, "direction": None,
+                    "breakout": False,
+                    "current_price": 50, "max_leverage": 20,
+                    "factors": {},
+                }
+
+        monkeypatch.setattr(comp, "scan_asset", mock_scan_asset)
+        deps, captured = self._make_deps(tmp_runtime, mock_scan_asset)
+        comp.main(deps)
+
+        assert len(captured) == 1
+        report = captured[0]
+        assert report["actionable"] >= 1
+        assert report["watching"] >= 1
+        assert len(report["top_signals"]) >= 1
+        assert len(report["watching_list"]) >= 1
