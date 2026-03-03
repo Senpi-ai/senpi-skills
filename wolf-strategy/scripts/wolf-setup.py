@@ -44,6 +44,22 @@ DSL_PRESETS = {
     ]
 }
 
+# Provider -> model mapping for 2-tier approach
+PROVIDER_MODELS = {
+    "anthropic": {
+        "mid": "anthropic/claude-sonnet-4-5",
+        "budget": "anthropic/claude-haiku-4-5",
+    },
+    "openai": {
+        "mid": "openai/gpt-4o",
+        "budget": "openai/gpt-4o-mini",
+    },
+    "google": {
+        "mid": "google/gemini-2.0-flash",
+        "budget": "google/gemini-2.0-flash-lite",
+    },
+}
+
 # Parse CLI args
 parser = argparse.ArgumentParser(description="WOLF v6 Setup")
 parser.add_argument("--wallet", help="Strategy wallet address (0x...)")
@@ -53,10 +69,12 @@ parser.add_argument("--chat-id", type=int, help="Telegram chat ID")
 parser.add_argument("--name", help="Human-readable strategy name (optional)")
 parser.add_argument("--dsl-preset", choices=["aggressive", "conservative"], default="aggressive",
                     help="DSL tier preset (default: aggressive)")
-parser.add_argument("--mid-model", default="anthropic/claude-sonnet-4-20250514",
-                    help="Model ID for Mid-tier isolated crons (Emerging Movers, DSL, Health)")
-parser.add_argument("--budget-model", default="anthropic/claude-haiku-4-5",
-                    help="Model ID for Budget-tier isolated crons (SM Flip, Watchdog)")
+parser.add_argument("--provider", choices=list(PROVIDER_MODELS.keys()), default="anthropic",
+                    help="AI provider for model selection (default: anthropic)")
+parser.add_argument("--mid-model", default=None,
+                    help="Override Mid-tier model ID (default: auto from --provider)")
+parser.add_argument("--budget-model", default=None,
+                    help="Override Budget-tier model ID (default: auto from --provider)")
 parser.add_argument("--trading-risk", choices=["conservative", "moderate", "aggressive"],
                     default="moderate", help="Risk tier for dynamic leverage calculation (default: moderate)")
 args = parser.parse_args()
@@ -121,8 +139,9 @@ if args.chat_id:
 
 strategy_name = args.name or f"Strategy {strategy_id[:8]}"
 dsl_preset = args.dsl_preset
-mid_model = args.mid_model
-budget_model = args.budget_model
+provider_models = PROVIDER_MODELS[args.provider]
+mid_model = args.mid_model if args.mid_model is not None else provider_models["mid"]
+budget_model = args.budget_model if args.budget_model is not None else provider_models["budget"]
 trading_risk = args.trading_risk
 
 # Calculate parameters
@@ -315,6 +334,7 @@ print(f"""
   Notional/Slot:    ${notional_per_slot:,.2f}
   Daily Loss Limit: ${daily_loss_limit:,.2f}
   Auto-Delever:     Below ${auto_delever_threshold:,.2f}
+  Provider:         {args.provider} (mid={mid_model}, budget={budget_model})
   DSL Preset:       {dsl_preset}
   Telegram:         {tg}
 """)

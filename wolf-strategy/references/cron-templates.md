@@ -12,9 +12,15 @@ WOLF uses isolated sessions and a 2-tier model approach. Configure per-cron in O
 | SM Flip Detector | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 | Watchdog | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 
-**2-tier model approach** (configure per-cron in OpenClaw):
-- **Mid** — Structured tasks, script output parsing, multi-strategy routing, entry decisions. Examples: `anthropic/claude-sonnet-4-5`, `openai/gpt-4o`, `google/gemini-2.0-flash`.
-- **Budget** — Simple threshold checks, binary decisions. Examples: `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite`.
+**2-tier model approach** — auto-configured by `wolf-setup.py --provider`:
+
+| Provider | Mid Model | Budget Model |
+|----------|-----------|--------------|
+| `anthropic` | `anthropic/claude-sonnet-4-5` | `anthropic/claude-haiku-4-5` |
+| `openai` | `openai/gpt-4o` | `openai/gpt-4o-mini` |
+| `google` | `google/gemini-2.0-flash` | `google/gemini-2.0-flash-lite` |
+
+> Model IDs in the `cronTemplates` output from `wolf-setup.py` are already correct for your provider. Use them directly when creating crons.
 
 All 5 crons can also run on a single model if you prefer simplicity over cost savings.
 

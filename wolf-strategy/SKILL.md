@@ -59,7 +59,7 @@ When a signal fires, it's routed to the best-fit strategy:
 ### Adding a Strategy
 ```bash
 python3 scripts/wolf-setup.py --wallet 0x... --strategy-id UUID --budget 2000 \
-    --chat-id 12345 --name "Conservative XYZ" --dsl-preset conservative
+    --chat-id 12345 --name "Conservative XYZ" --dsl-preset conservative --provider anthropic
 ```
 This adds to the registry without disrupting running strategies. Disable with `enabled: false` in the registry.
 
@@ -80,9 +80,10 @@ Leaderboard rank confirmation LAGS price. When an asset jumps from #31->#16 in o
 1. Ensure Senpi MCP is connected (`mcporter list` should show `senpi`)
 2. Create a custom strategy wallet: use `strategy_create_custom_strategy` via mcporter
 3. Fund the wallet via `strategy_top_up` with your budget
-4. Run setup: `python3 scripts/wolf-setup.py --wallet 0x... --strategy-id UUID --budget 6500 --chat-id 12345`
-5. Create the 5 OpenClaw crons using templates from `references/cron-templates.md`
-6. The WOLF is hunting
+4. **Determine the user's AI provider** — which provider is configured in OpenClaw? (`anthropic`, `openai`, or `google`)
+5. Run setup: `python3 scripts/wolf-setup.py --wallet 0x... --strategy-id UUID --budget 6500 --chat-id 12345 --provider anthropic`
+6. Create the 5 OpenClaw crons using templates from `references/cron-templates.md`
+7. The WOLF is hunting
 
 To add a second strategy, run `wolf-setup.py` again with a different wallet/budget. It adds to the registry.
 
@@ -102,14 +103,17 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 
 ### Model Selection Per Cron — 2-Tier Approach
 
-Configure per-cron in OpenClaw. Step down to Budget tier for simple threshold crons to save ~60-70% on those runs.
+> **IMPORTANT:** Determine the user's configured AI provider BEFORE running `wolf-setup.py`. Pass `--provider` to auto-select correct model IDs. Do NOT pick models from an unconfigured provider — crons will fail silently.
 
-**Example model IDs** (confirmed working on OpenClaw):
+`wolf-setup.py --provider <name>` auto-configures model IDs for all cron templates. Step down to Budget tier for simple threshold crons to save ~60-70% on those runs.
 
-| Tier | Role | Crons | Example Model IDs |
-|------|------|-------|--------------------|
-| **Mid** | Structured tasks, script output parsing, multi-strategy routing | Emerging Movers, DSL Combined, Health Check | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash` |
-| **Budget** | Simple threshold checks, binary decisions | SM Flip, Watchdog | `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite` |
+**Provider defaults** (auto-selected by `--provider`):
+
+| Provider | Mid Model | Budget Model |
+|----------|-----------|--------------|
+| `anthropic` | `anthropic/claude-sonnet-4-5` | `anthropic/claude-haiku-4-5` |
+| `openai` | `openai/gpt-4o` | `openai/gpt-4o-mini` |
+| `google` | `google/gemini-2.0-flash` | `google/gemini-2.0-flash-lite` |
 
 | Cron | Session | Model Tier | Reason |
 |------|---------|-----------|--------|
@@ -122,9 +126,9 @@ Configure per-cron in OpenClaw. Step down to Budget tier for simple threshold cr
 **Single-model option:** All 5 crons can run on one model. Simpler but costs more for the crons that do simple threshold/binary work.
 
 **Model ID gotchas:**
-- Pick one model per tier from your provider. The tier concept (Mid / Budget) matters more than the specific model — any provider's equivalent works.
+- `--provider` auto-selects models. Only use `--mid-model`/`--budget-model` to override specific tiers.
 - Budget should be the cheapest model that can follow explicit if/then rules. Mid should handle structured JSON parsing and multi-strategy routing reliably.
-- Agents are often not model-aware — they may suggest deprecated IDs (e.g. `claude-3-5-haiku-20241022`) or hallucinate model names. Always use the exact IDs from the table above.
+- Agents are often not model-aware — they may suggest deprecated IDs (e.g. `claude-3-5-haiku-20241022`) or hallucinate model names. Always use `--provider` instead of manually specifying model IDs.
 - If a cron fails to create or run due to an invalid model ID, fall back to your Mid model for that cron. A working cron on the "wrong" tier is better than a broken cron.
 - When in doubt, use your Mid model for all 5 crons (single-model option) and optimize tiers later.
 
