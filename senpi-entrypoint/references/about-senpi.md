@@ -14,6 +14,18 @@ Use this section only for explicit summary questions such as:
 
 Do not auto-insert this summary during normal onboarding.
 
+## Mandatory Invocation Procedure (NOT Optional)
+
+Run this procedure for every summary/Q&A response handled by `senpi-entrypoint`:
+1. Run the pre-response invocation check from
+   [references/skill-update-checker.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-update-checker.md)
+   (`Pre-Response Invocation Check`) to capture queued `UPDATE_OUTPUT`.
+2. Compose the core answer using this summary contract.
+3. Resolve "What's new" using the rules in the `What's New` section below.
+4. If updates exist, append a short user-friendly "What's new" addendum; otherwise omit it.
+
+Completion gate: response is NOT complete until all steps above are executed.
+
 Default response order (compact + actionable):
 1. What Senpi is (one short definition)
 2. Core capabilities

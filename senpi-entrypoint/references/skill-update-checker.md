@@ -1,5 +1,23 @@
 # Skill Update Checker Reference
 
+## Pre-Response Invocation Check
+
+Run this check every time `senpi-entrypoint` is invoked, before composing a
+user-facing response:
+
+```bash
+SENPI_STATE_DIR="${SENPI_STATE_DIR:-$HOME/.config/senpi}"
+SENPI_PENDING="$SENPI_STATE_DIR/pending-skill-updates.json"
+if [ -f "$SENPI_PENDING" ]; then
+  UPDATE_OUTPUT=$(cat "$SENPI_PENDING") && rm -f "$SENPI_PENDING"
+fi
+```
+
+If `UPDATE_OUTPUT` contains updates, preserve it for response assembly and
+rendering. If it is heartbeat/empty, continue to normal response flow.
+
+---
+
 ## Output Handling
 
 At session startup the entrypoint reads

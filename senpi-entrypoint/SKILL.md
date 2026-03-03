@@ -50,22 +50,10 @@ Do not narrate or explain tool calls. Execute silently and only present final re
 
 ## Pre-Response Check (Run Every Time This Skill Is Invoked)
 
-Run this before responding to **any** user query in this skill (onboarding,
-Q&A, or mid-session invocation). This check is mandatory.
-
-Check whether the background cron has queued skill update notifications:
-
-```bash
-SENPI_STATE_DIR="${SENPI_STATE_DIR:-$HOME/.config/senpi}"
-SENPI_PENDING="$SENPI_STATE_DIR/pending-skill-updates.json"
-if [ -f "$SENPI_PENDING" ]; then
-  UPDATE_OUTPUT=$(cat "$SENPI_PENDING") && rm -f "$SENPI_PENDING"
-fi
-```
-
-If `UPDATE_OUTPUT` is set, handle it per
+Before responding to any query in this skill, run the mandatory invocation
+check in
 [references/skill-update-checker.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-update-checker.md)
-before continuing.
+(`Pre-Response Invocation Check` section).
 
 ---
 
@@ -225,29 +213,12 @@ If the user asks to turn notifications off or back on, follow the procedure in
 
 ## Responding to Questions
 
-### Mandatory Skill Update Check — Execution NOT Optional
+### Mandatory Response Contract (Execution NOT Optional)
 
-Run this procedure for **every** query handled by this skill:
-1. Run **Pre-Response Check** and capture queued `UPDATE_OUTPUT` if present.
-2. Build the core user response.
-3. Run one fresh checker pass:
-```bash
-SENPI_ENTRYPOINT_SCRIPTS=$(node -e "
-  const path = require('path'), os = require('os'), fs = require('fs');
-  const p = path.join(os.homedir(), '.agents', 'skills', 'senpi-entrypoint', 'scripts');
-  console.log(fs.existsSync(path.join(p, 'check-skill-updates.py')) ? p : '');
-" 2>/dev/null)
-
-if [ -n "$SENPI_ENTRYPOINT_SCRIPTS" ]; then
-  LIVE_UPDATE_OUTPUT=$(python3 "$SENPI_ENTRYPOINT_SCRIPTS/check-skill-updates.py" 2>/dev/null || true)
-fi
-```
-4. If updates exist in `UPDATE_OUTPUT` or `LIVE_UPDATE_OUTPUT`, append a short
-   user-friendly "What's new" addendum to the same response.
-5. If no updates exist, do not mention "What's new."
-
-⚠️ **Completion gate:** Do **NOT** consider the response complete until Step 3
-has run and Step 4/5 has been applied.
+For any summary or Q&A response, follow
+[references/about-senpi.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/about-senpi.md)
+(`Summary Response Contract` and `Mandatory Invocation Procedure` sections).
+Do not consider the response complete until those procedures are satisfied.
 
 ### "What is Senpi?" / "Summarize Senpi" / "Summarize skills and capabilities" / "How do I install skills?" / "What's new?"
 
@@ -257,11 +228,6 @@ onboarding steps.
 When asked, load and follow
 [references/about-senpi.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/about-senpi.md)
 (`Summary Response Contract` section) for order, depth, and command behavior.
-
-For **"What is Senpi?"**, also include:
-- Goal-based skill picks from
-  [references/skill-recommendations.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-recommendations.md).
-- Current onboarding/auth status (`SENPI_AUTH_TOKEN` set or unset) and next setup step.
 
 ### "What skills should I install?" / "What should I use for [goal]?"
 
