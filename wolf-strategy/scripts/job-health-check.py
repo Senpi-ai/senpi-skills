@@ -482,7 +482,7 @@ def check_strategy(strategy_key, cfg):
 
 
 EXPECTED_CRONS = {
-    "emerging_movers": 5,    # expect every 90s, alert at 5min
+    "emerging_movers": 5,    # expect every 3min, alert at 5min
     "dsl_combined": 10,      # expect every 3min, alert at 10min
     "sm_flip": 15,           # expect every 5min, alert at 15min
     "watchdog": 15,          # expect every 5min, alert at 15min

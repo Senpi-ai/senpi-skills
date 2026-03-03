@@ -2,39 +2,26 @@
 
 ## Session & Model Tier Configuration
 
-WOLF uses two session types and a 3-tier model approach. Configure per-cron in OpenClaw.
+WOLF uses isolated sessions and a 2-tier model approach. Configure per-cron in OpenClaw.
 
 | Cron | Frequency | Session | Payload | Model Tier |
 |------|-----------|---------|---------|------------|
-| Emerging Movers | 90s (40x/hr) | **main** | systemEvent | **Primary** (your configured model) |
-| DSL Combined | 3min (20x/hr) | isolated | agentTurn | Mid (one tier down) |
-| Health Check | 10min (6x/hr) | isolated | agentTurn | Mid (one tier down) |
+| Emerging Movers | 3min (20x/hr) | isolated | agentTurn | Mid |
+| DSL Combined | 3min (20x/hr) | isolated | agentTurn | Mid |
+| Health Check | 10min (6x/hr) | isolated | agentTurn | Mid |
 | SM Flip Detector | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 | Watchdog | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 
-**3-tier model approach** (configure per-cron in OpenClaw):
-- **Primary** — Your configured model. Complex judgment, multi-strategy routing, entry decisions.
-- **Mid** — Structured tasks, script output parsing, rule-based actions. Examples: `anthropic/claude-sonnet-4-5`, `openai/gpt-4o`, `google/gemini-2.0-flash`.
+**2-tier model approach** (configure per-cron in OpenClaw):
+- **Mid** — Structured tasks, script output parsing, multi-strategy routing, entry decisions. Examples: `anthropic/claude-sonnet-4-5`, `openai/gpt-4o`, `google/gemini-2.0-flash`.
 - **Budget** — Simple threshold checks, binary decisions. Examples: `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite`.
 
 All 5 crons can also run on a single model if you prefer simplicity over cost savings.
 
 ---
 
-Two cron formats depending on session type:
+All crons use the **isolated session** (agentTurn) format:
 
-**Main session** (systemEvent) — shares the primary session context:
-```json
-{
-  "name": "...",
-  "schedule": { "kind": "every", "everyMs": ... },
-  "sessionTarget": "main",
-  "wakeMode": "now",
-  "payload": { "kind": "systemEvent", "text": "..." }
-}
-```
-
-**Isolated session** (agentTurn) — runs in its own session, no context pollution:
 ```json
 {
   "name": "...",
@@ -44,13 +31,13 @@ Two cron formats depending on session type:
 }
 ```
 
-**Critical payload differences:** systemEvent uses `"text"`, agentTurn uses `"message"`. Do NOT use `"text"` for agentTurn — the cron will silently fail. Model is set inside `payload` for agentTurn, not at the job root level.
+**Critical:** agentTurn uses `"message"`, NOT `"text"` — using `"text"` will silently fail. Model is set inside `payload`, not at the job root level.
 
 **These are OpenClaw crons, NOT Senpi crons.** They wake the agent with a mandate text that the agent executes.
 
 **v6 change: One set of crons for ALL strategies.** Each script iterates all enabled strategies from `wolf-strategies.json` internally. You do NOT need separate crons per strategy.
 
-**Session isolation rationale:** Only Emerging Movers needs the main session's accumulated context (position history, routing decisions). The other 4 crons do self-contained work — they run a script, parse JSON, and act on rules. Isolating them prevents context bloat in the main session and enables cheaper model tiers.
+**All crons are isolated.** Each cron runs in its own session — no context pollution between runs, enabling cheaper model tiers. Every cron is self-contained: it runs a script, parses JSON, and acts on rules.
 
 Replace these placeholders in all templates:
 - `{TELEGRAM}` — telegram:CHAT_ID (e.g. telegram:5183731261)
@@ -61,7 +48,7 @@ Replace these placeholders in all templates:
 
 ---
 
-## 1. Emerging Movers (every 90s)
+## 1. Emerging Movers (every 3min) — isolated / agentTurn
 
 ```
 WOLF Emerging Movers: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/emerging-movers.py`, parse JSON.
@@ -134,5 +121,5 @@ If no issues → HEARTBEAT_OK.
 | Cron architecture | Some per-strategy values in mandate | **One set of crons, scripts iterate all strategies** |
 | Script wallets | Hardcoded or env var | **Read from `wolf-strategies.json`** |
 | Signal routing | One wallet | **Route to best-fit strategy by available slots + risk profile** |
-| Scanner interval | 90s (unchanged) | 90s |
+| Scanner interval | 90s | 3min |
 | DSL architecture | Combined runner (unchanged) | Combined runner iterating all strategies |

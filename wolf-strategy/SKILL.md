@@ -3,7 +3,7 @@ name: wolf-strategy
 description: >-
   WOLF v6.1 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
   Manages multiple strategies simultaneously, each with independent wallets, budgets, slots,
-  and DSL configs. 5-cron architecture with Emerging Movers scanner (90s, FIRST_JUMP + IMMEDIATE_MOVER),
+  and DSL configs. 5-cron architecture with Emerging Movers scanner (3min, FIRST_JUMP + IMMEDIATE_MOVER),
   DSL v4 trailing stops (combined runner every 3min, 4-tier at 5/10/15/20% ROE),
   SM flip detector (5min), watchdog (5min),
   and health checks (10min). Same asset can be traded in different strategies simultaneously.
@@ -92,7 +92,7 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 
 | # | Job | Interval | Session | Script | Purpose |
 |---|-----|----------|---------|--------|---------|
-| 1 | Emerging Movers | **90s** | **main** | `scripts/emerging-movers.py` | Hunt FIRST_JUMP + IMMEDIATE_MOVER signals — primary entry trigger |
+| 1 | Emerging Movers | **3min** | isolated | `scripts/emerging-movers.py` | Hunt FIRST_JUMP + IMMEDIATE_MOVER signals — primary entry trigger |
 | 2 | DSL Combined | **3min** | isolated | `scripts/dsl-combined.py` | Trailing stop exits for ALL open positions across ALL strategies |
 | 3 | SM Flip Detector | 5min | isolated | `scripts/sm-flip-check.py` | Cut positions where SM conviction collapses |
 | 4 | Watchdog | 5min | isolated | `scripts/wolf-monitor.py` | Per-strategy margin buffer, liq distances, rotation candidates |
@@ -100,40 +100,37 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 
 **v6 change:** One set of crons for all strategies. Each script reads `wolf-strategies.json` and iterates all enabled strategies internally.
 
-### Model Selection Per Cron — 3-Tier Approach
+### Model Selection Per Cron — 2-Tier Approach
 
-Configure per-cron in OpenClaw. Step down from your primary model for isolated crons to save ~60-70% on those runs.
+Configure per-cron in OpenClaw. Step down to Budget tier for simple threshold crons to save ~60-70% on those runs.
 
 **Example model IDs** (confirmed working on OpenClaw):
 
 | Tier | Role | Crons | Example Model IDs |
 |------|------|-------|--------------------|
-| **Primary** | Complex judgment, multi-strategy routing | Emerging Movers | Your configured model (runs on main session) |
-| **Mid** | Structured tasks, script output parsing | DSL Combined, Health Check | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash` |
+| **Mid** | Structured tasks, script output parsing, multi-strategy routing | Emerging Movers, DSL Combined, Health Check | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash` |
 | **Budget** | Simple threshold checks, binary decisions | SM Flip, Watchdog | `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite` |
 
 | Cron | Session | Model Tier | Reason |
 |------|---------|-----------|--------|
-| Emerging Movers | main | **Primary** | Multi-strategy routing judgment, entry decisions |
+| Emerging Movers | isolated | Mid | Multi-strategy routing judgment, entry decisions |
 | DSL Combined | isolated | Mid | Script output parsing, rule-based close/alert |
 | Health Check | isolated | Mid | Rule-based file repair, action routing |
 | SM Flip Detector | isolated | Budget | Binary: conviction≥4 + 100 traders → close |
 | Watchdog | isolated | Budget | Threshold checks → alert |
 
-**Single-model option:** All 5 crons can run on one model. Simpler but costs more for the 4 isolated crons that do structured/binary work.
+**Single-model option:** All 5 crons can run on one model. Simpler but costs more for the crons that do simple threshold/binary work.
 
 **Model ID gotchas:**
-- Pick one model per tier from your provider. The tier concept (Primary / Mid / Budget) matters more than the specific model — any provider's equivalent works.
-- Budget should be the cheapest model that can follow explicit if/then rules. Mid should handle structured JSON parsing reliably.
+- Pick one model per tier from your provider. The tier concept (Mid / Budget) matters more than the specific model — any provider's equivalent works.
+- Budget should be the cheapest model that can follow explicit if/then rules. Mid should handle structured JSON parsing and multi-strategy routing reliably.
 - Agents are often not model-aware — they may suggest deprecated IDs (e.g. `claude-3-5-haiku-20241022`) or hallucinate model names. Always use the exact IDs from the table above.
-- If a cron fails to create or run due to an invalid model ID, fall back to your primary model for that cron. A working cron on the "wrong" tier is better than a broken cron.
-- When in doubt, use your primary model for all 5 crons (single-model option) and optimize tiers later.
+- If a cron fails to create or run due to an invalid model ID, fall back to your Mid model for that cron. A working cron on the "wrong" tier is better than a broken cron.
+- When in doubt, use your Mid model for all 5 crons (single-model option) and optimize tiers later.
 
 ## Cron Setup
 
-**Critical:** Crons are **OpenClaw crons**, NOT senpi crons. WOLF uses two session types:
-- **Main session** (`systemEvent`): Emerging Movers. Shares the primary session context for accumulated routing knowledge.
-- **Isolated session** (`agentTurn`): DSL Combined, Health Check, SM Flip, Watchdog. Each runs in its own session — no context pollution, enables cheaper model tiers.
+**Critical:** Crons are **OpenClaw crons**, NOT senpi crons. All 5 crons run in **isolated sessions** (`agentTurn`) — each runs in its own session with no context pollution, enabling cheaper model tiers.
 
 Create each cron using the OpenClaw cron tool. The exact mandate text for each cron is in **`references/cron-templates.md`**. Read that file, replace the placeholders (`{TELEGRAM}`, `{SCRIPTS}`, and `{WORKSPACE}` in v6), and create all 5 crons.
 
@@ -347,7 +344,7 @@ XYZ DEX assets (GOLD, SILVER, TSLA, AAPL, etc.) behave differently:
 
 ## Token Optimization & Context Management
 
-**Model tiers:** See "Model Selection Per Cron" table. Primary for main-session crons, Mid/Budget for isolated crons. Configure per-cron in OpenClaw.
+**Model tiers:** See "Model Selection Per Cron" table. Mid for complex crons, Budget for simple threshold crons. Configure per-cron in OpenClaw.
 
 **Heartbeat policy:** If script output contains no actionable signals, output HEARTBEAT_OK immediately. Do not reason about what wasn't found.
 

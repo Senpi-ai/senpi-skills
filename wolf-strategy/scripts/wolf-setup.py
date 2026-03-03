@@ -54,7 +54,7 @@ parser.add_argument("--name", help="Human-readable strategy name (optional)")
 parser.add_argument("--dsl-preset", choices=["aggressive", "conservative"], default="aggressive",
                     help="DSL tier preset (default: aggressive)")
 parser.add_argument("--mid-model", default="anthropic/claude-sonnet-4-20250514",
-                    help="Model ID for Mid-tier isolated crons (DSL, Health)")
+                    help="Model ID for Mid-tier isolated crons (Emerging Movers, DSL, Health)")
 parser.add_argument("--budget-model", default="anthropic/claude-haiku-4-5",
                     help="Model ID for Budget-tier isolated crons (SM Flip, Watchdog)")
 parser.add_argument("--trading-risk", choices=["conservative", "moderate", "aggressive"],
@@ -248,13 +248,13 @@ margin_str = str(int(margin_per_slot))
 
 cron_templates = {
     "emerging_movers": {
-        "name": "WOLF Emerging Movers v5 (90s)",
-        "schedule": {"kind": "every", "everyMs": 90000},
-        "sessionTarget": "main",
-        "wakeMode": "now",
+        "name": "WOLF Emerging Movers v6 (3min)",
+        "schedule": {"kind": "every", "everyMs": 180000},
+        "sessionTarget": "isolated",
         "payload": {
-            "kind": "systemEvent",
-            "text": f"WOLF v6 Scanner: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS_DIR}/emerging-movers.py`, parse JSON.\n\nMANDATE: Hunt runners before they peak. Multi-strategy aware.\n1. **FIRST_JUMP**: 10+ rank jump from #25+ AND wasn't in previous top 50 (or was >= #30) -> ENTER IMMEDIATELY.\n2. **CONTRIB_EXPLOSION**: 3x+ contrib spike -> ENTER. NEVER downgrade for erratic history.\n3. **IMMEDIATE_MOVER**: 10+ rank jump from #25+ in ONE scan -> ENTER if not downgraded.\n4. **NEW_ENTRY_DEEP**: Appears in top 20 from nowhere -> ENTER.\n5. **Signal routing**: Read wolf-strategies.json. For each signal, find the best-fit strategy: check available slots, existing positions, risk profile match. Route to the strategy with open slots that doesn't already hold the asset.\n6. Leverage auto-calculated from tradingRisk + asset maxLeverage + signal conviction. Alert user on Telegram ({tg}).\n7. **DEAD WEIGHT RULE**: Negative ROE + SM conviction against it for 30+ min -> CUT immediately.\n8. **ROTATION RULE**: If target strategy slots FULL and FIRST_JUMP fires -> compare against weakest position in THAT strategy.\n9. If no actionable signals -> HEARTBEAT_OK.\n10. **AUTO-DELEVER**: Per-strategy threshold check.\n\n**POSITION OPENING**: Use `python3 {SCRIPTS_DIR}/open-position.py --strategy {{STRATEGY_KEY}} --asset {{ASSET}} --direction {{DIRECTION}} --conviction {{CONVICTION}}` to open positions. Conviction comes from scanner output. This handles position creation + DSL state atomically. Do NOT hand-craft DSL JSON."
+            "kind": "agentTurn",
+            "model": mid_model,
+            "message": f"WOLF v6 Scanner: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS_DIR}/emerging-movers.py`, parse JSON.\n\nMANDATE: Hunt runners before they peak. Multi-strategy aware.\n1. **FIRST_JUMP**: 10+ rank jump from #25+ AND wasn't in previous top 50 (or was >= #30) -> ENTER IMMEDIATELY.\n2. **CONTRIB_EXPLOSION**: 3x+ contrib spike -> ENTER. NEVER downgrade for erratic history.\n3. **IMMEDIATE_MOVER**: 10+ rank jump from #25+ in ONE scan -> ENTER if not downgraded.\n4. **NEW_ENTRY_DEEP**: Appears in top 20 from nowhere -> ENTER.\n5. **Signal routing**: Read wolf-strategies.json. For each signal, find the best-fit strategy: check available slots, existing positions, risk profile match. Route to the strategy with open slots that doesn't already hold the asset.\n6. Leverage auto-calculated from tradingRisk + asset maxLeverage + signal conviction. Alert user on Telegram ({tg}).\n7. **DEAD WEIGHT RULE**: Negative ROE + SM conviction against it for 30+ min -> CUT immediately.\n8. **ROTATION RULE**: If target strategy slots FULL and FIRST_JUMP fires -> compare against weakest position in THAT strategy.\n9. If no actionable signals -> HEARTBEAT_OK.\n10. **AUTO-DELEVER**: Per-strategy threshold check.\n\n**POSITION OPENING**: Use `python3 {SCRIPTS_DIR}/open-position.py --strategy {{STRATEGY_KEY}} --asset {{ASSET}} --direction {{DIRECTION}} --conviction {{CONVICTION}}` to open positions. Conviction comes from scanner output. This handles position creation + DSL state atomically. Do NOT hand-craft DSL JSON."
         }
     },
     "dsl_combined": {
@@ -338,15 +338,14 @@ You only need ONE set of crons regardless of strategy count.
   ┌──────────────────────┬──────────┬──────────┬─────────────────────────────────────────────┐
   │ Cron                 │ Session  │ Payload  │ Model                                       │
   ├──────────────────────┼──────────┼──────────┼─────────────────────────────────────────────┤
-  │ Emerging Movers      │ main     │ sysEvent │ Primary (your model)                        │
+  │ Emerging Movers      │ isolated │ agentTrn │ Mid: {mid_model}  │
   │ DSL Combined         │ isolated │ agentTrn │ Mid: {mid_model}  │
   │ Health Check         │ isolated │ agentTrn │ Mid: {mid_model}  │
   │ SM Flip Detector     │ isolated │ agentTrn │ Budget: {budget_model}       │
   │ Watchdog             │ isolated │ agentTrn │ Budget: {budget_model}       │
   └──────────────────────┴──────────┴──────────┴─────────────────────────────────────────────┘
 
-  Main crons share your primary session context (systemEvent).
-  Isolated crons run in their own session (agentTurn) — no context pollution.
+  All crons run in isolated sessions (agentTurn) — no context pollution.
   All 5 crons can also run on a single model if you prefer simplicity.
 """)
 

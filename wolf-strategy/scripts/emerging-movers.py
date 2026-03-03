@@ -10,7 +10,7 @@ v4 changes (WOLF v5 — 2026-02-24):
   jump THIS scan is the signal, not noise. CONTRIB_EXPLOSION never downgraded.
 - Velocity gate lowered for IMMEDIATEs: vel > 0 is enough (velocity hasn't built yet).
   Keep vel >= 0.03 for DEEP_CLIMBER signals only.
-- Scanner interval changed to 90s (from 60s) to reduce token burn.
+- Scanner interval changed to 3min (from 60s) to reduce token burn.
 
 v3.1 changes (2026-02-23):
 - Erratic rank history filter (now reworked in v4)
@@ -38,7 +38,7 @@ heartbeat("emerging_movers")
 HISTORY_FILE = os.environ.get("EMERGING_HISTORY", "/data/workspace/emerging-movers-history.json")
 MAX_LEV_FILE = os.path.join(WORKSPACE, "max-leverage.json")
 
-# Load max-leverage data (file-based, no API call — speed critical for 90s scanner)
+# Load max-leverage data (file-based, no API call — speed critical for 3min scanner)
 try:
     with open(MAX_LEV_FILE) as f:
         MAX_LEV_DATA = json.load(f)
