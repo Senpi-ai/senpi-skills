@@ -186,12 +186,11 @@ def main(deps=None):
 
     wallet = config["strategyWallet"]
     ch = get_clearinghouse(wallet)
-    if ch.get("error"):
-        output({"error": f"Clearinghouse failed: {ch['error']}"})
+    if not ch or ch.get("error"):
+        output({"error": f"Clearinghouse failed: {ch.get('error', 'empty response') if ch else 'no response'}"})
         return
 
-    ch_data = ch.get("data", ch)
-    positions = ch_data.get("assetPositions", [])
+    positions = ch.get("assetPositions", [])
 
     active_pos = get_active_positions(state)
     exit_signals = []
@@ -206,6 +205,10 @@ def main(deps=None):
     # Update state with high water marks
     set_active_positions(state, active_pos)
     save_state(config, state)
+
+    if not exit_signals:
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
 
     # Categorize actions
     close_needed = [e for e in exit_signals if e["primary_action"]["action"] == "CLOSE"]
@@ -233,14 +236,10 @@ def main(deps=None):
 
     output({
         "action": "exit_check",
-        "positions_checked": len(positions),
         "exit_signals": len(exit_signals),
         "close_needed": [{"coin": e["coin"], "reason": e["primary_action"]["reason"]} for e in close_needed],
         "partial_needed": [{"coin": e["coin"], "reason": e["primary_action"]["reason"]} for e in partial_needed],
-        "all_signals": exit_signals,
-        "aggression": state.get("aggression", "NORMAL"),
-        "days_remaining": round(state.get("daysRemaining", 7), 1),
-        "execution": execution
+        "execution": execution,
     })
 
 

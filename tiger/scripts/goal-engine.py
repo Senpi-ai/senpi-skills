@@ -30,12 +30,11 @@ def recalculate_goal(config, state, deps):
 
     # Fetch current balance from clearinghouse
     ch = get_clearinghouse(wallet)
-    if ch.get("error"):
-        return {"error": f"Clearinghouse fetch failed: {ch['error']}"}
+    if not ch or ch.get("error"):
+        return {"error": f"Clearinghouse fetch failed: {ch.get('error', 'empty response') if ch else 'no response'}"}
 
-    ch_data = ch.get("data", ch)
     # Parse account value from clearinghouse
-    margin_summary = ch_data.get("marginSummary", ch_data.get("crossMarginSummary", {}))
+    margin_summary = ch.get("marginSummary", ch.get("crossMarginSummary", {}))
     current_balance = float(margin_summary.get("accountValue", state.get("currentBalance", config["budget"])))
 
     # Update state

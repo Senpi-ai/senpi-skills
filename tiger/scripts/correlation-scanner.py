@@ -35,11 +35,10 @@ def check_btc_move(config: dict, state: dict, get_asset_candles_fn, now_fn=None)
     now_fn = now_fn or (lambda: datetime.now(timezone.utc).isoformat())
 
     result = get_asset_candles_fn("BTC", ["1h"])
-    if not result.get("success") and not result.get("data"):
+    if not result or result.get("error"):
         return {"triggered": False, "error": "Failed to fetch BTC data"}
 
-    data = result.get("data", result)
-    candles = data.get("candles", {}).get("1h", [])
+    candles = result.get("candles", {}).get("1h", [])
     if len(candles) < 5:
         return {"triggered": False, "error": "Insufficient BTC candle data"}
 
@@ -82,12 +81,11 @@ def check_alt_lag(
 ) -> dict:
     """Check if an alt is lagging behind BTC's move."""
     result = get_asset_candles_fn(asset, ["1h", "4h"])
-    if not result.get("success") and not result.get("data"):
+    if not result or result.get("error"):
         return None
 
-    data = result.get("data", result)
-    candles_1h = data.get("candles", {}).get("1h", [])
-    candles_4h = data.get("candles", {}).get("4h", [])
+    candles_1h = result.get("candles", {}).get("1h", [])
+    candles_4h = result.get("candles", {}).get("4h", [])
 
     if len(candles_1h) < 5 or len(candles_4h) < 20:
         return None
@@ -164,25 +162,24 @@ def check_alt_lag(
 
     score = confluence_score(factors)
 
-    return {
+    result = {
         "asset": asset,
         "pattern": "CORRELATION_LAG",
         "score": round(score, 2),
         "direction": direction,
         "current_price": current_price,
-        "alt_move_4h_pct": round(alt_move_4h, 2),
-        "lag_pct": round(lag, 2),
         "lag_ratio": round(lag_ratio, 2),
         "window_quality": window_quality,
-        "expected_catchup_pct": round(expected_catchup, 2),
-        "volume_ratio": round(vol_r, 2) if vol_r else None,
-        "volume_quiet": low_volume,
-        "rsi": round(current_rsi, 1) if current_rsi else None,
-        "sm_aligned": sm_aligned,
-        "atr_pct": round(atr_pct, 2),
         "max_leverage": max_lev,
-        "factors": {k: v[0] for k, v in factors.items()}
     }
+    if os.environ.get("TIGER_VERBOSE") == "1":
+        result["alt_move_4h_pct"] = round(alt_move_4h, 2)
+        result["expected_catchup_pct"] = round(expected_catchup, 2)
+        result["volume_ratio"] = round(vol_r, 2) if vol_r else None
+        result["rsi"] = round(current_rsi, 1) if current_rsi else None
+        result["sm_aligned"] = sm_aligned
+        result["factors"] = {k: v[0] for k, v in factors.items()}
+    return result
 
 
 def main(deps=None):
@@ -335,19 +332,23 @@ def main(deps=None):
         config=config
     )
 
+    if not actionable:
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
+
+    available_slots = config["maxSlots"] - len(active_coins)
     output({
         "action": "correlation_scan",
-        "btc_triggered": True,
         "btc_direction": btc["direction"],
         "btc_move_4h_pct": btc["move_4h_pct"],
-        "btc_move_1h_pct": btc["move_1h_pct"],
-        "alts_scanned": len(unique_scan),
-        "lagging_found": len(signals),
         "actionable": len(actionable),
-        "available_slots": config["maxSlots"] - len(active_coins),
+        "strategySlots": {
+            "available": available_slots,
+            "max": config["maxSlots"],
+            "anySlotsAvailable": available_slots > 0,
+        },
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
-        "active_positions": list(active_coins)
     })
 
 

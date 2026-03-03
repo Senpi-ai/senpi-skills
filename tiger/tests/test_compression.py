@@ -23,12 +23,9 @@ class TestScanAsset:
 
         def fn(asset, intervals):
             return {
-                "success": True,
-                "data": {
-                    "candles": {
-                        "1h": make_candles(closes_1h),
-                        "4h": make_candles(closes_4h),
-                    }
+                "candles": {
+                    "1h": make_candles(closes_1h),
+                    "4h": make_candles(closes_4h),
                 }
             }
         return fn
@@ -36,32 +33,26 @@ class TestScanAsset:
     def test_insufficient_1h_candles(self):
         """Returns None when fewer than 30 1h candles."""
         def fn(asset, intervals):
-            return {
-                "success": True,
-                "data": {"candles": {
-                    "1h": make_candles([100] * 10),  # Only 10
-                    "4h": make_candles([100] * 25),
-                }}
-            }
+            return {"candles": {
+                "1h": make_candles([100] * 10),  # Only 10
+                "4h": make_candles([100] * 25),
+            }}
         result = comp.scan_asset("ETH", {}, {"bbSqueezePercentile": 35}, {}, fn)
         assert result is None
 
     def test_insufficient_4h_candles(self):
         """Returns None when fewer than 25 4h candles."""
         def fn(asset, intervals):
-            return {
-                "success": True,
-                "data": {"candles": {
-                    "1h": make_candles([100] * 30),
-                    "4h": make_candles([100] * 10),  # Only 10
-                }}
-            }
+            return {"candles": {
+                "1h": make_candles([100] * 30),
+                "4h": make_candles([100] * 10),  # Only 10
+            }}
         result = comp.scan_asset("ETH", {}, {"bbSqueezePercentile": 35}, {}, fn)
         assert result is None
 
     def test_fetch_failure_returns_none(self):
         def fn(asset, intervals):
-            return {"success": False}
+            return {"error": "fetch failed"}
         result = comp.scan_asset("ETH", {}, {"bbSqueezePercentile": 35}, {}, fn)
         assert result is None
 
@@ -74,13 +65,10 @@ class TestScanAsset:
         tight_4h = [100 + (i % 2) * 0.01 for i in range(25)]
 
         def fn(asset, intervals):
-            return {
-                "success": True,
-                "data": {"candles": {
-                    "1h": make_candles(tight),
-                    "4h": make_candles(tight_4h),
-                }}
-            }
+            return {"candles": {
+                "1h": make_candles(tight),
+                "4h": make_candles(tight_4h),
+            }}
 
         config = {"bbSqueezePercentile": 50, "minOiChangePct": 5, "minLeverage": 5}
         context = {"openInterest": 50000, "funding": "0.0001", "max_leverage": 20}
@@ -91,7 +79,6 @@ class TestScanAsset:
             assert result["pattern"] == "COMPRESSION_BREAKOUT"
             assert result["asset"] == "ETH"
             assert "score" in result
-            assert "factors" in result
 
     def test_squeeze_pctl_above_40_returns_none(self):
         """scan_asset returns None when squeeze_pctl >= 40 (line 107 filter)."""
@@ -100,13 +87,10 @@ class TestScanAsset:
         volatile_4h = [100 + (i % 10) * 5 for i in range(25)]
 
         def fn(asset, intervals):
-            return {
-                "success": True,
-                "data": {"candles": {
-                    "1h": make_candles(volatile),
-                    "4h": make_candles(volatile_4h),
-                }}
-            }
+            return {"candles": {
+                "1h": make_candles(volatile),
+                "4h": make_candles(volatile_4h),
+            }}
 
         config = {"bbSqueezePercentile": 35, "minOiChangePct": 5, "minLeverage": 5}
         context = {"openInterest": 50000, "funding": "0.0001", "max_leverage": 20}
@@ -185,7 +169,7 @@ class TestMainIntegration:
 
         def mock_get_candles(asset, intervals):
             scanned_assets.append(asset)
-            return {"success": False}
+            return {"error": "not mocked"}
 
         instruments = [
             {"name": "ETH", "max_leverage": 20, "is_delisted": False,

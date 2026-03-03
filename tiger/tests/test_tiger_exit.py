@@ -265,3 +265,24 @@ class TestActionPriority:
         assert result is not None
         # DEADLINE=CRITICAL should outrank TRAILING_LOCK=HIGH
         assert result["primary_action"]["type"] == "DEADLINE"
+
+
+class TestMainClearinghouseGuard:
+    """Tests for empty response guards in main()."""
+
+    def test_error_response_outputs_error(self, mock_deps):
+        """Clearinghouse returning error dict → output error, no crash."""
+        mock_deps["get_clearinghouse"] = lambda wallet: {"error": "timeout after 3 attempts"}
+        exit_mod.main(deps=mock_deps)
+        captured = mock_deps["_captured_output"]
+        assert len(captured) == 1
+        assert "error" in captured[0]
+        assert "Clearinghouse failed" in captured[0]["error"]
+
+    def test_none_response_outputs_error(self, mock_deps):
+        """Clearinghouse returning None → output error, no crash."""
+        mock_deps["get_clearinghouse"] = lambda wallet: None
+        exit_mod.main(deps=mock_deps)
+        captured = mock_deps["_captured_output"]
+        assert len(captured) == 1
+        assert "no response" in captured[0]["error"]

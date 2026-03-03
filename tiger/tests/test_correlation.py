@@ -13,7 +13,7 @@ class TestCheckBtcMove:
     def _make_candles_result(self, closes):
         """Build a mock get_asset_candles return value from closes."""
         candles = make_candles(closes)
-        return {"success": True, "data": {"candles": {"1h": candles}}}
+        return {"candles": {"1h": candles}}
 
     def test_no_trigger_flat(self):
         # BTC barely moved: all closes ~65000
@@ -94,7 +94,7 @@ class TestCheckBtcMove:
         state = {}
 
         def get_candles(asset, intervals):
-            return {"success": False}
+            return {"error": "fetch failed"}
 
         result = corr.check_btc_move(config, state, get_candles)
         assert result["triggered"] is False
@@ -105,12 +105,9 @@ class TestCheckAltLag:
         """Build a mock get_asset_candles function."""
         def fn(asset, intervals):
             return {
-                "success": True,
-                "data": {
-                    "candles": {
-                        "1h": make_candles(closes_1h),
-                        "4h": make_candles(closes_4h),
-                    }
+                "candles": {
+                    "1h": make_candles(closes_1h),
+                    "4h": make_candles(closes_4h),
                 }
             }
         return fn
@@ -212,19 +209,17 @@ class TestCheckAltLag:
 class TestConfluenceFactors:
     """Verify the confluence factor booleans are computed correctly."""
 
-    def test_high_corr_alt_factor(self):
+    def test_high_corr_alt_factor(self, monkeypatch):
         """Assets in HIGH_CORR_ALTS get the high_correlation_alt factor."""
+        monkeypatch.setenv("TIGER_VERBOSE", "1")
         closes_1h = [100] * 5 + [100.1]
         closes_4h = [100] * 20 + [100.1]
 
         def mock_candles(asset, intervals):
-            return {
-                "success": True,
-                "data": {"candles": {
-                    "1h": make_candles(closes_1h),
-                    "4h": make_candles(closes_4h),
-                }}
-            }
+            return {"candles": {
+                "1h": make_candles(closes_1h),
+                "4h": make_candles(closes_4h),
+            }}
 
         instruments_map = {
             "ETH": {"max_leverage": 20, "context": {"openInterest": "50000", "funding": "0.0001"}}
@@ -239,19 +234,17 @@ class TestConfluenceFactors:
         if result:
             assert result["factors"]["high_correlation_alt"] is True
 
-    def test_non_corr_alt_factor(self):
+    def test_non_corr_alt_factor(self, monkeypatch):
         """Assets NOT in HIGH_CORR_ALTS don't get the factor."""
+        monkeypatch.setenv("TIGER_VERBOSE", "1")
         closes_1h = [100] * 5 + [100.1]
         closes_4h = [100] * 20 + [100.1]
 
         def mock_candles(asset, intervals):
-            return {
-                "success": True,
-                "data": {"candles": {
-                    "1h": make_candles(closes_1h),
-                    "4h": make_candles(closes_4h),
-                }}
-            }
+            return {"candles": {
+                "1h": make_candles(closes_1h),
+                "4h": make_candles(closes_4h),
+            }}
 
         instruments_map = {
             "RANDOMCOIN": {"max_leverage": 20, "context": {"openInterest": "50000", "funding": "0.0001"}}

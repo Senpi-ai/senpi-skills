@@ -42,12 +42,11 @@ def analyze_funding(asset: str, context: dict, config: dict, sm_data: dict, oi_h
 
     # Fetch candles for technical alignment check
     result = get_asset_candles_fn(asset, ["1h", "4h"])
-    if not result.get("success") and not result.get("data"):
+    if not result or result.get("error"):
         return None
 
-    data = result.get("data", result)
-    candles_1h = data.get("candles", {}).get("1h", [])
-    candles_4h = data.get("candles", {}).get("4h", [])
+    candles_1h = result.get("candles", {}).get("1h", [])
+    candles_4h = result.get("candles", {}).get("4h", [])
 
     if len(candles_4h) < 25:
         return None
@@ -108,26 +107,25 @@ def analyze_funding(asset: str, context: dict, config: dict, sm_data: dict, oi_h
 
     # Risk: if funding flips, you lose the yield AND might be counter-trend
     # Higher score = more confidence funding will persist
-    return {
+    result = {
         "asset": asset,
         "pattern": "FUNDING_ARB",
         "score": round(score, 2),
         "direction": direction,
         "current_price": current_price,
-        "funding_rate_8h": round(funding_rate * 100, 4),  # as %
         "funding_annualized_pct": round(funding_annualized, 1),
         "daily_yield_pct_margin": round(daily_funding_pct_margin, 2),
-        "weekly_yield_pct_margin": round(weekly_funding_pct_margin, 1),
         "leverage": leverage,
-        "trend_aligned": trend_aligned,
-        "sma_trend": sma_trend,
-        "rsi": round(current_rsi, 1) if current_rsi else None,
-        "rsi_safe": rsi_safe,
-        "oi_stable": oi_stable,
-        "sm_aligned": sm_aligned,
         "max_leverage": context.get("max_leverage", 0),
-        "factors": {k: v[0] for k, v in factors.items()}
     }
+    if os.environ.get("TIGER_VERBOSE") == "1":
+        result["funding_rate_8h"] = round(funding_rate * 100, 4)
+        result["weekly_yield_pct_margin"] = round(weekly_funding_pct_margin, 1)
+        result["rsi"] = round(current_rsi, 1) if current_rsi else None
+        result["rsi_safe"] = rsi_safe
+        result["sm_aligned"] = sm_aligned
+        result["factors"] = {k: v[0] for k, v in factors.items()}
+    return result
 
 
 def main(deps=None):
@@ -210,21 +208,21 @@ def main(deps=None):
     min_score = get_pattern_min_confluence(config, state, pattern)
     actionable = [s for s in signals if s["score"] >= min_score]
 
+    if not actionable:
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
+
+    available_slots = config["maxSlots"] - len(active_coins)
     output({
         "action": "funding_scan",
-        "scanned": len(candidates),
-        "extreme_funding_assets": len(candidates),
-        "signals_found": len(signals),
         "actionable": len(actionable),
-        "available_slots": config["maxSlots"] - len(active_coins),
+        "strategySlots": {
+            "available": available_slots,
+            "max": config["maxSlots"],
+            "anySlotsAvailable": available_slots > 0,
+        },
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
-        "all_extreme_funding": [
-            {"asset": s["asset"], "funding_ann": s["funding_annualized_pct"],
-             "daily_yield": s["daily_yield_pct_margin"], "direction": s["direction"]}
-            for s in signals[:10]
-        ],
-        "active_positions": list(active_coins)
     })
 
 

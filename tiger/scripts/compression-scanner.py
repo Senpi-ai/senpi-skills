@@ -23,12 +23,11 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict, get_asset
     """Analyze a single asset for compression breakout potential."""
     # Fetch candles
     result = get_asset_candles_fn(asset, ["1h", "4h"])
-    if not result.get("success") and not result.get("data"):
+    if not result or result.get("error"):
         return None
 
-    data = result.get("data", result)
-    candles_1h = data.get("candles", {}).get("1h", [])
-    candles_4h = data.get("candles", {}).get("4h", [])
+    candles_1h = result.get("candles", {}).get("1h", [])
+    candles_4h = result.get("candles", {}).get("4h", [])
 
     if len(candles_1h) < 30 or len(candles_4h) < 25:
         return None
@@ -105,26 +104,23 @@ def scan_asset(asset: str, context: dict, config: dict, oi_hist: dict, get_asset
 
     # Only report if in squeeze or breaking out
     if squeeze_pctl is not None and squeeze_pctl < 40:
-        return {
+        result = {
             "asset": asset,
             "pattern": "COMPRESSION_BREAKOUT",
             "score": round(score, 2),
             "direction": breakout_direction,
-            "bb_squeeze_percentile": round(squeeze_pctl, 1),
             "breakout": breakout_direction is not None,
             "current_price": current_price,
-            "upper_bb": round(upper_1h[-1], 4),
-            "lower_bb": round(lower_1h[-1], 4),
-            "rsi": round(current_rsi, 1) if current_rsi else None,
-            "atr_pct": round(atr_pct, 2),
-            "volume_ratio": round(vol_ratio, 2) if vol_ratio else None,
-            "oi": oi,
-            "oi_change_1h_pct": round(oi_change, 1) if oi_change else None,
-            "oi_price_divergence": oi_price_divergence,
-            "funding_annualized_pct": round(funding_annualized, 1),
             "max_leverage": context.get("max_leverage", 0),
-            "factors": {k: v[0] for k, v in factors.items()}
         }
+        if os.environ.get("TIGER_VERBOSE") == "1":
+            result["bb_squeeze_percentile"] = round(squeeze_pctl, 1)
+            result["rsi"] = round(current_rsi, 1) if current_rsi else None
+            result["atr_pct"] = round(atr_pct, 2)
+            result["volume_ratio"] = round(vol_ratio, 2) if vol_ratio else None
+            result["oi_change_1h_pct"] = round(oi_change, 1) if oi_change else None
+            result["factors"] = {k: v[0] for k, v in factors.items()}
+        return result
 
     return None
 
@@ -212,19 +208,21 @@ def main(deps=None):
     # Check slot availability
     available_slots = config["maxSlots"] - len(active_coins)
 
+    if not actionable:
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
+
     report = {
         "action": "compression_scan",
         "scanned": len(candidates),
-        "signals_found": len(signals),
         "actionable": len(actionable),
-        "watching": len(watching),
-        "available_slots": available_slots,
-        "min_score": min_score,
+        "strategySlots": {
+            "available": available_slots,
+            "max": config["maxSlots"],
+            "anySlotsAvailable": available_slots > 0,
+        },
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
-        "watching_list": watching[:5],
-        "all_signals": signals[:5],
-        "active_positions": list(active_coins)
     }
 
     output(report)
