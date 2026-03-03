@@ -1,2 +1,4 @@
 design/*
 .env
+.verify-dsl
+design*

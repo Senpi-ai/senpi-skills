@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DSL v5 — Strategy-scoped cron, MCP clearinghouse + price, delete on close.
+"""DSL v5.1 — Strategy-scoped cron, MCP clearinghouse + price, delete on close.
 Cron is per strategy (DSL_STATE_DIR + DSL_STRATEGY_ID only). Each run:
 1. Check if strategy is active via MCP; if not, cleanup all state files and output strategy_inactive.
 2. Get active positions from MCP clearinghouse; delete state files for positions that no longer exist.
@@ -8,6 +8,7 @@ Output: one JSON line per position (ndjson), or one line for strategy-level outc
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -72,6 +73,21 @@ def dex_and_lookup_symbol(asset: str) -> tuple[str, str]:
     if asset.startswith("xyz:"):
         return "xyz", asset.split(":", 1)[1]
     return "", asset
+
+
+def normalize_asset_dex(asset: str, dex: str | None) -> tuple[str, str]:
+    """Return (canonical_asset, dex). Canonical asset has 'xyz:' prefix for xyz dex.
+    - asset xyz:SILVER → (xyz:SILVER, 'xyz'); dex arg inferred from prefix.
+    - asset SILVER, dex 'xyz' → (xyz:SILVER, 'xyz').
+    - asset ETH, dex '' or 'main' or None → (ETH, '').
+    """
+    asset = (asset or "").strip()
+    dex_val = (dex or "").strip().lower() if dex else ""
+    if asset.startswith("xyz:"):
+        return asset, "xyz"
+    if dex_val == "xyz":
+        return f"xyz:{asset}", "xyz"
+    return asset, ""
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +201,30 @@ def get_active_position_coins(wallet: str) -> tuple[set[str], str | None]:
     return coins, None
 
 
+def get_position_from_clearinghouse(wallet: str, asset: str) -> tuple[dict | None, str | None]:
+    """Get position dict for one asset from clearinghouse. Returns (position, error).
+    position has entryPx, szi, coin. Error if position not found or clearinghouse failed.
+    """
+    data, err = _mcp_clearinghouse(wallet)
+    if err is not None:
+        return None, err
+    for section in ("main", "xyz"):
+        if not data or section not in data:
+            continue
+        for p in data.get(section, {}).get("assetPositions", []):
+            pos = p.get("position", {})
+            coin = pos.get("coin")
+            if not coin:
+                continue
+            if coin != asset and not (asset.startswith("xyz:") and coin == asset.split(":", 1)[1]):
+                continue
+            szi = float(pos.get("szi", 0))
+            if szi == 0:
+                continue
+            return pos, None
+    return None, f"no open position for asset {asset!r}"
+
+
 def cleanup_strategy_state_dir(state_dir: str, strategy_id: str) -> int:
     """Delete all .json state files in strategy dir. Return count deleted."""
     deleted = 0
@@ -276,9 +316,18 @@ def fetch_price_mcp(dex: str, lookup_symbol: str) -> tuple[float | None, str | N
 
 # Schema defaults for phase config (see references/state-schema.md)
 DEFAULT_PHASE1_RETRACE = 0.03
-DEFAULT_PHASE1_BREACHES = 3
+DEFAULT_PHASE1_BREACHES = 1
 DEFAULT_PHASE2_RETRACE = 0.015
-DEFAULT_PHASE2_BREACHES = 2
+DEFAULT_PHASE2_BREACHES = 1
+
+DEFAULT_TIERS = [
+    {"triggerPct": 10, "lockPct": 5},
+    {"triggerPct": 20, "lockPct": 14},
+    {"triggerPct": 30, "lockPct": 22, "retrace": 0.012},
+    {"triggerPct": 50, "lockPct": 40, "retrace": 0.010},
+    {"triggerPct": 75, "lockPct": 60, "retrace": 0.008},
+    {"triggerPct": 100, "lockPct": 80, "retrace": 0.006},
+]
 
 
 def normalize_state_phase_config(state: dict) -> bool:
@@ -711,7 +760,7 @@ def build_output(
         distance_to_next_tier = round(tiers[tier_idx + 1]["triggerPct"] - upnl_pct, 2)
 
     status = "inactive" if closed else ("pending_close" if state.get("pendingClose") else "active")
-    return {
+    out = {
         "status": status,
         "asset": state["asset"],
         "direction": direction,
@@ -743,6 +792,8 @@ def build_output(
         "sl_initial_sync": sl_initial_sync,
         "sl_order_id": state.get("slOrderId"),
     }
+    out["preset"] = state.get("preset", "default")
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -811,7 +862,9 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
     hw = update_high_water(state, price, is_long)
 
     upnl = (price - entry) * size if is_long else (entry - price) * size
-    margin = entry * size / leverage
+    margin = state.get("margin")
+    if margin is None or margin <= 0:
+        margin = entry * size / leverage
     upnl_pct = upnl / margin * 100
 
     tier_idx, tier_floor, tier_changed, previous_tier_idx = apply_tier_upgrades(
@@ -902,10 +955,335 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Main (strategy-scoped)
+# CLI subcommands (add-dsl, update-dsl, pause-dsl, resume-dsl, delete-dsl, status-dsl)
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+SUBCOMMANDS = {"add-dsl", "update-dsl", "pause-dsl", "resume-dsl", "delete-dsl", "status-dsl"}
+CRON_SCHEDULE = "*/3 * * * *"
+
+
+def _deep_merge_config(base: dict, override: dict, configurable_keys: set) -> None:
+    """Merge override into base for configurable keys. phase1/phase2 deep-merge; tiers full replace."""
+    for key in list(override.keys()):
+        if key not in configurable_keys:
+            continue
+        val = override[key]
+        if key == "tiers":
+            if isinstance(val, list):
+                base[key] = list(val)
+            continue
+        if key in ("phase1", "phase2") and isinstance(val, dict):
+            if key not in base or not isinstance(base[key], dict):
+                base[key] = {}
+            for k, v in val.items():
+                base[key][k] = v
+            continue
+        base[key] = val
+
+
+def _add_dsl_build_state(
+    asset: str,
+    direction: str,
+    leverage: float,
+    margin: float,
+    entry_price: float,
+    size: float,
+    wallet: str,
+    strategy_id: str,
+    preset: str,
+    config_json: dict | None,
+) -> dict:
+    """Build state dict for add-dsl. Uses defaults and optional --config merge."""
+    configurable = {
+        "phase1", "phase2", "phase2TriggerTier", "tiers",
+        "breachDecay", "closeRetries", "closeRetryDelaySec", "maxFetchFailures",
+    }
+    state = {
+        "phase1": {
+            "retraceThreshold": DEFAULT_PHASE1_RETRACE,
+            "consecutiveBreachesRequired": DEFAULT_PHASE1_BREACHES,
+            "absoluteFloor": 0.0,
+        },
+        "phase2": {
+            "retraceThreshold": DEFAULT_PHASE2_RETRACE,
+            "consecutiveBreachesRequired": DEFAULT_PHASE2_BREACHES,
+        },
+        "phase2TriggerTier": 0,
+        "tiers": list(DEFAULT_TIERS),
+        "breachDecay": "hard",
+        "closeRetries": 2,
+        "closeRetryDelaySec": 3,
+        "maxFetchFailures": 10,
+    }
+    if config_json and isinstance(config_json, dict):
+        _deep_merge_config(state, config_json, configurable)
+    lev = max(1, leverage)
+    is_long = direction.upper() == "LONG"
+    retrace_roe = state["phase1"]["retraceThreshold"]
+    if is_long:
+        abs_floor = round(entry_price * (1 - retrace_roe / lev), 4)
+    else:
+        abs_floor = round(entry_price * (1 + retrace_roe / lev), 4)
+    state["phase1"]["absoluteFloor"] = abs_floor
+    state["active"] = True
+    state["asset"] = asset
+    state["direction"] = direction.upper()
+    state["leverage"] = lev
+    state["entryPrice"] = round(entry_price, 4)
+    state["size"] = round(size, 4)
+    state["margin"] = round(margin, 4)
+    state["wallet"] = wallet
+    state["strategyId"] = strategy_id
+    state["preset"] = preset or "default"
+    state["phase"] = 1
+    state["highWaterPrice"] = round(entry_price, 4)
+    state["floorPrice"] = abs_floor
+    state["currentTierIndex"] = -1
+    state["tierFloorPrice"] = None
+    state["currentBreachCount"] = 0
+    state["consecutiveFetchFailures"] = 0
+    state["pendingClose"] = False
+    state["lastCheck"] = None
+    state["lastPrice"] = None
+    state["createdAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return state
+
+
+def cmd_add_dsl() -> None:
+    parser = argparse.ArgumentParser(prog="dsl-v5.py add-dsl")
+    parser.add_argument("preset", nargs="?", default="default", help="Preset name (e.g. dsl-tight)")
+    parser.add_argument("--asset", required=True, help="Ticker: ETH (main) or xyz:SILVER (xyz) or SILVER with --dex xyz")
+    parser.add_argument("--dex", type=str, default=None, help="DEX: main or '' for main, xyz for xyz. Required when asset has no prefix and position is on xyz (e.g. --asset SILVER --dex xyz). Inferred from xyz: prefix when omitted.")
+    parser.add_argument("--direction", required=True, choices=["LONG", "SHORT"], help="LONG or SHORT")
+    parser.add_argument("--leverage", type=float, required=True, help="Leverage (positive)")
+    parser.add_argument("--margin", type=float, required=True, help="Position margin (collateral) in quote units; used for ROE. Must be > 0.")
+    parser.add_argument("--config", type=str, default=None, help="Optional JSON config override")
+    parser.add_argument("--state-dir", type=str, default=None, help="State directory (default: env or /data/workspace/dsl)")
+    parser.add_argument("--strategy-id", type=str, default=None, help="Strategy ID (default: DSL_STRATEGY_ID)")
+    args = parser.parse_args(sys.argv[2:])
+    asset, _dex = normalize_asset_dex(args.asset, args.dex)
+    state_dir = args.state_dir or os.environ.get("DSL_STATE_DIR", DEFAULT_STATE_DIR)
+    strategy_id = (args.strategy_id or os.environ.get("DSL_STRATEGY_ID", "")).strip()
+    if not strategy_id:
+        print(json.dumps({"action": "add-dsl", "status": "error", "error": "strategy_id_required", "message": "Set --strategy-id or DSL_STRATEGY_ID"}))
+        sys.exit(1)
+    if args.leverage <= 0:
+        print(json.dumps({"action": "add-dsl", "status": "error", "error": "invalid_leverage", "message": "leverage must be > 0"}))
+        sys.exit(1)
+    if args.margin <= 0:
+        print(json.dumps({"action": "add-dsl", "status": "error", "error": "invalid_margin", "message": "margin must be > 0"}))
+        sys.exit(1)
+    config_json = None
+    if args.config:
+        try:
+            config_json = json.loads(args.config)
+            if not isinstance(config_json, dict):
+                config_json = None
+        except json.JSONDecodeError as e:
+            print(json.dumps({"action": "add-dsl", "status": "error", "error": "invalid_config_json", "message": str(e)}))
+            sys.exit(1)
+    active, wallet, err, _ = get_strategy_active_and_wallet(strategy_id)
+    if not active:
+        print(json.dumps({"action": "add-dsl", "status": "error", "error": "strategy_get_failed", "message": err or "Strategy not active or not found"}))
+        sys.exit(1)
+    pos, pos_err = get_position_from_clearinghouse(wallet, asset)
+    if pos is None:
+        print(json.dumps({"action": "add-dsl", "status": "error", "error": "position_not_found", "message": pos_err, "asset": asset}))
+        sys.exit(1)
+    try:
+        entry_price = float(pos.get("entryPx", 0))
+        szi = float(pos.get("szi", 0))
+        size = abs(szi)
+    except (TypeError, ValueError):
+        print(json.dumps({"action": "add-dsl", "status": "error", "error": "invalid_position_data", "message": "entryPx/szi missing or invalid"}))
+        sys.exit(1)
+    if entry_price <= 0 or size <= 0:
+        print(json.dumps({"action": "add-dsl", "status": "error", "error": "invalid_position_data", "message": "entryPx and size must be > 0"}))
+        sys.exit(1)
+    state = _add_dsl_build_state(
+        asset, args.direction.upper(), args.leverage, args.margin,
+        entry_price, size, wallet, strategy_id, args.preset, config_json,
+    )
+    state_file = os.path.join(state_dir, strategy_id, f"{asset_to_filename(asset)}.json")
+    if os.path.isfile(state_file):
+        print(json.dumps({"action": "add-dsl", "status": "error", "error": "state_file_exists", "message": "State file already exists; overwrite not allowed", "state_file": state_file}))
+        sys.exit(1)
+    try:
+        os.makedirs(os.path.dirname(state_file), exist_ok=True)
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
+    except OSError as e:
+        print(json.dumps({"action": "add-dsl", "status": "error", "error": "write_failed", "message": str(e), "state_file": state_file}))
+        sys.exit(1)
+    existing = list_strategy_state_files(state_dir, strategy_id)
+    is_first = len(existing) == 1
+    out = {
+        "action": "add-dsl",
+        "status": "ok",
+        "preset": state["preset"],
+        "asset": asset,
+        "strategy_id": strategy_id,
+        "state_file": state_file,
+        "is_first_position_for_strategy": is_first,
+        "cron_needed": is_first,
+        "cron_env": {"DSL_STATE_DIR": state_dir, "DSL_STRATEGY_ID": strategy_id, "DSL_PRESET": state["preset"]},
+        "cron_schedule": CRON_SCHEDULE,
+    }
+    print(json.dumps(out))
+
+
+def cmd_update_dsl() -> None:
+    parser = argparse.ArgumentParser(prog="dsl-v5.py update-dsl")
+    parser.add_argument("--asset", type=str, default=None, help="Omit to update all positions in strategy. Use xyz:SILVER or SILVER with --dex xyz for xyz.")
+    parser.add_argument("--dex", type=str, default=None, help="DEX when asset has no prefix (e.g. --asset SILVER --dex xyz)")
+    parser.add_argument("--config", type=str, required=True, help="JSON config to merge")
+    parser.add_argument("--state-dir", type=str, default=None)
+    parser.add_argument("--strategy-id", type=str, default=None)
+    args = parser.parse_args(sys.argv[2:])
+    state_dir = args.state_dir or os.environ.get("DSL_STATE_DIR", DEFAULT_STATE_DIR)
+    strategy_id = (args.strategy_id or os.environ.get("DSL_STRATEGY_ID", "")).strip()
+    if not strategy_id:
+        print(json.dumps({"action": "update-dsl", "status": "error", "error": "strategy_id_required"}))
+        sys.exit(1)
+    try:
+        config_json = json.loads(args.config)
+        if not isinstance(config_json, dict):
+            raise ValueError("config must be a JSON object")
+    except (json.JSONDecodeError, ValueError) as e:
+        print(json.dumps({"action": "update-dsl", "status": "error", "error": "invalid_config", "message": str(e)}))
+        sys.exit(1)
+    configurable = {"phase1", "phase2", "phase2TriggerTier", "tiers", "breachDecay", "closeRetries", "closeRetryDelaySec", "maxFetchFailures"}
+    files = list_strategy_state_files(state_dir, strategy_id)
+    if args.asset:
+        canonical_asset, _ = normalize_asset_dex(args.asset, args.dex)
+        files = [(p, a) for p, a in files if a == canonical_asset]
+    if not files:
+        print(json.dumps({"action": "update-dsl", "status": "error", "error": "no_state_files", "message": "No matching state file(s)"}))
+        sys.exit(1)
+    updated = 0
+    for path, asset in files:
+        try:
+            with open(path) as f:
+                state = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        _deep_merge_config(state, config_json, configurable)
+        if "phase1" in config_json and "absoluteFloor" not in config_json.get("phase1", {}):
+            entry = state.get("entryPrice")
+            lev = max(1, state.get("leverage", 1))
+            is_long = (state.get("direction", "LONG").upper() == "LONG")
+            if entry is not None:
+                retrace = state["phase1"].get("retraceThreshold", DEFAULT_PHASE1_RETRACE)
+                if is_long:
+                    state["phase1"]["absoluteFloor"] = round(entry * (1 - retrace / lev), 4)
+                else:
+                    state["phase1"]["absoluteFloor"] = round(entry * (1 + retrace / lev), 4)
+        try:
+            with open(path, "w") as f:
+                json.dump(state, f, indent=2)
+            updated += 1
+        except OSError:
+            pass
+    print(json.dumps({"action": "update-dsl", "status": "ok", "strategy_id": strategy_id, "updated_count": updated}))
+
+
+def _cmd_pause_resume_dsl(active: bool) -> None:
+    name = "resume-dsl" if active else "pause-dsl"
+    parser = argparse.ArgumentParser(prog=f"dsl-v5.py {name}")
+    parser.add_argument("--asset", type=str, default=None, help="e.g. ETH or xyz:SILVER or SILVER with --dex xyz")
+    parser.add_argument("--dex", type=str, default=None, help="DEX when asset has no prefix")
+    parser.add_argument("--state-dir", type=str, default=None)
+    parser.add_argument("--strategy-id", type=str, default=None)
+    args = parser.parse_args(sys.argv[2:])
+    state_dir = args.state_dir or os.environ.get("DSL_STATE_DIR", DEFAULT_STATE_DIR)
+    strategy_id = (args.strategy_id or os.environ.get("DSL_STRATEGY_ID", "")).strip()
+    if not strategy_id:
+        print(json.dumps({"action": name, "status": "error", "error": "strategy_id_required"}))
+        sys.exit(1)
+    files = list_strategy_state_files(state_dir, strategy_id)
+    if args.asset:
+        canonical_asset, _ = normalize_asset_dex(args.asset, args.dex)
+        files = [(p, a) for p, a in files if a == canonical_asset]
+    for path, _ in files:
+        try:
+            with open(path) as f:
+                state = json.load(f)
+            state["active"] = active
+            with open(path, "w") as f:
+                json.dump(state, f, indent=2)
+        except (OSError, json.JSONDecodeError):
+            pass
+    print(json.dumps({"action": name, "status": "ok", "strategy_id": strategy_id, "active": active}))
+
+
+def cmd_delete_dsl() -> None:
+    parser = argparse.ArgumentParser(prog="dsl-v5.py delete-dsl")
+    parser.add_argument("--asset", type=str, default=None, help="e.g. ETH or xyz:SILVER or SILVER with --dex xyz")
+    parser.add_argument("--dex", type=str, default=None, help="DEX when asset has no prefix")
+    parser.add_argument("--state-dir", type=str, default=None)
+    parser.add_argument("--strategy-id", type=str, default=None)
+    args = parser.parse_args(sys.argv[2:])
+    state_dir = args.state_dir or os.environ.get("DSL_STATE_DIR", DEFAULT_STATE_DIR)
+    strategy_id = (args.strategy_id or os.environ.get("DSL_STRATEGY_ID", "")).strip()
+    if not strategy_id:
+        print(json.dumps({"action": "delete-dsl", "status": "error", "error": "strategy_id_required"}))
+        sys.exit(1)
+    files = list_strategy_state_files(state_dir, strategy_id)
+    if args.asset:
+        canonical_asset, _ = normalize_asset_dex(args.asset, args.dex)
+        files = [(p, a) for p, a in files if a == canonical_asset]
+    deleted = 0
+    for path, _ in files:
+        try:
+            os.remove(path)
+            deleted += 1
+        except OSError:
+            pass
+    strategy_dir = os.path.join(state_dir, strategy_id)
+    if os.path.isdir(strategy_dir) and not os.listdir(strategy_dir):
+        try:
+            os.rmdir(strategy_dir)
+        except OSError:
+            pass
+    print(json.dumps({"action": "delete-dsl", "status": "ok", "strategy_id": strategy_id, "deleted_count": deleted}))
+
+
+def cmd_status_dsl() -> None:
+    parser = argparse.ArgumentParser(prog="dsl-v5.py status-dsl")
+    parser.add_argument("--asset", type=str, default=None, help="e.g. ETH or xyz:SILVER or SILVER with --dex xyz")
+    parser.add_argument("--dex", type=str, default=None, help="DEX when asset has no prefix")
+    parser.add_argument("--state-dir", type=str, default=None)
+    parser.add_argument("--strategy-id", type=str, default=None)
+    args = parser.parse_args(sys.argv[2:])
+    state_dir = args.state_dir or os.environ.get("DSL_STATE_DIR", DEFAULT_STATE_DIR)
+    strategy_id = (args.strategy_id or os.environ.get("DSL_STRATEGY_ID", "")).strip()
+    if not strategy_id:
+        print(json.dumps({"action": "status-dsl", "status": "error", "error": "strategy_id_required"}))
+        sys.exit(1)
+    files = list_strategy_state_files(state_dir, strategy_id)
+    if args.asset:
+        canonical_asset, _ = normalize_asset_dex(args.asset, args.dex)
+        files = [(p, a) for p, a in files if a == canonical_asset]
+    if not files:
+        print(json.dumps({"action": "status-dsl", "status": "ok", "strategy_id": strategy_id, "positions": []}))
+        return
+    for path, asset in files:
+        try:
+            with open(path) as f:
+                state = json.load(f)
+            if args.asset:
+                print(json.dumps(state, indent=2))
+            else:
+                print(json.dumps(state))
+        except (OSError, json.JSONDecodeError):
+            pass
+
+
+# ---------------------------------------------------------------------------
+# Main (strategy-scoped monitor)
+# ---------------------------------------------------------------------------
+
+def main_monitor() -> None:
     state_dir = os.environ.get("DSL_STATE_DIR", DEFAULT_STATE_DIR)
     strategy_id = os.environ.get("DSL_STRATEGY_ID", "").strip()
     if not strategy_id:
@@ -919,9 +1297,11 @@ def main() -> None:
     if not active:
         if confirmed_inactive:
             deleted = cleanup_strategy_state_dir(state_dir, strategy_id)
+            dsl_preset = os.environ.get("DSL_PRESET", "") or "default"
             print(json.dumps({
                 "status": "strategy_inactive",
                 "strategy_id": strategy_id,
+                "preset": dsl_preset,
                 "message": "Strategy not active (Senpi MCP). State files cleaned. Agent: remove cron for this strategy.",
                 "reason": active_error,
                 "state_files_deleted": deleted,
@@ -929,11 +1309,12 @@ def main() -> None:
             }))
             sys.exit(0)
         else:
-            # Transient/API error (timeout, mcporter down, malformed response): do not delete state.
+            dsl_preset = os.environ.get("DSL_PRESET", "") or "default"
             print(json.dumps({
                 "status": "error",
                 "error": "strategy_get_failed",
                 "strategy_id": strategy_id,
+                "preset": dsl_preset,
                 "message": active_error,
                 "time": now,
             }))
@@ -942,10 +1323,12 @@ def main() -> None:
     # 2. Active positions from clearinghouse.
     coins, ch_error = get_active_position_coins(wallet)
     if ch_error is not None:
+        dsl_preset = os.environ.get("DSL_PRESET", "") or "default"
         print(json.dumps({
             "status": "error",
             "error": "clearinghouse_failed",
             "strategy_id": strategy_id,
+            "preset": dsl_preset,
             "message": ch_error,
             "time": now,
         }))
@@ -967,12 +1350,33 @@ def main() -> None:
             processed += 1
 
     if processed == 0:
+        dsl_preset = os.environ.get("DSL_PRESET", "") or "default"
         print(json.dumps({
             "status": "no_positions",
             "strategy_id": strategy_id,
+            "preset": dsl_preset,
             "message": "Strategy active but no position state files to process. Agent: keep cron; next run may have positions or output strategy_inactive after cleanup.",
             "time": now,
         }))
+
+
+def main() -> None:
+    if len(sys.argv) >= 2 and sys.argv[1] in SUBCOMMANDS:
+        cmd = sys.argv[1]
+        if cmd == "add-dsl":
+            cmd_add_dsl()
+        elif cmd == "update-dsl":
+            cmd_update_dsl()
+        elif cmd == "pause-dsl":
+            _cmd_pause_resume_dsl(active=False)
+        elif cmd == "resume-dsl":
+            _cmd_pause_resume_dsl(active=True)
+        elif cmd == "delete-dsl":
+            cmd_delete_dsl()
+        elif cmd == "status-dsl":
+            cmd_status_dsl()
+        return
+    main_monitor()
 
 
 if __name__ == "__main__":

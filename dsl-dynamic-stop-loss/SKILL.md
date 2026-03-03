@@ -11,12 +11,12 @@ compatibility: >-
   Hyperliquid perp positions only (main dex and xyz dex).
 metadata:
   author: jason-goldberg
-  version: "5.0"
+  version: "5.1"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# Dynamic Stop Loss (DSL) v5
+# Dynamic Stop Loss (DSL) v5.1
 
 **Scope — DSL only.** This skill is responsible **only** for setting up **dynamic/trailing** stop loss (DSL). It does **not** handle normal (static) stop loss. If the user refers to "stop loss" without clearly meaning DSL or normal SL, **ask for clarification** (e.g. "Do you want a trailing stop that moves up with profit, or a fixed price stop loss?") before acting.
 
@@ -32,7 +32,7 @@ metadata:
 
 ---
 
-Automated trailing stop loss for leveraged perp positions on Hyperliquid (main and xyz dex). Monitors price via cron, ratchets profit floors upward through configurable tiers, and **syncs the stop loss to Hyperliquid** via Senpi `edit_position` so that **Hyperliquid executes the SL** when price hits — reducing loss exposure versus a 3-minute cron-only close. Breach detection, tier upgrades, and retraction logic still run in the cron; cancellation and setup of the SL happen via Senpi API; the new SL order ID is stored in state and status can be checked via `strategy_get_open_orders`. On breach the script may still call `close_position` as a backup. v5 adds strategy-scoped state paths and delete-on-close cleanup.
+Automated trailing stop loss for leveraged perp positions on Hyperliquid (main and xyz dex). Monitors price via cron, ratchets profit floors upward through configurable tiers, and **syncs the stop loss to Hyperliquid** via Senpi `edit_position` so that **Hyperliquid executes the SL** when price hits — reducing loss exposure versus a 3-minute cron-only close. Breach detection, tier upgrades, and retraction logic still run in the cron; cancellation and setup of the SL happen via Senpi API; the new SL order ID is stored in state and status can be checked via `strategy_get_open_orders`. On breach the script may still call `close_position` as a backup. v5.1 adds strategy-scoped state paths, delete-on-close cleanup, and add-dsl/update-dsl CLI.
 
 ## Self-Contained Design
 
@@ -155,12 +155,16 @@ For LONGs, "best" = maximum. For SHORTs, "best" = minimum.
 
 | File | Purpose |
 |------|---------|
-| `scripts/dsl-v5.py` | Strategy-scoped DSL: MCP clearinghouse + reconcile state, then per-position monitor/close, outputs ndjson |
+| `scripts/dsl-v5.py` | Strategy-scoped DSL: MCP clearinghouse + reconcile state, then per-position monitor/close, outputs ndjson. Run with no args for monitor; use subcommands add-dsl, update-dsl, pause-dsl, resume-dsl, delete-dsl, status-dsl for state management. |
 | `scripts/dsl-cleanup.py` | Strategy-level cleanup — deletes strategy dir when all positions closed |
-| State file (JSON) | Per-position config + runtime state; path: `{DSL_STATE_DIR}/{strategyId}/{asset}.json` |
+| State file (JSON) | Per-position config + runtime state; path: `{DSL_STATE_DIR}/{strategyId}/{asset}.json` or `xyz--SYMBOL.json` for xyz |
+| [references/cli-options.md](references/cli-options.md) | All CLI options and `--config` keys for constructing add-dsl/update-dsl commands |
+| [references/examples.md](references/examples.md) | CLI and workflow examples (add-dsl, update-dsl, pause, status, delete, cron) |
+| [references/state-schema.md](references/state-schema.md) | State file path conventions and JSON schema |
 | [references/migration.md](references/migration.md) | Upgrading from cron-only DSL to Hyperliquid SL flow |
+| [references/cleanup.md](references/cleanup.md) | Strategy cleanup on inactive / no positions |
 
-Use `DSL_STATE_DIR` + `DSL_STRATEGY_ID` only for cron (no per-position env). See [references/state-schema.md](references/state-schema.md) for path conventions. Cleanup: [references/cleanup.md](references/cleanup.md). Upgrading from cron-only DSL: [references/migration.md](references/migration.md).
+Use `DSL_STATE_DIR` + `DSL_STRATEGY_ID` only for cron (no per-position env).
 
 ## State File Schema
 
@@ -247,19 +251,10 @@ No `DSL_ASSET` — the script discovers positions from MCP clearinghouse and sta
 **Agent must complete all steps; cron is one per strategy, created automatically.**
 
 1. Open position via Senpi API (`create_position`) if not already open.
-2. **Create state directory and file** (see "State directory and file creation" below) — pay close attention to path and filename. Ensure the state file’s `wallet` and `strategyId` match the strategy (script uses wallet to call clearinghouse).
-3. **Cron:** One cron per strategy. If this is the first position for this strategy, create the cron (every 3–5 min) with `DSL_STATE_DIR` and `DSL_STRATEGY_ID` only. If the strategy already has a cron, do not add another; the same cron run will pick up the new position via clearinghouse and its state file.
-4. DSL handles monitoring and close from there.
+2. **Create state via CLI:** run `python3 scripts/dsl-v5.py add-dsl <preset> --strategy-id ID --asset ASSET --direction LONG|SHORT --leverage N --margin N`. Entry/size/wallet from clearinghouse; position must exist. Use output `cron_env` and `cron_schedule`; if `is_first_position_for_strategy` create one cron per strategy. For all options (e.g. `--config`, `--dex`) see [references/cli-options.md](references/cli-options.md).
+3. DSL handles monitoring and close from there.
 
-### State directory and file creation
-
-- **Base directory:** Use `DSL_STATE_DIR` (e.g. `/data/workspace/dsl`). Ensure it exists; create it if missing.
-- **Strategy directory:** `{DSL_STATE_DIR}/{strategyId}` — create this directory if it does not exist. One directory per strategy.
-- **State filename:**
-  - Main dex: `{asset}.json` (e.g. `ETH` → `ETH.json`, `HYPE` → `HYPE.json`).
-  - xyz dex: replace colon with double-dash — `xyz:SILVER` → `xyz--SILVER.json`, `xyz:AAPL` → `xyz--AAPL.json`.
-- **Full path:** `{DSL_STATE_DIR}/{strategyId}/{filename}.json`. The script finds state files by listing the strategy dir and matching assets to clearinghouse positions.
-- **State file contents:** Include all required fields from the schema, including **`wallet`** (used for clearinghouse and close). **Double-check `direction`** (LONG/SHORT). **Calculate `absoluteFloor`** correctly for the direction (see Absolute Floor Calculation below). Set `highWaterPrice` to entry price, `currentBreachCount` to 0, `currentTierIndex` to -1, `tierFloorPrice` to null, `floorPrice` to the absolute floor.
+**Commands:** add-dsl, update-dsl, pause-dsl, resume-dsl, delete-dsl, status-dsl — run `python3 scripts/dsl-v5.py <subcommand> ...`. **All options and --config:** [references/cli-options.md](references/cli-options.md). **Examples:** [references/examples.md](references/examples.md). **State schema:** [references/state-schema.md](references/state-schema.md).
 
 ### When a Position Closes
 
@@ -290,7 +285,7 @@ See [references/customization.md](references/customization.md) for conservative/
 ## Setup Checklist (agent responsibilities)
 
 1. Ensure required scripts and mcporter (Senpi auth) are available.
-2. **State:** Create base dir if needed; create strategy dir `{DSL_STATE_DIR}/{strategyId}`; create state file per position with correct filename (main: `{asset}.json`, xyz: `xyz--SYMBOL.json`). See [references/state-schema.md](references/state-schema.md). Each state file must include `wallet` (strategy wallet).
+2. **State:** Create state per position via CLI: `python3 scripts/dsl-v5.py add-dsl <preset> --strategy-id ID --asset ASSET --direction LONG|SHORT --leverage N --margin N`. See [references/cli-options.md](references/cli-options.md) for all options and `--config`. State path: `{DSL_STATE_DIR}/{strategyId}/{asset}.json` or `xyz--SYMBOL.json` for xyz ([references/state-schema.md](references/state-schema.md)).
 3. **Cron:** One cron per strategy (every 3–5 min), env `DSL_STATE_DIR` and `DSL_STRATEGY_ID` only — user must not set up cron manually.
 4. **Alerts:** Read script output (ndjson); on `closed=true` alert user; on `strategy_inactive` remove cron for that strategy and run cleanup.
 5. **Cleanup:** On `strategy_inactive` or when strategy has no positions left, run strategy cleanup so the strategy directory is removed — see [references/cleanup.md](references/cleanup.md).

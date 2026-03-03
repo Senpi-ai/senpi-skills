@@ -2,7 +2,7 @@
 name: dsl-tight
 description: >-
   Opinionated trailing stop loss preset for Hyperliquid perps with tighter
-  defaults than DSL v5. 4 tiers with per-tier breach counts that tighten as
+  defaults than DSL v5.1. 4 tiers with per-tier breach counts that tighten as
   profit grows (3→2→2→1), auto-calculated price floors from entry and leverage,
   stagnation take-profit that closes if ROE ≥8% but high-water stalls for 1 hour.
   Same ROE-based engine as DSL v4 — different defaults, fewer knobs.
@@ -19,11 +19,11 @@ metadata:
   exchange: hyperliquid
 ---
 
-# DSL-Tight — Opinionated Stop-Loss Preset (v5)
+# DSL-Tight — Opinionated Stop-Loss Preset (v5.1)
 
-A tighter, more opinionated variant of DSL for aggressive profit protection. Uses the **same script and architecture as DSL v5** (`dsl-v5.py`) — strategy-scoped cron, MCP clearinghouse, state under `{DSL_STATE_DIR}/{strategyId}/{asset}.json`. All tier triggers are ROE-based (`PnL / margin × 100`); leverage is accounted for automatically.
+A tighter, more opinionated variant of DSL for aggressive profit protection. Uses the **same script and architecture as DSL v5.1** (`dsl-v5.py`) — strategy-scoped cron, MCP clearinghouse, state under `{DSL_STATE_DIR}/{strategyId}/{asset}.json`. All tier triggers are ROE-based (`PnL / margin × 100`); leverage is accounted for automatically.
 
-**Key difference from default DSL v5:** DSL v5 is the configurable engine with maximum flexibility. DSL-Tight is the "just works" preset — fewer knobs, tighter defaults, per-tier breach counts, stagnation exits, and auto-calculated floors.
+**Key difference from default DSL v5.1:** DSL v5.1 is the configurable engine with maximum flexibility. DSL-Tight is the "just works" preset — fewer knobs, tighter defaults, per-tier breach counts, stagnation exits, and auto-calculated floors.
 ## Core Concept
 
 All thresholds defined in ROE. The script auto-converts to price levels:
@@ -63,62 +63,25 @@ Catches winners that stall — takes the profit rather than waiting for a revers
 - Per-tier breach requirements (3→2→2→1) replace the global Phase 1/Phase 2 split
 - Floor is always: `max(tier_floor, trailing_floor)` for LONG, `min()` for SHORT
 
-## State File Schema
+## Setup
 
-State files live in the **DSL v5 strategy directory**: `{DSL_STATE_DIR}/{strategyId}/{asset}.json` (main dex) or `{DSL_STATE_DIR}/{strategyId}/xyz--SYMBOL.json` (xyz dex). See [dsl-dynamic-stop-loss references/state-schema.md](../dsl-dynamic-stop-loss/references/state-schema.md) for path conventions.
+Use the core DSL CLI so the script creates state from clearinghouse:
 
-```json
-{
-  "active": true,
-  "asset": "HYPE",
-  "direction": "LONG",
-  "leverage": 10,
-  "entryPrice": 28.87,
-  "size": 1890.28,
-  "wallet": "0xYourStrategyWalletAddress",
-  "strategyId": "uuid-of-strategy",
-  "phase": 1,
-  "phase1": {
-    "retraceThreshold": 0.05,
-    "consecutiveBreachesRequired": 3
-  },
-  "phase2TriggerTier": 0,
-  "phase2": {
-    "retraceThreshold": 0.015,
-    "consecutiveBreachesRequired": 2
-  },
-  "tiers": [
-    {"triggerPct": 10, "lockPct": 50, "retrace": 0.015},
-    {"triggerPct": 20, "lockPct": 65, "retrace": 0.012},
-    {"triggerPct": 40, "lockPct": 75, "retrace": 0.010},
-    {"triggerPct": 75, "lockPct": 85, "retrace": 0.006}
-  ],
-  "breachDecay": "hard",
-  "currentTierIndex": -1,
-  "tierFloorPrice": null,
-  "highWaterPrice": 28.87,
-  "floorPrice": 28.78,
-  "currentBreachCount": 0,
-  "createdAt": "2026-02-23T10:00:00.000Z"
-}
+```bash
+python3 path/to/dsl-v5.py add-dsl dsl-tight --strategy-id ID --asset ASSET --direction LONG|SHORT --leverage N --margin N
 ```
 
-Omit `phase1.absoluteFloor` — dsl-v5 fills it from entry and leverage. Set `highWaterPrice` to entry price, `floorPrice` to entry (or the computed absolute floor) for Phase 1 start.
+Replace `path/to/dsl-v5.py` with the resolved path to the dsl-dynamic-stop-loss script (e.g. `.../dsl-dynamic-stop-loss/scripts/dsl-v5.py`). Position must exist. Optional: `--config '<json>'` for phase1/phase2/tiers, `--dex xyz` for xyz assets without prefix. **For all options and constructing `--config`:** [cli-options](../dsl-dynamic-stop-loss/references/cli-options.md). State path: `{DSL_STATE_DIR}/{strategyId}/{asset}.json` or `xyz--SYMBOL.json` for xyz.
 
-### Field Reference
-
-| Field | Purpose |
-|-------|---------|
-| `phase1.absoluteFloor` | **Not needed** — auto-calculated from entry, leverage, retrace |
-| `tiers[].breachesRequired` | Per-tier breach count (replaces global phase2 setting) |
+| Config (when using `--config`) | Purpose |
+|--------------------------------|---------|
+| `tiers[].breachesRequired` | Per-tier breach count (3→2→2→1) |
 | `tiers[].retrace` | Per-tier trailing stop tightness |
-| `stagnation.enabled` | Enable stagnation take-profit |
-| `stagnation.minRoePct` | Minimum ROE to trigger stagnation check |
-| `stagnation.maxStaleSec` | Max seconds HW can be stale before auto-close |
+| `stagnation.*` | Stagnation take-profit (if supported by runner) |
 
 ## Cron Setup
 
-**Same as DSL v5:** one cron **per strategy** (not per position), every 3–5 minutes. The agent creates it when setting up DSL for a strategy.
+**Same as DSL v5.1:** one cron **per strategy** (not per position), every 3–5 minutes. The agent creates it when setting up DSL for a strategy.
 
 **Resolving the script path:** When setting up the cron, **locate the dsl-dynamic-stop-loss skill on disk** (e.g. search the workspace, skills directory, or ClawHub install path for a folder named `dsl-dynamic-stop-loss` containing `scripts/dsl-v5.py`). Use that resolved path in the cron command — do not assume a fixed relative path. Example once resolved:
 
@@ -130,11 +93,11 @@ No `DSL_ASSET` — the script discovers positions from MCP clearinghouse and sta
 
 **Clock-aligned schedule (OpenClaw):** For runs at fixed 3-minute boundaries (e.g. :00, :03, :06…), create the job with a cron expression: `"schedule": { "kind": "cron", "expr": "*/3 * * * *", "tz": "UTC" }`. See [dsl-dynamic-stop-loss SKILL.md](../dsl-dynamic-stop-loss/SKILL.md) Cron Setup and [references/explained.md](../dsl-dynamic-stop-loss/references/explained.md) §0.
 
-Agent responsibilities (same as DSL v5): on `strategy_inactive` remove cron and run strategy cleanup; on `closed=true` alert user; on `pending_close=true` alert and retry next tick.
+Agent responsibilities (same as DSL v5.1): on `strategy_inactive` remove cron and run strategy cleanup; on `closed=true` alert user; on `pending_close=true` alert and retry next tick.
 
 ## Key Safety Features
 
-- Same as DSL v5: strategy active check, reconcile state vs clearinghouse, delete state on close
+- Same as DSL v5.1: strategy active check, reconcile state vs clearinghouse, delete state on close
 - Auto-calculated floors eliminate manual math errors
 - Per-tier breach tightening means large profits get maximum protection
 - Stagnation TP prevents stalled winners from reversing

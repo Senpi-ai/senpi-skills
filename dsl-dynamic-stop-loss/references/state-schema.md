@@ -1,6 +1,6 @@
 # State File Schema
 
-Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 adds path conventions; the JSON schema is unchanged.
+Complete JSON schema for DSL v4/v5.1 state files. One state file per position. v5.1 adds path conventions; the JSON schema is unchanged.
 
 ## Full Example
 
@@ -10,20 +10,22 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
   "asset": "HYPE",
   "direction": "LONG",
   "leverage": 10,
+  "margin": 5460.43,
   "entryPrice": 28.87,
   "size": 1890.28,
   "wallet": "0xYourStrategyWalletAddress",
   "strategyId": "uuid-of-strategy",
+  "preset": "dsl-tight",
   "phase": 1,
   "phase1": {
     "retraceThreshold": 0.03,
-    "consecutiveBreachesRequired": 3,
+    "consecutiveBreachesRequired": 1,
     "absoluteFloor": 28.00
   },
   "phase2TriggerTier": 1,
   "phase2": {
     "retraceThreshold": 0.015,
-    "consecutiveBreachesRequired": 2
+    "consecutiveBreachesRequired": 1
   },
   "tiers": [
     {"triggerPct": 10, "lockPct": 5},
@@ -58,10 +60,12 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 | `asset` | string | Ticker symbol (e.g., "HYPE", "BTC", "ETH"). For xyz dex use prefix: "xyz:SILVER", "xyz:AAPL". |
 | `direction` | string | `"LONG"` or `"SHORT"` — controls all math |
 | `leverage` | number | Position leverage (used for ROE calculation) |
+| `margin` | number | Position margin (collateral) in quote units; used for ROE. Set by add-dsl from `--margin`. If missing (legacy state), script uses entry×size/leverage. |
 | `entryPrice` | number | Average entry price |
 | `size` | number | Position size in units |
 | `wallet` | string | Strategy wallet address — required for auto-close |
 | `strategyId` | string | Strategy UUID |
+| `preset` | string | Optional. Preset name (e.g. `"dsl-tight"`); defaults to `"default"`. Set by `add-dsl` CLI. |
 | `phase` | int | Current phase: `1` or `2` |
 | `phase1` | object | Phase 1 configuration (see below) |
 | `phase2TriggerTier` | int | Tier index that triggers Phase 2 transition (default: 0 = first tier) |
@@ -94,6 +98,7 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 | `triggerPct` | float | Yes | ROE % that activates this tier |
 | `lockPct` | float | Yes | % of (entry→high water) range to lock as floor (e.g. 50 = lock half the gain) |
 | `retrace` | float | No | Per-tier retrace override in ROE terms (uses `phase2.retraceThreshold` if omitted) |
+| `breachesRequired` | int | No | Breaches needed before close for this tier; if omitted uses `phase2.consecutiveBreachesRequired` |
 
 ## v4 Optional Fields (all have defaults)
 
@@ -110,7 +115,7 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 | `lastCheck` | `null` | Last check timestamp — set by script |
 | `lastPrice` | `null` | Last fetched price — set by script |
 
-## v5 Hyperliquid SL Fields (optional)
+## v5.1 Hyperliquid SL Fields (optional)
 
 When the script syncs the dynamic stop loss to Hyperliquid via Senpi `edit_position`, it stores and updates these fields:
 
@@ -123,7 +128,7 @@ When the script syncs the dynamic stop loss to Hyperliquid via Senpi `edit_posit
 
 Path and file naming stay the same; these fields are optional and backfilled by the script when syncing.
 
-## v5 Path Conventions
+## v5.1 Path Conventions
 
 State files are stored under a directory per strategy. Required env vars:
 
