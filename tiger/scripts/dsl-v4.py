@@ -357,7 +357,6 @@ def main(deps=None, env=None):
     results = []
     error_count = 0
     closed_count = 0
-    pending_count = 0
     active_count = 0
 
     for state_file in files:
@@ -366,8 +365,6 @@ def main(deps=None, env=None):
             error_count += 1
         if result.get("closed"):
             closed_count += 1
-        if result.get("status") == "pending_close":
-            pending_count += 1
         if result.get("status") == "active":
             active_count += 1
         # Only include results with meaningful state changes
