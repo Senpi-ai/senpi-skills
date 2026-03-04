@@ -13,7 +13,9 @@ from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import load_all_strategies, dsl_state_glob, mcporter_call
+from wolf_config import load_all_strategies, dsl_state_glob, mcporter_call, heartbeat
+
+heartbeat("sm_flip")
 
 
 def get_active_positions():
@@ -31,7 +33,7 @@ def get_active_positions():
                         "strategyKey": key,
                         "file": f
                     })
-            except (json.JSONDecodeError, IOError, KeyError):
+            except (json.JSONDecodeError, IOError, KeyError, AttributeError):
                 continue
     return positions
 
