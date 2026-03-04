@@ -25,12 +25,11 @@ from tiger_lib import (
 def scan_asset(asset: str, context: dict, config: dict, get_asset_candles_fn) -> dict:
     """Scan for momentum breakout on a single asset."""
     result = get_asset_candles_fn(asset, ["1h", "4h"])
-    if not result.get("success") and not result.get("data"):
+    if not result or result.get("error"):
         return None
 
-    data = result.get("data", result)
-    candles_1h = data.get("candles", {}).get("1h", [])
-    candles_4h = data.get("candles", {}).get("4h", [])
+    candles_1h = result.get("candles", {}).get("1h", [])
+    candles_4h = result.get("candles", {}).get("4h", [])
 
     if len(candles_1h) < 20 or len(candles_4h) < 20:
         return None
@@ -104,26 +103,23 @@ def scan_asset(asset: str, context: dict, config: dict, get_asset_candles_fn) ->
 
     score = confluence_score(factors)
 
-    return {
+    result = {
         "asset": asset,
         "pattern": "MOMENTUM_BREAKOUT",
         "score": round(score, 2),
         "direction": direction,
         "current_price": current_price,
-        "move_1h_pct": round(move_1h, 2),
-        "move_2h_pct": round(move_2h, 2),
-        "move_4h_pct": round(move_4h, 2),
-        "volume_ratio": round(vol_r, 2) if vol_r else None,
-        "volume_surging": volume_surging,
-        "rsi": round(current_rsi, 1) if current_rsi else None,
         "rsi_ok": rsi_ok,
-        "trend_aligned": trend_aligned,
-        "sma_aligned": sma_aligned,
-        "atr_pct": round(atr_pct, 2),
-        "funding_annualized_pct": round(funding_annualized, 1),
         "max_leverage": context.get("max_leverage", 0),
-        "factors": {k: v[0] for k, v in factors.items()}
     }
+    result["move_1h_pct"] = round(move_1h, 2)
+    result["move_2h_pct"] = round(move_2h, 2)
+    result["volume_ratio"] = round(vol_r, 2) if vol_r else None
+    result["rsi"] = round(current_rsi, 1) if current_rsi else None
+    result["trend_aligned"] = trend_aligned
+    result["funding_annualized_pct"] = round(funding_annualized, 1)
+    result["factors"] = {k: v[0] for k, v in factors.items()}
+    return result
 
 
 def main(deps=None):
@@ -199,17 +195,20 @@ def main(deps=None):
     actionable = [s for s in signals if s["score"] >= min_score and s.get("rsi_ok")]
     available_slots = config["maxSlots"] - len(active_coins)
 
+    if not actionable:
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
+
     output({
         "action": "momentum_scan",
-        "scanned": len(candidates),
-        "signals_found": len(signals),
         "actionable": len(actionable),
-        "available_slots": available_slots,
-        "min_score": min_score,
+        "strategySlots": {
+            "available": available_slots,
+            "max": config["maxSlots"],
+            "anySlotsAvailable": available_slots > 0,
+        },
         "aggression": state.get("aggression", "NORMAL"),
         "top_signals": actionable[:5],
-        "all_signals": [s["asset"] + " " + s["direction"] + " " + str(s["score"]) for s in signals[:10]],
-        "active_positions": list(active_coins)
     })
 
 

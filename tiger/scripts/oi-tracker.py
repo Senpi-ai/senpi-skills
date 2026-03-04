@@ -61,25 +61,7 @@ def main(deps=None):
             tracked_assets.add(name)
             sampled += 1
 
-    # Report
-    oi_history = load_oi_history(config=config)
-    history_stats = {}
-    for asset in list(active_coins) + ["BTC", "ETH"]:
-        if asset in oi_history:
-            entries = oi_history[asset]
-            history_stats[asset] = {
-                "entries": len(entries),
-                "latest_oi": entries[-1]["oi"] if entries else 0,
-                "oldest_ts": entries[0]["ts"] if entries else 0
-            }
-
-    output({
-        "action": "oi_track",
-        "sampled": sampled,
-        "total_tracked_assets": len(tracked_assets),
-        "active_positions_tracked": list(active_coins & tracked_assets),
-        "history_stats": history_stats
-    })
+    output({"success": True, "heartbeat": "HEARTBEAT_OK"})
 
 
 if __name__ == "__main__":

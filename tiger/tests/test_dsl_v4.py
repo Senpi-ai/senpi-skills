@@ -130,7 +130,7 @@ class TestProcessStateFile:
         writes = {}
 
         def mock_get_prices(assets=None):
-            return {"data": {"prices": {"ETH": str(price)}}}
+            return {"prices": {"ETH": str(price)}}
 
         def mock_close_position(wallet, asset, reason=""):
             if close_success:
@@ -406,3 +406,187 @@ class TestProcessStateFile:
         assert errored is True
         assert result["consecutive_failures"] == 10
         assert result["deactivated"] is True
+
+    def test_price_error_dict_handled(self, tmp_path):
+        """get_prices returning error dict (mcporter_call_safe) is handled gracefully."""
+        state = self._make_state()
+        state_file = str(tmp_path / "dsl-ETH.json")
+        with open(state_file, "w") as f:
+            json.dump(state, f)
+
+        deps = {
+            "get_prices": lambda assets=None: {"error": "timeout after 3 attempts"},
+            "close_position": lambda w, a, reason="": {"success": True},
+            "atomic_write": lambda path, data: None,
+        }
+
+        result, errored = dsl._process_state_file(state_file, {}, deps)
+        assert errored is True
+        assert result["status"] == "error"
+        assert result["consecutive_failures"] == 1
+
+    def test_price_none_response_handled(self, tmp_path):
+        """get_prices returning None is handled gracefully."""
+        state = self._make_state()
+        state_file = str(tmp_path / "dsl-ETH.json")
+        with open(state_file, "w") as f:
+            json.dump(state, f)
+
+        deps = {
+            "get_prices": lambda assets=None: None,
+            "close_position": lambda w, a, reason="": {"success": True},
+            "atomic_write": lambda path, data: None,
+        }
+
+        result, errored = dsl._process_state_file(state_file, {}, deps)
+        assert errored is True
+        assert result["status"] == "error"
+
+
+class TestCombinedMode:
+    """Tests for DSL combined mode — main() without DSL_STATE_FILE."""
+
+    def _make_state(self, **overrides):
+        base = {
+            "active": True,
+            "asset": "ETH",
+            "wallet": "0xTEST",
+            "direction": "LONG",
+            "entryPrice": 3000.0,
+            "size": 1.0,
+            "leverage": 10,
+            "highWaterPrice": 3100.0,
+            "phase": 1,
+            "currentBreachCount": 0,
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "pendingClose": False,
+            "breachDecay": "hard",
+            "maxFetchFailures": 10,
+            "consecutiveFetchFailures": 0,
+            "tiers": [],
+            "phase1": {
+                "retraceThreshold": 0.015,
+                "consecutiveBreachesRequired": 2,
+                "absoluteFloor": 2900.0,
+            },
+            "phase2": {
+                "retraceThreshold": 0.012,
+                "consecutiveBreachesRequired": 3,
+            },
+            "phase2TriggerTier": 1,
+        }
+        base.update(overrides)
+        return base
+
+    def _setup_combined(self, tmp_path, state_files, price=3080.0):
+        """Write state files and build deps for combined mode main()."""
+        instance_dir = tmp_path / "state" / "test-strategy"
+        instance_dir.mkdir(parents=True)
+
+        for filename, state_data in state_files.items():
+            with open(instance_dir / filename, "w") as f:
+                json.dump(state_data, f)
+
+        captured = []
+        writes = {}
+
+        config = {"strategyId": "test-strategy"}
+
+        def mock_load_config():
+            return config
+
+        deps = {
+            "load_config": mock_load_config,
+            "workspace": str(tmp_path),
+            "get_prices": lambda assets=None: {"prices": {"ETH": str(price), "BTC": str(price)}},
+            "close_position": lambda wallet, asset, reason="": {"success": True},
+            "atomic_write": lambda path, data: writes.update({path: data}),
+        }
+        return deps, captured
+
+    def test_heartbeat_when_all_quiet(self, tmp_path, capsys):
+        """All positions active but no breaches/changes → HEARTBEAT_OK."""
+        state_files = {
+            "dsl-ETH.json": self._make_state(asset="ETH", highWaterPrice=3100.0),
+            "dsl-BTC.json": self._make_state(asset="BTC", highWaterPrice=3100.0),
+        }
+        deps, _ = self._setup_combined(tmp_path, state_files, price=3080.0)
+
+        dsl.main(deps=deps, env={})
+        output = json.loads(capsys.readouterr().out.strip())
+
+        assert output["heartbeat"] == "HEARTBEAT_OK"
+
+    def test_breached_position_included(self, tmp_path, capsys):
+        """A breached position appears in results; a quiet one does not."""
+        state_files = {
+            # ETH: price 3040 < floor max(2900, 3100*0.985=3053.5) → breached
+            "dsl-ETH.json": self._make_state(asset="ETH", highWaterPrice=3100.0),
+            # BTC: price 3080 > floor → not breached, quiet
+            "dsl-BTC.json": self._make_state(asset="BTC", highWaterPrice=3100.0),
+        }
+        deps, _ = self._setup_combined(tmp_path, state_files)
+        # Override prices: ETH breached, BTC fine
+        deps["get_prices"] = lambda assets=None: {"prices": {"ETH": "3040", "BTC": "3080"}}
+
+        dsl.main(deps=deps, env={})
+        output = json.loads(capsys.readouterr().out.strip())
+
+        assert output["status"] == "ok"
+        assert output["mode"] == "combined"
+        # Only ETH (breached) should be in results
+        result_assets = [r["asset"] for r in output["results"]]
+        assert "ETH" in result_assets
+        assert "BTC" not in result_assets
+
+    def test_inactive_position_excluded(self, tmp_path, capsys):
+        """Inactive positions are filtered out of combined results."""
+        state_files = {
+            "dsl-ETH.json": self._make_state(asset="ETH", active=False, pendingClose=False),
+            # BTC breached to have at least one result
+            "dsl-BTC.json": self._make_state(asset="BTC", highWaterPrice=3100.0),
+        }
+        deps, _ = self._setup_combined(tmp_path, state_files)
+        deps["get_prices"] = lambda assets=None: {"prices": {"ETH": "3000", "BTC": "3040"}}
+
+        dsl.main(deps=deps, env={})
+        output = json.loads(capsys.readouterr().out.strip())
+
+        result_assets = [r["asset"] for r in output.get("results", [])]
+        assert "ETH" not in result_assets
+
+    def test_no_state_files_returns_idle(self, tmp_path, capsys):
+        """No dsl-*.json files → idle status."""
+        # Create instance dir but no state files
+        (tmp_path / "state" / "test-strategy").mkdir(parents=True)
+
+        config = {"strategyId": "test-strategy"}
+        deps = {
+            "load_config": lambda: config,
+            "workspace": str(tmp_path),
+        }
+
+        dsl.main(deps=deps, env={})
+        output = json.loads(capsys.readouterr().out.strip())
+
+        assert output["status"] == "idle"
+        assert output["processed"] == 0
+
+    def test_closed_position_included(self, tmp_path, capsys):
+        """A position that gets closed appears in results."""
+        state_files = {
+            # ETH: breach count 1 + price below floor → breach count 2 = close
+            "dsl-ETH.json": self._make_state(
+                asset="ETH", highWaterPrice=3100.0, currentBreachCount=1,
+            ),
+        }
+        deps, _ = self._setup_combined(tmp_path, state_files)
+        deps["get_prices"] = lambda assets=None: {"prices": {"ETH": "3040"}}
+
+        dsl.main(deps=deps, env={})
+        output = json.loads(capsys.readouterr().out.strip())
+
+        assert len(output["results"]) == 1
+        assert output["results"][0]["closed"] is True
+        assert output["closed"] == 1
