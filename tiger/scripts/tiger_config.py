@@ -25,8 +25,8 @@ def _resolve_workspace(env=None):
     env = env or os.environ
     if env.get("TIGER_WORKSPACE"):
         return env["TIGER_WORKSPACE"]
-    if env.get("OPENCLAW_WORKSPACE"):
-        return env["OPENCLAW_WORKSPACE"]
+    if env.get("OPENCLAW_WORKSPACE_DIR"):
+        return env["OPENCLAW_WORKSPACE_DIR"]
     # Fallback to the script parent (workspace/scripts -> workspace).
     return str(Path(__file__).resolve().parent.parent)
 
@@ -47,7 +47,7 @@ def build_runtime(env=None, workspace=None, require_workspace_env=True):
         ws = workspace
     else:
         tiger_ws = env.get("TIGER_WORKSPACE")
-        openclaw_ws = env.get("OPENCLAW_WORKSPACE")
+        openclaw_ws = env.get("OPENCLAW_WORKSPACE_DIR")
         if tiger_ws:
             ws = tiger_ws
             source = "env:TIGER_WORKSPACE"
@@ -59,7 +59,7 @@ def build_runtime(env=None, workspace=None, require_workspace_env=True):
         elif openclaw_ws:
             # Backward-compatible fallback for non-strict contexts/tests.
             ws = openclaw_ws
-            source = "env:OPENCLAW_WORKSPACE"
+            source = "env:OPENCLAW_WORKSPACE_DIR"
         else:
             # Non-strict fallback for imports/tests. Runtime entrypoints use strict mode.
             ws = _resolve_workspace(env)
