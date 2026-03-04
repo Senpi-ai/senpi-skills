@@ -57,6 +57,7 @@ Two cron formats depending on session type:
 Replace these placeholders in all templates:
 - `{TELEGRAM}` — telegram:CHAT_ID (e.g. telegram:5183731261)
 - `{SCRIPTS}` — path to scripts dir (e.g. /data/workspace/skills/wolf-strategy/scripts)
+- `{LIB}` — path to shared lib dir (e.g. /data/workspace/skills/lib)
 - `{WORKSPACE}` — path to workspace root (e.g. /data/workspace)
 
 **Wallet/strategy-specific placeholders are gone in v6.** Scripts read wallets from `wolf-strategies.json`.
@@ -68,7 +69,7 @@ Replace these placeholders in all templates:
 ```
 WOLF Emerging Movers: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/emerging-movers.py`, parse JSON.
 SLOT GUARD (MANDATORY): Check `anySlotsAvailable` — if false, output HEARTBEAT_OK immediately. Do NOT open any position when all strategies show 0 available slots. Check `strategySlots` per strategy before routing.
-On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals: use `strategySlots` to route to a strategy with available > 0 (skip strategies at capacity), open position on that wallet, create DSL state in {WORKSPACE}/state/{strategyKey}/dsl-{ASSET}.json.
+On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals: use `strategySlots` to route to a strategy with available > 0 (skip strategies at capacity), enter via `python3 {LIB}/senpi-enter.py --skill wolf --config-dir {SCRIPTS} --strategy KEY --coin ASSET --direction DIR --leverage LEV --margin MARGIN --pattern PATTERN --score SCORE`. This atomically opens the position, creates DSL state, validates the schema, and journals the event.
 Apply WOLF entry rules from SKILL.md (min 7x leverage, rank #25+ entry, no top-10 entries, rotation logic).
 Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
 ```
@@ -89,7 +90,7 @@ If `any_closed: true` → note freed slot(s) for next Emerging Movers run. Else 
 
 ```
 WOLF SM Check: Run `python3 {SCRIPTS}/sm-flip-check.py`, parse JSON.
-For each alert in `alerts`: if `alertLevel == "FLIP_NOW"` → close that position on the wallet for `strategyKey` (set `active: false` in `{WORKSPACE}/state/{strategyKey}/dsl-{ASSET}.json`), alert Telegram ({TELEGRAM}) with asset, direction, conviction, strategyKey.
+For each alert in `alerts`: if `alertLevel == "FLIP_NOW"` → close via `python3 {LIB}/senpi-close.py --skill wolf --config-dir {SCRIPTS} --strategy KEY --coin ASSET --reason "SM flip FLIP_NOW"`. This atomically closes the position, deactivates DSL, updates state, and journals the event. Alert Telegram ({TELEGRAM}) with asset, direction, conviction, strategyKey.
 Ignore alerts with `alertLevel` of WATCH or FLIP_WARNING (no action needed).
 If `hasFlipSignal == false` or no FLIP_NOW alerts → HEARTBEAT_OK.
 ```
