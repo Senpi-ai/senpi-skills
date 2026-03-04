@@ -244,14 +244,13 @@ def main(deps=None):
 
     # Fetch current state
     ch = get_clearinghouse(wallet)
-    if ch.get("error"):
-        output({"error": f"Clearinghouse failed: {ch['error']}"})
+    if not ch or ch.get("error"):
+        output({"error": f"Clearinghouse failed: {ch.get('error', 'empty response') if ch else 'no response'}"})
         return
 
-    ch_data = ch.get("data", ch)
-    margin_summary = ch_data.get("marginSummary", ch_data.get("crossMarginSummary", {}))
+    margin_summary = ch.get("marginSummary", ch.get("crossMarginSummary", {}))
     current_balance = float(margin_summary.get("accountValue", state["currentBalance"]))
-    positions = ch_data.get("assetPositions", [])
+    positions = ch.get("assetPositions", [])
 
     # Parse positions
     parsed_positions = []
@@ -287,6 +286,13 @@ def main(deps=None):
     # 6. Position P&L
     pnl_alerts = check_position_pnl(config, state, parsed_positions)
     all_alerts.extend(pnl_alerts)
+
+    # No alerts → heartbeat
+    if not all_alerts:
+        state["currentBalance"] = current_balance
+        save_state(config, state)
+        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        return
 
     # Determine if we need to halt
     critical_alerts = [a for a in all_alerts if a.get("type") in ("DAILY_LOSS", "MAX_DRAWDOWN", "DEADLINE_REACHED")]
@@ -330,22 +336,11 @@ def main(deps=None):
 
     report = {
         "action": "risk_check",
-        "current_balance": round(current_balance, 2),
-        "daily_loss_pct": daily_check.get("loss_pct", 0),
-        "drawdown_pct": dd_check.get("drawdown_pct", 0),
-        "days_remaining": round(days_remaining(config), 1),
-        "active_positions": len(parsed_positions),
-        "alerts": all_alerts,
         "alert_count": len(all_alerts),
         "critical": len(critical_alerts) > 0,
         "halted": is_halted(state),
-        "actions_needed": {
-            "close": close_coins,
-            "reduce": reduce_coins,
-            "take_profit": tp_coins,
-            "close_all": close_all
-        },
-        "execution": execution
+        "alerts": all_alerts,
+        "execution": execution,
     }
 
     output(report)

@@ -25,8 +25,8 @@ def _resolve_workspace(env=None):
     env = env or os.environ
     if env.get("TIGER_WORKSPACE"):
         return env["TIGER_WORKSPACE"]
-    if env.get("OPENCLAW_WORKSPACE"):
-        return env["OPENCLAW_WORKSPACE"]
+    if env.get("OPENCLAW_WORKSPACE_DIR"):
+        return env["OPENCLAW_WORKSPACE_DIR"]
     # Fallback to the script parent (workspace/scripts -> workspace).
     return str(Path(__file__).resolve().parent.parent)
 
@@ -37,18 +37,17 @@ class TigerRuntime:
     scripts_dir: str
     state_dir: str
     config_file: str
-    verbose: bool
     source: str
 
 
-def build_runtime(env=None, workspace=None, verbose=None, require_workspace_env=True):
+def build_runtime(env=None, workspace=None, require_workspace_env=True):
     env = env or os.environ
     source = "explicit"
     if workspace:
         ws = workspace
     else:
         tiger_ws = env.get("TIGER_WORKSPACE")
-        openclaw_ws = env.get("OPENCLAW_WORKSPACE")
+        openclaw_ws = env.get("OPENCLAW_WORKSPACE_DIR")
         if tiger_ws:
             ws = tiger_ws
             source = "env:TIGER_WORKSPACE"
@@ -60,18 +59,16 @@ def build_runtime(env=None, workspace=None, verbose=None, require_workspace_env=
         elif openclaw_ws:
             # Backward-compatible fallback for non-strict contexts/tests.
             ws = openclaw_ws
-            source = "env:OPENCLAW_WORKSPACE"
+            source = "env:OPENCLAW_WORKSPACE_DIR"
         else:
             # Non-strict fallback for imports/tests. Runtime entrypoints use strict mode.
             ws = _resolve_workspace(env)
             source = "fallback"
-    vb = (env.get("TIGER_VERBOSE") == "1") if verbose is None else bool(verbose)
     return TigerRuntime(
         workspace=ws,
         scripts_dir=os.path.join(ws, "scripts"),
         state_dir=os.path.join(ws, "state"),
         config_file=os.path.join(ws, "tiger-config.json"),
-        verbose=vb,
         source=source,
     )
 
@@ -215,11 +212,10 @@ def _normalize_dict_with_aliases(data, aliases):
 
 def atomic_write(path, data, runtime=None):
     """Write JSON atomically — crash-safe via os.replace()."""
-    verbose = _runtime_attr(runtime, "verbose")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
-        json.dump(data, f, indent=2 if verbose else None)
+        json.dump(data, f, indent=2)
     os.replace(tmp, path)
 
 
@@ -618,7 +614,10 @@ def save_dsl_state(asset, dsl_state, config=None, runtime=None):
 # ─── MCP Helpers ─────────────────────────────────────────────
 
 def mcporter_call(tool, runner=None, sleep_fn=None, timeout_seconds=30, **kwargs):
-    """Call a Senpi MCP tool via mcporter with 3-attempt retry."""
+    """Call a Senpi MCP tool via mcporter with 3-attempt retry.
+    Raises RuntimeError after 3 failed attempts.
+    Uses temp file for stdout to prevent pipe buffer truncation."""
+    import tempfile
     runner = runner or subprocess.Popen
     sleep_fn = sleep_fn or time.sleep
     cmd = ["mcporter", "call", f"senpi.{tool}"]
@@ -632,41 +631,61 @@ def mcporter_call(tool, runner=None, sleep_fn=None, timeout_seconds=30, **kwargs
 
     last_error = None
     for attempt in range(3):
+        fd, tmp_path = tempfile.mkstemp(suffix=".json", prefix="mcporter_")
         try:
-            proc = runner(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            try:
-                stdout, stderr = proc.communicate(timeout=timeout_seconds)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-                raise RuntimeError("timeout")
-            if proc.returncode != 0:
-                raise RuntimeError(stderr.strip())
-            data = json.loads(stdout)
+            with os.fdopen(fd, "w+") as tmp_out:
+                proc = runner(cmd, stdout=tmp_out, stderr=subprocess.PIPE, text=True)
+                try:
+                    _, stderr = proc.communicate(timeout=timeout_seconds)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                    raise RuntimeError("timeout")
+                if proc.returncode != 0:
+                    raise RuntimeError(stderr.strip())
+            with open(tmp_path) as f:
+                data = json.load(f)
             if isinstance(data, dict) and data.get("success") is False:
                 raise ValueError(data.get("error", "unknown"))
+            # Strip {success, data} envelope — callers get inner data directly
+            if isinstance(data, dict) and "data" in data:
+                return data["data"]
             return data
         except Exception as e:
             last_error = e
             if attempt < 2:
                 sleep_fn(3)
-    # Return error dict on total failure (don't crash)
-    return {"error": str(last_error), "success": False}
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    raise RuntimeError(f"mcporter {tool} failed after 3 attempts: {last_error}")
+
+
+def mcporter_call_safe(tool, **kwargs):
+    """Like mcporter_call but returns error dict instead of raising.
+    Use for non-critical calls where the caller handles errors gracefully."""
+    try:
+        return mcporter_call(tool, **kwargs)
+    except Exception as e:
+        return {"error": str(e)}
 
 
 def get_all_instruments(call_fn=None):
     """Fetch all instruments with OI, funding, volume."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     result = call("market_list_instruments")
-    data = result.get("data", result)
-    return data.get("instruments", [])
+    if not result or result.get("error"):
+        return []
+    return result.get("instruments", [])
 
 
 def get_asset_candles(asset, intervals=None, include_funding=False, call_fn=None):
     """Fetch candle data for an asset."""
     if intervals is None:
         intervals = ["1h", "4h"]
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call(
         "market_get_asset_data",
         asset=asset,
@@ -681,16 +700,18 @@ def get_prices(assets=None, call_fn=None):
     kwargs = {}
     if assets:
         kwargs["assets"] = assets
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call("market_get_prices", **kwargs)
 
 
 def get_sm_markets(limit=50, call_fn=None):
     """Get smart money market concentration."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     result = call("leaderboard_get_markets", limit=limit)
-    data = result.get("data", {})
-    markets = data.get("markets", data)
+    if not result or result.get("error"):
+        return []
+    # leaderboard_get_markets nests: {markets: {markets: [...]}}
+    markets = result.get("markets", result)
     if isinstance(markets, dict):
         markets = markets.get("markets", [])
     return markets if isinstance(markets, list) else []
@@ -698,19 +719,19 @@ def get_sm_markets(limit=50, call_fn=None):
 
 def get_portfolio(call_fn=None):
     """Get current portfolio."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call("account_get_portfolio")
 
 
 def get_clearinghouse(wallet, call_fn=None):
     """Get clearinghouse state for a strategy wallet."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
 
 
 def create_position(wallet, orders, reason="", call_fn=None):
     """Create a position."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call(
         "create_position",
         strategyWalletAddress=wallet,
@@ -721,7 +742,7 @@ def create_position(wallet, orders, reason="", call_fn=None):
 
 def edit_position(wallet, coin, call_fn=None, **kwargs):
     """Edit a position."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call(
         "edit_position",
         strategyWalletAddress=wallet,
@@ -732,7 +753,7 @@ def edit_position(wallet, coin, call_fn=None, **kwargs):
 
 def close_position(wallet, coin, reason="", call_fn=None):
     """Close a position."""
-    call = call_fn or mcporter_call
+    call = call_fn or mcporter_call_safe
     return call(
         "close_position",
         strategyWalletAddress=wallet,
@@ -744,11 +765,8 @@ def close_position(wallet, coin, reason="", call_fn=None):
 # ─── Output ──────────────────────────────────────────────────
 
 def output(data, runtime=None):
-    """Print JSON output. Minimal by default, verbose opt-in via TIGER_VERBOSE=1."""
-    verbose = _runtime_attr(runtime, "verbose")
-    if not verbose and "debug" in data:
-        del data["debug"]
-    print(json.dumps(data) if not verbose else json.dumps(data, indent=2))
+    """Print JSON output with full signal data."""
+    print(json.dumps(data, indent=2))
 
 
 def output_heartbeat(runtime=None):

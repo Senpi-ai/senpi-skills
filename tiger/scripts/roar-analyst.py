@@ -370,7 +370,7 @@ def main(deps=None):
         "summary": " | ".join(summary_parts),
     }
 
-    print(json.dumps(output, indent=2))
+    print(json.dumps(output))
 
 
 if __name__ == "__main__":

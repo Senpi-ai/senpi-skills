@@ -12,7 +12,7 @@ compatibility: >-
   (configured with Senpi auth) and OpenClaw cron system.
 metadata:
   author: Jason & DanielM
-  version: "1.1.0"
+  version: "1.2.3"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -72,6 +72,20 @@ metadata:
 6. Create 12 OpenClaw crons from `references/cron-templates.md`
 
 **First hour:** OI Tracker needs ~1h of history before compression/reversion scanners can use OI data. Goal engine and risk guardian work immediately.
+
+---
+
+## Lifecycle Walkthrough
+
+A compression breakout on HYPE, from signal to close:
+
+1. **Scanner fires** — Compression scanner (Cron 1) runs `compression-scanner.py`. Output: `{"signals": [{"asset": "HYPE", "direction": "LONG", "score": 0.72, "breakout": true, "risks": ["high_funding"]}], "strategySlots": {"available": 2, "anySlotsAvailable": true}}`.
+2. **Agent evaluates** — Score 0.72 exceeds NORMAL confluence threshold (0.40). Slots available. `breakout: true` and `direction` present (both required). Risk `high_funding` is noted but not blocking. Agent proceeds.
+3. **Agent enters** — Calls `create_position` with `coin: "HYPE"`, `direction: "LONG"`, `leverage: 10`, `marginAmount` from Half-Kelly sizing. Records position in `tiger-state.json`, creates `dsl-HYPE.json` with `active: true`, Phase 1 retrace at 0.015.
+4. **DSL monitors** — Cron 10 picks up `dsl-HYPE.json` every 30s. Position reaches 6% ROE → promotes to Tier 1 (locks 20% of high-water, retrace threshold 1.5%). Continues to 12% ROE → Tier 2 (locks 50%, retrace 1.2%).
+5. **Exit** — Price retraces 1.3% from high-water while in Tier 2. Two consecutive breaches → DSL auto-closes via `close_position`. Logs result to `trade-log.json`. Final ROE: ~8.5% after lock.
+
+If instead Risk Guardian (Cron 8) detects OI collapse > 25% during step 4, it closes the position directly and deactivates the DSL state file — DSL respects `active: false` on next tick.
 
 ---
 
@@ -227,6 +241,29 @@ All percentage values are whole numbers (5 = 5%).
 
 ---
 
+## Communication Discipline
+
+**Principle:** Only communicate actions and state changes. Never narrate routine operations.
+
+### When to communicate (valuable):
+- Trade ENTRY executed (scanner found actionable signal, position opened)
+- Trade EXIT executed (DSL, risk, or exit checker closed a position)
+- Aggression level CHANGED (goal engine shifted levels)
+- Risk event triggered (halt, drawdown breach, OI collapse)
+- ROAR made config adjustments
+- Target hit or deadline reached
+
+### When to stay silent (noise — output ONLY `HEARTBEAT_OK`):
+- Scanner ran, found 0 actionable signals
+- Scanner ran, slots full (SLOT GUARD triggered)
+- Scanner ran, system is halted
+- Goal engine ran, aggression unchanged
+- Any routine cycle with no state change
+
+**Rule:** When a cron produces no actionable result, output exactly `HEARTBEAT_OK` — no preamble, no summary of what was checked, no explanation of why nothing was found.
+
+---
+
 ## API Dependencies
 
 | Tool | Used By | Purpose |
@@ -281,9 +318,11 @@ See `references/cron-templates.md` for ready-to-use OpenClaw cron payloads.
 | 11 | ROAR Analyst | 8 hour | `roar-analyst.py` | Tier 2 |
 
 **Prescreener** (Cron 0): Runs `isolated` with `delivery.mode: "none"` and explicit model (`claude-haiku-4-5`). Writes prescreened.json — no trade actions.
-**Scanners** (Crons 1-6): Run in `main` session (`systemEvent`) so the agent can evaluate signals and execute `create_position`. Tier 1 analysis — the scripts produce JSON signals, the agent decides.
-**Decision-makers** (Crons 7-9): Run in `main` session (`systemEvent`). Tier 2 — goal engine, risk guardian, and exit checker execute directly (close_position) and update state.
-**DSL** (Cron 10): Runs in `main` session (`systemEvent`) — auto-closes positions on breach.
+**Scanners** (Crons 1-5): Run in `main` session (`systemEvent`) so the agent can evaluate signals and execute `create_position`. Tier 1 analysis — the scripts produce JSON signals, the agent decides.
+**OI Tracker** (Cron 6): Runs `isolated` (`agentTurn`, `claude-haiku-4-5`). Data collection only — no trade actions.
+**Goal Engine** (Cron 7): Runs `isolated` (`agentTurn`, `claude-sonnet-4-5`) with `delivery.mode: "announce"`. Tier 2 — recalculates aggression and sizing. Only announces when aggression changes, halts, or target is hit.
+**Risk Guardian / Exit Checker** (Crons 8-9): Run `isolated` (`agentTurn`, `claude-sonnet-4-5`). Scripts execute close actions directly and update state.
+**DSL** (Cron 10): Runs `isolated` (`agentTurn`, `claude-haiku-4-5`) — auto-closes positions on breach.
 **ROAR** (Cron 11): Runs `isolated` with `delivery.mode: "announce"` and explicit model (`claude-sonnet-4-5`). Tunes config — only announces when changes are made.
 
 Scanners are staggered by 1-2 minutes to avoid mcporter rate limits (see cron-templates.md).

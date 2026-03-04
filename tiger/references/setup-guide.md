@@ -11,7 +11,7 @@
 ### 1. Create workspace
 
 ```bash
-export TIGER_WORKSPACE="$HOME/tiger"
+export TIGER_WORKSPACE="$OPENCLAW_WORKSPACE_DIR/tiger"
 mkdir -p $TIGER_WORKSPACE/state/scan-history
 ```
 

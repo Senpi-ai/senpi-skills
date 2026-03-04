@@ -59,7 +59,7 @@ TIGER is a fully automated trading system that takes a **budget**, **profit targ
 
 1. **Setup**: User runs `tiger-setup.py` with wallet, strategy ID, budget, target, deadline, and chat ID. This creates `tiger-config.json` and initializes state files.
 
-2. **Prescreening** (every 5m): Scores all ~230 Hyperliquid assets in a single API call. Ranks by a composite score (35% momentum + 20% funding rate + 15% OI ratio + 30% volume rank). Outputs top 30 candidates split into `group_a` (higher volatility) and `group_b`.
+2. **Prescreening** (every 5m): Scores all ~230 Hyperliquid assets in a single API call. Ranks by a composite score (35% momentum + 20% funding rate + 15% OI ratio + 30% volume rank). Outputs top 30 candidates split into `group_a` (higher volume) and `group_b` (lower volume).
 
 3. **Scanning** (5 scanners, staggered): Each scanner reads the prescreened candidates and evaluates them against pattern-specific confluence factors. Assets scoring above the aggression-adjusted confluence threshold produce actionable signals.
 
@@ -88,8 +88,7 @@ All scripts share state through JSON files in `state/{strategyId}/`, written ato
 tiger/
 ├── SKILL.md                          # Skill definition (agent-facing)
 ├── README.md                         # Quick start guide
-├── DOCUMENTATION.md                  # This file
-├── pending-enforcements.doc.md       # Design doc: advisory→deterministic enforcement
+├── docs.md                           # This file
 │
 ├── scripts/                          # 16 Python scripts
 │   ├── tiger_lib.py                  # Technical analysis library (pure stdlib)
@@ -116,19 +115,20 @@ tiger/
 │   ├── setup-guide.md                # Installation and tuning walkthrough
 │   └── cron-templates.md             # Ready-to-use OpenClaw cron payloads
 │
-├── tests/                            # 11 test files, 255 test functions
+├── tests/                            # 13 test files, 289 test functions
 │   ├── conftest.py                   # Shared fixtures and sample data
 │   ├── test_tiger_lib.py             # Technical analysis indicators
 │   ├── test_tiger_config.py          # Config loading, normalization, I/O
 │   ├── test_compression.py           # Compression scanner scoring
 │   ├── test_correlation.py           # BTC correlation lag detection
 │   ├── test_dsl_v4.py                # 2-phase trailing stop engine
+│   ├── test_goal_engine.py           # Goal engine clearinghouse guards
+│   ├── test_mcporter.py              # MCP I/O primitives, retry, envelope stripping
 │   ├── test_prescreener.py           # Asset prescreening pipeline
 │   ├── test_risk_guardian.py         # Risk limit enforcement
 │   ├── test_roar_analyst.py          # ROAR rules and scorecard
 │   ├── test_roar_config.py           # Bounds, protection, revert logic
-│   ├── test_tiger_exit.py            # Pattern-specific exit conditions
-│   └── (test_momentum, test_reversion — implicitly covered via integration)
+│   └── test_tiger_exit.py            # Pattern-specific exit conditions
 │
 └── state/                            # Runtime state (per strategy instance)
     └── {strategyId}/
@@ -177,30 +177,50 @@ Zero external dependencies. All indicators implemented with only `math` and `sta
 | `rsi(closes, period)` | Relative Strength Index |
 | `bollinger_bands(closes, period, num_std)` | Upper/mid/lower bands |
 | `bb_width(closes, period, num_std)` | Band width (squeeze detection) |
-| `bb_width_percentile(widths, current)` | Width percentile rank |
+| `bb_width_percentile(closes, period=20, lookback=100)` | Width percentile rank (computes widths internally) |
 | `atr(highs, lows, closes, period)` | Average True Range |
 | `volume_ratio(volumes, short, long)` | Short-term / long-term volume ratio |
 | `oi_change_pct(oi_series)` | Open Interest change percentage |
 | `detect_rsi_divergence(prices, rsi_values)` | Bullish/bearish divergence |
-| `confluence_score(factors, weights)` | Weighted factor summation (0-1) |
-| `kelly_fraction(win_rate, avg_win, avg_loss)` | Half-Kelly position sizing (capped 25%) |
+| `confluence_score(factors)` | Weighted factor summation (0-1), takes `Dict[str, Tuple[bool, float]]` |
+| `kelly_fraction(win_rate, avg_win, avg_loss, fraction=0.5)` | Half-Kelly position sizing (capped 25%) |
 | `required_daily_return(current, target, days)` | Compound daily rate needed |
 | `aggression_mode(daily_rate)` | Map rate → CONSERVATIVE/NORMAL/ELEVATED/ABORT |
 | `parse_candles(raw)` | Extract OHLCV arrays from Senpi candle format |
 
 #### tiger_config.py — Infrastructure
 
-| Component | Purpose |
-|-----------|---------|
-| `resolve_dependencies()` | Injectable dependency resolution (testable) |
-| `atomic_write(path, data)` | Crash-safe JSON writes via `os.replace()` |
-| `deep_merge(base, override)` | Recursive config merging with nested defaults |
-| `mcporter_call(tool, args)` | 3-attempt retry wrapper for Senpi MCP calls |
-| `AliasDict` | Transparent `snake_case` → `camelCase` key normalization |
-| `load_config()` | Read config with alias resolution |
-| `load_state() / save_state()` | State file I/O with atomic guarantees |
-| `get_active_positions()` | Parse clearinghouse for open positions |
-| `is_halted()` | Check safety halt flag |
+| Category | Component | Purpose |
+|----------|-----------|---------|
+| **Core** | `resolve_dependencies()` | Injectable dependency resolution (testable) |
+| | `build_runtime()` / `TigerRuntime` | Construct runtime with workspace paths and config location |
+| | `AliasDict` | Transparent `snake_case` → `camelCase` key normalization |
+| | `atomic_write(path, data)` | Crash-safe JSON writes via `os.replace()` |
+| | `deep_merge(base, override)` | Recursive config merging with nested defaults |
+| **Config** | `load_config()` | Read config with alias resolution |
+| | `save_config()` | Persist config to disk after normalizing |
+| **State** | `load_state() / save_state()` | State file I/O with atomic guarantees |
+| | `get_active_positions() / set_active_positions()` | Read/write active positions in state |
+| | `get_safety() / is_halted() / halt_reason()` | Safety substate and halt flag access |
+| | `set_halt_state()` | Set halt flag and reason in state |
+| | `load_dsl_state() / save_dsl_state()` | Per-position DSL trailing stop state |
+| | `load_oi_history() / append_oi_snapshot()` | OI history (last 288 per asset) |
+| | `log_trade() / load_trade_log()` | Trade log append and read |
+| | `load_btc_cache() / save_btc_cache()` | BTC price cache for correlation scanner |
+| | `load_prescreened_candidates()` | Load prescreened.json if fresh (<10min) |
+| | `get_disabled_patterns()` | Load ROAR-disabled patterns |
+| | `get_pattern_min_confluence()` | Resolve min confluence per pattern/aggression |
+| **MCP** | `mcporter_call(tool, args)` | 3-attempt retry wrapper for Senpi MCP calls |
+| | `mcporter_call_safe()` | Like mcporter_call but returns error dict |
+| | `get_all_instruments()` | Fetch all instruments with OI, funding, volume |
+| | `get_asset_candles()` | Fetch candle data for an asset |
+| | `get_prices()` / `get_sm_markets()` | Current prices / smart money markets |
+| | `get_portfolio()` / `get_clearinghouse()` | Portfolio and clearinghouse state |
+| | `create_position()` / `edit_position()` / `close_position()` | Position lifecycle MCP wrappers |
+| **Output** | `output()` / `output_heartbeat()` / `output_error()` | JSON output for cron communication |
+| **Utilities** | `now_utc()` / `hours_since()` | Time helpers |
+| | `days_remaining()` / `day_number()` | Deadline and day tracking |
+| | `shorten_address()` | Wallet address truncation |
 
 ### Cron Architecture
 
@@ -285,7 +305,7 @@ Advisory actions remain so because they require position-size computation that b
 
 **Window quality**: STRONG (lag > 0.7), MODERATE (0.5-0.7), CLOSING (0.4-0.5).
 
-**Optimization**: Scans 23 known high-corr alts first, then extends to 20 additional liquid assets only if no strong signals found. BTC price is cached to reduce API calls.
+**Optimization**: Scans 23 known high-corr alts first, plus 10 top-volume liquid assets. If no strong signals found, extends to 10 more assets. BTC price is cached to reduce API calls.
 
 **DSL tuning**: Tight Phase 1 retrace (0.015). Window closes fast — if the alt catches up, the edge is gone.
 
@@ -299,7 +319,7 @@ Advisory actions remain so because they require position-size computation that b
 | 2h price move | 0.15 | > 2.5% |
 | Volume surge | 0.20 | Ratio > 1.5x |
 | 4h trend aligned | 0.15 | Move matches 4h candle direction |
-| RSI not extreme | 0.10 | Between 30-70 |
+| RSI not extreme | 0.10 | Not overbought (≤78 for longs) or oversold (≥22 for shorts) |
 | SMA aligned | 0.10 | Price on correct side of SMA20 |
 | ATR healthy | 0.05 | > 1.5% |
 
@@ -352,7 +372,7 @@ Advisory actions remain so because they require position-size computation that b
 
 **Per-slot budget**: `current_balance * kelly_fraction`, subject to `maxSlots` (default: 3 concurrent positions).
 
-**Leverage**: Adaptive based on aggression. CONSERVATIVE 5-7x, NORMAL 7-10x, ELEVATED 10-15x, ABORT reduces (no new entries).
+**Leverage**: Adaptive based on required daily rate. <3% → 7x, <8% → 10x, <15% → 15x, ≥15% → maxLeverage. All capped by configured `maxLeverage`.
 
 ### Goal Engine & Aggression
 
@@ -376,7 +396,6 @@ Per-position state file. Combined runner checks all active positions every 30 se
 - Trailing floor: `high_water * (1 - retrace_threshold)` (LONG)
 - Absolute floor: `entry_price * (1 - phase1.retrace)` — never violated
 - 3 consecutive breaches → auto-close
-- Max duration: 90 minutes
 - Breach decay modes: "soft" (decay by 1 each check) or "hard" (reset to 0)
 
 **Phase 2** (tier 1+ activation at ROE ≥ 5%):
@@ -388,8 +407,6 @@ Per-position state file. Combined runner checks all active positions every 30 se
 | 3 | 20% | 70% | 1.0% | 2 |
 | 4 | 35% | 80% | 0.8% | 1 |
 
-**Stagnation take-profit**: ROE ≥ 8% with no new high-water for 1h → auto-close.
-
 ### Risk Management
 
 Enforced by `risk-guardian.py` every 5 minutes:
@@ -397,12 +414,15 @@ Enforced by `risk-guardian.py` every 5 minutes:
 | Rule | Limit | Default | Action |
 |------|-------|---------|--------|
 | Single trade loss | % of balance | 5% | CLOSE immediately |
-| Daily loss | % of day-start balance | 12% | HALT + CLOSE ALL |
+| Daily loss | % of day-start balance | 12% | HALT |
 | Drawdown from peak | % of peak balance | 20% | HALT |
 | OI collapse | OI drops >X% in 1h | 25% | CLOSE affected position |
 | OI drop | OI drops >X% in 1h | 10% | REDUCE (advisory) |
 | Funding reversal | Funding flips on FUNDING_ARB | Auto | CLOSE |
-| Deadline proximity | Final 24h | Auto | Tighten all stops to 90% lock |
+| Funding weak | Funding drops below 10% annualized | Auto | REDUCE (advisory) |
+| Deadline ≤0 days | Deadline reached | Auto | CLOSE ALL |
+| Deadline ≤12h | Imminent | Auto | Tighten all stops to 90% lock |
+| Deadline ≤24h | Approaching | Auto | Tighten all stops to 85% lock |
 | Max concurrent positions | Number of slots | 3 | Block new entries |
 
 ### Exit Checker — Pattern-Specific Rules
@@ -411,10 +431,10 @@ Enforced by `risk-guardian.py` every 5 minutes:
 |-----------|-----------|-----------|--------|
 | False breakout | Compression only | Re-enters BB range within 2 candles + ROE <3% | CLOSE |
 | Daily target hit | All patterns | Unrealized PnL ≥ daily target USD | CLOSE |
-| Trailing lock | All patterns | ROE below lock% of peak HWM | CLOSE |
+| Trailing lock | All patterns | HWM ROE >5% and ROE below lock% of peak HWM | CLOSE |
 | Conservative TP | All (CONSERVATIVE) | PnL > 50% daily target | PARTIAL_75 |
 | Stagnation | All patterns | ROE >3% but flat for 2+ hours | CLOSE |
-| Time stop | All patterns | Losing >30min + ROE <0% | CLOSE |
+| Time stop | All patterns | ROE < -2% pre-filter, then losing >30min + ROE <0% | CLOSE |
 | Deadline | All patterns | Days remaining ≤ 0 | CLOSE ALL |
 
 ### ROAR Meta-Optimizer
@@ -430,7 +450,7 @@ Runs every 8h (+ ad-hoc every 5th trade). Analyzes trade log, applies 6 rules:
 | 5 | No entries in 48h (5+ trades) | Lower threshold -0.02 |
 | 6 | Negative expectancy (20+ trades) | Disable pattern for 48h |
 
-**Protected keys** (never modified): budget, target, deadlineDays, maxSlots, maxLeverage, maxDrawdownPct, maxDailyLossPct, maxSingleLossPct, strategyWallet.
+**Protected keys** (never modified): budget, target, deadlineDays, startTime, strategyId, strategyWallet, telegramChatId, maxSlots, maxLeverage, maxDrawdownPct, maxDailyLossPct, maxSingleLossPct.
 
 **Safety net**: If both win rate AND avg PnL degraded since last adjustment, ROAR auto-reverts to the previous config snapshot.
 
@@ -443,6 +463,9 @@ Runs every 8h (+ ad-hoc every 5th trade). Analyzes trade log, applies 6 rules:
 | BTC correlation move % | 1.5 | 5.0 |
 | Funding annualized % | 15.0 | 60.0 |
 | DSL retrace (phase 1 & 2) | 0.008 | 0.03 |
+| Trailing lock % (CONSERVATIVE) | 0.60 | 0.95 |
+| Trailing lock % (NORMAL) | 0.40 | 0.80 |
+| Trailing lock % (ELEVATED) | 0.25 | 0.60 |
 
 ### Expected Performance
 
@@ -524,16 +547,18 @@ Runs every 8h (+ ad-hoc every 5th trade). Analyzes trade log, applies 6 rules:
 | File | Test Count | Component |
 |------|-----------|-----------|
 | `test_tiger_lib.py` | 65 | Technical analysis indicators |
+| `test_dsl_v4.py` | 38 | 2-phase trailing stop engine |
 | `test_roar_config.py` | 34 | ROAR bounds, protection, revert logic |
-| `test_dsl_v4.py` | 31 | 2-phase trailing stop engine |
-| `test_risk_guardian.py` | 29 | Risk limit enforcement |
+| `test_risk_guardian.py` | 32 | Risk limit enforcement |
 | `test_tiger_config.py` | 29 | Config loading, normalization, I/O |
 | `test_roar_analyst.py` | 19 | ROAR rules engine and scorecard |
-| `test_tiger_exit.py` | 15 | Pattern-specific exit conditions |
+| `test_tiger_exit.py` | 17 | Pattern-specific exit conditions |
+| `test_mcporter.py` | 14 | MCP I/O primitives, retry, envelope stripping |
 | `test_correlation.py` | 13 | BTC correlation lag detection |
 | `test_prescreener.py` | 12 | Asset prescreening pipeline |
-| `test_compression.py` | 8 | Compression scanner scoring |
-| **Total** | **255** | |
+| `test_compression.py` | 11 | Compression scanner scoring |
+| `test_goal_engine.py` | 4 | Goal engine clearinghouse guards |
+| **Total** | **288** | |
 
 ### Design Principle
 
@@ -579,7 +604,7 @@ State I/O:
 - Active positions: Empty portfolio handling
 - Pattern confluence: Override from config, aggression-level fallback
 
-#### test_dsl_v4.py (31 tests) — Trailing Stop Engine
+#### test_dsl_v4.py (38 tests) — Trailing Stop Engine
 
 Unit normalization:
 - `normalize_trigger_pct`: Whole number 5 → 0.05, whole number 100 → 1.0, already decimal passthrough, boundary at exactly 1, boundary just under 1, string input, zero, negative, valid number, invalid string, None, zero string
@@ -600,7 +625,7 @@ Phase 2 logic:
 General:
 - Inactive state returns inactive status, fetch failure counting
 
-#### test_risk_guardian.py (29 tests) — Risk Enforcement
+#### test_risk_guardian.py (32 tests) — Risk Enforcement
 
 Daily loss:
 - No breach (within limits), breach (exceeds limit), at exact limit (no breach)
@@ -668,7 +693,7 @@ Pattern disable:
 Config application:
 - Applies changes, skips protected keys, clamps to bounds, saves previous config snapshot
 
-#### test_tiger_exit.py (15 tests) — Pattern-Specific Exits
+#### test_tiger_exit.py (17 tests) — Pattern-Specific Exits
 
 - Daily target hit: Triggers when PnL exceeds target, no trigger below target
 - Trailing lock: Triggers when ROE below lock%, no trigger above lock, no trigger with insufficient HWM
@@ -709,7 +734,7 @@ Filtering:
 Output:
 - Writes to correct instance directory
 
-#### test_compression.py (8 tests) — BB Squeeze Detection
+#### test_compression.py (11 tests) — BB Squeeze Detection
 
 - Insufficient 1h candles, insufficient 4h candles
 - Fetch failure returns None
@@ -719,6 +744,16 @@ Output:
 - Disabled pattern triggers early exit
 - Active positions filtered (no duplicate signals)
 
+#### test_goal_engine.py (4 tests) — Goal Engine
+
+- Clearinghouse response guards and edge cases
+
+#### test_mcporter.py (14 tests) — MCP I/O Primitives
+
+- Retry logic and attempt counting
+- Envelope stripping from MCP responses
+- Error handling and safe call variants
+
 ### What Is NOT Tested
 
 For completeness, these components rely on integration rather than isolated unit tests:
@@ -726,7 +761,6 @@ For completeness, these components rely on integration rather than isolated unit
 - **Momentum scanner** and **reversion scanner**: Not individually unit-tested. Their logic is covered indirectly through `test_tiger_lib.py` (indicator correctness) and the shared scoring infrastructure tested in compression/correlation.
 - **Funding scanner**: Same coverage model as momentum/reversion — indicator math is tested via `tiger_lib`, pattern-specific logic follows the same structure as tested scanners.
 - **OI tracker**: Data collection script with minimal logic beyond API calls and file writes.
-- **Goal engine**: Aggression calculation is tested in `test_tiger_lib.py` (`aggression_mode`, `required_daily_return`, `kelly_fraction`). The script itself orchestrates these primitives.
 - **Setup wizard**: Interactive script, not suitable for automated testing.
 - **End-to-end integration**: No tests simulate a full scan → entry → management → exit lifecycle across multiple crons.
 - **MCP API calls**: All external calls go through `mcporter_call()` which is mocked in tests. No live API integration tests.
