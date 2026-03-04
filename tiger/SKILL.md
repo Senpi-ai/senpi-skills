@@ -12,7 +12,7 @@ compatibility: >-
   (configured with Senpi auth) and OpenClaw cron system.
 metadata:
   author: Jason & DanielM
-  version: "1.2.2"
+  version: "1.2.3"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -241,6 +241,29 @@ All percentage values are whole numbers (5 = 5%).
 
 ---
 
+## Communication Discipline
+
+**Principle:** Only communicate actions and state changes. Never narrate routine operations.
+
+### When to communicate (valuable):
+- Trade ENTRY executed (scanner found actionable signal, position opened)
+- Trade EXIT executed (DSL, risk, or exit checker closed a position)
+- Aggression level CHANGED (goal engine shifted levels)
+- Risk event triggered (halt, drawdown breach, OI collapse)
+- ROAR made config adjustments
+- Target hit or deadline reached
+
+### When to stay silent (noise — output ONLY `HEARTBEAT_OK`):
+- Scanner ran, found 0 actionable signals
+- Scanner ran, slots full (SLOT GUARD triggered)
+- Scanner ran, system is halted
+- Goal engine ran, aggression unchanged
+- Any routine cycle with no state change
+
+**Rule:** When a cron produces no actionable result, output exactly `HEARTBEAT_OK` — no preamble, no summary of what was checked, no explanation of why nothing was found.
+
+---
+
 ## API Dependencies
 
 | Tool | Used By | Purpose |
@@ -297,7 +320,7 @@ See `references/cron-templates.md` for ready-to-use OpenClaw cron payloads.
 **Prescreener** (Cron 0): Runs `isolated` with `delivery.mode: "none"` and explicit model (`claude-haiku-4-5`). Writes prescreened.json — no trade actions.
 **Scanners** (Crons 1-5): Run in `main` session (`systemEvent`) so the agent can evaluate signals and execute `create_position`. Tier 1 analysis — the scripts produce JSON signals, the agent decides.
 **OI Tracker** (Cron 6): Runs `isolated` (`agentTurn`, `claude-haiku-4-5`). Data collection only — no trade actions.
-**Goal Engine** (Cron 7): Runs in `main` session (`systemEvent`). Tier 2 — recalculates aggression and sizing.
+**Goal Engine** (Cron 7): Runs `isolated` (`agentTurn`, `claude-sonnet-4-5`) with `delivery.mode: "announce"`. Tier 2 — recalculates aggression and sizing. Only announces when aggression changes, halts, or target is hit.
 **Risk Guardian / Exit Checker** (Crons 8-9): Run `isolated` (`agentTurn`, `claude-sonnet-4-5`). Scripts execute close actions directly and update state.
 **DSL** (Cron 10): Runs `isolated` (`agentTurn`, `claude-haiku-4-5`) — auto-closes positions on breach.
 **ROAR** (Cron 11): Runs `isolated` with `delivery.mode: "announce"` and explicit model (`claude-sonnet-4-5`). Tunes config — only announces when changes are made.
