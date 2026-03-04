@@ -79,7 +79,8 @@ The central config file. Holds multiple strategies, each with independent wallet
 | `budget` | number | Total trading budget in USD |
 | `slots` | number | Max concurrent positions for this strategy |
 | `marginPerSlot` | number | USD margin per slot (budget * 0.30) |
-| `defaultLeverage` | number | Default leverage for new positions |
+| `defaultLeverage` | number | Fallback leverage when max-leverage data unavailable. Actual leverage is computed dynamically from `tradingRisk`. |
+| `tradingRisk` | string | Risk tier for dynamic leverage: `"conservative"`, `"moderate"`, or `"aggressive"`. Defaults to `"moderate"` if absent. |
 | `dailyLossLimit` | number | Max daily loss before reducing exposure |
 | `autoDeleverThreshold` | number | Account value below which to reduce slots by 1 |
 | `dsl.preset` | string | "aggressive" or "conservative" |
@@ -110,9 +111,7 @@ The central config file. Holds multiple strategies, each with independent wallet
 │       ├── dsl-HYPE.json             # Same asset, different strategy = OK
 │       └── watchdog-last.json
 ├── history/
-│   ├── emerging-movers.json          # Shared (market data)
-│   ├── scan-history.json             # Shared (scanner cross-scan momentum)
-│   └── scanner-config.json           # Shared (scanner thresholds)
+│   └── emerging-movers.json          # Shared (market data)
 ├── memory/
 │   └── MEMORY.md
 └── logs/
@@ -155,9 +154,9 @@ Created per position, scoped to its strategy. Read by `dsl-combined.py`.
   "consecutiveFetchFailures": 0,
   "pendingClose": false,
   "phase1": {
-    "retraceThreshold": 5,
+    "retraceThreshold": 10,
     "consecutiveBreachesRequired": 3,
-    "absoluteFloor": 28.726
+    "absoluteFloor": 28.5813
   },
   "phase2": {
     "retraceFromHW": 5,
@@ -220,46 +219,6 @@ Created per position, scoped to its strategy. Read by `dsl-combined.py`.
 | `breachDecay` | string | "hard" | "hard" = reset to 0, "soft" = decay by 1 |
 | `maxFetchFailures` | number | 10 | Failures before auto-deactivate |
 | `stagnation` | object | enabled | Stagnation take-profit config |
-
----
-
-## Scanner Config (`history/scanner-config.json`)
-
-Optional file to override opportunity scanner defaults.
-
-```json
-{
-  "topNDeep": 15,
-  "minVolume24h": 500000,
-  "maxWorkers": 8,
-  "pillarWeights": {
-    "smartMoney": 0.25,
-    "marketStructure": 0.25,
-    "technicals": 0.25,
-    "funding": 0.25
-  },
-  "macroModifiers": {
-    "strong_downLong": -30,
-    "strong_downShort": 15,
-    "downLong": -15,
-    "downShort": 8,
-    "neutralLong": 0,
-    "neutralShort": 0,
-    "upLong": 8,
-    "upShort": -15,
-    "strong_upLong": 15,
-    "strong_upShort": -30
-  },
-  "disqualifyThresholds": {
-    "counterTrendStrength": 50,
-    "extremeRsiLow": 20,
-    "extremeRsiHigh": 80,
-    "volumeDeadThreshold": 0.5,
-    "heavyFundingAnnualized": 50,
-    "btcHeadwindPoints": 30
-  }
-}
-```
 
 ---
 

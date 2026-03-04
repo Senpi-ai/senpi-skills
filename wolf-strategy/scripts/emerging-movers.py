@@ -10,7 +10,7 @@ v4 changes (WOLF v5 — 2026-02-24):
   jump THIS scan is the signal, not noise. CONTRIB_EXPLOSION never downgraded.
 - Velocity gate lowered for IMMEDIATEs: vel > 0 is enough (velocity hasn't built yet).
   Keep vel >= 0.03 for DEEP_CLIMBER signals only.
-- Scanner interval changed to 90s (from 60s) to reduce token burn.
+- Scanner interval changed to 3min (from 60s) to reduce token burn.
 
 v3.1 changes (2026-02-23):
 - Erratic rank history filter (now reworked in v4)
@@ -31,9 +31,19 @@ import json, sys, os
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import atomic_write, mcporter_call, load_all_strategies, dsl_state_glob
+from wolf_config import atomic_write, mcporter_call, mcporter_call_safe, load_all_strategies, dsl_state_glob, heartbeat, SIGNAL_CONVICTION, WORKSPACE, ROTATION_COOLDOWN_MINUTES
+
+heartbeat("emerging_movers")
 
 HISTORY_FILE = os.environ.get("EMERGING_HISTORY", "/data/workspace/emerging-movers-history.json")
+MAX_LEV_FILE = os.path.join(WORKSPACE, "max-leverage.json")
+
+# Load max-leverage data (file-based, no API call — speed critical for 3min scanner)
+try:
+    with open(MAX_LEV_FILE) as f:
+        MAX_LEV_DATA = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    MAX_LEV_DATA = {}
 MAX_HISTORY = 60
 TOP_N = 50
 RANK_CLIMB_THRESHOLD = 3
@@ -214,9 +224,41 @@ if len(prev_scans) >= MIN_SCANS_FOR_TREND:
             rank_history.append(current_rank)
 
             dir_label = market["direction"].upper()
+
+            # Determine max leverage from file-based cache
+            lev_key = f"xyz:{token}" if dex else token
+            alert_max_lev = MAX_LEV_DATA.get(lev_key) or MAX_LEV_DATA.get(token)
+
+            # Map signal type to conviction
+            if is_first_jump:
+                alert_conviction = SIGNAL_CONVICTION["FIRST_JUMP"]
+            elif is_contrib_explosion:
+                alert_conviction = SIGNAL_CONVICTION["CONTRIB_EXPLOSION"]
+            elif is_immediate:
+                alert_conviction = SIGNAL_CONVICTION["IMMEDIATE_MOVER"]
+            elif is_deep_climber and any("NEW_ENTRY_DEEP" in r for r in alert_reasons):
+                alert_conviction = SIGNAL_CONVICTION["NEW_ENTRY_DEEP"]
+            elif is_deep_climber:
+                alert_conviction = SIGNAL_CONVICTION["DEEP_CLIMBER"]
+            else:
+                alert_conviction = 0.5
+
+            # Signal type label + numeric priority (1=highest)
+            if is_first_jump:
+                signal_type, signal_priority = "FIRST_JUMP", 1
+            elif is_contrib_explosion:
+                signal_type, signal_priority = "CONTRIB_EXPLOSION", 2
+            elif is_immediate:
+                signal_type, signal_priority = "IMMEDIATE_MOVER", 3
+            elif is_deep_climber and any("NEW_ENTRY_DEEP" in r for r in alert_reasons):
+                signal_type, signal_priority = "NEW_ENTRY_DEEP", 4
+            else:
+                signal_type, signal_priority = "DEEP_CLIMBER", 5
+
             alerts.append({
                 "token": token,
                 "dex": dex if dex else None,
+                "qualifiedAsset": f"xyz:{token}" if dex == "xyz" else token,
                 "signal": f"{token} {dir_label}",
                 "direction": dir_label,
                 "currentRank": current_rank,
@@ -224,6 +266,10 @@ if len(prev_scans) >= MIN_SCANS_FOR_TREND:
                 "contribVelocity": round(contrib_velocity * 100, 4),
                 "traders": market["traders"],
                 "priceChg4h": market["price_chg_4h"],
+                "maxLeverage": alert_max_lev,
+                "conviction": alert_conviction,
+                "signalType": signal_type,
+                "signalPriority": signal_priority,
                 "reasons": alert_reasons,
                 "reasonCount": len(alert_reasons),
                 "rankHistory": rank_history,
@@ -290,6 +336,9 @@ for alert in alerts:
         pass  # NEVER downgrade CONTRIB_EXPLOSION
     elif is_imm and (erratic or low_vel):
         alert["isImmediate"] = False
+        alert["signalType"] = "DEEP_CLIMBER"
+        alert["signalPriority"] = 5
+        alert["conviction"] = SIGNAL_CONVICTION["DEEP_CLIMBER"]
         if erratic:
             alert["reasons"].append("⚠️ DOWNGRADED: erratic rank history (zigzag in pre-jump history)")
         if low_vel:
@@ -304,43 +353,127 @@ if len(history["scans"]) > MAX_HISTORY:
 
 atomic_write(HISTORY_FILE, history)
 
-# ─── Output ───
-# Sort: first_jump > immediate > deep climber > velocity > reason count
-alerts.sort(key=lambda a: (
-    a.get("isFirstJump", False),
-    a.get("isImmediate", False),
-    a.get("isContribExplosion", False),
-    a.get("isDeepClimber", False),
-    abs(a.get("contribVelocity", 0)),
-    len(a["reasons"])
-), reverse=True)
+# ─── Save full output for agent reference (prevents re-run signal loss) ───
+OUTPUT_FILE = os.path.join(os.path.dirname(HISTORY_FILE), "emerging-movers-output.json")
 
-# ─── Slot availability per strategy ───
+# ─── Output ───
+# Sort: priority number (1=highest) > velocity > reason count
+alerts.sort(key=lambda a: (
+    a.get("signalPriority", 99),
+    -abs(a.get("contribVelocity", 0)),
+    -len(a["reasons"])
+))
+
+for idx, alert in enumerate(alerts):
+    alert["signalIndex"] = idx
+
+# ─── Slot availability per strategy (clearinghouse-backed) ───
 import glob as globmod
+
+APPROX_GRACE_MINUTES = 10  # approximate DSLs older than this don't count toward slots
+
 strategy_slots = {}
 try:
     all_strategies = load_all_strategies()
     for key, cfg in all_strategies.items():
         max_slots = cfg.get("slots", 2)
-        active_count = 0
+        wallet = cfg.get("wallet", "")
+
+        # Count DSL state files with active=True, excluding stale approximate DSLs
+        dsl_active_count = 0
+        slot_ages = []
+        rotation_eligible_coins = []
+        scan_now = datetime.now(timezone.utc)
         for sf in globmod.glob(dsl_state_glob(key)):
             try:
                 with open(sf) as f:
                     s = json.load(f)
-                if s.get("active"):
-                    active_count += 1
-            except (json.JSONDecodeError, IOError, KeyError):
+                if not s.get("active"):
+                    continue
+                # Skip stale approximate DSLs from slot count
+                if s.get("approximate") and s.get("createdAt"):
+                    try:
+                        created = datetime.fromisoformat(s["createdAt"].replace("Z", "+00:00"))
+                        age_min = (scan_now - created).total_seconds() / 60
+                        if age_min > APPROX_GRACE_MINUTES:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+                dsl_active_count += 1
+
+                # Track per-slot age for rotation eligibility
+                coin_name = s.get("asset", os.path.basename(sf).replace("dsl-", "").replace(".json", ""))
+                slot_age_min = None
+                if s.get("createdAt"):
+                    try:
+                        created = datetime.fromisoformat(s["createdAt"].replace("Z", "+00:00"))
+                        slot_age_min = round((scan_now - created).total_seconds() / 60, 1)
+                    except (ValueError, TypeError):
+                        pass
+                slot_ages.append({"coin": coin_name, "ageMinutes": slot_age_min})
+                if slot_age_min is None or slot_age_min >= ROTATION_COOLDOWN_MINUTES:
+                    rotation_eligible_coins.append(coin_name)
+            except (json.JSONDecodeError, IOError, KeyError, AttributeError):
                 continue
+
+        # Cross-check against on-chain positions
+        on_chain_count = 0
+        on_chain_coins = []
+        if wallet:
+            ch_data = mcporter_call_safe("strategy_get_clearinghouse_state",
+                                          strategy_wallet=wallet)
+            if ch_data:
+                for section_key in ("main", "xyz"):
+                    section = ch_data.get(section_key, {})
+                    for p in section.get("assetPositions", []):
+                        if not isinstance(p, dict):
+                            continue
+                        pos = p.get("position", {})
+                        coin = pos.get("coin", "")
+                        szi = float(pos.get("szi", 0))
+                        if coin and szi != 0:
+                            on_chain_count += 1
+                            on_chain_coins.append(coin)
+
+        # Use max of both counts — handles both desync directions
+        used = max(dsl_active_count, on_chain_count)
+
         strategy_slots[key] = {
             "name": cfg.get("name", key),
             "slots": max_slots,
-            "used": active_count,
-            "available": max(0, max_slots - active_count),
+            "used": used,
+            "available": max(0, max_slots - used),
+            "dslActive": dsl_active_count,
+            "onChain": on_chain_count,
+            "onChainCoins": sorted(on_chain_coins) if on_chain_coins else [],
+            "slotAges": slot_ages,
+            "rotationEligibleCoins": sorted(rotation_eligible_coins),
+            "rotationCooldownMinutes": ROTATION_COOLDOWN_MINUTES,
+            "hasRotationCandidate": len(rotation_eligible_coins) > 0,
         }
 except Exception:
-    pass  # Don't fail the whole script if slot counting errors
+    pass
 
 any_slots_available = any(s["available"] > 0 for s in strategy_slots.values()) if strategy_slots else True
+
+# Pre-filter: if no slots available and no FIRST_JUMP signals (rotation candidates),
+# skip outputting alerts entirely — saves LLM reasoning time within the cron timeout.
+has_first_jump = any(a.get("isFirstJump") for a in alerts)
+any_rotation_candidate = any(
+    s.get("hasRotationCandidate", True)
+    for s in strategy_slots.values()
+) if strategy_slots else True
+
+if not any_slots_available and not has_first_jump:
+    alerts = []  # clear signals since agent can't act on them
+elif not any_slots_available and has_first_jump and not any_rotation_candidate:
+    pass  # keep alerts visible but agent will see hasRotationCandidate=false and skip
+
+# Top picks: pre-selected priority-ordered signals for the LLM to act on
+total_available_slots = sum(s.get("available", 0) for s in strategy_slots.values())
+first_jump_count = len([a for a in alerts if a.get("isFirstJump")])
+pick_count = max(total_available_slots, first_jump_count)
+top_picks = alerts[:pick_count] if pick_count > 0 else []
 
 output = {
     "status": "ok",
@@ -349,6 +482,8 @@ output = {
     "scansInHistory": len(history["scans"]),
     "strategySlots": strategy_slots,
     "anySlotsAvailable": any_slots_available,
+    "totalAvailableSlots": total_available_slots,
+    "topPicks": top_picks,
     "alerts": alerts,
     "firstJumps": [a for a in alerts if a.get("isFirstJump")],
     "immediateMovers": [a for a in alerts if a.get("isImmediate")],
@@ -362,3 +497,4 @@ output = {
 }
 
 print(json.dumps(output))
+atomic_write(OUTPUT_FILE, output)
