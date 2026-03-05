@@ -47,11 +47,9 @@ def get_account_value(wallet):
     total = 0.0
     for section_key in ("main", "xyz"):
         section = data.get(section_key, {})
-        av = section.get("crossMarginSummary", {}).get("accountValue")
+        av = section.get("marginSummary", {}).get("accountValue")
         if av is not None:
             total += float(av)
-        elif section.get("marginSummary", {}).get("accountValue") is not None:
-            total += float(section["marginSummary"]["accountValue"])
     return total
 
 
