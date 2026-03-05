@@ -1,5 +1,6 @@
 ---
 name: wolf-howl
+version: 1.0.0
 description: >-
   HOWL v2 — Hunt, Optimize, Win, Learn. Nightly self-improvement loop for the
   WOLF autonomous trading strategy. Runs once per day (via cron) to review

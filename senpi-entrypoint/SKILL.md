@@ -1,5 +1,6 @@
 ---
 name: senpi-entrypoint
+version: 1.0.0
 description: >
   Onboard AI agents into the Senpi trading platform on Hyperliquid. Walks
   through account creation, API key setup, MCP server configuration, skill

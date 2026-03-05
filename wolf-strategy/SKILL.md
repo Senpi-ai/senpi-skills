@@ -1,5 +1,6 @@
 ---
 name: wolf-strategy
+version: 1.0.0
 description: >-
   WOLF v6 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
   Manages multiple strategies simultaneously, each with independent wallets, budgets, slots,
