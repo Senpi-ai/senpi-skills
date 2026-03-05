@@ -76,7 +76,7 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `retraceThreshold` | float | Retrace from HW (e.g., 0.03 = 3%) |
+| `retraceThreshold` | float | Retrace from HW in **ROE** terms (e.g. 0.03 = 3% ROE). Script converts to price via ÷ leverage so 3% means 3% ROE at any leverage. |
 | `consecutiveBreachesRequired` | int | Checks below floor before close |
 | `absoluteFloor` | number | Hard price floor — max loss cap |
 
@@ -84,7 +84,7 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `retraceThreshold` | float | Default retrace for tiers without per-tier override |
+| `retraceThreshold` | float | Default retrace (ROE fraction) for tiers without per-tier override |
 | `consecutiveBreachesRequired` | int | Checks below floor before close |
 
 ### Tier Objects
@@ -93,7 +93,7 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 |-------|------|----------|-------------|
 | `triggerPct` | float | Yes | ROE % that activates this tier |
 | `lockPct` | float | Yes | % of (entry→high water) range to lock as floor (e.g. 50 = lock half the gain) |
-| `retrace` | float | No | Per-tier retrace override (uses `phase2.retraceThreshold` if omitted) |
+| `retrace` | float | No | Per-tier retrace override in ROE terms (uses `phase2.retraceThreshold` if omitted) |
 
 ## v4 Optional Fields (all have defaults)
 
@@ -109,6 +109,19 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 | `floorPrice` | (calculated) | Effective floor — set by script each run |
 | `lastCheck` | `null` | Last check timestamp — set by script |
 | `lastPrice` | `null` | Last fetched price — set by script |
+
+## v5 Hyperliquid SL Fields (optional)
+
+When the script syncs the dynamic stop loss to Hyperliquid via Senpi `edit_position`, it stores and updates these fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `slOrderId` | number \| null | Hyperliquid order ID of the current SL for this position. Set after a successful `edit_position` (or resolved via `strategy_get_open_orders`). |
+| `lastSyncedFloorPrice` | number \| null | The effective floor price at which the current SL was last placed on Hyperliquid. Used to detect when the floor has changed and a new SL must be set. |
+| `slOrderIdUpdatedAt` | string \| null | ISO 8601 timestamp when the SL was last synced (for debugging/audit). |
+| `lastSlSyncError` | string \| null | Set by script when `edit_position` or SL order resolution fails; next sync will retry. |
+
+Path and file naming stay the same; these fields are optional and backfilled by the script when syncing.
 
 ## v5 Path Conventions
 

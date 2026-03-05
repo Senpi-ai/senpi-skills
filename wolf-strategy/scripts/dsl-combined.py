@@ -25,7 +25,10 @@ from datetime import datetime, timezone
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_all_strategies, dsl_state_glob, atomic_write,
-                         validate_dsl_state, mcporter_call, mcporter_call_safe)
+                         validate_dsl_state, mcporter_call, mcporter_call_safe,
+                         heartbeat)
+
+heartbeat("dsl_combined")
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -164,7 +167,7 @@ def process_position(state_file, state, price, strategy_cfg):
         else:
             t_retrace_pct = p2_retrace_pct
         t_retrace_price = t_retrace_pct / 100 / leverage
-        breaches_needed = (tiers[tier_idx].get("breachesRequired", tiers[tier_idx].get("retraceClose", 2))
+        breaches_needed = (tiers[tier_idx].get("breachesRequired", tiers[tier_idx].get("breaches", tiers[tier_idx].get("retraceClose", 2)))
                            if tier_idx is not None and tier_idx >= 0
                            else state.get("phase2", {}).get("consecutiveBreachesRequired", 2))
         if is_long:
@@ -246,6 +249,7 @@ def process_position(state_file, state, price, strategy_cfg):
     closed = False
     close_result = None
     close_reason = None
+    notif_msg = None
 
     if should_close:
         wallet = state.get("wallet", strategy_cfg.get("wallet", ""))
@@ -268,6 +272,10 @@ def process_position(state_file, state, price, strategy_cfg):
                 state["closeReason"] = close_reason
                 if "position_already_closed" in str(close_result):
                     state["closeReason"] = "position_already_closed"
+                phase1_label = " (phase1 timeout cut)" if phase1_autocut else ""
+                notif_msg = (f"🔴 CLOSED {state['asset']} {direction} "
+                             f"[{strategy_cfg.get('_key', 'unknown')}]: "
+                             f"{close_reason}{phase1_label} | uPnL: ${upnl:.2f}")
             else:
                 state["pendingClose"] = True
 
@@ -318,6 +326,7 @@ def process_position(state_file, state, price, strategy_cfg):
         "close_reason": close_reason,
         "tier_changed": tier_changed,
         "phase1_autocut": phase1_autocut,
+        "notification": notif_msg,
     }
     if phase1_autocut:
         result["elapsed_minutes"] = round(elapsed_minutes)
@@ -384,7 +393,22 @@ for sf, cfg in all_state_entries:
         errors.append({"file": os.path.basename(sf), "strategyKey": cfg.get("_key"), "error": str(e)})
         continue
 
+    if not isinstance(state, dict):
+        errors.append({"file": os.path.basename(sf), "strategyKey": cfg.get("_key"),
+                        "error": "state_not_dict", "skipped": True})
+        continue
+
     if not state.get("active") and not state.get("pendingClose"):
+        continue
+
+    if state.get("approximate"):
+        errors.append({
+            "file": os.path.basename(sf),
+            "strategyKey": cfg.get("_key"),
+            "asset": state.get("asset", ""),
+            "error": "approximate_dsl_skipped",
+            "message": "DSL has approximate data (clearinghouse delayed), waiting for health check reconciliation"
+        })
         continue
 
     valid, err_msg = validate_dsl_state(state, sf)
@@ -444,6 +468,8 @@ for sf, cfg in all_state_entries:
 any_closed = len(closed_positions) > 0
 any_tier_change = any(r.get("tier_changed") for r in results)
 
+notifications = [r["notification"] for r in results if r.get("notification")]
+
 print(json.dumps({
     "status": "ok",
     "time": now,
@@ -455,5 +481,6 @@ print(json.dumps({
     "errors": errors if errors else None,
     "any_closed": any_closed,
     "any_tier_change": any_tier_change,
+    "notifications": notifications,
     "state_files_found": len(all_state_entries)
 }))

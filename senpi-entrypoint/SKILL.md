@@ -1,13 +1,19 @@
 ---
 name: senpi-entrypoint
-version: 1.0.0
-description: >
+description: >-
   Onboard AI agents into the Senpi trading platform on Hyperliquid. Walks
   through account creation, API key setup, MCP server configuration, skill
   discovery, and first-trade guidance. Use when user says "set up Senpi",
   "get started with Senpi", "connect to Senpi", "install Senpi",
   "onboard to Senpi", or when an agent needs to start trading on Hyperliquid
   via Senpi.
+license: Apache-2.0
+compatibility: "Node.js, shell"
+metadata:
+  author: Senpi
+  version: "1.3.0"
+  platform: senpi
+  exchange: hyperliquid
 ---
 
 # Senpi Agent Entrypoint
@@ -139,3 +145,31 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill wolf-strategy -g
 Onboarding is complete. The agent is now equipped with Senpi's trading
 toolkit and can install more skills as needed.
 
+---
+
+## Responding to Questions
+
+### "What is Senpi?" / "Summarize Senpi" / "Summarize skills and capabilities" / "How do I install skills?" / "What's new?"
+
+This is **explicit-ask only** — do not auto-insert this summary into normal
+onboarding steps.
+
+When asked, load and follow
+[references/about-senpi.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/about-senpi.md)
+(`Summary Response Contract` section) for order, depth, and command behavior.
+
+### "What skills should I install?" / "What should I use for [goal]?"
+
+Consult
+[references/skill-recommendations.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-recommendations.md)
+for the goal-to-skill mapping, budget guidance, and install commands.
+
+---
+
+## Reference Files
+
+| File | Purpose |
+|------|---------|
+| `references/skill-recommendations.md` | Goal-to-skill mapping table, budget guidance, install commands |
+| `references/about-senpi.md` | Senpi summary source: what Senpi is, capabilities, full bullet catalog, user-friendly install flow, and what's-new guidance |
+| `references/error-handling.md` | Recovery steps for `npx` command failures |

@@ -15,7 +15,9 @@ from datetime import datetime, timezone
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_all_strategies, state_dir, dsl_state_glob,
-                         WORKSPACE, mcporter_call_safe)
+                         WORKSPACE, mcporter_call_safe, heartbeat)
+
+heartbeat("watchdog")
 
 EMERGING_HISTORY = os.path.join(WORKSPACE, "history", "emerging-movers.json")
 # Fallback to legacy location
@@ -218,6 +220,29 @@ def main():
         "total_positions": sum(len(s.get("positions", [])) for s in output["strategies"].values()),
         "total_alerts": len(output["alerts"]),
     }
+
+    # --- Actionable outputs for LLM mandate ---
+    notifications = []  # empty — LLM sends notification after closing
+    action_required = []
+
+    for strat_key, strat_data in output["strategies"].items():
+        for alert in strat_data.get("alerts", []):
+            if alert.get("level") == "CRITICAL" and "buffer" in alert.get("msg", "").lower():
+                # Find weakest ROE position in this strategy
+                positions = strat_data.get("positions", [])
+                if positions:
+                    weakest = min(positions, key=lambda p: p.get("roe_pct", 0))
+                    action_required.append({
+                        "action": "close_position",
+                        "strategyKey": strat_key,
+                        "coin": weakest["coin"],
+                        "direction": weakest["direction"],
+                        "roe_pct": weakest["roe_pct"],
+                        "reason": alert["msg"]
+                    })
+
+    output["notifications"] = notifications
+    output["action_required"] = action_required
 
     print(json.dumps(output, indent=2))
 

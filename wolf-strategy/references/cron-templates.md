@@ -2,41 +2,54 @@
 
 ## Session & Model Tier Configuration
 
-WOLF uses two session types and a 3-tier model approach. Configure per-cron in OpenClaw.
+WOLF uses isolated sessions and a 2-tier model approach. Configure per-cron in OpenClaw.
 
 | Cron | Frequency | Session | Payload | Model Tier |
 |------|-----------|---------|---------|------------|
-| Emerging Movers | 90s (40x/hr) | **main** | systemEvent | **Primary** (your configured model) |
-| Opportunity Scanner | 15min (4x/hr) | **main** | systemEvent | **Primary** (your configured model) |
-| DSL Combined | 3min (20x/hr) | isolated | agentTurn | Mid (one tier down) |
-| Portfolio Update | 15min (4x/hr) | isolated | agentTurn | Mid (one tier down) |
-| Health Check | 10min (6x/hr) | isolated | agentTurn | Mid (one tier down) |
+| Emerging Movers | 3min (20x/hr) | isolated | agentTurn | Mid |
+| DSL Combined | 3min (20x/hr) | isolated | agentTurn | Mid |
+| Health Check | 10min (6x/hr) | isolated | agentTurn | Mid |
 | SM Flip Detector | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 | Watchdog | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 
-**3-tier model approach** (configure per-cron in OpenClaw):
-- **Primary** — Your configured model. Complex judgment, multi-strategy routing, entry decisions.
-- **Mid** — Structured tasks, script output parsing, rule-based actions. Examples: `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash`.
-- **Budget** — Simple threshold checks, binary decisions. Examples: `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite`.
+**2-tier model approach** — auto-configured by `wolf-setup.py --provider`:
 
-All 7 crons can also run on a single model if you prefer simplicity over cost savings.
+| Provider | Mid Model | Budget Model |
+|----------|-----------|--------------|
+| `anthropic` | `anthropic/claude-sonnet-4-5` | `anthropic/claude-haiku-4-5` |
+| `openai` | `openai/gpt-4o` | `openai/gpt-4o-mini` |
+| `google` | `google/gemini-2.0-flash` | `google/gemini-2.0-flash-lite` |
+
+> Model IDs in the `cronTemplates` output from `wolf-setup.py` are already correct for your provider. Use them directly when creating crons.
+
+All 5 crons can also run on a single model if you prefer simplicity over cost savings.
 
 ---
 
-Two cron formats depending on session type:
+## Notification Policy
 
-**Main session** (systemEvent) — shares the primary session context:
-```json
-{
-  "name": "...",
-  "schedule": { "kind": "every", "everyMs": ... },
-  "sessionTarget": "main",
-  "wakeMode": "now",
-  "payload": { "kind": "systemEvent", "text": "..." }
-}
-```
+**Only notify when a trade action was taken.** Isolated sessions have no memory, so informational warnings fire every cycle and create noise. Follow these rules:
 
-**Isolated session** (agentTurn) — runs in its own session, no context pollution:
+**NOTIFY (Telegram):**
+- Position opened (Emerging Movers entry)
+- Position closed (DSL breach, phase1 autocut, stagnation, SM FLIP_NOW, Watchdog emergency close)
+- Position auto-fixed (Health Check: `auto_created`, `auto_replaced`)
+- Critical config error requiring manual fix (Health Check: `NO_WALLET`, `DSL_INACTIVE`)
+
+**NEVER NOTIFY:**
+- Buffer/margin warnings with no close action taken
+- Liquidation distance warnings with no close action taken
+- ROE warnings, rotation candidates, or other informational output
+- Pending retries (`pending_close`) — auto-retries next cycle
+- Internal bookkeeping (freed slots, state reconciliation)
+- Transient errors (fetch failures, stale data)
+
+**Fallback rule:** If you did not open, close, or fix a position, output `HEARTBEAT_OK` — no Telegram message.
+
+---
+
+All crons use the **isolated session** (agentTurn) format:
+
 ```json
 {
   "name": "...",
@@ -46,13 +59,13 @@ Two cron formats depending on session type:
 }
 ```
 
-**Critical payload differences:** systemEvent uses `"text"`, agentTurn uses `"message"`. Do NOT use `"text"` for agentTurn — the cron will silently fail. Model is set inside `payload` for agentTurn, not at the job root level.
+**Critical:** agentTurn uses `"message"`, NOT `"text"` — using `"text"` will silently fail. Model is set inside `payload`, not at the job root level.
 
 **These are OpenClaw crons, NOT Senpi crons.** They wake the agent with a mandate text that the agent executes.
 
 **v6 change: One set of crons for ALL strategies.** Each script iterates all enabled strategies from `wolf-strategies.json` internally. You do NOT need separate crons per strategy.
 
-**Session isolation rationale:** Only Emerging Movers and Opportunity Scanner need the main session's accumulated context (position history, routing decisions). The other 5 crons do self-contained work — they run a script, parse JSON, and act on rules. Isolating them prevents context bloat in the main session and enables cheaper model tiers.
+**All crons are isolated.** Each cron runs in its own session — no context pollution between runs, enabling cheaper model tiers. Every cron is self-contained: it runs a script, parses JSON, and acts on rules.
 
 Replace these placeholders in all templates:
 - `{TELEGRAM}` — telegram:CHAT_ID (e.g. telegram:5183731261)
@@ -63,14 +76,33 @@ Replace these placeholders in all templates:
 
 ---
 
-## 1. Emerging Movers (every 90s)
+## 1. Emerging Movers (every 3min) — isolated / agentTurn
 
 ```
 WOLF Emerging Movers: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/emerging-movers.py`, parse JSON.
-SLOT GUARD (MANDATORY): Check `anySlotsAvailable` — if false, output HEARTBEAT_OK immediately. Do NOT open any position when all strategies show 0 available slots. Check `strategySlots` per strategy before routing.
-On FIRST_JUMP/CONTRIB_EXPLOSION/IMMEDIATE_MOVER/NEW_ENTRY_DEEP/DEEP_CLIMBER signals: use `strategySlots` to route to a strategy with available > 0 (skip strategies at capacity), open position on that wallet, create DSL state in {WORKSPACE}/state/{strategyKey}/dsl-{ASSET}.json.
-Apply WOLF entry rules from SKILL.md (min 7x leverage, rank #25+ entry, no top-10 entries, rotation logic).
-Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
+SLOT GUARD (MANDATORY): Check `anySlotsAvailable` — if false AND no FIRST_JUMP signals, output HEARTBEAT_OK immediately. Do NOT open any position when all strategies show 0 available slots. Check `strategySlots` per strategy before routing.
+SIGNAL SELECTION (MANDATORY — strict priority order):
+Act ONLY on the `topPicks` array — it contains pre-selected signals sorted by priority. Process topPicks[0] first, then topPicks[1], etc. Do NOT browse `alerts` to pick signals yourself.
+Each signal has a `signalType` field (FIRST_JUMP, CONTRIB_EXPLOSION, IMMEDIATE_MOVER, NEW_ENTRY_DEEP, DEEP_CLIMBER) and `signalPriority` (1=highest). NEVER skip a higher-priority signal to act on a lower-priority one.
+If `hasFirstJump` is true, FIRST_JUMP signals MUST be acted on before any other type.
+Use `strategySlots` to route each signal to a strategy with available > 0 (skip strategies at capacity).
+Enter via: `python3 {SCRIPTS}/open-position.py --strategy {strategyKey} --asset {qualifiedAsset} --signal-index {signalIndex}`
+The `qualifiedAsset` field includes the `xyz:` prefix for XYZ equities (e.g., `xyz:SILVER`). Use it directly — do NOT strip the prefix.
+The `signalIndex` field is in each alert — it tells open-position.py which signal to use for direction and conviction. Do NOT pass --direction or --conviction manually. This opens the position AND creates the DSL state file atomically. Do NOT manually call create_position or hand-write DSL JSON.
+No leverage floor — all assets are tradeable. Leverage auto-calculated from strategy tradingRisk + asset maxLeverage + signal conviction.
+ENTRY CHECKS (do NOT enter if any fail):
+- currentRank must be >= 25 at time of first signal (the scanner already filters this — trust `topPicks`)
+- NEVER enter assets currently at rank #1-10 — that's the top, not the entry
+- >= 10 SM traders for crypto (ignore trader count for XYZ equities)
+- Negative velocity + no jump = skip
+ANTI-PATTERNS — do NOT override these with judgment:
+- 4+ reasons at rank #5 = SKIP (asset already peaked, you'd be buying the top)
+- 2 reasons at rank #25 with big jump = ENTER (the move is just starting)
+- NEVER wait for a signal to "clean up" — by the time history is smooth and velocity high, the move is priced in
+- LATE ENTRY: If an asset has been in top 10 for 2+ scans, it's too late — skip it. Enter on the FIRST signal or not at all.
+ROTATION COOLDOWN (MANDATORY): When slots are full and rotation is needed, only rotate a coin listed in `strategySlots[strategy].rotationEligible pCoins`. Do NOT rotate coins absent from that list — they are under cooldown. If `hasRotationCandidate` is false for all strategies, output HEARTBEAT_OK — no rotation is safe this cycle.
+SAME-RUN ANTI-ROTATION: NEVER rotate a position you opened earlier in THIS same cron run. After opening position(s), remaining signals with no available slots must be SKIPPED. Positions need 45 minutes of price action before rotation eligibility.
+For each successful entry, send each message in the `notifications` array from the open-position.py output to Telegram ({TELEGRAM}). Else HEARTBEAT_OK.
 ```
 
 ---
@@ -79,8 +111,8 @@ Alert Telegram ({TELEGRAM}) for each entry. Else HEARTBEAT_OK.
 
 ```
 WOLF DSL: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/dsl-combined.py`, parse JSON.
-For each entry in `results`: if `status=="closed"` → alert Telegram ({TELEGRAM}) with asset, direction, strategyKey, close_reason, upnl. If `phase1_autocut: true` → note timeout cut. If `status=="pending_close"` → alert user (retry next run).
-If `any_closed: true` → note freed slot(s) for next Emerging Movers run. Else HEARTBEAT_OK.
+Send each message in `notifications` to Telegram ({TELEGRAM}).
+If `notifications` is empty → HEARTBEAT_OK.
 ```
 
 ---
@@ -100,53 +132,19 @@ If `hasFlipSignal == false` or no FLIP_NOW alerts → HEARTBEAT_OK.
 
 ```
 WOLF Watchdog: Run `PYTHONUNBUFFERED=1 timeout 45 python3 {SCRIPTS}/wolf-monitor.py`, parse JSON.
-Check each strategy: crypto_liq_buffer_pct<50% → WARNING (alert Telegram only); <30% → CRITICAL (close the position with lowest ROE% in that strategy, then alert Telegram ({TELEGRAM})). XYZ liq_distance_pct<15% → alert Telegram.
-If no alerts → HEARTBEAT_OK.
+For each item in `action_required`: close the specified position (coin + strategyKey), then alert Telegram ({TELEGRAM}) with what was closed and why.
+Ignore all other alerts in the output — they are informational only.
+If `action_required` is empty → HEARTBEAT_OK.
 ```
 
 ---
 
-## 5. Portfolio Update (every 15min) — isolated / agentTurn
-
-```
-WOLF Portfolio: Read {WORKSPACE}/wolf-strategies.json, get clearinghouse state per wallet, send Telegram ({TELEGRAM}).
-Format: code-block table with per-strategy name/account value/positions (asset, direction, ROE, PnL, DSL tier)/slot usage + global totals.
-```
-
----
-
-## 6. Health Check (every 10min) — isolated / agentTurn
+## 5. Health Check (every 10min) — isolated / agentTurn
 
 ```
 WOLF Health Check: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/job-health-check.py`, parse JSON.
-The script auto-fixes most issues (check the `action` field per issue):
-- auto_created → DSL was missing, script created it. Alert Telegram ({TELEGRAM}).
-- auto_deactivated → Orphan DSL deactivated (position closed externally). No alert needed.
-- auto_replaced → Direction mismatch fixed with fresh DSL. Alert Telegram ({TELEGRAM}).
-- updated_state → Size/entry/leverage reconciled to match on-chain. No alert needed.
-- skipped_fetch_error → Orphan check skipped due to API error. No alert needed (transient).
-- alert_only → Script could not auto-fix. Handle manually:
-  - NO_WALLET → CRITICAL, needs manual config. Alert Telegram ({TELEGRAM}).
-  - DSL_INACTIVE → CRITICAL, set `active: true` in the DSL state file. Alert Telegram ({TELEGRAM}).
-If no issues → HEARTBEAT_OK.
-```
-
----
-
-## 7. Opportunity Scanner (every 15min)
-
-```
-WOLF Scanner: Run `PYTHONUNBUFFERED=1 timeout 180 python3 {SCRIPTS}/opportunity-scan-v6.py 2>/dev/null`, parse JSON.
-SLOT GUARD (MANDATORY): Check `anySlotsAvailable` — if false, skip all entries and output HEARTBEAT_OK. Never open positions when strategySlots shows 0 available for all strategies.
-Act on opportunities with finalScore≥175. Use btcMacro.trend for macro context; be cautious with LONGs if "strong_down".
-
-PROCESSING ORDER (prevents context growth):
-1. Check `strategySlots` — only consider strategies with available > 0. If none → HEARTBEAT_OK.
-2. Build complete action plan: [(asset, direction, strategyKey, margin, leverage), ...] — cap entries at total available slots.
-3. Execute entries sequentially. No re-reads of wolf-strategies.json.
-4. Send ONE consolidated Telegram ({TELEGRAM}) after all entries: "Wolf entered N positions: ASSET1 LONG (Strategy A), ASSET2 SHORT (Strategy B)"
-
-Apply WOLF scanner rules from SKILL.md for routing/conflict judgment. If no opportunities≥175 → HEARTBEAT_OK.
+Send each message in `notifications` to Telegram ({TELEGRAM}).
+If `notifications` is empty → HEARTBEAT_OK.
 ```
 
 ---
@@ -159,7 +157,6 @@ Apply WOLF scanner rules from SKILL.md for routing/conflict judgment. If no oppo
 | State file location | `dsl-state-WOLF-{ASSET}.json` in workspace root | **`state/{strategyKey}/dsl-{ASSET}.json`** |
 | Cron architecture | Some per-strategy values in mandate | **One set of crons, scripts iterate all strategies** |
 | Script wallets | Hardcoded or env var | **Read from `wolf-strategies.json`** |
-| Opportunity Scanner | Broken/optional | **v6: BTC macro, hourly trend, disqualifiers, parallel fetches** |
 | Signal routing | One wallet | **Route to best-fit strategy by available slots + risk profile** |
-| Scanner interval | 90s (unchanged) | 90s |
+| Scanner interval | 90s | 3min |
 | DSL architecture | Combined runner (unchanged) | Combined runner iterating all strategies |

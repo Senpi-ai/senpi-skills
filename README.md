@@ -50,7 +50,7 @@ Each skill folder is self-contained — SKILL.md has the core instructions, `scr
 | Skill | What it does | Install |
 |-------|-------------|---------|
 | **[DSL (Dynamic Stop Loss)](#dsl-dynamic-stop-loss)** | 2-phase trailing stop loss with per-tier retrace tightening. ROE-based tier triggers, auto-closes on breach with retry. Works for LONG and SHORT. | [`SKILL.md`](dsl-dynamic-stop-loss/SKILL.md) |
-| **[DSL-Tight](#dsl-tight)** | Opinionated DSL preset with tighter defaults. 4 tiers with per-tier breach counts that tighten as profit grows, auto-calculated price floors, stagnation take-profit. | [`SKILL.md`](dsl-tight/SKILL.md) |
+| **[DSL-Tight](#dsl-tight)** | Opinionated DSL v5 preset with tighter defaults. 4 tiers, per-tier retrace, auto-calculated absolute floor. Same script as DSL v5 (strategy-scoped). | [`SKILL.md`](dsl-tight/SKILL.md) |
 | **[Opportunity Scanner](#opportunity-scanner)** | 4-stage funnel screening all 500+ Hyperliquid perps. Scores 0–400 across smart money, market structure, technicals, and funding. Hourly trend gate, BTC macro filter. | [`SKILL.md`](opportunity-scanner/SKILL.md) |
 | **[Autonomous Trading](#autonomous-trading)** | Give your agent a budget, target, and deadline — it does the rest. Orchestrates DSL + Scanner + Emerging Movers with race condition prevention and conviction collapse cuts. | [`SKILL.md`](autonomous-trading/SKILL.md) |
 | **[WOLF Strategy](#wolf-strategy)** | Fully autonomous 2-3 slot trading. All 7 scripts bundled, setup wizard, cron mandates. Proven: +$2,100 in 24h across 25+ trades, 65% win rate. | [`SKILL.md`](wolf-strategy/SKILL.md) |
@@ -76,9 +76,9 @@ Automated trailing stop loss for leveraged perp positions on Hyperliquid. All ti
 
 ### DSL-Tight
 
-A tighter, more opinionated variant of DSL for aggressive profit protection. Same ROE-based engine — different defaults.
+A tighter, more opinionated variant of DSL for aggressive profit protection. Uses the same script and architecture as DSL v5 — strategy-scoped cron, one state file per position under a strategy dir.
 
-**How it works:** Same core as DSL v4. DSL-Tight ships with aggressive defaults and fewer knobs. 4 tiers that lock 50→65→75→85% of the high-water move, with breach counts that tighten as profit grows (3→2→2→1). Auto-calculates all price floors. Stagnation take-profit auto-closes if ROE ≥ 8% but the high-water mark hasn't improved for 1 hour.
+**How it works:** Same engine as DSL v5 (`dsl-v5.py`). DSL-Tight is a preset with tighter defaults: 5% Phase 1 retrace, 2 breaches to close in Phase 2, 4 tiers (50→65→75→85% lock) with per-tier retrace. Absolute floor is auto-calculated when omitted. Install the dsl-dynamic-stop-loss skill first; DSL-Tight only defines the state file template and defaults.
 
 📥 **[Download SKILL.md](dsl-tight/SKILL.md)**
 

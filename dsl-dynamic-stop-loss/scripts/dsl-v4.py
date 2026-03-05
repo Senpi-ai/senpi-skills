@@ -120,27 +120,31 @@ for i, tier in enumerate(tiers):
                 state["currentBreachCount"] = 0
 
 # ─── Effective floor ───
+# Retrace is ROE fraction (e.g. 0.03 = 3% ROE); convert to price via / leverage so 3% = 3% ROE not 30% at 10x.
+leverage = max(1, state.get("leverage", 1))
 if phase == 1:
-    retrace = state["phase1"]["retraceThreshold"]
+    retrace_roe = state["phase1"]["retraceThreshold"]
+    retrace_price = retrace_roe / leverage
     breaches_needed = state["phase1"]["consecutiveBreachesRequired"]
     abs_floor = state["phase1"]["absoluteFloor"]
     if is_long:
-        trailing_floor = round(hw * (1 - retrace), 4)
+        trailing_floor = round(hw * (1 - retrace_price), 4)
         effective_floor = max(abs_floor, trailing_floor)
     else:
-        trailing_floor = round(hw * (1 + retrace), 4)
+        trailing_floor = round(hw * (1 + retrace_price), 4)
         effective_floor = min(abs_floor, trailing_floor)
 else:
     if tier_idx >= 0:
-        retrace = tiers[tier_idx].get("retrace", state["phase2"]["retraceThreshold"])
+        retrace_roe = tiers[tier_idx].get("retrace", state["phase2"]["retraceThreshold"])
     else:
-        retrace = state["phase2"]["retraceThreshold"]
+        retrace_roe = state["phase2"]["retraceThreshold"]
+    retrace_price = retrace_roe / leverage
     breaches_needed = state["phase2"]["consecutiveBreachesRequired"]
     if is_long:
-        trailing_floor = round(hw * (1 - retrace), 4)
+        trailing_floor = round(hw * (1 - retrace_price), 4)
         effective_floor = max(tier_floor or 0, trailing_floor)
     else:
-        trailing_floor = round(hw * (1 + retrace), 4)
+        trailing_floor = round(hw * (1 + retrace_price), 4)
         effective_floor = min(tier_floor or float('inf'), trailing_floor)
 
 state["floorPrice"] = round(effective_floor, 4)
