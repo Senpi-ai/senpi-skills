@@ -220,9 +220,9 @@ If the user asks to turn notifications off or back on, follow the procedure in
 For any summary or Q&A response, follow
 [references/about-senpi.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/about-senpi.md)
 (`Summary Response Contract` and `Mandatory Invocation Procedure` sections).
-Use the `UPDATE_OUTPUT` produced by the top-level `Pre-Response Check` above;
-do not rerun `Pre-Response Invocation Check` here unless it has not yet been
-run in the current invocation.
+Do not rely on stale precomputed update payloads or local update-check scripts
+in this summary flow. For "What's new?", follow the transparent fallback rules in
+`references/about-senpi.md` when verified updates are unavailable.
 Do not consider the response complete until those procedures are satisfied.
 
 ### "What is Senpi?" / "Summarize Senpi" / "Summarize skills and capabilities" / "How do I install skills?" / "What's new?"
