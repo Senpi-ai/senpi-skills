@@ -11,6 +11,7 @@ WOLF uses isolated sessions and a 2-tier model approach. Configure per-cron in O
 | Health Check | 10min (6x/hr) | isolated | agentTurn | Mid |
 | SM Flip Detector | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 | Watchdog | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
+| Risk Guardian | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 
 **2-tier model approach** — auto-configured by `wolf-setup.py --provider`:
 
@@ -22,7 +23,7 @@ WOLF uses isolated sessions and a 2-tier model approach. Configure per-cron in O
 
 > Model IDs in the `cronTemplates` output from `wolf-setup.py` are already correct for your provider. Use them directly when creating crons.
 
-All 5 crons can also run on a single model if you prefer simplicity over cost savings.
+All 6 crons can also run on a single model if you prefer simplicity over cost savings.
 
 ---
 
@@ -143,6 +144,16 @@ If `action_required` is empty → HEARTBEAT_OK.
 
 ```
 WOLF Health Check: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/job-health-check.py`, parse JSON.
+Send each message in `notifications` to Telegram ({TELEGRAM}).
+If `notifications` is empty → HEARTBEAT_OK.
+```
+
+---
+
+## 6. Risk Guardian (every 5min) — isolated / agentTurn
+
+```
+WOLF Risk Guardian: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/risk-guardian.py`, parse JSON.
 Send each message in `notifications` to Telegram ({TELEGRAM}).
 If `notifications` is empty → HEARTBEAT_OK.
 ```

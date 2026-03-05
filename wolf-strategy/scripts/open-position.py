@@ -16,6 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_strategy, dsl_state_path, dsl_state_glob,
                          dsl_state_template, atomic_write, mcporter_call,
                          mcporter_call_safe, calculate_leverage, strategy_lock,
+                         check_gate, increment_entry_counter,
                          WORKSPACE, ROTATION_COOLDOWN_MINUTES)
 
 
@@ -162,6 +163,11 @@ def main():
     margin = margin_override if margin_override else cfg.get("marginPerSlot", 0)
     if margin <= 0:
         fail("invalid_margin", margin=margin, strategyKey=strategy_key)
+
+    # 2a. Guard rail gate check
+    gate_status, gate_reason = check_gate(strategy_key)
+    if gate_status != "OPEN":
+        fail("strategy_gated", gate=gate_status, gateReason=gate_reason, strategyKey=strategy_key)
 
     # 2. Resolve leverage — auto-calculate or validate explicit value
     max_lev_data = load_max_leverage()
@@ -380,6 +386,12 @@ def main():
         # 9. Write DSL state atomically
         dsl_path = dsl_state_path(strategy_key, clean_asset)
         atomic_write(dsl_path, dsl_state)
+
+        # 10. Increment guard rail entry counter
+        try:
+            increment_entry_counter(strategy_key)
+        except Exception:
+            pass  # Never fail the open for counter bookkeeping
     finally:
         lock_ctx.__exit__(None, None, None)
 

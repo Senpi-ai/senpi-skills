@@ -3,9 +3,9 @@ name: wolf-strategy
 description: >-
   WOLF v6.1 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
   Manages multiple strategies simultaneously, each with independent wallets, budgets, slots,
-  and DSL configs. 5-cron architecture with Emerging Movers scanner (3min, FIRST_JUMP + IMMEDIATE_MOVER),
+  and DSL configs. 6-cron architecture with Emerging Movers scanner (3min, FIRST_JUMP + IMMEDIATE_MOVER),
   DSL v4 trailing stops (combined runner every 3min, 4-tier at 5/10/15/20% ROE),
-  SM flip detector (5min), watchdog (5min),
+  SM flip detector (5min), watchdog (5min), risk guardian (5min, account-level guard rails),
   and health checks (10min). Same asset can be traded in different strategies simultaneously.
   Enter early on first jumps, not at confirmed peaks. Dynamic risk-based leverage per strategy.
   Requires Senpi MCP connection, python3, mcporter CLI, and OpenClaw cron system.
@@ -82,14 +82,14 @@ Leaderboard rank confirmation LAGS price. When an asset jumps from #31->#16 in o
 3. Fund the wallet via `strategy_top_up` with your budget
 4. **Determine the user's AI provider** — which provider is configured in OpenClaw? (`anthropic`, `openai`, or `google`)
 5. Run setup: `python3 scripts/wolf-setup.py --wallet 0x... --strategy-id UUID --budget 6500 --chat-id 12345 --provider anthropic`
-6. Create the 5 OpenClaw crons using templates from `references/cron-templates.md`
+6. Create the 6 OpenClaw crons using templates from `references/cron-templates.md`
 7. The WOLF is hunting
 
 To add a second strategy, run `wolf-setup.py` again with a different wallet/budget. It adds to the registry.
 
 ---
 
-## Architecture — 5 Cron Jobs
+## Architecture — 6 Cron Jobs
 
 | # | Job | Interval | Session | Script | Purpose |
 |---|-----|----------|---------|--------|---------|
@@ -98,6 +98,7 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 | 3 | SM Flip Detector | 5min | isolated | `scripts/sm-flip-check.py` | Cut positions where SM conviction collapses |
 | 4 | Watchdog | 5min | isolated | `scripts/wolf-monitor.py` | Per-strategy margin buffer, liq distances, rotation candidates |
 | 5 | Health Check | 10min | isolated | `scripts/job-health-check.py` | Per-strategy orphan DSL detection, state validation |
+| 6 | Risk Guardian | 5min | isolated | `scripts/risk-guardian.py` | Account-level guard rails: daily loss halt, max entries, consecutive loss cooldown |
 
 **v6 change:** One set of crons for all strategies. Each script reads `wolf-strategies.json` and iterates all enabled strategies internally.
 
@@ -122,8 +123,9 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 | Health Check | isolated | Mid | Rule-based file repair, action routing |
 | SM Flip Detector | isolated | Budget | Binary: conviction≥4 + 100 traders → close |
 | Watchdog | isolated | Budget | Threshold checks → alert |
+| Risk Guardian | isolated | Budget | Guard rail evaluation, send notifications |
 
-**Single-model option:** All 5 crons can run on one model. Simpler but costs more for the crons that do simple threshold/binary work.
+**Single-model option:** All 6 crons can run on one model. Simpler but costs more for the crons that do simple threshold/binary work.
 
 **Model ID gotchas:**
 - `--provider` auto-selects models. Only use `--mid-model`/`--budget-model` to override specific tiers.
@@ -134,9 +136,9 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 
 ## Cron Setup
 
-**Critical:** Crons are **OpenClaw crons**, NOT senpi crons. All 5 crons run in **isolated sessions** (`agentTurn`) — each runs in its own session with no context pollution, enabling cheaper model tiers.
+**Critical:** Crons are **OpenClaw crons**, NOT senpi crons. All 6 crons run in **isolated sessions** (`agentTurn`) — each runs in its own session with no context pollution, enabling cheaper model tiers.
 
-Create each cron using the OpenClaw cron tool. The exact mandate text for each cron is in **`references/cron-templates.md`**. Read that file, replace the placeholders (`{TELEGRAM}`, `{SCRIPTS}`, and `{WORKSPACE}` in v6), and create all 5 crons.
+Create each cron using the OpenClaw cron tool. The exact mandate text for each cron is in **`references/cron-templates.md`**. Read that file, replace the placeholders (`{TELEGRAM}`, `{SCRIPTS}`, and `{WORKSPACE}` in v6), and create all 6 crons.
 
 **v6 simplification:** No more per-wallet/per-strategy placeholders in cron mandates. Scripts read all strategy info from the registry.
 
@@ -396,6 +398,45 @@ Pass `--leverage N` to `open-position.py` to bypass auto-calculation (capped aga
 
 ---
 
+## Guard Rails — Risk Guardian
+
+The Risk Guardian (6th cron, 5min, Budget tier) enforces account-level guard rails that protect against runaway losses across all positions in a strategy. Per-position DSL handles individual trailing stops; guard rails handle the portfolio.
+
+### Gate States
+
+| Gate | Meaning | Resets |
+|------|---------|--------|
+| `OPEN` | Normal trading | — |
+| `COOLDOWN` | Temporary pause after consecutive losses | Auto-expires after `cooldownMinutes` |
+| `CLOSED` | Halted for the day | Midnight UTC |
+
+When gate != OPEN, `open-position.py` refuses new entries and `emerging-movers.py` shows `available: 0` for that strategy.
+
+### Guard Rail Rules
+
+| Rule | Trigger | Action |
+|------|---------|--------|
+| **G1** Daily Loss Halt | `accountValue - accountValueStart <= -dailyLossLimit` | Gate → CLOSED |
+| **G3** Max Entries | `entries >= maxEntriesPerDay` (bypass if profitable day + `bypassOnProfit`) | Gate → CLOSED |
+| **G4** Consecutive Losses | Last N results all "L" (N = `maxConsecutiveLosses`) | Gate → COOLDOWN for `cooldownMinutes` |
+
+### Config (`guardRails` in strategy registry)
+
+```json
+{
+  "guardRails": {
+    "maxEntriesPerDay": 8,
+    "bypassOnProfit": true,
+    "maxConsecutiveLosses": 3,
+    "cooldownMinutes": 60
+  }
+}
+```
+
+All parameters are optional — defaults are used for any missing key. Set per strategy in `wolf-strategies.json`.
+
+---
+
 ## Known Limitations
 
 - **Watchdog blind spot for XYZ isolated:** The watchdog monitors cross-margin buffer but can't see isolated position liquidation distances in the same way. XYZ positions rely on DSL for protection.
@@ -433,3 +474,4 @@ See `references/learnings.md` for known bugs, gotchas, and trading discipline ru
 | `scripts/sm-flip-check.py` | SM conviction flip detector (multi-strategy) |
 | `scripts/wolf-monitor.py` | Watchdog — per-strategy margin buffer + position health |
 | `scripts/job-health-check.py` | Per-strategy orphan DSL / state validation |
+| `scripts/risk-guardian.py` | Risk Guardian — account-level guard rails (daily loss, max entries, consecutive loss cooldown) |

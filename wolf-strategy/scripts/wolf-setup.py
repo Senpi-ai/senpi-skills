@@ -19,7 +19,7 @@ Usage:
 import json, sys, os, math, argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import mcporter_call
+from wolf_config import mcporter_call, GUARD_RAIL_DEFAULTS
 
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
@@ -185,6 +185,12 @@ strategy_entry = {
         "preset": dsl_preset,
         "tiers": DSL_PRESETS[dsl_preset]
     },
+    "guardRails": {
+        "maxEntriesPerDay": 8,
+        "bypassOnProfit": True,
+        "maxConsecutiveLosses": 3,
+        "cooldownMinutes": 60,
+    },
     "enabled": True
 }
 
@@ -317,6 +323,16 @@ cron_templates = {
             "message": f"WOLF Health Check: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS_DIR}/job-health-check.py`, parse JSON.\nSend each message in `notifications` to Telegram ({tg}).\nIf `notifications` is empty → HEARTBEAT_OK."
         }
     },
+    "risk_guardian": {
+        "name": "WOLF Risk Guardian v6.1 (5min)",
+        "schedule": {"kind": "every", "everyMs": 300000},
+        "sessionTarget": "isolated",
+        "payload": {
+            "kind": "agentTurn",
+            "model": budget_model,
+            "message": f"WOLF Risk Guardian: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS_DIR}/risk-guardian.py`, parse JSON.\nSend each message in `notifications` to Telegram ({tg}).\nIf `notifications` is empty → HEARTBEAT_OK."
+        }
+    },
 }
 
 print("\n" + "=" * 60)
@@ -346,11 +362,11 @@ if strategies_count > 1:
     print(f"  All strategies: {list(registry['strategies'].keys())}")
 
 print("\n" + "=" * 60)
-print("  Next Steps: Create 5 cron jobs")
+print("  Next Steps: Create 6 cron jobs")
 print("=" * 60)
 print(f"""
 Use OpenClaw cron to create each job. See references/cron-templates.md
-for the exact payload text for each of the 5 jobs.
+for the exact payload text for each of the 6 jobs.
 
 With multi-strategy, crons iterate all enabled strategies internally.
 You only need ONE set of crons regardless of strategy count.
@@ -364,10 +380,14 @@ You only need ONE set of crons regardless of strategy count.
   │ Health Check         │ isolated │ agentTrn │ Mid: {mid_model}  │
   │ SM Flip Detector     │ isolated │ agentTrn │ Budget: {budget_model}       │
   │ Watchdog             │ isolated │ agentTrn │ Budget: {budget_model}       │
+  │ Risk Guardian        │ isolated │ agentTrn │ Budget: {budget_model}       │
   └──────────────────────┴──────────┴──────────┴─────────────────────────────────────────────┘
 
+  Guard Rails (per strategy): maxEntries={GUARD_RAIL_DEFAULTS['maxEntriesPerDay']}/day, \
+consecutiveLossCooldown={GUARD_RAIL_DEFAULTS['maxConsecutiveLosses']}L→{GUARD_RAIL_DEFAULTS['cooldownMinutes']}min
+
   All crons run in isolated sessions (agentTurn) — no context pollution.
-  All 5 crons can also run on a single model if you prefer simplicity.
+  All 6 crons can also run on a single model if you prefer simplicity.
 """)
 
 # Output full result as JSON for programmatic use
