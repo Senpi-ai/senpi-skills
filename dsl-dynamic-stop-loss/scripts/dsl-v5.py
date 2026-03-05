@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""DSL v5 — Strategy-scoped cron, MCP clearinghouse + price, delete on close.
+"""DSL v5 — Strategy-scoped cron, MCP clearinghouse + price, archive on close.
 Cron is per strategy (DSL_STATE_DIR + DSL_STRATEGY_ID only). Each run:
-1. Check if strategy is active via MCP; if not, cleanup all state files and output strategy_inactive.
-2. Get active positions from MCP clearinghouse; delete state files for positions that no longer exist.
-3. For each remaining position with a state file: fetch price, update tiers, breach, close if needed, delete state on close.
+1. Check if strategy is active via MCP; if not, cleanup active state files and output strategy_inactive.
+2. For each state file with slOrderId: call execution_get_order_status; if filled, rename to {asset}_archived_sl_{epoch}.json.
+3. Get active positions from MCP clearinghouse; rename state files for positions no longer present to {asset}_archived_external_{epoch}.json.
+4. For each remaining position: fetch price, update tiers, breach, close if needed; on close rename to {asset}_archived_{epoch}.json.
+Phase 1 SL uses MARKET (fast exit); Phase 2 (tiered) SL uses LIMIT. Phase 2 default: 1 breach to close.
 Output: one JSON line per position (ndjson), or one line for strategy-level outcome (inactive / no_positions).
 """
 from __future__ import annotations
@@ -52,12 +54,14 @@ def resolve_state_file(state_dir: str, strategy_id: str, asset: str) -> tuple[st
 
 
 def list_strategy_state_files(state_dir: str, strategy_id: str) -> list[tuple[str, str]]:
-    """Return list of (path, asset) for each .json in strategy dir. asset from filename."""
+    """Return list of (path, asset) for each active .json in strategy dir (excludes *_archived_* files)."""
     out = []
     strategy_dir = os.path.join(state_dir, strategy_id)
     if not os.path.isdir(strategy_dir):
         return out
     for name in os.listdir(strategy_dir):
+        if "_archived" in name or ".archived" in name:
+            continue
         path = os.path.join(strategy_dir, name)
         if not name.endswith(".json") or not os.path.isfile(path):
             continue
@@ -186,12 +190,14 @@ def get_active_position_coins(wallet: str) -> tuple[set[str], str | None]:
 
 
 def cleanup_strategy_state_dir(state_dir: str, strategy_id: str) -> int:
-    """Delete all .json state files in strategy dir. Return count deleted."""
+    """Remove only active .json state files in strategy dir (excludes *_archived_* files). Return count removed."""
     deleted = 0
     strategy_dir = os.path.join(state_dir, strategy_id)
     if not os.path.isdir(strategy_dir):
         return 0
     for name in os.listdir(strategy_dir):
+        if "_archived" in name or ".archived" in name:
+            continue
         path = os.path.join(strategy_dir, name)
         if name.endswith(".json") and os.path.isfile(path):
             try:
@@ -278,7 +284,7 @@ def fetch_price_mcp(dex: str, lookup_symbol: str) -> tuple[float | None, str | N
 DEFAULT_PHASE1_RETRACE = 0.03
 DEFAULT_PHASE1_BREACHES = 3
 DEFAULT_PHASE2_RETRACE = 0.015
-DEFAULT_PHASE2_BREACHES = 2
+DEFAULT_PHASE2_BREACHES = 1
 
 
 def normalize_state_phase_config(state: dict) -> bool:
@@ -506,6 +512,37 @@ def _mcp_strategy_get_open_orders(wallet: str, dex: str = "") -> tuple[list[dict
         return [], str(e)
 
 
+def _mcp_execution_get_order_status(wallet: str, order_id: int) -> tuple[bool, str | None, str | None]:
+    """Call senpi execution_get_order_status. Returns (success, order_status, error).
+    order_status is e.g. 'open', 'filled', 'canceled' when success; None on error or unknownOid.
+    """
+    args = {"user": wallet, "orderId": order_id}
+    try:
+        r = subprocess.run(
+            ["mcporter", "call", "senpi", "execution_get_order_status", "--args", json.dumps(args)],
+            capture_output=True, text=True, timeout=15,
+        )
+        raw = _unwrap_mcporter_response(r.stdout) if r.stdout else None
+        if r.returncode != 0:
+            return False, None, (r.stderr or r.stdout or "non-zero exit")
+        if not raw or not isinstance(raw, dict):
+            return False, None, "execution_get_order_status: invalid or empty response"
+        if raw.get("success") is False:
+            err = raw.get("error", {})
+            msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            return False, None, msg
+        data = raw.get("data") or raw
+        if data.get("status") == "unknownOid":
+            return True, None, None
+        if data.get("status") == "order":
+            order = data.get("order")
+            if isinstance(order, dict):
+                return True, (order.get("status") or "").strip().lower(), None
+        return False, None, "execution_get_order_status: unexpected response shape"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return False, None, str(e)
+
+
 def _resolve_sl_order_id_after_edit(
     wallet: str, dex: str, coin: str, trigger_price: float, orders: list[dict]
 ) -> int | None:
@@ -537,17 +574,20 @@ def sync_sl_to_hyperliquid(
     effective_floor: float,
     now: str,
     dex: str,
+    phase: int,
 ) -> tuple[bool, bool, str | None]:
     """Set or update SL on Hyperliquid at effective_floor via edit_position. Resolve slOrderId via open orders if needed.
+    Phase 1 (initial/absolute floor): MARKET for fast exit; Phase 2 (tiered): LIMIT.
     Mutates state: slOrderId, lastSyncedFloorPrice, slOrderIdUpdatedAt.
     Returns (success, sl_synced_this_tick, error_message)."""
     wallet = state.get("wallet", "")
     coin = state["asset"]
     if not wallet:
         return False, False, "no wallet in state"
+    order_type = "MARKET" if phase == 1 else "LIMIT"
 
     success, err, oid_from_api = _mcp_edit_position(
-        wallet, coin, effective_floor, order_type="LIMIT"
+        wallet, coin, effective_floor, order_type=order_type
     )
     if not success:
         return False, False, err
@@ -617,19 +657,29 @@ def try_close_position(
 
 
 # ---------------------------------------------------------------------------
-# Persist: save or delete state file
+# Persist: save or rename state file on close (archive instead of delete)
 # ---------------------------------------------------------------------------
 
-def save_or_delete_state(
+def _archived_state_filename(state_file: str, now: str, suffix: str = "archived") -> str:
+    """Build archived filename with epoch and underscores: e.g. ETH.json -> ETH_archived_1709722800.json."""
+    epoch = int(time.time())
+    suffix_safe = suffix.replace("-", "_")
+    base, ext = os.path.splitext(state_file)
+    return f"{base}_{suffix_safe}_{epoch}{ext}"
+
+
+def save_or_rename_state(
     state: dict, state_file: str, closed: bool, now: str, close_result: str | None
 ) -> str | None:
-    """Persist state (save or delete file). Caller must set state['lastPrice'] before calling.
-    If closed but delete fails, writes state (active: False) so cleanup can proceed later.
+    """Persist state: save file, or if closed rename to {base}_archived_{epoch}.json (archive).
+    Caller must set state['lastPrice'] before calling.
+    If closed but rename fails, writes state (active: False) so cleanup can proceed later.
     """
     state["lastCheck"] = now
     if closed:
+        dest = _archived_state_filename(state_file, now, "archived")
         try:
-            os.remove(state_file)
+            os.rename(state_file, dest)
             return close_result
         except OSError as e:
             # Fallback: write state so dsl-cleanup sees active: false and can clean strategy
@@ -638,7 +688,7 @@ def save_or_delete_state(
                     json.dump(state, f, indent=2)
             except OSError:
                 pass
-            return (close_result or "") + f"; delete_failed: {e}"
+            return (close_result or "") + f"; rename_failed: {e}"
     with open(state_file, "w") as f:
         json.dump(state, f, indent=2)
     return close_result
@@ -851,7 +901,9 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
     )
     sl_synced_this_tick = False
     if need_sync:
-        sync_ok, sl_synced_this_tick, sync_err = sync_sl_to_hyperliquid(state, effective_floor, now, dex)
+        sync_ok, sl_synced_this_tick, sync_err = sync_sl_to_hyperliquid(
+            state, effective_floor, now, dex, phase
+        )
         if not sync_ok and sync_err:
             # Log but continue; backup close on breach still available
             state["lastSlSyncError"] = sync_err
@@ -870,7 +922,7 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
             state.get("closeRetries", 2), state.get("closeRetryDelaySec", 3),
         )
 
-    close_result = save_or_delete_state(state, state_file, closed, now, close_result)
+    close_result = save_or_rename_state(state, state_file, closed, now, close_result)
 
     out = build_output(
         state,
@@ -939,7 +991,30 @@ def main() -> None:
             }))
             sys.exit(1)
 
-    # 2. Active positions from clearinghouse.
+    # 2. List state files and check SL order status (before reconcile): if SL already filled, archive and skip.
+    state_files = list_strategy_state_files(state_dir, strategy_id)
+    for path, asset in list(state_files):
+        try:
+            with open(path) as f:
+                state = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        oid = state.get("slOrderId")
+        if oid is None:
+            continue
+        try:
+            oid = int(oid)
+        except (TypeError, ValueError):
+            continue
+        ok, order_status, _ = _mcp_execution_get_order_status(wallet, oid)
+        if ok and order_status == "filled":
+            try:
+                dest = _archived_state_filename(path, now, "archived-sl")
+                os.rename(path, dest)
+            except OSError:
+                pass
+
+    # 3. Active positions from clearinghouse.
     coins, ch_error = get_active_position_coins(wallet)
     if ch_error is not None:
         print(json.dumps({
@@ -951,11 +1026,13 @@ def main() -> None:
         }))
         sys.exit(1)
 
+    # 4. Reconcile: archive state files for positions no longer in clearinghouse (closed externally).
     state_files = list_strategy_state_files(state_dir, strategy_id)
     for path, asset in list(state_files):
         if asset not in coins:
             try:
-                os.remove(path)
+                dest = _archived_state_filename(path, now, "archived-external")
+                os.rename(path, dest)
             except OSError:
                 pass
 

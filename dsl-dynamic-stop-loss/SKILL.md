@@ -11,7 +11,7 @@ compatibility: >-
   Hyperliquid perp positions only (main dex and xyz dex).
 metadata:
   author: jason-goldberg
-  version: "5.0"
+  version: "5.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -32,19 +32,19 @@ metadata:
 
 ---
 
-Automated trailing stop loss for leveraged perp positions on Hyperliquid (main and xyz dex). Monitors price via cron, ratchets profit floors upward through configurable tiers, and **syncs the stop loss to Hyperliquid** via Senpi `edit_position` so that **Hyperliquid executes the SL** when price hits — reducing loss exposure versus a 3-minute cron-only close. Breach detection, tier upgrades, and retraction logic still run in the cron; cancellation and setup of the SL happen via Senpi API; the new SL order ID is stored in state and status can be checked via `strategy_get_open_orders`. On breach the script may still call `close_position` as a backup. v5 adds strategy-scoped state paths and delete-on-close cleanup.
+Automated trailing stop loss for leveraged perp positions on Hyperliquid (main and xyz dex). Monitors price via cron, ratchets profit floors upward through configurable tiers, and **syncs the stop loss to Hyperliquid** via Senpi `edit_position` so that **Hyperliquid executes the SL** when price hits — reducing loss exposure versus a 3-minute cron-only close. Breach detection, tier upgrades, and retraction logic still run in the cron; cancellation and setup of the SL happen via Senpi API; the new SL order ID is stored in state and status can be checked via `strategy_get_open_orders`. On breach the script may still call `close_position` as a backup. v5 adds strategy-scoped state paths and archive-on-close (state file renamed to `{asset}_archived_{epoch}.json`).
 
 ## Self-Contained Design
 
 ```
 Script handles:              Agent handles:
 ✅ Strategy active check (MCP strategy_get)   📢 Telegram alerts
-✅ Reconcile state vs positions (delete orphan state files)   🧹 On strategy_inactive: remove cron, run cleanup
+✅ Reconcile state vs positions (rename orphan state files to *_archived_external_*)   🧹 On strategy_inactive: remove cron, run cleanup
 ✅ Price monitoring           📊 Portfolio reporting
 ✅ High water + tier upgrades  🔄 Retry awareness (pendingClose alerts)
 ✅ Sync SL via edit_position (Senpi MCP); HL executes SL when price hits  ⏰ One cron per strategy when user sets up DSL
 ✅ Breach + close_position backup (mcporter)  📋 sl_synced / sl_order_id in output
-✅ State delete on close
+✅ State archive on close (rename to *_archived_{epoch}.json)
 ✅ Error handling (fetch failures)
 ```
 
@@ -60,7 +60,7 @@ The script syncs the current effective floor to Hyperliquid as a native stop-los
 
 ### Phase 2: "Lock the Bag" (uPnL ≥ first tier)
 - **Tight retrace**: 1.5% ROE from high water (or per-tier retrace), leverage-adjusted
-- **Quick exit**: 1–2 consecutive breaches to close
+- **Quick exit**: 1 consecutive breach to close (default; configurable via `phase2.consecutiveBreachesRequired`)
 - **Tier floors**: ratchet up as profit grows — never go back down
 - **Effective floor**: best of tier floor and trailing floor
 
@@ -127,24 +127,23 @@ For LONGs, "best" = maximum. For SHORTs, "best" = minimum.
 ├──────────────────────────────────────────────────────────────────────────┤
 │ scripts/dsl-v5.py (each run)                                              │
 │ 1. MCP: strategy_get(strategy_id -> uuid) → strategy status from Senpi (not clearinghouse). │
-│    If status not ACTIVE/PAUSED → delete all state files; print strategy_inactive;   │
-│    agent removes cron for this strategy.                                         │
-│ 2. Wallet from strategy_get response; MCP: strategy_get_clearinghouse_state(wallet) │
-│    → set of active position coins (main + xyz).                                   │
-│ 3. Reconcile: delete state files whose asset is not in active positions  │
-│    (position was closed outside DSL).                                     │
-│ 4. For each active position that has a state file:                        │
-│    • Fetch price via MCP (market_get_prices / allMids)                     │
-│    • Update high water, tier upgrades (ROE-based), effective floor         │
-│    • Sync SL: if no slOrderId or floor changed → edit_position(floor);    │
-│      store slOrderId (from response or strategy_get_open_orders)          │
-│    • Detect breaches (with decay modes)                                   │
-│    • ON BREACH: close_position via mcporter (backup); delete state on ok  │
-│    • Print one JSON line per position (ndjson)                            │
+│    If status not ACTIVE/PAUSED → remove active state files; print strategy_inactive.      │
+│ 2. For each state file with slOrderId: MCP execution_get_order_status; if filled,         │
+│    rename to {asset}_archived_sl_{epoch}.json (SL already hit on HL).                    │
+│ 3. MCP: strategy_get_clearinghouse_state(wallet) → active position coins (main + xyz).   │
+│ 4. Reconcile: rename state files whose asset is not in active positions to              │
+│    {asset}_archived_external_{epoch}.json (position closed outside DSL).                │
+│ 5. For each active position that has a state file:                                       │
+│    • Fetch price via MCP (market_get_prices / allMids)                                    │
+│    • Update high water, tier upgrades (ROE-based), effective floor                        │
+│    • Sync SL: Phase 1 → edit_position(floor, MARKET); Phase 2 → edit_position(floor, LIMIT) │
+│    • Detect breaches (Phase 2 default: 1 breach to close)                                  │
+│    • ON BREACH: close_position via mcporter (backup); rename state to {asset}_archived_{epoch}.json  │
+│    • Print one JSON line per position (ndjson)                                             │
 ├──────────────────────────────────────────────────────────────────────────┤
 │ Agent reads output (one line per position, or one strategy-level line):  │
 │ • strategy_inactive → remove cron for this strategy; run cleanup if needed│
-│ • closed=true → alert user (script already deleted state file)             │
+│ • closed=true → alert user (script archived state file to {asset}_archived_{epoch}.json)   │
 │ • pending_close=true → alert, will retry                                  │
 │ • tier_changed=true → notify user                                         │
 │ • status=error → log, check failures                                      │
@@ -156,7 +155,7 @@ For LONGs, "best" = maximum. For SHORTs, "best" = minimum.
 | File | Purpose |
 |------|---------|
 | `scripts/dsl-v5.py` | Strategy-scoped DSL: MCP clearinghouse + reconcile state, then per-position monitor/close, outputs ndjson |
-| `scripts/dsl-cleanup.py` | Strategy-level cleanup — deletes strategy dir when all positions closed |
+| `scripts/dsl-cleanup.py` | Strategy-level cleanup — deletes entire strategy dir (including archived state files) when no active positions remain |
 | State file (JSON) | Per-position config + runtime state; path: `{DSL_STATE_DIR}/{strategyId}/{asset}.json` |
 | [references/migration.md](references/migration.md) | Upgrading from cron-only DSL to Hyperliquid SL flow |
 
@@ -187,7 +186,7 @@ Minimal required fields to create a new state file:
   "phase2TriggerTier": 1,
   "phase2": {
     "retraceThreshold": 0.015,
-    "consecutiveBreachesRequired": 2
+    "consecutiveBreachesRequired": 1
   },
   "tiers": [
     {"triggerPct": 10, "lockPct": 5},
@@ -222,7 +221,7 @@ Key fields for agent decision-making:
 | Field / status | Agent action |
 |----------------|--------------|
 | `status: "strategy_inactive"` | Remove cron for this strategy; run strategy cleanup |
-| `closed: true` | Alert user (script already deleted state file) |
+| `closed: true` | Alert user (script archived state file to `{asset}_archived_{epoch}.json`) |
 | `pending_close: true` | Alert — close failed, retrying next tick |
 | `tier_changed: true` | Notify user with tier details |
 | `status: "error"` | Log; alert if `consecutive_failures >= 3` |
@@ -263,12 +262,12 @@ No `DSL_ASSET` — the script discovers positions from MCP clearinghouse and sta
 
 ### When a Position Closes
 
-1. ✅ **Hyperliquid** may close the position when price hits the synced SL (no cron delay). The script reconciles: on the next run the coin is no longer in clearinghouse, so the state file is deleted.
-2. ✅ On breach the script may close via `senpi:close_position` (backup; coin with `xyz:` prefix as-is; with retry)
-3. ✅ Script deletes the state file when position is closed (no archive)
+1. ✅ **Hyperliquid** may close the position when price hits the synced SL (no cron delay). Each run the script calls `execution_get_order_status` for state files with `slOrderId`; if the SL order is **filled**, the state file is renamed to `{asset}_archived_sl_{epoch}.json` and not processed further.
+2. ✅ If the position was closed outside DSL (e.g. manually), the next run finds the asset missing from clearinghouse and renames the state file to `{asset}_archived_external_{epoch}.json`.
+3. ✅ On breach the script may close via `senpi:close_position` (backup; coin with `xyz:` prefix as-is; with retry). On successful close the state file is renamed to `{asset}_archived_{epoch}.json` (archived, not deleted). Archive filenames use epoch (Unix time) and underscores.
 4. 🤖 **Agent:** On `closed=true` in script output — alert user. No need to disable a “position cron” (cron is per strategy and keeps running).
-5. 🤖 **Agent:** On `status: "strategy_inactive"` — remove the cron for that strategy and run strategy cleanup so the strategy directory is removed — see [references/cleanup.md](references/cleanup.md).
-6. 🤖 **Agent:** When the strategy has no state files left (e.g. all positions closed), the next run will output strategy_inactive; then agent removes cron and runs cleanup.
+5. 🤖 **Agent:** On `status: "strategy_inactive"` — remove the cron for that strategy and run strategy cleanup (`dsl-cleanup.py`). The script only removes **active** state files; the agent must run cleanup to remove the strategy directory (and any archived files in it) — see [references/cleanup.md](references/cleanup.md).
+6. 🤖 **Agent:** When the strategy has no active state files left, remove cron and run cleanup so the strategy directory is removed.
 
 If close fails, script sets `pendingClose: true` and retries on the next cron tick.
 
@@ -281,8 +280,8 @@ See [references/customization.md](references/customization.md) for conservative/
 - **Strategy active**: `senpi:strategy_get` via mcporter (by `strategy_id`); status must be ACTIVE or PAUSED for DSL to run
 - **Positions**: `senpi:strategy_get_clearinghouse_state` via mcporter (by strategy wallet from strategy_get)
 - **Price**: `senpi:market_get_prices` or `senpi:allMids` via mcporter (main + xyz dex)
-- **Sync stop loss**: `senpi:edit_position` via mcporter (`strategyWalletAddress`, `coin`, `stopLoss: { price, orderType: "LIMIT" }`); cancels previous SL and sets new SL on Hyperliquid
-- **SL order status**: `senpi:strategy_get_open_orders` via mcporter (`strategy_wallet`, `dex`) to resolve or verify SL order ID
+- **Sync stop loss**: `senpi:edit_position` via mcporter (`strategyWalletAddress`, `coin`, `stopLoss: { price, orderType }`). Phase 1 (initial/absolute floor) uses `orderType: "MARKET"` for fast exit; Phase 2 (tiered) uses `orderType: "LIMIT"`. Cancels previous SL and sets new SL on Hyperliquid.
+- **SL order status**: `senpi:execution_get_order_status` (user/wallet, orderId) to detect if SL was already filled before reconcile; `senpi:strategy_get_open_orders` to resolve or verify SL order ID after edit.
 - **Close position**: `senpi:close_position` via mcporter (backup on breach; pass `coin` with `xyz:` prefix for xyz assets)
 
 > ⚠️ **Do NOT use `strategy_close_strategy`** to close individual positions. That closes the **entire strategy** (irreversible). Use `close_position`.

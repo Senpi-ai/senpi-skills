@@ -85,7 +85,7 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 | Field | Type | Description |
 |-------|------|-------------|
 | `retraceThreshold` | float | Default retrace (ROE fraction) for tiers without per-tier override |
-| `consecutiveBreachesRequired` | int | Checks below floor before close |
+| `consecutiveBreachesRequired` | int | Consecutive breach checks before close (default: 1 — close on first breach in Phase 2) |
 
 ### Tier Objects
 
