@@ -149,6 +149,15 @@ toolkit and can install more skills as needed.
 
 ## Responding to Questions
 
+### Mandatory Response Contract (Execution NOT Optional)
+
+For any summary or Q&A response, follow
+[references/about-senpi.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/about-senpi.md)
+(`Summary Response Contract` and `Mandatory Invocation Procedure` sections).
+Do not rely on stale precomputed update payloads or local update-check scripts
+in this summary flow. For "What's new?", follow the transparent fallback rules in
+`references/about-senpi.md` when verified updates are unavailable.
+Do not consider the response complete until those procedures are satisfied.
 ### "What is Senpi?" / "Summarize Senpi" / "Summarize skills and capabilities" / "How do I install skills?" / "What's new?"
 
 This is **explicit-ask only** — do not auto-insert this summary into normal
