@@ -85,6 +85,7 @@ The central config file. Holds multiple strategies, each with independent wallet
 | `autoDeleverThreshold` | number | Account value below which to reduce slots by 1 |
 | `dsl.preset` | string | "aggressive" or "conservative" |
 | `dsl.tiers` | array | 4-tier DSL config |
+| `guardRails` | object | Guard rail overrides: `maxEntriesPerDay`, `bypassOnProfit`, `maxConsecutiveLosses`, `cooldownMinutes`. All optional; defaults used for missing keys. |
 | `enabled` | boolean | false pauses strategy without deleting config |
 
 ### Key Design Decisions
@@ -106,9 +107,11 @@ The central config file. Holds multiple strategies, each with independent wallet
 │   ├── wolf-abc12345/                # Strategy A state dir
 │   │   ├── dsl-HYPE.json
 │   │   ├── dsl-SOL.json
+│   │   ├── trade-counter.json        # Daily trade counter (guard rails)
 │   │   └── watchdog-last.json
 │   └── wolf-xyz78901/                # Strategy B state dir
 │       ├── dsl-HYPE.json             # Same asset, different strategy = OK
+│       ├── trade-counter.json
 │       └── watchdog-last.json
 ├── history/
 │   └── emerging-movers.json          # Shared (market data)
@@ -262,3 +265,54 @@ path = dsl_state_path("wolf-abc12345", "HYPE")
 10. **`phase2.retraceFromHW` is a percentage** — Use `5` for 5%, matching `phase1.retraceThreshold` convention. The code divides by 100 internally. Do NOT use `0.05`.
 
 11. **`stagnation.thresholdHours` not `staleHours`** — The stagnation idle duration field is `thresholdHours`. Using `staleHours` will be silently ignored (defaults to 1.0h).
+
+---
+
+## Trade Counter (`state/{strategyKey}/trade-counter.json`)
+
+Created and maintained by `risk-guardian.py`. Read by `check_gate()` in `wolf_config.py` for gate checks in `open-position.py` and `emerging-movers.py`.
+
+```json
+{
+  "date": "2026-03-05",
+  "accountValueStart": 6500.00,
+  "entries": 3,
+  "closedTrades": 1,
+  "realizedPnl": -45.20,
+  "gate": "OPEN",
+  "gateReason": null,
+  "cooldownUntil": null,
+  "lastResults": ["W", "L", "W"],
+  "processedOrderIds": ["ord-abc123", "ord-def456"],
+  "maxEntriesPerDay": 8,
+  "bypassOnProfit": true,
+  "maxConsecutiveLosses": 3,
+  "cooldownMinutes": 60,
+  "updatedAt": "2026-03-05T10:00:00Z"
+}
+```
+
+### Fields
+
+| Field | Type | Description |
+|---|---|---|
+| `date` | string | UTC date (YYYY-MM-DD). Triggers rollover when != today. |
+| `accountValueStart` | number\|null | Account value at first run of the day. Set once, used by G1. |
+| `entries` | number | Positions opened today. Incremented by `open-position.py`. |
+| `closedTrades` | number | Trades closed today (recorded by risk-guardian). |
+| `realizedPnl` | number | Sum of realized PnL from today's closed trades. |
+| `gate` | string | `"OPEN"`, `"COOLDOWN"`, or `"CLOSED"`. |
+| `gateReason` | string\|null | Human-readable reason for current gate state. |
+| `cooldownUntil` | string\|null | ISO timestamp when COOLDOWN expires. |
+| `lastResults` | array | Last 20 W/L/R results. Carries across days. "R" = cooldown reset marker. |
+| `processedOrderIds` | array | `closedOrderId` strings already recorded (dedup). Reset on day rollover. |
+| `maxEntriesPerDay` | number | Config: max entries before G3 fires. |
+| `bypassOnProfit` | boolean | Config: skip G3 if day is profitable. |
+| `maxConsecutiveLosses` | number | Config: consecutive "L" count before G4 cooldown. |
+| `cooldownMinutes` | number | Config: minutes for G4 cooldown duration. |
+| `updatedAt` | string | ISO timestamp of last save. |
+
+### Day Rollover Rules (date != today UTC)
+
+- **Reset:** `entries`, `closedTrades`, `realizedPnl` → 0; `accountValueStart` → null; `gate` → OPEN (unless active cooldown); `processedOrderIds` → []
+- **Preserve:** `lastResults` (streak carries across days), active cooldown if `cooldownUntil` is still in the future

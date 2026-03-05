@@ -15,6 +15,7 @@ Usage:
 
 import json, os, sys, glob, subprocess, time, tempfile, shlex, fcntl
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
@@ -507,3 +508,158 @@ def dsl_state_template(asset, direction, entry_price, size, leverage,
         "strategyKey": strategy_key,
         "createdBy": created_by,
     }
+
+
+# --- Guard Rail defaults & helpers ---
+
+GUARD_RAIL_DEFAULTS = {
+    "maxEntriesPerDay": 8,
+    "bypassOnProfit": True,
+    "maxConsecutiveLosses": 3,
+    "cooldownMinutes": 60,
+}
+
+
+def trade_counter_path(strategy_key):
+    """Return the path to the trade counter file for a strategy."""
+    return os.path.join(state_dir(strategy_key), "trade-counter.json")
+
+
+def load_trade_counter(strategy_key):
+    """Load (or create) the daily trade counter for a strategy.
+
+    Handles day rollover: if the stored date != today (UTC), resets daily
+    counters but preserves lastResults (streak carries across days),
+    active cooldowns, and processedOrderIds.
+
+    Merges guard rail config from the strategy registry with defaults.
+    Does NOT auto-save — callers save after modifications.
+    """
+    path = trade_counter_path(strategy_key)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    old = {}
+    try:
+        with open(path) as f:
+            old = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    # Load guard rail config from strategy registry
+    try:
+        cfg = load_strategy(strategy_key)
+        gr_cfg = cfg.get("guardRails", {})
+    except (SystemExit, Exception):
+        gr_cfg = {}
+
+    merged_config = {k: gr_cfg.get(k, v) for k, v in GUARD_RAIL_DEFAULTS.items()}
+
+    if old.get("date") == today:
+        # Same day — update config overlay but keep counters
+        old.update(merged_config)
+        return old
+
+    # Day rollover — reset daily counters, preserve streaks + active cooldown
+    counter = {
+        "date": today,
+        "accountValueStart": None,
+        "entries": 0,
+        "closedTrades": 0,
+        "realizedPnl": 0.0,
+        "gate": "OPEN",
+        "gateReason": None,
+        "cooldownUntil": None,
+        "lastResults": old.get("lastResults", []),
+        "processedOrderIds": [],
+        "updatedAt": None,
+    }
+    counter.update(merged_config)
+
+    # Preserve active cooldown across day boundary
+    cooldown_until = old.get("cooldownUntil")
+    if cooldown_until:
+        try:
+            cd_dt = datetime.fromisoformat(cooldown_until.replace("Z", "+00:00"))
+            if cd_dt > datetime.now(timezone.utc):
+                counter["gate"] = "COOLDOWN"
+                counter["gateReason"] = "consecutive_losses_cooldown (carried from previous day)"
+                counter["cooldownUntil"] = cooldown_until
+        except (ValueError, TypeError):
+            pass
+
+    return counter
+
+
+def save_trade_counter(strategy_key, counter):
+    """Save the trade counter, stamping updatedAt."""
+    counter["updatedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    atomic_write(trade_counter_path(strategy_key), counter)
+
+
+def check_gate(strategy_key):
+    """Lightweight gate check. Returns (gate_status, gate_reason).
+
+    - CLOSED -> ("CLOSED", reason)  — sticky until midnight
+    - COOLDOWN with future expiry -> ("COOLDOWN", reason)
+    - COOLDOWN expired -> clears gate, saves, returns ("OPEN", None)
+    - Default -> ("OPEN", None)
+    """
+    path = trade_counter_path(strategy_key)
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    try:
+        with open(path) as f:
+            counter = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ("OPEN", None)
+
+    # Day rollover — treat as OPEN (but preserve active cooldown)
+    if counter.get("date") != today:
+        cooldown_until = counter.get("cooldownUntil")
+        if cooldown_until:
+            try:
+                cd_dt = datetime.fromisoformat(cooldown_until.replace("Z", "+00:00"))
+                if cd_dt > datetime.now(timezone.utc):
+                    return ("COOLDOWN", counter.get("gateReason", "consecutive_losses_cooldown"))
+            except (ValueError, TypeError):
+                pass
+        return ("OPEN", None)
+
+    gate = counter.get("gate", "OPEN")
+
+    if gate == "CLOSED":
+        return ("CLOSED", counter.get("gateReason"))
+
+    if gate == "COOLDOWN":
+        cooldown_until = counter.get("cooldownUntil")
+        if cooldown_until:
+            try:
+                cd_dt = datetime.fromisoformat(cooldown_until.replace("Z", "+00:00"))
+                if cd_dt > datetime.now(timezone.utc):
+                    return ("COOLDOWN", counter.get("gateReason"))
+            except (ValueError, TypeError):
+                pass
+        # Cooldown expired — acquire lock, re-read, then clear
+        with strategy_lock(strategy_key):
+            counter = load_trade_counter(strategy_key)
+            # Re-check: another process may have already cleared it
+            if counter.get("gate") != "COOLDOWN":
+                return (counter.get("gate", "OPEN"), counter.get("gateReason"))
+            counter["gate"] = "OPEN"
+            counter["gateReason"] = None
+            counter["cooldownUntil"] = None
+            results = counter.get("lastResults", [])
+            results.append("R")
+            counter["lastResults"] = results[-20:]
+            save_trade_counter(strategy_key, counter)
+        return ("OPEN", None)
+
+    return ("OPEN", None)
+
+
+def increment_entry_counter(strategy_key):
+    """Load counter, increment entries, save. Returns updated counter."""
+    counter = load_trade_counter(strategy_key)
+    counter["entries"] = counter.get("entries", 0) + 1
+    save_trade_counter(strategy_key, counter)
+    return counter

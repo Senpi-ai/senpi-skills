@@ -551,6 +551,7 @@ EXPECTED_CRONS = {
     "sm_flip": 15,           # expect every 5min, alert at 15min
     "watchdog": 15,          # expect every 5min, alert at 15min
     "health_check": 20,      # expect every 10min, alert at 20min
+    "risk_guardian": 15,     # expect every 5min, alert at 15min
 }
 
 

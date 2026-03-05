@@ -31,7 +31,7 @@ import json, sys, os
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import atomic_write, mcporter_call, mcporter_call_safe, load_all_strategies, dsl_state_glob, heartbeat, SIGNAL_CONVICTION, WORKSPACE, ROTATION_COOLDOWN_MINUTES
+from wolf_config import atomic_write, mcporter_call, mcporter_call_safe, load_all_strategies, dsl_state_glob, heartbeat, check_gate, SIGNAL_CONVICTION, WORKSPACE, ROTATION_COOLDOWN_MINUTES
 
 heartbeat("emerging_movers")
 
@@ -451,6 +451,16 @@ try:
             "rotationCooldownMinutes": ROTATION_COOLDOWN_MINUTES,
             "hasRotationCandidate": len(rotation_eligible_coins) > 0,
         }
+
+        # Guard rail gate status
+        try:
+            gate_status, gate_reason = check_gate(key)
+        except Exception:
+            gate_status, gate_reason = "OPEN", None
+        strategy_slots[key]["gate"] = gate_status
+        strategy_slots[key]["gateReason"] = gate_reason
+        if gate_status != "OPEN":
+            strategy_slots[key]["available"] = 0
 except Exception:
     pass
 
