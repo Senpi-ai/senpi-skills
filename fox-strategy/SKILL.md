@@ -1,13 +1,13 @@
 ---
 name: fox-strategy
 description: >-
-  FOX v0.2 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
+  FOX v0.3 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
   Forked from Wolf v7 + v7.1 data-driven optimizations (14-trade analysis: 2W/12L).
-  Tighter absolute floor (0.02/lev, ~20% max ROE loss), aggressive Phase 1 timing
+  Wider absolute floor (0.03/lev, ~30% max ROE loss), aggressive Phase 1 timing
   (30min hard timeout, 15min weak peak, 10min dead weight), green-in-10 floor tightening,
-  rank jump minimum (≥15 OR vel>15).
+  time-of-day scoring (+1 for 04-14 UTC, -2 for 18-02 UTC), rank jump minimum (≥15 OR vel>15).
   Scoring system (6+ pts), NEUTRAL regime support, tiered margin (6 entries max),
-  BTC 1h bias alignment, market regime refresh 4h.
+  BTC 1h bias alignment, market regime refresh 1h.
   8-cron architecture. Independent from Wolf.
   Requires Senpi MCP, python3, mcporter CLI, OpenClaw cron system.
 license: Apache-2.0
@@ -17,13 +17,13 @@ compatibility: >-
   Depends on dsl-dynamic-stop-loss skill for trailing stops.
 metadata:
   author: jason-goldberg
-  version: "0.2"
+  version: "0.3"
   platform: senpi
   exchange: hyperliquid
 
 ---
 
-# FOX v0.2 — Autonomous Multi-Strategy Trading
+# FOX v0.3 — Autonomous Multi-Strategy Trading
 
 The FOX hunts for its human. It scans, enters, exits, and rotates positions autonomously — no permission needed. When criteria are met, it acts. Speed is edge.
 
@@ -100,8 +100,8 @@ This adds to the registry without disrupting running strategies. Disable with `e
 
 ## FOX v7 Changes Summary (from Wolf v7)
 
-### 1. Market Regime Refresh (4h)
-- New cron job runs `fox-market-regime.py` every 4 hours
+### 1. Market Regime Refresh (1h)
+- New cron job runs `fox-market-regime.py` every hour
 - Saves output to `market-regime-last.json`
 - Provides fresh BEARISH/BULLISH/NEUTRAL classification
 
@@ -119,6 +119,8 @@ This adds to the registry without disrupting running strategies. Disable with `e
 - **DEEP_CLIMBER**: +1 pt
 - **Other reasons** (RANK_UP, CLIMBING, ACCEL, STREAK): +1 pt each
 - **BTC 1h bias alignment**: +1 bonus pt
+- **v0.1 TIME BONUS** (04:00–14:00 UTC): **+1 pt**
+- **v0.1 TIME PENALTY** (18:00–02:00 UTC): **-2 pts**
 - **Minimum 6 points** to enter (8+ for NEUTRAL regime)
 
 ### 4. Tiered Margin System
@@ -141,17 +143,17 @@ This adds to the registry without disrupting running strategies. Disable with `e
 
 These changes are derived from analyzing Wolf v7's live trading results. Every optimization has evidence from real trades.
 
-### 1. Tighter Absolute Floor (0.02/leverage → ~20% max ROE loss)
+### 1. Wider Absolute Floor (v0.3: 0.03/leverage → ~30% max ROE loss)
 
 | | Old (v7) | New (v0.1) |
 |---|---|---|
-| Formula (LONG) | `entry × (1 - 0.03/leverage)` | `entry × (1 - 0.02/leverage)` |
-| Formula (SHORT) | `entry × (1 + 0.03/leverage)` | `entry × (1 + 0.02/leverage)` |
-| Max ROE loss | ~30% | ~20% |
+| Formula (LONG) | `entry × (1 - 0.03/leverage)` | `entry × (1 - 0.03/leverage)` |
+| Formula (SHORT) | `entry × (1 + 0.03/leverage)` | `entry × (1 + 0.03/leverage)` |
+| Max ROE loss | ~30% | ~30% (v0.3: widened from ~20%) |
 
 **Evidence:** NEAR lost 23.7% ROE, FARTCOIN 18.4% — both would have been capped earlier at 20%.
 
-**Config field:** `phase1.retraceThreshold` (default: `0.02`)
+**Config field:** `phase1.retraceThreshold` (default: `0.03`)
 
 ### 2. Aggressive Phase 1 Timing
 
@@ -177,7 +179,20 @@ For positions that briefly went green then reversed, this rule does NOT apply.
 
 **Config field:** `phase1.greenIn10TightenPct` (default: `50` — tighten floor to 50% of original distance)
 
-### 4. Rank Jump Minimum
+### 4. Time-of-Day Scoring
+
+| Time Window (UTC) | Modifier | Rationale |
+|---|---|---|
+| 04:00–14:00 | **+1 pt** | Historically where winners occur |
+| 14:00–18:00 | 0 pts | Neutral window |
+| 18:00–02:00 | **-2 pts** | 0% win rate across 6 evening trades |
+| 02:00–04:00 | 0 pts | Neutral window |
+
+**Effect:** Evening entries effectively need score ≥ 8 to pass the 6-point threshold.
+
+**Config fields:** `scoring.timeBonusHoursUTC` (default: `[4,14]`), `scoring.timePenaltyHoursUTC` (default: `[18,2]`), `scoring.timeBonusPts` (default: `1`), `scoring.timePenaltyPts` (default: `-2`)
+
+### 5. Rank Jump Minimum
 
 **New filter:** `rankJumpThisScan ≥ 15` OR `contribVelocity > 15`
 
@@ -187,7 +202,24 @@ Old rule: just needed `isFirstJump=true` (any 10+ rank jump from #25+). Now requ
 
 **Config fields:** `filters.minRankJump` (default: `15`), `filters.minVelocityOverride` (default: `15`)
 
-### 5. Conviction-Scaled Phase 1 Tolerance (v7.2)
+### 5b. FJ Persistence Filter (v0.3)
+
+**New filter:** FIRST_JUMP signals must appear in two consecutive scanner cycles (6 minutes) before entry.
+
+**State file:** `{WORKSPACE}/fj-last-seen.json`
+```json
+{"lastScanTime": "ISO", "firstJumps": ["TOKEN1", "TOKEN2"]}
+```
+
+**Logic:**
+1. After each emerging movers scan, save detected FJ token names to `fj-last-seen.json`
+2. Before acting on any FJ, check if it appeared in the PREVIOUS scan's `fj-last-seen.json`
+3. Only enter if token is in BOTH current scan AND previous `fj-last-seen.json`
+4. New FJs are logged but NOT acted on — must persist to next 3min scan
+
+**Evidence:** Scanner detected "flickering FJs" — assets that appeared as FIRST_JUMP on one API call but vanished seconds later. Happened 6+ times in one day. Persistence filter requires real momentum, not noise.
+
+### 6. Conviction-Scaled Phase 1 Tolerance (v7.2)
 
 **Finding:** Direction was right 85% of the time (11/13 trades) but we still lost $785 on correct-direction trades and left $8,000+ on the table. The problem is timing/stops, not signal quality.
 
@@ -195,15 +227,15 @@ Old rule: just needed `isFirstJump=true` (any 10+ rank jump from #25+). Now requ
 
 | Score | Absolute Floor | Hard Timeout | Weak Peak | Dead Weight |
 |-------|---------------|-------------|-----------|-------------|
-| 6-7 | 0.02/lev (~20%) | 30 min | 15 min | 10 min |
-| 8-9 | 0.025/lev (~25%) | 45 min | 20 min | 15 min |
-| 10+ | 0.03/lev (~30%) | 60 min | 30 min | 20 min |
+| 6-7 | 0.03/lev (~30%) | 30 min | 15 min | 10 min |
+| 8-9 | 0.035/lev (~35%) | 45 min | 20 min | 15 min |
+| 10+ | 0.04/lev (~40%) | 60 min | 30 min | 20 min |
 
 **Implementation:** Entry score is stored in DSL state (`score` field). The DSL cron mandate reads the score and selects the matching tolerance tier from `phase1.convictionTiers` config. If no score is present, defaults to the 6-7 tier (tightest).
 
 **Config field:** `phase1.convictionTiers` (array of `{minScore, retraceThreshold, hardTimeoutMin, weakPeakCutMin, deadWeightCutMin}`)
 
-### 6. Re-Entry Rule (v7.2)
+### 7. Re-Entry Rule (v7.2)
 
 When we exit a Phase 1 trade and the asset continues in our original direction, we can re-enter with guardrails.
 
@@ -309,27 +341,26 @@ Runs every 15min. v6 scanner with BTC macro context, hourly trend classification
 
 | # | Job | Interval | Session | Script | Purpose |
 |---|-----|----------|---------|--------|---------|
-| 1 | Emerging Movers | **3min** | isolated | `scripts/fox-emerging-movers.py` | Hunt FIRST_JUMP signals with v7 scoring |
-| 2 | DSL v5 | **3min** | isolated | `scripts/fox-dsl-wrapper.py` | Trailing stop exits + Phase 1 timing |
+| 1 | Emerging Movers | **3min** | **main** | `scripts/fox-emerging-movers.py` | Hunt FIRST_JUMP signals with v7 scoring |
+| 2 | DSL v5 | **3min** | isolated | `dsl-v5.py` (per-strategy cron) | Trailing stop exits, HL SL sync |
 | 3 | SM Flip Detector | 5min | isolated | `scripts/fox-sm-flip-check.py` | Conviction collapse cuts |
 | 4 | Watchdog | 5min | isolated | `scripts/fox-monitor.py` | Per-strategy margin buffer, liq distances |
 | 5 | Portfolio Update | 15min | isolated | (agent-driven) | Per-strategy PnL reporting |
-| 6 | Opportunity Scanner | 15min | isolated | `scripts/fox-opportunity-scan-v6.py` | 4-pillar scoring, BTC macro, hourly trend |
-| 7 | Market Regime | **4h** | isolated | `scripts/fox-market-regime.py` | Regime classification |
-| 8 | Health Check | 10min | isolated | `scripts/fox-health-check.py` | Self-healing state validation |
+| 6 | Opportunity Scanner | 15min | **main** | `scripts/fox-opportunity-scan-v6.py` | 4-pillar scoring, BTC macro, hourly trend |
+| 7 | Market Regime | **1h** | isolated | `scripts/fox-market-regime.py` | Regime classification |
+| 8 | Health Check | 10min | isolated | `scripts/fox-health-check.py` | Orphan DSL, state validation |
 
 **All scripts read `fox-strategies.json` and iterate all enabled Fox strategies.**
 
 See [references/cron-setup.md](references/cron-setup.md) for detailed cron configuration, race condition prevention, and time-aware scheduling.
 
-### Model Selection Per Cron — 2-Tier Approach
+### Model Selection Per Cron — 3-Tier Approach
 
 | Tier | Role | Crons | Example Model IDs |
 |------|------|-------|--------------------|
-| **Mid** | Script output parsing, position management | Emerging Movers, DSL, Opp Scanner, Portfolio, Health Check, Market Regime | `anthropic/claude-sonnet-4-5`, `openai/gpt-4o`, `google/gemini-2.0-flash` |
-| **Budget** | Simple threshold checks, binary decisions | SM Flip, Watchdog | `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite` |
-
-Use `--provider` flag in `fox-setup.py` to auto-select models for your provider.
+| **Primary** | Complex judgment, multi-strategy routing | Emerging Movers, Opportunity Scanner | Your configured model (runs on main session) |
+| **Mid** | Structured tasks, script output parsing | DSL v5, Portfolio Update, Health Check, Market Regime | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash` |
+| **Budget** | Simple threshold checks, binary decisions | SM Flip, Watchdog | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite` |
 
 **Do NOT create crons yet** — the main agent will set these up when activating the strategy.
 
@@ -337,12 +368,13 @@ Use `--provider` flag in `fox-setup.py` to auto-select models for your provider.
 
 ## Cron Setup
 
-**Critical:** Crons are **OpenClaw crons**, NOT senpi crons. ALL 8 crons use isolated sessions (`agentTurn`).
+**Critical:** Crons are **OpenClaw crons**, NOT senpi crons. FOX uses two session types:
+- **Main session** (`systemEvent`): Emerging Movers + Opportunity Scanner. These share the primary session context for accumulated routing knowledge.
+- **Isolated session** (`agentTurn`): All others. Each runs in its own session — no context pollution, enables cheaper model tiers.
 
 **Key rules (per Senpi Skill Guide §7):**
-- All crons use `agentTurn` with `"message"` key — no main session crons
-- Mandates are simple if/then rules (3-8 lines) — scripts do all data crunching
-- Every script outputs `notifications` + `action_required` — mandate just acts on them
+- `systemEvent` uses `"text"` key; `agentTurn` uses `"message"` key — wrong key = silent failure
+- Budget/Mid mandates have explicit `if/then` per output field — never "apply rules from SKILL.md"
 - Slot guard pattern: check `anySlotsAvailable` BEFORE any entry
 - One set of crons — scripts iterate all strategies internally
 
@@ -376,9 +408,9 @@ Positions that never gain momentum get cut automatically. Timing is **scaled by 
 
 | Score | Floor | Hard Timeout | Weak Peak | Dead Weight |
 |-------|-------|-------------|-----------|-------------|
-| 6-7 | 0.02/lev | 30 min | 15 min | 10 min |
-| 8-9 | 0.025/lev | 45 min | 20 min | 15 min |
-| 10+ | 0.03/lev | 60 min | 30 min | 20 min |
+| 6-7 | 0.03/lev | 30 min | 15 min | 10 min |
+| 8-9 | 0.035/lev | 45 min | 20 min | 15 min |
+| 10+ | 0.04/lev | 60 min | 30 min | 20 min |
 
 The DSL cron mandate reads `score` from the DSL state file and applies the matching tier. No score = defaults to 6-7 tier.
 
@@ -415,8 +447,8 @@ When ANY job closes a position → immediately:
 **Uses the official DSL v5 skill at `/data/workspace/skills/dsl-dynamic-stop-loss/`.** See that skill's SKILL.md for full details.
 
 ### Phase 1 (Pre-Tier 1): Absolute floor (v0.1 tightened)
-- LONG floor = `entry × (1 - 0.02/leverage)` — caps max loss at **~20% ROE** (v0.1: was 0.03/~30%)
-- SHORT floor = `entry × (1 + 0.02/leverage)`
+- LONG floor = `entry × (1 - 0.03/leverage)` — caps max loss at **~20% ROE** (v0.1: was 0.03/~30%)
+- SHORT floor = `entry × (1 + 0.03/leverage)`
 - 2% retrace threshold, 3 consecutive breaches → close
 - **Max duration: 30 minutes** (v0.1: was 90min — see Phase 1 Auto-Cut above)
 - **Green-in-10:** If never positive ROE in 10min → floor tightens to 50% of original distance
@@ -488,7 +520,7 @@ Create directory `dsl/{strategyId}/` if needed. Write state file with ALL requir
 }
 ```
 
-**absoluteFloor:** LONG: `entry × (1 - 0.02/leverage)`, SHORT: `entry × (1 + 0.02/leverage)`. Caps max loss at ~20% ROE (v0.1: tightened from 0.03/~30%).
+**absoluteFloor:** LONG: `entry × (1 - 0.03/leverage)`, SHORT: `entry × (1 + 0.03/leverage)`. Caps max loss at ~20% ROE (v0.1: tightened from 0.03/~30%).
 
 **Filename:** Main dex: `{ASSET}.json`. XYZ dex: `xyz--SYMBOL.json` (colon → double-dash).
 
@@ -636,14 +668,12 @@ All MCP calls go through `fox_config.mcporter_call()` — no direct subprocess i
 | Script | Purpose |
 |--------|---------|
 | `scripts/fox-setup.py` | Setup wizard — adds strategy to registry from budget |
-| `scripts/fox_config.py` | FOX config loader — imports shared utilities from `senpi_lib` |
-| `scripts/fox-emerging-movers.py` | Emerging Movers scanner with FOX scoring + topPicks output |
-| `scripts/fox-open-position.py` | Atomic position open + DSL v5 state creation |
-| `scripts/fox-dsl-wrapper.py` | DSL v5 runner + Phase 1 timing enforcement |
+| `scripts/fox_config.py` | Shared config loader — all Fox scripts import this |
+| `scripts/fox-emerging-movers.py` | Emerging Movers v4 scanner (FIRST_JUMP, IMMEDIATE, CONTRIB_EXPLOSION) |
 | `scripts/fox-sm-flip-check.py` | SM conviction flip detector (multi-strategy) |
 | `scripts/fox-monitor.py` | Watchdog — per-strategy margin buffer + position health |
 | `scripts/fox-opportunity-scan-v6.py` | Opportunity Scanner v6 (BTC macro, hourly trend, disqualifiers) |
-| `scripts/fox-health-check.py` | Self-healing state validation + cron heartbeat monitoring |
+| `scripts/fox-health-check.py` | Per-strategy orphan DSL / state validation |
 | `scripts/fox-market-regime.py` | Market regime detector |
 
 ## State Files Reference
@@ -653,6 +683,7 @@ All MCP calls go through `fox_config.mcporter_call()` — no direct subprocess i
 | `fox-strategies.json` | Strategy registry (wallets, budgets, DSL config) |
 | `fox-trade-counter.json` | Daily trade counter with tiered margin |
 | `fox-emerging-movers-history.json` | Emerging movers scan history |
+| `fj-last-seen.json` | FJ persistence filter — tokens from previous scan (v0.3) |
 | `market-regime-last.json` | Latest market regime (shared, read-only) |
 | `max-leverage.json` | Per-asset max leverage (shared) |
 | `dsl/{strategyId}/{ASSET}.json` | DSL v5 per-position state |
