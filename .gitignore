@@ -1,3 +1,4 @@
+config/mcporter.json
 design/*
 .env
 .verify-dsl

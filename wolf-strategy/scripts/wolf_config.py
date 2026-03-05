@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-wolf_config.py — Multi-strategy config loader for WOLF v6
+wolf_config.py — Multi-strategy config loader for WOLF v6.1
 
 Provides a single importable module every script uses to load strategy config,
 resolve state file paths, and handle legacy migration.
@@ -13,7 +13,8 @@ Usage:
     path = dsl_state_path("wolf-abc123", "HYPE")
 """
 
-import json, os, sys, glob, subprocess, time, tempfile, shlex
+import json, os, sys, glob, subprocess, time, tempfile, shlex, fcntl
+from contextlib import contextmanager
 
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
@@ -29,10 +30,27 @@ def _fail(msg):
 
 
 def _load_registry():
-    """Load the strategy registry, with auto-migration from legacy format."""
-    if os.path.exists(REGISTRY_FILE):
-        with open(REGISTRY_FILE) as f:
-            return json.load(f)
+    """Load the strategy registry, with auto-migration from legacy format.
+
+    Retries once on file-not-found to handle transient filesystem glitches
+    (e.g. NFS/overlay mount delays in container environments).
+    """
+    for attempt in range(2):
+        if os.path.exists(REGISTRY_FILE):
+            try:
+                with open(REGISTRY_FILE) as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, IOError) as e:
+                if attempt == 0:
+                    time.sleep(1)
+                    continue
+                _fail(f"Registry file corrupt at {REGISTRY_FILE}: {e}")
+        elif attempt == 0:
+            # Retry once after 1s — handles transient filesystem unavailability
+            time.sleep(1)
+            continue
+        else:
+            break  # fall through to legacy check
 
     # Fallback: auto-migrate legacy single-strategy config
     if os.path.exists(LEGACY_CONFIG):
@@ -83,7 +101,7 @@ def _load_registry():
 
         return registry
 
-    _fail("No config found. Run wolf-setup.py first.")
+    _fail(f"No config found at {REGISTRY_FILE} (WORKSPACE={WORKSPACE}). Run wolf-setup.py first.")
 
 
 def _migrate_legacy_state_files(strategy_key):
@@ -201,7 +219,7 @@ def get_all_active_positions():
                         "direction": s["direction"],
                         "stateFile": sf
                     })
-            except (json.JSONDecodeError, IOError, KeyError):
+            except (json.JSONDecodeError, IOError, KeyError, AttributeError):
                 continue
     return positions
 
@@ -210,13 +228,13 @@ def mcporter_call(tool, retries=3, timeout=30, **kwargs):
     """Call a Senpi MCP tool via mcporter. Returns the `data` portion of the response.
 
     Standardized invocation across all wolf-strategy scripts:
-      mcporter call senpi.{tool} key=value ...
+      mcporter call senpi.{tool} --args '{...}'
 
     Args:
         tool: Tool name (e.g. "market_get_prices", "close_position").
         retries: Number of attempts before giving up.
         timeout: Subprocess timeout in seconds.
-        **kwargs: Tool arguments as key=value pairs.
+        **kwargs: Tool arguments passed as a single --args JSON blob.
 
     Returns:
         The `data` dict from the MCP response envelope.
@@ -224,22 +242,13 @@ def mcporter_call(tool, retries=3, timeout=30, **kwargs):
     Raises:
         RuntimeError: If all retries fail or the tool returns success=false.
     """
-    args = []
-    for k, v in kwargs.items():
-        if v is None:
-            continue
-        if isinstance(v, (list, dict)):
-            args.append(f"{k}={json.dumps(v)}")
-        elif isinstance(v, bool):
-            args.append(f"{k}={json.dumps(v)}")
-        else:
-            args.append(f"{k}={v}")
+    filtered_args = {k: v for k, v in kwargs.items() if v is not None}
 
     mcporter_bin = os.environ.get("MCPORTER_CMD", "mcporter")
-    cmd_str = " ".join(
-        [shlex.quote(mcporter_bin), "call", shlex.quote(f"senpi.{tool}")]
-        + [shlex.quote(a) for a in args]
-    )
+    cmd = [mcporter_bin, "call", f"senpi.{tool}"]
+    if filtered_args:
+        cmd.extend(["--args", json.dumps(filtered_args)])
+    cmd_str = " ".join(shlex.quote(c) for c in cmd)
     last_error = None
 
     for attempt in range(retries):
@@ -275,13 +284,122 @@ def mcporter_call_safe(tool, retries=3, timeout=30, **kwargs):
         return None
 
 
+def send_notification(message):
+    """Send a Telegram notification directly via mcporter.
+
+    Reads the telegram chatId from the strategy registry's global config.
+    Silently fails — notifications should never crash the calling script.
+    """
+    try:
+        reg = _load_registry()
+        global_cfg = reg.get("global", {})
+        chat_id = global_cfg.get("telegramChatId", "")
+        if not chat_id:
+            return
+        target = f"telegram:{chat_id}"
+        mcporter_call_safe("send_telegram_notification", retries=2, timeout=10,
+                           target=target, message=message)
+    except Exception:
+        pass  # never crash the caller
+
+
+HEARTBEAT_FILE = os.path.join(WORKSPACE, "state", "cron-heartbeats.json")
+
+def heartbeat(cron_name):
+    """Record that a cron job just ran. Called at the start of each script."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    try:
+        with open(HEARTBEAT_FILE) as f:
+            beats = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        beats = {}
+    beats[cron_name] = now
+    atomic_write(HEARTBEAT_FILE, beats)
+
+
 def atomic_write(path, data):
     """Atomically write JSON data to a file."""
+    if isinstance(data, str):
+        data = json.loads(data)  # recover from pre-serialized input
     os.makedirs(os.path.dirname(path), exist_ok=True)
     tmp = path + ".tmp"
     with open(tmp, "w") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
+
+
+@contextmanager
+def strategy_lock(strategy_key, timeout=60):
+    """Acquire an exclusive file lock per strategy key.
+
+    Serializes position opens so that concurrent calls (e.g. two FIRST_JUMPs
+    in the same scanner run) cannot race past the slot check.
+
+    Args:
+        strategy_key: Strategy key (e.g. "wolf-abc123").
+        timeout: Seconds to wait for lock before raising.
+
+    Yields once the lock is held; releases on exit.
+    """
+    lock_dir = os.path.join(WORKSPACE, "state", "locks")
+    os.makedirs(lock_dir, exist_ok=True)
+    lock_path = os.path.join(lock_dir, f"{strategy_key}.lock")
+    fd = open(lock_path, "w")
+    try:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except (IOError, OSError):
+                if time.monotonic() >= deadline:
+                    fd.close()
+                    raise RuntimeError(f"Could not acquire lock for {strategy_key} within {timeout}s")
+                time.sleep(0.2)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        finally:
+            fd.close()
+
+
+# --- Risk-based leverage ---
+
+RISK_LEVERAGE_RANGES = {
+    "conservative": (0.15, 0.25),   # 15%-25% of max leverage
+    "moderate":     (0.25, 0.50),   # 25%-50% of max leverage
+    "aggressive":   (0.50, 0.75),   # 50%-75% of max leverage
+}
+
+SIGNAL_CONVICTION = {
+    "FIRST_JUMP": 0.9,
+    "CONTRIB_EXPLOSION": 0.8,
+    "IMMEDIATE_MOVER": 0.7,
+    "NEW_ENTRY_DEEP": 0.7,
+    "DEEP_CLIMBER": 0.5,
+}
+
+ROTATION_COOLDOWN_MINUTES = 45  # positions younger than this can't be rotated out
+
+
+def calculate_leverage(max_leverage, trading_risk="moderate", conviction=0.5):
+    """Calculate leverage as a fraction of max leverage, scaled by risk tier and conviction.
+
+    Args:
+        max_leverage: Asset's maximum allowed leverage.
+        trading_risk: Risk tier — "conservative", "moderate", or "aggressive".
+        conviction: 0.0 to 1.0, where within the risk range to land.
+
+    Returns:
+        Integer leverage, clamped to [1, max_leverage].
+    """
+    min_pct, max_pct = RISK_LEVERAGE_RANGES.get(trading_risk, RISK_LEVERAGE_RANGES["moderate"])
+    range_min = max_leverage * min_pct
+    range_max = max_leverage * max_pct
+    leverage = range_min + (range_max - range_min) * conviction
+    return min(max(1, round(leverage)), max_leverage)
 
 
 # --- DSL state file validation ---
@@ -355,6 +473,14 @@ def dsl_state_template(asset, direction, entry_price, size, leverage,
             {"triggerPct": 20, "lockPct": 85, "breaches": 1},
         ]
 
+    # Calculate absoluteFloor from entry price, leverage, and retrace threshold
+    retrace_roe = 10  # matches phase1.retraceThreshold
+    retrace_price = (retrace_roe / 100) / leverage
+    if direction.upper() == "LONG":
+        abs_floor = round(entry_price * (1 - retrace_price), 6)
+    else:
+        abs_floor = round(entry_price * (1 + retrace_price), 6)
+
     return {
         "version": 2,
         "asset": asset,
@@ -368,11 +494,11 @@ def dsl_state_template(asset, direction, entry_price, size, leverage,
         "currentBreachCount": 0,
         "currentTierIndex": None,
         "tierFloorPrice": 0,
-        "floorPrice": 0,
+        "floorPrice": abs_floor,
         "tiers": tiers,
         "phase1": {
             "retraceThreshold": 10,
-            "absoluteFloor": 0,
+            "absoluteFloor": abs_floor,
             "consecutiveBreachesRequired": 3,
         },
         "phase2TriggerTier": 0,
