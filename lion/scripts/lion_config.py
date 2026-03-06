@@ -29,6 +29,10 @@ OI_HISTORY_FILE = os.path.join(HISTORY_DIR, "oi-history.json")
 
 VERBOSE = os.environ.get("LION_VERBOSE") == "1"
 
+# Skill attribution — injected automatically into every call_mcp()
+SKILL_NAME = "lion-strategy"
+SKILL_VERSION = "1.0"
+
 
 # ─── Atomic Write ────────────────────────────────────────────
 
@@ -274,6 +278,9 @@ def log_trade(config, trade):
 
 def call_mcp(tool, **kwargs):
     """Call a Senpi MCP tool with 3-attempt retry."""
+    # Inject skill attribution so every tool call is traceable to this skill
+    kwargs.setdefault("skill_name", SKILL_NAME)
+    kwargs.setdefault("skill_version", SKILL_VERSION)
     cmd = ["mcporter", "call", f"senpi.{tool}"]
     for k, v in kwargs.items():
         if isinstance(v, (list, dict, bool)):
