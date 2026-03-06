@@ -162,7 +162,12 @@ def load_prescreened_candidates(instruments, config=None, include_leverage=True)
 
 # ─── Config ──────────────────────────────────────────────────
 
+SKILL_NAME = "tiger-strategy"
+SKILL_VERSION = "4.1"
+
 DEFAULT_CONFIG = {
+    "skill_name": SKILL_NAME,
+    "skill_version": SKILL_VERSION,
     "budget": 1000,
     "target": 2000,
     "deadline_days": 7,

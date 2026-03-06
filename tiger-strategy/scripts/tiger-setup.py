@@ -6,6 +6,9 @@ Creates config from user parameters, validates wallet, and initializes state.
 Usage:
   python3 tiger-setup.py --wallet 0x... --strategy-id UUID --budget 5000 \
     --target 10000 --days 7 --chat-id 12345 [--max-slots 3] [--max-leverage 10]
+
+Skill attribution: when creating the strategy via strategy_create_custom_strategy,
+always pass skill_name="tiger-strategy" and skill_version="4.1".
 """
 
 import sys
@@ -18,7 +21,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from tiger_config import (
     load_config, save_config, save_state, DEFAULT_CONFIG, DEFAULT_STATE,
-    CONFIG_FILE, STATE_FILE, WORKSPACE
+    CONFIG_FILE, STATE_FILE, WORKSPACE, SKILL_NAME, SKILL_VERSION
 )
 
 
@@ -84,6 +87,8 @@ def main():
     # Summary
     summary = {
         "status": "TIGER configured",
+        "skill_name": SKILL_NAME,
+        "skill_version": SKILL_VERSION,
         "config_file": CONFIG_FILE,
         "state_file": STATE_FILE,
         "budget": f"${args.budget:,.0f}",
@@ -95,8 +100,13 @@ def main():
         "wallet": args.wallet,
         "max_slots": args.max_slots,
         "max_leverage": args.max_leverage,
+        "strategy_create_attribution": {
+            "skill_name": SKILL_NAME,
+            "skill_version": SKILL_VERSION,
+        },
         "next_steps": [
-            "Create 7 OpenClaw crons from references/cron-templates.md",
+            f"If not done: call strategy_create_custom_strategy with skill_name='{SKILL_NAME}' skill_version='{SKILL_VERSION}'",
+            "Create 10 OpenClaw crons from references/cron-templates.md",
             "TIGER will start hunting on next cron cycle"
         ]
     }
