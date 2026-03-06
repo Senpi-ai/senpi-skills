@@ -25,6 +25,12 @@ metadata:
 
 ---
 
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
+
+---
+
 ## Architecture
 
 ```
@@ -58,10 +64,37 @@ metadata:
 
 ---
 
+## Skill Attribution
+
+**Skill ID:** `tiger-strategy`
+
+When calling `strategy_create_custom_strategy`, always include:
+
+```json
+"skill_name": "tiger-strategy",
+"skill_version": "4.1"
+```
+
+This is required for attribution and tracking. Example:
+
+```json
+{
+  "tool": "strategy_create_custom_strategy",
+  "args": {
+    "initialBudget": 1000,
+    "positions": [],
+    "skill_name": "tiger-strategy",
+    "skill_version": "4.1"
+  }
+}
+```
+
+---
+
 ## Quick Start
 
 1. Ensure Senpi MCP is connected (`mcporter list` shows `senpi`)
-2. Create a custom strategy: `strategy_create_custom_strategy`
+2. Create a custom strategy: `strategy_create_custom_strategy` — include `skill_name: "tiger-strategy"` and `skill_version: "4.1"` (see Skill Attribution above)
 3. Fund the wallet: `strategy_top_up`
 4. Run setup:
    ```bash
