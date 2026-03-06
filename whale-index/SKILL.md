@@ -23,30 +23,9 @@ Scan the Discovery leaderboard, score traders, create mirror strategies, and reb
 
 ## Skill Attribution
 
-**Skill ID:** `whale-index`
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
 
-When calling `strategy_create` or `strategy_create_custom_strategy`, always include:
-
-```json
-"skill_name": "whale-index",
-"skill_version": "1.0"
-```
-
-This is required for attribution and tracking. Example:
-
-```json
-{
-  "tool": "strategy_create",
-  "args": {
-    "traderAddress": "0x...",
-    "initialBudget": 500,
-    "mirrorMultiplier": 1,
-    "slippage": 3,
-    "skill_name": "whale-index",
-    "skill_version": "1.0"
-  }
-}
-```
+---
 
 ## 5-Step Flow
 

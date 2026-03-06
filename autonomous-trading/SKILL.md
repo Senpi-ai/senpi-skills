@@ -25,28 +25,9 @@ Give your agent a budget, a target, and a deadline — then let it trade. The ag
 
 ## Skill Attribution
 
-**Skill ID:** `autonomous-trading`
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
 
-When calling `strategy_create` or `strategy_create_custom_strategy`, always include:
-
-```json
-"skill_name": "autonomous-trading",
-"skill_version": "6.0"
-```
-
-This is required for attribution and tracking. Example:
-
-```json
-{
-  "tool": "strategy_create_custom_strategy",
-  "args": {
-    "initialBudget": 500,
-    "positions": [],
-    "skill_name": "autonomous-trading",
-    "skill_version": "6.0"
-  }
-}
-```
+---
 
 ## Prerequisites
 
