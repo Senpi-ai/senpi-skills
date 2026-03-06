@@ -319,7 +319,7 @@ cron_templates = {
         }
     },
     "risk_guardian": {
-        "name": "WOLF Risk Guardian v6.1.1 (5min)",
+        "name": "WOLF Risk Guardian v6.1.2 (5min)",
         "schedule": {"kind": "every", "everyMs": 300000},
         "sessionTarget": "isolated",
         "payload": {

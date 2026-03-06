@@ -1,4 +1,4 @@
-# WOLF Strategy v6.1.1
+# WOLF Strategy v6.1.2
 
 Fully autonomous multi-strategy trading for Hyperliquid perps. The WOLF hunts for its human — scans, enters, exits, and rotates positions without asking permission. Manages multiple strategies simultaneously, each with independent wallets, budgets, slots, and DSL configs.
 
@@ -31,7 +31,7 @@ Fully autonomous multi-strategy trading for Hyperliquid perps. The WOLF hunts fo
 - **Shared config loader** (`wolf_config.py`) — all scripts use same module for config, paths, legacy migration
 - **Backward compatible** — auto-migrates legacy `wolf-strategy.json` and old state files on first run
 
-## What's New in v6.1.1
+## What's New in v6.1.2
 
 - **Risk Guardian** — 6th cron (5min, Budget tier) enforcing account-level guard rails: daily loss halt, max entries per day, consecutive loss cooldown
 - **Strategy lock** — concurrency protection (file-based `fcntl` locking) for position operations, preventing race conditions between scanner and guardian
@@ -56,6 +56,7 @@ Fully autonomous multi-strategy trading for Hyperliquid perps. The WOLF hunts fo
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v6.1.2 | 2026-03-06 | Major DSL v5.1 migration: strategy active check (archives on inactive), SL pre-fill check (archives if SL order filled), clearinghouse reconcile (archives externally closed), SL sync to Hyperliquid via edit_position (Phase 1 MARKET / Phase 2 LIMIT), archive-on-close rename, state normalization for phase fields |
 | v6.1.1 | 2026-03-05 | Risk Guardian (account-level guard rails), strategy lock (concurrency protection), gate check in open-position.py, entry counter tracking |
 | v6.1 | 2026-03-03 | Reduced leverage ranges, risk-based dynamic leverage, rotation cooldown (45min), atomic open-position.py |
 | v6.0 | 2026-02-24 | Multi-strategy support, strategy registry, per-strategy state dirs, signal routing, shared config loader |

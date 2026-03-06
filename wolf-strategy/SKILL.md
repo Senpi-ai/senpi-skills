@@ -1,10 +1,10 @@
 ---
 name: wolf-strategy
 description: >-
-  WOLF v6.1.1 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
+  WOLF v6.1.2 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
   Manages multiple strategies simultaneously, each with independent wallets, budgets, slots,
   and DSL configs. 6-cron architecture with Emerging Movers scanner (3min, FIRST_JUMP + IMMEDIATE_MOVER),
-  DSL v4 trailing stops (combined runner every 3min, 4-tier at 5/10/15/20% ROE),
+  DSL v5.1 trailing stops (combined runner every 3min, 4-tier at 5/10/15/20% ROE),
   SM flip detector (5min), watchdog (5min), risk guardian (5min, account-level guard rails),
   and health checks (10min). Same asset can be traded in different strategies simultaneously.
   Enter early on first jumps, not at confirmed peaks. Dynamic risk-based leverage per strategy.
@@ -12,7 +12,7 @@ description: >-
 
 ---
 
-# WOLF v6.1.1 — Autonomous Multi-Strategy Trading
+# WOLF v6.1.2 — Autonomous Multi-Strategy Trading
 
 The WOLF hunts for its human. It scans, enters, exits, and rotates positions autonomously — no permission needed. When criteria are met, it acts. Speed is edge.
 
@@ -21,6 +21,8 @@ The WOLF hunts for its human. It scans, enters, exits, and rotates positions aut
 **v6: Multi-strategy support.** Each strategy has independent wallet, budget, slots, and DSL config. Same asset can be held in different strategies simultaneously (e.g., Strategy A LONG HYPE + Strategy B SHORT HYPE).
 
 **v6.1.1: Risk Guardian & strategy lock.** 6th cron (5min, Budget tier) enforcing account-level guard rails — daily loss halt, max entries per day, consecutive loss cooldown. Strategy lock for concurrency protection. Gate check in `open-position.py` refuses new entries when gate != OPEN.
+
+**v6.1.2:** DSL v5.1: strategy active check (archive state when not ACTIVE/PAUSED), SL pre-fill check (archive when SL order filled on HL), clearinghouse reconcile (archive when asset no longer in clearinghouse), SL sync to Hyperliquid (Phase 1 MARKET / Phase 2 LIMIT), archive-on-close rename; state normalization for missing phase1/phase2/stagnation.
 
 **v6.1: Reduced leverage ranges.** All risk tiers lowered — aggressive now caps at 75% of max leverage (was 100%), moderate at 50% (was 75%), conservative at 25% (was 50%). Prevents over-leveraging on high-max-leverage assets.
 
@@ -260,11 +262,23 @@ When ANY job closes a position -> immediately:
 2. Alert user
 3. Evaluate: empty slot in that strategy for next signal?
 
-**v6 note:** Since DSL is a combined runner iterating all strategies, no per-position crons to manage. Just set `active: false` in the state file.
+**v6 note:** Since DSL is a combined runner iterating all strategies, no per-position crons to manage. When closing manually, set `active: false` in the state file; the next DSL run will archive it as `_archived_external_` when clearinghouse reconcile sees the position is gone.
 
 ---
 
-## DSL v4 — Trailing Stop System
+## DSL v5.1 — Trailing Stop System
+
+The combined runner (`dsl-combined.py`) implements DSL v5.1: **SL sync to Hyperliquid** (native stop order so HL closes when price hits, not just on cron tick), **strategy active check**, **clearinghouse reconcile**, and **archive on close**.
+
+### Per-run pre-processing (v5.1)
+1. **Strategy active:** MCP `strategy_get(strategy_id)`. If status is not ACTIVE or PAUSED, all DSL state files for that strategy are archived as `dsl-{asset}_archived_strategy_inactive_{epoch}.json` and the run emits `strategies_inactive: [strategyKey]`.
+2. **SL pre-fill:** For each state file with `slOrderId`, MCP `execution_get_order_status`. If the order is **filled** (HL already closed the position), the file is archived as `dsl-{asset}_archived_sl_{epoch}.json` and emitted in `sl_filled`.
+3. **Clearinghouse reconcile:** MCP `strategy_get_clearinghouse_state(wallet)`. State files whose asset is no longer in clearinghouse (e.g. closed manually) are archived as `dsl-{asset}_archived_external_{epoch}.json` and emitted in `externally_closed`.
+
+Only state files **not** matching `*_archived_*` are processed. Archived files are never picked up again.
+
+### SL sync to Hyperliquid
+After computing the effective floor each tick, the script calls MCP `edit_position` to set/update a **native SL order** on Hyperliquid at that price. Phase 1 uses `orderType: "MARKET"` (fast exit); Phase 2 uses `orderType: "LIMIT"`. Re-sync only when the floor actually changes or when the existing SL order was cancelled externally. State stores `slOrderId`, `lastSyncedFloorPrice`, `slOrderIdUpdatedAt`; optional `lastSlSyncError` on sync failure (non-fatal).
 
 ### Phase 1 (Pre-Tier 1): Absolute floor
 - LONG floor = entry x (1 - 10%/leverage)
@@ -284,8 +298,11 @@ When ANY job closes a position -> immediately:
 ### Stagnation Take-Profit
 Auto-close if ROE >= 8% and high-water stale for 1 hour.
 
+### Archive on close
+On breach/stagnation/phase1-cut close, the state file is **renamed** to `dsl-{asset}_archived_breach_{epoch}.json`. Pre-processing archives use `_archived_strategy_inactive_`, `_archived_sl_`, or `_archived_external_`. The file is not updated in place with `active: false`.
+
 ### DSL State File
-Each position gets `state/{strategyKey}/dsl-{ASSET}.json`. The combined runner iterates all active state files across all strategies. See `references/state-schema.md` for the full schema and critical gotchas (triggerPct not threshold, lockPct not retracePct, etc.).
+Each position gets `state/{strategyKey}/dsl-{ASSET}.json`. The combined runner iterates all **active** state files (excluding `*_archived_*`) across all strategies. See `references/state-schema.md` for the full schema and critical gotchas (triggerPct not threshold, lockPct not retracePct, etc.). New optional state fields: `slOrderId`, `lastSyncedFloorPrice`, `slOrderIdUpdatedAt`, `lastSlSyncError`.
 
 ---
 
@@ -472,7 +489,7 @@ See `references/learnings.md` for known bugs, gotchas, and trading discipline ru
 | `scripts/wolf-setup.py` | Setup wizard — adds strategy to registry from budget |
 | `scripts/wolf_config.py` | Shared config loader — all scripts import this |
 | `scripts/emerging-movers.py` | Emerging Movers v4 scanner (FIRST_JUMP, IMMEDIATE, CONTRIB_EXPLOSION) |
-| `scripts/dsl-combined.py` | DSL v4 combined trailing stop engine (all positions, all strategies) |
+| `scripts/dsl-combined.py` | DSL v5.1 combined trailing stop engine (all positions, all strategies; SL sync, strategy/clearinghouse checks, archive on close) |
 | `scripts/sm-flip-check.py` | SM conviction flip detector (multi-strategy) |
 | `scripts/wolf-monitor.py` | Watchdog — per-strategy margin buffer + position health |
 | `scripts/job-health-check.py` | Per-strategy orphan DSL / state validation |

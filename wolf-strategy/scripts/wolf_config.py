@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-wolf_config.py — Multi-strategy config loader for WOLF v6.1.1
+wolf_config.py — Multi-strategy config loader for WOLF v6.1.2
 
 Provides a single importable module every script uses to load strategy config,
 resolve state file paths, and handle legacy migration.
@@ -195,8 +195,33 @@ def dsl_state_path(strategy_key, asset):
 
 
 def dsl_state_glob(strategy_key):
-    """Get the glob pattern for all DSL state files in a strategy."""
+    """Get the glob pattern for all DSL state files in a strategy (includes archived).
+    Prefer dsl_state_files_active() to get only processable state files."""
     return os.path.join(state_dir(strategy_key), "dsl-*.json")
+
+
+def dsl_state_files_active(strategy_key):
+    """Return list of state file paths for a strategy, excluding *_archived_* files."""
+    pattern = dsl_state_glob(strategy_key)
+    paths = glob.glob(pattern)
+    return [p for p in paths if "_archived_" not in os.path.basename(p)]
+
+
+def archive_state_file(state_file, suffix):
+    """Rename state file to dsl-{base}_archived_{suffix}_{epoch}.json. Returns destination path."""
+    epoch = int(time.time())
+    dirpath = os.path.dirname(state_file)
+    basename = os.path.basename(state_file)
+    # dsl-HYPE.json -> base HYPE; dsl-xyz--SILVER.json -> base xyz--SILVER
+    if not basename.startswith("dsl-") or not basename.endswith(".json"):
+        base = basename.replace(".json", "")
+    else:
+        base = basename[len("dsl-"):-len(".json")]
+    new_name = f"dsl-{base}_archived_{suffix}_{epoch}.json"
+    dest = os.path.join(dirpath, new_name)
+    if os.path.exists(state_file):
+        os.rename(state_file, dest)
+    return dest
 
 
 def get_all_active_positions():
@@ -207,7 +232,7 @@ def get_all_active_positions():
     """
     positions = {}
     for key, cfg in load_all_strategies().items():
-        for sf in glob.glob(dsl_state_glob(key)):
+        for sf in dsl_state_files_active(key):
             try:
                 with open(sf) as f:
                     s = json.load(f)
@@ -283,6 +308,92 @@ def mcporter_call_safe(tool, retries=3, timeout=30, **kwargs):
         return mcporter_call(tool, retries=retries, timeout=timeout, **kwargs)
     except RuntimeError:
         return None
+
+
+# --- DSL v5.1 MCP helpers (strategy active, clearinghouse, order status, edit_position) ---
+
+def mcp_strategy_get(strategy_id):
+    """Call senpi strategy_get. Returns (status, wallet, error). error is None on success."""
+    data = mcporter_call_safe("strategy_get", strategy_id=strategy_id)
+    if not data or not isinstance(data, dict):
+        return None, None, "strategy_get failed or empty response"
+    strategy = data.get("strategy") if isinstance(data, dict) else data
+    if not strategy or not isinstance(strategy, dict):
+        return None, None, "no strategy in response"
+    status = (strategy.get("status") or "").strip().upper()
+    wallet = (strategy.get("strategyWalletAddress") or strategy.get("strategy_wallet_address") or "").strip()
+    return status, wallet, None
+
+
+def mcp_clearinghouse_coins(wallet):
+    """Call senpi strategy_get_clearinghouse_state; return set of active position coin names."""
+    data = mcporter_call_safe("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+    if not data or not isinstance(data, dict):
+        return set()
+    coins = set()
+    for section in ("main", "xyz"):
+        section_data = data.get(section, {}) or {}
+        for p in section_data.get("assetPositions", []):
+            pos = p.get("position", {}) if isinstance(p, dict) else {}
+            coin = pos.get("coin")
+            if coin and float(pos.get("szi", 0)) != 0:
+                coins.add(coin)
+    return coins
+
+
+def mcp_order_status(wallet, order_id):
+    """Call senpi execution_get_order_status. Returns order status string ('open','filled','canceled') or None on error."""
+    data = mcporter_call_safe("execution_get_order_status", user=wallet, orderId=order_id)
+    if not data or not isinstance(data, dict):
+        return None
+    if data.get("status") == "unknownOid":
+        return None
+    if data.get("status") == "order":
+        order = data.get("order")
+        if isinstance(order, dict):
+            return (order.get("status") or "").strip().lower()
+    return None
+
+
+def mcp_edit_position(wallet, coin, floor_price, order_type="LIMIT"):
+    """Call senpi edit_position to set/update SL. Returns (ok, order_id, error). order_id may be None if API doesn't return it. Non-fatal on failure."""
+    data = mcporter_call_safe(
+        "edit_position",
+        strategyWalletAddress=wallet,
+        coin=coin,
+        stopLoss={"price": round(floor_price, 4), "orderType": order_type},
+    )
+    if data is None:
+        return False, None, "edit_position failed"
+    if not isinstance(data, dict):
+        return False, None, "edit_position: invalid response"
+    oid = None
+    ou = data.get("ordersUpdated") or data.get("orders_updated")
+    if isinstance(ou, dict):
+        sl = ou.get("stopLoss") or ou.get("stop_loss")
+        if isinstance(sl, dict):
+            oid = sl.get("orderId") or sl.get("order_id")
+    if oid is None:
+        oid = data.get("stopLossOrderId") or data.get("stop_loss_order_id")
+    if oid is not None:
+        try:
+            oid = int(oid)
+        except (TypeError, ValueError):
+            oid = None
+    return True, oid, None
+
+
+def mcp_get_open_orders(wallet, dex=""):
+    """Call senpi strategy_get_open_orders. Returns (list of order dicts, error). error is None on success."""
+    data = mcporter_call_safe("strategy_get_open_orders", strategy_wallet=wallet, dex=dex)
+    if data is None:
+        return [], "strategy_get_open_orders failed"
+    if not isinstance(data, dict):
+        return [], "invalid response"
+    orders = data.get("orders")
+    if not isinstance(orders, list):
+        return [], None
+    return orders, None
 
 
 def send_notification(message):
