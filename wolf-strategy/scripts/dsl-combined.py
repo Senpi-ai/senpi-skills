@@ -1,36 +1,75 @@
 #!/usr/bin/env python3
-"""DSL Combined Runner v2.0 — Multi-strategy support.
+"""DSL Combined Runner v3.0 — Multi-strategy + DSL v5.1 features.
 
 Iterates ALL enabled strategies, processes ALL active DSL state files per strategy.
 Each position uses its own strategy's wallet for close operations.
 
-v2.0 changes (WOLF v6):
-  - Multi-strategy: iterates load_all_strategies(), uses per-strategy state dirs
-  - Each result includes strategyKey for routing
-  - Two HYPE positions in different strategies processed independently
-  - Uses wolf_config for paths and config loading
+v3.0 (DSL v5.1 migration):
+  - Strategy active check (MCP strategy_get); archive state and emit strategy_inactive if not ACTIVE/PAUSED
+  - SL pre-fill check: state files with slOrderId → execution_get_order_status; if filled, archive as _archived_sl_
+  - Clearinghouse reconcile: archive state files whose asset no longer in clearinghouse (_archived_external_)
+  - SL sync to Hyperliquid via edit_position (Phase 1 MARKET, Phase 2 LIMIT); re-sync when floor changes or SL cancelled
+  - Archive on close: rename to dsl-{asset}_archived_{suffix}_{epoch}.json instead of active:false
+  - State normalization: backfill missing phase1/phase2/stagnation fields
 
-v1.0 (WOLF v5):
-  - Single cron manages ALL active WOLF positions
-  - Batch pricing, per-position DSL v4.1 logic
+v2.0 (WOLF v6): Multi-strategy, per-strategy state dirs, strategyKey in results.
 
 Usage:
   PYTHONUNBUFFERED=1 python3 dsl-combined.py
 
-Output: JSON with per-position results + summary.
+Output: JSON with per-position results + summary (strategies_inactive, externally_closed, sl_filled).
 """
-import json, os, sys, glob
+import json, os, sys, time
 from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import (load_all_strategies, dsl_state_glob, atomic_write,
-                         validate_dsl_state, mcporter_call, mcporter_call_safe,
-                         heartbeat)
+from wolf_config import (
+    load_all_strategies, dsl_state_files_active, dsl_state_glob, atomic_write,
+    archive_state_file, validate_dsl_state, mcporter_call, mcporter_call_safe,
+    mcp_strategy_get, mcp_clearinghouse_coins, mcp_order_status, mcp_edit_position, mcp_get_open_orders,
+    heartbeat,
+)
 
 heartbeat("dsl_combined")
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+DSL_ACTIVE_STATUSES = ("ACTIVE", "PAUSED")
+
+
+def normalize_dsl_state(state):
+    """Backfill missing phase1/phase2/stagnation fields so older state files don't crash. Wolf: retraceThreshold as integer ROE %."""
+    if not isinstance(state, dict):
+        return
+    # Stagnation
+    if "stagnation" not in state or not isinstance(state.get("stagnation"), dict):
+        state["stagnation"] = {"enabled": True, "minROE": 8.0, "thresholdHours": 1.0, "priceRangePct": 1.0}
+    stag = state["stagnation"]
+    for k, v in [("enabled", True), ("minROE", 8.0), ("thresholdHours", 1.0), ("staleHours", 1.0), ("priceRangePct", 1.0)]:
+        if k not in stag:
+            stag[k] = v
+    # Phase2
+    if "phase2" not in state or not isinstance(state.get("phase2"), dict):
+        state["phase2"] = {}
+    if "consecutiveBreachesRequired" not in state["phase2"]:
+        state["phase2"]["consecutiveBreachesRequired"] = 2
+    if "retraceFromHW" not in state["phase2"]:
+        state["phase2"]["retraceFromHW"] = 5
+    # Phase1 absoluteFloor from entry/leverage/retraceThreshold (wolf integer ROE %)
+    phase1 = state.get("phase1")
+    if isinstance(phase1, dict) and "absoluteFloor" not in phase1:
+        entry = state.get("entryPrice")
+        leverage = state.get("leverage", 10)
+        retrace_roe = abs(phase1.get("retraceThreshold", 10))
+        if entry and leverage:
+            retrace_price = (retrace_roe / 100) / leverage
+            is_long = (state.get("direction", "LONG").upper() == "LONG")
+            if is_long:
+                phase1["absoluteFloor"] = round(entry * (1 - retrace_price), 6)
+            else:
+                phase1["absoluteFloor"] = round(entry * (1 + retrace_price), 6)
+            state["floorPrice"] = phase1["absoluteFloor"]
 
 
 def fetch_all_mids(dex=None):
@@ -59,7 +98,8 @@ def close_position(wallet, coin, reason):
 
 
 def process_position(state_file, state, price, strategy_cfg):
-    """Run DSL v4.1 logic on a single position. Returns result dict."""
+    """Run DSL v5.1 logic on a single position. Returns result dict."""
+    normalize_dsl_state(state)
     direction = state.get("direction", "LONG").upper()
     is_long = direction == "LONG"
     is_xyz = state.get("dex") == "xyz" or state.get("asset", "").startswith("xyz:")
@@ -76,6 +116,7 @@ def process_position(state_file, state, price, strategy_cfg):
     tier_floor = state["tierFloorPrice"]
     tiers = state["tiers"]
     force_close = state.get("pendingClose", False)
+    asset = state["asset"]
 
     # --- Stagnation config ---
     stag_cfg = state.get("stagnation", {})
@@ -179,6 +220,56 @@ def process_position(state_file, state, price, strategy_cfg):
 
     state["floorPrice"] = round(effective_floor, 4)
 
+    # --- SL sync to Hyperliquid (v5.1) ---
+    wallet = state.get("wallet", strategy_cfg.get("wallet", ""))
+    last_synced = state.get("lastSyncedFloorPrice")
+    had_sl_order = state.get("slOrderId") is not None
+    # If SL was cancelled externally, force re-sync
+    if had_sl_order and wallet:
+        status = mcp_order_status(wallet, state["slOrderId"])
+        if status == "canceled":
+            state["lastSyncedFloorPrice"] = None
+            last_synced = None
+    floor_changed = last_synced is None or abs(last_synced - effective_floor) > 1e-9
+    sl_synced = False
+    sl_initial_sync = False
+    if floor_changed and wallet:
+        order_type = "MARKET" if phase == 1 else "LIMIT"
+        close_coin = asset if asset.startswith("xyz:") else (f"xyz:{asset}" if is_xyz else asset)
+        sync_ok, oid, sync_err = mcp_edit_position(wallet, close_coin, effective_floor, order_type)
+        if sync_ok:
+            state["lastSyncedFloorPrice"] = round(effective_floor, 4)
+            state["slOrderIdUpdatedAt"] = now
+            if oid is None:
+                # Resolve slOrderId from open orders if API didn't return it
+                dex_arg = "xyz" if is_xyz else ""
+                orders, _ = mcp_get_open_orders(wallet, dex_arg)
+                trigger_px = round(effective_floor, 4)
+                for o in (orders or []):
+                    if o.get("coin") != close_coin:
+                        continue
+                    if not (o.get("isTrigger") or o.get("isPositionTpsl")):
+                        continue
+                    try:
+                        tp = float(o.get("triggerPx", 0))
+                    except (TypeError, ValueError):
+                        continue
+                    if abs(tp - trigger_px) < 1e-6:
+                        oid = o.get("oid")
+                        if oid is not None:
+                            try:
+                                oid = int(oid)
+                                break
+                            except (TypeError, ValueError):
+                                pass
+            if oid:
+                state["slOrderId"] = oid
+            state["lastSlSyncError"] = None
+            sl_synced = True
+            sl_initial_sync = not had_sl_order
+        else:
+            state["lastSlSyncError"] = sync_err
+
     # --- Stagnation check ---
     stagnation_triggered = False
     stag_hours_stale = 0.0
@@ -279,13 +370,13 @@ def process_position(state_file, state, price, strategy_cfg):
             else:
                 state["pendingClose"] = True
 
-    # --- Save state ---
+    # --- Save state (archive on close, else atomic_write with external-close guard) ---
     state["lastCheck"] = now
     state["lastPrice"] = price
-    # Guard: if this run didn't trigger a close, check whether the agent
-    # externally set active=false (e.g. SM flip close) since we read the file.
-    # If so, skip writing to avoid resurrecting a closed position.
-    if not should_close:
+    if closed:
+        archive_state_file(state_file, "breach")
+    else:
+        # Guard: if agent externally set active=false (e.g. SM flip close), skip writing.
         try:
             with open(state_file) as _f:
                 _current = json.load(_f)
@@ -296,10 +387,13 @@ def process_position(state_file, state, price, strategy_cfg):
                     "strategyKey": strategy_cfg.get("_key", "unknown"),
                     "status": "externally_closed",
                     "skipped_write": True,
+                    "sl_synced": sl_synced,
+                    "sl_initial_sync": sl_initial_sync,
+                    "sl_order_id": state.get("slOrderId"),
                 }
         except (json.JSONDecodeError, IOError):
             pass
-    atomic_write(state_file, state)
+        atomic_write(state_file, state)
 
     # --- Build result ---
     if is_long:
@@ -327,6 +421,9 @@ def process_position(state_file, state, price, strategy_cfg):
         "tier_changed": tier_changed,
         "phase1_autocut": phase1_autocut,
         "notification": notif_msg,
+        "sl_synced": sl_synced,
+        "sl_initial_sync": sl_initial_sync,
+        "sl_order_id": state.get("slOrderId"),
     }
     if phase1_autocut:
         result["elapsed_minutes"] = round(elapsed_minutes)
@@ -364,6 +461,9 @@ if not strategies:
         "strategies": 0,
         "positions": 0,
         "results": [],
+        "strategies_inactive": [],
+        "externally_closed": [],
+        "sl_filled": [],
         "message": "No enabled strategies found"
     }))
     sys.exit(0)
@@ -372,18 +472,76 @@ if not strategies:
 all_mids = fetch_all_mids()
 xyz_mids = fetch_all_mids(dex="xyz")
 
-# Collect all state files across strategies
+# Per-strategy pre-processing (v5.1): strategy active, SL pre-fill, clearinghouse reconcile
+strategies_inactive = []
+sl_filled = []
+externally_closed = []
+errors = []
 all_state_entries = []  # (state_file_path, strategy_cfg)
 
 for key, cfg in strategies.items():
-    state_files = sorted(glob.glob(dsl_state_glob(key)))
+    state_files = sorted(dsl_state_files_active(key))
+    strategy_id = cfg.get("strategyId", "")
+    wallet = cfg.get("wallet", "")
+
+    # a. Strategy active check
+    status, wallet_from_api, err = mcp_strategy_get(strategy_id)
+    if err is not None:
+        errors.append({"strategyKey": key, "error": "strategy_get_failed", "message": err})
+        continue
+    if status not in DSL_ACTIVE_STATUSES:
+        for sf in state_files:
+            try:
+                archive_state_file(sf, "strategy_inactive")
+            except OSError:
+                pass
+        strategies_inactive.append(key)
+        continue
+    if wallet_from_api:
+        wallet = wallet_from_api
+
+    # b. SL pre-fill check (state files with slOrderId that are already filled on HL)
+    for sf in list(state_files):
+        try:
+            with open(sf) as f:
+                s = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            continue
+        oid = s.get("slOrderId")
+        if not oid:
+            continue
+        order_status = mcp_order_status(wallet, oid)
+        if order_status == "filled":
+            try:
+                archive_state_file(sf, "sl")
+            except OSError:
+                pass
+            state_files.remove(sf)
+            sl_filled.append({"asset": s.get("asset", ""), "strategyKey": key})
+
+    # c. Clearinghouse reconcile (archive state files whose asset no longer in clearinghouse)
+    active_coins = mcp_clearinghouse_coins(wallet)
+    for sf in list(state_files):
+        try:
+            with open(sf) as f:
+                s = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            continue
+        asset = s.get("asset", "")
+        if asset and asset not in active_coins:
+            try:
+                archive_state_file(sf, "external")
+            except OSError:
+                pass
+            state_files.remove(sf)
+            externally_closed.append({"asset": asset, "strategyKey": key})
+
     for sf in state_files:
         all_state_entries.append((sf, cfg))
 
 # Process each position
 results = []
 closed_positions = []
-errors = []
 
 for sf, cfg in all_state_entries:
     try:
@@ -482,5 +640,8 @@ print(json.dumps({
     "any_closed": any_closed,
     "any_tier_change": any_tier_change,
     "notifications": notifications,
-    "state_files_found": len(all_state_entries)
+    "state_files_found": len(all_state_entries),
+    "strategies_inactive": strategies_inactive,
+    "externally_closed": externally_closed,
+    "sl_filled": sl_filled,
 }))

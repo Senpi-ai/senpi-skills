@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-risk-guardian.py — WOLF v6.1.1 Risk Guardian (Account-Level Guard Rails)
+risk-guardian.py — WOLF v6.1.2 Risk Guardian (Account-Level Guard Rails)
 
 6th cron: enforces three account-level guardrails across all strategies:
   G1: Daily loss halt (accountValue drop from start-of-day)
