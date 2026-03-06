@@ -25,6 +25,12 @@ metadata:
 
 ---
 
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
+
+---
+
 ## Architecture
 
 ```
