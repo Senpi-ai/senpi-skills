@@ -95,8 +95,11 @@ def _mcp_result_ok(result) -> bool:
     return result[0] is True
 
 
-def _retry_mcp_call(fn, *args, max_attempts=4, delay_seconds=1.0, **kwargs):
-    """Run fn(*args, **kwargs); on failure, retry up to max_attempts (1 initial + 3 retries)."""
+def _retry_mcp_call(fn, *args, max_attempts=4, delay_seconds=1.0, on_exception=None, **kwargs):
+    """Run fn(*args, **kwargs); on failure, retry up to max_attempts (1 initial + 3 retries).
+    If on_exception is set, it must be a callable (e) -> result used when an exception is
+    caught, so the returned value matches the wrapped function's tuple size (e.g. 3-tuple).
+    """
     last_result = None
     for attempt in range(max_attempts):
         try:
@@ -104,7 +107,7 @@ def _retry_mcp_call(fn, *args, max_attempts=4, delay_seconds=1.0, **kwargs):
             if _mcp_result_ok(last_result):
                 return last_result
         except Exception as e:
-            last_result = (None, str(e))
+            last_result = (on_exception(e)) if on_exception else (None, str(e))
         if attempt + 1 < max_attempts:
             time.sleep(delay_seconds)
     return last_result
@@ -532,7 +535,14 @@ def _mcp_edit_position(
     wallet: str, coin: str, stop_loss_price: float, order_type: str = "LIMIT"
 ) -> tuple[bool, str | None, int | None]:
     """Call senpi edit_position to set/update SL at price. 4 attempts (1 initial + 3 retries) on failure."""
-    return _retry_mcp_call(_mcp_edit_position_once, wallet, coin, stop_loss_price, order_type)
+    return _retry_mcp_call(
+        _mcp_edit_position_once,
+        wallet,
+        coin,
+        stop_loss_price,
+        order_type,
+        on_exception=lambda e: (False, str(e), None),
+    )
 
 
 def _mcp_strategy_get_open_orders_once(wallet: str, dex: str = "") -> tuple[list[dict], str | None]:
@@ -593,7 +603,12 @@ def _mcp_execution_get_order_status_once(wallet: str, order_id: int) -> tuple[bo
 
 def _mcp_execution_get_order_status(wallet: str, order_id: int) -> tuple[bool, str | None, str | None]:
     """Call senpi execution_get_order_status. 4 attempts (1 initial + 3 retries) on failure."""
-    return _retry_mcp_call(_mcp_execution_get_order_status_once, wallet, order_id)
+    return _retry_mcp_call(
+        _mcp_execution_get_order_status_once,
+        wallet,
+        order_id,
+        on_exception=lambda e: (False, None, str(e)),
+    )
 
 
 def _resolve_sl_order_id_after_edit(

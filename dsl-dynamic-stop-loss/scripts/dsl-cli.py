@@ -1027,8 +1027,10 @@ def cmd_delete_dsl(state_dir: str, args: argparse.Namespace) -> None:
         path = position_state_path(state_dir, strategy_id, asset)
         if os.path.isfile(path):
             dest = os.path.join(sd, f"{asset_to_filename(asset)}_archived_deleted_{epoch}.json")
-        _, removed = _archive_position_file(path, dest)
-        (archived if removed else failed_to_remove).append(asset)
+            _, removed = _archive_position_file(path, dest)
+            (archived if removed else failed_to_remove).append(asset)
+        else:
+            archived.append(asset)
         strategy_data["updatedAt"] = _now_iso()
         reconcile_strategy_positions_from_disk(state_dir, strategy_id, strategy_data)
         save_strategy_json(state_dir, strategy_id, strategy_data)
