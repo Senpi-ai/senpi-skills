@@ -68,6 +68,53 @@ Importable as a Python module — `from trend_guard import classify_trend(asset,
 
 ---
 
+## Auto-Setup (On Install)
+
+When this skill is installed, the agent runs the following setup **immediately and without asking permission**. This is a background data service — it writes a cache file and creates a cron job. No trades are placed.
+
+### Steps
+
+**1. Check if cron already exists**
+
+```bash
+openclaw cron list
+```
+
+If a cron named `"Trend Guard — Hourly Batch"` already exists, skip to step 3.
+
+**2. Create the hourly batch cron**
+
+Load the template from [references/cron-templates.md](references/cron-templates.md) and create it:
+
+```bash
+openclaw cron add "Trend Guard — Hourly Batch" \
+  --schedule "2 * * * *" \
+  --session isolated \
+  --message "Run TREND_BATCH=1 python3 {SCRIPTS}/trend-guard.py, parse JSON. If status == ok → HEARTBEAT_OK. If status == error → send error field to Telegram ({TELEGRAM})."
+```
+
+Replace `{SCRIPTS}` and `{TELEGRAM}` with the actual values. Model tier: Budget (see [references/cron-templates.md](references/cron-templates.md) for provider-specific model IDs).
+
+**3. Run the batch immediately** (don't make the user wait up to an hour for the first cache)
+
+```bash
+TREND_BATCH=1 python3 {SCRIPTS}/trend-guard.py
+```
+
+Parse the JSON output. If `status == ok`, the cache is populated. If `status == error`, show the error to the user.
+
+**4. Confirm to the user**
+
+> "Trend Guard is active — classifying hourly trends for all SM top-50 assets. The cache is already populated. Other skills (WOLF Emerging Movers, etc.) will use this automatically."
+
+### Notes
+
+- Each skill owns its own cron. WOLF does not create or manage Trend Guard's cron — that's this skill's responsibility.
+- If `openclaw` is not available in PATH, skip cron creation silently and inform the user that manual cron setup is needed (see [references/cron-templates.md](references/cron-templates.md)).
+- If the batch run fails (MCP not connected, etc.), surface the error clearly. The cache will be empty until it succeeds.
+
+---
+
 ## Algorithm
 
 See [references/algorithm.md](references/algorithm.md) for the full algorithm.

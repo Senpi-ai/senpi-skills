@@ -445,6 +445,27 @@ All parameters are optional — defaults are used for any missing key. Set per s
 
 ---
 
+## Recommended Companion Skills
+
+These skills are optional but integrate directly with WOLF to improve entry quality and risk management.
+
+### trend-guard (Recommended)
+
+Hourly trend classifier for Hyperliquid assets. When installed, WOLF's Emerging Movers scanner automatically uses it to gate entries against counter-trend signals — the #1 documented loss pattern.
+
+**What it does:** Runs an hourly batch cron that classifies UP/DOWN/NEUTRAL for all SM top-50 assets and writes `trend-cache.json`. Emerging Movers reads from this cache on every 3-min scan at zero latency.
+
+**Install:**
+```bash
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill trend-guard -g -y
+```
+
+**Behavior without it:** Emerging Movers works normally — trend check is skipped for users who haven't installed trend-guard and have no cache file. No silent breakage.
+
+**Important:** Each skill owns its own cron. WOLF does not create or manage trend-guard's hourly cron. When you install trend-guard, it sets up its own cron automatically.
+
+---
+
 ## Known Limitations
 
 - **Watchdog blind spot for XYZ isolated:** The watchdog monitors cross-margin buffer but can't see isolated position liquidation distances in the same way. XYZ positions rely on DSL for protection.
