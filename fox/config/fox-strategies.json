@@ -70,7 +70,7 @@
     }
   },
   "global": {
-    "telegramChatId": "5183731261",
+    "telegramChatId": "",
     "workspace": "/data/workspace",
     "notifications": {
       "provider": "telegram",
