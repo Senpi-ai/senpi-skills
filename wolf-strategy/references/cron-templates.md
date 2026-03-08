@@ -87,7 +87,8 @@ Act ONLY on the `topPicks` array — it contains pre-selected signals sorted by 
 Each signal has a `signalType` field (FIRST_JUMP, CONTRIB_EXPLOSION, IMMEDIATE_MOVER, NEW_ENTRY_DEEP, DEEP_CLIMBER) and `signalPriority` (1=highest). NEVER skip a higher-priority signal to act on a lower-priority one.
 If `hasFirstJump` is true, FIRST_JUMP signals MUST be acted on before any other type.
 Use `strategySlots` to route each signal to a strategy with available > 0 (skip strategies at capacity).
-Enter via: `python3 {SCRIPTS}/open-position.py --strategy {strategyKey} --asset {qualifiedAsset} --signal-index {signalIndex}`
+Enter via: `python3 {SCRIPTS}/open-position.py --strategy {strategyKey} --asset {qualifiedAsset} --signal-index {signalIndex} --order-type {orderType}`
+Order type selection: FIRST_JUMP and CONTRIB_EXPLOSION → `--order-type MARKET` (speed critical, don't risk missing the move). IMMEDIATE_MOVER, NEW_ENTRY_DEEP, DEEP_CLIMBER → `--order-type ALO` (slower signals, saves ~3bps with FEE_OPTIMIZED_LIMIT).
 The `qualifiedAsset` field includes the `xyz:` prefix for XYZ equities (e.g., `xyz:SILVER`). Use it directly — do NOT strip the prefix.
 The `signalIndex` field is in each alert — it tells open-position.py which signal to use for direction and conviction. Do NOT pass --direction or --conviction manually. This opens the position AND creates the DSL state file atomically. Do NOT manually call create_position or hand-write DSL JSON.
 No leverage floor — all assets are tradeable. Leverage auto-calculated from strategy tradingRisk + asset maxLeverage + signal conviction.

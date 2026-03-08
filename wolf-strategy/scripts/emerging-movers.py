@@ -65,9 +65,12 @@ def check_trend_alignment(asset, direction):
 
     Returns (aligned: bool, trend_meta: dict)
 
-    Layer 1 — fresh cache (≤62 min): 0ms, use cached value.
-    Layer 2 — stale/missing cache: live MCP fetch for this one asset (~2-3s).
-    Layer 3 — MCP completely down: block the entry (return False), never trade blind.
+    Layer 1 — fresh cache (<=62 min): 0ms, use cached value.
+    Layer 2 — cache stale/missing + trend-guard installed: live MCP fetch (~2-3s).
+    Layer 3 — MCP down (trend-guard installed): block entry, never trade blind.
+
+    Backward compat: if trend-guard is NOT installed AND no cache exists at all,
+    return aligned=True (user never opted in — don't silently break their entries).
     """
     cached = TREND_CACHE.get(asset)
     if cached and "computedAt" in cached:
@@ -78,16 +81,22 @@ def check_trend_alignment(asset, direction):
         except (ValueError, TypeError):
             pass  # bad timestamp — fall through to live fetch
 
-    # Cache stale or missing — live fetch for this asset
+    # Cache stale or missing — try live fetch
     if TREND_GUARD_AVAILABLE:
         try:
             fresh = _classify_trend(asset)
             return _evaluate_alignment(fresh, direction), fresh
         except Exception:
-            pass  # MCP down — fall through to block
+            # Trend Guard IS installed but MCP is down — block (opted-in = fail-closed)
+            return False, {"error": "trend_unavailable", "asset": asset}
 
-    # MCP down or trend-guard not installed and cache stale — block entry
-    return False, {"error": "trend_unavailable", "asset": asset}
+    # Trend Guard NOT installed:
+    if not TREND_CACHE:
+        # No cache file at all — user never opted in. Allow trade (backward compatible).
+        return True, {"trend": "UNKNOWN", "note": "trend_guard_not_installed"}
+
+    # Cache exists but is stale AND trend-guard not installed — something broke. Block.
+    return False, {"error": "trend_cache_stale", "asset": asset}
 
 def _evaluate_alignment(trend_data, direction):
     """Return True if trend is aligned with direction, or NEUTRAL (don't block uncertainty)."""
