@@ -1,0 +1,57 @@
+{
+  "asset": "HYPE",
+  "leverage": 10,
+  "strategy_id": "",
+  "strategy_wallet": "",
+  "telegram_chat_id": "",
+
+  "scan_assets": [
+    {"coin": "BTC",  "max_leverage": 20, "margin_pct": 20},
+    {"coin": "ETH",  "max_leverage": 20, "margin_pct": 20},
+    {"coin": "SOL",  "max_leverage": 20, "margin_pct": 20},
+    {"coin": "HYPE", "max_leverage": 10, "margin_pct": 25}
+  ],
+
+  "entry_v3": {
+    "momentum_5m_threshold": 0.4,
+    "momentum_15m_agree": true,
+    "volume_spike_ratio": 1.2,
+    "chop_range_max_pct": 0.3,
+    "cooldown_normal_min": 10,
+    "cooldown_after_sl_min": 20,
+    "funding_long_max": 0.01,
+    "funding_short_min": -0.005,
+    "strong_momentum_multiplier": 1.8,
+    "same_direction_block_min": 15,
+    "max_concurrent_positions": 2,
+    "smart_money_weight": 1.5
+  },
+
+  "dsl": {
+    "initial_sl_pct": 2.0,
+    "breakeven_trigger_pct": 1.0,
+    "trail_start_pct": 2.0,
+    "trail_distance_pct": 1.0,
+    "partial_tp_trigger_pct": 3.0,
+    "partial_tp_size_pct": 33
+  },
+
+  "hedge": {
+    "enabled": true,
+    "hedge_asset": "BTC",
+    "hedge_size_pct": 30,
+    "funding_threshold": 0.015,
+    "hedge_leverage": 5
+  },
+
+  "risk": {
+    "max_margin_usage_pct": 60,
+    "max_daily_loss_pct": 5,
+    "max_drawdown_pct": 15,
+    "max_positions": 3,
+    "max_entries_per_day": 10,
+    "max_consecutive_losses": 3,
+    "cooldown_minutes": 60,
+    "max_single_loss_pct": 10
+  }
+}
