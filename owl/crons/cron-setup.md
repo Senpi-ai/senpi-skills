@@ -16,7 +16,7 @@ If `signals` array contains entries with `action: "ENTER"`:
    - Set stopLoss (orderType MARKET) from signal dsl.absoluteFloor.
    - marginAmount from signal.
 2. CRITICAL: After EVERY create_position (even timeouts/errors), check clearinghouse to verify fill. ALO can timeout without filling.
-3. Create DSL v5 state file at /data/workspace/dsl/8b224b6f-d5d5-4246-8495-a10421796c64/{ASSET}.json:
+3. Create DSL v5 state file at /data/workspace/dsl/{STRATEGY_ID}/{ASSET}.json:
    - tiers from signal.dsl.tiers (9-tier, triggerPct/lockPct as PERCENTAGES)
    - phase1.retraceThreshold = signal.dsl.floorBase (0.06 or 0.08)
    - phase1.absoluteFloor = signal.dsl.absoluteFloor
@@ -29,7 +29,7 @@ If `signals` array contains entries with `action: "ENTER"`:
    - active: true, wallet, strategyId, size, entryPrice, direction, leverage
    - highWaterPrice = entryPrice, currentTierIndex = -1, phase = 1
 4. Update owl-state.json activePositions.
-5. Telegram (5183731261): OWL v4 ENTRY: asset, dir, lev, margin, score (X pts), reasons, crowding, funding.
+5. Telegram ({CHAT_ID}): OWL v4 ENTRY: asset, dir, lev, margin, score (X pts), reasons, crowding, funding.
 
 If no signals: HEARTBEAT_OK. Silent.
 ```
@@ -48,9 +48,9 @@ openclaw cron add --name "OWL — Hunt Scanner" --every 15m --session main --wak
 
 ### Payload:
 ```
-OWL DSL v5: First read owl-state.json at /data/workspace/skills/owl-strategy/state/8b224b6f-d5d5-4246-8495-a10421796c64/owl-state.json — if activePositions is empty, reply HEARTBEAT_OK immediately.
+OWL DSL v5: First read owl-state.json at /data/workspace/skills/owl-strategy/state/{STRATEGY_ID}/owl-state.json — if activePositions is empty, reply HEARTBEAT_OK immediately.
 
-Otherwise run: `DSL_STATE_DIR=/data/workspace/dsl DSL_STRATEGY_ID=8b224b6f-d5d5-4246-8495-a10421796c64 PYTHONUNBUFFERED=1 python3 /data/workspace/scripts/dsl/dsl-v5.py`, parse ndjson.
+Otherwise run: `DSL_STATE_DIR=/data/workspace/dsl DSL_STRATEGY_ID={STRATEGY_ID} PYTHONUNBUFFERED=1 python3 /data/workspace/scripts/dsl/dsl-v5.py`, parse ndjson.
 
 CONVICTION-SCALED Phase 1 timing (read score + createdAt from each DSL state file):
 Score 8-9: hardTimeout=45min, weakPeak=20min, deadWeight=12min
@@ -70,7 +70,7 @@ STAGNATION TP: If ROE >= 8% AND highWaterPrice unchanged for 60min, auto-close.
 
 For closes: if position is in profit (Phase 2), use close_position with orderType FEE_OPTIMIZED_LIMIT, ensureExecutionAsTaker true. If Phase 1 or emergency, use MARKET.
 
-For each closed position: Telegram (5183731261) with OWL emoji, asset, PnL, reason, tier. Update owl-state.json: remove from activePositions. Record loss in owl-hunt-state.json recentLosses for 4hr cooldown.
+For each closed position: Telegram ({CHAT_ID}) with OWL emoji, asset, PnL, reason, tier. Update owl-state.json: remove from activePositions. Record loss in owl-hunt-state.json recentLosses for 4hr cooldown.
 For tier changes: Telegram.
 Otherwise: HEARTBEAT_OK.
 ```
@@ -92,7 +92,7 @@ openclaw cron add --name "OWL — DSL v5" --every 3m --session isolated --wake n
 OWL OI Tracker: Run `OPENCLAW_WORKSPACE=/data/workspace timeout 55 python3 /data/workspace/skills/owl-strategy/scripts/oi-tracker.py`, parse JSON output.
 
 If `success: true` → HEARTBEAT_OK (silent).
-If `error` → report to Telegram (5183731261).
+If `error` → report to Telegram ({CHAT_ID}).
 ```
 
 ### openclaw cron add command:
@@ -114,7 +114,7 @@ OWL Risk Guardian: First read owl-state.json at /data/workspace/owl-state.json �
 Otherwise run: `OPENCLAW_WORKSPACE=/data/workspace timeout 55 python3 /data/workspace/skills/owl-strategy/scripts/owl-risk.py`, parse JSON.
 
 Process actions by priority:
-- reCrowding (CRITICAL): close position immediately via close_position (MARKET order, wallet 0x5eed9cf409f480019683f314f0ae84b12ca035a0). Crowd is growing, not unwinding.
+- reCrowding (CRITICAL): close position immediately via close_position (MARKET order, wallet {WALLET}). Crowd is growing, not unwinding.
 - oiRecovery (HIGH): close position. OI rebounded, thesis invalidated.
 - fundingFlip (MEDIUM): tighten SL to breakeven via edit_position.
 - fundingFloorAdjust (LOW): tighten SL by funding income earned via edit_position.
@@ -122,7 +122,7 @@ Process actions by priority:
 
 After closing any position: update owl-state.json (remove from activePositions). Record loss in owl-hunt-state.json recentLosses for 4hr cooldown.
 
-Send Telegram (5183731261) for any action taken.
+Send Telegram ({CHAT_ID}) for any action taken.
 If no actions: HEARTBEAT_OK (silent).
 ```
 
@@ -154,7 +154,7 @@ For each valid signal:
    - Store score, scanner: "correlation", leader + lagRatio
    - active: true, phase: 1, currentTierIndex: -1
 5. Update owl-state.json activePositions.
-6. Telegram (5183731261): OWL CORRELATION: asset, dir, leader, move, lag, score.
+6. Telegram ({CHAT_ID}): OWL CORRELATION: asset, dir, leader, move, lag, score.
 
 If no signals: HEARTBEAT_OK. Silent.
 ```
@@ -182,7 +182,7 @@ For each valid signal:
 1. create_position with orderType FEE_OPTIMIZED_LIMIT, ensureExecutionAsTaker true. Use ISOLATED margin for xyz: assets.
 2. Do NOT set stopLoss on create_position. The DSL cron will set exchange SL after 5min delay (T1 warmup — prevents noise trips on fresh entries).
 3. CRITICAL: Check clearinghouse after EVERY create_position to verify fill.
-4. Create DSL v5 state file at /data/workspace/dsl/8b224b6f-d5d5-4246-8495-a10421796c64/{ASSET}.json:
+4. Create DSL v5 state file at /data/workspace/dsl/{STRATEGY_ID}/{ASSET}.json:
    - 9-tier from signal.dsl.tiers (triggerPct/lockPct as PERCENTAGES)
    - phase1 from signal.dsl (hardTimeoutMin=45, weakPeakCutMin=20, deadWeightCutMin=12)
    - weakPeakRoeThreshold = 5 (close only if peak < 5%, not 3%)
@@ -191,7 +191,7 @@ For each valid signal:
    - Store entryScore in score field
    - active: true, phase: 1, currentTierIndex: -1, greenIn10: false
 5. Update owl-state.json activePositions.
-6. Telegram (5183731261): OWL MOMENTUM: asset, dir, lev, margin, score, reasons.
+6. Telegram ({CHAT_ID}): OWL MOMENTUM: asset, dir, lev, margin, score, reasons.
 
 If no signals: HEARTBEAT_OK. Silent.
 ```
