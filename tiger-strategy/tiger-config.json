@@ -1,0 +1,112 @@
+{
+  "budget": 3048,
+  "target": 3660,
+  "deadline_days": 14,
+  "start_time": "2026-03-07T17:00:20.173Z",
+  "strategy_id": "<your_strategy_id>",
+  "strategy_wallet": "<your_strategy_wallet>",
+  "telegram_chat_id": "<your_chat_id>",
+  "max_slots": 2,
+  "max_leverage": 10,
+  "min_leverage": 5,
+  "max_single_loss_pct": 3,
+  "max_daily_loss_pct": 8,
+  "max_drawdown_pct": 15,
+  "min_bb_squeeze_percentile": 25,
+  "min_oi_change_pct": 5,
+  "rsi_overbought": 70,
+  "rsi_oversold": 30,
+  "min_funding_annualized_pct": 35,
+  "btc_correlation_move_pct": 3,
+  "min_confluence_score": {
+    "CONSERVATIVE": 0.75,
+    "NORMAL": 0.65,
+    "ELEVATED": 0.55,
+    "ABORT": 999
+  },
+  "trailing_lock_pct": {
+    "CONSERVATIVE": 0.85,
+    "NORMAL": 0.7,
+    "ELEVATED": 0.5,
+    "ABORT": 0.9
+  },
+  "aggression": "CONSERVATIVE",
+  "dsl_retrace": {
+    "phase1": 0.026
+  },
+  "min_hold_minutes": 15,
+  "tiered_sl": {
+    "low_conviction_pct": 2,
+    "high_conviction_pct": 3,
+    "high_conviction_threshold": 0.85
+  },
+  "pattern_confluence_overrides": {
+    "MOMENTUM_BREAKOUT": 0.74,
+    "COMPRESSION_BREAKOUT": 0.85,
+    "MEAN_REVERSION": 0.8,
+    "CORRELATION_LAG": 0.8
+  },
+  "volume_ratio_gate": {
+    "MOMENTUM_BREAKOUT": 1.2,
+    "COMPRESSION_BREAKOUT": 0,
+    "MEAN_REVERSION": 0,
+    "CORRELATION_LAG": 0,
+    "FUNDING_ARB": 0
+  },
+  "dsl_tiers": [
+    {
+      "triggerPct": 0.05,
+      "lockPct": 0.02,
+      "retrace": 0.025
+    },
+    {
+      "triggerPct": 0.1,
+      "lockPct": 0.06,
+      "retrace": 0.02
+    },
+    {
+      "triggerPct": 0.15,
+      "lockPct": 0.11,
+      "retrace": 0.018
+    },
+    {
+      "triggerPct": 0.2,
+      "lockPct": 0.16,
+      "retrace": 0.015
+    },
+    {
+      "triggerPct": 0.3,
+      "lockPct": 0.25,
+      "retrace": 0.012
+    },
+    {
+      "triggerPct": 0.4,
+      "lockPct": 0.34,
+      "retrace": 0.01
+    },
+    {
+      "triggerPct": 0.5,
+      "lockPct": 0.44,
+      "retrace": 0.008
+    },
+    {
+      "triggerPct": 0.65,
+      "lockPct": 0.57,
+      "retrace": 0.008
+    },
+    {
+      "triggerPct": 0.8,
+      "lockPct": 0.72,
+      "retrace": 0.006
+    },
+    {
+      "triggerPct": 1,
+      "lockPct": 0.9,
+      "retrace": 0.005
+    }
+  ],
+  "default_order_type": "FEE_OPTIMIZED_LIMIT",
+  "ensure_execution_as_taker": true,
+  "sizing_mode": "margin_pct",
+  "margin_pct_per_slot": 0.3
+}
