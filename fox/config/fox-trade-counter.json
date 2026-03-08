@@ -1,0 +1,104 @@
+{
+  "date": "2026-03-08",
+  "accountValueStart": 2734.84,
+  "entries": 3,
+  "cumulativeFees": 0,
+  "cumulativeGrossPnl": 0,
+  "cumulativeNetPnl": -144.13,
+  "fdrPct": "-2.95",
+  "gate": "OPEN",
+  "lastThreeResults": [
+    "L",
+    "L",
+    "L"
+  ],
+  "trades": [
+    {
+      "asset": "VVV",
+      "direction": "SHORT",
+      "netPnl": -7.48,
+      "result": "L",
+      "version": "v0.9",
+      "status": "CLOSED"
+    },
+    {
+      "asset": "AAVE",
+      "direction": "SHORT",
+      "netPnl": -12.37,
+      "result": "L",
+      "version": "v0.9",
+      "status": "CLOSED"
+    },
+    {
+      "asset": "BCH",
+      "direction": "SHORT",
+      "netPnl": -48.47,
+      "result": "L",
+      "version": "v0.9",
+      "status": "CLOSED"
+    },
+    {
+      "asset": "WLFI",
+      "direction": "LONG",
+      "entryTime": "2026-03-08T01:42:51Z",
+      "exitTime": "2026-03-08T03:11:10Z",
+      "entryPrice": 0.0959,
+      "exitPrice": 0.095649,
+      "leverage": 5,
+      "margin": 950,
+      "score": 11,
+      "status": "CLOSED",
+      "version": "v1.0",
+      "netPnl": -12.39,
+      "result": "L",
+      "note": "Hard timeout 88min. Peaked +2.9% ROE. v1.0 DSL let it breathe \u2014 v0.9 would have killed in 9min."
+    },
+    {
+      "asset": "ASTER",
+      "direction": "SHORT",
+      "entryTime": "2026-03-08T03:17:47Z",
+      "entryPrice": 0.683157,
+      "leverage": 5,
+      "margin": 950,
+      "score": 13,
+      "status": "CLOSED",
+      "version": "v1.0",
+      "strategyId": "cd36f19b-3f86-455c-ace2-54471590a2ce",
+      "wallet": "0xa162d390ac51ea129c90f28bed54687c35cc45da",
+      "note": "Score 13 EXPLOSIVE. Rank 50\u21927, vel 28.57, contrib explosion 16.3x. Exchange SL at $0.7037 (-15% ROE). Note: accidental close+reopen ~30s gap, cost ~$12 fees. Position closed (detected by scanner).",
+      "exitTime": "2026-03-08T04:00:33.122Z"
+    },
+    {
+      "asset": "PUMP",
+      "direction": "SHORT",
+      "entryTime": "2026-03-08T04:58:14Z",
+      "entryPrice": 0.00186,
+      "leverage": 10,
+      "margin": 950,
+      "score": 13,
+      "status": "CLOSED",
+      "version": "v1.0",
+      "strategyId": "fcd4184c-b0ef-4110-9603-400850952a54",
+      "wallet": "0x9637ca15af295d62b933fdbe1976b1d270c737d6",
+      "note": "Hard timeout ~112min. Closed by DSL or exchange SL. Gross -5.68, fees 7.74, net -3.42.",
+      "exitTime": "2026-03-08T06:50:30Z",
+      "netPnl": -63.42,
+      "realizedPnl": -45.68,
+      "totalFees": 17.74,
+      "result": "L"
+    }
+  ],
+  "cooldownUntil": null,
+  "maxEntriesPerDay": 3,
+  "marginTiers": [
+    {
+      "entries": [
+        1,
+        999
+      ],
+      "margin": 950,
+      "budget": 1000
+    }
+  ],
+  "note": "Fox v1.0. ASTER SHORT active. 1 entry remaining."
+}
