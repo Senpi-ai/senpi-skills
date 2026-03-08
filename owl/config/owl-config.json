@@ -1,0 +1,202 @@
+{
+  "version": 4,
+  "strategyId": "",
+  "wallet": "",
+  "budget": 2532.0,
+  "chatId": "",
+  "workspace": "/data/workspace",
+  "slots": {
+    "maxSlots": 3,
+    "maxBtcCorrelatedSlots": 1,
+    "maxSameDirectionSlots": 2,
+    "marginTiers": [
+      {
+        "slot": 1,
+        "pct": 0.15,
+        "margin": 380
+      },
+      {
+        "slot": 2,
+        "pct": 0.12,
+        "margin": 304
+      },
+      {
+        "slot": 3,
+        "pct": 0.1,
+        "margin": 253
+      }
+    ]
+  },
+  "leverage": {
+    "default": 8,
+    "max": 10,
+    "min": 7
+  },
+  "crowding": {
+    "minCrowdingScore": 0.65,
+    "minPersistenceCount": 8,
+    "snapshotIntervalMin": 15,
+    "maxHistoryHours": 48,
+    "weights": {
+      "fundingExtremity": 0.25,
+      "oiVsAvg": 0.2,
+      "smConcentration": 0.2,
+      "bookImbalance": 0.15,
+      "fundingAcceleration": 0.1,
+      "volumeDecline": 0.1
+    },
+    "thresholds": {
+      "fundingAnnualizedMin": 25,
+      "oiAboveAvgPct": 10,
+      "smConcentrationMin": 0.65,
+      "bookImbalanceMin": 3.0,
+      "maxDeepScanAssets": 6
+    }
+  },
+  "exhaustion": {
+    "minExhaustionScore": 0.5,
+    "readyExpiryHours": 4,
+    "minExhaustionSignals": 3,
+    "minStructuralSignals": 2,
+    "volumeSpikeRequired": true
+  },
+  "entry": {
+    "minEntryScore": 8,
+    "lossCooldownHours": 4,
+    "timeBonus": {
+      "hoursUTC": [
+        4,
+        14
+      ],
+      "points": 1
+    },
+    "timePenalty": {
+      "hoursUTC": [
+        18,
+        2
+      ],
+      "points": -2
+    }
+  },
+  "scoring": {
+    "crowdingBase": 3,
+    "crowdingStrong": 2,
+    "structural": 2,
+    "priceSignal": 1,
+    "divergence4h": 3,
+    "oiDropLarge": 3,
+    "fundingDeclining": 2,
+    "volumeSpike": 1,
+    "bookShifting": 1
+  },
+  "dsl": {
+    "phase1RetraceBase": 0.06,
+    "phase1GreenIn10TightenPct": 50,
+    "phase1ConsecutiveBreaches": 3,
+    "phase2RetraceThreshold": 0.012,
+    "phase2ConsecutiveBreaches": 2,
+    "convictionTiers": [
+      {
+        "minScore": 8,
+        "floorBase": 0.06,
+        "hardTimeoutMin": 45,
+        "weakPeakCutMin": 20,
+        "deadWeightCutMin": 12
+      },
+      {
+        "minScore": 10,
+        "floorBase": 0.06,
+        "hardTimeoutMin": 60,
+        "weakPeakCutMin": 25,
+        "deadWeightCutMin": 15
+      },
+      {
+        "minScore": 12,
+        "floorBase": 0.08,
+        "hardTimeoutMin": 75,
+        "weakPeakCutMin": 30,
+        "deadWeightCutMin": 20
+      }
+    ],
+    "tiers": [
+      {
+        "triggerPct": 5,
+        "lockPct": 2
+      },
+      {
+        "triggerPct": 10,
+        "lockPct": 5
+      },
+      {
+        "triggerPct": 20,
+        "lockPct": 14
+      },
+      {
+        "triggerPct": 30,
+        "lockPct": 24
+      },
+      {
+        "triggerPct": 40,
+        "lockPct": 34
+      },
+      {
+        "triggerPct": 50,
+        "lockPct": 44
+      },
+      {
+        "triggerPct": 65,
+        "lockPct": 56
+      },
+      {
+        "triggerPct": 80,
+        "lockPct": 72
+      },
+      {
+        "triggerPct": 100,
+        "lockPct": 90
+      }
+    ],
+    "stagnationTp": {
+      "enabled": true,
+      "roeMin": 8,
+      "hwStaleMin": 60
+    }
+  },
+  "risk": {
+    "maxSingleLossPct": 5,
+    "maxDailyLossPct": 8,
+    "maxDrawdownPct": 18,
+    "reCrowdingExitEnabled": true,
+    "oiRecoveryExitMin": 30,
+    "fundingFloorAdjustEnabled": true,
+    "fundingFloorMinPct": 0.1
+  },
+  "alo": {
+    "entries": true,
+    "profitExits": true,
+    "stopLosses": false,
+    "orderType": "FEE_OPTIMIZED_LIMIT",
+    "ensureExecutionAsTaker": true
+  },
+  "btcCorrelation": {
+    "correlatedAlts": [
+      "SOL",
+      "ETH",
+      "DOGE",
+      "AVAX",
+      "LINK",
+      "ADA",
+      "DOT",
+      "NEAR",
+      "ATOM",
+      "SEI",
+      "SUI",
+      "PEPE",
+      "WIF",
+      "RENDER"
+    ],
+    "independenceScoreDropThreshold": 0.3
+  },
+  "createdAt": "2026-03-05T19:51:47.702435+00:00",
+  "updatedAt": "2026-03-07T17:00:00+00:00"
+}
