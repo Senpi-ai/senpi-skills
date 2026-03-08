@@ -1,7 +1,6 @@
 # User
 
 ## Telegram
-- Chat ID: 5183731261
-- Username: @jasongoldberg
+- Chat ID: (set during setup)
 
-When sending Telegram messages to this user, use target `telegram:5183731261` (numeric chat ID, not @username).
+When sending Telegram messages to this user, use target `telegram:<chat_id>` (numeric chat ID, not @username).
