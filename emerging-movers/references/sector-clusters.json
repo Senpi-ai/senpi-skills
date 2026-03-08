@@ -1,0 +1,11 @@
+{
+  "solana": ["SOL", "JUP", "BONK", "WIF", "ORCA", "RAY", "PYTH", "JTO", "DRIFT"],
+  "ethereum_l2": ["OP", "ARB", "STRK", "ZK", "MANTA", "BLAST"],
+  "ai": ["FET", "RNDR", "AGIX", "TAO", "ARKM", "WLD"],
+  "meme": ["DOGE", "SHIB", "PEPE", "WIF", "BONK", "FLOKI", "MOG"],
+  "defi_blue": ["UNI", "AAVE", "MKR", "SNX", "CRV", "COMP"],
+  "btc_ecosystem": ["BTC", "STX", "ORDI", "SATS"],
+  "gaming": ["IMX", "GALA", "AXS", "SAND", "MANA"],
+  "xyz_equities": ["TSLA", "AAPL", "NVDA", "GOLD", "SILVER"],
+  "_unclustered": []
+}

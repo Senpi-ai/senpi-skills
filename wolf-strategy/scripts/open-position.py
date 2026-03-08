@@ -125,6 +125,9 @@ def main():
                         help="Asset to close before opening (rotation). Handled atomically under lock.")
     parser.add_argument("--signal-index", type=int, default=None, dest="signal_index",
                         help="Read direction/conviction from Nth alert in scanner output. Overrides --direction/--conviction.")
+    parser.add_argument("--order-type", default="MARKET", choices=["MARKET", "ALO"],
+                        dest="order_type",
+                        help="Order type: MARKET (default) or ALO (FEE_OPTIMIZED_LIMIT, saves ~3bps)")
     args = parser.parse_args()
 
     strategy_key = args.strategy
@@ -315,13 +318,16 @@ def main():
         coin = asset if asset.startswith("xyz:") else (f"xyz:{asset}" if is_xyz else asset)
 
         # 6. Open position via mcporter
+        use_alo = args.order_type == "ALO"
         order = {
             "coin": coin,
             "direction": direction,
             "leverage": int(leverage),
             "marginAmount": margin,
-            "orderType": "MARKET",
+            "orderType": "FEE_OPTIMIZED_LIMIT" if use_alo else "MARKET",
         }
+        if use_alo:
+            order["ensureExecutionAsTaker"] = True
         if is_xyz:
             order["leverageType"] = "ISOLATED"
 
@@ -334,6 +340,10 @@ def main():
             )
         except RuntimeError as e:
             fail("position_open_failed", detail=str(e), strategyKey=strategy_key)
+
+        execution_as_maker = (open_result.get("results", {})
+                              .get("mainOrder", {})
+                              .get("executionAsMaker", False))
 
         # 7. Fetch actual fill data from clearinghouse
         approximate = False
@@ -405,6 +415,8 @@ def main():
         "leverage": actual_leverage,
         "dslFile": dsl_path,
         "strategyKey": strategy_key,
+        "orderType": args.order_type,
+        "executionAsMaker": execution_as_maker,
     }
     if approximate:
         result["approximate"] = True

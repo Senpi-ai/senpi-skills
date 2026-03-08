@@ -524,6 +524,8 @@ GUARD_RAIL_DEFAULTS = {
     "bypassOnProfit": True,
     "maxConsecutiveLosses": 3,
     "cooldownMinutes": 60,
+    "maxFdrPercent": 10,       # G5: fee drag ratio threshold
+    "fdrCooldownMinutes": 120, # G5: cooldown duration when FDR exceeded
 }
 
 

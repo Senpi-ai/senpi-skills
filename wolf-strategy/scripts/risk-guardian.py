@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-risk-guardian.py — WOLF v6.1.1 Risk Guardian (Account-Level Guard Rails)
+risk-guardian.py — WOLF v6.1.2 Risk Guardian (Account-Level Guard Rails)
 
-6th cron: enforces three account-level guardrails across all strategies:
+6th cron: enforces four account-level guardrails across all strategies:
   G1: Daily loss halt (accountValue drop from start-of-day)
   G3: Max entries per day (with bypass-on-profit option)
   G4: Consecutive loss cooldown
+  G5: Fee drag halt (FDR = totalFeesPaid / accountValueStart * 100)
 
 Runs every 5 minutes. Budget model tier.
 
@@ -87,12 +88,21 @@ def record_new_closings(counter, closed_positions):
         except (ValueError, TypeError):
             rpnl = 0.0
 
+        # Parse fees paid — try multiple field names from discovery_get_trader_history
+        fee_raw = (pos.get("fee") or pos.get("fees") or pos.get("closingFee")
+                   or pos.get("totalFee") or 0)
+        try:
+            fee = abs(float(fee_raw))
+        except (ValueError, TypeError):
+            fee = 0.0
+
         # Update counter
         result = "W" if rpnl >= 0 else "L"
         last_results = counter.get("lastResults", [])
         last_results.append(result)
         counter["lastResults"] = last_results[-20:]
         counter["realizedPnl"] = counter.get("realizedPnl", 0.0) + rpnl
+        counter["totalFeesPaid"] = counter.get("totalFeesPaid", 0.0) + fee
         counter["closedTrades"] = counter.get("closedTrades", 0) + 1
         processed.add(closed_order_id)
 
@@ -100,6 +110,7 @@ def record_new_closings(counter, closed_positions):
         new_closings.append({
             "coin": coin,
             "pnl": round(rpnl, 2),
+            "fee": round(fee, 4),
             "result": result,
             "closedOrderId": closed_order_id,
         })
@@ -109,7 +120,7 @@ def record_new_closings(counter, closed_positions):
 
 
 def evaluate_guard_rails(counter, wallet, cfg):
-    """Evaluate G1, G3, G4 guard rails. Mutates counter. Returns list of notifications."""
+    """Evaluate G1, G3, G4, G5 guard rails. Mutates counter. Returns list of notifications."""
     notifications = []
     strategy_key = cfg.get("_key", "unknown")
 
@@ -221,6 +232,35 @@ def evaluate_guard_rails(counter, wallet, cfg):
             )
             return notifications
 
+    # --- G5: Fee Drag Halt ---
+    gr_cfg = cfg.get("guardRails", {})
+    max_fdr = gr_cfg.get("maxFdrPercent", GUARD_RAIL_DEFAULTS["maxFdrPercent"])
+    fdr_cooldown_min = gr_cfg.get("fdrCooldownMinutes", GUARD_RAIL_DEFAULTS["fdrCooldownMinutes"])
+
+    # Recompute FDR from current counter state
+    account_value_start = counter.get("accountValueStart")
+    total_fees = counter.get("totalFeesPaid", 0.0)
+    if account_value_start and account_value_start > 0 and total_fees > 0:
+        fdr = total_fees / account_value_start * 100
+    else:
+        fdr = 0.0
+    counter["fdr"] = round(fdr, 2)
+
+    if fdr >= max_fdr and counter.get("closedTrades", 0) >= 3:
+        # Don't re-trigger if already in FDR cooldown
+        if not (counter.get("gate") == "COOLDOWN" and "G5" in (counter.get("gateReason") or "")):
+            expiry = datetime.now(timezone.utc) + timedelta(minutes=fdr_cooldown_min)
+            counter["gate"] = "COOLDOWN"
+            counter["cooldownUntil"] = expiry.strftime("%Y-%m-%dT%H:%M:%SZ")
+            counter["gateReason"] = (
+                f"G5 fee drag: FDR {fdr:.1f}% >= {max_fdr}% limit, "
+                f"cooldown until {counter['cooldownUntil']}"
+            )
+            notifications.append(
+                f"\u26a0\ufe0f FDR COOLDOWN [{strategy_key}]: {counter['gateReason']}"
+            )
+            return notifications
+
     return notifications
 
 
@@ -275,6 +315,8 @@ def main():
             "entries": counter.get("entries", 0),
             "closedTrades": counter.get("closedTrades", 0),
             "realizedPnl": round(counter.get("realizedPnl", 0.0), 2),
+            "totalFeesPaid": round(counter.get("totalFeesPaid", 0.0), 4),
+            "fdr": round(counter.get("fdr", 0.0), 2),
             "lastResults": counter.get("lastResults", []),
             "dailyPnl": counter.get("_dailyPnl"),
             "newClosings": new_closings,

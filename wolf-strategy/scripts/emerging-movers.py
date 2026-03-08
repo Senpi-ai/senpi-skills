@@ -28,12 +28,101 @@ v2 changes:
 Uses: leaderboard_get_markets (single API call)
 """
 import json, sys, os
+from collections import Counter
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import atomic_write, mcporter_call, mcporter_call_safe, load_all_strategies, dsl_state_glob, heartbeat, check_gate, SIGNAL_CONVICTION, WORKSPACE, ROTATION_COOLDOWN_MINUTES
 
 heartbeat("emerging_movers")
+
+# ─── Trend Guard integration (optional — degrades gracefully if not installed) ───
+_TREND_GUARD_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'trend-guard', 'scripts')
+try:
+    sys.path.insert(0, os.path.abspath(_TREND_GUARD_DIR))
+    from trend_guard import classify_trend as _classify_trend
+    TREND_GUARD_AVAILABLE = True
+except ImportError:
+    TREND_GUARD_AVAILABLE = False
+
+# Load trend cache from disk once at startup (written hourly by trend-guard batch cron)
+TREND_CACHE_FILE = os.environ.get("TREND_CACHE", os.path.join(WORKSPACE, "trend-cache.json"))
+try:
+    with open(TREND_CACHE_FILE) as _f:
+        TREND_CACHE = json.load(_f)
+except (FileNotFoundError, json.JSONDecodeError):
+    TREND_CACHE = {}
+
+def _now_utc():
+    return datetime.now(timezone.utc)
+
+def _parse_iso(s):
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+def check_trend_alignment(asset, direction):
+    """
+    Three-layer trend check for an asset + direction.
+
+    Returns (aligned: bool, trend_meta: dict)
+
+    Layer 1 — fresh cache (≤62 min): 0ms, use cached value.
+    Layer 2 — stale/missing cache: live MCP fetch for this one asset (~2-3s).
+    Layer 3 — MCP completely down: block the entry (return False), never trade blind.
+    """
+    cached = TREND_CACHE.get(asset)
+    if cached and "computedAt" in cached:
+        try:
+            age_sec = (_now_utc() - _parse_iso(cached["computedAt"])).total_seconds()
+            if age_sec <= 3720:  # 62 minutes
+                return _evaluate_alignment(cached, direction), cached
+        except (ValueError, TypeError):
+            pass  # bad timestamp — fall through to live fetch
+
+    # Cache stale or missing — live fetch for this asset
+    if TREND_GUARD_AVAILABLE:
+        try:
+            fresh = _classify_trend(asset)
+            return _evaluate_alignment(fresh, direction), fresh
+        except Exception:
+            pass  # MCP down — fall through to block
+
+    # MCP down or trend-guard not installed and cache stale — block entry
+    return False, {"error": "trend_unavailable", "asset": asset}
+
+def _evaluate_alignment(trend_data, direction):
+    """Return True if trend is aligned with direction, or NEUTRAL (don't block uncertainty)."""
+    trend = trend_data.get("trend", "NEUTRAL")
+    if trend == "NEUTRAL":
+        return True
+    d = (direction or "").upper()
+    if d == "LONG":
+        return trend == "UP"
+    if d == "SHORT":
+        return trend == "DOWN"
+    return True  # unknown direction — don't block
+
+# ─── Sector cluster tags (4c) ───
+_CLUSTERS_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), '..', '..', 'emerging-movers', 'references', 'sector-clusters.json'
+)
+try:
+    with open(os.path.abspath(_CLUSTERS_FILE)) as _cf:
+        _CLUSTERS_RAW = json.load(_cf)
+except (FileNotFoundError, json.JSONDecodeError):
+    _CLUSTERS_RAW = {}
+
+# Build reverse lookup: token -> cluster
+_TOKEN_CLUSTER = {}
+for _cluster, _tokens in _CLUSTERS_RAW.items():
+    if _cluster == "_unclustered":
+        continue
+    for _t in _tokens:
+        _TOKEN_CLUSTER[_t] = _cluster
+
+def get_cluster(asset):
+    """Return the sector cluster for an asset token."""
+    token = asset.replace("xyz:", "").upper()
+    return _TOKEN_CLUSTER.get(token, "_unclustered")
 
 HISTORY_FILE = os.environ.get("EMERGING_HISTORY", "/data/workspace/emerging-movers-history.json")
 MAX_LEV_FILE = os.path.join(WORKSPACE, "max-leverage.json")
@@ -97,6 +186,49 @@ def get_market_in_scan(scan, token, dex=""):
         if m["token"] == token and m.get("dex", "") == dex:
             return m
     return None
+
+# ─── SM Exit Detection (4b) ───
+exit_alerts = []
+if prev_scans:
+    prev_scan = prev_scans[-1]
+    # Build lookup dicts: (token, dex) -> market entry
+    prev_by_key = {(m["token"], m.get("dex", "")): m for m in prev_scan["markets"]}
+    curr_by_key = {(m["token"], m.get("dex", "")): m for m in current_scan["markets"]}
+
+    # Assets that dropped out of top 50 entirely
+    for key, prev_m in prev_by_key.items():
+        if key not in curr_by_key:
+            token, dex = key
+            exit_alerts.append({
+                "asset": f"xyz:{token}" if dex == "xyz" else token,
+                "token": token,
+                "dex": dex if dex else None,
+                "signal": "SM_EXIT",
+                "exitType": "DROPPED_OUT",
+                "prevRank": prev_m["rank"],
+                "prevTraders": prev_m.get("traders", 0),
+            })
+
+    # Assets still in top 50 but with 50%+ trader exodus
+    for key, prev_m in prev_by_key.items():
+        if key not in curr_by_key:
+            continue  # already captured above
+        curr_m = curr_by_key[key]
+        prev_traders = prev_m.get("traders", 0)
+        curr_traders = curr_m.get("traders", 0)
+        if prev_traders > 200 and curr_traders < prev_traders * 0.5:
+            token, dex = key
+            exit_alerts.append({
+                "asset": f"xyz:{token}" if dex == "xyz" else token,
+                "token": token,
+                "dex": dex if dex else None,
+                "signal": "SM_EXIT",
+                "exitType": "TRADER_EXODUS",
+                "currRank": curr_m["rank"],
+                "prevTraders": prev_traders,
+                "currTraders": curr_traders,
+                "dropPct": round((1 - curr_traders / prev_traders) * 100, 1),
+            })
 
 # ─── Analyze trends ───
 alerts = []
@@ -255,10 +387,11 @@ if len(prev_scans) >= MIN_SCANS_FOR_TREND:
             else:
                 signal_type, signal_priority = "DEEP_CLIMBER", 5
 
+            qualified_asset = f"xyz:{token}" if dex == "xyz" else token
             alerts.append({
                 "token": token,
                 "dex": dex if dex else None,
-                "qualifiedAsset": f"xyz:{token}" if dex == "xyz" else token,
+                "qualifiedAsset": qualified_asset,
                 "signal": f"{token} {dir_label}",
                 "direction": dir_label,
                 "currentRank": current_rank,
@@ -278,7 +411,8 @@ if len(prev_scans) >= MIN_SCANS_FOR_TREND:
                 "isImmediate": is_immediate,
                 "isFirstJump": is_first_jump,
                 "isContribExplosion": is_contrib_explosion,
-                "rankJumpThisScan": rank_jump_this_scan
+                "rankJumpThisScan": rank_jump_this_scan,
+                "cluster": get_cluster(qualified_asset),
             })
 
 # ─── v4: Reworked erratic + velocity filters ───
@@ -345,6 +479,49 @@ for alert in alerts:
             alert["reasons"].append(f"⚠️ DOWNGRADED: non-positive velocity ({alert['contribVelocity']:.4f})")
     elif not is_imm and alert.get("isDeepClimber") and low_vel:
         alert["reasons"].append(f"⚠️ LOW_VEL: velocity {alert['contribVelocity']:.4f} < 0.03 for DEEP_CLIMBER")
+
+# ─── Trend alignment check (runs after erratic/velocity filter) ───
+for alert in alerts:
+    if not alert.get("isImmediate") and not alert.get("isFirstJump"):
+        continue  # only gate immediate signals — DEEP_CLIMBER slow signals skip trend check
+
+    asset     = alert.get("qualifiedAsset") or alert.get("token", "")
+    direction = alert.get("direction", "")
+
+    aligned, trend_meta = check_trend_alignment(asset, direction)
+    alert["hourlyTrend"]  = trend_meta.get("trend", "UNKNOWN")
+    alert["trendStrength"] = trend_meta.get("strength", 0)
+    alert["trendAligned"] = aligned
+
+    if trend_meta.get("error"):
+        # MCP down or trend unavailable — block entry
+        alert["isImmediate"] = False
+        alert["isFirstJump"] = False
+        alert["signalType"]  = "DEEP_CLIMBER"
+        alert["signalPriority"] = 5
+        alert["conviction"]  = SIGNAL_CONVICTION["DEEP_CLIMBER"]
+        alert["reasons"].append(f"⚠️ BLOCKED: {trend_meta['error']} — cannot verify trend")
+    elif not aligned and trend_meta.get("strength", 0) > 50:
+        # Counter-trend with conviction — downgrade to log-only
+        alert["isImmediate"] = False
+        alert["isFirstJump"] = False
+        alert["signalType"]  = "DEEP_CLIMBER"
+        alert["signalPriority"] = 5
+        alert["conviction"]  = SIGNAL_CONVICTION["DEEP_CLIMBER"]
+        alert["reasons"].append(
+            f"⚠️ DOWNGRADED: counter-trend on hourly ({alert['hourlyTrend']}, strength {trend_meta.get('strength', 0)})"
+        )
+
+# ─── Cluster concentration (4c) ───
+_cluster_counts = Counter(a["cluster"] for a in alerts)
+for alert in alerts:
+    cluster = alert.get("cluster", "_unclustered")
+    if cluster != "_unclustered" and _cluster_counts[cluster] >= 2:
+        alert["clusterConcentration"] = True
+        alert["clusterPeers"] = [
+            a["qualifiedAsset"] for a in alerts
+            if a.get("cluster") == cluster and a["qualifiedAsset"] != alert["qualifiedAsset"]
+        ]
 
 # ─── Save history ───
 history["scans"].append(current_scan)
@@ -504,6 +681,8 @@ output = {
     "hasContribExplosion": any(a.get("isContribExplosion") for a in alerts),
     "hasEmergingMover": len(alerts) > 0,
     "hasDeepClimber": any(a.get("isDeepClimber") for a in alerts),
+    "exitAlerts": exit_alerts,
+    "hasExitAlert": len(exit_alerts) > 0,
 }
 
 print(json.dumps(output))
