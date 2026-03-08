@@ -1,0 +1,45 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "maxPositions": 2,
+  "leaders": ["BTC", "ETH"],
+  "alts": ["SOL", "DOGE", "AVAX", "LINK", "ADA", "DOT", "NEAR", "ATOM", "SEI", "SUI", "PEPE", "WIF", "RENDER", "HYPE", "ARB", "OP"],
+  "leverage": {"default": 10, "min": 7, "max": 15},
+  "entry": {
+    "minLeaderMovePct": 1.5,
+    "maxAltMovePct": 0.5,
+    "minAssetsSpiking": 4,
+    "minVolSpikeRatio": 2.0,
+    "minScore": 5,
+    "marginPct": 0.15
+  },
+  "dsl": {
+    "phase1RetraceRoe": 10,
+    "phase1HardTimeoutMin": 45,
+    "phase1WeakPeakMin": 20,
+    "phase1DeadWeightMin": 12,
+    "tiers": [
+      {"triggerPct": 5, "lockPct": 2},
+      {"triggerPct": 10, "lockPct": 5},
+      {"triggerPct": 20, "lockPct": 14},
+      {"triggerPct": 30, "lockPct": 24},
+      {"triggerPct": 50, "lockPct": 44},
+      {"triggerPct": 75, "lockPct": 60},
+      {"triggerPct": 100, "lockPct": 90}
+    ]
+  },
+  "risk": {
+    "maxEntriesPerDay": 6,
+    "maxDailyLossPct": 8,
+    "maxDrawdownPct": 20,
+    "maxSingleLossPct": 5,
+    "maxConsecutiveLosses": 3,
+    "cooldownMinutes": 45
+  },
+  "execution": {
+    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+    "entryEnsureTaker": true,
+    "exitOrderType": "MARKET"
+  }
+}
