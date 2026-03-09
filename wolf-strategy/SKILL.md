@@ -9,7 +9,8 @@ description: >-
   and health checks (10min). Same asset can be traded in different strategies simultaneously.
   Enter early on first jumps, not at confirmed peaks. Dynamic risk-based leverage per strategy.
   Requires Senpi MCP connection, python3, mcporter CLI, and OpenClaw cron system.
-
+metadata:
+  version: "1.0.0"
 ---
 
 # WOLF v6.1.1 — Autonomous Multi-Strategy Trading

@@ -13,6 +13,8 @@ description: >-
   performance, or improving an autonomous trading strategy through
   data-driven feedback loops.
   Requires Senpi MCP connection, mcporter CLI, and OpenClaw cron system.
+metadata:
+  version: "1.0.0"
 ---
 
 # HOWL v2 — Hunt, Optimize, Win, Learn

@@ -3,16 +3,15 @@ name: senpi-entrypoint
 description: >-
   Onboard AI agents into the Senpi trading platform on Hyperliquid. Walks
   through account creation, API key setup, MCP server configuration, skill
-  discovery, and first-trade guidance. Includes a mandatory skill update check
-  that surfaces new or updated skills after onboarding. Use when user says
-  "set up Senpi", "get started with Senpi", "connect to Senpi", "install
-  Senpi", "onboard to Senpi", or when an agent needs to start trading on
-  Hyperliquid via Senpi.
+  discovery, and first-trade guidance. Use when user says "set up Senpi",
+  "get started with Senpi", "connect to Senpi", "install Senpi",
+  "onboard to Senpi", or when an agent needs to start trading on Hyperliquid
+  via Senpi.
 license: Apache-2.0
-compatibility: "Node.js, shell, Python 3, OpenClaw (optional — Step 5 cron)"
+compatibility: "Node.js, shell"
 metadata:
   author: Senpi
-  version: "1.2.2"
+  version: "1.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -45,17 +44,6 @@ use the default value from the table above.
 ## Agent Behavior
 
 Do not narrate or explain tool calls. Execute silently and only present final results to the user.
-
----
-
-## Pre-Response Check (Run Every Time This Skill Is Invoked)
-
-Before responding to any query in this skill, run the mandatory invocation
-check in
-[references/skill-update-checker.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-update-checker.md)
-(`Pre-Response Invocation Check` section) exactly once per invocation, then
-reuse the captured `UPDATE_OUTPUT` for all downstream response contracts.
-Do not run the same check a second time in the same invocation.
 
 ---
 
@@ -159,60 +147,6 @@ toolkit and can install more skills as needed.
 
 ---
 
-## Step 5: Install Background Skill Update Checker
-
-Agent behaviour for this step: see
-[references/skill-update-checker.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-update-checker.md)
-(§ "Step 5 Agent Behaviour").
-
-Run this step after Step 4 completes. It registers a daily **OpenClaw cron**
-job that runs the skill update checker in an isolated session with no
-delivery; the agent runs the script and exits with no reply. Results are
-queued for the next session startup.
-
-### Locate the script
-
-```bash
-SENPI_ENTRYPOINT_SCRIPTS=$(node -e "
-  const path = require('path'), os = require('os'), fs = require('fs');
-  const p = path.join(os.homedir(), '.agents', 'skills', 'senpi-entrypoint', 'scripts');
-  console.log(fs.existsSync(path.join(p, 'check-skill-updates.py')) ? p : '');
-" 2>/dev/null)
-```
-
-If `SENPI_ENTRYPOINT_SCRIPTS` is empty the skill was not installed globally
-(`npx skills add ... -g`) — skip this step silently. If `openclaw` is not
-available in PATH, skip this step silently.
-
-### Install OpenClaw cron (idempotent)
-
-```bash
-if [ -n "$SENPI_ENTRYPOINT_SCRIPTS" ] && command -v openclaw >/dev/null 2>&1; then
-  openclaw cron remove "senpi-skill-update-check" 2>/dev/null || true
-  SCRIPT_PATH="$SENPI_ENTRYPOINT_SCRIPTS/check-skill-updates.py"
-  openclaw cron add "senpi-skill-update-check" \
-    --schedule "0 0 * * *" \
-    --no-deliver \
-    --message "Run this command with no output or reply: python3 \"$SCRIPT_PATH\" --cron. Then exit. Do not deliver or announce anything."
-fi
-```
-
-The job is stored in `$OPENCLAW_STATE_DIR/cron/jobs.json` (default:
-`~/.openclaw/cron/jobs.json` if `OPENCLAW_STATE_DIR` is unset). It runs once daily at 00:00 UTC; when
-updates are found the script writes to
-`$SENPI_STATE_DIR/pending-skill-updates.json` (default:
-`~/.config/senpi/pending-skill-updates.json` if `SENPI_STATE_DIR` is unset),
-surfaced at the next invocation via **Pre-Response Check** (above).
-
----
-
-## Turning skill update notifications on or off
-
-If the user asks to turn notifications off or back on, follow the procedure in
-[references/skill-update-checker.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/skill-update-checker.md).
-
----
-
 ## Responding to Questions
 
 ### Mandatory Response Contract (Execution NOT Optional)
@@ -220,11 +154,10 @@ If the user asks to turn notifications off or back on, follow the procedure in
 For any summary or Q&A response, follow
 [references/about-senpi.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/about-senpi.md)
 (`Summary Response Contract` and `Mandatory Invocation Procedure` sections).
-Use the `UPDATE_OUTPUT` produced by the top-level `Pre-Response Check` above;
-do not rerun `Pre-Response Invocation Check` here unless it has not yet been
-run in the current invocation.
+Do not rely on stale precomputed update payloads or local update-check scripts
+in this summary flow. For "What's new?", follow the transparent fallback rules in
+`references/about-senpi.md` when verified updates are unavailable.
 Do not consider the response complete until those procedures are satisfied.
-
 ### "What is Senpi?" / "Summarize Senpi" / "Summarize skills and capabilities" / "How do I install skills?" / "What's new?"
 
 This is **explicit-ask only** — do not auto-insert this summary into normal
@@ -246,8 +179,6 @@ for the goal-to-skill mapping, budget guidance, and install commands.
 
 | File | Purpose |
 |------|---------|
-| `scripts/check-skill-updates.py` | Daily background checker (run via cron with `--cron`). Reads Vercel skills CLI lock file, compares GitHub tree SHAs, writes version bumps / new skills to pending file |
-| `references/skill-update-checker.md` | Startup output handling + turn notifications on/off + cron management |
 | `references/skill-recommendations.md` | Goal-to-skill mapping table, budget guidance, install commands |
 | `references/about-senpi.md` | Senpi summary source: what Senpi is, capabilities, full bullet catalog, user-friendly install flow, and what's-new guidance |
 | `references/error-handling.md` | Recovery steps for `npx` command failures |
