@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Senpi Skill Configuration",
+  "description": "Schema for skill.yaml files that define autonomous trading skills",
+  "type": "object",
+  "required": ["name", "version", "strategies", "scanner", "entry", "exit", "risk", "hooks", "notifications"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Unique skill identifier"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Semantic version"
+    },
+    "description": {
+      "type": "string"
+    },
+    "strategies": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["wallet", "strategy_id", "budget", "slots", "trading_risk", "dsl_preset"],
+        "properties": {
+          "wallet": { "type": "string" },
+          "strategy_id": { "type": "string" },
+          "budget": { "oneOf": [{ "type": "string" }, { "type": "number" }] },
+          "slots": { "type": "integer", "minimum": 1 },
+          "trading_risk": { "enum": ["conservative", "moderate", "aggressive"] },
+          "dsl_preset": { "type": "string" }
+        }
+      }
+    },
+    "scanner": {
+      "type": "object",
+      "required": ["type", "interval"],
+      "properties": {
+        "type": { "type": "string" },
+        "interval": { "type": "string", "pattern": "^\\d+(s|m|h)$" },
+        "filters": {
+          "type": "object",
+          "properties": {
+            "min_reasons": { "type": "integer" },
+            "max_rank": { "type": "integer" },
+            "require_immediate": { "type": "boolean" },
+            "exclude_erratic": { "type": "boolean" },
+            "min_traders": { "type": "integer" }
+          }
+        },
+        "blocked_assets": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "required": ["decision_mode", "decision_prompt", "context", "min_confidence"],
+      "properties": {
+        "decision_mode": { "enum": ["llm", "agent", "none"] },
+        "decision_model": { "type": "string" },
+        "decision_prompt": { "type": "string" },
+        "context": { "type": "array", "items": { "type": "string" } },
+        "min_confidence": { "type": "number", "minimum": 1, "maximum": 10 }
+      }
+    },
+    "exit": {
+      "type": "object",
+      "required": ["engine", "dsl_presets"],
+      "properties": {
+        "engine": { "type": "string" },
+        "dsl_presets": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["tiers", "max_loss_pct", "stagnation"],
+            "properties": {
+              "tiers": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["trigger_pct", "lock_pct", "breaches"],
+                  "properties": {
+                    "trigger_pct": { "type": "number" },
+                    "lock_pct": { "type": "number" },
+                    "breaches": { "type": "integer" }
+                  }
+                }
+              },
+              "max_loss_pct": { "type": "number" },
+              "stagnation": {
+                "type": "object",
+                "required": ["enabled", "min_roe", "timeout_minutes"],
+                "properties": {
+                  "enabled": { "type": "boolean" },
+                  "min_roe": { "type": "number" },
+                  "timeout_minutes": { "type": "number" }
+                }
+              }
+            }
+          }
+        },
+        "sm_flip": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "interval": { "type": "string" }
+          }
+        }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "required": ["per_strategy", "guard_rails"],
+      "properties": {
+        "per_strategy": {
+          "type": "object",
+          "required": ["daily_loss_limit_pct", "margin_buffer_pct"],
+          "properties": {
+            "daily_loss_limit_pct": { "type": "number" },
+            "margin_buffer_pct": { "type": "number" },
+            "auto_delever": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "threshold_pct": { "type": "number" },
+                "reduce_to": { "type": "number" }
+              }
+            }
+          }
+        },
+        "guard_rails": {
+          "type": "object",
+          "required": ["max_entries_per_day", "bypass_on_profit", "max_consecutive_losses", "cooldown_minutes"],
+          "properties": {
+            "max_entries_per_day": { "type": "integer" },
+            "bypass_on_profit": { "type": "boolean" },
+            "max_consecutive_losses": { "type": "integer" },
+            "cooldown_minutes": { "type": "number" }
+          }
+        },
+        "leverage": { "type": "object" },
+        "directional_guard": { "type": "object" },
+        "rotation_cooldown_minutes": { "type": "number" }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "action": { "type": "string" },
+          "decision_mode": { "enum": ["llm", "script", "agent", "none"] },
+          "decision_prompt": { "type": "string" },
+          "context": { "type": "array", "items": { "type": "string" } },
+          "notify": { "type": "boolean" },
+          "wake_agent": { "type": "boolean" },
+          "threshold": { "type": "number" },
+          "cron": { "type": "string" }
+        }
+      }
+    },
+    "notifications": {
+      "type": "object",
+      "required": ["telegram_chat_id"],
+      "properties": {
+        "telegram_chat_id": { "type": "string" }
+      }
+    }
+  }
+}

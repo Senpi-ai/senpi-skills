@@ -1,0 +1,170 @@
+name: wolf
+version: 7.0.0
+description: >
+  Autonomous aggressive multi-strategy trading. Enter early on emerging movers,
+  protect with tight DSL, cut dead weight fast, rotate into strength.
+
+# ── STRATEGIES ──
+strategies:
+  aggressive-momentum:
+    wallet: "${WALLET_1}"
+    strategy_id: "${STRATEGY_ID_1}"
+    budget: "${BUDGET_1}"
+    slots: 3
+    trading_risk: aggressive
+    dsl_preset: aggressivez
+
+  # Second strategy (optional)
+  # conservative-xyz:
+  #   wallet: "${WALLET_2}"
+  #   strategy_id: "${STRATEGY_ID_2}"
+  #   budget: "${BUDGET_2}"
+  #   slots: 2
+  #   trading_risk: conservative
+  #   dsl_preset: conservative
+
+# ── SCANNER ──
+scanner:
+  type: emerging_movers
+  interval: 3m
+  config:
+    min_reasons: 2
+    max_rank: 30
+    require_immediate: true
+    exclude_erratic: true
+    min_traders: 10
+  blocked_assets: []
+
+# ── ENTRY DECISIONS ──
+entry:
+  decision_mode: llm
+  decision_model: sonnet
+  scanners: [emerging_movers]
+  decision_prompt: |
+    You evaluate emerging mover signals for the WOLF multi-strategy system.
+    WOLF enters early on first jumps — before the peak, not at it. Speed is edge.
+
+    SIGNAL PRIORITY (strict — act on highest priority first):
+    1. FIRST_JUMP: Jumped 10+ ranks from #25+ in one scan, wasn't in top 50 before.
+       ENTER IMMEDIATELY. 2 reasons is enough. vel > 0 is enough.
+    2. CONTRIB_EXPLOSION: 3x+ contribution spike from rank #20+. ENTER.
+       Never downgrade for erratic history.
+    3. IMMEDIATE_MOVER: 10+ rank jump from #25+ but not first jump.
+       ENTER if not erratic and not low velocity.
+    4. DEEP_CLIMBER: Steady climb from #30+, vel >= 0.03, 3+ reasons.
+       Route to conservative strategy if available.
+
+    ROUTING:
+    - FIRST_JUMP/CONTRIB_EXPLOSION → aggressive strategy
+    - DEEP_CLIMBER → conservative if available, else aggressive
+    - Never duplicate same asset within one strategy (cross-strategy OK)
+
+    ANTI-PATTERNS:
+    - Rank #1-10 for 2+ scans = SKIP
+    - 4+ reasons at rank #5 = SKIP
+    - Counter to BTC hourly trend = SKIP
+    - Burned asset today = SKIP
+
+    ROTATION (slots full + FIRST_JUMP):
+    - Weakest has negative ROE + SM conviction <= 1 → CUT, ENTER new
+    - Weakest is Tier 2+ or SM conviction 3+ → HOLD
+    - Positions younger than 45min → never rotate out
+
+    XYZ EQUITIES: Ignore trader count. Use reasons + rank velocity.
+
+    Respond JSON:
+    {
+      "enter": true/false,
+      "target_strategy": "aggressive-momentum",
+      "direction": "LONG"/"SHORT",
+      "confidence": 1-10,
+      "reasoning": "one sentence",
+      "rotate_out": null or "ASSET_NAME"
+    }
+  context: [signal, portfolio, recent_trades, btc_trend, burned_assets, strategy_gates]
+  min_confidence: 6
+
+# ── EXIT ──
+exit:
+  engine: dsl
+  dsl_presets:
+    aggressive:
+      tiers:
+        - { trigger_pct: 5, lock_pct: 50, breaches: 3 }
+        - { trigger_pct: 10, lock_pct: 65, breaches: 2 }
+        - { trigger_pct: 15, lock_pct: 75, breaches: 2 }
+        - { trigger_pct: 20, lock_pct: 85, breaches: 1 }
+      max_loss_pct: 3.0
+      stagnation: { enabled: true, min_roe: 8, timeout_minutes: 60 }
+    conservative:
+      tiers:
+        - { trigger_pct: 3, lock_pct: 60, breaches: 4 }
+        - { trigger_pct: 7, lock_pct: 75, breaches: 3 }
+        - { trigger_pct: 12, lock_pct: 85, breaches: 2 }
+        - { trigger_pct: 18, lock_pct: 90, breaches: 1 }
+      max_loss_pct: 4.0
+      stagnation: { enabled: true, min_roe: 10, timeout_minutes: 90 }
+  sm_flip:
+    enabled: true
+    interval: 5m
+    conviction_collapse: { from_min: 4, to_max: 1, window_minutes: 10, action: cut_immediately }
+    dead_weight: { conviction_zero_action: cut_immediately }
+
+# ── RISK ──
+risk:
+  per_strategy:
+    daily_loss_limit_pct: 8
+    margin_buffer_pct: 15
+    auto_delever: { enabled: true, threshold_pct: 70, reduce_to: 2 }
+  guard_rails:
+    max_entries_per_day: 8
+    bypass_on_profit: true
+    max_consecutive_losses: 3
+    cooldown_minutes: 60
+  leverage:
+    aggressive_cap_pct: 75
+    moderate_cap_pct: 50
+    conservative_cap_pct: 25
+  directional_guard: { max_same_direction: 3 }
+  rotation_cooldown_minutes: 45
+
+# ── HOOKS ──
+hooks:
+  on_position_closed:
+    action: check_rotation
+    decision_mode: llm
+    decision_prompt: |
+      A WOLF position just closed. Should we fill the empty slot or wait?
+      Consider signal quality, win/loss streak, BTC trend, strategy gate state.
+      Respond JSON: {"rotate": true/false, "reasoning": "brief"}
+    context: [portfolio, recent_trades, btc_trend, pending_signals, strategy_gates]
+    notify: true
+  on_tier_changed:
+    action: notify_only
+    decision_mode: none
+    notify: true
+  on_daily_limit_hit:
+    action: pause_scanning
+    decision_mode: agent
+    wake_agent: true
+    notify: true
+  on_drawdown_cap_hit:
+    action: emergency_close_all
+    decision_mode: agent
+    wake_agent: true
+    notify: true
+  on_consecutive_losses:
+    action: cooldown
+    decision_mode: agent
+    threshold: 3
+    wake_agent: true
+    notify: true
+  on_schedule:
+    action: notify_only
+    decision_mode: none
+    cron: "0 20 * * *"
+    context: [portfolio, daily_trades, daily_pnl]
+    notify: true
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

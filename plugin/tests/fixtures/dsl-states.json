@@ -1,0 +1,119 @@
+{
+  "baseState": {
+    "version": 2,
+    "asset": "HYPE",
+    "direction": "LONG",
+    "entryPrice": 100.0,
+    "size": 10.0,
+    "leverage": 10,
+    "highWaterPrice": 100.0,
+    "hwTimestamp": "2026-03-08T10:00:00Z",
+    "phase": 1,
+    "currentBreachCount": 0,
+    "currentTierIndex": null,
+    "tierFloorPrice": 0,
+    "floorPrice": 99.0,
+    "tiers": [
+      { "triggerPct": 5, "lockPct": 50, "breaches": 3 },
+      { "triggerPct": 10, "lockPct": 65, "breaches": 2 },
+      { "triggerPct": 15, "lockPct": 75, "breaches": 2 },
+      { "triggerPct": 20, "lockPct": 85, "breaches": 1 }
+    ],
+    "phase1": {
+      "retraceThreshold": 10,
+      "absoluteFloor": 99.0,
+      "consecutiveBreachesRequired": 3
+    },
+    "phase2TriggerTier": 0,
+    "stagnation": {
+      "enabled": true,
+      "minROE": 8.0,
+      "thresholdHours": 1.0,
+      "priceRangePct": 1.0
+    },
+    "breachDecay": "hard",
+    "pendingClose": false,
+    "active": true,
+    "createdAt": "2026-03-08T10:00:00Z",
+    "wallet": "0xabc",
+    "dex": "hl",
+    "strategyKey": "wolf-test"
+  },
+  "shortBaseState": {
+    "version": 2,
+    "asset": "BTC",
+    "direction": "SHORT",
+    "entryPrice": 50000.0,
+    "size": 0.1,
+    "leverage": 5,
+    "highWaterPrice": 50000.0,
+    "hwTimestamp": "2026-03-08T10:00:00Z",
+    "phase": 1,
+    "currentBreachCount": 0,
+    "currentTierIndex": null,
+    "tierFloorPrice": 0,
+    "floorPrice": 51000.0,
+    "tiers": [
+      { "triggerPct": 5, "lockPct": 50, "breaches": 3 },
+      { "triggerPct": 10, "lockPct": 65, "breaches": 2 },
+      { "triggerPct": 15, "lockPct": 75, "breaches": 2 },
+      { "triggerPct": 20, "lockPct": 85, "breaches": 1 }
+    ],
+    "phase1": {
+      "retraceThreshold": 10,
+      "absoluteFloor": 51000.0,
+      "consecutiveBreachesRequired": 3
+    },
+    "phase2TriggerTier": 0,
+    "stagnation": {
+      "enabled": true,
+      "minROE": 8.0,
+      "thresholdHours": 1.0,
+      "priceRangePct": 1.0
+    },
+    "breachDecay": "hard",
+    "pendingClose": false,
+    "active": true,
+    "createdAt": "2026-03-08T10:00:00Z",
+    "wallet": "0xdef",
+    "dex": "hl",
+    "strategyKey": "wolf-test"
+  },
+  "conservativeState": {
+    "version": 2,
+    "asset": "ETH",
+    "direction": "LONG",
+    "entryPrice": 3000.0,
+    "size": 1.0,
+    "leverage": 5,
+    "highWaterPrice": 3000.0,
+    "hwTimestamp": "2026-03-08T10:00:00Z",
+    "phase": 1,
+    "currentBreachCount": 0,
+    "currentTierIndex": null,
+    "tierFloorPrice": 0,
+    "floorPrice": 2940.0,
+    "tiers": [
+      { "triggerPct": 3, "lockPct": 60, "breaches": 4 },
+      { "triggerPct": 7, "lockPct": 75, "breaches": 3 },
+      { "triggerPct": 12, "lockPct": 85, "breaches": 2 },
+      { "triggerPct": 18, "lockPct": 90, "breaches": 1 }
+    ],
+    "phase1": {
+      "retraceThreshold": 10,
+      "absoluteFloor": 2940.0,
+      "consecutiveBreachesRequired": 4
+    },
+    "phase2TriggerTier": 0,
+    "stagnation": {
+      "enabled": true,
+      "minROE": 10.0,
+      "thresholdHours": 1.5,
+      "priceRangePct": 1.0
+    },
+    "breachDecay": "hard",
+    "pendingClose": false,
+    "active": true,
+    "createdAt": "2026-03-08T10:00:00Z"
+  }
+}
