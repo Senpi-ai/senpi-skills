@@ -61,7 +61,7 @@ metadata:
 ## Quick Start
 
 1. Ensure Senpi MCP is connected (`mcporter list` shows `senpi`)
-2. Create a custom strategy: `strategy_create_custom_strategy`
+2. Create a custom strategy: `strategy_create_custom_strategy` (include `skill_name: "tiger-strategy"`, `skill_version: "4.1"` — see `references/skill-attribution.md`)
 3. Fund the wallet: `strategy_top_up`
 4. Run setup:
    ```bash
