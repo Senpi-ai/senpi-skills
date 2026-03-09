@@ -227,24 +227,27 @@ def get_active_position_coins(wallet: str) -> tuple[set[str], str | None]:
 
 
 def cleanup_strategy_state_dir(state_dir: str, strategy_id: str) -> int:
-    """Remove only active position .json state files in strategy dir.
-    Skips strategy-*.json (config), *_archived_*, and *.archived* files. Return count removed.
+    """Archive only active position .json state files (rename to _archived_inactive_{epoch}.json).
+    Skips strategy-*.json (config), *_archived_*, and *.archived* files. Never deletes; never touches archives.
+    Returns count archived.
     """
-    deleted = 0
+    archived = 0
     strategy_dir = os.path.join(state_dir, strategy_id)
     if not os.path.isdir(strategy_dir):
         return 0
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for name in os.listdir(strategy_dir):
         if name.startswith("strategy-") or "_archived" in name or ".archived" in name:
             continue
         path = os.path.join(strategy_dir, name)
         if name.endswith(".json") and os.path.isfile(path):
             try:
-                os.remove(path)
-                deleted += 1
+                dest = _archived_state_filename(path, now, "archived-inactive")
+                os.rename(path, dest)
+                archived += 1
             except OSError:
                 pass
-    return deleted
+    return archived
 
 
 # ---------------------------------------------------------------------------
@@ -1055,13 +1058,13 @@ def main() -> None:
     active, wallet, active_error, confirmed_inactive = get_strategy_active_and_wallet(strategy_id)
     if not active:
         if confirmed_inactive:
-            deleted = cleanup_strategy_state_dir(state_dir, strategy_id)
+            archived = cleanup_strategy_state_dir(state_dir, strategy_id)
             print(json.dumps({
                 "status": "strategy_inactive",
                 "strategy_id": strategy_id,
-                "message": "Strategy not active (Senpi MCP). State files cleaned. Agent: remove OpenClaw cron for this strategy.",
+                "message": "Strategy not active (Senpi MCP). State files archived. Agent: remove OpenClaw cron for this strategy.",
                 "reason": active_error,
-                "state_files_deleted": deleted,
+                "state_files_archived": archived,
                 "time": now,
             }))
             sys.exit(0)

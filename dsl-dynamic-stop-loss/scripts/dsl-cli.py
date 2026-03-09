@@ -979,20 +979,20 @@ def cmd_resume_dsl(state_dir: str, args: argparse.Namespace) -> None:
 
 
 def _archive_position_file(path: str, dest_path: str) -> tuple[bool, bool]:
-    """Archive position file to dest_path and remove original. Returns (archived_ok, remove_ok)."""
+    """Archive position file by moving to dest_path (never delete). Returns (archived_ok, moved_ok)."""
     state, _ = read_position_state(path)
     state = state if isinstance(state, dict) else {"active": False}
     state["active"] = False
     try:
-        with open(dest_path, "w") as f:
-            json.dump(state, f, indent=2)
+        os.rename(path, dest_path)
     except OSError:
         return False, False
     try:
-        os.remove(path)
-        return True, True
+        with open(dest_path, "w") as f:
+            json.dump(state, f, indent=2)
     except OSError:
-        return True, False
+        return True, True  # moved ok, write-back of active=False best-effort
+    return True, True
 
 
 def _run_dsl_cleanup(state_dir: str, strategy_id: str) -> bool:

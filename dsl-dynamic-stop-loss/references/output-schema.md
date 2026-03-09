@@ -129,10 +129,10 @@ Strategy-level cleanup script prints a single JSON line:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `status` | string | `"cleaned"` (directory deleted) or `"blocked"` (active positions remain) |
+| `status` | string | `"cleaned"` (no active positions; directory retained) or `"blocked"` (active positions remain) |
 | `strategy_id` | string | Strategy UUID |
-| `positions_deleted` | int | Number of state files removed (only when status=cleaned) |
 | `blocked_by_active` | string[] | Assets still active (only when status=blocked) |
 | `time` | string | ISO 8601 timestamp |
+| `note` | string | Optional (e.g. `strategy_dir_missing`, `directory_retained_no_deletion`) |
 
 See [references/cleanup.md](cleanup.md) for agent responsibilities and usage.
