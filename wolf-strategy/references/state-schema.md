@@ -101,18 +101,22 @@ The central config file. Holds multiple strategies, each with independent wallet
 
 ```
 {workspace}/
-├── wolf-strategies.json              # Strategy registry
+├── wolf-strategies.json              # Strategy registry (includes global.dslCliPath, global.dslScriptPath)
 ├── max-leverage.json                 # Shared across strategies
+├── dsl/                              # DSL v5.2 state root (owned by dsl-dynamic-stop-loss skill)
+│   ├── abc12345-.../                 # Strategy A UUID dir
+│   │   ├── strategy-abc12345....json # DSL strategy config (created by dsl-cli add-dsl)
+│   │   ├── HYPE.json                 # Position state file
+│   │   └── xyz--SILVER.json          # XYZ position (xyz:SILVER → xyz--SILVER filename)
+│   └── xyz78901-.../                 # Strategy B UUID dir
+│       ├── strategy-xyz78901....json
+│       └── HYPE.json                 # Same asset, different strategy UUID dir = no collision
 ├── state/
-│   ├── wolf-abc12345/                # Strategy A state dir
-│   │   ├── dsl-HYPE.json
-│   │   ├── dsl-SOL.json
+│   ├── wolf-abc12345/                # Strategy A wolf state (non-DSL only)
 │   │   ├── trade-counter.json        # Daily trade counter (guard rails)
-│   │   └── watchdog-last.json
-│   └── wolf-xyz78901/                # Strategy B state dir
-│       ├── dsl-HYPE.json             # Same asset, different strategy = OK
-│       ├── trade-counter.json
-│       └── watchdog-last.json
+│   │   └── locks/                    # Strategy lock files
+│   └── wolf-xyz78901/
+│       └── trade-counter.json
 ├── history/
 │   └── emerging-movers.json          # Shared (market data)
 ├── memory/
@@ -121,107 +125,99 @@ The central config file. Holds multiple strategies, each with independent wallet
     └── wolf-2026-02-24.log
 ```
 
-**Why `state/` is per-strategy:** DSL state files must be scoped to prevent collision when the same asset is traded in multiple strategies simultaneously.
+**Why `dsl/` is separate from `state/`:** `dsl-v5.py` scans the strategy directory and treats every `.json` file (excluding `strategy-*.json` and `*_archived*`) as a position state file. Wolf's `state/{strategyKey}/` contains `trade-counter.json` — those would be misread as positions. Separate dirs eliminates the collision.
+
+**Why DSL dirs use UUID:** `dsl-v5.py` uses `DSL_STRATEGY_ID` (UUID) to call `strategy_get` for wallet resolution. The directory name must match the UUID so the cron env and filesystem stay consistent.
 
 **Why `history/` is shared:** Emerging movers and scanner detect market-wide signals. The signal is the same regardless of which strategy acts on it.
 
 ---
 
-## DSL State File (`state/{strategyKey}/dsl-{ASSET}.json`)
+## DSL State File (`dsl/{strategyId_UUID}/{ASSET}.json`)
 
-Created per position, scoped to its strategy. Read by `dsl-combined.py`.
+Created per position by `dsl-cli.py add-dsl`. Owned and updated by `dsl-v5.py`. Wolf scripts read these files but never write them directly — all writes go through `dsl-cli.py`.
+
+**File naming:** `HYPE.json`, `xyz--SILVER.json` (`:` replaced with `--` for XYZ assets). No `dsl-` prefix.
+
+**Archive on close:** File is renamed to `{ASSET}_archived_{epoch}.json` by `dsl-cli.py delete-dsl`. Never set `active: false` in place.
 
 ```json
 {
-  "version": 2,
-  "strategyKey": "wolf-abc12345",
   "active": true,
   "asset": "HYPE",
   "direction": "LONG",
-  "entryPrice": 28.87,
-  "leverage": 10,
-  "size": 1890.28,
-  "wallet": "0xaaa...",
-  "strategyId": "abc12345-...",
-  "dex": null,
-  "highWaterPrice": 29.50,
+  "leverage": 6.0,
+  "entryPrice": 30.808,
+  "size": 3.9,
+  "wallet": "0xdca2c5c0f1b71c6404a87c771c57ac7c1b22219b",
+  "strategyId": "6a23783a-12e6-415c-b59b-70ca5e5c3a1d",
   "phase": 1,
-  "currentTierIndex": 0,
-  "tierFloorPrice": null,
-  "currentBreachCount": 0,
-  "floorPrice": 29.353,
-  "createdAt": "2026-02-24T10:00:00Z",
-  "hwTimestamp": "2026-02-24T10:05:00Z",
-  "lastCheck": "2026-02-24T10:06:00Z",
-  "lastPrice": 29.45,
-  "consecutiveFetchFailures": 0,
-  "pendingClose": false,
   "phase1": {
-    "retraceThreshold": 10,
-    "consecutiveBreachesRequired": 3,
-    "absoluteFloor": 28.5813
-  },
-  "phase2": {
-    "retraceFromHW": 5,
-    "breachesRequired": 2
-  },
-  "tiers": [
-    { "triggerPct": 5, "lockPct": 50, "breaches": 3 },
-    { "triggerPct": 10, "lockPct": 65, "breaches": 2 },
-    { "triggerPct": 15, "lockPct": 75, "breaches": 2 },
-    { "triggerPct": 20, "lockPct": 85, "breaches": 1 }
-  ],
-  "stagnation": {
     "enabled": true,
-    "thresholdHours": 1.0,
-    "minROE": 8.0,
-    "priceRangePct": 1.0
-  }
+    "retraceThreshold": 0.03,
+    "consecutiveBreachesRequired": 3,
+    "absoluteFloor": 30.654
+  },
+  "phase2TriggerTier": 0,
+  "phase2": {
+    "enabled": true,
+    "retraceThreshold": 0.015,
+    "consecutiveBreachesRequired": 2,
+    "tiers": [
+      { "triggerPct": 5,  "lockPct": 50 },
+      { "triggerPct": 10, "lockPct": 65 },
+      { "triggerPct": 15, "lockPct": 75 },
+      { "triggerPct": 20, "lockPct": 85 }
+    ]
+  },
+  "tiers": [ ... ],
+  "currentTierIndex": -1,
+  "tierFloorPrice": null,
+  "highWaterPrice": 30.9245,
+  "floorPrice": 30.7699,
+  "currentBreachCount": 0,
+  "createdAt": "2026-03-07T16:44:06.000Z",
+  "consecutiveFetchFailures": 0,
+  "lastPrice": 30.8275,
+  "lastSyncedFloorPrice": 30.7699,
+  "slOrderIdUpdatedAt": "2026-03-07T17:27:05Z",
+  "slOrderId": 341460233650,
+  "lastCheck": "2026-03-07T18:00:03Z"
 }
 ```
 
-### v6 Changes to DSL State
+### DSL v5.2 vs old wolf DSL format
 
-| Field | Change |
-|---|---|
-| `version` | New field. Set to `2` for v6 format. |
-| `strategyKey` | **New.** Links back to the strategy in the registry. |
-| `strategyId` | **New optional.** Copy of strategy UUID for redundancy. |
-| File location | **Changed.** `state/{strategyKey}/dsl-{ASSET}.json` instead of `dsl-state-WOLF-{ASSET}.json` |
+| Field | Old wolf format | DSL v5.2 |
+|---|---|---|
+| `phase1.retraceThreshold` | `10` (percentage) | `0.03` (ROE fraction: 0–1) |
+| Per-tier breach counts | `tiers[].breaches: 3/2/2/1` | Not supported — single `phase2.consecutiveBreachesRequired` |
+| Tier structure | top-level `tiers[]` only | `phase2.tiers[]` **and** top-level `tiers[]` (mirrored) |
+| HL SL tracking | absent | `slOrderId`, `lastSyncedFloorPrice`, `slOrderIdUpdatedAt` |
+| `strategyKey` field | present | absent (`strategyId` is UUID) |
+| File location | `state/{strategyKey}/dsl-{ASSET}.json` | `dsl/{strategyId_UUID}/{ASSET}.json` |
+| File naming | `dsl-HYPE.json` | `HYPE.json` (no prefix) |
+| Archive on close | `active: false` in place | renamed to `{ASSET}_archived_{epoch}.json` |
 
-### Required Fields
+### Key fields
 
 | Field | Type | Description |
 |---|---|---|
-| `active` | boolean | `true` = DSL is running. Set to `false` on close. |
-| `asset` | string | Asset name (e.g. "HYPE", "PAXG"). No `xyz:` prefix. |
+| `active` | boolean | `true` = DSL is running. Never set directly — use `dsl-cli.py delete-dsl` to close. |
+| `asset` | string | Asset name (e.g. "HYPE"). No `xyz:` prefix in state, but file uses `xyz--SILVER.json`. |
 | `direction` | string | "LONG" or "SHORT" |
-| `entryPrice` | number | Position entry price |
+| `entryPrice` | number | Position entry price (fetched from clearinghouse by CLI) |
 | `leverage` | number | Position leverage |
-| `size` | number | Absolute position size (units) |
+| `size` | number | Absolute position size |
 | `wallet` | string | Strategy wallet address |
-| `dex` | string\|null | "xyz" for XYZ assets, null for crypto |
-| `highWaterPrice` | number | Best price seen (highest for LONG, lowest for SHORT) |
-| `phase` | number | 1 = pre-tier, 2 = tier-based trailing |
-| `currentTierIndex` | number | Current tier (0-3), or 0 if none |
-| `tierFloorPrice` | number\|null | Locked tier floor price |
-| `currentBreachCount` | number | Consecutive floor breaches |
-| `floorPrice` | number | Effective floor (auto-calculated) |
-| `tiers` | array | 4-tier config array |
-
-### Optional Fields
-
-| Field | Type | Default | Description |
-|---|---|---|---|
-| `version` | number | 2 | State file schema version |
-| `strategyKey` | string | — | Strategy key for back-reference |
-| `createdAt` | string | — | ISO timestamp for elapsed time calc |
-| `hwTimestamp` | string | — | When HW was last updated (for stagnation) |
-| `pendingClose` | boolean | false | Retry close on next run |
-| `consecutiveFetchFailures` | number | 0 | Auto-deactivate at 10 |
-| `breachDecay` | string | "hard" | "hard" = reset to 0, "soft" = decay by 1 |
-| `maxFetchFailures` | number | 10 | Failures before auto-deactivate |
-| `stagnation` | object | enabled | Stagnation take-profit config |
+| `strategyId` | string | Strategy UUID (used by dsl-v5.py for `strategy_get`) |
+| `phase` | number | 1 = pre-tier (Phase 1 floor active), 2 = tier-based trailing |
+| `phase1.retraceThreshold` | number | ROE fraction (0–1) for phase 1 floor, e.g. `0.10` = 10% ROE |
+| `phase2.tiers[]` | array | Tiers without `breaches` field (DSL v5.2 uses single breach count) |
+| `highWaterPrice` | number | Best price seen — used by watchdog for peak ROE calculation |
+| `floorPrice` | number | Current effective stop floor |
+| `slOrderId` | number\|null | Native HL stop-loss order ID (set by dsl-v5.py via `edit_position`) |
+| `lastCheck` | string | ISO timestamp of last dsl-v5.py run — used for staleness detection |
 
 ---
 
@@ -244,27 +240,27 @@ path = dsl_state_path("wolf-abc12345", "HYPE")
 
 ## Key Gotchas
 
-1. **`triggerPct` not `threshold`** — Tiers use `triggerPct: 5` (percentage), NOT `threshold: 0.05` (decimal).
+1. **Never write DSL state files directly** — All DSL state creation/deletion goes through `dsl-cli.py add-dsl` / `delete-dsl`. `dsl-v5.py` owns the state; wolf scripts are callers only.
 
-2. **`lockPct` not `retracePct`** — Tiers use `lockPct: 50` (lock 50% of HW profit), NOT `retracePct`.
+2. **`phase1.retraceThreshold` is a fraction (0–1), not a percentage** — Use `0.10` for 10% ROE floor, NOT `10`. This changed from the old wolf v4 format.
 
-3. **`active` is boolean** — Use `"active": true`, NOT `"status": "active"`.
+3. **No per-tier breach counts in DSL v5.2** — `phase2.consecutiveBreachesRequired` is a single value for all tiers. `build_wolf_dsl_config()` derives this from the majority breach count in the wolf strategy's tier config.
 
-4. **`absoluteFloor` is auto-calculated** — The DSL script recalculates it from entryPrice, retraceThreshold, and leverage on every run.
+4. **`active: false` is NOT how you close** — Call `dsl-cli.py delete-dsl`. It archives the file (rename to `{ASSET}_archived_{epoch}.json`) and emits `cron_to_remove` if the last position was closed. Setting `active: false` in place is the old behavior and breaks DSL v5.2.
 
-5. **XYZ assets** — Set `dex: "xyz"` in state file. Use `coin=xyz:ASSET` when closing. Use `leverageType: "ISOLATED"` when opening.
+5. **File naming** — `HYPE.json` (no `dsl-` prefix), `xyz--SILVER.json` (colon → double-dash for XYZ). `wolf_config.py`'s `asset_to_filename()` handles this conversion.
 
-6. **4 tiers, not 6** — 5/10/15/20% ROE with 50/65/75/85% locks.
+6. **UUID directory, not strategyKey** — DSL state files live under `dsl/{strategyId_UUID}/`, NOT `state/{strategyKey}/`. `dsl_state_path()` and `dsl_state_glob()` in `wolf_config.py` resolve this automatically.
 
-7. **`strategyKey` in state files** — v6 state files include `strategyKey` to link back to the registry. Scripts use it to load the correct strategy config.
+7. **Filter archived/config files when globbing** — `dsl_position_state_files()` in `wolf_config.py` already filters out `strategy-*.json` and `*_archived*`. Use it instead of raw glob.
 
-8. **State dir per strategy** — `state/wolf-abc12345/dsl-HYPE.json`, NOT `dsl-state-WOLF-HYPE.json`. Same asset in two strategies = two files in different dirs, no collision.
+8. **XYZ assets** — Pass `dex="xyz"` to `dsl-cli.py add-dsl`/`delete-dsl`. Use `coin=xyz:ASSET` when calling `close_position`. Use `leverageType: "ISOLATED"` when opening. Use `xyzWallet` (not `wallet`) for `--wallet` arg.
 
-9. **Atomic writes** — All state file updates use `atomic_write()` (write to .tmp, then `os.replace`) to prevent corruption from concurrent access.
+9. **`--wallet` is mandatory for wolf** — Always pass `--wallet` to `dsl-cli.py add-dsl`. Wolf knows the wallet; this skips the `strategy_get` MCP call inside the CLI and avoids latency.
 
-10. **`phase2.retraceFromHW` is a percentage** — Use `5` for 5%, matching `phase1.retraceThreshold` convention. The code divides by 100 internally. Do NOT use `0.05`.
+10. **Migration from v4 state** — Old files at `state/{strategyKey}/dsl-{ASSET}.json` must be migrated to `dsl/{UUID}/{ASSET}.json` before switching to DSL v5 crons. Run `python3 scripts/wolf-migrate-dsl.py` once.
 
-11. **`stagnation.thresholdHours` not `staleHours`** — The stagnation idle duration field is `thresholdHours`. Using `staleHours` will be silently ignored (defaults to 1.0h).
+11. **Atomic writes (wolf-side)** — Wolf scripts use `atomic_write()` for non-DSL state (trade counters, etc.). DSL state is exclusively managed by the DSL skill's CLI/cron.
 
 ---
 

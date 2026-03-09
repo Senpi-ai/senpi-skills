@@ -7,7 +7,7 @@ WOLF uses isolated sessions and a 2-tier model approach. Configure per-cron in O
 | Cron | Frequency | Session | Payload | Model Tier |
 |------|-----------|---------|---------|------------|
 | Emerging Movers | 3min (20x/hr) | isolated | agentTurn | Mid |
-| DSL Combined | 3min (20x/hr) | isolated | agentTurn | Mid |
+| DSL (per strategy) | 3min (20x/hr) | isolated | agentTurn | Mid |
 | Health Check | 10min (6x/hr) | isolated | agentTurn | Mid |
 | SM Flip Detector | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
 | Watchdog | 5min (12x/hr) | isolated | agentTurn | Budget (cheapest available) |
@@ -108,12 +108,18 @@ For each successful entry, send each message in the `notifications` array from t
 
 ---
 
-## 2. DSL Combined Runner (every 3min) — isolated / agentTurn
+## 2. DSL per strategy (every 3min) — one cron per strategy, isolated / agentTurn
+
+**DSL v5.2:** One cron per enabled strategy (e.g. "DSL Aggressive Momentum"). Created by wolf-setup.py; stored in strategy registry as `dslCronJobId`.
 
 ```
-WOLF DSL: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/dsl-combined.py`, parse JSON.
-Send each message in `notifications` to Telegram ({TELEGRAM}).
-If `notifications` is empty → HEARTBEAT_OK.
+DSL [{strategyName}] cron: Run `PYTHONUNBUFFERED=1 python3 {DSL_SCRIPTS}/dsl-v5.py` with env DSL_STATE_DIR={WORKSPACE}/dsl/, DSL_STRATEGY_ID={strategyId_UUID}. Parse ndjson (one JSON line per position or strategy event).
+For each line:
+  closed=true → send Telegram ({TELEGRAM}) with asset, direction, close reason, PnL. Evaluate open slot in strategy {strategyKey} for next signal.
+  strategy_inactive=true → remove this cron (job ID: {DSL_CRON_JOB_ID}), run `python3 {DSL_SCRIPTS}/dsl-cleanup.py`.
+  pending_close=true → send Telegram "⚠️ DSL close pending retry for {asset} [{strategyKey}]".
+  sl_initial_sync=true → silent (HL SL is now active).
+No actionable events → HEARTBEAT_OK.
 ```
 
 ---
@@ -122,9 +128,8 @@ If `notifications` is empty → HEARTBEAT_OK.
 
 ```
 WOLF SM Check: Run `python3 {SCRIPTS}/sm-flip-check.py`, parse JSON.
-For each alert in `alerts`: if `alertLevel == "FLIP_NOW"` → close that position on the wallet for `strategyKey` (set `active: false` in `{WORKSPACE}/state/{strategyKey}/dsl-{ASSET}.json`), alert Telegram ({TELEGRAM}) with asset, direction, conviction, strategyKey.
-Ignore alerts with `alertLevel` of WATCH or FLIP_WARNING (no action needed).
-If `hasFlipSignal == false` or no FLIP_NOW alerts → HEARTBEAT_OK.
+For each alert in `alerts`: if `alertLevel == "FLIP_NOW"` → close that position (close_position MCP for strategyKey wallet + coin), then run `python3 <dsl-cli-path> delete-dsl <strategyId_UUID> <asset> <main|xyz> --state-dir {WORKSPACE}/dsl/` to archive DSL state. If output has `cron_to_remove`, remove that OpenClaw cron. Alert Telegram ({TELEGRAM}) with asset, direction, conviction, strategyKey.
+Ignore WATCH/FLIP_WARNING. If no FLIP_NOW → HEARTBEAT_OK.
 ```
 
 ---
@@ -133,9 +138,9 @@ If `hasFlipSignal == false` or no FLIP_NOW alerts → HEARTBEAT_OK.
 
 ```
 WOLF Watchdog: Run `PYTHONUNBUFFERED=1 timeout 45 python3 {SCRIPTS}/wolf-monitor.py`, parse JSON.
-For each item in `action_required`: close the specified position (coin + strategyKey), then alert Telegram ({TELEGRAM}) with what was closed and why.
-Ignore all other alerts in the output — they are informational only.
-If `action_required` is empty → HEARTBEAT_OK.
+For each item in `action_required`: if not `closed_by_script`, close the position (coin + strategyKey) then run dsl-cli delete-dsl for that strategy/asset/dex. If output contains `dsl_cron_to_remove`, remove that OpenClaw cron. Then alert Telegram ({TELEGRAM}) with what was closed and why.
+If output has `dsl_cron_to_remove` (e.g. from phase1 auto-cut), remove that cron.
+Ignore all other alerts. If `action_required` is empty → HEARTBEAT_OK.
 ```
 
 ---
@@ -170,4 +175,4 @@ If `notifications` is empty → HEARTBEAT_OK.
 | Script wallets | Hardcoded or env var | **Read from `wolf-strategies.json`** |
 | Signal routing | One wallet | **Route to best-fit strategy by available slots + risk profile** |
 | Scanner interval | 90s | 3min |
-| DSL architecture | Combined runner (unchanged) | Combined runner iterating all strategies |
+| DSL architecture | Combined runner | **DSL v5.2 per-strategy crons** (dsl-v5.py + dsl-cli; state under `{WORKSPACE}/dsl/{UUID}/`) |

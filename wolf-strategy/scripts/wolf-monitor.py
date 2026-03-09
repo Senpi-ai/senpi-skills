@@ -9,13 +9,15 @@ WOLF Strategy Monitor v2 — Multi-strategy
 - Per-strategy alerts and summary
 - Outputs JSON with per-strategy results
 """
-import json, sys, os, glob
+import json, sys, os, glob, subprocess
 from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import (load_all_strategies, state_dir, dsl_state_glob,
-                         WORKSPACE, mcporter_call_safe, heartbeat)
+from wolf_config import (load_all_strategies, state_dir, dsl_state_path,
+                         dsl_position_state_files, resolve_dsl_cli_path,
+                         DSL_STATE_DIR, WORKSPACE, mcporter_call_safe,
+                         mcporter_call, heartbeat)
 
 heartbeat("watchdog")
 
@@ -31,8 +33,8 @@ def get_clearinghouse(wallet):
 
 
 def get_dsl_state_for_strategy(strategy_key, asset):
-    """Read DSL state file for a specific strategy+asset."""
-    path = os.path.join(WORKSPACE, "state", strategy_key, f"dsl-{asset}.json")
+    """Read DSL state file for a specific strategy+asset (DSL v5.2 path)."""
+    path = dsl_state_path(strategy_key, asset)
     try:
         with open(path) as f:
             return json.load(f)
@@ -221,9 +223,93 @@ def main():
         "total_alerts": len(output["alerts"]),
     }
 
+    # --- Phase 1 auto-cut (DSL v5.2: moved from dsl-combined to Watchdog) ---
+    PHASE1_MAX_MINUTES = 90
+    WEAK_PEAK_CUT_MINUTES = 45
+    WEAK_PEAK_THRESHOLD = 3.0
+    dsl_cron_to_remove_out = None
+    action_required = []
+
+    for strat_key, cfg in strategies.items():
+        dsl_cfg = cfg.get("dsl", {})
+        phase1_max = dsl_cfg.get("phase1MaxMinutes", PHASE1_MAX_MINUTES)
+        weak_peak_min = dsl_cfg.get("weakPeakCutMinutes", WEAK_PEAK_CUT_MINUTES)
+        weak_peak_thresh = dsl_cfg.get("weakPeakThreshold", WEAK_PEAK_THRESHOLD)
+        strategy_uuid = cfg.get("strategyId", "")
+        wallet = cfg.get("wallet", "")
+
+        for state_path in dsl_position_state_files(strat_key):
+            try:
+                with open(state_path) as f:
+                    state = json.load(f)
+            except (json.JSONDecodeError, IOError):
+                continue
+            if not state.get("active") or state.get("phase") != 1:
+                continue
+            asset = state.get("asset", "")
+            if not asset:
+                bn = os.path.basename(state_path)
+                asset = bn.replace(".json", "").replace("--", ":", 1) if "xyz--" in bn else bn.replace(".json", "")
+            created_at_s = state.get("createdAt")
+            if not created_at_s:
+                continue
+            try:
+                created_at = datetime.fromisoformat(created_at_s.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+            now = datetime.now(timezone.utc)
+            elapsed_min = (now - created_at).total_seconds() / 60
+            entry = float(state.get("entryPrice", 0))
+            lev = float(state.get("leverage", 1))
+            hw = float(state.get("highWaterPrice", entry))
+            last_px = float(state.get("lastPrice", state.get("entryPrice", entry)))
+            if entry <= 0 or lev <= 0:
+                continue
+            if state.get("direction") == "LONG":
+                peak_roe = (hw - entry) / entry * lev * 100
+                current_roe = (last_px - entry) / entry * lev * 100
+            else:
+                peak_roe = (entry - hw) / entry * lev * 100
+                current_roe = (entry - last_px) / entry * lev * 100
+
+            autocut, reason = False, ""
+            if elapsed_min >= phase1_max:
+                autocut, reason = True, f"Phase 1 timeout {elapsed_min:.0f}min"
+            elif (elapsed_min >= weak_peak_min and peak_roe < weak_peak_thresh and current_roe < peak_roe):
+                autocut, reason = True, "Weak peak early cut"
+
+            if not autocut:
+                continue
+
+            coin = asset if asset.startswith("xyz:") else asset
+            dex = "xyz" if asset.startswith("xyz:") else "main"
+            try:
+                mcporter_call("close_position", strategyWalletAddress=wallet, coin=coin, reason=reason)
+            except Exception:
+                continue
+            try:
+                r = subprocess.run(
+                    ["python3", resolve_dsl_cli_path(),
+                     "delete-dsl", strategy_uuid, asset, dex,
+                     "--state-dir", DSL_STATE_DIR],
+                    capture_output=True, text=True, timeout=20,
+                )
+                if r.returncode == 0 and r.stdout:
+                    try:
+                        cli_out = json.loads(r.stdout)
+                        if cli_out.get("cron_to_remove"):
+                            dsl_cron_to_remove_out = cli_out["cron_to_remove"]
+                    except json.JSONDecodeError:
+                        pass
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+            action_required.append({
+                "asset": asset, "strategyKey": strat_key, "reason": reason,
+                "closed_by_script": True,
+            })
+
     # --- Actionable outputs for LLM mandate ---
     notifications = []  # empty — LLM sends notification after closing
-    action_required = []
 
     for strat_key, strat_data in output["strategies"].items():
         for alert in strat_data.get("alerts", []):
@@ -241,6 +327,8 @@ def main():
                         "reason": alert["msg"]
                     })
 
+    if dsl_cron_to_remove_out:
+        output["dsl_cron_to_remove"] = dsl_cron_to_remove_out
     output["notifications"] = notifications
     output["action_required"] = action_required
 

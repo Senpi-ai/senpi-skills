@@ -1,18 +1,19 @@
 ---
 name: wolf-strategy
 description: >-
-  WOLF v6.1.1 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
+  WOLF v6.2 — Fully autonomous multi-strategy trading for Hyperliquid perps via Senpi MCP.
   Manages multiple strategies simultaneously, each with independent wallets, budgets, slots,
-  and DSL configs. 6-cron architecture with Emerging Movers scanner (3min, FIRST_JUMP + IMMEDIATE_MOVER),
-  DSL v4 trailing stops (combined runner every 3min, 4-tier at 5/10/15/20% ROE),
-  SM flip detector (5min), watchdog (5min), risk guardian (5min, account-level guard rails),
-  and health checks (10min). Same asset can be traded in different strategies simultaneously.
-  Enter early on first jumps, not at confirmed peaks. Dynamic risk-based leverage per strategy.
-  Requires Senpi MCP connection, python3, mcporter CLI, and OpenClaw cron system.
+  and DSL configs. 5+N cron architecture: 5 shared wolf crons (Emerging Movers 3min, SM Flip 5min,
+  Watchdog 5min, Risk Guardian 5min, Health Check 10min) plus one DSL v5.2 cron per strategy
+  (native Hyperliquid SL sync via dsl-dynamic-stop-loss skill). Same asset can be traded in
+  different strategies simultaneously. Enter early on first jumps, not at confirmed peaks.
+  Dynamic risk-based leverage per strategy.
+  Requires Senpi MCP connection, python3, mcporter CLI, OpenClaw cron system, and
+  dsl-dynamic-stop-loss skill (provides dsl-cli.py + dsl-v5.py).
 
 ---
 
-# WOLF v6.1.1 — Autonomous Multi-Strategy Trading
+# WOLF v6.2 — Autonomous Multi-Strategy Trading
 
 The WOLF hunts for its human. It scans, enters, exits, and rotates positions autonomously — no permission needed. When criteria are met, it acts. Speed is edge.
 
@@ -22,7 +23,7 @@ The WOLF hunts for its human. It scans, enters, exits, and rotates positions aut
 
 **v6.1.1: Risk Guardian & strategy lock.** 6th cron (5min, Budget tier) enforcing account-level guard rails — daily loss halt, max entries per day, consecutive loss cooldown. Strategy lock for concurrency protection. Gate check in `open-position.py` refuses new entries when gate != OPEN.
 
-**v6.1: Reduced leverage ranges.** All risk tiers lowered — aggressive now caps at 75% of max leverage (was 100%), moderate at 50% (was 75%), conservative at 25% (was 50%). Prevents over-leveraging on high-max-leverage assets.
+**v6.2: DSL v5.2 integration.** Replaced internal `dsl-combined.py` with the `dsl-dynamic-stop-loss` skill (v5.2). One DSL cron per strategy runs `dsl-v5.py` which provides native Hyperliquid stop-loss sync — between cron runs, HL's engine protects the position even if the cron is delayed. DSL state files moved to `{workspace}/dsl/{strategyId_UUID}/`. Migration script: `wolf-migrate-dsl.py`.
 
 ---
 
@@ -40,15 +41,21 @@ wolf-strategies.json
 ```
 
 ### Per-Strategy State
-Each strategy gets its own state directory:
+DSL state files live under the DSL skill's directory (by strategy UUID). Wolf-specific state (trade counters) stays in `state/`:
 ```
-state/
+dsl/                              # owned by dsl-dynamic-stop-loss skill
+├── abc12345-.../                 # Strategy A UUID
+│   ├── strategy-abc12345....json # DSL strategy config
+│   ├── HYPE.json                 # Position state
+│   └── xyz--SILVER.json          # XYZ position
+└── xyz78901-.../                 # Strategy B UUID
+    └── HYPE.json                 # Same asset, different UUID dir, no collision
+
+state/                            # wolf-only state (no DSL files here)
 ├── wolf-abc123/
-│   ├── dsl-HYPE.json
-│   └── dsl-SOL.json
+│   └── trade-counter.json
 └── wolf-xyz789/
-    ├── dsl-HYPE.json    # Same asset, different strategy, no collision
-    └── dsl-GOLD.json
+    └── trade-counter.json
 ```
 
 ### Signal Routing
@@ -80,29 +87,38 @@ Leaderboard rank confirmation LAGS price. When an asset jumps from #31->#16 in o
 ## Quick Start
 
 1. Ensure Senpi MCP is connected (`mcporter list` should show `senpi`)
-2. Create a custom strategy wallet: use `strategy_create_custom_strategy` via mcporter
-3. Fund the wallet via `strategy_top_up` with your budget
-4. **Determine the user's AI provider** — which provider is configured in OpenClaw? (`anthropic`, `openai`, or `google`)
-5. Run setup: `python3 scripts/wolf-setup.py --wallet 0x... --strategy-id UUID --budget 6500 --chat-id 12345 --provider anthropic`
-6. Create the 6 OpenClaw crons using templates from `references/cron-templates.md`
-7. The WOLF is hunting
+2. Ensure the `dsl-dynamic-stop-loss` skill is installed alongside this skill (provides `dsl-cli.py` and `dsl-v5.py`)
+3. Create a custom strategy wallet: use `strategy_create_custom_strategy` via mcporter
+4. Fund the wallet via `strategy_top_up` with your budget
+5. **Determine the user's AI provider** — which provider is configured in OpenClaw? (`anthropic`, `openai`, or `google`)
+6. Run setup: `python3 scripts/wolf-setup.py --wallet 0x... --strategy-id UUID --budget 6500 --chat-id 12345 --provider anthropic`
+   - Setup auto-discovers `dsl-cli.py` and `dsl-v5.py` paths and stores them in `wolf-strategies.json` global config
+   - If auto-discovery fails, set `global.dslCliPath` and `global.dslScriptPath` manually in the registry (or set env `DSL_CLI_PATH`)
+7. **Upgrading from v6.1.x?** Migrate existing DSL state files: `python3 scripts/wolf-migrate-dsl.py`
+   - Copies active `state/{strategyKey}/dsl-{ASSET}.json` → `dsl/{UUID}/{ASSET}.json`
+   - Tombstones old files (sets `active: false`). Run once before switching crons.
+8. Create the 5 wolf crons + 1 DSL cron per strategy using templates from `references/cron-templates.md`
+   - The DSL cron mandate is in `cronTemplates.dsl_per_strategy` from setup output — use the `message` field directly
+9. The WOLF is hunting
 
-To add a second strategy, run `wolf-setup.py` again with a different wallet/budget. It adds to the registry.
+To add a second strategy, run `wolf-setup.py` again with a different wallet/budget. It adds to the registry and creates the DSL cron for the new strategy.
 
 ---
 
-## Architecture — 6 Cron Jobs
+## Architecture — 5+N Cron Jobs
 
 | # | Job | Interval | Session | Script | Purpose |
 |---|-----|----------|---------|--------|---------|
 | 1 | Emerging Movers | **3min** | isolated | `scripts/emerging-movers.py` | Hunt FIRST_JUMP + IMMEDIATE_MOVER signals — primary entry trigger |
-| 2 | DSL Combined | **3min** | isolated | `scripts/dsl-combined.py` | Trailing stop exits for ALL open positions across ALL strategies |
+| 2 | DSL *(per strategy)* | **3min** | isolated | `dsl-v5.py` (DSL skill) | Trailing stops + native HL SL sync for ONE strategy's positions |
 | 3 | SM Flip Detector | 5min | isolated | `scripts/sm-flip-check.py` | Cut positions where SM conviction collapses |
-| 4 | Watchdog | 5min | isolated | `scripts/wolf-monitor.py` | Per-strategy margin buffer, liq distances, rotation candidates |
+| 4 | Watchdog | 5min | isolated | `scripts/wolf-monitor.py` | Per-strategy margin buffer, liq distances, phase1 auto-cut |
 | 5 | Health Check | 10min | isolated | `scripts/job-health-check.py` | Per-strategy orphan DSL detection, state validation |
 | 6 | Risk Guardian | 5min | isolated | `scripts/risk-guardian.py` | Account-level guard rails: daily loss halt, max entries, consecutive loss cooldown |
 
-**v6 change:** One set of crons for all strategies. Each script reads `wolf-strategies.json` and iterates all enabled strategies internally.
+**v6.2 change:** DSL is no longer a combined runner. Each strategy has its own `dsl-v5.py` cron (from the `dsl-dynamic-stop-loss` skill), running with `DSL_STRATEGY_ID={strategyId_UUID}`. Wolf scripts call `dsl-cli.py` (add-dsl / delete-dsl) to create and archive DSL state; they never write state directly.
+
+With 2 strategies: **7 crons total** (5 wolf + 2 DSL). DSL cron IDs are stored in `dslCronJobId` in the strategy registry.
 
 ### Model Selection Per Cron — 2-Tier Approach
 
@@ -121,7 +137,7 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 | Cron | Session | Model Tier | Reason |
 |------|---------|-----------|--------|
 | Emerging Movers | isolated | Mid | Multi-strategy routing judgment, entry decisions |
-| DSL Combined | isolated | Mid | Script output parsing, rule-based close/alert |
+| DSL (per strategy) | isolated | Mid | ndjson parsing, rule-based close/alert, cron lifecycle |
 | Health Check | isolated | Mid | Rule-based file repair, action routing |
 | SM Flip Detector | isolated | Budget | Binary: conviction≥4 + 100 traders → close |
 | Watchdog | isolated | Budget | Threshold checks → alert |
@@ -138,11 +154,13 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 
 ## Cron Setup
 
-**Critical:** Crons are **OpenClaw crons**, NOT senpi crons. All 6 crons run in **isolated sessions** (`agentTurn`) — each runs in its own session with no context pollution, enabling cheaper model tiers.
+**Critical:** Crons are **OpenClaw crons**, NOT senpi crons. All crons run in **isolated sessions** (`agentTurn`) — each runs in its own session with no context pollution, enabling cheaper model tiers.
 
-Create each cron using the OpenClaw cron tool. The exact mandate text for each cron is in **`references/cron-templates.md`**. Read that file, replace the placeholders (`{TELEGRAM}`, `{SCRIPTS}`, and `{WORKSPACE}` in v6), and create all 6 crons.
+Create each cron using the OpenClaw cron tool. The exact mandate text for each cron is in **`references/cron-templates.md`**. Replace placeholders (`{TELEGRAM}`, `{SCRIPTS}`, `{WORKSPACE}`).
 
-**v6 simplification:** No more per-wallet/per-strategy placeholders in cron mandates. Scripts read all strategy info from the registry.
+**DSL cron:** The DSL per-strategy cron mandate is generated by `wolf-setup.py` in `cronTemplates.dsl_per_strategy.payload.message`. Use it directly — `wolf-setup.py` auto-fills the `dsl-v5.py` path from `global.dslScriptPath` in the registry. If the path could not be auto-discovered (placeholder `{DSL_SCRIPTS}` still present), read `global.dslScriptPath` from `wolf-strategies.json` after installing the DSL skill and substitute it manually.
+
+**v6.2:** 5 shared wolf crons + 1 DSL cron per strategy. No more single DSL Combined cron.
 
 ---
 
@@ -255,37 +273,46 @@ Conv 0, negative ROE, 30+ min -> instant cut.
 Conviction 4+ in the OPPOSITE direction with 100+ traders -> cut immediately.
 
 ### 5. Race Condition Prevention
-When ANY job closes a position -> immediately:
-1. Set DSL state `active: false` in `state/{strategyKey}/dsl-{ASSET}.json`
-2. Alert user
-3. Evaluate: empty slot in that strategy for next signal?
+When ANY wolf script closes a position:
+1. Call `dsl-cli.py delete-dsl {strategyId} {asset} {main|xyz} --state-dir {DSL_STATE_DIR}` to archive the DSL state
+2. If CLI output has `cron_to_remove` → remove that DSL cron (it was the last position for that strategy)
+3. Alert user via Telegram
+4. Evaluate: empty slot in that strategy for next signal?
 
-**v6 note:** Since DSL is a combined runner iterating all strategies, no per-position crons to manage. Just set `active: false` in the state file.
+**Never set `active: false` in place.** DSL v5.2 archives files by rename; an in-place deactivation will confuse `dsl-v5.py`.
 
 ---
 
-## DSL v4 — Trailing Stop System
+## DSL v5.2 — Trailing Stop System (via dsl-dynamic-stop-loss skill)
+
+Wolf delegates all DSL logic to the `dsl-dynamic-stop-loss` skill. Wolf's role:
+- **Create:** call `dsl-cli.py add-dsl {strategyId} {asset} {dex} --skill wolf-strategy --configuration {...} --state-dir {DSL_STATE_DIR}` after opening a position
+- **Delete:** call `dsl-cli.py delete-dsl {strategyId} {asset} {dex} --state-dir {DSL_STATE_DIR}` after closing a position
+- **Run:** `dsl-v5.py` runs as a per-strategy cron with `DSL_STRATEGY_ID={UUID}`
+
+Wolf never writes DSL state files directly.
 
 ### Phase 1 (Pre-Tier 1): Absolute floor
-- LONG floor = entry x (1 - 10%/leverage)
-- SHORT floor = entry x (1 + 10%/leverage)
-- 3 consecutive breaches -> close
-- **Max duration: 90 minutes** (see Phase 1 Auto-Cut above)
+- LONG floor = entry × (1 − retraceThreshold/leverage)  where retraceThreshold=0.10 (10% ROE)
+- SHORT floor = entry × (1 + retraceThreshold/leverage)
+- 3 consecutive breaches → close
+- **Max duration: 90 minutes** (enforced by Watchdog, not DSL v5 — see Phase 1 Auto-Cut)
+- **Native HL SL:** dsl-v5.py sets a real stop-loss order on HL via `edit_position`. Between cron runs, HL's engine protects the position.
 
 ### Phase 2 (Tier 1+): Trailing tiers
 
-| Tier | ROE Trigger | Lock % of High-Water | Breaches to Close |
+| Tier | ROE Trigger | Lock % of High-Water | Breaches (shared) |
 |------|-------------|---------------------|-------------------|
-| 1 | 5% | 50% | 2 |
+| 1 | 5% | 50% | 2 (majority from wolf tier config) |
 | 2 | 10% | 65% | 2 |
 | 3 | 15% | 75% | 2 |
-| 4 | 20% | 85% | 1 |
+| 4 | 20% | 85% | 2 |
 
-### Stagnation Take-Profit
-Auto-close if ROE >= 8% and high-water stale for 1 hour.
+Note: DSL v5.2 uses a single `consecutiveBreachesRequired` for all tiers. `build_wolf_dsl_config()` derives it from the majority breach count in wolf's tier config.
 
-### DSL State File
-Each position gets `state/{strategyKey}/dsl-{ASSET}.json`. The combined runner iterates all active state files across all strategies. See `references/state-schema.md` for the full schema and critical gotchas (triggerPct not threshold, lockPct not retracePct, etc.).
+### DSL State Files
+Location: `dsl/{strategyId_UUID}/{ASSET}.json` (e.g. `dsl/6a23783a-.../HYPE.json`).
+See `references/state-schema.md` for schema. Key difference from v4: `phase1.retraceThreshold` is a fraction (0.10), not a percentage (10).
 
 ---
 
@@ -320,16 +347,20 @@ Leverage is computed dynamically per position from `tradingRisk` + asset `maxLev
 ## Position Lifecycle
 
 ### Opening
-1. Signal fires -> validate checklist -> route to best-fit strategy
+1. Signal fires → validate checklist → route to best-fit strategy
 2. Enter via `python3 scripts/open-position.py --strategy {strategyKey} --asset {ASSET} --direction {DIR} --conviction {CONVICTION}`
-   Leverage is auto-calculated from `tradingRisk` + asset `maxLeverage` + `conviction`. This atomically opens the position AND creates the DSL state file. Do NOT manually create DSL JSON.
-3. Alert user
+   - Atomically opens position AND calls `dsl-cli.py add-dsl` to create DSL state
+   - DSL CLI fetches fill data (entryPx, size, leverage) directly from clearinghouse
+   - Do NOT manually create DSL JSON
+3. Check output for `dsl_cron_needed: true` — if present, create the DSL cron for this strategy
+4. Alert user
 
 ### Closing
-1. Close via `close_position` (or DSL auto-closes)
-2. **Immediately** set DSL state `active: false`
-3. Alert user with strategy name for context
-4. Evaluate: empty slot in that strategy for next signal?
+1. Close via `close_position` MCP call (or DSL auto-closes via its own cron)
+2. Call `dsl-cli.py delete-dsl {strategyId} {asset} {dex}` to archive DSL state — **never set `active: false` directly**
+3. If CLI output has `cron_to_remove` → remove that DSL cron
+4. Alert user with strategy name for context
+5. Evaluate: empty slot in that strategy for next signal?
 
 ---
 
@@ -449,9 +480,8 @@ All parameters are optional — defaults are used for any missing key. Set per s
 ## Backward Compatibility
 
 - `wolf_config.py` auto-migrates legacy `wolf-strategy.json` to registry format on first load
-- Old `dsl-state-WOLF-*.json` files detected and migrated to `state/wolf-{id}/dsl-*.json`
-- All scripts work with both layouts during transition
-- All DSL logic is handled by `dsl-combined.py` (multi-strategy runner)
+- **DSL v4 → v5.2 migration:** Run `python3 scripts/wolf-migrate-dsl.py` once. Moves active `state/{strategyKey}/dsl-{ASSET}.json` files to `dsl/{UUID}/{ASSET}.json`. Old files tombstoned (`active: false`). Must run before switching to DSL v5 crons.
+- Old DSL Combined cron should be removed after migration and per-strategy DSL crons are running
 
 ---
 
@@ -469,11 +499,14 @@ See `references/learnings.md` for known bugs, gotchas, and trading discipline ru
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/wolf-setup.py` | Setup wizard — adds strategy to registry from budget |
-| `scripts/wolf_config.py` | Shared config loader — all scripts import this |
+| `scripts/wolf-setup.py` | Setup wizard — adds strategy to registry, creates DSL strategy config + cron |
+| `scripts/wolf_config.py` | Shared config loader — all scripts import this; provides `resolve_dsl_cli_path()`, `build_wolf_dsl_config()` |
 | `scripts/emerging-movers.py` | Emerging Movers v4 scanner (FIRST_JUMP, IMMEDIATE, CONTRIB_EXPLOSION) |
-| `scripts/dsl-combined.py` | DSL v4 combined trailing stop engine (all positions, all strategies) |
+| `scripts/open-position.py` | Opens position + calls `dsl-cli.py add-dsl` atomically |
 | `scripts/sm-flip-check.py` | SM conviction flip detector (multi-strategy) |
-| `scripts/wolf-monitor.py` | Watchdog — per-strategy margin buffer + position health |
-| `scripts/job-health-check.py` | Per-strategy orphan DSL / state validation |
+| `scripts/wolf-monitor.py` | Watchdog — per-strategy margin buffer, phase1 auto-cut + `delete-dsl` |
+| `scripts/job-health-check.py` | Per-strategy orphan DSL / state validation — auto-heals via CLI |
 | `scripts/risk-guardian.py` | Risk Guardian — account-level guard rails (daily loss, max entries, consecutive loss cooldown) |
+| `scripts/wolf-migrate-dsl.py` | One-time migration: moves DSL state from v4 path to v5.2 path |
+| *(DSL skill)* `dsl-cli.py` | DSL lifecycle CLI: `add-dsl`, `delete-dsl`, `pause-dsl`, `resume-dsl` |
+| *(DSL skill)* `dsl-v5.py` | DSL cron runner: trailing stops + native HL SL sync, one per strategy |
