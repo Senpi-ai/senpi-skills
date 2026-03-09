@@ -34,7 +34,7 @@ The FOX hunts for its human. It scans, enters, exits, and rotates positions auto
 ## Quick Start
 
 1. Ensure Senpi MCP is connected (`mcporter list` should show `senpi`)
-2. Create a custom strategy wallet: use `strategy_create_custom_strategy` via mcporter
+2. Create a custom strategy wallet: use `strategy_create_custom_strategy` via mcporter (include `skill_name: "fox-strategy"`, `skill_version: "0.3"` — see `references/skill-attribution.md`)
 3. Fund the wallet via `strategy_top_up` with your budget
 4. Run setup: `python3 scripts/fox-setup.py --wallet 0x... --strategy-id UUID --budget 6500 --chat-id 12345`
 5. Create the 8 OpenClaw crons using templates from `references/cron-templates.md`
