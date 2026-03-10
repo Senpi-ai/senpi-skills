@@ -16,12 +16,14 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
   "strategyId": "uuid-of-strategy",
   "phase": 1,
   "phase1": {
+    "enabled": true,
     "retraceThreshold": 0.03,
     "consecutiveBreachesRequired": 3,
     "absoluteFloor": 28.00
   },
   "phase2TriggerTier": 1,
   "phase2": {
+    "enabled": true,
     "retraceThreshold": 0.015,
     "consecutiveBreachesRequired": 2
   },
@@ -33,7 +35,6 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
     {"triggerPct": 75, "lockPct": 60, "retrace": 0.008},
     {"triggerPct": 100, "lockPct": 80, "retrace": 0.006}
   ],
-  "breachDecay": "hard",
   "closeRetries": 2,
   "closeRetryDelaySec": 3,
   "maxFetchFailures": 10,
@@ -70,22 +71,29 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 | `currentTierIndex` | int | Current tier (-1 = no tier hit yet) |
 | `highWaterPrice` | number | Initialize to entry price |
 | `currentBreachCount` | int | Initialize to 0 |
-| `createdAt` | string | ISO 8601 timestamp |
+| `createdAt` | string | ISO 8601 timestamp. **Required.** Set when the position state is created; used to compute elapsed time for Phase 1 time-based auto-cut. The cron runner backfills this from `lastCheck` if missing (e.g. legacy state). |
 
-### phase1 Object
+**Phase and runtime:** The cron runner updates `phase` (1 or 2) and other runtime fields every run and persists them to the state file so the current DSL phase is always stored for easy processing.
+
+### phase1 Object (capital protection — avoid losing original money)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `retraceThreshold` | float | Retrace from HW in **ROE** terms (e.g. 0.03 = 3% ROE). Script converts to price via ÷ leverage so 3% means 3% ROE at any leverage. |
+| `enabled` | bool | If true, Phase 1 is active. At least one of phase1.enabled or phase2.enabled must be true. |
+| `retraceThreshold` | float | Retrace from HW in **ROE** terms (e.g. 0.03 = 3% ROE). Script converts to price via ÷ leverage. |
 | `consecutiveBreachesRequired` | int | Checks below floor before close |
 | `absoluteFloor` | number | Hard price floor — max loss cap |
+| `hardTimeout` | object | Optional. Phase 1 **hard timeout**. `{ "enabled": bool, "intervalInMinutes": number }`. When enabled and elapsed ≥ intervalInMinutes, close. **If not present, treated as disabled** (no default object is written). intervalInMinutes must be ≥ cronIntervalMinutes when enabled. |
+| `weakPeakCut` | object | Optional. **Weak peak early cut.** `{ "enabled": bool, "intervalInMinutes": number, "minValue": number }`. When enabled, after intervalInMinutes close if peak ROE &lt; minValue (ROE %) and current ROE &lt; peak ROE. **If not present, treated as disabled.** |
+| `deadWeightCut` | object | Optional. **Dead weight cut:** if ROE was never positive for the whole life of the position and elapsed ≥ intervalInMinutes, close. `{ "enabled": bool, "intervalInMinutes": number }`. **If not present, treated as disabled.** intervalInMinutes must be ≥ cronIntervalMinutes when enabled and &gt; 0. |
 
-### phase2 Object
+### phase2 Object (tier-based only)
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `enabled` | bool | If true, Phase 2 (tiers) is active. Tiers are used only in Phase 2. |
 | `retraceThreshold` | float | Default retrace (ROE fraction) for tiers without per-tier override |
-| `consecutiveBreachesRequired` | int | Consecutive breach checks before close (default: 1 — close on first breach in Phase 2) |
+| `consecutiveBreachesRequired` | int | Consecutive breach checks before close (default: 1 in Phase 2) |
 
 ### Tier Objects
 
@@ -99,7 +107,7 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `breachDecay` | `"hard"` | `"hard"` resets breach count to 0 on recovery; `"soft"` decays by 1 |
+| `cronIntervalMinutes` | `3` | **General:** How frequently the DSL cron runs (in minutes). Not part of phase1 — it defines the run interval for the whole strategy. Skills can set this (e.g. 3 or 5); the CLI emits cron intent so the agent creates the OpenClaw cron with that schedule. **When this is changed**, the agent must remove the old cron and create a new one with the new interval. Also used as the **minimum** for `phase1MaxMinutes` and `weakPeakCutMinutes` (they cannot be less than the cron interval). |
 | `closeRetries` | `2` | Close attempts before setting `pendingClose` |
 | `closeRetryDelaySec` | `3` | Seconds between retry attempts |
 | `maxFetchFailures` | `10` | Auto-deactivate after this many consecutive fetch failures |
@@ -112,14 +120,25 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 
 ## v5 Hyperliquid SL Fields (optional)
 
+**Who sets these:** The **cron runner** (`dsl-v5.py`) syncs the floor to Hyperliquid via Senpi `edit_position` and populates/updates these fields. The **CLI only creates the state file** — it does not place the SL order. If a position was paused right after creation, the cron skips it until it is resumed; the next cron run (~within 3 min after resume) will pick it up, sync the floor to Hyperliquid, and set `slOrderId`.
+
 When the script syncs the dynamic stop loss to Hyperliquid via Senpi `edit_position`, it stores and updates these fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `slOrderId` | number \| null | Hyperliquid order ID of the current SL for this position. Set after a successful `edit_position` (or resolved via `strategy_get_open_orders`). |
+| `slOrderId` | number \| null | Hyperliquid order ID of the current SL for this position. Set by the cron runner after a successful `edit_position` (or resolved via `strategy_get_open_orders`). |
 | `lastSyncedFloorPrice` | number \| null | The effective floor price at which the current SL was last placed on Hyperliquid. Used to detect when the floor has changed and a new SL must be set. |
 | `slOrderIdUpdatedAt` | string \| null | ISO 8601 timestamp when the SL was last synced (for debugging/audit). |
 | `lastSlSyncError` | string \| null | Set by script when `edit_position` or SL order resolution fails; next sync will retry. |
+
+### Archived / closed state (close reason)
+
+When the cron archives a position state file (rename to `*_archived_*`, `*_archived_sl_*`, or `*_archived_external_*`), it writes these fields into the JSON before renaming so the agent (or downstream tools) can tell why the position was closed:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `closeReason` | string | Why the position was closed. **`sl_filled`** — SL order filled on exchange. **`external`** — position no longer in clearinghouse (manual or other close). **`Phase 1 timeout …`**, **`Weak peak early cut`**, **`Dead weight cut (never positive)`**, **`Auto-deactivated: N consecutive fetch failures`**, or breach-related text — in-script close (breach, time-based cut, or fetch failures). |
+| `closedAt` | string | ISO 8601 timestamp when the position was closed / archived. |
 
 Path and file naming stay the same; these fields are optional and backfilled by the script when syncing.
 

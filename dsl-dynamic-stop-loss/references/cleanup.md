@@ -40,7 +40,7 @@ DSL_STRATEGY_ID=<strategy-uuid> python3 scripts/dsl-cleanup.py
 
 | Status    | Meaning |
 |----------|---------|
-| `cleaned` | Strategy directory removed (including any archived files). `positions_deleted` is the count of `.json` files that were in the dir. |
+| `cleaned` | No active positions; strategy directory and all state/archive files are **retained** (DSL never deletes state or archive files). |
 | `blocked` | At least one state file has `active=true`; directory not touched. `blocked_by_active` lists assets. |
 
 Example cleaned:
@@ -49,9 +49,9 @@ Example cleaned:
 {
   "status": "cleaned",
   "strategy_id": "strat-abc-123",
-  "positions_deleted": 3,
   "blocked_by_active": [],
-  "time": "2026-02-27T15:30:00Z"
+  "time": "2026-02-27T15:30:00Z",
+  "note": "directory_retained_no_deletion"
 }
 ```
 
@@ -71,8 +71,8 @@ Example blocked:
 | Event | Agent action |
 |-------|--------------|
 | `closed=true` in dsl-v5.py output | Alert user; script archived state file to `{asset}_archived_{epoch}.json` |
-| `status: "strategy_inactive"` in dsl-v5.py output | Remove cron for that strategy; run `dsl-cleanup.py` for that strategy |
-| All positions in strategy closed (no active state files left) | Next run may output no_positions or strategy_inactive; then remove cron and run `dsl-cleanup.py` |
+| `status: "strategy_inactive"` in dsl-v5.py output | Remove OpenClaw cron for that strategy; run `dsl-cleanup.py` for that strategy |
+| All positions in strategy closed (no active state files left) | Next run may output no_positions or strategy_inactive; then remove OpenClaw cron and run `dsl-cleanup.py` |
 | `strategy_close_strategy` called | After strategy is inactive, run `dsl-cleanup.py` |
 
 ## File Layout
