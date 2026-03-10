@@ -122,7 +122,7 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 |----------|-----------|--------------|
 | `anthropic` | `anthropic/claude-sonnet-4-5` | `anthropic/claude-haiku-4-5` |
 | `openai` | `openai/gpt-4o` | `openai/gpt-4o-mini` |
-| `google` | `google/gemini-2.0-flash` | `google/gemini-2.0-flash-lite` |
+| `google` | `google/gemini-2.5-flash` | `google/gemini-2.5-flash-lite` |
 
 | Cron | Session | Model Tier | Reason |
 |------|---------|-----------|--------|
