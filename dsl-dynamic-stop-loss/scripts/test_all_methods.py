@@ -387,8 +387,10 @@ class TestDslCliValidate(unittest.TestCase):
         )
 
     def test_validate_dsl_config(self):
-        # Empty dict fails: at least one phase must be enabled
-        self.assertIn("at least one of phase1.enabled or phase2.enabled must be true", dsl_cli.validate_dsl_config({}))
+        # Empty dict / partial patch (no phase blocks) is valid for update-dsl
+        self.assertEqual(dsl_cli.validate_dsl_config({}), [])
+        self.assertEqual(dsl_cli.validate_dsl_config({"phase2TriggerTier": 1}), [])
+        self.assertEqual(dsl_cli.validate_dsl_config({"tiers": [{"triggerPct": 10, "lockPct": 5}]}), [])
         self.assertEqual(dsl_cli.validate_dsl_config({"phase1": {"enabled": True}}), [])
         self.assertEqual(dsl_cli.validate_dsl_config("x"), ["configuration must be a JSON object"])
         self.assertEqual(
