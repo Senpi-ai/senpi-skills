@@ -1,0 +1,11 @@
+{
+  "date": "",
+  "accountValueStart": 0,
+  "entries": 0,
+  "gate": "OPEN",
+  "lastThreeResults": [],
+  "trades": [],
+  "cooldownUntil": null,
+  "maxEntriesPerDay": 6,
+  "marginTiers": []
+}
