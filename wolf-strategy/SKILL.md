@@ -112,7 +112,7 @@ To add a second strategy, run `wolf-setup.py` again with a different wallet/budg
 | 1 | Emerging Movers | **3min** | isolated | `scripts/emerging-movers.py` | Hunt FIRST_JUMP + IMMEDIATE_MOVER signals — primary entry trigger |
 | 2 | DSL *(per strategy)* | **3min** | isolated | `dsl-v5.py` (DSL skill) | Trailing stops + native HL SL sync for ONE strategy's positions |
 | 3 | SM Flip Detector | 5min | isolated | `scripts/sm-flip-check.py` | Cut positions where SM conviction collapses |
-| 4 | Watchdog | 5min | isolated | `scripts/wolf-monitor.py` | Per-strategy margin buffer, liq distances, phase1 auto-cut |
+| 4 | Watchdog | 5min | isolated | `scripts/wolf-monitor.py` | Per-strategy margin buffer, liq distances (Phase 1 auto-cut is handled by DSL cron when configured) |
 | 5 | Health Check | 10min | isolated | `scripts/job-health-check.py` | Per-strategy orphan DSL detection, state validation |
 | 6 | Risk Guardian | 5min | isolated | `scripts/risk-guardian.py` | Account-level guard rails: daily loss halt, max entries, consecutive loss cooldown |
 
@@ -246,14 +246,14 @@ This deserves its own section because it's the #1 way to lose money with WOLF.
 
 ## Phase 1 Auto-Cut
 
-Positions that never gain momentum get cut automatically.
+Phase 1 time-based cuts (hard timeout, weak peak, dead weight) are **managed by the DSL cron** when the skill supplies `phase1.hardTimeout`, `phase1.weakPeakCut`, and/or `phase1.deadWeightCut` in its DSL config. Wolf-strategy does not implement these in the Watchdog; include them in the skill's dsl-profile (or defaultConfig) if desired.
 
-**Rules:**
-- **90-minute maximum** in Phase 1 (pre-Tier 1 DSL). If ROE never hits 5% in 90 minutes, close.
-- **Weak peak early cut:** If peak ROE was < 3% and ROE is now declining -> close after 45 minutes. Don't wait 90.
-- **Dead weight:** SM conviction = 0, negative ROE, position open 30+ minutes -> instant cut regardless of phase.
+**When configured in DSL:**
+- **Hard timeout:** Close when elapsed in Phase 1 ≥ intervalInMinutes (e.g. 90).
+- **Weak peak early cut:** After intervalInMinutes (e.g. 45), close if peak ROE &lt; minValue and current ROE &lt; peak ROE.
+- **Dead weight cut:** Close when ROE was never positive and elapsed ≥ intervalInMinutes (e.g. 30).
 
-**Why:** Phase 1 positions have no trailing stop protection. They're running on faith. If SM conviction doesn't materialize in 90 min, the thesis is wrong.
+**Why:** Phase 1 positions have no trailing stop protection. If the skill enables these in DSL config, the DSL cron enforces them; wolf-strategy no longer needs to manage them.
 
 ---
 
@@ -267,7 +267,7 @@ All trailing stops handled automatically by `dsl-combined.py` across all strateg
 Conv drops to 0 or 4->1 with mass trader exodus -> instant cut.
 
 ### 3. Dead Weight
-Conv 0, negative ROE, 30+ min -> instant cut.
+When DSL config includes `phase1.deadWeightCut`, the DSL cron closes positions that have never gone positive (ROE negative entire time) after the configured minutes. Other dead-weight logic (e.g. conv 0, negative ROE) can remain in agent mandate if desired.
 
 ### 4. SM Flip
 Conviction 4+ in the OPPOSITE direction with 100+ traders -> cut immediately.

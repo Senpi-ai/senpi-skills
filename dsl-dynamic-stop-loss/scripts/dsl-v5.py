@@ -25,6 +25,16 @@ from datetime import datetime, timezone
 DEFAULT_STATE_DIR = "/data/workspace/dsl"
 
 
+def _safe_int(value, default: int = 0) -> int:
+    """Convert to int without raising; return default on failure."""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def asset_to_filename(asset: str) -> str:
     """xyz:SILVER → xyz--SILVER (filesystem-safe)."""
     if asset.startswith("xyz:"):
@@ -377,6 +387,56 @@ def normalize_state_phase_config(state: dict) -> bool:
     if "consecutiveBreachesRequired" not in p2:
         p2["consecutiveBreachesRequired"] = DEFAULT_PHASE2_BREACHES
         changed = True
+
+    # Backfill createdAt so elapsed-time logic always has a value (use lastCheck or leave for caller).
+    if not state.get("createdAt"):
+        state["createdAt"] = state.get("lastCheck") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        changed = True
+
+    # Backfill cronIntervalMinutes (default 3) for phase1 time-based cut minimum.
+    if state.get("cronIntervalMinutes") is None:
+        state["cronIntervalMinutes"] = 3
+        changed = True
+
+    # Phase 1 time-based cut objects: if not present, treated as disabled (no backfill).
+    # Only migrate legacy flat keys into the object structure when present.
+    cron_min = max(1, int(state.get("cronIntervalMinutes", 3)))
+    if p1.get("phase1MaxMinutes") is not None:
+        if p1.get("hardTimeout") is None or not isinstance(p1["hardTimeout"], dict):
+            p1["hardTimeout"] = {}
+        ht = p1["hardTimeout"]
+        val = _safe_int(p1.get("phase1MaxMinutes"), 0)
+        if val > 0:
+            ht["enabled"] = True
+            ht["intervalInMinutes"] = max(val, cron_min)
+            changed = True
+        p1.pop("phase1MaxMinutes", None)
+    if p1.get("weakPeakCutMinutes") is not None:
+        if p1.get("weakPeakCut") is None or not isinstance(p1["weakPeakCut"], dict):
+            p1["weakPeakCut"] = {}
+        wpc = p1["weakPeakCut"]
+        val = _safe_int(p1.get("weakPeakCutMinutes"), 0)
+        if val > 0:
+            wpc["enabled"] = True
+            wpc["intervalInMinutes"] = max(val, cron_min)
+            try:
+                wpc["minValue"] = float(p1.get("weakPeakThreshold", 3.0))
+            except (TypeError, ValueError):
+                wpc["minValue"] = 3.0
+            changed = True
+        p1.pop("weakPeakCutMinutes", None)
+        p1.pop("weakPeakThreshold", None)
+    if p1.get("deadWeightCutMin") is not None:
+        if p1.get("deadWeightCut") is None or not isinstance(p1["deadWeightCut"], dict):
+            p1["deadWeightCut"] = {}
+        dwc = p1["deadWeightCut"]
+        val = _safe_int(p1.get("deadWeightCutMin"), 0)
+        if val > 0:
+            dwc["enabled"] = True
+            dwc["intervalInMinutes"] = max(val, cron_min)
+            changed = True
+        p1.pop("deadWeightCutMin", None)
+
     return changed
 
 
@@ -703,14 +763,15 @@ def try_close_position(
     close_retries: int,
     close_retry_delay: float,
 ) -> tuple[bool, str | None]:
-    """Attempt close via senpi:close_position. Mutates state. Returns (closed, close_result)."""
+    """Attempt close via senpi:close_position. Mutates state. Returns (closed, close_result).
+    Uses state['closeReason'] if set (e.g. Phase 1 timeout / weak peak); otherwise breach reason."""
     wallet = state.get("wallet", "")
     coin = state["asset"]
     if not wallet:
         state["pendingClose"] = True
         return False, "error: no wallet in state file"
 
-    reason = (
+    reason = state.get("closeReason") or (
         f"DSL breach: Phase {phase}, {breach_count}/{breaches_needed} breaches, "
         f"price {price}, floor {effective_floor}"
     )
@@ -726,7 +787,7 @@ def try_close_position(
                 state["active"] = False
                 state["pendingClose"] = False
                 state["closedAt"] = now
-                state["closeReason"] = f"DSL breach: Phase {phase}, price {price}, floor {effective_floor}"
+                state["closeReason"] = reason
                 return True, result_text
             close_result = f"api_error_attempt_{attempt+1}: {result_text}"
         except Exception as e:
@@ -863,6 +924,7 @@ def build_output(
         "should_close": should_close,
         "closed": closed,
         "close_result": close_result,
+        "close_reason": state.get("closeReason") if closed else None,
         "time": now,
         "tier_changed": tier_changed,
         "previous_tier": previous_tier_name,
@@ -994,6 +1056,59 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
     breach_count = update_breach_count(state, breached, "hard")
     force_close = state.get("pendingClose", False)
     should_close = breach_count >= breaches_needed or force_close
+
+    # Phase 1 time-based auto-cut (optional; only when phase==1, using extensible objects)
+    if not should_close and phase == 1 and state.get("createdAt"):
+        try:
+            created_dt = datetime.fromisoformat(state["createdAt"].replace("Z", "+00:00"))
+            now_dt = datetime.fromisoformat(now.replace("Z", "+00:00"))
+            elapsed_min = (now_dt - created_dt).total_seconds() / 60.0
+        except (ValueError, TypeError):
+            elapsed_min = 0.0
+        cron_interval = max(1, int(state.get("cronIntervalMinutes", 3)))
+        p1 = state.get("phase1") or {}
+        entry_f = float(state.get("entryPrice", 0))
+        lev_f = max(1, float(state.get("leverage", 1)))
+
+        # hardTimeout: { enabled, intervalInMinutes }
+        ht = p1.get("hardTimeout") or {}
+        if isinstance(ht, dict) and ht.get("enabled"):
+            interval = max(_safe_int(ht.get("intervalInMinutes"), 0), cron_interval)
+            if interval > 0 and elapsed_min >= interval:
+                should_close = True
+                state["closeReason"] = f"Phase 1 timeout {elapsed_min:.0f}min"
+
+        # weakPeakCut: { enabled, intervalInMinutes, minValue }
+        if not should_close:
+            wpc = p1.get("weakPeakCut") or {}
+            if isinstance(wpc, dict) and wpc.get("enabled"):
+                interval = max(_safe_int(wpc.get("intervalInMinutes"), 0), cron_interval)
+                if interval > 0 and elapsed_min >= interval and entry_f > 0:
+                    try:
+                        min_val = float(wpc.get("minValue", 3.0))
+                    except (TypeError, ValueError):
+                        min_val = 3.0
+                    if is_long:
+                        peak_roe_pct = (hw - entry_f) / entry_f * lev_f * 100
+                    else:
+                        peak_roe_pct = (entry_f - hw) / entry_f * lev_f * 100
+                    if peak_roe_pct < min_val and upnl_pct < peak_roe_pct:
+                        should_close = True
+                        state["closeReason"] = "Weak peak early cut"
+
+        # deadWeightCut: { enabled, intervalInMinutes } — ROE was never positive for X min → close
+        if not should_close:
+            dwc = p1.get("deadWeightCut") or {}
+            if isinstance(dwc, dict) and dwc.get("enabled"):
+                interval = _safe_int(dwc.get("intervalInMinutes"), 0)
+                if interval > 0:
+                    interval = max(interval, cron_interval)
+                    if elapsed_min >= interval:
+                        # Never gone positive: LONG → highWater <= entry; SHORT → highWater >= entry
+                        never_positive = (is_long and hw <= entry_f) or (not is_long and hw >= entry_f)
+                        if never_positive:
+                            should_close = True
+                            state["closeReason"] = "Dead weight cut (never positive)"
 
     closed = False
     close_result = None

@@ -72,10 +72,10 @@ Examples (this skill): `--skill dsl-dynamic-stop-loss --configuration @<path-to-
 When the user asks for trailing/dynamic stop loss, use **`scripts/dsl-cli.py`** for all lifecycle operations (do not edit state files by hand unless CLI is unavailable).
 
 - **Add DSL:** `python3 scripts/dsl-cli.py add-dsl <strategy-id> [asset dex] --skill dsl-dynamic-stop-loss --configuration @<path-to-this-skill>/dsl-profile.json`
-- If output has `cron_needed: true`, create the **OpenClaw** cron with the output `cron_job_id`, `cron_env`, and `cron_schedule` (one cron per strategy, 3–5 min).
+- If output has `cron_needed: true`, create the **OpenClaw** cron with the output `cron_job_id`, `cron_env`, and `cron_schedule` (schedule is derived from `cronIntervalMinutes`, default 3; one cron per strategy).
 - **Update / Pause / Resume / Delete / Status / Count:** use the commands in the table above (same CLI, same `--skill` and `--configuration` as for add).
 
-**Agent:** On `closed=true` → alert user. On `strategy_inactive` → remove cron, run `dsl-cleanup.py`. On `pending_close=true` → alert (script retries). On `delete-dsl` output `cron_to_remove` → remove that cron.
+**Agent:** On `closed=true` → alert user. On `strategy_inactive` → remove cron, run `dsl-cleanup.py`. On `pending_close=true` → alert (script retries). On `delete-dsl` output `cron_to_remove` → remove that cron. On **update-dsl** output `cron_schedule_changed: true` → remove the existing cron (using `cron_to_remove.cron_job_id`) and create a new one with the same `cron_job_id` and the new `cron_schedule` (interval is configurable via `cronIntervalMinutes`; default 3 min).
 
 ## Other skills: setting up DSL
 

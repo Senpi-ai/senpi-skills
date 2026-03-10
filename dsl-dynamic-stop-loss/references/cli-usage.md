@@ -30,7 +30,7 @@ python3 scripts/dsl-cli.py add-dsl <strategy-id> ETH main --skill wolf-strategy 
 python3 scripts/dsl-cli.py add-dsl <strategy-id> --configuration @/path/to/dsl-profile.json
 ```
 
-**Output when cron is needed:** `cron_needed: true`, `cron_job_id`, `cron_env`, `cron_schedule`. The CLI generates and stores the cron job ID in the strategy config. The agent must create the **OpenClaw** cron with that ID (and the output env/schedule).
+**Output when cron is needed:** `cron_needed: true`, `cron_job_id`, `cron_env`, `cron_schedule`, `cron_interval_minutes`. The schedule is derived from `cronIntervalMinutes` (default 3) in the configuration — this is a **general** setting for how often the DSL runs, not part of phase1. The agent must create the **OpenClaw** cron with that ID and the output env/schedule.
 
 ### update-dsl
 
@@ -45,6 +45,8 @@ python3 scripts/dsl-cli.py update-dsl <strategy-id> ETH main --configuration @/p
 ```
 
 If `phase1.retraceThreshold` is changed and `absoluteFloor` is not in the patch, `absoluteFloor` is recalculated from entry price, leverage, and the new retrace.
+
+**When `cronIntervalMinutes` is changed (strategy-level update):** The CLI outputs `cron_schedule_changed: true`, `cron_to_remove` (so the agent removes the existing OpenClaw cron), and `cron_needed: true` with the same `cron_job_id`, new `cron_schedule`, and `cron_env`. The agent must delete the old cron and create a new one with the new interval.
 
 ### pause-dsl / resume-dsl
 

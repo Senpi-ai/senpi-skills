@@ -52,7 +52,8 @@ Strategy-level DSL configuration and status. Stored at `{DSL_STATE_DIR}/{strateg
 | `updatedAt` | string | ISO 8601 timestamp |
 | `createdBySkill` | string | Skill that created DSL (e.g. `wolf-strategy`, `dsl-tight`) |
 | `cronJobId` | string | OpenClaw cron job ID; generated and stored by the CLI when cron is needed (add-dsl); agent creates the OpenClaw cron with this ID |
-| `defaultConfig` | object | Default DSL config applied to new positions (see [state-schema.md](state-schema.md) for phase/tier fields) |
+| `cronScheduleMinutes` | number | Interval (minutes) the current cron was created with. Set by CLI on add-dsl (when creating cron) and on update-dsl when `cronIntervalMinutes` changes. Used to detect interval changes so the CLI can output remove/recreate cron intent. |
+| `defaultConfig` | object | Default DSL config applied to new positions (see [state-schema.md](state-schema.md) for phase/tier fields). `cronIntervalMinutes` (default 3) is **general** — how often the DSL cron runs; when changed, the agent must remove the old cron and create a new one with the new schedule. May also include Phase 1 time-based options as extensible objects: `phase1.hardTimeout`, `phase1.weakPeakCut`, `phase1.deadWeightCut` (each with `enabled`, `intervalInMinutes`; weakPeakCut also `minValue`). |
 | `positions` | object | Map of asset → `{ dex, addedAt }` for audit. Reconciles to current position state files on disk whenever the CLI saves the strategy config (stale entries are removed). |
 
 ### `status` values

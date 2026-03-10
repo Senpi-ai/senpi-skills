@@ -41,6 +41,17 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 # ---------------------------------------------------------------------------
 
 
+def cron_schedule_from_interval_minutes(minutes: int) -> str:
+    """Build cron expression for 'every N minutes'. minutes in 1–1440. Default 3 → '*/3 * * * *'."""
+    n = max(1, min(1440, int(minutes)))
+    if n <= 59:
+        return f"*/{n} * * * *"
+    if n == 60:
+        return "0 * * * *"
+    hours = n // 60
+    return f"0 */{hours} * * *"
+
+
 def asset_to_filename(asset: str) -> str:
     """xyz:SILVER → xyz--SILVER (filesystem-safe)."""
     if asset.startswith("xyz:"):
@@ -386,6 +397,50 @@ def validate_dsl_config(cfg: dict) -> list[str]:
                 if rv < 0 or rv > 1:
                     errors.append(f"tiers[{i}]: retrace must be a number between 0 and 1 (ROE fraction)")
 
+    # Optional: cronIntervalMinutes (strategy/position). Minimum for phase1 time-based cuts.
+    cron_interval = cfg.get("cronIntervalMinutes")
+    cron_val = _safe_int(cron_interval, -1) if cron_interval is not None else 3
+    if cron_interval is not None and (cron_val < 1 or cron_val > 1440):
+        errors.append("cronIntervalMinutes must be an integer between 1 and 1440 (minutes)")
+    min_cron_minutes = cron_val if (cron_interval is not None and cron_val >= 1) else 3
+
+    # Optional: phase1 time-based cut objects (hardTimeout, weakPeakCut, deadWeightCut).
+    # Minimum allowed intervalInMinutes when enabled = cron interval.
+    if isinstance(phase1, dict):
+        cron_interval_minutes = min_cron_minutes
+        for block_name, block_schema in (
+            ("hardTimeout", ("intervalInMinutes",)),
+            ("weakPeakCut", ("intervalInMinutes", "minValue")),
+            ("deadWeightCut", ("intervalInMinutes",)),
+        ):
+            blk = phase1.get(block_name)
+            if blk is not None and not isinstance(blk, dict):
+                errors.append(f"phase1.{block_name} must be an object")
+                continue
+            if isinstance(blk, dict):
+                en = blk.get("enabled")
+                if en is not None and not isinstance(en, bool):
+                    errors.append(f"phase1.{block_name}.enabled must be true or false")
+                interval = blk.get("intervalInMinutes")
+                if interval is not None:
+                    vi = _safe_int(interval, -1)
+                    if vi < 0:
+                        errors.append(f"phase1.{block_name}.intervalInMinutes must be a non-negative integer")
+                    elif blk.get("enabled") and vi < cron_interval_minutes:
+                        errors.append(
+                            f"phase1.{block_name}.intervalInMinutes ({vi}) must be >= cronIntervalMinutes ({cron_interval_minutes}) when enabled"
+                        )
+                elif blk.get("enabled"):
+                    errors.append(
+                        f"phase1.{block_name}.intervalInMinutes required when enabled (min: cronIntervalMinutes = {cron_interval_minutes})"
+                    )
+                if "minValue" in block_schema and block_name == "weakPeakCut":
+                    mv = blk.get("minValue")
+                    if mv is not None:
+                        mvf = _safe_float(mv, -1)
+                        if mvf < 0 or mvf > 100:
+                            errors.append("phase1.weakPeakCut.minValue must be a number 0–100 (ROE % for weak-peak threshold)")
+
     phase1_enabled = isinstance(phase1, dict) and phase1.get("enabled", True)
     phase2_enabled = isinstance(phase2, dict) and phase2.get("enabled", True)
     if not phase1_enabled and not phase2_enabled:
@@ -543,6 +598,7 @@ def _default_strategy_config() -> dict:
         "phase2TriggerTier": 0,
         "phase2": {"enabled": True, "retraceThreshold": 0.015, "consecutiveBreachesRequired": 1, "tiers": list(DEFAULT_TIERS)},
         "tiers": list(DEFAULT_TIERS),
+        "cronIntervalMinutes": 3,
     }
 
 
@@ -659,6 +715,7 @@ def build_position_state(
         "floorPrice": abs_floor,
         "currentBreachCount": 0,
         "createdAt": now_iso,
+        "cronIntervalMinutes": _safe_int(config.get("cronIntervalMinutes"), 3) or 3,
     }
     return state
 
@@ -719,6 +776,9 @@ def patch_config_into_state(state: dict, cfg: dict) -> list[str]:
     if "tiers" in cfg and isinstance(cfg["tiers"], list):
         state["tiers"] = list(cfg["tiers"])
         updated.append("tiers")
+    if "cronIntervalMinutes" in cfg and cfg["cronIntervalMinutes"] is not None:
+        state["cronIntervalMinutes"] = _safe_int(cfg["cronIntervalMinutes"], 3)
+        updated.append("cronIntervalMinutes")
     return updated
 
 
@@ -824,6 +884,8 @@ def cmd_add_dsl(state_dir: str, args: argparse.Namespace) -> None:
     if cron_created:
         cron_job_id = "dsl-" + uuid.uuid4().hex[:12]
         strategy_data["cronJobId"] = cron_job_id
+        cron_interval = _safe_int(config.get("cronIntervalMinutes"), 3) or 3
+        strategy_data["cronScheduleMinutes"] = cron_interval
         strategy_data["updatedAt"] = _now_iso()
         reconcile_strategy_positions_from_disk(state_dir, strategy_id, strategy_data)
         err = save_strategy_json(state_dir, strategy_id, strategy_data)
@@ -832,7 +894,8 @@ def cmd_add_dsl(state_dir: str, args: argparse.Namespace) -> None:
         out["cron_needed"] = True
         out["cron_job_id"] = cron_job_id
         out["cron_env"] = {"DSL_STATE_DIR": state_dir, "DSL_STRATEGY_ID": strategy_id}
-        out["cron_schedule"] = "*/3 * * * *"
+        out["cron_schedule"] = cron_schedule_from_interval_minutes(cron_interval)
+        out["cron_interval_minutes"] = cron_interval
     elif strategy_data.get("cronJobId"):
         out["cron_job_id"] = strategy_data["cronJobId"]
     print(json.dumps(out))
@@ -870,9 +933,11 @@ def cmd_update_dsl(state_dir: str, args: argparse.Namespace) -> None:
             _exit_error(f"failed to write position state: {err}")
         scope, out_asset, patch_failed = "position", asset, []
     else:
+        old_cron_interval = strategy_data.get("cronScheduleMinutes", 3)
         strategy_data["defaultConfig"] = {**strategy_data.get("defaultConfig", {}), **cfg}
         if "tiers" in cfg and isinstance(cfg["tiers"], list):
             strategy_data["defaultConfig"]["tiers"] = cfg["tiers"]
+        new_cron_interval = _safe_int(strategy_data["defaultConfig"].get("cronIntervalMinutes"), 3) or 3
         fields_updated = list(cfg.keys())
         patch_failed = []
         for path, a in list_position_state_files(state_dir, strategy_id):
@@ -884,6 +949,34 @@ def cmd_update_dsl(state_dir: str, args: argparse.Namespace) -> None:
             if write_position_state(path, state):
                 patch_failed.append(a)
         scope, out_asset = "strategy", None
+
+        # If cron interval changed, agent must remove old cron and create new one with new schedule.
+        cron_job_id = strategy_data.get("cronJobId")
+        if cron_job_id and new_cron_interval != old_cron_interval:
+            strategy_data["cronScheduleMinutes"] = new_cron_interval
+            # Save strategy with updated cronScheduleMinutes before outputting
+            reconcile_strategy_positions_from_disk(state_dir, strategy_id, strategy_data)
+            err = save_strategy_json(state_dir, strategy_id, strategy_data)
+            if err:
+                _exit_error(f"failed to save strategy config: {err}")
+            out = {
+                "status": "ok",
+                "strategy_id": strategy_id,
+                "scope": scope,
+                "fields_updated": fields_updated,
+                "cron_schedule_changed": True,
+                "cron_to_remove": {"cron_job_id": cron_job_id},
+                "cron_needed": True,
+                "cron_job_id": cron_job_id,
+                "cron_env": {"DSL_STATE_DIR": state_dir, "DSL_STRATEGY_ID": strategy_id},
+                "cron_schedule": cron_schedule_from_interval_minutes(new_cron_interval),
+                "cron_interval_minutes": new_cron_interval,
+            }
+            if patch_failed:
+                out["patch_failed"] = patch_failed
+            print(json.dumps(out))
+            return
+
     reconcile_strategy_positions_from_disk(state_dir, strategy_id, strategy_data)
     err = save_strategy_json(state_dir, strategy_id, strategy_data)
     if err:

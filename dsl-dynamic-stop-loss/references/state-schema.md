@@ -71,7 +71,9 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 | `currentTierIndex` | int | Current tier (-1 = no tier hit yet) |
 | `highWaterPrice` | number | Initialize to entry price |
 | `currentBreachCount` | int | Initialize to 0 |
-| `createdAt` | string | ISO 8601 timestamp |
+| `createdAt` | string | ISO 8601 timestamp. **Required.** Set when the position state is created; used to compute elapsed time for Phase 1 time-based auto-cut. The cron runner backfills this from `lastCheck` if missing (e.g. legacy state). |
+
+**Phase and runtime:** The cron runner updates `phase` (1 or 2) and other runtime fields every run and persists them to the state file so the current DSL phase is always stored for easy processing.
 
 ### phase1 Object (capital protection — avoid losing original money)
 
@@ -81,6 +83,9 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 | `retraceThreshold` | float | Retrace from HW in **ROE** terms (e.g. 0.03 = 3% ROE). Script converts to price via ÷ leverage. |
 | `consecutiveBreachesRequired` | int | Checks below floor before close |
 | `absoluteFloor` | number | Hard price floor — max loss cap |
+| `hardTimeout` | object | Optional. Phase 1 **hard timeout**. `{ "enabled": bool, "intervalInMinutes": number }`. When enabled and elapsed ≥ intervalInMinutes, close. **If not present, treated as disabled** (no default object is written). intervalInMinutes must be ≥ cronIntervalMinutes when enabled. |
+| `weakPeakCut` | object | Optional. **Weak peak early cut.** `{ "enabled": bool, "intervalInMinutes": number, "minValue": number }`. When enabled, after intervalInMinutes close if peak ROE &lt; minValue (ROE %) and current ROE &lt; peak ROE. **If not present, treated as disabled.** |
+| `deadWeightCut` | object | Optional. **Dead weight cut:** if ROE was never positive for the whole life of the position and elapsed ≥ intervalInMinutes, close. `{ "enabled": bool, "intervalInMinutes": number }`. **If not present, treated as disabled.** intervalInMinutes must be ≥ cronIntervalMinutes when enabled and &gt; 0. |
 
 ### phase2 Object (tier-based only)
 
@@ -102,6 +107,7 @@ Complete JSON schema for DSL v4/v5 state files. One state file per position. v5 
 
 | Field | Default | Description |
 |-------|---------|-------------|
+| `cronIntervalMinutes` | `3` | **General:** How frequently the DSL cron runs (in minutes). Not part of phase1 — it defines the run interval for the whole strategy. Skills can set this (e.g. 3 or 5); the CLI emits cron intent so the agent creates the OpenClaw cron with that schedule. **When this is changed**, the agent must remove the old cron and create a new one with the new interval. Also used as the **minimum** for `phase1MaxMinutes` and `weakPeakCutMinutes` (they cannot be less than the cron interval). |
 | `closeRetries` | `2` | Close attempts before setting `pendingClose` |
 | `closeRetryDelaySec` | `3` | Seconds between retry attempts |
 | `maxFetchFailures` | `10` | Auto-deactivate after this many consecutive fetch failures |
