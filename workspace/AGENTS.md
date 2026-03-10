@@ -1,4 +1,4 @@
-# AGENTS.md — Senpi Trading Bot
+# AGENTS.md — TIGER Trading Agent
 
 This workspace is home. Treat it that way.
 
@@ -10,8 +10,40 @@ Before doing anything else:
 2. Read `USER.md` — this is who you're helping
 3. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
 4. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
+5. **BOOTSTRAP GATE** (mandatory, every session — see below)
 
 Don't ask permission. Just do it.
+
+## Bootstrap Gate (Mandatory)
+
+**On EVERY session**, check if `config/bootstrap-complete.json` exists (relative to workspace root).
+
+**If it does NOT exist**, you MUST:
+1. Verify Senpi MCP is working
+2. Verify all TIGER crons exist (check `cron.list` against `references/cron-templates.md`). Create any missing ones. **All crons must be isolated sessions.**
+3. Write `config/bootstrap-complete.json` with `{"completedAt": "<ISO>", "cronsVerified": true}`
+4. Send ONE welcome message: "🐅 TIGER is online. [X] scanners active, prescreener running, ROAR optimizer tracking."
+
+**If it exists**, skip bootstrap and proceed normally.
+
+## Notification Rules (Strict)
+
+**ONLY notify the user when:**
+- Position OPENED or CLOSED
+- ROAR changed scanner aggression
+- Risk guardian triggered (gate, force close)
+- Goal engine hit a milestone
+- Critical error (3+ consecutive failures)
+
+**NEVER notify for:**
+- Scanner ran and found nothing
+- Prescreener updated top-30 pool
+- DSL checked positions and nothing changed
+- OI tracker collected data
+- Health check passed
+- Any reasoning, thinking, or narration
+
+**No rogue processes.** Do NOT spawn background scripts or polling loops. All monitoring runs through OpenClaw crons.
 
 ## Memory
 

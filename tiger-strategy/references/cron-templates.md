@@ -12,7 +12,7 @@ Replace:
 
 **Isolated sessions with announce for decision-makers (Tier 2)**: Goal engine, risk guardian, and exit checker run isolated with `delivery.mode: "announce"`. OpenClaw auto-suppresses `HEARTBEAT_OK` — only real content (trades, closures, aggression changes) gets delivered.
 
-**DSL stays main session**: DSL needs main context for position state awareness. Uses `systemEvent` payload with `wakeMode: "now"`.
+**DSL is isolated**: DSL is self-contained — reads state files directly, no main session context needed. Uses `systemEvent` payload with `wakeMode: "now"`.
 
 **Model overrides**: Each job specifies its model directly. Tier 1 uses a fast/cheap model, Tier 2 uses a capable model. Change these to match your provider.
 
@@ -265,17 +265,17 @@ Every 5 minutes (runs with risk guardian). Isolated with announce.
 
 ## Cron 10: DSL Combined — Tier 1 (Main Session)
 
-Every 30 seconds. Runs in **main session** (needs position state context). Uses `systemEvent`.
+Every 30 seconds. Runs in **isolated session** — DSL is self-contained and doesn't need main session context. Uses `agentTurn`.
 
 ```json
 {
   "name": "TIGER — DSL Trailing Stops",
   "schedule": { "kind": "every", "everyMs": 30000 },
-  "sessionTarget": "main",
+  "sessionTarget": "isolated",
   "wakeMode": "now",
   "payload": {
-    "kind": "systemEvent",
-    "text": "TIGER DSL: First check TIGER state file for activePositions. If activePositions is empty (no open positions), output HEARTBEAT_OK immediately and STOP — do NOT run dsl-v4.py. Do NOT send any Telegram messages.\nOnly if positions exist: for each active position's DSL state file, run `python3 {SCRIPTS}/dsl-v4.py` with DSL_STATE_FILE pointed at that file, parse JSON.\nDSL is self-contained — auto-closes via close_position on breach.\nOnly send Telegram message to {TELEGRAM_CHAT_ID} if: position closed by DSL breach or tier upgrade occurred.\nRoutine trailing (no close, no tier change): output HEARTBEAT_OK. Do NOT send Telegram."
+    "kind": "agentTurn",
+    "message": "TIGER DSL: First check TIGER state file for activePositions. If activePositions is empty (no open positions), output HEARTBEAT_OK immediately and STOP — do NOT run dsl-v4.py. Do NOT send any Telegram messages.\nOnly if positions exist: for each active position's DSL state file, run `python3 {SCRIPTS}/dsl-v4.py` with DSL_STATE_FILE pointed at that file, parse JSON.\nDSL is self-contained — auto-closes via close_position on breach.\nNOTIFICATION: Only send Telegram if position CLOSED by DSL breach or tier upgrade occurred. Do NOT send for routine trailing, price checks, or breach counts. No action = HEARTBEAT_OK, nothing else."
   }
 }
 ```

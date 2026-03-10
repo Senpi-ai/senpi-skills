@@ -61,7 +61,7 @@ metadata:
 ## Quick Start
 
 1. Ensure Senpi MCP is connected (`mcporter list` shows `senpi`)
-2. Create a custom strategy: `strategy_create_custom_strategy` (include `skill_name: "tiger-strategy"`, `skill_version: "4.1"` — see `references/skill-attribution.md`)
+2. Create a custom strategy: `strategy_create_custom_strategy`
 3. Fund the wallet: `strategy_top_up`
 4. Run setup:
    ```bash
@@ -299,6 +299,8 @@ See `references/cron-templates.md` for ready-to-use OpenClaw cron payloads.
 - Do NOT summarize the scan results
 - Produce NO output of any kind — complete silence
 Only speak (chat or Telegram) when something actionable happens: trade opened, trade closed, aggression changed, risk halt triggered, or an error that needs attention. Idle cycles = total silence.
+
+**All crons run isolated.** No main session crons. No narration during scan cycles. The user should never see HEARTBEAT_OK, scanner reasoning, or "systems nominal" messages.
 
 | # | Job | Interval | Script | Model Tier |
 |---|-----|----------|--------|------------|
