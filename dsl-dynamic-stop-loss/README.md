@@ -6,7 +6,7 @@ Two-phase trailing stop for Hyperliquid perps. Protects profits, limits losses, 
 
 When you open a leveraged position, DSL watches it:
 
-**Phase 1 — "Let It Breathe."** Wide retrace (3% ROE from high water) with patient breach counting (3 consecutive breaches before close). An absolute price floor caps maximum loss. The trade has room to develop without getting shaken out by normal noise.
+**Phase 1 — "Let It Breathe."** Wide retrace (3% ROE from high water) with breach counting (1 consecutive breach before close by default). An absolute price floor caps maximum loss. The trade has room to develop without getting shaken out by normal noise.
 
 **Phase 2 — "Lock the Bag."** Once the position hits the first profit tier (default 10% ROE), DSL shifts to tight trailing with tiered floors that ratchet up and never come back down. One breach to close. As profit grows, the floor tightens — at 50% ROE, only 1.0% retrace is allowed. Winners are protected aggressively.
 
@@ -57,7 +57,7 @@ Every tick, DSL cross-references local state files against the live clearinghous
   "phase1": {
     "enabled": true,
     "retraceThreshold": 0.03,
-    "consecutiveBreachesRequired": 3
+    "consecutiveBreachesRequired": 1
   },
   "phase2TriggerTier": 0,
   "phase2": {

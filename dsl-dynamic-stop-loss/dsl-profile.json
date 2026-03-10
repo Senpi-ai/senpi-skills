@@ -2,7 +2,7 @@
   "phase1": {
     "enabled": true,
     "retraceThreshold": 0.03,
-    "consecutiveBreachesRequired": 3
+    "consecutiveBreachesRequired": 1
   },
   "phase2TriggerTier": 0,
   "phase2": {
