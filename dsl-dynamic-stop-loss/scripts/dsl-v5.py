@@ -795,6 +795,7 @@ def try_close_position(
         f"DSL breach: Phase {phase}, {breach_count}/{breaches_needed} breaches, "
         f"price {price}, floor {effective_floor}"
     )
+    close_result: str | None = None
     for attempt in range(close_retries):
         try:
             cr = subprocess.run(
@@ -809,7 +810,10 @@ def try_close_position(
                 state["active"] = False
                 state["pendingClose"] = False
                 state["closedAt"] = now
-                state["closeReason"] = reason + " (close_no_position: already closed)"
+                # Use the reason that triggered the close (e.g. hardTimeout, weak peak, breach); else manual close
+                state["closeReason"] = (
+                    (state.get("closeReason") or reason or "").strip() or "manual close"
+                )
                 return True, result_text or "close_no_position (position already closed)"
             if cr.returncode == 0 and "error" not in result_text.lower():
                 state["active"] = False
@@ -1152,6 +1156,8 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
                             should_close = True
                             state["closeReason"] = "Dead weight cut (never positive)"
 
+    # All closes (breach, phase1 hardTimeout/weakPeakCut/deadWeightCut, pending retry) use the same path:
+    # MCP close_position(strategyWalletAddress, coin, reason) via try_close_position.
     closed = False
     close_result = None
     if should_close:
@@ -1278,7 +1284,15 @@ def main() -> None:
                 state = {}
             if not isinstance(state, dict):
                 state = {}
-            _write_state_and_archive(path, state, now, "external", "archived-external")
+            if state:
+                _write_state_and_archive(path, state, now, "external", "archived-external")
+            else:
+                # Read failed: move file only so we don't overwrite with minimal state
+                try:
+                    dest = _archived_state_filename(path, now, "archived-external")
+                    os.rename(path, dest)
+                except OSError:
+                    pass
 
     processed = 0
     for coin in sorted(coins):
