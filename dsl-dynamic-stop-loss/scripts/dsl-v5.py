@@ -1078,7 +1078,7 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
                 should_close = True
                 state["closeReason"] = f"Phase 1 timeout {elapsed_min:.0f}min"
 
-        # weakPeakCut: { enabled, intervalInMinutes, minValue }
+        # weakPeakCut: { enabled, intervalInMinutes, minValue } — minValue is ROE % (leverage-based)
         if not should_close:
             wpc = p1.get("weakPeakCut") or {}
             if isinstance(wpc, dict) and wpc.get("enabled"):
@@ -1088,6 +1088,7 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
                         min_val = float(wpc.get("minValue", 3.0))
                     except (TypeError, ValueError):
                         min_val = 3.0
+                    # ROE % = (price_change / entry) * leverage * 100 (same as upnl_pct)
                     if is_long:
                         peak_roe_pct = (hw - entry_f) / entry_f * lev_f * 100
                     else:

@@ -481,8 +481,23 @@ DEFAULT_DSL_TIERS = [
 ]
 
 
+def _load_wolf_dsl_profile():
+    """Load wolf-strategy/dsl-profile.json if present. Returns dict or None."""
+    _skill_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(_skill_root, "dsl-profile.json")
+    try:
+        if os.path.isfile(path):
+            with open(path) as f:
+                return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        pass
+    return None
+
+
 def build_wolf_dsl_config(cfg):
-    """Translate wolf strategy DSL config to DSL v5.2 format for dsl-cli.py --configuration."""
+    """Translate wolf strategy DSL config to DSL v5.2 format for dsl-cli.py --configuration.
+    Merges in cronIntervalMinutes and phase1.hardTimeout, weakPeakCut, deadWeightCut from
+    wolf-strategy/dsl-profile.json when present."""
     from collections import Counter
     tiers = cfg.get("dsl", {}).get("tiers", DEFAULT_DSL_TIERS)
     phase2_tiers = [
@@ -491,12 +506,13 @@ def build_wolf_dsl_config(cfg):
     ]
     breach_counts = [t.get("breachesRequired", t.get("breaches", 2)) for t in tiers]
     phase2_breaches = Counter(breach_counts).most_common(1)[0][0] if breach_counts else 2
-    return {
-        "phase1": {
-            "enabled": True,
-            "retraceThreshold": 0.10,
-            "consecutiveBreachesRequired": 3,
-        },
+    phase1 = {
+        "enabled": True,
+        "retraceThreshold": 0.10,
+        "consecutiveBreachesRequired": 3,
+    }
+    out = {
+        "phase1": phase1,
         "phase2TriggerTier": 0,
         "phase2": {
             "enabled": True,
@@ -505,6 +521,17 @@ def build_wolf_dsl_config(cfg):
             "tiers": phase2_tiers,
         },
     }
+    profile = _load_wolf_dsl_profile()
+    if isinstance(profile, dict):
+        if profile.get("cronIntervalMinutes") is not None:
+            out["cronIntervalMinutes"] = profile["cronIntervalMinutes"]
+        p1_profile = profile.get("phase1")
+        if isinstance(p1_profile, dict):
+            for key in ("hardTimeout", "weakPeakCut", "deadWeightCut"):
+                val = p1_profile.get(key)
+                if isinstance(val, dict):
+                    phase1[key] = dict(val)
+    return out
 
 
 def _discover_dsl_cli_path():
