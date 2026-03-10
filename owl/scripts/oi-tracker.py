@@ -17,7 +17,7 @@ from owl_config import (
 def run():
     dirs = get_strategy_dirs()
     if not dirs:
-        output({"success": True, "heartbeat": "HEARTBEAT_OK", "reason": "no strategies"})
+        output({"success": True, "heartbeat": "NO_REPLY", "reason": "no strategies"})
         return
 
     # Fetch all instruments (1 call — OI, funding, volume for everything)
@@ -111,7 +111,7 @@ def run():
 
     output({
         "success": True,
-        "heartbeat": "HEARTBEAT_OK",
+        "heartbeat": "NO_REPLY",
         "assetsTracked": len(asset_list),
         "strategiesUpdated": len(dirs),
     })

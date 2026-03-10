@@ -187,7 +187,7 @@ def run():
 
     active = owl_state.get("activePositions", {})
     if len(active) >= MAX_SLOTS:
-        output({"success": True, "heartbeat": "HEARTBEAT_OK", "reason": "slots_full", "scanner": "correlation"})
+        output({"success": True, "heartbeat": "NO_REPLY", "reason": "slots_full", "scanner": "correlation"})
         return
 
     cooldown_assets = get_loss_cooldown_assets(owl_hunt_state)
@@ -232,7 +232,7 @@ def run():
         corr_state["lastScan"] = now_iso
         corr_state["status"] = "no_leader_move"
         save_json(CORRELATION_STATE_PATH, corr_state)
-        output({"success": True, "heartbeat": "HEARTBEAT_OK", "scanner": "correlation", "reason": "no_leader_move"})
+        output({"success": True, "heartbeat": "NO_REPLY", "scanner": "correlation", "reason": "no_leader_move"})
         return
 
     # If BTC and ETH both moved same direction, only scan BTC's alts (avoid duplication)
@@ -440,7 +440,7 @@ def run():
         output({
             "success": True,
             "scanner": "correlation",
-            "heartbeat": "HEARTBEAT_OK",
+            "heartbeat": "NO_REPLY",
             "leaders": [{
                 "leader": l["leader"], "move_1h": round(l["move_1h"], 2),
                 "dir": l["direction"],

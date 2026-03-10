@@ -108,7 +108,7 @@ You have access to your human's stuff. That doesn't mean you share their stuff. 
 - Correcting important misinformation about trading data
 - Summarizing when asked
 
-**Stay silent (HEARTBEAT_OK) when:**
+**Stay silent (NO_REPLY) when:**
 
 - Casual banter between humans
 - Someone already answered the question
@@ -129,7 +129,7 @@ When you receive a heartbeat poll, use it productively:
 - Look for momentum events that may interest the user
 - Review any strategies approaching TP/SL thresholds
 - Check if the auth token is nearing expiration
-- If nothing needs attention, reply `HEARTBEAT_OK`
+- If nothing needs attention, reply `NO_REPLY`
 
 You can edit `HEARTBEAT.md` with a short checklist or reminders. Keep it small to limit token burn.
 

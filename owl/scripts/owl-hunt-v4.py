@@ -261,7 +261,7 @@ def run():
     active = state.get("activePositions", {})
 
     if len(active) >= MAX_SLOTS:
-        output({"success": True, "heartbeat": "HEARTBEAT_OK", "reason": "slots_full"})
+        output({"success": True, "heartbeat": "NO_REPLY", "reason": "slots_full"})
         return
 
     # Load loss cooldown assets
@@ -627,7 +627,7 @@ def run():
     else:
         output({
             "success": True,
-            "heartbeat": "HEARTBEAT_OK",
+            "heartbeat": "NO_REPLY",
             "topScores": [{
                 "asset": c["asset"],
                 "crowdingScore": c["crowdingScore"],

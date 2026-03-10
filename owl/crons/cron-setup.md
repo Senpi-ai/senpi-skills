@@ -31,7 +31,7 @@ If `signals` array contains entries with `action: "ENTER"`:
 4. Update owl-state.json activePositions.
 5. Telegram ({CHAT_ID}): OWL v4 ENTRY: asset, dir, lev, margin, score (X pts), reasons, crowding, funding.
 
-If no signals: HEARTBEAT_OK. Silent.
+If no signals: NO_REPLY. Silent.
 ```
 
 ### openclaw cron add command:
@@ -48,7 +48,7 @@ openclaw cron add --name "OWL — Hunt Scanner" --every 15m --session main --wak
 
 ### Payload:
 ```
-OWL DSL v5: First read owl-state.json at /data/workspace/skills/owl-strategy/state/{STRATEGY_ID}/owl-state.json — if activePositions is empty, reply HEARTBEAT_OK immediately.
+OWL DSL v5: First read owl-state.json at /data/workspace/skills/owl-strategy/state/{STRATEGY_ID}/owl-state.json — if activePositions is empty, reply NO_REPLY immediately.
 
 Otherwise run: `DSL_STATE_DIR=/data/workspace/dsl DSL_STRATEGY_ID={STRATEGY_ID} PYTHONUNBUFFERED=1 python3 /data/workspace/scripts/dsl/dsl-v5.py`, parse ndjson.
 
@@ -72,7 +72,7 @@ For closes: if position is in profit (Phase 2), use close_position with orderTyp
 
 For each closed position: Telegram ({CHAT_ID}) with OWL emoji, asset, PnL, reason, tier. Update owl-state.json: remove from activePositions. Record loss in owl-hunt-state.json recentLosses for 4hr cooldown.
 For tier changes: Telegram.
-Otherwise: HEARTBEAT_OK.
+Otherwise: NO_REPLY.
 ```
 
 ### openclaw cron add command:
@@ -91,7 +91,7 @@ openclaw cron add --name "OWL — DSL v5" --every 3m --session isolated --wake n
 ```
 OWL OI Tracker: Run `OPENCLAW_WORKSPACE=/data/workspace timeout 55 python3 /data/workspace/skills/owl-strategy/scripts/oi-tracker.py`, parse JSON output.
 
-If `success: true` → HEARTBEAT_OK (silent).
+If `success: true` → NO_REPLY (silent).
 If `error` → report to Telegram ({CHAT_ID}).
 ```
 
@@ -109,7 +109,7 @@ openclaw cron add --name "OWL — OI Tracker" --every 5m --session isolated --wa
 
 ### Payload:
 ```
-OWL Risk Guardian: First read owl-state.json at /data/workspace/owl-state.json — if activePositions is empty, reply HEARTBEAT_OK immediately.
+OWL Risk Guardian: First read owl-state.json at /data/workspace/owl-state.json — if activePositions is empty, reply NO_REPLY immediately.
 
 Otherwise run: `OPENCLAW_WORKSPACE=/data/workspace timeout 55 python3 /data/workspace/skills/owl-strategy/scripts/owl-risk.py`, parse JSON.
 
@@ -123,7 +123,7 @@ Process actions by priority:
 After closing any position: update owl-state.json (remove from activePositions). Record loss in owl-hunt-state.json recentLosses for 4hr cooldown.
 
 Send Telegram ({CHAT_ID}) for any action taken.
-If no actions: HEARTBEAT_OK (silent).
+If no actions: NO_REPLY (silent).
 ```
 
 ### openclaw cron add command:
@@ -156,7 +156,7 @@ For each valid signal:
 5. Update owl-state.json activePositions.
 6. Telegram ({CHAT_ID}): OWL CORRELATION: asset, dir, leader, move, lag, score.
 
-If no signals: HEARTBEAT_OK. Silent.
+If no signals: NO_REPLY. Silent.
 ```
 
 ### openclaw cron add command:
@@ -193,7 +193,7 @@ For each valid signal:
 5. Update owl-state.json activePositions.
 6. Telegram ({CHAT_ID}): OWL MOMENTUM: asset, dir, lev, margin, score, reasons.
 
-If no signals: HEARTBEAT_OK. Silent.
+If no signals: NO_REPLY. Silent.
 ```
 
 ### openclaw cron add command:

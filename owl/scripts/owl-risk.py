@@ -159,7 +159,7 @@ def check_portfolio_risk(state: dict, config: dict) -> list:
 def run():
     dirs = get_strategy_dirs()
     if not dirs:
-        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        output({"success": True, "heartbeat": "NO_REPLY"})
         return
 
     all_actions = []
@@ -201,7 +201,7 @@ def run():
             "actionCount": len(all_actions),
         })
     else:
-        output({"success": True, "heartbeat": "HEARTBEAT_OK"})
+        output({"success": True, "heartbeat": "NO_REPLY"})
 
 
 if __name__ == "__main__":

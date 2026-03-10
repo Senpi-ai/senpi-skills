@@ -174,7 +174,7 @@ def run():
 
     active = owl_state.get("activePositions", {})
     if len(active) >= MAX_SLOTS:
-        output({"success": True, "heartbeat": "HEARTBEAT_OK", "reason": "slots_full", "scanner": "momentum"})
+        output({"success": True, "heartbeat": "NO_REPLY", "reason": "slots_full", "scanner": "momentum"})
         return
 
     cooldown_assets = get_loss_cooldown_assets(owl_hunt_state)
@@ -421,7 +421,7 @@ def run():
         output({
             "success": True,
             "scanner": "momentum",
-            "heartbeat": "HEARTBEAT_OK",
+            "heartbeat": "NO_REPLY",
             "candidateCount": len(candidates),
             "topCandidates": [{
                 "asset": c["asset"], "dir": c["direction"],
