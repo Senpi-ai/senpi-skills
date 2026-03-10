@@ -5,7 +5,7 @@
     "retraceThreshold": 0.10,
     "consecutiveBreachesRequired": 3,
     "hardTimeout": { "enabled": true, "intervalInMinutes": 90 },
-    "weakPeakCut": { "enabled": true, "intervalInMinutes": 45, "minValue": 3 },
+    "weakPeakCut": { "enabled": true, "intervalInMinutes": 45 },
     "deadWeightCut": { "enabled": true, "intervalInMinutes": 30 }
   },
   "phase2TriggerTier": 0,

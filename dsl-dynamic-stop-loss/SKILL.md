@@ -79,6 +79,8 @@ When the user asks for trailing/dynamic stop loss, use **`scripts/dsl-cli.py`** 
 
 ## Other skills: setting up DSL
 
+**Full integration guide:** [references/integration-guide.md](references/integration-guide.md) — step-by-step for any skill (paths, add/delete-dsl, cron, cleanup, checklist).
+
 Any skill (e.g. `wolf-strategy`, `dsl-tight`) can add DSL for its strategies by calling the same CLI with its own profile and skill name.
 
 1. **Locate** `dsl-cli.py` (e.g. `dsl-dynamic-stop-loss/scripts/dsl-cli.py`) and your skill’s **dsl-profile.json** (in your skill directory). Resolve paths at runtime.
@@ -103,6 +105,7 @@ Full command reference and configuration merge rules: [references/cli-usage.md](
 
 | Topic | Reference |
 |-------|-----------|
+| **Integrating another skill with DSL** | [references/integration-guide.md](references/integration-guide.md) |
 | CLI commands and inter-skill usage | [references/cli-usage.md](references/cli-usage.md) |
 | State and strategy schema | [references/state-schema.md](references/state-schema.md), [references/strategy-schema.md](references/strategy-schema.md) |
 | Output (ndjson) and agent actions | [references/output-schema.md](references/output-schema.md) |
