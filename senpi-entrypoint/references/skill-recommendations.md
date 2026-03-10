@@ -13,7 +13,7 @@ Then match their goal to the table below.
 
 | User goal | Recommended skill | Min budget |
 |---|---|---|
-| Protect profits on open positions / trailing stop loss | `dsl-dynamic-stop-loss` or `dsl-tight` (tighter defaults) | $100 |
+| Protect profits on open positions / trailing stop loss | `dsl-dynamic-stop-loss` | $100 |
 | Scan all markets for high-conviction setups | `opportunity-scanner` | $100 |
 | Catch smart money moves early, before they hit the leaderboard | `emerging-movers` | $100 |
 | Fully autonomous trading — no manual decisions needed | `wolf-strategy` ⭐ (includes DSL, Scanner, Emerging Movers) | $500 |

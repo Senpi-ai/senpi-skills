@@ -64,7 +64,6 @@ Behavior rules:
 - `senpi-onboard`: account + API key + MCP setup workflow.
 - `senpi-getting-started-guide`: interactive first-trade walkthrough.
 - `dsl-dynamic-stop-loss`: two-phase trailing stop-loss with tiered locking.
-- `dsl-tight`: tighter DSL defaults for faster profit protection.
 - `opportunity-scanner`: market-wide scoring and setup discovery.
 - `emerging-movers`: smart-money rotation detection.
 - `autonomous-trading`: orchestrates DSL + scanner + movers.
