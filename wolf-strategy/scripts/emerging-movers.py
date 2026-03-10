@@ -419,6 +419,7 @@ try:
         # Cross-check against on-chain positions
         on_chain_count = 0
         on_chain_coins = []
+        ch_data = None
         if wallet:
             ch_data = mcporter_call_safe("strategy_get_clearinghouse_state",
                                           strategy_wallet=wallet)
@@ -435,8 +436,8 @@ try:
                             on_chain_count += 1
                             on_chain_coins.append(coin)
 
-        # Use max of both counts — handles both desync directions
-        used = max(dsl_active_count, on_chain_count)
+        # Prefer clearinghouse for "used" slots (real-time); DSL state can be stale until next cron run
+        used = on_chain_count if ch_data is not None else dsl_active_count
 
         strategy_slots[key] = {
             "name": cfg.get("name", key),

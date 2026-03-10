@@ -9,15 +9,16 @@ Usage:
   python3 open-position.py --strategy wolf-abc123 --asset HYPE --direction LONG --leverage 10
   python3 open-position.py --strategy wolf-abc123 --asset HYPE --direction SHORT --leverage 5 --margin 200
 """
-import json, sys, os, argparse, glob
+import json, sys, os, argparse, glob, subprocess
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from wolf_config import (load_strategy, dsl_state_path, dsl_state_glob,
-                         dsl_state_template, atomic_write, mcporter_call,
-                         mcporter_call_safe, calculate_leverage, strategy_lock,
-                         check_gate, increment_entry_counter,
-                         WORKSPACE, ROTATION_COOLDOWN_MINUTES)
+                         dsl_position_state_files, build_wolf_dsl_config,
+                         resolve_dsl_cli_path, DSL_STATE_DIR,
+                         mcporter_call, mcporter_call_safe,
+                         calculate_leverage, strategy_lock, check_gate,
+                         increment_entry_counter, WORKSPACE, ROTATION_COOLDOWN_MINUTES)
 
 
 def fail(msg, **extra):
@@ -47,7 +48,7 @@ def count_active_dsls(strategy_key):
     from datetime import datetime, timezone
     now = datetime.now(timezone.utc)
     count = 0
-    for sf in glob.glob(dsl_state_glob(strategy_key)):
+    for sf in dsl_position_state_files(strategy_key):
         try:
             with open(sf) as f:
                 state = json.load(f)
@@ -206,6 +207,7 @@ def main():
     except RuntimeError as e:
         fail("lock_timeout", detail=str(e), strategyKey=strategy_key)
 
+    dsl_cron_to_remove_out = None  # set if delete-dsl returns cron_to_remove (rotation or other close)
     try:
         # 2.5 Handle rotation close (--close-asset) inside the lock
         just_closed_coin = None
@@ -249,26 +251,33 @@ def main():
                 fail("rotation_close_failed", detail=str(e),
                      closeAsset=close_clean, strategyKey=strategy_key)
 
-            # Deactivate the DSL state file
-            close_dsl_path = dsl_state_path(strategy_key, close_clean)
-            if os.path.exists(close_dsl_path):
-                try:
-                    with open(close_dsl_path) as f:
-                        close_state = json.load(f)
-                    close_state["active"] = False
-                    close_state["closeReason"] = "rotation_for_stronger_signal"
-                    close_state["closedAt"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-                    atomic_write(close_dsl_path, close_state)
-                except (json.JSONDecodeError, IOError):
-                    pass
+            # Archive DSL state via dsl-cli delete-dsl (DSL v5.2)
+            close_dex_cli = "xyz" if close_is_xyz else "main"
+            try:
+                r = subprocess.run(
+                    ["python3", resolve_dsl_cli_path(),
+                     "delete-dsl", cfg["strategyId"], close_clean, close_dex_cli,
+                     "--state-dir", DSL_STATE_DIR],
+                    capture_output=True, text=True, timeout=20,
+                )
+                if r.returncode == 0 and r.stdout:
+                    try:
+                        cli_out = json.loads(r.stdout)
+                        if cli_out.get("cron_to_remove"):
+                            dsl_cron_to_remove_out = cli_out["cron_to_remove"]
+                    except json.JSONDecodeError:
+                        pass
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass  # non-fatal; health check can reconcile
 
             just_closed_coin = close_coin
             rotation_notif = f"🔄 ROTATION [{strategy_key}]: Closing {close_clean} for {clean_asset}"
 
-        # 3. Check slot availability (cross-check DSL files with on-chain positions)
+        # 3. Check slot availability — prefer clearinghouse (real-time); DSL count can be stale until next cron
         max_slots = cfg.get("slots", 2)
         dsl_count = count_active_dsls(strategy_key)
         on_chain_count = 0
+        ch_data = None
         if wallet:
             ch_data = mcporter_call_safe("strategy_get_clearinghouse_state",
                                           strategy_wallet=wallet)
@@ -294,7 +303,7 @@ def main():
                         on_chain_count -= 1
                         break
 
-        active_count = max(dsl_count, on_chain_count)
+        active_count = on_chain_count if ch_data is not None else dsl_count
         if active_count >= max_slots:
             fail("no_slots_available", used=active_count, max=max_slots,
                  dslCount=dsl_count, onChainCount=on_chain_count,
@@ -362,30 +371,37 @@ def main():
             size = round(margin * leverage, 6)
             actual_leverage = leverage
 
-        # 8. Create DSL state
-        tiers = None
-        dsl_cfg = cfg.get("dsl", {})
-        if isinstance(dsl_cfg.get("tiers"), list) and len(dsl_cfg["tiers"]) > 0:
-            tiers = dsl_cfg["tiers"]
-
-        dsl_state = dsl_state_template(
-            asset=clean_asset,
-            direction=direction,
-            entry_price=entry_price,
-            size=size,
-            leverage=actual_leverage,
-            strategy_key=strategy_key,
-            tiers=tiers,
-            created_by="open_position_script",
-        )
-        dsl_state["wallet"] = wallet
-        dsl_state["dex"] = dex
-        if approximate:
-            dsl_state["approximate"] = True
-
-        # 9. Write DSL state atomically
+        # 8. Create DSL state via dsl-cli add-dsl (DSL v5.2; CLI fetches fill from clearinghouse)
+        dsl_config = build_wolf_dsl_config(cfg)
+        is_xyz_dex = (dex == "xyz")
+        dex_cli = "xyz" if is_xyz_dex else "main"
+        cmd = [
+            "python3", resolve_dsl_cli_path(),
+            "add-dsl", cfg["strategyId"], clean_asset, dex_cli,
+            "--skill", "wolf-strategy",
+            "--configuration", json.dumps(dsl_config),
+            "--state-dir", DSL_STATE_DIR,
+        ]
+        try:
+            add_dsl_result = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+            cli_out = json.loads(add_dsl_result.stdout) if add_dsl_result.stdout else {}
+        except (subprocess.TimeoutExpired, FileNotFoundError, json.JSONDecodeError) as e:
+            fail("dsl_add_failed", detail=str(e), strategyKey=strategy_key)
+        if add_dsl_result.returncode != 0:
+            fail("dsl_add_failed", detail=cli_out.get("error", add_dsl_result.stderr or "non-zero exit"),
+                 strategyKey=strategy_key)
+        positions_added = cli_out.get("positions_added", [])
+        if not positions_added and not approximate:
+            # Clearinghouse may not have the new position yet; retry once after short delay
+            import time
+            time.sleep(3)
+            add_dsl_result = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+            cli_out = json.loads(add_dsl_result.stdout) if add_dsl_result.stdout else {}
+            positions_added = cli_out.get("positions_added", [])
+        if not positions_added:
+            # DSL v5 orphan detection will create state when position appears in clearinghouse
+            pass  # non-fatal; log in result if desired
         dsl_path = dsl_state_path(strategy_key, clean_asset)
-        atomic_write(dsl_path, dsl_state)
 
         # 10. Increment guard rail entry counter
         try:
@@ -406,6 +422,11 @@ def main():
         "dslFile": dsl_path,
         "strategyKey": strategy_key,
     }
+    if cli_out.get("cron_needed"):
+        result["dsl_cron_needed"] = True
+        result["dsl_cron_job_id"] = cli_out.get("cron_job_id", "")
+    if dsl_cron_to_remove_out:
+        result["dsl_cron_to_remove"] = dsl_cron_to_remove_out
     if approximate:
         result["approximate"] = True
         result["warning"] = "Fill data unavailable, DSL uses approximate values. Health check will reconcile."

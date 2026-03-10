@@ -1,0 +1,21 @@
+{
+  "phase1": {
+    "enabled": true,
+    "retraceThreshold": 0.03,
+    "consecutiveBreachesRequired": 3
+  },
+  "phase2TriggerTier": 0,
+  "phase2": {
+    "enabled": true,
+    "retraceThreshold": 0.015,
+    "consecutiveBreachesRequired": 1,
+    "tiers": [
+      {"triggerPct": 10, "lockPct": 5},
+      {"triggerPct": 20, "lockPct": 14},
+      {"triggerPct": 30, "lockPct": 22, "retrace": 0.012},
+      {"triggerPct": 50, "lockPct": 40, "retrace": 0.010},
+      {"triggerPct": 75, "lockPct": 60, "retrace": 0.008},
+      {"triggerPct": 100, "lockPct": 80, "retrace": 0.006}
+    ]
+  }
+}

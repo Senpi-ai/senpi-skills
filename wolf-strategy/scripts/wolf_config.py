@@ -6,11 +6,11 @@ Provides a single importable module every script uses to load strategy config,
 resolve state file paths, and handle legacy migration.
 
 Usage:
-    from wolf_config import load_strategy, load_all_strategies, dsl_state_path
+    from wolf_config import load_strategy, load_all_strategies, dsl_state_path, build_wolf_dsl_config
     cfg = load_strategy("wolf-abc123")   # Specific strategy
     cfg = load_strategy()                # Default strategy
     strategies = load_all_strategies()   # All enabled strategies
-    path = dsl_state_path("wolf-abc123", "HYPE")
+    path = dsl_state_path("wolf-abc123", "HYPE")  # DSL v5.2: {DSL_STATE_DIR}/{UUID}/{asset}.json
 """
 
 import json, os, sys, glob, subprocess, time, tempfile, shlex, fcntl
@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
 REGISTRY_FILE = os.path.join(WORKSPACE, "wolf-strategies.json")
+DSL_STATE_DIR = os.environ.get("DSL_STATE_DIR", os.path.join(WORKSPACE, "dsl"))
 LEGACY_CONFIG = os.path.join(WORKSPACE, "wolf-strategy.json")
 LEGACY_STATE_PATTERN = os.path.join(WORKSPACE, "dsl-state-WOLF-*.json")
 
@@ -193,14 +194,36 @@ def state_dir(strategy_key):
     return d
 
 
+def asset_to_filename(asset):
+    """xyz:SILVER → xyz--SILVER; HYPE → HYPE (matches dsl-v5.py convention)."""
+    return asset.replace(":", "--", 1) if asset.startswith("xyz:") else asset
+
+
 def dsl_state_path(strategy_key, asset):
-    """Get the DSL state file path for a strategy + asset."""
-    return os.path.join(state_dir(strategy_key), f"dsl-{asset}.json")
+    """Returns DSL position state path for a given wolf strategyKey + asset (DSL v5.2: {DSL_STATE_DIR}/{UUID}/{asset}.json)."""
+    cfg = load_strategy(strategy_key)
+    strategy_uuid = cfg["strategyId"]
+    return os.path.join(DSL_STATE_DIR, strategy_uuid, f"{asset_to_filename(asset)}.json")
 
 
 def dsl_state_glob(strategy_key):
-    """Get the glob pattern for all DSL state files in a strategy."""
-    return os.path.join(state_dir(strategy_key), "dsl-*.json")
+    """Returns glob pattern for all DSL state files for a strategy. Callers must filter out strategy-*.json and *_archived_*."""
+    cfg = load_strategy(strategy_key)
+    strategy_uuid = cfg["strategyId"]
+    return os.path.join(DSL_STATE_DIR, strategy_uuid, "*.json")
+
+
+def dsl_position_state_files(strategy_key):
+    """Returns list of position state file paths for a strategy (excludes strategy-*.json and *_archived_*)."""
+    return [p for p in glob.glob(dsl_state_glob(strategy_key))
+            if _is_position_state_file(os.path.basename(p))]
+
+
+def _is_position_state_file(basename):
+    """Exclude strategy config and archived files (DSL v5.2 convention)."""
+    if basename.startswith("strategy-") or "_archived" in basename or ".archived" in basename:
+        return False
+    return basename.endswith(".json")
 
 
 def get_all_active_positions():
@@ -210,20 +233,24 @@ def get_all_active_positions():
         Dict of asset → list of {strategyKey, direction, stateFile}.
     """
     positions = {}
-    for key, cfg in load_all_strategies().items():
-        for sf in glob.glob(dsl_state_glob(key)):
+    for key in load_all_strategies():
+        pattern = dsl_state_glob(key)
+        for sf in glob.glob(pattern):
+            if not _is_position_state_file(os.path.basename(sf)):
+                continue
             try:
                 with open(sf) as f:
                     s = json.load(f)
                 if s.get("active"):
-                    asset = s["asset"]
-                    if asset not in positions:
-                        positions[asset] = []
-                    positions[asset].append({
-                        "strategyKey": key,
-                        "direction": s["direction"],
-                        "stateFile": sf
-                    })
+                    asset = s.get("asset")
+                    if asset:
+                        if asset not in positions:
+                            positions[asset] = []
+                        positions[asset].append({
+                            "strategyKey": key,
+                            "direction": s["direction"],
+                            "stateFile": sf
+                        })
             except (json.JSONDecodeError, IOError, KeyError, AttributeError):
                 continue
     return positions
@@ -452,69 +479,104 @@ def validate_dsl_state(state, state_file=None):
     return True, None
 
 
-def dsl_state_template(asset, direction, entry_price, size, leverage,
-                       strategy_key=None, tiers=None, created_by="entry_flow"):
-    """Create a minimal valid DSL state dict for a new position.
+# Default tiers when strategy has none (DSL v5.2: no per-tier breach count)
+DEFAULT_DSL_TIERS = [
+    {"triggerPct": 5, "lockPct": 50, "breaches": 3},
+    {"triggerPct": 10, "lockPct": 65, "breaches": 2},
+    {"triggerPct": 15, "lockPct": 75, "breaches": 2},
+    {"triggerPct": 20, "lockPct": 85, "breaches": 1},
+]
 
-    Used by health check to create missing DSL state files.
 
-    Args:
-        asset: Coin symbol (e.g. "HYPE").
-        direction: "LONG" or "SHORT".
-        entry_price: Position entry price.
-        size: Position size.
-        leverage: Position leverage.
-        strategy_key: Optional strategy key to embed.
-        tiers: Optional tier list. Uses aggressive defaults if None.
+def _load_wolf_dsl_profile():
+    """Load wolf-strategy/dsl-profile.json if present. Returns dict or None."""
+    _skill_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(_skill_root, "dsl-profile.json")
+    try:
+        if os.path.isfile(path):
+            with open(path) as f:
+                return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        pass
+    return None
 
-    Returns:
-        A valid DSL state dict ready for atomic_write.
-    """
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    if tiers is None:
-        tiers = [
-            {"triggerPct": 5, "lockPct": 50, "breaches": 3},
-            {"triggerPct": 10, "lockPct": 65, "breaches": 2},
-            {"triggerPct": 15, "lockPct": 75, "breaches": 2},
-            {"triggerPct": 20, "lockPct": 85, "breaches": 1},
-        ]
-
-    # Calculate absoluteFloor from entry price, leverage, and retrace threshold
-    retrace_roe = 10  # matches phase1.retraceThreshold
-    retrace_price = (retrace_roe / 100) / leverage
-    if direction.upper() == "LONG":
-        abs_floor = round(entry_price * (1 - retrace_price), 6)
-    else:
-        abs_floor = round(entry_price * (1 + retrace_price), 6)
-
-    return {
-        "version": 2,
-        "asset": asset,
-        "direction": direction.upper(),
-        "entryPrice": entry_price,
-        "size": size,
-        "leverage": leverage,
-        "active": True,
-        "highWaterPrice": entry_price,
-        "phase": 1,
-        "currentBreachCount": 0,
-        "currentTierIndex": None,
-        "tierFloorPrice": 0,
-        "floorPrice": abs_floor,
-        "tiers": tiers,
-        "phase1": {
-            "retraceThreshold": 10,
-            "absoluteFloor": abs_floor,
-            "consecutiveBreachesRequired": 3,
-        },
-        "phase2TriggerTier": 0,
-        "createdAt": now,
-        "lastCheck": now,
-        "strategyKey": strategy_key,
-        "createdBy": created_by,
+def build_wolf_dsl_config(cfg):
+    """Translate wolf strategy DSL config to DSL v5.2 format for dsl-cli.py --configuration.
+    Merges in cronIntervalMinutes and phase1.hardTimeout, weakPeakCut, deadWeightCut from
+    wolf-strategy/dsl-profile.json when present."""
+    from collections import Counter
+    tiers = cfg.get("dsl", {}).get("tiers", DEFAULT_DSL_TIERS)
+    phase2_tiers = [
+        {"triggerPct": t["triggerPct"], "lockPct": t["lockPct"]}
+        for t in tiers
+    ]
+    breach_counts = [t.get("breachesRequired", t.get("breaches", 2)) for t in tiers]
+    phase2_breaches = Counter(breach_counts).most_common(1)[0][0] if breach_counts else 2
+    phase1 = {
+        "enabled": True,
+        "retraceThreshold": 0.10,
+        "consecutiveBreachesRequired": 3,
     }
+    out = {
+        "phase1": phase1,
+        "phase2TriggerTier": 0,
+        "phase2": {
+            "enabled": True,
+            "retraceThreshold": 0.015,
+            "consecutiveBreachesRequired": phase2_breaches,
+            "tiers": phase2_tiers,
+        },
+    }
+    profile = _load_wolf_dsl_profile()
+    if isinstance(profile, dict):
+        if profile.get("cronIntervalMinutes") is not None:
+            out["cronIntervalMinutes"] = profile["cronIntervalMinutes"]
+        p1_profile = profile.get("phase1")
+        if isinstance(p1_profile, dict):
+            for key in ("hardTimeout", "weakPeakCut", "deadWeightCut"):
+                val = p1_profile.get(key)
+                if isinstance(val, dict):
+                    phase1[key] = dict(val)
+    return out
+
+
+def _discover_dsl_cli_path():
+    """Discover dsl-cli.py by scanning known roots for scripts/dsl-cli.py (convention-based; no hardcoded skill name). Returns path or None."""
+    _wolf_strategy_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    _repo_root = os.path.dirname(_wolf_strategy_dir)
+    roots = [
+        os.path.join(WORKSPACE, "skills"),   # workspace/skills/<skill>/scripts/dsl-cli.py
+        _repo_root,                          # repo root: sibling dirs of wolf-strategy (e.g. dsl-dynamic-stop-loss/scripts/dsl-cli.py)
+    ]
+    for root in roots:
+        if not os.path.isdir(root):
+            continue
+        for name in sorted(os.listdir(root)):
+            candidate = os.path.join(root, name, "scripts", "dsl-cli.py")
+            if os.path.isfile(candidate):
+                return os.path.abspath(candidate)
+    return None
+
+
+def resolve_dsl_cli_path():
+    """Resolve path to dsl-cli.py: env DSL_CLI_PATH, registry global.dslCliPath, or discover via _discover_dsl_cli_path(). Fails if not found."""
+    path = os.environ.get("DSL_CLI_PATH")
+    if path and os.path.isfile(path):
+        return path
+    if os.path.exists(REGISTRY_FILE):
+        try:
+            with open(REGISTRY_FILE) as f:
+                reg = json.load(f)
+            path = reg.get("global", {}).get("dslCliPath")
+            if path and os.path.isfile(path):
+                return path
+        except (json.JSONDecodeError, IOError):
+            pass
+    path = _discover_dsl_cli_path()
+    if path:
+        return path
+    _fail("dsl-cli.py not found. Set global.dslCliPath in wolf-strategies.json or DSL_CLI_PATH, or install skill that provides scripts/dsl-cli.py.")
 
 
 # --- Guard Rail defaults & helpers ---
