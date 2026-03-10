@@ -61,7 +61,7 @@
     "volumeSpikeRequired": true
   },
   "entry": {
-    "minEntryScore": 8,
+    "minEntryScore": 10,
     "lossCooldownHours": 4,
     "timeBonus": {
       "hoursUTC": [
@@ -90,7 +90,7 @@
     "bookShifting": 1
   },
   "dsl": {
-    "phase1RetraceBase": 0.06,
+    "phase1RetraceBase": 0.1,
     "phase1GreenIn10TightenPct": 50,
     "phase1ConsecutiveBreaches": 3,
     "phase2RetraceThreshold": 0.012,
@@ -98,50 +98,50 @@
     "convictionTiers": [
       {
         "minScore": 8,
-        "floorBase": 0.06,
-        "hardTimeoutMin": 45,
-        "weakPeakCutMin": 20,
-        "deadWeightCutMin": 12
+        "floorBase": 0.1,
+        "hardTimeoutMin": 75,
+        "weakPeakCutMin": 35,
+        "deadWeightCutMin": 0
       },
       {
         "minScore": 10,
-        "floorBase": 0.06,
-        "hardTimeoutMin": 60,
-        "weakPeakCutMin": 25,
-        "deadWeightCutMin": 15
+        "floorBase": 0.1,
+        "hardTimeoutMin": 90,
+        "weakPeakCutMin": 40,
+        "deadWeightCutMin": 0
       },
       {
         "minScore": 12,
-        "floorBase": 0.08,
-        "hardTimeoutMin": 75,
-        "weakPeakCutMin": 30,
-        "deadWeightCutMin": 20
+        "floorBase": 0.12,
+        "hardTimeoutMin": 120,
+        "weakPeakCutMin": 50,
+        "deadWeightCutMin": 0
       }
     ],
     "tiers": [
       {
-        "triggerPct": 5,
-        "lockPct": 2
+        "triggerPct": 4,
+        "lockPct": 1.5
       },
       {
-        "triggerPct": 10,
-        "lockPct": 5
+        "triggerPct": 8,
+        "lockPct": 4
       },
       {
-        "triggerPct": 20,
-        "lockPct": 14
+        "triggerPct": 15,
+        "lockPct": 10
       },
       {
-        "triggerPct": 30,
-        "lockPct": 24
+        "triggerPct": 25,
+        "lockPct": 19
       },
       {
-        "triggerPct": 40,
-        "lockPct": 34
+        "triggerPct": 35,
+        "lockPct": 28
       },
       {
         "triggerPct": 50,
-        "lockPct": 44
+        "lockPct": 42
       },
       {
         "triggerPct": 65,
@@ -159,7 +159,7 @@
     "stagnationTp": {
       "enabled": true,
       "roeMin": 8,
-      "hwStaleMin": 60
+      "hwStaleMin": 45
     }
   },
   "risk": {

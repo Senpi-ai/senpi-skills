@@ -65,7 +65,7 @@ Wait for the crowd to overcommit. Then eat their liquidations.
 ## Quick Start
 
 1. Ensure Senpi MCP is connected (`mcporter list` shows `senpi`)
-2. Create a custom strategy: `strategy_create_custom_strategy` (include `skill_name: "owl-strategy"`, `skill_version: "1.0"` — see `references/skill-attribution.md`)
+2. Create a custom strategy: `strategy_create_custom_strategy`
 3. Fund the wallet: `strategy_top_up`
 4. Run setup:
    ```bash
@@ -361,7 +361,26 @@ Once the unwind starts, it behaves like any trend. Standard trailing tiers.
 | 5 | Risk Guardian | 5 min | isolated | `owl-risk.py` | Mid |
 | 6 | DSL v5 | 3 min | isolated | `dsl-v5.py` (shared) | Mid |
 
-**Silence Policy:** When a cron fires and finds no actionable signals → HEARTBEAT_OK. No Telegram notifications, no chat output, no explanation. Only speak when something happens: trade opened, trade closed, crowding alert, risk halt.
+## Notification Policy (Strict)
+
+**ONLY send Telegram when:**
+- Position OPENED (asset, direction, leverage, margin, score, crowding details)
+- Position CLOSED (asset, direction, PnL, close reason, hold time)
+- Risk guardian triggered (gate closed, re-crowding exit, force close)
+- Critical error (3+ consecutive DSL failures, MCP auth expired)
+
+**NEVER send Telegram for:**
+- Scanner ran and found nothing
+- Crowding scanner updated crowding scores
+- Exhaustion detector checked and nothing changed
+- OI tracker collected data
+- DSL checked positions and nothing changed
+- Risk guardian checked and everything is fine
+- Any reasoning, thinking, narration, or status updates
+
+**Rule:** If you didn't open, close, or force-close a position, and nothing is broken, the user should not hear from you. Silence = everything is working.
+
+All crons run on **isolated sessions**. No main session crons. No narration to the user during scan cycles.
 
 **Model tiers:**
 - **Budget** (OI Tracker, Crowding Scanner, Exhaustion Detector): Threshold checks, data collection. model configured in OpenClaw.
