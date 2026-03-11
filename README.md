@@ -1,9 +1,8 @@
-[README (3).md](https://github.com/user-attachments/files/25506639/README.3.md)
-# Senpi AI Skills
+# TIGER v4 — Multi-Scanner Goal-Based Trading System
 
-Skills give your Senpi agent superpowers — pre-built trading strategies and tools that work out of the box. Built on the open [Agent Skills](https://agentskills.io) standard.
+Autonomous trading strategy for Hyperliquid perpetuals via [Senpi](https://senpi.ai) MCP.
 
----
+## What's Included
 
 ## Install a skill (Senpi users)
 
@@ -24,11 +23,45 @@ clawhub install whale-index
 clawhub install wolf-strategy
 clawhub install wolf-howl
 ```
-
-## Install a skill (agents)
-
-🤖 Grab the raw URL and go:
-
+tiger-v4/
+├── README.md                    ← You're here
+├── tiger-strategy/              ← The skill (trading logic)
+│   ├── SKILL.md                 ← Main skill instructions for the agent
+│   ├── OPTIMIZATION-PLAN.md     ← v4 data-driven optimization rationale
+│   ├── tiger-config.json        ← Strategy configuration (edit this)
+│   ├── scripts/                 ← All Python scanners & utilities
+│   │   ├── tiger_config.py      ← Shared config/state/MCP helpers
+│   │   ├── tiger_lib.py         ← Technical analysis library (pure stdlib)
+│   │   ├── prescreener.py       ← Phase 1: scores all 230+ assets cheaply
+│   │   ├── compression-scanner.py  ← BB squeeze + OI breakout detector
+│   │   ├── momentum-scanner.py  ← Price move + volume spike detector
+│   │   ├── reversion-scanner.py ← RSI extreme + divergence detector
+│   │   ├── correlation-scanner.py  ← BTC/ETH leader → alt lag detector
+│   │   ├── funding-scanner.py   ← Extreme funding rate arb detector
+│   │   ├── oi-tracker.py        ← OI history accumulator
+│   │   ├── goal-engine.py       ← Adaptive aggression calculator
+│   │   ├── risk-guardian.py     ← Drawdown & daily loss enforcer
+│   │   ├── tiger-exit.py        ← Smart exit logic (time stops, stagnation)
+│   │   ├── dsl-v4.py            ← Dynamic trailing stop loss (10 tiers)
+│   │   ├── roar-analyst.py      ← Auto-optimizer (adjusts params over time)
+│   │   ├── roar_config.py       ← ROAR configuration
+│   │   ├── tiger-setup.py       ← Strategy initialization
+│   │   └── create-dsl-state.py  ← DSL state bootstrapper
+│   └── references/              ← Detailed docs for the agent
+│       ├── config-schema.md
+│       ├── cron-templates.md
+│       ├── scanner-details.md
+│       ├── setup-guide.md
+│       └── state-schema.md
+└── workspace/                   ← Agent personality & bootstrap files
+    ├── AGENTS.md                ← Agent behavior rules
+    ├── SOUL.md                  ← Trading persona
+    ├── IDENTITY.md              ← Name, creature, emoji
+    ├── TOOLS.md                 ← Environment-specific notes
+    ├── BOOTSTRAP.md             ← Startup sequence
+    ├── HEARTBEAT.md             ← Periodic check tasks
+    ├── MEMORY.md                ← Long-term memory (template)
+    └── USER.md.template         ← User config template
 ```
 https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dsl-dynamic-stop-loss/SKILL.md
 https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/opportunity-scanner/SKILL.md
