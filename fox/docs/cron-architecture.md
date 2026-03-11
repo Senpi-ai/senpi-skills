@@ -34,12 +34,12 @@ All crons run via OpenClaw's cron system. `sessionTarget: "main"` injects into t
 
 ## Autonomous Trading Crons (DISABLED — enable for autonomous mode)
 
-### Emerging Movers Scanner (3min, main)
+### Emerging Movers Scanner (3min, isolated)
 The primary entry signal scanner. Runs `emerging-movers.py`, evaluates FJ signals against v1.0 entry filters, and enters positions autonomously.
 
 Full cron mandate includes: slot guard, entry gate, blacklist, FJ tracking, confirmation filter, v0.9 entry filters, scoring, market regime check, position entry (ALO), DSL setup, and re-entry logic.
 
-### Opportunity Scanner (15min, main)
+### Opportunity Scanner (15min, isolated)
 Deep scanner using `opportunity-scan-v6.py`. Same entry rules as Emerging Movers but catches signals the 3min scanner might miss.
 
 ### SM Flip Detector (5min, isolated)

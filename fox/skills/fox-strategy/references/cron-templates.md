@@ -13,17 +13,17 @@
 | `{MID_MODEL}` | Mid-tier model ID | model configured in OpenClaw |
 | `{BUDGET_MODEL}` | Budget-tier model ID | model configured in OpenClaw |
 
-## 1. Emerging Movers — Primary / Main Session
+## 1. Emerging Movers — Primary / Isolated Session
 
 ```json
 {
   "name": "FOX — Emerging Movers v7 (3min)",
   "schedule": { "kind": "cron", "expr": "*/3 * * * *", "tz": "UTC" },
-  "sessionTarget": "main",
+  "sessionTarget": "isolated",
   "wakeMode": "now",
   "payload": {
-    "kind": "systemEvent",
-    "text": "FOX scanner: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/fox-emerging-movers.py`, parse JSON.\n\nSLOT GUARD (MANDATORY): Check `anySlotsAvailable` BEFORE any entry. If false → HEARTBEAT_OK.\n\nv0.1 ENTRY FILTERS (apply to ALL signals before scoring):\n1. RANK JUMP MINIMUM: `rankJumpThisScan ≥ 15` OR `contribVelocity > 15`. If neither → skip signal.\n2. TIME-OF-DAY SCORING: add +1 pt if current hour (UTC) is 04:00-13:59. Subtract 2 pts if 18:00-01:59.\n3. Standard scoring: FIRST_JUMP +3, IMMEDIATE +2, vel>10 +2, CONTRIB_EXPLOSION +2, DEEP_CLIMBER +1, other reasons +1 each, BTC alignment +1.\n4. Score threshold: ≥6 pts (≥8 for NEUTRAL regime).\n5. Max leverage ≥ 7x (check max-leverage.json). Hourly trend alignment.\n\nRead `{WORKSPACE}/fox-trade-counter.json` for tiered margin. Route to best-fit strategy from `{WORKSPACE}/fox-strategies.json`.\nOn entry: create DSL state with conviction-scaled Phase 1 (v7.2). Store `score` in DSL state. Phase 1 tolerance auto-scales: score 6-7 → 0.02/lev/30min, score 8-9 → 0.025/lev/45min, score 10+ → 0.03/lev/60min.\n\nRE-ENTRY CHECK (v7.2): If a recently-exited Phase 1 trade's asset is still in scanner output with same direction AND contribVelocity > 5 AND price moved further in original direction AND original loss ≤ 15% ROE AND within 2h of exit → re-enter at 75% margin, score threshold 5 pts (relaxed). Set isReentry=true in DSL state. isFirstJump NOT required for re-entries.\nAlert {TELEGRAM}. If no actionable signals → HEARTBEAT_OK."
+    "kind": "agentTurn",
+    "message": "FOX scanner: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/fox-emerging-movers.py`, parse JSON.\n\nSLOT GUARD (MANDATORY): Check `anySlotsAvailable` BEFORE any entry. If false → HEARTBEAT_OK.\n\nv0.1 ENTRY FILTERS (apply to ALL signals before scoring):\n1. RANK JUMP MINIMUM: `rankJumpThisScan ≥ 15` OR `contribVelocity > 15`. If neither → skip signal.\n2. TIME-OF-DAY SCORING: add +1 pt if current hour (UTC) is 04:00-13:59. Subtract 2 pts if 18:00-01:59.\n3. Standard scoring: FIRST_JUMP +3, IMMEDIATE +2, vel>10 +2, CONTRIB_EXPLOSION +2, DEEP_CLIMBER +1, other reasons +1 each, BTC alignment +1.\n4. Score threshold: ≥6 pts (≥8 for NEUTRAL regime).\n5. Max leverage ≥ 7x (check max-leverage.json). Hourly trend alignment.\n\nRead `{WORKSPACE}/fox-trade-counter.json` for tiered margin. Route to best-fit strategy from `{WORKSPACE}/fox-strategies.json`.\nOn entry: create DSL state with conviction-scaled Phase 1 (v7.2). Store `score` in DSL state. Phase 1 tolerance auto-scales: score 6-7 → 0.02/lev/30min, score 8-9 → 0.025/lev/45min, score 10+ → 0.03/lev/60min.\n\nRE-ENTRY CHECK (v7.2): If a recently-exited Phase 1 trade's asset is still in scanner output with same direction AND contribVelocity > 5 AND price moved further in original direction AND original loss ≤ 15% ROE AND within 2h of exit → re-enter at 75% margin, score threshold 5 pts (relaxed). Set isReentry=true in DSL state. isFirstJump NOT required for re-entries.\nAlert {TELEGRAM} ONLY if you OPENED or CLOSED a position. Do NOT narrate skipped signals, scanner thinking, or reasoning. No action = HEARTBEAT_OK, nothing else."
   }
 }
 ```
@@ -38,7 +38,7 @@
   "payload": {
     "kind": "agentTurn",
     "model": "{MID_MODEL}",
-    "message": "FOX DSL: Run `DSL_STATE_DIR={WORKSPACE}/dsl DSL_STRATEGY_ID={STRATEGY_ID} PYTHONUNBUFFERED=1 python3 /data/workspace/skills/dsl-dynamic-stop-loss/scripts/dsl-v5.py`, parse ndjson.\n\nFor each line:\n- if `status==\"strategy_inactive\"` → output: remove this cron.\n- if `closed==true` → alert {TELEGRAM} with asset, direction, close reason, PnL.\n- if `pending_close==true` → alert {TELEGRAM}: close failed, retrying.\n- if `tier_changed==true` → alert {TELEGRAM} with new tier details.\n- if `status==\"error\"` and `consecutive_failures>=3` → alert {TELEGRAM}.\n- else → no action for this line.\n\nPHASE 1 TIMING ENFORCEMENT (v0.1+v7.2 — check AFTER dsl-v5.py output):\nFor each active Phase 1 position (phase==1), read its DSL state file. Check `score` field for conviction-scaled timing:\n- Score 6-7 (or missing): floor=0.02/lev, hardTimeout=30min, weakPeak=15min, deadWeight=10min\n- Score 8-9: floor=0.025/lev, hardTimeout=45min, weakPeak=20min, deadWeight=15min\n- Score 10+: floor=0.03/lev, hardTimeout=60min, weakPeak=30min, deadWeight=20min\nUse the phase1 fields in DSL state (they were set at entry based on score). Check `createdAt` for age:\n1. DEAD WEIGHT: if age > deadWeightCutMin AND current ROE ≤ 0% → close immediately, alert {TELEGRAM}.\n2. WEAK PEAK: if age > weakPeakCutMin AND peak ROE < 3% AND ROE declining → close, alert {TELEGRAM}.\n3. HARD TIMEOUT: if age > hardTimeoutMin AND still Phase 1 → close, alert {TELEGRAM}.\n4. GREEN-IN-10: if age > 10min AND greenIn10==false AND ROE was never positive → set absoluteFloor to 50% of original distance (tighten, don't close). Update state file.\nOn Phase 1 close: log exit details (asset, direction, exitPrice, ROE, exitTime) for potential re-entry.\nIf no lines or all lines are routine and no timing cuts → HEARTBEAT_OK."
+    "message": "FOX DSL: Run `DSL_STATE_DIR={WORKSPACE}/dsl DSL_STRATEGY_ID={STRATEGY_ID} PYTHONUNBUFFERED=1 python3 /data/workspace/skills/dsl-dynamic-stop-loss/scripts/dsl-v5.py`, parse ndjson.\n\nFor each line:\n- if `status==\"strategy_inactive\"` → output: remove this cron.\n- if `closed==true` → alert {TELEGRAM} with asset, direction, close reason, PnL.\n- if `pending_close==true` → alert {TELEGRAM}: close failed, retrying.\n- if `tier_changed==true` → alert {TELEGRAM} with new tier details.\n- if `status==\"error\"` and `consecutive_failures>=3` → alert {TELEGRAM}.\n- else → no action for this line.\n\nPHASE 1 TIMING ENFORCEMENT (v0.1+v7.2 — check AFTER dsl-v5.py output):\nFor each active Phase 1 position (phase==1), read its DSL state file. Check `score` field for conviction-scaled timing:\n- Score 6-7 (or missing): floor=0.02/lev, hardTimeout=30min, weakPeak=15min, deadWeight=10min\n- Score 8-9: floor=0.025/lev, hardTimeout=45min, weakPeak=20min, deadWeight=15min\n- Score 10+: floor=0.03/lev, hardTimeout=60min, weakPeak=30min, deadWeight=20min\nUse the phase1 fields in DSL state (they were set at entry based on score). Check `createdAt` for age:\n1. DEAD WEIGHT: if age > deadWeightCutMin AND current ROE ≤ 0% → close immediately, alert {TELEGRAM}.\n2. WEAK PEAK: if age > weakPeakCutMin AND peak ROE < 3% AND ROE declining → close, alert {TELEGRAM}.\n3. HARD TIMEOUT: if age > hardTimeoutMin AND still Phase 1 → close, alert {TELEGRAM}.\n4. GREEN-IN-10: if age > 10min AND greenIn10==false AND ROE was never positive → set absoluteFloor to 50% of original distance (tighten, don't close). Update state file.\nOn Phase 1 close: log exit details (asset, direction, exitPrice, ROE, exitTime) for potential re-entry.\nIf no lines or all lines are routine and no timing cuts → HEARTBEAT_OK.\n\nNOTIFICATION: Only send Telegram on position CLOSED or tier CHANGED. Do NOT narrate routine DSL checks."
   }
 }
 ```
@@ -53,7 +53,7 @@
   "payload": {
     "kind": "agentTurn",
     "model": "{BUDGET_MODEL}",
-    "message": "FOX SM: Run `python3 {SCRIPTS}/fox-sm-flip-check.py`, parse JSON.\n\nFor each alert in `alerts`:\n- if `alertLevel==\"FLIP_NOW\"` → close that position on the wallet for `strategyKey`, alert {TELEGRAM} with asset, direction, conviction, strategyKey.\n- if `alertLevel==\"FLIP_WARNING\"` or `alertLevel==\"WATCH\"` → no action needed.\nIf `hasFlipSignal==false` or no FLIP_NOW alerts → HEARTBEAT_OK."
+    "message": "FOX SM: Run `python3 {SCRIPTS}/fox-sm-flip-check.py`, parse JSON.\n\nFor each alert in `alerts`:\n- if `alertLevel==\"FLIP_NOW\"` → close that position on the wallet for `strategyKey`, alert {TELEGRAM} with asset, direction, conviction, strategyKey.\n- if `alertLevel==\"FLIP_WARNING\"` or `alertLevel==\"WATCH\"` → no action needed.\nIf `hasFlipSignal==false` or no FLIP_NOW alerts → HEARTBEAT_OK.\n\nNOTIFICATION: Only send Telegram if a position was CLOSED due to SM flip. Do NOT narrate flip checks or conviction levels."
   }
 }
 ```
@@ -68,7 +68,7 @@
   "payload": {
     "kind": "agentTurn",
     "model": "{BUDGET_MODEL}",
-    "message": "FOX Watchdog: Run `PYTHONUNBUFFERED=1 timeout 45 python3 {SCRIPTS}/fox-monitor.py`, parse JSON.\n\nFor each strategy in output:\n- if `crypto_liq_buffer_pct<30` → CRITICAL: close position with lowest ROE% in that strategy, alert {TELEGRAM}.\n- if `crypto_liq_buffer_pct<50` → WARNING: alert {TELEGRAM} only.\n- if any position has `liq_distance_pct<15` and wallet_type==\"xyz\" → alert {TELEGRAM}.\nIf no alerts → HEARTBEAT_OK."
+    "message": "FOX Watchdog: Run `PYTHONUNBUFFERED=1 timeout 45 python3 {SCRIPTS}/fox-monitor.py`, parse JSON.\n\nFor each strategy in output:\n- if `crypto_liq_buffer_pct<30` → CRITICAL: close position with lowest ROE% in that strategy, alert {TELEGRAM}.\n- if `crypto_liq_buffer_pct<50` → WARNING: alert {TELEGRAM} only.\n- if any position has `liq_distance_pct<15` and wallet_type==\"xyz\" → alert {TELEGRAM}.\nIf no alerts → HEARTBEAT_OK.\n\nNOTIFICATION: Only send Telegram on margin WARNING or position FORCE CLOSE. Do NOT send routine margin reports or all-clear messages."
   }
 }
 ```
@@ -88,17 +88,17 @@
 }
 ```
 
-## 6. Opportunity Scanner — Primary / Main Session
+## 6. Opportunity Scanner — Primary / Isolated Session
 
 ```json
 {
   "name": "FOX — Opportunity Scanner v6 (15min)",
   "schedule": { "kind": "cron", "expr": "*/15 * * * *", "tz": "UTC" },
-  "sessionTarget": "main",
+  "sessionTarget": "isolated",
   "wakeMode": "now",
   "payload": {
-    "kind": "systemEvent",
-    "text": "FOX scanner: Run `PYTHONUNBUFFERED=1 timeout 180 python3 {SCRIPTS}/fox-opportunity-scan-v6.py 2>/dev/null`, parse JSON.\n\nSLOT GUARD (MANDATORY): Check `anySlotsAvailable` BEFORE any entry. If false → HEARTBEAT_OK.\n\nFor each opportunity with finalScore ≥ 175:\n1. Check hourly trend alignment (HARD REQUIREMENT — counter-trend = skip).\n2. Check `max-leverage.json` for actual max leverage (min 7x).\n3. Read `{WORKSPACE}/fox-trade-counter.json` for tiered margin.\n4. Route to best-fit strategy from `{WORKSPACE}/fox-strategies.json`. Open position → create DSL state → ensure DSL cron.\nAlert {TELEGRAM}. If no qualified opportunities → HEARTBEAT_OK."
+    "kind": "agentTurn",
+    "message": "FOX scanner: Run `PYTHONUNBUFFERED=1 timeout 180 python3 {SCRIPTS}/fox-opportunity-scan-v6.py 2>/dev/null`, parse JSON.\n\nSLOT GUARD (MANDATORY): Check `anySlotsAvailable` BEFORE any entry. If false → HEARTBEAT_OK.\n\nFor each opportunity with finalScore ≥ 175:\n1. Check hourly trend alignment (HARD REQUIREMENT — counter-trend = skip).\n2. Check `max-leverage.json` for actual max leverage (min 7x).\n3. Read `{WORKSPACE}/fox-trade-counter.json` for tiered margin.\n4. Route to best-fit strategy from `{WORKSPACE}/fox-strategies.json`. Open position → create DSL state → ensure DSL cron.\nAlert {TELEGRAM}. If no qualified opportunities → HEARTBEAT_OK.\n\nNOTIFICATION RULE: Only send Telegram if you OPENED or CLOSED a position. Do NOT narrate skipped signals, scanner results, or reasoning. No action = HEARTBEAT_OK, nothing else."
   }
 }
 ```
@@ -113,7 +113,7 @@
   "payload": {
     "kind": "agentTurn",
     "model": "{MID_MODEL}",
-    "message": "FOX Regime: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/fox-market-regime.py`, parse JSON.\n\nSave the full output to `{WORKSPACE}/market-regime-last.json`.\n- if `market_regime==\"BEARISH\"` → log: SHORT only.\n- if `market_regime==\"BULLISH\"` → log: LONG only.\n- if `market_regime==\"NEUTRAL\"` → log: both directions, higher score threshold.\nHEARTBEAT_OK after saving."
+    "message": "FOX Regime: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/fox-market-regime.py`, parse JSON.\n\nSave the full output to `{WORKSPACE}/market-regime-last.json`.\n- if `market_regime==\"BEARISH\"` → log: SHORT only.\n- if `market_regime==\"BULLISH\"` → log: LONG only.\n- if `market_regime==\"NEUTRAL\"` → log: both directions, higher score threshold.\nHEARTBEAT_OK after saving.\n\nNOTIFICATION: Only send Telegram if regime FLIPPED. Do NOT narrate routine regime checks."
   }
 }
 ```
@@ -128,7 +128,7 @@
   "payload": {
     "kind": "agentTurn",
     "model": "{MID_MODEL}",
-    "message": "FOX Health: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/fox-health-check.py`, parse JSON.\n\nFor each issue, check the `action` field:\n- `auto_created` → DSL was missing, script created it. Alert {TELEGRAM}.\n- `auto_deactivated` → Orphan DSL deactivated (position closed externally). No alert needed.\n- `auto_replaced` → Direction mismatch fixed. Alert {TELEGRAM}.\n- `updated_state` → Size/entry/leverage reconciled. No alert needed.\n- `skipped_fetch_error` → Orphan check skipped (transient). No alert needed.\n- `alert_only` with type `NO_WALLET` or `DSL_INACTIVE` → CRITICAL. Alert {TELEGRAM}.\nIf no issues → HEARTBEAT_OK."
+    "message": "FOX Health: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS}/fox-health-check.py`, parse JSON.\n\nFor each issue, check the `action` field:\n- `auto_created` → DSL was missing, script created it. Alert {TELEGRAM}.\n- `auto_deactivated` → Orphan DSL deactivated (position closed externally). No alert needed.\n- `auto_replaced` → Direction mismatch fixed. Alert {TELEGRAM}.\n- `updated_state` → Size/entry/leverage reconciled. No alert needed.\n- `skipped_fetch_error` → Orphan check skipped (transient). No alert needed.\n- `alert_only` with type `NO_WALLET` or `DSL_INACTIVE` → CRITICAL. Alert {TELEGRAM}.\nIf no issues → HEARTBEAT_OK.\n\nNOTIFICATION: Only send Telegram if orphan position found, state corruption detected, or DSL reconciliation needed. Do NOT narrate routine health checks."
   }
 }
 ```
@@ -137,11 +137,11 @@
 
 | # | Cron | Interval | Session | Payload Kind | Mandate Key | Model |
 |---|------|----------|---------|-------------|-------------|-------|
-| 1 | Emerging Movers | */3 * * * * | main | systemEvent | `text` | Primary |
+| 1 | Emerging Movers | */3 * * * * | isolated | agentTurn | `message` | Primary |
 | 2 | DSL v5 | */3 * * * * | isolated | agentTurn | `message` | Mid |
 | 3 | SM Flip | */5 * * * * | isolated | agentTurn | `message` | Budget |
 | 4 | Watchdog | */5 * * * * | isolated | agentTurn | `message` | Budget |
 | 5 | Portfolio | */15 * * * * | isolated | agentTurn | `message` | Mid |
-| 6 | Opp Scanner | */15 * * * * | main | systemEvent | `text` | Primary |
+| 6 | Opp Scanner | */15 * * * * | isolated | agentTurn | `message` | Primary |
 | 7 | Market Regime | 0 */4 * * * | isolated | agentTurn | `message` | Mid |
 | 8 | Health Check | */10 * * * * | isolated | agentTurn | `message` | Mid |

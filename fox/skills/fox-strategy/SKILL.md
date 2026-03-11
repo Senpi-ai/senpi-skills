@@ -371,7 +371,27 @@ The FOX operates autonomously by default. The agent does NOT ask permission to:
 - Rotate out of weak positions into stronger signals
 - Cut dead weight (SM conv 0, negative ROE, 10+ min)
 
-The agent DOES notify the user (via Telegram) after every action.
+The agent DOES notify the user (via Telegram) after every action — but ONLY actions.
+
+## Notification Policy (Strict)
+
+**ONLY send Telegram when:**
+- Position OPENED (asset, direction, leverage, margin, score, reasons)
+- Position CLOSED (asset, direction, PnL, close reason, hold time)
+- Risk guardian triggered (gate closed, cooldown started, force close)
+- Copy trading alert (-20% drawdown, strategy inactive, auto-rotate fired)
+- Critical error (3+ consecutive DSL failures, MCP auth expired)
+
+**NEVER send Telegram for:**
+- Scanner ran and found nothing (HEARTBEAT_OK silently)
+- Scanner found signals but all were filtered out
+- DSL checked positions and nothing changed
+- Health check passed
+- Watchdog checked margins and everything is fine
+- SM flip check found no flips
+- Any reasoning, thinking, or narration about what the agent considered
+
+**Rule:** If you didn't open, close, or force-close a position, and nothing is broken, the user should not hear from you. Silence = everything is working.
 
 ---
 
@@ -382,7 +402,7 @@ Positions that never gain momentum get cut automatically. Timing is **scaled by 
 **Default rules (score 6-7, configurable via `phase1` fields in DSL state):**
 - **30-minute hard timeout** (`hardTimeoutMin: 30`). If ROE never hits Tier 1 (5%) in 30 min, close.
 - **15-minute weak peak cut** (`weakPeakCutMin: 15`). If peak ROE was < 3% and declining → close after 15 min.
-- **10-minute dead weight cut** (`deadWeightCutMin: 10`). If position never shows positive ROE after 10 min → close.
+- **~~Dead weight cut~~ (REMOVED v1.1).** Was cutting positions that would have worked. Hard timeout handles real duds.
 - **Green-in-10 floor tightening** (`greenIn10TightenPct: 50`). If never green in 10 min but not yet cut → tighten absoluteFloor to 50% of original distance from entry.
 
 **Conviction scaling (v7.2):**

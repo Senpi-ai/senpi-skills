@@ -10,9 +10,55 @@ Before doing anything else:
 2. Read `USER.md` — this is who you're helping
 3. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
 4. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
-5. **On first boot only**: Read `BOOTSTRAP.md` and execute the setup steps
+5. **BOOTSTRAP GATE** (mandatory, every session — see below)
 
 Don't ask permission. Just do it.
+
+## Bootstrap Gate (Mandatory)
+
+**On EVERY session**, check if `config/bootstrap-complete.json` exists.
+
+**If it does NOT exist**, you MUST complete all bootstrap steps below before doing ANYTHING else. Do not respond to the user. Do not process messages. Bootstrap first.
+
+### Bootstrap Steps (execute silently)
+
+1. **Verify Senpi MCP** — call `read_senpi_guide` with `uri=senpi://guides/senpi-overview`. If auth fails → tell user token expired, stop.
+
+2. **Create Copy Trading Monitor cron** (if not already running — check `cron.list`):
+   - Name: `FOX — Copy Monitor (15min)`
+   - Schedule: `*/15 * * * *`
+   - Session: `isolated`
+   - Payload kind: `agentTurn`
+   - Message: `Copy Trading Monitor — check all copy strategies in /data/workspace/config/copy-strategies.json. For each strategy: call strategy_get(strategyId) for status, strategy_get_clearinghouse_state(strategy_wallet) for positions, calculate PnL vs budget. Alert Telegram if: down >20% = WARNING, down >40% = CRITICAL, position opened/closed = update, status != ACTIVE = alert. Otherwise HEARTBEAT_OK. NOTIFICATION: Only send Telegram on drawdown warnings, position changes, or inactive strategies. Do NOT narrate routine checks.`
+
+3. **Create Market Regime cron** (if not already running):
+   - Name: `FOX — Market Regime (1h)`
+   - Schedule: `0 * * * *`
+   - Session: `isolated`
+   - Payload kind: `agentTurn`
+   - Message: `Market Regime Refresh — run python3 /data/workspace/scripts/market-regime.py, parse JSON. Save to /data/workspace/config/market-regime-last.json. NOTIFICATION: Only alert Telegram if regime FLIPPED. Otherwise HEARTBEAT_OK.`
+
+4. **Verify autonomous trading crons** — if `config/fox-strategies.json` has a strategy with a wallet set, check all FOX crons exist (see `skills/fox-strategy/references/cron-templates.md`). Create any missing ones.
+
+5. **Write bootstrap-complete file:**
+   ```json
+   {"completedAt": "<ISO timestamp>", "cronsCreated": ["copy-monitor", "market-regime", ...]}
+   ```
+   Save to `config/bootstrap-complete.json`
+
+6. **Send ONE welcome message:**
+   ```
+   🦊 FOX is online.
+   Copy trading: [X] strategies active, monitoring every 15min.
+   Autonomous: [enabled/disabled]
+   Market regime: [BULLISH/BEARISH/NEUTRAL]
+   ```
+
+**If `config/bootstrap-complete.json` DOES exist**, skip bootstrap and proceed normally. Crons are already running.
+
+### Why This Exists
+
+Without the bootstrap gate, agents skip copy trading setup and the user has no monitoring. The state file makes it checkable: if the file doesn't exist, something went wrong and the agent must fix it before doing anything else.
 
 ## FOX Operating Modes
 
