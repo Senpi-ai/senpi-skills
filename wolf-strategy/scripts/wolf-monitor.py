@@ -9,13 +9,14 @@ WOLF Strategy Monitor v2 — Multi-strategy
 - Per-strategy alerts and summary
 - Outputs JSON with per-strategy results
 """
-import json, sys, os, glob
+import json, sys, os, glob, subprocess
 from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import (load_all_strategies, state_dir, dsl_state_glob,
-                         WORKSPACE, mcporter_call_safe, heartbeat)
+from wolf_config import (load_all_strategies, state_dir, dsl_state_path,
+                         dsl_position_state_files, WORKSPACE, mcporter_call_safe,
+                         mcporter_call, heartbeat)
 
 heartbeat("watchdog")
 
@@ -31,8 +32,8 @@ def get_clearinghouse(wallet):
 
 
 def get_dsl_state_for_strategy(strategy_key, asset):
-    """Read DSL state file for a specific strategy+asset."""
-    path = os.path.join(WORKSPACE, "state", strategy_key, f"dsl-{asset}.json")
+    """Read DSL state file for a specific strategy+asset (DSL v5.2 path)."""
+    path = dsl_state_path(strategy_key, asset)
     try:
         with open(path) as f:
             return json.load(f)
@@ -221,9 +222,13 @@ def main():
         "total_alerts": len(output["alerts"]),
     }
 
+    # Phase 1 auto-cut (hard timeout, weak peak, dead weight) is handled by DSL cron when
+    # the skill supplies phase1.hardTimeout / weakPeakCut / deadWeightCut in its DSL config.
+    # Wolf-strategy no longer manages these here.
+    action_required = []
+
     # --- Actionable outputs for LLM mandate ---
     notifications = []  # empty — LLM sends notification after closing
-    action_required = []
 
     for strat_key, strat_data in output["strategies"].items():
         for alert in strat_data.get("alerts", []):

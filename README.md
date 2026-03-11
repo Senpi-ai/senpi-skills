@@ -4,6 +4,24 @@ Autonomous trading strategy for Hyperliquid perpetuals via [Senpi](https://senpi
 
 ## What's Included
 
+## Install a skill (Senpi users)
+
+1. Download the `SKILL.md` file (click the link in the table below)
+2. Send it to your agent in Telegram with the message: **"Here are some new superpowers"**
+3. Your agent will prompt you for next steps
+
+> **Tip:** Use top-tier AI models (Claude Opus or equivalent). Trading requires precision. Skills are optimized to use far fewer tokens than training your agent from scratch.
+
+## Install a skill (OpenClaw / ClawHub)
+
+```bash
+clawhub install dsl-dynamic-stop-loss
+clawhub install opportunity-scanner
+clawhub install autonomous-trading
+clawhub install emerging-movers
+clawhub install whale-index
+clawhub install wolf-strategy
+clawhub install wolf-howl
 ```
 tiger-v4/
 ├── README.md                    ← You're here
@@ -45,64 +63,131 @@ tiger-v4/
     ├── MEMORY.md                ← Long-term memory (template)
     └── USER.md.template         ← User config template
 ```
+https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dsl-dynamic-stop-loss/SKILL.md
+https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/opportunity-scanner/SKILL.md
+https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/autonomous-trading/SKILL.md
+https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/emerging-movers/SKILL.md
+https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/whale-index/SKILL.md
+https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolf-strategy/SKILL.md
+https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolf-howl/SKILL.md
+```
 
-## Requirements
+Each skill folder is self-contained — SKILL.md has the core instructions, `scripts/` has executable code, `references/` has detailed schemas and examples. Everything an agent needs.
 
-- **OpenClaw** — AI agent runtime with cron system
-- **Senpi MCP** — Hyperliquid trading API (auth token required)
-- **mcporter CLI** — MCP tool caller (comes with OpenClaw)
-- **Python 3.8+** — No external dependencies (stdlib only)
+---
 
-## Setup
+## Skills
 
-1. **Deploy OpenClaw** and configure Senpi MCP auth token
-2. **Copy `workspace/` files** to your OpenClaw workspace root (`/data/workspace/`)
-3. **Copy `tiger-strategy/`** to `/data/workspace/skills/tiger-strategy/`
-4. **Edit `tiger-config.json`** — set your strategy_id, strategy_wallet, telegram_chat_id, budget, target, deadline
-5. **Edit `USER.md`** — fill in your Telegram chat ID and wallet addresses
-6. **Start the agent** — it reads SKILL.md and creates all 12 cron jobs automatically
+| Skill | What it does | Install |
+|-------|-------------|---------|
+| **[DSL (Dynamic Stop Loss)](#dsl-dynamic-stop-loss)** | 2-phase trailing stop loss with per-tier retrace tightening. ROE-based tier triggers, auto-closes on breach with retry. Works for LONG and SHORT. | [`SKILL.md`](dsl-dynamic-stop-loss/SKILL.md) |
+| **[Opportunity Scanner](#opportunity-scanner)** | 4-stage funnel screening all 500+ Hyperliquid perps. Scores 0–400 across smart money, market structure, technicals, and funding. Hourly trend gate, BTC macro filter. | [`SKILL.md`](opportunity-scanner/SKILL.md) |
+| **[Autonomous Trading](#autonomous-trading)** | Give your agent a budget, target, and deadline — it does the rest. Orchestrates DSL + Scanner + Emerging Movers with race condition prevention and conviction collapse cuts. | [`SKILL.md`](autonomous-trading/SKILL.md) |
+| **[WOLF Strategy](#wolf-strategy)** | Fully autonomous 2-3 slot trading. All 7 scripts bundled, setup wizard, cron mandates. Proven: +$2,100 in 24h across 25+ trades, 65% win rate. | [`SKILL.md`](wolf-strategy/SKILL.md) |
+| **[HOWL](#howl)** | 🐺🌙 Hunt, Optimize, Win, Learn. Nightly self-improvement loop — analyzes every trade, finds patterns, suggests strategy improvements. | [`SKILL.md`](wolf-howl/SKILL.md) |
+| **[Emerging Movers Detector](#emerging-movers-detector)** | Tracks SM concentration across all Hyperliquid assets. Quality-filtered IMMEDIATE signals, runs every 60 seconds. One API call per scan. | [`SKILL.md`](emerging-movers/SKILL.md) |
+| **[Whale Index](#whale-index)** | Auto-mirror top Discovery traders. Scores on PnL rank, win rate, consistency, drawdown. 2–5 mirror strategies, daily rebalance with 2-day watch period. | [`SKILL.md`](whale-index/SKILL.md) |
 
-## Architecture
+---
 
-12 cron jobs running in parallel:
+## Skill details
 
-| Cron | Frequency | Purpose |
-|------|-----------|---------|
-| Prescreener | 5min | Scores all assets, produces top-30 candidate list |
-| Compression Scanner | 5min | BB squeeze + OI breakout detection |
-| Momentum Scanner | 5min | Price momentum + volume spike detection |
-| Reversion Scanner | 5min | RSI extreme + divergence detection |
-| Correlation Scanner | 3min | BTC/ETH leader → alt lag detection |
-| Funding Scanner | 30min | Extreme funding rate arbitrage |
-| OI Tracker | 5min | Open interest history accumulation |
-| Goal Engine | 1h | Adaptive aggression recalculation |
-| Risk Guardian | 5min | Drawdown & daily loss enforcement |
-| Exit Checker | 5min | Smart exit logic (time stops, stagnation) |
-| DSL Trailing Stop | 30s | 10-tier dynamic stop loss management |
-| ROAR Analyst | 8h | Auto-parameter optimization |
+### DSL (Dynamic Stop Loss)
 
-## Key v4 Improvements (vs v3)
+Automated trailing stop loss for leveraged perp positions on Hyperliquid. All tier triggers are ROE-based (return on margin), so they automatically account for leverage.
 
-Based on analysis of 24 trades (12W/12L, -$41 net → projected +$400-600):
+**How it works:** Two phases — Phase 1 ("Let it breathe") uses a wide retrace with multiple breach checks to avoid early shakeouts. Phase 2 ("Lock the bag") triggers on the first profit tier, tightens the retrace (optionally per-tier), and ratchets a profit floor upward that can never go back down. The script closes positions directly via mcporter with retry — no agent intervention needed for the critical path.
 
-- **Realistic targets**: 1.5%/day over 14 days (was 8%/day moonshots)
-- **Tighter risk**: 3% max loss per trade, 8% daily, 15% drawdown
-- **Higher confluence**: Score ≥0.75-0.85 required (was 0.55-0.65)
-- **10-tier DSL**: Smooth profit locking from 5% → 100% ROE
-- **Wall-clock budget**: Scanners stop at 40s to avoid cron timeouts
-- **Volume gates**: Momentum entries need volume_ratio ≥ 1.2
-- **ALO entries**: FEE_OPTIMIZED_LIMIT for entries, MARKET for emergency exits
-- **Margin sizing**: 30% of balance per slot as margin (fixed prior bug)
+**Key features:** ROE-based tier ratcheting, per-tier retrace, breach decay modes, error handling with close retry and `pendingClose` recovery. Self-contained: one Python script + one JSON state file.
 
-## Performance History
+📥 **[Download SKILL.md](dsl-dynamic-stop-loss/SKILL.md)**
 
-| Mission | Result | Notes |
-|---------|--------|-------|
-| Mission 1 | +18.5% in 2.5 days (7W/1L) | Best run |
-| Mission 2-4 | Flat/losses | Too aggressive targets |
-| Mission 5 | Flat | Reset after transfer |
-| Mission 6 (v4) | Active | $3,048 → $3,660 target |
+---
 
-## License
+### Opportunity Scanner
 
-Apache-2.0
+Screens all Hyperliquid perps to find the highest-conviction trading setups.
+
+**How it works:** 4-stage funnel — BTC macro context, bulk volume screen, smart money overlay, multi-timeframe deep dive with parallel candle fetches. Scores 0–400 across 4 equal pillars, gated by hourly trend alignment. Counter-trend on hourly = hard skip. Near-zero LLM tokens.
+
+📥 **[Download SKILL.md](opportunity-scanner/SKILL.md)**
+
+---
+
+### Autonomous Trading
+
+Give your agent a budget, a target, and a deadline. It does the rest.
+
+**How it works:** Creates a strategy wallet, scans for opportunities, opens positions, protects profits with DSL, and enforces risk controls. Race condition prevention across crons, conviction collapse = instant cut, cross-margin buffer math, speed filter.
+
+**Requires:** DSL + Opportunity Scanner + Emerging Movers skills
+**Minimum budget:** $500 (recommend $1k+)
+
+📥 **[Download SKILL.md](autonomous-trading/SKILL.md)**
+
+---
+
+### WOLF Strategy
+
+Fully autonomous trading — the WOLF hunts for its human. All 7 Python scripts bundled, setup wizard, cron mandate templates.
+
+**How it works:** 2-3 slot concentrated position management. IMMEDIATE_MOVER as primary entry trigger. 7 cron jobs (60s scanner, 180s DSL per position, 5min SM flip detector, 5min watchdog, 15min scanner, 15min portfolio, 10min health check). Budget-scaled sizing — tell it your budget, it calculates slots, margin, leverage, loss limits, and auto-delevers if account drops. Tighter 4-tier DSL (5/10/15/20% ROE) locks profit earlier than the old 6-tier system.
+
+**Proven:** +$1,500 realized across 25+ trades, 65% win rate on $6.5k budget.
+
+**Self-contained:** Includes DSL v4, Emerging Movers, Opportunity Scanner, SM flip detector, watchdog, health check, and setup wizard. No companion skill installs needed.
+
+📥 **[Download SKILL.md](wolf-strategy/SKILL.md)**
+
+---
+
+### HOWL
+
+🐺🌙 **Hunt, Optimize, Win, Learn.** The WOLF hunts all day. At night, it HOWLs — reviewing every trade, finding patterns, and sharpening itself for tomorrow.
+
+**How it works:** A nightly cron spawns an isolated sub-agent that gathers trade history, DSL state files, and memory logs. It computes win rates, profit factor, signal quality correlation, DSL tier distribution, slot utilization, and missed opportunities. Produces a structured report with data-backed improvement suggestions at high/medium/low confidence, saves to memory, and sends a Telegram summary.
+
+**Requires:** WOLF Strategy skill (this analyzes WOLF's trades)
+
+📥 **[Download SKILL.md](wolf-howl/SKILL.md)**
+
+---
+
+### Emerging Movers Detector
+
+Catches Smart Money rotations before they hit the top of the leaderboard.
+
+**How it works:** Tracks SM profit concentration leaderboard every 60 seconds using a single API call. Scans top 50 markets. v3.1 adds quality filters — erratic rank history, velocity gate, trader count floor, max leverage check — to prevent false IMMEDIATE signals.
+
+📥 **[Download SKILL.md](emerging-movers/SKILL.md)**
+
+---
+
+### Whale Index
+
+Auto-mirror the highest-conviction traders from Senpi's 30-day Discovery leaderboard.
+
+**How it works:** Scans top 50 Discovery traders, scores on PnL rank (35%), win rate (25%), consistency (20%), hold time (10%), drawdown (10%). Creates 2–5 mirror strategies with overlap checks. Daily rebalance with 2-day watch period before swaps.
+
+**Minimum budget:** $500 (recommend $1k+)
+
+📥 **[Download SKILL.md](whale-index/SKILL.md)**
+
+---
+
+## What are Agent Skills?
+
+[Agent Skills](https://agentskills.io) is an open standard for giving AI agents new capabilities. Skills are folders of instructions, scripts, and resources that any compatible agent can discover and use. The standard is adopted by Claude, Claude Code, OpenAI Codex, Gemini CLI, GitHub Copilot, Cursor, VS Code, OpenClaw, and 20+ other platforms.
+
+These skills are built for Senpi on Hyperliquid, but the format is portable — any agent that supports the Agent Skills standard can read and execute them.
+
+---
+
+## Notes
+
+- **Skills are a work in progress.** Updates and new skills are announced in the [Senpi Telegram group](https://t.me/+0Z_77HSTD6EwYzhh).
+- **Feedback welcome.** [Share how skills are working for you](https://t.me/+0Z_77HSTD6EwYzhh).
+
+---
+
+## License: MIT

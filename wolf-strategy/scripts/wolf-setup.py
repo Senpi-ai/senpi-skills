@@ -16,10 +16,10 @@ Usage:
   # Interactive mode (prompts for everything):
   python3 wolf-setup.py
 """
-import json, sys, os, math, argparse
+import json, sys, os, math, argparse, subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import mcporter_call, GUARD_RAIL_DEFAULTS
+from wolf_config import mcporter_call, GUARD_RAIL_DEFAULTS, build_wolf_dsl_config, resolve_dsl_cli_path, _discover_dsl_cli_path, DSL_STATE_DIR
 
 WORKSPACE = os.environ.get("WOLF_WORKSPACE",
     os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
@@ -219,6 +219,19 @@ if registry.get("defaultStrategy") is None or len(registry["strategies"]) == 1:
 if not registry["global"].get("telegramChatId"):
     registry["global"]["telegramChatId"] = str(chat_id)
 
+# Ensure global has DSL paths (for dsl-cli and per-strategy DSL crons)
+if not registry["global"].get("dslStateDir"):
+    registry["global"]["dslStateDir"] = DSL_STATE_DIR
+if not registry["global"].get("dslCliPath"):
+    ap = _discover_dsl_cli_path()
+    if ap:
+        registry["global"]["dslCliPath"] = ap
+        registry["global"]["dslScriptPath"] = os.path.join(os.path.dirname(ap), "dsl-v5.py")
+elif registry["global"].get("dslCliPath") and not registry["global"].get("dslScriptPath"):
+    registry["global"]["dslScriptPath"] = os.path.join(
+        os.path.dirname(registry["global"]["dslCliPath"]), "dsl-v5.py"
+    )
+
 # Save registry atomically
 os.makedirs(WORKSPACE, exist_ok=True)
 tmp_file = REGISTRY_FILE + ".tmp"
@@ -231,6 +244,36 @@ print(f"\n  Registry saved to {REGISTRY_FILE}")
 state_dir = os.path.join(WORKSPACE, "state", strategy_key)
 os.makedirs(state_dir, exist_ok=True)
 print(f"  State directory created: {state_dir}")
+
+# Create DSL strategy config (no positions yet) via dsl-cli add-dsl (DSL v5.2)
+dsl_cron_job_id = None
+if registry["global"].get("dslCliPath"):
+    try:
+        dsl_config = build_wolf_dsl_config(strategy_entry)
+        cmd = [
+            "python3", resolve_dsl_cli_path(),
+            "add-dsl", strategy_id,
+            "--skill", "wolf-strategy",
+            "--configuration", json.dumps(dsl_config),
+            "--state-dir", DSL_STATE_DIR,
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=45)
+        if r.returncode == 0 and r.stdout:
+            cli_out = json.loads(r.stdout)
+            if cli_out.get("cron_needed") and cli_out.get("cron_job_id"):
+                dsl_cron_job_id = cli_out["cron_job_id"]
+                strategy_entry["dslCronJobId"] = dsl_cron_job_id
+                registry["strategies"][strategy_key] = strategy_entry
+                with open(REGISTRY_FILE + ".tmp", "w") as f:
+                    json.dump(registry, f, indent=2)
+                os.replace(REGISTRY_FILE + ".tmp", REGISTRY_FILE)
+            print("  DSL strategy config created (dsl-cli add-dsl)")
+        else:
+            print("  DSL setup skipped or failed (no dsl-cli path or add-dsl failed)")
+    except Exception as e:
+        print(f"  DSL setup warning: {e}")
+else:
+    print("  DSL setup skipped (dsl-cli not found; install dsl-dynamic-stop-loss skill)")
 
 # Create other shared directories
 for d in ["history", "memory", "logs"]:
@@ -262,6 +305,12 @@ except Exception as e:
     print(f"  Failed to fetch max-leverage: {e}")
     print("  You can manually fetch later.")
 
+# Resolve DSL v5 script path for cron template (use stored path or placeholder for LLM to fill)
+_dsl_v5_path = registry["global"].get("dslScriptPath")
+dsl_v5_run = _dsl_v5_path if _dsl_v5_path and os.path.isfile(_dsl_v5_path) else "{DSL_SCRIPTS}/dsl-v5.py"
+if dsl_v5_run == "{DSL_SCRIPTS}/dsl-v5.py":
+    print("  NOTE: dsl-v5.py path not auto-discovered. Read global.dslScriptPath from wolf-strategies.json after installing the dsl-dynamic-stop-loss skill, then substitute {DSL_SCRIPTS} in the DSL cron mandate.")
+
 # Build cron templates
 tg = f"telegram:{chat_id}"
 margin_str = str(int(margin_per_slot))
@@ -278,15 +327,17 @@ cron_templates = {
             "message": f"WOLF v6 Scanner: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS_DIR}/emerging-movers.py`, parse JSON.\n\nMANDATE: Hunt runners before they peak. Multi-strategy aware.\n1. **FIRST_JUMP**: 10+ rank jump from #25+ AND wasn't in previous top 50 (or was >= #30) -> ENTER IMMEDIATELY.\n2. **CONTRIB_EXPLOSION**: 3x+ contrib spike -> ENTER. NEVER downgrade for erratic history.\n3. **IMMEDIATE_MOVER**: 10+ rank jump from #25+ in ONE scan -> ENTER if not downgraded.\n4. **NEW_ENTRY_DEEP**: Appears in top 20 from nowhere -> ENTER.\n5. **Signal routing**: Read wolf-strategies.json. For each signal, find the best-fit strategy: check available slots, existing positions, risk profile match. Route to the strategy with open slots that doesn't already hold the asset.\n6. Leverage auto-calculated from tradingRisk + asset maxLeverage + signal conviction. Alert user on Telegram ({tg}).\n7. **DEAD WEIGHT RULE**: Negative ROE + SM conviction against it for 30+ min -> CUT immediately.\n8. **ROTATION RULE**: If target strategy slots FULL and FIRST_JUMP fires -> identify weakest position in THAT strategy. Use `python3 {SCRIPTS_DIR}/open-position.py --strategy {{STRATEGY_KEY}} --asset {{NEW_ASSET}} --direction {{DIR}} --conviction {{CONV}} --scanner --close-asset {{WEAK_ASSET}}` to atomically close + open. Do NOT call close_position separately.\n9. If no actionable signals -> HEARTBEAT_OK.\n10. **AUTO-DELEVER**: Per-strategy threshold check.\n\n**POSITION OPENING**: Use `python3 {SCRIPTS_DIR}/open-position.py --strategy {{STRATEGY_KEY}} --asset {{ASSET}} --direction {{DIRECTION}} --conviction {{CONVICTION}} --scanner` to open positions. Conviction comes from scanner output. This handles position creation + DSL state atomically. Do NOT hand-craft DSL JSON.\nAfter running open-position.py, send each message in `notifications` from its JSON output to Telegram ({tg})."
         }
     },
-    "dsl_combined": {
-        "name": "WOLF DSL Combined v6 (3min)",
+    "dsl_per_strategy": {
+        "name": f"DSL {strategy_name}",
         "schedule": {"kind": "every", "everyMs": 180000},
         "sessionTarget": "isolated",
         "payload": {
             "kind": "agentTurn",
             "model": mid_model,
-            "message": f"WOLF DSL: Run `PYTHONUNBUFFERED=1 python3 {SCRIPTS_DIR}/dsl-combined.py`, parse JSON.\nSend each message in `notifications` to Telegram ({tg}).\nIf `notifications` is empty → HEARTBEAT_OK."
-        }
+            "message": f"DSL [{strategy_name}] cron: Run `PYTHONUNBUFFERED=1 python3 {dsl_v5_run} --strategy-id {strategy_id} --state-dir {DSL_STATE_DIR}`. Parse ndjson (one JSON line per position or strategy event).\nFor each line: closed=true → send Telegram ({tg}) with asset, direction, close reason, PnL; strategy_inactive=true → remove this cron (job ID: {{DSL_CRON_JOB_ID}}), run dsl-cleanup.py; pending_close=true → send Telegram \"⚠️ DSL close pending retry for {{asset}} [{strategy_key}]\"; sl_initial_sync=true → silent.\nNo actionable events → HEARTBEAT_OK."
+        },
+        "cron_env": {"DSL_STATE_DIR": DSL_STATE_DIR, "DSL_STRATEGY_ID": strategy_id},
+        "dsl_cron_job_id": dsl_cron_job_id,
     },
     "sm_flip": {
         "name": "WOLF SM Flip Detector v6 (5min)",
@@ -295,7 +346,7 @@ cron_templates = {
         "payload": {
             "kind": "agentTurn",
             "model": budget_model,
-            "message": f"WOLF SM Check: Run `python3 {SCRIPTS_DIR}/sm-flip-check.py`, parse JSON.\n\nFor each alert in `alerts`: if `alertLevel == \"FLIP_NOW\"` -> close that position on the wallet for `strategyKey` (set `active: false` in `{WORKSPACE}/state/{{strategyKey}}/dsl-{{ASSET}}.json`), alert Telegram ({tg}) with asset, direction, conviction, strategyKey.\nIgnore alerts with `alertLevel` of WATCH or FLIP_WARNING (no action needed).\nIf `hasFlipSignal == false` or no FLIP_NOW alerts -> HEARTBEAT_OK."
+            "message": f"WOLF SM Check: Run `python3 {SCRIPTS_DIR}/sm-flip-check.py`, parse JSON.\n\nFor each alert in `alerts`: if `alertLevel == \"FLIP_NOW\"` -> close that position (close_position MCP for strategyKey wallet + coin), then run `python3 <dsl-cli-path> delete-dsl <strategyId_UUID> <asset> <main|xyz> --state-dir {DSL_STATE_DIR}` to archive DSL state. If output has `cron_to_remove`, remove that OpenClaw cron. Alert Telegram ({tg}) with asset, direction, conviction, strategyKey.\nIgnore WATCH/FLIP_WARNING. If no FLIP_NOW -> HEARTBEAT_OK."
         }
     },
     "watchdog": {
@@ -305,7 +356,7 @@ cron_templates = {
         "payload": {
             "kind": "agentTurn",
             "model": budget_model,
-            "message": f"WOLF Watchdog: Run `PYTHONUNBUFFERED=1 timeout 45 python3 {SCRIPTS_DIR}/wolf-monitor.py`, parse JSON.\nFor each item in `action_required`: close the specified position (coin + strategyKey), then alert Telegram ({tg}) with what was closed and why.\nIgnore all other alerts in the output — they are informational only.\nIf `action_required` is empty → HEARTBEAT_OK."
+            "message": f"WOLF Watchdog: Run `PYTHONUNBUFFERED=1 timeout 45 python3 {SCRIPTS_DIR}/wolf-monitor.py`, parse JSON.\nFor each item in `action_required`: close the specified position (coin + strategyKey), then run dsl-cli delete-dsl for that strategy/asset/dex; if output contains `dsl_cron_to_remove` remove that OpenClaw cron. Then alert Telegram ({tg}) with what was closed and why.\nIf output has `dsl_cron_to_remove` (from phase1 auto-cut), remove that cron.\nIgnore all other alerts. If `action_required` is empty → HEARTBEAT_OK."
         }
     },
     "health_check": {
@@ -357,21 +408,21 @@ if strategies_count > 1:
     print(f"  All strategies: {list(registry['strategies'].keys())}")
 
 print("\n" + "=" * 60)
-print("  Next Steps: Create 6 cron jobs")
+print("  Next Steps: Create 5 wolf crons + 1 DSL cron per strategy")
 print("=" * 60)
 print(f"""
 Use OpenClaw cron to create each job. See references/cron-templates.md
-for the exact payload text for each of the 6 jobs.
+for the exact payload text.
 
-With multi-strategy, crons iterate all enabled strategies internally.
-You only need ONE set of crons regardless of strategy count.
+With multi-strategy: 5 wolf crons (shared) + N DSL crons (one per strategy).
+This setup adds 1 strategy → create 5 wolf + 1 DSL cron.
 
   Session & Model Tier Recommendations:
   ┌──────────────────────┬──────────┬──────────┬─────────────────────────────────────────────┐
   │ Cron                 │ Session  │ Payload  │ Model                                       │
   ├──────────────────────┼──────────┼──────────┼─────────────────────────────────────────────┤
   │ Emerging Movers      │ isolated │ agentTrn │ Mid: {mid_model}  │
-  │ DSL Combined         │ isolated │ agentTrn │ Mid: {mid_model}  │
+  │ DSL (per strategy)   │ isolated │ agentTrn │ Mid: {mid_model}  │
   │ Health Check         │ isolated │ agentTrn │ Mid: {mid_model}  │
   │ SM Flip Detector     │ isolated │ agentTrn │ Budget: {budget_model}       │
   │ Watchdog             │ isolated │ agentTrn │ Budget: {budget_model}       │
@@ -382,7 +433,7 @@ You only need ONE set of crons regardless of strategy count.
 consecutiveLossCooldown={GUARD_RAIL_DEFAULTS['maxConsecutiveLosses']}L→{GUARD_RAIL_DEFAULTS['cooldownMinutes']}min
 
   All crons run in isolated sessions (agentTurn) — no context pollution.
-  All 6 crons can also run on a single model if you prefer simplicity.
+  All crons can also run on a single model if you prefer simplicity.
 """)
 
 # Output full result as JSON for programmatic use

@@ -8,28 +8,28 @@ Usage: python3 sm-flip-check.py
 Reads active DSL state files from all strategy state dirs.
 """
 
-import json, sys, os, glob
+import json, sys, os
 from datetime import datetime, timezone
 
 # Add scripts dir to path for wolf_config import
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from wolf_config import load_all_strategies, dsl_state_glob, mcporter_call, heartbeat
+from wolf_config import load_all_strategies, dsl_position_state_files, mcporter_call, heartbeat
 
 heartbeat("sm_flip")
 
 
 def get_active_positions():
-    """Read all active DSL state files across ALL strategies."""
+    """Read all active DSL position state files across ALL strategies (DSL v5.2 paths)."""
     positions = []
     for key, _ in load_all_strategies().items():
-        for f in glob.glob(dsl_state_glob(key)):
+        for f in dsl_position_state_files(key):
             try:
                 with open(f) as fh:
                     state = json.load(fh)
                 if state.get("active"):
                     positions.append({
-                        "asset": state["asset"],
-                        "direction": state["direction"],
+                        "asset": state.get("asset", ""),
+                        "direction": state.get("direction", ""),
                         "strategyKey": key,
                         "file": f
                     })

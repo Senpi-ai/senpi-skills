@@ -1,0 +1,121 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "maxPositions": 3,
+  "leverage": {
+    "default": 8,
+    "min": 5,
+    "max": 10
+  },
+  "entry": {
+    "topNTraders": 20,
+    "minWhaleWinRate": 55,
+    "minWhaleTrades": 10,
+    "maxTrackedWhales": 10,
+    "minWhaleCount": 2,
+    "minHoldMinutes": 10,
+    "marginPct": 0.15,
+    "bannedPrefixes": [
+      "xyz:"
+    ],
+    "minTradesBeforeDemotion": 3,
+    "whaleMaxConsecLosses": 3,
+    "minTradesForPnlCheck": 5,
+    "whaleMinWinRate": 40,
+    "whaleCooldownHours": 48
+  },
+  "dsl": {
+    "phase1RetraceRoe": 10,
+    "phase1HardTimeoutMin": 60,
+    "phase1WeakPeakMin": 30,
+    "phase1DeadWeightMin": 0,
+    "tiers": [
+      {
+        "triggerPct": 4,
+        "lockPct": 1.5
+      },
+      {
+        "triggerPct": 8,
+        "lockPct": 4
+      },
+      {
+        "triggerPct": 15,
+        "lockPct": 10,
+        "retrace": 0.012
+      },
+      {
+        "triggerPct": 25,
+        "lockPct": 18,
+        "retrace": 0.01
+      },
+      {
+        "triggerPct": 40,
+        "lockPct": 32,
+        "retrace": 0.008
+      },
+      {
+        "triggerPct": 60,
+        "lockPct": 50,
+        "retrace": 0.006
+      },
+      {
+        "triggerPct": 80,
+        "lockPct": 68,
+        "retrace": 0.005
+      },
+      {
+        "triggerPct": 100,
+        "lockPct": 88,
+        "retrace": 0.004
+      }
+    ],
+    "stagnationTp": {
+      "enabled": true,
+      "roeMin": 5,
+      "hwStaleMin": 30
+    }
+  },
+  "risk": {
+    "maxEntriesPerDay": 6,
+    "maxDailyLossPct": 8,
+    "maxDrawdownPct": 20,
+    "maxSingleLossPct": 5,
+    "maxConsecutiveLosses": 3,
+    "cooldownMinutes": 60
+  },
+  "execution": {
+    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+    "entryEnsureTaker": true,
+    "exitOrderType": "MARKET",
+    "slOrderType": "MARKET",
+    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  },
+  "profitTaking": {
+    "enabled": true,
+    "partialTp": [
+      {
+        "triggerRoePct": 15,
+        "closePct": 25,
+        "orderType": "FEE_OPTIMIZED_LIMIT"
+      },
+      {
+        "triggerRoePct": 40,
+        "closePct": 50,
+        "orderType": "FEE_OPTIMIZED_LIMIT"
+      }
+    ],
+    "whaleStillHolding": {
+      "enabled": true,
+      "maxHoldHours": 8,
+      "forceClosePct": 50,
+      "note": "If whale is still holding after 8h but we're in profit, take 50% off regardless"
+    },
+    "whaleExitBonus": {
+      "enabled": true,
+      "ifProfitable": "close_full",
+      "ifUnprofitable": "close_full",
+      "note": "Whale sting always closes everything - the sting is the sting"
+    }
+  }
+}

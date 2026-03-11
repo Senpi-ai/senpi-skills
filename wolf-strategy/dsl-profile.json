@@ -1,0 +1,23 @@
+{
+  "cronIntervalMinutes": 3,
+  "phase1": {
+    "enabled": true,
+    "retraceThreshold": 0.10,
+    "consecutiveBreachesRequired": 3,
+    "hardTimeout": { "enabled": true, "intervalInMinutes": 90 },
+    "weakPeakCut": { "enabled": true, "intervalInMinutes": 45 },
+    "deadWeightCut": { "enabled": true, "intervalInMinutes": 30 }
+  },
+  "phase2TriggerTier": 0,
+  "phase2": {
+    "enabled": true,
+    "retraceThreshold": 0.015,
+    "consecutiveBreachesRequired": 2,
+    "tiers": [
+      { "triggerPct": 5, "lockPct": 50 },
+      { "triggerPct": 10, "lockPct": 65 },
+      { "triggerPct": 15, "lockPct": 75 },
+      { "triggerPct": 20, "lockPct": 85 }
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "maxPositions": 3,
+  "leverage": {"default": 8, "min": 5, "max": 10},
+  "entry": {
+    "maxBbWidthPct": 4.0,
+    "maxAtrPct": 1.5,
+    "rsiOversold": 35,
+    "rsiOverbought": 65,
+    "minScore": 5,
+    "marginPct": 0.28,
+    "minOiUsd": 5000000
+  },
+  "dsl": {
+    "phase1RetraceRoe": 8,
+    "phase1HardTimeoutMin": 75,
+    "phase1WeakPeakMin": 35,
+    "phase1DeadWeightMin": 0,
+    "tiers": [
+      {"triggerPct": 3, "lockPct": 1},
+      {"triggerPct": 5, "lockPct": 3},
+      {"triggerPct": 8, "lockPct": 5},
+      {"triggerPct": 12, "lockPct": 8},
+      {"triggerPct": 18, "lockPct": 14},
+      {"triggerPct": 25, "lockPct": 20}
+    ],
+    "stagnationTp": {
+      "enabled": true,
+      "roeMin": 5,
+      "hwStaleMin": 30
+    }
+  },
+  "risk": {
+    "maxEntriesPerDay": 8,
+    "maxDailyLossPct": 8,
+    "maxDrawdownPct": 18,
+    "maxSingleLossPct": 5,
+    "maxConsecutiveLosses": 4,
+    "cooldownMinutes": 20
+  },
+  "execution": {
+    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+    "entryEnsureTaker": true,
+    "exitOrderType": "MARKET",
+    "slOrderType": "MARKET",
+    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  }
+}

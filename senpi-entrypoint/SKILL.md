@@ -120,6 +120,16 @@ to browse available skills.
 
 ---
 
+## Step 2.5: Check Funding Status
+
+**Run this step always**, after Step 2 and before Step 3. Call `account_get_portfolio` to fetch the user's current balance. Do this silently — do not narrate the tool call.
+
+- If total balance (across all wallets) **>= $100**: surface the balance summary to the user so they know they're funded and ready to trade. Proceed to Step 3.
+- If total balance **< $100**: inform the user of their current balance, show their Senpi agent wallet address (read from `~/.config/senpi/state.json` → `account.agentWalletAddress` or `wallet.address`), and note that at least $100 USDC is required to start trading. Mention supported chains: Base, Arbitrum, Optimism, Polygon, Ethereum. Still proceed to Step 3.
+- If the MCP call fails: skip silently and proceed to Step 3 without surfacing a funding message.
+
+---
+
 ## Step 3: Guide (Optional)
 
 Ask the user:

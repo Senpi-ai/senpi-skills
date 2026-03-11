@@ -31,38 +31,52 @@ Immediate fill. Highest fees. Use when speed matters more than cost — fast-mov
 **2. Fee-optimized with guaranteed fill**
 ```
 orderType: "FEE_OPTIMIZED_LIMIT"
-ensureExecutionAsTaker: true
+feeOptimizedLimitOptions: { ensureExecutionAsTaker: true }
 ```
-Places a maker order. If it doesn't fill within 60 seconds, automatically falls back to a market order. You always get filled, but the call blocks for up to 60s. Best default for most trading agents.
+Places a maker order. If it doesn't fill within the execution window (default 45s on the server), automatically falls back to a market order. You always get filled. Best default for most trading agents.
+
+Optional: set `feeOptimizedLimitOptions.executionTimeoutSeconds` (integer, 1–300) to override the server-default 45s wait window — e.g. `{ ensureExecutionAsTaker: true, executionTimeoutSeconds: 20 }` to fail over to market faster.
 
 **3. Fee-optimized, resting**
 ```
 orderType: "FEE_OPTIMIZED_LIMIT"
-ensureExecutionAsTaker: false  (or omit)
+(omit feeOptimizedLimitOptions entirely)
 ```
 Places a maker order that stays on the book until filled or cancelled. No automatic fallback. You need to monitor via `strategy_get_open_orders` and cancel with `cancel_order` if needed. Use when you're patient and want guaranteed maker rate.
 
 ### Constraints
 - `limitPrice`, `timeInForce`, and `slippagePercent` cannot be used with `FEE_OPTIMIZED_LIMIT`
+- `feeOptimizedLimitOptions` must not be set unless `orderType` is `FEE_OPTIMIZED_LIMIT`
 - TP/SL can still be set alongside ALO orders
 - `strategy_close` always uses market orders internally — if you want fee-optimized exits, close each position individually with `close_position` first, then call `strategy_close`
-- `edit_position` also supports `FEE_OPTIMIZED_LIMIT` — use it when adjusting margin or modifying positions non-urgently
+- `edit_position` supports `FEE_OPTIMIZED_LIMIT` but does **not** support `LIMIT` orderType — passing `LIMIT` returns `EDIT_LIMIT_NOT_SUPPORTED`
+- `close_position` also does **not** support `LIMIT` orderType — passing `LIMIT` returns `CLOSE_LIMIT_NOT_SUPPORTED`
 
 ## Detecting Maker vs Taker Execution
 
-Both `create_position` and `close_position` return `executionAsMaker` in the response, inside the `mainOrder` object of the results. Check this field to confirm whether your order was filled as maker or taker:
+All three tools return `executionAsMaker`, but its location in the response differs:
 
+**`create_position`** — nested inside each order's `mainOrder` object:
 ```json
 {
-  "results": {
+  "results": [{
     "mainOrder": {
       "executionAsMaker": true,
-      "avgPrice": "3245.50",
-      "filledSize": "1.5"
+      "avgPrice": 3245.50,
+      "filledSize": 1.5
     }
-  }
+  }]
 }
 ```
+
+**`edit_position`** and **`close_position`** — top-level field on the response:
+```json
+{
+  "executionAsMaker": true
+}
+```
+
+**Note:** `executionAsMaker` is only meaningful for `FEE_OPTIMIZED_LIMIT` orders — it is always `null` for `MARKET` orders and `null` when no main order was placed.
 
 Use this to:
 - Track actual fee costs per trade (maker rate vs taker rate)
@@ -86,7 +100,7 @@ Use this to:
 
 ### Hybrid approach (recommended for most agents):
 ```
-Entries:  FEE_OPTIMIZED_LIMIT + ensureExecutionAsTaker: true
+Entries:  FEE_OPTIMIZED_LIMIT + feeOptimizedLimitOptions: { ensureExecutionAsTaker: true }
 Closes:   MARKET (for stops/emergencies), ALO (for take-profits)
 SL/TP:    Always MARKET
 ```
@@ -118,13 +132,13 @@ I ran a hedged volume cycling strategy with ALO to test it at scale. Key observa
 
 **ALO entries work.** Orders fill as maker, confirmed by `executionAsMaker: true` in the response. Entry fill times range from 30-85 seconds (vs instant for market).
 
-**The 60s blocking call matters.** If you're opening multiple positions that depend on each other (hedges, pairs), the sequential 60s waits create timing risk. Position A fills in 5s, position B waits 55s — by then the market has moved and your hedge is born lopsided.
+**The blocking call duration matters.** With the default 45s server window, if you're opening multiple positions that depend on each other (hedges, pairs), the sequential waits create timing risk. Position A fills in 5s, position B waits up to 40s more — by then the market has moved and your hedge is born lopsided. Use `executionTimeoutSeconds` to shorten the fallback window (e.g. `executionTimeoutSeconds: 10`) for time-sensitive multi-leg entries.
 
-**Don't use ALO for time-sensitive closes.** I tested ALO closes on hedge timeout exits (positions that need to close flat). The 60s delay turned $0-cost flat closes into $2-16 losses per close. Switching to MARKET closes fixed this.
+**Don't use ALO for time-sensitive closes.** I tested ALO closes on hedge timeout exits (positions that need to close flat). The blocking delay turned $0-cost flat closes into $2-16 losses per close. Switching to MARKET closes fixed this.
 
 ## Quick Start
 
 Before your first trade in a session, ask the user:
-> "Would you like aggressive execution (market order, immediate fill) or fee-optimized (maker order, lower fees with up to 60s fill time)?"
+> "Would you like aggressive execution (market order, immediate fill) or fee-optimized (maker order, lower fees with up to 45s fill time by default — configurable via `executionTimeoutSeconds`)?"
 
 Then apply their preference to all subsequent orders. For most users who aren't scalping, fee-optimized with guaranteed fill is the right default.
