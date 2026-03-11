@@ -1,0 +1,66 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "maxPositions": 4,
+  "leverage": {"default": 10, "min": 7, "max": 15},
+  "entry": {
+    "minMomentum5mPct": 0.3,
+    "minMomentum15mPct": 0.15,
+    "minVolRatio": 1.3,
+    "minOiTrendPct": 2.0,
+    "minScore": 8,
+    "marginPctBase": 0.20,
+    "rsiMaxLong": 75,
+    "rsiMinShort": 25,
+    "smHardBlock": true,
+    "dynamicSlots": {
+      "enabled": true,
+      "baseMax": 4,
+      "absoluteMax": 8,
+      "unlockThresholds": [
+        {"pnl": 75, "maxEntries": 5},
+        {"pnl": 150, "maxEntries": 6},
+        {"pnl": 250, "maxEntries": 7},
+        {"pnl": 400, "maxEntries": 8}
+      ]
+    }
+  },
+  "dsl": {
+    "phase1RetraceRoe": 10,
+    "phase1HardTimeoutMin": 0,
+    "phase1WeakPeakMin": 0,
+    "phase1DeadWeightMin": 0,
+    "floorBase": 0.015,
+    "tiers": [
+      {"triggerPct": 10,  "lockPct": 2,   "_note": "breakeven + fees"},
+      {"triggerPct": 20,  "lockPct": 10},
+      {"triggerPct": 35,  "lockPct": 22,  "retrace": 0.012},
+      {"triggerPct": 50,  "lockPct": 35,  "retrace": 0.010},
+      {"triggerPct": 75,  "lockPct": 55,  "retrace": 0.008},
+      {"triggerPct": 100, "lockPct": 75,  "retrace": 0.006},
+      {"triggerPct": 150, "lockPct": 115, "retrace": 0.005},
+      {"triggerPct": 200, "lockPct": 160, "retrace": 0.004}
+    ],
+    "stagnationTp": {
+      "enabled": true,
+      "roeMin": 8,
+      "hwStaleMin": 30
+    }
+  },
+  "risk": {
+    "maxEntriesPerDay": 8,
+    "maxDailyLossPct": 8,
+    "maxDrawdownPct": 20,
+    "maxSingleLossPct": 5,
+    "maxConsecutiveLosses": 3,
+    "cooldownMinutes": 45
+  },
+  "execution": {
+    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+    "entryEnsureTaker": true,
+    "exitOrderType": "MARKET",
+    "slOrderType": "MARKET",
+    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  }
+}
