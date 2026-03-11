@@ -355,15 +355,19 @@ After the confirmation, share the About Senpi information from [references/post-
 
 ## Balance Monitoring
 
-After onboarding completes (state = `UNFUNDED`), check wallet balance on each user message:
+After onboarding completes (state = `UNFUNDED`), check wallet balance on each user message **before deciding whether to show a reminder**:
 
-1. Use MCP to fetch portfolio/balance
+1. Use MCP to fetch portfolio/balance. This check is mandatory — do not skip it or assume the wallet is unfunded.
 2. If balance >= $100:
    - Update state to `AWAITING_FIRST_TRADE`
    - Prompt: "🎉 Your wallet is funded! Ready for your first trade? Say **'let's trade'** to start, or **'skip tutorial'** if you're experienced."
-3. If balance < $100:
+   - Do **not** show a funding reminder.
+3. If balance < $100 (confirmed by a successful MCP check):
    - Prepend funding reminder (max 3 automatic reminders); include agent wallet address and state that at least $100 USDC is required (see [references/post-onboarding.md](references/post-onboarding.md) funding reminder template)
    - Continue processing user's request
+4. If the MCP balance check fails (e.g. MCP not yet connected after restart):
+   - Do **not** show a funding reminder. Do **not** assume the wallet is unfunded.
+   - Silently retry on the next user message.
 
 When state transitions to `AWAITING_FIRST_TRADE`, the `senpi-getting-started-guide` skill takes over.
 

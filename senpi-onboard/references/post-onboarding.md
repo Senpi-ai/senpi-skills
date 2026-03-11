@@ -44,7 +44,7 @@ Use this template for the Step 7 confirmation:
    Currency: USDC
    Minimum: $100 to start your first trade
 
-   When you've sent at least $100 USDC, say **"I funded my wallet"** or **"check my balance"** so I can verify and we can start your first trade.
+   I'll automatically detect when your wallet is funded and guide you through your first trade.
 
 🔗 **Your referral link:** senpi.ai/skill.md?ref={USER_REFERRAL_CODE}
 
@@ -105,7 +105,7 @@ When showing a funding reminder (balance < $100, up to 3 times — or when user 
    **Chains:** Base, Arbitrum, Optimism, Polygon, Ethereum
    **Currency:** USDC
 
-   When you've sent the funds, say **"I funded my wallet"** or **"check my balance"** so I can verify.
+   I'll automatically check your balance on each message and notify you once you're ready to trade.
 ```
 
 Use this for each of the 3 automatic reminders and when responding to "let's trade" / "first trade" while still UNFUNDED.
