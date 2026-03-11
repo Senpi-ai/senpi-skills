@@ -18,6 +18,24 @@ At 10x leverage on a $1,000 margin position ($10K notional), taker round-trip HL
 
 **Note:** These are Tier 0 (base) rates. Higher-volume traders on better tiers save less in absolute terms but ALO is still cheaper at every tier. At Tier 4+ ($500M+ volume), maker fees drop to 0 bps.
 
+## Agent Protocol — Ask Once, Remember Always
+
+Before placing any order (create, edit, or close position), if the user's execution preference is not yet known for this session, ask once:
+> "Would you like to use aggressive execution (market order, immediate fill) or fee-optimized execution (maker ALO order, lower fees)? If fee-optimized, should I guarantee execution by falling back to a market order if the maker doesn't fill (default 45s wait), or leave it resting so you can monitor and cancel manually? If guaranteed, would you like to use the default 45s timeout or set a custom duration (1–300 seconds)?"
+
+Once the user states their preference, apply it to every subsequent order in the session without asking again.
+
+| Approach | orderType | feeOptimizedLimitOptions | Behaviour |
+|---|---|---|---|
+| Aggressive | MARKET | — | Immediate fill at market price; higher taker fees |
+| Fee-optimized, guaranteed | FEE_OPTIMIZED_LIMIT | `{ ensureExecutionAsTaker: true }` | Maker ALO; falls back to market if not filled within 45s (server default) |
+| Fee-optimized, guaranteed (custom timeout) | FEE_OPTIMIZED_LIMIT | `{ ensureExecutionAsTaker: true, executionTimeoutSeconds: N }` | Same, falls back after N seconds (1–300) |
+| Fee-optimized, resting | FEE_OPTIMIZED_LIMIT | omit | Maker ALO; may stay resting — poll `strategy_get_open_orders` or use `cancel_order` |
+
+**executionTimeoutSeconds:** When the user chooses guaranteed fee-optimized execution, ask once if they want a custom fallback window (1–300 seconds). If they have no preference, omit it — the server default of 45s applies. Once set, apply the same timeout to all subsequent orders in the session without asking again.
+
+---
+
 ## How To Use It
 
 ### Three modes:
@@ -138,7 +156,6 @@ I ran a hedged volume cycling strategy with ALO to test it at scale. Key observa
 
 ## Quick Start
 
-Before your first trade in a session, ask the user:
-> "Would you like aggressive execution (market order, immediate fill) or fee-optimized (maker order, lower fees with up to 45s fill time by default — configurable via `executionTimeoutSeconds`)?"
+Use the **Agent Protocol** section above: ask the user once about their execution preference before the first order in any session. The question covers all three decisions — aggressive vs fee-optimized, guaranteed vs resting, and custom timeout — in one prompt.
 
-Then apply their preference to all subsequent orders. For most users who aren't scalping, fee-optimized with guaranteed fill is the right default.
+Apply their preference to all subsequent orders without asking again. For most users who aren't scalping, fee-optimized with guaranteed fill (`FEE_OPTIMIZED_LIMIT + ensureExecutionAsTaker: true`) is the right default.
