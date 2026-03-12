@@ -73,6 +73,8 @@ When a signal fires, it's routed to the best-fit strategy:
 3. Which strategy's risk profile matches? (aggressive gets FIRST_JUMPs, conservative gets DEEP_CLIMBERs)
 4. Route to best-fit -> open on that wallet -> create DSL state in that strategy's dir
 
+**DSL default:** Use this skill's **`dsl-profile.json`** as the default when setting up DSL (e.g. `dsl-cli.py add-dsl` / `update-dsl` with `--configuration @<path-to-wolf-strategy>/dsl-profile.json`). Use it unless the user explicitly provides a custom DSL configuration via the agent.
+
 ### Adding a Strategy
 ```bash
 python3 scripts/wolf-setup.py --wallet 0x... --strategy-id UUID --budget 2000 \

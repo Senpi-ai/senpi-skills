@@ -30,6 +30,8 @@ When creating DSL state files for any GHOST FOX position, you MUST include:
 
 **If `tiers` or `lockMode` is missing from the state file, the DSL engine falls back to flat 1.5% retrace and High Water Mode is silently disabled. Always verify the state file contains these fields after creation.**
 
+**DSL default:** Use this strategy's **`ghost-fox-strategy/dsl-profile.json`** as the default when setting up DSL (`dsl-cli.py add-dsl` / `update-dsl` with `--configuration @<path>/ghost-fox-strategy/dsl-profile.json`). Use it unless the user explicitly provides a custom DSL configuration via the agent.
+
 ---
 
 ## What Changed vs Feral Fox v2

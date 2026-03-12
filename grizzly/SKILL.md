@@ -45,6 +45,8 @@ When creating DSL state files for any GRIZZLY position, you MUST include:
 
 **If `tiers` or `lockMode` is missing from the state file, the DSL engine falls back to flat 1.5% retrace and High Water Mode is silently disabled. Always verify the state file contains these fields after creation.**
 
+**DSL default:** Use this skill's **`config/dsl-profile.json`** as the default when setting up DSL (e.g. `dsl-cli.py add-dsl` / `update-dsl` with `--configuration @<path-to-grizzly>/config/dsl-profile.json`). Use it unless the user explicitly provides a custom DSL configuration via the agent.
+
 **FALLBACK (until DSL engine supports `pct_of_high_water`):** Use the `tiersLegacyFallback` array from `grizzly-config.json` — wide fixed tiers going up to +100% ROE. Switch to High Water tiers the moment the engine supports them.
 
 ## Why BTC-Only at High Leverage
