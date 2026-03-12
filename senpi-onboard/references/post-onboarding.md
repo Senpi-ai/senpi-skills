@@ -87,8 +87,8 @@ If the user asks what to deploy, recommend based on their balance:
 
 | Balance | Recommended | Why |
 |---|---|---|
-| < $500 | FOX or Viper | Low capital needs, proven, moderate risk |
-| $500-$2,000 | FOX, Viper, Cobra, Scorpion, Owl | Mid-range, multiple options |
+| < $500 | None — fund to $500+ | No catalog skill has min_budget below $500 |
+| $500-$2,000 | FOX, Viper, Cobra, Scorpion, Wolf, Croc, Owl | Mid-range, multiple options |
 | $2,000-$5,000 | Any skill | Full catalog available |
 | > $5,000 | Grizzly, Bison, Tiger, or multi-skill | Enough for high-leverage or multi-position strategies |
 

@@ -119,7 +119,6 @@ Render the catalog using the following rules:
 2. Group skills by the `group` field, using the `groups` array for display order, emoji, and label
 3. Sort within each group by `sort_order`
 4. For each skill: `{emoji} {name} — {tagline}` and append `{performance}` if present
-5. If the user's balance is known from Step 2.5, note which skills require more capital (`min_budget > balance`)
 
 Present using this template:
 ```
@@ -143,8 +142,8 @@ Which sounds interesting? I can explain any in detail or deploy one right now.
 
 **Run this step always**, after Step 2 and before Step 3. Call `account_get_portfolio` to fetch the user's current balance. Do this silently — do not narrate the tool call.
 
-- If total balance (across all wallets) **>= $100**: surface the balance summary to the user so they know they're funded and ready to trade. Proceed to Step 3.
-- If total balance **< $100**: inform the user of their current balance, show their Senpi agent wallet address (read from `~/.config/senpi/state.json` → `account.agentWalletAddress` or `wallet.address`), and note that at least $100 USDC is required to start trading. Mention supported chains: Base, Arbitrum, Optimism, Polygon, Ethereum. Still proceed to Step 3.
+- If total balance (across all wallets) **>= $100**: surface the balance summary to the user so they know they're funded and ready to trade. Optionally note which catalog skills are in reach (e.g. skills where `min_budget <= balance`) or which require more capital (`min_budget > balance`). Proceed to Step 3.
+- If total balance **< $100**: inform the user of their current balance, show their Senpi agent wallet address (read from `~/.config/senpi/state.json` → `account.agentWalletAddress` or `wallet.address`), and note that at least $100 USDC is required to start trading. Mention supported chains: Base, Arbitrum, Optimism, Polygon, Ethereum. Optionally note which catalog skills would be in reach once funded (using the same `min_budget` vs balance logic). Still proceed to Step 3.
 - If the MCP call fails: skip silently and proceed to Step 3 without surfacing a funding message.
 
 ---

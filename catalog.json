@@ -1,7 +1,7 @@
 {
   "_version": "1.0",
   "_updated": "2026-03-11",
-  "_instructions": "Agent reads this file to build the onboarding skill catalog. Only entries with user_facing=true are shown to users. Group by 'group', sort within group by 'sort_order'. Infrastructure skills (DSL, fee optimizer, scanners) have user_facing=false and are never displayed.",
+  "_instructions": "Agent reads this file to build the onboarding skill catalog. Group by 'group', sort within group by 'sort_order'. Infrastructure skills (DSL, fee optimizer, scanners) are never displayed.",
 
   "groups": [
     {"id": "proven",   "emoji": "🏆", "label": "Proven Performers"},
