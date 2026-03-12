@@ -35,7 +35,7 @@ DEFAULT_SCAN_ASSETS = [
 # ── Config ────────────────────────────────────────────────────────────────
 
 DEFAULTS = {
-    "momentum_5m_threshold": 0.4,       # lower than v2 since we pick the best
+    "momentum_5m_threshold": 1.0,       # raised from 0.4 — only decisive moves
     "momentum_15m_agree": True,
     "volume_spike_ratio": 1.2,
     "chop_range_max_pct": 0.3,
@@ -242,9 +242,9 @@ def get_hourly_trend(candles_1h):
                 break
         else:
             break
-    if red >= 3:
+    if red >= 2:
         return "BEARISH", red, 0
-    elif green >= 3:
+    elif green >= 2:
         return "BULLISH", 0, green
     return "MIXED", red, green
 
@@ -299,12 +299,14 @@ def score_signal(coin, snapshot, cfg, smart_money, active_coins):
             return None  # 15m disagrees = fakeout wick
         reasons.append(f"15m confirms {mom_15m:+.3f}%")
 
-    # 1h trend filter — hard block on counter-trend, no override
+    # 1h trend filter — hard block on counter-trend AND mixed, no override
     if cfg.get("require_1h_trend_alignment", True):
         if hourly_trend == "BEARISH" and direction == "LONG":
             return None
         if hourly_trend == "BULLISH" and direction == "SHORT":
             return None
+        if hourly_trend == "MIXED" or hourly_trend == "UNKNOWN":
+            return None  # no clear trend = no entry
     if hourly_trend == "BEARISH" and direction == "SHORT":
         reasons.append("1h trend aligned ↓")
     elif hourly_trend == "BULLISH" and direction == "LONG":

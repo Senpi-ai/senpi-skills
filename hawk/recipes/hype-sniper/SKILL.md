@@ -16,7 +16,8 @@
 ## Entry Logic v2 (scanner_v3.py)
 
 **Multi-filter entry system:**
-1. **5m momentum ≥ 0.6%** (was 0.2%) — real moves, not noise
+1. **5m momentum ≥ 1.0%** (was 0.6%) — only decisive moves, not noise dips
+2. **1h trend hard block** — if signal direction conflicts with 1h trend, skip. MIXED/UNKNOWN trends also blocked — must have clear directional bias.
 2. **15m trend agreement** — only trade with the trend
 3. **Volume spike ≥ 1.5x** average — confirms conviction
 4. **Chop detection** — skip if 30m range < 0.5%
@@ -46,7 +47,7 @@ ROE-based trailing stop loss with time decay and partial take-profit.
 | 4 | 40% ROE | 30% | 1.2% |
 | 5 | 60% ROE | 48% | 1.0% |
 | 6 | 80% ROE | 65% | 0.8% |
-| 7 | 100% ROE | 80% | 0.6% |
+| 7 | 100% ROE | 80% | 1.0% |
 
 **Time Decay (cut stale losers):**
 | After | If ROE < | Action |

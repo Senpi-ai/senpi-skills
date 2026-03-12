@@ -4,16 +4,30 @@
   "strategy_id": "",
   "strategy_wallet": "",
   "telegram_chat_id": "",
-
   "scan_assets": [
-    {"coin": "BTC",  "max_leverage": 20, "margin_pct": 20},
-    {"coin": "ETH",  "max_leverage": 20, "margin_pct": 20},
-    {"coin": "SOL",  "max_leverage": 20, "margin_pct": 20},
-    {"coin": "HYPE", "max_leverage": 10, "margin_pct": 25}
+    {
+      "coin": "BTC",
+      "max_leverage": 20,
+      "margin_pct": 20
+    },
+    {
+      "coin": "ETH",
+      "max_leverage": 20,
+      "margin_pct": 20
+    },
+    {
+      "coin": "SOL",
+      "max_leverage": 20,
+      "margin_pct": 20
+    },
+    {
+      "coin": "HYPE",
+      "max_leverage": 10,
+      "margin_pct": 25
+    }
   ],
-
   "entry_v3": {
-    "momentum_5m_threshold": 0.6,
+    "momentum_5m_threshold": 1.0,
     "momentum_15m_agree": true,
     "volume_spike_ratio": 1.5,
     "chop_range_max_pct": 0.4,
@@ -30,7 +44,6 @@
     "require_1h_trend_alignment": true,
     "require_15m_agreement": true
   },
-
   "dsl": {
     "initial_sl_pct": 2.5,
     "breakeven_trigger_pct": 1.0,
@@ -41,19 +54,57 @@
     "time_decay": {
       "enabled": true,
       "rules": [
-        {"afterMin": 15, "maxLossRoe": -15, "action": "force_close"},
-        {"afterMin": 30, "maxLossRoe": -5, "action": "force_close"},
-        {"afterMin": 60, "maxLossRoe": 0, "action": "force_close"}
+        {
+          "afterMin": 15,
+          "maxLossRoe": -15,
+          "action": "force_close"
+        },
+        {
+          "afterMin": 30,
+          "maxLossRoe": -5,
+          "action": "force_close"
+        },
+        {
+          "afterMin": 60,
+          "maxLossRoe": 0,
+          "action": "force_close"
+        }
       ]
     },
     "tiers": [
-      {"triggerPct": 5,   "lockPct": 2},
-      {"triggerPct": 10,  "lockPct": 5},
-      {"triggerPct": 15,  "lockPct": 9, "retrace": 0.010},
-      {"triggerPct": 25,  "lockPct": 17, "retrace": 0.010},
-      {"triggerPct": 40,  "lockPct": 30, "retrace": 0.008},
-      {"triggerPct": 60,  "lockPct": 48, "retrace": 0.006},
-      {"triggerPct": 80,  "lockPct": 65, "retrace": 0.005}
+      {
+        "triggerPct": 5,
+        "lockPct": 2
+      },
+      {
+        "triggerPct": 10,
+        "lockPct": 5
+      },
+      {
+        "triggerPct": 15,
+        "lockPct": 9,
+        "retrace": 0.01
+      },
+      {
+        "triggerPct": 25,
+        "lockPct": 17,
+        "retrace": 0.01
+      },
+      {
+        "triggerPct": 40,
+        "lockPct": 30,
+        "retrace": 0.008
+      },
+      {
+        "triggerPct": 60,
+        "lockPct": 48,
+        "retrace": 0.006
+      },
+      {
+        "triggerPct": 80,
+        "lockPct": 65,
+        "retrace": 0.005
+      }
     ],
     "stagnationTp": {
       "enabled": true,
@@ -61,7 +112,6 @@
       "hwStaleMin": 30
     }
   },
-
   "hedge": {
     "enabled": true,
     "hedge_asset": "BTC",
@@ -69,7 +119,6 @@
     "funding_threshold": 0.015,
     "hedge_leverage": 5
   },
-
   "risk": {
     "max_margin_usage_pct": 60,
     "max_daily_loss_pct": 8,
@@ -80,7 +129,6 @@
     "cooldown_minutes": 45,
     "max_single_loss_pct": 8
   },
-
   "execution": {
     "entryOrderType": "FEE_OPTIMIZED_LIMIT",
     "entryEnsureTaker": true,
