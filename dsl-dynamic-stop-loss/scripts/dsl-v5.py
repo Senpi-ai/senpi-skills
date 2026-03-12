@@ -551,6 +551,19 @@ def apply_tier_upgrades(
             tier_floor = new_floor
             state["tierFloorPrice"] = tier_floor
 
+    # Recalculate floor for CURRENT tier using latest HW (lockPct as % of range) — per-tick trailing.
+    # In pct_of_high_water mode when tier uses lockPct (not lockHwPct), floor must move every tick.
+    if tier_idx >= 0 and tier_idx < len(tiers) and lock_mode == "pct_of_high_water" and "lockHwPct" not in tiers[tier_idx]:
+        tier = tiers[tier_idx]
+        lock_pct = tier.get("lockPct", 0)
+        if is_long:
+            new_floor = round(entry + (hw - entry) * lock_pct / 100, 4)
+            tier_floor = max(new_floor, float(state.get("tierFloorPrice", 0)))
+        else:
+            new_floor = round(entry - (entry - hw) * lock_pct / 100, 4)
+            tier_floor = min(new_floor, float(state.get("tierFloorPrice", float("inf"))))
+        state["tierFloorPrice"] = tier_floor
+
     return tier_idx, tier_floor, tier_changed, previous_tier_idx
 
 

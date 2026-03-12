@@ -406,6 +406,18 @@ def apply_tier_upgrades(
                 state["currentBreachCount"] = 0
                 phase = 2
 
+    # Recalculate floor for CURRENT tier using latest HW (per-tick trailing).
+    # Floor = lockPct % of (entry→hw) range; must update whenever HW advances.
+    if tier_idx >= 0 and tier_idx < len(tiers):
+        tier = tiers[tier_idx]
+        if is_long:
+            new_floor = round(entry + (hw - entry) * tier.get("lockPct", 0) / 100, 4)
+            tier_floor = max(new_floor, float(state.get("tierFloorPrice", 0)))
+        else:
+            new_floor = round(entry - (entry - hw) * tier.get("lockPct", 0) / 100, 4)
+            tier_floor = min(new_floor, float(state.get("tierFloorPrice", float("inf"))))
+        state["tierFloorPrice"] = tier_floor
+
     return tier_idx, tier_floor, tier_changed, previous_tier_idx
 
 
