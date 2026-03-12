@@ -109,7 +109,7 @@ Load and follow the `senpi-onboard` skill instructions. Pass this context:
 Fetch the skill catalog:
 
 ```bash
-CATALOG=$(curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json)
+CATALOG=$(curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/feature/modify-onboarding/catalog.json)
 ```
 
 If the command fails or returns empty, point the user to the official [Senpi Skills repository](https://github.com/Senpi-ai/senpi-skills) to browse available skills.
