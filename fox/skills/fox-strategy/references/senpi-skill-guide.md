@@ -34,7 +34,7 @@ name: {skill-name}
 description: >-
   What the skill does, how it works, when to use it.
   Include key features and requirements.
-license: Apache-2.0
+license: MIT
 compatibility: >-
   Python version, dependencies (mcporter, cron),
   exchange/platform specifics

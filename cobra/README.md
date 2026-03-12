@@ -101,5 +101,5 @@ All crons isolated. `NO_REPLY` for idle cycles.
 
 ## License
 
-Apache-2.0 — Built by Senpi (https://senpi.ai). Attribution required for derivative works.
+MIT — Built by Senpi (https://senpi.ai). 
 Source: https://github.com/Senpi-ai/senpi-skills

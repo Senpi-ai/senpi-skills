@@ -10,7 +10,7 @@ description: >-
   BTC 1h bias alignment, market regime refresh 4h.
   8-cron architecture. Independent from Wolf.
   Requires Senpi MCP, python3, mcporter CLI, OpenClaw cron system.
-license: Apache-2.0
+license: MIT
 compatibility: >-
   Requires python3, mcporter (configured with Senpi auth), and OpenClaw cron system.
   Hyperliquid perp positions only (main dex and xyz dex).

@@ -5,7 +5,7 @@ description: >-
   Hyperliquid. Monitors price via cron, ratchets profit floors through configurable tiers, and auto-closes positions on breach via mcporter — no agent intervention for the critical path. Supports LONG and SHORT, strategy-scoped state isolation, and automatic cleanup on position or strategy close. ROE-based (return on margin)
   tier triggers that automatically account for leverage.
   Use only when the user wants a **trailing/dynamic** stop loss (DSL). Do not use for normal/static stop loss. If the user says "stop loss" without specifying DSL vs normal, ask which they mean before proceeding.
-license: Apache-2.0
+license: MIT
 compatibility: >-
   Requires python3, mcporter (configured with Senpi auth), and cron.
   Hyperliquid perp positions only (main dex and xyz dex).

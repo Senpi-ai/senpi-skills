@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# Senpi SCORPION Scanner v1.1
+# Copyright 2026 Senpi (https://senpi.ai)
+# Licensed under MIT
+# Source: https://github.com/Senpi-ai/senpi-skills
 """SCORPION Scanner — Whale Wallet Tracker.
 
 Tracks specific whale wallets from the leaderboard, monitors their position
@@ -368,7 +372,26 @@ def run():
             })
             return
 
-    # CHECK 3: New entry signals
+    # CHECK 3: Dynamic entry cap
+    dynamic = entry_cfg.get("dynamicSlots", {})
+    if dynamic.get("enabled", False):
+        base_max = dynamic.get("baseMax", 4)
+        day_pnl = tc.get("realizedPnl", 0)
+        effective_max = base_max
+        for threshold in dynamic.get("unlockThresholds", []):
+            if day_pnl >= threshold.get("pnl", 999999):
+                effective_max = threshold.get("maxEntries", effective_max)
+        max_entries = min(effective_max, dynamic.get("absoluteMax", 8))
+    else:
+        max_entries = config.get("risk", {}).get("maxEntriesPerDay", 8)
+
+    if tc.get("entries", 0) >= max_entries:
+        cfg.output({"success": True, "heartbeat": "NO_REPLY",
+                     "note": f"max entries ({max_entries})"})
+        cfg.save_state(state, "scorpion-state.json")
+        return
+
+    # CHECK 4: New entry signals
     if len(our_positions) >= max_positions:
         cfg.output({"success": True, "heartbeat": "NO_REPLY",
                      "note": f"max positions, tracking {len(tracked_whales)} whales"})
@@ -438,7 +461,15 @@ def run():
     best = signals[0]
 
     leverage = config.get("leverage", {}).get("default", 8)
-    margin_pct = entry_cfg.get("marginPct", 0.15)
+
+    # Conviction-scaled margin: more whales = bigger position
+    base_margin_pct = entry_cfg.get("marginPct", 0.25)
+    if best["whaleCount"] >= 4:
+        margin_pct = base_margin_pct * 1.5
+    elif best["whaleCount"] >= 3:
+        margin_pct = base_margin_pct * 1.25
+    else:
+        margin_pct = base_margin_pct
     margin = round(account_value * margin_pct, 2)
 
     # Record mirror info for exit tracking

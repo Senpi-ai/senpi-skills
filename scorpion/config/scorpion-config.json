@@ -15,7 +15,7 @@
     "maxTrackedWhales": 10,
     "minWhaleCount": 2,
     "minHoldMinutes": 10,
-    "marginPct": 0.15,
+    "marginPct": 0.25,
     "bannedPrefixes": [
       "xyz:"
     ],
@@ -23,14 +23,64 @@
     "whaleMaxConsecLosses": 3,
     "minTradesForPnlCheck": 5,
     "whaleMinWinRate": 40,
-    "whaleCooldownHours": 48
+    "whaleCooldownHours": 48,
+    "dynamicSlots": {
+      "enabled": true,
+      "baseMax": 4,
+      "absoluteMax": 8,
+      "unlockThresholds": [
+        {
+          "pnl": 75,
+          "maxEntries": 5
+        },
+        {
+          "pnl": 150,
+          "maxEntries": 6
+        },
+        {
+          "pnl": 300,
+          "maxEntries": 8
+        }
+      ]
+    }
   },
   "dsl": {
     "phase1RetraceRoe": 10,
-    "phase1HardTimeoutMin": 60,
-    "phase1WeakPeakMin": 30,
+    "phase1HardTimeoutMin": 0,
+    "phase1WeakPeakMin": 0,
     "phase1DeadWeightMin": 0,
     "tiers": [
+      {
+        "triggerPct": 7,
+        "lockHwPct": 35,
+        "consecutiveBreachesRequired": 3
+      },
+      {
+        "triggerPct": 12,
+        "lockHwPct": 50,
+        "consecutiveBreachesRequired": 2
+      },
+      {
+        "triggerPct": 20,
+        "lockHwPct": 70,
+        "consecutiveBreachesRequired": 2
+      },
+      {
+        "triggerPct": 30,
+        "lockHwPct": 85,
+        "consecutiveBreachesRequired": 1
+      }
+    ],
+    "stagnationTp": {
+      "enabled": true,
+      "roeMin": 8,
+      "hwStaleMin": 45
+    },
+    "floorBase": 0.02,
+    "_spec": "https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md",
+    "lockMode": "pct_of_high_water",
+    "phase2TriggerRoe": 7,
+    "tiersLegacyFallback": [
       {
         "triggerPct": 4,
         "lockPct": 1.5
@@ -69,20 +119,16 @@
         "lockPct": 88,
         "retrace": 0.004
       }
-    ],
-    "stagnationTp": {
-      "enabled": true,
-      "roeMin": 5,
-      "hwStaleMin": 30
-    }
+    ]
   },
   "risk": {
-    "maxEntriesPerDay": 6,
+    "maxEntriesPerDay": 8,
     "maxDailyLossPct": 8,
     "maxDrawdownPct": 20,
     "maxSingleLossPct": 5,
     "maxConsecutiveLosses": 3,
-    "cooldownMinutes": 60
+    "cooldownMinutes": 60,
+    "drawdownHaltPct": 25
   },
   "execution": {
     "entryOrderType": "FEE_OPTIMIZED_LIMIT",

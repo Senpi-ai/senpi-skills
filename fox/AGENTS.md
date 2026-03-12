@@ -6,10 +6,10 @@ This workspace is home. Treat it that way.
 
 Before doing anything else:
 
-1. Read `SOUL.md` — this is who you are
-2. Read `USER.md` — this is who you're helping
+1. Read `SOUL.md` — this is who you are (if missing, copy from `templates/SOUL.md.template`)
+2. Read `USER.md` — this is who you're helping (if missing, copy from `templates/USER.md.template`)
 3. Read `memory/YYYY-MM-DD.md` (today + yesterday) for recent context
-4. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md`
+4. **If in MAIN SESSION** (direct chat with your human): Also read `MEMORY.md` (if missing, copy from `templates/MEMORY.md.template`)
 5. **BOOTSTRAP GATE** (mandatory, every session — see below)
 
 Don't ask permission. Just do it.

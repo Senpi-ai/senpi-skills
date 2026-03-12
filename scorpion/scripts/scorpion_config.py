@@ -1,4 +1,7 @@
 """SCORPION Strategy — Shared config, MCP helpers, state I/O."""
+# Copyright 2026 Senpi (https://senpi.ai)
+# Licensed under MIT
+# Source: https://github.com/Senpi-ai/senpi-skills
 
 import json
 import os

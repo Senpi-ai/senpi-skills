@@ -3,7 +3,11 @@
   "wallet": "",
   "chatId": "",
   "maxPositions": 3,
-  "leverage": {"default": 8, "min": 5, "max": 10},
+  "leverage": {
+    "default": 8,
+    "min": 5,
+    "max": 10
+  },
   "entry": {
     "maxBbWidthPct": 4.0,
     "maxAtrPct": 1.5,
@@ -15,22 +19,69 @@
   },
   "dsl": {
     "phase1RetraceRoe": 8,
-    "phase1HardTimeoutMin": 75,
-    "phase1WeakPeakMin": 35,
+    "phase1HardTimeoutMin": 0,
+    "phase1WeakPeakMin": 0,
     "phase1DeadWeightMin": 0,
     "tiers": [
-      {"triggerPct": 3, "lockPct": 1},
-      {"triggerPct": 5, "lockPct": 3},
-      {"triggerPct": 8, "lockPct": 5},
-      {"triggerPct": 12, "lockPct": 8},
-      {"triggerPct": 18, "lockPct": 14},
-      {"triggerPct": 25, "lockPct": 20}
+      {
+        "triggerPct": 5,
+        "lockHwPct": 30,
+        "consecutiveBreachesRequired": 3
+      },
+      {
+        "triggerPct": 10,
+        "lockHwPct": 50,
+        "consecutiveBreachesRequired": 2
+      },
+      {
+        "triggerPct": 15,
+        "lockHwPct": 70,
+        "consecutiveBreachesRequired": 2
+      },
+      {
+        "triggerPct": 20,
+        "lockHwPct": 85,
+        "consecutiveBreachesRequired": 1
+      }
     ],
     "stagnationTp": {
       "enabled": true,
       "roeMin": 5,
       "hwStaleMin": 30
-    }
+    },
+    "_spec": "https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md",
+    "lockMode": "pct_of_high_water",
+    "phase2TriggerRoe": 5,
+    "tiersLegacyFallback": [
+      {
+        "triggerPct": 3,
+        "lockPct": 1
+      },
+      {
+        "triggerPct": 5,
+        "lockPct": 3
+      },
+      {
+        "triggerPct": 8,
+        "lockPct": 5,
+        "retrace": 0.012
+      },
+      {
+        "triggerPct": 12,
+        "lockPct": 8,
+        "retrace": 0.01
+      },
+      {
+        "triggerPct": 18,
+        "lockPct": 14,
+        "retrace": 0.008
+      },
+      {
+        "triggerPct": 25,
+        "lockPct": 20,
+        "retrace": 0.006
+      }
+    ]
   },
   "risk": {
     "maxEntriesPerDay": 8,

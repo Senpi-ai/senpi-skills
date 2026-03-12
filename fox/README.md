@@ -1,63 +1,66 @@
-# 🦊 FOX v1.4 — Autonomous + Copy Trading for Hyperliquid
+# 🦊 FOX v1.5 — Autonomous + Copy Trading for Hyperliquid
 
 The ambush sniper. Catches explosive First Jumps — assets rocketing from obscurity into the top ranks on Hyperliquid's leaderboard — before the crowd confirms the signal. 85% directional accuracy on strong signals.
 
-**Current leader** on the Senpi Predators tracker at +18.1% ROI across 50 trades.
+**Current leader** on the Senpi Predators tracker at +18% ROI.
 
 ## What FOX Does
 
-FOX scans Hyperliquid's smart money leaderboard every 3 minutes looking for First Jump signals — assets that jump 15+ ranks in a single scan with positive velocity and multiple confirming reasons. When a qualifying signal fires, FOX enters immediately with maker orders and protects the position with DSL v5 trailing stops synced to Hyperliquid.
+FOX scans Hyperliquid's smart money leaderboard every 3 minutes looking for First Jump signals — assets that jump 15+ ranks in a single scan with positive velocity and multiple confirming reasons. When a qualifying signal fires, FOX enters immediately with maker orders and protects the position with DSL trailing stops synced to Hyperliquid.
 
 FOX also runs a copy trading mode that mirrors positions of top-performing traders. Default budget split: **20% mirror trading / 80% autonomous** (configurable).
 
-## What's in v1.4
+## What's New in v1.5
 
-**Bootstrap gate.** On every session, the agent checks for `config/bootstrap-complete.json`. If missing, it silently sets up all crons (copy trading monitor, market regime, autonomous scanners) before responding to the user. This ensures copy trading monitoring is always active — previous versions required manual setup.
+**Clean skill package.** Agent personality files (SOUL.md, USER.md, MEMORY.md, IDENTITY.md, HEARTBEAT.md, TOOLS.md) moved to `templates/` directory as `.template` files. The agent copies them to the workspace root on first boot and customizes them during setup. No personal data ships with the skill.
 
-**Notification silencing.** All scanner crons run on isolated sessions with strict notification rules. The agent only alerts on position OPENED, position CLOSED, risk guardian triggered, or critical error. No more scanner narration, "systems nominal" messages, or HEARTBEAT_OK spam.
+**DSL High Water Mode.** FOX now uses DSL High Water Mode — the trailing stop configuration originally designed for and proven on FOX. Percentage-of-peak locks that trail infinitely. Phase 1 gives trades room to develop with conviction-scaled floors. Once the trade proves itself at +7% ROE, Phase 2 takes over with locks that tighten from 40% to 85% of peak. A First Jump that runs +200% ROE has its stop at +170%. No ceiling. See the full spec for details and fallback tiers.
 
-**Dead weight cut removed.** Positions are no longer killed for being flat after 10 minutes. The hard timeout handles positions that genuinely go nowhere. This was the #1 source of unnecessary fee churn.
+**20/80 mirror/autonomous split.** Autonomous trading is now the primary capital allocation — it's the proven edge. Mirror trading provides baseline income with 20% of the budget.
 
-**NO_REPLY for idle cycles.** All crons use `NO_REPLY` instead of `HEARTBEAT_OK` to prevent the recursive wake-up loop that caused notification spam in earlier versions.
-
-**Clean state.** All user-specific data (wallet addresses, strategy IDs, trade history, Telegram chat IDs) scrubbed from config files, memory files, and cron templates. Safe for fresh deployment.
+**All v1.4 improvements included:** Bootstrap gate (silent cron setup on first session), notification silencing (all crons isolated, NO_REPLY for idle cycles), dead weight cut removed, clean state files with empty wallet/ID placeholders.
 
 ## Architecture
 
 ```
-fox-export/
-├── AGENTS.md                  # Agent behavior + bootstrap gate + notification rules
-├── BOOTSTRAP.md               # First-boot setup (referenced by AGENTS.md)
-├── SOUL.md / USER.md          # Agent identity + user profile (set during setup)
-├── MEMORY.md                  # Long-term agent memory (starts empty)
-├── HEARTBEAT.md               # Heartbeat checklist
+fox/
+├── README.md                  ← You're here
+├── AGENTS.md                  ← Agent behavior + bootstrap gate + notification rules
+├── BOOTSTRAP.md               ← First-boot setup sequence
+├── config/
+│   ├── fox-strategies.json    ← Strategy registry (empty — filled during setup)
+│   ├── fox-trade-counter.json ← Daily trade counter (empty)
+│   ├── copy-strategies.json   ← Copy trading config (empty)
+│   ├── market-regime-last.json
+│   ├── max-leverage.json      ← Per-asset max leverage limits
+│   └── fj-last-seen.json     ← FJ persistence tracking
+├── docs/
+│   ├── cron-architecture.md   ← All 8 cron job definitions
+│   ├── entry-rules-v1.0.md   ← Current entry filter rules
+│   ├── dsl-rules-v1.0.md     ← Current DSL/stop loss rules
+│   └── copy-trading-setup.md ← Copy trading deployment guide
 ├── scripts/
-│   ├── emerging-movers.py     # 3min FJ scanner — primary entry signal
-│   ├── opportunity-scan-v6.py # 15min deep scanner — secondary signal
-│   ├── market-regime.py       # BTC macro regime classifier
-│   ├── sm-flip-check.py       # Smart money flip detector
-│   ├── wolf-monitor.py        # Liquidation/margin watchdog
-│   └── job-health-check.py    # DSL/position reconciliation
+│   ├── emerging-movers.py     ← 3min FJ scanner — primary entry signal
+│   ├── opportunity-scan-v6.py ← 15min deep scanner — secondary signal
+│   ├── market-regime.py       ← BTC macro regime classifier
+│   ├── sm-flip-check.py       ← Smart money flip detector
+│   ├── wolf-monitor.py        ← Liquidation/margin watchdog
+│   └── job-health-check.py    ← DSL/position reconciliation
 ├── skills/
-│   ├── fox-strategy/          # Entry rules, cron templates, references
-│   │   ├── SKILL.md           # Full entry/exit logic + notification policy
-│   │   └── references/        # Cron templates, API tools, learnings
-│   └── dsl-dynamic-stop-loss/ # DSL v5 trailing stop engine
+│   ├── fox-strategy/          ← Entry rules, cron templates, references
+│   │   ├── SKILL.md
+│   │   └── references/
+│   └── dsl-dynamic-stop-loss/ ← DSL v5 trailing stop engine
 │       ├── SKILL.md
 │       ├── scripts/dsl-v5.py
 │       └── references/
-├── config/                    # State files (clean — no user data)
-│   ├── fox-strategies.json    # Strategy registry
-│   ├── fox-trade-counter.json # Daily trade counter (empty)
-│   ├── copy-strategies.json   # Copy trading config
-│   ├── market-regime-last.json
-│   ├── max-leverage.json
-│   └── fj-last-seen.json     # FJ persistence tracking
-└── docs/
-    ├── cron-architecture.md
-    ├── entry-rules-v1.0.md
-    ├── dsl-rules-v1.0.md
-    └── copy-trading-setup.md
+└── templates/                 ← Per-agent files (copied to workspace on first boot)
+    ├── SOUL.md.template       ← Agent personality
+    ├── USER.md.template       ← User profile (chat ID, etc.)
+    ├── MEMORY.md.template     ← Long-term agent memory
+    ├── IDENTITY.md.template   ← Agent name/creature/emoji
+    ├── HEARTBEAT.md.template  ← Periodic check tasks
+    └── TOOLS.md.template      ← Environment-specific notes
 ```
 
 ## Cron Architecture (8 crons, all isolated)
@@ -73,33 +76,50 @@ fox-export/
 | 7 | Market Regime | 1-4 hr | BTC macro classification |
 | 8 | Copy Trading Monitor | 15 min | Copy strategy health + alerts |
 
-All crons run on **isolated sessions** with `agentTurn` payloads. No main session crons.
+All crons run on **isolated sessions** with `agentTurn` payloads. No main session crons. NO_REPLY for idle cycles.
 
 ## DSL Configuration: High Water Mode
 
-FOX uses **DSL High Water Mode** — the trailing stop configuration originally designed for and proven on FOX. Instead of locking fixed ROE amounts at each tier, High Water Mode locks a percentage of the peak. The stop trails at 85% of the highest ROE the trade has ever reached, with no ceiling.
+FOX uses **DSL High Water Mode** — the trailing stop configuration originally designed for and proven on FOX.
 
 **Spec:** https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md
 
-Phase 1 gives trades room to develop with conviction-scaled floors (score 6-7: -20% ROE, score 10+: unrestricted). Once the trade proves itself at +7% ROE, Phase 2 takes over with percentage-of-peak locks that tighten from 40% to 85% of high water. A First Jump that runs +200% ROE has its stop at +170%. No ceiling.
+Phase 1 conviction-scaled floors give trades room to develop:
 
-**Current workaround** (until DSL engine supports `lockMode: "pct_of_high_water"`): use legacy fallback tiers with standard `lockPct` fields. Do NOT include `lockMode` or `lockHwPct` in state files. After engine update, switch to High Water tiers with `lockHwPct`. See the spec for full details and the fallback tier table.
+| Entry Score | Max ROE Loss | Time Exits |
+|---|---|---|
+| 6-7 | -20% ROE | All disabled |
+| 8-9 | -25% ROE | All disabled |
+| 10+ | Unrestricted | All disabled |
+
+Phase 2 percentage-of-peak locks (after +7% ROE):
+
+| Tier | Trigger | Lock (% of peak) | Breaches |
+|---|---|---|---|
+| 1 | +7% ROE | 40% | 3 |
+| 2 | +12% ROE | 55% | 2 |
+| 3 | +15% ROE | 75% | 2 |
+| 4 | +20% ROE+ | 85% | 1 (infinite trail) |
+
+**Current workaround** (until DSL engine supports `lockMode: "pct_of_high_water"`): use legacy fallback tiers with standard `lockPct` fields. After engine update, switch to High Water tiers with `lockHwPct`. See the spec for the fallback tier table.
 
 ## Optional: Trading Strategy Variants
 
-FOX is the best-performing skill in the Senpi zoo as-is. For users who want to experiment with different configurations, two trading strategy variants are available as optional config overrides:
+FOX is the best-performing skill in the Senpi zoo as-is. For users who want to experiment, four strategy variants are available as optional config overrides:
 
 | Strategy | What Changes | When To Consider |
 |---|---|---|
-| **Feral Fox v2** | Score 7+, 3 reasons min, regime enforced, structural invalidation (1.5% floor), no time exits | After running vanilla FOX profitably and wanting fewer, higher-conviction trades |
-| **Ghost Fox** | Feral v2 entries + High Water tiers with `lockHwPct` | After engine supports `pct_of_high_water` and you want infinite trailing on every winner |
+| **Feral Fox** | Score 7+, 3 reasons min, regime enforced, structural invalidation | After running vanilla FOX profitably and wanting fewer, higher-conviction trades |
+| **Ghost Fox** | Feral Fox entries + High Water `lockHwPct` tiers | After engine supports `pct_of_high_water` and you want explicit infinite trailing |
+| **Lynx** | Score 10/12, wide stops, no time exits — the patient hunter | When the market is choppy and you want the proven wider-stops approach |
+| **Jackal** | Score 12/14, tight Phase 1, fast kills — the defensive variant | When you want to A/B test tight execution vs wide patience in chop |
 
 **Start with vanilla FOX.** It's proven. The variants are upgrade paths, not requirements.
 
 ## Quick Start
 
 1. Deploy to OpenClaw with Senpi MCP configured
-2. The agent reads `AGENTS.md` → checks for `config/bootstrap-complete.json` → runs bootstrap silently
+2. The agent reads AGENTS.md → copies templates to workspace → checks for `config/bootstrap-complete.json` → runs bootstrap
 3. Bootstrap creates all 8 crons, copy trading monitor, and market regime cron
 4. Agent sends one welcome message: "🦊 FOX is online."
 5. The FOX hunts
@@ -107,20 +127,19 @@ FOX is the best-performing skill in the Senpi zoo as-is. For users who want to e
 ## Key Learnings
 
 - **Signal quality is the edge** — 85% directional accuracy on score 6+ First Jumps
-- **Stops were the problem, not direction** — 79% of trades hit floor SL before the move materialized
-- **Dead weight cut was killing winners** — removed in v1.1+
-- **Fee drag compounds** — every upgrade tightens the same thing: fewer trades, higher conviction, wider stops
-- **Mirror trading provides baseline income** — 20/80 split gives autonomous the majority of capital since it's now the proven edge
+- **Stops were the problem, not direction** — wide stops + no time exits = the winning pattern
+- **Dead weight cut was killing winners** — removed since v1.1
+- **Fee drag compounds** — fewer trades, higher conviction, wider stops
+- **Mirror trading provides baseline income** — 20/80 split, autonomous is the primary edge
 
 ## Requirements
 
 - [OpenClaw](https://openclaw.ai) agent with cron support
 - [Senpi](https://senpi.ai) MCP access token
-- [mcporter](https://github.com/nichochar/mcporter-cli) CLI
 - Python 3.10+
 - DSL v5 skill (included)
 
 ## License
 
-Apache-2.0 — Built by Senpi (https://senpi.ai). Attribution required for derivative works.
+MIT — Built by Senpi (https://senpi.ai).
 Source: https://github.com/Senpi-ai/senpi-skills

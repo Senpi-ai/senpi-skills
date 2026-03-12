@@ -1,190 +1,147 @@
-# 🐅 TIGER v4.1 — Multi-Scanner Goal-Based Trading
+# Senpi Skills — The Home of Hyperliquid Agents
 
-The most complex hunter in the Senpi zoo. Five parallel scanners — compression, correlation, momentum, funding, and reversion — scanning 230 assets through a prescreener that narrows to the top 30. A meta-optimizer called ROAR tracks which scanners are producing winners and automatically throttles the underperformers. 17 scripts, 12 crons, the broadest signal coverage of any skill.
+16 AI trading skills. 11 trading strategies. 26 scanners. All open source. All tracked live.
 
-Give it a budget, a target, and a deadline. It adjusts aggression automatically.
+Senpi Skills is the open source repository for autonomous trading strategies on [Hyperliquid](https://hyperliquid.xyz) via [Senpi](https://senpi.ai). Each skill is a self-contained trading agent that scans markets 24/7, enters and exits positions, manages trailing stops, and protects capital — autonomously.
 
-## What TIGER Does
+**Live tracker:** [senpi.ai/predators](https://senpi.ai/predators) — every skill running with real money, full transparency.
 
-TIGER runs five specialized scanners simultaneously, each looking for a different pattern:
+## Skills (16 unique trading agents)
 
-- **Compression** — Bollinger Band squeeze + OI breakout. Volatility compression resolving with new money.
-- **Correlation** — BTC/ETH makes a move, find alts that haven't caught up yet.
-- **Momentum** — Price move + volume spike. Trend confirmation with conviction.
-- **Reversion** — RSI extremes + divergence. Overextended assets snapping back.
-- **Funding** — Extreme funding rates. Enter against the crowd to collect the rate.
+### Momentum & Leaderboard
+| Skill | Description | Scanner Interval |
+|---|---|---|
+| 🦊 [FOX](./fox) | Explosive breakout sniper. Catches First Jumps on the leaderboard before the crowd. **Best performer at +18% ROI.** | 3 min |
+| 🐺 [WOLF](./wolf-strategy) | Pack hunter. Leaderboard momentum, enters early on what smart money is buying. | 3 min |
+| 🦅 [HAWK](./hawk-trading-bot) | Scans BTC, ETH, SOL, HYPE every 30 seconds. Picks the single strongest signal. | 30 sec |
 
-A prescreener runs every 5 minutes to score all 230+ Hyperliquid assets cheaply and produce a top-30 candidate list. The five scanners only analyze these candidates, saving API calls and focusing attention.
+### Single-Asset Hunters
+| Skill | Description | Scanner Interval |
+|---|---|---|
+| 🐻 [GRIZZLY](./grizzly) | BTC only. Every signal source. 15-20x leverage. Maximum conviction. | 3 min |
+| 🐆 CHEETAH | HYPE only. 8-12x leverage. Fastest predator for the fastest asset. | 3 min |
 
-ROAR (the meta-optimizer) runs every 8 hours, analyzes which scanners are actually making money, and adjusts their aggression parameters. Scanners that are losing get throttled. Scanners that are winning get more room. TIGER is the only skill in the zoo that learns from its own results.
+### Multi-Signal Convergence
+| Skill | Description | Scanner Interval |
+|---|---|---|
+| 🐅 [TIGER](./tiger-strategy) | 5 parallel scanners, 230 assets, ROAR meta-optimizer that learns from results. | 5 min |
+| 🐍 [COBRA](./cobra) | Triple convergence. Only strikes when price, volume, and new money all agree. | 3 min |
+| 🦬 [BISON](./bison) | Conviction holder. Top 10 assets, 4h trend thesis, holds hours to days. | 5 min |
 
-## What's in v4.1
+### Range & Technical
+| Skill | Description | Scanner Interval |
+|---|---|---|
+| 🐍 [VIPER](./viper) | Range-bound mean reversion at support/resistance. Works when nothing is trending. **+6% ROI.** | 5 min |
+| 🐆 PANTHER | BB squeeze breakout scalper. Fastest cuts in the zoo. | 2 min |
+| 🦅 EAGLE | Correlation breaks + macro events. BTC/ETH vs alts divergence. | 3 min |
 
-**Bootstrap gate.** Agent checks `config/bootstrap-complete.json` every session. If missing, silently creates all 12 crons before responding.
+### Alternative Edge
+| Skill | Description | Scanner Interval |
+|---|---|---|
+| 🦉 [OWL](./owl) | Pure contrarian. Enters against extreme crowding when exhaustion signals fire. | 15 min |
+| 🦈 [SHARK](./shark) | SM consensus + liquidation cascade front-running. | 5 min |
+| 🐊 [CROC](./croc) | Funding rate arbitrage. Collects payments while waiting for the snap. | 15 min |
+| 🦂 [SCORPION](./scorpion) | Mirrors whale wallets. Exits the instant they do. | 5 min |
+| 🦗 MANTIS | High-conviction whale mirror. 4+ whale consensus, 30-min aging, quality scoring. | 5 min |
 
-**Notification silencing.** All crons run on isolated sessions. DSL moved from main to isolated. NO_REPLY for idle cycles. The agent only alerts on position OPENED, CLOSED, ROAR aggression change, risk halt, or critical error.
+## Trading Strategies (11 config overrides)
 
-**Dead weight cut disabled.** No time-based exits that kill correct-direction trades early.
+Trading strategies run on a parent skill's scanner with different entry filters, DSL settings, and risk parameters. Same code, different personality.
 
-**All crons isolated.** Zero main session crons — prevents context bloat and session lock contention.
+### On FOX
+| Strategy | What Changes |
+|---|---|
+| 🦊 [FERAL FOX](./feral-fox-strategy%201.2.md) | Score 7+, 3 reasons, regime enforced, structural invalidation, no time exits |
+| 👻 [GHOST FOX](./ghost-fox-strategy%20(1).md) | Feral Fox entries + DSL High Water Mode infinite trailing at 85% of peak |
+| 🐱 LYNX | Patient high-bar momentum. Score 10+, wide stops, no time exits. The proven pattern. |
+| 🐺 JACKAL | Choppy market variant. Score 12+, fast Phase 1 kills, 5-min dead weight. A/B test against LYNX. |
+
+### On WOLF
+| Strategy | What Changes |
+|---|---|
+| 🐺 [DIRE WOLF](./wolf-strategy) | Replaces WOLF config entirely. FIRST_JUMP only, zero rotation, maker fees, DSL High Water. |
+| 🐺 WOLF NIGHTSHIFT | After-hours Asian session momentum. |
+
+### On TIGER
+| Strategy | What Changes |
+|---|---|
+| 🦁 LION | Patient multi-scanner. Stricter confluence, scanner weighting, no time exits, drawdown auto-resume. |
+| 🐅 TIGER SNIPER | Compression + correlation scanners only. Maximum confluence bar. |
+
+### On VIPER
+| Strategy | What Changes |
+|---|---|
+| 🐍 [MAMBA](./mamba-strategy%20(1).md) | Viper entries + DSL High Water. Catches the range bounce AND the breakout that escapes. |
+
+### On CROC
+| Strategy | What Changes |
+|---|---|
+| 🐊 GATOR | Patient funding arb. No time exits, structural thesis exits only (funding flip = dead), funding income tracking. |
+
+### On OWL
+| Strategy | What Changes |
+|---|---|
+| 🦉 OWL AGGRESSIVE | Lower crowding threshold, faster entry. |
+
+## Shared Infrastructure
+
+These are plugins used by all skills automatically. Users don't need to install them separately.
+
+| Plugin | Purpose |
+|---|---|
+| [DSL Dynamic Stop Loss](./dsl-dynamic-stop-loss) | Trailing stop engine. Supports fixed ROE tiers and [High Water Mode](./dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md) (percentage-of-peak locks). |
+| [ALO Guide](./alo-guide-for-agents.md) | Maker order execution for fee-optimized entries. |
+| [Senpi Onboard](./senpi-onboard) | Agent onboarding and account setup. |
+| [Getting Started Guide](./senpi-getting-started-guide) | Interactive first-trade tutorial. |
+| [Emerging Movers](./emerging-movers) | Leaderboard scanner shared by FOX and WOLF. |
+| [Opportunity Scanner](./opportunity-scanner) | Deep 4-stage funnel scanner for FOX. |
+| [Whale Index](./whale-index) | Legacy whale mirror (replaced by SCORPION/MANTIS). |
+| [Wolf Howl](./wolf-howl) | WOLF's nightly self-improvement loop. |
+
+## DSL High Water Mode
+
+The trailing stop configuration originally designed for and proven on FOX. Instead of locking fixed ROE amounts, High Water Mode locks a percentage of the peak. The stop trails at 85% of the highest ROE the trade has ever reached, with no ceiling.
+
+**Full spec:** [dsl-high-water-spec 1.0.md](./dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md)
+
+**Adoption guide (all skills):** [dsl-high-water-adoption-guide.md](./dsl-dynamic-stop-loss/dsl-high-water-adoption-guide.md)
+
+Skills using High Water Mode: BISON, GRIZZLY, CHEETAH, GHOST FOX, DIRE WOLF, MAMBA, LYNX, JACKAL, MANTIS, OWL, GATOR, LION. FOX targets High Water as default. COBRA, HAWK, SCORPION, VIPER, SHARK have adoption configs ready.
 
 ## Architecture
 
 ```
-tiger-v4/
-├── README.md                      ← You're here
-├── tiger-strategy/                ← The skill
-│   ├── SKILL.md                   ← Full logic for the agent
-│   ├── tiger-config.json          ← Strategy configuration
-│   ├── scripts/                   ← 17 Python scripts
-│   │   ├── prescreener.py         ← Scores 230 assets → top 30
-│   │   ├── compression-scanner.py ← BB squeeze + OI breakout
-│   │   ├── momentum-scanner.py    ← Price move + volume spike
-│   │   ├── reversion-scanner.py   ← RSI extreme + divergence
-│   │   ├── correlation-scanner.py ← BTC/ETH → lagging alts
-│   │   ├── funding-scanner.py     ← Extreme funding arb
-│   │   ├── oi-tracker.py          ← OI history accumulator
-│   │   ├── goal-engine.py         ← Adaptive aggression
-│   │   ├── risk-guardian.py       ← Drawdown + daily loss
-│   │   ├── tiger-exit.py          ← Smart exit logic
-│   │   ├── dsl-v4.py              ← 10-tier trailing stops
-│   │   ├── roar-analyst.py        ← Meta-optimizer
-│   │   ├── tiger-setup.py         ← Strategy initialization
-│   │   ├── create-dsl-state.py    ← DSL bootstrapper
-│   │   ├── tiger_config.py        ← Shared config/MCP helpers
-│   │   ├── tiger_lib.py           ← Technical analysis (pure stdlib)
-│   │   └── roar_config.py         ← ROAR configuration
-│   └── references/
-│       ├── cron-templates.md
-│       ├── config-schema.md
-│       ├── scanner-details.md
-│       ├── setup-guide.md
-│       └── state-schema.md
-└── workspace/
-    ├── AGENTS.md                  ← Agent behavior + bootstrap gate
-    ├── BOOTSTRAP.md               ← Startup sequence
-    ├── HEARTBEAT.md               ← Periodic checks
-    └── MEMORY.md                  ← Long-term memory (template)
+Plugins ──→ Skills ──→ Trading Strategies
+(shared)     (scanner)   (config override)
 ```
 
-## 12-Cron Architecture (all isolated)
+**Plugins** are shared infrastructure — trailing stops, risk management, fee optimization. Maintained once, every skill benefits.
 
-| # | Cron | Interval | Purpose |
-|---|---|---|---|
-| 1 | Prescreener | 5 min | Score 230 assets → top 30 |
-| 2 | Compression | 5 min | BB squeeze + OI breakout |
-| 3 | Momentum | 5 min | Price + volume |
-| 4 | Reversion | 5 min | RSI extreme + divergence |
-| 5 | Correlation | 3 min | BTC/ETH → lagging alts |
-| 6 | Funding | 30 min | Extreme funding rates |
-| 7 | OI Tracker | 5 min | OI history accumulation |
-| 8 | Goal Engine | 1 hr | Aggression recalculation |
-| 9 | Risk Guardian | 5 min | Drawdown + daily loss |
-| 10 | DSL Trailing Stop | 30 sec | 10-tier trailing stops |
-| 11 | Exit Checker | 5 min | Time stops + stagnation |
-| 12 | ROAR Analyst | 8 hr | Meta-optimizer |
+**Skills** are the trading logic — the scanner that embodies a thesis about how to make money. FOX's First Jump detector. VIPER's range analysis. OWL's crowding exhaustion. Each skill is a thin layer on top of shared plugins.
 
-All crons run on **isolated sessions** with `agentTurn` payloads. NO_REPLY for idle cycles.
-
-## DSL Configuration: High Water Mode
-
-TIGER targets **DSL High Water Mode** for trailing stops — percentage-of-peak locks that trail infinitely.
-
-**Spec:** https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md
-
-TIGER currently runs DSL v4 with 10 fixed tiers (5% → 100% ROE). High Water Mode upgrades this to percentage-of-peak locks where the stop is always a percentage of the highest ROE reached, with no ceiling. The tier design is pattern-specific:
-
-| Pattern | Phase 1 Floor | Phase 2 Trigger | Notes |
-|---|---|---|---|
-| Compression | 1.5% notional | +7% ROE | Standard — breakout or bust |
-| Correlation | 1.5% notional | +5% ROE | Tight — the lag window closes fast |
-| Momentum | 1.2% notional | +7% ROE | Tighter — momentum reverses fast |
-| Reversion | 1.5% notional | +8% ROE | Wider — expect 2-3 ATR before the snap |
-| Funding | 2.0% notional | +10% ROE | Widest — income-based, needs room |
-
-**Current workaround** (until DSL engine supports `lockMode: "pct_of_high_water"`): use the existing 10-tier fixed `lockPct` configuration. After engine update, switch each pattern's DSL profile to High Water tiers with `lockHwPct`. The pattern-specific Phase 1 floors and retrace settings stay the same — only the Phase 2 lock calculation changes.
-
-**Legacy fallback tiers (use today):**
-```json
-{
-  "tiers": [
-    {"triggerPct": 5,  "lockPct": 2},
-    {"triggerPct": 10, "lockPct": 6},
-    {"triggerPct": 15, "lockPct": 11},
-    {"triggerPct": 20, "lockPct": 16, "retrace": 0.012},
-    {"triggerPct": 30, "lockPct": 25, "retrace": 0.010},
-    {"triggerPct": 40, "lockPct": 34, "retrace": 0.008},
-    {"triggerPct": 50, "lockPct": 44, "retrace": 0.006},
-    {"triggerPct": 65, "lockPct": 57, "retrace": 0.005},
-    {"triggerPct": 80, "lockPct": 72, "retrace": 0.004},
-    {"triggerPct": 100, "lockPct": 90, "retrace": 0.003}
-  ]
-}
-```
-
-**High Water tiers (after engine update):**
-```json
-{
-  "lockMode": "pct_of_high_water",
-  "tiers": [
-    {"triggerPct": 7,  "lockHwPct": 35, "consecutiveBreachesRequired": 3},
-    {"triggerPct": 12, "lockHwPct": 50, "consecutiveBreachesRequired": 2},
-    {"triggerPct": 20, "lockHwPct": 70, "consecutiveBreachesRequired": 2},
-    {"triggerPct": 30, "lockHwPct": 85, "consecutiveBreachesRequired": 1}
-  ]
-}
-```
-
-## Optional: Trading Strategy Variant
-
-TIGER is a full skill with broad signal coverage. For users who want a focused configuration:
-
-| Strategy | What Changes |
-|---|---|
-| **TIGER Sniper** | Compression + correlation scanners only. Other 3 disabled. Highest confluence bar, fewest trades. |
-
-Start with vanilla TIGER. The five-scanner approach provides the broadest coverage. TIGER Sniper is for users who want to concentrate on the two highest-performing patterns.
-
-## Risk Management
-
-| Rule | Limit | Default |
-|---|---|---|
-| Max single trade loss | 3% of balance | 3 |
-| Max daily loss | 8% of day-start balance | 8 |
-| Max drawdown from peak | 15% | 15 |
-| Max concurrent positions | 2 | 2 |
-| OI collapse exit | OI drops > 25% in 1h | Auto |
-| Funding reversal exit | Funding flips on FUNDING_ARB | Auto |
-| Stagnation TP | ROE ≥ 8%, HW stale 1h | Auto |
-
-## ROAR Meta-Optimizer
-
-ROAR runs every 8 hours and analyzes trade results by scanner type. It calculates:
-- Win rate per scanner
-- Average P&L per scanner
-- Fee drag per scanner
-
-If a scanner is consistently losing, ROAR tightens its entry threshold. If a scanner is winning, ROAR gives it more room. This is automated — the agent doesn't need to intervene.
-
-TIGER is the only skill in the zoo with a built-in learning system. When SAITA ships the `senpi-learner` plugin, every skill will get this capability.
+**Trading Strategies** are saved configurations — the specific numbers that tune how aggressively a skill behaves. LYNX is FOX's scanner with score 10+ filters. LION is TIGER's scanners with no time exits. The skill is the predator. The strategy is how you teach it to hunt.
 
 ## Quick Start
 
-1. Deploy to OpenClaw with Senpi MCP configured
-2. Copy `workspace/` files to `/data/workspace/`
-3. Copy `tiger-strategy/` to `/data/workspace/skills/tiger-strategy/`
-4. Edit `tiger-config.json` — set strategy_id, wallet, budget, target, deadline
-5. Agent reads AGENTS.md → runs bootstrap → creates all 12 crons
-6. The TIGER hunts
+1. Deploy [OpenClaw](https://openclaw.ai) with [Senpi](https://senpi.ai) MCP configured
+2. Install a skill: `npx skills add Senpi-ai/senpi-skills/<skill-name>`
+3. The agent reads SKILL.md, runs bootstrap, creates crons, and starts trading
+4. Monitor via Telegram alerts and [senpi.ai/predators](https://senpi.ai/predators)
+
+**Recommended first skill:** FOX — proven +18% ROI, includes copy trading + autonomous mode.
 
 ## Requirements
 
 - [OpenClaw](https://openclaw.ai) agent with cron support
 - [Senpi](https://senpi.ai) MCP access token
-- [mcporter](https://github.com/nichochar/mcporter-cli) CLI
-- Python 3.8+ (no external dependencies)
+- Python 3.8+ (no external dependencies — all skills use stdlib only)
+
+## Contributing
+
+Each skill is self-contained in its own directory. Trading strategies are config override files (JSON + markdown spec). See any skill's SKILL.md for the full agent instructions.
+
+All skills use [DSL High Water Mode](./dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md) as the target trailing stop configuration. See the [adoption guide](./dsl-dynamic-stop-loss/dsl-high-water-adoption-guide.md) for per-skill tier tables.
 
 ## License
 
-Apache-2.0 — Built by Senpi (https://senpi.ai). Attribution required for derivative works.
-Source: https://github.com/Senpi-ai/senpi-skills
+Apache-2.0 — Built by [Senpi](https://senpi.ai). Attribution required for derivative works.
