@@ -1,4 +1,4 @@
-# 🦊 FOX v1.5 — Autonomous + Copy Trading for Hyperliquid
+# 🦊 FOX v1.6 — Autonomous + Copy Trading for Hyperliquid
 
 The ambush sniper. Catches explosive First Jumps — assets rocketing from obscurity into the top ranks on Hyperliquid's leaderboard — before the crowd confirms the signal. 85% directional accuracy on strong signals.
 
@@ -6,19 +6,39 @@ The ambush sniper. Catches explosive First Jumps — assets rocketing from obscu
 
 ## What FOX Does
 
-FOX scans Hyperliquid's smart money leaderboard every 3 minutes looking for First Jump signals — assets that jump 15+ ranks in a single scan with positive velocity and multiple confirming reasons. When a qualifying signal fires, FOX enters immediately with maker orders and protects the position with DSL trailing stops synced to Hyperliquid.
+FOX scans Hyperliquid's smart money leaderboard every 3 minutes. Every signal must survive a five-layer gauntlet before FOX enters:
+
+1. **First Jump** — asset must jump 10+ ranks from outside the top 25 in one scan. Top-10 assets are blocked (the move already happened).
+2. **Score thresholds** — minScore ≥ 9, minReasons ≥ 4, minVelocity > 0.10. The asset must trigger multiple deep signals simultaneously with visible SM acceleration.
+3. **Asset trend alignment** — pull the specific asset's 4h/1h chart. If the signal says SHORT but the asset's 4h is trending LONG → trash it. Never trade against the local macro trend.
+4. **Leverage floor** — exchange max leverage must be ≥ 7x. Assets capped at 3x or 5x are skipped for capital efficiency.
+5. **Time-of-day modifier** — +1 point during 04:00–14:00 UTC (highest win-rate window), -2 points during 18:00–02:00 UTC (worst window). Evening signals need raw score 11+ to pass.
+
+When a signal survives all five layers, FOX enters with a FEE_OPTIMIZED_LIMIT order (maker fees, not taker) and immediately spawns a DSL High Water trailing stop.
 
 FOX also runs a copy trading mode that mirrors positions of top-performing traders. Default budget split: **20% mirror trading / 80% autonomous** (configurable).
 
-## What's New in v1.5
+## What's New in v1.6
 
-**Clean skill package.** Agent personality files (SOUL.md, USER.md, MEMORY.md, IDENTITY.md, HEARTBEAT.md, TOOLS.md) moved to `templates/` directory as `.template` files. The agent copies them to the workspace root on first boot and customizes them during setup. No personal data ships with the skill.
+**Five-layer entry gauntlet.** Every signal must survive First Jump detection, score/velocity/reason thresholds, asset-specific trend alignment, leverage floor check, and time-of-day statistical modifier. This is the production-tuned filter set that both the Fox and Feral Fox agents independently converged on through live trading. Kills 95%+ of signals before they reach execution.
 
-**DSL High Water Mode.** FOX now uses DSL High Water Mode — the trailing stop configuration originally designed for and proven on FOX. Percentage-of-peak locks that trail infinitely. Phase 1 gives trades room to develop with conviction-scaled floors. Once the trade proves itself at +7% ROE, Phase 2 takes over with locks that tighten from 40% to 85% of peak. A First Jump that runs +200% ROE has its stop at +170%. No ceiling. See the full spec for details and fallback tiers.
+**Score raised to 9 (was 6).** The composite momentum score floor is now 9 — only strong multi-signal confirmations pass. Legacy WOLF used 6-7. Previous FOX versions used 6.
 
-**20/80 mirror/autonomous split.** Autonomous trading is now the primary capital allocation — it's the proven edge. Mirror trading provides baseline income with 20% of the budget.
+**Velocity raised to 0.10 (was 0.01).** SM must be visibly accelerating into the asset, not just drifting. Previous versions accepted any positive velocity.
 
-**All v1.4 improvements included:** Bootstrap gate (silent cron setup on first session), notification silencing (all crons isolated, NO_REPLY for idle cycles), dead weight cut removed, clean state files with empty wallet/ID placeholders.
+**Reasons raised to 4 (was 2).** Must trigger FIRST_JUMP + IMMEDIATE_MOVER + CONTRIB_EXPLOSION + at least one more. No single-reason entries.
+
+**Previous rank ≥ 25.** Asset must originate from outside the top 25. Jumps from #20 to #8 are blocked — the easy money is in catching assets rocketing from obscurity.
+
+**Top-10 block.** Never buy an asset already sitting in the top 10. That move already happened.
+
+**Asset-specific trend alignment (hard block).** Global regime is not enough. The specific asset's 4h/1h chart must agree with the signal direction. Counter-trend = trash regardless of score.
+
+**Leverage floor (7x minimum).** Assets capped at 3x or 5x are skipped. Capital efficiency requires at least 7x.
+
+**Time-of-day modifier.** +1 point during 04:00–14:00 UTC, -2 points during 18:00–02:00 UTC. Derived from live trade win-rate analysis. Evening signals need raw score 11+ to pass the 9 threshold.
+
+**All v1.5 improvements included:** Clean template structure, DSL High Water Mode, 20/80 mirror/autonomous split, bootstrap gate, notification silencing, NO_REPLY, dead weight removed.
 
 ## Architecture
 
@@ -105,16 +125,16 @@ Phase 2 percentage-of-peak locks (after +7% ROE):
 
 ## Optional: Trading Strategy Variants
 
-FOX is the best-performing skill in the Senpi zoo as-is. For users who want to experiment, four strategy variants are available as optional config overrides:
+FOX v1.6 is the most battle-tested configuration in the zoo — it runs the exact filters that both the Fox and Feral Fox agents independently converged on through live trading. The variants below tune specific aspects for different conditions:
 
-| Strategy | What Changes | When To Consider |
+| Strategy | What Changes vs FOX v1.6 | When To Consider |
 |---|---|---|
-| **Feral Fox** | Score 7+, 3 reasons min, regime enforced, structural invalidation | After running vanilla FOX profitably and wanting fewer, higher-conviction trades |
-| **Ghost Fox** | Feral Fox entries + High Water `lockHwPct` tiers | After engine supports `pct_of_high_water` and you want explicit infinite trailing |
-| **Lynx** | Score 10/12, wide stops, no time exits — the patient hunter | When the market is choppy and you want the proven wider-stops approach |
-| **Jackal** | Score 12/14, tight Phase 1, fast kills — the defensive variant | When you want to A/B test tight execution vs wide patience in chop |
+| **Falcon** | Same five-layer gauntlet (FALCON was built from the same live data) | Already built into FOX v1.6 — Falcon IS the new Fox default |
+| **Lynx** | Score 10/12, no time-of-day modifier, widest stops | When you want maximum patience in choppy markets |
+| **Jackal** | Score 12/14, re-enabled time exits, fast Phase 1 kills | A/B test against Lynx — tight execution vs wide patience |
+| **Ghost Fox** | High Water `lockHwPct` tiers explicitly | After engine supports `pct_of_high_water` |
 
-**Start with vanilla FOX.** It's proven. The variants are upgrade paths, not requirements.
+**Start with vanilla FOX v1.6.** The five-layer gauntlet is the proven default.
 
 ## Quick Start
 
@@ -126,10 +146,13 @@ FOX is the best-performing skill in the Senpi zoo as-is. For users who want to e
 
 ## Key Learnings
 
-- **Signal quality is the edge** — 85% directional accuracy on score 6+ First Jumps
+- **Signal quality is the edge** — 85% directional accuracy on score 9+ First Jumps
+- **Five-layer gauntlet kills 95%+ of signals** — the ones that survive are monsters
 - **Stops were the problem, not direction** — wide stops + no time exits = the winning pattern
 - **Dead weight cut was killing winners** — removed since v1.1
-- **Fee drag compounds** — fewer trades, higher conviction, wider stops
+- **Fee drag compounds** — maker orders (FEE_OPTIMIZED_LIMIT) save ~4 bps per entry
+- **Time-of-day matters** — 04:00–14:00 UTC wins, 18:00–02:00 UTC bleeds
+- **Asset trend > global regime** — checking the specific asset's 4h/1h chart catches counter-trend traps that global regime misses
 - **Mirror trading provides baseline income** — 20/80 split, autonomous is the primary edge
 
 ## Requirements

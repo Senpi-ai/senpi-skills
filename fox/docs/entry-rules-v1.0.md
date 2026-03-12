@@ -1,4 +1,4 @@
-# FOX v1.0 Entry Rules
+# FOX v1.6 Entry Rules
 
 ## Entry Filters (ALL must pass)
 
