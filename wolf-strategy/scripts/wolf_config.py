@@ -516,13 +516,22 @@ def build_wolf_dsl_config(cfg):
     strategy_dsl = cfg.get("dsl", {})
     tiers = strategy_dsl.get("tiers") or (profile.get("tiers") if isinstance(profile, dict) else None) or DEFAULT_DSL_TIERS
 
-    # High Water: driven by dsl-profile.json lockMode; fallback to inferring from tiers (lockHwPct)
+    # High Water: driven by dsl-profile.json lockMode; fallback to inferring from tiers (lockHwPct).
+    # If profile says high water but strategy overrode with legacy lockPct-only tiers, use fixed_roe
+    # so we don't strip lockPct (which would produce 0% floor in the engine).
     use_high_water = False
     if isinstance(profile, dict) and profile.get("lockMode") is not None:
         use_high_water = profile.get("lockMode") == "pct_of_high_water"
     elif tiers and isinstance(tiers, list) and len(tiers) > 0:
         first = tiers[0]
         use_high_water = isinstance(first, dict) and "lockHwPct" in first
+    # Resolved tiers are legacy-only (lockPct, no lockHwPct): don't use high-water branch or we'd drop lockPct.
+    if use_high_water and tiers and isinstance(tiers, list):
+        any_legacy_only = any(
+            isinstance(t, dict) and "lockPct" in t and "lockHwPct" not in t for t in tiers
+        )
+        if any_legacy_only:
+            use_high_water = False
 
     if use_high_water:
         phase2_tiers = [
