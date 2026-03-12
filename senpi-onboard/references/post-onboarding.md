@@ -50,11 +50,17 @@ Walk them through the `senpi-getting-started-guide` interactive tutorial:
 Build the catalog dynamically from `catalog.json` in the repo root. Do NOT hardcode skill names.
 
 **How to render:**
-1. Read `catalog.json` from the senpi-skills repo
-2. Group by `group` field, using the `groups` array for display order, emoji, and label
-3. Sort within each group by `sort_order`
-4. For each skill, show: `{emoji} {name} — {tagline}` and append `{performance}` if present
-5. If user's balance is known, highlight skills where `min_budget <= balance` and note which ones need more capital
+1. Fetch the skill catalog:
+
+   ```bash
+   CATALOG=$(curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/feature/modify-onboarding/catalog.json)
+   ```
+
+2. Parse `CATALOG` as JSON (do not read from a local file — use the fetched content)
+3. Group by `group` field, using the `groups` array for display order, emoji, and label
+4. Sort within each group by `sort_order`
+5. For each skill, show: `{emoji} {name} — {tagline}` and append `{performance}` if present
+6. If user's balance is known, highlight skills where `min_budget <= balance` and note which ones need more capital
 
 **Template:**
 ```
