@@ -578,6 +578,35 @@ class TestDslCliConfig(unittest.TestCase):
         self.assertEqual(out.get("phase2TriggerTier"), 1)
         self.assertIn("tiers", out)
 
+    def test_resolve_config_preserves_legacy_tiers_when_lock_mode_absent(self):
+        """When lockMode is absent, existing tiers are preserved and lockMode is inferred (no overwrite with DEFAULT_TIERS_HIGH_WATER)."""
+        legacy_tiers = [
+            {"triggerPct": 10, "lockPct": 5},
+            {"triggerPct": 20, "lockPct": 14},
+        ]
+        base = {"phase1": {"enabled": True}, "tiers": legacy_tiers}
+        out = dsl_cli.resolve_config(base, None)
+        self.assertEqual(out.get("lockMode"), "fixed_roe", "lockMode should be inferred from lockPct tiers")
+        self.assertEqual(len(out["tiers"]), 2)
+        self.assertEqual(out["tiers"][0]["lockPct"], 5)
+        self.assertEqual(out["tiers"][1]["triggerPct"], 20)
+        # High-water tiers (lockHwPct) infer pct_of_high_water
+        hw_tiers = [{"triggerPct": 7, "lockHwPct": 40, "consecutiveBreachesRequired": 3}]
+        base_hw = {"phase1": {"enabled": True}, "tiers": hw_tiers}
+        out_hw = dsl_cli.resolve_config(base_hw, None)
+        self.assertEqual(out_hw.get("lockMode"), "pct_of_high_water")
+        self.assertEqual(len(out_hw["tiers"]), 1)
+        self.assertEqual(out_hw["tiers"][0]["lockHwPct"], 40)
+
+    def test_resolve_config_fixed_roe_gets_lock_pct_tiers(self):
+        """When lockMode is explicitly fixed_roe and no tiers are provided, default tiers use lockPct (not lockHwPct)."""
+        base = {"phase1": {"enabled": True}, "lockMode": "fixed_roe"}
+        out = dsl_cli.resolve_config(base, None)
+        self.assertEqual(out.get("lockMode"), "fixed_roe")
+        self.assertGreater(len(out["tiers"]), 0)
+        self.assertIn("lockPct", out["tiers"][0], "fixed_roe default tiers must have lockPct for engine")
+        self.assertNotIn("lockHwPct", out["tiers"][0])
+
     def test_calc_absolute_floor(self):
         # LONG: entry * (1 - retrace/lev)
         f = dsl_cli.calc_absolute_floor(100.0, 10.0, 0.03, "LONG")
@@ -599,6 +628,11 @@ class TestDslCliConfig(unittest.TestCase):
         self.assertEqual(trigger, 0)
         self.assertEqual(len(tiers), 1)
         self.assertEqual(tiers[0]["triggerPct"], 10)
+        # fixed_roe with no tiers must get lockPct default tiers (not lockHwPct)
+        config_fixed = {"phase1": {"enabled": True}, "phase2": {"enabled": True}, "lockMode": "fixed_roe"}
+        _, _, _, tiers_fixed = dsl_cli.config_to_phase1_phase2_tiers(config_fixed, 100.0, 10.0, "LONG")
+        self.assertGreater(len(tiers_fixed), 0)
+        self.assertIn("lockPct", tiers_fixed[0])
         with self.assertRaises(ValueError):
             dsl_cli.config_to_phase1_phase2_tiers(
                 {"phase1": {"enabled": False}, "phase2": {"enabled": False}},

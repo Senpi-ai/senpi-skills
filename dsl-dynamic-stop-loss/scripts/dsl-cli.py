@@ -290,6 +290,13 @@ DEFAULT_TIERS_HIGH_WATER = [
 ]
 
 
+def _default_tiers_for_lock_mode(lock_mode: str | None) -> list:
+    """Return default tiers for the given lockMode. fixed_roe uses lockPct tiers; else high-water."""
+    if lock_mode == "fixed_roe":
+        return list(DEFAULT_TIERS)
+    return list(DEFAULT_TIERS_HIGH_WATER)
+
+
 def normalize_asset_dex(asset: str, dex: str) -> tuple[str, str]:
     """Keep asset and dex in sync: if dex is xyz but asset has no xyz: prefix, prefix asset;
     if asset has xyz: prefix but dex is not xyz, set dex to xyz. Returns (normalized_asset, normalized_dex)."""
@@ -517,6 +524,17 @@ def load_config_source(source: str) -> tuple[dict | None, str | None]:
         return None, str(e)
 
 
+def _infer_lock_mode_from_tiers(tiers: list) -> str:
+    """Infer lockMode from tier contents (mirrors build_position_state). lockHwPct -> pct_of_high_water, else fixed_roe."""
+    if not isinstance(tiers, list):
+        return DEFAULT_LOCK_MODE
+    return (
+        "pct_of_high_water"
+        if any(isinstance(t, dict) and "lockHwPct" in t for t in tiers)
+        else "fixed_roe"
+    )
+
+
 def _ensure_phase_defaults(base: dict) -> None:
     """Apply defaults when config is missing; use high-water mode as default (no profile supplied)."""
     if "phase1" not in base:
@@ -525,28 +543,46 @@ def _ensure_phase_defaults(base: dict) -> None:
         base["phase1"]["enabled"] = True
     if "phase2TriggerTier" not in base:
         base["phase2TriggerTier"] = 0
-    # When lockMode is missing, use high-water default (tiers + lockMode + phase2TriggerRoe) so we never end up with ROE-based tiers by default.
+    # When lockMode is missing: infer from existing tiers if present (preserve legacy/custom tiers); else apply high-water defaults.
     if "lockMode" not in base:
-        base["lockMode"] = DEFAULT_LOCK_MODE
-        base["phase2TriggerRoe"] = DEFAULT_PHASE2_TRIGGER_ROE
-        base["tiers"] = list(DEFAULT_TIERS_HIGH_WATER)
-        if isinstance(base.get("phase2"), dict):
-            base["phase2"]["tiers"] = list(DEFAULT_TIERS_HIGH_WATER)
+        raw_tiers = base.get("tiers") or (
+            base.get("phase2", {}).get("tiers") if isinstance(base.get("phase2"), dict) else None
+        )
+        existing_tiers = list(raw_tiers) if isinstance(raw_tiers, list) and len(raw_tiers) > 0 else []
+        if existing_tiers:
+            base["lockMode"] = _infer_lock_mode_from_tiers(existing_tiers)
+            if "phase2TriggerRoe" not in base:
+                base["phase2TriggerRoe"] = DEFAULT_PHASE2_TRIGGER_ROE
+            # Preserve existing tiers: set base and phase2 from canonical list (do not overwrite with DEFAULT_TIERS_HIGH_WATER).
+            base["tiers"] = list(existing_tiers)
+            if isinstance(base.get("phase2"), dict):
+                base["phase2"]["tiers"] = list(existing_tiers)
+            else:
+                base.setdefault("phase2", {})["tiers"] = list(existing_tiers)
         else:
-            base.setdefault("phase2", {})["tiers"] = list(DEFAULT_TIERS_HIGH_WATER)
+            base["lockMode"] = DEFAULT_LOCK_MODE
+            base["phase2TriggerRoe"] = DEFAULT_PHASE2_TRIGGER_ROE
+            default_tiers = _default_tiers_for_lock_mode(DEFAULT_LOCK_MODE)
+            base["tiers"] = default_tiers
+            if isinstance(base.get("phase2"), dict):
+                base["phase2"]["tiers"] = default_tiers
+            else:
+                base.setdefault("phase2", {})["tiers"] = default_tiers
     elif "phase2TriggerRoe" not in base:
         base["phase2TriggerRoe"] = DEFAULT_PHASE2_TRIGGER_ROE
+    lock_mode = base.get("lockMode", DEFAULT_LOCK_MODE)
+    default_tiers = _default_tiers_for_lock_mode(lock_mode)
     if "phase2" not in base:
-        base["phase2"] = {"enabled": True, "retraceThreshold": 0.015, "consecutiveBreachesRequired": 1, "tiers": list(DEFAULT_TIERS_HIGH_WATER)}
+        base["phase2"] = {"enabled": True, "retraceThreshold": 0.015, "consecutiveBreachesRequired": 1, "tiers": default_tiers}
     elif isinstance(base.get("phase2"), dict):
         if "enabled" not in base["phase2"]:
             base["phase2"]["enabled"] = True
         if "tiers" not in base["phase2"] and "tiers" not in base:
-            base["phase2"]["tiers"] = list(DEFAULT_TIERS_HIGH_WATER)
+            base["phase2"]["tiers"] = default_tiers
     if "tiers" not in base and isinstance(base.get("phase2"), dict):
-        base["tiers"] = base["phase2"].get("tiers", list(DEFAULT_TIERS_HIGH_WATER))
+        base["tiers"] = base["phase2"].get("tiers", default_tiers)
     elif "tiers" not in base:
-        base["tiers"] = list(DEFAULT_TIERS_HIGH_WATER)
+        base["tiers"] = default_tiers
 
 
 def _merge_inline_config(base: dict, inline_config: dict | None) -> None:
@@ -603,8 +639,9 @@ def config_to_phase1_phase2_tiers(config: dict, entry_price: float, leverage: fl
     phase2_enabled = phase2.get("enabled", True)
     if not phase1_enabled and not phase2_enabled:
         raise ValueError("at least one of phase1.enabled or phase2.enabled must be true")
-    raw_tiers = config.get("tiers") or (phase2.get("tiers") if isinstance(phase2.get("tiers"), list) else None) or DEFAULT_TIERS_HIGH_WATER
-    tiers = list(raw_tiers) if isinstance(raw_tiers, list) else list(DEFAULT_TIERS_HIGH_WATER)
+    default_tiers = _default_tiers_for_lock_mode(config.get("lockMode"))
+    raw_tiers = config.get("tiers") or (phase2.get("tiers") if isinstance(phase2.get("tiers"), list) else None) or default_tiers
+    tiers = list(raw_tiers) if isinstance(raw_tiers, list) else default_tiers
     if phase2_enabled and not phase1_enabled and not tiers:
         raise ValueError("phase2 only requires non-empty tiers")
     if "absoluteFloor" not in phase1 or phase1["absoluteFloor"] is None:
