@@ -2,27 +2,43 @@
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "maxPositions": 4,
-  "leverage": {"default": 10, "min": 7, "max": 15},
+  "maxPositions": 3,
+  "leverage": {
+    "default": 10,
+    "min": 7,
+    "max": 15
+  },
   "entry": {
-    "minMomentum5mPct": 0.3,
-    "minMomentum15mPct": 0.15,
-    "minVolRatio": 1.3,
-    "minOiTrendPct": 2.0,
-    "minScore": 8,
-    "marginPctBase": 0.20,
+    "minMomentum5mPct": 0.5,
+    "minMomentum15mPct": 0.25,
+    "minVolRatio": 1.8,
+    "minOiTrendPct": 5.0,
+    "minScore": 10,
+    "marginPctBase": 0.25,
     "rsiMaxLong": 75,
     "rsiMinShort": 25,
     "smHardBlock": true,
     "dynamicSlots": {
       "enabled": true,
-      "baseMax": 4,
-      "absoluteMax": 8,
+      "baseMax": 3,
+      "absoluteMax": 6,
       "unlockThresholds": [
-        {"pnl": 75, "maxEntries": 5},
-        {"pnl": 150, "maxEntries": 6},
-        {"pnl": 250, "maxEntries": 7},
-        {"pnl": 400, "maxEntries": 8}
+        {
+          "pnl": 75,
+          "maxEntries": 5
+        },
+        {
+          "pnl": 150,
+          "maxEntries": 6
+        },
+        {
+          "pnl": 250,
+          "maxEntries": 7
+        },
+        {
+          "pnl": 400,
+          "maxEntries": 8
+        }
       ]
     }
   },
@@ -31,30 +47,103 @@
     "phase1HardTimeoutMin": 0,
     "phase1WeakPeakMin": 0,
     "phase1DeadWeightMin": 0,
-    "floorBase": 0.015,
+    "floorBase": 0.02,
     "tiers": [
-      {"triggerPct": 10,  "lockPct": 2,   "_note": "breakeven + fees"},
-      {"triggerPct": 20,  "lockPct": 10},
-      {"triggerPct": 35,  "lockPct": 22,  "retrace": 0.012},
-      {"triggerPct": 50,  "lockPct": 35,  "retrace": 0.010},
-      {"triggerPct": 75,  "lockPct": 55,  "retrace": 0.008},
-      {"triggerPct": 100, "lockPct": 75,  "retrace": 0.006},
-      {"triggerPct": 150, "lockPct": 115, "retrace": 0.005},
-      {"triggerPct": 200, "lockPct": 160, "retrace": 0.004}
+      {
+        "triggerPct": 7,
+        "lockPct": 35,
+        "breachesRequired": 3
+      },
+      {
+        "triggerPct": 12,
+        "lockPct": 55,
+        "breachesRequired": 2
+      },
+      {
+        "triggerPct": 20,
+        "lockPct": 75,
+        "breachesRequired": 1
+      },
+      {
+        "triggerPct": 30,
+        "lockPct": 85,
+        "breachesRequired": 1
+      }
     ],
     "stagnationTp": {
       "enabled": true,
-      "roeMin": 8,
-      "hwStaleMin": 30
-    }
+      "roeMin": 10,
+      "hwStaleMin": 45
+    },
+    "_spec": "https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md",
+    "lockMode": "pct_of_high_water",
+    "phase2TriggerRoe": 7,
+    "tiersLegacyFallback": [
+      {
+        "triggerPct": 5,
+        "lockPct": 2
+      },
+      {
+        "triggerPct": 10,
+        "lockPct": 5
+      },
+      {
+        "triggerPct": 20,
+        "lockPct": 14,
+        "retrace": 0.012
+      },
+      {
+        "triggerPct": 35,
+        "lockPct": 25,
+        "retrace": 0.01
+      },
+      {
+        "triggerPct": 50,
+        "lockPct": 40,
+        "retrace": 0.008
+      },
+      {
+        "triggerPct": 75,
+        "lockPct": 60,
+        "retrace": 0.006
+      },
+      {
+        "triggerPct": 100,
+        "lockPct": 82,
+        "retrace": 0.005
+      }
+    ],
+    "convictionTiers": [
+      {
+        "minScore": 10,
+        "absoluteFloorRoe": -20,
+        "hardTimeoutMin": 0,
+        "weakPeakCutMin": 0,
+        "deadWeightCutMin": 0
+      },
+      {
+        "minScore": 12,
+        "absoluteFloorRoe": -25,
+        "hardTimeoutMin": 0,
+        "weakPeakCutMin": 0,
+        "deadWeightCutMin": 0
+      },
+      {
+        "minScore": 14,
+        "absoluteFloorRoe": 0,
+        "hardTimeoutMin": 0,
+        "weakPeakCutMin": 0,
+        "deadWeightCutMin": 0
+      }
+    ]
   },
   "risk": {
-    "maxEntriesPerDay": 8,
+    "maxEntriesPerDay": 6,
     "maxDailyLossPct": 8,
     "maxDrawdownPct": 20,
     "maxSingleLossPct": 5,
     "maxConsecutiveLosses": 3,
-    "cooldownMinutes": 45
+    "cooldownMinutes": 60
   },
   "execution": {
     "entryOrderType": "FEE_OPTIMIZED_LIMIT",

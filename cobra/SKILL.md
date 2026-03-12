@@ -1,21 +1,21 @@
 ---
 name: cobra-strategy
 description: >-
-  COBRA — Triple convergence filter. Only enters when price momentum (5m + 15m + 1h all agreeing),
-  volume confirmation (real buying pressure), and open interest growth (new money entering) all
-  converge simultaneously. Most scans produce zero signals. When COBRA strikes, all three confirm.
-  Conviction-scaled sizing, dynamic slots, DSL High Water Mode (mandatory).
+  COBRA v2.0 — Triple convergence filter. Only enters when price momentum (5m + 15m + 1h all agreeing),
+  volume confirmation (1.8x+ above average), and open interest growth (new money entering) all
+  converge simultaneously. Thesis re-evaluation on held positions — if any of the three signals break,
+  exit. Score 10+. SM hard block. DSL High Water Mode (mandatory). 5-minute scan interval.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.0"
+  version: "2.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# COBRA — Triple Convergence
+# COBRA v2.0 — Triple Convergence
 
-Strikes only when price, volume, and new money all agree. Most scans produce nothing. That's the point.
+Strikes only when price, volume, and new money all agree. Exits when any of the three break.
 
 ## What COBRA Does
 
@@ -52,16 +52,26 @@ When creating DSL state files, you MUST include:
 
 ## Entry Requirements
 
-| Signal | Requirement |
-|---|---|
-| 5m momentum | Must agree with direction |
-| 15m momentum | ≥ 0.15% in direction |
-| 1h momentum | Must agree with direction |
-| Volume ratio (5m) | ≥ 1.3x average |
-| OI trend | Growing (not collapsing) |
-| SM direction | Hard block if opposing |
-| RSI | Not overbought (< 75 long) or oversold (> 25 short) |
-| Min score | 8 |
+| Signal | v1.0 | v2.0 | Why |
+|---|---|---|---|
+| 5m momentum | ≥ 0.3% | **≥ 0.5%** | Stronger confirmation required |
+| 15m momentum | ≥ 0.15% | **≥ 0.25%** | |
+| 1h momentum | Must agree | Must agree | Unchanged |
+| Volume ratio (5m) | ≥ 1.3x | **≥ 1.8x** | Volume must be decisively above average, not marginal |
+| OI trend | ≥ 2% | **≥ 5%** | New money must be clearly entering |
+| SM direction | Hard block if opposing | Hard block if opposing | Unchanged |
+| RSI | Not overbought/oversold | Not overbought/oversold | Unchanged |
+| Min score | 8 | **10** | Only strong multi-signal convergence |
+
+## Thesis Re-Evaluation (NEW in v2.0)
+
+Every scan, COBRA checks held positions FIRST. The position holds as long as all three convergence signals are intact:
+
+1. **Momentum convergence** — at least 2 of 3 timeframes (5m, 15m, 1h) must still agree with the direction. If 2+ flip against you, convergence is broken.
+2. **Volume alive** — volume ratio must be ≥ 0.5x average. If volume dies below 0.5x, conviction has left.
+3. **SM still aligned** — SM must not have flipped against the position.
+
+If ANY of these break → thesis exit. The convergence that justified entry no longer exists.
 
 ## DSL: Phase 1 + High Water Phase 2
 

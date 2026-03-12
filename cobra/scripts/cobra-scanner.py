@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
-"""COBRA Scanner — Volume-Momentum Convergence.
+# Senpi COBRA Scanner v2.0
+# Copyright 2026 Senpi (https://senpi.ai)
+# Licensed under MIT
+# Source: https://github.com/Senpi-ai/senpi-skills
+"""COBRA v2.0 — Volume-Momentum Convergence.
 
-The profit maximizer. Enters only when three independent signals converge:
+Enters only when three independent signals converge:
 1. Price momentum (multi-timeframe: 5m + 15m + 1h all agreeing)
-2. Volume confirmation (current bar volume significantly above average)
-3. Open interest confirmation (OI increasing = new money entering, not just repositioning)
+2. Volume confirmation (current bar volume 1.8x+ above average)
+3. Open interest confirmation (OI increasing = new money entering)
 
-Optional boosters: SM alignment, funding direction, recent liquidation cascade.
+v2.0 changes from v1.0:
+  - minScore: 8 → 10
+  - minVolRatio: 1.3 → 1.8
+  - minMomentum5mPct: 0.3 → 0.5
+  - SM: score penalty → hard block
+  - Added thesis re-evaluation for held positions
+  - Added DSL High Water Mode
+  - maxPositions: 4 → 3
+  - Dynamic slots base: 4 → 3
 
-The thesis: price moves confirmed by volume AND new money (OI) have the highest
-follow-through rate. Moves on low volume or declining OI are noise.
-
-Base 3-4 trades/day. Dynamic slots unlock more on profitable days.
-
-Runs every 3 minutes.
+Runs every 5 minutes (was 3 — reduced to cut marginal entries).
 """
 
 import sys
@@ -278,6 +285,59 @@ def analyze_asset(coin, entry_cfg):
 
 # ─── Main ─────────────────────────────────────────────────────
 
+# ─── Thesis Re-Evaluation (for held positions) ───────────────
+
+def evaluate_held_position(coin, direction, entry_cfg):
+    """Re-evaluate the triple convergence thesis. Returns (still_valid, reasons)."""
+    data = cfg.mcporter_call("market_get_asset_data", asset=coin,
+                              candle_intervals=["5m", "15m", "1h"],
+                              include_funding=False, include_order_book=False)
+    if not data or not data.get("success"):
+        return True, ["data_unavailable_hold"]
+
+    candles_5m = data.get("data", {}).get("candles", {}).get("5m", [])
+    candles_15m = data.get("data", {}).get("candles", {}).get("15m", [])
+    candles_1h = data.get("data", {}).get("candles", {}).get("1h", [])
+
+    if len(candles_5m) < 6 or len(candles_1h) < 6:
+        return True, ["insufficient_data_hold"]
+
+    invalidations = []
+
+    # CHECK 1: Multi-timeframe momentum broken?
+    mom_5m = price_momentum(candles_5m, 1)
+    mom_15m = price_momentum(candles_15m, 1) if len(candles_15m) >= 2 else 0
+    mom_1h = price_momentum(candles_1h, 1)
+
+    # If 2 of 3 timeframes disagree with our direction, convergence is broken
+    agree_count = 0
+    if direction == "LONG":
+        if mom_5m > 0: agree_count += 1
+        if mom_15m > 0: agree_count += 1
+        if mom_1h > 0: agree_count += 1
+    else:
+        if mom_5m < 0: agree_count += 1
+        if mom_15m < 0: agree_count += 1
+        if mom_1h < 0: agree_count += 1
+
+    if agree_count < 2:
+        invalidations.append(f"convergence_broken_{agree_count}of3_agree")
+
+    # CHECK 2: Volume dried up?
+    vol = volume_ratio(candles_5m)
+    if vol < 0.5:
+        invalidations.append(f"volume_died_{vol:.1f}x")
+
+    # CHECK 3: SM flipped against us?
+    sm_dir, _ = get_sm_direction(coin)
+    if sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
+        invalidations.append(f"sm_flipped_{sm_dir}")
+
+    return (len(invalidations) == 0), invalidations
+
+
+# ─── Main ─────────────────────────────────────────────────────
+
 def run():
     config = cfg.load_config()
     wallet, _ = cfg.get_wallet_and_strategy()
@@ -292,11 +352,28 @@ def run():
         return
 
     account_value, positions = cfg.get_positions(wallet)
-    max_positions = config.get("maxPositions", 4)
+    max_positions = config.get("maxPositions", 3)
     active_coins = {p["coin"] for p in positions}
-
-    # Dynamic slots: base 3, +1 per profitable tier
     entry_cfg = config.get("entry", {})
+
+    # CHECK 1: Re-evaluate thesis for held positions
+    for pos in positions:
+        still_valid, reasons = evaluate_held_position(pos["coin"], pos["direction"], entry_cfg)
+        if not still_valid:
+            cfg.output({
+                "success": True,
+                "action": "thesis_exit",
+                "exits": [{
+                    "coin": pos["coin"],
+                    "direction": pos["direction"],
+                    "reasons": reasons,
+                    "upnl": pos.get("upnl", 0),
+                }],
+                "note": "triple convergence broken — exit position",
+            })
+            return
+
+    # CHECK 2: Dynamic slots
     dynamic = entry_cfg.get("dynamicSlots", {})
     if dynamic.get("enabled", True):
         base_max = dynamic.get("baseMax", 3)
@@ -305,9 +382,9 @@ def run():
         for threshold in dynamic.get("unlockThresholds", []):
             if day_pnl >= threshold.get("pnl", 999999):
                 effective_max = threshold.get("maxEntries", effective_max)
-        max_entries = min(effective_max, dynamic.get("absoluteMax", 8))
+        max_entries = min(effective_max, dynamic.get("absoluteMax", 6))
     else:
-        max_entries = entry_cfg.get("maxEntriesPerDay", 6)
+        max_entries = entry_cfg.get("maxEntriesPerDay", 4)
 
     if tc.get("entries", 0) >= max_entries:
         cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"max entries ({max_entries})"})
@@ -317,10 +394,10 @@ def run():
         cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"max positions ({max_positions})"})
         return
 
-    # Scan candidates
+    # CHECK 3: Scan candidates
     candidates = get_candidates()
     signals = []
-    min_score = entry_cfg.get("minScore", 8)
+    min_score = entry_cfg.get("minScore", 10)
 
     for cand in candidates:
         if cand["coin"] in active_coins:
@@ -339,10 +416,10 @@ def run():
     best = signals[0]
 
     # Margin: conviction-scaled
-    base_margin_pct = entry_cfg.get("marginPctBase", 0.20)
-    if best["score"] >= 12:
-        margin_pct = base_margin_pct * 1.5  # High conviction = bigger position
-    elif best["score"] >= 10:
+    base_margin_pct = entry_cfg.get("marginPctBase", 0.25)
+    if best["score"] >= 14:
+        margin_pct = base_margin_pct * 1.5
+    elif best["score"] >= 12:
         margin_pct = base_margin_pct * 1.25
     else:
         margin_pct = base_margin_pct
