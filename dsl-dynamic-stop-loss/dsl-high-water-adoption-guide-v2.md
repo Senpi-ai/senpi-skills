@@ -8,7 +8,7 @@
 
 ## What Changed in DSL v5.3.1
 
-Prashant's update implements everything from the High Water spec:
+Update implements everything from the High Water spec:
 
 1. **Per-tick floor recalculation.** The tier floor now updates on EVERY tick using the latest high-water mark — not just when entering a new tier. A trade at +18% ROE within Tier 2 (lockHwPct 40) has its floor at 40% of +18%, not 40% of the +10% it was at when entering Tier 2.
 

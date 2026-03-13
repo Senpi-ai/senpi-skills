@@ -2,12 +2,12 @@
 name: dsl-dynamic-stop-loss
 description: >-
   Manages automated dynamic/trailing stop losses (DSL only) for leveraged perpetual positions on
-  Hyperliquid. Monitors price via cron, ratchets profit floors through configurable tiers, and
-  auto-closes positions on breach via mcporter. Supports LONG and SHORT, strategy-scoped state
-  isolation, and automatic cleanup on position or strategy close. ROE-based (return on margin)
-  tier triggers that automatically account for leverage. Use only when the user wants DSL; if
-  they say "stop loss" without specifying DSL vs normal, ask which they mean.
-license: Apache-2.0
+  Hyperliquid. Default mode: High Water (pct_of_high_water) — the trailing floor is a percentage
+  of the peak ROE, recalculated every tick, no ceiling. Also supports fixed ROE tiers for legacy
+  positions. Monitors price via cron, ratchets profit floors through configurable tiers, syncs
+  the stop loss to Hyperliquid via edit_position, and auto-closes positions on breach via mcporter.
+  Supports LONG and SHORT, strategy-scoped state isolation, and automatic cleanup.
+license: MIT
 compatibility: >-
   Requires python3, mcporter (configured with Senpi auth), and cron. Hyperliquid perp positions
   only (main dex and xyz dex).
@@ -23,11 +23,33 @@ metadata:
 
 **Scope — DSL only.** This skill handles **only** dynamic/trailing stop loss (DSL), not normal (static) stop loss. If the user says "stop loss" without clearly meaning DSL or static, **ask** (e.g. "Do you want a trailing stop that moves up with profit, or a fixed price stop loss?").
 
-**User-facing language.** Use plain terms ("trailing stop", "profit protection"). Do **not** mention state paths, cron IDs, script names, or `DSL_*` env unless the user asks for technical details. Rephrase errors in plain language (e.g. "Couldn't get a price this time; will retry shortly"). Do not offer "cleanup" as an add-on — it's already part of the flow.
+**User-facing language.** Use plain terms ("trailing stop", "profit protection"). Do **not** mention state paths, cron IDs, script names, or `DSL_*` env unless the user asks for technical details.
+
+## Default Mode: High Water
+
+**All new positions should use High Water Mode** (`lockMode: "pct_of_high_water"`). This is the recommended default for every Senpi skill. The trailing floor is a percentage of the peak ROE, recalculated on every tick, with no ceiling. A trade at +50% ROE with 85% lock has its floor at +42.5%. A trade at +200% ROE has its floor at +170%. The geometry is constant — the trade always keeps 85% of its best moment.
+
+See [dsl-high-water-spec 1.0.md](dsl-high-water-spec%201.0.md) for the full spec and [dsl-high-water-adoption-guide.md](dsl-high-water-adoption-guide.md) for per-skill tier configurations.
+
+**When creating DSL state files, ALWAYS include:**
+```json
+{
+  "lockMode": "pct_of_high_water",
+  "tiers": [
+    {"triggerPct": 7,  "lockHwPct": 40, "consecutiveBreachesRequired": 3},
+    {"triggerPct": 12, "lockHwPct": 55, "consecutiveBreachesRequired": 2},
+    {"triggerPct": 15, "lockHwPct": 75, "consecutiveBreachesRequired": 2},
+    {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1}
+  ]
+}
+```
+Use the per-skill tiers from `dsl-high-water-adoption-guide.md` — different skills have different tier widths. The above is the standard momentum default (FOX, HAWK, DIRE WOLF).
+
+**Legacy mode** (`lockMode: "fixed_roe"` or omitted) still works for existing positions. `lockPct` tiers lock a fixed fraction of the entry→HW price range. No per-tick recalculation — floor only updates on tier changes.
 
 ---
 
-Trailing stop for Hyperliquid perps (main + xyz). Cron runs `dsl-v5.py` every 3–5 min; the script syncs the current floor to Hyperliquid via Senpi `edit_position` so HL can execute the SL when price hits. Phase 1: wide retrace (3% ROE), 3 consecutive breaches; Phase 2: tiered floors that ratchet up with profit, 1 breach to close. ROE-based tiers; direction (LONG/SHORT) is in state — see [references/tier-examples.md](references/tier-examples.md) and [references/state-schema.md](references/state-schema.md).
+Trailing stop for Hyperliquid perps (main + xyz). **Default: High Water Mode** — floor trails the peak ROE as a percentage, recalculated every tick, no ceiling. Cron runs `dsl-v5.py` every 3–5 min; the script syncs the current floor to Hyperliquid via Senpi `edit_position` so HL can execute the SL even if the cron process goes down. Phase 1: wide retrace with absolute floor cap. Phase 2: tiered High Water locks that ratchet up with profit and never come back down. See [references/tier-examples.md](references/tier-examples.md) and [references/state-schema.md](references/state-schema.md).
 
 **Files:** `scripts/dsl-v5.py` (monitor/close, ndjson output), `scripts/dsl-cleanup.py` (strategy dir cleanup), `scripts/dsl-cli.py` (lifecycle — use for all setup). Config: `dsl-profile.json` (this skill’s default). State: `{DSL_STATE_DIR}/{strategyId}/{asset}.json`; strategy config: [references/strategy-schema.md](references/strategy-schema.md). Cleanup: [references/cleanup.md](references/cleanup.md). Output schema: [references/output-schema.md](references/output-schema.md).
 
