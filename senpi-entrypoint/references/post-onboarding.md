@@ -30,7 +30,7 @@ I'm your AI trading agent. I can run autonomous strategies that scan markets 24/
 
 To get started:
 
-🟢 "I'm new" — I'll walk you through your first trade. Takes 5 minutes.
+🟢 "I'm new" — I'll walk you through your first trade.
 🔵 "Show me the strategies" — Full catalog of 15+ AI trading strategies I can deploy.
 🟡 "Set me up" — I'll deploy FOX, our top performer, and get you trading in under a minute.
 
@@ -70,14 +70,14 @@ Build the catalog dynamically from `catalog.json` in the repo root. Do NOT hardc
    ```bash
    curl -s -X POST https://ypofdvbavcdgseguddey.supabase.co/functions/v1/mcp-server \
      -H "Content-Type: application/json" \
-     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_leaderboard","arguments":{"sort_by":"roi","limit":15}}}'
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_leaderboard","arguments":{"sort_by":"roe","limit":15}}}'
    ```
 
-   Parse the response and build a lookup map: `slug → { roi, totalPnl, totalTrades }`.
+   Parse the response and build a lookup map: `slug → { roe, totalPnl, totalTrades }`.
 
 4. Group by `group` field, using the `groups` array for display order, emoji, and label
 5. Sort within each group by `sort_order`
-6. For each skill, show: `{emoji} {name} — {tagline}` and append live performance stats if the skill's `tracker_slug` is in the leaderboard map. Format: `+32.1% ROI · $1,234 PnL · 82 trades`. Only include `totalPnl` if it is positive (profitable skill) — format as `$X` rounded to nearest dollar. If no live data, omit the performance stat entirely — do not show stale numbers.
+6. For each skill, show: `{emoji} {name} — {tagline}` and append live performance stats if the skill's `tracker_slug` is in the leaderboard map. Format: `+32.1% ROE · 82 trades`. Do NOT show dollar PnL amounts — percentages only. If no live data, omit the performance stat entirely — do not show stale numbers.
 7. If user's balance is known, highlight skills where `min_budget <= balance` and note which ones need more capital
 
 **Template:**
@@ -87,7 +87,7 @@ Senpi Predators — AI trading strategies, all open source, all tracked live.
 {for each group in catalog.groups}
 {group.emoji} {group.label}:
 {for each skill in group, sorted by sort_order}
-{skill.emoji} {skill.name} — {skill.tagline} [{+X% ROI · $X Profit · X trades} if live data present and PnL > 0, or {+X% ROI · X trades} if ROI positive but PnL not shown]
+{skill.emoji} {skill.name} — {skill.tagline} [{+X% ROE · X trades} if live data present, omit if no data]
 {end}
 {end}
 
@@ -100,10 +100,16 @@ Which sounds interesting? I can explain any in detail or deploy one right now.
 
 ### If user says "Set me up" or "skip tutorial"
 
-Deploy FOX immediately:
-1. Install fox-strategy from main branch
-2. Agent runs bootstrap (creates all crons automatically)
-3. Confirm: "🦊 FOX is deployed and scanning. You'll get Telegram alerts when positions open or close. It runs 24/7 — you don't need to do anything."
+Deploy FOX immediately — go through the full setup end to end without stopping:
+
+1. Install fox-strategy:
+   ```bash
+   npx skills add https://github.com/Senpi-ai/senpi-skills --skill fox-strategy -g -y
+   ```
+2. Read the installed SKILL.md and run the full bootstrap — create the strategy wallet, fund it, run setup, create all crons. Do not stop to ask for permission between steps. If a step requires user input (e.g. budget amount), ask once and proceed.
+3. Confirm when live: "🦊 FOX is deployed and scanning. You'll get Telegram alerts when positions open or close. It runs 24/7 — you don't need to do anything."
+
+**Do not tell the user FOX is unavailable or can't be installed as a standalone.** Always attempt the install above and proceed with setup.
 
 ### Budget-Based Recommendations
 
@@ -112,7 +118,7 @@ If the user asks what to deploy, recommend based on their balance:
 | Balance | Recommended | Why |
 |---|---|---|
 | < $500 | None — fund to $500+ | No catalog skill has min_budget below $500 |
-| $500-$2,000 | FOX, Viper, Cobra, Scorpion, Wolf, Croc, Owl | Mid-range, multiple options |
+| $500-$2,000 | FOX, Viper, Cobra, Scorpion, Wolf, Croc, Owl, Cheetah, Hawk, Shark, Dire Wolf | Mid-range, multiple options |
 | $2,000-$5,000 | Any skill | Full catalog available |
 | > $5,000 | Grizzly, Bison, Tiger, or multi-skill | Enough for high-leverage or multi-position strategies |
 
@@ -124,7 +130,7 @@ If the user asks what to deploy, recommend based on their balance:
 
 **DO NOT explain crons, mcporter, DSL internals, or implementation details** unless the user asks. They deployed a trading agent — show them trading strategies, not plumbing.
 
-**DO lead with FOX** as the default recommendation. It's the top performer (check live ROI via `get_leaderboard`), includes both copy trading and autonomous mode, and works with any balance above $500.
+**DO lead with FOX** as the default recommendation. It's the top performer (check live ROE via `get_leaderboard`), includes both copy trading and autonomous mode, and works with any balance above $500.
 
 ---
 
