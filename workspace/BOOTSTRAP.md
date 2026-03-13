@@ -54,7 +54,7 @@ Then respond with: `NO_REPLY`
 - Read the file directly. Use the `state` field: `READY` → skip onboarding; anything else (`FRESH`, `ONBOARDING`, `UNFUNDED`, `AWAITING_FIRST_TRADE`, `FAILED`) → proceed to step 4.
 - If the file or directory does not exist, treat state as **not READY** (do not surface an error).
 - **Do not write to or modify this file.** You only read it. State transitions are managed elsewhere.
-- **No text output.**
+- **No text output. Do NOT tell the user the state value, that the file is missing, that state is empty, or anything about the internal state machine. This is invisible internal routing.**
 
 ## Step 4 — If state is not READY
 
