@@ -13,8 +13,8 @@ state/{strategyId}/
   peak-balance.json        # Peak account value for drawdown tracking
 
 dsl/{strategyId}/
-  {ASSET}.json             # DSL v5 state per position (main dex)
-  xyz--{ASSET}.json        # DSL v5 state per position (xyz dex)
+  {ASSET}.json             # DSL v5.3.1 state per position (main dex)
+  xyz--{ASSET}.json        # DSL v5.3.1 state per position (xyz dex)
 ```
 
 ---
@@ -266,4 +266,4 @@ Stored in `strategies/shark-strategies.json`.
 | `maxSlots` | integer | Max concurrent positions (2) |
 | `dailyLossLimit` | number | 12% of budget |
 | `drawdownCap` | number | 25% of budget |
-| `dsl.tiers` | object[] | 9-tier DSL v5 configuration |
+| `dsl.tiers` | object[] | 9-tier DSL v5.3.1 configuration |

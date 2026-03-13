@@ -1,4 +1,4 @@
-# DSL v5 Cleanup
+# DSL v5.3.1 Cleanup
 
 Two-level cleanup: position close (Level 1) and strategy close (Level 2). State files are **archived** (renamed) on position close; the strategy directory is **deleted** only when the agent runs Level 2 cleanup.
 

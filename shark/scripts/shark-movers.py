@@ -2,7 +2,7 @@
 """shark-movers.py — Emerging Movers integration for SHARK (every 3 min, main session).
 
 Runs the Emerging Movers scanner and acts on IMMEDIATE signals by opening
-positions through SHARK's pipeline. Uses SHARK's risk guardian, DSL v5,
+positions through SHARK's pipeline. Uses SHARK's risk guardian, DSL v5.3.1,
 and all existing safety rails.
 
 Entry criteria (stricter than standalone Emerging Movers):
@@ -16,7 +16,7 @@ Entry criteria (stricter than standalone Emerging Movers):
 - Correlation guard (max 1 BTC-correlated)
 
 Position sizing uses SHARK's config (18% margin, 8x leverage).
-DSL v5 state file created automatically.
+DSL v5.3.1 state file created automatically.
 """
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ def filter_signal(alert: dict, active_positions: dict, strat: dict) -> tuple[boo
 def create_dsl_state(strat: dict, asset: str, direction: str,
                      entry_price: float, leverage: int, margin: float,
                      wallet: str) -> None:
-    """Create DSL v5 state file for a movers-sourced position."""
+    """Create DSL v5.3.1 state file for a movers-sourced position."""
     strategy_id = strat.get("strategyId")
     dsl_dir = cfg.dsl_state_path(strategy_id)
 

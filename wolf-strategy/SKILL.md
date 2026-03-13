@@ -5,7 +5,7 @@ description: >-
   Manages multiple strategies simultaneously, each with independent wallets, budgets, slots,
   and DSL configs. 5+N cron architecture: 5 shared wolf crons (Emerging Movers 3min, SM Flip 5min,
   Watchdog 5min, Risk Guardian 5min, Health Check 10min) plus one DSL v5.2 cron per strategy
-  (native Hyperliquid SL sync via dsl-dynamic-stop-loss skill v5.3). Same asset can be traded in
+  (native Hyperliquid SL sync via dsl-dynamic-stop-loss skill v5.3.1). Same asset can be traded in
   different strategies simultaneously. Enter early on first jumps, not at confirmed peaks.
   Dynamic risk-based leverage per strategy.
   Requires Senpi MCP connection, python3, mcporter CLI, OpenClaw cron system, and
@@ -23,7 +23,7 @@ The WOLF hunts for its human. It scans, enters, exits, and rotates positions aut
 
 **v6.1.1: Risk Guardian & strategy lock.** 6th cron (5min, Budget tier) enforcing account-level guard rails — daily loss halt, max entries per day, consecutive loss cooldown. Strategy lock for concurrency protection. Gate check in `open-position.py` refuses new entries when gate != OPEN.
 
-**v6.3: DSL v5.3 High Water.** Default DSL profile and strategy config use High Water Mode (`lockMode: pct_of_high_water`) with `lockHwPct` tiers and per-tier `consecutiveBreachesRequired`. One DSL cron per strategy runs `dsl-v5.py` (v5.3); state files in `{workspace}/dsl/{strategyId_UUID}/`. Migration script: `wolf-migrate-dsl.py`.
+**v6.3: DSL v5.3.1 High Water.** Default DSL profile and strategy config use High Water Mode (`lockMode: pct_of_high_water`) with `lockHwPct` tiers and per-tier `consecutiveBreachesRequired`. One DSL cron per strategy runs `dsl-v5.py` (v5.3.1); state files in `{workspace}/dsl/{strategyId_UUID}/`. Migration script: `wolf-migrate-dsl.py`.
 
 **v6.2: DSL v5.2 integration.** Replaced internal `dsl-combined.py` with the `dsl-dynamic-stop-loss` skill. Native Hyperliquid stop-loss sync via `dsl-v5.py`.
 

@@ -490,7 +490,7 @@ def run():
 def _create_dsl_state(strat: dict, asset: str, direction: str,
                        entry_price: float, leverage: int, margin: float,
                        wallet: str) -> None:
-    """Create DSL v5 state file for the new position."""
+    """Create DSL v5.3.1 state file for the new position."""
     strategy_id = strat.get("strategyId")
     dsl_dir = cfg.dsl_state_path(strategy_id)
 

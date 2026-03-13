@@ -27,7 +27,7 @@ This means BISON can hold a position for 48 hours through multiple 5% pullbacks 
 | Script | Freq | Purpose |
 |--------|------|---------|
 | `bison-scanner.py` | 5 min | Thesis builder (new entries) + thesis evaluator (held positions) |
-| DSL v5 (shared) | 3 min | Wide trailing stops — safety net, not primary exit |
+| DSL v5.3.1 (shared) | 3 min | Wide trailing stops — safety net, not primary exit |
 
 ## Entry Requirements (all must pass)
 

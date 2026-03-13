@@ -1,4 +1,4 @@
-# DSL v5 Cleanup
+# DSL v5.3.1 Cleanup
 
 Two-level cleanup: position close (Level 1) and strategy close (Level 2). No archiving — closed state and strategy directories are **deleted**.
 

@@ -43,7 +43,7 @@ Winners move FAST. XRP Tier 3 in 19 min, XMR Tier 2 in 37 min, SNDK +19% ROE in 
 ## Known Bugs & Footguns
 
 1. **`dryRun: true` actually executes** — NEVER use dryRun.
-2. **DSL transient API failures**: Clearinghouse queries can fail transiently. DSL v5 retries. Don't panic on 1 failure.
+2. **DSL transient API failures**: Clearinghouse queries can fail transiently. DSL v5.3.1 retries. Don't panic on 1 failure.
 3. **Health check can't see XYZ positions**: `fox-health-check.py` doesn't query `dex=xyz`, causing false ORPHAN_DSL warnings.
 4. **Multiple cron jobs can race**: Always deactivate DSL + disable cron when ANY job closes a position.
 5. **Max leverage varies per asset**: Check `max-leverage.json`. E.g., WLFI is only 5x max.

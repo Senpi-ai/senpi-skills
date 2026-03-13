@@ -70,7 +70,7 @@ fox/
 │   ├── fox-strategy/          ← Entry rules, cron templates, references
 │   │   ├── SKILL.md
 │   │   └── references/
-│   └── dsl-dynamic-stop-loss/ ← DSL v5 trailing stop engine
+│   └── dsl-dynamic-stop-loss/ ← DSL v5.3.1 trailing stop engine
 │       ├── SKILL.md
 │       ├── scripts/dsl-v5.py
 │       └── references/
@@ -88,7 +88,7 @@ fox/
 | # | Cron | Interval | Purpose |
 |---|---|---|---|
 | 1 | Emerging Movers | 3 min | Primary FJ scanner — entry signal |
-| 2 | DSL v5 | 3 min | Trailing stops + HL SL sync |
+| 2 | DSL v5.3.1 | 3 min | Trailing stops + HL SL sync |
 | 3 | SM Flip Detector | 5 min | Instant cut on SM conviction collapse |
 | 4 | Watchdog | 5 min | Margin buffer + liquidation distance |
 | 5 | Portfolio Summary | 15 min | P&L tracking |

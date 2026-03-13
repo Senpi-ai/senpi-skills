@@ -86,7 +86,7 @@ A trade at +500% ROE has its stop at +425% ROE. The 85% geometry holds forever.
 | Cron | Interval | Session | Purpose |
 |---|---|---|---|
 | Scanner | 5 min | isolated | Thesis re-evaluation + new entry scan |
-| DSL v5 | 3 min | isolated | High Water Mode trailing stops |
+| DSL v5.3.1 | 3 min | isolated | High Water Mode trailing stops |
 
 Both crons MUST be isolated sessions with `agentTurn` payload. Use `NO_REPLY` for idle cycles.
 
@@ -132,4 +132,4 @@ On EVERY session, check if `config/bootstrap-complete.json` exists. If not:
 | `scripts/bison-scanner.py` | Thesis builder + thesis re-evaluator |
 | `scripts/bison_config.py` | Shared config, MCP helpers, state I/O |
 | `config/bison-config.json` | All configurable variables with DSL High Water tiers |
-| DSL v5 (shared skill) | Trailing stop engine — MUST be configured with High Water Mode |
+| DSL v5.3.1 (shared skill) | Trailing stop engine — MUST be configured with High Water Mode |

@@ -76,9 +76,9 @@
 }
 ```
 
-## DSL v5 State File (`dsl/{strategyId}/{ASSET}.json`)
+## DSL v5.3.1 State File (`dsl/{strategyId}/{ASSET}.json`)
 
-Created when a position opens. See DSL v5 skill for full details.
+Created when a position opens. See DSL v5.3.1 skill for full details.
 
 ```json
 {
@@ -173,4 +173,4 @@ Created when a position opens. See DSL v5 skill for full details.
 ### Percentage Convention
 All percentage fields use **whole numbers**: `triggerPct: 5` means 5%, `lockPct: 2` means 2%. Code divides by 100 internally. Never use decimals (0.05).
 
-Exception: `retraceThreshold` in phase1/phase2 uses decimals (0.02 = 2% ROE in v0.1, was 0.03 in v7) for backward compatibility with DSL v5.
+Exception: `retraceThreshold` in phase1/phase2 uses decimals (0.02 = 2% ROE in v0.1, was 0.03 in v7) for backward compatibility with DSL v5.3.1.

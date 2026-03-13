@@ -24,7 +24,7 @@ Entry (2min)           →  Cascade triggers: OI drop + price break + SM aligned
 Risk Guardian (5min)   →  Daily loss halt, drawdown, cascade invalidation
                           OI increase after entry = immediate cut
 
-DSL v5 (3min)          →  9-tier trailing stops (shared skill)
+DSL v5.3.1 (3min)          →  9-tier trailing stops (shared skill)
 
 Health (10min)         →  Portfolio reporting, orphan DSL detection
 ```
@@ -66,6 +66,6 @@ Primary entry engine uses smart money leaderboard alignment:
 
 - OpenClaw (with exec, cron, Telegram)
 - Senpi MCP server (configured via mcporter)
-- DSL v5 skill (dsl-dynamic-stop-loss)
+- DSL v5.3.1 skill (dsl-dynamic-stop-loss)
 - Python 3
 - `mcporter` CLI

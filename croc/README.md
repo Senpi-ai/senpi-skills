@@ -7,7 +7,7 @@ The calmest predator in the zoo. Scans all assets for extreme funding rates, ent
 | Script | Freq | Purpose |
 |--------|------|---------|
 | `croc-scanner.py` | 15 min | Scan funding rates, score extremity, enter against funding |
-| DSL v5 (shared) | 3 min | Trailing stops |
+| DSL v5.3.1 (shared) | 3 min | Trailing stops |
 
 ## Edge
 
@@ -16,5 +16,5 @@ Funding payments are guaranteed income. Extreme funding historically reverts wit
 ## Setup
 
 1. Set `CROC_WALLET` and `CROC_STRATEGY_ID` env vars (or fill `croc-config.json`)
-2. Create cron: scanner every 15 min + DSL v5 every 3 min
-3. Uses shared DSL v5 skill for trailing stops
+2. Create cron: scanner every 15 min + DSL v5.3.1 every 3 min
+3. Uses shared DSL v5.3.1 skill for trailing stops

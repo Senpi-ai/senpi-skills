@@ -1,4 +1,4 @@
-# Dynamic Stop Loss (DSL) v5.3
+# Dynamic Stop Loss (DSL) v5.3.1
 
 Two-phase trailing stop for Hyperliquid perps. Protects profits, limits losses, and syncs the stop loss directly to the exchange so positions are protected even if the cron process goes down.
 
@@ -12,7 +12,7 @@ When you open a leveraged position, DSL watches it:
 
 **Exchange SL sync.** DSL doesn't just track the floor internally — it sets the actual stop loss on Hyperliquid via `edit_position`. If the cron process crashes, HL still executes the SL at the last synced price. Phase 1 uses MARKET orders (fast exit on loss). Phase 2 uses LIMIT orders (fee-optimized exit on profit).
 
-## What's New in v5.3
+## What's New in v5.3.1
 
 ### High Water Mode (`lockMode: "pct_of_high_water"`)
 Trailing floor can be a **percentage of high-water ROE** instead of a fixed ROE lock. Set `lockMode: "pct_of_high_water"` and use `lockHwPct` on tiers (e.g. 85% of peak ROE). The floor trails the peak every tick with no ceiling — see [dsl-high-water-spec 1.0.md](dsl-high-water-spec%201.0.md) and [dsl-high-water-implementation-spec.md](dsl-high-water-implementation-spec.md).
@@ -61,6 +61,7 @@ Every tick, DSL cross-references local state files against the live clearinghous
 
 | Version | Date | Changes |
 |---------|------|---------|
+| v5.3.1 | 2026-03-13 | High Water: infinite trail (point 4), SL sync every tick when floor moves (point 6); spec checklist tests |
 | v5.3 | 2026-03-12 | High Water Mode: `lockMode: "pct_of_high_water"`, `lockHwPct` per tier; floor as % of peak ROE |
 | v5.2 | 2026-03-01 | CLI lifecycle manager (add/update/pause/resume/delete/status/count/validate), multi-skill integration, SL order verification, improved reconciliation (4 archive types), configurable `cronIntervalMinutes`, config validation |
 | v5.0 | — | Two-phase trailing stop, exchange SL sync, Phase 1/2 tiers |

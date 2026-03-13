@@ -13,7 +13,7 @@ Crons are staggered to avoid API rate limit collisions:
 | `:02` | Risk Guardian | every 5 min (offset +2) |
 | `*/2` | Proximity Scanner | every 2 min |
 | `*/2` | Cascade Entry | every 2 min |
-| `*/3` | DSL v5 | every 3 min |
+| `*/3` | DSL v5.3.1 | every 3 min |
 | `*/10` | Health Check | every 10 min |
 
 ## 1. OI Tracker (isolated, every 5 min)
@@ -89,9 +89,9 @@ Crons are staggered to avoid API rate limit collisions:
 }
 ```
 
-## 6. DSL v5 Trailing Stops (isolated, every 3 min)
+## 6. DSL v5.3.1 Trailing Stops (isolated, every 3 min)
 
-Uses the **shared** DSL v5 skill. One cron per strategy.
+Uses the **shared** DSL v5.3.1 skill. One cron per strategy.
 
 ```json
 {

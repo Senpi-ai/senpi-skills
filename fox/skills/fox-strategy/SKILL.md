@@ -323,7 +323,7 @@ Runs every 15min. v6 scanner with BTC macro context, hourly trend classification
 | # | Job | Interval | Session | Script | Purpose |
 |---|-----|----------|---------|--------|---------|
 | 1 | Emerging Movers | **3min** | **main** | `scripts/fox-emerging-movers.py` | Hunt FIRST_JUMP signals with v7 scoring |
-| 2 | DSL v5 | **3min** | isolated | `dsl-v5.py` (per-strategy cron) | Trailing stop exits, HL SL sync |
+| 2 | DSL v5.3.1 | **3min** | isolated | `dsl-v5.py` (per-strategy cron) | Trailing stop exits, HL SL sync |
 | 3 | SM Flip Detector | 5min | isolated | `scripts/fox-sm-flip-check.py` | Conviction collapse cuts |
 | 4 | Watchdog | 5min | isolated | `scripts/fox-monitor.py` | Per-strategy margin buffer, liq distances |
 | 5 | Portfolio Update | 15min | isolated | (agent-driven) | Per-strategy PnL reporting |
@@ -340,7 +340,7 @@ See [references/cron-setup.md](references/cron-setup.md) for detailed cron confi
 | Tier | Role | Crons | Example Model IDs |
 |------|------|-------|--------------------|
 | **Primary** | Complex judgment, multi-strategy routing | Emerging Movers, Opportunity Scanner | Your configured model (runs on main session) |
-| **Mid** | Structured tasks, script output parsing | DSL v5, Portfolio Update, Health Check, Market Regime | model configured in OpenClaw |
+| **Mid** | Structured tasks, script output parsing | DSL v5.3.1, Portfolio Update, Health Check, Market Regime | model configured in OpenClaw |
 | **Budget** | Simple threshold checks, binary decisions | SM Flip, Watchdog | model configured in OpenClaw |
 
 **Do NOT create crons yet** — the main agent will set these up when activating the strategy.
@@ -423,8 +423,8 @@ The DSL cron mandate reads `score` from the DSL state file and applies the match
 
 ## Exit Rules
 
-### 1. DSL v5 Mechanical Exit (Trailing Stops)
-All trailing stops handled automatically by DSL v5 per-strategy crons. SL synced to Hyperliquid for instant execution.
+### 1. DSL v5.3.1 Mechanical Exit (Trailing Stops)
+All trailing stops handled automatically by DSL v5.3.1 per-strategy crons. SL synced to Hyperliquid for instant execution.
 
 ### 2. SM Conviction Collapse
 Conv drops to 0 or 4→1 with mass trader exodus → instant cut.
@@ -437,15 +437,15 @@ Conviction 4+ in the OPPOSITE direction with 100+ traders → cut immediately.
 
 ### 5. Race Condition Prevention
 When ANY job closes a position → immediately:
-1. Set DSL state `active: false` in `dsl/{strategyId}/{ASSET}.json` (or DSL v5 auto-reconciles via clearinghouse)
+1. Set DSL state `active: false` in `dsl/{strategyId}/{ASSET}.json` (or DSL v5.3.1 auto-reconciles via clearinghouse)
 2. Alert user
 3. Evaluate: empty slot in that strategy for next signal?
 
 ---
 
-## DSL v5 — Trailing Stop System
+## DSL v5.3.1 — Trailing Stop System
 
-**Uses the official DSL v5 skill at `/data/workspace/skills/dsl-dynamic-stop-loss/`.** See that skill's SKILL.md for full details.
+**Uses the official DSL v5.3.1 skill at `/data/workspace/skills/dsl-dynamic-stop-loss/`.** See that skill's SKILL.md for full details.
 
 ### Phase 1 (Pre-Tier 1): Absolute floor (v0.1 tightened)
 - LONG floor = `entry × (1 - 0.02/leverage)` — caps max loss at **~20% ROE** (v0.1: was 0.03/~30%)
@@ -470,7 +470,7 @@ When ANY job closes a position → immediately:
 
 Phase 2: 1.5% retrace threshold, 2 consecutive breaches required.
 
-### DSL v5 State Creation (on position entry)
+### DSL v5.3.1 State Creation (on position entry)
 Create directory `dsl/{strategyId}/` if needed. Write state file with ALL required fields:
 ```json
 {
@@ -525,7 +525,7 @@ Create directory `dsl/{strategyId}/` if needed. Write state file with ALL requir
 
 **Filename:** Main dex: `{ASSET}.json`. XYZ dex: `xyz--SYMBOL.json` (colon → double-dash).
 
-### DSL v5 Cron Management
+### DSL v5.3.1 Cron Management
 One cron per strategy. Created when first position opens. Removed on `strategy_inactive`.
 ```
 DSL_STATE_DIR=/data/workspace/dsl DSL_STRATEGY_ID={strategyId} PYTHONUNBUFFERED=1 python3 /data/workspace/skills/dsl-dynamic-stop-loss/scripts/dsl-v5.py
@@ -585,16 +585,16 @@ When slots are full in a strategy and a new FIRST_JUMP or IMMEDIATE fires:
 ### Opening
 1. Signal fires → validate checklist → route to best-fit strategy
 2. `create_position` on that strategy's wallet (use `leverageType: "ISOLATED"` for XYZ assets)
-3. **Create DSL v5 state file** in `dsl/{strategyId}/{ASSET}.json`
-4. **Ensure DSL v5 cron exists** for this strategy (create if first position)
+3. **Create DSL v5.3.1 state file** in `dsl/{strategyId}/{ASSET}.json`
+4. **Ensure DSL v5.3.1 cron exists** for this strategy (create if first position)
 5. Update `fox-trade-counter.json`
 6. Alert user
 
 ### Closing
-1. Close via `close_position` (or DSL v5 auto-closes on breach/SL hit)
-2. DSL v5 script auto-deletes state file and reconciles via clearinghouse
+1. Close via `close_position` (or DSL v5.3.1 auto-closes on breach/SL hit)
+2. DSL v5.3.1 script auto-deletes state file and reconciles via clearinghouse
 3. Alert user with strategy name for context
-4. On `strategy_inactive` output → remove the DSL v5 cron for that strategy
+4. On `strategy_inactive` output → remove the DSL v5.3.1 cron for that strategy
 5. Evaluate: empty slot in that strategy for next signal?
 6. **Re-entry evaluation (v7.2):** If closed from Phase 1, log exit details (asset, direction, exit price, ROE, exit time) for re-entry window tracking
 
@@ -646,15 +646,15 @@ All MCP calls go through `fox_config.mcporter_call()` — no direct subprocess i
 | Create strategy wallet | `strategy_create_custom_strategy` | Setup |
 | Fund wallet | `strategy_top_up` | Setup |
 | Open position | `create_position` | Emerging Movers, Opp Scanner |
-| Close position | `close_position` | DSL v5, SM Flip, Watchdog |
-| Sync stop loss to HL | `edit_position` | DSL v5 |
+| Close position | `close_position` | DSL v5.3.1, SM Flip, Watchdog |
+| Sync stop loss to HL | `edit_position` | DSL v5.3.1 |
 | Check positions/PnL | `strategy_get_clearinghouse_state` | Watchdog, Portfolio, Health Check |
-| Check strategy status | `strategy_get` | DSL v5 |
-| Check open orders | `strategy_get_open_orders` | DSL v5 |
+| Check strategy status | `strategy_get` | DSL v5.3.1 |
+| Check open orders | `strategy_get_open_orders` | DSL v5.3.1 |
 | Smart money data | `leaderboard_get_markets` | Emerging Movers, SM Flip, Opp Scanner |
 | Top traders | `leaderboard_get_top` | Opp Scanner |
 | Asset candles | `market_get_asset_data` | Opp Scanner, Market Regime |
-| Market prices | `market_get_prices` | DSL v5 |
+| Market prices | `market_get_prices` | DSL v5.3.1 |
 | All instruments | `market_list_instruments` | Opp Scanner, Setup |
 
 **Never use:** `dryRun: true` (actually executes), `strategy_close_strategy` (closes entire strategy irreversibly).
@@ -683,7 +683,7 @@ All MCP calls go through `fox_config.mcporter_call()` — no direct subprocess i
 | `fox-emerging-movers-history.json` | Emerging movers scan history |
 | `market-regime-last.json` | Latest market regime (shared, read-only) |
 | `max-leverage.json` | Per-asset max leverage (shared) |
-| `dsl/{strategyId}/{ASSET}.json` | DSL v5 per-position state |
+| `dsl/{strategyId}/{ASSET}.json` | DSL v5.3.1 per-position state |
 | `history/scan-history.json` | Cross-scan momentum tracking |
 | `history/fox-scanner-config.json` | Scanner threshold overrides |
 

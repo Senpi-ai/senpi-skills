@@ -17,7 +17,7 @@ The chop predator. Detects assets in tight ranges (low ATR, tight BBands, declin
 | Script | Freq | Purpose |
 |--------|------|---------|
 | `viper-scanner.py` | 5 min | Scan top 30 assets (by USD OI) for range setups: BB/RSI/ATR analysis at boundaries |
-| DSL v5 (shared) | 3 min | Trailing stops with 6-tier ratchet |
+| DSL v5.3.1 (shared) | 3 min | Trailing stops with 6-tier ratchet |
 
 ## Capital Allocation
 - 3 concurrent slots at 28% margin each = 84% max deployment
@@ -29,5 +29,5 @@ Only alert on position OPENED or CLOSED. All crons run isolated. Silence = hunti
 
 ## Setup
 1. Set `VIPER_WALLET` and `VIPER_STRATEGY_ID` env vars (or fill `viper-config.json`)
-2. Create cron: scanner every 5 min (isolated) + DSL v5 every 3 min (isolated)
+2. Create cron: scanner every 5 min (isolated) + DSL v5.3.1 every 3 min (isolated)
 3. Top up strategy to full budget — VIPER deploys capital aggressively

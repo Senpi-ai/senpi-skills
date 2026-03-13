@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-create-dsl-state.py — Helper to create properly formatted DSL v5 state files.
+create-dsl-state.py — Helper to create properly formatted DSL v5.3.1 state files.
 Avoids repeated schema mistakes (coin vs asset, phase string vs int, missing fields).
 
 Usage:
@@ -32,7 +32,7 @@ def load_tiger_config():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Create DSL v5 state file")
+    parser = argparse.ArgumentParser(description="Create DSL v5.3.1 state file")
     parser.add_argument("--asset", required=True, help="Asset symbol (e.g. SEI, OP, xyz:SILVER)")
     parser.add_argument("--direction", required=True, choices=["LONG", "SHORT"])
     parser.add_argument("--leverage", required=True, type=int)
@@ -81,7 +81,7 @@ def main():
 
     state = {
         "active": True,
-        "asset": args.asset,  # NOT "coin" — DSL v5 uses "asset"
+        "asset": args.asset,  # NOT "coin" — DSL v5.3.1 uses "asset"
         "direction": args.direction,
         "entryPrice": entry,
         "size": args.size,

@@ -199,7 +199,7 @@ Run this once to backfill any positions created before High Water Mode was confi
 ## How To Apply to Other Skills
 
 ### Option 1: Replace your skill's dsl-profile.json
-Copy the JSON config above into your skill's `dsl-profile.json`. The DSL v5.3 engine reads it on every tick.
+Copy the JSON config above into your skill's `dsl-profile.json`. The DSL v5.3.1 engine reads it on every tick.
 
 ### Option 2: Pass as override via dsl-cli.py
 ```bash
@@ -218,7 +218,7 @@ Add the DSL block to your trading strategy's override file (same pattern as DIRE
 ```
 
 ### Compatibility Note
-The `lockMode: "pct_of_high_water"` field requires DSL v5.3+. If your DSL engine is older, it falls back to `fixed_roe` behavior (standard tier locking). Check your DSL version before deploying.
+The `lockMode: "pct_of_high_water"` field requires DSL v5.3.1+. If your DSL engine is older, it falls back to `fixed_roe` behavior (standard tier locking). Check your DSL version before deploying.
 
 ---
 

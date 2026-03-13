@@ -73,7 +73,7 @@ FOX runs two modes simultaneously. Default budget split is **20/80 mirror/autono
 
 ### Autonomous Trading (40% of budget)
 - FOX First Jump scanner every 3 minutes — catches explosive leaderboard moves
-- DSL v5 trailing stops, conviction-scaled Phase 1
+- DSL v5.3.1 trailing stops, conviction-scaled Phase 1
 - SM flip detection, market regime enforcement
 - Reference: `skills/fox-strategy/SKILL.md` for full entry/exit rules
 

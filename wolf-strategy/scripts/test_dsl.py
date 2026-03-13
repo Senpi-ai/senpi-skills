@@ -61,7 +61,7 @@ class TestBuildWolfDslConfig(unittest.TestCase):
         self.assertTrue(out["phase2"]["enabled"])
         self.assertEqual(out["phase2"]["retraceThreshold"], 0.015)
         self.assertEqual(len(out["phase2"]["tiers"]), 4)
-        # DSL v5.3: default is High Water (profile or DEFAULT_DSL_TIERS with lockHwPct)
+        # DSL v5.3.1: default is High Water (profile or DEFAULT_DSL_TIERS with lockHwPct)
         if out.get("lockMode") == "pct_of_high_water":
             self.assertIn("lockHwPct", out["phase2"]["tiers"][0])
             self.assertEqual(out["phase2"]["tiers"][0]["triggerPct"], 7)
@@ -87,7 +87,7 @@ class TestBuildWolfDslConfig(unittest.TestCase):
         self.assertEqual(out["phase2"]["consecutiveBreachesRequired"], 2)
 
     def test_tiers_strip_breaches_key_for_dsl_v5(self):
-        """DSL v5.3: fixed-ROE tiers pass triggerPct and lockPct only; High Water passes lockHwPct + consecutiveBreachesRequired."""
+        """DSL v5.3.1: fixed-ROE tiers pass triggerPct and lockPct only; High Water passes lockHwPct + consecutiveBreachesRequired."""
         cfg = {
             "dsl": {
                 "tiers": [
@@ -377,7 +377,7 @@ class TestDefaultDslTiers(unittest.TestCase):
         self.assertEqual(len(wolf_config.DEFAULT_DSL_TIERS), 4)
 
     def test_tiers_have_trigger_and_lock_hw_pct(self):
-        # DSL v5.3 default is High Water (lockHwPct, consecutiveBreachesRequired)
+        # DSL v5.3.1 default is High Water (lockHwPct, consecutiveBreachesRequired)
         for t in wolf_config.DEFAULT_DSL_TIERS:
             self.assertIn("triggerPct", t)
             self.assertIn("lockHwPct", t)

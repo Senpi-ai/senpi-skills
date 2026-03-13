@@ -5,7 +5,7 @@ description: >-
   clusters on Hyperliquid, estimates liquidation zones from OI + funding data,
   and enters JUST BEFORE price reaches those zones — riding the forced cascade.
   3-phase signal pipeline: Liquidation Mapper (5min) → Proximity Scanner (2min)
-  → Cascade Entry (2min). 9-tier DSL v5 trailing stops, risk guardian with
+  → Cascade Entry (2min). 9-tier DSL v5.3.1 trailing stops, risk guardian with
   cascade invalidation (OI increase = immediate cut). Max 2 concurrent positions,
   7-10x leverage, 18% margin per trade. Most aggressive strategy in the Senpi
   ecosystem. Use when user wants to trade liquidation cascades, front-run
@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 compatibility: >-
   Requires python3, mcporter (configured with Senpi auth), OpenClaw cron,
-  and DSL v5 skill (dsl-dynamic-stop-loss). Hyperliquid perps only.
+  and DSL v5.3.1 skill (dsl-dynamic-stop-loss). Hyperliquid perps only.
 metadata:
   author: jason-goldberg
   version: "1.0.0"
@@ -107,7 +107,7 @@ The moment the cascade begins. Needs ≥ 2 triggers firing:
 - **15-20% margin** per trade (of budget)
 - **Max 2 concurrent** — cascades are correlated
 - **7-10x leverage** — not higher (whipsaw risk)
-- **DSL v5** trailing stops with 9 tiers
+- **DSL v5.3.1** trailing stops with 9 tiers
 
 ### DSL Configuration
 
@@ -167,7 +167,7 @@ entry, there's no cascade. Cut immediately — don't wait for DSL.
 | 4 | Entry | 2 min | main | `shark-entry.py` |
 | 5 | Movers | 3 min | main | `shark-movers.py` |
 | 6 | Risk Guardian | 5 min | isolated | `shark-risk.py` |
-| 7 | DSL v5 | 3 min | isolated | `dsl-v5.py` (shared) |
+| 7 | DSL v5.3.1 | 3 min | isolated | `dsl-v5.py` (shared) |
 | 8 | Health | 10 min | isolated | `shark-health.py` |
 
 ### Emerging Movers Integration
@@ -197,7 +197,7 @@ state/{strategyKey}/
   peak-balance.json        # Peak balance for drawdown
 
 dsl/{strategyId}/
-  {ASSET}.json             # DSL v5 per position
+  {ASSET}.json             # DSL v5.3.1 per position
 ```
 
 ## Setup
@@ -233,7 +233,7 @@ DSL tier upgrades.
 - **python3** — all scripts
 - **mcporter** — Senpi MCP calls (configured with auth)
 - **OpenClaw cron** — 7 scheduled jobs
-- **DSL v5 skill** — `~/.agents/skills/dsl-dynamic-stop-loss/` (must be installed)
+- **DSL v5.3.1 skill** — `~/.agents/skills/dsl-dynamic-stop-loss/` (must be installed)
 
 ## Success Metrics (1 week)
 

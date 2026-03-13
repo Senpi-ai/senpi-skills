@@ -182,7 +182,7 @@ Stagnation TP: 12% ROE stale for 90 minutes → close. BTC trends consolidate lo
 | Cron | Interval | Session | Purpose |
 |---|---|---|---|
 | Scanner | 3 min | isolated | Thesis builder (if flat) + thesis re-evaluator (if holding) |
-| DSL v5 | 3 min | isolated | High Water Mode trailing stops |
+| DSL v5.3.1 | 3 min | isolated | High Water Mode trailing stops |
 
 Both MUST be isolated sessions with `agentTurn`. Use `NO_REPLY` for idle cycles.
 
@@ -219,7 +219,7 @@ On EVERY session, check `config/bootstrap-complete.json`. If missing:
 | `scripts/grizzly-scanner.py` | BTC thesis builder + re-evaluator |
 | `scripts/grizzly_config.py` | Shared config, MCP helpers, state I/O |
 | `config/grizzly-config.json` | All configurable variables with DSL High Water tiers + legacy fallback |
-| DSL v5 (shared skill) | Trailing stop engine — MUST be configured with High Water Mode |
+| DSL v5.3.1 (shared skill) | Trailing stop engine — MUST be configured with High Water Mode |
 
 ## License
 

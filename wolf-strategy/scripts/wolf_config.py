@@ -10,7 +10,7 @@ Usage:
     cfg = load_strategy("wolf-abc123")   # Specific strategy
     cfg = load_strategy()                # Default strategy
     strategies = load_all_strategies()   # All enabled strategies
-    path = dsl_state_path("wolf-abc123", "HYPE")  # DSL v5.3: {DSL_STATE_DIR}/{UUID}/{asset}.json
+    path = dsl_state_path("wolf-abc123", "HYPE")  # DSL v5.3.1: {DSL_STATE_DIR}/{UUID}/{asset}.json
 """
 
 import json, os, sys, glob, subprocess, time, tempfile, shlex, fcntl
@@ -479,7 +479,7 @@ def validate_dsl_state(state, state_file=None):
     return True, None
 
 
-# Default tiers when strategy has none (DSL v5.3 High Water)
+# Default tiers when strategy has none (DSL v5.3.1 High Water)
 DEFAULT_DSL_TIERS = [
     {"triggerPct": 7, "lockHwPct": 40, "consecutiveBreachesRequired": 3},
     {"triggerPct": 12, "lockHwPct": 55, "consecutiveBreachesRequired": 2},
@@ -509,7 +509,7 @@ def _load_wolf_dsl_profile():
 
 
 def build_wolf_dsl_config(cfg):
-    """Translate wolf strategy DSL config to DSL v5.3 format for dsl-cli.py --configuration.
+    """Translate wolf strategy DSL config to DSL v5.3.1 format for dsl-cli.py --configuration.
     Uses wolf-strategy/dsl-profile.json when present (High Water); strategy dsl.tiers override profile tiers."""
     from collections import Counter
     profile = _load_wolf_dsl_profile()

@@ -19,7 +19,7 @@ def position_exists(asset, wallet):
     return any(p["asset"] == asset for p in state.get("positions", []))
 ```
 
-**Fox note:** DSL v5 reconciles against clearinghouse every run. If a position is closed externally, the state file is auto-deleted next tick. This makes phantom closes much rarer than v4.
+**Fox note:** DSL v5.3.1 reconciles against clearinghouse every run. If a position is closed externally, the state file is auto-deleted next tick. This makes phantom closes much rarer than v4.
 
 ## 1. Opportunity Scanner (every 15 minutes, main session)
 
@@ -59,14 +59,14 @@ Runs `fox-emerging-movers.py`. Primary entry trigger.
 6. Determine margin from tiered system in `fox-trade-counter.json`
 7. Execute via `create_position` with `orderType: "MARKET"` (**NEVER use `dryRun: true`**)
 8. For XYZ assets: include `leverageType: "ISOLATED"`
-9. Create DSL v5 state file
-10. Ensure DSL v5 cron exists for this strategy
+9. Create DSL v5.3.1 state file
+10. Ensure DSL v5.3.1 cron exists for this strategy
 11. Update `fox-trade-counter.json`
 12. Send Telegram confirmation to `{TELEGRAM}`
 
-## 3. DSL v5 Monitor (every 3 minutes per strategy, isolated)
+## 3. DSL v5.3.1 Monitor (every 3 minutes per strategy, isolated)
 
-Uses DSL v5 script from `skills/dsl-dynamic-stop-loss/scripts/dsl-v5.py`.
+Uses DSL v5.3.1 script from `skills/dsl-dynamic-stop-loss/scripts/dsl-v5.py`.
 
 **Agent behavior for DSL output:**
 - `closed: true` → alert user (script already deleted state file)
@@ -120,7 +120,7 @@ Agent reads `fox-strategies.json`, gets clearinghouse per wallet.
 Asset  Dir/Lev    Entry      Now        uPnL       Margin Buffer
 {ASSET} {DIR} {LEV}x  {ENTRY}    {PRICE}    {UPNL}     {BUFFER}%
 
-{ENTRIES}/{MAX_ENTRIES} entries • DSL v5: {DSL_STATUS} • BTC: {BTC_TREND}
+{ENTRIES}/{MAX_ENTRIES} entries • DSL v5.3.1: {DSL_STATUS} • BTC: {BTC_TREND}
 Net exposure: {NET_EXPOSURE}% {DOMINANT_DIR} • Hourly trends: {TRENDS}
 ```
 

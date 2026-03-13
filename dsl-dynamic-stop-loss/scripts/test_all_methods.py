@@ -820,12 +820,314 @@ class TestDslCliStatusAndCount(unittest.TestCase):
             self.assertTrue(os.path.isfile(dest))
 
 
+# ---------------------------------------------------------------------------
+# DSL High Water Implementation Spec — Testing Checklist (dsl-high-water-implementation-spec.md)
+# ---------------------------------------------------------------------------
+
+class TestDslHighWaterChecklist(unittest.TestCase):
+    """Tests matching the spec testing checklist. Run to verify High Water implementation."""
+
+    def test_checklist_1_state_no_lock_mode_behaves_fixed_roe(self):
+        """State file with no lockMode → behaves exactly as current (fixed_roe)."""
+        state = {
+            "tiers": [{"triggerPct": 10, "lockPct": 20}],
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "highWaterPrice": 110.0,
+            "highWaterRoe": 100.0,
+            "phase2": {"enabled": True},
+            "phase2TriggerTier": 0,
+            # no lockMode key
+        }
+        tier_idx, tier_floor, _, _ = dsl_v5.apply_tier_upgrades(state, 15.0, True, 110.0)
+        self.assertEqual(tier_idx, 0)
+        # fixed_roe: LONG floor = entry + (hw - entry) * lockPct/100 = 100 + 10*0.2 = 102
+        self.assertAlmostEqual(tier_floor, 102.0, places=2)
+
+    def test_checklist_2_state_lock_mode_fixed_roe_same_as_current(self):
+        """State file with lockMode: 'fixed_roe' → same as current."""
+        state = {
+            "tiers": [{"triggerPct": 10, "lockPct": 20}],
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "highWaterPrice": 110.0,
+            "highWaterRoe": 100.0,
+            "phase2": {"enabled": True},
+            "phase2TriggerTier": 0,
+            "lockMode": "fixed_roe",
+        }
+        tier_idx, tier_floor, _, _ = dsl_v5.apply_tier_upgrades(state, 15.0, True, 110.0)
+        self.assertEqual(tier_idx, 0)
+        self.assertAlmostEqual(tier_floor, 102.0, places=2)
+
+    def test_checklist_3_pct_of_high_water_floor_is_percentage_of_hw_roe(self):
+        """State file with lockMode: pct_of_high_water + lockHwPct tiers → floor is percentage of hwROE."""
+        state = {
+            "tiers": [
+                {"triggerPct": 7, "lockHwPct": 40, "consecutiveBreachesRequired": 3},
+                {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1},
+            ],
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "leverage": 10,
+            "highWaterPrice": 110.0,
+            "highWaterRoe": 100.0,
+            "phase2": {"enabled": True},
+            "phase2TriggerTier": 0,
+            "lockMode": "pct_of_high_water",
+        }
+        tier_idx, tier_floor, _, _ = dsl_v5.apply_tier_upgrades(state, 25.0, True, 110.0)
+        self.assertEqual(tier_idx, 1)
+        # Tier 1: lockHwPct=85, highWaterRoe=100 → tier_floor_roe = 85; price = 100*(1+85/100/10) = 108.5
+        self.assertAlmostEqual(tier_floor, 108.5, places=2)
+
+    def test_checklist_4_high_water_20_to_50_roe_tier5_85_floor_17_to_42_5(self):
+        """High water advances from 20% to 50% ROE at Tier 5 (85%) → floor moves from 17% to 42.5% ROE."""
+        # 5 tiers: use index 4 as "Tier 5" with lockHwPct=85
+        state = {
+            "tiers": [
+                {"triggerPct": 7, "lockHwPct": 40, "consecutiveBreachesRequired": 3},
+                {"triggerPct": 12, "lockHwPct": 55, "consecutiveBreachesRequired": 2},
+                {"triggerPct": 15, "lockHwPct": 75, "consecutiveBreachesRequired": 2},
+                {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1},
+            ],
+            "currentTierIndex": 3,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "leverage": 10,
+            "phase2": {"enabled": True, "retraceThreshold": 0.015},
+            "lockMode": "pct_of_high_water",
+        }
+        # At hwROE=20%: floor_roe = 20 * 85/100 = 17%
+        state["highWaterRoe"] = 20.0
+        _, tier_floor_20, _, _ = dsl_v5.apply_tier_upgrades(state, 25.0, True, 102.0)
+        eff_20, _, _, _ = dsl_v5.compute_effective_floor(state, 2, 3, tier_floor_20, 102.0, True)
+        # Floor price at 17% ROE: 100 * (1 + 17/100/10) = 101.7
+        expected_floor_20 = 100.0 * (1 + 17.0 / 100 / 10)
+        self.assertAlmostEqual(tier_floor_20, round(expected_floor_20, 4), places=2)
+        # At hwROE=50%: floor_roe = 50 * 85/100 = 42.5%
+        state["highWaterRoe"] = 50.0
+        _, tier_floor_50, _, _ = dsl_v5.apply_tier_upgrades(state, 55.0, True, 105.0)
+        expected_floor_50 = 100.0 * (1 + 42.5 / 100 / 10)
+        self.assertAlmostEqual(tier_floor_50, round(expected_floor_50, 4), places=2)
+        self.assertGreater(tier_floor_50, tier_floor_20)
+
+    def test_checklist_5_high_water_advances_sl_would_sync(self):
+        """High water advances → SL would be synced at new floor (effective_floor changes)."""
+        state = {
+            "tiers": [{"triggerPct": 10, "lockHwPct": 85}],
+            "currentTierIndex": 0,
+            "tierFloorPrice": 105.0,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "leverage": 10,
+            "highWaterPrice": 110.0,
+            "highWaterRoe": 20.0,
+            "phase2": {"enabled": True, "retraceThreshold": 0.015},
+            "lockMode": "pct_of_high_water",
+        }
+        _, tier_floor_old, _, _ = dsl_v5.apply_tier_upgrades(state, 25.0, True, 110.0)
+        eff_old, _, _, _ = dsl_v5.compute_effective_floor(state, 2, 0, tier_floor_old, 110.0, True)
+        last_synced = round(eff_old, 4)
+        # Advance high water: 20% -> 50% ROE → floor moves
+        state["highWaterRoe"] = 50.0
+        state["highWaterPrice"] = 115.0
+        _, tier_floor_new, _, _ = dsl_v5.apply_tier_upgrades(state, 55.0, True, 115.0)
+        eff_new, _, _, _ = dsl_v5.compute_effective_floor(state, 2, 0, tier_floor_new, 115.0, True)
+        eff_new_rounded = round(eff_new, 4)
+        need_sync = last_synced is None or abs(last_synced - eff_new_rounded) > 1e-9
+        self.assertTrue(need_sync, "SL should sync when floor changes after high water advance")
+
+    def test_checklist_6_high_water_flat_sl_not_resynced(self):
+        """High water flat (no new peak) → SL not re-synced (saves API calls)."""
+        state = {
+            "tiers": [{"triggerPct": 10, "lockHwPct": 85}],
+            "currentTierIndex": 0,
+            "tierFloorPrice": 108.5,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "leverage": 10,
+            "highWaterPrice": 110.0,
+            "highWaterRoe": 100.0,
+            "phase2": {"enabled": True, "retraceThreshold": 0.015},
+            "lockMode": "pct_of_high_water",
+        }
+        _, tier_floor, _, _ = dsl_v5.apply_tier_upgrades(state, 15.0, True, 110.0)
+        eff, _, _, _ = dsl_v5.compute_effective_floor(state, 2, 0, tier_floor, 110.0, True)
+        last_synced = round(eff, 4)
+        # Same high water (no advance) — run again, floor should be unchanged
+        _, tier_floor2, _, _ = dsl_v5.apply_tier_upgrades(state, 12.0, True, 110.0)
+        eff2, _, _, _ = dsl_v5.compute_effective_floor(state, 2, 0, tier_floor2, 110.0, True)
+        eff2_rounded = round(eff2, 4)
+        need_sync = last_synced is None or abs(last_synced - eff2_rounded) > 1e-9
+        self.assertFalse(need_sync, "SL should not re-sync when floor unchanged (high water flat)")
+
+    def test_checklist_7_per_tier_breach_count_tier1_3_tier5_1(self):
+        """Per-tier breach count: Tier 1 at 3 breaches, Tier 5 at 1 breach."""
+        state = {
+            "phase2": {"retraceThreshold": 0.015, "consecutiveBreachesRequired": 1},
+            "tiers": [
+                {"triggerPct": 7, "lockHwPct": 40, "consecutiveBreachesRequired": 3},
+                {"triggerPct": 12, "lockHwPct": 55, "consecutiveBreachesRequired": 2},
+                {"triggerPct": 15, "lockHwPct": 75, "consecutiveBreachesRequired": 2},
+                {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1},
+            ],
+            "leverage": 10,
+        }
+        _, _, breaches_tier1, _ = dsl_v5.compute_effective_floor(state, 2, 0, 102.0, 105.0, True)
+        _, _, breaches_tier5, _ = dsl_v5.compute_effective_floor(state, 2, 3, 108.0, 110.0, True)
+        self.assertEqual(breaches_tier1, 3)
+        self.assertEqual(breaches_tier5, 1)
+
+    def test_checklist_8_tier_only_lock_pct_uses_lock_pct_regardless_of_lock_mode(self):
+        """Tier with only lockPct (no lockHwPct) → uses lockPct regardless of lockMode."""
+        state = {
+            "tiers": [{"triggerPct": 10, "lockPct": 25}],
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "highWaterPrice": 112.0,
+            "highWaterRoe": 120.0,
+            "phase2": {"enabled": True},
+            "phase2TriggerTier": 0,
+            "lockMode": "pct_of_high_water",
+        }
+        tier_idx, tier_floor, _, _ = dsl_v5.apply_tier_upgrades(state, 15.0, True, 112.0)
+        self.assertEqual(tier_idx, 0)
+        # Should use lockPct (fraction of range): 100 + (112-100)*0.25 = 103
+        self.assertAlmostEqual(tier_floor, 103.0, places=2)
+        # If it used lockHwPct it would be 120*25/100=30% ROE → different price
+
+    def test_checklist_9_long_floor_calculation_correct(self):
+        """LONG direction: floor calculation correct (fixed_roe and pct_of_high_water)."""
+        # fixed_roe LONG: entry + (hw - entry) * lockPct/100
+        state_fixed = {
+            "tiers": [{"triggerPct": 10, "lockPct": 30}],
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "highWaterPrice": 110.0,
+            "phase2": {"enabled": True},
+            "phase2TriggerTier": 0,
+        }
+        _, floor_fixed, _, _ = dsl_v5.apply_tier_upgrades(state_fixed, 15.0, True, 110.0)
+        self.assertAlmostEqual(floor_fixed, 100.0 + 10.0 * 0.30, places=2)
+        # pct_of_high_water LONG: entry * (1 + (hwRoe * lockHwPct/100)/100/leverage)
+        state_hw = {
+            "tiers": [{"triggerPct": 10, "lockHwPct": 50}],
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "leverage": 10,
+            "highWaterPrice": 110.0,
+            "highWaterRoe": 100.0,
+            "phase2": {"enabled": True},
+            "phase2TriggerTier": 0,
+            "lockMode": "pct_of_high_water",
+        }
+        _, floor_hw, _, _ = dsl_v5.apply_tier_upgrades(state_hw, 15.0, True, 110.0)
+        expected_hw = 100.0 * (1 + 50.0 / 100 / 10)
+        self.assertAlmostEqual(floor_hw, expected_hw, places=2)
+
+    def test_checklist_10_short_floor_calculation_correct(self):
+        """SHORT direction: floor calculation correct (fixed_roe and pct_of_high_water)."""
+        # fixed_roe SHORT: entry - (entry - hw) * lockPct/100
+        state_fixed = {
+            "tiers": [{"triggerPct": 10, "lockPct": 30}],
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "highWaterPrice": 90.0,
+            "phase2": {"enabled": True},
+            "phase2TriggerTier": 0,
+        }
+        _, floor_fixed, _, _ = dsl_v5.apply_tier_upgrades(state_fixed, 15.0, False, 90.0)
+        self.assertAlmostEqual(floor_fixed, 100.0 - 10.0 * 0.30, places=2)
+        # pct_of_high_water SHORT: entry * (1 - (hwRoe * lockHwPct/100)/100/leverage)
+        state_hw = {
+            "tiers": [{"triggerPct": 10, "lockHwPct": 50}],
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "leverage": 10,
+            "highWaterPrice": 90.0,
+            "highWaterRoe": 100.0,
+            "phase2": {"enabled": True},
+            "phase2TriggerTier": 0,
+            "lockMode": "pct_of_high_water",
+        }
+        _, floor_hw, _, _ = dsl_v5.apply_tier_upgrades(state_hw, 15.0, False, 90.0)
+        expected_hw = 100.0 * (1 - 50.0 / 100 / 10)
+        self.assertAlmostEqual(floor_hw, expected_hw, places=2)
+
+    def test_checklist_11_mixed_state_files_each_uses_own_lock_mode(self):
+        """Mixed state files in same strategy dir (some fixed, some HW) → each uses its own lockMode."""
+        state_fixed = {
+            "tiers": [{"triggerPct": 10, "lockPct": 20}],
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "highWaterPrice": 110.0,
+            "highWaterRoe": 100.0,
+            "phase2": {"enabled": True},
+            "phase2TriggerTier": 0,
+            "lockMode": "fixed_roe",
+        }
+        state_hw = {
+            "tiers": [{"triggerPct": 10, "lockHwPct": 85}],
+            "currentTierIndex": -1,
+            "tierFloorPrice": None,
+            "phase": 2,
+            "currentBreachCount": 0,
+            "entryPrice": 100.0,
+            "leverage": 10,
+            "highWaterPrice": 110.0,
+            "highWaterRoe": 100.0,
+            "phase2": {"enabled": True},
+            "phase2TriggerTier": 0,
+            "lockMode": "pct_of_high_water",
+        }
+        _, floor_fixed, _, _ = dsl_v5.apply_tier_upgrades(state_fixed, 15.0, True, 110.0)
+        _, floor_hw, _, _ = dsl_v5.apply_tier_upgrades(state_hw, 15.0, True, 110.0)
+        # fixed_roe: 100 + 10*0.2 = 102
+        self.assertAlmostEqual(floor_fixed, 102.0, places=2)
+        # pct_of_high_water: 100*(1+85/100/10) = 108.5
+        self.assertAlmostEqual(floor_hw, 108.5, places=2)
+        self.assertNotEqual(floor_fixed, floor_hw)
+
+
 def _all_test_classes():
     return [
         TestDslV5PathHelpers,
         TestDslV5UnwrapMcporter,
         TestDslV5NormalizeState,
         TestDslV5TradingLogic,
+        TestDslHighWaterChecklist,
         TestDslV5ArchivedFilename,
         TestDslV5BuildOutput,
         TestDslV5CleanupAndSave,

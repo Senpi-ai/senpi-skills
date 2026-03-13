@@ -129,7 +129,7 @@ The tradeoff: OWL loses bigger on losers (-35 to -40% ROE) but catches crowding 
 | Cron | Interval | Session | Purpose |
 |---|---|---|---|
 | Scanner | 15 min | isolated | Crowding scan + exhaustion detection + re-crowding check |
-| DSL v5 | 3 min | isolated | High Water Mode trailing stops |
+| DSL v5.3.1 | 3 min | isolated | High Water Mode trailing stops |
 
 **15-minute scanner interval is intentional.** Crowding builds over hours, not minutes. Scanning every 3 minutes would waste tokens on data that hasn't changed. The DSL cron still runs every 3 minutes for trailing stop protection.
 

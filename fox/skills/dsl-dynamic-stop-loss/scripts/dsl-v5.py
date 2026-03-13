@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DSL v5 — Strategy-scoped cron, MCP clearinghouse + price, archive on close.
+"""DSL v5.3.1 — Strategy-scoped cron, MCP clearinghouse + price, archive on close.
 Cron is per strategy (DSL_STATE_DIR + DSL_STRATEGY_ID only). Each run:
 1. Check if strategy is active via MCP; if not, cleanup active state files and output strategy_inactive.
 2. For each state file with slOrderId: call execution_get_order_status; if filled, rename to {asset}_archived_sl_{epoch}.json.

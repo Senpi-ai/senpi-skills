@@ -28,11 +28,11 @@
 }
 ```
 
-## 2. DSL v5 — Mid / Isolated (per-strategy, created dynamically)
+## 2. DSL v5.3.1 — Mid / Isolated (per-strategy, created dynamically)
 
 ```json
 {
-  "name": "FOX — DSL v5 [{STRATEGY_NAME}]",
+  "name": "FOX — DSL v5.3.1 [{STRATEGY_NAME}]",
   "schedule": { "kind": "cron", "expr": "*/3 * * * *", "tz": "UTC" },
   "sessionTarget": "isolated",
   "payload": {
@@ -138,7 +138,7 @@
 | # | Cron | Interval | Session | Payload Kind | Mandate Key | Model |
 |---|------|----------|---------|-------------|-------------|-------|
 | 1 | Emerging Movers | */3 * * * * | isolated | agentTurn | `message` | Primary |
-| 2 | DSL v5 | */3 * * * * | isolated | agentTurn | `message` | Mid |
+| 2 | DSL v5.3.1 | */3 * * * * | isolated | agentTurn | `message` | Mid |
 | 3 | SM Flip | */5 * * * * | isolated | agentTurn | `message` | Budget |
 | 4 | Watchdog | */5 * * * * | isolated | agentTurn | `message` | Budget |
 | 5 | Portfolio | */15 * * * * | isolated | agentTurn | `message` | Mid |

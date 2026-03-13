@@ -168,7 +168,7 @@ def generate_cron_templates(strategy_id: str, chat_id: str) -> list[dict]:
         },
         {
             "name": f"shark-dsl-{strategy_id[:8]}",
-            "description": "DSL v5 trailing stops",
+            "description": "DSL v5.3.1 trailing stops",
             "schedule": {"kind": "cron", "expr": "*/3 * * * *", "tz": "UTC"},
             "sessionTarget": "isolated",
             "payload": {

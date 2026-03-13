@@ -54,5 +54,5 @@ Runs `job-health-check.py`. Reconciles DSL state files with actual positions. Au
 ### Portfolio (15min, isolated)
 Reports current positions, PnL, and account value to Telegram.
 
-### DSL v5 (3min, per-strategy, isolated, DYNAMIC)
+### DSL v5.3.1 (3min, per-strategy, isolated, DYNAMIC)
 Created/removed dynamically when positions open/close. Runs `dsl-v5.py` for trailing stop management and Hyperliquid SL sync.
