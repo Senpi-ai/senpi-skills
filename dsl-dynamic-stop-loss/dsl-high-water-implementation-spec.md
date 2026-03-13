@@ -2,7 +2,7 @@
 
 # DSL High Water Mode — Implementation Spec for dsl-v5.py
 
-**Version:** DSL v5.3.1 (2026-03-13) — implements points 4 (infinite trail), 6 (SL sync when floor moves) and adds the full testing checklist.
+**Version:** DSL v5.3.1 (2026-03-13) — ALL ITEMS IMPLEMENTED. Per-tick recalculation, lockMode support, per-tier breaches, SL auto-sync, highWaterRoe tracking — all shipped.
 
 ## Summary
 
