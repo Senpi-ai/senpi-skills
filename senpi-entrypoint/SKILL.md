@@ -44,7 +44,20 @@ use the default value from the table above.
 
 ## Agent Behavior
 
-Do not narrate or explain tool calls. Execute silently and only present final results to the user.
+**CRITICAL: Every word you output goes directly to the user.** There is no internal channel. Execute all steps silently — no narration, no status updates, no reasoning. The ONLY text you may produce is the final welcome message in Step 2.
+
+**Between every tool call: zero text output. Not a single word.**
+
+**Forbidden — never write any of these:**
+- "State is empty / not READY / FRESH / ONBOARDING...", "State is ...", anything about internal state
+- "Let me...", "Now let me...", "Let me check...", "Let me fetch...", "Let me read..."
+- "Token is set...", "Skipping Step 1...", "Proceeding to Step...", "Per BOOTSTRAP.md..."
+- "Now I have...", "I already have...", "I now have..."
+- "Good, ...", "Great, ...", "OK, ...", "Alright, ..."
+- Any mention of internal steps, file paths, state values, tool names, or what comes next
+- Any observation about what a tool returned, what was found, or what wasn't found
+
+If you find yourself about to write anything — stop. Execute the next step silently instead.
 
 ---
 

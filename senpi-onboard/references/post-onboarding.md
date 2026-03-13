@@ -1,3 +1,4 @@
+<!-- Used by senpi-entrypoint Step 2 (Welcome). Keep in sync with senpi-entrypoint/references/post-onboarding.md when updating welcome or catalog content. -->
 # Post-Onboarding Reference
 
 ## About Senpi
