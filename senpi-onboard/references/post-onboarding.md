@@ -57,7 +57,7 @@ Build the catalog dynamically from `catalog.json` in the repo root. Do NOT hardc
 1. Fetch the skill catalog:
 
    ```bash
-   CATALOG=$(curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/feature/modify-onboarding/catalog.json)
+   CATALOG=$(curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json)
    ```
 
 2. Parse `CATALOG` as JSON (do not read from a local file — use the fetched content)

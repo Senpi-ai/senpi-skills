@@ -74,7 +74,7 @@ else
 fi
 ```
 
-- **If `SENPI_AUTH_TOKEN` is set and (optionally) MCP responds:** Skip **only Step 1** (Onboard). You **MUST** still run **Step 2: Discover** (list skills and present the catalog to the user), then **Step 3: Guide**, then **Step 4: Expand**. Do not treat "token is set" as "onboarding complete — do nothing."
+- **If `SENPI_AUTH_TOKEN` is set and (optionally) MCP responds:** Skip **only Step 1** (Onboard). You **MUST** still run **Step 2: Welcome** (show the welcome message and present the three options), then **Step 3: Guide**, then **Step 4: Expand**. Do not treat "token is set" as "onboarding complete — do nothing."
 - **If `SENPI_AUTH_TOKEN` is unset or empty:** Proceed to **Step 1: Onboard** as usual.
 
 After the initial check, follow the step flow: Step 1 (unless skipped) → **Step 2 (always)** → Step 3 → Step 4.
