@@ -13,7 +13,7 @@
 
   "skills": [
     {
-      "id": "fox-strategy",
+      "id": "fox",
       "tracker_slug": "fox",
       "name": "FOX",
       "emoji": "🦊",
@@ -41,7 +41,7 @@
       "predators_url": "https://strategies.senpi.ai/bot/viper"
     },
     {
-      "id": "grizzly-strategy",
+      "id": "grizzly",
       "tracker_slug": "grizzly",
       "name": "Grizzly",
       "emoji": "🐻",
@@ -55,7 +55,7 @@
       "predators_url": "https://strategies.senpi.ai/bot/grizzly"
     },
     {
-      "id": "cheetah-strategy",
+      "id": "cheetah",
       "tracker_slug": "cheetah",
       "name": "Cheetah",
       "emoji": "🐆",
@@ -83,7 +83,7 @@
       "predators_url": "https://strategies.senpi.ai/bot/tiger"
     },
     {
-      "id": "cobra-strategy",
+      "id": "cobra",
       "tracker_slug": "cobra",
       "name": "Cobra",
       "emoji": "🐍",
@@ -97,7 +97,7 @@
       "predators_url": "https://strategies.senpi.ai/bot/cobra"
     },
     {
-      "id": "bison-strategy",
+      "id": "bison",
       "tracker_slug": "bison",
       "name": "Bison",
       "emoji": "🦬",
@@ -111,7 +111,7 @@
       "predators_url": "https://strategies.senpi.ai/bot/bison"
     },
     {
-      "id": "hawk-strategy",
+      "id": "hawk",
       "tracker_slug": "hawk",
       "name": "Hawk",
       "emoji": "🦅",
@@ -125,7 +125,7 @@
       "predators_url": "https://strategies.senpi.ai/bot/hawk"
     },
     {
-      "id": "scorpion-strategy",
+      "id": "scorpion",
       "tracker_slug": "scorpion",
       "name": "Scorpion",
       "emoji": "🦂",
@@ -139,7 +139,7 @@
       "predators_url": "https://strategies.senpi.ai/bot/scorpion"
     },
     {
-      "id": "owl-strategy",
+      "id": "owl",
       "tracker_slug": "owl",
       "name": "Owl",
       "emoji": "🦉",
@@ -153,7 +153,7 @@
       "predators_url": "https://strategies.senpi.ai/bot/owl"
     },
     {
-      "id": "croc-strategy",
+      "id": "croc",
       "tracker_slug": "croc",
       "name": "Croc",
       "emoji": "🐊",
@@ -223,7 +223,7 @@
       "predators_url": "https://strategies.senpi.ai/bot/feral-fox"
     },
     {
-      "id": "ghost-fox",
+      "id": "ghost-fox-strategy",
       "tracker_slug": "ghost-fox",
       "name": "Ghost Fox",
       "emoji": "👻",
@@ -237,7 +237,7 @@
       "predators_url": "https://strategies.senpi.ai/bot/ghost-fox"
     },
     {
-      "id": "mamba",
+      "id": "mamba-strategy",
       "tracker_slug": "mamba",
       "name": "Mamba",
       "emoji": "🐍",
