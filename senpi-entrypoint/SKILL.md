@@ -110,7 +110,13 @@ Send the welcome message from the **Post-Onboarding Welcome** section of
 [post-onboarding.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/post-onboarding.md).
 Do not add balance or funding text — you do not have balance data yet; Step 2.5 fetches it and surfaces the appropriate funding message. Present the three options and wait for the user to respond.
 
-**STOP. Do NOT render the strategy catalog here.** The catalog is only shown if the user explicitly asks (see **Strategy Catalog** in the same post-onboarding reference).
+**STOP. Do NOT render the strategy catalog here.** The catalog is only shown if the user explicitly asks (see **Strategy Catalog** in the same post-onboarding reference). When rendering the catalog, always fetch it dynamically from:
+
+```bash
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json
+```
+
+Do NOT hardcode skill names or use `npx skills add --list`.
 
 **Gate — verify before proceeding:** User has seen the welcome message and chosen a path.
 
