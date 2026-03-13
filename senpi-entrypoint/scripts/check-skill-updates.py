@@ -43,6 +43,20 @@ NON_SKILL_DIRS = {
     ".claude", ".agents", ".cursor",
 }
 
+# Skills whose SKILL.md is not at <skill_name>/SKILL.md in the repo root.
+SKILL_MD_PATHS = {
+    "fox-strategy": "fox/skills/fox-strategy/SKILL.md",
+}
+
+# Skills whose GitHub top-level directory name differs from their install name.
+SKILL_GITHUB_DIRS = {
+    "fox-strategy": "fox",
+}
+
+# Reverse map: top-level dirs that are containers, not skills themselves.
+# Maps github dir name -> install skill name for proper discovery handling.
+GITHUB_DIR_TO_SKILL = {v: k for k, v in SKILL_GITHUB_DIRS.items()}
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -395,12 +409,15 @@ def main(args):
 
         # The GitHub contents API returns each folder entry with its git tree SHA.
         # This is the same SHA the skills CLI stores as skillFolderHash.
-        current_github_entry = github_skill_dirs.get(skill_name)
+        github_dir_name = SKILL_GITHUB_DIRS.get(skill_name, skill_name)
+        current_github_entry = github_skill_dirs.get(github_dir_name)
         if not current_github_entry:
             # Skill directory no longer exists on GitHub (unlikely but handle gracefully)
             continue
 
         github_sha = current_github_entry.get("sha", "")
+
+        skill_md_path = SKILL_MD_PATHS.get(skill_name, f"{skill_name}/SKILL.md")
 
         if stored_hash and github_sha == stored_hash:
             # Hash unchanged. Seed known_versions on first encounter so that if
@@ -408,14 +425,14 @@ def main(args):
             # baseline and not None (which would produce a spurious "unknown → vX"
             # report even for docs-only changes where the version didn't bump).
             if skill_name not in known_versions:
-                skill_md_text = github_raw(f"{skill_name}/SKILL.md")
+                skill_md_text = github_raw(skill_md_path)
                 version = parse_frontmatter_field(skill_md_text, "metadata.version")
                 if version:
                     known_versions[skill_name] = version
             continue
 
         # Hash changed — fetch SKILL.md to check if the version field bumped
-        skill_md_text = github_raw(f"{skill_name}/SKILL.md")
+        skill_md_text = github_raw(skill_md_path)
         new_version = parse_frontmatter_field(skill_md_text, "metadata.version")
 
         if not new_version:
@@ -446,21 +463,26 @@ def main(args):
     is_first_run = catalog.get("lastChecked") is None
 
     for dir_name, dir_entry in github_skill_dirs.items():
-        if dir_name in installed_names:
+        # If this dir is a container for a differently-named skill, use the
+        # install name so lock-file lookups and seen_available tracking are correct.
+        skill_name = GITHUB_DIR_TO_SKILL.get(dir_name, dir_name)
+        skill_md_path = SKILL_MD_PATHS.get(skill_name, f"{dir_name}/SKILL.md")
+
+        if skill_name in installed_names:
             # Installed skills are already known to the user. Mark them as seen
             # so uninstalling later doesn't surface them as "newly added".
-            seen_available.add(dir_name)
+            seen_available.add(skill_name)
             continue
-        if dir_name in seen_available:
+        if skill_name in seen_available:
             continue
 
         if is_first_run:
             # Silently mark as seen — don't surface pre-existing skills on first run.
-            seen_available.add(dir_name)
+            seen_available.add(skill_name)
             continue
 
         # Genuinely new skill added to the repo since our last check — fetch metadata.
-        skill_md_text = github_raw(f"{dir_name}/SKILL.md")
+        skill_md_text = github_raw(skill_md_path)
         if not skill_md_text:
             continue
 
@@ -468,16 +490,16 @@ def main(args):
         description = parse_frontmatter_field(skill_md_text, "description")
 
         new_skills.append({
-            "name": dir_name,
+            "name": skill_name,
             "version": version or "latest",
             "description": (description or "").strip(),
         })
 
         # Mark as seen so we don't surface it again next check
-        seen_available.add(dir_name)
+        seen_available.add(skill_name)
         # Also seed known version so future checks detect bumps for this skill too
         if version:
-            known_versions[dir_name] = version
+            known_versions[skill_name] = version
 
     result = None
     if updated_skills or new_skills:
