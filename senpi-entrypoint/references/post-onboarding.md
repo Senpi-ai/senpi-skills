@@ -21,8 +21,10 @@ Senpi is a trading platform on Hyperliquid — a high-performance perpetual futu
 
 Send ONLY this message. Do NOT render the strategy catalog here — wait for the user to respond and choose a path.
 
+**Do not include balance or funding status here.** Balance is fetched in Step 2.5 (after this message); Step 2.5 will surface either a balance summary (if funded) or the funding reminder (if &lt; $100). Use the template below as-is.
+
 ```
-Welcome to Senpi! Your wallet is funded with $[BALANCE] USDC and ready to trade on Hyperliquid.
+Welcome to Senpi! You're set up on Hyperliquid.
 
 I'm your AI trading agent. I can run autonomous strategies that scan markets 24/7, enter and exit positions, manage trailing stops, and protect your capital — without you watching a screen.
 
@@ -85,7 +87,7 @@ Senpi Predators — AI trading strategies, all open source, all tracked live.
 {for each group in catalog.groups}
 {group.emoji} {group.label}:
 {for each skill in group, sorted by sort_order}
-{skill.emoji} {skill.name} — {skill.tagline} [{+X% ROI · $X PnL · X trades} if live data present and PnL > 0, or {+X% ROI · X trades} if ROI positive but PnL not shown]
+{skill.emoji} {skill.name} — {skill.tagline} [{+X% ROI · $X Profit · X trades} if live data present and PnL > 0, or {+X% ROI · X trades} if ROI positive but PnL not shown]
 {end}
 {end}
 
@@ -117,15 +119,6 @@ If the user asks what to deploy, recommend based on their balance:
 ---
 
 ## Catalog Rules (Important)
-
-**DO NOT show infrastructure skills in the catalog.** These are shared plugins that every strategy uses automatically. Users don't need to know they exist:
-- `dsl-dynamic-stop-loss` — trailing stop engine (used by all strategies)
-- `fee-optimizer` — fee optimization (used by all strategies)
-- `autonomous-trading` — generic wrapper (users should pick a specific strategy)
-- `opportunity-scanner` — FOX's internal scanner
-- `emerging-movers` — FOX/WOLF's internal scanner
-- `whale-index` — replaced by Scorpion
-- `wolf-howl` — WOLF's internal analysis loop
 
 **DO NOT run `npx skills add --list` in the welcome message.** This dumps every folder including infrastructure and confuses new users. Only use it if the user specifically asks for a raw listing.
 

@@ -106,9 +106,11 @@ Load and follow the `senpi-onboard` skill instructions. Pass this context:
 
 **Run this step always:** after Step 1 completes, or immediately when the initial check found `SENPI_AUTH_TOKEN` set.
 
-Send the welcome message from [references/post-onboarding.md](references/post-onboarding.md) (`## Post-Onboarding Welcome` section). Present the three options and wait for the user to respond.
+Send the welcome message from the **Post-Onboarding Welcome** section of
+[post-onboarding.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/post-onboarding.md).
+Do not add balance or funding text — you do not have balance data yet; Step 2.5 fetches it and surfaces the appropriate funding message. Present the three options and wait for the user to respond.
 
-**STOP. Do NOT render the strategy catalog here.** The catalog is only shown if the user explicitly asks (see `## Strategy Catalog` section in post-onboarding.md).
+**STOP. Do NOT render the strategy catalog here.** The catalog is only shown if the user explicitly asks (see **Strategy Catalog** in the same post-onboarding reference).
 
 **Gate — verify before proceeding:** User has seen the welcome message and chosen a path.
 

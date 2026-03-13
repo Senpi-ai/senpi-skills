@@ -35,7 +35,7 @@ Then match their goal to the table below.
 | Balance | Recommended |
 |---|---|
 | < $500 | No catalog skill has min_budget below $500. Recommend funding to at least $500, then FOX or Viper. |
-| $500–$2,000 | FOX, Viper, Cobra, Scorpion, Wolf, Croc, Owl |
+| $500–$2,000 | FOX, Viper, Cobra, Scorpion, Wolf, Croc, Owl, Cheetah, Hawk, Shark, Dire Wolf |
 | $2,000–$5,000 | Any skill in the catalog |
 | > $5,000 | Grizzly, Bison, Tiger, or multi-skill deployment |
 
