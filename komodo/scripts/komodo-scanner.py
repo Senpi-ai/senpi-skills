@@ -194,14 +194,17 @@ def check_market_concentration(coin, entry_cfg):
 
     markets = data.get("data", data)
     if isinstance(markets, dict):
+        markets = markets.get("markets", markets)
+    if isinstance(markets, dict):
         markets = markets.get("markets", [])
 
     for m in markets:
         if not isinstance(m, dict):
             continue
-        if m.get("market", "") == coin:
+        token = m.get("token", m.get("market", m.get("coin", "")))
+        if token == coin:
             trader_count = int(m.get("trader_count", 0))
-            percentage = float(m.get("percentage", 0))
+            percentage = float(m.get("percentage", m.get("pct_of_top_traders_gain", 0)))
             return trader_count >= min_count, trader_count, percentage
 
     return False, 0, 0
