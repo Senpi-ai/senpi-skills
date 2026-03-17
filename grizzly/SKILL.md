@@ -9,7 +9,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.1"
+  version: "2.1.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -225,3 +225,11 @@ On EVERY session, check `config/bootstrap-complete.json`. If missing:
 
 MIT — Built by Senpi (https://senpi.ai). 
 Source: https://github.com/Senpi-ai/senpi-skills
+
+## Changelog
+
+### v2.1.1
+- Fixed DSL field names: `phase1MaxMinutes` (was `hardTimeoutMinutes`), `deadWeightCutMin` (was `deadWeightCutMinutes`)
+- `highWaterPrice` initialized as `null` (was `0`) — lets dsl-v5.py set from actual entry price on first tick
+- Removed static `absoluteFloor` price values — dsl-v5.py now calculates dynamically from `absoluteFloorRoe`
+- Requires dsl-v5.py with Patch 1 (dynamic absoluteFloorRoe calculator) and Patch 2 (highWaterPrice null handling)
