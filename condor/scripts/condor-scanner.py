@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Senpi CONDOR Scanner v1.0
+# Senpi CONDOR Scanner v1.0.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
@@ -449,8 +449,8 @@ def build_dsl_state_template(asset, direction, score):
         "direction": direction,
         "score": score,
         "phase": 1,
-        "highWaterPrice": 0,
-        "highWaterRoe": 0,
+        "highWaterPrice": None,
+        "highWaterRoe": None,
         "currentTierIndex": -1,
         "consecutiveBreaches": 0,
         "lockMode": "pct_of_high_water",
@@ -459,10 +459,9 @@ def build_dsl_state_template(asset, direction, score):
             "enabled": True,
             "retraceThreshold": 0.03,
             "consecutiveBreachesRequired": 3,
-            "hardTimeoutMinutes": tier["hardTimeoutMin"],
+            "phase1MaxMinutes": tier["hardTimeoutMin"],
             "weakPeakCutMinutes": tier["weakPeakCutMin"],
-            "deadWeightCutMinutes": tier["deadWeightCutMin"],
-            "absoluteFloor": 0.025,
+            "deadWeightCutMin": tier["deadWeightCutMin"],
             "absoluteFloorRoe": tier["absoluteFloorRoe"],
             "weakPeakCut": {"enabled": True, "intervalInMinutes": tier["weakPeakCutMin"], "minValue": 3.0},
         },
@@ -470,7 +469,7 @@ def build_dsl_state_template(asset, direction, score):
         "tiers": CONDOR_DSL_TIERS,
         "stagnationTp": CONDOR_STAGNATION_TP,
         "execution": {"phase1SlOrderType": "MARKET", "phase2SlOrderType": "MARKET", "breachCloseOrderType": "MARKET"},
-        "_condor_version": "1.0",
+        "_condor_version": "1.0.1",
     }
 
 

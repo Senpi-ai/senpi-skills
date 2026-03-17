@@ -1,20 +1,20 @@
 ---
 name: condor-strategy
 description: >-
-  CONDOR v1.0 — Multi-asset alpha hunter. Grizzly's three-mode lifecycle
+  CONDOR v1.0.1 — Multi-asset alpha hunter. Grizzly's three-mode lifecycle
   (HUNTING → RIDING → STALKING → RELOAD) across BTC, ETH, SOL, and HYPE.
   Evaluates all four every scan, commits to the single strongest thesis.
   One position at a time. Maximum conviction. Always in the best trade.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.0"
+  version: "1.0.1"
   platform: senpi
   exchange: hyperliquid
   based_on: grizzly-v2.1
 ---
 
-# 🦅 CONDOR v1.0 — Multi-Asset Alpha Hunter
+# 🦅 CONDOR v1.0.1 — Multi-Asset Alpha Hunter
 
 Four assets. One position. Always the strongest thesis.
 

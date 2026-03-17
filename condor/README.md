@@ -1,4 +1,4 @@
-# 🦅 CONDOR v1.0 — Multi-Asset Alpha Hunter
+# 🦅 CONDOR v1.0.1 — Multi-Asset Alpha Hunter
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
@@ -29,3 +29,12 @@ Every 3 min: Score BTC, ETH, SOL, HYPE
 ## License
 
 MIT — see root repo LICENSE.
+
+## Changelog
+
+### v1.0.1
+- Fixed DSL field names: `phase1MaxMinutes` (was `hardTimeoutMinutes`), `deadWeightCutMin` (was `deadWeightCutMinutes`)
+- `highWaterPrice` initialized as `null` (was `0`) — lets dsl-v5.py set from actual entry price on first tick
+- Removed static `absoluteFloor` price values — dsl-v5.py now calculates dynamically from `absoluteFloorRoe`
+- Conviction-scaled margin: 25% (score 10-11), 35% (score 12-13), 45% (score 14+), 35% (reload)
+- Requires dsl-v5.py with Patch 1 (dynamic absoluteFloorRoe calculator) and Patch 2 (highWaterPrice null handling)
