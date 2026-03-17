@@ -102,7 +102,7 @@ def get_sol_full_picture():
 
 
 def get_btc_correlation():
-    """Fetch BTC data to check if it confirms SOL's move."""
+    """Fetch BTC data to check if it confirms SOL's move (BTC as correlation)."""
     data = cfg.mcporter_call("market_get_asset_data", asset="BTC",
                               candle_intervals=["15m", "1h"],
                               include_funding=False, include_order_book=False)
@@ -167,7 +167,7 @@ def get_sol_sm_direction():
 # ─── Thesis Builder (BTC Only) ───────────────────────────────
 
 def build_sol_thesis(entry_cfg):
-    """Build a conviction thesis from every BTC signal source."""
+    """Build a conviction thesis from every SOL signal source."""
 
     sol_data = get_sol_full_picture()
     if not sol_data:
@@ -326,7 +326,7 @@ def build_sol_thesis(entry_cfg):
 # ─── Thesis Re-Evaluation ────────────────────────────────────
 
 def evaluate_sol_position(direction, entry_cfg):
-    """Re-evaluate BTC thesis. Returns (still_valid, invalidation_reasons)."""
+    """Re-evaluate SOL thesis. Returns (still_valid, invalidation_reasons)."""
     sol_data = get_sol_full_picture()
     if not sol_data:
         return True, ["data_unavailable_hold"]
@@ -515,6 +515,53 @@ def evaluate_reload(exit_state, entry_cfg):
         return False, reload_checks
 
 
+# ─── Hardcoded Constants & DSL State Builder ─────────────────
+
+MAX_LEVERAGE = 10         # Capped from 15-20x
+MIN_LEVERAGE = 7
+
+KODIAK_DSL_TIERS = [
+    {"triggerPct": 7,  "lockHwPct": 40, "consecutiveBreachesRequired": 3},
+    {"triggerPct": 12, "lockHwPct": 55, "consecutiveBreachesRequired": 2},
+    {"triggerPct": 15, "lockHwPct": 75, "consecutiveBreachesRequired": 2},
+    {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1},
+]
+
+KODIAK_CONVICTION_TIERS = [
+    {"minScore": 8,  "absoluteFloorRoe": -25, "hardTimeoutMin": 45, "weakPeakCutMin": 20, "deadWeightCutMin": 15},
+    {"minScore": 10, "absoluteFloorRoe": -30, "hardTimeoutMin": 60, "weakPeakCutMin": 30, "deadWeightCutMin": 20},
+    {"minScore": 12, "absoluteFloorRoe": -35, "hardTimeoutMin": 90, "weakPeakCutMin": 45, "deadWeightCutMin": 30},
+]
+
+KODIAK_STAGNATION_TP = {"enabled": True, "roeMin": 10, "hwStaleMin": 45}
+
+
+def build_dsl_state_template(direction, score):
+    """Build exact DSL state file for a Kodiak SOL position."""
+    tier = KODIAK_CONVICTION_TIERS[0]
+    for ct in KODIAK_CONVICTION_TIERS:
+        if score >= ct["minScore"]:
+            tier = ct
+    return {
+        "active": True, "asset": "SOL", "direction": direction, "score": score,
+        "phase": 1, "highWaterPrice": 0, "highWaterRoe": 0,
+        "currentTierIndex": -1, "consecutiveBreaches": 0,
+        "lockMode": "pct_of_high_water", "phase2TriggerRoe": 7,
+        "phase1": {
+            "enabled": True, "retraceThreshold": 0.03, "consecutiveBreachesRequired": 3,
+            "phase1MaxMinutes": tier["hardTimeoutMin"],
+            "weakPeakCutMinutes": tier["weakPeakCutMin"],
+            "deadWeightCutMin": tier["deadWeightCutMin"],
+            "weakPeakCut": {"enabled": True, "intervalInMinutes": tier["weakPeakCutMin"], "minValue": 3.0},
+        },
+        "phase2": {"enabled": True, "retraceThreshold": 0.015, "consecutiveBreachesRequired": 2},
+        "tiers": KODIAK_DSL_TIERS,
+        "stagnationTp": KODIAK_STAGNATION_TP,
+        "execution": {"phase1SlOrderType": "MARKET", "phase2SlOrderType": "MARKET", "breachCloseOrderType": "MARKET"},
+        "_kodiak_version": "1.1",
+    }
+
+
 # ─── Main ─────────────────────────────────────────────────────
 
 def run():
@@ -554,7 +601,7 @@ def run():
                     "reasons": reasons,
                     "upnl": sol_position.get("upnl", 0),
                 }],
-                "note": "BTC thesis invalidated — conviction broken",
+                "note": "SOL thesis invalidated — conviction broken",
             })
             # On thesis exit, go to HUNTING (thesis is dead, don't stalk)
             state["currentMode"] = "HUNTING"
@@ -563,7 +610,7 @@ def run():
             return
 
         cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"RIDING: BTC {sol_position['direction']} thesis intact"})
+                     "note": f"RIDING: SOL {sol_position['direction']} thesis intact"})
         cfg.save_state(state, "kodiak-state.json")
         return
 
@@ -602,8 +649,8 @@ def run():
                 # RELOAD: re-enter same direction
                 direction = exit_state["exitDirection"]
                 lev_cfg = config.get("leverage", {})
-                leverage = lev_cfg.get("default", 15)
-                base_margin_pct = entry_cfg.get("marginPctBase", 0.30)
+                leverage = min(lev_cfg.get("default", 15), MAX_LEVERAGE)
+                base_margin_pct = entry_cfg.get("marginPctBase", 0.25)
                 margin = round(account_value * base_margin_pct, 2)
 
                 state["currentMode"] = "RIDING"
@@ -621,8 +668,9 @@ def run():
                         "margin": margin,
                         "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
                     },
+                    "dslState": build_dsl_state_template(direction, 10),
                     "reasons": reasons,
-                    "note": f"STALKING → RELOAD: fresh impulse confirmed, re-entering BTC {direction}",
+                    "note": f"STALKING → RELOAD: fresh impulse confirmed, re-entering SOL {direction}",
                 })
                 return
 
@@ -668,20 +716,20 @@ def run():
     thesis = build_sol_thesis(entry_cfg)
 
     if not thesis or thesis["score"] < entry_cfg.get("minScore", 10):
-        note = "no BTC thesis" if not thesis else f"BTC score {thesis['score']} below {entry_cfg.get('minScore', 10)}"
+        note = "no SOL thesis" if not thesis else f"SOL score {thesis['score']} below {entry_cfg.get('minScore', 10)}"
         cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": note})
         return
 
     # Conviction-scaled leverage
     lev_cfg = config.get("leverage", {})
     if thesis["score"] >= 14:
-        leverage = lev_cfg.get("max", 20)
+        leverage = min(lev_cfg.get("max", 20), MAX_LEVERAGE)
     elif thesis["score"] >= 12:
-        leverage = lev_cfg.get("high", 18)
+        leverage = min(lev_cfg.get("high", 18), MAX_LEVERAGE)
     elif thesis["score"] >= 10:
-        leverage = lev_cfg.get("default", 15)
+        leverage = min(lev_cfg.get("default", 15), MAX_LEVERAGE)
     else:
-        leverage = lev_cfg.get("min", 12)
+        leverage = min(lev_cfg.get("min", 12), MAX_LEVERAGE)
 
     # Conviction-scaled margin
     base_margin_pct = entry_cfg.get("marginPctBase", 0.30)
@@ -707,6 +755,14 @@ def run():
             "leverage": leverage,
             "margin": margin,
             "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
+        },
+        "dslState": build_dsl_state_template(thesis["direction"], thesis["score"]),
+        "constraints": {
+            "minLeverage": MIN_LEVERAGE,
+            "maxLeverage": MAX_LEVERAGE,
+            "stagnationTp": KODIAK_STAGNATION_TP,
+            "dslTiers": KODIAK_DSL_TIERS,
+            "_dslNote": "Use dslState as the DSL state file. Do NOT merge with dsl-profile.json.",
         },
     })
 

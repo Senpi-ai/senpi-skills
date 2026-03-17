@@ -4,10 +4,10 @@
   "chatId": "",
   "maxPositions": 1,
   "leverage": {
-    "min": 7,
     "default": 10,
-    "high": 11,
-    "max": 12
+    "min": 7,
+    "max": 10,
+    "high": 10
   },
   "entry": {
     "minMom15mPct": 0.2,
