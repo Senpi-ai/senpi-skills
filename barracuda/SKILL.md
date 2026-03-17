@@ -1,7 +1,7 @@
 ---
 name: barracuda-strategy
 description: >-
-  BARRACUDA v1.0 — Funding Decay Collector. Finds assets where extreme funding
+  BARRACUDA v1.0.1 — Funding Decay Collector. Finds assets where extreme funding
   has persisted for 6+ hours, confirmed by SM alignment from Hyperfeed and 4H
   trend structure. Enters to collect funding while riding the trend. Double edge:
   price appreciation + funding income from trapped traders on the other side.
@@ -9,12 +9,12 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.0"
+  version: "1.0.1"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# 🐟 BARRACUDA v1.0 — Funding Decay Collector
+# 🐟 BARRACUDA v1.0.1 — Funding Decay Collector
 
 Collect funding from trapped traders while riding the confirmed trend.
 

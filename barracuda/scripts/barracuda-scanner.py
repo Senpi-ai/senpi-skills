@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Senpi BARRACUDA Scanner v1.0
+# Senpi BARRACUDA Scanner v1.0.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
@@ -276,8 +276,8 @@ def build_dsl_state_template(asset, direction, score):
         "direction": direction,
         "score": score,
         "phase": 1,
-        "highWaterPrice": 0,
-        "highWaterRoe": 0,
+        "highWaterPrice": None,
+        "highWaterRoe": None,
         "currentTierIndex": -1,
         "consecutiveBreaches": 0,
         "lockMode": "pct_of_high_water",
@@ -286,17 +286,16 @@ def build_dsl_state_template(asset, direction, score):
             "enabled": True,
             "retraceThreshold": 0.03,
             "consecutiveBreachesRequired": 3,
-            "hardTimeoutMinutes": 0,
+            "phase1MaxMinutes": 0,
             "weakPeakCutMinutes": 0,
-            "deadWeightCutMinutes": 30,
-            "absoluteFloor": 0.03,
+            "deadWeightCutMin": 30,
             "absoluteFloorRoe": -20,
         },
         "phase2": {"enabled": True, "retraceThreshold": 0.015, "consecutiveBreachesRequired": 2},
         "tiers": BARRACUDA_DSL_TIERS,
         "stagnationTp": BARRACUDA_STAGNATION_TP,
         "execution": {"phase1SlOrderType": "MARKET", "phase2SlOrderType": "MARKET", "breachCloseOrderType": "MARKET"},
-        "_barracuda_version": "1.0",
+        "_barracuda_version": "1.0.1",
         "_note": "Funding position — wider stops, patient stagnation TP. Yield accumulates over time.",
     }
 
