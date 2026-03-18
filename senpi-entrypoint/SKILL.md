@@ -121,7 +121,7 @@ Load and follow the `senpi-onboard` skill instructions. Pass this context:
 
 Send the welcome message from the **Post-Onboarding Welcome** section of
 [post-onboarding.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/post-onboarding.md).
-Do not add balance or funding text — you do not have balance data yet; Step 2.5 fetches it and surfaces the appropriate funding message. Present the three options and wait for the user to respond.
+Do not add balance or funding text — you do not have balance data yet; Step 2.5 fetches it and surfaces the appropriate funding message. Present the full welcome template (including the three options and the Agents Arena line) and wait for the user to respond.
 
 **STOP. Do NOT render the strategy catalog here.** The catalog is only shown if the user explicitly asks (see **Strategy Catalog** in the same post-onboarding reference). When rendering the catalog, always fetch it dynamically from:
 
