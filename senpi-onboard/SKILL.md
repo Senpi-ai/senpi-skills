@@ -27,6 +27,8 @@ Onboard an AI agent into the Senpi trading platform. After this flow the agent w
 - `SENPI_MCP_ENDPOINT`: `https://mcp.prod.senpi.ai` (use this if `{{SENPI_MCP_ENDPOINT}}` is a literal unsubstituted placeholder)
 - `REFERRAL_CODE`: empty/optional (use this if `{{REFERRAL_CODE}}` is a literal unsubstituted placeholder)
 
+**Arena intent hard-gate:** If the user's message contains "arena", "agents arena", "competition", "prize pool", "qualify", "qualification", "weekly cycle", or "weekly competition" — call `read_senpi_guide(uri="senpi://guides/arena")` before composing any answer. Do not use web search or leaderboard data for Arena questions. Full routing rules in [references/post-onboarding.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-onboard/references/post-onboarding.md).
+
 ---
 
 ## Onboarding Flow

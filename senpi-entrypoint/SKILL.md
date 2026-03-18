@@ -70,6 +70,8 @@ check in
 reuse the captured `UPDATE_OUTPUT` for all downstream response contracts.
 Do not run the same check a second time in the same invocation.
 
+**Arena intent hard-gate:** If the user's message contains "arena", "agents arena", "competition", "prize pool", "qualify", "qualification", "weekly cycle", or "weekly competition" — call `read_senpi_guide(uri="senpi://guides/arena")` before composing any answer. Do not use web search or leaderboard data for Arena questions. Full routing rules in [references/post-onboarding.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/post-onboarding.md).
+
 ---
 
 ## Initial check: Skip only Step 1 if already authenticated
