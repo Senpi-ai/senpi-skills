@@ -9,7 +9,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.0"
+  version: "1.0.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -127,6 +127,34 @@ Minimum score: 7.
 | Scanner | 90s | main |
 | DSL | 3 min | isolated |
 
+## Cron Setup (CRITICAL — Read This)
+
+The previous Phoenix deployment failed because the DSL cron was configured with a wrong command (`npx skills exec` instead of the Python script). Positions sat unmanaged for 10 hours. BTC lost -$76 and ETH lost -$73 that should have been cut within 30-45 minutes.
+
+**The exact cron commands:**
+
+Scanner cron (every 90 seconds, main session, systemEvent):
+```
+python3 /data/workspace/skills/phoenix-strategy/scripts/phoenix-scanner.py
+```
+
+DSL cron (every 3 minutes, isolated session, agentTurn):
+```
+python3 /data/workspace/skills/dsl-dynamic-stop-loss/scripts/dsl-v5.py --state-dir /data/workspace/skills/phoenix-strategy/state
+```
+
+**DO NOT use `npx skills exec` or any other wrapper.** Run the Python scripts directly. Verify both crons are `status: ok` after creation.
+
+## Bootstrap Gate
+
+On EVERY session, check `config/bootstrap-complete.json`. If missing:
+1. Verify Senpi MCP connected
+2. Create scanner cron (90s, main) with the EXACT command above
+3. Create DSL cron (3 min, isolated) with the EXACT command above
+4. Verify both crons show `status: ok` via `openclaw crons list`
+5. Write `config/bootstrap-complete.json`
+6. Send: "🔥 PHOENIX v1.0.1 online. Contribution velocity scanner active. Silence = no conviction."
+
 ## Files
 
 | File | Purpose |
@@ -138,3 +166,13 @@ Minimum score: 7.
 ## License
 
 MIT — Built by Senpi (https://senpi.ai).
+
+## Changelog
+
+### v1.0.1
+- Added explicit cron commands to SKILL.md to prevent DSL cron misconfiguration
+- Added bootstrap gate with cron verification step
+- No scanner logic changes — v1.0 code was correct, the bug was agent-side cron setup
+
+### v1.0
+- Initial release — contribution velocity scanner using `contribution_pct_change_4h`
