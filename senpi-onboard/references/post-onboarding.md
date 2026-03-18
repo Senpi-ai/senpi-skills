@@ -49,7 +49,7 @@ To get started:
 
 🟢 "I'm new" — I'll walk you through your first trade.
 🔵 "Show me the strategies" — Full catalog of AI trading strategies I can deploy.
-🟡 "Set me up" — I'll deploy {TOP_NAME} (+{TOP_ROE}% ROE), our current top performer, and get you trading in under a minute.
+🟡 "Set me up" — I'll deploy {TOP_NAME} ({TOP_ROE}% ROE), our current top performer, and get you trading in under a minute.
 
 All strategies are open source and tracked live at strategies.senpi.ai
 ```
@@ -161,7 +161,7 @@ If the user asks what to deploy, fetch the leaderboard and filter by `min_budget
 
 | Balance | Recommended | Why |
 |---|---|---|
-| < $500 | None — fund to $500+ | Check leaderboard for any strategies with min_budget below $500 |
+| < $500 | Strategies with `min_budget ≤ balance` (if any), otherwise fund to $500+ | Dynamic — check leaderboard for strategies with min_budget below $500 |
 | $500–$2,000 | Top strategies with min_budget ≤ balance (from leaderboard) | Mid-range, multiple options available |
 | $2,000–$5,000 | Any strategy from leaderboard | Full catalog available |
 | > $5,000 | Highest min_budget strategies or run multiple | Enough for high-leverage or multi-position strategies |
