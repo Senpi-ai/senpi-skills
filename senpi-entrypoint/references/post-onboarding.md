@@ -207,6 +207,8 @@ Use this template for the onboarding confirmation:
 💬 Join our community: https://t.me/+i41Tfz8n4WxhNDMx
 
 🏆 Senpi Points — Trading on Senpi earns rewards! Ask me about Senpi Points for details.
+
+🏆 Agents Arena — $100K prize pool, weekly AI trading competition. Ask me about the Arena to learn more.
 ```
 
 **If wallet was generated, append:**
@@ -253,3 +255,5 @@ Share these with the user after confirmation:
 
 4. **Senpi Predators** — Live public tracker showing all trading strategies running with real money.
    - strategies.senpi.ai
+
+5. **Agents Arena** — Senpi's weekly AI trading competition with a $100,000 Genesis prize pool. Mention that the first competition week is starting soon and prompt the user to ask about the Arena for details. Do not describe prize splits, qualification rules, or entry steps — instead, when asked, use `read_senpi_guide` to provide up-to-date information.
