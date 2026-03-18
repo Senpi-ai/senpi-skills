@@ -95,9 +95,9 @@ Fetch live strategy data from the senpi-agent-tracker MCP. Do NOT hardcode skill
      -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_leaderboard","arguments":{"sort_by":"roe","limit":50}}}'
    ```
 
-2. Filter `list_strategies` to `active: true` entries only. Build a leaderboard lookup map: `slug → { roe, totalTrades }`.
-3. For each active strategy, join leaderboard data on `slug`. Sort by ROE descending (strategies with no leaderboard data go last).
-4. For each strategy, show: `{emoji} {name} — {tagline}` and append live stats if available: `+X% ROE · X trades`. Do NOT show dollar PnL amounts — percentages only.
+2. Include all strategies from `list_strategies`. Build a leaderboard lookup map: `slug → { roe, totalTrades }`.
+3. For each strategy, join leaderboard data on `slug`. Sort active strategies by ROE descending first, then paused strategies (by ROE descending) at the bottom.
+4. For each strategy, show: `{emoji} {name} — {tagline}` and append live stats if available: `+X% ROE · X trades`. Append `(Paused)` for `active: false` strategies. Do NOT show dollar PnL amounts — percentages only. Do NOT omit trade counts for paused strategies — show their historical data.
 5. If user's balance is known and `min_budget` is available in the leaderboard response, highlight strategies where `min_budget <= balance` and note which ones need more capital.
 
 **Template:**
