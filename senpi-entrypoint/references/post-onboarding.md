@@ -21,7 +21,25 @@ Senpi is a trading platform on Hyperliquid — a high-performance perpetual futu
 
 Send ONLY this message. Do NOT render the strategy catalog here — wait for the user to respond and choose a path.
 
-**Do not include balance or funding status here.** Balance is fetched in Step 2.5 (after this message); Step 2.5 will surface either a balance summary (if funded) or the funding reminder (if &lt; $100). Use the template below as-is.
+**Do not include balance or funding status here.** Balance is fetched in Step 2.5 (after this message); Step 2.5 will surface either a balance summary (if funded) or the funding reminder (if &lt; $100).
+
+**Before rendering this message**, fetch the top strategy so the "Set me up" line can name it. Run both calls in parallel:
+
+```bash
+# Leaderboard — top 1 by ROE
+curl -s -X POST https://ypofdvbavcdgseguddey.supabase.co/functions/v1/mcp-server \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_leaderboard","arguments":{"sort_by":"roe","limit":1}}}'
+
+# Strategy metadata
+curl -s -X POST https://ypofdvbavcdgseguddey.supabase.co/functions/v1/mcp-server \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_strategies","arguments":{}}}'
+```
+
+Join on `slug` to get the top strategy's `name`, `emoji`, `roe`, and `slug`. If either fetch fails, omit the name/ROE and fall back to the generic wording.
+
+Render the template substituting `{TOP_NAME}` and `{TOP_ROE}`:
 
 ```
 Welcome to Senpi! You're set up on Hyperliquid.
@@ -31,10 +49,15 @@ I'm your AI trading agent. I can run autonomous strategies that scan markets 24/
 To get started:
 
 🟢 "I'm new" — I'll walk you through your first trade.
-🔵 "Show me the strategies" — Full catalog of 15+ AI trading strategies I can deploy.
-🟡 "Set me up" — I'll deploy FOX, our top performer, and get you trading in under a minute.
+🔵 "Show me the strategies" — Full catalog of AI trading strategies I can deploy.
+🟡 "Set me up" — I'll deploy {TOP_NAME} (+{TOP_ROE}% ROE), our current top performer, and get you trading in under a minute.
 
 All strategies are open source and tracked live at strategies.senpi.ai
+```
+
+Fallback if leaderboard unavailable:
+```
+🟡 "Set me up" — I'll deploy our current top-performing strategy and get you trading in under a minute.
 ```
 
 ---
@@ -51,44 +74,38 @@ Walk them through the `senpi-getting-started-guide` interactive tutorial:
 2. **Position sizing** — Understand leverage and risk
 3. **Open position** — Enter a small test trade ($50, 3x)
 4. **Monitor & close** — Take profit or cut losses
-5. **Next steps** — Recommend deploying FOX as their first autonomous strategy
+5. **Next steps** — Recommend deploying the current top-performing strategy (fetch via `get_leaderboard` sorted by ROE, pick #1) as their first autonomous strategy
 
 ### If user says "Show me the strategies"
 
-Build the catalog dynamically from `catalog.json` in the repo root. Do NOT hardcode skill names. Do NOT show this unless the user asked.
+Fetch live strategy data from the senpi-agent-tracker MCP. Do NOT hardcode skill names. Do NOT show this unless the user asked.
 
 **How to render:**
-1. Fetch the skill catalog:
+1. Run both calls in parallel:
 
    ```bash
-   CATALOG=$(curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json)
-   ```
-
-2. Parse `CATALOG` as JSON (do not read from a local file — use the fetched content)
-3. Fetch live performance data from the senpi-agent-tracker:
-
-   ```bash
+   # All strategy metadata (name, slug, emoji, tagline)
    curl -s -X POST https://ypofdvbavcdgseguddey.supabase.co/functions/v1/mcp-server \
      -H "Content-Type: application/json" \
-     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_leaderboard","arguments":{"sort_by":"roe","limit":15}}}'
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_strategies","arguments":{}}}'
+
+   # Live performance data
+   curl -s -X POST https://ypofdvbavcdgseguddey.supabase.co/functions/v1/mcp-server \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_leaderboard","arguments":{"sort_by":"roe","limit":50}}}'
    ```
 
-   Parse the response and build a lookup map: `slug → { roe, totalPnl, totalTrades }`.
-
-4. Group by `group` field, using the `groups` array for display order, emoji, and label
-5. Sort within each group by `sort_order`
-6. For each skill, show: `{emoji} {name} — {tagline}` and append live performance stats if the skill's `tracker_slug` is in the leaderboard map. Format: `+32.1% ROE · 82 trades`. Do NOT show dollar PnL amounts — percentages only. If no live data, omit the performance stat entirely — do not show stale numbers.
-7. If user's balance is known, highlight skills where `min_budget <= balance` and note which ones need more capital
+2. Filter `list_strategies` to `active: true` entries only. Build a leaderboard lookup map: `slug → { roe, totalTrades }`.
+3. For each active strategy, join leaderboard data on `slug`. Sort by ROE descending (strategies with no leaderboard data go last).
+4. For each strategy, show: `{emoji} {name} — {tagline}` and append live stats if available: `+X% ROE · X trades`. Do NOT show dollar PnL amounts — percentages only.
+5. If user's balance is known and `min_budget` is available in the leaderboard response, highlight strategies where `min_budget <= balance` and note which ones need more capital.
 
 **Template:**
 ```
 Senpi Predators — AI trading strategies, all open source, all tracked live.
 
-{for each group in catalog.groups}
-{group.emoji} {group.label}:
-{for each skill in group, sorted by sort_order}
-{skill.emoji} {skill.name} — {skill.tagline} [{+X% ROE · X trades} if live data present, omit if no data]
-{end}
+{for each strategy, sorted by ROE descending, grouped by category if available}
+{emoji} {name} — {description} [+X% ROE · X trades]
 {end}
 
 All tracked live at strategies.senpi.ai
@@ -96,31 +113,61 @@ All tracked live at strategies.senpi.ai
 Which sounds interesting? I can explain any in detail or deploy one right now.
 ```
 
-**When we add a new skill:** add one entry to `catalog.json`. The agent picks it up automatically on next onboarding. No agent code changes needed.
+**When a new strategy is added to the MCP:** it appears automatically in the leaderboard. No agent code changes needed.
+
+---
+
+### Skill Installation — Slug Resolution
+
+Use this whenever installing any strategy skill, regardless of how the user triggered it ("Set me up", picked from catalog, budget recommendation, etc.).
+
+The leaderboard returns a `slug` (e.g. `fox`, `tiger`, `ghost-fox`). The `npx skills add` command requires the skill folder name, which sometimes differs. Resolve as follows:
+
+```bash
+# Try the slug directly first
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill "${SLUG}" -g -y 2>/dev/null || \
+# Fall back to {slug}-strategy
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill "${SLUG}-strategy" -g -y
+```
+
+This covers all known cases: slugs that match directly (e.g. `fox`, `viper`, `cobra`) and slugs that need the `-strategy` suffix (e.g. `tiger` → `tiger-strategy`, `ghost-fox` → `ghost-fox-strategy`, `mamba` → `mamba-strategy`).
+
+---
 
 ### If user says "Set me up" or "skip tutorial"
 
-Deploy FOX immediately — go through the full setup end to end without stopping:
+Fetch the leaderboard to identify the current top-performing strategy, then deploy it immediately — go through the full setup end to end without stopping:
 
-1. Install fox-strategy:
+1. Fetch the leaderboard sorted by ROE to identify the #1 strategy:
    ```bash
-   npx skills add https://github.com/Senpi-ai/senpi-skills --skill fox-strategy -g -y
+   curl -s -X POST https://ypofdvbavcdgseguddey.supabase.co/functions/v1/mcp-server \
+     -H "Content-Type: application/json" \
+     -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_leaderboard","arguments":{"sort_by":"roe","limit":1}}}'
    ```
-2. Read the installed SKILL.md and run the full bootstrap — create the strategy wallet, fund it, run setup, create all crons. Do not stop to ask for permission between steps. If a step requires user input (e.g. budget amount), ask once and proceed.
-3. Confirm when live: "🦊 FOX is deployed and scanning. You'll get Telegram alerts when positions open or close. It runs 24/7 — you don't need to do anything."
+   Extract the top strategy's `slug` and `name`. Call the slug `TOP_SKILL`.
 
-**Do not tell the user FOX is unavailable or can't be installed as a standalone.** Always attempt the install above and proceed with setup.
+2. Install using the slug resolution convention above:
+   ```bash
+   npx skills add https://github.com/Senpi-ai/senpi-skills --skill "${TOP_SKILL}" -g -y 2>/dev/null || \
+   npx skills add https://github.com/Senpi-ai/senpi-skills --skill "${TOP_SKILL}-strategy" -g -y
+   ```
+3. Read the installed SKILL.md and run the full bootstrap — create the strategy wallet, fund it, run setup, create all crons. Do not stop to ask for permission between steps. If a step requires user input (e.g. budget amount), ask once and proceed.
+4. Confirm when live: "{name} is deployed and scanning. You'll get Telegram alerts when positions open or close. It runs 24/7 — you don't need to do anything."
+
+**If the leaderboard fetch fails**, default to installing `fox-strategy` (historically the top performer) and proceed. Do not block setup on a failed leaderboard call.
 
 ### Budget-Based Recommendations
 
-If the user asks what to deploy, recommend based on their balance:
+If the user asks what to deploy, fetch the leaderboard and filter by `min_budget` if that field is available in the response. Recommend based on their balance:
 
 | Balance | Recommended | Why |
 |---|---|---|
-| < $500 | None — fund to $500+ | No catalog skill has min_budget below $500 |
-| $500-$2,000 | FOX, Viper, Cobra, Scorpion, Wolf, Croc, Owl, Cheetah, Hawk, Shark, Dire Wolf | Mid-range, multiple options |
-| $2,000-$5,000 | Any skill | Full catalog available |
-| > $5,000 | Grizzly, Bison, Tiger, or multi-skill | Enough for high-leverage or multi-position strategies |
+| < $500 | None — fund to $500+ | Check leaderboard for any strategies with min_budget below $500 |
+| $500–$2,000 | Top strategies with min_budget ≤ balance (from leaderboard) | Mid-range, multiple options available |
+| $2,000–$5,000 | Any strategy from leaderboard | Full catalog available |
+| > $5,000 | Highest min_budget strategies or run multiple | Enough for high-leverage or multi-position strategies |
+
+Always lead with the current #1 by ROE from the leaderboard as the primary recommendation.
 
 ---
 
@@ -130,7 +177,7 @@ If the user asks what to deploy, recommend based on their balance:
 
 **DO NOT explain crons, mcporter, DSL internals, or implementation details** unless the user asks. They deployed a trading agent — show them trading strategies, not plumbing.
 
-**DO lead with FOX** as the default recommendation. It's the top performer (check live ROE via `get_leaderboard`), includes both copy trading and autonomous mode, and works with any balance above $500.
+**DO lead with the current #1 strategy by ROE** from `get_leaderboard` as the default recommendation. Always fetch fresh leaderboard data rather than assuming a fixed strategy is on top.
 
 ---
 
