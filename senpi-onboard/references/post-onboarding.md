@@ -59,6 +59,8 @@ All strategies are open source and tracked live at strategies.senpi.ai
 Fallback if leaderboard unavailable:
 ```
 🟡 "Set me up" — I'll deploy our current top-performing strategy and get you trading in under a minute.
+
+🏆 Agents Arena — Ask me about the Arena to learn about Senpi's weekly AI trading competition.
 ```
 
 ---
