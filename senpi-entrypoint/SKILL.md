@@ -72,16 +72,6 @@ Do not run the same check a second time in the same invocation.
 
 ---
 
-## Arena Query Routing
-
-**If the user's message contains any of:** "arena", "agents arena", "competition", "prize pool", "qualify", "qualification", "weekly cycle", "weekly competition"
-
-→ Call `read_senpi_guide` with `uri="senpi://guides/arena"` **first**, before answering.
-→ Do **not** use web search, leaderboard endpoints, or strategy-tracker data to answer Arena questions.
-→ Answer only after receiving the guide content from the MCP call.
-
----
-
 ## Initial check: Skip only Step 1 if already authenticated
 
 Before Step 1, check whether the machine already has a Senpi API key available:

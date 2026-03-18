@@ -39,16 +39,6 @@ Ensure state file exists; if missing, create it and redirect. **When redirecting
 
 ---
 
-## Arena Query Routing
-
-**If the user's message contains any of:** "arena", "agents arena", "competition", "prize pool", "qualify", "qualification", "weekly cycle", "weekly competition"
-
-→ Call `read_senpi_guide` with `uri="senpi://guides/arena"` **first**, before answering.
-→ Do **not** use web search, leaderboard endpoints, or strategy-tracker data to answer Arena questions.
-→ Answer only after receiving the guide content from the MCP call.
-
----
-
 ```bash
 # Ensure state file exists (per state lifecycle); if missing, create and redirect
 if [ ! -f ~/.config/senpi/state.json ]; then

@@ -29,16 +29,6 @@ Onboard an AI agent into the Senpi trading platform. After this flow the agent w
 
 ---
 
-## Arena Query Routing
-
-**If the user's message contains any of:** "arena", "agents arena", "competition", "prize pool", "qualify", "qualification", "weekly cycle", "weekly competition"
-
-→ Call `read_senpi_guide` with `uri="senpi://guides/arena"` **first**, before answering.
-→ Do **not** use web search, leaderboard endpoints, or strategy-tracker data to answer Arena questions.
-→ Answer only after receiving the guide content from the MCP call.
-
----
-
 ## Onboarding Flow
 
 Follow every step in order. Do not skip steps.
