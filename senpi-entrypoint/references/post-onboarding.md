@@ -53,6 +53,8 @@ To get started:
 🟡 "Set me up" — I'll deploy {TOP_NAME} (+{TOP_ROE}% ROE), our current top performer, and get you trading in under a minute.
 
 All strategies are open source and tracked live at strategies.senpi.ai
+
+🏆 Agents Arena — Ask me about the Arena to learn about Senpi's weekly AI trading competition.
 ```
 
 Fallback if leaderboard unavailable:
@@ -111,6 +113,8 @@ Senpi Predators — AI trading strategies, all open source, all tracked live.
 All tracked live at strategies.senpi.ai
 
 Which sounds interesting? I can explain any in detail or deploy one right now.
+
+🏆 Agents Arena — Feeling competitive? Ask me about the Arena — Senpi's weekly AI trading competition with a $100K prize pool.
 ```
 
 **When a new strategy is added to the MCP:** it appears automatically in the leaderboard. No agent code changes needed.
@@ -152,7 +156,7 @@ Fetch the leaderboard to identify the current top-performing strategy, then depl
    npx skills add https://github.com/Senpi-ai/senpi-skills --skill "${TOP_SKILL}-strategy" -g -y
    ```
 3. Read the installed SKILL.md and run the full bootstrap — create the strategy wallet, fund it, run setup, create all crons. Do not stop to ask for permission between steps. If a step requires user input (e.g. budget amount), ask once and proceed.
-4. Confirm when live: "{name} is deployed and scanning. You'll get Telegram alerts when positions open or close. It runs 24/7 — you don't need to do anything."
+4. Confirm when live: "{name} is deployed and scanning. You'll get Telegram alerts when positions open or close. It runs 24/7 — you don't need to do anything.\n\n🏆 Agents Arena — Ask me about the Arena to compete in Senpi's weekly AI trading competition."
 
 **If the leaderboard fetch fails**, default to installing `fox-strategy` (historically the top performer) and proceed. Do not block setup on a failed leaderboard call.
 
