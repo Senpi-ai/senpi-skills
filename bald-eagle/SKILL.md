@@ -1,3 +1,17 @@
+---
+name: bald-eagle
+description: >-
+  BALD EAGLE v1.0 — Autonomous trading agent that exclusively trades XYZ tokenized
+  equities on Hyperliquid's xyz dex. Purpose-built for how XYZ actually behaves with
+  lower SM trader counts, lower leverage caps, and session-driven volatility.
+license: MIT
+metadata:
+  author: jason-goldberg
+  version: "1.0"
+  platform: senpi
+  exchange: hyperliquid
+---
+
 # BALD EAGLE v1.0 — Agent Skill Specification
 
 ## Identity
@@ -220,3 +234,8 @@ If either cron fails verification, alert the user immediately (this qualifies as
 - Max 1 position at a time. This is intentional.
 - Per-asset cooldown of 120 minutes after any Phase 1 exit.
 - You run in a SEPARATE vault from crypto strategies.
+
+## License
+
+MIT — Built by Senpi (https://senpi.ai).
+Source: https://github.com/Senpi-ai/senpi-skills

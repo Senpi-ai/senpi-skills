@@ -10,7 +10,12 @@ description: >-
   Dynamic risk-based leverage per strategy.
   Requires Senpi MCP connection, python3, mcporter CLI, OpenClaw cron system, and
   dsl-dynamic-stop-loss skill (provides dsl-cli.py + dsl-v5.py).
-
+license: MIT
+metadata:
+  author: jason-goldberg
+  version: "6.3"
+  platform: senpi
+  exchange: hyperliquid
 ---
 
 # WOLF v6.3 — Autonomous Multi-Strategy Trading
@@ -520,3 +525,8 @@ See `references/learnings.md` for known bugs, gotchas, and trading discipline ru
 | `scripts/wolf-migrate-dsl.py` | One-time migration: moves DSL state from v4 path to v5.2 path |
 | *(DSL skill)* `dsl-cli.py` | DSL lifecycle CLI: `add-dsl`, `delete-dsl`, `pause-dsl`, `resume-dsl` |
 | *(DSL skill)* `dsl-v5.py` | DSL cron runner: trailing stops + native HL SL sync, one per strategy |
+
+## License
+
+MIT — Built by Senpi (https://senpi.ai).
+Source: https://github.com/Senpi-ai/senpi-skills

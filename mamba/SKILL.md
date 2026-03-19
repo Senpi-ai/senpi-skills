@@ -1,3 +1,17 @@
+---
+name: mamba
+description: >-
+  MAMBA v2.0 — Range-bound high water + regime protection. A trading strategy
+  config override based on the VIPER skill with three protective gates: BTC regime
+  filter, per-asset cooldown after losses, and hard leverage cap at 10x.
+license: MIT
+metadata:
+  author: jason-goldberg
+  version: "2.0"
+  platform: senpi
+  exchange: hyperliquid
+---
+
 # 🐍 MAMBA v2.0 — Range-Bound High Water + Regime Protection
 
 A trading strategy (config override) based on the VIPER skill. Same scanner, same range detection, same support/resistance entries. Three new protective gates from v1.0 live data (37 trades, -31.4% ROI, $136 in fees).
@@ -212,3 +226,8 @@ If ALL pass → enter. If any fails → skip, NO_REPLY.
 | Avg loser | -$11.42 | -$8-12 (no 15x blowups, faster cooldown) |
 | Fee drag/day | $45+ | ~$15-20 |
 | Net PnL/day | -$100+ | Target breakeven to +$20 |
+
+## License
+
+MIT — Built by Senpi (https://senpi.ai).
+Source: https://github.com/Senpi-ai/senpi-skills

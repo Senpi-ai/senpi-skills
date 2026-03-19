@@ -31,6 +31,12 @@ The FOX hunts for its human. It scans, enters, exits, and rotates positions auto
 
 ---
 
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `docs/skill-attribution.md` for details.
+
+---
+
 ## Quick Start
 
 1. Ensure Senpi MCP is connected (`mcporter list` should show `senpi`)
