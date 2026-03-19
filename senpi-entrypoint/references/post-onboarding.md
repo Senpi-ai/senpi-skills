@@ -33,13 +33,13 @@ Send ONLY this message. Do NOT render the strategy catalog here — wait for the
 
 **Do not include balance or funding status here.** Balance is fetched in Step 2.5 (after this message); Step 2.5 will surface either a balance summary (if funded) or the funding reminder (if &lt; $100).
 
-**Before rendering this message**, fetch the top strategy so the "Set me up" line can name it. Run both calls in parallel:
+**Before rendering this message**, fetch the top two strategies so the "Set me up" line can offer ranked choices when available. Run both calls in parallel:
 
 ```bash
-# Leaderboard — top 1 by ROE
+# Leaderboard — top 2 by ROE
 curl -s -X POST https://ypofdvbavcdgseguddey.supabase.co/functions/v1/mcp-server \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_leaderboard","arguments":{"sort_by":"roe","limit":1}}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_leaderboard","arguments":{"sort_by":"roe","limit":2}}}'
 
 # Strategy metadata
 curl -s -X POST https://ypofdvbavcdgseguddey.supabase.co/functions/v1/mcp-server \
@@ -47,9 +47,14 @@ curl -s -X POST https://ypofdvbavcdgseguddey.supabase.co/functions/v1/mcp-server
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_strategies","arguments":{}}}'
 ```
 
-Join on `slug` to get the top strategy's `name`, `emoji`, `roe`, and `slug`. If either fetch fails, omit the name/ROE and fall back to the generic wording.
+Join on `slug` to get each top strategy's `name`, `emoji`, `roe`, and `slug`.
 
-Render the template substituting `{TOP_NAME}` and `{TOP_ROE}`:
+Render rules:
+- If both fetches succeed and you have **2 joined strategies**, render the "Set me up" block with `{TOP1_NAME}/{TOP1_ROE}` and `{TOP2_NAME}/{TOP2_ROE}`.
+- If both fetches succeed and you have **exactly 1 joined strategy**, render the single-strategy "Set me up" block with `{TOP1_NAME}/{TOP1_ROE}` only (no second placeholder, no second numbered option).
+- If either fetch fails, or you have **0 joined strategies**, use the generic fallback wording with no strategy names/ROE values.
+
+Template for 2 joined strategies:
 
 ```
 Welcome to Senpi! You're set up on Hyperliquid.
@@ -60,14 +65,23 @@ To get started:
 
 🟢 "I'm new" — I'll walk you through your first trade.
 🔵 "Show me the strategies" — Full catalog of AI trading strategies I can deploy.
-🟡 "Set me up" — I'll deploy {TOP_NAME} (+{TOP_ROE}% ROE), our current top performer, and get you trading in under a minute.
+🟡 "Set me up" — pick a top performer and I'll deploy it:
+   1) {TOP1_NAME} (+{TOP1_ROE}% ROE)
+   2) {TOP2_NAME} (+{TOP2_ROE}% ROE)
 
 All strategies are open source and tracked live at strategies.senpi.ai
 
 🏆 Agents Arena — Ask me about the Arena to learn about Senpi's weekly AI trading competition.
 ```
 
-Fallback if leaderboard unavailable:
+Template for exactly 1 joined strategy:
+```
+🟡 "Set me up" — I'll deploy {TOP1_NAME} (+{TOP1_ROE}% ROE), our current top performer, and get you trading in under a minute.
+
+🏆 Agents Arena — Ask me about the Arena to learn about Senpi's weekly AI trading competition.
+```
+
+Fallback if leaderboard unavailable or no joined strategies:
 ```
 🟡 "Set me up" — I'll deploy our current top-performing strategy and get you trading in under a minute.
 
