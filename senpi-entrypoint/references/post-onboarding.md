@@ -47,9 +47,14 @@ curl -s -X POST https://ypofdvbavcdgseguddey.supabase.co/functions/v1/mcp-server
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"list_strategies","arguments":{}}}'
 ```
 
-Join on `slug` to get the top 2 strategies' `name`, `emoji`, `roe`, and `slug`. Label them `TOP1` (rank 1) and `TOP2` (rank 2). If either fetch fails, omit the names/ROE and fall back to the generic wording.
+Join on `slug` to get the top strategies' `name`, `emoji`, `roe`, and `slug`.
 
-Render the template substituting `{TOP1_NAME}`, `{TOP1_ROE}`, `{TOP2_NAME}`, and `{TOP2_ROE}`:
+Handle leaderboard result count explicitly:
+- **2 results:** label them `TOP1` (rank 1) and `TOP2` (rank 2), then render the 2-option template.
+- **1 result:** label it `TOP1` and render the 1-option template (do not reference `TOP2` placeholders).
+- **0 results or either fetch fails:** omit names/ROE and use the generic fallback wording.
+
+Render the 2-option template substituting `{TOP1_NAME}`, `{TOP1_ROE}`, `{TOP2_NAME}`, and `{TOP2_ROE}`:
 
 ```
 Welcome to Senpi! You're set up on Hyperliquid.
@@ -69,7 +74,15 @@ All strategies are open source and tracked live at strategies.senpi.ai
 🏆 Agents Arena — Ask me about the Arena to learn about Senpi's weekly AI trading competition.
 ```
 
-Fallback if leaderboard unavailable:
+Render this 1-option template when only one leaderboard result is available:
+```
+🟡 "Set me up" — Deploy our current top performer and start trading in under a minute:
+   1️⃣ {TOP1_NAME} (+{TOP1_ROE}% ROE)
+
+🏆 Agents Arena — Ask me about the Arena to learn about Senpi's weekly AI trading competition.
+```
+
+Fallback if leaderboard unavailable or empty:
 ```
 🟡 "Set me up" — I'll deploy our current top-performing strategy and get you trading in under a minute.
 
