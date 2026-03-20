@@ -8,9 +8,10 @@
     "assetCooldownMinutes": 120,
     "stalker": {
       "minConsecutiveScans": 3,
-      "minTotalClimb": 5,
-      "minScore": 6,
-      "requireVolumeBuilding": true
+      "minTotalClimb": 8,
+      "minScore": 7,
+      "requireVolumeBuilding": true,
+      "_v1.2": "minScore raised from 6 to 7, minTotalClimb from 5 to 8 based on Fox data"
     },
     "striker": {
       "minScore": 9,
@@ -44,7 +45,7 @@
     "phase1DeadWeightMin": 10,
     "floorBase": 0.02,
     "convictionTiers": [
-      {"minScore": 6, "absoluteFloorRoe": -20, "hardTimeoutMin": 30, "weakPeakCutMin": 15, "deadWeightCutMin": 10},
+      {"minScore": 6, "absoluteFloorRoe": -18, "hardTimeoutMin": 25, "weakPeakCutMin": 12, "deadWeightCutMin": 8, "_v1.2": "tighter for low-score: Fox weak peak bleed fix"},
       {"minScore": 8, "absoluteFloorRoe": -25, "hardTimeoutMin": 45, "weakPeakCutMin": 20, "deadWeightCutMin": 15},
       {"minScore": 10, "absoluteFloorRoe": -30, "hardTimeoutMin": 60, "weakPeakCutMin": 30, "deadWeightCutMin": 20}
     ],

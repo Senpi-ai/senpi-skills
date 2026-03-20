@@ -1,45 +1,36 @@
-# 🐋 ORCA v1.1.1 — Hardened Dual-Mode Scanner
+# 🐋 ORCA v1.2 — Hardened Dual-Mode Scanner + Fox's Lessons
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## What ORCA Does
+## What v1.2 Changes
 
-ORCA is the definitive version of the Vixen/Fox dual-mode emerging movers scanner. Every lesson from 5+ days of live trading across 22 agents is hardcoded into the scanner itself.
+Fox v1.0 ran the Orca scanner live for 5+ days. 17 of 20 closed positions were Stalker entries at score 6-7 with a 17.6% win rate (-$91.32 net). The "weak peak bleed": trades bump +0.5%, stall, DSL cuts for $3-$10.
 
-v1.1 adds the DSL state template directly in scanner output — the agent writes it as the state file, bypassing dsl-profile.json and wolf_config.py builders that broke every other agent's DSL config.
-
-## v1.1 Changes (DSL Audit)
-
-| Bug Found | Agents Affected | Fix in v1.1 |
+| Fix | v1.1.1 | v1.2 |
 |---|---|---|
-| Phase 1 breaches = 1 (single wick kills) | Fox, Grizzly | Hardcoded to 3 in dslState |
-| Dead weight = 0 (losers bleed for hours) | Fox, Vixen, Mantis, Jackal | Set per-score (10/15/20) in dslState |
-| stagnationTp stripped by builder | Jackal, Dire Wolf | Included in dslState, bypasses builder |
-| dsl-v5.py reads top-level, not per-tier | All Wolf-based agents | Top-level values set correctly per-score |
+| Stalker minScore | 6 | 7 |
+| Stalker minTotalClimb | 5 | 8 |
+| Low-score floor | -20% ROE | -18% ROE |
+| Low-score timeout | 30 min | 25 min |
+| Low-score dead weight | 10 min | 8 min |
+| Streak gate | none | 3 Stalker losses → minScore 9 |
 
-## Hardcoded in the Scanner
+Striker is unchanged. No new API calls, no new data sources. Same single `leaderboard_get_markets` call.
 
-- XYZ equities filtered at scan parse level
-- Leverage 7-10x in constraints block
-- DSL state template per-signal with correct breaches, dead weight, conviction scaling
-- Stagnation TP, daily loss limit, asset cooldown all in output
-- Agent cannot override — signals that violate gates don't appear in output
+## Changelog
 
-## Quick Start
+### v1.2
+- Stalker minScore: 6 → 7, minTotalClimb: 5 → 8
+- Low-score conviction tier tightened: floor -18%, timeout 25 min, dead weight 8 min
+- Stalker consecutive-loss streak gate: 3 losses → minScore raised to 9
+- `record_stalker_result()` added to orca_config.py for streak tracking
+- SKILL.md hardened with all 8 agent rules
 
-1. Deploy `config/orca-config.json` to your Senpi agent
-2. Deploy `scripts/orca-scanner.py` and `scripts/orca_config.py`
-3. Create scanner cron (90s, main) and DSL cron (3 min, isolated)
-4. Fund with $1,000
+### v1.1.1
+- Fixed DSL field names: `phase1MaxMinutes`, `deadWeightCutMin`
+- `highWaterPrice` initialized as `null`
+- Removed static `absoluteFloor` price values
 
 ## License
 
 MIT — see root repo LICENSE.
-
-## Changelog
-
-### v1.1.1
-- Fixed DSL field names: `phase1MaxMinutes` (was `hardTimeoutMinutes`), `deadWeightCutMin` (was `deadWeightCutMinutes`)
-- `highWaterPrice` initialized as `null` (was `0`) — lets dsl-v5.py set from actual entry price on first tick
-- Removed static `absoluteFloor` price values — dsl-v5.py now calculates dynamically from `absoluteFloorRoe`
-- Requires dsl-v5.py with Patch 1 (dynamic absoluteFloorRoe calculator) and Patch 2 (highWaterPrice null handling)

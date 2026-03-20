@@ -85,7 +85,8 @@ def load_trade_counter():
     default = {
         "date": today, "entries": 0, "realizedPnl": 0,
         "gate": "OPEN", "gateReason": None, "cooldownUntil": None,
-        "lastResults": []
+        "lastResults": [],
+        "stalkerResults": [],  # v1.2: track Stalker W/L for streak detection
     }
     if path.exists():
         try:
@@ -98,6 +99,7 @@ def load_trade_counter():
                 tc["gate"] = "OPEN"
                 tc["gateReason"] = None
                 tc["cooldownUntil"] = None
+                # NOTE: stalkerResults persists across days (streak spans sessions)
             for k, v in default.items():
                 if k not in tc:
                     tc[k] = v
@@ -110,6 +112,15 @@ def load_trade_counter():
 def save_trade_counter(tc):
     tc["updatedAt"] = now_iso()
     atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
+
+
+def record_stalker_result(tc, is_win):
+    """v1.2: Track Stalker trade results for streak detection.
+    If a win, reset the streak. Keep last 10 results."""
+    results = tc.get("stalkerResults", [])
+    results.append("W" if is_win else "L")
+    tc["stalkerResults"] = results[-10:]
+    save_trade_counter(tc)
 
 
 # ─── Asset Cooldowns ─────────────────────────────────────────
