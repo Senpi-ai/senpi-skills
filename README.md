@@ -1,156 +1,174 @@
-# Senpi Skills — The Home of Hyperliquid Agents
+[README (8).md](https://github.com/user-attachments/files/26147922/README.8.md)
+# Senpi Skills — Autonomous AI Trading Agents for Hyperliquid
 
-22 AI trading skills. 13 trading strategies. 30+ scanners. All open source. All tracked live.
+30+ AI trading skills. Open source. Real money. Live tracked.
 
-Senpi Skills is the open source repository for autonomous trading strategies on [Hyperliquid](https://hyperliquid.xyz) via [Senpi](https://senpi.ai). Each skill is a self-contained trading agent that scans markets 24/7, enters and exits positions, manages trailing stops, and protects capital — autonomously.
+Senpi Skills is the open-source repository for autonomous trading strategies on [Hyperliquid](https://hyperliquid.xyz) via [Senpi](https://senpi.ai). Each skill is a self-contained trading agent that scans markets, enters and exits positions, manages trailing stops, and protects capital — autonomously, 24/7, with no human in the loop.
 
-**Live tracker:** [strategies.senpi.ai](https://strategies.senpi.ai) — every skill running with real money, full transparency.
+**Live tracker:** [strategies.senpi.ai](https://strategies.senpi.ai)
 
-## Skills (22 unique trading agents)
+---
 
-### Momentum & Leaderboard
-| Skill | Description | Scanner Interval |
-|---|---|---|
-| 🦊 [FOX](./fox) | Explosive breakout sniper. Catches First Jumps on the leaderboard before the crowd. **#1 at +34.5% ROI.** | 3 min |
-| 🦊 [VIXEN](./vixen) | **NEW.** Dual-mode SM sniper. STALKER mode catches quiet accumulation before the explosion. STRIKER mode catches violent breakouts with volume confirmation. Built from FOX's live data. | 90 sec |
-| 🐺 [WOLF](./wolf-strategy) | Pack hunter. Leaderboard momentum, enters early on what smart money is buying. | 3 min |
-| 🦅 [HAWK](./hawk-trading-bot) | Scans BTC, ETH, SOL, HYPE every 30 seconds. Picks the single strongest signal. | 30 sec |
+## What We Learned From 30 Agents and $26K
 
-### Single-Asset Hunters (The Bear Family + Wolverine)
-| Skill | Description | Scanner Interval |
-|---|---|---|
-| 🐻 [GRIZZLY](./grizzly) | BTC only. Every signal source. 12-20x leverage. Three-mode lifecycle: HUNTING → RIDING → STALKING → RELOAD. **#2 at +11.2% ROI.** | 3 min |
-| 🐻‍❄️ [POLAR](./polar) | **NEW.** ETH alpha hunter. Grizzly's three-mode lifecycle adapted for ETH. BTC as correlation confirmation. 10-15x leverage. | 3 min |
-| 🐻 [KODIAK](./kodiak) | **NEW.** SOL alpha hunter. Grizzly's three-mode lifecycle adapted for SOL. 7-12x leverage. Tuned for SOL's higher volatility. | 3 min |
-| 🦡 [WOLVERINE](./wolverine) | **NEW.** HYPE alpha hunter. Grizzly's three-mode lifecycle adapted for HYPE. 5-10x leverage. Aggressive DSL trailing for HYPE's speed. BTC correlation is bonus-only (HYPE moves independently). | 3 min |
-| 🐆 CHEETAH | HYPE only. 8-12x leverage. Fastest predator for the fastest asset. | 3 min |
+Eight days. Thirty agents. $5.5M in volume. 6,764 trades. The findings that shaped every skill in this repo:
 
-### Multi-Signal Convergence
-| Skill | Description | Scanner Interval |
-|---|---|---|
-| 🐅 [TIGER](./tiger-strategy) | 5 parallel scanners, 230 assets, ROAR meta-optimizer that learns from results. Paused at -58%. | 5 min |
-| 🐍 [COBRA](./cobra) | Triple convergence. Only strikes when price, volume, and new money all agree. | 3 min |
-| 🦬 [BISON](./bison) | Conviction holder. Top 10 assets, 4h trend thesis, holds hours to days. **v1.1: unlimited batch reloads when profitable.** | 5 min |
+**The model is a commodity.** Polar made 29 trades at +28.1%. Ghost Fox made 1,078 trades at -58.5%. Same LLM, same exchange, same week. 86-point performance spread. The edge is the skill — the scanner, the scoring, the risk management — not the model.
 
-### Range & Technical
-| Skill | Description | Scanner Interval |
-|---|---|---|
-| 🐍 [VIPER](./viper) | Range-bound mean reversion at support/resistance. Works when nothing is trending. | 5 min |
-| 🐆 PANTHER | BB squeeze breakout scalper. Fastest cuts in the zoo. | 2 min |
-| 🦅 EAGLE | Correlation breaks + macro events. BTC/ETH vs alts divergence. | 3 min |
+**Fewer trades wins.** Consistent inverse correlation between trade frequency and performance across all 30 agents. Seven agents sat at 0% with zero trades during chop. They were the smartest ones in the room.
 
-### Alternative Edge
-| Skill | Description | Scanner Interval |
-|---|---|---|
-| 🦉 [OWL](./owl) | Pure contrarian. Enters against extreme crowding when exhaustion signals fire. **v5.2: funding floor fix lets the five-factor model actually run.** | 15 min |
-| 🦈 [SHARK](./shark) | SM consensus + liquidation cascade front-running. | 5 min |
-| 🐊 [CROC](./croc) | Funding rate arbitrage. Collects payments while waiting for the snap. | 15 min |
-| 🦎 [KOMODO](./komodo) | **NEW.** Momentum event consensus. Uses real-time `leaderboard_get_momentum_events` to detect SM convergence. Replaces Mantis v1.0 and Scorpion v1.1. | 5 min |
+**Agents will self-modify into worse performance.** Every agent that adjusted its own config during a losing streak made things worse. Zero exceptions. The fix: hardcode critical parameters in the scanner code itself, not in instructions the agent can override.
 
-### Upgraded / Redirected
-| Skill | Status |
-|---|---|
-| 🦗 [MANTIS](./mantis) | **Now powered by VIXEN v1.0.** Original whale-mirroring scanner retired (stale position data). See [vixen/](./vixen). |
-| 🦂 [SCORPION](./scorpion) | **Deprecated.** Same stale-position problem as Mantis v1.0 with looser filters. 406 trades, -24.2% ROI. Replaced by [KOMODO](./komodo). |
+**The weak peak bleed.** Fox v1.0 produced 17 Stalker trades at score 6-7 with a 17.6% win rate. Trades would bump +0.5%, stall, and DSL would cut them for $3-$10 each. Death by a thousand cuts. Fixed in v1.2+ with raised thresholds and tighter Phase 1 timing.
 
-## Trading Strategies (13 config overrides)
+---
 
-Trading strategies run on a parent skill's scanner with different entry filters, DSL settings, and risk parameters. Same code, different personality.
+## Active Skills
 
-### On FOX
-| Strategy | What Changes |
-|---|---|
-| 🦊 [FERAL FOX](./feral-fox-strategy%201.2.md) | Score 7+, 3 reasons, regime enforced, structural invalidation, no time exits |
-| 👻 [GHOST FOX](./ghost-fox-strategy%20(1).md) | Feral Fox entries + DSL High Water Mode infinite trailing at 85% of peak |
-| 🐱 LYNX | Patient high-bar momentum. Score 10+, wide stops, no time exits. The proven pattern. |
-| 🐺 JACKAL | FOX v1.6 scanner + RHINO pyramiding (30/40/30 stages). |
+### The A/B/C/D Experiment (Stalker/Striker Scanner Variants)
 
-### On WOLF
-| Strategy | What Changes |
-|---|---|
-| 🐺 [DIRE WOLF](./wolf-strategy) | Replaces WOLF config entirely. FIRST_JUMP only, zero rotation, maker fees, DSL High Water. |
+Four agents running the same base scanner, same capital, same market. Only the Stalker filter differs.
 
-### On TIGER
-| Strategy | What Changes |
-|---|---|
-| 🦁 LION | Patient multi-scanner. Stricter confluence, scanner weighting, no time exits, drawdown auto-resume. |
-
-### On VIPER
-| Strategy | What Changes |
-|---|---|
-| 🐍 [MAMBA](./mamba-strategy%20(1).md) | Viper entries + DSL High Water. Catches the range bounce AND the breakout that escapes. |
-| 🐍 ANACONDA | $10M OI floor, 88% HW lock, wider Phase 1. |
-
-### On CROC
-| Strategy | What Changes |
-|---|---|
-| 🐊 GATOR | Patient funding arb. No time exits, structural thesis exits only (funding flip = dead), funding income tracking. |
-
-## The Proven Pattern
-
-Across all 22 skills and 13 strategies, one pattern dominates: **fewer trades + higher conviction + wider stops = better performance.**
-
-| Skill | Trades | ROI | The lesson |
+| Skill | Version | Experiment Variable | Description |
 |---|---|---|---|
-| 🦊 FOX | 91 | **+34.5%** | Selective entries, let winners run |
-| 🐻 GRIZZLY | 24 | **+11.2%** | Single asset, maximum conviction |
-| 🦬 BISON | 118 | **+5.3%** | Thesis-based holds |
-| 🐅 TIGER | 726 | **-58%** | Over-trading kills |
-| 🐊 CROC | 535 | **-42.9%** | Fee drag is the silent killer |
-| 🦂 SCORPION | 420 | **-24.2%** | Stale data + loose filters |
+| 🐋 [ORCA](./orca) | v1.2 | Control | Dual-mode SM scanner. Stalker minScore 7, climb 8+, streak gate. Fox's lessons applied. |
+| 🦊 [FOX](./fox) | v2.0 | Breadth | Stalker requires 3+ distinct scoring reasons. Tests confirmation breadth. |
+| 🦗 [MANTIS](./mantis) | v3.0 | Signal quality | Contribution acceleration threshold 3x higher, weak +1 tier eliminated. Tests SM velocity quality. |
+| 🪳 [ROACH](./roach) | v1.0 | Stalker elimination | Striker only. Stalker disabled entirely. Tests whether Stalker is pure drag. |
 
-Every winning skill upgrade has tightened entry filters, not stop losses.
+### Gen-2 Intelligence
 
-## New Skills (March 2026)
+| Skill | Version | Description |
+|---|---|---|
+| 🐆 [JAGUAR](./jaguar) | v1.0 | Three-mode scanner (Stalker + Striker + Hunter) with gen-2 signal intelligence. TCS/TRP quality tags, momentum events, contribution velocity. Pyramiding on Phase 2 winners. Max 7 positions. |
+| 🐉 [HYDRA](./hydra) | v1.0 | Six-source squeeze scanner. Funding divergence, liquidation cascades, OI surges, momentum exhaustion, SM consensus, trend alignment. Independent monitor watchdog. Self-learning tier disablement. |
+| 🦅 [RAPTOR](./raptor) | v1.0 | Tier 2 momentum events filtered by TCS/TRP quality tags + SM leaderboard confluence. 3-5 trades/day. |
+| 🔥 [PHOENIX](./phoenix) | v1.0.1 | Contribution velocity scanner. SM profit velocity diverging from price. One API call, zero state. |
+| 🛡️ [SENTINEL](./sentinel) | v1.0 | Inverted pipeline: finds rising assets → verifies quality traders via momentum event tags. Most selective scanner in fleet. |
 
-### 🦊 VIXEN — Dual-Mode SM Sniper
-Two entry modes built from FOX's live trading data:
-- **STALKER:** Catches SM quietly accumulating over 3+ scans before the explosion (the ZEC/SILVER pattern — +$129/+$128 entries at score 5-7)
-- **STRIKER:** Catches violent FIRST_JUMP breakouts with raw volume confirmation (filters blow-off tops like PUMP)
+### Momentum Pyramider
 
-Plus: 2-hour per-asset cooldown after Phase 1 exits. Volume gate on Striker mode. Time-of-day scoring.
+| Skill | Version | Description |
+|---|---|---|
+| 🦏 [RHINO](./rhino) | v2.0 | Enter small (30%), add at +10% ROE (40%), add at +20% ROE (30%). Thesis re-validated before every add. Hardened after March 19 death loop. 🟡 Ready — awaiting deployment. |
 
-### 🐻‍❄️ POLAR / 🐻 KODIAK / 🦡 WOLVERINE — The Bear Family Expands
-Grizzly's three-mode lifecycle (HUNTING → RIDING → STALKING → RELOAD) adapted for ETH, SOL, and HYPE. Each tuned for its asset's volatility — lower leverage on higher-vol assets, tighter DSL for faster movers. Wolverine v1.1 has HYPE-specific aggressive DSL trailing after day 1 data showed the original tiers were too loose for HYPE's reversal speed.
+### Single-Asset Hunters
 
-### 🦎 KOMODO — Momentum Event Consensus
-Uses `leaderboard_get_momentum_events` (real-time threshold crossings) instead of `discovery_get_top_traders` (stale positions). When 2+ quality SM traders cross momentum thresholds on the same asset/direction, confirmed by market concentration and volume, KOMODO enters with the momentum. Five-gate entry model.
+| Skill | Version | Asset | Description |
+|---|---|---|---|
+| 🐻 [GRIZZLY](./grizzly) | v2.1.1 | BTC | Three-mode lifecycle: HUNT → RIDE → STALK → RELOAD. 10x cap. |
+| 🐻‍❄️ [POLAR](./polar) | v1.0 | ETH | #1 performer at +28.1%. The proof that single-asset + lifecycle works. |
+| 🐻 [KODIAK](./kodiak) | v1.1.1 | SOL | Tighter DSL floors for SOL's volatility. 10x cap. |
+| 🦡 [WOLVERINE](./wolverine) | v1.1 | HYPE | 5-10x leverage. BTC divergence is bonus-only. |
+| 🐆 CHEETAH | v1.0 | HYPE | Different scanner than Wolverine. Zero trades in chop = correct. |
+| 🦅 [CONDOR](./condor) | v1.0.1 | Multi | BTC/ETH/SOL/HYPE — picks strongest thesis. Conviction-scaled margin. |
 
-## Shared Infrastructure
+### Specialized Scanners
 
-These are plugins used by all skills automatically. Users don't need to install them separately.
+| Skill | Version | Description |
+|---|---|---|
+| 🦬 [BISON](./bison) | v1.2.1 | Conviction trend holder. Requires 4H/1H agreement. Zero trades in chop = correct. |
+| 🐟 [BARRACUDA](./barracuda) | v1.0.1 | Funding decay collector. 6-gate model. Building local funding history (230 assets, 11K+ snapshots). |
+| 🦉 [OWL](./owl) | v5.2 | Contrarian crowding-unwind. Five-factor model. |
+| 🦅 [HAWK](./hawk-trading-bot) | v1.2 | Single best signal picker. 20x leverage (too high — monitoring). |
+| 🦅 [BALD EAGLE](./bald-eagle) | v1.0 | XYZ equities only (tokenized stocks: S&P500, NVDA, GOLD, SILVER). Lower trader thresholds for thin markets. |
+| 🦎 [KOMODO](./komodo) | v1.0 | Momentum event consensus. Uses real-time leaderboard_get_momentum_events. |
+
+### Shared Infrastructure
 
 | Plugin | Purpose |
 |---|---|
-| [DSL Dynamic Stop Loss](./dsl-dynamic-stop-loss) | Trailing stop engine. Supports fixed ROE tiers and [High Water Mode](./dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md) (percentage-of-peak locks). |
-| [Fee Optimizer](./fee-optimizer) | When to use ALO vs MARKET, standard order params, fee computations (FDR, maker %). |
+| [DSL Dynamic Stop Loss](./dsl-dynamic-stop-loss) | Trailing stop engine. [High Water Mode spec](./dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md). |
+| [Fee Optimizer](./fee-optimizer) | ALO vs MARKET decision, fee computations. |
+| [Emerging Movers](./emerging-movers) | Leaderboard scanner shared by FOX, WOLF, and VIXEN. |
+| [Opportunity Scanner](./opportunity-scanner) | Deep 4-stage funnel scanner. |
 | [Senpi Onboard](./senpi-onboard) | Agent onboarding and account setup. |
 | [Getting Started Guide](./senpi-getting-started-guide) | Interactive first-trade tutorial. |
-| [Emerging Movers](./emerging-movers) | Leaderboard scanner shared by FOX, WOLF, and VIXEN. |
-| [Opportunity Scanner](./opportunity-scanner) | Deep 4-stage funnel scanner for FOX. |
 
-## DSL High Water Mode
+---
 
-The trailing stop configuration proven across the zoo. Instead of locking fixed ROE amounts, High Water Mode locks a percentage of the peak. The stop trails at 85-90% of the highest ROE the trade has ever reached, with no ceiling.
+## Paused Skills
 
-**Full spec:** [dsl-high-water-spec 1.0.md](./dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md)
+These skills are not actively trading. Code is preserved for reference and potential reactivation. Each was paused based on live performance data.
 
-**Adoption guide (all skills):** [dsl-high-water-adoption-guide.md](./dsl-dynamic-stop-loss/dsl-high-water-adoption-guide.md)
+| Skill | Last Version | Reason Paused | Replaced By |
+|---|---|---|---|
+| 🦊 [VIXEN](./vixen) | v1.0 | -47.3% ROI. Scanner logic absorbed into Orca. | Orca v1.2 |
+| 👻 [Ghost Fox](./ghost-fox-strategy) | v2.0 | -58.5% ROI. 1,078 trades. Fee drag. | Orca v1.2 |
+| 🦊 [Feral Fox](./feral-fox-v3-strategy.md) | v3.0 | -31.5% ROI. | Orca v1.2 |
+| 🐺 [Dire Wolf](./wolf-strategy) | v1.0 | -42.3% ROI. | Orca v1.2 |
+| 🐺 [WOLF](./wolf-strategy) | v1.0 | Base scanner superseded. | Orca v1.2 |
+| 🐍 [COBRA](./cobra) | v2.0 | -53.0% ROI. | Paused |
+| 🐍 [MAMBA](./mamba) | v1.0 | -36.8% ROI. | Paused |
+| 🐍 [ANACONDA](./anaconda) | v1.0 | -21.9% ROI. | Paused |
+| 🐍 [VIPER](./viper) | v1.0 | -19.9% ROI. | Paused |
+| 🐺 [JACKAL](./jackal) | v2.0 | -32.8% ROI. | Paused |
+| 🦂 [SCORPION](./scorpion) | v2.0 | -21.1% ROI. Stale position data. | Komodo v1.0 |
+| 🐅 [TIGER](./tiger-strategy) | v1.0 | -58.0% ROI. Over-trading. | Paused |
+| 🦈 [SHARK](./shark) | v1.0 | -4.3% ROI. | Paused |
+| 🐊 [CROC](./croc) | v1.0 | -42.9% ROI. Fee drag. | Paused |
+| 🐊 [GATOR](./gator) | v1.0 | Funding arb underperformed. | Paused |
+| 🦅 EAGLE | v1.0 | Correlation breaks not profitable. | Paused |
+| 🐆 PANTHER | v1.0 | BB squeeze scalping not profitable. | Paused |
 
-All active skills use High Water Mode as default.
+---
+
+## The Proven Pattern
+
+Across all 30+ skills, one pattern dominates: **fewer trades + higher conviction + wider stops = better performance.**
+
+| Agent | Trades | Return | The Lesson |
+|---|---|---|---|
+| 🐻‍❄️ Polar | 29 | **+28.1%** | Single asset, lifecycle patience, wide stops |
+| 🦗 Mantis | 460 | **+5.6%** | SM scanner, moderate frequency |
+| 🦊 Fox | 554 | **+3.7%** | Selective entries, let winners run |
+| 👻 Ghost Fox | 1,078 | **-58.5%** | Over-trading kills |
+| 🐅 Tiger | 726 | **-58.0%** | More scanners ≠ better results |
+
+Every winning skill upgrade has tightened entry filters, not loosened stop losses.
+
+---
+
+## DSL v1.1.1 Pattern (Mandatory)
+
+Every active skill uses this DSL state pattern. If any field is wrong, the agent is running with broken safety.
+
+```json
+{
+  "highWaterPrice": null,
+  "highWaterRoe": null,
+  "phase1": {
+    "consecutiveBreachesRequired": 3,
+    "phase1MaxMinutes": 30,
+    "deadWeightCutMin": 10,
+    "absoluteFloorRoe": -20
+  }
+}
+```
+
+Critical field names — get these wrong and positions bleed silently:
+- `phase1MaxMinutes` (NOT hardTimeoutMinutes)
+- `deadWeightCutMin` (NOT deadWeightCutMinutes)
+- `absoluteFloorRoe` (NOT absoluteFloor — no static price values)
+- `highWaterPrice: null` (NOT 0)
+- `consecutiveBreachesRequired: 3` (NOT 1)
+
+---
 
 ## Architecture
 
 ```
-Plugins ──→ Skills ──→ Trading Strategies
-(shared)     (scanner)   (config override)
+Plugins ──→ Skills ──→ Agents
+(shared)     (scanner)   (deployed instance)
 ```
 
 **Plugins** are shared infrastructure — trailing stops, risk management, fee optimization. Maintained once, every skill benefits.
 
-**Skills** are the trading logic — the scanner that embodies a thesis about how to make money. FOX's First Jump detector. VIPER's range analysis. OWL's crowding exhaustion. VIXEN's dual-mode accumulation/explosion detection. Each skill is a thin layer on top of shared plugins.
+**Skills** are the trading logic — the scanner that embodies a thesis about how to make money. Each skill is a self-contained directory with a scanner, config helper, configuration, and SKILL.md that the agent reads as its operating instructions.
 
-**Trading Strategies** are saved configurations — the specific numbers that tune how aggressively a skill behaves. LYNX is FOX's scanner with score 10+ filters. LION is TIGER's scanners with no time exits. The skill is the predator. The strategy is how you teach it to hunt.
+**Agents** are deployed instances of skills running with real capital on the Senpi Predators arena. Multiple agents can run the same skill with different parameters.
+
+---
 
 ## Quick Start
 
@@ -159,7 +177,7 @@ Plugins ──→ Skills ──→ Trading Strategies
 3. The agent reads SKILL.md, runs bootstrap, creates crons, and starts trading
 4. Monitor via Telegram alerts and [strategies.senpi.ai](https://strategies.senpi.ai)
 
-**Recommended first skill:** VIXEN — dual-mode scanner with the best risk management in the zoo.
+**Recommended first skill:** [ORCA v1.2](./orca) — dual-mode scanner with Fox's live trading lessons applied. The most battle-tested scanner in the zoo.
 
 ## Requirements
 
@@ -169,13 +187,10 @@ Plugins ──→ Skills ──→ Trading Strategies
 
 ## Contributing
 
-Each skill is self-contained in its own directory. Trading strategies are config override files (JSON + markdown spec). See any skill's SKILL.md for the full agent instructions.
+Each skill is self-contained in its own directory. See any skill's SKILL.md for the full agent instructions. All active skills use [DSL High Water Mode](./dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md) as the target trailing stop configuration.
 
-All skills use [DSL High Water Mode](./dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md) as the target trailing stop configuration. See the [adoption guide](./dsl-dynamic-stop-loss/dsl-high-water-adoption-guide.md) for per-skill tier tables.
-
-**When adding a new skill**, add an entry to [`catalog.json`](./catalog.json). This file is the machine-readable registry used by the onboarding agent to present skills to users. Each entry needs an `id`, `name`, `emoji`, `tagline`, `group`, and `sort_order` — see existing entries for reference.
+**When adding a new skill**, add an entry to [`catalog.json`](./catalog.json).
 
 ## License
 
 MIT — Built by [Senpi](https://senpi.ai).
-Source: https://github.com/Senpi-ai/senpi-skills
