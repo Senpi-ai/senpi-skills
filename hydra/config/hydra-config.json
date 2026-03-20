@@ -1,0 +1,109 @@
+{
+    "skill": {
+        "name": "HYDRA",
+        "version": "1.0",
+        "description": "Multi-source squeeze scanner for Hyperliquid"
+    },
+    "scanner": {
+        "intervalMs": 300000,
+        "fddPrimaryGate": true,
+        "minFddConfidence": 40,
+        "sources": {
+            "fdd": {"enabled": true, "maxScore": 30, "fundingHistoryDays": 7},
+            "lcd": {"enabled": true, "maxScore": 25, "cascadeBonus": 10, "clusterDistancePct": 2.0},
+            "ois": {"enabled": true, "maxScore": 20, "surgeThreshold1h": 1.05, "surgeThreshold4h": 1.10},
+            "med": {"enabled": true, "clearBonus": 5, "fadePenalty": -5, "exhaustionPenalty": -10},
+            "em":  {"enabled": true, "maxScore": 15, "opposingPenalty": -8, "minConviction": 2, "strongConviction": 3, "strongTraderCount": 50},
+            "opp": {"enabled": true, "maxScore": 10, "counterTrendPenalty": -999}
+        }
+    },
+    "convictionTiers": {
+        "LOW":    {"minScore": 40, "maxScore": 54, "enabled": false, "reason": "0% WR over 8+ trades in production"},
+        "MEDIUM": {"minScore": 55, "maxScore": 74, "enabled": true},
+        "HIGH":   {"minScore": 75, "maxScore": 110, "enabled": true}
+    },
+    "sizing": {
+        "baseSizePct": 0.15,
+        "tiers": {
+            "MEDIUM": {"marginMultiplier": 0.60, "leverageRangeLow": 0.50, "leverageRangeHigh": 0.65},
+            "HIGH":   {"marginMultiplier": 1.00, "leverageRangeLow": 0.70, "leverageRangeHigh": 0.85}
+        },
+        "leverageCap": 10,
+        "maxPerAssetPct": 0.25,
+        "maxDeployedPct": 0.55,
+        "maxPositions": 3,
+        "orderType": "FEE_OPTIMIZED_LIMIT"
+    },
+    "dsl": {
+        "tiers": {
+            "MEDIUM": {
+                "phase1MaxMinutes": 120,
+                "weakPeakCutMinutes": 60,
+                "deadWeightCutMin": 45,
+                "deadWeightRoe": -3.0
+            },
+            "HIGH": {
+                "phase1MaxMinutes": 180,
+                "weakPeakCutMinutes": 90,
+                "deadWeightCutMin": 60,
+                "deadWeightRoe": -4.0
+            }
+        },
+        "leverageFloor": {
+            "priceMoveLimit5x": 1.0,
+            "priceMoveLimitBelow5x": 1.5,
+            "minFloor": -3.0
+        },
+        "phase2TriggerRoe": 5,
+        "phase1RetraceThreshold": 0.03,
+        "phase2RetraceThreshold": 0.015,
+        "phase2ConsecutiveBreaches": 2,
+        "lockMode": "pct_of_high_water",
+        "trailingTiers": [
+            {"triggerPct": 7,  "lockHwPct": 40, "consecutiveBreachesRequired": 3},
+            {"triggerPct": 12, "lockHwPct": 55, "consecutiveBreachesRequired": 2},
+            {"triggerPct": 15, "lockHwPct": 75, "consecutiveBreachesRequired": 2},
+            {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1}
+        ],
+        "stagnationTp": {"enabled": true, "roeMin": 10, "hwStaleMin": 45},
+        "execution": {
+            "phase1SlOrderType": "MARKET",
+            "phase2SlOrderType": "MARKET",
+            "breachCloseOrderType": "MARKET"
+        }
+    },
+    "risk": {
+        "xyzBanned": true,
+        "cooldownMinutes": 120,
+        "separateVault": false
+    },
+    "gate": {
+        "maxEntriesPerDay": 6,
+        "maxConsecutiveLosses": 3,
+        "cooldownMinutes": 30
+    },
+    "monitor": {
+        "intervalMs": 300000,
+        "drawdownCapPct": 0.25,
+        "dailyLossLimitPct": 0.10,
+        "exposureThresholdPct": 0.60,
+        "checkSignalReversal": true,
+        "forceCloseOnReversal": true
+    },
+    "learning": {
+        "enabled": true,
+        "minTradesForDisable": 8,
+        "minWinRateForEnable": 0.15,
+        "lowTierPermanentlyDisabled": true
+    },
+    "notifications": {
+        "onOpen": true,
+        "onClose": true,
+        "onRiskGuardian": true,
+        "onMonitorForceClose": true,
+        "onCriticalError": true,
+        "onNoSignal": false,
+        "onFiltered": false,
+        "onDslRoutine": false
+    }
+}
