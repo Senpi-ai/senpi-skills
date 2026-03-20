@@ -11,9 +11,7 @@ Senpi Skills is the open-source repository for autonomous trading strategies on 
 
 ## What We Learned From 30 Agents and $30K
 
-Eight days. Thirty agents. $5.5M in volume. 6,764 trades. The findings that shaped every skill in this repo:
-
-**The model is a commodity.** Polar made 29 trades at +28.1%. Ghost Fox made 1,078 trades at -58.5%. Same LLM, same exchange, same week. 86-point performance spread. The edge is the skill — the scanner, the scoring, the risk management — not the model.
+**The AI model is a commodity.** Polar made 29 trades at +28.1%. Ghost Fox made 1,078 trades at -58.5%. Same LLM, same exchange, same week. 86-point performance spread. The edge is the skill — the scanner, the scoring, the risk management — not the model.
 
 **Fewer trades wins.** Consistent inverse correlation between trade frequency and performance across all 30 agents. Seven agents sat at 0% with zero trades during chop. They were the smartest ones in the room.
 
