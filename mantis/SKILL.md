@@ -1,136 +1,205 @@
 ---
 name: mantis-strategy
 description: >-
-  MANTIS v2.0 — Momentum Event Consensus. Complete rewrite from v1.0. Uses
-  leaderboard_get_momentum_events (real-time threshold crossings) instead of
-  discovery_get_top_traders (stale positions). When 2+ quality SM traders
-  cross momentum thresholds on the same asset/direction within 60 minutes,
-  confirmed by market concentration + volume, MANTIS enters with the momentum.
-  Replaces both MANTIS v1.0 and SCORPION v1.1.
-license: Apache-2.0
+  MANTIS v3.0 — Dual-mode emerging movers scanner. All live trading lessons
+  applied, plus one experimental tweak: contribution acceleration threshold
+  raised from 0.001 to 0.003 and the weak +1 tier (CONTRIB_POSITIVE) eliminated.
+  Only genuine SM acceleration earns contribution points. Stalker minScore 7,
+  minTotalClimb 8, tighter Phase 1 for low-score entries, consecutive-loss
+  streak gate. XYZ banned. Leverage 7-10x. DSL state template in scanner output.
+license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "3.0"
   platform: senpi
   exchange: hyperliquid
+  config_source: mantis-v2-plus-contrib-threshold-experiment
 ---
 
-# MANTIS v2.0 — Momentum Event Consensus
+# 🦗 MANTIS v3.0 — Dual-Mode Scanner + Contribution Threshold Experiment
 
-Follow smart money ACTIONS, not stale positions.
+Patient. Precise. Only strikes when SM acceleration is real.
 
-## Why v2.0 Is a Complete Rewrite
+---
 
-**v1.0 was broken at the data source level.** It used `discovery_get_top_traders` to find historically good whales, then read their current open positions via `market_get_positions`. This returned ALL positions including legacy ones — BTC shorts opened months ago at $89-108k showed up as "fresh 8-whale consensus" when they were actually stale hedges. The 30-minute aging filter only checked "how long have we been seeing this position in our scans," not when the whale actually opened it.
+## ⛔ CRITICAL AGENT RULES — READ BEFORE ANYTHING ELSE
 
-**v2.0 uses `leaderboard_get_momentum_events` as the primary data source.** These are real-time threshold-crossing events ($2M+/$5.5M+/$10M+) within a 4-hour rolling window. They capture when a trader's delta PnL crosses a significance level — this is an ACTION, not a stale position. Combined with `leaderboard_get_markets` for aggregate SM concentration and `market_get_asset_data` for volume confirmation.
+### RULE 1: Install path is `/data/workspace/skills/mantis-strategy/`
 
-**SCORPION v1.1 is deprecated.** It had the same stale-position problem with even looser filters (2 whales, 10min). Result: 406 trades, -24% ROI. MANTIS v2.0 replaces both skills.
+The skill MUST be installed to exactly this path.
+
+### RULE 2: MAX 3 POSITIONS — check before EVERY entry
+
+Before opening ANY position, call `strategy_get_clearinghouse_state` and count open positions. If positions >= 3, SKIP.
+
+### RULE 3: Scanner output is AUTHORITATIVE — never override from memory
+
+The scanner is the single source of truth for all trading parameters.
+
+### RULE 4: Verify BOTH crons on every session start
+
+Run `openclaw crons list`. Scanner cron and DSL cron must both be `status: ok`.
+
+### RULE 5: Write dslState directly — do not construct manually
+
+Write the scanner's `dslState` block DIRECTLY to `state/{TOKEN}.json`. Do not modify.
+
+### RULE 6: Never retry timed-out position creation
+
+If `create_position` times out, check clearinghouse state first.
+
+### RULE 7: Never modify your own configuration
+
+No adjustments to leverage, margin, scoring, DSL, or any parameter.
+
+### RULE 8: Record Stalker results for streak tracking
+
+After every Stalker position closes, call `record_stalker_result(tc, is_win)`.
+
+---
+
+## The MANTIS v3.0 Experiment
+
+**Hypothesis:** Fox v1.0's weak Stalker trades often carried the CONTRIB_POSITIVE reason — a +1 score bonus for contribution velocity between 0 and 0.001 per scan. This is technically "positive" but so weak it's effectively noise. A contribution delta of 0.0005 means SM interest grew by 0.05% per scan — statistically indistinguishable from random fluctuation. Meanwhile, the +2 CONTRIB_ACCEL signal (delta > 0.001) correlated with actual winning trades where SM was genuinely building.
+
+**The tweak:** Contribution acceleration threshold raised from 0.001 to 0.003. The +1 tier (CONTRIB_POSITIVE: delta between 0 and threshold) is eliminated entirely. This is the ONLY difference from the base scanner.
+
+**What this changes in scoring:**
+- Old: delta 0.0005 → +1 (CONTRIB_POSITIVE). New: delta 0.0005 → +0 (ignored)
+- Old: delta 0.0015 → +2 (CONTRIB_ACCEL). New: delta 0.0015 → +0 (below new threshold)
+- Old: delta 0.004 → +2 (CONTRIB_ACCEL). New: delta 0.004 → +2 (CONTRIB_ACCEL, passes)
+
+**Expected effect:** Stalker max theoretical score drops from +8 to +7 for assets with weak acceleration. Only assets with strong SM momentum (delta > 0.003) get the +2 contribution bonus. This should eliminate the "barely climbing with barely growing interest" chop trades while preserving entries where SM is genuinely accelerating.
+
+---
+
+## Dual-Mode Entry
+
+### MODE A — STALKER (Accumulation) — Score >= 7
+- SM rank climbing steadily over 3+ consecutive scans
+- Total climb >= 8 ranks
+- Contribution building each scan
+- 4H trend aligned
+- **v3.0: Contribution acceleration must exceed 0.003 for +2 bonus. No +1 tier.**
+- **Streak gate:** 3 consecutive Stalker losses → minScore raised to 9
+
+### MODE B — STRIKER (Explosion) — Score >= 9, min 4 reasons
+- FIRST_JUMP or IMMEDIATE_MOVER (10+ rank jump from #25+)
+- Rank jump >= 15 OR velocity > 15
+- Raw volume >= 1.5x of 6h average
+- Unchanged
+
+---
 
 ## MANDATORY: DSL High Water Mode
 
-**MANTIS MUST use DSL High Water Mode. This is not optional.**
+```json
+{
+  "lockMode": "pct_of_high_water",
+  "phase2TriggerRoe": 7,
+  "tiers": [
+    {"triggerPct": 7,  "lockHwPct": 40, "consecutiveBreachesRequired": 3},
+    {"triggerPct": 12, "lockHwPct": 55, "consecutiveBreachesRequired": 2},
+    {"triggerPct": 15, "lockHwPct": 75, "consecutiveBreachesRequired": 2},
+    {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1}
+  ]
+}
+```
 
-Spec: https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md
+### Phase 1 (Conviction-Scaled)
 
-DSL tiers in `mantis-config.json`. Arm DSL immediately after every entry fill. Zero naked positions.
+| Score | Absolute Floor | Hard Timeout | Weak Peak | Dead Weight |
+|---|---|---|---|---|
+| 6-7 | -18% ROE | 25 min | 12 min | 8 min |
+| 8-9 | -25% ROE | 45 min | 20 min | 15 min |
+| 10+ | -30% ROE | 60 min | 30 min | 20 min |
 
-## Five-Gate Entry Model
+### Stagnation TP (MANDATORY)
 
-### Gate 1 — Momentum Events (primary signal)
+If ROE >= 10% and high water hasn't moved for 45 minutes, take profit.
 
-Poll `leaderboard_get_momentum_events` for recent tier 1+ crossings within the last 60 minutes. These are traders whose delta PnL just crossed $2M+ (T1), $5.5M+ (T2), or $10M+ (T3).
+---
 
-Each event includes:
-- `top_positions`: snapshot of which markets drove the momentum, with direction and delta PnL
-- `concentration`: how focused the trader's gains are (0-1)
-- `trader_tags`: TCS (Elite/Reliable/Streaky/Choppy) and TAS (Patient/Tactical/Active/Degen)
-- `tier`: 1/2/3 significance level
+## Scanner Output — DSL State Template
 
-Group events by asset+direction. **2+ unique traders** on the same asset/direction = consensus.
+Each signal includes a `dslState` block. Write this directly as the state file.
 
-### Gate 2 — Trader Quality Filter
+**Entry flow:**
+1. Scanner outputs signal with `dslState` block
+2. Verify positions < 3
+3. Verify exchange max leverage >= 7
+4. Call `create_position`
+5. Write `state/{TOKEN}.json` with exact `signal.dslState` plus `entryPrice`, `leverage`, `createdAt`
+6. Send ONE notification: position opened
+7. DSL cron picks up the state file
 
-Not all momentum events are equal. Filter by:
-- **TCS (Trading Consistency Score)**: Only Elite and Reliable. Streaky/Choppy traders filtered out.
-- **TAS (Trading Activity Style)**: Block Degen. Allow Patient, Tactical, Active.
-- **Concentration ≥ 0.4**: Trader's gains are focused, not spread thin across 20 positions.
+**On position close:**
+8. Call `record_stalker_result(tc, is_win)` if Stalker entry
 
-### Gate 3 — Market Confirmation
+---
 
-Call `leaderboard_get_markets` to check aggregate SM concentration on the asset. Requires 5+ top traders with significant positions in this market. This confirms the momentum events aren't isolated — the broader SM community is active here.
+## Cron Setup
 
-### Gate 4 — Volume Confirmation
+**EXACT commands — copy-paste. Do not modify.**
 
-Call `market_get_asset_data` to check 1h volume. Current volume must be ≥ 50% of 6h average. Don't enter into dead markets where you'll get chopped up on spread.
+Scanner cron (90 seconds, main session):
+```
+python3 /data/workspace/skills/mantis-strategy/scripts/mantis-scanner.py
+```
 
-### Gate 5 — Regime Filter (penalty, not block)
+DSL cron (3 minutes, isolated session):
+```
+python3 /data/workspace/skills/dsl-dynamic-stop-loss/scripts/dsl-v5.py --state-dir /data/workspace/skills/mantis-strategy/state
+```
 
-Check BTC 4h regime. If entering counter-trend (long in bearish, short in bullish), apply -3 score penalty. SM momentum may override regime, so this is a penalty not a block. Regime-aligned entries get +1 bonus.
+---
 
-### Scoring
+## Bootstrap Gate
 
-| Component | Points | Notes |
-|---|---|---|
-| Trader count | 2 per trader | Core signal strength |
-| Avg tier | 1-3 | Higher tiers = bigger moves |
-| Avg concentration | 1-2 | High conviction traders |
-| Market confirmation | 1-2 | Hot market bonus |
-| Volume strength | 0-1 | Strong volume bonus |
-| Regime alignment | -3 to +1 | Penalty/bonus |
+On EVERY session start, check `config/bootstrap-complete.json`. If missing:
+1. Verify Senpi MCP
+2. Create scanner cron (90s, main) and DSL cron (3 min, isolated)
+3. Verify BOTH crons `status: ok`
+4. Write `config/bootstrap-complete.json`
+5. Send: "🦗 MANTIS v3.0 online. Contrib threshold 0.003, no weak tier. Silence = no conviction."
 
-**Minimum score: 10** to trigger entry.
-
-## Entry Direction
-
-MANTIS enters **WITH** the smart money momentum. If SM is long, MANTIS goes long. This is follow-the-leader, not contrarian (that's OWL's job).
+---
 
 ## Risk Management
 
 | Rule | Value |
 |---|---|
 | Max positions | 3 |
-| Max entries/day | 3 base, up to 6 on profitable days |
-| Absolute floor | 3% notional |
-| Drawdown halt | 20% from peak |
-| Daily loss limit | 8% |
-| Cooldown after 3 consecutive losses | 90 min |
-| Stagnation TP | 10% ROE stale for 1 hour |
+| Max entries/day | 6 |
+| Leverage | 7-10x |
+| Daily loss limit | 10% |
+| Per-asset cooldown | 2 hours |
+| Stagnation TP | 10% ROE / 45 min |
+| XYZ equities | Banned |
+| Contrib accel threshold | 0.003 (experiment, was 0.001) |
+| Stalker streak gate | 3 losses → minScore 9 |
 
-## Cron Architecture
-
-| Cron | Interval | Session | Purpose |
-|---|---|---|---|
-| Scanner | 5 min | isolated | Momentum events + consensus + all gates |
-| DSL v5 | 3 min | isolated | High Water Mode trailing stops |
-
-Both crons MUST be isolated sessions with `agentTurn` payload. Use `NO_REPLY` for idle cycles.
+---
 
 ## Notification Policy
 
-**ONLY alert:** Position OPENED (asset, direction, trader count, avg tier, score breakdown), position CLOSED (DSL or thesis exit with reason), risk guardian triggered, critical error.
+**ONLY alert:** Position OPENED, position CLOSED (P&L + reason), streak gate activated/deactivated, critical error.
 
-**NEVER alert:** Scanner found no events, quality filter removed events, no consensus, gates failed, DSL routine check, any reasoning.
+**NEVER alert:** Scanner found nothing, DSL routine, any reasoning.
 
-## What "Working Correctly" Looks Like
-
-- **Zero trades for hours:** Normal. Momentum events that pass ALL five gates are rare by design.
-- **Events seen but no consensus:** The quality filter and 2+ trader requirement are doing their job.
-- **Consensus found but score too low:** Volume or regime gates keeping us out of bad setups.
-- **1-2 trades per day:** Ideal. This is a patience skill.
-
-## Bootstrap Gate
-
-On EVERY session, check if `config/bootstrap-complete.json` exists. If not:
-1. Verify Senpi MCP
-2. Create scanner cron (5 min, isolated) and DSL cron (3 min, isolated)
-3. Write `config/bootstrap-complete.json`
-4. Send: "🦗 MANTIS v2.0 is online. Monitoring momentum events for SM consensus. Silence = no conviction."
+---
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `scripts/mantis-scanner.py` | Five-gate scanner (momentum events → quality → markets → volume → regime) |
-| `scripts/mantis_config.py` | Shared config, MCP helpers, state I/O |
-| `config/mantis-config.json` | All configurable variables with DSL High Water tiers |
+| `scripts/mantis-scanner.py` | Dual-mode scanner with contrib threshold experiment |
+| `scripts/mantis_config.py` | Config helper with stalkerResults tracking |
+| `config/mantis-config.json` | Config with Mantis v3.0 thresholds |
+
+---
+
+## License
+
+MIT — Built by Senpi (https://senpi.ai).
+Source: https://github.com/Senpi-ai/senpi-skills

@@ -3,34 +3,25 @@
   "wallet": "",
   "chatId": "",
   "maxPositions": 3,
-  "leverage": {"default": 8, "min": 5, "max": 10},
+  "leverage": {"default": 10, "min": 7, "max": 10},
   "entry": {
-    "momentumEvents": {
-      "minTier": 1,
-      "maxLookbackMinutes": 60,
-      "minEventsPerAsset": 2,
-      "traderQuality": {
-        "allowedTCS": ["Elite", "Reliable"],
-        "allowedTAS": ["Tactical", "Patient", "Active"],
-        "blockedTAS": ["Degen"],
-        "minConcentration": 0.4
-      }
+    "assetCooldownMinutes": 120,
+    "stalker": {
+      "minConsecutiveScans": 3,
+      "minTotalClimb": 8,
+      "minScore": 7,
+      "requireVolumeBuilding": true,
+      "_v1.2": "minScore raised from 6 to 7, minTotalClimb from 5 to 8 based on Fox data"
     },
-    "marketConfirmation": {
-      "enabled": true,
-      "minTraderCount": 5,
-      "topNTraders": 200
+    "striker": {
+      "minScore": 9,
+      "minReasons": 4,
+      "minRankJump": 15,
+      "minVelocityOverride": 15,
+      "minVelocityFloor": 10,
+      "requireVolumeConfirmation": true,
+      "minVolRatio": 1.5
     },
-    "volumeConfirmation": {
-      "enabled": true,
-      "minVolRatio": 0.5
-    },
-    "regimeFilter": {
-      "enabled": true,
-      "penalty": -3,
-      "_note": "penalty not block — SM momentum may override regime"
-    },
-    "minScore": 10,
     "marginPctBase": 0.25,
     "bannedPrefixes": ["xyz:"],
     "dynamicSlots": {
@@ -47,50 +38,54 @@
   "dsl": {
     "_spec": "https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md",
     "lockMode": "pct_of_high_water",
-    "phase1RetraceRoe": 5,
-    "phase1HardTimeoutMin": 0,
-    "phase1WeakPeakMin": 0,
-    "phase1DeadWeightMin": 0,
-    "floorBase": 0.03,
-    "phase2TriggerRoe": 8,
-    "consecutiveBreachesRequired": 3,
+    "phase2TriggerRoe": 7,
+    "phase1RetraceRoe": 12,
+    "phase1HardTimeoutMin": 30,
+    "phase1WeakPeakMin": 15,
+    "phase1DeadWeightMin": 10,
+    "floorBase": 0.02,
+    "convictionTiers": [
+      {"minScore": 6, "absoluteFloorRoe": -18, "hardTimeoutMin": 25, "weakPeakCutMin": 12, "deadWeightCutMin": 8, "_v1.2": "tighter for low-score: Fox weak peak bleed fix"},
+      {"minScore": 8, "absoluteFloorRoe": -25, "hardTimeoutMin": 45, "weakPeakCutMin": 20, "deadWeightCutMin": 15},
+      {"minScore": 10, "absoluteFloorRoe": -30, "hardTimeoutMin": 60, "weakPeakCutMin": 30, "deadWeightCutMin": 20}
+    ],
     "tiers": [
-      {"triggerPct": 8,  "lockHwPct": 25, "consecutiveBreachesRequired": 3, "_note": "SM timing is uncertain — wide early"},
-      {"triggerPct": 15, "lockHwPct": 45, "consecutiveBreachesRequired": 2},
-      {"triggerPct": 25, "lockHwPct": 65, "consecutiveBreachesRequired": 2},
-      {"triggerPct": 40, "lockHwPct": 80, "consecutiveBreachesRequired": 1},
-      {"triggerPct": 60, "lockHwPct": 85, "consecutiveBreachesRequired": 1, "_note": "infinite trail"}
+      {"triggerPct": 7, "lockHwPct": 40, "consecutiveBreachesRequired": 3},
+      {"triggerPct": 12, "lockHwPct": 55, "consecutiveBreachesRequired": 2},
+      {"triggerPct": 15, "lockHwPct": 75, "consecutiveBreachesRequired": 2},
+      {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1}
     ],
     "tiersLegacyFallback": [
-      {"triggerPct": 5,  "lockPct": 1.5},
-      {"triggerPct": 10, "lockPct": 5},
-      {"triggerPct": 20, "lockPct": 14, "retrace": 0.015},
-      {"triggerPct": 30, "lockPct": 24, "retrace": 0.012},
-      {"triggerPct": 50, "lockPct": 42, "retrace": 0.008},
-      {"triggerPct": 75, "lockPct": 60, "retrace": 0.006},
-      {"triggerPct": 100, "lockPct": 85, "retrace": 0.005}
+      {"triggerPct": 5, "lockPct": 2, "breaches": 2},
+      {"triggerPct": 10, "lockPct": 5, "breaches": 2},
+      {"triggerPct": 20, "lockPct": 14, "breaches": 2},
+      {"triggerPct": 30, "lockPct": 24, "breaches": 2},
+      {"triggerPct": 40, "lockPct": 34, "breaches": 1},
+      {"triggerPct": 50, "lockPct": 44, "breaches": 1},
+      {"triggerPct": 65, "lockPct": 56, "breaches": 1},
+      {"triggerPct": 80, "lockPct": 72, "breaches": 1},
+      {"triggerPct": 100, "lockPct": 90, "breaches": 1}
     ],
     "stagnationTp": {
       "enabled": true,
       "roeMin": 10,
-      "hwStaleMin": 60
+      "hwStaleMin": 45,
+      "_note": "MANDATORY. Fox has this. Mantis removed it and underperformed. Do not disable."
     }
   },
   "risk": {
     "maxEntriesPerDay": 6,
-    "maxDailyLossPct": 8,
-    "maxDrawdownPct": 20,
-    "maxSingleLossPct": 8,
+    "maxDailyLossPct": 10,
+    "maxDrawdownPct": 25,
+    "maxSingleLossPct": 10,
     "maxConsecutiveLosses": 3,
-    "cooldownMinutes": 90
+    "cooldownMinutes": 30,
+    "_note": "maxDailyLossPct MUST be 10. Vixen drifted to 25% and bled 2.5x more per bad day."
   },
   "execution": {
     "entryOrderType": "FEE_OPTIMIZED_LIMIT",
-    "entryEnsureTaker": true,
     "exitOrderType": "MARKET",
     "slOrderType": "MARKET",
-    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT",
-    "_armDslImmediately": true,
-    "_note": "MANDATORY: run dsl-cli.py add-dsl immediately after every entry fill. Zero naked positions."
+    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
   }
 }

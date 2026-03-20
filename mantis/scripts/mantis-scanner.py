@@ -1,474 +1,645 @@
 #!/usr/bin/env python3
-# Senpi MANTIS Scanner v2.0
+# Senpi MANTIS Scanner v3.0
 # Copyright 2026 Senpi (https://senpi.ai)
-# Licensed under Apache-2.0 — attribution required for derivative works
+# Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""MANTIS v2.0 — Momentum Event Consensus.
+"""MANTIS v3.0 — Dual-Mode Emerging Movers Scanner (Hardened + Contrib Threshold).
 
-COMPLETE REWRITE from v1.0. The v1.0 scanner used discovery_get_top_traders
-to find historically good whales, then read their CURRENT OPEN POSITIONS.
-This surfaced legacy positions (months-old shorts from $90k+) as "fresh
-consensus" — the entire data source was wrong.
+MANTIS v3.0 is a variant of the hardened dual-mode scanner with all live
+trading lessons applied, plus one experimental scoring tweak:
 
-v2.0 uses leaderboard_get_momentum_events as the primary data source.
-These are REAL-TIME threshold-crossing events that fire when a trader's
-delta PnL crosses significance levels ($2M+/$5.5M+/$10M+) within a
-4-hour rolling window. This captures ACTIONS, not stale positions.
+  Contribution acceleration threshold raised from 0.001 to 0.003, and the
+  +1 tier (CONTRIB_POSITIVE: delta > 0 but <= threshold) eliminated entirely.
+  Fox v1.0 data showed trades with CONTRIB_POSITIVE were noise — SM interest
+  barely growing. The +2 for CONTRIB_ACCEL was the real signal. By raising
+  the bar and killing the weak tier, Stalker entries can only earn contribution
+  points if SM interest is genuinely accelerating.
 
-Five-gate entry model:
-  1. MOMENTUM EVENTS — 2+ recent events on same asset/direction within 60min
-  2. TRADER QUALITY — filter by TCS (Elite/Reliable) and concentration
-  3. MARKET CONFIRMATION — leaderboard_get_markets shows elevated SM count
-  4. VOLUME CONFIRMATION — current volume alive (≥50% of 6h avg)
-  5. REGIME FILTER — penalty (not block) for counter-trend entries
+All other fixes from live data:
+- Stalker minScore raised from 6 to 7
+- Stalker minTotalClimb raised from 5 to 8
+- Stalker consecutive-loss streak gate: 3 losses → minScore raised to 9
+- Tighter Phase 1 for low-score entries (deadWeight 8 min, timeout 25 min)
+- DSL state template in scanner output, conviction-scaled Phase 1
+- XYZ banned, leverage 7-10x, max 3 positions, 2-hour cooldown
 
-Enters WITH smart money momentum, not against it.
+Two entry modes:
+  STALKER: SM accumulating over 3+ scans. Score 7+. Contrib accel 0.003+. Enter before the crowd.
+  STRIKER: Violent FIRST_JUMP + volume >= 1.5x. Score 9+. Enter the explosion.
 
-Runs every 5 minutes.
+Uses: leaderboard_get_markets (single API call per scan)
+Runs every 90 seconds.
 """
 
+import json
 import sys
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mantis_config as cfg
 
+TOP_N = 50
+ERRATIC_REVERSAL_THRESHOLD = 5
 
-# ─── Gate 1: Momentum Event Fetching ─────────────────────────
 
-def fetch_momentum_events(entry_cfg):
-    """Fetch recent momentum events from the leaderboard.
-    These are real-time threshold crossings — NOT stale positions."""
-    mom_cfg = entry_cfg.get("momentumEvents", {})
-    min_tier = mom_cfg.get("minTier", 1)
-    lookback_min = mom_cfg.get("maxLookbackMinutes", 60)
+# ─── Fetch & Parse ───────────────────────────────────────────
 
-    # Time range: last N minutes
-    now = datetime.now(timezone.utc)
-    from_time = (now - timedelta(minutes=lookback_min)).isoformat()
+def fetch_markets():
+    """Fetch current SM market concentration."""
+    try:
+        data = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+        data = data.get("data", data)  # unwrap top-level 'data' wrapper
+        raw = data.get("markets", data)
+        if isinstance(raw, dict):
+            raw = raw.get("markets", [])
+        return raw
+    except Exception as e:
+        return None
 
-    data = cfg.mcporter_call("leaderboard_get_momentum_events",
-                              tier=min_tier, limit=200,
-                              **{"from": from_time})
-    if not data or not data.get("success"):
+
+def parse_scan(raw_markets):
+    """Parse raw markets into a scan snapshot.
+    HARDCODED: xyz: assets filtered out at scan level — they never enter the signal pipeline."""
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    scan = {"time": now, "markets": []}
+    for i, m in enumerate(raw_markets[:TOP_N]):
+        if not isinstance(m, dict):
+            continue
+        token = m.get("token", "")
+        dex = m.get("dex", "")
+        # HARDCODED GATE: Ban XYZ equities (SNDK -$57, GOLD -$8, CRCL -$9, MU -$7 in Fox data)
+        if dex and dex.lower() == "xyz":
+            continue
+        if token.lower().startswith("xyz:"):
+            continue
+        scan["markets"].append({
+            "token": token,
+            "dex": dex,
+            "rank": i + 1,
+            "direction": m.get("direction", ""),
+            "contribution": round(m.get("pct_of_top_traders_gain", 0), 6),
+            "traders": m.get("trader_count", 0),
+            "price_chg_4h": round(m.get("token_price_change_pct_4h", 0) or 0, 4),
+        })
+    return scan
+
+
+def get_market_in_scan(scan, token, dex=""):
+    for m in scan["markets"]:
+        if m["token"] == token and m.get("dex", "") == dex:
+            return m
+    return None
+
+
+# ─── Volume Confirmation (raw asset volume) ──────────────────
+
+def check_asset_volume(token, dex=""):
+    """Check if raw asset volume is alive. Returns (ratio, is_strong).
+    This is SEPARATE from SM contribution velocity."""
+    asset_name = f"{dex}:{token}" if dex else token
+    data = cfg.mcporter_call("market_get_asset_data", asset=asset_name,
+                              candle_intervals=["1h"],
+                              include_funding=False, include_order_book=False)
+    if not data:
+        return 0, False
+
+    candle_data = data.get("data", data) if isinstance(data, dict) else data
+    if isinstance(candle_data, dict):
+        candles = candle_data.get("candles", {}).get("1h", [])
+    else:
+        return 0, False
+
+    if len(candles) < 6:
+        return 0, False
+
+    vols = [float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles[-6:]]
+    avg_vol = sum(vols[:-1]) / len(vols[:-1]) if len(vols) > 1 else 1
+    latest_vol = vols[-1] if vols else 0
+
+    ratio = latest_vol / avg_vol if avg_vol > 0 else 0
+    return ratio, ratio >= 1.5
+
+
+# ─── Erratic History Check ───────────────────────────────────
+
+def is_erratic_history(rank_history, exclude_last=False):
+    """Detect zigzag rank patterns."""
+    nums = [r for r in rank_history if r is not None]
+    if exclude_last and len(nums) > 1:
+        nums = nums[:-1]
+    if len(nums) < 3:
+        return False
+    for i in range(1, len(nums) - 1):
+        prev_delta = nums[i] - nums[i - 1]
+        next_delta = nums[i + 1] - nums[i]
+        if prev_delta < 0 and next_delta > ERRATIC_REVERSAL_THRESHOLD:
+            return True
+        if prev_delta > 0 and next_delta < -ERRATIC_REVERSAL_THRESHOLD:
+            return True
+    return False
+
+
+# ─── Time-of-Day Modifier ────────────────────────────────────
+
+def time_of_day_modifier():
+    """UTC time-of-day scoring adjustment."""
+    hour = datetime.now(timezone.utc).hour
+    if 4 <= hour < 14:
+        return 1, "time_bonus_optimal_window"
+    elif hour >= 18 or hour < 2:
+        return -2, "time_penalty_chop_zone"
+    return 0, None
+
+
+# ─── 4H Trend Alignment ─────────────────────────────────────
+
+def check_4h_alignment(direction, price_chg_4h):
+    """4H trend must agree with signal direction. Hard block."""
+    if direction == "LONG" and price_chg_4h < 0:
+        return False
+    if direction == "SHORT" and price_chg_4h > 0:
+        return False
+    return True
+
+
+# ─── MODE A: STALKER (Accumulation Detection) ───────────────
+
+def detect_stalker_signals(current_scan, history, config):
+    """Detect steady rank climbers over 3+ consecutive scans.
+    v1.2: minScore raised to 7, minTotalClimb raised to 8 based on Fox data.
+    Fox had 17 Stalker trades at score 6-7 with 17.6% win rate (-$91.32).
+    Weak climbs of +5/+6 were pure noise. Raising thresholds eliminates chop."""
+
+    stalker_cfg = config.get("stalker", {})
+    min_consecutive_scans = stalker_cfg.get("minConsecutiveScans", 3)
+    min_total_climb = stalker_cfg.get("minTotalClimb", 8)    # v1.2: was 5
+    min_score = stalker_cfg.get("minScore", 7)                # v1.2: was 6
+    require_volume_building = stalker_cfg.get("requireVolumeBuilding", True)
+
+    prev_scans = history.get("scans", [])
+    if len(prev_scans) < min_consecutive_scans:
         return []
 
-    events = data.get("data", data)
-    if isinstance(events, dict):
-        events = events.get("events", events.get("data", []))
-    if not isinstance(events, list):
+    signals = []
+
+    for market in current_scan["markets"]:
+        token = market["token"]
+        dex = market.get("dex", "")
+        current_rank = market["rank"]
+        direction = market["direction"].upper()
+
+        # Skip if already in top 10 (move is over)
+        if current_rank <= 10:
+            continue
+
+        # 4H trend alignment (hard block)
+        if not check_4h_alignment(direction, market.get("price_chg_4h", 0)):
+            continue
+
+        # Build rank history over recent scans
+        rank_history = []
+        contrib_history = []
+        for scan in prev_scans[-(min_consecutive_scans + 2):]:
+            m = get_market_in_scan(scan, token, dex)
+            if m:
+                rank_history.append(m["rank"])
+                contrib_history.append(m["contribution"])
+            else:
+                rank_history.append(None)
+                contrib_history.append(None)
+        rank_history.append(current_rank)
+        contrib_history.append(market["contribution"])
+
+        # Filter: need at least min_consecutive_scans of data
+        valid_ranks = [(i, r) for i, r in enumerate(rank_history) if r is not None]
+        if len(valid_ranks) < min_consecutive_scans + 1:
+            continue
+
+        # Check for CONSISTENT climbing: each scan's rank <= previous (or equal)
+        recent_ranks = [r for _, r in valid_ranks[-(min_consecutive_scans + 1):]]
+        is_climbing = all(recent_ranks[i] >= recent_ranks[i + 1] for i in range(len(recent_ranks) - 1))
+        total_climb = recent_ranks[0] - recent_ranks[-1]
+
+        if not is_climbing or total_climb < min_total_climb:
+            continue
+
+        # Check rank history isn't erratic (exclude current for fairness)
+        if is_erratic_history(rank_history, exclude_last=True):
+            continue
+
+        # Volume building check: contribution should be increasing
+        valid_contribs = [c for c in contrib_history if c is not None]
+        volume_building = True
+        if require_volume_building and len(valid_contribs) >= 3:
+            recent_c = valid_contribs[-3:]
+            volume_building = all(recent_c[i] <= recent_c[i + 1] for i in range(len(recent_c) - 1))
+
+        if require_volume_building and not volume_building:
+            continue
+
+        # Score
+        score = 0
+        reasons = []
+
+        # Base: sustained climb
+        score += 3
+        reasons.append(f"STALKER_CLIMB +{total_climb} over {len(recent_ranks)} scans")
+
+        # Contribution velocity
+        # MANTIS v3.0 EXPERIMENT: Threshold raised from 0.001 to 0.003.
+        # The +1 tier (CONTRIB_POSITIVE: 0 < delta <= threshold) is eliminated.
+        # Fox v1.0 data: CONTRIB_POSITIVE signals were noise. Only genuine
+        # acceleration (CONTRIB_ACCEL) correlated with winning trades.
+        CONTRIB_ACCEL_THRESHOLD = 0.003  # v3.0: was 0.001
+        if len(valid_contribs) >= 2:
+            deltas = [valid_contribs[i + 1] - valid_contribs[i] for i in range(len(valid_contribs) - 1)]
+            vel = sum(deltas) / len(deltas)
+            if vel > CONTRIB_ACCEL_THRESHOLD:
+                score += 2
+                reasons.append(f"CONTRIB_ACCEL +{vel * 100:.3f}%/scan")
+            # v3.0: No +1 tier. Weak positive velocity is ignored.
+
+        # Trader count
+        if market["traders"] >= 10:
+            score += 1
+            reasons.append(f"SM_ACTIVE {market['traders']} traders")
+
+        # Starting from deep
+        if recent_ranks[0] >= 30:
+            score += 1
+            reasons.append(f"DEEP_START from #{recent_ranks[0]}")
+
+        # Time-of-day
+        tod_mod, tod_reason = time_of_day_modifier()
+        score += tod_mod
+        if tod_reason:
+            reasons.append(tod_reason)
+
+        if score >= min_score:
+            signals.append({
+                "token": token,
+                "dex": dex if dex else None,
+                "direction": direction,
+                "mode": "STALKER",
+                "score": score,
+                "reasons": reasons,
+                "currentRank": current_rank,
+                "totalClimb": total_climb,
+                "consecutiveScans": len(recent_ranks),
+                "contribution": round(market["contribution"] * 100, 3),
+                "traders": market["traders"],
+                "priceChg4h": market.get("price_chg_4h", 0),
+                "rankHistory": rank_history,
+            })
+
+    return signals
+
+
+# ─── MODE B: STRIKER (Explosion Detection) ───────────────────
+
+def detect_striker_signals(current_scan, history, config):
+    """Detect violent FIRST_JUMP signals — current Fox v7.2 Feral Gauntlet.
+    Requires raw volume confirmation to filter blow-off tops."""
+
+    striker_cfg = config.get("striker", {})
+    min_score = striker_cfg.get("minScore", 9)
+    min_reasons = striker_cfg.get("minReasons", 4)
+    min_rank_jump = striker_cfg.get("minRankJump", 15)
+    min_velocity_override = striker_cfg.get("minVelocityOverride", 15)
+    min_velocity_floor = striker_cfg.get("minVelocityFloor", 10)
+    require_volume = striker_cfg.get("requireVolumeConfirmation", True)
+    min_vol_ratio = striker_cfg.get("minVolRatio", 1.5)
+
+    prev_scans = history.get("scans", [])
+    if not prev_scans:
         return []
 
-    return events
+    latest_prev = prev_scans[-1]
+    oldest_available = prev_scans[-min(len(prev_scans), 5)]
 
+    prev_top50_tokens = set()
+    for m in latest_prev["markets"]:
+        prev_top50_tokens.add((m["token"], m.get("dex", "")))
 
-def filter_quality_events(events, entry_cfg):
-    """Gate 2: Filter events by trader quality (TCS, TAS, concentration)."""
-    mom_cfg = entry_cfg.get("momentumEvents", {})
-    quality_cfg = mom_cfg.get("traderQuality", {})
+    signals = []
 
-    allowed_tcs = set(quality_cfg.get("allowedTCS", ["Elite", "Reliable"]))
-    allowed_tas = set(quality_cfg.get("allowedTAS", ["Tactical", "Patient", "Active"]))
-    blocked_tas = set(quality_cfg.get("blockedTAS", ["Degen"]))
-    min_concentration = quality_cfg.get("minConcentration", 0.4)
+    for market in current_scan["markets"]:
+        token = market["token"]
+        dex = market.get("dex", "")
+        current_rank = market["rank"]
+        direction = market["direction"].upper()
+        current_contrib = market["contribution"]
 
-    filtered = []
-    for event in events:
-        tags = event.get("trader_tags", {})
-        if isinstance(tags, str):
-            # Handle case where tags is a JSON string
-            try:
-                import json
-                tags = json.loads(tags)
-            except Exception:
-                tags = {}
-
-        tcs = tags.get("TCS", tags.get("tcs", ""))
-        tas = tags.get("TAS", tags.get("tas", ""))
-
-        # TCS filter: only Elite/Reliable
-        if allowed_tcs and tcs and tcs not in allowed_tcs:
+        # Destination ceiling: reject if in top 10
+        if current_rank <= 10:
             continue
 
-        # TAS filter: block Degen
-        if tas in blocked_tas:
+        # 4H trend alignment (hard block)
+        if not check_4h_alignment(direction, market.get("price_chg_4h", 0)):
             continue
 
-        # Concentration filter
-        concentration = float(event.get("concentration", 0))
-        if concentration < min_concentration:
+        prev_market = get_market_in_scan(latest_prev, token, dex)
+        old_market = get_market_in_scan(oldest_available, token, dex)
+
+        if not prev_market:
             continue
 
-        filtered.append(event)
+        rank_jump = prev_market["rank"] - current_rank
 
-    return filtered
+        # ── FIRST_JUMP detection ──
+        is_first_jump = False
+        is_immediate = False
+        is_contrib_explosion = False
+        reasons = []
 
+        # Must be a big single-scan jump from deep
+        if rank_jump >= 10 and prev_market["rank"] >= 25:
+            is_immediate = True
+            reasons.append(f"IMMEDIATE_MOVER +{rank_jump} from #{prev_market['rank']}")
 
-def build_consensus(events, entry_cfg):
-    """Group events by asset+direction to find consensus.
-    Returns consensus groups with 2+ events on the same side."""
-    mom_cfg = entry_cfg.get("momentumEvents", {})
-    min_events = mom_cfg.get("minEventsPerAsset", 2)
+            was_in_prev = (token, dex) in prev_top50_tokens
+            if not was_in_prev or prev_market["rank"] >= 30:
+                is_first_jump = True
+                reasons.append(f"FIRST_JUMP #{prev_market['rank']}->#{current_rank}")
 
-    # Extract positions from events and group by asset+direction
-    votes = {}  # key: "BTC:LONG" -> list of events
+        # Contribution explosion
+        if prev_market["contribution"] > 0:
+            contrib_ratio = current_contrib / prev_market["contribution"]
+            if contrib_ratio >= 3.0:
+                is_contrib_explosion = True
+                reasons.append(f"CONTRIB_EXPLOSION {contrib_ratio:.1f}x")
 
-    for event in events:
-        top_positions = event.get("top_positions", [])
-        if isinstance(top_positions, str):
-            try:
-                import json
-                top_positions = json.loads(top_positions)
-            except Exception:
-                top_positions = []
+        # Must have FIRST_JUMP or be IMMEDIATE
+        if not is_first_jump and not is_immediate:
+            continue
 
-        trader_id = event.get("trader_id", event.get("address", ""))
-        tier = int(event.get("tier", 1))
-        concentration = float(event.get("concentration", 0))
+        # Explosive threshold: rank jump >= minRankJump OR velocity override
+        contrib_velocity = 0
+        recent_contribs = []
+        for scan in prev_scans[-5:]:
+            m = get_market_in_scan(scan, token, dex)
+            if m:
+                recent_contribs.append(m["contribution"])
+        recent_contribs.append(current_contrib)
+        if len(recent_contribs) >= 2:
+            deltas = [recent_contribs[i + 1] - recent_contribs[i] for i in range(len(recent_contribs) - 1)]
+            contrib_velocity = sum(deltas) / len(deltas) * 100
 
-        for pos in top_positions:
-            market = pos.get("market", pos.get("coin", ""))
-            direction = pos.get("direction", "").upper()
-            delta_pnl = float(pos.get("delta_pnl", 0))
+        abs_velocity = abs(contrib_velocity)
 
-            if not market or not direction:
-                continue
+        if rank_jump < min_rank_jump and abs_velocity < min_velocity_override:
+            continue
 
-            # Normalize direction
-            if direction in ("LONG", "BUY"):
-                direction = "LONG"
-            elif direction in ("SHORT", "SELL"):
-                direction = "SHORT"
+        # Velocity floor
+        if abs_velocity < min_velocity_floor:
+            # For FIRST_JUMP, velocity > 0 is enough
+            if is_first_jump and contrib_velocity > 0:
+                pass
             else:
                 continue
 
-            key = f"{market}:{direction}"
-            if key not in votes:
-                votes[key] = {
-                    "coin": market,
-                    "direction": direction,
-                    "events": [],
-                    "traders": set(),
-                    "totalTier": 0,
-                    "totalConcentration": 0,
-                }
-            votes[key]["events"].append(event)
-            votes[key]["traders"].add(trader_id)
-            votes[key]["totalTier"] += tier
-            votes[key]["totalConcentration"] += concentration
+        # ── SCORING ──
+        score = 0
 
-    # Filter to consensus groups (min_events unique traders)
-    consensus = []
-    for key, vote in votes.items():
-        if len(vote["traders"]) >= min_events:
-            consensus.append({
-                "coin": vote["coin"],
-                "direction": vote["direction"],
-                "traderCount": len(vote["traders"]),
-                "eventCount": len(vote["events"]),
-                "avgTier": vote["totalTier"] / len(vote["events"]),
-                "avgConcentration": vote["totalConcentration"] / len(vote["events"]),
-                "traders": list(vote["traders"]),
-            })
+        if is_first_jump:
+            score += 3
+        if is_immediate:
+            score += 2
+        if is_contrib_explosion:
+            score += 2
+        if abs_velocity > 10:
+            score += 2
+            reasons.append(f"HIGH_VELOCITY {abs_velocity:.1f}")
 
-    return consensus
-
-
-# ─── Gate 3: Market Confirmation ─────────────────────────────
-
-def check_market_concentration(coin, entry_cfg):
-    """Confirm SM concentration via leaderboard_get_markets."""
-    mkt_cfg = entry_cfg.get("marketConfirmation", {})
-    if not mkt_cfg.get("enabled", True):
-        return True, 0, 0
-
-    top_n = mkt_cfg.get("topNTraders", 200)
-    min_count = mkt_cfg.get("minTraderCount", 5)
-
-    data = cfg.mcporter_call("leaderboard_get_markets", limit=top_n)
-    if not data or not data.get("success"):
-        return False, 0, 0
-
-    markets = data.get("data", data)
-    if isinstance(markets, dict):
-        markets = markets.get("markets", [])
-
-    for m in markets:
-        if m.get("market", "") == coin:
-            trader_count = int(m.get("trader_count", 0))
-            percentage = float(m.get("percentage", 0))
-            return trader_count >= min_count, trader_count, percentage
-
-    return False, 0, 0
-
-
-# ─── Gate 4: Volume Confirmation ─────────────────────────────
-
-def check_volume(coin, entry_cfg):
-    """Confirm the asset has active volume — don't mirror into dead markets."""
-    vol_cfg = entry_cfg.get("volumeConfirmation", {})
-    if not vol_cfg.get("enabled", True):
-        return True, 1.0
-
-    data = cfg.mcporter_call("market_get_asset_data", asset=coin,
-                              candle_intervals=["1h"],
-                              include_funding=False, include_order_book=False)
-    if not data or not data.get("success"):
-        return False, 0
-
-    candles = data.get("data", {}).get("candles", {}).get("1h", [])
-    if len(candles) < 6:
-        return False, 0
-
-    vols = [float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles[-6:]]
-    avg_vol = sum(vols) / len(vols) if vols else 0
-    latest_vol = vols[-1] if vols else 0
-
-    min_ratio = vol_cfg.get("minVolRatio", 0.5)
-    ratio = latest_vol / avg_vol if avg_vol > 0 else 0
-
-    return ratio >= min_ratio, ratio
-
-
-# ─── Gate 5: Regime Filter ───────────────────────────────────
-
-def get_btc_regime():
-    """Simple BTC regime: bullish, bearish, or neutral."""
-    data = cfg.mcporter_call("market_get_asset_data", asset="BTC",
-                              candle_intervals=["4h"],
-                              include_funding=False, include_order_book=False)
-    if not data or not data.get("success"):
-        return "NEUTRAL"
-
-    candles = data.get("data", {}).get("candles", {}).get("4h", [])
-    if len(candles) < 6:
-        return "NEUTRAL"
-
-    closes = [float(c.get("close", c.get("c", 0))) for c in candles[-6:]]
-    change = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] > 0 else 0
-
-    if change > 2:
-        return "BULLISH"
-    elif change < -2:
-        return "BEARISH"
-    return "NEUTRAL"
-
-
-# ─── Scoring ─────────────────────────────────────────────────
-
-def score_consensus(consensus, vol_ratio, mkt_trader_count, mkt_pct, regime, direction, entry_cfg):
-    """Score a consensus signal through all gates."""
-    score = 0
-    reasons = []
-
-    # Trader count (core signal strength)
-    tc = consensus["traderCount"]
-    score += tc * 2
-    reasons.append(f"{tc}_momentum_traders")
-
-    # Tier bonus (higher tiers = bigger moves)
-    avg_tier = consensus["avgTier"]
-    if avg_tier >= 2.5:
-        score += 3
-        reasons.append(f"avg_tier_{avg_tier:.1f}_extreme")
-    elif avg_tier >= 1.5:
-        score += 2
-        reasons.append(f"avg_tier_{avg_tier:.1f}_strong")
-    else:
-        score += 1
-        reasons.append(f"avg_tier_{avg_tier:.1f}_base")
-
-    # Concentration bonus (high conviction traders)
-    avg_conc = consensus["avgConcentration"]
-    if avg_conc > 0.7:
-        score += 2
-        reasons.append(f"high_conviction_{avg_conc:.0%}")
-    elif avg_conc > 0.5:
-        score += 1
-        reasons.append(f"moderate_conviction_{avg_conc:.0%}")
-
-    # Market confirmation bonus
-    if mkt_trader_count > 10:
-        score += 2
-        reasons.append(f"market_hot_{mkt_trader_count}_traders_{mkt_pct:.0%}")
-    elif mkt_trader_count > 5:
-        score += 1
-        reasons.append(f"market_active_{mkt_trader_count}_traders")
-
-    # Volume bonus
-    if vol_ratio > 1.5:
-        score += 1
-        reasons.append(f"vol_strong_{vol_ratio:.1f}x")
-    else:
-        reasons.append(f"vol_{vol_ratio:.1f}x")
-
-    # Regime filter (penalty, not block)
-    regime_cfg = entry_cfg.get("regimeFilter", {})
-    if regime_cfg.get("enabled", True):
-        if (direction == "LONG" and regime == "BEARISH") or \
-           (direction == "SHORT" and regime == "BULLISH"):
-            penalty = regime_cfg.get("penalty", -3)
-            score += penalty
-            reasons.append(f"regime_{regime}_penalty_{penalty}")
-        elif (direction == "LONG" and regime == "BULLISH") or \
-             (direction == "SHORT" and regime == "BEARISH"):
+        # Deep climber bonus
+        if prev_market["rank"] >= 40:
             score += 1
-            reasons.append(f"regime_confirms_{regime}")
+            reasons.append("DEEP_CLIMBER")
 
-    return score, reasons
+        # Multi-scan climb bonus
+        if old_market:
+            total_climb = old_market["rank"] - current_rank
+            if total_climb >= 10:
+                score += 1
+                reasons.append(f"CLIMBING +{total_climb} over scans")
+
+        # Time-of-day
+        tod_mod, tod_reason = time_of_day_modifier()
+        score += tod_mod
+        if tod_reason:
+            reasons.append(tod_reason)
+
+        if score < min_score or len(reasons) < min_reasons:
+            continue
+
+        # ── Volume confirmation (the PUMP filter) ──
+        vol_ratio, vol_strong = 0, True
+        if require_volume:
+            vol_ratio, vol_strong = check_asset_volume(token, dex)
+            if not vol_strong:
+                continue
+            reasons.append(f"VOL_CONFIRMED {vol_ratio:.1f}x")
+
+        signals.append({
+            "token": token,
+            "dex": dex if dex else None,
+            "direction": direction,
+            "mode": "STRIKER",
+            "score": score,
+            "reasons": reasons,
+            "currentRank": current_rank,
+            "rankJump": rank_jump,
+            "isFirstJump": is_first_jump,
+            "isContribExplosion": is_contrib_explosion,
+            "contribVelocity": round(contrib_velocity, 4),
+            "volRatio": round(vol_ratio, 2),
+            "contribution": round(current_contrib * 100, 3),
+            "traders": market["traders"],
+            "priceChg4h": market.get("price_chg_4h", 0),
+        })
+
+    return signals
 
 
 # ─── Main ─────────────────────────────────────────────────────
 
+# HARDCODED CONSTANTS — learned from 5+ days of live trading across 22 agents.
+# These are NOT configurable by the agent. They are in the code.
+MIN_LEVERAGE = 7          # Assets below 7x exchange max are skipped (3x entries can't overcome fees)
+MAX_LEVERAGE = 10         # Never exceed 10x
+MAX_POSITIONS = 3         # Concentration > diversification
+MAX_DAILY_LOSS_PCT = 10   # Fox's setting — Vixen drifted to 25% and bled 2.5x more per bad day
+XYZ_BANNED = True         # SNDK was Fox's biggest single loss; all xyz equities net negative across all agents
+
+# HARDCODED DSL TIERS — proven across 30 agents.
+# consecutiveBreachesRequired=3 prevents single-wick kills.
+DSL_TIERS = [
+    {"triggerPct": 7,  "lockHwPct": 40, "consecutiveBreachesRequired": 3},
+    {"triggerPct": 12, "lockHwPct": 55, "consecutiveBreachesRequired": 2},
+    {"triggerPct": 15, "lockHwPct": 75, "consecutiveBreachesRequired": 2},
+    {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1},
+]
+
+# HARDCODED CONVICTION TIERS — Phase 1 timing scaled by entry score.
+# v1.2: Added score-7 tier with tighter dead weight (8 min) based on Fox's
+# "weak peak bleed" data. Score 6 tier kept for DSL state compatibility
+# even though minScore is now 7.
+# dsl-v5.py reads TOP-LEVEL values, not per-tier. So the agent must set
+# the correct top-level values based on score BEFORE creating the state file.
+CONVICTION_TIERS = [
+    {"minScore": 6,  "absoluteFloorRoe": -18, "hardTimeoutMin": 25, "weakPeakCutMin": 12, "deadWeightCutMin": 8},
+    {"minScore": 8,  "absoluteFloorRoe": -25, "hardTimeoutMin": 45, "weakPeakCutMin": 20, "deadWeightCutMin": 15},
+    {"minScore": 10, "absoluteFloorRoe": -30, "hardTimeoutMin": 60, "weakPeakCutMin": 30, "deadWeightCutMin": 20},
+]
+
+STAGNATION_TP = {"enabled": True, "roeMin": 10, "hwStaleMin": 45}
+
+
+def build_dsl_state_template(signal):
+    """Build the EXACT DSL state file contents for a signal.
+    The agent should write this directly as the state file — no merging with
+    dsl-profile.json, no wolf_config.py builder, no dynamic generation.
+    This eliminates every DSL bug found in the audit."""
+
+    score = signal.get("score", 6)
+
+    # Select conviction tier based on score
+    tier = CONVICTION_TIERS[0]  # default to tightest
+    for ct in CONVICTION_TIERS:
+        if score >= ct["minScore"]:
+            tier = ct
+
+    return {
+        "active": True,
+        "asset": signal.get("token", ""),
+        "direction": signal.get("direction", ""),
+        "mode": signal.get("mode", "STALKER"),
+        "score": score,
+        "phase": 1,
+        "highWaterPrice": None,
+        "highWaterRoe": None,
+        "currentTierIndex": -1,
+        "consecutiveBreaches": 0,
+        "lockMode": "pct_of_high_water",
+        "phase2TriggerRoe": 7,
+        # CRITICAL: Top-level Phase 1 values that dsl-v5.py actually reads.
+        # These MUST be set correctly — dsl-v5.py ignores the convictionTiers array.
+        "phase1": {
+            "enabled": True,
+            "retraceThreshold": 0.03,
+            "consecutiveBreachesRequired": 3,  # NOT 1 — Fox's #1 bug
+            "phase1MaxMinutes": tier["hardTimeoutMin"],
+            "weakPeakCutMinutes": tier["weakPeakCutMin"],
+            "deadWeightCutMin": tier["deadWeightCutMin"],  # NOT 0 — every agent's #2 bug
+            "absoluteFloorRoe": tier["absoluteFloorRoe"],
+            "weakPeakCut": {
+                "enabled": True,
+                "intervalInMinutes": tier["weakPeakCutMin"],
+                "minValue": 3.0,
+            },
+        },
+        "phase2": {
+            "enabled": True,
+            "retraceThreshold": 0.015,
+            "consecutiveBreachesRequired": 2,
+        },
+        "tiers": DSL_TIERS,
+        "stagnationTp": STAGNATION_TP,
+        "convictionTiers": CONVICTION_TIERS,
+        "execution": {
+            "phase1SlOrderType": "MARKET",
+            "phase2SlOrderType": "MARKET",
+            "breachCloseOrderType": "MARKET",
+        },
+        "_mantis_version": "3.0",
+        "_note": "Generated by mantis-scanner.py v3.0. Do not modify. Do not merge with dsl-profile.json.",
+    }
+
+
 def run():
     config = cfg.load_config()
-    wallet, _ = cfg.get_wallet_and_strategy()
-
-    if not wallet:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "no wallet"})
-        return
-
-    tc = cfg.load_trade_counter()
-    if tc.get("gate") != "OPEN":
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"gate={tc['gate']}"})
-        return
-
-    account_value, positions = cfg.get_positions(wallet)
     entry_cfg = config.get("entry", {})
-    max_positions = config.get("maxPositions", 3)
-    our_coins = {p["coin"] for p in positions}
+    cooldown_min = entry_cfg.get("assetCooldownMinutes", 120)
 
-    # Dynamic slots
-    dynamic = entry_cfg.get("dynamicSlots", {})
-    if dynamic.get("enabled", True):
-        base_max = dynamic.get("baseMax", 3)
-        day_pnl = tc.get("realizedPnl", 0)
-        effective_max = base_max
-        for t in dynamic.get("unlockThresholds", []):
-            if day_pnl >= t.get("pnl", 999999):
-                effective_max = t.get("maxEntries", effective_max)
-        max_entries = min(effective_max, dynamic.get("absoluteMax", 6))
-    else:
-        max_entries = config.get("risk", {}).get("maxEntriesPerDay", 4)
-
-    if tc.get("entries", 0) >= max_entries:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"max entries ({max_entries})"})
+    # Fetch markets
+    raw_markets = fetch_markets()
+    if raw_markets is None:
+        cfg.output({"status": "error", "error": "failed to fetch markets"})
         return
 
-    if len(positions) >= max_positions:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "max positions"})
-        return
+    # Parse current scan (XYZ filtered at scan level)
+    current_scan = parse_scan(raw_markets)
 
-    # ── GATE 1: Fetch momentum events ─────────────────────────
-    events = fetch_momentum_events(entry_cfg)
-    if not events:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": "no momentum events in lookback window"})
-        return
+    # Load history
+    history = cfg.load_scan_history()
 
-    # ── GATE 2: Filter by trader quality ──────────────────────
-    quality_events = filter_quality_events(events, entry_cfg)
-    if not quality_events:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"{len(events)} events but none passed quality filter"})
-        return
+    # v1.2: Check Stalker losing streak — if last 3 Stalker results were all
+    # losses, temporarily raise minScore to 9. Resets when a Stalker wins.
+    # This prevents the "death by a thousand cuts" bleed Fox experienced.
+    tc = cfg.load_trade_counter()
+    stalker_results = tc.get("stalkerResults", [])
+    stalker_streak_active = False
+    if len(stalker_results) >= 3 and all(r == "L" for r in stalker_results[-3:]):
+        stalker_streak_active = True
 
-    # ── Build consensus (2+ quality traders on same asset/direction) ──
-    consensus_groups = build_consensus(quality_events, entry_cfg)
-    if not consensus_groups:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"{len(quality_events)} quality events, no 2+ trader consensus"})
-        return
+    # Detect both modes
+    stalker_signals = detect_stalker_signals(current_scan, history, entry_cfg)
+    striker_signals = detect_striker_signals(current_scan, history, entry_cfg)
 
-    # Get regime once (used for all candidates)
-    regime = get_btc_regime()
+    # v1.2: Apply streak filter to Stalker signals
+    if stalker_streak_active:
+        stalker_signals = [s for s in stalker_signals if s["score"] >= 9]
 
-    # ── Score each consensus group through remaining gates ────
-    signals = []
-    banned = entry_cfg.get("bannedPrefixes", ["xyz:"])
+    # Save history
+    history["scans"].append(current_scan)
+    cfg.save_scan_history(history)
 
-    for group in consensus_groups:
-        coin = group["coin"]
-        direction = group["direction"]
+    # Apply per-asset cooldowns (HARDCODED 2-hour — the PAXG double-entry lesson)
+    stalker_signals = [s for s in stalker_signals if not cfg.is_asset_cooled_down(s["token"], cooldown_min)]
+    striker_signals = [s for s in striker_signals if not cfg.is_asset_cooled_down(s["token"], cooldown_min)]
 
-        if coin in our_coins:
-            continue
-        if any(coin.startswith(p) for p in banned):
-            continue
+    # Sort by score (highest first)
+    stalker_signals.sort(key=lambda s: s["score"], reverse=True)
+    striker_signals.sort(key=lambda s: s["score"], reverse=True)
 
-        # GATE 3: Market confirmation
-        mkt_ok, mkt_count, mkt_pct = check_market_concentration(coin, entry_cfg)
-        if entry_cfg.get("marketConfirmation", {}).get("enabled", True) and not mkt_ok:
-            continue
+    # Combine — Striker takes priority over Stalker for same token
+    striker_tokens = {s["token"] for s in striker_signals}
+    combined = striker_signals + [s for s in stalker_signals if s["token"] not in striker_tokens]
+    combined.sort(key=lambda s: s["score"], reverse=True)
 
-        # GATE 4: Volume confirmation
-        vol_ok, vol_ratio = check_volume(coin, entry_cfg)
-        if entry_cfg.get("volumeConfirmation", {}).get("enabled", True) and not vol_ok:
-            continue
+    # Build DSL state templates for each signal
+    for signal in combined:
+        signal["dslState"] = build_dsl_state_template(signal)
 
-        # GATE 5 + Scoring
-        score, reasons = score_consensus(
-            group, vol_ratio, mkt_count, mkt_pct, regime, direction, entry_cfg
-        )
-
-        signals.append({
-            "coin": coin,
-            "direction": direction,
-            "score": score,
-            "reasons": reasons,
-            "traderCount": group["traderCount"],
-            "eventCount": group["eventCount"],
-            "avgTier": group["avgTier"],
-            "avgConcentration": group["avgConcentration"],
-            "volRatio": vol_ratio,
-            "marketTraderCount": mkt_count,
-        })
-
-    if not signals:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"{len(consensus_groups)} consensus groups, none passed all gates"})
-        return
-
-    min_score = entry_cfg.get("minScore", 10)
-    signals = [s for s in signals if s["score"] >= min_score]
-
-    if not signals:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": "consensus found but score below minimum"})
-        return
-
-    signals.sort(key=lambda x: x["score"], reverse=True)
-    best = signals[0]
-
-    # Conviction-scaled margin
-    base_margin_pct = entry_cfg.get("marginPctBase", 0.25)
-    if best["traderCount"] >= 5:
-        margin_pct = base_margin_pct * 1.5
-    elif best["traderCount"] >= 3:
-        margin_pct = base_margin_pct * 1.25
-    else:
-        margin_pct = base_margin_pct
-    margin = round(account_value * margin_pct, 2)
-
-    leverage = config.get("leverage", {}).get("default", 8)
-
+    # Output — include hardcoded constraints so the agent can't override them
     cfg.output({
-        "success": True,
-        "signal": best,
-        "entry": {
-            "coin": best["coin"],
-            "direction": best["direction"],
-            "leverage": leverage,
-            "margin": margin,
-            "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
+        "status": "ok",
+        "time": current_scan["time"],
+        "totalMarkets": len(current_scan["markets"]),
+        "scansInHistory": len(history["scans"]),
+        "stalkerSignals": stalker_signals,
+        "strikerSignals": striker_signals,
+        "combined": combined,
+        "hasStalker": len(stalker_signals) > 0,
+        "hasStriker": len(striker_signals) > 0,
+        "hasSignal": len(combined) > 0,
+        "stalkerStreakActive": stalker_streak_active,
+        # HARDCODED EXECUTION CONSTRAINTS — agent MUST respect these
+        "constraints": {
+            "minLeverage": MIN_LEVERAGE,
+            "maxLeverage": MAX_LEVERAGE,
+            "maxPositions": MAX_POSITIONS,
+            "maxDailyLossPct": MAX_DAILY_LOSS_PCT,
+            "xyzBanned": XYZ_BANNED,
+            "assetCooldownMinutes": cooldown_min,
+            "stagnationTp": STAGNATION_TP,
+            "dslTiers": DSL_TIERS,
+            "convictionTiers": CONVICTION_TIERS,
+            "_note": "These constraints are HARDCODED in the scanner. Do not override.",
+            "_dslNote": "Use the dslState block from each signal as the DSL state file. Do NOT merge with dsl-profile.json.",
         },
-        "armDsl": True,
-        "_note": "MANDATORY: run dsl-cli.py add-dsl IMMEDIATELY after entry fills. No naked positions.",
-        "eventsSeen": len(events),
-        "qualityEvents": len(quality_events),
-        "consensusGroups": len(consensus_groups),
-        "candidates": len(signals),
+        "_mantis_version": "3.0",
     })
 
 
