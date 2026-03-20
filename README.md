@@ -9,17 +9,6 @@ Senpi Skills is the open-source repository for autonomous trading strategies on 
 
 ---
 
-## What We Learned From 30 Agents and $30K
-
-**The AI model is a commodity.** Polar made 29 trades at +28.1%. Ghost Fox made 1,078 trades at -58.5%. Same LLM, same exchange, same week. 86-point performance spread. The edge is the skill — the scanner, the scoring, the risk management — not the model.
-
-**Fewer trades wins.** Consistent inverse correlation between trade frequency and performance across all 30 agents. Seven agents sat at 0% with zero trades during chop. They were the smartest ones in the room.
-
-**Agents will self-modify into worse performance.** Every agent that adjusted its own config during a losing streak made things worse. Zero exceptions. The fix: hardcode critical parameters in the scanner code itself, not in instructions the agent can override.
-
-**The weak peak bleed.** Fox v1.0 produced 17 Stalker trades at score 6-7 with a 17.6% win rate. Trades would bump +0.5%, stall, and DSL would cut them for $3-$10 each. Death by a thousand cuts. Fixed in v1.2+ with raised thresholds and tighter Phase 1 timing.
-
----
 
 ## Active Skills
 
