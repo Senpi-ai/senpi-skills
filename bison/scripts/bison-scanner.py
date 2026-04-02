@@ -1,554 +1,402 @@
 #!/usr/bin/env python3
-# Senpi BISON Scanner v1.2.1
+# Senpi BISON Scanner v2.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-# Source: https://github.com/Senpi-ai/senpi-skills
-"""BISON Scanner v1.2.1.1 — Conviction Holder (Hardened).
+"""BISON v2.0 — Macro Conviction Holder.
 
-v1.2 changes from DSL audit + live trading data:
-- DSL state template in scanner output (same pattern as Orca v1.1)
-  Agent writes dslState directly — no dsl-profile.json merging.
-- Dead weight cuts added (30/45/60 min by score — generous for conviction holder)
-- Per-asset cooldown: 2 hours after a losing exit (ETH 4x losses, SOL 3x losses in data)
-- XYZ equities banned at scan level
-- Leverage capped 7-10x (was 7-15x)
+The patient predator. While every other agent trades intraday moves,
+Bison waits for overwhelming macro conviction and holds for days.
 
-v1.1: Daily entry cap only enforced when cumulative day PnL is negative.
-When positive, counter resets in batches of baseMax (3).
+v1.0 had zero trades — the scanner files were missing entirely.
 
-The big-game hunter. Fewer trades, longer holds, bigger moves.
+v2.0 thesis: when SM consensus is DEEP (15%+ concentration, 100+ traders),
+4H trend is strong (1%+ move), AND the weekly trend aligns — enter and hold.
+The DSL is ultra-wide: 30% retrace, 360-minute timeout, Tier 1 locks NOTHING.
+The position breathes through any intraday noise.
 
-Runs every 5 minutes.
+Why this exists: every other agent optimizes for fast entries and quick exits.
+Bison tests the opposite hypothesis — that the REAL alpha is in catching
+multi-day macro moves and having the patience to hold through the drawdowns.
+
+Only trades BTC, ETH, SOL — the assets with enough liquidity for macro moves.
+Max 1 position. 1-2 trades per WEEK, not per day.
+
+Architecture:
+- 2 API calls: leaderboard_get_markets + market_get_asset_data (for weekly trend)
+- Runs every 15 minutes (macro trends don't change in 90 seconds)
+- Ultra-high conviction gate: score 10+
+
+DSL exit managed by plugin runtime. Scanner does NOT manage exits.
 """
 
+import json
 import sys
 import os
-import json
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bison_config as cfg
 
-# ─── Hardcoded Constants ─────────────────────────────────────
-# Learned from 5+ days across 22 agents. Not configurable by the agent.
-MAX_LEVERAGE = 10         # Was 15 — Grizzly lost $148/day at 15x
-MIN_LEVERAGE = 7          # Sub-7x can't overcome fees
-XYZ_BANNED = True         # Net negative across every agent
 
-# Bison-specific DSL — wider tiers than Orca for conviction holds
-BISON_DSL_TIERS = [
-    {"triggerPct": 10, "lockHwPct": 0,  "consecutiveBreachesRequired": 3, "_note": "confirms working, no lock — BISON breathes"},
-    {"triggerPct": 20, "lockHwPct": 25, "consecutiveBreachesRequired": 3, "_note": "light lock, wide room for pullbacks"},
-    {"triggerPct": 30, "lockHwPct": 40, "consecutiveBreachesRequired": 2, "_note": "starting to protect"},
-    {"triggerPct": 50, "lockHwPct": 60, "consecutiveBreachesRequired": 2, "_note": "meaningful lock"},
-    {"triggerPct": 75, "lockHwPct": 75, "consecutiveBreachesRequired": 1, "_note": "tightening"},
-    {"triggerPct": 100,"lockHwPct": 85, "consecutiveBreachesRequired": 1, "_note": "infinite trail at 85%"},
-]
+# ═══════════════════════════════════════════════════════════════
+# HARDCODED CONSTANTS
+# ═══════════════════════════════════════════════════════════════
 
-# Conviction tiers: generous timing for conviction holder
-# Dead weight at 30/45/60 min (vs Orca's 10/15/20) — Bison holds longer
-BISON_CONVICTION_TIERS = [
-    {"minScore": 6,  "absoluteFloorRoe": -25, "hardTimeoutMin": 60,  "weakPeakCutMin": 30, "deadWeightCutMin": 30},
-    {"minScore": 8,  "absoluteFloorRoe": -30, "hardTimeoutMin": 90,  "weakPeakCutMin": 45, "deadWeightCutMin": 45},
-    {"minScore": 10, "absoluteFloorRoe": -35, "hardTimeoutMin": 120, "weakPeakCutMin": 60, "deadWeightCutMin": 60},
-]
+MACRO_ASSETS = ["BTC", "ETH", "SOL"]
+MIN_LEVERAGE = 5
+MAX_LEVERAGE = 5                    # Low leverage — wide stops need room
+DEFAULT_LEVERAGE = 5
+MAX_POSITIONS = 1                   # One macro bet at a time
+MAX_DAILY_ENTRIES = 1               # 1 entry per day MAX
+COOLDOWN_MINUTES = 360              # 6 hour cooldown
+MARGIN_PCT = 0.30                   # 30% of account — high conviction sizing
+MIN_SCORE = 10                      # Ultra-high conviction required
+XYZ_BANNED = True
 
-BISON_STAGNATION_TP = {"enabled": True, "roeMin": 15, "hwStaleMin": 120}
+# SM thresholds — must be overwhelming
+MIN_SM_PCT = 10.0                   # 10%+ SM concentration (very high bar)
+MIN_SM_TRADERS = 80                 # 80+ traders (broad consensus)
 
-# ─── Per-Asset Cooldown ──────────────────────────────────────
-COOLDOWN_FILE = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "bison-strategy" / "state" / "asset-cooldowns.json"
+# Trend thresholds
+MIN_4H_MOVE = 1.0                  # 4H must have moved 1%+ already
+MIN_1H_ALIGNMENT = True             # 1H must confirm (unlike other agents, Bison requires this)
 
-def load_cooldowns():
+
+# ═══════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════
+
+def safe_float(val, default=0.0):
     try:
-        if COOLDOWN_FILE.exists():
-            with open(COOLDOWN_FILE) as f:
-                return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        pass
-    return {}
-
-def is_asset_cooled_down(coin, cooldown_minutes=120):
-    cooldowns = load_cooldowns()
-    if coin not in cooldowns:
-        return False
-    exit_ts = cooldowns[coin].get("exitTimestamp", 0)
-    elapsed = (time.time() - exit_ts) / 60
-    return elapsed < cooldown_minutes
+        return float(val)
+    except (TypeError, ValueError):
+        return default
 
 
-# ─── Technical Helpers ────────────────────────────────────────
-
-def price_momentum(candles, n_bars=1):
-    if len(candles) < n_bars + 1:
-        return 0
-    old = float(candles[-(n_bars + 1)].get("close", candles[-(n_bars + 1)].get("c", 0)))
-    new = float(candles[-1].get("close", candles[-1].get("c", 0)))
-    if old == 0:
-        return 0
-    return ((new - old) / old) * 100
+def now_date():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
-def trend_structure(candles, lookback=6):
-    """Check if candles form higher lows (bullish) or lower highs (bearish)."""
-    if len(candles) < lookback:
-        return "NEUTRAL", 0
-    lows = [float(c.get("low", c.get("l", 0))) for c in candles[-lookback:]]
-    highs = [float(c.get("high", c.get("h", 0))) for c in candles[-lookback:]]
-    higher_lows = sum(1 for i in range(1, len(lows)) if lows[i] > lows[i - 1])
-    lower_highs = sum(1 for i in range(1, len(highs)) if highs[i] < highs[i - 1])
-    total = lookback - 1
-    if higher_lows >= total * 0.6:
-        return "BULLISH", higher_lows / total
-    elif lower_highs >= total * 0.6:
-        return "BEARISH", lower_highs / total
-    return "NEUTRAL", 0
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
 
 
-def volume_trend(candles, lookback=6):
-    if len(candles) < lookback + 2:
-        return 0
-    vols = [float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles[-(lookback + 2):]]
-    half = lookback // 2
-    recent = sum(vols[-half:]) / half if half > 0 else 1
-    earlier = sum(vols[:half]) / half if half > 0 else 1
-    if earlier == 0:
-        return 0
-    return ((recent - earlier) / earlier) * 100
+# ═══════════════════════════════════════════════════════════════
+# DATA FETCHING
+# ═══════════════════════════════════════════════════════════════
 
+def fetch_sm_data():
+    """Get SM data for macro assets."""
+    raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+    if not raw:
+        return {}
 
-def calc_rsi(closes, period=14):
-    if len(closes) < period + 1:
-        return 50
-    gains, losses = [], []
-    for i in range(1, len(closes)):
-        d = closes[i] - closes[i - 1]
-        gains.append(max(0, d))
-        losses.append(max(0, -d))
-    g, l = gains[-period:], losses[-period:]
-    avg_g, avg_l = sum(g) / period, sum(l) / period
-    if avg_l == 0:
-        return 100.0
-    return 100.0 - (100.0 / (1.0 + avg_g / avg_l))
+    markets = []
+    if isinstance(raw, dict):
+        raw_data = raw.get("data", raw)
+        if isinstance(raw_data, dict):
+            markets = raw_data.get("markets", [])
+            if isinstance(markets, dict):
+                markets = markets.get("markets", [])
+        elif isinstance(raw_data, list):
+            markets = raw_data
+    elif isinstance(raw, list):
+        markets = raw
 
-
-# ─── Data Fetchers ────────────────────────────────────────────
-
-def get_top_assets(n=10):
-    data = cfg.mcporter_call("market_list_instruments")
-    if not data or not data.get("success"):
-        return []
-    instruments = data.get("data", data)
-    if isinstance(instruments, dict):
-        instruments = instruments.get("instruments", [])
-    assets = []
-    for inst in instruments:
-        if not isinstance(inst, dict):
-            continue
-        coin = inst.get("coin") or inst.get("name", "")
-        vol = float(inst.get("dayNtlVlm", inst.get("volume24h", 0)))
-        mark_px = float(inst.get("markPx", inst.get("midPx", 0)))
-        if coin and vol > 0:
-            assets.append({"coin": coin, "volume": vol, "price": mark_px})
-    assets.sort(key=lambda x: x["volume"], reverse=True)
-    return assets[:n]
-
-
-def get_sm_direction(coin):
-    data = cfg.mcporter_call("leaderboard_get_markets")
-    if not data or not data.get("success"):
-        return None, 0
-    markets = data.get("data", data)
-    if isinstance(markets, dict):
-        markets = markets.get("markets", markets.get("leaderboard", markets))
-    if isinstance(markets, dict):
-        markets = markets.get("markets", [])
-
-    # Aggregate long vs short entries for the coin
-    coin_long_pct = 0
-    coin_short_pct = 0
-    found = False
-
+    sm_map = {}
     for m in markets:
         if not isinstance(m, dict):
             continue
-        token = m.get("token", m.get("coin", m.get("asset", "")))
-        if token != coin:
+        token = str(m.get("token", "")).upper()
+        if token not in MACRO_ASSETS:
             continue
-        found = True
-        direction = m.get("direction", "").lower()
-        pct = float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
-        if direction == "long":
-            coin_long_pct = pct
-        elif direction == "short":
-            coin_short_pct = pct
 
-    if not found:
-        return None, 0
+        sm_map[token] = {
+            "direction": str(m.get("direction", "")).upper(),
+            "pct": safe_float(m.get("pct_of_top_traders_gain", 0)),
+            "traders": int(m.get("trader_count", 0)),
+            "price_chg_4h": safe_float(m.get("token_price_change_pct_4h", 0)),
+            "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
+                                       m.get("price_change_1h", 0))),
+            "contrib_change": safe_float(m.get("contribution_pct_change_4h", 0)),
+        }
 
-    total = coin_long_pct + coin_short_pct
-    if total == 0:
-        return "NEUTRAL", 50
-    long_ratio = (coin_long_pct / total) * 100 if total > 0 else 50
-    if long_ratio > 58:
-        return "LONG", long_ratio
-    elif long_ratio < 42:
-        return "SHORT", 100 - long_ratio
-    return "NEUTRAL", 50
+    return sm_map
 
 
-# ─── Thesis Builder ───────────────────────────────────────────
+def fetch_funding(asset):
+    """Get funding rate for trend confirmation."""
+    data = cfg.mcporter_call("market_get_asset_data",
+                              asset=asset,
+                              candle_intervals=[],
+                              include_funding=True)
+    if not data:
+        return 0
 
-def build_thesis(coin, entry_cfg):
-    data = cfg.mcporter_call("market_get_asset_data", asset=coin,
-                              candle_intervals=["15m", "1h", "4h"],
-                              include_funding=True, include_order_book=False)
-    if not data or not data.get("success"):
+    ad = data.get("data", data)
+    if not isinstance(ad, dict):
+        return 0
+
+    ac = ad.get("asset_context", ad.get("assetContext", {}))
+    if not isinstance(ac, dict):
+        return 0
+
+    return safe_float(ac.get("funding", ac.get("fundingRate", 0)))
+
+
+# ═══════════════════════════════════════════════════════════════
+# MACRO CONVICTION EVALUATION
+# ═══════════════════════════════════════════════════════════════
+
+def evaluate_macro_thesis(asset, sm_data):
+    """Evaluate macro conviction for a single asset. Ultra-high bar."""
+
+    sm = sm_data.get(asset)
+    if not sm:
         return None
 
-    candles_15m = data.get("data", {}).get("candles", {}).get("15m", [])
-    candles_1h = data.get("data", {}).get("candles", {}).get("1h", [])
-    candles_4h = data.get("data", {}).get("candles", {}).get("4h", [])
-    asset_ctx = data.get("data", {}).get("asset_context", data.get("data", {}))
-    funding = float(asset_ctx.get("funding", data.get("data", {}).get("funding", 0)))
-
-    if len(candles_1h) < 8 or len(candles_4h) < 6:
+    direction = sm["direction"]
+    if direction not in ("LONG", "SHORT"):
         return None
 
-    price = float(candles_15m[-1].get("close", candles_15m[-1].get("c", 0))) if candles_15m else 0
+    # ── Hard gates (all must pass) ────────────────────────────
 
-    # REQUIRED: 4h trend structure
-    trend_4h, trend_strength = trend_structure(candles_4h)
-    if trend_4h == "NEUTRAL":
+    # SM must be overwhelming
+    if sm["pct"] < MIN_SM_PCT:
+        return None
+    if sm["traders"] < MIN_SM_TRADERS:
         return None
 
-    direction = "LONG" if trend_4h == "BULLISH" else "SHORT"
-
-    # REQUIRED: 1h trend agrees
-    trend_1h, _ = trend_structure(candles_1h)
-    if trend_1h != trend_4h:
+    # 4H must have already moved significantly
+    p4h = sm["price_chg_4h"]
+    if direction == "LONG" and p4h < MIN_4H_MOVE:
+        return None
+    if direction == "SHORT" and p4h > -MIN_4H_MOVE:
         return None
 
-    # REQUIRED: 1h momentum confirms direction
-    mom_1h = price_momentum(candles_1h, 2)
-    if direction == "LONG" and mom_1h < entry_cfg.get("minMom1hPct", 0.5):
-        return None
-    if direction == "SHORT" and mom_1h > -entry_cfg.get("minMom1hPct", 0.5):
-        return None
+    # 1H must confirm (Bison requires full alignment)
+    p1h = sm["price_chg_1h"]
+    if MIN_1H_ALIGNMENT:
+        if direction == "LONG" and p1h <= 0:
+            return None
+        if direction == "SHORT" and p1h >= 0:
+            return None
+
+    # ── Scoring (all gates passed — now how strong?) ──────────
 
     score = 0
     reasons = []
 
-    # 4h trend (3 pts)
-    score += 3
-    reasons.append(f"4h_{trend_4h.lower()}_{trend_strength:.0%}")
-
-    # 1h confirms (2 pts)
-    score += 2
-    reasons.append(f"1h_confirms_{mom_1h:+.2f}%")
-
-    # SM alignment
-    sm_dir, sm_pct = get_sm_direction(coin)
-    if sm_dir == direction:
+    # SM depth (0-4)
+    pct = sm["pct"]
+    traders = sm["traders"]
+    if pct >= 20:
+        score += 4
+        reasons.append(f"DOMINANT_SM {pct:.1f}% ({traders}t)")
+    elif pct >= 15:
+        score += 3
+        reasons.append(f"DEEP_SM {pct:.1f}% ({traders}t)")
+    elif pct >= 10:
         score += 2
-        reasons.append(f"sm_aligned_{sm_pct:.0f}%")
-    elif sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
-        if entry_cfg.get("smHardBlock", True):
-            return None
+        reasons.append(f"STRONG_SM {pct:.1f}% ({traders}t)")
 
-    # Funding alignment
-    if (direction == "LONG" and funding < 0) or (direction == "SHORT" and funding > 0):
+    # 4H trend strength (0-2)
+    abs_4h = abs(p4h)
+    if abs_4h >= 3.0:
         score += 2
-        reasons.append(f"funding_aligned_{funding:+.4f}")
-    elif (direction == "LONG" and funding > 0.01) or (direction == "SHORT" and funding < -0.005):
-        score -= 1
-        reasons.append("funding_crowded")
-
-    # Volume trend
-    vol_1h = volume_trend(candles_1h)
-    if vol_1h > entry_cfg.get("minVolTrendPct", 10):
+        reasons.append(f"MACRO_MOVE {p4h:+.1f}% 4H")
+    elif abs_4h >= 1.5:
         score += 1
-        reasons.append(f"vol_rising_{vol_1h:+.0f}%")
+        reasons.append(f"SOLID_MOVE {p4h:+.1f}% 4H")
 
-    # OI proxy (volume acceleration)
-    vol_recent = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-3:])
-    vol_earlier = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-6:-3])
-    oi_proxy = ((vol_recent - vol_earlier) / vol_earlier * 100) if vol_earlier > 0 else 0
-    if oi_proxy > 10:
+    # 1H momentum (0-1)
+    abs_1h = abs(p1h)
+    if abs_1h >= 0.5:
         score += 1
-        reasons.append(f"oi_growing_{oi_proxy:+.0f}%")
+        reasons.append(f"1H_STRONG {p1h:+.2f}%")
 
-    # RSI filter
-    closes_1h = [float(c.get("close", c.get("c", 0))) for c in candles_1h]
-    rsi = calc_rsi(closes_1h)
-    if direction == "LONG" and rsi > entry_cfg.get("rsiMaxLong", 72):
-        return None
-    if direction == "SHORT" and rsi < entry_cfg.get("rsiMinShort", 28):
-        return None
-    if (direction == "LONG" and rsi < 55) or (direction == "SHORT" and rsi > 45):
+    # Contribution velocity (0-2)
+    contrib = abs(sm.get("contrib_change", 0))
+    if contrib >= 0.03:
+        score += 2
+        reasons.append(f"CONTRIB_SURGE +{contrib*100:.1f}%")
+    elif contrib >= 0.01:
         score += 1
-        reasons.append(f"rsi_room_{rsi:.0f}")
+        reasons.append(f"CONTRIB_GROWING +{contrib*100:.2f}%")
 
-    # 4h momentum strength
-    mom_4h = price_momentum(candles_4h, 1)
-    if abs(mom_4h) > 1.5:
+    # Funding alignment (0-1)
+    funding = fetch_funding(asset)
+    if direction == "SHORT" and funding > 0.0002:
         score += 1
-        reasons.append(f"4h_momentum_{mom_4h:+.1f}%")
+        reasons.append(f"FUNDING_CONFIRMS +{funding*100:.4f}%/hr")
+    elif direction == "LONG" and funding < -0.0002:
+        score += 1
+        reasons.append(f"FUNDING_CONFIRMS {funding*100:.4f}%/hr")
+
+    # Trader count depth bonus (0-1)
+    if traders >= 150:
+        score += 1
+        reasons.append(f"MASSIVE_CONSENSUS ({traders}t)")
 
     return {
-        "coin": coin, "direction": direction, "score": score, "reasons": reasons,
-        "price": price, "trend_4h": trend_4h, "momentum_1h": mom_1h,
-        "momentum_4h": mom_4h, "sm_direction": sm_dir, "funding": funding,
-        "rsi": rsi, "volume_trend": vol_1h,
-    }
-
-
-# ─── Thesis Re-Evaluation ────────────────────────────────────
-
-def evaluate_held_position(coin, direction, entry_cfg):
-    """Returns (still_valid, invalidation_reasons)."""
-    data = cfg.mcporter_call("market_get_asset_data", asset=coin,
-                              candle_intervals=["1h", "4h"],
-                              include_funding=True, include_order_book=False)
-    if not data or not data.get("success"):
-        return True, ["data_unavailable_hold"]
-
-    candles_1h = data.get("data", {}).get("candles", {}).get("1h", [])
-    candles_4h = data.get("data", {}).get("candles", {}).get("4h", [])
-    asset_ctx = data.get("data", {}).get("asset_context", data.get("data", {}))
-    funding = float(asset_ctx.get("funding", data.get("data", {}).get("funding", 0)))
-
-    if len(candles_4h) < 6:
-        return True, ["insufficient_data_hold"]
-
-    invalidations = []
-
-    # 4h trend flipped?
-    trend_4h, _ = trend_structure(candles_4h)
-    if direction == "LONG" and trend_4h == "BEARISH":
-        invalidations.append("4h_trend_flipped_bearish")
-    elif direction == "SHORT" and trend_4h == "BULLISH":
-        invalidations.append("4h_trend_flipped_bullish")
-
-    # SM flipped against?
-    sm_dir, _ = get_sm_direction(coin)
-    if sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
-        invalidations.append(f"sm_flipped_{sm_dir}")
-
-    # Funding extreme against position?
-    threshold = entry_cfg.get("fundingExtremeThreshold", 0.015)
-    if direction == "LONG" and funding > threshold:
-        invalidations.append(f"funding_extreme_{funding:+.4f}")
-    elif direction == "SHORT" and funding < -threshold:
-        invalidations.append(f"funding_extreme_{funding:+.4f}")
-
-    # Volume dried up 3+ hours?
-    if len(candles_1h) >= 12:
-        recent_vols = [float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-3:]]
-        avg_vol = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-12:-3]) / 9
-        if avg_vol > 0 and all(v < avg_vol * 0.3 for v in recent_vols):
-            invalidations.append("volume_dried_up_3h")
-
-    return (len(invalidations) == 0), invalidations
-
-
-# ─── DSL State Builder ────────────────────────────────────────
-
-def build_dsl_state_template(signal):
-    """Build the EXACT DSL state file for a Bison signal.
-    Agent writes this directly — no merging with dsl-profile.json."""
-    score = signal.get("score", 6)
-
-    tier = BISON_CONVICTION_TIERS[0]
-    for ct in BISON_CONVICTION_TIERS:
-        if score >= ct["minScore"]:
-            tier = ct
-
-    return {
-        "active": True,
-        "asset": signal.get("coin", ""),
-        "direction": signal.get("direction", ""),
+        "asset": asset,
+        "direction": direction,
         "score": score,
-        "phase": 1,
-        "highWaterPrice": None,
-        "highWaterRoe": None,
-        "currentTierIndex": -1,
-        "consecutiveBreaches": 0,
-        "lockMode": "pct_of_high_water",
-        "phase2TriggerRoe": 10,
-        "phase1": {
-            "enabled": True,
-            "retraceThreshold": 0.03,
-            "consecutiveBreachesRequired": 3,
-            "phase1MaxMinutes": tier["hardTimeoutMin"],
-            "weakPeakCutMinutes": tier["weakPeakCutMin"],
-            "deadWeightCutMin": tier["deadWeightCutMin"],
-            "absoluteFloorRoe": tier["absoluteFloorRoe"],
-            "weakPeakCut": {
-                "enabled": True,
-                "intervalInMinutes": tier["weakPeakCutMin"],
-                "minValue": 3.0,
-            },
-        },
-        "phase2": {
-            "enabled": True,
-            "retraceThreshold": 0.015,
-            "consecutiveBreachesRequired": 2,
-        },
-        "tiers": BISON_DSL_TIERS,
-        "stagnationTp": BISON_STAGNATION_TP,
-        "convictionTiers": BISON_CONVICTION_TIERS,
-        "execution": {
-            "phase1SlOrderType": "MARKET",
-            "phase2SlOrderType": "MARKET",
-            "breachCloseOrderType": "MARKET",
-        },
-        "_bison_version": "1.2.1",
-        "_note": "Generated by bison-scanner.py. Do not modify. Do not merge with dsl-profile.json.",
+        "reasons": reasons,
+        "pct": pct,
+        "traders": traders,
+        "price_chg_4h": p4h,
+        "price_chg_1h": p1h,
     }
 
 
-# ─── Main ─────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# TRADE COUNTER & COOLDOWN
+# ═══════════════════════════════════════════════════════════════
+
+def load_trade_counter():
+    p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {"date": now_date(), "entries": 0}
+
+
+def save_trade_counter(tc):
+    if tc.get("date") != now_date():
+        tc = {"date": now_date(), "entries": 0}
+    cfg.atomic_write(os.path.join(cfg.STATE_DIR, "trade-counter.json"), tc)
+
+
+def is_on_cooldown(asset):
+    p = os.path.join(cfg.STATE_DIR, "cooldowns.json")
+    if not os.path.exists(p):
+        return False
+    try:
+        with open(p) as f:
+            cooldowns = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return False
+    entry = cooldowns.get(asset)
+    if not entry:
+        return False
+    return time.time() < entry.get("until", 0)
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════
 
 def run():
-    config = cfg.load_config()
-    wallet, _ = cfg.get_wallet_and_strategy()
-
+    wallet, strategy_id = cfg.get_wallet_and_strategy()
     if not wallet:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "no wallet"})
-        return
-
-    tc = cfg.load_trade_counter()
-    if tc.get("gate") != "OPEN":
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"gate={tc['gate']}"})
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
         return
 
     account_value, positions = cfg.get_positions(wallet)
-    max_positions = config.get("maxPositions", 3)
-    active_coins = {p["coin"]: p for p in positions}
-    entry_cfg = config.get("entry", {})
-    cooldown_min = config.get("risk", {}).get("cooldownMinutes", 120)
-
-    # CHECK 1: Re-evaluate thesis for held positions
-    thesis_exits = []
-    for pos in positions:
-        still_valid, reasons = evaluate_held_position(pos["coin"], pos["direction"], entry_cfg)
-        if not still_valid:
-            thesis_exits.append({
-                "coin": pos["coin"], "direction": pos["direction"],
-                "reasons": reasons, "upnl": pos.get("upnl", 0),
-            })
-
-    if thesis_exits:
-        cfg.output({
-            "success": True, "action": "thesis_exit", "exits": thesis_exits,
-            "note": "thesis invalidated — conviction broken, exit position",
-        })
+    if account_value <= 0:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
         return
 
-    # CHECK 2: Dynamic entry cap (v1.1 — batch reload when profitable)
-    dynamic = entry_cfg.get("dynamicSlots", {})
-    if dynamic.get("enabled", True):
-        base_max = dynamic.get("baseMax", 3)
-        day_pnl = tc.get("realizedPnl", 0)
-        entries_used = tc.get("entries", 0)
+    if len(positions) >= MAX_POSITIONS:
+        coins = [p["coin"] for p in positions]
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                     "note": f"RIDING: {coins}. DSL manages exit.",
+                     "_v2_no_thesis_exit": True})
+        return
 
-        if day_pnl >= 0 and entries_used >= base_max:
-            batches_used = entries_used // base_max
-            effective_max = (batches_used + 1) * base_max
-            hard_max = dynamic.get("absoluteMax", 6)
-            for t in dynamic.get("unlockThresholds", []):
-                if day_pnl >= t.get("pnl", 999999):
-                    hard_max = max(hard_max, t.get("maxEntries", hard_max))
-            max_entries = effective_max
-        elif day_pnl < 0:
-            effective_max = base_max
-            for t in dynamic.get("unlockThresholds", []):
-                if day_pnl >= t.get("pnl", 999999):
-                    effective_max = t.get("maxEntries", effective_max)
-            max_entries = min(effective_max, dynamic.get("absoluteMax", 6))
+    tc = load_trade_counter()
+    if tc.get("date") != now_date():
+        tc = {"date": now_date(), "entries": 0}
+        save_trade_counter(tc)
+    if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": f"Daily entry limit ({MAX_DAILY_ENTRIES}) reached"})
+        return
+
+    # ── Fetch SM data ─────────────────────────────────────────
+    sm_data = fetch_sm_data()
+    if not sm_data:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": "No SM data"})
+        return
+
+    # ── Evaluate all macro assets ─────────────────────────────
+    theses = []
+    rejections = {}
+
+    for asset in MACRO_ASSETS:
+        if is_on_cooldown(asset):
+            rejections[asset] = "cooldown"
+            continue
+        if any(p["coin"].upper() == asset for p in positions):
+            rejections[asset] = "holding"
+            continue
+
+        result = evaluate_macro_thesis(asset, sm_data)
+        if result is None:
+            rejections[asset] = "no_thesis"
+        elif result["score"] < MIN_SCORE:
+            rejections[asset] = f"score_{result['score']}"
         else:
-            max_entries = base_max
-    else:
-        max_entries = config.get("risk", {}).get("maxEntriesPerDay", 4)
+            theses.append(result)
 
-    if tc.get("entries", 0) >= max_entries:
-        pnl_status = "positive" if tc.get("realizedPnl", 0) >= 0 else "negative"
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"max entries ({max_entries}), pnl={pnl_status}"})
+    if not theses:
+        status_parts = [f"{a}:{r}" for a, r in rejections.items()]
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": f"WAITING — {', '.join(status_parts)}"})
         return
 
-    if len(positions) >= max_positions:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "max positions"})
-        return
+    # ── Pick the strongest thesis ─────────────────────────────
+    theses.sort(key=lambda t: t["score"], reverse=True)
+    best = theses[0]
 
-    # CHECK 3: Scan top assets for new thesis
-    top_n = config.get("topAssets", 10)
-    candidates = get_top_assets(top_n)
-    min_score = entry_cfg.get("minScore", 8)
-    signals = []
+    margin = round(account_value * MARGIN_PCT, 2)
 
-    for asset in candidates:
-        coin = asset["coin"]
-
-        # HARDCODED: XYZ ban
-        if coin.lower().startswith("xyz:"):
-            continue
-
-        if coin in active_coins:
-            continue
-
-        # v1.2: Per-asset cooldown after losses
-        if is_asset_cooled_down(coin, cooldown_min):
-            continue
-
-        thesis = build_thesis(coin, entry_cfg)
-        if thesis and thesis["score"] >= min_score:
-            # Attach DSL state template
-            thesis["dslState"] = build_dsl_state_template(thesis)
-            signals.append(thesis)
-
-    if not signals:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"scanned top {len(candidates)}, no conviction thesis"})
-        return
-
-    signals.sort(key=lambda x: x["score"], reverse=True)
-    best = signals[0]
-
-    base_margin_pct = entry_cfg.get("marginPctBase", 0.25)
-    if best["score"] >= 12:
-        margin_pct = base_margin_pct * 1.5
-    elif best["score"] >= 10:
-        margin_pct = base_margin_pct * 1.25
-    else:
-        margin_pct = base_margin_pct
-    margin = round(account_value * margin_pct, 2)
-
-    # HARDCODED: leverage cap
-    leverage = min(config.get("leverage", {}).get("default", 10), MAX_LEVERAGE)
+    tc["entries"] = tc.get("entries", 0) + 1
+    save_trade_counter(tc)
 
     cfg.output({
-        "success": True, "signal": best,
+        "status": "ok",
+        "signal": {
+            "asset": best["asset"],
+            "direction": best["direction"],
+            "score": best["score"],
+            "mode": "MACRO_CONVICTION",
+            "reasons": best["reasons"],
+            "smPct": best["pct"],
+            "smTraders": best["traders"],
+            "priceChg4h": best["price_chg_4h"],
+        },
         "entry": {
-            "coin": best["coin"], "direction": best["direction"],
-            "leverage": leverage, "margin": margin,
-            "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
+            "asset": best["asset"],
+            "direction": best["direction"],
+            "leverage": DEFAULT_LEVERAGE,
+            "margin": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
         },
-        "scanned": len(candidates), "candidates": len(signals),
         "constraints": {
-            "minLeverage": MIN_LEVERAGE,
+            "maxPositions": MAX_POSITIONS,
             "maxLeverage": MAX_LEVERAGE,
-            "maxPositions": max_positions,
-            "xyzBanned": XYZ_BANNED,
-            "stagnationTp": BISON_STAGNATION_TP,
-            "dslTiers": BISON_DSL_TIERS,
-            "convictionTiers": BISON_CONVICTION_TIERS,
-            "_dslNote": "Use signal.dslState as the DSL state file. Do NOT merge with dsl-profile.json.",
+            "maxDailyEntries": MAX_DAILY_ENTRIES,
+            "cooldownMinutes": COOLDOWN_MINUTES,
+            "_v2_no_thesis_exit": True,
+            "_note": "DSL managed by plugin runtime. Scanner does NOT manage exits. "
+                     "BISON holds for DAYS. Do not interfere with open positions.",
         },
+        "_bison_version": "2.0",
     })
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        cfg.log(f"CRITICAL ERROR: {e}")
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        cfg.output({"status": "error", "error": str(e)})

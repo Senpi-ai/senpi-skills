@@ -1,0 +1,53 @@
+name: bison-tracker
+version: 1.0.0
+description: >
+  Macro conviction holder. Ultra-patient, ultra-wide stops. BTC/ETH/SOL
+  only. Holds through deep pullbacks for multi-day macro moves.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 1
+  margin_per_slot: 300
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# Ultra-wide DSL for macro conviction holds.
+# Bison holds for DAYS. Tier 1 locks NOTHING — let it breathe.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 1440
+    weak_peak_cut:
+      enabled: false
+    dead_weight_cut:
+      enabled: false
+    phase1:
+      enabled: true
+      max_loss_pct: 30.0
+      retrace_threshold: 15
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 25 }
+        - { trigger_pct: 30, lock_hw_pct: 50 }
+        - { trigger_pct: 50, lock_hw_pct: 70 }
+        - { trigger_pct: 80, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
