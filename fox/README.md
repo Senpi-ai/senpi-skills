@@ -1,23 +1,22 @@
-# 🦊 FOX v2.0 — Dual-Mode Scanner + minReasons Experiment
+# 🦊 FOX v3.0 — Contra-Trend Striker
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## The Experiment
+## Thesis
 
-FOX v2.0 is identical to the hardened base scanner with one tweak: **Stalker entries require at least 3 distinct scoring reasons**, not just a score >= 7. This tests whether requiring breadth of confirmation (not just depth of score) reduces the weak-peak bleed that cost Fox v1.0 $91.32 across 17 low-score Stalker trades.
+Every Striker requires 4H price alignment. Fox v3.0 is the opposite: it REQUIRES the 4H price to oppose SM direction. When SM violently enters against the trend, they're front-running a reversal. Tighter gates (rank jump 20+, score 10+, SM traders 20+) because contra-trend is inherently riskier.
 
-## All Live Trading Fixes Included
+## Key Settings
 
-| Fix | Value |
+| Setting | Value |
 |---|---|
-| Stalker minScore | 7 (was 6) |
-| Stalker minTotalClimb | 8 (was 5) |
-| Stalker minReasons | **3 (experiment)** |
-| Low-score Phase 1 | -18% floor, 25 min timeout, 8 min dead weight |
-| Streak gate | 3 Stalker losses → minScore 9 |
-
-Striker is unchanged. Same single `leaderboard_get_markets` call.
+| Leverage | 7x |
+| Max positions | 2 |
+| Min score | 10 |
+| Min rank jump | 20 (vs 15 for normal Striker) |
+| Margin | 15% (smaller — higher risk) |
+| DSL | Lifecycle hunter (180m, no time cuts) |
 
 ## License
 
-MIT — see root repo LICENSE.
+MIT — Copyright 2026 Senpi (https://senpi.ai)

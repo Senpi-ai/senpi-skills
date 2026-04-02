@@ -1,56 +1,51 @@
 name: fox-tracker
 version: 1.0.0
 description: >
-  Onchain position tracker — monitors strategy wallet on Hyperliquid
-  for position lifecycle events and wires them into the DSL exit engine.
-  Dual-mode emerging movers scanner (Stalker minReasons=3 + Striker).
+  Contra-trend Striker. Enters AGAINST the 4H trend when SM explodes
+  in the opposite direction. Front-runs reversals. Lifecycle hunter DSL.
 
-# ── STRATEGY ──
 strategy:
   wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 2
+  margin_per_slot: 150
   enabled: true
 
-# ── SCANNERS ──
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
 
-# ── ACTIONS ──
 actions:
   - name: position_tracker_action
     action_type: POSITION_TRACKER
     decision_mode: rule
     scanners: [position_tracker]
 
-# ── EXIT (DSL) ──
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 25
+      interval_in_minutes: 180
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 12
-      min_value: 3.0
+      enabled: false
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 8
+      enabled: false
     phase1:
       enabled: true
-      max_loss_pct: 18.0
-      retrace_threshold: 3
+      max_loss_pct: 25.0
+      retrace_threshold: 8
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 7, lock_hw_pct: 40 }
-        - { trigger_pct: 12, lock_hw_pct: 55 }
-        - { trigger_pct: 15, lock_hw_pct: 75 }
-        - { trigger_pct: 20, lock_hw_pct: 85 }
+        - { trigger_pct: 5,  lock_hw_pct: 25 }
+        - { trigger_pct: 10, lock_hw_pct: 45 }
+        - { trigger_pct: 15, lock_hw_pct: 65 }
+        - { trigger_pct: 20, lock_hw_pct: 80 }
+        - { trigger_pct: 30, lock_hw_pct: 85 }
 
-# ── NOTIFICATIONS ──
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"

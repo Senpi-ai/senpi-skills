@@ -1,4 +1,4 @@
-"""FOX Strategy v2.0 — Shared config, MCP helpers, state I/O.
+"""FOX Strategy — Shared config, MCP helpers, state I/O.
 Self-contained — does not depend on wolf_config."""
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
@@ -54,8 +54,8 @@ def load_config():
 
 
 def get_wallet_and_strategy():
-    wallet = os.environ.get("FOX_WALLET", "")
-    strategy_id = os.environ.get("FOX_STRATEGY_ID", "")
+    wallet = os.environ.get("MANTIS_WALLET", "")
+    strategy_id = os.environ.get("MANTIS_STRATEGY_ID", "")
     if not wallet or not strategy_id:
         config = load_config()
         wallet = wallet or config.get("wallet", "")
