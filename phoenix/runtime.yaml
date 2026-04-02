@@ -1,36 +1,27 @@
 name: phoenix-tracker
 version: 1.0.0
 description: >
-  Onchain position tracker — monitors strategy wallet on Hyperliquid
-  for position lifecycle events and wires them into the DSL exit engine.
-  Phoenix v1.0.1: contribution velocity scanner. SM profit velocity diverging
-  from price. High-conviction, low-frequency signals that hold for hours/days.
+  Contribution velocity scanner. SM profit velocity diverging from price.
+  High-conviction, low-frequency. Lifecycle hunter DSL.
 
-# ── STRATEGY ──
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 1000
+  budget: 600
   slots: 3
-  margin_per_slot: 200
+  margin_per_slot: 180
   enabled: true
 
-# ── SCANNERS ──
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
 
-# ── ACTIONS ──
 actions:
   - name: position_tracker_action
     action_type: POSITION_TRACKER
     decision_mode: rule
     scanners: [position_tracker]
 
-# ── EXIT (DSL) ──
-# Phoenix signals are high-conviction, low-frequency. Best trade held 2.6 days
-# for +50% ROE. Weak peak and dead weight cuts disabled — they kill winners
-# that need time to develop. Retrace and max loss handle the downside.
 exit:
   engine: dsl
   interval_seconds: 30
@@ -56,6 +47,5 @@ exit:
         - { trigger_pct: 20, lock_hw_pct: 80 }
         - { trigger_pct: 30, lock_hw_pct: 85 }
 
-# ── NOTIFICATIONS ──
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"

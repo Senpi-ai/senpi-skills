@@ -2,32 +2,8 @@
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "maxPositions": 3,
-  "leverage": {"default": 10, "min": 5, "max": 10},
-  "entry": {
-    "minScore": 7,
-    "marginPctBase": 0.20
-  },
-  "dsl": {
-    "lockMode": "pct_of_high_water",
-    "phase2TriggerRoe": 5,
-    "tiers": [
-      {"triggerPct": 5,  "lockHwPct": 25, "consecutiveBreachesRequired": 3},
-      {"triggerPct": 10, "lockHwPct": 45, "consecutiveBreachesRequired": 2},
-      {"triggerPct": 15, "lockHwPct": 65, "consecutiveBreachesRequired": 2},
-      {"triggerPct": 20, "lockHwPct": 80, "consecutiveBreachesRequired": 1},
-      {"triggerPct": 30, "lockHwPct": 85, "consecutiveBreachesRequired": 1}
-    ],
-    "stagnationTp": {"enabled": true, "roeMin": 8, "hwStaleMin": 40}
-  },
   "risk": {
-    "maxEntriesPerDay": 6,
-    "maxDailyLossPct": 10,
-    "cooldownMinutes": 90
-  },
-  "execution": {
-    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
-    "exitOrderType": "MARKET",
-    "slOrderType": "MARKET"
+    "maxEntriesPerDay": 4,
+    "maxDailyLossPct": 10
   }
 }

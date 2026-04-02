@@ -1,16 +1,21 @@
-# 🔥 PHOENIX v1.0.1 — Contribution Velocity Scanner
+# 🔥 PHOENIX v2.0 — Contribution Velocity Scanner (Hardened)
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## The Signal
+## Thesis
 
-Phoenix finds assets where SM profit contribution is accelerating but price hasn't moved yet. This **divergence** — SM knows something the market doesn't — is the pre-move signal.
+SM profit velocity diverging from price. When `contribution_pct_change_4h` is surging but price hasn't moved, SM knows something the market doesn't. Best trade: HYPE SHORT at 54x divergence, +50% ROE.
 
-Best trade: HYPE SHORT at 54x divergence ratio. Held 2.6 days. +50.8% ROE. +$101 profit.
+## v1.0.1 Post-Mortem
 
-## How It Works
+The signal was never the problem. v1.0.1 found real winners (+$24, +$22, +$11 on 4/1). The infrastructure killed it: broken trade counter led to 24 entries in one day instead of 6. -$228 in one day. -40.6% total.
 
-One API call (`leaderboard_get_markets`). Zero state files. The scanner computes `contribution_pct_change_4h / token_price_change_pct_4h`. When that ratio exceeds 5x — SM contribution is accelerating 5x faster than price is moving — that's the signal.
+## What v2.0 Fixes
+
+- Trade counter increments BEFORE signal output (not dependent on exit path)
+- Stale date detection forces reset
+- Daily cap reduced to 4 entries (v1.0.1's best days had 3-5 winners)
+- Budget set to $600 (remaining capital after v1.0.1 losses)
 
 ## Key Settings
 
@@ -18,10 +23,9 @@ One API call (`leaderboard_get_markets`). Zero state files. The scanner computes
 |---|---|
 | Leverage | 10x |
 | Max positions | 3 |
-| Max entries/day | 6 |
-| Min divergence ratio | 5x |
+| Max entries/day | 4 |
 | Min score | 7 |
-| DSL timeouts | 120m hard / 60m weak peak / 45m dead weight |
+| DSL | Lifecycle hunter (180m, no time cuts) |
 
 ## License
 
