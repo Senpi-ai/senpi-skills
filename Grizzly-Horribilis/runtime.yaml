@@ -1,0 +1,53 @@
+name: horribilis-tracker
+version: 1.0.0
+description: >
+  BTC conviction-scaled leverage hunter. 7x to 40x based on conviction.
+  Always protected by DSL. The most aggressive bear.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 1
+  margin_per_slot: 150
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# DSL is CRITICAL for Horribilis. At 40x, an 8% ROE retrace = 0.2% price.
+# Phase 1 protects aggressively. Phase 2 locks profits FAST.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 180
+    weak_peak_cut:
+      enabled: false
+    dead_weight_cut:
+      enabled: false
+    phase1:
+      enabled: true
+      max_loss_pct: 25.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 30 }
+        - { trigger_pct: 10, lock_hw_pct: 50 }
+        - { trigger_pct: 15, lock_hw_pct: 70 }
+        - { trigger_pct: 20, lock_hw_pct: 85 }
+        - { trigger_pct: 30, lock_hw_pct: 90 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
