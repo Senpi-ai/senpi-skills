@@ -1,0 +1,54 @@
+name: owl-tracker
+version: 1.0.0
+description: >
+  Pure contrarian. Enters against the crowd when SM is heavily
+  concentrated, funding is extreme, and price is exhausting.
+  Wide DSL — contrarian entries retrace hard before working.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 1
+  margin_per_slot: 200
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# WIDE DSL — contrarian entries retrace hard before the unwind hits.
+# The crowd fights back first. OWL needs room.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 360
+    weak_peak_cut:
+      enabled: false
+    dead_weight_cut:
+      enabled: false
+    phase1:
+      enabled: true
+      max_loss_pct: 30.0
+      retrace_threshold: 12
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 20 }
+        - { trigger_pct: 20, lock_hw_pct: 40 }
+        - { trigger_pct: 35, lock_hw_pct: 60 }
+        - { trigger_pct: 50, lock_hw_pct: 75 }
+        - { trigger_pct: 75, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

@@ -1,477 +1,500 @@
 #!/usr/bin/env python3
-# Senpi OWL Scanner v5.2
+# Senpi OWL Scanner v6.0
 # Copyright 2026 Senpi (https://senpi.ai)
-# Licensed under Apache-2.0 — attribution required for derivative works
-# Source: https://github.com/Senpi-ai/senpi-skills
-"""OWL v5.2 — Pure Contrarian.
+# Licensed under MIT
+"""OWL v6.0 — Pure Contrarian Crowding Scanner.
 
-One scanner. One thesis: the crowd is wrong.
+The only agent in the fleet that enters AGAINST the crowd.
 
-v5.2 changes:
-  - minFundingAnnualizedPct lowered from 20% to 12%. Assets below the funding
-    floor now score 0 on funding but continue through SM/OI checks instead of
-    early-returning. The minCrowdingScore of 8 remains the true quality gate.
-  - Added observability logging: top 3 crowding scores + active persistence
-    timers printed to stderr every scan cycle (not sent as notifications).
+v5.2 had 7 trades and -0.9% ROE. The thesis was sound but the pipeline
+was too complex — funding floor blocked everything, too many data sources
+requiring too many API calls, old DSL cron architecture.
 
-Monitors crowding across top 30 assets (funding extremity, OI concentration,
-SM tilt). When crowding persists 4+ hours AND exhaustion signals fire (volume
-declining, price stalling, RSI divergence), enters AGAINST the crowd to ride
-the liquidation unwind. 1-2 trades per day max.
+v6.0 simplifies radically:
 
-Re-evaluates held positions every scan: if the crowd comes BACK (re-crowding),
-exit immediately — the unwind thesis is dead.
+1. CROWDING: leaderboard_get_markets shows where SM is heavily tilted.
+   If SM is 15%+ concentrated with 80+ traders in one direction,
+   that's the crowd.
 
-Runs every 15 minutes.
+2. FUNDING CONFIRMATION: market_get_asset_data checks funding rate.
+   If funding aligns with the crowd (crowd long + positive funding,
+   or crowd short + negative funding), the crowd is paying to hold.
+   That's the setup for an unwind.
+
+3. PRICE EXHAUSTION: if the 4H price change is small (<1%) despite
+   heavy SM concentration and extreme funding, the crowd's trade has
+   stopped working. They're trapped.
+
+4. ENTER AGAINST: go opposite to the crowd direction.
+
+That's it. Three signals, two API calls. No persistence timers,
+no OI concentration, no RSI divergence, no volume declining checks.
+The simplicity is the point — v5.2 proved that complexity prevented
+the scanner from ever firing.
+
+RE-CROWDING EXIT: The one exception to "no thesis exit." If the crowd
+rebuilds stronger than when we entered (SM concentration increases AND
+funding gets more extreme), the unwind thesis is dead. Exit immediately.
+This is the ONLY case where the scanner can close a position.
+
+Plugin runtime handles DSL trailing. Wide lifecycle hunter DSL —
+contrarian entries retrace hard before working.
+
+2 API calls per scan. Runs every 5 minutes.
 """
 
-import sys
-import os
-import time
+import json, sys, os, time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import owl_config as cfg
 
 
-# ─── Crowding Analysis ────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# HARDCODED CONSTANTS
+# ═══════════════════════════════════════════════════════════════
 
-def get_all_assets():
-    """Top 30 assets by OI for crowding scan."""
-    data = cfg.mcporter_call("market_list_instruments")
-    if not data or not data.get("success"):
-        return []
-    instruments = data.get("data", data)
-    if isinstance(instruments, dict):
-        instruments = instruments.get("instruments", [])
-    assets = []
-    for inst in instruments:
-        if not isinstance(inst, dict):
-            continue
-        coin = inst.get("coin") or inst.get("name", "")
-        oi = float(inst.get("openInterest", 0))
-        mark_px = float(inst.get("markPx", inst.get("midPx", 0)))
-        funding = float(inst.get("funding", 0))
-        oi_usd = oi * mark_px if mark_px > 0 else 0
-        if coin and oi_usd > 3_000_000:
-            assets.append({
-                "coin": coin, "oi": oi, "oi_usd": oi_usd,
-                "price": mark_px, "funding": funding,
-            })
-    assets.sort(key=lambda x: x["oi_usd"], reverse=True)
-    return assets[:30]
+MAX_LEVERAGE = 7
+DEFAULT_LEVERAGE = 7
+MAX_POSITIONS = 1                   # One contrarian bet at a time
+MAX_DAILY_ENTRIES = 2
+COOLDOWN_MINUTES = 360              # 6 hours — if contrarian thesis fails, wait
+MARGIN_PCT = 0.20
+MIN_SCORE = 8
+XYZ_BANNED = True
+
+# Crowding thresholds
+MIN_SM_PCT = 12.0                   # SM must be heavily concentrated
+MIN_SM_TRADERS = 60                 # Broad crowd, not a few whales
+MIN_FUNDING_RATE = 0.00015          # Funding must be meaningful (annualized ~13%+)
+MAX_PRICE_MOVE = 2.0                # Price must NOT have moved much (crowd is trapped)
+
+# Re-crowding exit thresholds
+RECROWDING_SM_INCREASE = 5.0        # SM% must increase by 5+ points from entry
+RECROWDING_FUNDING_INCREASE = 1.5   # Funding must be 1.5x worse than at entry
+
+# Assets to scan (liquid only)
+SCAN_ASSETS = ["BTC", "ETH", "SOL", "HYPE", "DOGE", "SUI", "AVAX",
+               "LINK", "AAVE", "ARB", "OP", "MATIC", "WIF", "JUP",
+               "PEPE", "NEAR", "FIL", "APT", "SEI", "TIA",
+               "INJ", "RNDR", "FET", "BONK", "WLD"]
 
 
-def get_sm_positioning(coin):
-    """Get SM long/short split for an asset."""
-    data = cfg.mcporter_call("leaderboard_get_markets")
-    if not data or not data.get("success"):
-        return 50, 0
-    markets = data.get("data", data)
-    if isinstance(markets, dict):
-        markets = markets.get("markets", markets.get("leaderboard", markets))
-    if isinstance(markets, dict):
-        markets = markets.get("markets", [])
+# ═══════════════════════════════════════════════════════════════
+# HELPERS
+# ═══════════════════════════════════════════════════════════════
+
+def safe_float(v, d=0.0):
+    try: return float(v)
+    except: return d
+
+def now_date(): return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+def now_iso(): return datetime.now(timezone.utc).isoformat()
+
+
+# ═══════════════════════════════════════════════════════════════
+# DATA FETCHING
+# ═══════════════════════════════════════════════════════════════
+
+def fetch_sm_data():
+    """Get SM positioning for all assets."""
+    raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+    if not raw: return {}
+
+    markets = []
+    if isinstance(raw, dict):
+        raw_data = raw.get("data", raw)
+        if isinstance(raw_data, dict):
+            markets = raw_data.get("markets", [])
+            if isinstance(markets, dict):
+                markets = markets.get("markets", [])
+
+    sm_map = {}
     for m in markets:
-        if not isinstance(m, dict):
-            continue
-        token = m.get("token", m.get("coin", m.get("asset", "")))
-        if token != coin:
-            continue
-        # API returns separate long/short entries per asset
-        direction = m.get("direction", "").lower()
-        pct = float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
-        trader_count = int(m.get("trader_count", m.get("traderCount", 0)))
-        if direction == "long":
-            return pct * 100, trader_count  # scale to 0-100 range
-        elif direction == "short":
-            return (1 - pct) * 100, trader_count  # invert for short
-    return 50, 0
+        if not isinstance(m, dict): continue
+        token = str(m.get("token", "")).upper()
+        dex = str(m.get("dex", "")).lower()
+        if XYZ_BANNED and dex == "xyz": continue
+        if not token or token not in SCAN_ASSETS: continue
+
+        sm_map[token] = {
+            "direction": str(m.get("direction", "")).upper(),
+            "pct": safe_float(m.get("pct_of_top_traders_gain", 0)),
+            "traders": int(m.get("trader_count", 0)),
+            "price_chg_4h": safe_float(m.get("token_price_change_pct_4h", 0)),
+            "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
+                                       m.get("price_change_1h", 0))),
+            "contrib_change": safe_float(m.get("contribution_pct_change_4h", 0)),
+        }
+
+    return sm_map
 
 
-def score_crowding(asset, crowding_cfg):
-    """Score how crowded an asset is. Higher = more one-sided. Returns (score, direction, details)."""
-    funding = asset["funding"]
-    funding_ann = abs(funding) * 8760
-    sm_long_pct, sm_count = get_sm_positioning(asset["coin"])
+def fetch_funding(asset):
+    """Get funding rate for a specific asset."""
+    try:
+        data = cfg.mcporter_call("market_get_asset_data",
+                                  asset=asset, candle_intervals=[],
+                                  include_funding=True)
+        if not data: return 0
 
-    score = 0
-    details = []
-    crowd_direction = None  # the direction the CROWD is positioned
+        ad = data.get("data", data)
+        if not isinstance(ad, dict): return 0
+        ac = ad.get("asset_context", ad.get("assetContext", {}))
+        if not isinstance(ac, dict): return 0
 
-    # Funding extremity (biggest signal — funding IS the crowd's positioning)
-    # v5.2: lowered minFundingAnnualizedPct from 20→12. Below-floor assets
-    # now score 0 on funding but continue to SM/OI checks instead of early-returning.
-    # The minCrowdingScore of 8 remains the real quality gate.
-    min_funding = crowding_cfg.get("minFundingAnnualizedPct", 12)
-    if funding_ann >= 60:
-        score += 4
-        details.append(f"funding_extreme_{funding_ann:.0f}%ann")
-        crowd_direction = "LONG" if funding > 0 else "SHORT"
-    elif funding_ann >= 40:
-        score += 3
-        details.append(f"funding_high_{funding_ann:.0f}%ann")
-        crowd_direction = "LONG" if funding > 0 else "SHORT"
-    elif funding_ann >= min_funding:
-        score += 2
-        details.append(f"funding_elevated_{funding_ann:.0f}%ann")
-        crowd_direction = "LONG" if funding > 0 else "SHORT"
-    else:
-        # v5.2: funding below floor — score 0 on this component but let SM/OI run.
-        # Still infer crowd direction from funding sign for SM confirmation check.
-        details.append(f"funding_below_floor_{funding_ann:.0f}%ann")
-        if funding != 0:
-            crowd_direction = "LONG" if funding > 0 else "SHORT"
-
-    # SM concentration (top traders tilted one way)
-    sm_tilt = abs(sm_long_pct - 50)
-    if sm_tilt > 20:
-        score += 3
-        sm_dir = "LONG" if sm_long_pct > 50 else "SHORT"
-        details.append(f"sm_tilted_{sm_dir}_{sm_long_pct:.0f}%")
-        # SM should be tilted in SAME direction as funding (crowd is all-in)
-        if (funding > 0 and sm_long_pct > 50) or (funding < 0 and sm_long_pct < 50):
-            score += 1
-            details.append("sm_confirms_funding")
-    elif sm_tilt > 12:
-        score += 1
-        details.append(f"sm_leaning_{sm_long_pct:.0f}%")
-
-    # OI concentration (high OI relative to volume = positions building, not churning)
-    if asset["oi_usd"] > 20_000_000:
-        score += 2
-        details.append(f"oi_concentrated_{asset['oi_usd']/1e6:.0f}M")
-    elif asset["oi_usd"] > 10_000_000:
-        score += 1
-        details.append(f"oi_moderate_{asset['oi_usd']/1e6:.0f}M")
-
-    return score, crowd_direction, details
+        return safe_float(ac.get("funding", ac.get("fundingRate", 0)))
+    except:
+        return 0
 
 
-# ─── Exhaustion Detection ─────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# CROWDING DETECTION
+# ═══════════════════════════════════════════════════════════════
 
-def detect_exhaustion(coin, crowd_direction, exhaustion_cfg):
-    """Check if the crowded trade is showing exhaustion signals."""
-    data = cfg.mcporter_call("market_get_asset_data", asset=coin,
-                              candle_intervals=["1h", "4h"],
-                              include_funding=True, include_order_book=False)
-    if not data or not data.get("success"):
-        return 0, []
-
-    candles_1h = data.get("data", {}).get("candles", {}).get("1h", [])
-    candles_4h = data.get("data", {}).get("candles", {}).get("4h", [])
-    asset_ctx = data.get("data", {}).get("asset_context", data.get("data", {}))
-    funding = float(asset_ctx.get("funding", data.get("data", {}).get("funding", 0)))
-
-    if len(candles_1h) < 12 or len(candles_4h) < 6:
-        return 0, []
-
-    score = 0
-    signals = []
-
-    # SIGNAL 1: Funding declining from peak (crowd starting to unwind)
-    # Compare current funding to 6h ago via candle-derived proxy
-    if len(candles_1h) >= 8:
-        # Volume declining while funding stays extreme = exhaustion building
-        recent_vol = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-3:]) / 3
-        earlier_vol = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-8:-3]) / 5
-        if earlier_vol > 0 and recent_vol < earlier_vol * 0.7:
-            score += 3
-            signals.append(f"volume_declining_{recent_vol/earlier_vol:.0%}")
-
-    # SIGNAL 2: Price stalling despite extreme positioning
-    # If the crowd is all-in long but price stopped going up = exhaustion
-    closes_4h = [float(c.get("close", c.get("c", 0))) for c in candles_4h[-4:]]
-    if len(closes_4h) >= 4:
-        price_change = ((closes_4h[-1] - closes_4h[-4]) / closes_4h[-4]) * 100 if closes_4h[-4] > 0 else 0
-        if crowd_direction == "LONG" and price_change < 0.5:
-            score += 3
-            signals.append(f"price_stalled_crowd_long_{price_change:+.1f}%")
-        elif crowd_direction == "SHORT" and price_change > -0.5:
-            score += 3
-            signals.append(f"price_stalled_crowd_short_{price_change:+.1f}%")
-
-    # SIGNAL 3: Volume spike without price follow-through (capitulation wick)
-    if len(candles_1h) >= 3:
-        latest_vol = float(candles_1h[-1].get("volume", candles_1h[-1].get("v", candles_1h[-1].get("vlm", 0))))
-        avg_vol = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-6:-1]) / 5 if len(candles_1h) >= 6 else 1
-        latest_close = float(candles_1h[-1].get("close", candles_1h[-1].get("c", 0)))
-        prev_close = float(candles_1h[-2].get("close", candles_1h[-2].get("c", 0)))
-        price_move = ((latest_close - prev_close) / prev_close * 100) if prev_close > 0 else 0
-
-        if avg_vol > 0 and latest_vol > avg_vol * 2.0 and abs(price_move) < 1.0:
-            score += 2
-            signals.append(f"vol_spike_{latest_vol/avg_vol:.1f}x_no_follow_through")
-
-    # SIGNAL 4: 4h RSI divergence (price flat/up but RSI declining = momentum dying)
-    closes_4h_full = [float(c.get("close", c.get("c", 0))) for c in candles_4h]
-    if len(closes_4h_full) >= 15:
-        # Simple RSI
-        gains, losses = [], []
-        for i in range(1, len(closes_4h_full)):
-            d = closes_4h_full[i] - closes_4h_full[i - 1]
-            gains.append(max(0, d))
-            losses.append(max(0, -d))
-        period = 14
-        if len(gains) >= period:
-            avg_g = sum(gains[-period:]) / period
-            avg_l = sum(losses[-period:]) / period
-            rsi = 100 - (100 / (1 + avg_g / avg_l)) if avg_l > 0 else 100
-
-            if crowd_direction == "LONG" and rsi < 55:
-                score += 2
-                signals.append(f"rsi_divergence_crowd_long_rsi_{rsi:.0f}")
-            elif crowd_direction == "SHORT" and rsi > 45:
-                score += 2
-                signals.append(f"rsi_divergence_crowd_short_rsi_{rsi:.0f}")
-
-    return score, signals
-
-
-# ─── Persistence Tracking ─────────────────────────────────────
-
-def check_persistence(state, coin, crowd_score, min_persist_hours):
-    """Track how long crowding has been elevated. Returns (persisted, hours)."""
-    tracking = state.get("crowdingHistory", {})
-    now_ts = cfg.now_ts()
-
-    if coin not in tracking:
-        tracking[coin] = {"firstSeen": cfg.now_iso(), "ts": now_ts, "peakScore": crowd_score}
-        state["crowdingHistory"] = tracking
-        return False, 0
-
-    entry = tracking[coin]
-    hours = (now_ts - entry.get("ts", now_ts)) / 3600
-
-    # Update peak
-    if crowd_score > entry.get("peakScore", 0):
-        entry["peakScore"] = crowd_score
-
-    state["crowdingHistory"] = tracking
-    return hours >= min_persist_hours, hours
-
-
-def clear_persistence(state, coin):
-    """Clear tracking when crowding score drops below threshold."""
-    tracking = state.get("crowdingHistory", {})
-    tracking.pop(coin, None)
-    state["crowdingHistory"] = tracking
-
-
-# ─── Re-Crowding Detection (for held positions) ──────────────
-
-def check_recrowding(coin, our_direction, crowding_cfg):
-    """If we're in a contrarian trade and the crowd comes BACK, thesis is dead."""
-    assets = get_all_assets()
-    asset = next((a for a in assets if a["coin"] == coin), None)
-    if not asset:
-        return False, []
-
-    crowd_score, crowd_direction, details = score_crowding(asset, crowding_cfg)
-
-    # Re-crowding: crowd is rebuilding in the SAME direction we're betting against
-    # Our direction is opposite to the original crowd. If crowd rebuilds = our thesis is dead.
-    original_crowd_dir = "LONG" if our_direction == "SHORT" else "SHORT"
-
-    if crowd_direction == original_crowd_dir and crowd_score >= crowding_cfg.get("reCrowdingMinScore", 6):
-        return True, [f"re_crowding_{crowd_direction}_{crowd_score}pts"] + details
-
-    return False, []
-
-
-# ─── Observability (v5.2) ────────────────────────────────────
-
-def _log_observability(all_scores, state):
-    """Log top 3 crowding scores and active persistence timers to stderr.
-    This goes to the agent's internal log, NOT to notifications/Telegram.
-    Lets us answer 'is OWL seeing anything?' without config changes."""
-    import sys as _sys
-
-    top3 = sorted(all_scores, key=lambda x: x["score"], reverse=True)[:3]
-    lines = ["OWL SCAN — top crowding:"]
-    for s in top3:
-        lines.append(
-            f"  {s['coin']}: score={s['score']} dir={s['direction']} "
-            f"funding={s['funding_ann']:.0f}%ann {' '.join(s['details'][:3])}"
-        )
-
-    tracking = state.get("crowdingHistory", {})
-    if tracking:
-        now_ts = cfg.now_ts()
-        lines.append("  persistence timers:")
-        for coin, entry in tracking.items():
-            hours = (now_ts - entry.get("ts", now_ts)) / 3600
-            lines.append(f"    {coin}: {hours:.1f}h (peak={entry.get('peakScore', '?')})")
-
-    print("\n".join(lines), file=_sys.stderr)
-
-
-# ─── Main ─────────────────────────────────────────────────────
-
-def run():
-    config = cfg.load_config()
-    wallet, _ = cfg.get_wallet_and_strategy()
-
-    if not wallet:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "no wallet"})
-        return
-
-    tc = cfg.load_trade_counter()
-    if tc.get("gate") != "OPEN":
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"gate={tc['gate']}"})
-        return
-
-    account_value, positions = cfg.get_positions(wallet)
-    entry_cfg = config.get("entry", {})
-    crowding_cfg = config.get("crowding", {})
-    exhaustion_cfg = config.get("exhaustion", {})
-    active_coins = {p["coin"]: p for p in positions}
-    state = cfg.load_state("owl-state.json")
-
-    # ── CHECK 1: Re-crowding detection for held positions ─────
-    for pos in positions:
-        is_recrowding, reasons = check_recrowding(
-            pos["coin"], pos["direction"], crowding_cfg
-        )
-        if is_recrowding:
-            cfg.save_state(state, "owl-state.json")
-            cfg.output({
-                "success": True,
-                "action": "recrowding_exit",
-                "exits": [{
-                    "coin": pos["coin"],
-                    "direction": pos["direction"],
-                    "reasons": reasons,
-                    "upnl": pos.get("upnl", 0),
-                }],
-                "note": "crowd is back — unwind thesis dead, exit immediately",
-            })
-            return
-
-    # ── CHECK 2: Entry cap ────────────────────────────────────
-    max_positions = config.get("maxPositions", 2)
-    dynamic = entry_cfg.get("dynamicSlots", {})
-    if dynamic.get("enabled", True):
-        base_max = dynamic.get("baseMax", 2)
-        day_pnl = tc.get("realizedPnl", 0)
-        effective_max = base_max
-        for t in dynamic.get("unlockThresholds", []):
-            if day_pnl >= t.get("pnl", 999999):
-                effective_max = t.get("maxEntries", effective_max)
-        max_entries = min(effective_max, dynamic.get("absoluteMax", 4))
-    else:
-        max_entries = entry_cfg.get("maxEntriesPerDay", 3)
-
-    if tc.get("entries", 0) >= max_entries:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"max entries ({max_entries})"})
-        cfg.save_state(state, "owl-state.json")
-        return
-
-    if len(positions) >= max_positions:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "max positions"})
-        cfg.save_state(state, "owl-state.json")
-        return
-
-    # ── CHECK 3: Scan for crowded assets ──────────────────────
-    assets = get_all_assets()
-    min_crowd_score = crowding_cfg.get("minCrowdingScore", 8)
-    min_exhaust_score = exhaustion_cfg.get("minExhaustionScore", 5)
-    min_persist_hours = crowding_cfg.get("minPersistHours", 4)
-    min_total_score = entry_cfg.get("minScore", 14)
+def detect_crowding(sm_map):
+    """Find assets where the crowd is heavily positioned and potentially trapped.
+    Returns list of candidates sorted by crowding score."""
 
     candidates = []
-    all_scores = []  # v5.2: observability — track ALL crowding scores
 
-    for asset in assets:
-        # Phase 1: Score crowding (score everything for observability)
-        crowd_score, crowd_direction, crowd_details = score_crowding(asset, crowding_cfg)
-        all_scores.append({
-            "coin": asset["coin"], "score": crowd_score,
-            "direction": crowd_direction, "details": crowd_details,
-            "funding_ann": abs(asset["funding"]) * 8760,
-        })
-
-        if asset["coin"] in active_coins:
+    for asset, sm in sm_map.items():
+        crowd_direction = sm["direction"]
+        if crowd_direction not in ("LONG", "SHORT"):
             continue
 
-        if crowd_score < min_crowd_score or not crowd_direction:
-            clear_persistence(state, asset["coin"])
+        sm_pct = sm["pct"]
+        sm_traders = sm["traders"]
+        price_chg_4h = sm["price_chg_4h"]
+
+        # ── Hard gates ────────────────────────────────────────
+
+        # SM must be heavily concentrated (the crowd exists)
+        if sm_pct < MIN_SM_PCT:
             continue
 
-        # Phase 2: Check persistence (must be crowded for 4h+)
-        persisted, hours = check_persistence(state, asset["coin"], crowd_score, min_persist_hours)
-        if not persisted:
+        # Must be a broad crowd, not a few whales
+        if sm_traders < MIN_SM_TRADERS:
             continue
 
-        # Phase 3: Detect exhaustion
-        exhaust_score, exhaust_signals = detect_exhaustion(
-            asset["coin"], crowd_direction, exhaustion_cfg
-        )
-        if exhaust_score < min_exhaust_score:
+        # Price must NOT have moved much in the crowd's direction
+        # (if price moved 5% in their direction, the crowd is winning — not trapped)
+        if crowd_direction == "LONG" and price_chg_4h > MAX_PRICE_MOVE:
+            continue
+        if crowd_direction == "SHORT" and price_chg_4h < -MAX_PRICE_MOVE:
             continue
 
-        # Total score = crowding + exhaustion
-        total_score = crowd_score + exhaust_score
+        # ── Fetch funding (second API call, only for candidates) ──
+        funding = fetch_funding(asset)
 
-        if total_score < min_total_score:
+        # Funding must align with crowd direction (crowd is paying to hold)
+        funding_aligned = False
+        if crowd_direction == "LONG" and funding > MIN_FUNDING_RATE:
+            funding_aligned = True
+        elif crowd_direction == "SHORT" and funding < -MIN_FUNDING_RATE:
+            funding_aligned = True
+
+        if not funding_aligned:
             continue
 
-        # Entry direction: OPPOSITE to the crowd
+        # ── Scoring ───────────────────────────────────────────
+
+        score = 0
+        reasons = []
+
+        # SM concentration (0-4)
+        if sm_pct >= 20:
+            score += 4
+            reasons.append(f"EXTREME_CROWD {sm_pct:.1f}% SM ({sm_traders}t)")
+        elif sm_pct >= 15:
+            score += 3
+            reasons.append(f"HEAVY_CROWD {sm_pct:.1f}% SM ({sm_traders}t)")
+        elif sm_pct >= 12:
+            score += 2
+            reasons.append(f"CROWDED {sm_pct:.1f}% SM ({sm_traders}t)")
+
+        # Funding extremity (0-3)
+        abs_funding = abs(funding)
+        if abs_funding >= 0.0005:
+            score += 3
+            reasons.append(f"EXTREME_FUNDING {funding*100:.4f}%/hr")
+        elif abs_funding >= 0.0003:
+            score += 2
+            reasons.append(f"HIGH_FUNDING {funding*100:.4f}%/hr")
+        elif abs_funding >= MIN_FUNDING_RATE:
+            score += 1
+            reasons.append(f"FUNDING_PAYS {funding*100:.4f}%/hr")
+
+        # Price exhaustion — crowd's trade stopped working (0-3)
+        if crowd_direction == "LONG":
+            if price_chg_4h < 0:
+                score += 3
+                reasons.append(f"CROWD_LOSING: LONG but price {price_chg_4h:+.1f}%")
+            elif price_chg_4h < 0.5:
+                score += 2
+                reasons.append(f"PRICE_STALLING: LONG but only +{price_chg_4h:.1f}%")
+            elif price_chg_4h < MAX_PRICE_MOVE:
+                score += 1
+                reasons.append(f"CROWD_WEAK: LONG, price +{price_chg_4h:.1f}% (underwhelming)")
+        elif crowd_direction == "SHORT":
+            if price_chg_4h > 0:
+                score += 3
+                reasons.append(f"CROWD_LOSING: SHORT but price +{price_chg_4h:.1f}%")
+            elif price_chg_4h > -0.5:
+                score += 2
+                reasons.append(f"PRICE_STALLING: SHORT but only {price_chg_4h:.1f}%")
+            elif price_chg_4h > -MAX_PRICE_MOVE:
+                score += 1
+                reasons.append(f"CROWD_WEAK: SHORT, price {price_chg_4h:.1f}% (underwhelming)")
+
+        # Trader depth — more traders = bigger unwind (0-1)
+        if sm_traders >= 100:
+            score += 1
+            reasons.append(f"DEEP_CROWD ({sm_traders}t)")
+
+        # Contribution stalling — SM not gaining anymore (0-1)
+        contrib = sm.get("contrib_change", 0)
+        if abs(contrib) < 0.005:
+            score += 1
+            reasons.append("CONTRIB_STALLING (SM gains flat)")
+
+        # Entry direction is OPPOSITE to crowd
         entry_direction = "SHORT" if crowd_direction == "LONG" else "LONG"
 
         candidates.append({
-            "coin": asset["coin"],
-            "direction": entry_direction,
-            "score": total_score,
-            "crowdScore": crowd_score,
-            "exhaustScore": exhaust_score,
+            "asset": asset,
             "crowdDirection": crowd_direction,
-            "persistHours": hours,
-            "reasons": crowd_details + exhaust_signals + [f"crowded_{hours:.1f}h"],
-            "price": asset["price"],
-            "funding": asset["funding"],
+            "entryDirection": entry_direction,
+            "score": score,
+            "reasons": reasons,
+            "smPct": sm_pct,
+            "smTraders": sm_traders,
+            "funding": funding,
+            "priceChg4h": price_chg_4h,
         })
 
-    # ── v5.2 OBSERVABILITY: log top 3 crowding scores + persistence timers ──
-    _log_observability(all_scores, state)
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+    return candidates
 
-    cfg.save_state(state, "owl-state.json")
 
-    if not candidates:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"scanned {len(assets)}, no exhausted crowding"})
+# ═══════════════════════════════════════════════════════════════
+# RE-CROWDING EXIT
+# ═══════════════════════════════════════════════════════════════
+
+def check_recrowding(position, sm_map):
+    """Check if the crowd has rebuilt stronger than when we entered.
+    Returns True if we should exit (thesis dead)."""
+
+    asset = position.get("coin", "").upper()
+    sm = sm_map.get(asset)
+    if not sm:
+        return False
+
+    # Load entry conditions from state
+    state = load_entry_state(asset)
+    if not state:
+        return False
+
+    entry_sm_pct = state.get("entrySMPct", 0)
+    entry_funding = abs(state.get("entryFunding", 0))
+    crowd_direction = state.get("crowdDirection", "")
+
+    # Current SM in the CROWD's direction (not our direction)
+    if sm["direction"] != crowd_direction:
+        # SM flipped to our side — crowd is unwinding, thesis is working
+        return False
+
+    current_sm_pct = sm["pct"]
+    current_funding = abs(fetch_funding(asset))
+
+    # Re-crowding: SM concentration increased significantly AND funding got worse
+    sm_increased = current_sm_pct >= entry_sm_pct + RECROWDING_SM_INCREASE
+    funding_worse = entry_funding > 0 and current_funding >= entry_funding * RECROWDING_FUNDING_INCREASE
+
+    if sm_increased and funding_worse:
+        return True
+
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════
+# STATE MANAGEMENT
+# ═══════════════════════════════════════════════════════════════
+
+def load_entry_state(asset):
+    p = os.path.join(cfg.STATE_DIR, f"owl-entry-{asset}.json")
+    if os.path.exists(p):
+        try:
+            with open(p) as f: return json.load(f)
+        except: pass
+    return None
+
+
+def save_entry_state(asset, state):
+    cfg.atomic_write(os.path.join(cfg.STATE_DIR, f"owl-entry-{asset}.json"), state)
+
+
+def clear_entry_state(asset):
+    p = os.path.join(cfg.STATE_DIR, f"owl-entry-{asset}.json")
+    if os.path.exists(p):
+        try: os.remove(p)
+        except: pass
+
+
+def load_tc():
+    p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
+    if os.path.exists(p):
+        try:
+            with open(p) as f: tc = json.load(f)
+            if tc.get("date") == now_date(): return tc
+        except: pass
+    return {"date": now_date(), "entries": 0}
+
+
+def save_tc(tc):
+    tc["date"] = now_date()
+    cfg.atomic_write(os.path.join(cfg.STATE_DIR, "trade-counter.json"), tc)
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════
+
+def run():
+    wallet, sid = cfg.get_wallet_and_strategy()
+    if not wallet:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
         return
 
-    candidates.sort(key=lambda x: x["score"], reverse=True)
-    best = candidates[0]
+    av, positions = cfg.get_positions(wallet)
+    if av <= 0:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
+        return
 
-    # Conviction-scaled margin
-    base_margin_pct = entry_cfg.get("marginPctBase", 0.25)
-    if best["score"] >= 18:
-        margin_pct = base_margin_pct * 1.5
-    elif best["score"] >= 16:
-        margin_pct = base_margin_pct * 1.25
+    # ── Fetch SM data ─────────────────────────────────────────
+    sm_map = fetch_sm_data()
+    if not sm_map:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no SM data"})
+        return
+
+    # ── RE-CROWDING CHECK on open positions ───────────────────
+    # This is the ONE exception: OWL can close positions on thesis invalidation
+    for pos in positions:
+        asset = pos.get("coin", "").upper()
+        if check_recrowding(pos, sm_map):
+            # Thesis dead — crowd came back stronger. Close position.
+            cfg.output({
+                "status": "ok",
+                "action": "close_position",
+                "asset": asset,
+                "reason": "RE-CROWDING: crowd rebuilt stronger. Thesis dead.",
+                "_owl_recrowding_exit": True,
+            })
+            clear_entry_state(asset)
+            return
+
+    # ── If holding, output NO_REPLY ───────────────────────────
+    if len(positions) >= MAX_POSITIONS:
+        coins = [p["coin"] for p in positions]
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                     "note": f"HOLDING: {coins}. DSL manages trailing. Watching for re-crowding.",
+                     "_v2_no_thesis_exit": True})
+        return
+
+    # ── Trade counter ─────────────────────────────────────────
+    tc = load_tc()
+    if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": f"Daily limit ({MAX_DAILY_ENTRIES}) reached"})
+        return
+
+    # ── Detect crowding ───────────────────────────────────────
+    candidates = detect_crowding(sm_map)
+
+    if not candidates:
+        # Report top SM concentrations for debugging
+        top_sm = sorted(sm_map.items(), key=lambda x: x[1]["pct"], reverse=True)[:3]
+        top_summary = [(a, f"{d['pct']:.1f}% {d['direction']}") for a, d in top_sm]
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": f"No crowding detected. Top SM: {top_summary}"})
+        return
+
+    # ── Filter and enter ──────────────────────────────────────
+    held_coins = {p["coin"].upper() for p in positions}
+
+    for cand in candidates:
+        asset = cand["asset"]
+        if cand["score"] < MIN_SCORE:
+            continue
+        if asset in held_coins:
+            continue
+        if cfg.is_asset_cooled_down(asset, COOLDOWN_MINUTES):
+            continue
+
+        # ── Entry ─────────────────────────────────────────────
+        margin = round(av * MARGIN_PCT, 2)
+
+        # Save entry conditions for re-crowding check later
+        save_entry_state(asset, {
+            "entrySMPct": cand["smPct"],
+            "entryFunding": cand["funding"],
+            "crowdDirection": cand["crowdDirection"],
+            "entryTime": now_iso(),
+            "entryScore": cand["score"],
+        })
+
+        tc["entries"] = tc.get("entries", 0) + 1
+        save_tc(tc)
+
+        cfg.output({
+            "status": "ok",
+            "signal": {
+                "asset": asset,
+                "direction": cand["entryDirection"],
+                "score": cand["score"],
+                "mode": "CONTRARIAN",
+                "reasons": cand["reasons"],
+                "crowdDirection": cand["crowdDirection"],
+                "smPct": cand["smPct"],
+                "smTraders": cand["smTraders"],
+                "funding": cand["funding"],
+                "priceChg4h": cand["priceChg4h"],
+            },
+            "entry": {
+                "asset": asset,
+                "direction": cand["entryDirection"],
+                "leverage": DEFAULT_LEVERAGE,
+                "margin": margin,
+                "orderType": "FEE_OPTIMIZED_LIMIT",
+            },
+            "constraints": {
+                "maxPositions": MAX_POSITIONS,
+                "maxLeverage": MAX_LEVERAGE,
+                "maxDailyEntries": MAX_DAILY_ENTRIES,
+                "cooldownMinutes": COOLDOWN_MINUTES,
+                "_v2_no_thesis_exit": True,
+                "_note": "DSL manages trailing. OWL only exits on RE-CROWDING (thesis dead).",
+            },
+            "_owl_version": "6.0",
+        })
+        return
+
+    # Report best candidate that didn't pass
+    if candidates:
+        best = candidates[0]
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": f"Best crowding: {best['asset']} crowd {best['crowdDirection']} "
+                            f"score {best['score']}/{MIN_SCORE}. {', '.join(best['reasons'][:3])}"})
     else:
-        margin_pct = base_margin_pct
-    margin = round(account_value * margin_pct, 2)
-
-    leverage = config.get("leverage", {}).get("default", 8)
-
-    cfg.output({
-        "success": True,
-        "signal": best,
-        "entry": {
-            "coin": best["coin"],
-            "direction": best["direction"],
-            "leverage": leverage,
-            "margin": margin,
-            "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
-        },
-        "scanned": len(assets),
-        "crowded": len([a for a in assets if score_crowding(a, crowding_cfg)[0] >= min_crowd_score]),
-        "candidates": len(candidates),
-    })
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": "Crowding found but no exhaustion signals"})
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        cfg.log(f"CRITICAL: {e}")
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        cfg.output({"status": "error", "error": str(e)})
