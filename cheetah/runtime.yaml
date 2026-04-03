@@ -1,11 +1,9 @@
 name: cheetah-tracker
 version: 1.0.0
 description: >
-  HYPE predator — onchain position tracker with DSL trailing stop-loss
-  tuned for HYPE's extreme volatility. Wide early tiers (HYPE wicks 5-10%
-  during trends), no time-based cuts (let the thesis develop), 3-hour backstop.
+  HYPE predator. SM commitment as primary signal. Wide early DSL tiers
+  for HYPE volatility.
 
-# ── STRATEGY ──
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
@@ -13,24 +11,18 @@ strategy:
   margin_per_slot: 250
   enabled: true
 
-# ── SCANNERS ──
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
 
-# ── ACTIONS ──
 actions:
   - name: position_tracker_action
     action_type: POSITION_TRACKER
     decision_mode: rule
     scanners: [position_tracker]
 
-# ── EXIT (DSL) ──
-# HYPE-specific: wide early tiers because HYPE wicks 5-10% intraday.
-# No time-based cuts — HYPE trends develop over 4-12 hours.
-# Phase 2 locks progressively: barely lock at +5% (just 15%), gradually
-# tighten as the move proves itself, lock hard at +50% (90%).
+# HYPE-specific wide early tiers — HYPE is volatile, positions need room
 exit:
   engine: dsl
   interval_seconds: 30
@@ -57,6 +49,5 @@ exit:
         - { trigger_pct: 30, lock_hw_pct: 80 }
         - { trigger_pct: 50, lock_hw_pct: 90 }
 
-# ── NOTIFICATIONS ──
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
