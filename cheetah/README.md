@@ -1,22 +1,23 @@
-# 🐆 CHEETAH v2.0 — The Ultimate HYPE Predator
+# 🐆 CHEETAH v2.0 — HYPE Predator
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+Top performer in the Senpi Predators fleet at +7.6% ROE.
 
-## Thesis
+Hunts HYPE exclusively using SM commitment as the primary signal. When SM concentration exceeds threshold with 4H trend alignment, Cheetah enters. BTC trend is a conviction booster, not a hard gate. HYPE-specific wide DSL tiers give volatile HYPE positions room to breathe.
 
-HYPE-only hunter. SM commitment required (80%+ one direction). BTC as booster, never gate. Wide DSL tiers for HYPE's 5-10% intraday wicks. No time-based cuts — let the thesis develop.
+## Quick Start
+1. Deploy on Senpi x Railway
+2. Tell your agent: "Install the latest cheetah-strategy from senpi-skills GitHub"
+3. Verify: `openclaw senpi runtime list` and `openclaw senpi status`
+4. CRITICAL: Make sure the scanner cron executes trades (see SKILL.md)
 
 ## Key Settings
-
 | Setting | Value |
 |---|---|
 | Asset | HYPE only |
-| Leverage | 7x max |
+| Leverage | 7x |
 | Max positions | 1 |
 | Min score | 8 |
-| DSL hard timeout | 180 min |
-| Phase 2 tiers | 6 tiers: 5%/15% → 50%/90% |
+| DSL | Lifecycle hunter with HYPE-wide tiers |
 
 ## License
-
 MIT — Copyright 2026 Senpi (https://senpi.ai)

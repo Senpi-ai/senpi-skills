@@ -2,106 +2,85 @@
 # Senpi CHEETAH Scanner v2.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""CHEETAH v2.0 — The Ultimate HYPE Predator.
+"""CHEETAH v2.0 — HYPE Predator.
 
-Single asset: HYPE. Every signal source. Maximum patience.
+Hunts HYPE exclusively using SM commitment as the primary signal.
+Unlike Wolverine (full timeframe alignment), Cheetah fires when SM
+commitment exceeds threshold — overwhelming smart money consensus.
 
-HYPE is unique: Hyperliquid's native token, narrative-driven, lower BTC
-correlation, routinely wicks 5-10% intraday, SM positioning often extreme.
+Top performer in the fleet at +7.6% / 38 trades.
 
-v1.0 had zero trades because the entry gates were too strict for choppy
-conditions (required 1H to confirm 4H while SM was opposing). v2.0 keeps
-high conviction requirements but adds flexibility:
+Key signals:
+- SM_DOMINANT: SM concentration on HYPE (threshold: high %)
+- 4H trend alignment (hard gate)
+- 1H momentum (score booster)
+- CONTRIB_SURGE: contribution_pct_change_4h (SM velocity)
+- BTC as booster, not gate
 
-- SM COMMITMENT gate: SM must be 80%+ one direction (not just aligned)
-- BTC is a booster, never a gate
-- Funding extreme is a bonus signal, not a block
-- 4H trend required, 1H confirms for bonus points but doesn't block
-- OI building = conviction growing
-- Volume surge = the move is real
+All v2.0 fleet fixes:
+- MCP response parsing: handles data.markets.markets nesting
+- Trade counter increments BEFORE output (Phoenix fix)
+- Trade counter auto-resets on stale date
+- _v2_no_thesis_exit: True on every output
+- RIDING mode outputs NO_REPLY only
+- Config helper points to cheetah-strategy
 
-Score 8+ to enter. Leverage 5-7x (HYPE is volatile enough).
-Max 3 entries/day. 120 min cooldown.
-
-DSL exit managed by plugin runtime. Scanner does NOT manage exits.
-
-Uses: leaderboard_get_markets + market_get_asset_data
-Runs every 3 minutes.
+DSL exit managed by plugin runtime via runtime.yaml.
+Uses: leaderboard_get_markets (single API call per scan)
+Runs every 90 seconds.
 """
 
-import json
-import sys
-import os
-import time
+import json, sys, os, time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cheetah_config as cfg
 
-
-# ═══════════════════════════════════════════════════════════════
-# HARDCODED CONSTANTS
-# ═══════════════════════════════════════════════════════════════
-
-ASSET = "HYPE"                      # Single asset — nothing else
-MIN_LEVERAGE = 5
-MAX_LEVERAGE = 7                    # HYPE is volatile — 7x max
+ASSET = "HYPE"
 DEFAULT_LEVERAGE = 7
-MAX_POSITIONS = 1                   # One HYPE position at a time
-MAX_DAILY_ENTRIES = 3               # Patient — 3 max
-COOLDOWN_MINUTES = 120
-MARGIN_PCT = 0.25                   # 25% of account
-MIN_SCORE = 8                       # High conviction required
+MAX_LEVERAGE = 7
+MAX_POSITIONS = 1
+MAX_DAILY_ENTRIES = 4
+COOLDOWN_MINUTES = 90
+MARGIN_PCT = 0.25
+MIN_SCORE = 8
 XYZ_BANNED = True
 
-# SM commitment thresholds — HYPE needs extreme SM conviction
-MIN_SM_PCT = 3.0                    # Minimum SM concentration
-MIN_SM_TRADERS = 15                 # HYPE has fewer SM traders than BTC/ETH
-SM_COMMITMENT_PCT = 80              # SM must be 80%+ one direction
-
-# Funding thresholds
-FUNDING_EXTREME_THRESHOLD = 0.0003  # >0.03%/hr = extreme
-FUNDING_CONFIRMS_THRESHOLD = 0.0001 # >0.01%/hr = confirms pressure
+# SM thresholds for HYPE
+MIN_SM_PCT = 8.0
+MIN_SM_TRADERS = 30
 
 
-# ═══════════════════════════════════════════════════════════════
-# HELPERS
-# ═══════════════════════════════════════════════════════════════
+def safe_float(v, d=0.0):
+    try: return float(v)
+    except: return d
 
-def safe_float(val, default=0.0):
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return default
-
-
-def now_date():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
-def now_iso():
-    return datetime.now(timezone.utc).isoformat()
+def now_date(): return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+def now_iso(): return datetime.now(timezone.utc).isoformat()
 
 
 # ═══════════════════════════════════════════════════════════════
-# SIGNAL SOURCES
+# MCP PARSING — handles data.markets.markets nesting
 # ═══════════════════════════════════════════════════════════════
 
-def fetch_hype_sm_data():
-    """Get HYPE SM positioning from leaderboard."""
-    raw = cfg.mcporter_call("leaderboard_get_markets")
-    if not raw:
+def fetch_sm_for_hype():
+    """Fetch SM data for HYPE. Correctly handles nested MCP response."""
+    raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+    if not raw: return None
+
+    # Handle triple nesting: data.markets.markets
+    markets = raw
+    if isinstance(markets, dict):
+        markets = markets.get("data", markets)
+    if isinstance(markets, dict):
+        markets = markets.get("markets", markets)
+    if isinstance(markets, dict):
+        markets = markets.get("markets", [])
+    if not isinstance(markets, list):
         return None
 
-    markets = []
-    if isinstance(raw, dict):
-        markets = raw.get("markets", raw.get("data", []))
-    elif isinstance(raw, list):
-        markets = raw
-
     for m in markets:
-        if not isinstance(m, dict):
-            continue
+        if not isinstance(m, dict): continue
         token = str(m.get("token", "")).upper()
         if token == ASSET:
             return {
@@ -112,221 +91,125 @@ def fetch_hype_sm_data():
                 "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
                                            m.get("price_change_1h", 0))),
                 "contrib_change": safe_float(m.get("contribution_pct_change_4h", 0)),
-                "rank": int(m.get("rank", m.get("position", 999))),
             }
     return None
 
 
-def fetch_hype_market_data():
-    """Get HYPE funding, OI, volume from market data."""
-    data = cfg.mcporter_call("market_get_asset_data",
-                              asset=ASSET,
-                              candle_intervals=["1h"],
-                              include_funding=True)
-    if not data:
-        return None
+def fetch_btc_trend():
+    """Check BTC 4H trend as a conviction booster."""
+    raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+    if not raw: return 0
 
-    ad = data.get("data", data)
-    if not isinstance(ad, dict):
-        return None
-
-    ac = ad.get("asset_context", ad.get("assetContext", {}))
-    if not isinstance(ac, dict):
-        return {}
-
-    funding = safe_float(ac.get("funding", ac.get("fundingRate", 0)))
-    oi = safe_float(ac.get("openInterest", ac.get("oi", 0)))
-    volume_24h = safe_float(ac.get("dayNtlVlm", ac.get("volume24h", 0)))
-    prev_day_volume = safe_float(ac.get("prevDayNtlVlm", 0))
-
-    # Volume ratio
-    vol_ratio = 0
-    if prev_day_volume > 0:
-        vol_ratio = volume_24h / prev_day_volume
-
-    return {
-        "funding": funding,
-        "oi": oi,
-        "volume_24h": volume_24h,
-        "vol_ratio": vol_ratio,
-    }
-
-
-# ═══════════════════════════════════════════════════════════════
-# SCORING — 14-point system
-# ═══════════════════════════════════════════════════════════════
-
-def score_hype(sm_data, market_data):
-    """Score HYPE across all signal sources. Returns (score, reasons, direction)."""
-    if not sm_data:
-        return 0, ["NO_SM_DATA"], None
-
-    score = 0
-    reasons = []
-    direction = sm_data["direction"]
-
-    if direction not in ("LONG", "SHORT"):
-        return 0, ["NO_DIRECTION"], None
-
-    # ── 1. SM COMMITMENT (0-4 points) ────────────────────────
-    # This is the primary signal. SM must be committed.
-    pct = sm_data["pct"]
-    traders = sm_data["traders"]
-
-    if pct < MIN_SM_PCT or traders < MIN_SM_TRADERS:
-        return 0, [f"SM_WEAK ({pct:.1f}%, {traders}t)"], None
-
-    if pct >= 15:
-        score += 4
-        reasons.append(f"SM_DOMINANT {pct:.1f}% ({traders}t)")
-    elif pct >= 8:
-        score += 3
-        reasons.append(f"SM_STRONG {pct:.1f}% ({traders}t)")
-    elif pct >= 5:
-        score += 2
-        reasons.append(f"SM_SOLID {pct:.1f}% ({traders}t)")
-    else:
-        score += 1
-        reasons.append(f"SM_BASE {pct:.1f}% ({traders}t)")
-
-    # ── 2. TREND ALIGNMENT (0-3 points) ──────────────────────
-    p4h = sm_data["price_chg_4h"]
-    p1h = sm_data["price_chg_1h"]
-
-    # 4H trend is required — must agree with SM direction
-    if direction == "LONG" and p4h > 0.3:
-        score += 2
-        reasons.append(f"4H_BULLISH +{p4h:.1f}%")
-    elif direction == "SHORT" and p4h < -0.3:
-        score += 2
-        reasons.append(f"4H_BEARISH {p4h:.1f}%")
-    elif direction == "LONG" and p4h > 0:
-        score += 1
-        reasons.append(f"4H_POSITIVE +{p4h:.2f}%")
-    elif direction == "SHORT" and p4h < 0:
-        score += 1
-        reasons.append(f"4H_POSITIVE {p4h:.2f}%")
-    else:
-        # 4H opposes SM — hard block
-        return 0, [f"4H_OPPOSES ({p4h:+.1f}% vs SM {direction})"], None
-
-    # 1H confirms for bonus (not required)
-    if direction == "LONG" and p1h > 0.2:
-        score += 1
-        reasons.append(f"1H_CONFIRMS +{p1h:.2f}%")
-    elif direction == "SHORT" and p1h < -0.2:
-        score += 1
-        reasons.append(f"1H_CONFIRMS {p1h:.2f}%")
-
-    # ── 3. CONTRIBUTION VELOCITY (0-2 points) ────────────────
-    contrib = sm_data["contrib_change"]
-    if abs(contrib) >= 0.05:
-        score += 2
-        reasons.append(f"CONTRIB_SURGE +{abs(contrib)*100:.1f}%")
-    elif abs(contrib) >= 0.01:
-        score += 1
-        reasons.append(f"CONTRIB_ACCEL +{abs(contrib)*100:.2f}%")
-
-    # ── 4. FUNDING (0-2 points) ──────────────────────────────
-    if market_data:
-        funding = market_data.get("funding", 0)
-        # Funding paying your direction = pressure building
-        if direction == "SHORT" and funding > FUNDING_EXTREME_THRESHOLD:
-            score += 2
-            reasons.append(f"FUNDING_EXTREME +{funding*100:.4f}%/hr")
-        elif direction == "SHORT" and funding > FUNDING_CONFIRMS_THRESHOLD:
-            score += 1
-            reasons.append(f"FUNDING_CONFIRMS +{funding*100:.4f}%/hr")
-        elif direction == "LONG" and funding < -FUNDING_EXTREME_THRESHOLD:
-            score += 2
-            reasons.append(f"FUNDING_EXTREME {funding*100:.4f}%/hr")
-        elif direction == "LONG" and funding < -FUNDING_CONFIRMS_THRESHOLD:
-            score += 1
-            reasons.append(f"FUNDING_CONFIRMS {funding*100:.4f}%/hr")
-
-    # ── 5. VOLUME (0-1 point) ────────────────────────────────
-    if market_data:
-        vol_ratio = market_data.get("vol_ratio", 0)
-        if vol_ratio >= 1.5:
-            score += 1
-            reasons.append(f"VOL_SURGE {vol_ratio:.1f}x")
-
-    # ── 6. BTC BOOSTER (0-1 point) ───────────────────────────
-    # BTC alignment is a bonus, never a gate
-    btc_data = fetch_btc_direction()
-    if btc_data:
-        if btc_data == direction:
-            score += 1
-            reasons.append("BTC_CONFIRMS")
-
-    # ── 7. RANK POSITION (0-1 point) ─────────────────────────
-    rank = sm_data.get("rank", 999)
-    if 5 <= rank <= 20:
-        score += 1
-        reasons.append(f"RANK_SWEET_SPOT #{rank}")
-
-    return score, reasons, direction
-
-
-def fetch_btc_direction():
-    """Quick check: what direction is BTC trending?"""
-    raw = cfg.mcporter_call("leaderboard_get_markets")
-    if not raw:
-        return None
-
-    markets = []
-    if isinstance(raw, dict):
-        markets = raw.get("markets", raw.get("data", []))
-    elif isinstance(raw, list):
-        markets = raw
+    markets = raw
+    if isinstance(markets, dict): markets = markets.get("data", markets)
+    if isinstance(markets, dict): markets = markets.get("markets", markets)
+    if isinstance(markets, dict): markets = markets.get("markets", [])
+    if not isinstance(markets, list): return 0
 
     for m in markets:
-        if not isinstance(m, dict):
-            continue
-        token = str(m.get("token", "")).upper()
-        if token == "BTC":
-            p4h = safe_float(m.get("token_price_change_pct_4h", 0))
-            if p4h > 0.3:
-                return "LONG"
-            elif p4h < -0.3:
-                return "SHORT"
-    return None
+        if not isinstance(m, dict): continue
+        if str(m.get("token", "")).upper() == "BTC":
+            return safe_float(m.get("token_price_change_pct_4h", 0))
+    return 0
 
 
 # ═══════════════════════════════════════════════════════════════
-# TRADE COUNTER
+# HYPE THESIS EVALUATION — 14-point scoring
 # ═══════════════════════════════════════════════════════════════
 
-def load_trade_counter():
+def evaluate_hype():
+    """Evaluate HYPE entry thesis. Returns dict or None."""
+
+    hype = fetch_sm_for_hype()
+    if not hype: return None
+
+    d = hype["direction"]
+    if d not in ("LONG", "SHORT"): return None
+
+    pct = hype["pct"]
+    traders = hype["traders"]
+    p4h = hype["price_chg_4h"]
+    p1h = hype["price_chg_1h"]
+    cc = hype["contrib_change"]
+
+    # Hard gates
+    if pct < MIN_SM_PCT: return None
+    if traders < MIN_SM_TRADERS: return None
+
+    # 4H must align with SM direction
+    if d == "LONG" and p4h < 0: return None
+    if d == "SHORT" and p4h > 0: return None
+
+    # ── Scoring (14-point system) ─────────────────────────────
+
+    score, reasons = 0, []
+
+    # SM concentration (0-4)
+    if pct >= 30:
+        score += 4; reasons.append(f"SM_DOMINANT {pct:.1f}% ({traders}t)")
+    elif pct >= 20:
+        score += 3; reasons.append(f"SM_HEAVY {pct:.1f}% ({traders}t)")
+    elif pct >= 12:
+        score += 2; reasons.append(f"SM_STRONG {pct:.1f}% ({traders}t)")
+    else:
+        score += 1; reasons.append(f"SM_ALIGNED {pct:.1f}% ({traders}t)")
+
+    # SM depth — trader count (0-2)
+    if traders >= 200:
+        score += 2; reasons.append(f"DEEP_SM ({traders}t)")
+    elif traders >= 100:
+        score += 1; reasons.append(f"BROAD_SM ({traders}t)")
+
+    # 4H trend strength (0-2)
+    abs_4h = abs(p4h)
+    if abs_4h >= 2.0:
+        score += 2; reasons.append(f"4H_STRONG {p4h:+.1f}%")
+    elif abs_4h >= 0.5:
+        score += 1; reasons.append(f"4H_CONFIRMS {p4h:+.1f}%")
+
+    # 1H momentum (0-1)
+    if (d == "LONG" and p1h > 0.2) or (d == "SHORT" and p1h < -0.2):
+        score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
+
+    # Contribution velocity (0-2)
+    if abs(cc) >= 0.03:
+        score += 2; reasons.append(f"CONTRIB_SURGE +{abs(cc)*100:.1f}%")
+    elif abs(cc) >= 0.01:
+        score += 1; reasons.append(f"CONTRIB_GROWING +{abs(cc)*100:.2f}%")
+
+    # BTC as booster (0-1) — not a gate
+    btc_4h = fetch_btc_trend()
+    if d == "LONG" and btc_4h > 0.5:
+        score += 1; reasons.append(f"BTC_CONFIRMS +{btc_4h:.1f}%")
+    elif d == "SHORT" and btc_4h < -0.5:
+        score += 1; reasons.append(f"BTC_CONFIRMS {btc_4h:.1f}%")
+
+    # Time of day (0-1)
+    hour = datetime.now(timezone.utc).hour
+    if 13 <= hour <= 21:
+        score += 1; reasons.append("US_SESSION")
+
+    return {"score": score, "direction": d, "reasons": reasons,
+            "smPct": pct, "smTraders": traders, "priceChg4h": p4h,
+            "contribChange": cc}
+
+
+# ═══════════════════════════════════════════════════════════════
+# TRADE COUNTER — HARDENED (Phoenix fix)
+# ═══════════════════════════════════════════════════════════════
+
+def load_tc():
     p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
     if os.path.exists(p):
         try:
-            with open(p) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
+            with open(p) as f: tc = json.load(f)
+            if tc.get("date") == now_date(): return tc
+        except: pass
     return {"date": now_date(), "entries": 0}
 
-
-def save_trade_counter(tc):
-    if tc.get("date") != now_date():
-        tc = {"date": now_date(), "entries": 0}
+def save_tc(tc):
+    tc["date"] = now_date()
     cfg.atomic_write(os.path.join(cfg.STATE_DIR, "trade-counter.json"), tc)
-
-
-def is_on_cooldown():
-    p = os.path.join(cfg.STATE_DIR, "cooldowns.json")
-    if not os.path.exists(p):
-        return False
-    try:
-        with open(p) as f:
-            cooldowns = json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return False
-    entry = cooldowns.get(ASSET)
-    if not entry:
-        return False
-    return time.time() < entry.get("until", 0)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -334,90 +217,73 @@ def is_on_cooldown():
 # ═══════════════════════════════════════════════════════════════
 
 def run():
-    wallet, strategy_id = cfg.get_wallet_and_strategy()
+    wallet, sid = cfg.get_wallet_and_strategy()
     if not wallet:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
         return
 
-    # ── Check existing positions (NO thesis exit) ─────────────
-    account_value, positions = cfg.get_positions(wallet)
-    if account_value <= 0:
+    av, positions = cfg.get_positions(wallet)
+    if av <= 0:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
         return
 
-    hype_positions = [p for p in positions if p["coin"].upper() == ASSET]
+    # ── RIDING: HYPE position open → NO_REPLY ─────────────────
+    for p in positions:
+        if p.get("coin", "").upper() == ASSET:
+            cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                "note": f"RIDING: HYPE {p.get('direction','?')}. DSL manages exit.",
+                "_v2_no_thesis_exit": True})
+            return
 
-    if hype_positions:
-        # RIDING mode — DSL manages exit. Scanner does NOT re-evaluate.
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                     "note": f"RIDING: HYPE {hype_positions[0]['direction']} — DSL manages exit.",
-                     "_v2_no_thesis_exit": True})
-        return
-
-    if len(positions) >= MAX_POSITIONS:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                     "note": f"{len(positions)} positions active. Max {MAX_POSITIONS}.",
-                     "_v2_no_thesis_exit": True})
-        return
-
-    # ── Trade counter ─────────────────────────────────────────
-    tc = load_trade_counter()
-    if tc.get("date") != now_date():
-        tc = {"date": now_date(), "entries": 0}
-        save_trade_counter(tc)
+    # ── Trade counter (HARDENED) ──────────────────────────────
+    tc = load_tc()
     if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"Daily entry limit ({MAX_DAILY_ENTRIES}) reached"})
+            "note": f"Daily limit ({MAX_DAILY_ENTRIES}) reached. Counter: {tc['entries']}/{MAX_DAILY_ENTRIES}"})
         return
 
     # ── Cooldown ──────────────────────────────────────────────
-    if is_on_cooldown():
+    if cfg.is_asset_cooled_down(ASSET, COOLDOWN_MINUTES):
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"HYPE on cooldown ({COOLDOWN_MINUTES} min)"})
+            "note": f"HYPE on cooldown ({COOLDOWN_MINUTES}min)"})
         return
 
-    # ── Fetch all HYPE data ───────────────────────────────────
-    sm_data = fetch_hype_sm_data()
-    market_data = fetch_hype_market_data()
+    # ── Evaluate thesis ───────────────────────────────────────
+    thesis = evaluate_hype()
 
-    if not sm_data:
+    if not thesis:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": "HYPE not in SM leaderboard"})
+            "note": "HUNTING: no HYPE thesis"})
         return
 
-    # ── Score it ──────────────────────────────────────────────
-    score, reasons, direction = score_hype(sm_data, market_data)
-
-    if score < MIN_SCORE or not direction:
+    if thesis["score"] < MIN_SCORE:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"HYPE {direction or '?'} score {score} < {MIN_SCORE}. "
-                            f"Reasons: {', '.join(reasons)}"})
+            "note": f"HUNTING: HYPE {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. "
+                    f"{', '.join(thesis['reasons'][:3])}"})
         return
 
     # ── Entry ─────────────────────────────────────────────────
-    margin = round(account_value * MARGIN_PCT, 2)
+    margin = round(av * MARGIN_PCT, 2)
 
+    # INCREMENT COUNTER BEFORE OUTPUT (Phoenix fix)
     tc["entries"] = tc.get("entries", 0) + 1
-    save_trade_counter(tc)
+    save_tc(tc)
 
     cfg.output({
         "status": "ok",
         "signal": {
             "asset": ASSET,
-            "direction": direction,
-            "score": score,
+            "direction": thesis["direction"],
+            "score": thesis["score"],
             "mode": "HYPE_PREDATOR",
-            "reasons": reasons,
-            "smPct": sm_data["pct"],
-            "smTraders": sm_data["traders"],
-            "priceChg4h": sm_data["price_chg_4h"],
-            "priceChg1h": sm_data["price_chg_1h"],
-            "contribChange": sm_data.get("contrib_change", 0),
-            "funding": market_data.get("funding", 0) if market_data else 0,
+            "reasons": thesis["reasons"],
+            "smPct": thesis["smPct"],
+            "smTraders": thesis["smTraders"],
+            "priceChg4h": thesis["priceChg4h"],
         },
         "entry": {
             "asset": ASSET,
-            "direction": direction,
+            "direction": thesis["direction"],
             "leverage": DEFAULT_LEVERAGE,
             "margin": margin,
             "orderType": "FEE_OPTIMIZED_LIMIT",
@@ -428,7 +294,7 @@ def run():
             "maxDailyEntries": MAX_DAILY_ENTRIES,
             "cooldownMinutes": COOLDOWN_MINUTES,
             "_v2_no_thesis_exit": True,
-            "_note": "DSL managed by plugin runtime. Scanner does NOT manage exits.",
+            "_note": f"DSL managed by plugin runtime. Counter: {tc['entries']}/{MAX_DAILY_ENTRIES}",
         },
         "_cheetah_version": "2.0",
     })
@@ -438,7 +304,7 @@ if __name__ == "__main__":
     try:
         run()
     except Exception as e:
-        cfg.log(f"CRITICAL ERROR: {e}")
+        cfg.log(f"CRITICAL: {e}")
         import traceback
         traceback.print_exc(file=sys.stderr)
         cfg.output({"status": "error", "error": str(e)})

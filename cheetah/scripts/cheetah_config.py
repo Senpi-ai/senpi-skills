@@ -15,8 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
-SKILL_DIR = Path(WORKSPACE) / "skills" / "mantis-strategy"
-CONFIG_PATH = SKILL_DIR / "config" / "mantis-config.json"
+SKILL_DIR = Path(WORKSPACE) / "skills" / "cheetah-strategy"
+CONFIG_PATH = SKILL_DIR / "config" / "cheetah-config.json"
 STATE_DIR = SKILL_DIR / "state"
 HISTORY_FILE = os.path.join(WORKSPACE, "mantis-emerging-history.json")
 COOLDOWN_FILE = STATE_DIR / "asset-cooldowns.json"
