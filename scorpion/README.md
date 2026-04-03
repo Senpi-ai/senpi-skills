@@ -1,49 +1,30 @@
-# 🦂 SCORPION v2.0 — Momentum Event Consensus
+# 🦂 SCORPION v2.0 — Altcoin Swarm Hunter
 
-Part of the [Senpi Trading Skills Zoo](https://github.com/Senpi-ai/senpi-skills).
+**The swarm forms. Scorpion picks the weakest prey.**
 
-## What SCORPION v2.0 Does
+Scorpion detects coordinated altcoin risk-off events and trades the highest-conviction target.
 
-SCORPION v2.0 detects real-time smart money convergence on Hyperliquid using `leaderboard_get_momentum_events`. When 2+ quality traders cross momentum thresholds ($2M+/$5.5M+/$10M+) on the same asset and direction within 60 minutes, confirmed by market concentration and volume, SCORPION enters with the momentum.
+## Quick Stats
+- **Strategy**: Detect altcoin swarms (5+ alts with SM >2%), trade the best one
+- **Margin**: $350 per trade (35% of $1K budget)
+- **Leverage**: 5x (altcoin typical), up to 10x on select mid-caps
+- **Entry threshold**: Swarm confirmed + Score 5/8
+- **Max positions**: 1 at a time
+- **Timeout**: 240 minutes (altcoin trends develop slowly)
+- **Daily cap**: 3 entries, 90-min cooldown
+- **Order type**: FEE_OPTIMIZED_LIMIT (maker first)
 
-**This is a complete rewrite.** SCORPION v1.1 mirrored whale positions using stale data (406 trades, -24.2% ROI). v2.0 follows smart money ACTIONS, not stale positions.
+## The Swarm Signal
+When 5+ non-major altcoins simultaneously attract SM SHORT concentration >2%, something systemic is happening. This coordinated pattern is higher conviction than any single asset signal.
 
-## Five-Gate Entry Model
+## What It Trades
+Assets that no other Predator touches: LIT, TAO, MON, FARTCOIN, VVV, ZRO, CC, AVAX, XMR, PUMP, and more. These are the altcoins generating the most SM PnL on Hyperliquid.
 
-```
-Momentum Events (2+ traders on same asset/direction)
-        ↓
-Trader Quality (Elite/Reliable TCS, no Degen)
-        ↓
-Market Confirmation (5+ traders active via leaderboard_get_markets)
-        ↓
-Volume Confirmation (1h vol ≥ 50% of 6h avg)
-        ↓
-Regime Filter (penalty for counter-trend, not a block)
-        ↓
-Score ≥ 10 → ENTER
-```
+## Complementary to Cobra
+Cobra trades the #1 SM asset (usually BTC/ETH/HYPE). Scorpion trades the #1 altcoin within a confirmed swarm. They never overlap and can run simultaneously.
 
-## Quick Start
-
-1. Deploy `config/scorpion-config.json` to your Senpi agent
-2. Deploy `scripts/scorpion-scanner.py` and `scripts/scorpion_config.py`
-3. Create scanner cron (5 min, isolated) and DSL cron (3 min, isolated)
-4. Fund with $1,000 on the Senpi Predators leaderboard
-
-## Directory Structure
-
-```
-scorpion-v2.0/
-├── README.md
-├── SKILL.md
-├── config/
-│   └── scorpion-config.json
-└── scripts/
-    ├── scorpion-scanner.py
-    └── scorpion_config.py
-```
+## Install
+See [SKILL.md](SKILL.md) for full setup instructions.
 
 ## License
-
-MIT — see root repo LICENSE.
+MIT — Built by [Senpi](https://senpi.ai)
