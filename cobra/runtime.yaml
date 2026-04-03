@@ -1,0 +1,69 @@
+name: cobra-tracker
+version: 1.0.0
+description: >
+  COBRA v1.1 — Arena Sprint Predator. Trades the #1 SM dominant asset
+  with maximum conviction. Wide DSL to let positions breathe,
+  fewer trades with bigger impact.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 1
+  margin_per_slot: 400
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# DSL: Give positions room to breathe — don't churn fees
+# The goal is Condor-like efficiency: few trades, big impact, low fees
+# Condor v2.0: 5 trades, $2.71 fees, +$37.43 profit (13.8:1 ratio)
+# vs Polar: 170 trades, $239 fees, +$38.65 profit (0.16:1 ratio)
+#
+# Wider Phase 1 retrace (8%) gives volatile assets room
+# Higher Phase 2 triggers let winners run longer
+# 180min timeout — a 3-hour position is fine if it's trending
+#
+# NOTE: FEE_OPTIMIZED_LIMIT is specified in the scanner entry block,
+# not in the YAML. The agent must pass orderType: FEE_OPTIMIZED_LIMIT
+# with ensureExecutionAsTaker: true and executionTimeoutSeconds: 30
+# when calling create_position.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 180
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 45
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 25 }
+        - { trigger_pct: 10, lock_hw_pct: 45 }
+        - { trigger_pct: 15, lock_hw_pct: 60 }
+        - { trigger_pct: 20, lock_hw_pct: 75 }
+        - { trigger_pct: 30, lock_hw_pct: 85 }
+        - { trigger_pct: 50, lock_hw_pct: 92 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
