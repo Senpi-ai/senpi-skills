@@ -2,714 +2,288 @@
 # Senpi POLAR Scanner v2.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-# Source: https://github.com/Senpi-ai/senpi-skills
-"""POLAR v2.0 — ETH Alpha Hunter with Position Lifecycle.
+"""POLAR v2.0 — ETH Alpha Hunter.
 
-Single-asset focus. ETH only. Every signal source available (SM, funding, OI,
-4-timeframe trend, volume, BTC correlation). 15-20x leverage, maximum conviction.
+Single-asset ETH lifecycle hunter. The patience benchmark.
+Three consecutive wins at +19.8%, +18.4%, +2.2% ROE after removing
+thesis exit. The proof that scanner enters, DSL exits.
 
-v2.0 adds three-mode position lifecycle:
-  MODE 1 — HUNTING: normal scanning, all signals must align, score 10+ to enter
-  MODE 2 — RIDING: position open, DSL trails, monitor thesis
-  MODE 3 — STALKING: DSL closed, watch for reload on dip, or reset if thesis dies
+Two modes: HUNT → RIDE (NO_REPLY) → re-HUNT.
+STALKING mode removed (fleet-wide decision: Stalker is dead).
 
-The loop: HUNTING → enter → RIDING → DSL closes → STALKING → reload or reset.
+v1.0 had thesis exit in RIDING mode that scratched +0.35% trades
+that would have run to +20%. v2.0 removes it entirely.
 
+All v2.0 fleet fixes:
+- MCP response parsing: handles data.markets.markets nesting
+- Trade counter increments BEFORE output (Phoenix fix)
+- Trade counter auto-resets on stale date
+- evaluate_eth_position: REMOVED ENTIRELY
+- RIDING mode: outputs NO_REPLY only, zero thesis evaluation
+- _v2_no_thesis_exit: True on every output
+- Config helper points to polar-strategy
+
+DSL exit managed by plugin runtime via runtime.yaml.
+Uses: leaderboard_get_markets + market_get_asset_data (2 API calls)
 Runs every 3 minutes.
 """
 
-import sys
-import os
+import json, sys, os, time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import polar_config as cfg
 
+ASSET = "ETH"
+DEFAULT_LEVERAGE = 7
+MAX_LEVERAGE = 7
+MAX_POSITIONS = 1
+MAX_DAILY_ENTRIES = 4
+COOLDOWN_MINUTES = 120
+MARGIN_PCT = 0.25
+MIN_SCORE = 8
+XYZ_BANNED = True
 
-# ─── Technical Helpers ────────────────────────────────────────
-
-def price_momentum(candles, n_bars=1):
-    if len(candles) < n_bars + 1:
-        return 0
-    old = float(candles[-(n_bars + 1)].get("close", candles[-(n_bars + 1)].get("c", 0)))
-    new = float(candles[-1].get("close", candles[-1].get("c", 0)))
-    if old == 0:
-        return 0
-    return ((new - old) / old) * 100
-
-
-def trend_structure(candles, lookback=6):
-    if len(candles) < lookback:
-        return "NEUTRAL", 0
-    lows = [float(c.get("low", c.get("l", 0))) for c in candles[-lookback:]]
-    highs = [float(c.get("high", c.get("h", 0))) for c in candles[-lookback:]]
-    higher_lows = sum(1 for i in range(1, len(lows)) if lows[i] > lows[i - 1])
-    lower_highs = sum(1 for i in range(1, len(highs)) if highs[i] < highs[i - 1])
-    total = lookback - 1
-    if higher_lows >= total * 0.6:
-        return "BULLISH", higher_lows / total
-    elif lower_highs >= total * 0.6:
-        return "BEARISH", lower_highs / total
-    return "NEUTRAL", 0
+# SM thresholds
+MIN_SM_PCT = 8.0
+MIN_SM_TRADERS = 40
 
 
-def volume_ratio(candles, lookback=10):
-    if len(candles) < lookback + 1:
-        return 1.0
-    vols = [float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles[-(lookback + 1):-1]]
-    avg = sum(vols) / len(vols) if vols else 1
-    latest = float(candles[-1].get("volume", candles[-1].get("v", candles[-1].get("vlm", 0))))
-    return latest / avg if avg > 0 else 1.0
+def safe_float(v, d=0.0):
+    try: return float(v)
+    except: return d
+
+def now_date(): return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+def now_iso(): return datetime.now(timezone.utc).isoformat()
 
 
-def volume_trend(candles, lookback=6):
-    if len(candles) < lookback + 2:
-        return 0
-    vols = [float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles[-(lookback + 2):]]
-    half = lookback // 2
-    recent = sum(vols[-half:]) / half if half > 0 else 1
-    earlier = sum(vols[:half]) / half if half > 0 else 1
-    if earlier == 0:
-        return 0
-    return ((recent - earlier) / earlier) * 100
+# ═══════════════════════════════════════════════════════════════
+# MCP PARSING — handles data.markets.markets nesting
+# ═══════════════════════════════════════════════════════════════
 
+def fetch_sm_for_eth():
+    """Fetch SM data for ETH. Correctly handles nested MCP response."""
+    raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+    if not raw: return None
 
-def calc_rsi(closes, period=14):
-    if len(closes) < period + 1:
-        return 50
-    gains, losses = [], []
-    for i in range(1, len(closes)):
-        d = closes[i] - closes[i - 1]
-        gains.append(max(0, d))
-        losses.append(max(0, -d))
-    g, l = gains[-period:], losses[-period:]
-    avg_g, avg_l = sum(g) / period, sum(l) / period
-    if avg_l == 0:
-        return 100.0
-    return 100.0 - (100.0 / (1.0 + avg_g / avg_l))
-
-
-# ─── Asset-Specific Data ────────────────────────────────────────
-
-def get_eth_full_picture():
-    """Fetch comprehensive ETH data across all timeframes."""
-    data = cfg.mcporter_call("market_get_asset_data", asset="ETH",
-                              candle_intervals=["5m", "15m", "1h", "4h"],
-                              include_funding=True, include_order_book=False)
-    if not data or not data.get("success"):
-        return None
-    return data.get("data", data)
-
-
-def get_btc_correlation():
-    """Fetch BTC data to check if it confirms ETH's move."""
-    data = cfg.mcporter_call("market_get_asset_data", asset="BTC",
-                              candle_intervals=["15m", "1h"],
-                              include_funding=False, include_order_book=False)
-    if not data or not data.get("success"):
-        return None, None
-    candles_15m = data.get("data", {}).get("candles", {}).get("15m", [])
-    candles_1h = data.get("data", {}).get("candles", {}).get("1h", [])
-    mom_15m = price_momentum(candles_15m, 1) if len(candles_15m) >= 2 else 0
-    mom_1h = price_momentum(candles_1h, 1) if len(candles_1h) >= 2 else 0
-    return mom_15m, mom_1h
-
-
-def get_eth_sm_direction():
-    """Get smart money positioning specifically for ETH."""
-    data = cfg.mcporter_call("leaderboard_get_markets")
-    if not data or not data.get("success"):
-        return None, 0, 0
-
-    markets = data.get("data", data)
-    if isinstance(markets, dict):
-        markets = markets.get("markets", markets.get("leaderboard", markets))
-    if isinstance(markets, dict):
-        markets = markets.get("markets", [])
-
-    # Aggregate long vs short entries for ETH
-    asset_long_pct = 0
-    asset_short_pct = 0
-    asset_traders = 0
-    found = False
+    markets = raw
+    if isinstance(markets, dict): markets = markets.get("data", markets)
+    if isinstance(markets, dict): markets = markets.get("markets", markets)
+    if isinstance(markets, dict): markets = markets.get("markets", [])
+    if not isinstance(markets, list): return None
 
     for m in markets:
-        if not isinstance(m, dict):
-            continue
-        token = m.get("token", m.get("coin", m.get("asset", "")))
-        if token != "ETH":
-            continue
-        found = True
-        direction = m.get("direction", "").lower()
-        pct = float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
-        traders = int(m.get("trader_count", m.get("traderCount", 0)))
-        if direction == "long":
-            asset_long_pct = pct
-            asset_traders += traders
-        elif direction == "short":
-            asset_short_pct = pct
-            asset_traders += traders
-
-    if not found:
-        return None, 0, 0
-
-    total = asset_long_pct + asset_short_pct
-    if total == 0:
-        return "NEUTRAL", 50, asset_traders
-    long_ratio = (asset_long_pct / total) * 100 if total > 0 else 50
-    if long_ratio > 58:
-        return "LONG", long_ratio, asset_traders
-    elif long_ratio < 42:
-        return "SHORT", 100 - long_ratio, asset_traders
-    return "NEUTRAL", 50, asset_traders
+        if not isinstance(m, dict): continue
+        token = str(m.get("token", "")).upper()
+        if token == ASSET:
+            return {
+                "direction": str(m.get("direction", "")).upper(),
+                "pct": safe_float(m.get("pct_of_top_traders_gain", 0)),
+                "traders": int(m.get("trader_count", 0)),
+                "price_chg_4h": safe_float(m.get("token_price_change_pct_4h", 0)),
+                "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
+                                           m.get("price_change_1h", 0))),
+                "contrib_change": safe_float(m.get("contribution_pct_change_4h", 0)),
+            }
+    return None
 
 
-# ─── Thesis Builder (BTC Only) ───────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# ETH THESIS EVALUATION
+# ═══════════════════════════════════════════════════════════════
 
-def build_eth_thesis(entry_cfg):
-    """Build a conviction thesis from every BTC signal source."""
+def evaluate_eth():
+    """Build ETH entry thesis. Returns dict or None."""
 
-    eth_data = get_eth_full_picture()
-    if not eth_data:
-        return None
+    eth = fetch_sm_for_eth()
+    if not eth: return None
 
-    candles_5m = eth_data.get("candles", {}).get("5m", [])
-    candles_15m = eth_data.get("candles", {}).get("15m", [])
-    candles_1h = eth_data.get("candles", {}).get("1h", [])
-    candles_4h = eth_data.get("candles", {}).get("4h", [])
-    asset_ctx = eth_data.get("asset_context", {})
-    funding = float(asset_ctx.get("funding", eth_data.get("funding", 0)))
-    oi = float(asset_ctx.get("openInterest", eth_data.get("openInterest", 0)))
+    d = eth["direction"]
+    if d not in ("LONG", "SHORT"): return None
 
-    if len(candles_5m) < 12 or len(candles_15m) < 8 or len(candles_1h) < 8 or len(candles_4h) < 6:
-        return None
+    pct = eth["pct"]
+    traders = eth["traders"]
+    p4h = eth["price_chg_4h"]
+    p1h = eth["price_chg_1h"]
+    cc = eth["contrib_change"]
 
-    price = float(candles_5m[-1].get("close", candles_5m[-1].get("c", 0)))
+    # Hard gates
+    if pct < MIN_SM_PCT: return None
+    if traders < MIN_SM_TRADERS: return None
+    if d == "LONG" and p4h < 0: return None
+    if d == "SHORT" and p4h > 0: return None
 
-    # ── REQUIRED: 4h trend structure ──────────────────────────
-    trend_4h, trend_strength_4h = trend_structure(candles_4h)
-    if trend_4h == "NEUTRAL":
-        return None  # No conviction without macro structure
+    # ── Fetch additional data (funding, OI) ───────────────────
+    funding = 0
+    try:
+        ad = cfg.mcporter_call("market_get_asset_data", asset=ASSET,
+                                candle_intervals=["1h"], include_funding=True)
+        if ad:
+            ac = ad.get("data", ad).get("asset_context",
+                 ad.get("data", ad).get("assetContext", {}))
+            if isinstance(ac, dict):
+                funding = safe_float(ac.get("funding", 0))
+    except: pass
 
-    direction = "LONG" if trend_4h == "BULLISH" else "SHORT"
+    # ── Scoring ───────────────────────────────────────────────
 
-    # ── REQUIRED: 1h trend agrees ─────────────────────────────
-    trend_1h, trend_strength_1h = trend_structure(candles_1h)
-    if trend_1h != trend_4h:
-        return None
+    score, reasons = 0, []
 
-    # ── REQUIRED: 15m momentum confirms ───────────────────────
-    mom_5m = price_momentum(candles_5m, 1)
-    mom_15m = price_momentum(candles_15m, 1)
-    mom_1h = price_momentum(candles_1h, 2)
-    mom_4h = price_momentum(candles_4h, 1)
-
-    min_mom_15m = entry_cfg.get("minMom15mPct", 0.1)
-    if direction == "LONG" and mom_15m < min_mom_15m:
-        return None
-    if direction == "SHORT" and mom_15m > -min_mom_15m:
-        return None
-
-    # ── SCORING ───────────────────────────────────────────────
-    score = 0
-    reasons = []
-
-    # 4h trend (3 pts — the foundation)
-    score += 3
-    reasons.append(f"4h_{trend_4h.lower()}_{trend_strength_4h:.0%}")
-
-    # 1h trend agreement (2 pts)
-    score += 2
-    reasons.append(f"1h_confirms_{mom_1h:+.2f}%")
-
-    # 15m momentum (1 pt — already required, but strength matters)
-    if abs(mom_15m) > min_mom_15m * 2:
-        score += 1
-        reasons.append(f"15m_strong_{mom_15m:+.2f}%")
+    # SM concentration (0-3)
+    if pct >= 15:
+        score += 3; reasons.append(f"SM_DOMINANT {pct:.1f}% ({traders}t)")
+    elif pct >= 10:
+        score += 2; reasons.append(f"SM_STRONG {pct:.1f}% ({traders}t)")
     else:
-        reasons.append(f"15m_{mom_15m:+.2f}%")
+        score += 1; reasons.append(f"SM_ALIGNED {pct:.1f}% ({traders}t)")
 
-    # 5m alignment (1 pt — all 4 timeframes agree)
-    if (direction == "LONG" and mom_5m > 0) or (direction == "SHORT" and mom_5m < 0):
-        score += 1
-        reasons.append("4TF_aligned")
+    # SM depth (0-1)
+    if traders >= 100:
+        score += 1; reasons.append(f"DEEP_SM ({traders}t)")
 
-    # ── SM positioning (BTC-specific, very strong signal) ─────
-    sm_dir, sm_pct, sm_count = get_eth_sm_direction()
-    if sm_dir == direction:
-        score += 2
-        reasons.append(f"sm_aligned_{sm_pct:.0f}%_{sm_count}traders")
-        if sm_pct > 65:
-            score += 1
-            reasons.append("sm_strongly_tilted")
-    elif sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
-        # SM opposes — hard block for BTC. SM has the best read on BTC.
-        return None
+    # 4H trend strength (0-2)
+    abs_4h = abs(p4h)
+    if abs_4h >= 2.0:
+        score += 2; reasons.append(f"STRONG_4H {p4h:+.1f}%")
+    elif abs_4h >= 0.5:
+        score += 1; reasons.append(f"4H_CONFIRMS {p4h:+.1f}%")
 
-    # ── Funding alignment ─────────────────────────────────────
-    if (direction == "LONG" and funding < 0):
-        score += 2
-        reasons.append(f"funding_pays_longs_{funding:+.4f}")
-    elif (direction == "SHORT" and funding > 0):
-        score += 2
-        reasons.append(f"funding_pays_shorts_{funding:+.4f}")
-    elif (direction == "LONG" and funding > 0.005) or (direction == "SHORT" and funding < -0.005):
-        score -= 1
-        reasons.append(f"funding_crowded_{funding:+.4f}")
+    # 1H momentum (0-1)
+    if (d == "LONG" and p1h > 0.2) or (d == "SHORT" and p1h < -0.2):
+        score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
-    # ── Volume confirmation ───────────────────────────────────
-    vol_1h = volume_ratio(candles_1h)
-    min_vol = entry_cfg.get("minVolRatio", 1.2)
-    if vol_1h >= min_vol:
-        score += 1
-        reasons.append(f"vol_{vol_1h:.1f}x")
-    elif vol_1h < 0.7:
-        score -= 1
-        reasons.append("vol_weak")
+    # Contribution velocity (0-2)
+    if abs(cc) >= 0.03:
+        score += 2; reasons.append(f"CONTRIB_SURGE +{abs(cc)*100:.1f}%")
+    elif abs(cc) >= 0.01:
+        score += 1; reasons.append(f"CONTRIB_GROWING +{abs(cc)*100:.2f}%")
 
-    vol_trend_1h = volume_trend(candles_1h)
-    if vol_trend_1h > 15:
-        score += 1
-        reasons.append(f"vol_rising_{vol_trend_1h:+.0f}%")
+    # Funding alignment (0-1)
+    if (d == "SHORT" and funding > 0.0002) or (d == "LONG" and funding < -0.0002):
+        score += 1; reasons.append(f"FUNDING_PAYS {funding*100:.4f}%")
 
-    # ── OI growth (new money entering BTC) ────────────────────
-    vol_recent = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-3:])
-    vol_earlier = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-6:-3])
-    oi_proxy = ((vol_recent - vol_earlier) / vol_earlier * 100) if vol_earlier > 0 else 0
-    if oi_proxy > 10:
-        score += 1
-        reasons.append(f"oi_growing_{oi_proxy:+.0f}%")
+    # Time of day (0-1)
+    hour = datetime.now(timezone.utc).hour
+    if 13 <= hour <= 21:
+        score += 1; reasons.append("US_SESSION")
 
-    # ── BTC correlation confirmation ──────────────────────────
-    corr_mom_15m, corr_mom_1h = get_btc_correlation()
-    if corr_mom_15m is not None and corr_mom_1h is not None:
-        corr_agrees = (direction == "LONG" and corr_mom_15m > 0 and corr_mom_1h > 0) or \
-                     (direction == "SHORT" and corr_mom_15m < 0 and corr_mom_1h < 0)
-        if corr_agrees:
-            score += 1
-            reasons.append(f"btc_confirms_{corr_mom_1h:+.2f}%")
-        # BTC disagreement is not a block — ETH often follows BTC
-
-    # ── RSI filter ────────────────────────────────────────────
-    closes_1h = [float(c.get("close", c.get("c", 0))) for c in candles_1h]
-    rsi = calc_rsi(closes_1h)
-    if direction == "LONG" and rsi > entry_cfg.get("rsiMaxLong", 74):
-        return None
-    if direction == "SHORT" and rsi < entry_cfg.get("rsiMinShort", 26):
-        return None
-    if (direction == "LONG" and rsi < 55) or (direction == "SHORT" and rsi > 45):
-        score += 1
-        reasons.append(f"rsi_room_{rsi:.0f}")
-
-    # ── 4h momentum strength bonus ────────────────────────────
-    if abs(mom_4h) > 1.0:
-        score += 1
-        reasons.append(f"4h_momentum_{mom_4h:+.1f}%")
-
-    return {
-        "coin": "ETH",
-        "direction": direction,
-        "score": score,
-        "reasons": reasons,
-        "price": price,
-        "trend_4h": trend_4h,
-        "trend_1h": trend_1h,
-        "momentum": {"5m": mom_5m, "15m": mom_15m, "1h": mom_1h, "4h": mom_4h},
-        "sm_direction": sm_dir,
-        "sm_pct": sm_pct,
-        "funding": funding,
-        "rsi": rsi,
-        "vol_ratio": vol_1h,
-    }
+    return {"score": score, "direction": d, "reasons": reasons,
+            "smPct": pct, "smTraders": traders, "priceChg4h": p4h}
 
 
-# ─── Thesis Re-Evaluation ────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# TRADE COUNTER — HARDENED (Phoenix fix)
+# ═══════════════════════════════════════════════════════════════
 
-def evaluate_eth_position(direction, entry_cfg):
-    """Re-evaluate BTC thesis. Returns (still_valid, invalidation_reasons)."""
-    eth_data = get_eth_full_picture()
-    if not eth_data:
-        return True, ["data_unavailable_hold"]
+def load_tc():
+    p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
+    if os.path.exists(p):
+        try:
+            with open(p) as f: tc = json.load(f)
+            if tc.get("date") == now_date(): return tc
+        except: pass
+    return {"date": now_date(), "entries": 0}
 
-    candles_1h = eth_data.get("candles", {}).get("1h", [])
-    candles_4h = eth_data.get("candles", {}).get("4h", [])
-    asset_ctx = eth_data.get("asset_context", {})
-    funding = float(asset_ctx.get("funding", eth_data.get("funding", 0)))
-
-    if len(candles_4h) < 6:
-        return True, ["insufficient_data_hold"]
-
-    invalidations = []
-
-    # 4h trend flipped?
-    trend_4h, _ = trend_structure(candles_4h)
-    if direction == "LONG" and trend_4h == "BEARISH":
-        invalidations.append("4h_trend_flipped_bearish")
-    elif direction == "SHORT" and trend_4h == "BULLISH":
-        invalidations.append("4h_trend_flipped_bullish")
-
-    # SM flipped against?
-    sm_dir, sm_pct, _ = get_eth_sm_direction()
-    if sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
-        invalidations.append(f"sm_flipped_{sm_dir}_{sm_pct:.0f}%")
-
-    # Funding extreme against position?
-    threshold = entry_cfg.get("fundingExtremeThreshold", 0.012)
-    if direction == "LONG" and funding > threshold:
-        invalidations.append(f"funding_extreme_{funding:+.4f}")
-    elif direction == "SHORT" and funding < -threshold:
-        invalidations.append(f"funding_extreme_{funding:+.4f}")
-
-    # Volume died for 3+ hours?
-    if len(candles_1h) >= 12:
-        recent_vols = [float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-3:]]
-        avg_vol = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-12:-3]) / 9
-        if avg_vol > 0 and all(v < avg_vol * 0.3 for v in recent_vols):
-            invalidations.append("volume_dried_up_3h")
-
-    # ETH diverging strongly? (ETH up, BTC down for 2+ hours = warning)
-    corr_15m, corr_1h = get_btc_correlation()
-    if corr_1h is not None:
-        if direction == "LONG" and corr_1h < -1.0:
-            invalidations.append(f"btc_diverging_{corr_1h:+.1f}%")
-        elif direction == "SHORT" and corr_1h > 1.0:
-            invalidations.append(f"btc_diverging_{corr_1h:+.1f}%")
-
-    return (len(invalidations) == 0), invalidations
+def save_tc(tc):
+    tc["date"] = now_date()
+    cfg.atomic_write(os.path.join(cfg.STATE_DIR, "trade-counter.json"), tc)
 
 
-# ─── Stalk Evaluation (after DSL exit) ────────────────────────
-
-def evaluate_reload(exit_state, entry_cfg):
-    """Check if conditions are met to reload after a DSL exit.
-    Returns (should_reload, reasons) or (False, kill_reasons)."""
-
-    stalk_cfg = entry_cfg.get("stalk", {})
-    direction = exit_state.get("exitDirection")
-    exit_ts = exit_state.get("exitTimestamp", 0)
-    exit_vol = exit_state.get("exitEntryVolRatio", 1.0)
-    now = cfg.now_ts()
-    hours_stalking = (now - exit_ts) / 3600
-
-    # KILL: stalking too long — trend is over
-    max_stalk_hours = stalk_cfg.get("maxStalkHours", 6)
-    if hours_stalking > max_stalk_hours:
-        return False, ["stalk_timeout_{:.1f}h".format(hours_stalking)]
-
-    eth_data = get_eth_full_picture()
-    if not eth_data:
-        return False, ["data_unavailable"]
-
-    candles_5m = eth_data.get("candles", {}).get("5m", [])
-    candles_1h = eth_data.get("candles", {}).get("1h", [])
-    candles_4h = eth_data.get("candles", {}).get("4h", [])
-    asset_ctx = eth_data.get("asset_context", {})
-    funding = float(asset_ctx.get("funding", eth_data.get("funding", 0)))
-
-    kill_reasons = []
-    reload_checks = []
-
-    # KILL CHECK: 4h trend reversed
-    trend_4h, _ = trend_structure(candles_4h)
-    expected_trend = "BULLISH" if direction == "LONG" else "BEARISH"
-    if trend_4h != expected_trend and trend_4h != "NEUTRAL":
-        kill_reasons.append(f"4h_trend_reversed_{trend_4h}")
-
-    # KILL CHECK: SM flipped
-    sm_dir, sm_pct, _ = get_eth_sm_direction()
-    if sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
-        kill_reasons.append(f"sm_flipped_{sm_dir}")
-
-    # KILL CHECK: Funding spiked into extreme crowding
-    funding_ann = abs(funding) * 8760
-    max_funding = stalk_cfg.get("maxFundingAnnPct", 100)
-    if (direction == "LONG" and funding > 0 and funding_ann > max_funding) or \
-       (direction == "SHORT" and funding < 0 and funding_ann > max_funding):
-        kill_reasons.append(f"funding_extreme_{funding_ann:.0f}%ann")
-
-    # KILL CHECK: OI collapsed
-    if len(candles_1h) >= 6:
-        recent_vols = [float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-3:]]
-        earlier_vols = [float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-6:-3]]
-        avg_recent = sum(recent_vols) / len(recent_vols) if recent_vols else 0
-        avg_earlier = sum(earlier_vols) / len(earlier_vols) if earlier_vols else 1
-        if avg_earlier > 0:
-            oi_change = ((avg_recent - avg_earlier) / avg_earlier) * 100
-            if oi_change < -20:
-                kill_reasons.append(f"oi_collapsed_{oi_change:+.0f}%")
-
-    if kill_reasons:
-        return False, kill_reasons
-
-    # RELOAD CHECK 1: At least one completed 1h candle since exit
-    if len(candles_1h) >= 2:
-        last_completed_close_ts = candles_1h[-2].get("t", candles_1h[-2].get("T", 0))
-        if isinstance(last_completed_close_ts, str):
-            last_completed_close_ts = 0
-        # Simple check: must have been stalking for at least 30 min (roughly one 1h candle)
-        if hours_stalking < 0.5:
-            reload_checks.append("waiting_for_1h_candle")
-
-    # RELOAD CHECK 2: Fresh 5m momentum impulse
-    if len(candles_5m) >= 3:
-        mom_5m_1 = price_momentum(candles_5m, 1)
-        mom_5m_2 = price_momentum(candles_5m[:-1], 1)
-        if direction == "LONG":
-            if mom_5m_1 > 0.15 and mom_5m_1 > mom_5m_2:
-                reload_checks.append(f"fresh_5m_impulse_{mom_5m_1:+.2f}%")
-            else:
-                reload_checks.append("no_5m_impulse")
-        else:
-            if mom_5m_1 < -0.15 and mom_5m_1 < mom_5m_2:
-                reload_checks.append(f"fresh_5m_impulse_{mom_5m_1:+.2f}%")
-            else:
-                reload_checks.append("no_5m_impulse")
-
-    # RELOAD CHECK 3: OI stable or growing
-    if len(candles_1h) >= 4:
-        recent_v = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-2:]) / 2
-        earlier_v = sum(float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-4:-2]) / 2
-        if earlier_v > 0 and recent_v >= earlier_v * 0.8:
-            reload_checks.append("oi_stable")
-        else:
-            reload_checks.append("oi_declining")
-
-    # RELOAD CHECK 4: Volume at least 50% of original entry
-    min_vol_pct = stalk_cfg.get("minReloadVolPct", 50)
-    vol = volume_ratio(candles_5m)
-    if vol >= exit_vol * min_vol_pct / 100:
-        reload_checks.append(f"vol_sufficient_{vol:.1f}x")
-    else:
-        reload_checks.append(f"vol_weak_{vol:.1f}x")
-
-    # RELOAD CHECK 5: Funding not crowded
-    crowd_threshold = stalk_cfg.get("crowdedFundingAnnPct", 50)
-    if (direction == "LONG" and (funding <= 0 or funding_ann < crowd_threshold)) or \
-       (direction == "SHORT" and (funding >= 0 or funding_ann < crowd_threshold)):
-        reload_checks.append("funding_ok")
-    else:
-        reload_checks.append(f"funding_crowded_{funding_ann:.0f}%ann")
-
-    # RELOAD CHECK 6: SM still aligned
-    if sm_dir == direction:
-        reload_checks.append(f"sm_aligned_{sm_pct:.0f}%")
-    elif sm_dir == "NEUTRAL":
-        reload_checks.append("sm_neutral_ok")
-    else:
-        reload_checks.append(f"sm_not_aligned_{sm_dir}")
-
-    # RELOAD CHECK 7: 4h trend intact
-    if trend_4h == expected_trend:
-        reload_checks.append("4h_intact")
-    else:
-        reload_checks.append(f"4h_{trend_4h}")
-
-    # Count passes vs fails
-    fails = [r for r in reload_checks if any(bad in r for bad in
-              ["no_5m", "oi_declining", "vol_weak", "funding_crowded",
-               "sm_not_aligned", "waiting_for"])]
-
-    if not fails:
-        return True, reload_checks
-    else:
-        return False, reload_checks
-
-
-# ─── Main ─────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════
+# MAIN — NO evaluate_eth_position, NO thesis exit
+# ═══════════════════════════════════════════════════════════════
 
 def run():
-    config = cfg.load_config()
-    wallet, _ = cfg.get_wallet_and_strategy()
-
+    wallet, sid = cfg.get_wallet_and_strategy()
     if not wallet:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "no wallet"})
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
         return
 
-    tc = cfg.load_trade_counter()
-    if tc.get("gate") != "OPEN":
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"gate={tc['gate']}"})
+    av, positions = cfg.get_positions(wallet)
+    if av <= 0:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
         return
 
-    account_value, positions = cfg.get_positions(wallet)
-    entry_cfg = config.get("entry", {})
-    state = cfg.load_state("polar-state.json")
-    current_mode = state.get("currentMode", "HUNTING")
-    eth_position = next((p for p in positions if p["coin"] == "ETH"), None)
-
-    # ── MODE 2: RIDING ────────────────────────────────────────
-    if eth_position and current_mode in ("RIDING", "HUNTING"):
-        # We have a position — ensure we're in RIDING mode
-        if current_mode != "RIDING":
-            state["currentMode"] = "RIDING"
-            cfg.save_state(state, "polar-state.json")
-
-        still_valid, reasons = evaluate_eth_position(eth_position["direction"], entry_cfg)
-        if not still_valid:
-            cfg.output({
-                "success": True,
-                "action": "thesis_exit",
-                "exits": [{
-                    "coin": "ETH",
-                    "direction": eth_position["direction"],
-                    "reasons": reasons,
-                    "upnl": eth_position.get("upnl", 0),
-                }],
-                "note": "BTC thesis invalidated — conviction broken",
-            })
-            # On thesis exit, go to HUNTING (thesis is dead, don't stalk)
-            state["currentMode"] = "HUNTING"
-            state.pop("exitState", None)
-            cfg.save_state(state, "polar-state.json")
+    # ── RIDING: ETH position open → NO_REPLY (DSL manages exit) ──
+    # NO thesis evaluation. NO evaluate_eth_position. NO close_position.
+    # The scanner ONLY outputs NO_REPLY when a position is open.
+    for p in positions:
+        if p.get("coin", "").upper() == ASSET:
+            cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                "note": f"RIDING: ETH {p.get('direction','?')}. DSL manages exit.",
+                "_v2_no_thesis_exit": True})
             return
 
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"RIDING: BTC {eth_position['direction']} thesis intact"})
-        cfg.save_state(state, "polar-state.json")
+    # ── Trade counter (HARDENED) ──────────────────────────────
+    tc = load_tc()
+    if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+            "note": f"Daily limit ({MAX_DAILY_ENTRIES}) reached"})
         return
 
-    # ── Detect DSL exit: was RIDING, now no position ──────────
-    if not eth_position and current_mode == "RIDING":
-        # DSL closed our position. Transition to STALKING.
-        # Record exit state for reload evaluation
-        eth_data = get_eth_full_picture()
-        exit_vol = 1.0
-        if eth_data:
-            candles_5m = eth_data.get("candles", {}).get("5m", [])
-            exit_vol = volume_ratio(candles_5m) if candles_5m else 1.0
-
-        state["currentMode"] = "STALKING"
-        state["exitState"] = {
-            "exitDirection": state.get("lastDirection", "LONG"),
-            "exitTimestamp": cfg.now_ts(),
-            "exitEntryVolRatio": exit_vol,
-        }
-        cfg.save_state(state, "polar-state.json")
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": "DSL closed position — transitioning to STALKING mode"})
+    # ── Cooldown ──────────────────────────────────────────────
+    if cfg.is_asset_cooled_down(ASSET, COOLDOWN_MINUTES):
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+            "note": f"ETH on cooldown ({COOLDOWN_MINUTES}min)"})
         return
 
-    # ── MODE 3: STALKING ──────────────────────────────────────
-    if current_mode == "STALKING":
-        exit_state = state.get("exitState", {})
-        if not exit_state:
-            # Corrupted state — reset
-            state["currentMode"] = "HUNTING"
-            cfg.save_state(state, "polar-state.json")
-        else:
-            should_reload, reasons = evaluate_reload(exit_state, entry_cfg)
+    # ── Evaluate thesis (entry ONLY — no position re-evaluation) ──
+    thesis = evaluate_eth()
 
-            if should_reload:
-                # RELOAD: re-enter same direction
-                direction = exit_state["exitDirection"]
-                lev_cfg = config.get("leverage", {})
-                leverage = lev_cfg.get("default", 15)
-                base_margin_pct = entry_cfg.get("marginPctBase", 0.30)
-                margin = round(account_value * base_margin_pct, 2)
-
-                state["currentMode"] = "RIDING"
-                state["lastDirection"] = direction
-                state.pop("exitState", None)
-                cfg.save_state(state, "polar-state.json")
-
-                cfg.output({
-                    "success": True,
-                    "action": "reload",
-                    "entry": {
-                        "coin": "ETH",
-                        "direction": direction,
-                        "leverage": leverage,
-                        "margin": margin,
-                        "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
-                    },
-                    "reasons": reasons,
-                    "note": f"STALKING → RELOAD: fresh impulse confirmed, re-entering BTC {direction}",
-                })
-                return
-
-            # Check for kill conditions (returned as reasons when should_reload=False)
-            kill_signals = [r for r in reasons if any(k in r for k in
-                           ["stalk_timeout", "4h_trend_reversed", "sm_flipped",
-                            "funding_extreme", "oi_collapsed"])]
-
-            if kill_signals:
-                state["currentMode"] = "HUNTING"
-                state.pop("exitState", None)
-                cfg.save_state(state, "polar-state.json")
-                cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                             "note": f"STALKING → RESET: {kill_signals[0]}"})
-                return
-
-            # Still stalking, conditions not met yet
-            hours = (cfg.now_ts() - exit_state.get("exitTimestamp", cfg.now_ts())) / 3600
-            cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                         "note": f"STALKING {hours:.1f}h — waiting for reload conditions"})
-            cfg.save_state(state, "polar-state.json")
-            return
-
-    # ── MODE 1: HUNTING ───────────────────────────────────────
-    # Entry cap
-    dynamic = entry_cfg.get("dynamicSlots", {})
-    if dynamic.get("enabled", True):
-        base_max = dynamic.get("baseMax", 3)
-        day_pnl = tc.get("realizedPnl", 0)
-        effective_max = base_max
-        for t in dynamic.get("unlockThresholds", []):
-            if day_pnl >= t.get("pnl", 999999):
-                effective_max = t.get("maxEntries", effective_max)
-        max_entries = min(effective_max, dynamic.get("absoluteMax", 6))
-    else:
-        max_entries = config.get("risk", {}).get("maxEntriesPerDay", 4)
-
-    if tc.get("entries", 0) >= max_entries:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"max entries ({max_entries})"})
+    if not thesis:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+            "note": "HUNTING: no ETH thesis"})
         return
 
-    # Build BTC thesis
-    thesis = build_eth_thesis(entry_cfg)
-
-    if not thesis or thesis["score"] < entry_cfg.get("minScore", 10):
-        note = "no BTC thesis" if not thesis else f"BTC score {thesis['score']} below {entry_cfg.get('minScore', 10)}"
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": note})
+    if thesis["score"] < MIN_SCORE:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+            "note": f"HUNTING: ETH {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. "
+                    f"{', '.join(thesis['reasons'][:3])}"})
         return
 
-    # Conviction-scaled leverage
-    lev_cfg = config.get("leverage", {})
-    if thesis["score"] >= 14:
-        leverage = lev_cfg.get("max", 20)
-    elif thesis["score"] >= 12:
-        leverage = lev_cfg.get("high", 18)
-    elif thesis["score"] >= 10:
-        leverage = lev_cfg.get("default", 15)
-    else:
-        leverage = lev_cfg.get("min", 12)
+    # ── Entry ─────────────────────────────────────────────────
+    margin = round(av * MARGIN_PCT, 2)
 
-    # Conviction-scaled margin
-    base_margin_pct = entry_cfg.get("marginPctBase", 0.30)
-    if thesis["score"] >= 14:
-        margin_pct = base_margin_pct * 1.5
-    elif thesis["score"] >= 12:
-        margin_pct = base_margin_pct * 1.25
-    else:
-        margin_pct = base_margin_pct
-    margin = round(account_value * margin_pct, 2)
-
-    # Enter and switch to RIDING
-    state["currentMode"] = "RIDING"
-    state["lastDirection"] = thesis["direction"]
-    cfg.save_state(state, "polar-state.json")
+    # INCREMENT COUNTER BEFORE OUTPUT (Phoenix fix)
+    tc["entries"] = tc.get("entries", 0) + 1
+    save_tc(tc)
 
     cfg.output({
-        "success": True,
-        "signal": thesis,
-        "entry": {
-            "coin": "ETH",
+        "status": "ok",
+        "signal": {
+            "asset": ASSET,
             "direction": thesis["direction"],
-            "leverage": leverage,
-            "margin": margin,
-            "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
+            "score": thesis["score"],
+            "mode": "ETH_HUNTER",
+            "reasons": thesis["reasons"],
+            "smPct": thesis["smPct"],
+            "smTraders": thesis["smTraders"],
+            "priceChg4h": thesis["priceChg4h"],
         },
+        "entry": {
+            "asset": ASSET,
+            "direction": thesis["direction"],
+            "leverage": DEFAULT_LEVERAGE,
+            "margin": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+        },
+        "constraints": {
+            "maxPositions": MAX_POSITIONS,
+            "maxLeverage": MAX_LEVERAGE,
+            "maxDailyEntries": MAX_DAILY_ENTRIES,
+            "cooldownMinutes": COOLDOWN_MINUTES,
+            "_v2_no_thesis_exit": True,
+            "_note": f"DSL managed by plugin runtime. Counter: {tc['entries']}/{MAX_DAILY_ENTRIES}",
+        },
+        "_polar_version": "2.0",
     })
 
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        cfg.log(f"CRITICAL: {e}")
+        import traceback
+        traceback.print_exc(file=sys.stderr)
+        cfg.output({"status": "error", "error": str(e)})
