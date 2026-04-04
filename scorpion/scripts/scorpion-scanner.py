@@ -1,483 +1,542 @@
 #!/usr/bin/env python3
-# Senpi SCORPION Scanner v2.0
-# Copyright 2026 Senpi (https://senpi.ai)
-# Licensed under Apache-2.0 — attribution required for derivative works
-# Source: https://github.com/Senpi-ai/senpi-skills
-"""SCORPION v2.0 — Momentum Event Consensus.
+"""
+SCORPION v2.0 — Altcoin Swarm Hunter
 
-COMPLETE REWRITE from v1.0. The v1.0 scanner used discovery_get_top_traders
-to find historically good whales, then read their CURRENT OPEN POSITIONS.
-This surfaced legacy positions (months-old shorts from $90k+) as "fresh
-consensus" — the entire data source was wrong.
+PURPOSE: Detect coordinated altcoin risk-off events (swarms) where 5+
+non-major altcoins simultaneously attract SM SHORT concentration, then
+trade the highest-conviction target within the swarm.
 
-v2.0 uses leaderboard_get_momentum_events as the primary data source.
-These are REAL-TIME threshold-crossing events that fire when a trader's
-delta PnL crosses significance levels ($2M+/$5.5M+/$10M+) within a
-4-hour rolling window. This captures ACTIONS, not stale positions.
+THESIS: When SM goes risk-off, altcoins dump in a correlated swarm.
+Top SM traders make the most money on altcoin SHORTs (LIT, TAO, MON,
+FARTCOIN, VVV, ZRO), not on BTC/ETH. No current agent detects the
+*pattern* of simultaneous altcoin SM convergence. That pattern is the
+highest-conviction signal in the Hyperfeed.
 
-Five-gate entry model:
-  1. MOMENTUM EVENTS — 2+ recent events on same asset/direction within 60min
-  2. TRADER QUALITY — filter by TCS (Elite/Reliable) and concentration
-  3. MARKET CONFIRMATION — leaderboard_get_markets shows elevated SM count
-  4. VOLUME CONFIRMATION — current volume alive (≥50% of 6h avg)
-  5. REGIME FILTER — penalty (not block) for counter-trend entries
+Evidence from April 3, 2026: Trader 0x039c was up 99.8% in 4 hours
+with 33 positions, biggest winners all altcoin SHORTs: LIT +$11.6K,
+SOL +$10K, FARTCOIN +$6.3K, TAO +$4.9K.
 
-Enters WITH smart money momentum, not against it.
+DESIGN PRINCIPLES:
+1. Detect the SWARM first — count altcoins with SM SHORT/LONG >2%
+2. Only enter when swarm count >= 5 (correlated risk event confirmed)
+3. Pick the BEST target from the swarm (highest SM + price confirmation)
+4. ONE position at a time, $350 margin, 5x leverage (altcoin max)
+5. FEE_OPTIMIZED_LIMIT orders, wide DSL, let positions breathe
+6. 3 entries per day, 90-min cooldown, 120-min per-asset cooldown
 
-Runs every 5 minutes.
+WHAT MAKES THIS DIFFERENT FROM COBRA:
+- Cobra trades the #1 SM asset (usually a major like BTC/ETH/HYPE)
+- Scorpion trades the #1 ALTCOIN within a confirmed swarm pattern
+- Scorpion requires a meta-signal (swarm detection) before evaluating
+  individual assets — this filters out noise and only trades during
+  genuine coordinated risk events
+
+SIGNALS (1 API call):
+1. leaderboard_get_markets (limit=100) → Full market scan
+   - Count altcoins with SM concentration >2% in same direction
+   - If swarm count >= 5: score individual targets
+   - Pick best target by combined SM + price + trader count
+
+SCORING (max 8 points):
+- Swarm Size: >=7 alts = +2, >=5 = +1 (meta-signal)
+- SM Concentration: >10% = +2, >5% = +1, >2% = +0
+- Price Confirmation: >1% in direction = +2, >0.5% = +1
+- Trader Count: >=50 = +1
+- Contribution Velocity: >3% = +1
+
+MIN_SCORE: 5 (requires swarm + strong individual signal)
 """
 
+import json
 import sys
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import scorpion_config as cfg
+# ============================================================
+# CONFIGURATION
+# ============================================================
+MAX_ENTRIES_PER_DAY = 3
+COOLDOWN_MINUTES = 90
+PER_ASSET_COOLDOWN_MINUTES = 120
+MIN_SCORE = 5
+MARGIN_AMOUNT = 350
+MAX_POSITIONS = 1
+LEVERAGE = 5  # Altcoins typically max at 3-5x
 
+# Major assets — EXCLUDED from swarm detection (Cobra's territory)
+MAJOR_ASSETS = {"BTC", "ETH", "SOL", "HYPE"}
 
-# ─── Gate 1: Momentum Event Fetching ─────────────────────────
+# Minimum SM concentration for an altcoin to count as part of the swarm
+MIN_SWARM_SM_PCT = 2.0
 
-def fetch_momentum_events(entry_cfg):
-    """Fetch recent momentum events from the leaderboard.
-    These are real-time threshold crossings — NOT stale positions."""
-    mom_cfg = entry_cfg.get("momentumEvents", {})
-    min_tier = mom_cfg.get("minTier", 1)
-    lookback_min = mom_cfg.get("maxLookbackMinutes", 60)
+# Minimum number of altcoins in swarm to confirm a coordinated event
+MIN_SWARM_COUNT = 5
 
-    # Time range: last N minutes
-    now = datetime.now(timezone.utc)
-    from_time = (now - timedelta(minutes=lookback_min)).isoformat()
+# XYZ equities banned from trading (but counted in swarm for context)
+XYZ_BANNED_TRADING = True
 
-    data = cfg.mcporter_call("leaderboard_get_momentum_events",
-                              tier=min_tier, limit=200,
-                              **{"from": from_time})
-    if not data or not data.get("success"):
-        return []
+# State file
+STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "..", "config", "scorpion-state.json")
 
-    events = data.get("data", data)
-    if isinstance(events, dict):
-        events = events.get("events", events.get("data", []))
-    if not isinstance(events, list):
-        return []
-
-    return events
-
-
-def filter_quality_events(events, entry_cfg):
-    """Gate 2: Filter events by trader quality (TCS, TAS, concentration)."""
-    mom_cfg = entry_cfg.get("momentumEvents", {})
-    quality_cfg = mom_cfg.get("traderQuality", {})
-
-    allowed_tcs = set(quality_cfg.get("allowedTCS", ["Elite", "Reliable"]))
-    allowed_tas = set(quality_cfg.get("allowedTAS", ["Tactical", "Patient", "Active"]))
-    blocked_tas = set(quality_cfg.get("blockedTAS", ["Degen"]))
-    min_concentration = quality_cfg.get("minConcentration", 0.4)
-
-    filtered = []
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        tags = event.get("trader_tags", {})
-        if isinstance(tags, str):
-            # Handle case where tags is a JSON string
-            try:
-                import json
-                tags = json.loads(tags)
-            except Exception:
-                tags = {}
-
-        tcs = tags.get("TCS", tags.get("tcs", ""))
-        tas = tags.get("TAS", tags.get("tas", ""))
-
-        # TCS filter: only Elite/Reliable
-        if allowed_tcs and tcs and tcs not in allowed_tcs:
-            continue
-
-        # TAS filter: block Degen
-        if tas in blocked_tas:
-            continue
-
-        # Concentration filter
-        concentration = float(event.get("concentration", 0))
-        if concentration < min_concentration:
-            continue
-
-        filtered.append(event)
-
-    return filtered
+# Leverage overrides for specific altcoins with higher max leverage
+LEVERAGE_OVERRIDES = {
+    "AVAX": 10, "DOGE": 10, "LINK": 10, "XRP": 10,
+    "ADA": 10, "NEAR": 10, "DOT": 10, "UNI": 10,
+    "AAVE": 10, "kPEPE": 10, "FARTCOIN": 10, "LTC": 10,
+}
 
 
-def build_consensus(events, entry_cfg):
-    """Group events by asset+direction to find consensus.
-    Returns consensus groups with 2+ events on the same side."""
-    mom_cfg = entry_cfg.get("momentumEvents", {})
-    min_events = mom_cfg.get("minEventsPerAsset", 2)
-
-    # Extract positions from events and group by asset+direction
-    votes = {}  # key: "BTC:LONG" -> list of events
-
-    for event in events:
-        top_positions = event.get("top_positions", [])
-        if isinstance(top_positions, str):
-            try:
-                import json
-                top_positions = json.loads(top_positions)
-            except Exception:
-                top_positions = []
-
-        trader_id = event.get("trader_id", event.get("address", ""))
-        tier = int(event.get("tier", 1))
-        concentration = float(event.get("concentration", 0))
-
-        for pos in top_positions:
-            market = pos.get("market", pos.get("coin", ""))
-            direction = pos.get("direction", "").upper()
-            delta_pnl = float(pos.get("delta_pnl", 0))
-
-            if not market or not direction:
-                continue
-
-            # Normalize direction
-            if direction in ("LONG", "BUY"):
-                direction = "LONG"
-            elif direction in ("SHORT", "SELL"):
-                direction = "SHORT"
-            else:
-                continue
-
-            key = f"{market}:{direction}"
-            if key not in votes:
-                votes[key] = {
-                    "coin": market,
-                    "direction": direction,
-                    "events": [],
-                    "traders": set(),
-                    "totalTier": 0,
-                    "totalConcentration": 0,
-                }
-            votes[key]["events"].append(event)
-            votes[key]["traders"].add(trader_id)
-            votes[key]["totalTier"] += tier
-            votes[key]["totalConcentration"] += concentration
-
-    # Filter to consensus groups (min_events unique traders)
-    consensus = []
-    for key, vote in votes.items():
-        if len(vote["traders"]) >= min_events:
-            consensus.append({
-                "coin": vote["coin"],
-                "direction": vote["direction"],
-                "traderCount": len(vote["traders"]),
-                "eventCount": len(vote["events"]),
-                "avgTier": vote["totalTier"] / len(vote["events"]),
-                "avgConcentration": vote["totalConcentration"] / len(vote["events"]),
-                "traders": list(vote["traders"]),
-            })
-
-    return consensus
+def load_state():
+    try:
+        with open(STATE_FILE, "r") as f:
+            state = json.load(f)
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        if state.get("date") != today:
+            state["date"] = today
+            state["entries_today"] = 0
+        return state
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {
+            "date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+            "entries_today": 0,
+            "last_entry_time": None,
+            "last_asset": None,
+            "last_direction": None,
+            "asset_cooldowns": {}
+        }
 
 
-# ─── Gate 3: Market Confirmation ─────────────────────────────
+def save_state(state):
+    os.makedirs(os.path.dirname(STATE_FILE), exist_ok=True)
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
 
-def check_market_concentration(coin, entry_cfg):
-    """Confirm SM concentration via leaderboard_get_markets."""
-    mkt_cfg = entry_cfg.get("marketConfirmation", {})
-    if not mkt_cfg.get("enabled", True):
-        return True, 0, 0
 
-    top_n = mkt_cfg.get("topNTraders", 200)
-    min_count = mkt_cfg.get("minTraderCount", 5)
+def check_cooldown(state, cooldown_min):
+    last_time = state.get("last_entry_time")
+    if not last_time:
+        return True, 0
+    try:
+        last_dt = datetime.fromisoformat(last_time)
+        now = datetime.now(timezone.utc)
+        elapsed = (now - last_dt).total_seconds() / 60
+        remaining = max(0, cooldown_min - elapsed)
+        return elapsed >= cooldown_min, round(remaining, 1)
+    except (ValueError, TypeError):
+        return True, 0
 
-    data = cfg.mcporter_call("leaderboard_get_markets", limit=top_n)
-    if not data or not data.get("success"):
-        return False, 0, 0
 
-    markets = data.get("data", data)
-    if isinstance(markets, dict):
-        markets = markets.get("markets", markets)
-    if isinstance(markets, dict):
-        markets = markets.get("markets", [])
+def check_asset_cooldown(state, asset):
+    cooldowns = state.get("asset_cooldowns", {})
+    last_time = cooldowns.get(asset)
+    if not last_time:
+        return True, 0
+    try:
+        last_dt = datetime.fromisoformat(last_time)
+        now = datetime.now(timezone.utc)
+        elapsed = (now - last_dt).total_seconds() / 60
+        remaining = max(0, PER_ASSET_COOLDOWN_MINUTES - elapsed)
+        return elapsed >= PER_ASSET_COOLDOWN_MINUTES, round(remaining, 1)
+    except (ValueError, TypeError):
+        return True, 0
+
+
+def detect_swarm(markets):
+    """
+    Detect coordinated altcoin swarm events.
+
+    Scans all non-major assets for SM concentration >2%.
+    Groups by dominant direction (SHORT vs LONG).
+    Returns the swarm info if count >= MIN_SWARM_COUNT.
+    """
+    short_swarm = []
+    long_swarm = []
 
     for m in markets:
-        if not isinstance(m, dict):
-            continue
-        token = m.get("token", m.get("market", m.get("coin", "")))
-        if token == coin:
-            trader_count = int(m.get("trader_count", 0))
-            percentage = float(m.get("percentage", m.get("pct_of_top_traders_gain", 0)))
-            return trader_count >= min_count, trader_count, percentage
+        token = m.get("token", "")
+        dex = m.get("dex", "")
+        direction = m.get("direction", "")
+        sm_pct = m.get("pct_of_top_traders_gain", 0)
 
-    return False, 0, 0
-
-
-# ─── Gate 4: Volume Confirmation ─────────────────────────────
-
-def check_volume(coin, entry_cfg):
-    """Confirm the asset has active volume — don't mirror into dead markets."""
-    vol_cfg = entry_cfg.get("volumeConfirmation", {})
-    if not vol_cfg.get("enabled", True):
-        return True, 1.0
-
-    data = cfg.mcporter_call("market_get_asset_data", asset=coin,
-                              candle_intervals=["1h"],
-                              include_funding=False, include_order_book=False)
-    if not data or not data.get("success"):
-        return False, 0
-
-    candles = data.get("data", {}).get("candles", {}).get("1h", [])
-    if len(candles) < 6:
-        return False, 0
-
-    vols = [float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles[-6:]]
-    avg_vol = sum(vols) / len(vols) if vols else 0
-    latest_vol = vols[-1] if vols else 0
-
-    min_ratio = vol_cfg.get("minVolRatio", 0.5)
-    ratio = latest_vol / avg_vol if avg_vol > 0 else 0
-
-    return ratio >= min_ratio, ratio
-
-
-# ─── Gate 5: Regime Filter ───────────────────────────────────
-
-def get_btc_regime():
-    """Simple BTC regime: bullish, bearish, or neutral."""
-    data = cfg.mcporter_call("market_get_asset_data", asset="BTC",
-                              candle_intervals=["4h"],
-                              include_funding=False, include_order_book=False)
-    if not data or not data.get("success"):
-        return "NEUTRAL"
-
-    candles = data.get("data", {}).get("candles", {}).get("4h", [])
-    if len(candles) < 6:
-        return "NEUTRAL"
-
-    closes = [float(c.get("close", c.get("c", 0))) for c in candles[-6:]]
-    change = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] > 0 else 0
-
-    if change > 2:
-        return "BULLISH"
-    elif change < -2:
-        return "BEARISH"
-    return "NEUTRAL"
-
-
-# ─── Scoring ─────────────────────────────────────────────────
-
-def score_consensus(consensus, vol_ratio, mkt_trader_count, mkt_pct, regime, direction, entry_cfg):
-    """Score a consensus signal through all gates."""
-    score = 0
-    reasons = []
-
-    # Trader count (core signal strength)
-    tc = consensus["traderCount"]
-    score += tc * 2
-    reasons.append(f"{tc}_momentum_traders")
-
-    # Tier bonus (higher tiers = bigger moves)
-    avg_tier = consensus["avgTier"]
-    if avg_tier >= 2.5:
-        score += 3
-        reasons.append(f"avg_tier_{avg_tier:.1f}_extreme")
-    elif avg_tier >= 1.5:
-        score += 2
-        reasons.append(f"avg_tier_{avg_tier:.1f}_strong")
-    else:
-        score += 1
-        reasons.append(f"avg_tier_{avg_tier:.1f}_base")
-
-    # Concentration bonus (high conviction traders)
-    avg_conc = consensus["avgConcentration"]
-    if avg_conc > 0.7:
-        score += 2
-        reasons.append(f"high_conviction_{avg_conc:.0%}")
-    elif avg_conc > 0.5:
-        score += 1
-        reasons.append(f"moderate_conviction_{avg_conc:.0%}")
-
-    # Market confirmation bonus
-    if mkt_trader_count > 10:
-        score += 2
-        reasons.append(f"market_hot_{mkt_trader_count}_traders_{mkt_pct:.0%}")
-    elif mkt_trader_count > 5:
-        score += 1
-        reasons.append(f"market_active_{mkt_trader_count}_traders")
-
-    # Volume bonus
-    if vol_ratio > 1.5:
-        score += 1
-        reasons.append(f"vol_strong_{vol_ratio:.1f}x")
-    else:
-        reasons.append(f"vol_{vol_ratio:.1f}x")
-
-    # Regime filter (penalty, not block)
-    regime_cfg = entry_cfg.get("regimeFilter", {})
-    if regime_cfg.get("enabled", True):
-        if (direction == "LONG" and regime == "BEARISH") or \
-           (direction == "SHORT" and regime == "BULLISH"):
-            penalty = regime_cfg.get("penalty", -3)
-            score += penalty
-            reasons.append(f"regime_{regime}_penalty_{penalty}")
-        elif (direction == "LONG" and regime == "BULLISH") or \
-             (direction == "SHORT" and regime == "BEARISH"):
-            score += 1
-            reasons.append(f"regime_confirms_{regime}")
-
-    return score, reasons
-
-
-# ─── Main ─────────────────────────────────────────────────────
-
-def run():
-    config = cfg.load_config()
-    wallet, _ = cfg.get_wallet_and_strategy()
-
-    if not wallet:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "no wallet"})
-        return
-
-    tc = cfg.load_trade_counter()
-    if tc.get("gate") != "OPEN":
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"gate={tc['gate']}"})
-        return
-
-    account_value, positions = cfg.get_positions(wallet)
-    entry_cfg = config.get("entry", {})
-    max_positions = config.get("maxPositions", 3)
-    our_coins = {p["coin"] for p in positions}
-
-    # Dynamic slots
-    dynamic = entry_cfg.get("dynamicSlots", {})
-    if dynamic.get("enabled", True):
-        base_max = dynamic.get("baseMax", 3)
-        day_pnl = tc.get("realizedPnl", 0)
-        effective_max = base_max
-        for t in dynamic.get("unlockThresholds", []):
-            if day_pnl >= t.get("pnl", 999999):
-                effective_max = t.get("maxEntries", effective_max)
-        max_entries = min(effective_max, dynamic.get("absoluteMax", 6))
-    else:
-        max_entries = config.get("risk", {}).get("maxEntriesPerDay", 4)
-
-    if tc.get("entries", 0) >= max_entries:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"max entries ({max_entries})"})
-        return
-
-    if len(positions) >= max_positions:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "max positions"})
-        return
-
-    # ── GATE 1: Fetch momentum events ─────────────────────────
-    events = fetch_momentum_events(entry_cfg)
-    if not events:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": "no momentum events in lookback window"})
-        return
-
-    # ── GATE 2: Filter by trader quality ──────────────────────
-    quality_events = filter_quality_events(events, entry_cfg)
-    if not quality_events:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"{len(events)} events but none passed quality filter"})
-        return
-
-    # ── Build consensus (2+ quality traders on same asset/direction) ──
-    consensus_groups = build_consensus(quality_events, entry_cfg)
-    if not consensus_groups:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"{len(quality_events)} quality events, no 2+ trader consensus"})
-        return
-
-    # Get regime once (used for all candidates)
-    regime = get_btc_regime()
-
-    # ── Score each consensus group through remaining gates ────
-    signals = []
-    banned = entry_cfg.get("bannedPrefixes", ["xyz:"])
-
-    for group in consensus_groups:
-        coin = group["coin"]
-        direction = group["direction"]
-
-        if coin in our_coins:
-            continue
-        if any(coin.startswith(p) for p in banned):
+        # Skip majors — those are Cobra's territory
+        if token in MAJOR_ASSETS:
             continue
 
-        # GATE 3: Market confirmation
-        mkt_ok, mkt_count, mkt_pct = check_market_concentration(coin, entry_cfg)
-        if entry_cfg.get("marketConfirmation", {}).get("enabled", True) and not mkt_ok:
+        # Skip XYZ for swarm counting too — we want crypto altcoins
+        if dex == "xyz":
             continue
 
-        # GATE 4: Volume confirmation
-        vol_ok, vol_ratio = check_volume(coin, entry_cfg)
-        if entry_cfg.get("volumeConfirmation", {}).get("enabled", True) and not vol_ok:
+        if sm_pct < MIN_SWARM_SM_PCT:
             continue
 
-        # GATE 5 + Scoring
-        score, reasons = score_consensus(
-            group, vol_ratio, mkt_count, mkt_pct, regime, direction, entry_cfg
-        )
-
-        signals.append({
-            "coin": coin,
+        entry = {
+            "token": token,
             "direction": direction,
-            "score": score,
-            "reasons": reasons,
-            "traderCount": group["traderCount"],
-            "eventCount": group["eventCount"],
-            "avgTier": group["avgTier"],
-            "avgConcentration": group["avgConcentration"],
-            "volRatio": vol_ratio,
-            "marketTraderCount": mkt_count,
-        })
+            "sm_pct": sm_pct,
+            "contrib_change": m.get("contribution_pct_change_4h", 0) or 0,
+            "price_change_4h": m.get("token_price_change_pct_4h", 0),
+            "trader_count": m.get("trader_count", 0),
+            "max_leverage": m.get("max_leverage", 3),
+        }
 
-    if not signals:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": f"{len(consensus_groups)} consensus groups, none passed all gates"})
-        return
+        if direction == "short":
+            short_swarm.append(entry)
+        else:
+            long_swarm.append(entry)
 
-    min_score = entry_cfg.get("minScore", 10)
-    signals = [s for s in signals if s["score"] >= min_score]
-
-    if not signals:
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": "consensus found but score below minimum"})
-        return
-
-    signals.sort(key=lambda x: x["score"], reverse=True)
-    best = signals[0]
-
-    # Conviction-scaled margin
-    base_margin_pct = entry_cfg.get("marginPctBase", 0.25)
-    if best["traderCount"] >= 5:
-        margin_pct = base_margin_pct * 1.5
-    elif best["traderCount"] >= 3:
-        margin_pct = base_margin_pct * 1.25
+    # Pick the dominant swarm direction
+    if len(short_swarm) >= len(long_swarm) and len(short_swarm) >= MIN_SWARM_COUNT:
+        return "SHORT", short_swarm
+    elif len(long_swarm) >= MIN_SWARM_COUNT:
+        return "LONG", long_swarm
     else:
-        margin_pct = base_margin_pct
-    margin = round(account_value * margin_pct, 2)
+        return None, []
 
-    leverage = config.get("leverage", {}).get("default", 8)
 
-    cfg.output({
-        "success": True,
-        "signal": best,
-        "entry": {
-            "coin": best["coin"],
-            "direction": best["direction"],
-            "leverage": leverage,
-            "margin": margin,
-            "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
+def score_target(target, swarm_size):
+    """
+    Score an individual altcoin target within a confirmed swarm.
+
+    Args:
+        target: dict with token info from swarm detection
+        swarm_size: number of altcoins in the swarm
+
+    Returns: (score, breakdown)
+    """
+    token = target["token"]
+    direction = target["direction"]
+    sm_pct = target["sm_pct"]
+    contrib = target["contrib_change"]
+    price_4h = target["price_change_4h"]
+    trader_count = target["trader_count"]
+
+    score = 0
+    breakdown = {
+        "token": token,
+        "direction": direction.upper(),
+        "sm_pct": round(sm_pct, 2),
+        "contrib_change": round(contrib, 2),
+        "price_change_4h": round(price_4h, 3),
+        "trader_count": trader_count,
+        "swarm_size": swarm_size,
+    }
+
+    # 1. Swarm Size meta-signal (max 2 pts)
+    if swarm_size >= 7:
+        score += 2
+        breakdown["swarm_score"] = f"+2 (MASSIVE swarm: {swarm_size} altcoins)"
+    elif swarm_size >= 5:
+        score += 1
+        breakdown["swarm_score"] = f"+1 (CONFIRMED swarm: {swarm_size} altcoins)"
+
+    # 2. SM Concentration on this target (max 2 pts)
+    if sm_pct >= 10:
+        score += 2
+        breakdown["sm_score"] = f"+2 (DOMINANT {sm_pct:.1f}%)"
+    elif sm_pct >= 5:
+        score += 1
+        breakdown["sm_score"] = f"+1 (STRONG {sm_pct:.1f}%)"
+    else:
+        breakdown["sm_score"] = f"+0 (IN SWARM {sm_pct:.1f}%)"
+
+    # 3. Price Confirmation in direction (max 2 pts)
+    confirms = False
+    if direction == "short" and price_4h < -1.0:
+        score += 2
+        confirms = True
+        breakdown["price_score"] = f"+2 (STRONG CONFIRM {price_4h:+.2f}%)"
+    elif direction == "short" and price_4h < -0.5:
+        score += 1
+        confirms = True
+        breakdown["price_score"] = f"+1 (CONFIRMS {price_4h:+.2f}%)"
+    elif direction == "long" and price_4h > 1.0:
+        score += 2
+        confirms = True
+        breakdown["price_score"] = f"+2 (STRONG CONFIRM {price_4h:+.2f}%)"
+    elif direction == "long" and price_4h > 0.5:
+        score += 1
+        confirms = True
+        breakdown["price_score"] = f"+1 (CONFIRMS {price_4h:+.2f}%)"
+    else:
+        breakdown["price_score"] = f"+0 (NOT CONFIRMING {price_4h:+.2f}%)"
+
+    # 4. Trader Count depth (1 pt)
+    if trader_count >= 50:
+        score += 1
+        breakdown["depth_score"] = f"+1 (DEEP: {trader_count} traders)"
+    else:
+        breakdown["depth_score"] = f"+0 ({trader_count} traders, need 50)"
+
+    # 5. Contribution Velocity (1 pt)
+    abs_contrib = abs(contrib)
+    if abs_contrib >= 3:
+        score += 1
+        breakdown["contrib_score"] = f"+1 (VELOCITY {contrib:+.1f}%)"
+    else:
+        breakdown["contrib_score"] = f"+0 (SLOW {contrib:+.1f}%)"
+
+    breakdown["total_score"] = score
+    breakdown["min_score"] = MIN_SCORE
+    breakdown["passes"] = score >= MIN_SCORE
+
+    return score, breakdown
+
+
+def pick_best_target(swarm, state):
+    """
+    From a confirmed swarm, pick the best tradeable target.
+    Scores all candidates and returns the highest-scoring one
+    that isn't on per-asset cooldown.
+    """
+    swarm_size = len(swarm)
+    candidates = []
+
+    for target in swarm:
+        token = target["token"]
+
+        # Check per-asset cooldown
+        clear, _ = check_asset_cooldown(state, token)
+        if not clear:
+            continue
+
+        score, breakdown = score_target(target, swarm_size)
+        if score >= MIN_SCORE:
+            candidates.append({
+                "target": target,
+                "score": score,
+                "breakdown": breakdown,
+            })
+
+    if not candidates:
+        return None
+
+    # Sort by score descending, then by SM concentration as tiebreaker
+    candidates.sort(key=lambda c: (c["score"], c["target"]["sm_pct"]),
+                    reverse=True)
+    return candidates[0]
+
+
+def generate_entry(token, direction, leverage, margin):
+    return {
+        "coin": token,
+        "direction": direction.upper(),
+        "leverage": leverage,
+        "leverageType": "CROSS",
+        "marginAmount": margin,
+        "orderType": "FEE_OPTIMIZED_LIMIT",
+        "ensureExecutionAsTaker": True,
+        "executionTimeoutSeconds": 30,
+    }
+
+
+def generate_dsl_state(token, direction, leverage):
+    return {
+        "coin": token,
+        "direction": direction.upper(),
+        "leverage": leverage,
+        "leverageType": "CROSS",
+        "absoluteFloorRoe": None,
+        "highWaterRoe": None,
+        "highWaterPrice": None,
+        "currentTier": 0,
+        "consecutiveBreaches": 0,
+        "consecutiveBreachesRequired": 3,
+        "phase1MaxMinutes": 45,
+        "deadWeightCutMin": 45,
+        "phase1": {
+            "maxLossPct": 20.0,
+            "retraceThreshold": 10,
+            "enabled": True
         },
-        "armDsl": True,
-        "_note": "MANDATORY: run dsl-cli.py add-dsl IMMEDIATELY after entry fills. No naked positions.",
-        "eventsSeen": len(events),
-        "qualityEvents": len(quality_events),
-        "consensusGroups": len(consensus_groups),
-        "candidates": len(signals),
-    })
+        "phase2": {
+            "enabled": True,
+            "tiers": [
+                {"triggerPct": 5, "lockHwPct": 20},
+                {"triggerPct": 10, "lockHwPct": 40},
+                {"triggerPct": 15, "lockHwPct": 55},
+                {"triggerPct": 20, "lockHwPct": 70},
+                {"triggerPct": 30, "lockHwPct": 82},
+                {"triggerPct": 50, "lockHwPct": 90}
+            ]
+        },
+        "hardTimeout": {
+            "enabled": True,
+            "intervalInMinutes": 240
+        },
+        "weakPeakCut": {
+            "enabled": True,
+            "intervalInMinutes": 90,
+            "minValue": 3.0
+        },
+        "deadWeightCut": {
+            "enabled": True,
+            "intervalInMinutes": 45
+        }
+    }
+
+
+def main():
+    state = load_state()
+    now = datetime.now(timezone.utc)
+
+    output = {
+        "scanner": "scorpion",
+        "version": "2.0",
+        "timestamp": now.isoformat(),
+        "action": "NONE",
+        "reason": "",
+        "score": 0,
+        "swarm": {},
+        "breakdown": {},
+        "entry": None,
+        "dsl_state": None,
+        "status": {
+            "entries_today": state["entries_today"],
+            "max_entries": MAX_ENTRIES_PER_DAY,
+            "last_asset": state.get("last_asset"),
+        }
+    }
+
+    # Gate 1: Daily cap
+    if state["entries_today"] >= MAX_ENTRIES_PER_DAY:
+        output["reason"] = f"Daily cap reached ({state['entries_today']}/{MAX_ENTRIES_PER_DAY})"
+        print(json.dumps(output, indent=2))
+        return
+
+    # Gate 2: Global cooldown
+    clear, remaining = check_cooldown(state, COOLDOWN_MINUTES)
+    if not clear:
+        output["reason"] = f"Global cooldown: {remaining} min remaining"
+        print(json.dumps(output, indent=2))
+        return
+
+    # Parse input
+    try:
+        if not sys.stdin.isatty():
+            input_data = json.load(sys.stdin)
+        else:
+            output["reason"] = "AWAITING_DATA"
+            output["instructions"] = [
+                "1. Call senpi:leaderboard_get_markets with limit=100",
+                "2. Pipe the full JSON to this scanner via stdin",
+                "3. Scanner detects altcoin swarm patterns and scores targets",
+                "4. If action=ENTER, call senpi:create_position with the entry block"
+            ]
+            print(json.dumps(output, indent=2))
+            return
+    except json.JSONDecodeError:
+        output["reason"] = "Invalid JSON input"
+        print(json.dumps(output, indent=2))
+        return
+
+    # Extract market data
+    data = input_data.get("data", input_data) if "data" in input_data else input_data
+    markets_list = data.get("markets", {}).get("markets", [])
+    if not markets_list:
+        output["reason"] = "No market data in input"
+        print(json.dumps(output, indent=2))
+        return
+
+    # ================================================================
+    # SWARM DETECTION
+    # ================================================================
+    swarm_direction, swarm = detect_swarm(markets_list)
+
+    if swarm_direction is None:
+        # Count what we found for diagnostics
+        short_count = sum(1 for m in markets_list
+                         if m.get("token") not in MAJOR_ASSETS
+                         and m.get("dex", "") != "xyz"
+                         and m.get("direction") == "short"
+                         and m.get("pct_of_top_traders_gain", 0) >= MIN_SWARM_SM_PCT)
+        long_count = sum(1 for m in markets_list
+                        if m.get("token") not in MAJOR_ASSETS
+                        and m.get("dex", "") != "xyz"
+                        and m.get("direction") == "long"
+                        and m.get("pct_of_top_traders_gain", 0) >= MIN_SWARM_SM_PCT)
+
+        output["reason"] = (
+            f"No swarm detected. SHORT alts: {short_count}, "
+            f"LONG alts: {long_count} (need {MIN_SWARM_COUNT}+)"
+        )
+        output["swarm"] = {
+            "detected": False,
+            "short_count": short_count,
+            "long_count": long_count,
+            "min_required": MIN_SWARM_COUNT,
+        }
+        print(json.dumps(output, indent=2))
+        return
+
+    # Swarm confirmed
+    swarm_tokens = [s["token"] for s in swarm[:10]]
+    output["swarm"] = {
+        "detected": True,
+        "direction": swarm_direction,
+        "count": len(swarm),
+        "top_tokens": swarm_tokens,
+    }
+
+    # ================================================================
+    # TARGET SELECTION
+    # ================================================================
+    best = pick_best_target(swarm, state)
+
+    if best is None:
+        output["reason"] = (
+            f"Swarm detected ({len(swarm)} {swarm_direction} alts) "
+            f"but no target reached MIN_SCORE {MIN_SCORE} or all on cooldown"
+        )
+        # Show top 3 candidates for diagnostics
+        swarm_size = len(swarm)
+        diagnostics = []
+        for t in swarm[:3]:
+            s, b = score_target(t, swarm_size)
+            diagnostics.append({
+                "token": t["token"],
+                "score": s,
+                "sm_pct": round(t["sm_pct"], 2),
+                "price_4h": round(t["price_change_4h"], 2),
+            })
+        output["swarm"]["top_candidates"] = diagnostics
+        print(json.dumps(output, indent=2))
+        return
+
+    # ================================================================
+    # ENTRY SIGNAL
+    # ================================================================
+    target = best["target"]
+    token = target["token"]
+    direction = target["direction"].upper()
+    leverage = LEVERAGE_OVERRIDES.get(token, min(LEVERAGE, target["max_leverage"]))
+
+    entry = generate_entry(token, direction, leverage, MARGIN_AMOUNT)
+    dsl_state = generate_dsl_state(token, direction, leverage)
+
+    output["action"] = "ENTER"
+    output["score"] = best["score"]
+    output["breakdown"] = best["breakdown"]
+    output["reason"] = (
+        f"SCORPION STRIKES — {swarm_direction} swarm ({len(swarm)} alts). "
+        f"Best target: {token} {direction} at {leverage}x, $350 margin. "
+        f"Score {best['score']}/{MIN_SCORE}. SM {target['sm_pct']:.1f}%."
+    )
+    output["entry"] = entry
+    output["dsl_state"] = dsl_state
+
+    # Update state
+    state["entries_today"] += 1
+    state["last_entry_time"] = now.isoformat()
+    state["last_asset"] = token
+    state["last_direction"] = direction
+    if "asset_cooldowns" not in state:
+        state["asset_cooldowns"] = {}
+    state["asset_cooldowns"][token] = now.isoformat()
+    save_state(state)
+
+    print(json.dumps(output, indent=2))
 
 
 if __name__ == "__main__":
-    run()
+    main()
