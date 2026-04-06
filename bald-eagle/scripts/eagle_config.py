@@ -1,4 +1,4 @@
-"""BALD EAGLE v2.0 — XYZ Commodities Config Helper.
+"""BALD EAGLE v3.0 — XYZ Alpha Hunter Config Helper.
 Self-contained. Standard Senpi skill pattern."""
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
@@ -54,31 +54,25 @@ def get_wallet_and_strategy():
     return w, s
 
 
-# ─── Market Hours ────────────────────────────────────────────
+# --- Market Hours ---
 
 def is_market_hours():
     """Check if we're within safe trading hours for XYZ assets.
-    Safe window: Monday-Friday, 09:30-15:30 ET (14:30-20:30 UTC).
+    Safe window: Monday-Friday, 09:45-15:30 ET.
     No trading on weekends. No trading in last 30 min before close.
     No trading in first 15 min after open (volatility spike)."""
 
     now = datetime.now(timezone.utc)
-    weekday = now.weekday()  # 0=Mon, 6=Sun
+    weekday = now.weekday()
 
-    # No weekends
     if weekday >= 5:
         return False, "WEEKEND"
 
-    # Convert to ET (UTC-4 during EDT, UTC-5 during EST)
-    # Use UTC-4 as approximation (March-November)
     et_hour = (now.hour - 4) % 24
     et_minute = now.minute
-
-    # Market hours: 9:30 AM - 4:00 PM ET
-    # Safe window: 9:45 AM - 3:30 PM ET (skip first 15 min, last 30 min)
     et_time_minutes = et_hour * 60 + et_minute
-    market_open = 9 * 60 + 45   # 9:45 AM ET
-    market_close = 15 * 60 + 30  # 3:30 PM ET
+    market_open = 9 * 60 + 45
+    market_close = 15 * 60 + 30
 
     if et_time_minutes < market_open:
         return False, f"PRE_MARKET (ET {et_hour}:{et_minute:02d})"
@@ -88,7 +82,7 @@ def is_market_hours():
     return True, f"MARKET_OPEN (ET {et_hour}:{et_minute:02d})"
 
 
-# ─── Trade Counter ───────────────────────────────────────────
+# --- Trade Counter ---
 
 def load_trade_counter():
     p = STATE_DIR / "trade-counter.json"
@@ -107,7 +101,7 @@ def save_trade_counter(tc):
     atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
 
 
-# ─── Cooldown ────────────────────────────────────────────────
+# --- Cooldown ---
 
 def is_on_cooldown(coin):
     p = STATE_DIR / "cooldowns.json"
@@ -137,7 +131,7 @@ def set_cooldown(coin, minutes=120):
     atomic_write(str(p), cooldowns)
 
 
-# ─── MCP ─────────────────────────────────────────────────────
+# --- MCP ---
 
 def mcporter_call(tool, retries=2, timeout=30, **params):
     args = json.dumps(params) if params else "{}"
