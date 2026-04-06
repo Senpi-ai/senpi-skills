@@ -20,7 +20,7 @@ STATE_DIR = SKILL_DIR / "state"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ─── Atomic Write ────────────────────────────────────────────
+# --- Atomic Write ---
 
 def atomic_write(path, data):
     """Write JSON atomically via tmp file + os.replace."""
@@ -40,7 +40,7 @@ def atomic_write(path, data):
         raise
 
 
-# ─── Config ──────────────────────────────────────────────────
+# --- Config ---
 
 def load_config():
     if CONFIG_PATH.exists():
@@ -59,7 +59,7 @@ def get_wallet_and_strategy():
     return wallet, strategy_id
 
 
-# ─── State I/O ───────────────────────────────────────────────
+# --- State I/O ---
 
 def load_state(filename="state.json"):
     path = STATE_DIR / filename
@@ -73,7 +73,7 @@ def save_state(data, filename="state.json"):
     atomic_write(str(STATE_DIR / filename), data)
 
 
-# ─── Trade Counter ───────────────────────────────────────────
+# --- Trade Counter ---
 
 def load_trade_counter():
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -120,7 +120,7 @@ def record_trade_result(tc, pnl):
     save_trade_counter(tc)
 
 
-# ─── MCP Helpers ─────────────────────────────────────────────
+# --- MCP Helpers ---
 
 def mcporter_call(tool, retries=2, timeout=25, **params):
     """Call a Senpi MCP tool via mcporter. Array syntax, no shell=True."""
@@ -192,6 +192,10 @@ def get_positions(wallet):
 def output(data):
     print(json.dumps(data))
     sys.stdout.flush()
+
+
+def log(msg):
+    print(f"[bison] {msg}", file=sys.stderr, flush=True)
 
 
 def now_ts():
