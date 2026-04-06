@@ -1,20 +1,17 @@
 #!/usr/bin/env python3
-# Senpi GRIZZLY Scanner v3.0
+# Senpi GRIZZLY Scanner v3.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""GRIZZLY v3.0 — BTC Alpha Hunter (Tightened).
+"""GRIZZLY v3.1 — BTC Alpha Hunter (Hardened).
 
-Single-asset BTC lifecycle hunter. HUNT → RIDE (NO_REPLY) → re-HUNT.
-Stalking mode removed (Stalker proved dead across fleet).
-
-v2.1.1 issues fixed:
-- Thesis exit REMOVED (was chopping winners)
-- DSL retrace: 8% (was 3% — too tight for BTC volatility)
-- Hard timeout: 360min/6h (was 180min — BTC trends are slow)
-- Leverage: 7x (was 10x)
-- Trade counter increments BEFORE output (Phoenix fix)
-- No DSL state generation (plugin handles it)
-- STALKING mode removed
+v3.1 changes from fleet audit:
+- Scanner calls create_position internally via mcporter (Wolverine pattern)
+- feeOptimizedLimitOptions with ensureExecutionAsTaker: false
+- Conviction-scaled leverage: score 8-9 → 7x, score 10+ → 10x
+- 4H price alignment: was HARD GATE → now score contributor
+- SM thresholds: was HARD GATE (5%/30t) → now score contributors
+- Margin increased to 50%
+- No thesis exit (unchanged from v3.0)
 
 Uses: leaderboard_get_markets + market_get_asset_data (2 API calls)
 Runs every 3 minutes.
@@ -27,12 +24,17 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import grizzly_config as cfg
 
 ASSET = "BTC"
-DEFAULT_LEVERAGE = 7
 MAX_POSITIONS = 1
 MAX_DAILY_ENTRIES = 2
 COOLDOWN_MINUTES = 180
-MARGIN_PCT = 0.25
+MARGIN_PCT = 0.50
 MIN_SCORE = 8
+
+LEVERAGE_TIERS = [
+    {"min_score": 10, "leverage": 10},
+    {"min_score": 8,  "leverage": 7},
+]
+DEFAULT_LEVERAGE = 7
 
 def safe_float(v, d=0.0):
     try: return float(v)
@@ -40,7 +42,14 @@ def safe_float(v, d=0.0):
 
 def now_date(): return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
+def get_leverage_for_score(score):
+    for tier in LEVERAGE_TIERS:
+        if score >= tier["min_score"]:
+            return tier["leverage"]
+    return DEFAULT_LEVERAGE
+
 def evaluate_btc():
+    """Score BTC. All signals are score contributors — no hard gates."""
     raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
     if not raw: return None
     markets = raw.get("data", raw)
@@ -61,9 +70,8 @@ def evaluate_btc():
     p1h = safe_float(btc.get("token_price_change_pct_1h", btc.get("price_change_1h",0)))
     cc = safe_float(btc.get("contribution_pct_change_4h",0))
 
-    if pct < 5.0 or traders < 30: return None
-    if d == "LONG" and p4h < 0: return None
-    if d == "SHORT" and p4h > 0: return None
+    # Need minimum data to score anything
+    if traders < 10: return None
 
     funding = 0
     try:
@@ -74,25 +82,60 @@ def evaluate_btc():
     except: pass
 
     score, reasons = 0, []
+
+    # SM concentration (0-3)
     if pct >= 15: score += 3; reasons.append(f"DOMINANT_SM {pct:.1f}% ({traders}t)")
     elif pct >= 10: score += 2; reasons.append(f"STRONG_SM {pct:.1f}% ({traders}t)")
-    else: score += 1; reasons.append(f"SM_ALIGNED {pct:.1f}% ({traders}t)")
+    elif pct >= 5: score += 1; reasons.append(f"SM_ALIGNED {pct:.1f}% ({traders}t)")
 
-    if abs(p4h) >= 2.0: score += 2; reasons.append(f"STRONG_4H {p4h:+.1f}%")
-    elif abs(p4h) >= 0.5: score += 1; reasons.append(f"4H_CONFIRMS {p4h:+.1f}%")
+    # 4H price alignment (±2) — was hard gate, now score contributor
+    if abs(p4h) >= 2.0:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score += 2; reasons.append(f"STRONG_4H {p4h:+.1f}%")
+        else:
+            score -= 1; reasons.append(f"4H_OPPOSING {p4h:+.1f}%")
+    elif abs(p4h) >= 0.5:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score += 1; reasons.append(f"4H_CONFIRMS {p4h:+.1f}%")
 
+    # 1H momentum (0-1)
     if (d=="LONG" and p1h>0.2) or (d=="SHORT" and p1h<-0.2):
         score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
+    # Contribution velocity (0-2)
     if abs(cc)>=0.03: score += 2; reasons.append(f"CONTRIB_SURGE +{abs(cc)*100:.1f}%")
     elif abs(cc)>=0.01: score += 1; reasons.append(f"CONTRIB_GROWING +{abs(cc)*100:.2f}%")
 
+    # Funding alignment (0-1)
     if (d=="SHORT" and funding>0.0002) or (d=="LONG" and funding<-0.0002):
         score += 1; reasons.append(f"FUNDING_PAYS {funding*100:.4f}%")
 
+    # Trader depth (0-1)
     if traders >= 100: score += 1; reasons.append(f"DEEP_CONSENSUS ({traders}t)")
 
     return {"score":score,"direction":d,"reasons":reasons,"smPct":pct,"smTraders":traders,"priceChg4h":p4h}
+
+
+def execute_entry(direction, margin, leverage):
+    """Call create_position directly via mcporter."""
+    result = cfg.mcporter_call(
+        "create_position",
+        coin=ASSET,
+        direction=direction,
+        leverage=leverage,
+        margin=margin,
+        orderType="FEE_OPTIMIZED_LIMIT",
+        feeOptimizedLimitOptions={
+            "ensureExecutionAsTaker": False,
+            "executionTimeoutSeconds": 30,
+        },
+    )
+    if result and result.get("success"):
+        return True, result
+    else:
+        error = result.get("error", "unknown") if result else "mcporter_call returned None"
+        return False, {"error": error}
+
 
 def load_tc():
     p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
@@ -107,6 +150,7 @@ def save_tc(tc):
     tc["date"] = now_date()
     cfg.atomic_write(os.path.join(cfg.STATE_DIR, "trade-counter.json"), tc)
 
+
 def run():
     wallet, sid = cfg.get_wallet_and_strategy()
     if not wallet: cfg.output({"status":"ok","heartbeat":"NO_REPLY","note":"no wallet"}); return
@@ -117,7 +161,7 @@ def run():
     for p in positions:
         if p.get("coin","").upper() == ASSET:
             cfg.output({"status":"ok","heartbeat":"NO_REPLY",
-                "note":f"RIDING: BTC. DSL manages exit.","_v2_no_thesis_exit":True}); return
+                "note":"RIDING: BTC. DSL manages exit.","_v2_no_thesis_exit":True}); return
 
     tc = load_tc()
     if tc.get("entries",0) >= MAX_DAILY_ENTRIES:
@@ -133,24 +177,32 @@ def run():
         cfg.output({"status":"ok","heartbeat":"NO_REPLY",
             "note":f"HUNTING: BTC {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"}); return
 
+    leverage = get_leverage_for_score(thesis["score"])
     margin = round(av * MARGIN_PCT, 2)
-    tc["entries"] = tc.get("entries",0) + 1
-    save_tc(tc)
 
-    cfg.output({
-        "status":"ok",
-        "signal":{"asset":ASSET,"direction":thesis["direction"],"score":thesis["score"],
-            "mode":"BTC_HUNTER","reasons":thesis["reasons"],"smPct":thesis["smPct"],"smTraders":thesis["smTraders"]},
-        "entry":{"asset":ASSET,"direction":thesis["direction"],"leverage":DEFAULT_LEVERAGE,
-            "margin":margin,"orderType":"FEE_OPTIMIZED_LIMIT"},
-        "constraints":{"maxPositions":MAX_POSITIONS,"maxLeverage":DEFAULT_LEVERAGE,
-            "maxDailyEntries":MAX_DAILY_ENTRIES,"cooldownMinutes":COOLDOWN_MINUTES,
-            "_v2_no_thesis_exit":True,"_note":"DSL managed by plugin runtime."},
-        "_grizzly_version":"3.0",
-    })
+    success, result = execute_entry(thesis["direction"], margin, leverage)
+
+    if success:
+        tc["entries"] = tc.get("entries",0) + 1
+        save_tc(tc)
+        cfg.output({
+            "status":"ok", "action":"ENTRY",
+            "signal":{"asset":ASSET,"direction":thesis["direction"],"score":thesis["score"],
+                "leverage":leverage,"mode":"BTC_HUNTER","reasons":thesis["reasons"]},
+            "execution":{"asset":ASSET,"direction":thesis["direction"],"leverage":leverage,
+                "margin":margin,"orderType":"FEE_OPTIMIZED_LIMIT","ensureExecutionAsTaker":False},
+            "result":result,
+            "_grizzly_version":"3.1",
+        })
+    else:
+        cfg.output({
+            "status":"ok","action":"ENTRY_FAILED",
+            "signal":{"asset":ASSET,"direction":thesis["direction"],"score":thesis["score"],"reasons":thesis["reasons"]},
+            "error":result, "_grizzly_version":"3.1",
+        })
 
 if __name__ == "__main__":
     try: run()
     except Exception as e:
-        cfg.log(f"CRITICAL: {e}"); import traceback; traceback.print_exc(file=sys.stderr)
+        import traceback; traceback.print_exc(file=sys.stderr)
         cfg.output({"status":"error","error":str(e)})
