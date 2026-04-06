@@ -1,29 +1,18 @@
 #!/usr/bin/env python3
-# Senpi WOLVERINE Scanner v2.0
+# Senpi WOLVERINE Scanner v2.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""WOLVERINE v2.0 — HYPE Alpha Hunter. Entry-Only Scanner.
+"""WOLVERINE v2.1 — HYPE Alpha Hunter (Hardened).
 
-v2.0 removes the scanner thesis exit entirely. The lesson from v1.1:
-25 of 27 trades were killed by the scanner's thesis exit, not by DSL.
-The scanner constantly re-evaluated SM flow and aborted positions on every
-wobble. On HYPE, which wobbles every 10 minutes, this meant the scanner
-was chopping its own winners before they could run.
-
-Trade #6 proved the thesis: HYPE LONG, +29.92% ROE, held 757 minutes.
-The scanner let that one ride and it was a monster. If even 2-3 more
-trades had been allowed to run, Wolverine would be deeply profitable.
-
-The fix: SCANNER DECIDES ENTRIES. DSL MANAGES EXITS.
-Once a position is open, only DSL can close it (floor, timeout, trailing
-tier, stagnation TP). The scanner never re-evaluates open positions.
-
-Entry requirements are raised: score 8+ with multi-timeframe agreement
-(4H + 1H aligned). Fewer entries, wider stops, let HYPE be HYPE.
-
-Leverage lowered to 7x (from 10x). At 7x, a 2% move = 14% ROE.
-A 4% move = 28% ROE. That's plenty of upside with more room to breathe.
+v2.1 changes from fleet audit:
+- Scanner calls create_position internally via mcporter (Wolverine pattern)
+- marginPercent replaced with marginAmount (dollar value)
+- feeOptimizedLimitOptions with ensureExecutionAsTaker: false
+- Conviction-scaled leverage: score 8-9 → 7x, score 10+ → 10x
+- Margin increased to 50% of account
+- 4H/1H alignment: was HARD GATE → now +2 score points
+- No thesis exit (unchanged from v2.0)
 
 Uses: leaderboard_get_markets (SM consensus on HYPE)
 Runs every 3 minutes.
@@ -37,34 +26,23 @@ from datetime import datetime, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wolverine_config as cfg
 
-
-# ═══════════════════════════════════════════════════════════════
-# HARDCODED CONSTANTS
-# ═══════════════════════════════════════════════════════════════
-
-ASSET = "HYPE"                     # Single-asset hunter
-MIN_LEVERAGE = 5
-MAX_LEVERAGE = 7                   # Lowered from 10x — HYPE is volatile enough
-DEFAULT_LEVERAGE = 7
-MAX_POSITIONS = 1                  # One HYPE position at a time
-MAX_DAILY_ENTRIES = 4              # Max 4 entries/day — patience is the edge
-MAX_DAILY_LOSS_PCT = 10            # Daily loss circuit breaker
-COOLDOWN_MINUTES = 180             # 3 hours between entries (not 2)
-
-# Entry thresholds — raised from v1.1
-MIN_SCORE = 8                      # Was effectively ~5 in v1.1. Now 8.
-MIN_SM_TRADERS = 15                # Minimum SM traders on HYPE
-MIN_SM_RANK = 30                   # HYPE must be in top 30 of SM leaderboard
-REQUIRE_4H_1H_ALIGNMENT = True     # Both timeframes must agree on direction
-
-# XYZ ban
+ASSET = "HYPE"
+MAX_POSITIONS = 1
+MAX_DAILY_ENTRIES = 4
+MAX_DAILY_LOSS_PCT = 10
+COOLDOWN_MINUTES = 180
+MARGIN_PCT = 0.50
+MIN_SCORE = 8
+MIN_SM_TRADERS = 15
+MIN_SM_RANK = 30
 XYZ_BANNED = True
 
+LEVERAGE_TIERS = [
+    {"min_score": 10, "leverage": 10},
+    {"min_score": 8,  "leverage": 7},
+]
+DEFAULT_LEVERAGE = 7
 
-
-# ═══════════════════════════════════════════════════════════════
-# HELPERS
-# ═══════════════════════════════════════════════════════════════
 
 def safe_float(val, default=0.0):
     try:
@@ -73,18 +51,15 @@ def safe_float(val, default=0.0):
         return default
 
 
-def is_xyz(asset):
-    return asset.lower().startswith("xyz")
+def get_leverage_for_score(score):
+    for tier in LEVERAGE_TIERS:
+        if score >= tier["min_score"]:
+            return tier["leverage"]
+    return DEFAULT_LEVERAGE
 
-
-# ═══════════════════════════════════════════════════════════════
-# SIGNAL SCORING
-# ═══════════════════════════════════════════════════════════════
 
 def score_hype_signal(markets_data):
-    """Score HYPE from leaderboard_get_markets data.
-    Returns (score, direction, reasons) or (0, None, [])."""
-
+    """Score HYPE. All signals are score contributors — no hard gates."""
     hype_data = None
     for m in markets_data:
         if not isinstance(m, dict):
@@ -98,10 +73,6 @@ def score_hype_signal(markets_data):
     if not hype_data:
         return 0, None, []
 
-    score = 0
-    reasons = []
-
-    # SM direction and trader count
     sm_direction = str(hype_data.get("direction", "")).lower()
     trader_count = int(hype_data.get("trader_count", 0))
     sm_rank = int(hype_data.get("rank", hype_data.get("position", 999)))
@@ -113,27 +84,29 @@ def score_hype_signal(markets_data):
 
     direction = sm_direction
 
-    # Gate: minimum traders
+    # Minimum traders — keep as gate (need data to score)
     if trader_count < MIN_SM_TRADERS:
-        return 0, None, []
+        return 0, None, [f"LOW_TRADERS ({trader_count} < {MIN_SM_TRADERS})"]
 
-    # Gate: minimum SM rank
-    if sm_rank > MIN_SM_RANK:
-        return 0, None, []
-
-    # ── Scoring ──
+    score = 0
+    reasons = []
 
     # SM presence (base)
     score += 2
-    reasons.append(f"SM_{direction.upper()} rank#{sm_rank} ({trader_count} traders)")
+    reasons.append(f"SM_{direction.upper()} rank#{sm_rank} ({trader_count}t)")
+
+    # SM rank bonus
+    if sm_rank <= 5:
+        score += 1
+        reasons.append(f"TOP_5_SM")
 
     # Trader count depth
     if trader_count >= 40:
         score += 2
-        reasons.append(f"DEEP_SM ({trader_count} traders)")
+        reasons.append(f"DEEP_SM ({trader_count}t)")
     elif trader_count >= 25:
         score += 1
-        reasons.append(f"SOLID_SM ({trader_count} traders)")
+        reasons.append(f"SOLID_SM ({trader_count}t)")
 
     # Contribution strength
     if contribution >= 5.0:
@@ -143,7 +116,7 @@ def score_hype_signal(markets_data):
         score += 1
         reasons.append(f"MODERATE_CONTRIB {contribution:.1f}%")
 
-    # Contribution acceleration (gen-2 signal)
+    # Contribution acceleration
     if contrib_change > 0.003:
         score += 2
         reasons.append(f"CONTRIB_ACCEL +{contrib_change * 100:.3f}%/4h")
@@ -151,7 +124,7 @@ def score_hype_signal(markets_data):
         score += 1
         reasons.append(f"CONTRIB_BUILDING +{contrib_change * 100:.3f}%/4h")
 
-    # Price momentum alignment
+    # Price momentum — score contributor, not gate
     price_4h = safe_float(hype_data.get("token_price_change_pct_4h", 0))
     price_1h = safe_float(hype_data.get("token_price_change_pct_1h",
                           hype_data.get("price_change_1h", 0)))
@@ -163,6 +136,9 @@ def score_hype_signal(markets_data):
         elif price_4h > 0:
             score += 1
             reasons.append(f"4H_ALIGNED (+{price_4h:.1f}%)")
+        elif price_4h < -1:
+            score -= 1
+            reasons.append(f"4H_OPPOSING ({price_4h:.1f}%)")
     else:
         if price_4h < 0 and price_1h < 0:
             score += 2
@@ -170,13 +146,9 @@ def score_hype_signal(markets_data):
         elif price_4h < 0:
             score += 1
             reasons.append(f"4H_ALIGNED ({price_4h:.1f}%)")
-
-    # 4H/1H alignment gate
-    if REQUIRE_4H_1H_ALIGNMENT:
-        if direction == "long" and (price_4h <= 0 or price_1h <= 0):
-            return 0, None, [f"4H_1H_NOT_ALIGNED (4h={price_4h:.1f}%, 1h={price_1h:.1f}%)"]
-        if direction == "short" and (price_4h >= 0 or price_1h >= 0):
-            return 0, None, [f"4H_1H_NOT_ALIGNED (4h={price_4h:.1f}%, 1h={price_1h:.1f}%)"]
+        elif price_4h > 1:
+            score -= 1
+            reasons.append(f"4H_OPPOSING (+{price_4h:.1f}%)")
 
     # Volume confirmation
     volume = safe_float(hype_data.get("volume", hype_data.get("volume_24h", 0)))
@@ -188,10 +160,26 @@ def score_hype_signal(markets_data):
     return score, direction, reasons
 
 
+def execute_entry(direction, margin, leverage):
+    """Call create_position directly via mcporter."""
+    result = cfg.mcporter_call(
+        "create_position",
+        coin=ASSET,
+        direction=direction.upper(),
+        leverage=leverage,
+        margin=margin,
+        orderType="FEE_OPTIMIZED_LIMIT",
+        feeOptimizedLimitOptions={
+            "ensureExecutionAsTaker": False,
+            "executionTimeoutSeconds": 30,
+        },
+    )
+    if result and result.get("success"):
+        return True, result
+    else:
+        error = result.get("error", "unknown") if result else "mcporter_call returned None"
+        return False, {"error": error}
 
-# ═══════════════════════════════════════════════════════════════
-# MAIN SCANNER
-# ═══════════════════════════════════════════════════════════════
 
 def run():
     config = cfg.load_config()
@@ -201,42 +189,36 @@ def run():
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
         return
 
-    # ── Check existing positions ──────────────────────────────
-    positions = cfg.get_positions(wallet)
+    # Check existing positions — do NOT re-evaluate
+    account_value, positions = cfg.get_positions(wallet)
     hype_positions = [p for p in positions if p["coin"].upper() == ASSET]
 
     if len(hype_positions) >= MAX_POSITIONS:
-        # Already in a HYPE position. Do NOT re-evaluate. Do NOT thesis exit.
-        # DSL handles everything from here.
         cfg.output({
-            "status": "ok",
-            "heartbeat": "NO_REPLY",
-            "note": f"HYPE position active. DSL manages exit. Scanner does NOT re-evaluate.",
-            "activePosition": {
-                "direction": hype_positions[0]["direction"],
-                "entryPrice": hype_positions[0]["entryPrice"],
-                "markPrice": hype_positions[0]["markPrice"],
-                "upnl": hype_positions[0]["upnl"],
-                "margin": hype_positions[0]["margin"],
-            },
+            "status": "ok", "heartbeat": "NO_REPLY",
+            "note": f"HYPE position active. DSL manages exit.",
             "_v2_no_thesis_exit": True,
         })
         return
 
-    # ── Daily limits ──────────────────────────────────────────
+    if account_value <= 0:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
+        return
+
+    # Daily limits
     tc = cfg.load_trade_counter()
     if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
                      "note": f"Daily entry limit ({MAX_DAILY_ENTRIES}) reached"})
         return
 
-    # ── Cooldown ──────────────────────────────────────────────
+    # Cooldown
     if cfg.is_asset_cooled_down(ASSET, COOLDOWN_MINUTES):
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
                      "note": f"HYPE on cooldown ({COOLDOWN_MINUTES} min)"})
         return
 
-    # ── Fetch SM data ─────────────────────────────────────────
+    # Fetch SM data
     raw = cfg.mcporter_call("leaderboard_get_markets")
     if not raw:
         cfg.output({"status": "error", "error": "failed to fetch markets"})
@@ -244,58 +226,57 @@ def run():
 
     markets = []
     if isinstance(raw, dict):
-        markets = raw.get("markets", raw.get("data", []))
+        data = raw.get("data", raw)
+        if isinstance(data, dict):
+            markets = data.get("markets", [])
+            if isinstance(markets, dict):
+                markets = markets.get("markets", [])
+        elif isinstance(data, list):
+            markets = data
     elif isinstance(raw, list):
         markets = raw
 
-    # ── Score HYPE ────────────────────────────────────────────
+    # Score HYPE
     score, direction, reasons = score_hype_signal(markets)
 
     if score < MIN_SCORE or not direction:
         cfg.output({
-            "status": "ok",
-            "heartbeat": "NO_REPLY",
-            "note": f"HYPE score {score} < {MIN_SCORE}. Waiting.",
-            "score": score,
-            "reasons": reasons,
+            "status": "ok", "heartbeat": "NO_REPLY",
+            "note": f"HYPE score {score} < {MIN_SCORE}. {', '.join(reasons[:3]) if reasons else 'Waiting.'}",
         })
         return
 
-    # ── Build entry signal ────────────────────────────────────
-    leverage = DEFAULT_LEVERAGE
-    margin_pct = 0.30 if score >= 10 else 0.20  # 30% at high conviction, 20% at base
+    # Conviction-scaled leverage and margin
+    leverage = get_leverage_for_score(score)
+    margin = round(account_value * MARGIN_PCT, 2)
 
-    # Update trade counter
-    tc["entries"] = tc.get("entries", 0) + 1
-    cfg.save_trade_counter(tc)
+    # Execute trade directly
+    success, result = execute_entry(direction, margin, leverage)
 
-    cfg.output({
-        "status": "ok",
-        "signal": {
-            "asset": ASSET,
-            "direction": direction,
-            "score": score,
-            "mode": "LIFECYCLE",
-            "reasons": reasons,
-        },
-        "entry": {
-            "asset": ASSET,
-            "direction": direction,
-            "leverage": leverage,
-            "marginPercent": margin_pct * 100,
-            "orderType": "FEE_OPTIMIZED_LIMIT",
-        },
-        "constraints": {
-            "maxPositions": MAX_POSITIONS,
-            "maxLeverage": MAX_LEVERAGE,
-            "minLeverage": MIN_LEVERAGE,
-            "maxDailyEntries": MAX_DAILY_ENTRIES,
-            "cooldownMinutes": COOLDOWN_MINUTES,
-            "xyzBanned": XYZ_BANNED,
-            "_v2_no_thesis_exit": True,
-            "_note": "DSL manages ALL exits. Do NOT re-evaluate or thesis-exit open positions.",
-        },
-    })
+    if success:
+        tc["entries"] = tc.get("entries", 0) + 1
+        cfg.save_trade_counter(tc)
+
+        cfg.output({
+            "status": "ok",
+            "action": "ENTRY",
+            "signal": {"asset": ASSET, "direction": direction.upper(),
+                       "score": score, "leverage": leverage, "reasons": reasons},
+            "execution": {"asset": ASSET, "direction": direction.upper(),
+                          "leverage": leverage, "margin": margin,
+                          "orderType": "FEE_OPTIMIZED_LIMIT",
+                          "ensureExecutionAsTaker": False},
+            "result": result,
+            "_wolverine_version": "2.1",
+        })
+    else:
+        cfg.output({
+            "status": "ok", "action": "ENTRY_FAILED",
+            "signal": {"asset": ASSET, "direction": direction.upper(),
+                       "score": score, "reasons": reasons},
+            "error": result,
+            "_wolverine_version": "2.1",
+        })
 
 
 if __name__ == "__main__":
