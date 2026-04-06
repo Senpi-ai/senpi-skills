@@ -1,135 +1,151 @@
 ---
 name: bison-strategy
 description: >-
-  BISON v1.1 — Conviction holder for top 10 Hyperliquid assets by volume. Enters on 4h trend structure
-  + 1h momentum + SM alignment convergence. Holds through pullbacks with DSL High Water Mode
-  (mandatory). Re-evaluates thesis every 5 min — exits when conviction breaks, not when price
-  retraces. Wide Phase 1 floors, no time-based exits, infinite trailing at 85% of peak.
-  v1.1: daily entry cap only enforced when day PnL is negative. When profitable, reloads
-  in batches of 3 — BISON keeps trading as long as it's making money.
+  BISON v2.0 — Conviction Holder (Hardened). Top 10 assets by volume. All signals
+  are score contributors — no hard gates. Scanner enters via create_position internally
+  (Wolverine pattern). RatchetStop exits. Thesis exit REMOVED.
+  v2.0: every hard gate converted to score contributor, ensureExecutionAsTaker=false,
+  conviction-scaled margin 25-37%.
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "1.2.1"
+  version: "2.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# BISON — Conviction Holder
+# BISON v2.0 — Conviction Holder (Hardened)
 
-Top 10 assets by volume. Multi-signal thesis entry. Thesis-based re-evaluation exits. Wide DSL bands that tighten as profit grows.
+Top 10 assets by volume. Multi-signal conviction scoring. RatchetStop exits.
 
-## MANDATORY: DSL High Water Mode
+## CRITICAL RULES
 
-**BISON MUST use DSL High Water Mode. This is not optional. Do not substitute standard DSL tiers.**
+### RULE 1: Scanner enters. RatchetStop exits. Scanner NEVER exits positions.
+v1.x had thesis re-evaluation that chopped winners. Wolverine v1.1 lost -22.7% because
+the scanner killed 25 of 27 trades. The one trade it let run hit +29.92% ROE. REMOVED in v2.0.
 
-Spec: https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md
+### RULE 2: Scanner calls create_position internally
+The scanner calculates margin, selects leverage, and calls create_position via mcporter.
+The cron command is just: `python3 bison-scanner.py`. No parsing, no execution logic in cron.
 
-When creating DSL state files for any BISON position, you MUST include:
+### RULE 3: All signals are score contributors, not hard gates
+4H trend, 1H trend, 1H momentum, SM direction — all add/subtract points.
+The minScore threshold (8) is the ONLY gate. Nothing kills a signal before scoring.
 
-```json
-{
-  "lockMode": "pct_of_high_water",
-  "phase2TriggerRoe": 10,
-  "tiers": [
-    {"triggerPct": 10,  "lockHwPct": 0,  "consecutiveBreachesRequired": 3},
-    {"triggerPct": 20,  "lockHwPct": 25, "consecutiveBreachesRequired": 3},
-    {"triggerPct": 30,  "lockHwPct": 40, "consecutiveBreachesRequired": 2},
-    {"triggerPct": 50,  "lockHwPct": 60, "consecutiveBreachesRequired": 2},
-    {"triggerPct": 75,  "lockHwPct": 75, "consecutiveBreachesRequired": 1},
-    {"triggerPct": 100, "lockHwPct": 85, "consecutiveBreachesRequired": 1}
-  ]
-}
-```
+### RULE 4: MANDATORY — DSL High Water Mode
+Use the tiers and lockMode defined in the scanner's DSL state output.
+Never substitute with standard DSL tiers. Never merge with dsl-profile.json.
 
-**If `tiers` or `lockMode` is missing from the state file, the DSL engine falls back to flat 1.5% retrace and High Water Mode is silently disabled. This defeats the entire purpose of BISON. Always verify the state file contains these fields after creation.**
+### RULE 5: ensureExecutionAsTaker = false
+All entries use FEE_OPTIMIZED_LIMIT with ensureExecutionAsTaker: false.
+entryEnsureTaker: true destroyed $500+ in fees across the fleet.
 
-Phase 1 conviction-scaled floors (also mandatory in every state file):
+## How BISON v2.0 Trades
 
-| Entry Score | absoluteFloorRoe | Time Exits |
+### Entry (all score contributors)
+| Signal | Points | Type |
 |---|---|---|
-| 6-7 | -25 | All disabled (0) |
-| 8-9 | -30 | All disabled (0) |
-| 10+ | 0 (unrestricted) | All disabled (0) |
+| 4H trend aligned | +3 | Score |
+| 4H trend opposing | -1 | Score |
+| 1H trend agrees | +2 | Score |
+| 1H trend opposing | -1 | Score |
+| 1H strong momentum (≥1%) | +2 | Score |
+| 1H moderate momentum (≥0.5%) | +1 | Score |
+| 1H counter momentum | -1 | Score |
+| SM aligned | +2 | Score |
+| SM opposing | -2 | Score |
+| Funding aligned | +2 | Score |
+| Funding crowded | -1 | Score |
+| Volume rising | +1 | Score |
+| OI growing | +1 | Score |
+| RSI room | +1 | Score |
+| RSI extreme | -1 | Score |
+| 4H momentum (>1.5%) | +1 | Score |
 
-## How BISON Trades
+Min score: 8. Max possible: ~16.
 
-### Entry
-Scans top 10 assets by volume every 5 minutes. Builds a conviction thesis from:
-- 4h trend structure (higher lows / lower highs) — **required**
-- 1h trend agreement — **required**
-- 1h momentum ≥ 0.5% in direction — **required**
-- Smart money alignment — **hard block if opposing**
-- Funding direction, volume trend, OI growth, RSI — boosters
+### Direction Determination
+1. 4H trend structure → LONG if BULLISH, SHORT if BEARISH
+2. If 4H NEUTRAL → follow SM direction
+3. If SM NEUTRAL → follow 1H momentum (>0.5%)
+4. If all neutral → no signal
 
-Minimum score: 8. Conviction-scaled margin: 25% base, 31% at score 10, 37% at score 12+.
-
-### Hold
-Every 5-minute scan re-evaluates held positions FIRST, before looking for new entries. The thesis is intact as long as:
-- 4h trend structure hasn't flipped
-- SM hasn't flipped against the position
-- Funding hasn't gone extreme against the position
-- Volume hasn't dried up for 3+ consecutive hours
-
-If ANY of these break → output `thesis_exit` → agent closes the position.
-
-### Exit (DSL)
-DSL High Water Mode handles mechanical exits. Wide early, tight late:
-- +10% ROE: no lock (confirms trade working)
-- +50% ROE: lock 60% of high water (+30% ROE locked)
-- +100% ROE: lock 85% of high water — infinite trail from here, no ceiling
-
-A trade at +500% ROE has its stop at +425% ROE. The 85% geometry holds forever.
-
-## Cron Architecture
-
-| Cron | Interval | Session | Purpose |
-|---|---|---|---|
-| Scanner | 5 min | isolated | Thesis re-evaluation + new entry scan |
-| DSL v5 | 3 min | isolated | High Water Mode trailing stops |
-
-Both crons MUST be isolated sessions with `agentTurn` payload. Use `NO_REPLY` for idle cycles.
-
-## Notification Policy
-
-**ONLY alert the user when:**
-- Position OPENED (asset, direction, thesis reasons, margin)
-- Position CLOSED — either by DSL (breach) or thesis exit (which signal broke)
-- Risk guardian triggered
-- Critical error
-
-**NEVER alert for:**
-- Scanner found nothing
-- Thesis re-evaluation passed (position still valid)
-- DSL routine check
-- Any reasoning or narration
-
-## Risk Management
-
-| Rule | Value |
+### Conviction-Scaled Margin
+| Score | Margin |
 |---|---|
-| Max positions | 3 |
-| Max entries/day | 3 per batch; unlimited batches when day PnL ≥ 0. Hard cap when negative. |
-| Absolute floor | 3% notional (~30% ROE at 10x) |
-| G5 per-position cap | 8% of account |
-| G2 drawdown halt | 25% from peak |
-| Daily loss limit | 10% |
-| Cooldown after 3 consecutive losses | 120 min |
-| Stagnation TP | 15% ROE stale for 2 hours |
+| 8-9 | 25% of account |
+| 10-11 | 31% |
+| 12+ | 37% |
+
+### Exit — RatchetStop Only
+DSL High Water Mode. Wide early, tight late:
+- +10% ROE: no lock (confirms working)
+- +50% ROE: lock 60% of high water
+- +100% ROE: lock 85% — infinite trail
+
+### Conviction-Scaled Phase 1 Timing
+| Score | Absolute Floor | Hard Timeout | Weak Peak | Dead Weight |
+|---|---|---|---|---|
+| 6-7 | -25% ROE | 60 min | 30 min | 30 min |
+| 8-9 | -30% ROE | 90 min | 45 min | 45 min |
+| 10+ | -35% ROE | 120 min | 60 min | 60 min |
+
+## Cron Setup
+
+| Cron | Interval | Command |
+|---|---|---|
+| Scanner | 5 min | `python3 /data/workspace/skills/bison-strategy/scripts/bison-scanner.py` |
+
+One cron only. Scanner handles execution. DSL exit managed by plugin runtime.
+
+## Hardcoded Constants (not configurable)
+- MAX_LEVERAGE: 10
+- MIN_LEVERAGE: 7
+- XYZ_BANNED: true
+- MAX_POSITIONS: 3
+- MAX_DAILY_LOSS_PCT: 10
 
 ## Bootstrap Gate
 
-On EVERY session, check if `config/bootstrap-complete.json` exists. If not:
+On EVERY session, check `config/bootstrap-complete.json`. If missing:
 1. Verify Senpi MCP
-2. Create scanner cron (5 min, isolated) and DSL cron (3 min, isolated)
+2. Create scanner cron (5 min, isolated)
 3. Write `config/bootstrap-complete.json`
-4. Send: "🦬 BISON is online. Scanning top 10 for conviction thesis. DSL High Water Mode active. Silence = no conviction."
+4. Send: "🦬 BISON v2.0 online. Conviction scoring — no hard gates. RatchetStop manages exits. Silence = no conviction."
+
+## Notification Policy
+**ONLY alert:** Position OPENED, position CLOSED (RatchetStop), critical error.
+**NEVER alert:** Scanner idle, health check, DSL routine.
+
+## Risk
+| Rule | Value |
+|---|---|
+| Max positions | 3 |
+| Max entries/day | 3 base, 6 hard cap |
+| Daily loss limit | 10% |
+| Per-asset cooldown | 120 min |
+| Stagnation TP | 15% ROE stale for 2 hours |
 
 ## Files
-
 | File | Purpose |
 |---|---|
-| `scripts/bison-scanner.py` | Thesis builder + thesis re-evaluator |
-| `scripts/bison_config.py` | Shared config, MCP helpers, state I/O |
-| `config/bison-config.json` | All configurable variables with DSL High Water tiers |
-| DSL v5 (shared skill) | Trailing stop engine — MUST be configured with High Water Mode |
+| `scripts/bison-scanner.py` | v2.0 conviction scorer + internal execution |
+| `scripts/bison_config.py` | Config helper, MCP, state I/O |
+| `config/bison-config.json` | Wallet, strategy ID, configurable params |
+| `runtime.yaml` | Plugin runtime (position tracker + RatchetStop) |
+
+## Changelog
+
+### v2.0 (2026-04-06)
+- ALL hard gates converted to score contributors
+- Thesis exit (evaluate_held_position) REMOVED
+- Scanner calls create_position internally (Wolverine pattern)
+- ensureExecutionAsTaker: false with feeOptimizedLimitOptions
+- Direction waterfall: 4H → SM → 1H momentum
+- Trade counter increment on successful execution
+
+### v1.2.1
+- DSL state template in scanner output
+- Dead weight cuts added
+- Per-asset cooldown
+- XYZ banned, leverage capped 7-10x
