@@ -49,7 +49,7 @@ This was proven across 30+ live agents with real money. The fleet's top performe
      └────────┬─────────┘ └────────┬─────────┘ └────────┬────────┘
               │                    │                     │
      ┌────────▼────────┐ ┌────────▼────────┐ ┌─────────▼───────┐
-     │   VAULT ($1K)   │ │   VAULT ($1K)   │ │   VAULT ($1K)   │
+     │   WALLET ($1K)   │ │   WALLET ($1K)   │ │   WALLET ($1K)   │
      │  Funded wallet   │ │  Funded wallet   │ │  Funded wallet   │
      │  Live on Hyperl. │ │  Live on Hyperl. │ │  Live on Hyperl. │
      └─────────────────┘ └─────────────────┘ └─────────────────┘
@@ -59,7 +59,7 @@ This was proven across 30+ live agents with real money. The fleet's top performe
 
 **The Plugin Runtime** (runtime.yaml) manages position tracking and exits. The `position_tracker` polls onchain state every 10 seconds. The DSL engine evaluates exit conditions every 30 seconds. This eliminates an entire class of bugs from the Python DSL cron system (missing state files, wallet field injection, silent cron deaths).
 
-**Vaults** are funded wallets on Hyperliquid. Each agent gets its own vault with isolated capital.
+**Strategy Wallets** are funded wallets on Hyperliquid. Each agent gets its own strategy wallet with isolated capital.
 
 ---
 
