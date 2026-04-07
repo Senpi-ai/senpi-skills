@@ -48,10 +48,13 @@ SCALE_MIN_ROE_PCT = 5.0        # Position must be at least +5% ROE to add
 XYZ_BANNED = True
 
 LEVERAGE_TIERS = [
-    {"min_score": 10, "leverage": 10},
-    {"min_score": 8,  "leverage": 7},
+    {"min_score": 11, "leverage": 20},   # Maximum conviction — all signals aligned
+    {"min_score": 10, "leverage": 15},   # Very high conviction
+    {"min_score": 9,  "leverage": 10},   # Strong conviction
+    {"min_score": 8,  "leverage": 7},    # Base conviction
 ]
 DEFAULT_LEVERAGE = 7
+MAX_LEVERAGE = 20  # Hard cap — DSL can still protect at 20x on BTC
 
 
 def safe_float(v, d=0.0):
