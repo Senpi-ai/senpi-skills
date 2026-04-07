@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-# Senpi WOLVERINE Scanner v2.1
+# Senpi WOLVERINE Scanner v2.2
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""WOLVERINE v2.1 — HYPE Alpha Hunter (Hardened).
+"""WOLVERINE v2.2 — HYPE Alpha Hunter (Hardened).
+
+v2.2 changes (fleet conviction leverage):
+- Extreme velocity tiers on 15m/1h contribution (score up to +4 / +2)
+- MAX_LEVERAGE constant 10x (HL cap)
 
 v2.1 changes from fleet audit:
 - Scanner calls create_position internally via mcporter (Wolverine pattern)
@@ -38,10 +42,11 @@ MIN_SM_RANK = 30
 XYZ_BANNED = True
 
 LEVERAGE_TIERS = [
-    {"min_score": 10, "leverage": 10},
+    {"min_score": 10, "leverage": 10},  # HYPE max on HL is 10x
     {"min_score": 8,  "leverage": 7},
 ]
 DEFAULT_LEVERAGE = 7
+MAX_LEVERAGE = 10
 
 
 def safe_float(val, default=0.0):
@@ -118,9 +123,15 @@ def score_hype_signal(markets_data):
         score += 1
         reasons.append(f"MODERATE_CONTRIB {contribution:.1f}%")
 
-    # Contribution velocity — multi-window (NEW: 15m + 1h + 4h)
+    # Contribution velocity — multi-window (15m + 1h + 4h); v2.2 extreme tiers
     # 15m is the entry timing signal — HYPE moves fast, this catches the inflection
-    if contrib_15m > 0.5:
+    if contrib_15m > 5.0:
+        score += 4
+        reasons.append(f"15M_EXTREME_SPIKE +{contrib_15m:.2f}")
+    elif contrib_15m > 2.0:
+        score += 3
+        reasons.append(f"15M_STRONG_SPIKE +{contrib_15m:.2f}")
+    elif contrib_15m > 0.5:
         score += 2
         reasons.append(f"15M_SPIKE +{contrib_15m:.2f}")
     elif contrib_15m > 0.1:
@@ -130,7 +141,10 @@ def score_hype_signal(markets_data):
         score -= 1
         reasons.append(f"15M_FADING {contrib_15m:.2f}")
 
-    if contrib_1h > 1.0:
+    if contrib_1h > 3.0:
+        score += 2
+        reasons.append(f"1H_STRONG_ACCEL +{contrib_1h:.2f}")
+    elif contrib_1h > 1.0:
         score += 1
         reasons.append(f"1H_ACCEL +{contrib_1h:.2f}")
 
@@ -286,7 +300,7 @@ def run():
                           "orderType": "FEE_OPTIMIZED_LIMIT",
                           "ensureExecutionAsTaker": False},
             "result": result,
-            "_wolverine_version": "2.1",
+            "_wolverine_version": "2.2",
         })
     else:
         cfg.output({
@@ -294,7 +308,7 @@ def run():
             "signal": {"asset": ASSET, "direction": direction.upper(),
                        "score": score, "reasons": reasons},
             "error": result,
-            "_wolverine_version": "2.1",
+            "_wolverine_version": "2.2",
         })
 
 

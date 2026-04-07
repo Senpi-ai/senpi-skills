@@ -517,7 +517,7 @@ def evaluate_reload(exit_state, entry_cfg):
 
 # ─── Hardcoded Constants ──────────────────────────────────────
 
-MAX_LEVERAGE = 7          # Reduced from 10x — SOL at 10x is too volatile
+MAX_LEVERAGE = 15         # SOL max on HL is 20x; cap at 15x for conviction scaling
 MIN_LEVERAGE = 5
 
 
@@ -663,16 +663,15 @@ def run():
         cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": note})
         return
 
-    # Conviction-scaled leverage
-    lev_cfg = config.get("leverage", {})
+    # Conviction-scaled leverage (v2.1 fleet: fixed tiers 7/10/12/15x)
     if thesis["score"] >= 14:
-        leverage = min(lev_cfg.get("max", 20), MAX_LEVERAGE)
+        leverage = 15
     elif thesis["score"] >= 12:
-        leverage = min(lev_cfg.get("high", 18), MAX_LEVERAGE)
+        leverage = 12
     elif thesis["score"] >= 10:
-        leverage = min(lev_cfg.get("default", 15), MAX_LEVERAGE)
+        leverage = 10
     else:
-        leverage = min(lev_cfg.get("min", 12), MAX_LEVERAGE)
+        leverage = 7
 
     # Conviction-scaled margin
     base_margin_pct = entry_cfg.get("marginPctBase", 0.30)

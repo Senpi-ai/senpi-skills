@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-# Senpi POLAR Scanner v2.1
+# Senpi POLAR Scanner v2.2
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""POLAR v2.1 — ETH Alpha Hunter (Hardened + Hyperfeed Scoring).
+"""POLAR v2.2 — ETH Alpha Hunter (Conviction Leverage + Extreme Velocity).
+
+v2.2 changes:
+- Conviction-scaled leverage: score 8->7x, 9->10x, 10->15x, 11+->20x
+- Extreme velocity tiers: 15m >5.0->+4pts, >2.0->+3pts (was capped at +2)
+- 1h acceleration: >3.0->+2pts (was capped at +1)
+- ETH max leverage on Hyperliquid is 25x, we cap at 20x
 
 v2.1 changes from fleet audit (2026-04-06):
 - Scanner calls create_position internally via mcporter (Wolverine pattern)
 - feeOptimizedLimitOptions with ensureExecutionAsTaker: false
-- Conviction-scaled leverage: score 8-9 → 7x, score 10+ → 10x
 - Margin increased to 50%
-- Hard gates (SM%, 4H price, trader count) → score contributors
+- Hard gates (SM%, 4H price, trader count) -> score contributors
 - Hyperfeed multi-window contribution velocity (15m, 1h, 4h)
 - Resting order check prevents stacking maker orders
-- No thesis exit (confirmed from v2.0 — scanner enters, DSL exits)
+- No thesis exit (scanner enters, DSL exits)
 
-CRITICAL CONTEXT: Polar is the best gross trader in the fleet (+$235.91
-gross PnL) destroyed by taker fees ($249.79). The ensureExecutionAsTaker=false
-fix is the single highest-impact change. At maker rates, Polar would be
-at +23% ROI instead of -1.4%.
-
-ETH single-asset lifecycle hunter. HUNT → RIDE → re-HUNT.
+ETH single-asset lifecycle hunter. HUNT -> RIDE -> re-HUNT.
 Uses: leaderboard_get_markets + market_get_asset_data + strategy_get_open_orders
 Runs every 3 minutes.
 """
@@ -39,10 +39,13 @@ MIN_SCORE = 8
 XYZ_BANNED = True
 
 LEVERAGE_TIERS = [
-    {"min_score": 10, "leverage": 10},
+    {"min_score": 11, "leverage": 20},
+    {"min_score": 10, "leverage": 15},
+    {"min_score": 9,  "leverage": 10},
     {"min_score": 8,  "leverage": 7},
 ]
 DEFAULT_LEVERAGE = 7
+MAX_LEVERAGE = 20  # ETH max on HL is 25x, we cap at 20x
 
 
 def safe_float(v, d=0.0):
@@ -61,23 +64,18 @@ def get_leverage_for_score(score):
 
 
 def has_resting_orders(wallet):
-    """Check if there are resting entry orders on the book."""
     data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
-    if not data:
-        return False
+    if not data: return False
     orders = data.get("data", data)
     if isinstance(orders, dict):
         orders = orders.get("orders", orders.get("openOrders", []))
-    if isinstance(orders, list) and len(orders) > 0:
-        return True
+    if isinstance(orders, list) and len(orders) > 0: return True
     return False
 
 
 def evaluate_eth():
-    """Score ETH. All signals are score contributors — no hard gates."""
     raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
     if not raw: return None
-
     markets = raw
     if isinstance(markets, dict): markets = markets.get("data", markets)
     if isinstance(markets, dict): markets = markets.get("markets", markets)
@@ -87,8 +85,7 @@ def evaluate_eth():
     eth = None
     for m in markets:
         if not isinstance(m, dict): continue
-        if str(m.get("token", "")).upper() == ASSET:
-            eth = m; break
+        if str(m.get("token", "")).upper() == ASSET: eth = m; break
     if not eth: return None
 
     d = str(eth.get("direction", "")).upper()
@@ -102,10 +99,8 @@ def evaluate_eth():
     cc_15m = safe_float(eth.get("contribution_pct_change_15m", 0))
     cc_1h = safe_float(eth.get("contribution_pct_change_1h", 0))
 
-    # Need minimum data to score
     if traders < 15: return None
 
-    # Fetch funding
     funding = 0
     try:
         ad = cfg.mcporter_call("market_get_asset_data", asset=ASSET,
@@ -127,7 +122,7 @@ def evaluate_eth():
     # Trader depth (0-1)
     if traders >= 100: score += 1; reasons.append(f"DEEP_CONSENSUS ({traders}t)")
 
-    # 4H price alignment (±2) — score contributor, not gate
+    # 4H price alignment (+/-2)
     if abs(p4h) >= 2.0:
         if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
             score += 2; reasons.append(f"STRONG_4H {p4h:+.1f}%")
@@ -141,12 +136,15 @@ def evaluate_eth():
     if (d == "LONG" and p1h > 0.2) or (d == "SHORT" and p1h < -0.2):
         score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
-    # Contribution velocity — multi-window (NEW: 15m + 1h + 4h)
-    if cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
+    # Contribution velocity — expanded extreme tiers
+    if cc_15m > 5.0: score += 4; reasons.append(f"15M_EXTREME_SPIKE +{cc_15m:.2f}")
+    elif cc_15m > 2.0: score += 3; reasons.append(f"15M_STRONG_SPIKE +{cc_15m:.2f}")
+    elif cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
     elif cc_15m > 0.1: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
     elif cc_15m < -0.5: score -= 1; reasons.append(f"15M_FADING {cc_15m:.2f}")
 
-    if cc_1h > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")
+    if cc_1h > 3.0: score += 2; reasons.append(f"1H_STRONG_ACCEL +{cc_1h:.2f}")
+    elif cc_1h > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")
 
     if abs(cc_4h) >= 5.0: score += 1; reasons.append(f"4H_MAJOR_SHIFT {cc_4h:+.1f}")
 
@@ -167,24 +165,14 @@ def evaluate_eth():
 
 
 def execute_entry(direction, margin, leverage):
-    """Call create_position directly via mcporter."""
     result = cfg.mcporter_call(
-        "create_position",
-        coin=ASSET,
-        direction=direction,
-        leverage=leverage,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": False,
-            "executionTimeoutSeconds": 30,
-        },
+        "create_position", coin=ASSET, direction=direction, leverage=leverage,
+        margin=margin, orderType="FEE_OPTIMIZED_LIMIT",
+        feeOptimizedLimitOptions={"ensureExecutionAsTaker": False, "executionTimeoutSeconds": 30},
     )
-    if result and result.get("success"):
-        return True, result
-    else:
-        error = result.get("error", "unknown") if result else "mcporter_call returned None"
-        return False, {"error": error}
+    if result and result.get("success"): return True, result
+    error = result.get("error", "unknown") if result else "mcporter_call returned None"
+    return False, {"error": error}
 
 
 def load_tc():
@@ -204,80 +192,61 @@ def save_tc(tc):
 def run():
     wallet, sid = cfg.get_wallet_and_strategy()
     if not wallet:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
-        return
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"}); return
 
     av, positions = cfg.get_positions(wallet)
     if av <= 0:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
-        return
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"}); return
 
-    # Check for resting orders
     if has_resting_orders(wallet):
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                     "note": "RESTING ORDER: ETH limit order pending. Waiting for fill."})
-        return
+                     "note": "RESTING ORDER: ETH limit order pending."}); return
 
-    # RIDING: position open → NO_REPLY. DSL manages ALL exits.
     for p in positions:
         if p.get("coin", "").upper() == ASSET:
             cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
                 "note": f"RIDING: ETH {p.get('direction','?')}. DSL manages exit.",
-                "_v2_no_thesis_exit": True})
-            return
+                "_v2_no_thesis_exit": True}); return
 
     tc = load_tc()
     if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"Daily limit ({MAX_DAILY_ENTRIES}) reached"})
-        return
+            "note": f"Daily limit ({MAX_DAILY_ENTRIES}) reached"}); return
 
-    # Cooldown
     last_entry = tc.get("last_entry_ts", 0)
     if last_entry and (time.time() - last_entry) < COOLDOWN_MINUTES * 60:
         remaining = int((COOLDOWN_MINUTES * 60 - (time.time() - last_entry)) / 60)
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"ETH on cooldown ({remaining}min remaining)"})
-        return
+            "note": f"ETH on cooldown ({remaining}min remaining)"}); return
 
     thesis = evaluate_eth()
     if not thesis:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": "HUNTING: no ETH thesis"})
-        return
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "HUNTING: no ETH thesis"}); return
     if thesis["score"] < MIN_SCORE:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"HUNTING: ETH {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"})
-        return
+            "note": f"HUNTING: ETH {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"}); return
 
     leverage = get_leverage_for_score(thesis["score"])
     margin = round(av * MARGIN_PCT, 2)
 
     success, result = execute_entry(thesis["direction"], margin, leverage)
-
     if success:
         tc["entries"] = tc.get("entries", 0) + 1
         tc["last_entry_ts"] = time.time()
         save_tc(tc)
-        cfg.output({
-            "status": "ok", "action": "ENTRY",
+        cfg.output({"status": "ok", "action": "ENTRY",
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                 "score": thesis["score"], "leverage": leverage,
                 "mode": "ETH_HUNTER", "reasons": thesis["reasons"]},
             "execution": {"asset": ASSET, "direction": thesis["direction"],
                 "leverage": leverage, "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-            "result": result,
-            "_polar_version": "2.1",
-        })
+            "result": result, "_polar_version": "2.2"})
     else:
-        cfg.output({
-            "status": "ok", "action": "ENTRY_FAILED",
+        cfg.output({"status": "ok", "action": "ENTRY_FAILED",
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                 "score": thesis["score"], "reasons": thesis["reasons"]},
-            "error": result, "_polar_version": "2.1",
-        })
-
+            "error": result, "_polar_version": "2.2"})
 
 if __name__ == "__main__":
     try: run()
