@@ -1,30 +1,26 @@
 #!/usr/bin/env python3
-# Senpi POLAR Scanner v2.0
+# Senpi POLAR Scanner v2.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""POLAR v2.0 — ETH Alpha Hunter.
+"""POLAR v2.1 — ETH Alpha Hunter (Hardened + Hyperfeed Scoring).
 
-Single-asset ETH lifecycle hunter. The patience benchmark.
-Three consecutive wins at +19.8%, +18.4%, +2.2% ROE after removing
-thesis exit. The proof that scanner enters, DSL exits.
+v2.1 changes from fleet audit (2026-04-06):
+- Scanner calls create_position internally via mcporter (Wolverine pattern)
+- feeOptimizedLimitOptions with ensureExecutionAsTaker: false
+- Conviction-scaled leverage: score 8-9 → 7x, score 10+ → 10x
+- Margin increased to 50%
+- Hard gates (SM%, 4H price, trader count) → score contributors
+- Hyperfeed multi-window contribution velocity (15m, 1h, 4h)
+- Resting order check prevents stacking maker orders
+- No thesis exit (confirmed from v2.0 — scanner enters, DSL exits)
 
-Two modes: HUNT → RIDE (NO_REPLY) → re-HUNT.
-STALKING mode removed (fleet-wide decision: Stalker is dead).
+CRITICAL CONTEXT: Polar is the best gross trader in the fleet (+$235.91
+gross PnL) destroyed by taker fees ($249.79). The ensureExecutionAsTaker=false
+fix is the single highest-impact change. At maker rates, Polar would be
+at +23% ROI instead of -1.4%.
 
-v1.0 had thesis exit in RIDING mode that scratched +0.35% trades
-that would have run to +20%. v2.0 removes it entirely.
-
-All v2.0 fleet fixes:
-- MCP response parsing: handles data.markets.markets nesting
-- Trade counter increments BEFORE output (Phoenix fix)
-- Trade counter auto-resets on stale date
-- evaluate_eth_position: REMOVED ENTIRELY
-- RIDING mode: outputs NO_REPLY only, zero thesis evaluation
-- _v2_no_thesis_exit: True on every output
-- Config helper points to polar-strategy
-
-DSL exit managed by plugin runtime via runtime.yaml.
-Uses: leaderboard_get_markets + market_get_asset_data (2 API calls)
+ETH single-asset lifecycle hunter. HUNT → RIDE → re-HUNT.
+Uses: leaderboard_get_markets + market_get_asset_data + strategy_get_open_orders
 Runs every 3 minutes.
 """
 
@@ -35,34 +31,50 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import polar_config as cfg
 
 ASSET = "ETH"
-DEFAULT_LEVERAGE = 7
-MAX_LEVERAGE = 7
 MAX_POSITIONS = 1
 MAX_DAILY_ENTRIES = 4
 COOLDOWN_MINUTES = 120
-MARGIN_PCT = 0.25
+MARGIN_PCT = 0.50
 MIN_SCORE = 8
 XYZ_BANNED = True
 
-# SM thresholds
-MIN_SM_PCT = 8.0
-MIN_SM_TRADERS = 40
+LEVERAGE_TIERS = [
+    {"min_score": 10, "leverage": 10},
+    {"min_score": 8,  "leverage": 7},
+]
+DEFAULT_LEVERAGE = 7
 
 
 def safe_float(v, d=0.0):
+    if v is None: return d
     try: return float(v)
     except: return d
 
 def now_date(): return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 def now_iso(): return datetime.now(timezone.utc).isoformat()
 
+def get_leverage_for_score(score):
+    for tier in LEVERAGE_TIERS:
+        if score >= tier["min_score"]:
+            return tier["leverage"]
+    return DEFAULT_LEVERAGE
 
-# ═══════════════════════════════════════════════════════════════
-# MCP PARSING — handles data.markets.markets nesting
-# ═══════════════════════════════════════════════════════════════
 
-def fetch_sm_for_eth():
-    """Fetch SM data for ETH. Correctly handles nested MCP response."""
+def has_resting_orders(wallet):
+    """Check if there are resting entry orders on the book."""
+    data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data:
+        return False
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if isinstance(orders, list) and len(orders) > 0:
+        return True
+    return False
+
+
+def evaluate_eth():
+    """Score ETH. All signals are score contributors — no hard gates."""
     raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
     if not raw: return None
 
@@ -72,48 +84,28 @@ def fetch_sm_for_eth():
     if isinstance(markets, dict): markets = markets.get("markets", [])
     if not isinstance(markets, list): return None
 
+    eth = None
     for m in markets:
         if not isinstance(m, dict): continue
-        token = str(m.get("token", "")).upper()
-        if token == ASSET:
-            return {
-                "direction": str(m.get("direction", "")).upper(),
-                "pct": safe_float(m.get("pct_of_top_traders_gain", 0)),
-                "traders": int(m.get("trader_count", 0)),
-                "price_chg_4h": safe_float(m.get("token_price_change_pct_4h", 0)),
-                "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
-                                           m.get("price_change_1h", 0))),
-                "contrib_change": safe_float(m.get("contribution_pct_change_4h", 0)),
-            }
-    return None
-
-
-# ═══════════════════════════════════════════════════════════════
-# ETH THESIS EVALUATION
-# ═══════════════════════════════════════════════════════════════
-
-def evaluate_eth():
-    """Build ETH entry thesis. Returns dict or None."""
-
-    eth = fetch_sm_for_eth()
+        if str(m.get("token", "")).upper() == ASSET:
+            eth = m; break
     if not eth: return None
 
-    d = eth["direction"]
+    d = str(eth.get("direction", "")).upper()
     if d not in ("LONG", "SHORT"): return None
 
-    pct = eth["pct"]
-    traders = eth["traders"]
-    p4h = eth["price_chg_4h"]
-    p1h = eth["price_chg_1h"]
-    cc = eth["contrib_change"]
+    pct = safe_float(eth.get("pct_of_top_traders_gain", 0))
+    traders = int(eth.get("trader_count", 0))
+    p4h = safe_float(eth.get("token_price_change_pct_4h", 0))
+    p1h = safe_float(eth.get("token_price_change_pct_1h", eth.get("price_change_1h", 0)))
+    cc_4h = safe_float(eth.get("contribution_pct_change_4h", 0))
+    cc_15m = safe_float(eth.get("contribution_pct_change_15m", 0))
+    cc_1h = safe_float(eth.get("contribution_pct_change_1h", 0))
 
-    # Hard gates
-    if pct < MIN_SM_PCT: return None
-    if traders < MIN_SM_TRADERS: return None
-    if d == "LONG" and p4h < 0: return None
-    if d == "SHORT" and p4h > 0: return None
+    # Need minimum data to score
+    if traders < 15: return None
 
-    # ── Fetch additional data (funding, OI) ───────────────────
+    # Fetch funding
     funding = 0
     try:
         ad = cfg.mcporter_call("market_get_asset_data", asset=ASSET,
@@ -125,44 +117,47 @@ def evaluate_eth():
                 funding = safe_float(ac.get("funding", 0))
     except: pass
 
-    # ── Scoring ───────────────────────────────────────────────
-
     score, reasons = 0, []
 
     # SM concentration (0-3)
-    if pct >= 15:
-        score += 3; reasons.append(f"SM_DOMINANT {pct:.1f}% ({traders}t)")
-    elif pct >= 10:
-        score += 2; reasons.append(f"SM_STRONG {pct:.1f}% ({traders}t)")
-    else:
-        score += 1; reasons.append(f"SM_ALIGNED {pct:.1f}% ({traders}t)")
+    if pct >= 15: score += 3; reasons.append(f"DOMINANT_SM {pct:.1f}% ({traders}t)")
+    elif pct >= 10: score += 2; reasons.append(f"STRONG_SM {pct:.1f}% ({traders}t)")
+    elif pct >= 5: score += 1; reasons.append(f"SM_ALIGNED {pct:.1f}% ({traders}t)")
 
-    # SM depth (0-1)
-    if traders >= 100:
-        score += 1; reasons.append(f"DEEP_SM ({traders}t)")
+    # Trader depth (0-1)
+    if traders >= 100: score += 1; reasons.append(f"DEEP_CONSENSUS ({traders}t)")
 
-    # 4H trend strength (0-2)
-    abs_4h = abs(p4h)
-    if abs_4h >= 2.0:
-        score += 2; reasons.append(f"STRONG_4H {p4h:+.1f}%")
-    elif abs_4h >= 0.5:
-        score += 1; reasons.append(f"4H_CONFIRMS {p4h:+.1f}%")
+    # 4H price alignment (±2) — score contributor, not gate
+    if abs(p4h) >= 2.0:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score += 2; reasons.append(f"STRONG_4H {p4h:+.1f}%")
+        else:
+            score -= 1; reasons.append(f"4H_OPPOSING {p4h:+.1f}%")
+    elif abs(p4h) >= 0.5:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score += 1; reasons.append(f"4H_CONFIRMS {p4h:+.1f}%")
 
     # 1H momentum (0-1)
     if (d == "LONG" and p1h > 0.2) or (d == "SHORT" and p1h < -0.2):
         score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
-    # Contribution velocity (0-2)
-    if abs(cc) >= 0.03:
-        score += 2; reasons.append(f"CONTRIB_SURGE +{abs(cc)*100:.1f}%")
-    elif abs(cc) >= 0.01:
-        score += 1; reasons.append(f"CONTRIB_GROWING +{abs(cc)*100:.2f}%")
+    # Contribution velocity — multi-window (NEW: 15m + 1h + 4h)
+    if cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
+    elif cc_15m > 0.1: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
+    elif cc_15m < -0.5: score -= 1; reasons.append(f"15M_FADING {cc_15m:.2f}")
+
+    if cc_1h > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")
+
+    if abs(cc_4h) >= 5.0: score += 1; reasons.append(f"4H_MAJOR_SHIFT {cc_4h:+.1f}")
+
+    if cc_15m > 0 and cc_1h > 0 and cc_15m > cc_1h:
+        score += 1; reasons.append(f"ACCEL_PATTERN 15m({cc_15m:.2f})>1h({cc_1h:.2f})")
 
     # Funding alignment (0-1)
     if (d == "SHORT" and funding > 0.0002) or (d == "LONG" and funding < -0.0002):
         score += 1; reasons.append(f"FUNDING_PAYS {funding*100:.4f}%")
 
-    # Time of day (0-1)
+    # US session bonus (0-1)
     hour = datetime.now(timezone.utc).hour
     if 13 <= hour <= 21:
         score += 1; reasons.append("US_SESSION")
@@ -171,9 +166,26 @@ def evaluate_eth():
             "smPct": pct, "smTraders": traders, "priceChg4h": p4h}
 
 
-# ═══════════════════════════════════════════════════════════════
-# TRADE COUNTER — HARDENED (Phoenix fix)
-# ═══════════════════════════════════════════════════════════════
+def execute_entry(direction, margin, leverage):
+    """Call create_position directly via mcporter."""
+    result = cfg.mcporter_call(
+        "create_position",
+        coin=ASSET,
+        direction=direction,
+        leverage=leverage,
+        margin=margin,
+        orderType="FEE_OPTIMIZED_LIMIT",
+        feeOptimizedLimitOptions={
+            "ensureExecutionAsTaker": False,
+            "executionTimeoutSeconds": 30,
+        },
+    )
+    if result and result.get("success"):
+        return True, result
+    else:
+        error = result.get("error", "unknown") if result else "mcporter_call returned None"
+        return False, {"error": error}
+
 
 def load_tc():
     p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
@@ -189,10 +201,6 @@ def save_tc(tc):
     cfg.atomic_write(os.path.join(cfg.STATE_DIR, "trade-counter.json"), tc)
 
 
-# ═══════════════════════════════════════════════════════════════
-# MAIN — NO evaluate_eth_position, NO thesis exit
-# ═══════════════════════════════════════════════════════════════
-
 def run():
     wallet, sid = cfg.get_wallet_and_strategy()
     if not wallet:
@@ -204,9 +212,13 @@ def run():
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
         return
 
-    # ── RIDING: ETH position open → NO_REPLY (DSL manages exit) ──
-    # NO thesis evaluation. NO evaluate_eth_position. NO close_position.
-    # The scanner ONLY outputs NO_REPLY when a position is open.
+    # Check for resting orders
+    if has_resting_orders(wallet):
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                     "note": "RESTING ORDER: ETH limit order pending. Waiting for fill."})
+        return
+
+    # RIDING: position open → NO_REPLY. DSL manages ALL exits.
     for p in positions:
         if p.get("coin", "").upper() == ASSET:
             cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
@@ -214,76 +226,62 @@ def run():
                 "_v2_no_thesis_exit": True})
             return
 
-    # ── Trade counter (HARDENED) ──────────────────────────────
     tc = load_tc()
     if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
             "note": f"Daily limit ({MAX_DAILY_ENTRIES}) reached"})
         return
 
-    # ── Cooldown ──────────────────────────────────────────────
-    if cfg.is_asset_cooled_down(ASSET, COOLDOWN_MINUTES):
+    # Cooldown
+    last_entry = tc.get("last_entry_ts", 0)
+    if last_entry and (time.time() - last_entry) < COOLDOWN_MINUTES * 60:
+        remaining = int((COOLDOWN_MINUTES * 60 - (time.time() - last_entry)) / 60)
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"ETH on cooldown ({COOLDOWN_MINUTES}min)"})
+            "note": f"ETH on cooldown ({remaining}min remaining)"})
         return
 
-    # ── Evaluate thesis (entry ONLY — no position re-evaluation) ──
     thesis = evaluate_eth()
-
     if not thesis:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
             "note": "HUNTING: no ETH thesis"})
         return
-
     if thesis["score"] < MIN_SCORE:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"HUNTING: ETH {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. "
-                    f"{', '.join(thesis['reasons'][:3])}"})
+            "note": f"HUNTING: ETH {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"})
         return
 
-    # ── Entry ─────────────────────────────────────────────────
+    leverage = get_leverage_for_score(thesis["score"])
     margin = round(av * MARGIN_PCT, 2)
 
-    # INCREMENT COUNTER BEFORE OUTPUT (Phoenix fix)
-    tc["entries"] = tc.get("entries", 0) + 1
-    save_tc(tc)
+    success, result = execute_entry(thesis["direction"], margin, leverage)
 
-    cfg.output({
-        "status": "ok",
-        "signal": {
-            "asset": ASSET,
-            "direction": thesis["direction"],
-            "score": thesis["score"],
-            "mode": "ETH_HUNTER",
-            "reasons": thesis["reasons"],
-            "smPct": thesis["smPct"],
-            "smTraders": thesis["smTraders"],
-            "priceChg4h": thesis["priceChg4h"],
-        },
-        "entry": {
-            "asset": ASSET,
-            "direction": thesis["direction"],
-            "leverage": DEFAULT_LEVERAGE,
-            "margin": margin,
-            "orderType": "FEE_OPTIMIZED_LIMIT",
-        },
-        "constraints": {
-            "maxPositions": MAX_POSITIONS,
-            "maxLeverage": MAX_LEVERAGE,
-            "maxDailyEntries": MAX_DAILY_ENTRIES,
-            "cooldownMinutes": COOLDOWN_MINUTES,
-            "_v2_no_thesis_exit": True,
-            "_note": f"DSL managed by plugin runtime. Counter: {tc['entries']}/{MAX_DAILY_ENTRIES}",
-        },
-        "_polar_version": "2.0",
-    })
+    if success:
+        tc["entries"] = tc.get("entries", 0) + 1
+        tc["last_entry_ts"] = time.time()
+        save_tc(tc)
+        cfg.output({
+            "status": "ok", "action": "ENTRY",
+            "signal": {"asset": ASSET, "direction": thesis["direction"],
+                "score": thesis["score"], "leverage": leverage,
+                "mode": "ETH_HUNTER", "reasons": thesis["reasons"]},
+            "execution": {"asset": ASSET, "direction": thesis["direction"],
+                "leverage": leverage, "margin": margin,
+                "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
+            "result": result,
+            "_polar_version": "2.1",
+        })
+    else:
+        cfg.output({
+            "status": "ok", "action": "ENTRY_FAILED",
+            "signal": {"asset": ASSET, "direction": thesis["direction"],
+                "score": thesis["score"], "reasons": thesis["reasons"]},
+            "error": result, "_polar_version": "2.1",
+        })
 
 
 if __name__ == "__main__":
-    try:
-        run()
+    try: run()
     except Exception as e:
         cfg.log(f"CRITICAL: {e}")
-        import traceback
-        traceback.print_exc(file=sys.stderr)
+        import traceback; traceback.print_exc(file=sys.stderr)
         cfg.output({"status": "error", "error": str(e)})
