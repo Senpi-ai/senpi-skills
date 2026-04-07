@@ -49,7 +49,7 @@ This was proven across 30+ live agents with real money. The fleet's top performe
      └────────┬─────────┘ └────────┬─────────┘ └────────┬────────┘
               │                    │                     │
      ┌────────▼────────┐ ┌────────▼────────┐ ┌─────────▼───────┐
-     │   VAULT ($1K)   │ │   VAULT ($1K)   │ │   VAULT ($1K)   │
+     │   Wallet ($1K)   │ │   Wallet ($1K)   │ │   Wallet ($1K)   │
      │  Funded wallet   │ │  Funded wallet   │ │  Funded wallet   │
      │  Live on Hyperl. │ │  Live on Hyperl. │ │  Live on Hyperl. │
      └─────────────────┘ └─────────────────┘ └─────────────────┘
