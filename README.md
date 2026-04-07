@@ -266,21 +266,12 @@ When scanners re-evaluate open positions and close them on "thesis invalidation,
 
 Two agents can have nearly identical profit but wildly different fee loads. The difference: FEE_OPTIMIZED_LIMIT orders and wider DSL that doesn't churn in and out.
 
-**All new agents must use FEE_OPTIMIZED_LIMIT and target a profit-to-fee ratio above 5:1.**
+**Whereever possible use FEE_OPTIMIZED_LIMIT and target a profit-to-fee ratio above 5:1.**
 
 ### 3. XYZ Equities Banned at Parse Level
 
 XYZ assets (equities, indices, commodities) have different trading hours, spread characteristics, and liquidity profiles. All non-Bald Eagle scanners reject XYZ assets at the parse step.
 
-### 4. Missing Wallet Fields Caused $3K+ in Losses
-
-8 agents lost money because their DSL state files were missing `wallet` and `strategyWalletAddress` fields. Without these, the DSL engine can't match the state to the onchain position, and the position runs completely unprotected.
-
-**The plugin runtime eliminates this class of bug entirely** by tracking positions onchain (no state files).
-
-### 5. Write "onchain" Not "on-chain"
-
-Branding consistency.
 
 ---
 
