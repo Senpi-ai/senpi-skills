@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-# Senpi GRIZZLY Scanner v3.1
+# Senpi GRIZZLY Scanner v3.2
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""GRIZZLY v3.1 — BTC Alpha Hunter (Hardened).
+"""GRIZZLY v3.2 — BTC Alpha Hunter (Conviction Leverage + Extreme Velocity).
+
+v3.2 changes:
+- Conviction-scaled leverage: score 8->7x, 9->10x, 10->15x, 11+->20x
+- Extreme velocity tiers: 15m >5.0->+4pts, >2.0->+3pts (was capped at +2)
+- 1h acceleration: >3.0->+2pts (was capped at +1)
+- BTC max leverage on Hyperliquid is 40x, we cap at 20x
 
 v3.1 changes from fleet audit:
 - Scanner calls create_position internally via mcporter (Wolverine pattern)
 - feeOptimizedLimitOptions with ensureExecutionAsTaker: false
-- Conviction-scaled leverage: score 8-9 → 7x, score 10+ → 10x
-- 4H price alignment: was HARD GATE → now score contributor
-- SM thresholds: was HARD GATE (5%/30t) → now score contributors
+- 4H price alignment: was HARD GATE -> now score contributor
+- SM thresholds: was HARD GATE (5%/30t) -> now score contributors
 - Margin increased to 50%
 - No thesis exit (unchanged from v3.0)
 - Checks resting orders before placing new entries (race condition fix)
@@ -32,10 +37,13 @@ MARGIN_PCT = 0.50
 MIN_SCORE = 8
 
 LEVERAGE_TIERS = [
-    {"min_score": 10, "leverage": 10},
+    {"min_score": 11, "leverage": 20},
+    {"min_score": 10, "leverage": 15},
+    {"min_score": 9,  "leverage": 10},
     {"min_score": 8,  "leverage": 7},
 ]
 DEFAULT_LEVERAGE = 7
+MAX_LEVERAGE = 20  # BTC max on HL is 40x, we cap at 20x
 
 def safe_float(v, d=0.0):
     try: return float(v)
@@ -50,21 +58,16 @@ def get_leverage_for_score(score):
     return DEFAULT_LEVERAGE
 
 def has_resting_orders(wallet):
-    """Check if there are resting entry orders on the book.
-    Prevents stacking multiple maker orders that lock up margin."""
     data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
-    if not data:
-        return False
+    if not data: return False
     orders = data.get("data", data)
     if isinstance(orders, dict):
         orders = orders.get("orders", orders.get("openOrders", []))
-    if isinstance(orders, list) and len(orders) > 0:
-        return True
+    if isinstance(orders, list) and len(orders) > 0: return True
     return False
 
 
 def evaluate_btc():
-    """Score BTC. All signals are score contributors — no hard gates."""
     raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
     if not raw: return None
     markets = raw.get("data", raw)
@@ -87,7 +90,6 @@ def evaluate_btc():
     cc_15m = safe_float(btc.get("contribution_pct_change_15m",0))
     cc_1h_contrib = safe_float(btc.get("contribution_pct_change_1h",0))
 
-    # Need minimum data to score anything
     if traders < 10: return None
 
     funding = 0
@@ -105,7 +107,7 @@ def evaluate_btc():
     elif pct >= 10: score += 2; reasons.append(f"STRONG_SM {pct:.1f}% ({traders}t)")
     elif pct >= 5: score += 1; reasons.append(f"SM_ALIGNED {pct:.1f}% ({traders}t)")
 
-    # 4H price alignment (±2) — was hard gate, now score contributor
+    # 4H price alignment (+/-2)
     if abs(p4h) >= 2.0:
         if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
             score += 2; reasons.append(f"STRONG_4H {p4h:+.1f}%")
@@ -119,12 +121,15 @@ def evaluate_btc():
     if (d=="LONG" and p1h>0.2) or (d=="SHORT" and p1h<-0.2):
         score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
-    # Contribution velocity — multi-window (NEW: 15m + 1h + 4h)
-    if cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
+    # Contribution velocity — expanded extreme tiers
+    if cc_15m > 5.0: score += 4; reasons.append(f"15M_EXTREME_SPIKE +{cc_15m:.2f}")
+    elif cc_15m > 2.0: score += 3; reasons.append(f"15M_STRONG_SPIKE +{cc_15m:.2f}")
+    elif cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
     elif cc_15m > 0.1: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
     elif cc_15m < -0.5: score -= 1; reasons.append(f"15M_FADING {cc_15m:.2f}")
 
-    if cc_1h_contrib > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h_contrib:.2f}")
+    if cc_1h_contrib > 3.0: score += 2; reasons.append(f"1H_STRONG_ACCEL +{cc_1h_contrib:.2f}")
+    elif cc_1h_contrib > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h_contrib:.2f}")
 
     if abs(cc)>=5.0: score += 1; reasons.append(f"4H_MAJOR_SHIFT {cc:+.1f}")
 
@@ -142,24 +147,14 @@ def evaluate_btc():
 
 
 def execute_entry(direction, margin, leverage):
-    """Call create_position directly via mcporter."""
     result = cfg.mcporter_call(
-        "create_position",
-        coin=ASSET,
-        direction=direction,
-        leverage=leverage,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": False,
-            "executionTimeoutSeconds": 30,
-        },
+        "create_position", coin=ASSET, direction=direction, leverage=leverage,
+        margin=margin, orderType="FEE_OPTIMIZED_LIMIT",
+        feeOptimizedLimitOptions={"ensureExecutionAsTaker": False, "executionTimeoutSeconds": 30},
     )
-    if result and result.get("success"):
-        return True, result
-    else:
-        error = result.get("error", "unknown") if result else "mcporter_call returned None"
-        return False, {"error": error}
+    if result and result.get("success"): return True, result
+    error = result.get("error", "unknown") if result else "mcporter_call returned None"
+    return False, {"error": error}
 
 
 def load_tc():
@@ -183,15 +178,12 @@ def run():
     av, positions = cfg.get_positions(wallet)
     if av <= 0: cfg.output({"status":"ok","heartbeat":"NO_REPLY","note":"cannot read account"}); return
 
-    # Check for resting orders — don't stack entries
     if has_resting_orders(wallet):
-        cfg.output({"status":"ok","heartbeat":"NO_REPLY",
-                     "note":"RESTING ORDER: BTC limit order pending. Waiting for fill."}); return
+        cfg.output({"status":"ok","heartbeat":"NO_REPLY","note":"RESTING ORDER: BTC limit order pending."}); return
 
     for p in positions:
         if p.get("coin","").upper() == ASSET:
-            cfg.output({"status":"ok","heartbeat":"NO_REPLY",
-                "note":"RIDING: BTC. DSL manages exit.","_v2_no_thesis_exit":True}); return
+            cfg.output({"status":"ok","heartbeat":"NO_REPLY","note":"RIDING: BTC. DSL manages exit.","_v2_no_thesis_exit":True}); return
 
     tc = load_tc()
     if tc.get("entries",0) >= MAX_DAILY_ENTRIES:
@@ -211,25 +203,19 @@ def run():
     margin = round(av * MARGIN_PCT, 2)
 
     success, result = execute_entry(thesis["direction"], margin, leverage)
-
     if success:
         tc["entries"] = tc.get("entries",0) + 1
         save_tc(tc)
-        cfg.output({
-            "status":"ok", "action":"ENTRY",
+        cfg.output({"status":"ok","action":"ENTRY",
             "signal":{"asset":ASSET,"direction":thesis["direction"],"score":thesis["score"],
                 "leverage":leverage,"mode":"BTC_HUNTER","reasons":thesis["reasons"]},
             "execution":{"asset":ASSET,"direction":thesis["direction"],"leverage":leverage,
                 "margin":margin,"orderType":"FEE_OPTIMIZED_LIMIT","ensureExecutionAsTaker":False},
-            "result":result,
-            "_grizzly_version":"3.1",
-        })
+            "result":result,"_grizzly_version":"3.2"})
     else:
-        cfg.output({
-            "status":"ok","action":"ENTRY_FAILED",
+        cfg.output({"status":"ok","action":"ENTRY_FAILED",
             "signal":{"asset":ASSET,"direction":thesis["direction"],"score":thesis["score"],"reasons":thesis["reasons"]},
-            "error":result, "_grizzly_version":"3.1",
-        })
+            "error":result,"_grizzly_version":"3.2"})
 
 if __name__ == "__main__":
     try: run()
