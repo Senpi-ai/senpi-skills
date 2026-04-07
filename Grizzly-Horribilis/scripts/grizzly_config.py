@@ -1,5 +1,6 @@
-"""GRIZZLY Strategy — Shared config, MCP helpers, state I/O.
-Self-contained — does not depend on wolf_config."""
+"""GRIZZLY HORRIBILIS — Shared config, MCP helpers, state I/O.
+Self-contained — does not depend on wolf_config.
+v1.1: Paths set for grizzly-strategy install dir."""
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
@@ -24,10 +25,9 @@ COOLDOWN_FILE = STATE_DIR / "asset-cooldowns.json"
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ─── Atomic Write ────────────────────────────────────────────
+# --- Atomic Write ---
 
 def atomic_write(path, data):
-    """Write JSON atomically via tmp file + os.replace."""
     path = str(path)
     dir_name = os.path.dirname(path) or "."
     os.makedirs(dir_name, exist_ok=True)
@@ -44,7 +44,7 @@ def atomic_write(path, data):
         raise
 
 
-# ─── Config ──────────────────────────────────────────────────
+# --- Config ---
 
 def load_config():
     if CONFIG_PATH.exists():
@@ -54,8 +54,8 @@ def load_config():
 
 
 def get_wallet_and_strategy():
-    wallet = os.environ.get("MANTIS_WALLET", "")
-    strategy_id = os.environ.get("MANTIS_STRATEGY_ID", "")
+    wallet = os.environ.get("GRIZZLY_WALLET", os.environ.get("MANTIS_WALLET", ""))
+    strategy_id = os.environ.get("GRIZZLY_STRATEGY_ID", os.environ.get("MANTIS_STRATEGY_ID", ""))
     if not wallet or not strategy_id:
         config = load_config()
         wallet = wallet or config.get("wallet", "")
@@ -63,7 +63,7 @@ def get_wallet_and_strategy():
     return wallet, strategy_id
 
 
-# ─── State I/O ───────────────────────────────────────────────
+# --- State I/O ---
 
 def load_state(filename="state.json"):
     path = STATE_DIR / filename
@@ -77,7 +77,7 @@ def save_state(data, filename="state.json"):
     atomic_write(str(STATE_DIR / filename), data)
 
 
-# ─── Trade Counter ───────────────────────────────────────────
+# --- Trade Counter (with midnight rollover fix) ---
 
 def load_trade_counter():
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -86,12 +86,12 @@ def load_trade_counter():
         "date": today, "entries": 0, "realizedPnl": 0,
         "gate": "OPEN", "gateReason": None, "cooldownUntil": None,
         "lastResults": [],
-        "stalkerResults": [],  # v1.2: track Stalker W/L for streak detection
     }
     if path.exists():
         try:
             with open(path) as f:
                 tc = json.load(f)
+            # CRITICAL: reset if date changed (midnight rollover fix)
             if tc.get("date") != today:
                 for k in ["entries", "realizedPnl"]:
                     tc[k] = 0
@@ -99,7 +99,6 @@ def load_trade_counter():
                 tc["gate"] = "OPEN"
                 tc["gateReason"] = None
                 tc["cooldownUntil"] = None
-                # NOTE: stalkerResults persists across days (streak spans sessions)
             for k, v in default.items():
                 if k not in tc:
                     tc[k] = v
@@ -114,16 +113,7 @@ def save_trade_counter(tc):
     atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
 
 
-def record_stalker_result(tc, is_win):
-    """v1.2: Track Stalker trade results for streak detection.
-    If a win, reset the streak. Keep last 10 results."""
-    results = tc.get("stalkerResults", [])
-    results.append("W" if is_win else "L")
-    tc["stalkerResults"] = results[-10:]
-    save_trade_counter(tc)
-
-
-# ─── Asset Cooldowns ─────────────────────────────────────────
+# --- Asset Cooldowns ---
 
 def load_cooldowns():
     if COOLDOWN_FILE.exists():
@@ -140,7 +130,6 @@ def save_cooldowns(cooldowns):
 
 
 def is_asset_cooled_down(token, cooldown_minutes=120):
-    """Check if an asset is in cooldown after a Phase 1 exit."""
     cooldowns = load_cooldowns()
     if token not in cooldowns:
         return False
@@ -150,7 +139,6 @@ def is_asset_cooled_down(token, cooldown_minutes=120):
 
 
 def set_asset_cooldown(token, reason="phase1_exit"):
-    """Set a cooldown on an asset after Phase 1 exit."""
     cooldowns = load_cooldowns()
     cooldowns[token] = {
         "exitTimestamp": now_ts(),
@@ -160,7 +148,7 @@ def set_asset_cooldown(token, reason="phase1_exit"):
     save_cooldowns(cooldowns)
 
 
-# ─── Scanner History ─────────────────────────────────────────
+# --- Scanner History ---
 
 def load_scan_history():
     try:
@@ -176,10 +164,9 @@ def save_scan_history(history, max_scans=60):
     atomic_write(HISTORY_FILE, history)
 
 
-# ─── MCP Helpers ─────────────────────────────────────────────
+# --- MCP Helpers ---
 
 def mcporter_call(tool, retries=2, timeout=25, **params):
-    """Call a Senpi MCP tool via mcporter."""
     args = json.dumps(params) if params else "{}"
     cmd = ["mcporter", "call", "senpi", tool, "--args", args]
     for attempt in range(retries):
@@ -248,6 +235,10 @@ def get_positions(wallet):
 def output(data):
     print(json.dumps(data))
     sys.stdout.flush()
+
+
+def log(msg):
+    print(f"[HORRIBILIS] {msg}", file=sys.stderr, flush=True)
 
 
 def now_ts():
