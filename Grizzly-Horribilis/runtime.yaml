@@ -1,14 +1,15 @@
 name: horribilis-tracker
 version: 1.0.0
 description: >
-  BTC conviction-scaled leverage hunter. 7x to 40x based on conviction.
-  Always protected by DSL. The most aggressive bear.
+  BTC conviction-scaled leverage hunter v1.1. 7x at score 8-9, 10x at score 10+.
+  50% margin per trade. Always protected by RatchetStop.
+  Aggressive Phase 2 locks — profits protected fast.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
   slots: 1
-  margin_per_slot: 150
+  margin_per_slot: 500
   enabled: true
 
 scanners:
@@ -22,28 +23,38 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# DSL is CRITICAL for Horribilis. At 40x, an 8% ROE retrace = 0.2% price.
-# Phase 1 protects aggressively. Phase 2 locks profits FAST.
+# RatchetStop configuration (user-facing: DSL)
+# Scanner enters. RatchetStop exits. Scanner must NEVER exit positions.
+# BTC-tuned timings: BTC moves slowly, needs hours not minutes.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
+    # BTC needs wide timings — 0.6% moves in 4 hours
     hard_timeout:
       enabled: true
-      interval_in_minutes: 180
+      interval_in_minutes: 360
     weak_peak_cut:
-      enabled: false
+      enabled: true
+      interval_in_minutes: 120
+      min_value: 3.0
     dead_weight_cut:
-      enabled: false
+      enabled: true
+      interval_in_minutes: 90
+
+    # Phase 1: Loss protection
     phase1:
       enabled: true
       max_loss_pct: 25.0
       retrace_threshold: 8
       consecutive_breaches_required: 3
+
+    # Phase 2: RatchetStop profit trailing
+    # Aggressive locks — Horribilis takes profits fast
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 5,  lock_hw_pct: 30 }
+        - { trigger_pct: 5, lock_hw_pct: 30 }
         - { trigger_pct: 10, lock_hw_pct: 50 }
         - { trigger_pct: 15, lock_hw_pct: 70 }
         - { trigger_pct: 20, lock_hw_pct: 85 }

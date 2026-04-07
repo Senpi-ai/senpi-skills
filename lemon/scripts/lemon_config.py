@@ -1,5 +1,8 @@
 """LEMON v1.0 — Degen Fader Config Helper.
-Self-contained. Standard Senpi skill pattern."""
+Self-contained. Standard Senpi skill pattern.
+
+v1.0.1: Fixed midnight rollover bug — load_trade_counter() now checks
+date before returning, preventing permanent lock at daily limit."""
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 
@@ -54,18 +57,31 @@ def get_wallet_and_strategy():
     return w, s
 
 
-# ─── Trade Counter ───────────────────────────────────────────
+# --- Trade Counter (FIXED: midnight rollover) ---
 
 def load_trade_counter():
+    """Load trade counter. CRITICAL: resets at midnight UTC.
+    v1.0 bug: counter never reset, permanently stuck at daily limit."""
+    today = now_date()
     p = STATE_DIR / "trade-counter.json"
+    default = {"date": today, "entries": 0, "dailyLoss": 0,
+               "consecutiveLosses": 0, "gate": "OPEN"}
     if p.exists():
         try:
             with open(p) as f:
-                return json.load(f)
+                tc = json.load(f)
+            # CRITICAL FIX: check if date has changed
+            if tc.get("date") != today:
+                return {"date": today, "entries": 0, "dailyLoss": 0,
+                        "consecutiveLosses": 0, "gate": "OPEN"}
+            # Backfill missing keys
+            for k, v in default.items():
+                if k not in tc:
+                    tc[k] = v
+            return tc
         except (json.JSONDecodeError, IOError):
             pass
-    return {"date": now_date(), "entries": 0, "dailyLoss": 0,
-            "consecutiveLosses": 0, "gate": "OPEN"}
+    return dict(default)
 
 
 def save_trade_counter(tc):
@@ -75,7 +91,7 @@ def save_trade_counter(tc):
     atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
 
 
-# ─── Cooldown ────────────────────────────────────────────────
+# --- Cooldown ---
 
 def is_on_cooldown(coin, minutes=180):
     p = STATE_DIR / "cooldowns.json"
@@ -105,7 +121,7 @@ def set_cooldown(coin, minutes=180):
     atomic_write(str(p), cooldowns)
 
 
-# ─── Scan History (for cluster detection) ────────────────────
+# --- Scan History ---
 
 def load_scan_history():
     p = STATE_DIR / "scan-history.json"
@@ -125,7 +141,7 @@ def save_scan_history(history):
     atomic_write(str(STATE_DIR / "scan-history.json"), history)
 
 
-# ─── MCP ─────────────────────────────────────────────────────
+# --- MCP ---
 
 def mcporter_call(tool, retries=2, timeout=30, **params):
     args = json.dumps(params) if params else "{}"
