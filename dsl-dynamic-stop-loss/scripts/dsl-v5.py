@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
-"""DSL v5 — Strategy-scoped cron, MCP clearinghouse + price, delete on close.
+"""DSL v5.3.1 — Strategy-scoped cron, MCP clearinghouse + price, archive on close.
 Cron is per strategy (DSL_STATE_DIR + DSL_STRATEGY_ID only). Each run:
-1. Check if strategy is active via MCP; if not, cleanup all state files and output strategy_inactive.
-2. Get active positions from MCP clearinghouse; delete state files for positions that no longer exist.
-3. For each remaining position with a state file: fetch price, update tiers, breach, close if needed, delete state on close.
+1. Check if strategy is active via MCP; if not, cleanup active state files and output strategy_inactive.
+2. For each state file with slOrderId: call execution_get_order_status; if filled, rename to {asset}_archived_sl_{epoch}.json.
+3. Get active positions from MCP clearinghouse; rename state files for positions no longer present to {asset}_archived_external_{epoch}.json.
+4. For each remaining position: fetch price, update tiers, breach, close if needed; on close rename to {asset}_archived_{epoch}.json.
+Phase 1 SL uses MARKET (fast exit); Phase 2 (tiered) SL uses LIMIT. Phase 2 default: 1 breach to close.
 Output: one JSON line per position (ndjson), or one line for strategy-level outcome (inactive / no_positions).
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
@@ -20,6 +23,16 @@ from datetime import datetime, timezone
 # ---------------------------------------------------------------------------
 
 DEFAULT_STATE_DIR = "/data/workspace/dsl"
+
+
+def _safe_int(value, default: int = 0) -> int:
+    """Convert to int without raising; return default on failure."""
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def asset_to_filename(asset: str) -> str:
@@ -52,12 +65,14 @@ def resolve_state_file(state_dir: str, strategy_id: str, asset: str) -> tuple[st
 
 
 def list_strategy_state_files(state_dir: str, strategy_id: str) -> list[tuple[str, str]]:
-    """Return list of (path, asset) for each .json in strategy dir. asset from filename."""
+    """Return list of (path, asset) for each active .json in strategy dir (excludes *_archived_* files)."""
     out = []
     strategy_dir = os.path.join(state_dir, strategy_id)
     if not os.path.isdir(strategy_dir):
         return out
     for name in os.listdir(strategy_dir):
+        if name.startswith("strategy-") or "_archived" in name or ".archived" in name:
+            continue
         path = os.path.join(strategy_dir, name)
         if not name.endswith(".json") or not os.path.isfile(path):
             continue
@@ -80,6 +95,33 @@ def dex_and_lookup_symbol(asset: str) -> tuple[str, str]:
 
 # Strategy statuses that allow DSL to run (Senpi MCP strategy_get).
 DSL_ACTIVE_STATUSES = ("ACTIVE", "PAUSED")
+
+
+def _mcp_result_ok(result) -> bool:
+    """2-tuple (result, error): success when error is None; 3-tuple (success, *rest): success when first is True."""
+    if result is None or not isinstance(result, tuple) or len(result) < 2:
+        return False
+    if len(result) == 2:
+        return result[1] is None
+    return result[0] is True
+
+
+def _retry_mcp_call(fn, *args, max_attempts=4, delay_seconds=1.0, on_exception=None, **kwargs):
+    """Run fn(*args, **kwargs); on failure, retry up to max_attempts (1 initial + 3 retries).
+    If on_exception is set, it must be a callable (e) -> result used when an exception is
+    caught, so the returned value matches the wrapped function's tuple size (e.g. 3-tuple).
+    """
+    last_result = None
+    for attempt in range(max_attempts):
+        try:
+            last_result = fn(*args, **kwargs)
+            if _mcp_result_ok(last_result):
+                return last_result
+        except Exception as e:
+            last_result = (on_exception(e)) if on_exception else (None, str(e))
+        if attempt + 1 < max_attempts:
+            time.sleep(delay_seconds)
+    return last_result
 
 
 def _unwrap_mcporter_response(stdout_str: str) -> dict | None:
@@ -105,8 +147,8 @@ def _unwrap_mcporter_response(stdout_str: str) -> dict | None:
     return raw
 
 
-def _mcp_strategy_get(strategy_id: str) -> tuple[dict | None, str | None]:
-    """Call senpi strategy_get via mcporter. Returns (strategy dict with status, strategyWalletAddress, ...), error."""
+def _mcp_strategy_get_once(strategy_id: str) -> tuple[dict | None, str | None]:
+    """Single attempt: (strategy dict, error)."""
     try:
         r = subprocess.run(
             ["mcporter", "call", "senpi", "strategy_get", "--args", json.dumps({"strategy_id": strategy_id})],
@@ -130,6 +172,11 @@ def _mcp_strategy_get(strategy_id: str) -> tuple[dict | None, str | None]:
         return None, str(e)
 
 
+def _mcp_strategy_get(strategy_id: str) -> tuple[dict | None, str | None]:
+    """Call senpi strategy_get via mcporter. Returns (strategy dict, error). 4 attempts (1 initial + 3 retries) on failure."""
+    return _retry_mcp_call(_mcp_strategy_get_once, strategy_id)
+
+
 def get_strategy_active_and_wallet(strategy_id: str) -> tuple[bool, str | None, str | None, bool]:
     """Check if strategy is active via Senpi MCP strategy_get (not clearinghouse).
     Returns (active, wallet, message, confirmed_inactive).
@@ -149,9 +196,8 @@ def get_strategy_active_and_wallet(strategy_id: str) -> tuple[bool, str | None, 
     return True, wallet, None, False
 
 
-def _mcp_clearinghouse(wallet: str) -> tuple[dict | None, str | None]:
-    """Call senpi strategy_get_clearinghouse_state via mcporter. Single call returns data.main + data.xyz.
-    Returns (data dict with main/xyz and assetPositions, error)."""
+def _mcp_clearinghouse_once(wallet: str) -> tuple[dict | None, str | None]:
+    """Single attempt: (data dict with main/xyz and assetPositions), error."""
     try:
         r = subprocess.run(
             ["mcporter", "call", "senpi", "strategy_get_clearinghouse_state", "--args", json.dumps({"strategy_wallet": wallet})],
@@ -166,6 +212,11 @@ def _mcp_clearinghouse(wallet: str) -> tuple[dict | None, str | None]:
         return data, None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return None, str(e)
+
+
+def _mcp_clearinghouse(wallet: str) -> tuple[dict | None, str | None]:
+    """Call senpi strategy_get_clearinghouse_state via mcporter. 4 attempts (1 initial + 3 retries) on failure."""
+    return _retry_mcp_call(_mcp_clearinghouse_once, wallet)
 
 
 def get_active_position_coins(wallet: str) -> tuple[set[str], str | None]:
@@ -186,20 +237,27 @@ def get_active_position_coins(wallet: str) -> tuple[set[str], str | None]:
 
 
 def cleanup_strategy_state_dir(state_dir: str, strategy_id: str) -> int:
-    """Delete all .json state files in strategy dir. Return count deleted."""
-    deleted = 0
+    """Archive only active position .json state files (rename to _archived_inactive_{epoch}.json).
+    Skips strategy-*.json (config), *_archived_*, and *.archived* files. Never deletes; never touches archives.
+    Returns count archived.
+    """
+    archived = 0
     strategy_dir = os.path.join(state_dir, strategy_id)
     if not os.path.isdir(strategy_dir):
         return 0
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     for name in os.listdir(strategy_dir):
+        if name.startswith("strategy-") or "_archived" in name or ".archived" in name:
+            continue
         path = os.path.join(strategy_dir, name)
         if name.endswith(".json") and os.path.isfile(path):
             try:
-                os.remove(path)
-                deleted += 1
+                dest = _archived_state_filename(path, now, "archived-inactive")
+                os.rename(path, dest)
+                archived += 1
             except OSError:
                 pass
-    return deleted
+    return archived
 
 
 # ---------------------------------------------------------------------------
@@ -224,10 +282,8 @@ def _unwrap_mcp_response(raw: dict) -> dict | None:
     return raw
 
 
-def fetch_price_mcp(dex: str, lookup_symbol: str) -> tuple[float | None, str | None]:
-    """Fetch mid price via MCP only: senpi market_get_prices then allMids fallback.
-    MCP expects dex '' for main (passing 'main' causes INTERNAL error). xyz response uses keys like xyz:SILVER.
-    """
+def _fetch_price_mcp_once(dex: str, lookup_symbol: str) -> tuple[float | None, str | None]:
+    """Single attempt: fetch mid price via MCP (market_get_prices then allMids fallback)."""
     try:
         dex = dex.strip() if dex else ""
         if dex.lower() == "main":
@@ -270,6 +326,11 @@ def fetch_price_mcp(dex: str, lookup_symbol: str) -> tuple[float | None, str | N
         return None, str(e)
 
 
+def fetch_price_mcp(dex: str, lookup_symbol: str) -> tuple[float | None, str | None]:
+    """Fetch mid price via MCP only. 4 attempts (1 initial + 3 retries) on failure."""
+    return _retry_mcp_call(_fetch_price_mcp_once, dex, lookup_symbol)
+
+
 # ---------------------------------------------------------------------------
 # State normalization (backfill missing phase1/phase2 for older state files)
 # ---------------------------------------------------------------------------
@@ -278,12 +339,24 @@ def fetch_price_mcp(dex: str, lookup_symbol: str) -> tuple[float | None, str | N
 DEFAULT_PHASE1_RETRACE = 0.03
 DEFAULT_PHASE1_BREACHES = 3
 DEFAULT_PHASE2_RETRACE = 0.015
-DEFAULT_PHASE2_BREACHES = 2
+DEFAULT_PHASE2_BREACHES = 1
+
+
+def _high_water_roe(state: dict, hw: float) -> float:
+    """Compute high-water ROE % from high-water price. Used for pct_of_high_water floor."""
+    entry = state.get("entryPrice") or 0.0
+    leverage = max(1, state.get("leverage", 1))
+    is_long = (state.get("direction", "LONG").upper() == "LONG")
+    if entry <= 0:
+        return 0.0
+    if is_long:
+        return (hw - entry) / entry * leverage * 100
+    return (entry - hw) / entry * leverage * 100
 
 
 def normalize_state_phase_config(state: dict) -> bool:
-    """Ensure phase1 and phase2 exist with required fields. Backfills missing keys from schema defaults.
-    Allows older state files (e.g. missing phase2) to run without KeyError.
+    """Ensure phase1 and phase2 exist with required fields and enabled flags. Backfills missing keys.
+    At most two phases; phase1 = capital protection, phase2 = tier-based.
     Returns True if any keys were backfilled (caller may persist state file).
     """
     changed = False
@@ -291,6 +364,9 @@ def normalize_state_phase_config(state: dict) -> bool:
         state["phase1"] = {}
         changed = True
     p1 = state["phase1"]
+    if "enabled" not in p1:
+        p1["enabled"] = True
+        changed = True
     if "retraceThreshold" not in p1:
         p1["retraceThreshold"] = DEFAULT_PHASE1_RETRACE
         changed = True
@@ -314,12 +390,76 @@ def normalize_state_phase_config(state: dict) -> bool:
         state["phase2"] = {}
         changed = True
     p2 = state["phase2"]
+    if "enabled" not in p2:
+        p2["enabled"] = True
+        changed = True
     if "retraceThreshold" not in p2:
         p2["retraceThreshold"] = DEFAULT_PHASE2_RETRACE
         changed = True
     if "consecutiveBreachesRequired" not in p2:
         p2["consecutiveBreachesRequired"] = DEFAULT_PHASE2_BREACHES
         changed = True
+
+    # Backfill createdAt so elapsed-time logic always has a value (use lastCheck or leave for caller).
+    if not state.get("createdAt"):
+        state["createdAt"] = state.get("lastCheck") or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        changed = True
+
+    # Backfill cronIntervalMinutes (default 3) for phase1 time-based cut minimum.
+    if state.get("cronIntervalMinutes") is None:
+        state["cronIntervalMinutes"] = 3
+        changed = True
+
+    # Phase 1 time-based cut objects: if not present, treated as disabled (no backfill).
+    # Only migrate legacy flat keys into the object structure when present.
+    cron_min = max(1, int(state.get("cronIntervalMinutes", 3)))
+    if p1.get("phase1MaxMinutes") is not None:
+        if p1.get("hardTimeout") is None or not isinstance(p1["hardTimeout"], dict):
+            p1["hardTimeout"] = {}
+        ht = p1["hardTimeout"]
+        val = _safe_int(p1.get("phase1MaxMinutes"), 0)
+        if val > 0:
+            ht["enabled"] = True
+            ht["intervalInMinutes"] = max(val, cron_min)
+            changed = True
+        p1.pop("phase1MaxMinutes", None)
+    if p1.get("weakPeakCutMinutes") is not None:
+        if p1.get("weakPeakCut") is None or not isinstance(p1["weakPeakCut"], dict):
+            p1["weakPeakCut"] = {}
+        wpc = p1["weakPeakCut"]
+        val = _safe_int(p1.get("weakPeakCutMinutes"), 0)
+        if val > 0:
+            wpc["enabled"] = True
+            wpc["intervalInMinutes"] = max(val, cron_min)
+            try:
+                wpc["minValue"] = float(p1.get("weakPeakThreshold", 3.0))
+            except (TypeError, ValueError):
+                wpc["minValue"] = 3.0
+            changed = True
+        p1.pop("weakPeakCutMinutes", None)
+        p1.pop("weakPeakThreshold", None)
+    if p1.get("deadWeightCutMin") is not None:
+        if p1.get("deadWeightCut") is None or not isinstance(p1["deadWeightCut"], dict):
+            p1["deadWeightCut"] = {}
+        dwc = p1["deadWeightCut"]
+        val = _safe_int(p1.get("deadWeightCutMin"), 0)
+        if val > 0:
+            dwc["enabled"] = True
+            dwc["intervalInMinutes"] = max(val, cron_min)
+            changed = True
+        p1.pop("deadWeightCutMin", None)
+
+    # Backfill highWaterRoe when highWaterPrice exists (for pct_of_high_water floor calc).
+    if "highWaterPrice" in state and state.get("highWaterRoe") is None:
+        try:
+            state["highWaterRoe"] = round(
+                _high_water_roe(state, float(state["highWaterPrice"])), 4
+            )
+            changed = True
+        except (TypeError, ValueError):
+            state["highWaterRoe"] = 0.0
+            changed = True
+
     return changed
 
 
@@ -328,7 +468,7 @@ def normalize_state_phase_config(state: dict) -> bool:
 # ---------------------------------------------------------------------------
 
 def update_high_water(state: dict, price: float, is_long: bool) -> float:
-    """Update state high water; return new hw."""
+    """Update state high water; return new hw. Also keeps highWaterRoe in sync for pct_of_high_water mode."""
     hw = state["highWaterPrice"]
     if is_long and price > hw:
         hw = price
@@ -336,15 +476,24 @@ def update_high_water(state: dict, price: float, is_long: bool) -> float:
     elif not is_long and price < hw:
         hw = price
         state["highWaterPrice"] = hw
+    state["highWaterRoe"] = round(_high_water_roe(state, hw), 4)
     return hw
+
+
+def _tier_floor_from_roe(state: dict, tier_floor_roe: float, is_long: bool) -> float:
+    """Convert tier floor ROE %% to price. LONG: entry*(1+roe/100/lev), SHORT: entry*(1-roe/100/lev)."""
+    entry = state["entryPrice"]
+    leverage = max(1, state.get("leverage", 1))
+    if is_long:
+        return round(entry * (1 + tier_floor_roe / 100 / leverage), 4)
+    return round(entry * (1 - tier_floor_roe / 100 / leverage), 4)
 
 
 def apply_tier_upgrades(
     state: dict, upnl_pct: float, is_long: bool, hw: float
 ) -> tuple[int, float | None, bool, int]:
     """Apply tier upgrades based on ROE. Mutates state. Returns (tier_idx, tier_floor, tier_changed, previous_tier_idx).
-    Tier floor = entry + (hw - entry) * lockPct/100 (LONG) or entry - (entry - hw) * lockPct/100 (SHORT):
-    lockPct is the fraction of the entry→hw range to lock, not ROE %.
+    Tier floor: fixed_roe uses lockPct as fraction of (entry→hw) range; pct_of_high_water uses lockHwPct %% of highWaterRoe.
     """
     tiers = state["tiers"]
     tier_idx = state["currentTierIndex"]
@@ -354,6 +503,7 @@ def apply_tier_upgrades(
     entry = state["entryPrice"]
     previous_tier_idx = tier_idx
     tier_changed = False
+    lock_mode = state.get("lockMode", "fixed_roe")
 
     for i, tier in enumerate(tiers):
         if i <= tier_idx:
@@ -361,12 +511,16 @@ def apply_tier_upgrades(
         if upnl_pct >= tier["triggerPct"]:
             tier_idx = i
             tier_changed = True
-            # Floor = entry + fraction of (entry → hw) range; lockPct = that fraction
-            if is_long:
-                tier_floor = round(entry + (hw - entry) * tier["lockPct"] / 100, 4)
+            if lock_mode == "pct_of_high_water" and "lockHwPct" in tier:
+                hw_roe = state.get("highWaterRoe") or 0.0
+                tier_floor_roe = hw_roe * tier["lockHwPct"] / 100
+                tier_floor = _tier_floor_from_roe(state, tier_floor_roe, is_long)
             else:
-                tier_floor = round(entry - (entry - hw) * tier["lockPct"] / 100, 4)
-            # Ratchet: never regress vs stored (e.g. v4 ROE-based floor may be higher for LONG)
+                lock_pct = tier.get("lockPct", 0)
+                if is_long:
+                    tier_floor = round(entry + (hw - entry) * lock_pct / 100, 4)
+                else:
+                    tier_floor = round(entry - (entry - hw) * lock_pct / 100, 4)
             stored = state.get("tierFloorPrice")
             if stored is not None and isinstance(stored, (int, float)):
                 if is_long:
@@ -375,11 +529,40 @@ def apply_tier_upgrades(
                     tier_floor = min(tier_floor, float(stored))
             state["currentTierIndex"] = tier_idx
             state["tierFloorPrice"] = tier_floor
-            if phase == 1 and tier_idx >= state.get("phase2TriggerTier", 0):
+            if phase == 1 and tier_idx >= state.get("phase2TriggerTier", 0) and state.get("phase2", {}).get("enabled", True):
                 state["phase"] = 2
                 breach_count = 0
                 state["currentBreachCount"] = 0
                 phase = 2
+
+    # High Water mode: recalc floor every tick for current tier (floor trails high water).
+    if phase == 2 and tier_idx >= 0 and lock_mode == "pct_of_high_water":
+        current_tier = tiers[tier_idx]
+        if "lockHwPct" in current_tier:
+            hw_roe = state.get("highWaterRoe") or 0.0
+            tier_floor_roe = hw_roe * current_tier["lockHwPct"] / 100
+            new_floor = _tier_floor_from_roe(state, tier_floor_roe, is_long)
+            stored = state.get("tierFloorPrice")
+            if stored is not None and isinstance(stored, (int, float)):
+                if is_long:
+                    new_floor = max(new_floor, float(stored))
+                else:
+                    new_floor = min(new_floor, float(stored))
+            tier_floor = new_floor
+            state["tierFloorPrice"] = tier_floor
+
+    # Recalculate floor for CURRENT tier using latest HW (lockPct as % of range) — per-tick trailing.
+    # In pct_of_high_water mode when tier uses lockPct (not lockHwPct), floor must move every tick.
+    if tier_idx >= 0 and tier_idx < len(tiers) and lock_mode == "pct_of_high_water" and "lockHwPct" not in tiers[tier_idx]:
+        tier = tiers[tier_idx]
+        lock_pct = tier.get("lockPct", 0)
+        if is_long:
+            new_floor = round(entry + (hw - entry) * lock_pct / 100, 4)
+            tier_floor = max(new_floor, float(state.get("tierFloorPrice", 0)))
+        else:
+            new_floor = round(entry - (entry - hw) * lock_pct / 100, 4)
+            tier_floor = min(new_floor, float(state.get("tierFloorPrice", float("inf"))))
+        state["tierFloorPrice"] = tier_floor
 
     return tier_idx, tier_floor, tier_changed, previous_tier_idx
 
@@ -412,7 +595,16 @@ def compute_effective_floor(
         else state["phase2"]["retraceThreshold"]
     )
     retrace_price = retrace_roe / leverage
-    breaches_needed = state["phase2"]["consecutiveBreachesRequired"]
+    phase2 = state.get("phase2") or {}
+    breaches_needed = phase2.get("consecutiveBreachesRequired", 1)
+    if tier_idx >= 0 and tier_idx < len(tiers) and isinstance(tiers[tier_idx], dict):
+        tier = tiers[tier_idx]
+        raw = tier.get("consecutiveBreachesRequired", tier.get("breachesRequired", breaches_needed))
+        try:
+            breaches_needed = int(raw)
+        except (TypeError, ValueError):
+            pass  # keep previous breaches_needed so max(1, breaches_needed) does not see non-numeric
+    breaches_needed = max(1, breaches_needed)
     if is_long:
         trailing_floor = round(hw * (1 - retrace_price), 4)
         effective_floor = max(tier_floor or 0, trailing_floor)
@@ -437,12 +629,10 @@ def update_breach_count(state: dict, breached: bool, decay_mode: str) -> int:
 # Edit position (sync SL) and open orders (MCP)
 # ---------------------------------------------------------------------------
 
-def _mcp_edit_position(
+def _mcp_edit_position_once(
     wallet: str, coin: str, stop_loss_price: float, order_type: str = "LIMIT"
 ) -> tuple[bool, str | None, int | None]:
-    """Call senpi edit_position to set/update SL at price. Returns (success, error_message, sl_order_id_from_response).
-    sl_order_id_from_response is None if API does not return it (use strategy_get_open_orders to resolve).
-    """
+    """Single attempt: (success, error_message, sl_order_id_from_response)."""
     args = {
         "strategyWalletAddress": wallet,
         "coin": coin,
@@ -462,7 +652,6 @@ def _mcp_edit_position(
             err = raw.get("error", {})
             msg = err.get("message", err.get("description", str(err))) if isinstance(err, dict) else str(err)
             return False, msg, None
-        # MCP EditPosition returns data.ordersUpdated.stopLoss.orderId (or data = raw when unwrapped)
         data = raw.get("data") or raw
         oid = None
         if isinstance(data, dict):
@@ -483,9 +672,22 @@ def _mcp_edit_position(
         return False, str(e), None
 
 
-def _mcp_strategy_get_open_orders(wallet: str, dex: str = "") -> tuple[list[dict], str | None]:
-    """Call senpi strategy_get_open_orders. Returns (list of orders with oid, coin, triggerPx, etc.), error.
-    dex must match the position's dex (same as for market price): '' for main, 'xyz' for xyz assets."""
+def _mcp_edit_position(
+    wallet: str, coin: str, stop_loss_price: float, order_type: str = "LIMIT"
+) -> tuple[bool, str | None, int | None]:
+    """Call senpi edit_position to set/update SL at price. 4 attempts (1 initial + 3 retries) on failure."""
+    return _retry_mcp_call(
+        _mcp_edit_position_once,
+        wallet,
+        coin,
+        stop_loss_price,
+        order_type,
+        on_exception=lambda e: (False, str(e), None),
+    )
+
+
+def _mcp_strategy_get_open_orders_once(wallet: str, dex: str = "") -> tuple[list[dict], str | None]:
+    """Single attempt: (list of orders, error)."""
     args = {"strategy_wallet": wallet, "dex": dex}
     try:
         r = subprocess.run(
@@ -504,6 +706,50 @@ def _mcp_strategy_get_open_orders(wallet: str, dex: str = "") -> tuple[list[dict
         return orders, None
     except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
         return [], str(e)
+
+
+def _mcp_strategy_get_open_orders(wallet: str, dex: str = "") -> tuple[list[dict], str | None]:
+    """Call senpi strategy_get_open_orders. 4 attempts (1 initial + 3 retries) on failure."""
+    return _retry_mcp_call(_mcp_strategy_get_open_orders_once, wallet, dex)
+
+
+def _mcp_execution_get_order_status_once(wallet: str, order_id: int) -> tuple[bool, str | None, str | None]:
+    """Single attempt: (success, order_status, error)."""
+    args = {"user": wallet, "orderId": order_id}
+    try:
+        r = subprocess.run(
+            ["mcporter", "call", "senpi", "execution_get_order_status", "--args", json.dumps(args)],
+            capture_output=True, text=True, timeout=15,
+        )
+        raw = _unwrap_mcporter_response(r.stdout) if r.stdout else None
+        if r.returncode != 0:
+            return False, None, (r.stderr or r.stdout or "non-zero exit")
+        if not raw or not isinstance(raw, dict):
+            return False, None, "execution_get_order_status: invalid or empty response"
+        if raw.get("success") is False:
+            err = raw.get("error", {})
+            msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            return False, None, msg
+        data = raw.get("data") or raw
+        if data.get("status") == "unknownOid":
+            return True, None, None
+        if data.get("status") == "order":
+            order = data.get("order")
+            if isinstance(order, dict):
+                return True, (order.get("status") or "").strip().lower(), None
+        return False, None, "execution_get_order_status: unexpected response shape"
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e:
+        return False, None, str(e)
+
+
+def _mcp_execution_get_order_status(wallet: str, order_id: int) -> tuple[bool, str | None, str | None]:
+    """Call senpi execution_get_order_status. 4 attempts (1 initial + 3 retries) on failure."""
+    return _retry_mcp_call(
+        _mcp_execution_get_order_status_once,
+        wallet,
+        order_id,
+        on_exception=lambda e: (False, None, str(e)),
+    )
 
 
 def _resolve_sl_order_id_after_edit(
@@ -537,17 +783,20 @@ def sync_sl_to_hyperliquid(
     effective_floor: float,
     now: str,
     dex: str,
+    phase: int,
 ) -> tuple[bool, bool, str | None]:
     """Set or update SL on Hyperliquid at effective_floor via edit_position. Resolve slOrderId via open orders if needed.
+    Phase 1 (initial/absolute floor): MARKET for fast exit; Phase 2 (tiered): LIMIT.
     Mutates state: slOrderId, lastSyncedFloorPrice, slOrderIdUpdatedAt.
     Returns (success, sl_synced_this_tick, error_message)."""
     wallet = state.get("wallet", "")
     coin = state["asset"]
     if not wallet:
         return False, False, "no wallet in state"
+    order_type = "MARKET" if phase == 1 else "LIMIT"
 
     success, err, oid_from_api = _mcp_edit_position(
-        wallet, coin, effective_floor, order_type="LIMIT"
+        wallet, coin, effective_floor, order_type=order_type
     )
     if not success:
         return False, False, err
@@ -571,6 +820,25 @@ def sync_sl_to_hyperliquid(
 # Close position (MCP)
 # ---------------------------------------------------------------------------
 
+def _close_response_no_position(raw: dict | None, result_text: str) -> bool:
+    """True if the close_position response indicates the position was already closed (e.g. CLOSE_NO_POSITION)."""
+    text_lower = (result_text or "").lower()
+    if "close_no_position" in text_lower or "no position" in text_lower or "no_position" in text_lower:
+        return True
+    if not raw or not isinstance(raw, dict):
+        return False
+    err = raw.get("error")
+    msg = ""
+    if isinstance(err, dict):
+        msg = (err.get("message") or "").lower()
+    elif isinstance(err, str):
+        msg = err.lower()
+    if "close_no_position" in msg or "no position" in msg or "no_position" in msg:
+        return True
+    top_msg = (raw.get("message") or "").lower()
+    return "close_no_position" in top_msg or "no position" in top_msg or "no_position" in top_msg
+
+
 def try_close_position(
     state: dict,
     price: float,
@@ -582,17 +850,20 @@ def try_close_position(
     close_retries: int,
     close_retry_delay: float,
 ) -> tuple[bool, str | None]:
-    """Attempt close via senpi:close_position. Mutates state. Returns (closed, close_result)."""
+    """Attempt close via senpi:close_position. Mutates state. Returns (closed, close_result).
+    Uses state['closeReason'] if set (e.g. Phase 1 timeout / weak peak); otherwise breach reason.
+    Treats CLOSE_NO_POSITION (position already closed) as success so we clear pendingClose and archive."""
     wallet = state.get("wallet", "")
     coin = state["asset"]
     if not wallet:
         state["pendingClose"] = True
         return False, "error: no wallet in state file"
 
-    reason = (
+    reason = state.get("closeReason") or (
         f"DSL breach: Phase {phase}, {breach_count}/{breaches_needed} breaches, "
         f"price {price}, floor {effective_floor}"
     )
+    close_result: str | None = None
     for attempt in range(close_retries):
         try:
             cr = subprocess.run(
@@ -600,12 +871,23 @@ def try_close_position(
                  json.dumps({"strategyWalletAddress": wallet, "coin": coin, "reason": reason})],
                 capture_output=True, text=True, timeout=30,
             )
-            result_text = cr.stdout.strip()
+            result_text = (cr.stdout or "").strip()
+            raw = _unwrap_mcporter_response(cr.stdout or "")
+            # Position already closed (e.g. SL filled or manual): treat as success and archive
+            if _close_response_no_position(raw, result_text):
+                state["active"] = False
+                state["pendingClose"] = False
+                state["closedAt"] = now
+                # Use the reason that triggered the close (e.g. hardTimeout, weak peak, breach); else manual close
+                state["closeReason"] = (
+                    (state.get("closeReason") or reason or "").strip() or "manual close"
+                )
+                return True, result_text or "close_no_position (position already closed)"
             if cr.returncode == 0 and "error" not in result_text.lower():
                 state["active"] = False
                 state["pendingClose"] = False
                 state["closedAt"] = now
-                state["closeReason"] = f"DSL breach: Phase {phase}, price {price}, floor {effective_floor}"
+                state["closeReason"] = reason
                 return True, result_text
             close_result = f"api_error_attempt_{attempt+1}: {result_text}"
         except Exception as e:
@@ -617,28 +899,51 @@ def try_close_position(
 
 
 # ---------------------------------------------------------------------------
-# Persist: save or delete state file
+# Persist: save or rename state file on close (archive instead of delete)
 # ---------------------------------------------------------------------------
 
-def save_or_delete_state(
+def _archived_state_filename(state_file: str, now: str, suffix: str = "archived") -> str:
+    """Build archived filename with epoch and underscores: e.g. ETH.json -> ETH_archived_1709722800.json."""
+    epoch = int(time.time())
+    suffix_safe = suffix.replace("-", "_")
+    base, ext = os.path.splitext(state_file)
+    return f"{base}_{suffix_safe}_{epoch}{ext}"
+
+
+def _write_state_and_archive(
+    state_file: str, state: dict, now: str, close_reason: str, filename_suffix: str
+) -> None:
+    """Set closeReason, closedAt, active=False on state; write to file; rename to archived filename.
+    Lets the agent know why the position was closed (sl_filled, external, or in-script reason)."""
+    state["closeReason"] = close_reason
+    state["closedAt"] = now
+    state["active"] = False
+    try:
+        with open(state_file, "w") as f:
+            json.dump(state, f, indent=2)
+        dest = _archived_state_filename(state_file, now, filename_suffix)
+        os.rename(state_file, dest)
+    except OSError:
+        pass
+
+
+def save_or_rename_state(
     state: dict, state_file: str, closed: bool, now: str, close_result: str | None
 ) -> str | None:
-    """Persist state (save or delete file). Caller must set state['lastPrice'] before calling.
-    If closed but delete fails, writes state (active: False) so cleanup can proceed later.
+    """Persist state: save file, or if closed write state (with closeReason/closedAt) then rename to {base}_archived_{epoch}.json (archive).
+    Caller must set state['lastPrice'] before calling. Caller sets state['closeReason'] and state['closedAt'] when closing.
+    If closed but rename fails, state is already written so dsl-cleanup sees active: false and can clean strategy.
     """
     state["lastCheck"] = now
     if closed:
         try:
-            os.remove(state_file)
+            with open(state_file, "w") as f:
+                json.dump(state, f, indent=2)
+            dest = _archived_state_filename(state_file, now, "archived")
+            os.rename(state_file, dest)
             return close_result
         except OSError as e:
-            # Fallback: write state so dsl-cleanup sees active: false and can clean strategy
-            try:
-                with open(state_file, "w") as f:
-                    json.dump(state, f, indent=2)
-            except OSError:
-                pass
-            return (close_result or "") + f"; delete_failed: {e}"
+            return (close_result or "") + f"; rename_failed: {e}"
     with open(state_file, "w") as f:
         json.dump(state, f, indent=2)
     return close_result
@@ -684,15 +989,19 @@ def build_output(
     ) if is_long else (
         (price / hw - 1) * 100 if hw > 0 else 0
     )
+    def _lock_label(t):
+        if t.get("lockHwPct") is not None:
+            return f"lock {t['lockHwPct']}%hw"
+        return f"lock {t.get('lockPct', 0)}%"
     tier_name = (
-        f"Tier {tier_idx+1} ({tiers[tier_idx]['triggerPct']}%→lock {tiers[tier_idx]['lockPct']}%)"
-        if tier_idx >= 0 else "None"
+        f"Tier {tier_idx+1} ({tiers[tier_idx]['triggerPct']}%→{_lock_label(tiers[tier_idx])})"
+        if 0 <= tier_idx < len(tiers) else "None"
     )
     previous_tier_name = None
     if tier_changed:
-        if previous_tier_idx >= 0:
+        if 0 <= previous_tier_idx < len(tiers):
             t = tiers[previous_tier_idx]
-            previous_tier_name = f"Tier {previous_tier_idx+1} ({t['triggerPct']}%→lock {t['lockPct']}%)"
+            previous_tier_name = f"Tier {previous_tier_idx+1} ({t['triggerPct']}%→{_lock_label(t)})"
         else:
             previous_tier_name = "None (Phase 1)"
     locked_profit = (
@@ -707,7 +1016,8 @@ def build_output(
         except (ValueError, TypeError):
             pass
     distance_to_next_tier = None
-    if tier_idx + 1 < len(tiers):
+    # tier_idx -1 (Phase 1, no tier reached) → next tier is first tier (index 0); allow so monitoring can show distance to first tier
+    if tier_idx >= -1 and tier_idx + 1 < len(tiers):
         distance_to_next_tier = round(tiers[tier_idx + 1]["triggerPct"] - upnl_pct, 2)
 
     status = "inactive" if closed else ("pending_close" if state.get("pendingClose") else "active")
@@ -732,6 +1042,7 @@ def build_output(
         "should_close": should_close,
         "closed": closed,
         "close_result": close_result,
+        "close_reason": state.get("closeReason") if closed else None,
         "time": now,
         "tier_changed": tier_changed,
         "previous_tier": previous_tier_name,
@@ -851,17 +1162,75 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
     )
     sl_synced_this_tick = False
     if need_sync:
-        sync_ok, sl_synced_this_tick, sync_err = sync_sl_to_hyperliquid(state, effective_floor, now, dex)
+        sync_ok, sl_synced_this_tick, sync_err = sync_sl_to_hyperliquid(
+            state, effective_floor, now, dex, phase
+        )
         if not sync_ok and sync_err:
             # Log but continue; backup close on breach still available
             state["lastSlSyncError"] = sync_err
     sl_initial_sync = sl_synced_this_tick and not had_sl_order_before
 
     breached = price <= effective_floor if is_long else price >= effective_floor
-    breach_count = update_breach_count(state, breached, state.get("breachDecay", "hard"))
+    breach_count = update_breach_count(state, breached, "hard")
     force_close = state.get("pendingClose", False)
     should_close = breach_count >= breaches_needed or force_close
 
+    # Phase 1 time-based auto-cut (optional; only when phase==1, using extensible objects)
+    if not should_close and phase == 1 and state.get("createdAt"):
+        try:
+            created_dt = datetime.fromisoformat(state["createdAt"].replace("Z", "+00:00"))
+            now_dt = datetime.fromisoformat(now.replace("Z", "+00:00"))
+            elapsed_min = (now_dt - created_dt).total_seconds() / 60.0
+        except (ValueError, TypeError):
+            elapsed_min = 0.0
+        cron_interval = max(1, int(state.get("cronIntervalMinutes", 3)))
+        p1 = state.get("phase1") or {}
+        entry_f = float(state.get("entryPrice", 0))
+        lev_f = max(1, float(state.get("leverage", 1)))
+
+        # hardTimeout: { enabled, intervalInMinutes }
+        ht = p1.get("hardTimeout") or {}
+        if isinstance(ht, dict) and ht.get("enabled"):
+            interval = max(_safe_int(ht.get("intervalInMinutes"), 0), cron_interval)
+            if interval > 0 and elapsed_min >= interval:
+                should_close = True
+                state["closeReason"] = f"Phase 1 timeout {elapsed_min:.0f}min"
+
+        # weakPeakCut: { enabled, intervalInMinutes, minValue } — minValue is ROE % (leverage-based)
+        if not should_close:
+            wpc = p1.get("weakPeakCut") or {}
+            if isinstance(wpc, dict) and wpc.get("enabled"):
+                interval = max(_safe_int(wpc.get("intervalInMinutes"), 0), cron_interval)
+                if interval > 0 and elapsed_min >= interval and entry_f > 0:
+                    try:
+                        min_val = float(wpc.get("minValue", 3.0))
+                    except (TypeError, ValueError):
+                        min_val = 3.0
+                    # ROE % = (price_change / entry) * leverage * 100 (same as upnl_pct)
+                    if is_long:
+                        peak_roe_pct = (hw - entry_f) / entry_f * lev_f * 100
+                    else:
+                        peak_roe_pct = (entry_f - hw) / entry_f * lev_f * 100
+                    if peak_roe_pct < min_val and upnl_pct < peak_roe_pct:
+                        should_close = True
+                        state["closeReason"] = "Weak peak early cut"
+
+        # deadWeightCut: { enabled, intervalInMinutes } — ROE was never positive for X min → close
+        if not should_close:
+            dwc = p1.get("deadWeightCut") or {}
+            if isinstance(dwc, dict) and dwc.get("enabled"):
+                interval = _safe_int(dwc.get("intervalInMinutes"), 0)
+                if interval > 0:
+                    interval = max(interval, cron_interval)
+                    if elapsed_min >= interval:
+                        # Never gone positive: LONG → highWater <= entry; SHORT → highWater >= entry
+                        never_positive = (is_long and hw <= entry_f) or (not is_long and hw >= entry_f)
+                        if never_positive:
+                            should_close = True
+                            state["closeReason"] = "Dead weight cut (never positive)"
+
+    # All closes (breach, phase1 hardTimeout/weakPeakCut/deadWeightCut, pending retry) use the same path:
+    # MCP close_position(strategyWalletAddress, coin, reason) via try_close_position.
     closed = False
     close_result = None
     if should_close:
@@ -870,7 +1239,7 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
             state.get("closeRetries", 2), state.get("closeRetryDelaySec", 3),
         )
 
-    close_result = save_or_delete_state(state, state_file, closed, now, close_result)
+    close_result = save_or_rename_state(state, state_file, closed, now, close_result)
 
     out = build_output(
         state,
@@ -906,10 +1275,17 @@ def process_one_position(state_file: str, strategy_id: str, now: str) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    state_dir = os.environ.get("DSL_STATE_DIR", DEFAULT_STATE_DIR)
-    strategy_id = os.environ.get("DSL_STRATEGY_ID", "").strip()
+    parser = argparse.ArgumentParser(description="DSL v5.3.1 — strategy-scoped trailing stop cron.")
+    parser.add_argument("--strategy-id", default="", help="Strategy UUID (overrides DSL_STRATEGY_ID env)")
+    parser.add_argument("--state-dir", default="", help="DSL state directory (overrides DSL_STATE_DIR env)")
+    args = parser.parse_args()
+
+    # CLI > env > default (backward compatible)
+    strategy_id = (args.strategy_id or os.environ.get("DSL_STRATEGY_ID", "") or "").strip()
+    state_dir = (args.state_dir or os.environ.get("DSL_STATE_DIR", "") or DEFAULT_STATE_DIR).strip() or DEFAULT_STATE_DIR
+
     if not strategy_id:
-        print(json.dumps({"status": "error", "error": "DSL_STRATEGY_ID required", "time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}))
+        print(json.dumps({"status": "error", "error": "strategy_id required (use --strategy-id or DSL_STRATEGY_ID)", "time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}))
         sys.exit(1)
 
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -918,13 +1294,13 @@ def main() -> None:
     active, wallet, active_error, confirmed_inactive = get_strategy_active_and_wallet(strategy_id)
     if not active:
         if confirmed_inactive:
-            deleted = cleanup_strategy_state_dir(state_dir, strategy_id)
+            archived = cleanup_strategy_state_dir(state_dir, strategy_id)
             print(json.dumps({
                 "status": "strategy_inactive",
                 "strategy_id": strategy_id,
-                "message": "Strategy not active (Senpi MCP). State files cleaned. Agent: remove cron for this strategy.",
+                "message": "Strategy not active (Senpi MCP). State files archived. Agent: remove OpenClaw cron for this strategy.",
                 "reason": active_error,
-                "state_files_deleted": deleted,
+                "state_files_archived": archived,
                 "time": now,
             }))
             sys.exit(0)
@@ -939,7 +1315,26 @@ def main() -> None:
             }))
             sys.exit(1)
 
-    # 2. Active positions from clearinghouse.
+    # 2. List state files and check SL order status (before reconcile): if SL already filled, archive and skip.
+    state_files = list_strategy_state_files(state_dir, strategy_id)
+    for path, asset in list(state_files):
+        try:
+            with open(path) as f:
+                state = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            continue
+        oid = state.get("slOrderId")
+        if oid is None:
+            continue
+        try:
+            oid = int(oid)
+        except (TypeError, ValueError):
+            continue
+        ok, order_status, _ = _mcp_execution_get_order_status(wallet, oid)
+        if ok and order_status == "filled":
+            _write_state_and_archive(path, state, now, "sl_filled", "archived-sl")
+
+    # 3. Active positions from clearinghouse.
     coins, ch_error = get_active_position_coins(wallet)
     if ch_error is not None:
         print(json.dumps({
@@ -951,13 +1346,26 @@ def main() -> None:
         }))
         sys.exit(1)
 
+    # 4. Reconcile: archive state files for positions no longer in clearinghouse (closed externally).
     state_files = list_strategy_state_files(state_dir, strategy_id)
     for path, asset in list(state_files):
         if asset not in coins:
             try:
-                os.remove(path)
-            except OSError:
-                pass
+                with open(path) as f:
+                    state = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                state = {}
+            if not isinstance(state, dict):
+                state = {}
+            if state:
+                _write_state_and_archive(path, state, now, "external", "archived-external")
+            else:
+                # Read failed: move file only so we don't overwrite with minimal state
+                try:
+                    dest = _archived_state_filename(path, now, "archived-external")
+                    os.rename(path, dest)
+                except OSError:
+                    pass
 
     processed = 0
     for coin in sorted(coins):

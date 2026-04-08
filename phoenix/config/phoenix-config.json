@@ -1,0 +1,9 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "risk": {
+    "maxEntriesPerDay": 4,
+    "maxDailyLossPct": 10
+  }
+}

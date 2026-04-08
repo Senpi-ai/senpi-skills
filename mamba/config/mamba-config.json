@@ -1,0 +1,72 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "maxPositions": 3,
+  "leverage": {
+    "default": 8,
+    "min": 5,
+    "max": 10,
+    "_note": "Hard cap 10x. Mean reversion captures small moves — doesn't need 15x."
+  },
+  "entry": {
+    "maxBbWidthPct": 4.0,
+    "maxAtrPct": 1.5,
+    "rsiOversold": 35,
+    "rsiOverbought": 65,
+    "minScore": 5,
+    "marginPct": 0.28,
+    "minOiUsd": 5000000,
+    "assetCooldownMinutes": 240,
+    "bannedPrefixes": ["xyz:"],
+    "_note_banned": "XYZ equities accounted for -$80+ in v1.0. SM data weak for equities on Hyperliquid."
+  },
+  "dsl": {
+    "_spec": "https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md",
+    "lockMode": "pct_of_high_water",
+    "phase2TriggerRoe": 5,
+    "phase1RetraceRoe": 10,
+    "phase1HardTimeoutMin": 0,
+    "phase1WeakPeakMin": 0,
+    "phase1DeadWeightMin": 0,
+    "convictionTiers": [
+      {"minScore": 5, "absoluteFloorRoe": -15, "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0},
+      {"minScore": 7, "absoluteFloorRoe": -20, "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0},
+      {"minScore": 9, "absoluteFloorRoe": 0,   "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0}
+    ],
+    "tiers": [
+      {"triggerPct": 5,  "lockHwPct": 30, "consecutiveBreachesRequired": 3},
+      {"triggerPct": 10, "lockHwPct": 50, "consecutiveBreachesRequired": 2},
+      {"triggerPct": 15, "lockHwPct": 70, "consecutiveBreachesRequired": 2},
+      {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1}
+    ],
+    "tiersLegacyFallback": [
+      {"triggerPct": 3,  "lockPct": 1},
+      {"triggerPct": 5,  "lockPct": 3},
+      {"triggerPct": 8,  "lockPct": 5, "retrace": 0.012},
+      {"triggerPct": 12, "lockPct": 8, "retrace": 0.01},
+      {"triggerPct": 18, "lockPct": 14, "retrace": 0.008},
+      {"triggerPct": 25, "lockPct": 20, "retrace": 0.006}
+    ],
+    "stagnationTp": {
+      "enabled": true,
+      "roeMin": 8,
+      "hwStaleMin": 45
+    }
+  },
+  "risk": {
+    "maxEntriesPerDay": 6,
+    "maxDailyLossPct": 8,
+    "maxDrawdownPct": 18,
+    "maxSingleLossPct": 5,
+    "maxConsecutiveLosses": 3,
+    "cooldownMinutes": 30
+  },
+  "execution": {
+    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+    "entryEnsureTaker": true,
+    "exitOrderType": "MARKET",
+    "slOrderType": "MARKET",
+    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  }
+}

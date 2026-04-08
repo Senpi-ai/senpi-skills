@@ -1,0 +1,89 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "maxPositions": 2,
+  "leverage": {"default": 8, "min": 7, "max": 10},
+  "crowding": {
+    "minCrowdingScore": 8,
+    "minPersistHours": 4,
+    "reCrowdingMinScore": 6,
+    "minFundingAnnualizedPct": 12,
+    "weights": {
+      "fundingExtremity": 0.30,
+      "smConcentration": 0.25,
+      "oiConcentration": 0.20,
+      "volumeDecline": 0.15,
+      "priceStalling": 0.10
+    }
+  },
+  "exhaustion": {
+    "minExhaustionScore": 5,
+    "minSignals": 2
+  },
+  "entry": {
+    "minScore": 14,
+    "marginPctBase": 0.25,
+    "maxEntriesPerDay": 3,
+    "lossCooldownHours": 6,
+    "dynamicSlots": {
+      "enabled": true,
+      "baseMax": 2,
+      "absoluteMax": 4,
+      "unlockThresholds": [
+        {"pnl": 150, "maxEntries": 3},
+        {"pnl": 400, "maxEntries": 4}
+      ]
+    }
+  },
+  "dsl": {
+    "_spec": "https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md",
+    "lockMode": "pct_of_high_water",
+    "phase1RetraceRoe": 15,
+    "phase1HardTimeoutMin": 0,
+    "phase1WeakPeakMin": 0,
+    "phase1DeadWeightMin": 0,
+    "floorBase": 0.04,
+    "phase2TriggerRoe": 10,
+    "convictionTiers": [
+      {"minScore": 14, "absoluteFloorRoe": -35, "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0},
+      {"minScore": 16, "absoluteFloorRoe": -45, "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0},
+      {"minScore": 18, "absoluteFloorRoe": 0,   "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0}
+    ],
+    "tiers": [
+      {"triggerPct": 10, "lockHwPct": 20, "consecutiveBreachesRequired": 3, "_note": "contrarian entries retrace hard before working"},
+      {"triggerPct": 20, "lockHwPct": 40, "consecutiveBreachesRequired": 3, "_note": "still patient"},
+      {"triggerPct": 35, "lockHwPct": 60, "consecutiveBreachesRequired": 2, "_note": "unwind accelerating"},
+      {"triggerPct": 50, "lockHwPct": 75, "consecutiveBreachesRequired": 1, "_note": "cascade confirmed"},
+      {"triggerPct": 75, "lockHwPct": 85, "consecutiveBreachesRequired": 1, "_note": "infinite trail"}
+    ],
+    "tiersLegacyFallback": [
+      {"triggerPct": 10, "lockPct": 2},
+      {"triggerPct": 20, "lockPct": 8,  "retrace": 0.018},
+      {"triggerPct": 35, "lockPct": 21, "retrace": 0.015},
+      {"triggerPct": 50, "lockPct": 38, "retrace": 0.010},
+      {"triggerPct": 75, "lockPct": 60, "retrace": 0.008},
+      {"triggerPct": 100, "lockPct": 85, "retrace": 0.005}
+    ],
+    "stagnationTp": {
+      "enabled": true,
+      "roeMin": 15,
+      "hwStaleMin": 120
+    }
+  },
+  "risk": {
+    "maxDailyLossPct": 10,
+    "maxDrawdownPct": 25,
+    "maxSingleLossPct": 10,
+    "maxConsecutiveLosses": 2,
+    "cooldownMinutes": 180,
+    "reCrowdingExitEnabled": true
+  },
+  "execution": {
+    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+    "entryEnsureTaker": true,
+    "exitOrderType": "MARKET",
+    "slOrderType": "MARKET",
+    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  }
+}

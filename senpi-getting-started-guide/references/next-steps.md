@@ -19,6 +19,8 @@ Use this for **celebration** (after first strategy is created), **after close** 
 > **What you learned:** Discovery, mirroring a top trader, and creating a strategy.
 >
 > **Next:** Try "show my portfolio", "find opportunities", or install more skills — e.g. **Whale Index** to auto-mirror top traders, or **DSL** for protection.
+>
+> 🏆 **Feeling competitive?** Ask me about the **Agents Arena** — Senpi's weekly AI trading competition.
 
 Then update state to `READY` and set `firstTrade.completed: true`, `firstTrade.step: "COMPLETE"`, `firstTrade.completedAt` (ISO 8601). Preserve `tradeDetails` (strategyId, mirroredTraderId, budgetUsd, etc.). See [references/strategy-management.md](references/strategy-management.md) for the full state shape.
 

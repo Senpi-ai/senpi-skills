@@ -1,0 +1,58 @@
+name: shark-tracker
+version: 1.0.0
+description: >
+  Onchain position tracker — monitors strategy wallet on Hyperliquid
+  for position lifecycle events and wires them into the DSL exit engine.
+  Liquidation cascade + SM conviction scanner.
+
+# ── STRATEGY ──
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  enabled: true
+
+# ── SCANNERS ──
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+# ── ACTIONS ──
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# ── EXIT (DSL) ──
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 60
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 30
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 15
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 20
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5, lock_hw_pct: 20 }
+        - { trigger_pct: 10, lock_hw_pct: 40 }
+        - { trigger_pct: 20, lock_hw_pct: 55 }
+        - { trigger_pct: 30, lock_hw_pct: 65 }
+        - { trigger_pct: 40, lock_hw_pct: 75 }
+        - { trigger_pct: 60, lock_hw_pct: 80 }
+
+# ── NOTIFICATIONS ──
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

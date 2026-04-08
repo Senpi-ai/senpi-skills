@@ -1,0 +1,96 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "maxPositions": 3,
+  "leverage": {"default": 8, "min": 5, "max": 10},
+  "entry": {
+    "momentumEvents": {
+      "minTier": 1,
+      "maxLookbackMinutes": 60,
+      "minEventsPerAsset": 2,
+      "traderQuality": {
+        "allowedTCS": ["Elite", "Reliable"],
+        "allowedTAS": ["Tactical", "Patient", "Active"],
+        "blockedTAS": ["Degen"],
+        "minConcentration": 0.4
+      }
+    },
+    "marketConfirmation": {
+      "enabled": true,
+      "minTraderCount": 5,
+      "topNTraders": 200
+    },
+    "volumeConfirmation": {
+      "enabled": true,
+      "minVolRatio": 0.5
+    },
+    "regimeFilter": {
+      "enabled": true,
+      "penalty": -3,
+      "_note": "penalty not block — SM momentum may override regime"
+    },
+    "minScore": 10,
+    "marginPctBase": 0.25,
+    "bannedPrefixes": ["xyz:"],
+    "dynamicSlots": {
+      "enabled": true,
+      "baseMax": 3,
+      "absoluteMax": 6,
+      "unlockThresholds": [
+        {"pnl": 100, "maxEntries": 4},
+        {"pnl": 250, "maxEntries": 5},
+        {"pnl": 500, "maxEntries": 6}
+      ]
+    }
+  },
+  "dsl": {
+    "_spec": "https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md",
+    "lockMode": "pct_of_high_water",
+    "phase1RetraceRoe": 5,
+    "phase1HardTimeoutMin": 0,
+    "phase1WeakPeakMin": 0,
+    "phase1DeadWeightMin": 0,
+    "floorBase": 0.03,
+    "phase2TriggerRoe": 8,
+    "consecutiveBreachesRequired": 3,
+    "tiers": [
+      {"triggerPct": 8,  "lockHwPct": 25, "consecutiveBreachesRequired": 3, "_note": "SM timing is uncertain — wide early"},
+      {"triggerPct": 15, "lockHwPct": 45, "consecutiveBreachesRequired": 2},
+      {"triggerPct": 25, "lockHwPct": 65, "consecutiveBreachesRequired": 2},
+      {"triggerPct": 40, "lockHwPct": 80, "consecutiveBreachesRequired": 1},
+      {"triggerPct": 60, "lockHwPct": 85, "consecutiveBreachesRequired": 1, "_note": "infinite trail"}
+    ],
+    "tiersLegacyFallback": [
+      {"triggerPct": 5,  "lockPct": 1.5},
+      {"triggerPct": 10, "lockPct": 5},
+      {"triggerPct": 20, "lockPct": 14, "retrace": 0.015},
+      {"triggerPct": 30, "lockPct": 24, "retrace": 0.012},
+      {"triggerPct": 50, "lockPct": 42, "retrace": 0.008},
+      {"triggerPct": 75, "lockPct": 60, "retrace": 0.006},
+      {"triggerPct": 100, "lockPct": 85, "retrace": 0.005}
+    ],
+    "stagnationTp": {
+      "enabled": true,
+      "roeMin": 10,
+      "hwStaleMin": 60
+    }
+  },
+  "risk": {
+    "maxEntriesPerDay": 6,
+    "maxDailyLossPct": 8,
+    "maxDrawdownPct": 20,
+    "maxSingleLossPct": 8,
+    "maxConsecutiveLosses": 3,
+    "cooldownMinutes": 90
+  },
+  "execution": {
+    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+    "entryEnsureTaker": true,
+    "exitOrderType": "MARKET",
+    "slOrderType": "MARKET",
+    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT",
+    "_armDslImmediately": true,
+    "_note": "MANDATORY: run dsl-cli.py add-dsl immediately after every entry fill. Zero naked positions."
+  }
+}

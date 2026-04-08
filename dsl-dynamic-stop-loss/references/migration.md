@@ -33,6 +33,59 @@ DSL_STATE_DIR=/data/workspace/dsl DSL_STRATEGY_ID=<strategy-uuid> python3 script
 
 That run will perform the initial sync for all positions of that strategy and backfill state. The agent may see `sl_initial_sync: true` in the output for those positions.
 
+## Migrating from ROE-based (fixed_roe) to High Water
+
+As of this version, **the default when no dsl-profile is supplied is High Water Mode** (`lockMode: "pct_of_high_water"`). If you have existing strategies or position state files that still use **fixed ROE tiers** (tiers with `lockPct` and no `lockMode`, or `lockMode: "fixed_roe"`), we recommend migrating them to High Water so the floor trails the peak ROE with no ceiling.
+
+### Why migrate
+
+- **High Water** trails the stop as a percentage of the highest ROE reached (e.g. 85% of peak). The floor moves up every tick with new highs; there is no cap.
+- **Fixed ROE** locks a static ROE value per tier (e.g. “at 50% ROE lock 40% ROE”). The floor does not trail beyond that.
+
+### How to migrate
+
+Use **`update-dsl`** with a High Water configuration. This updates both the strategy’s `defaultConfig` and **all active position state files** for that strategy (tiers, `lockMode`, `phase2TriggerRoe`). Runtime state (high water price, current tier, breach count, etc.) is preserved.
+
+**Option A — Use this skill’s default High Water profile (recommended):**
+
+```bash
+python3 scripts/dsl-cli.py update-dsl <strategy-id> \
+  --state-dir /data/workspace/dsl \
+  --configuration @/path/to/dsl-dynamic-stop-loss/dsl-profile.json
+```
+
+**Option B — Use your skill’s High Water dsl-profile:**
+
+```bash
+python3 scripts/dsl-cli.py update-dsl <strategy-id> \
+  --state-dir /data/workspace/dsl \
+  --configuration @/path/to/your-skill/dsl-profile.json
+```
+
+**Option C — Inline High Water config:**
+
+```bash
+python3 scripts/dsl-cli.py update-dsl <strategy-id> \
+  --state-dir /data/workspace/dsl \
+  --configuration '{"lockMode":"pct_of_high_water","phase2TriggerRoe":7,"tiers":[{"triggerPct":7,"lockHwPct":40,"consecutiveBreachesRequired":3},{"triggerPct":12,"lockHwPct":55,"consecutiveBreachesRequired":2},{"triggerPct":15,"lockHwPct":75,"consecutiveBreachesRequired":2},{"triggerPct":20,"lockHwPct":85,"consecutiveBreachesRequired":1}]}'
+```
+
+After running `update-dsl`:
+
+- The next cron run (or a manual run of `dsl-v5.py`) will use the new tiers and sync the SL to Hyperliquid based on the High Water floor.
+- No need to remove or recreate crons unless you change `cronIntervalMinutes`.
+
+See [dsl-high-water-adoption-guide.md](../dsl-high-water-adoption-guide.md) for per-skill High Water presets and [dsl-high-water-spec 1.0.md](../dsl-high-water-spec%201.0.md) for the spec.
+
+### If you don't migrate
+
+**Old state files keep working.** The cron script ([dsl-v5.py](../scripts/dsl-v5.py)) treats state that has no `lockMode` (or `lockMode: "fixed_roe"`) as ROE-based: it uses each tier’s `lockPct` as a fraction of the entry→high-water range and does not trail the floor beyond that. So:
+
+- Existing position state files with `lockPct` tiers and no `lockMode` (or `lockMode: "fixed_roe"`) continue to run with the same fixed-ROE behavior as before.
+- New strategies and new positions created without a supplied profile get High Water by default; existing state is not changed unless you run `update-dsl` with a High Water config.
+
+Migration is **recommended** so existing positions get the benefits of High Water (floor trails peak with no ceiling), but it is **optional** — you can migrate when convenient.
+
 ## Best practices
 
 - **Single source of truth:** State is migrated by the same script that runs on schedule; no second migration script to keep in sync.

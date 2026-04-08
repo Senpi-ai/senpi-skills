@@ -1,0 +1,35 @@
+{
+  "lockMode": "pct_of_high_water",
+  "phase2TriggerRoe": 7,
+  "cronIntervalMinutes": 3,
+  "phase1": {
+    "enabled": true,
+    "retraceThreshold": 0.03,
+    "consecutiveBreachesRequired": 1
+  },
+  "phase2TriggerTier": 0,
+  "phase2": {
+    "enabled": true,
+    "retraceThreshold": 0.015,
+    "consecutiveBreachesRequired": 1
+  },
+  "tiers": [
+    {"triggerPct": 7,  "lockHwPct": 40, "consecutiveBreachesRequired": 3},
+    {"triggerPct": 12, "lockHwPct": 55, "consecutiveBreachesRequired": 2},
+    {"triggerPct": 15, "lockHwPct": 75, "consecutiveBreachesRequired": 2},
+    {"triggerPct": 20, "lockHwPct": 85, "consecutiveBreachesRequired": 1}
+  ],
+  "tiersLegacyFallback": [
+    {"triggerPct": 10, "lockPct": 5},
+    {"triggerPct": 20, "lockPct": 14},
+    {"triggerPct": 30, "lockPct": 22, "retrace": 0.012},
+    {"triggerPct": 50, "lockPct": 40, "retrace": 0.010},
+    {"triggerPct": 75, "lockPct": 60, "retrace": 0.008},
+    {"triggerPct": 100, "lockPct": 80, "retrace": 0.006}
+  ],
+  "execution": {
+    "phase1SlOrderType": "MARKET",
+    "phase2SlOrderType": "MARKET",
+    "breachCloseOrderType": "MARKET"
+  }
+}

@@ -27,6 +27,8 @@ Onboard an AI agent into the Senpi trading platform. After this flow the agent w
 - `SENPI_MCP_ENDPOINT`: `https://mcp.prod.senpi.ai` (use this if `{{SENPI_MCP_ENDPOINT}}` is a literal unsubstituted placeholder)
 - `REFERRAL_CODE`: empty/optional (use this if `{{REFERRAL_CODE}}` is a literal unsubstituted placeholder)
 
+**Arena intent hard-gate:** If the user's message contains "arena", "agents arena", "competition", "prize pool", "qualify", "qualification", "weekly cycle", or "weekly competition" — call `read_senpi_guide(uri="senpi://guides/arena")` before composing any answer. Do not use web search or leaderboard data for Arena questions. Full routing rules in [references/post-onboarding.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-onboard/references/post-onboarding.md).
+
 ---
 
 ## Onboarding Flow
@@ -109,17 +111,39 @@ Set `MCPORTER_AVAILABLE=true` once installed and proceed.
 
 ### Step 1: Collect Identity
 
-Ask the user which identity type to use. Try each option in order:
+Present all three options to the user and wait for them to choose:
 
-1. **Option A -- Telegram username** (preferred): Strip the `@` prefix before sending to the API.
+1. **Option A -- Telegram user ID**: The skill will read your Telegram identity from USER.md automatically.
 2. **Option B -- User-provided wallet**: Must be `0x`-prefixed, exactly 42 hex characters. Validate before proceeding.
-3. **Option C -- Agent-generated wallet** (fallback when user has neither).
+3. **Option C -- Agent-generated wallet** (only if you have neither).
 
-#### Option A or B: Set variables
+#### Option A: Collect Telegram user ID
+
+When the user chooses Option A, first attempt to read from `${OPENCLAW_WORKSPACE_DIR}/USER.md`:
 
 ```bash
-IDENTITY_TYPE="TELEGRAM"  # or "WALLET"
-IDENTITY_VALUE="username"  # without @ for Telegram, or 0x... for wallet
+USER_MD="${OPENCLAW_WORKSPACE_DIR}/USER.md"
+if [ -f "$USER_MD" ]; then
+  TELEGRAM_USER_ID=$(awk '/^## Telegram/{f=1; next} f && /^## /{f=0} f && /- Chat ID:/{print $NF; exit}' "$USER_MD")
+  TELEGRAM_USERNAME=$(awk '/^## Telegram/{f=1; next} f && /^## /{f=0} f && /- Username:/{print $NF; exit}' "$USER_MD")
+  TELEGRAM_USERNAME="${TELEGRAM_USERNAME#@}" # normalize for API userName field
+fi
+```
+
+If both `TELEGRAM_USER_ID` (digits-only, non-empty) and `TELEGRAM_USERNAME` (non-empty) are found, set the variables automatically without prompting the user:
+
+```bash
+IDENTITY_TYPE="TELEGRAM"
+IDENTITY_VALUE="$TELEGRAM_USER_ID"
+```
+
+If USER.md is missing or either field is absent/invalid, fall back to the manual prompt: see [references/telegram-identity.md](references/telegram-identity.md) for user-facing instructions and validation rules. Also set `TELEGRAM_USERNAME` from the user's input if prompted manually, then normalize it before API use with `TELEGRAM_USERNAME="${TELEGRAM_USERNAME#@}"`.
+
+#### Option B: Set variables
+
+```bash
+IDENTITY_TYPE="WALLET"
+IDENTITY_VALUE="0x..."  # 0x-prefixed wallet address
 ```
 
 #### Option C: Generate EVM wallet
@@ -181,8 +205,9 @@ Notify the user that a wallet was generated and saved to `~/.config/senpi/wallet
 
 Before Step 2, confirm these are set:
 - `IDENTITY_TYPE` -- `"WALLET"` or `"TELEGRAM"`
-- `IDENTITY_VALUE` -- wallet address (with `0x`) or Telegram username (without `@`)
+- `IDENTITY_VALUE` -- wallet address (with `0x`) or Telegram numeric user ID (digits only)
 - `WALLET_GENERATED` -- `true` if Option C was used, unset otherwise
+- `TELEGRAM_USERNAME` -- required and non-empty when `IDENTITY_TYPE="TELEGRAM"` (unset otherwise)
 
 **Persist progress for resume:** Update `~/.config/senpi/state.json`: set `onboarding.step` to `REFERRAL`, and if available set `onboarding.identityType`, `onboarding.subject`, `onboarding.walletGenerated` from current variables. Use read-modify-write so other fields are preserved.
 
@@ -205,6 +230,11 @@ If empty and user hasn't provided one, that's fine -- it's optional. Do not prom
 Execute the `CreateAgentStubAccount` GraphQL mutation. This is a **public endpoint** -- no auth required.
 
 ```bash
+if [ "$IDENTITY_TYPE" = "TELEGRAM" ] && [ -z "${TELEGRAM_USERNAME:-}" ]; then
+  echo "TELEGRAM_USERNAME must be set when IDENTITY_TYPE=TELEGRAM" >&2
+  exit 1
+fi
+
 RESPONSE=$(curl -s -X POST https://moxie-backend.prod.senpi.ai/graphql \
   -H "Content-Type: application/json" \
   -d '{
@@ -213,7 +243,7 @@ RESPONSE=$(curl -s -X POST https://moxie-backend.prod.senpi.ai/graphql \
       "input": {
         "from": "'"${IDENTITY_TYPE}"'",
         "subject": "'"${IDENTITY_VALUE}"'",
-        '"$([ "$IDENTITY_TYPE" = "TELEGRAM" ] && echo "\"userName\": \"${IDENTITY_VALUE}\",")"'
+        '"$([ "$IDENTITY_TYPE" = "TELEGRAM" ] && echo "\"userName\": \"${TELEGRAM_USERNAME}\",")"'
         "referralCode": "'"${REFERRAL_CODE}"'",
         "apiKeyName": "agent-'"$(date +%s)"'"
       }
@@ -221,7 +251,7 @@ RESPONSE=$(curl -s -X POST https://moxie-backend.prod.senpi.ai/graphql \
   }')
 ```
 
-**Note for TELEGRAM identity:** Include the additional `"userName"` field set to `IDENTITY_VALUE` in the input.
+**Note for TELEGRAM identity:** Include the additional `"userName"` field set to normalized `TELEGRAM_USERNAME` (Telegram username without a leading `@`, from USER.md or user input) in the input.
 
 **Persist progress for resume:** Update `~/.config/senpi/state.json`: set `onboarding.step` to `PARSE`. Use read-modify-write.
 
@@ -355,15 +385,19 @@ After the confirmation, share the About Senpi information from [references/post-
 
 ## Balance Monitoring
 
-After onboarding completes (state = `UNFUNDED`), check wallet balance on each user message:
+After onboarding completes (state = `UNFUNDED`), check wallet balance on each user message **before deciding whether to show a reminder**:
 
-1. Use MCP to fetch portfolio/balance
+1. Use MCP to fetch portfolio/balance. This check is mandatory — do not skip it or assume the wallet is unfunded.
 2. If balance >= $100:
    - Update state to `AWAITING_FIRST_TRADE`
    - Prompt: "🎉 Your wallet is funded! Ready for your first trade? Say **'let's trade'** to start, or **'skip tutorial'** if you're experienced."
-3. If balance < $100:
+   - Do **not** show a funding reminder.
+3. If balance < $100 (confirmed by a successful MCP check):
    - Prepend funding reminder (max 3 automatic reminders); include agent wallet address and state that at least $100 USDC is required (see [references/post-onboarding.md](references/post-onboarding.md) funding reminder template)
    - Continue processing user's request
+4. If the MCP balance check fails (e.g. MCP not yet connected after restart):
+   - Do **not** show a funding reminder. Do **not** assume the wallet is unfunded.
+   - Silently retry on the next user message.
 
 When state transitions to `AWAITING_FIRST_TRADE`, the `senpi-getting-started-guide` skill takes over.
 

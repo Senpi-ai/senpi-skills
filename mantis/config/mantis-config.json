@@ -1,0 +1,12 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "entry": {
+    "assetCooldownMinutes": 120
+  },
+  "risk": {
+    "maxEntriesPerDay": 6,
+    "maxDailyLossPct": 10
+  }
+}

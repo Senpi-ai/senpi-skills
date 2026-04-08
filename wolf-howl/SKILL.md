@@ -13,6 +13,12 @@ description: >-
   performance, or improving an autonomous trading strategy through
   data-driven feedback loops.
   Requires Senpi MCP connection, mcporter CLI, and OpenClaw cron system.
+license: MIT
+metadata:
+  author: jason-goldberg
+  version: "2.0"
+  platform: senpi
+  exchange: hyperliquid
 ---
 
 # HOWL v2 — Hunt, Optimize, Win, Learn
@@ -166,3 +172,8 @@ Edit `references/analysis-prompt.md` to adjust what the sub-agent analyzes. The 
 | `scripts/howl-setup.py` | Setup wizard — creates the nightly HOWL cron |
 | `references/analysis-prompt.md` | Full sub-agent analysis prompt (editable) |
 | `references/report-template.md` | Output report format |
+
+## License
+
+MIT — Built by Senpi (https://senpi.ai).
+Source: https://github.com/Senpi-ai/senpi-skills

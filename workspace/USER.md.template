@@ -1,0 +1,9 @@
+# User
+
+## Telegram
+- Chat ID: <your_chat_id>
+- Username: @<your_username>
+
+## Wallets
+- **Main (embedded):** `<your_embedded_wallet>`
+- **Subwallet (Tiger strategy):** `<your_strategy_wallet>`

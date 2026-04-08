@@ -1,0 +1,69 @@
+# ── RUNTIME TEMPLATE ──
+# Copy this file to your skill directory as runtime.yaml
+# Then update: name, description, wallet, telegram, and dsl_preset values
+#
+# IMPORTANT: dsl_preset values must match your skill's original Python DSL config.
+# Do NOT use these defaults blindly — read your scanner .py and map:
+#   retraceThreshold (decimal 0.03) → retrace_threshold (ROE % 3)
+#   consecutiveBreachesRequired → consecutive_breaches_required
+#   absoluteFloorRoe (-18) → max_loss_pct (18)
+#   hardTimeoutMin → hard_timeout.interval_in_minutes
+#   weakPeakCutMin → weak_peak_cut.interval_in_minutes
+#   deadWeightCutMin → dead_weight_cut.interval_in_minutes
+#   DSL_TIERS triggerPct/lockHwPct → phase2.tiers trigger_pct/lock_hw_pct
+
+name: my-skill-tracker
+version: 1.0.0
+description: >
+  Position tracker with DSL trailing stop-loss.
+
+# ── STRATEGY ──
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  enabled: true
+
+# ── SCANNERS ──
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+# ── ACTIONS ──
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# ── EXIT (DSL) ──
+# UPDATE THESE VALUES from your skill's Python DSL config
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 25          # from hardTimeoutMin
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 12          # from weakPeakCutMin
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 8           # from deadWeightCutMin
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0               # from absoluteFloorRoe (positive)
+      retrace_threshold: 3             # from retraceThreshold * 100
+      consecutive_breaches_required: 3  # from consecutiveBreachesRequired
+    phase2:
+      enabled: true
+      tiers:                            # from DSL_TIERS
+        - { trigger_pct: 7,  lock_hw_pct: 40 }
+        - { trigger_pct: 12, lock_hw_pct: 55 }
+        - { trigger_pct: 15, lock_hw_pct: 75 }
+        - { trigger_pct: 20, lock_hw_pct: 85 }
+
+# ── NOTIFICATIONS ──
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

@@ -1,0 +1,119 @@
+{
+  "basedOn": "fox",
+  "version": "2.0",
+  "name": "Jackal",
+  "description": "First Jump pyramider — FOX v1.6 entry gauntlet + RHINO pyramid mechanic",
+
+  "budgetSplit": {
+    "copyTradingPct": 10,
+    "autonomousPct": 90
+  },
+
+  "pyramid": {
+    "enabled": true,
+    "scoutPct": 30,
+    "stages": [
+      {"stage": 2, "triggerRoe": 10, "addPct": 40, "_note": "CONFIRM: FJ working, add 40% of max"},
+      {"stage": 3, "triggerRoe": 20, "addPct": 30, "_note": "CONVICTION: FJ running, add final 30%"}
+    ],
+    "revalidateBeforeAdd": {
+      "check4hTrend": true,
+      "checkSmAlignment": true,
+      "checkVolumeAlive": true,
+      "minVolRatio": 0.5
+    }
+  },
+
+  "entryFilters": {
+    "minReasons": 4,
+    "minScore": 9,
+    "minScoreNeutral": 11,
+    "minVelocity": 0.10,
+    "minRankJump": 15,
+    "minRankJumpOrVelocity": 15,
+    "minPrevRank": 25,
+    "topTenBlock": true,
+    "minLeverage": 7,
+    "maxPriceChg4hPct": 3.0,
+    "fjPersistence": "all_immediate",
+    "enforceRegimeDirection": true,
+    "enforceHourlyTrend": true,
+    "timeOfDay": {
+      "bonusHoursUTC": [4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+      "bonusPoints": 1,
+      "penaltyHoursUTC": [18, 19, 20, 21, 22, 23, 0, 1],
+      "penaltyPoints": -2
+    }
+  },
+
+  "dsl": {
+    "_spec": "https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md",
+    "lockMode": "pct_of_high_water",
+    "phase2TriggerRoe": 7,
+    "phase1HardTimeoutMin": 0,
+    "phase1WeakPeakMin": 0,
+    "phase1DeadWeightMin": 0,
+    "convictionTiers": [
+      {"minScore": 9,  "absoluteFloorRoe": -20, "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0},
+      {"minScore": 12, "absoluteFloorRoe": -25, "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0},
+      {"minScore": 15, "absoluteFloorRoe": 0,   "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0}
+    ],
+    "tiers": [
+      {"triggerPct": 7,  "lockPct": 40, "breachesRequired": 3},
+      {"triggerPct": 12, "lockPct": 55, "breachesRequired": 2},
+      {"triggerPct": 15, "lockPct": 75, "breachesRequired": 1},
+      {"triggerPct": 20, "lockPct": 85, "breachesRequired": 1}
+    ],
+    "tiersLegacyFallback": [
+      {"triggerPct": 5,  "lockPct": 1.5},
+      {"triggerPct": 10, "lockPct": 5},
+      {"triggerPct": 15, "lockPct": 10, "retrace": 0.012},
+      {"triggerPct": 25, "lockPct": 18, "retrace": 0.010},
+      {"triggerPct": 40, "lockPct": 32, "retrace": 0.008},
+      {"triggerPct": 60, "lockPct": 50, "retrace": 0.006},
+      {"triggerPct": 80, "lockPct": 68, "retrace": 0.005},
+      {"triggerPct": 100, "lockPct": 88, "retrace": 0.004}
+    ],
+    "stagnationTp": {
+      "enabled": true,
+      "roeMin": 10,
+      "hwStaleMin": 45
+    }
+  },
+
+  "reentry": {
+    "enabled": true,
+    "marginPct": 75,
+    "minScore": 8,
+    "maxOriginalLossROE": 15,
+    "windowMin": 120,
+    "minContribVelocity": 5
+  },
+
+  "risk": {
+    "maxEntriesPerDay": 4,
+    "maxDailyLossPct": 6,
+    "maxDrawdownPct": 18,
+    "maxSingleLossPct": 12,
+    "maxPositions": 3,
+    "maxConsecutiveLosses": 3,
+    "cooldownMinutes": 60,
+    "dynamicSlots": {
+      "enabled": true,
+      "baseMax": 3,
+      "absoluteMax": 5,
+      "unlockThresholds": [
+        {"pnl": 100, "maxEntries": 4},
+        {"pnl": 250, "maxEntries": 5}
+      ]
+    }
+  },
+
+  "execution": {
+    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+    "entryEnsureTaker": true,
+    "exitOrderType": "MARKET",
+    "slOrderType": "MARKET",
+    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  }
+}

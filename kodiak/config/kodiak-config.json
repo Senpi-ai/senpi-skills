@@ -1,0 +1,62 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "maxPositions": 1,
+  "leverage": {
+    "default": 10,
+    "min": 7,
+    "max": 10,
+    "high": 10
+  },
+  "entry": {
+    "minMom15mPct": 0.2,
+    "minVolRatio": 1.3,
+    "minScore": 10,
+    "marginPctBase": 0.2,
+    "rsiMaxLong": 72,
+    "rsiMinShort": 28,
+    "fundingExtremeThreshold": 0.015,
+    "dynamicSlots": {
+      "enabled": true,
+      "baseMax": 3,
+      "absoluteMax": 6,
+      "unlockThresholds": [
+        {
+          "pnl": 100,
+          "maxEntries": 4
+        },
+        {
+          "pnl": 250,
+          "maxEntries": 5
+        },
+        {
+          "pnl": 500,
+          "maxEntries": 6
+        }
+      ]
+    },
+    "stalk": {
+      "maxStalkHours": 6,
+      "minReloadVolPct": 50,
+      "crowdedFundingAnnPct": 50,
+      "maxFundingAnnPct": 100,
+      "_note": "STALKING mode: after DSL exit, watch for reload. Reset if thesis dies or timeout."
+    }
+  },
+  "risk": {
+    "maxEntriesPerDay": 6,
+    "maxDailyLossPct": 10,
+    "maxDrawdownPct": 25,
+    "maxSingleLossPct": 10,
+    "maxConsecutiveLosses": 3,
+    "cooldownMinutes": 120
+  },
+  "execution": {
+    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+    "entryEnsureTaker": true,
+    "exitOrderType": "MARKET",
+    "slOrderType": "MARKET",
+    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  }
+}

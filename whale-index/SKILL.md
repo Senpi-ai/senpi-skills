@@ -21,6 +21,12 @@ metadata:
 
 Scan the Discovery leaderboard, score traders, create mirror strategies, and rebalance daily. Set your risk level and budget — the agent handles selection, allocation, monitoring, and swaps.
 
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
+
+---
+
 ## 5-Step Flow
 
 ### Step 1: Onboard the User

@@ -1,0 +1,43 @@
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "topAssets": 10,
+  "maxPositions": 3,
+  "leverage": {
+    "default": 10,
+    "min": 7,
+    "max": 10
+  },
+  "entry": {
+    "minVolTrendPct": 10,
+    "minScore": 8,
+    "marginPctBase": 0.25,
+    "rsiMaxLong": 72,
+    "rsiMinShort": 28,
+    "dynamicSlots": {
+      "enabled": true,
+      "baseMax": 3,
+      "absoluteMax": 6,
+      "unlockThresholds": [
+        { "pnl": 100, "maxEntries": 4 },
+        { "pnl": 250, "maxEntries": 5 },
+        { "pnl": 500, "maxEntries": 6 }
+      ]
+    }
+  },
+  "risk": {
+    "maxEntriesPerDay": 6,
+    "maxDailyLossPct": 10,
+    "maxDrawdownPct": 25,
+    "maxSingleLossPct": 8,
+    "maxConsecutiveLosses": 3,
+    "cooldownMinutes": 120
+  },
+  "execution": {
+    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+    "ensureExecutionAsTaker": false,
+    "executionTimeoutSeconds": 30
+  },
+  "_v2_note": "v2.0: smHardBlock removed (score contributor now), entryEnsureTaker set to false, scanner calls create_position internally"
+}

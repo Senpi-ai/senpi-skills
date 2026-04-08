@@ -1,0 +1,64 @@
+name: eagle-tracker
+version: 1.0.0
+description: >
+  Onchain position tracker for BALD EAGLE v3.0 — XYZ Alpha Hunter.
+  Monitors strategy wallet on Hyperliquid for position lifecycle events
+  and wires them into the RatchetStop exit engine.
+  XYZ-tuned wide DSL timings for macro assets.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# RatchetStop configuration (user-facing: DSL)
+# Scanner enters. RatchetStop exits. Scanner must NEVER exit positions.
+# XYZ assets are macro-driven — need hours to play out, not minutes.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    # Time-based exits — XYZ-tuned wide timings
+    # Oil/commodities move slowly — 45min kills every trade
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 480
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 240
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 120
+
+    # Phase 1: Loss protection — wider for macro volatility
+    phase1:
+      enabled: true
+      max_loss_pct: 25.0
+      retrace_threshold: 12
+      consecutive_breaches_required: 3
+
+    # Phase 2: RatchetStop profit trailing
+    # Wide early for macro consolidation, tight late to protect
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5, lock_hw_pct: 0 }
+        - { trigger_pct: 10, lock_hw_pct: 20 }
+        - { trigger_pct: 20, lock_hw_pct: 35 }
+        - { trigger_pct: 30, lock_hw_pct: 50 }
+        - { trigger_pct: 50, lock_hw_pct: 70 }
+        - { trigger_pct: 75, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

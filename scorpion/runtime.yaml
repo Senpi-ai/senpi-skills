@@ -1,0 +1,65 @@
+name: scorpion-tracker
+version: 1.0.0
+description: >
+  SCORPION v2.0 — Altcoin Swarm Hunter. Detects coordinated risk-off
+  events where 5+ altcoins simultaneously attract SM SHORT concentration,
+  then trades the highest-conviction target. Wide DSL for volatile alts.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 1
+  margin_per_slot: 350
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# DSL: Extra-wide for altcoin volatility
+# Altcoins move 3-10% in 4 hours — need room to breathe
+# Phase 1 retrace 10% because alts bounce hard before continuing
+# Phase 2 starts at +5% and lets massive winners run to +50%
+# 240min (4 hour) timeout — altcoin trends develop slower than majors
+#
+# NOTE: FEE_OPTIMIZED_LIMIT is specified in the scanner entry block.
+# The agent must pass orderType: FEE_OPTIMIZED_LIMIT when calling
+# create_position.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 240
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 90
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 45
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 20 }
+        - { trigger_pct: 10, lock_hw_pct: 40 }
+        - { trigger_pct: 15, lock_hw_pct: 55 }
+        - { trigger_pct: 20, lock_hw_pct: 70 }
+        - { trigger_pct: 30, lock_hw_pct: 82 }
+        - { trigger_pct: 50, lock_hw_pct: 90 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

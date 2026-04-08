@@ -1,0 +1,62 @@
+name: bison-tracker
+version: 1.0.0
+description: >
+  Onchain position tracker for BISON v2.0 — conviction holder.
+  Monitors strategy wallet on Hyperliquid for position lifecycle events
+  and wires them into the RatchetStop exit engine.
+  Wide bands for conviction holds. DSL High Water Mode.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# RatchetStop configuration (user-facing: DSL)
+# Scanner enters. RatchetStop exits. Scanner must NEVER exit positions.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    # Time-based exits — conviction holder needs patience
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 120
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 45
+
+    # Phase 1: Loss protection — wide floors for conviction
+    phase1:
+      enabled: true
+      max_loss_pct: 30.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 3
+
+    # Phase 2: RatchetStop profit trailing — High Water Mode
+    # Wide early (breathe), tight late (protect runners)
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 25 }
+        - { trigger_pct: 30, lock_hw_pct: 40 }
+        - { trigger_pct: 50, lock_hw_pct: 60 }
+        - { trigger_pct: 75, lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

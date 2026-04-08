@@ -44,7 +44,20 @@ use the default value from the table above.
 
 ## Agent Behavior
 
-Do not narrate or explain tool calls. Execute silently and only present final results to the user.
+**CRITICAL: Every word you output goes directly to the user.** There is no internal channel. Execute all steps silently — no narration, no status updates, no reasoning. The ONLY text you may produce is the final welcome message in Step 2.
+
+**Between every tool call: zero text output. Not a single word.**
+
+**Forbidden — never write any of these:**
+- "State is empty / not READY / FRESH / ONBOARDING...", "State is ...", anything about internal state
+- "Let me...", "Now let me...", "Let me check...", "Let me fetch...", "Let me read..."
+- "Token is set...", "Skipping Step 1...", "Proceeding to Step...", "Per BOOTSTRAP.md..."
+- "Now I have...", "I already have...", "I now have..."
+- "Good, ...", "Great, ...", "OK, ...", "Alright, ..."
+- Any mention of internal steps, file paths, state values, tool names, or what comes next
+- Any observation about what a tool returned, what was found, or what wasn't found
+
+If you find yourself about to write anything — stop. Execute the next step silently instead.
 
 ---
 
@@ -56,6 +69,8 @@ check in
 (`Pre-Response Invocation Check` section) exactly once per invocation, then
 reuse the captured `UPDATE_OUTPUT` for all downstream response contracts.
 Do not run the same check a second time in the same invocation.
+
+**Arena intent hard-gate:** If the user's message contains "arena", "agents arena", "competition", "prize pool", "qualify", "qualification", "weekly cycle", or "weekly competition" — call `read_senpi_guide(uri="senpi://guides/arena")` before composing any answer. Do not use web search or leaderboard data for Arena questions. Full routing rules in [references/post-onboarding.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/post-onboarding.md).
 
 ---
 
@@ -74,7 +89,7 @@ else
 fi
 ```
 
-- **If `SENPI_AUTH_TOKEN` is set and (optionally) MCP responds:** Skip **only Step 1** (Onboard). You **MUST** still run **Step 2: Discover** (list skills and present the catalog to the user), then **Step 3: Guide**, then **Step 4: Expand**. Do not treat "token is set" as "onboarding complete — do nothing."
+- **If `SENPI_AUTH_TOKEN` is set and (optionally) MCP responds:** Skip **only Step 1** (Onboard). You **MUST** still run **Step 2: Welcome** (show the welcome message and present the three options), then **Step 3: Guide**, then **Step 4: Expand**. Do not treat "token is set" as "onboarding complete — do nothing."
 - **If `SENPI_AUTH_TOKEN` is unset or empty:** Proceed to **Step 1: Onboard** as usual.
 
 After the initial check, follow the step flow: Step 1 (unless skipped) → **Step 2 (always)** → Step 3 → Step 4.
@@ -102,21 +117,33 @@ Load and follow the `senpi-onboard` skill instructions. Pass this context:
 
 ---
 
-## Step 2: Discover
+## Step 2: Welcome
 
-**Run this step always:** after Step 1 completes, or immediately when the initial check found `SENPI_AUTH_TOKEN` set. Do not skip this step when the user already has a token — they still need to see the skill catalog.
+**Run this step always:** after Step 1 completes, or immediately when the initial check found `SENPI_AUTH_TOKEN` set.
 
-List available trading skills:
+Send the welcome message from the **Post-Onboarding Welcome** section of
+[post-onboarding.md](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/senpi-entrypoint/references/post-onboarding.md).
+Do not add balance or funding text — you do not have balance data yet; Step 2.5 fetches it and surfaces the appropriate funding message. Present the full welcome template (including the three options and the Agents Arena line) and wait for the user to respond.
+
+**STOP. Do NOT render the strategy catalog here.** The catalog is only shown if the user explicitly asks (see **Strategy Catalog** in the same post-onboarding reference). When rendering the catalog, always fetch it dynamically from:
 
 ```bash
-npx skills add https://github.com/Senpi-ai/senpi-skills --list
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json
 ```
 
-Present the catalog to the user. If the command fails, point the user to the
-official [Senpi Skills repository](https://github.com/Senpi-ai/senpi-skills)
-to browse available skills.
+Do NOT hardcode skill names or use `npx skills add --list`.
 
-**Gate — verify before proceeding:** User has seen the skill catalog.
+**Gate — verify before proceeding:** User has seen the welcome message and chosen a path.
+
+---
+
+## Step 2.5: Check Funding Status
+
+**Run this step always**, after Step 2 and before Step 3. Call `account_get_portfolio` to fetch the user's current balance. Do this silently — do not narrate the tool call.
+
+- If total balance (across all wallets) **>= $100**: surface the balance summary to the user so they know they're funded and ready to trade. Optionally note which catalog skills are in reach (e.g. skills where `min_budget <= balance`) or which require more capital (`min_budget > balance`). Proceed to Step 3.
+- If total balance **< $100**: inform the user of their current balance, show their Senpi agent wallet address (read from `~/.config/senpi/state.json` → `account.agentWalletAddress` or `wallet.address`), and note that at least $100 USDC is required to start trading. Mention supported chains: Base, Arbitrum, Optimism, Polygon, Ethereum. Optionally note which catalog skills would be in reach once funded (using the same `min_budget` vs balance logic). Still proceed to Step 3.
+- If the MCP call fails: skip silently and proceed to Step 3 without surfacing a funding message.
 
 ---
 

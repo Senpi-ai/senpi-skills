@@ -1,0 +1,54 @@
+name: orca-tracker
+version: 1.0.0
+description: >
+  Gen-2 Striker — FIRST_JUMP detection enhanced with momentum event
+  quality confirmation. Only enters when quality traders (ELITE/RELIABLE)
+  are driving the move. Fast-cycling DSL.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 3
+  margin_per_slot: 180
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 30
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 15
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 10
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 3
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 30 }
+        - { trigger_pct: 10, lock_hw_pct: 50 }
+        - { trigger_pct: 15, lock_hw_pct: 70 }
+        - { trigger_pct: 20, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

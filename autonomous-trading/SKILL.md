@@ -23,6 +23,12 @@ metadata:
 
 Give your agent a budget, a target, and a deadline — then let it trade. The agent creates a strategy wallet, scans for opportunities, opens positions, protects profits with DSL, and enforces risk controls.
 
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
+
+---
+
 ## Prerequisites
 
 Install these companion skills first:
@@ -155,4 +161,4 @@ See [references/lessons.md](references/lessons.md) for what works, what doesn't,
 
 ## API Reference
 
-See [references/api-tools.md](references/api-tools.md) for the key Senpi tools used by this recipe.
+See [references/api-tools.md](references/api-tools.md) for the key Senpi tools used by this skill.

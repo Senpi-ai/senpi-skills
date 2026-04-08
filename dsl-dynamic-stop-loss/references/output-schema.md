@@ -69,9 +69,10 @@ The script prints a single JSON line to stdout on each run. The agent reads this
 | `breach_count` | int | Consecutive breaches so far |
 | `breaches_needed` | int | Breaches required to close |
 | `breached` | bool | True if price is below floor this tick |
-| `should_close` | bool | True if breach threshold met |
+| `should_close` | bool | True if breach threshold met (or Phase 1 time-based auto-cut) |
 | `closed` | bool | True if position was closed this tick |
 | `close_result` | string/null | Close API response or error message |
+| `close_reason` | string/null | When `closed=true`, the reason sent to the close API (e.g. "Phase 1 timeout 90min", "Weak peak early cut", or breach message). Null when not closed. |
 | `time` | string | ISO 8601 timestamp of this check |
 
 ### v4 Fields
@@ -129,10 +130,10 @@ Strategy-level cleanup script prints a single JSON line:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `status` | string | `"cleaned"` (directory deleted) or `"blocked"` (active positions remain) |
+| `status` | string | `"cleaned"` (no active positions; directory retained) or `"blocked"` (active positions remain) |
 | `strategy_id` | string | Strategy UUID |
-| `positions_deleted` | int | Number of state files removed (only when status=cleaned) |
 | `blocked_by_active` | string[] | Assets still active (only when status=blocked) |
 | `time` | string | ISO 8601 timestamp |
+| `note` | string | Optional (e.g. `strategy_dir_missing`, `directory_retained_no_deletion`) |
 
 See [references/cleanup.md](cleanup.md) for agent responsibilities and usage.

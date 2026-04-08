@@ -127,7 +127,7 @@ Per-alert fields: `asset`, `direction`, `rank`, `prevRank`, `contribution`, `tra
 - `erratic: true` or `lowVelocity: true` → Log but do not act
 - No alerts → Silent
 
-## Companion Recipes
+## Companion skills
 
 - **opportunity-scanner** — use Scanner to deep-dive assets flagged by Emerging Movers
 - **autonomous-trading** — full loop integrating Emerging Movers as entry trigger

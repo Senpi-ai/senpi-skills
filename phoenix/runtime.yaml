@@ -1,0 +1,51 @@
+name: phoenix-tracker
+version: 1.0.0
+description: >
+  Contribution velocity scanner. SM profit velocity diverging from price.
+  High-conviction, low-frequency. Lifecycle hunter DSL.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 600
+  slots: 3
+  margin_per_slot: 180
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 180
+    weak_peak_cut:
+      enabled: false
+    dead_weight_cut:
+      enabled: false
+    phase1:
+      enabled: true
+      max_loss_pct: 25.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 25 }
+        - { trigger_pct: 10, lock_hw_pct: 45 }
+        - { trigger_pct: 15, lock_hw_pct: 65 }
+        - { trigger_pct: 20, lock_hw_pct: 80 }
+        - { trigger_pct: 30, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
