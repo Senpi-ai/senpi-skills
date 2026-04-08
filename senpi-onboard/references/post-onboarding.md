@@ -40,7 +40,7 @@ Use this template for the Step 7 confirmation:
 
 💰 **NEXT STEP: Fund your wallet to start trading (at least $100 USDC)**
    Address: {AGENT_WALLET_ADDRESS}
-   Chains: Base, Arbitrum, Optimism, Polygon, Ethereum
+   Chains: Hyperliquid, Base, Arbitrum, Optimism, Polygon, Ethereum
    Currency: USDC
    Minimum: $100 to start your first trade
 
@@ -102,7 +102,7 @@ When showing a funding reminder (balance < $100, up to 3 times — or when user 
    You need at least **$100 USDC** to start your first trade.
 
    **Address:** {AGENT_WALLET_ADDRESS}
-   **Chains:** Base, Arbitrum, Optimism, Polygon, Ethereum
+   **Chains:** Hyperliquid, Base, Arbitrum, Optimism, Polygon, Ethereum
    **Currency:** USDC
 
    When you've sent the funds, say **"I funded my wallet"** or **"check my balance"** so I can verify.
