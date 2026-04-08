@@ -46,6 +46,7 @@ MIN_SCORE = 8                  # Min score for initial entry
 SCALE_MIN_SCORE = 9            # Higher bar for adding to position
 SCALE_MIN_ROE_PCT = 5.0        # Position must be at least +5% ROE to add
 XYZ_BANNED = True
+SAME_DIR_COOLDOWN_MINUTES = 60
 
 LEVERAGE_TIERS = [
     {"min_score": 10, "leverage": 10},
@@ -69,15 +70,17 @@ def get_leverage_for_score(score):
 
 
 def has_resting_orders(wallet):
-    """Check if there are resting entry orders on the book."""
+    """Check for non-reduceOnly resting orders. Ignores DSL stop-losses."""
     data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
     if not data:
         return False
     orders = data.get("data", data)
     if isinstance(orders, dict):
         orders = orders.get("orders", orders.get("openOrders", []))
-    if isinstance(orders, list) and len(orders) > 0:
-        return True
+    if isinstance(orders, list):
+        for o in orders:
+            if not o.get("reduceOnly", False):
+                return True
     return False
 
 
@@ -133,6 +136,14 @@ def evaluate_btc():
     if (d=="LONG" and p1h>0.2) or (d=="SHORT" and p1h<-0.2):
         score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
+    # Move-exhaustion penalty — large existing moves reduce conviction
+    if abs(p4h) >= 4.0:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score -= 2; reasons.append(f"MOVE_EXHAUSTION {p4h:+.1f}%")
+    elif abs(p4h) >= 2.5:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score -= 1; reasons.append(f"MOVE_TIRING {p4h:+.1f}%")
+
     # Contribution velocity — multi-window (NEW: 15m + 1h + 4h)
     # 15m = entry timing signal (SM interest spiking NOW)
     # 1h = trend confirmation
@@ -181,13 +192,22 @@ def execute_entry(direction, margin, leverage):
 
 
 def load_tc():
+    """Load trade counter. Timestamps persist across midnight."""
     p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
+    default = {"date": now_date(), "entries": 0, "scale_ups": 0,
+               "last_entry_ts": 0, "last_win_direction": None, "last_win_ts": 0}
     if os.path.exists(p):
         try:
             with open(p) as f: tc = json.load(f)
-            if tc.get("date") == now_date(): return tc
+            if tc.get("date") != now_date():
+                tc["date"] = now_date()
+                tc["entries"] = 0
+                tc["scale_ups"] = 0
+            for k, v in default.items():
+                if k not in tc: tc[k] = v
+            return tc
         except: pass
-    return {"date": now_date(), "entries": 0, "scale_ups": 0}
+    return dict(default)
 
 def save_tc(tc):
     tc["date"] = now_date()
@@ -250,6 +270,18 @@ def run():
         if cfg.is_asset_cooled_down(ASSET, COOLDOWN_MINUTES):
             cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "BTC on cooldown"})
             return
+
+        # Same-direction re-entry cooldown after a win
+        last_win_dir = tc.get("last_win_direction")
+        last_win_ts = tc.get("last_win_ts", 0)
+        if last_win_dir and last_win_ts:
+            if (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
+                thesis = evaluate_btc()
+                if thesis and thesis["direction"] == last_win_dir:
+                    remaining = int((SAME_DIR_COOLDOWN_MINUTES * 60 - (time.time() - last_win_ts)) / 60)
+                    cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                        "note": f"SAME_DIR_COOLDOWN: won {last_win_dir} {remaining}min ago"})
+                    return
 
         thesis = evaluate_btc()
         if not thesis:

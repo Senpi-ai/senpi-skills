@@ -41,11 +41,13 @@ exit:
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 5,  lock_hw_pct: 30 }
-        - { trigger_pct: 10, lock_hw_pct: 50 }
-        - { trigger_pct: 15, lock_hw_pct: 65 }
-        - { trigger_pct: 20, lock_hw_pct: 80 }
-        - { trigger_pct: 30, lock_hw_pct: 85 }
+        # Phase 2 tiers — leverage-aware for ETH (fleet audit April 2026)
+        # At 20x, old Tier 1 (5%/30%) created a $1.19 lock — normal ETH wick is $5-8
+        - { trigger_pct: 8,  lock_hw_pct: 25 }
+        - { trigger_pct: 15, lock_hw_pct: 50 }
+        - { trigger_pct: 25, lock_hw_pct: 65 }
+        - { trigger_pct: 35, lock_hw_pct: 80 }
+        - { trigger_pct: 50, lock_hw_pct: 85 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"

@@ -101,12 +101,17 @@ def get_leverage_for_score(score):
 
 
 def has_resting_orders(wallet):
+    """Check for non-reduceOnly resting orders. Ignores DSL stop-losses."""
     data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
     if not data: return False
     orders = data.get("data", data)
     if isinstance(orders, dict):
         orders = orders.get("orders", orders.get("openOrders", []))
-    return isinstance(orders, list) and len(orders) > 0
+    if isinstance(orders, list):
+        for o in orders:
+            if not o.get("reduceOnly", False):
+                return True
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -308,6 +313,15 @@ def score_convergences(convergences, velocity):
             if cc_1h > 1.0:
                 score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")
 
+            # v1.1: Move-exhaustion penalty — large existing moves reduce conviction
+            p4h = vm.get("p4h", 0)
+            if abs(p4h) >= 4.0:
+                if (direction == "LONG" and p4h > 0) or (direction == "SHORT" and p4h < 0):
+                    score -= 2; reasons.append(f"MOVE_EXHAUSTION {p4h:+.1f}%")
+            elif abs(p4h) >= 2.5:
+                if (direction == "LONG" and p4h > 0) or (direction == "SHORT" and p4h < 0):
+                    score -= 1; reasons.append(f"MOVE_TIRING {p4h:+.1f}%")
+
         # US session (0-1)
         hour = datetime.now(timezone.utc).hour
         if 13 <= hour <= 21:
@@ -349,13 +363,21 @@ def execute_entry(asset, direction, margin, leverage):
 
 
 def load_tc():
+    """Load trade counter. Timestamps persist across midnight."""
     p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
+    default = {"date": now_date(), "entries": 0,
+               "last_entry_ts": 0, "last_win_direction": None, "last_win_ts": 0}
     if os.path.exists(p):
         try:
             with open(p) as f: tc = json.load(f)
-            if tc.get("date") == now_date(): return tc
+            if tc.get("date") != now_date():
+                tc["date"] = now_date()
+                tc["entries"] = 0
+            for k, v in default.items():
+                if k not in tc: tc[k] = v
+            return tc
         except: pass
-    return {"date": now_date(), "entries": 0}
+    return dict(default)
 
 def save_tc(tc):
     tc["date"] = now_date()
@@ -423,6 +445,13 @@ def run():
     # Phase 2: Score with live velocity
     velocity = fetch_sm_velocity()
     scored = score_convergences(convergences, velocity)
+
+    # v1.1: Same-direction re-entry cooldown after a win
+    SAME_DIR_COOLDOWN_MINUTES = 60
+    last_win_dir = tc.get("last_win_direction")
+    last_win_ts = tc.get("last_win_ts", 0)
+    if last_win_dir and last_win_ts and (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
+        scored = [s for s in scored if s["direction"] != last_win_dir]
 
     if not scored or scored[0]["score"] < MIN_SCORE:
         best = scored[0] if scored else None

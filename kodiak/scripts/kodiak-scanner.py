@@ -20,6 +20,7 @@ Runs every 3 minutes.
 
 import sys
 import os
+import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -306,6 +307,16 @@ def build_sol_thesis(entry_cfg):
         score += 1
         reasons.append(f"4h_momentum_{mom_4h:+.1f}%")
 
+    # Move-exhaustion penalty — large existing moves reduce conviction
+    if abs(mom_4h) >= 4.0:
+        if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
+            score -= 2
+            reasons.append(f"MOVE_EXHAUSTION {mom_4h:+.1f}%")
+    elif abs(mom_4h) >= 2.5:
+        if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
+            score -= 1
+            reasons.append(f"MOVE_TIRING {mom_4h:+.1f}%")
+
     return {
         "coin": "SOL",
         "direction": direction,
@@ -519,6 +530,22 @@ def evaluate_reload(exit_state, entry_cfg):
 
 MAX_LEVERAGE = 15         # SOL max on HL is 20x; cap at 15x for conviction scaling
 MIN_LEVERAGE = 5
+SAME_DIR_COOLDOWN_MINUTES = 60
+
+
+def has_resting_orders(wallet):
+    """Check for non-reduceOnly resting orders. Ignores DSL stop-losses."""
+    data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data:
+        return False
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if isinstance(orders, list):
+        for o in orders:
+            if not o.get("reduceOnly", False):
+                return True
+    return False
 
 
 # ─── Main ─────────────────────────────────────────────────────
@@ -655,13 +682,28 @@ def run():
         cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"max entries ({max_entries})"})
         return
 
-    # Build BTC thesis
+    if has_resting_orders(wallet):
+        cfg.output({"success": True, "heartbeat": "NO_REPLY",
+                     "note": "RESTING ORDER: limit order pending."})
+        return
+
+    # Build SOL thesis
     thesis = build_sol_thesis(entry_cfg)
 
     if not thesis or thesis["score"] < entry_cfg.get("minScore", 10):
         note = "no SOL thesis" if not thesis else f"SOL score {thesis['score']} below {entry_cfg.get('minScore', 10)}"
         cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": note})
         return
+
+    # Same-direction re-entry cooldown after a win
+    last_win_dir = tc.get("last_win_direction")
+    last_win_ts = tc.get("last_win_ts", 0)
+    if last_win_dir and last_win_ts and thesis["direction"] == last_win_dir:
+        if (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
+            remaining = int((SAME_DIR_COOLDOWN_MINUTES * 60 - (time.time() - last_win_ts)) / 60)
+            cfg.output({"success": True, "heartbeat": "NO_REPLY",
+                "note": f"SAME_DIR_COOLDOWN: won {last_win_dir} {remaining}min ago"})
+            return
 
     # Conviction-scaled leverage (v2.1 fleet: fixed tiers 7/10/12/15x)
     if thesis["score"] >= 14:

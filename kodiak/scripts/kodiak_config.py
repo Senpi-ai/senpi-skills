@@ -81,7 +81,8 @@ def load_trade_counter():
     default = {
         "date": today, "entries": 0, "realizedPnl": 0,
         "gate": "OPEN", "gateReason": None, "cooldownUntil": None,
-        "lastResults": []
+        "lastResults": [],
+        "last_entry_ts": 0, "last_win_direction": None, "last_win_ts": 0,
     }
     if path.exists():
         try:
