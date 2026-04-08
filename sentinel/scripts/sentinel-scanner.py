@@ -53,6 +53,7 @@ MAX_DAILY_ENTRIES = 4
 COOLDOWN_MINUTES = 120
 MARGIN_PCT = 0.20
 MIN_SCORE = 7
+SAME_DIR_COOLDOWN_MINUTES = 60
 XYZ_BANNED = True
 
 # Convergence thresholds
@@ -86,6 +87,20 @@ def now_date():
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def has_resting_orders(wallet):
+    """Check for non-reduceOnly resting orders. Ignores DSL stop-losses."""
+    data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data: return False
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if isinstance(orders, list):
+        for o in orders:
+            if not o.get("reduceOnly", False):
+                return True
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -316,6 +331,14 @@ def score_candidate(cand):
         score += 1
         reasons.append(f"1H_CONFIRMS {p1h:.2f}%")
 
+    # Move-exhaustion penalty — large existing moves reduce conviction
+    if abs(p4h) >= 4.0:
+        if (direction == "LONG" and p4h > 0) or (direction == "SHORT" and p4h < 0):
+            score -= 2; reasons.append(f"MOVE_EXHAUSTION {p4h:+.1f}%")
+    elif abs(p4h) >= 2.5:
+        if (direction == "LONG" and p4h > 0) or (direction == "SHORT" and p4h < 0):
+            score -= 1; reasons.append(f"MOVE_TIRING {p4h:+.1f}%")
+
     # 4. Contribution velocity (0-1 point)
     contrib = abs(cand.get("contrib_change", 0))
     if contrib >= 0.01:
@@ -330,19 +353,25 @@ def score_candidate(cand):
 # ═══════════════════════════════════════════════════════════════
 
 def load_trade_counter():
+    """Load trade counter. Timestamps persist across midnight."""
     p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
+    default = {"date": now_date(), "entries": 0,
+               "last_entry_ts": 0, "last_win_direction": None, "last_win_ts": 0}
     if os.path.exists(p):
         try:
-            with open(p) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {"date": now_date(), "entries": 0}
+            with open(p) as f: tc = json.load(f)
+            if tc.get("date") != now_date():
+                tc["date"] = now_date()
+                tc["entries"] = 0
+            for k, v in default.items():
+                if k not in tc: tc[k] = v
+            return tc
+        except (json.JSONDecodeError, IOError): pass
+    return dict(default)
 
 
 def save_trade_counter(tc):
-    if tc.get("date") != now_date():
-        tc = {"date": now_date(), "entries": 0}
+    tc["date"] = now_date()
     cfg.atomic_write(os.path.join(cfg.STATE_DIR, "trade-counter.json"), tc)
 
 
@@ -383,10 +412,13 @@ def run():
                      "_v2_no_thesis_exit": True})
         return
 
+    # Check for resting orders
+    if has_resting_orders(wallet):
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                     "note": "RESTING ORDER: limit order pending."})
+        return
+
     tc = load_trade_counter()
-    if tc.get("date") != now_date():
-        tc = {"date": now_date(), "entries": 0}
-        save_trade_counter(tc)
     if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
                     "note": f"Daily entry limit ({MAX_DAILY_ENTRIES}) reached"})
@@ -430,11 +462,18 @@ def run():
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
 
+    # Same-direction re-entry cooldown
+    last_win_dir = tc.get("last_win_direction")
+    last_win_ts = tc.get("last_win_ts", 0)
+
     for cand in candidates:
         asset = cand["asset"]
 
         if cand["score"] < MIN_SCORE:
             continue
+        if last_win_dir and last_win_dir == cand["direction"]:
+            if last_win_ts and (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
+                continue
         if is_on_cooldown(asset):
             continue
         if any(p["coin"].upper() == asset.upper() for p in positions):
@@ -444,6 +483,7 @@ def run():
         margin = round(account_value * MARGIN_PCT, 2)
 
         tc["entries"] = tc.get("entries", 0) + 1
+        tc["last_entry_ts"] = int(time.time())
         save_trade_counter(tc)
 
         cfg.output({
@@ -466,6 +506,10 @@ def run():
                 "leverage": DEFAULT_LEVERAGE,
                 "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT",
+                "feeOptimizedLimitOptions": {
+                    "ensureExecutionAsTaker": False,
+                    "executionTimeoutSeconds": 30
+                },
             },
             "constraints": {
                 "maxPositions": MAX_POSITIONS,
@@ -476,7 +520,7 @@ def run():
                 "_v2_no_thesis_exit": True,
                 "_note": "DSL managed by plugin runtime. Scanner does NOT manage exits.",
             },
-            "_sentinel_version": "2.0",
+            "_sentinel_version": "2.1",
         })
         return
 

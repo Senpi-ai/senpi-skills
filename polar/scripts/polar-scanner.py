@@ -67,12 +67,16 @@ def get_leverage_for_score(score):
 
 
 def has_resting_orders(wallet):
+    """Check for non-reduceOnly resting orders. Ignores DSL stop-losses."""
     data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
     if not data: return False
     orders = data.get("data", data)
     if isinstance(orders, dict):
         orders = orders.get("orders", orders.get("openOrders", []))
-    if isinstance(orders, list) and len(orders) > 0: return True
+    if isinstance(orders, list):
+        for o in orders:
+            if not o.get("reduceOnly", False):
+                return True
     return False
 
 
