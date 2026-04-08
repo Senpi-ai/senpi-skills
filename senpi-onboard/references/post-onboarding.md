@@ -300,7 +300,7 @@ When showing a funding reminder (balance < $100, up to 3 times — or when user 
    You need at least $100 USDC to start your first trade.
 
    Address: {AGENT_WALLET_ADDRESS}
-   Chains: Base, Arbitrum, Optimism, Polygon, Ethereum
+   Chains: Hyperliquid, Base, Arbitrum, Optimism, Polygon, Ethereum
    Currency: USDC
 
    I'll automatically check your balance on each message and notify you once you're ready to trade.
@@ -325,38 +325,3 @@ Share these with the user after confirmation:
    - strategies.senpi.ai
 
 5. **Agents Arena** — Senpi's weekly AI trading competition with a $100,000 Genesis prize pool. Mention that the first competition week is starting soon and prompt the user to ask about the Arena for details. Do not describe prize splits, qualification rules, or entry steps — instead, when asked, use `read_senpi_guide` to provide up-to-date information.
-
-## Funding Reminder Template (UNFUNDED)
-
-When showing a funding reminder (balance < $100, up to 3 times — or when user says "let's trade" but still unfunded), **always include the agent wallet address** so the user can easily send USDC. Read the address from `state.json` → `account.agentWalletAddress` or `wallet.address`.
-
-**Template:**
-
-```
-💰 **Fund your wallet to start trading**
-   You need at least **$100 USDC** to start your first trade.
-
-   **Address:** {AGENT_WALLET_ADDRESS}
-   **Chains:** Hyperliquid, Base, Arbitrum, Optimism, Polygon, Ethereum
-   **Currency:** USDC
-
-   When you've sent the funds, say **"I funded my wallet"** or **"check my balance"** so I can verify.
-```
-
-Use this for each of the 3 automatic reminders and when responding to "let's trade" / "first trade" while still UNFUNDED.
-
----
-
-## Skills Catalog
-
-When user asks about skills, run:
-
-```bash
-npx skills add Senpi-ai/senpi-skills --list
-```
-
-Popular skills to mention:
-- 🛡️ **DSL** -- Trailing stop loss ($100 min)
-- 📊 **Scanner** -- Find setups ($100 min)
-- 🐺 **WOLF** -- Autonomous trading ($500 min)
-- 🐋 **Whale Index** -- Mirror top traders ($500 min)
