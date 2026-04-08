@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
-# Senpi POLAR Scanner v2.2
+# Senpi POLAR Scanner v2.3
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""POLAR v2.2 — ETH Alpha Hunter (Conviction Leverage + Extreme Velocity).
+"""POLAR v2.3 — ETH Alpha Hunter (Entry Timing Fixes).
+
+v2.3 changes from overnight analysis (2026-04-08):
+- FIX: UTC midnight cooldown bug — last_entry_ts and last_win_ts now persist
+  across date rollover. Only the daily entries counter resets at midnight.
+- NEW: Move-exhaustion scoring — penalizes entering after large 4h moves.
+  4h change >= 4% in entry direction: -2 points (MOVE_EXHAUSTION)
+  4h change >= 2.5% in entry direction: -1 point (MOVE_TIRING)
+  Creates tension with 4H_CONFIRMS: a 3% move gets net +1, a 5% move gets net 0.
+- NEW: Same-direction re-entry cooldown — after a winning exit, blocks
+  re-entering the same direction on ETH for 60 minutes. Prevents the pattern:
+  catch breakout -> exit -> scanner sees hot 4h candle -> re-enters at top.
 
 v2.2 changes:
 - Conviction-scaled leverage: score 8->7x, 9->10x, 10->15x, 11+->20x
 - Extreme velocity tiers: 15m >5.0->+4pts, >2.0->+3pts (was capped at +2)
 - 1h acceleration: >3.0->+2pts (was capped at +1)
 - ETH max leverage on Hyperliquid is 25x, we cap at 20x
-
-v2.1 changes from fleet audit (2026-04-06):
-- Scanner calls create_position internally via mcporter (Wolverine pattern)
-- feeOptimizedLimitOptions with ensureExecutionAsTaker: false
-- Margin increased to 50%
-- Hard gates (SM%, 4H price, trader count) -> score contributors
-- Hyperfeed multi-window contribution velocity (15m, 1h, 4h)
-- Resting order check prevents stacking maker orders
-- No thesis exit (scanner enters, DSL exits)
 
 ETH single-asset lifecycle hunter. HUNT -> RIDE -> re-HUNT.
 Uses: leaderboard_get_markets + market_get_asset_data + strategy_get_open_orders
@@ -34,6 +36,7 @@ ASSET = "ETH"
 MAX_POSITIONS = 1
 MAX_DAILY_ENTRIES = 4
 COOLDOWN_MINUTES = 120
+SAME_DIR_COOLDOWN_MINUTES = 60
 MARGIN_PCT = 0.50
 MIN_SCORE = 8
 XYZ_BANNED = True
@@ -132,6 +135,15 @@ def evaluate_eth():
         if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
             score += 1; reasons.append(f"4H_CONFIRMS {p4h:+.1f}%")
 
+    # v2.3: Move-exhaustion penalty — large existing moves reduce conviction.
+    # Tension with 4H alignment: 3% move = net +1. 4%+ move = net 0 or -1.
+    if abs(p4h) >= 4.0:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score -= 2; reasons.append(f"MOVE_EXHAUSTION {p4h:+.1f}% (4h already extended)")
+    elif abs(p4h) >= 2.5:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score -= 1; reasons.append(f"MOVE_TIRING {p4h:+.1f}% (4h extended)")
+
     # 1H momentum (0-1)
     if (d == "LONG" and p1h > 0.2) or (d == "SHORT" and p1h < -0.2):
         score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
@@ -176,13 +188,29 @@ def execute_entry(direction, margin, leverage):
 
 
 def load_tc():
+    """Load trade counter. v2.3 fix: timestamps persist across midnight.
+    Only the daily entries counter resets on date change."""
     p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
+    default = {"date": now_date(), "entries": 0,
+               "last_entry_ts": 0, "last_win_direction": None, "last_win_ts": 0}
     if os.path.exists(p):
         try:
-            with open(p) as f: tc = json.load(f)
-            if tc.get("date") == now_date(): return tc
-        except: pass
-    return {"date": now_date(), "entries": 0}
+            with open(p) as f:
+                tc = json.load(f)
+            if tc.get("date") != now_date():
+                # New day: reset daily entries counter ONLY.
+                # Preserve last_entry_ts, last_win_direction, last_win_ts
+                # so cooldowns survive midnight.
+                tc["date"] = now_date()
+                tc["entries"] = 0
+            # Backfill any missing keys from older versions
+            for k, v in default.items():
+                if k not in tc:
+                    tc[k] = v
+            return tc
+        except (json.JSONDecodeError, IOError):
+            pass
+    return dict(default)
 
 def save_tc(tc):
     tc["date"] = now_date()
@@ -213,15 +241,27 @@ def run():
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
             "note": f"Daily limit ({MAX_DAILY_ENTRIES}) reached"}); return
 
+    # General cooldown (survives midnight)
     last_entry = tc.get("last_entry_ts", 0)
     if last_entry and (time.time() - last_entry) < COOLDOWN_MINUTES * 60:
         remaining = int((COOLDOWN_MINUTES * 60 - (time.time() - last_entry)) / 60)
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
             "note": f"ETH on cooldown ({remaining}min remaining)"}); return
 
+    # Score ETH
     thesis = evaluate_eth()
     if not thesis:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "HUNTING: no ETH thesis"}); return
+
+    # v2.3: Same-direction re-entry cooldown after a win
+    last_win_dir = tc.get("last_win_direction")
+    last_win_ts = tc.get("last_win_ts", 0)
+    if last_win_dir and last_win_dir == thesis["direction"]:
+        if last_win_ts and (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
+            remaining = int((SAME_DIR_COOLDOWN_MINUTES * 60 - (time.time() - last_win_ts)) / 60)
+            cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                "note": f"SAME_DIR_COOLDOWN: won {last_win_dir} {remaining}min ago, waiting"}); return
+
     if thesis["score"] < MIN_SCORE:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
             "note": f"HUNTING: ETH {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"}); return
@@ -241,12 +281,12 @@ def run():
             "execution": {"asset": ASSET, "direction": thesis["direction"],
                 "leverage": leverage, "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-            "result": result, "_polar_version": "2.2"})
+            "result": result, "_polar_version": "2.3"})
     else:
         cfg.output({"status": "ok", "action": "ENTRY_FAILED",
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                 "score": thesis["score"], "reasons": thesis["reasons"]},
-            "error": result, "_polar_version": "2.2"})
+            "error": result, "_polar_version": "2.3"})
 
 if __name__ == "__main__":
     try: run()
