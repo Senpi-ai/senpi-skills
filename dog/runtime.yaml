@@ -1,8 +1,9 @@
 name: dog-tracker
-version: 1.0.0
+version: 1.1.0
 description: >
-  The Loyal Consistent Performer. Multi-asset SM consensus scanner targeting
-  5% ROE/week through small, steady wins. Quick profit-taking DSL.
+  The Loyal Consistent Performer v1.1. Multi-asset SM consensus scanner.
+  v1.1 fixes: Phase 1 25% (was 15%), retrace 8 (was 6), dead_weight 60min
+  (was 45), hard_timeout 180min (was 120), weak_peak 3.0 (was 1.0).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -26,41 +27,33 @@ exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
-    # Dog's DSL is tuned for QUICK PROFIT-TAKING, not riding winners.
-    # Key differences from fleet standard:
-    # - Tier 1 triggers at 3% ROE (fleet: 5%) — take profits earlier
-    # - Tier 1 lock at 50% (fleet: 25-30%) — meaningful floor, not noise
-    # - Dead weight cut at 45 min (fleet: disabled) — cut non-performers fast
-    # - Hard timeout at 120 min (fleet: 180-360) — don't overstay
-    # - Weak peak cut at 60 min (fleet: disabled) — if it's not working, leave
+    # v1.1: All timings widened. v1.0's tight DSL was stopping Dog out
+    # before trades could develop. Phase 1 at 15% was a 1.5% price stop
+    # at 10x — BTC wicks that in 30 minutes regularly.
     hard_timeout:
       enabled: true
-      interval_in_minutes: 120
+      interval_in_minutes: 180
     weak_peak_cut:
       enabled: true
       interval_in_minutes: 60
-      min_value: 1.0
+      min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 45
+      interval_in_minutes: 60
     phase1:
       enabled: true
-      max_loss_pct: 15.0
-      retrace_threshold: 6
+      max_loss_pct: 25.0
+      retrace_threshold: 8
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        # Dog's profit-taking tiers — designed for QUICK but MEANINGFUL exits
-        # Tier 1: 5% ROE trigger, 50% lock = 2.5% ROE floor
-        #   At 10x, that's 0.5% price move trigger, 0.25% floor
-        #   After ~$3 fees: nets $4.50+ guaranteed. Every Tier 1 exit is a real win.
+        # Quick-profit tiers — same thesis as v1.0 but with fleet-standard
+        # first trigger at 5% ROE. The tight Phase 1 was the real problem,
+        # not the profit-taking tiers.
         - { trigger_pct: 5,  lock_hw_pct: 50 }
-        # Tier 2: 8% ROE — lock 65% = 5.2% ROE floor
         - { trigger_pct: 8,  lock_hw_pct: 65 }
-        # Tier 3: 12% ROE — lock 75% = 9% ROE floor (great week in one trade!)
         - { trigger_pct: 12, lock_hw_pct: 75 }
-        # Tier 4+: if Dog gets lucky and a trade runs, protect it hard
         - { trigger_pct: 20, lock_hw_pct: 85 }
         - { trigger_pct: 30, lock_hw_pct: 90 }
 

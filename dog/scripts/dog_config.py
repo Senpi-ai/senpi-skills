@@ -79,7 +79,11 @@ def get_positions(wallet):
         s = data.get(section, {})
         if not isinstance(s, dict): continue
         ms = s.get("marginSummary", {})
-        account_value += float(ms.get("accountValue", 0))
+        # CRITICAL: only count accountValue from "main" section.
+        # Both main and xyz report the SAME total wallet value.
+        # Summing both doubles it (the bug that caused $574 margin instead of $287).
+        if section == "main":
+            account_value = float(ms.get("accountValue", 0))
         for ap in s.get("assetPositions", []):
             pos = ap.get("position", ap)
             szi = float(pos.get("szi", 0))
