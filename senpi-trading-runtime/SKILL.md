@@ -1,7 +1,7 @@
 ---
 name: senpi-trading-runtime
 description: >-
-  Configure, deploy, and manage Senpi Trading Runtime (OpenClaw plugin @senpi-ai/runtime) for automated on-chain position tracking with DSL trailing stop-loss protection. Use when a user needs to create or modify runtime YAML files, configure DSL (Dynamic Stop-Loss) exit engine parameters (phases, tiers, time-based cuts), set up the position_tracker scanner to monitor a wallet's positions on Hyperliquid, install/list/delete runtimes via CLI, or inspect DSL-tracked positions. The runtime does NOT create strategy wallets; create/get the strategy wallet via Senpi MCP first, then link that existing wallet in runtime YAML. Triggers on mentions of senpi, Senpi runtime, DSL exit, stop-loss tiers, position tracker, trailing stop, openclaw senpi, dsl_preset, or strategy YAML configuration."
+  Configure, deploy, and manage Senpi Trading Runtime (OpenClaw plugin @senpi/runtime) for automated on-chain position tracking with DSL trailing stop-loss protection. Use when a user needs to create or modify runtime YAML files, configure DSL (Dynamic Stop-Loss) exit engine parameters (phases, tiers, time-based cuts), set up the position_tracker scanner to monitor a wallet's positions on Hyperliquid, install/list/delete runtimes via CLI, or inspect DSL-tracked positions. The runtime does NOT create strategy wallets; create/get the strategy wallet via Senpi MCP first, then link that existing wallet in runtime YAML. Triggers on mentions of senpi, Senpi runtime, DSL exit, stop-loss tiers, position tracker, trailing stop, openclaw senpi, dsl_preset, or strategy YAML configuration."
 license: Apache-2.0
 metadata:
   author: Senpi
