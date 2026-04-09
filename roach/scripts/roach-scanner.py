@@ -28,12 +28,13 @@ All hardened gates preserved:
 - Conviction-scaled Phase 1 timing
 
 Uses: leaderboard_get_markets (single API call per scan)
-Runs every 90 seconds.
+Runs every 180 seconds.
 """
 
 import json
 import sys
 import os
+import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -41,6 +42,60 @@ import roach_config as cfg
 
 TOP_N = 50
 ERRATIC_REVERSAL_THRESHOLD = 5
+SAME_DIR_COOLDOWN_MINUTES = 60
+
+
+def has_resting_orders(wallet):
+    """Check for non-reduceOnly resting orders. Ignores DSL stop-losses."""
+    data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data:
+        return False
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if isinstance(orders, list):
+        for o in orders:
+            if not o.get("reduceOnly", False):
+                return True
+    return False
+
+
+def sync_last_win_from_chain(wallet, tc):
+    """Refresh last winning trade direction/time from chain history."""
+    data = cfg.mcporter_call(
+        "discovery_get_trader_history",
+        trader_address=wallet,
+        limit=20,
+        latest=True,
+    )
+    if not data:
+        return tc
+    closed = data.get("closed_positions", data.get("closedPositions", []))
+    if not isinstance(closed, list):
+        return tc
+    for t in closed:
+        try:
+            pnl = float(t.get("realizedPnl", t.get("closedPnl", t.get("pnl", 0))))
+        except (TypeError, ValueError):
+            continue
+        if pnl <= 0:
+            continue
+        szi = float(t.get("closedSz", t.get("sz", 0)))
+        dir_guess = "LONG" if szi > 0 else "SHORT"
+        ts = t.get("closedTime", t.get("time", t.get("timestamp", 0)))
+        if isinstance(ts, str):
+            try:
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                ts = 0
+        elif not isinstance(ts, (int, float)):
+            ts = 0
+        if ts and ts > tc.get("last_win_ts", 0):
+            tc["last_win_direction"] = dir_guess
+            tc["last_win_ts"] = ts
+            cfg.save_trade_counter(tc)
+        break
+    return tc
 
 
 # ─── Fetch & Parse ───────────────────────────────────────────
@@ -427,6 +482,18 @@ def detect_striker_signals(current_scan, history, config):
         if tod_reason:
             reasons.append(tod_reason)
 
+        # Move-exhaustion penalty — large existing moves reduce conviction
+        p4h = market.get("price_chg_4h", 0)
+        d = direction.upper()
+        if abs(p4h) >= 4.0:
+            if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+                score -= 2
+                reasons.append(f"MOVE_EXHAUSTION {p4h:+.1f}%")
+        elif abs(p4h) >= 2.5:
+            if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+                score -= 1
+                reasons.append(f"MOVE_TIRING {p4h:+.1f}%")
+
         if score < min_score or len(reasons) < min_reasons:
             continue
 
@@ -473,6 +540,46 @@ def run():
     config = cfg.load_config()
     entry_cfg = config.get("entry", {})
     cooldown_min = entry_cfg.get("assetCooldownMinutes", 120)
+    risk = config.get("risk", {})
+    max_daily = risk.get("maxEntriesPerDay", 6)
+
+    wallet, _ = cfg.get_wallet_and_strategy()
+    if not wallet:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
+        return
+
+    account_value, positions = cfg.get_positions(wallet)
+    if account_value <= 0:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
+        return
+
+    if len(positions) >= MAX_POSITIONS:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                     "note": f"{len(positions)} positions active. DSL manages exit."})
+        return
+
+    if has_resting_orders(wallet):
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                     "note": "RESTING ORDER: non-reduceOnly order pending."})
+        return
+
+    tc = cfg.load_trade_counter()
+    dynamic = entry_cfg.get("dynamicSlots", {})
+    if dynamic.get("enabled", True):
+        base_max = dynamic.get("baseMax", 3)
+        day_pnl = tc.get("realizedPnl", 0)
+        effective_max = base_max
+        for t in dynamic.get("unlockThresholds", []):
+            if day_pnl >= t.get("pnl", 999999):
+                effective_max = t.get("maxEntries", effective_max)
+        max_entries = min(effective_max, dynamic.get("absoluteMax", 6))
+    else:
+        max_entries = max_daily
+
+    if tc.get("entries", 0) >= max_entries:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                     "note": f"Daily entry limit ({max_entries}) reached"})
+        return
 
     # Fetch markets
     raw_markets = fetch_markets()
@@ -487,16 +594,13 @@ def run():
     history = cfg.load_scan_history()
 
     # ROACH v1.0: STALKER DISABLED. Striker only.
-    # Fox v1.0 data: 17 Stalker trades at score 6-7, 17.6% win rate, -$91.32.
-    # The one Striker signal (ZEC LONG score 11) was the only explosive entry.
-    # This agent tests whether Stalker adds any value or is pure drag.
     striker_signals = detect_striker_signals(current_scan, history, entry_cfg)
 
     # Save history (still needed for Striker's rank jump detection)
     history["scans"].append(current_scan)
     cfg.save_scan_history(history)
 
-    # Apply per-asset cooldowns
+    # Apply per-asset cooldowns (cooldown gate after daily limit / before ranking)
     striker_signals = [s for s in striker_signals if not cfg.is_asset_cooled_down(s["token"], cooldown_min)]
 
     # Sort by score (highest first)
@@ -504,6 +608,32 @@ def run():
 
     # Combined = Striker only
     combined = list(striker_signals)
+
+    if combined:
+        tc = sync_last_win_from_chain(wallet, tc)
+        best = combined[0]
+        last_win_dir = tc.get("last_win_direction")
+        last_win_ts = tc.get("last_win_ts", 0)
+        bdir = str(best.get("direction", "")).upper()
+        if last_win_dir and last_win_ts and last_win_dir == bdir:
+            if (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
+                remaining = int((SAME_DIR_COOLDOWN_MINUTES * 60 - (time.time() - last_win_ts)) / 60)
+                cfg.output({
+                    "status": "ok",
+                    "heartbeat": "NO_REPLY",
+                    "note": f"SAME_DIR_COOLDOWN: won {last_win_dir} {remaining}min ago",
+                    "stalkerSignals": [],
+                    "strikerSignals": [],
+                    "combined": [],
+                    "hasStalker": False,
+                    "hasStriker": False,
+                    "hasSignal": False,
+                    "stalkerDisabled": True,
+                    "_roach_version": "1.0",
+                })
+                return
+        tc["entries"] = tc.get("entries", 0) + 1
+        cfg.save_trade_counter(tc)
 
     # Output
     cfg.output({
@@ -518,6 +648,13 @@ def run():
         "hasStriker": len(striker_signals) > 0,
         "hasSignal": len(combined) > 0,
         "stalkerDisabled": True,
+        "execution": {
+            "entryOrderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": False,
+                "executionTimeoutSeconds": 30,
+            },
+        },
         # HARDCODED EXECUTION CONSTRAINTS
         "constraints": {
             "minLeverage": MIN_LEVERAGE,

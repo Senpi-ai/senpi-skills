@@ -25,6 +25,7 @@ Runs every 3 minutes.
 import json
 import sys
 import os
+import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -47,6 +48,59 @@ LEVERAGE_TIERS = [
 ]
 DEFAULT_LEVERAGE = 7
 MAX_LEVERAGE = 10
+SAME_DIR_COOLDOWN_MINUTES = 60
+
+
+def has_resting_orders(wallet):
+    """Check for non-reduceOnly resting orders. Ignores DSL stop-losses."""
+    data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data:
+        return False
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if isinstance(orders, list):
+        for o in orders:
+            if not o.get("reduceOnly", False):
+                return True
+    return False
+
+
+def sync_last_win_from_chain(wallet, tc):
+    data = cfg.mcporter_call(
+        "discovery_get_trader_history",
+        trader_address=wallet,
+        limit=20,
+        latest=True,
+    )
+    if not data:
+        return tc
+    closed = data.get("closed_positions", data.get("closedPositions", []))
+    if not isinstance(closed, list):
+        return tc
+    for t in closed:
+        try:
+            pnl = float(t.get("realizedPnl", t.get("closedPnl", t.get("pnl", 0))))
+        except (TypeError, ValueError):
+            continue
+        if pnl <= 0:
+            continue
+        szi = float(t.get("closedSz", t.get("sz", 0)))
+        dir_guess = "LONG" if szi > 0 else "SHORT"
+        ts = t.get("closedTime", t.get("time", t.get("timestamp", 0)))
+        if isinstance(ts, str):
+            try:
+                ts = datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                ts = 0
+        elif not isinstance(ts, (int, float)):
+            ts = 0
+        if ts and ts > tc.get("last_win_ts", 0):
+            tc["last_win_direction"] = dir_guess
+            tc["last_win_ts"] = ts
+            cfg.save_trade_counter(tc)
+        break
+    return tc
 
 
 def safe_float(val, default=0.0):
@@ -183,6 +237,18 @@ def score_hype_signal(markets_data):
             score -= 1
             reasons.append(f"4H_OPPOSING (+{price_4h:.1f}%)")
 
+    # Move-exhaustion penalty — large existing moves reduce conviction
+    p4h = price_4h
+    d = direction.upper()
+    if abs(p4h) >= 4.0:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score -= 2
+            reasons.append(f"MOVE_EXHAUSTION {p4h:+.1f}%")
+    elif abs(p4h) >= 2.5:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score -= 1
+            reasons.append(f"MOVE_TIRING {p4h:+.1f}%")
+
     # Volume confirmation
     volume = safe_float(hype_data.get("volume", hype_data.get("volume_24h", 0)))
     avg_volume = safe_float(hype_data.get("avg_volume_6h", hype_data.get("avgVolume", 0)))
@@ -238,6 +304,11 @@ def run():
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
         return
 
+    if has_resting_orders(wallet):
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                     "note": "RESTING ORDER: non-reduceOnly order pending."})
+        return
+
     # Daily limits
     tc = cfg.load_trade_counter()
     if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
@@ -278,6 +349,17 @@ def run():
             "note": f"HYPE score {score} < {MIN_SCORE}. {', '.join(reasons[:3]) if reasons else 'Waiting.'}",
         })
         return
+
+    tc = sync_last_win_from_chain(wallet, tc)
+    d_long_short = direction.upper()
+    last_win_dir = tc.get("last_win_direction")
+    last_win_ts = tc.get("last_win_ts", 0)
+    if last_win_dir and last_win_ts and d_long_short == last_win_dir:
+        if (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
+            remaining = int((SAME_DIR_COOLDOWN_MINUTES * 60 - (time.time() - last_win_ts)) / 60)
+            cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                "note": f"SAME_DIR_COOLDOWN: won {last_win_dir} {remaining}min ago"})
+            return
 
     # Conviction-scaled leverage and margin
     leverage = get_leverage_for_score(score)

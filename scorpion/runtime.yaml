@@ -1,9 +1,9 @@
 name: scorpion-tracker
-version: 1.0.0
+version: 2.1.0
 description: >
-  SCORPION v2.0 — Altcoin Swarm Hunter. Detects coordinated risk-off
-  events where 5+ altcoins simultaneously attract SM SHORT concentration,
-  then trades the highest-conviction target. Wide DSL for volatile alts.
+  SCORPION v2.1 — Altcoin Swarm Hunter. Fleet audit: full bash→Python rewrite
+  with 10 gates enforced, move-exhaustion, same-dir cooldown, reduceOnly filter,
+  leverage-aware Phase 2 tiers for volatile alts.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -25,13 +25,6 @@ actions:
 
 # DSL: Extra-wide for altcoin volatility
 # Altcoins move 3-10% in 4 hours — need room to breathe
-# Phase 1 retrace 10% because alts bounce hard before continuing
-# Phase 2 starts at +5% and lets massive winners run to +50%
-# 240min (4 hour) timeout — altcoin trends develop slower than majors
-#
-# NOTE: FEE_OPTIMIZED_LIMIT is specified in the scanner entry block.
-# The agent must pass orderType: FEE_OPTIMIZED_LIMIT when calling
-# create_position.
 exit:
   engine: dsl
   interval_seconds: 30
@@ -54,12 +47,15 @@ exit:
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 5,  lock_hw_pct: 20 }
-        - { trigger_pct: 10, lock_hw_pct: 40 }
-        - { trigger_pct: 15, lock_hw_pct: 55 }
-        - { trigger_pct: 20, lock_hw_pct: 70 }
-        - { trigger_pct: 30, lock_hw_pct: 82 }
-        - { trigger_pct: 50, lock_hw_pct: 90 }
+        # Phase 2 tiers — altcoin-tuned (fleet audit April 2026)
+        # Alts are more volatile than majors — wider triggers
+        # But Scorpion's +$103 gross on 13 positions shows the thesis works
+        - { trigger_pct: 8,  lock_hw_pct: 25 }
+        - { trigger_pct: 15, lock_hw_pct: 45 }
+        - { trigger_pct: 25, lock_hw_pct: 60 }
+        - { trigger_pct: 35, lock_hw_pct: 75 }
+        - { trigger_pct: 50, lock_hw_pct: 85 }
+        - { trigger_pct: 75, lock_hw_pct: 90 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"

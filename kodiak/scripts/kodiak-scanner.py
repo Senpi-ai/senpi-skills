@@ -528,9 +528,21 @@ def evaluate_reload(exit_state, entry_cfg):
 
 # ─── Hardcoded Constants ──────────────────────────────────────
 
+LEVERAGE_TIERS = [
+    {"min_score": 12, "leverage": 15},
+    {"min_score": 10, "leverage": 10},
+    {"min_score": 8, "leverage": 7},
+]
 MAX_LEVERAGE = 15         # SOL max on HL is 20x; cap at 15x for conviction scaling
 MIN_LEVERAGE = 5
 SAME_DIR_COOLDOWN_MINUTES = 60
+
+
+def get_leverage_for_score(score):
+    for tier in LEVERAGE_TIERS:
+        if score >= tier["min_score"]:
+            return tier["leverage"]
+    return 7
 
 
 def has_resting_orders(wallet):
@@ -629,16 +641,23 @@ def run():
                 state.pop("exitState", None)
                 cfg.save_state(state, "kodiak-state.json")
 
+                ot = config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT")
+                reload_entry = {
+                    "coin": "SOL",
+                    "direction": direction,
+                    "leverage": leverage,
+                    "margin": margin,
+                    "orderType": ot,
+                }
+                if ot == "FEE_OPTIMIZED_LIMIT":
+                    reload_entry["feeOptimizedLimitOptions"] = {
+                        "ensureExecutionAsTaker": False,
+                        "executionTimeoutSeconds": 30,
+                    }
                 cfg.output({
                     "success": True,
                     "action": "reload",
-                    "entry": {
-                        "coin": "SOL",
-                        "direction": direction,
-                        "leverage": leverage,
-                        "margin": margin,
-                        "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
-                    },
+                    "entry": reload_entry,
                     "reasons": reasons,
                     "note": f"STALKING → RELOAD: fresh impulse confirmed, re-entering SOL {direction}",
                 })
@@ -665,6 +684,11 @@ def run():
             return
 
     # ── MODE 1: HUNTING ───────────────────────────────────────
+    if has_resting_orders(wallet):
+        cfg.output({"success": True, "heartbeat": "NO_REPLY",
+                     "note": "RESTING ORDER: limit order pending."})
+        return
+
     # Entry cap
     dynamic = entry_cfg.get("dynamicSlots", {})
     if dynamic.get("enabled", True):
@@ -680,11 +704,6 @@ def run():
 
     if tc.get("entries", 0) >= max_entries:
         cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"max entries ({max_entries})"})
-        return
-
-    if has_resting_orders(wallet):
-        cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                     "note": "RESTING ORDER: limit order pending."})
         return
 
     # Build SOL thesis
@@ -705,15 +724,7 @@ def run():
                 "note": f"SAME_DIR_COOLDOWN: won {last_win_dir} {remaining}min ago"})
             return
 
-    # Conviction-scaled leverage (v2.1 fleet: fixed tiers 7/10/12/15x)
-    if thesis["score"] >= 14:
-        leverage = 15
-    elif thesis["score"] >= 12:
-        leverage = 12
-    elif thesis["score"] >= 10:
-        leverage = 10
-    else:
-        leverage = 7
+    leverage = get_leverage_for_score(thesis["score"])
 
     # Conviction-scaled margin
     base_margin_pct = entry_cfg.get("marginPctBase", 0.30)
@@ -730,16 +741,32 @@ def run():
     state["lastDirection"] = thesis["direction"]
     cfg.save_state(state, "kodiak-state.json")
 
+    tc["entries"] = tc.get("entries", 0) + 1
+    tc["last_scores"] = tc.get("last_scores", [])
+    tc["last_scores"].append({
+        "score": thesis["score"], "asset": "SOL",
+        "direction": thesis["direction"], "ts": time.time(),
+    })
+    cfg.save_trade_counter(tc)
+
+    ot = config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT")
+    entry_payload = {
+        "coin": "SOL",
+        "direction": thesis["direction"],
+        "leverage": leverage,
+        "margin": margin,
+        "orderType": ot,
+    }
+    if ot == "FEE_OPTIMIZED_LIMIT":
+        entry_payload["feeOptimizedLimitOptions"] = {
+            "ensureExecutionAsTaker": False,
+            "executionTimeoutSeconds": 30,
+        }
+
     cfg.output({
         "success": True,
         "signal": thesis,
-        "entry": {
-            "coin": "SOL",
-            "direction": thesis["direction"],
-            "leverage": leverage,
-            "margin": margin,
-            "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
-        },
+        "entry": entry_payload,
         "constraints": {
             "minLeverage": MIN_LEVERAGE,
             "maxLeverage": MAX_LEVERAGE,

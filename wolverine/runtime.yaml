@@ -1,0 +1,55 @@
+name: wolverine-tracker
+version: 2.0.0
+description: >
+  HYPE alpha hunter v2.0. Fleet audit: conviction leverage (7x/10x capped for HYPE),
+  expanded velocity scoring, move-exhaustion, same-dir cooldown, reduceOnly filter,
+  HYPE-tuned Phase 2 tiers (widest in fleet for most volatile asset).
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 180
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 30
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        # Phase 2 tiers — HYPE-tuned (widest in fleet, most volatile asset)
+        # At 10x on HYPE, Tier 1 lock is $0.06 — normal HYPE wick is $0.15-0.25
+        # HYPE needs the widest triggers to avoid constant wick-outs
+        - { trigger_pct: 10, lock_hw_pct: 25 }
+        - { trigger_pct: 18, lock_hw_pct: 50 }
+        - { trigger_pct: 30, lock_hw_pct: 65 }
+        - { trigger_pct: 40, lock_hw_pct: 80 }
+        - { trigger_pct: 55, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

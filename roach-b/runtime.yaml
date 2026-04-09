@@ -1,15 +1,12 @@
-name: phoenix-tracker
-version: 2.1.0
+name: roach-b-tracker
+version: 1.1.0
 description: >
-  Contribution velocity scanner v2.1. SM profit velocity diverging from price.
-  Fleet audit: persistence gate, MAX_POSITIONS=1, move-exhaustion, same-dir
-  cooldown, reduceOnly filter, Phase 2 tiers updated.
+  Striker-only scanner variant B v1.1. Fleet audit: MARKET→FEE_OPTIMIZED_LIMIT,
+  per-asset stop-out cooldown, UTC midnight fix, move-exhaustion, same-dir cooldown,
+  reduceOnly filter, blockchain win detection, Phase 2 tiers.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 600
-  slots: 1
-  margin_per_slot: 180
   enabled: true
 
 scanners:
@@ -29,23 +26,23 @@ exit:
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 180
+      interval_in_minutes: 25
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 60
-      min_value: 2.0
+      interval_in_minutes: 12
+      min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 45
+      interval_in_minutes: 8
     phase1:
       enabled: true
-      max_loss_pct: 25.0
-      retrace_threshold: 8
+      max_loss_pct: 18.0
+      retrace_threshold: 3
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        # Phase 2 tiers — leverage-aware for multi-asset (fleet audit April 2026)
+        # Phase 2 tiers — leverage-aware (fleet audit April 2026)
         - { trigger_pct: 8,  lock_hw_pct: 25 }
         - { trigger_pct: 15, lock_hw_pct: 50 }
         - { trigger_pct: 25, lock_hw_pct: 65 }

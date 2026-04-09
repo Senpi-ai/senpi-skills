@@ -77,25 +77,27 @@ def save_state(data, filename="state.json"):
 
 # ─── Trade Counter ────────────────────────────────────────────
 
+def now_date_str():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
 def load_trade_counter():
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    path = STATE_DIR / "trade-counter.json"
+    """Load trade counter. Timestamps persist across midnight."""
+    p = STATE_DIR / "trade-counter.json"
     default = {
-        "date": today, "entries": 0, "realizedPnl": 0,
+        "date": now_date_str(), "entries": 0,
+        "last_entry_ts": 0, "last_win_direction": None, "last_win_ts": 0,
+        "realizedPnl": 0,
         "gate": "OPEN", "gateReason": None, "cooldownUntil": None,
-        "lastResults": []
+        "lastResults": [],
     }
-    if path.exists():
+    if p.exists():
         try:
-            with open(path) as f:
+            with open(p) as f:
                 tc = json.load(f)
-            if tc.get("date") != today:
-                for k in ["entries", "realizedPnl"]:
-                    tc[k] = 0
-                tc["date"] = today
-                tc["gate"] = "OPEN"
-                tc["gateReason"] = None
-                tc["cooldownUntil"] = None
+            if tc.get("date") != now_date_str():
+                tc["date"] = now_date_str()
+                tc["entries"] = 0
             for k, v in default.items():
                 if k not in tc:
                     tc[k] = v
@@ -106,6 +108,7 @@ def load_trade_counter():
 
 
 def save_trade_counter(tc):
+    tc["date"] = now_date_str()
     tc["updatedAt"] = now_iso()
     atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
 

@@ -31,6 +31,8 @@ import os
 import time
 from datetime import datetime, timezone
 
+SAME_DIR_COOLDOWN_MINUTES = 60
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import phoenix_config as cfg
 
@@ -41,7 +43,7 @@ import phoenix_config as cfg
 
 MAX_LEVERAGE = 10
 MIN_LEVERAGE = 5
-MAX_POSITIONS = 3
+MAX_POSITIONS = 1    # was 3 — prevents correlated multi-position losses
 MAX_DAILY_ENTRIES = 4               # Reduced from 6 — Phoenix's best days had 3-5 winners
 XYZ_BANNED = True
 
@@ -81,6 +83,21 @@ def now_date():
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+def has_resting_orders(wallet):
+    """Check for non-reduceOnly resting orders. Ignores DSL stop-losses."""
+    data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data:
+        return False
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if isinstance(orders, list):
+        for o in orders:
+            if not o.get("reduceOnly", False):
+                return True
+    return False
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -183,6 +200,16 @@ def fetch_and_score():
             score += 1
             reasons.append(f"EARLY_MOVE {price_chg_4h:+.1f}%")
 
+        # Move-exhaustion
+        if abs(price_chg_4h) >= 4.0:
+            if (direction == "LONG" and price_chg_4h > 0) or (direction == "SHORT" and price_chg_4h < 0):
+                score -= 2
+                reasons.append(f"MOVE_EXHAUSTION {price_chg_4h:+.1f}%")
+        elif abs(price_chg_4h) >= 2.5:
+            if (direction == "LONG" and price_chg_4h > 0) or (direction == "SHORT" and price_chg_4h < 0):
+                score -= 1
+                reasons.append(f"MOVE_TIRING {price_chg_4h:+.1f}%")
+
         # Velocity divergence
         if abs(price_chg_4h) > 0.1:
             velocity_ratio = contrib_change / abs(price_chg_4h)
@@ -215,22 +242,12 @@ def fetch_and_score():
 # ═══════════════════════════════════════════════════════════════
 
 def load_trade_counter():
-    p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
-    if os.path.exists(p):
-        try:
-            with open(p) as f:
-                tc = json.load(f)
-            if tc.get("date") == now_date():
-                return tc
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {"date": now_date(), "entries": 0}
+    """Delegate to config — midnight-safe counter."""
+    return cfg.load_trade_counter()
 
 
 def save_trade_counter(tc):
-    """ALWAYS save with today's date."""
-    tc["date"] = now_date()
-    cfg.atomic_write(os.path.join(cfg.STATE_DIR, "trade-counter.json"), tc)
+    cfg.save_trade_counter(tc)
 
 
 def is_on_cooldown(asset):
@@ -270,13 +287,13 @@ def run():
                      "_v2_no_thesis_exit": True})
         return
 
+    if has_resting_orders(wallet):
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                     "note": "RESTING ORDER: non-reduceOnly order pending."})
+        return
+
     # ── Trade counter (HARDENED) ──────────────────────────────
     tc = load_trade_counter()
-
-    # SAFETY: force reset if date is stale (the v1.0.1 bug)
-    if tc.get("date") != now_date():
-        tc = {"date": now_date(), "entries": 0}
-        save_trade_counter(tc)
 
     if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
@@ -295,13 +312,22 @@ def run():
     signals = [s for s in signals if s["token"] not in active_coins]
     signals = [s for s in signals if not is_on_cooldown(s["token"])]
 
-    min_score = 7
+    min_score = 8    # was 7
     signals = [s for s in signals if s["score"] >= min_score]
 
     if not signals:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
                      "note": f"{markets_count} markets, no velocity signals"})
         return
+
+    last_win_dir = tc.get("last_win_direction")
+    last_win_ts = tc.get("last_win_ts", 0)
+    if last_win_dir and last_win_dir == signals[0]["direction"]:
+        if last_win_ts and (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
+            remaining = int((SAME_DIR_COOLDOWN_MINUTES * 60 - (time.time() - last_win_ts)) / 60)
+            cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                "note": f"SAME_DIR_COOLDOWN: won {last_win_dir} {remaining}min ago"})
+            return
 
     best = signals[0]
 
@@ -340,6 +366,10 @@ def run():
             "leverage": min(MAX_LEVERAGE, 10),
             "margin": margin,
             "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": False,
+                "executionTimeoutSeconds": 30,
+            },
         },
         "constraints": {
             "maxPositions": MAX_POSITIONS,
