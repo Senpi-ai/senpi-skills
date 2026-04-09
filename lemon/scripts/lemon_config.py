@@ -57,24 +57,18 @@ def get_wallet_and_strategy():
     return w, s
 
 
-# --- Trade Counter (FIXED: midnight rollover) ---
-
 def load_trade_counter():
-    """Load trade counter. CRITICAL: resets at midnight UTC.
-    v1.0 bug: counter never reset, permanently stuck at daily limit."""
     today = now_date()
     p = STATE_DIR / "trade-counter.json"
     default = {"date": today, "entries": 0, "dailyLoss": 0,
-               "consecutiveLosses": 0, "gate": "OPEN"}
+               "consecutiveLosses": 0, "gate": "OPEN", "last_entry_ts": 0}
     if p.exists():
         try:
             with open(p) as f:
                 tc = json.load(f)
-            # CRITICAL FIX: check if date has changed
             if tc.get("date") != today:
                 return {"date": today, "entries": 0, "dailyLoss": 0,
-                        "consecutiveLosses": 0, "gate": "OPEN"}
-            # Backfill missing keys
+                        "consecutiveLosses": 0, "gate": "OPEN", "last_entry_ts": 0}
             for k, v in default.items():
                 if k not in tc:
                     tc[k] = v
@@ -87,11 +81,9 @@ def load_trade_counter():
 def save_trade_counter(tc):
     if tc.get("date") != now_date():
         tc = {"date": now_date(), "entries": 0, "dailyLoss": 0,
-              "consecutiveLosses": 0, "gate": "OPEN"}
+              "consecutiveLosses": 0, "gate": "OPEN", "last_entry_ts": 0}
     atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
 
-
-# --- Cooldown ---
 
 def is_on_cooldown(coin, minutes=180):
     p = STATE_DIR / "cooldowns.json"
@@ -121,8 +113,6 @@ def set_cooldown(coin, minutes=180):
     atomic_write(str(p), cooldowns)
 
 
-# --- Scan History ---
-
 def load_scan_history():
     p = STATE_DIR / "scan-history.json"
     if p.exists():
@@ -140,8 +130,6 @@ def save_scan_history(history):
         history["scans"] = scans[-30:]
     atomic_write(str(STATE_DIR / "scan-history.json"), history)
 
-
-# --- MCP ---
 
 def mcporter_call(tool, retries=2, timeout=30, **params):
     args = json.dumps(params) if params else "{}"
