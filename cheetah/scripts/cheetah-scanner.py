@@ -2,26 +2,25 @@
 # Senpi CHEETAH Scanner v2.1.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""CHEETAH v2.1.1 — HYPE Predator (Hardened + Hyperfeed Scoring + Extreme Velocity Tiers).
+"""CHEETAH v3.0 — HYPE Contrarian (SM Exhaustion Fader).
 
-v2.1 changes from fleet audit (2026-04-07):
-- Scanner calls create_position internally via mcporter (Wolverine pattern)
-- feeOptimizedLimitOptions with ensureExecutionAsTaker: false
-- Conviction-scaled leverage: score 8-9 → 7x, score 10+ → 10x
-- Margin increased to 50%
-- Hard gates (SM%, 4H price, trader count) → score contributors
-- Hyperfeed multi-window contribution velocity (15m, 1h, 4h)
-- Resting order check prevents stacking maker orders
-- BTC trend as score contributor (fetched from same API call, no double-call)
-- No thesis exit (confirmed from v2.0)
+v3.0 — DIRECTION FLIP.
+Fleet analysis (April 10, 2026) found Cheetah's signal was perfectly
+inverted: 33 trades, actual gross -$175, inverted +$175. The momentum
+scanner was buying HYPE breakouts that immediately mean-reverted.
+Cheetah's own diagnosis: "the thesis itself is actively broken for
+HYPE's current price action."
 
-Trade analysis context (23 positions):
-- Winners hold long: +$72.30 (9h), +$22.94 (12.6h), +$13.64 (4h)
-- Losers die fast: -$43.63 (11m), -$36.98 (19m)
-- SHORT 60% win rate vs LONG 46%
-- Gross PnL: -$74.56 on direction, -$95.50 in fees = -$170.06 net
+Fix: flip direction. When SM piles into HYPE, fade it.
 
-HYPE single-asset hunter. HUNT → RIDE → re-HUNT.
+Changes from v2.1.1:
+- CONTRARIAN FLIP: trade opposite to SM consensus direction
+- Added MOVE_EXHAUSTION penalty (aligns with Horribilis/Grizzly v4.0)
+- Simplified 15m velocity tiers (less spike-chasing)
+- Added same-direction cooldown (60 min)
+- Fixed resting order filter (now ignores reduceOnly DSL stops)
+
+HYPE single-asset contrarian. CIRCLE → FADE → RIDE reversal.
 Uses: leaderboard_get_markets + strategy_get_open_orders (2 API calls)
 Runs every 90 seconds.
 """
@@ -36,6 +35,7 @@ ASSET = "HYPE"
 MAX_POSITIONS = 1
 MAX_DAILY_ENTRIES = 4
 COOLDOWN_MINUTES = 90
+SAME_DIR_COOLDOWN_MINUTES = 60
 MARGIN_PCT = 0.50
 MIN_SCORE = 8
 XYZ_BANNED = True
@@ -64,15 +64,17 @@ def get_leverage_for_score(score):
 
 
 def has_resting_orders(wallet):
-    """Check if there are resting entry orders on the book."""
+    """Check for non-reduceOnly resting orders. Ignores DSL stop-losses."""
     data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
     if not data:
         return False
     orders = data.get("data", data)
     if isinstance(orders, dict):
         orders = orders.get("orders", orders.get("openOrders", []))
-    if isinstance(orders, list) and len(orders) > 0:
-        return True
+    if isinstance(orders, list):
+        for o in orders:
+            if not o.get("reduceOnly", False):
+                return True
     return False
 
 
@@ -139,16 +141,20 @@ def evaluate_hype():
     if (d == "LONG" and p1h > 0.2) or (d == "SHORT" and p1h < -0.2):
         score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
-    # Contribution velocity — multi-window (15m + 1h + 4h)
-    # Expanded tiers: extreme spikes should push score to 11+ for max leverage
-    if cc_15m > 5.0: score += 4; reasons.append(f"15M_EXTREME_SPIKE +{cc_15m:.2f}")
-    elif cc_15m > 2.0: score += 3; reasons.append(f"15M_STRONG_SPIKE +{cc_15m:.2f}")
-    elif cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
+    # Move-exhaustion penalty
+    if abs(p4h) >= 4.0:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score -= 2; reasons.append(f"MOVE_EXHAUSTION {p4h:+.1f}%")
+    elif abs(p4h) >= 2.5:
+        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
+            score -= 1; reasons.append(f"MOVE_TIRING {p4h:+.1f}%")
+
+    # Contribution velocity — simplified tiers (aligned with fleet contrarian agents)
+    if cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
     elif cc_15m > 0.1: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
     elif cc_15m < -0.5: score -= 1; reasons.append(f"15M_FADING {cc_15m:.2f}")
 
-    if cc_1h > 3.0: score += 2; reasons.append(f"1H_STRONG_ACCEL +{cc_1h:.2f}")
-    elif cc_1h > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")
+    if cc_1h > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")
 
     if abs(cc_4h) >= 5.0: score += 1; reasons.append(f"4H_MAJOR_SHIFT {cc_4h:+.1f}")
 
@@ -194,12 +200,19 @@ def execute_entry(direction, margin, leverage):
 
 def load_tc():
     p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
+    default = {"date": now_date(), "entries": 0, "last_entry_ts": 0,
+               "last_win_direction": None, "last_win_ts": 0}
     if os.path.exists(p):
         try:
             with open(p) as f: tc = json.load(f)
-            if tc.get("date") == now_date(): return tc
+            if tc.get("date") != now_date():
+                tc["date"] = now_date()
+                tc["entries"] = 0
+            for k, v in default.items():
+                if k not in tc: tc[k] = v
+            return tc
         except: pass
-    return {"date": now_date(), "entries": 0}
+    return dict(default)
 
 def save_tc(tc):
     tc["date"] = now_date()
@@ -248,12 +261,28 @@ def run():
     thesis = evaluate_hype()
     if not thesis:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": "HUNTING: no HYPE thesis"})
+            "note": "CIRCLING: no HYPE thesis"})
         return
     if thesis["score"] < MIN_SCORE:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"HUNTING: HYPE {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"})
+            "note": f"CIRCLING: HYPE SM={thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"})
         return
+
+    # ── CONTRARIAN FLIP ──
+    sm_direction = thesis["direction"]
+    thesis["direction"] = "SHORT" if sm_direction == "LONG" else "LONG"
+    thesis["reasons"].insert(0, f"CONTRARIAN_FLIP (SM is {sm_direction})")
+
+    # Same-direction cooldown (post-flip direction)
+    last_win_dir = tc.get("last_win_direction")
+    last_win_ts = tc.get("last_win_ts", 0)
+    if last_win_dir and last_win_ts:
+        if (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
+            if thesis["direction"] == last_win_dir:
+                remaining = int((SAME_DIR_COOLDOWN_MINUTES * 60 - (time.time() - last_win_ts)) / 60)
+                cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": f"SAME_DIR_COOLDOWN: won {last_win_dir} {remaining}min ago"})
+                return
 
     leverage = get_leverage_for_score(thesis["score"])
     margin = round(av * MARGIN_PCT, 2)
@@ -273,14 +302,14 @@ def run():
                 "leverage": leverage, "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
             "result": result,
-            "_cheetah_version": "2.1.1",
+            "_cheetah_version": "3.0",
         })
     else:
         cfg.output({
             "status": "ok", "action": "ENTRY_FAILED",
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                 "score": thesis["score"], "reasons": thesis["reasons"]},
-            "error": result, "_cheetah_version": "2.1.1",
+            "error": result, "_cheetah_version": "3.0",
         })
 
 
