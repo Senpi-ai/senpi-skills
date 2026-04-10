@@ -75,6 +75,12 @@ MIN_SWARM_COUNT = 5
 # XYZ equities banned from trading (but counted in swarm for context)
 XYZ_BANNED_TRADING = True
 
+# Low-liquidity assets blacklisted from TRADING (still counted in swarm detection).
+# XPL: -$52.89 single trade loss, violent wicks through DSL floors.
+# LIT: -$42.97 single trade loss (pre-margin-scaling-fix), erratic price action.
+# FARTCOIN: -$9.87, insufficient book depth for reliable execution.
+BLACKLISTED_ASSETS = {"XPL", "LIT", "FARTCOIN"}
+
 # State file
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "..", "config", "scorpion-state.json")
@@ -294,6 +300,10 @@ def pick_best_target(swarm, state):
 
     for target in swarm:
         token = target["token"]
+
+        # Skip blacklisted low-liquidity assets
+        if token in BLACKLISTED_ASSETS:
+            continue
 
         # Check per-asset cooldown
         clear, _ = check_asset_cooldown(state, token)
