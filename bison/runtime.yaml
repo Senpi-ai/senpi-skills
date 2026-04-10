@@ -26,6 +26,10 @@ actions:
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
   dsl_preset:
     # Time-based exits — conviction holder needs patience
     hard_timeout:
