@@ -1,0 +1,60 @@
+name: kestrel-tracker
+version: 1.0.0
+description: >
+  KESTREL v1.0 — XYZ Macro Breakout Rider. Detects >1.5% hourly price
+  breakouts on commodities, metals, indices, and equities during US market
+  hours. Rides the macro trend with wide DSL. Price action primary,
+  SM confirmation secondary.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 2
+  margin_per_slot: 300
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# Wide DSL — macro trends on commodities/equities persist for hours/days.
+# Unlike crypto contrarian, this is MOMENTUM — ride the trend.
+# Dead weight cut catches false breakouts early.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 480
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 180
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 45
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 3,  lock_hw_pct: 15 }
+        - { trigger_pct: 7,  lock_hw_pct: 30 }
+        - { trigger_pct: 12, lock_hw_pct: 50 }
+        - { trigger_pct: 20, lock_hw_pct: 65 }
+        - { trigger_pct: 30, lock_hw_pct: 80 }
+        - { trigger_pct: 50, lock_hw_pct: 90 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
