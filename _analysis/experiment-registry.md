@@ -76,6 +76,31 @@ Each experiment gets a unique ID (EXP-NNN), a clear hypothesis, a single variabl
 
 ---
 
+---
+
+## Baselines — snapshot at 18:45 UTC April 10, 2026
+
+Captured from Predators MCP. These are the lifetime numbers at the moment the PRs merged. All future measurements diff against these.
+
+| Agent | Net PnL | Realized | Unrealized | Fees Paid | Volume | Trades | Gross PnL | Fee/Vol bps |
+|-------|---------|----------|------------|-----------|--------|--------|-----------|-------------|
+| Phoenix v2.0 | -$250.67 | -$250.67 | $0 | $179.38 | $228,670 | 360 | -$71.29 | 7.84 |
+| Condor v2.0 | -$95.32 | -$95.32 | $0 | $94.91 | $123,638 | 103 | -$0.40 | 7.68 |
+| Wolverine v2.0 | -$35.74 | -$35.74 | $0 | $35.35 | $41,988 | 57 | -$0.39 | 8.42 |
+| Lemon | +$3.79 | +$3.79 | $0 | $8.30 | $10,531 | 18 | +$12.09 | 7.88 |
+| Roach-B | -$119.40 | -$119.40 | $0 | $126.61 | $151,293 | 274 | +$7.21 | 8.37 |
+| Polar | -$152.73 | -$159.49 | +$6.76 | $372.19 | $488,820 | 281 | +$219.46 | 7.62 |
+| Kodiak | -$119.56 | -$119.56 | $0 | $238.84 | $301,532 | 206 | +$119.28 | 7.92 |
+| Scorpion v2.0 | -$46.89 | -$46.89 | $0 | $75.87 | $98,045 | 166 | +$28.98 | 7.74 |
+
+**Key observations from baselines:**
+- Fee/volume runs 7.6-8.4 bps across all agents — confirms 0% maker rate fleet-wide
+- Polar, Kodiak, Scorpion, Roach-B all have positive gross PnL — strategy alpha exists, fees destroy it
+- Condor and Wolverine are almost exactly break-even on gross — fees are the entire loss
+- Phoenix is the only agent with genuinely negative gross PnL (-$71) — time cuts are the primary fix, not just fees
+
+---
+
 ## Scoring methodology
 
 For each experiment:
