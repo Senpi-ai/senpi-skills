@@ -30,14 +30,14 @@ exit:
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 240
+      interval_in_minutes: 75
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 90
+      interval_in_minutes: 40
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 60
+      interval_in_minutes: 30
     phase1:
       enabled: true
       max_loss_pct: 25.0
