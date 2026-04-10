@@ -1,13 +1,17 @@
-name: fox-tracker
+name: vulture-tracker
 version: 1.0.0
 description: >
-  Onchain position tracker — monitors strategy wallet on Hyperliquid
-  for position lifecycle events and wires them into the DSL exit engine.
-  Dual-mode emerging movers scanner (Stalker minReasons=3 + Striker).
+  VULTURE v1.0 — Multi-Asset SM Exhaustion Fader. Detects when Smart Money
+  consensus is overwhelmingly strong AND the 4H price move is already
+  extended (>3%), then fades the exhausted move. BTC/ETH/SOL/HYPE only.
+  Conservative leverage (5-7x), wide DSL, let reversals develop.
 
 # ── STRATEGY ──
 strategy:
   wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 1
+  margin_per_slot: 300
   enabled: true
 
 # ── SCANNERS ──
@@ -24,32 +28,38 @@ actions:
     scanners: [position_tracker]
 
 # ── EXIT (DSL) ──
+# Wide DSL for contrarian trades — reversals take time to develop.
+# Dead weight cut at 30 min catches fades that never worked.
+# Weak peak cut at 90 min catches fades that stalled.
+# Hard timeout at 360 min (6h) — backstop, not rotation mechanism.
+# Phase 2 tiers wide to let winners run when the reversal hits.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 25
+      interval_in_minutes: 360
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 12
-      min_value: 3.0
+      interval_in_minutes: 90
+      min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 8
+      interval_in_minutes: 30
     phase1:
       enabled: true
-      max_loss_pct: 18.0
-      retrace_threshold: 3
+      max_loss_pct: 15.0
+      retrace_threshold: 8
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 7, lock_hw_pct: 40 }
-        - { trigger_pct: 12, lock_hw_pct: 55 }
-        - { trigger_pct: 15, lock_hw_pct: 75 }
-        - { trigger_pct: 20, lock_hw_pct: 85 }
+        - { trigger_pct: 5,  lock_hw_pct: 20 }
+        - { trigger_pct: 10, lock_hw_pct: 40 }
+        - { trigger_pct: 15, lock_hw_pct: 60 }
+        - { trigger_pct: 20, lock_hw_pct: 75 }
+        - { trigger_pct: 30, lock_hw_pct: 85 }
 
 # ── NOTIFICATIONS ──
 notifications:
