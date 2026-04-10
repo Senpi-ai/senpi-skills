@@ -1,7 +1,7 @@
 # Experiment Registry
 
-Last updated: April 10, 2026
-Updated by: Claude Code session (fleet analysis handoff from web chat)
+Last updated: April 10, 2026 (end of day)
+Updated by: Claude Code day-1 session
 
 ---
 
@@ -12,100 +12,168 @@ Each experiment gets a unique ID (EXP-NNN), a clear hypothesis, a single variabl
 ---
 
 ## EXP-001: Phoenix v2.0 time cuts
-- **PR:** Senpi-ai/senpi-skills#147
-- **Branch:** fleet-fix/phoenix-v2.0-time-cuts
-- **Variable changed:** hard_timeout 180->45, weak_peak_cut disabled->enabled at 15 min (min_value 1.5%), dead_weight_cut disabled->enabled at 20 min
-- **Hypothesis:** Median hold time drops from ~3h to ~30 min. Gross PnL improves as trades close near signal resolution.
-- **Baseline (pre-merge):** 39 positions, -$72.43 net, -$250.67 with fees. Median hold ~3h. 48.7% WR.
-- **Measurement plan:** Pull Phoenix closed positions 24h and 48h after merge. Compute: median hold time, gross PnL, net PnL, WR, avg winner/loser.
-- **Prediction logged:** Median hold <45 min. Gross PnL per trade improves by >30%.
-- **Result:** PENDING
+- **PR:** #147 (MERGED)
+- **Variable:** hard_timeout 180→45, weak_peak_cut enabled at 15 min, dead_weight_cut at 20 min
+- **Hypothesis:** Median hold drops from ~3h to ~30 min. Gross PnL improves.
+- **Baseline:** 360 fills, -$250.67 net, -$71.29 gross. Median hold ~3h.
+- **Status:** LIVE — agent instructed
+- **Result:** PENDING (score April 12)
 
 ## EXP-002: Condor v2.0 time cuts
-- **PR:** Senpi-ai/senpi-skills#148
-- **Branch:** fleet-fix/condor-v2.0-time-cuts
-- **Variable changed:** hard_timeout 240->75, weak_peak_cut 90->40, dead_weight_cut 60->30
-- **Hypothesis:** Median hold time drops from ~141 min to ~45 min.
-- **Baseline (pre-merge):** 9 positions, -$95.32 net. Median hold 141 min, avg 170 min.
-- **Measurement plan:** Same as EXP-001 but for Condor.
-- **Prediction logged:** Median hold <60 min. Gross PnL per trade improves.
-- **Result:** PENDING
+- **PR:** #148 (MERGED)
+- **Variable:** hard_timeout 240→75, weak_peak_cut 90→40, dead_weight_cut 60→30
+- **Hypothesis:** Median hold drops from ~141 min to ~45 min.
+- **Baseline:** 103 fills, -$95.32 net, -$0.40 gross. Median hold 141 min.
+- **Status:** LIVE — agent instructed
+- **Result:** PENDING (score April 12)
 
 ## EXP-003: Fleet-wide FEE_OPTIMIZED_LIMIT
-- **PR:** Senpi-ai/senpi-skills#149 (DRAFT)
-- **Branch:** fleet-fix/fee-optimized-limit-all-agents
-- **Variable changed:** DSL exit order_type MARKET -> FEE_OPTIMIZED_LIMIT with ensure_execution_as_taker: true across 20 yaml agents
-- **Hypothesis:** Maker fill rate goes from 0% to ~70%. Fee rate drops from ~0.078% to ~0.025%. 3-4 agents flip to net-positive.
-- **Baseline:** Fleet-wide fees-to-volume 0.075-0.085%. Total fees paid ~$1.1K-1.3K across 13 active agents.
-- **Measurement plan:** Within 1h of merge: capture baseline fees-to-volume per agent. Within 4h: check for maker fills. Within 24h: clean before/after comparison.
-- **Prediction logged:** Polar +$101, Kodiak +$33, Scorpion ~break-even, Lemon +$9 (fee fix alone).
-- **Dependency:** Sarvesh's order-type-configuration runtime release must deploy first (expected April 14-15).
+- **PR:** #149 (MERGED then REVERTED via #151)
+- **Branch preserved:** fleet-fix/fee-optimized-limit-all-agents
+- **Variable:** DSL exit order_type MARKET → FEE_OPTIMIZED_LIMIT across 20 yaml agents
+- **Hypothesis:** Fee rate drops from ~7.8 bps to ~2.5 bps. 3-4 agents flip to net-positive.
+- **Baseline:** Fleet-wide fee/vol 7.6-8.4 bps. Total fees ~$1.3K across active agents.
+- **Dependency:** Sarvesh's runtime release (expected April 14-15)
+- **Status:** STAGED — re-apply same hour runtime deploys
 - **Result:** PENDING
 
-## EXP-004: Roach-B scalp mode (already on main)
-- **Variable changed:** weak_peak_cut 12 min, dead_weight_cut 8 min, hard_timeout 25 min (already merged)
+## EXP-004: Roach-B scalp mode
+- **Variable:** weak_peak_cut 12, dead_weight_cut 8, hard_timeout 25 (already on main)
 - **Hypothesis:** Give-back drops from 62% of peak to <40%.
-- **Baseline:** Avg peak ROE 3.92%, avg realized ROE 1.48%, 62% give-back.
-- **Measurement plan:** After dual DSL tracker health fix, measure over 20+ new positions.
-- **Blocker:** Dual DSL tracker instances must be killed first (health issue). Performance measurement meaningless until then.
-- **Result:** PENDING (BLOCKED on health fix)
+- **Baseline:** Avg peak ROE 3.92%, avg realized ROE 1.48%.
+- **Status:** UNBLOCKED — dual DSL tracker killed April 10. Clean measurement now possible.
+- **Result:** PENDING (score after 20+ new positions)
+
+## EXP-005: Lemon DSL retune
+- **PR:** #152 (MERGED)
+- **Variable:** hard_timeout 240→480, weak_peak_cut 90→60 (min_value 3.0→2.0), dead_weight_cut 30→20
+- **Hypothesis:** Winners run longer (no more clock-based clipping). Losers cut faster.
+- **Baseline:** 18 fills, +$3.79 net, +$12.09 gross. All exits by hard timeout.
+- **Status:** LIVE — agent confirmed
+- **Result:** PENDING (score April 12)
+
+## EXP-006: Orca v2.0 DSL widening
+- **PR:** #154 (MERGED)
+- **Variable:** hard_timeout 30→45, weak_peak_cut 15→25, dead_weight_cut 10→15
+- **Hypothesis:** Weak_peak_cut exits drop from 50% to <30%. Winners get time to develop.
+- **Baseline:** 150 fills, -$49.83 net, +$4.29 gross. 50% exits via weak_peak_cut.
+- **Status:** LIVE — agent confirmed
+- **Result:** PENDING (score after 20+ positions)
+
+## EXP-007: Scorpion v2.0 asset blacklist
+- **PR:** #155 (MERGED)
+- **Variable:** XPL, LIT, FARTCOIN blacklisted from trading (still in swarm detection)
+- **Hypothesis:** No losses >$25 on next 14 positions. WR improves from 64% to 70%+.
+- **Baseline:** 166 fills, -$46.89 net, +$28.98 gross. XPL/LIT caused $96 of $122 losses.
+- **Status:** LIVE — agent confirmed
+- **Result:** PENDING (score after 14 positions)
+
+## EXP-008: Polar market-driven exits
+- **PR:** #158 (MERGED)
+- **Variable:** hard_timeout 180→480, weak_peak_cut enabled at 60 min, dead_weight_cut at 30 min
+- **Hypothesis:** Avg winner ROE improves >20% as winners are no longer killed by 180-min clock.
+- **Baseline:** 281 fills, -$152.73 net, +$219.46 gross. Winners clipped by timeout.
+- **Status:** LIVE — agent confirmed
+- **Result:** PENDING (score April 12)
+
+## EXP-009: Grizzly v4.0 contrarian flip (no pyramiding)
+- **PR:** #156 (MERGED)
+- **Variable:** Direction flip + scoring alignment with Horribilis (MOVE_EXHAUSTION added, velocity simplified, leverage capped 10x)
+- **Hypothesis:** WR improves from 18% toward 50%+ as contrarian entries fade exhausted moves correctly.
+- **Baseline:** 91 fills, -$145.75 net. Inversion test: 81.8% WR if flipped.
+- **A/B control:** Single entry (vs Horribilis pyramiding)
+- **Status:** LIVE — agent confirmed with dry-run
+- **Result:** PENDING (score April 17 — needs 10+ positions)
+
+## EXP-010: Grizzly Horribilis v2.0 contrarian flip (with pyramiding)
+- **PR:** #156 (MERGED)
+- **Variable:** Direction flip + scale-up logic inverted (SM must disagree for add)
+- **Hypothesis:** Same as EXP-009 but pyramiding amplifies winners.
+- **Baseline:** 116 fills, -$166.34 net. Inversion: -$53 actual, +$53 inverted.
+- **A/B variable:** Pyramiding (up to 3 entries per position)
+- **Status:** LIVE — agent confirmed
+- **Result:** PENDING (score April 17)
+
+## EXP-011: Cheetah v3.0 contrarian flip (HYPE)
+- **PR:** #159 (MERGED)
+- **Variable:** Direction flip + MOVE_EXHAUSTION + velocity simplification + same-dir cooldown
+- **Hypothesis:** Inversion test showed +$175 inverted vs -$175 actual. Contrarian Cheetah should be net-positive.
+- **Baseline:** 261 fills, -$323.48 net, -$175.15 gross. Worst in fleet.
+- **Status:** LIVE — agent confirmed, already trading (3 positions fired rapidly)
+- **Concern:** Cheetah may have self-modified DSL settings (reported different values than yaml). Verify.
+- **Result:** PENDING (score April 14 — Cheetah trades frequently)
+
+## EXP-012: Dog v2.0 contrarian flip (multi-asset)
+- **PR:** #159 (MERGED)
+- **Variable:** Direction flip + exhaustion inverted (now bonus) + leverage reduced + DSL widened
+- **Hypothesis:** Inversion: -$61 actual, +$61 inverted. Contrarian Dog net-positive after fee fix.
+- **Baseline:** 35 fills, -$105.24 net, -$61.34 gross.
+- **Status:** LIVE — agent confirmed, took first trade (HYPE LONG fading SM SHORT)
+- **Result:** PENDING (score April 14)
+
+## EXP-013: Vulture v1.0 (NEW — SM exhaustion fader)
+- **PRs:** #157 + #160 (MERGED)
+- **Variable:** Entirely new agent replacing Fox v2.0. Contrarian-native scoring with exhaustion gate (>3% 4H price move required).
+- **Hypothesis:** Purpose-built contrarian outperforms retrofitted direction flips.
+- **Baseline:** Fox v2.0 was -$92.63 net. Even inverted, -$1.96 (signal too weak for any fee level).
+- **Status:** READY TO DEPLOY — code on main at vulture/
+- **Result:** PENDING (score April 17 — needs deployment first)
 
 ---
 
 ## Queued experiments (not yet implemented)
 
 ### EXP-Q1: Lemon 10x leverage A/B
-- Remove hard_timeout (let counter-trade unwinds run indefinitely)
-- Add tighter trailing DSL
-- Test 10x leverage vs current 5x
-- Requires Python scanner changes (no runtime.yaml)
+- Test 10x vs current 5x leverage. Separate experiment from DSL retune.
 
 ### EXP-Q2: Sentinel per-asset DSL tuning
-- Widen HYPE/BTC stops, keep ETH/SOL/TAO tight
-- May require scanner-level logic since runtime DSL is per-strategy not per-asset
+- Widen HYPE/BTC stops, keep ETH/SOL/TAO tight.
 
 ### EXP-Q3: Mantis v4.0 asset whitelist
-- Restrict to top-50 volume assets (remove BLAST, XPL, ZRO)
-- Raise STRIKER_MIN_SCORE
-- Consider signal direction flip
+- Restrict to top-50 volume assets.
 
 ### EXP-Q4: Wolverine mercy-kill logic
-- Re-enable thesis exit with a "mercy kill" threshold
-- Target: close if 15m velocity goes deeply negative AND position has been open >25 min
-- Requires Python scanner changes
+- Re-enable thesis exit with "mercy kill" threshold.
 
----
+### EXP-Q5: Bison asset universe expansion
+- Top 10 → Top 30-50 assets with strict 3-of-3 convergence.
+
+### EXP-Q6: Bald Eagle direction flip
+- Same signal inversion disease on XYZ/oil.
 
 ---
 
 ## Baselines — snapshot at 18:45 UTC April 10, 2026
 
-Captured from Predators MCP. These are the lifetime numbers at the moment the PRs merged. All future measurements diff against these.
-
-| Agent | Net PnL | Realized | Unrealized | Fees Paid | Volume | Trades | Gross PnL | Fee/Vol bps |
-|-------|---------|----------|------------|-----------|--------|--------|-----------|-------------|
-| Phoenix v2.0 | -$250.67 | -$250.67 | $0 | $179.38 | $228,670 | 360 | -$71.29 | 7.84 |
-| Condor v2.0 | -$95.32 | -$95.32 | $0 | $94.91 | $123,638 | 103 | -$0.40 | 7.68 |
-| Wolverine v2.0 | -$35.74 | -$35.74 | $0 | $35.35 | $41,988 | 57 | -$0.39 | 8.42 |
-| Lemon | +$3.79 | +$3.79 | $0 | $8.30 | $10,531 | 18 | +$12.09 | 7.88 |
-| Roach-B | -$119.40 | -$119.40 | $0 | $126.61 | $151,293 | 274 | +$7.21 | 8.37 |
-| Polar | -$152.73 | -$159.49 | +$6.76 | $372.19 | $488,820 | 281 | +$219.46 | 7.62 |
-| Kodiak | -$119.56 | -$119.56 | $0 | $238.84 | $301,532 | 206 | +$119.28 | 7.92 |
-| Scorpion v2.0 | -$46.89 | -$46.89 | $0 | $75.87 | $98,045 | 166 | +$28.98 | 7.74 |
-
-**Key observations from baselines:**
-- Fee/volume runs 7.6-8.4 bps across all agents — confirms 0% maker rate fleet-wide
-- Polar, Kodiak, Scorpion, Roach-B all have positive gross PnL — strategy alpha exists, fees destroy it
-- Condor and Wolverine are almost exactly break-even on gross — fees are the entire loss
-- Phoenix is the only agent with genuinely negative gross PnL (-$71) — time cuts are the primary fix, not just fees
+| Agent | Net PnL | Fees Paid | Volume | Fills | Gross PnL | Fee/Vol bps |
+|-------|---------|-----------|--------|-------|-----------|-------------|
+| Phoenix v2.0 | -$250.67 | $179.38 | $228,670 | 360 | -$71.29 | 7.84 |
+| Condor v2.0 | -$95.32 | $94.91 | $123,638 | 103 | -$0.40 | 7.68 |
+| Wolverine v2.0 | -$35.74 | $35.35 | $41,988 | 57 | -$0.39 | 8.42 |
+| Lemon | +$3.79 | $8.30 | $10,531 | 18 | +$12.09 | 7.88 |
+| Roach-B | -$119.40 | $126.61 | $151,293 | 274 | +$7.21 | 8.37 |
+| Polar | -$152.73 | $372.19 | $488,820 | 281 | +$219.46 | 7.62 |
+| Kodiak | -$119.56 | $238.84 | $301,532 | 206 | +$119.28 | 7.92 |
+| Scorpion v2.0 | -$46.89 | $75.87 | $98,045 | 166 | +$28.98 | 7.74 |
+| Cheetah | -$323.48 | $148.32 | $196,159 | 261 | -$175.16 | 7.56 |
+| Dog | -$105.24 | $43.90 | $55,905 | 35 | -$61.34 | 7.85 |
+| Grizzly v3.0 | -$145.75 | n/a | $105,799 | 91 | n/a | n/a |
+| Grizzly Horribilis | -$166.34 | $113.29 | $148,445 | 116 | -$53.05 | 7.63 |
+| Orca v2.0 | -$49.83 | $55.66 | $61,891 | 150 | +$4.29 | 8.99 |
+| Roach | -$192.45 | n/a | $200,740 | 305 | n/a | n/a |
 
 ---
 
 ## Scoring methodology
 
-For each experiment:
 1. Log prediction BEFORE merge
 2. Wait for measurement window (24h minimum, 48h preferred)
 3. Pull data and score against prediction
 4. Update calibration log in fleet-hypotheses.md
 5. If prediction wrong, document why and what was learned
+
+**Next scoring dates:**
+- April 12: EXP-001, 002, 005, 008 (time cut + DSL retune experiments)
+- April 14: EXP-011, 012 (Cheetah + Dog contrarian, high trade frequency)
+- April 14-15: EXP-003 (fee fix, depends on Sarvesh deploy)
+- April 17: EXP-009, 010, 013 (Grizzly A/B + Vulture, need more positions)

@@ -1,7 +1,7 @@
 # Fleet Hypotheses Log
 
-Last updated: April 10, 2026
-Updated by: Claude Code session (fleet analysis handoff from web chat)
+Last updated: April 10, 2026 (end of day)
+Updated by: Claude Code day-1 session
 
 ---
 
@@ -10,69 +10,99 @@ Updated by: Claude Code session (fleet analysis handoff from web chat)
 ### H1: Fee fix alone flips 3-4 agents to net-positive
 **Filed:** April 10, 2026
 **Status:** AWAITING (Sarvesh's runtime release, expected April 14-15)
-**Prediction:** Polar (+$101), Kodiak (+$33), Scorpion (~break-even), Lemon (improves to +$9). Based on 0% maker -> ~70% maker, fee rate 0.078% -> ~0.025%.
-**How to score:** Pull each agent's net PnL 7 days after the fee fix merges. Compare to pre-fix baseline. If Polar and Kodiak are net-positive, H1 confirmed.
-**Risk:** Actual maker fill rate may be lower than 70% — depends on market depth and timeout settings.
+**Prediction:** Polar (+$101), Kodiak (+$33), Scorpion (~break-even), Lemon (improves to +$9), Roach (strong candidate due to 2.7:1 R/R).
+**How to score:** Pull each agent's fee/vol bps 7 days after fix. Target: drop from ~7.8 bps to ~2.5 bps.
+**Risk:** Actual maker fill rate may be lower than 70%.
 
-### H2: Phoenix time cuts (PR #147) reduce median hold from 3h to ~30 min
+### H2: Phoenix time cuts reduce median hold from 3h to ~30 min
 **Filed:** April 10, 2026
-**Status:** AWAITING (PR merge + 24h measurement)
-**Prediction:** With hard_timeout 45 min, weak_peak_cut 15 min, dead_weight_cut 20 min, most trades should resolve within 30 minutes. Gross PnL improves because trades close near signal resolution.
-**How to score:** Pull Phoenix closed positions 48h after merge. Compute median hold time. Target: <45 min.
-**Risk:** If the signal genuinely needs >45 min to resolve on some assets (BTC may trend longer than SOL), the new hard_timeout could cut winners.
+**Status:** LIVE — PR #147 merged, agent instructed
+**How to score:** Pull Phoenix closed positions 48h after agent applies changes. Target: median hold <45 min.
 
-### H3: Condor time cuts (PR #148) reduce median hold from 141 min to ~45 min
+### H3: Condor time cuts reduce median hold from 141 min to ~45 min
 **Filed:** April 10, 2026
-**Status:** AWAITING (PR merge + 24h measurement)
-**Prediction:** Same thesis as H2 but for multi-asset signals. Signal window is 15-45 min for extreme velocity spikes.
-**How to score:** Same method as H2. Target median hold: <60 min.
+**Status:** LIVE — PR #148 merged, agent instructed
+**How to score:** Same as H2. Target: median hold <60 min.
 
-### H4: Roach-B scalp mode (already on main) captures >60% of peak ROE
+### H4: Roach-B scalp mode captures >60% of peak ROE
 **Filed:** April 10, 2026
-**Status:** AWAITING (re-measurement after dual DSL tracker is killed)
-**Prediction:** Pre-fix give-back was 62% of peak. With weak_peak_cut at 12 min and dead_weight_cut at 8 min, give-back should drop to <40%.
-**How to score:** After health fix (kill duplicate DSL), measure avg peak ROE vs avg realized ROE over 20+ positions.
-**Confound:** Dual DSL tracker must be fixed first or measurements are meaningless.
+**Status:** UNBLOCKED — dual DSL tracker killed, health fixed
+**How to score:** Measure avg peak ROE vs avg realized ROE over 20+ new positions.
 
-### H5: Thesis-exit-removed disease affects all v2.0 agents uniformly
+### H5: Thesis-exit-removed disease affects all v2.0 agents
 **Filed:** April 10, 2026
-**Status:** PARTIALLY CONFIRMED
-**Evidence:** Phoenix, Wolverine, Condor all confirmed `_v2_no_thesis_exit: true` and exhibit the same pattern (trades drifting to hard timeout). All three diagnosed independently.
-**Open question:** Are there other v2.0 agents with this flag that we haven't checked?
+**Status:** CONFIRMED across Phoenix, Wolverine, Condor, Cheetah
+**All four have `_v2_no_thesis_exit: true` and exhibit the same pattern.**
 
-### H6: Agent self-reports are high-quality leads but not ground truth
+### H6: Agent self-reports are leads, not ground truth
 **Filed:** April 10, 2026
-**Status:** CONFIRMED (two instances)
-**Evidence:**
-1. Phoenix said "limits at mid-price getting shredded into 75 fills." Actual cause: executor hardcodes MARKET, no limit orders placed at all.
-2. Condor said "hard_timeout: 180, weak_peak_cut disabled." Actual yaml: hard_timeout: 240, weak_peak_cut enabled at 90 min.
-**Implication:** Always read yamls before drafting changes. Cross-check agent claims against repo source of truth.
+**Status:** CONFIRMED (two instances, plus Cheetah may have self-modified DSL)
+
+### H7: Signal inversion disease is fleet-wide on SM consensus scanners
+**Filed:** April 10, 2026 (Claude Code session)
+**Status:** CONFIRMED across 5 agents
+**Evidence:** Grizzly v3.0 (81.8% inverted WR), Horribilis (-$53/+$53), Dog (-$61/+$61), Cheetah (-$175/+$175), Bald Eagle (-$48/+$48). All use multi-timeframe SM confirmation that enters after move exhaustion.
+**Mechanism:** The confirmation requirement (4H + 1H + 15M alignment) means the scanner fires after the move is already done. The signal is a lagging indicator that works as a contrarian signal.
+**Implication:** Direction flip is the fix. 4 agents flipped (PRs #156, #159), Vulture built from scratch as contrarian-native.
+
+### H8: Direction flip produces profitable contrarian agents
+**Filed:** April 10, 2026 (Claude Code session)
+**Status:** LIVE — 4 agents flipped, 1 new agent (Vulture), all confirmed running
+**Prediction:** At least 2 of the 5 contrarian agents (Grizzly v4.0, Horribilis v2.0, Cheetah v3.0, Dog v2.0, Vulture) will be net-positive within 7 days.
+**How to score:** Pull PnL on all 5 contrarian agents 7 days post-flip. Any agent with positive gross PnL confirms the thesis. Net-positive confirms it overcomes fees.
+**Risk:** Market regime may shift from ranging (where contrarian works) to trending (where it doesn't). Cheetah and Dog already trading — early results will be visible within 24-48h.
+**This is the highest-risk, highest-reward experiment in the fleet.**
+
+### H9: Polar market-driven exits improve winner capture
+**Filed:** April 10, 2026 (Claude Code session)
+**Status:** LIVE — PR #158 merged, agent confirmed
+**Prediction:** Polar's gross PnL per winning trade increases as winners are no longer killed by 180-min clock. Dead weight cut at 30 min catches losers faster than the old 180-min timeout.
+**How to score:** Compare avg winner ROE before vs after. Target: avg winner improves by >20%.
+
+### H10: Scorpion asset blacklist eliminates disproportionate losses
+**Filed:** April 10, 2026 (Claude Code session)
+**Status:** LIVE — PR #155 merged, agent confirmed
+**Prediction:** Next 14 Scorpion positions show no losses >$25 (the XPL/LIT/FARTCOIN losses were $43-53 each). Win rate should improve from 64% to 70%+ as garbage assets are excluded.
+**How to score:** Pull Scorpion's next 14 positions. No position should involve XPL, LIT, or FARTCOIN.
+
+### H11: Orca DSL widening reduces winner clipping
+**Filed:** April 10, 2026 (Claude Code session)
+**Status:** LIVE — PR #154 merged, agent confirmed
+**Prediction:** Percentage of exits via weak_peak_cut drops from 50% to <30%. Winners get 10 more minutes to develop.
+**How to score:** Pull Orca exit distribution over next 20+ positions.
 
 ---
 
 ## Retired hypotheses
 
 ### H0: "Lemon is the existence proof for the fleet"
-**Filed:** April 10, 2026
 **Status:** SUPERSEDED by Polar
-**Original claim:** Lemon being the only profitable agent means it has the only working strategy.
-**Correction:** Polar has stronger gross alpha and is only unprofitable due to fees. After fee fix, Polar is the better existence proof — it demonstrates that the Grizzly 3-mode lifecycle scanner generates real alpha when execution doesn't destroy it.
+**Correction:** Polar has +$219 gross alpha — strongest in fleet. Lemon is profitable but Polar is the better proof that the signal layer works.
 
 ---
 
 ## Calibration log
 
-### April 10, 2026 session predictions (from web chat)
+### April 10, 2026 — web chat session (3/7 correct)
 
-**Correct (3/7):**
-- Bison v1.2 not fee-bound (different category from strikers)
-- Mantis v4.0 has signal issues (inversion test confirmed, marginally)
+**Correct:**
+- Bison v1.2 not fee-bound
+- Mantis v4.0 has signal issues
 - Polar fills-per-position 5-8 confirming chunking
 
-**Wrong (4/7):**
+**Wrong:**
 - "Lemon is the existence proof" — Polar is better
-- "Kodiak will show same clipping pattern as Polar" — Kodiak's exits are excellent
-- "Phoenix's inverted PnL would be marginally better" — it's 4x worse
-- "Polar will show clean win/loss distribution" — noisy with extreme-conviction loser problem
+- "Kodiak will show same clipping as Polar" — Kodiak's exits are excellent
+- "Phoenix inverted PnL marginally better" — 4x worse
+- "Polar clean win/loss distribution" — noisy with extreme-conviction entries
 
-**Calibration lesson:** Overweight architectural similarity. Same-lineage agents (Polar/Kodiak both Grizzly 3-mode) can have opposite outcomes due to underlying asset volatility differences.
+**Lesson:** Don't assume uniformity within same-lineage agents. SOL and ETH move differently.
+
+### April 10, 2026 — Claude Code session (predictions logged, not yet scored)
+
+- H8: at least 2/5 contrarian agents net-positive within 7 days
+- H9: Polar avg winner ROE improves >20%
+- H10: Scorpion no losses >$25 on next 14 positions
+- H11: Orca weak_peak_cut exits drop from 50% to <30%
+
+**Scoring date: April 17, 2026**
