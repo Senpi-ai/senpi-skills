@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-# Senpi POLAR Scanner v2.3
+# Senpi POLAR Scanner v2.4
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""POLAR v2.3 — ETH Alpha Hunter (Entry Timing Fixes).
+"""POLAR v2.4 — ETH Alpha Hunter (Entry Timing Fixes).
+
+v2.4 changes:
+- Recalibrated leverage tiers — v2.2/v2.3 used 15x at score 10 and 20x at 11+,
+  which triggered too often. New mapping: 14+→20x, 12+→15x, 10+→10x, 8+→7x.
+- MAX_LEVERAGE safety clamp in get_leverage_for_score().
 
 v2.3 changes from overnight analysis (2026-04-08):
 - FIX: UTC midnight cooldown bug — last_entry_ts and last_win_ts now persist
@@ -15,8 +20,8 @@ v2.3 changes from overnight analysis (2026-04-08):
   re-entering the same direction on ETH for 60 minutes. Prevents the pattern:
   catch breakout -> exit -> scanner sees hot 4h candle -> re-enters at top.
 
-v2.2 changes:
-- Conviction-scaled leverage: score 8->7x, 9->10x, 10->15x, 11+->20x
+v2.2 changes (superseded by v2.4 tiers):
+- Conviction-scaled leverage was score 8->7x, 9->10x, 10->15x, 11+->20x
 - Extreme velocity tiers: 15m >5.0->+4pts, >2.0->+3pts (was capped at +2)
 - 1h acceleration: >3.0->+2pts (was capped at +1)
 - ETH max leverage on Hyperliquid is 25x, we cap at 20x
@@ -42,9 +47,9 @@ MIN_SCORE = 8
 XYZ_BANNED = True
 
 LEVERAGE_TIERS = [
-    {"min_score": 11, "leverage": 20},
-    {"min_score": 10, "leverage": 15},
-    {"min_score": 9,  "leverage": 10},
+    {"min_score": 14, "leverage": 20},
+    {"min_score": 12, "leverage": 15},
+    {"min_score": 10, "leverage": 10},
     {"min_score": 8,  "leverage": 7},
 ]
 DEFAULT_LEVERAGE = 7
@@ -60,10 +65,12 @@ def now_date(): return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 def now_iso(): return datetime.now(timezone.utc).isoformat()
 
 def get_leverage_for_score(score):
+    lev = DEFAULT_LEVERAGE
     for tier in LEVERAGE_TIERS:
         if score >= tier["min_score"]:
-            return tier["leverage"]
-    return DEFAULT_LEVERAGE
+            lev = tier["leverage"]
+            break
+    return min(lev, MAX_LEVERAGE)
 
 
 def has_resting_orders(wallet):
@@ -285,12 +292,12 @@ def run():
             "execution": {"asset": ASSET, "direction": thesis["direction"],
                 "leverage": leverage, "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-            "result": result, "_polar_version": "2.3"})
+            "result": result, "_polar_version": "2.4"})
     else:
         cfg.output({"status": "ok", "action": "ENTRY_FAILED",
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                 "score": thesis["score"], "reasons": thesis["reasons"]},
-            "error": result, "_polar_version": "2.3"})
+            "error": result, "_polar_version": "2.4"})
 
 if __name__ == "__main__":
     try: run()
