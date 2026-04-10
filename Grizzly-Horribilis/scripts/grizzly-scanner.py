@@ -2,12 +2,17 @@
 # Senpi GRIZZLY HORRIBILIS Scanner v1.2
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""GRIZZLY HORRIBILIS v1.2 — BTC Conviction-Scaled Leverage Hunter.
+"""GRIZZLY HORRIBILIS v2.0 — BTC Contrarian with Pyramiding.
 
-v1.2: Position scaling (pyramiding into winners).
-Unlike other fleet agents with MAX_POSITIONS=1, Horribilis can ADD to a
-winning BTC position when conviction remains strong. This is the aggressive
-bear — it presses winners.
+v2.0: DIRECTION FLIP — trade opposite to SM consensus.
+Fleet analysis (April 10, 2026) found that the SM consensus signal is
+perfectly inverted on BTC. Inversion test: actual -$53 gross, inverted +$53.
+The scanner enters after the move is exhausted, so we flip to fade it.
+
+A/B variable vs Grizzly v4.0: Horribilis pyramids into winners,
+Grizzly does not. All other signal logic is identical.
+
+Pyramiding rules (unchanged from v1.2):
 
 Pyramiding rules:
 1. Only add if existing position is in profit (ROE > +5%)
@@ -289,8 +294,13 @@ def run():
             return
         if thesis["score"] < MIN_SCORE:
             cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                "note": f"HUNTING: BTC {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"})
+                "note": f"HUNTING: BTC SM={thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"})
             return
+
+        # ── CONTRARIAN FLIP ──
+        sm_direction = thesis["direction"]
+        thesis["direction"] = "SHORT" if sm_direction == "LONG" else "LONG"
+        thesis["reasons"].insert(0, f"CONTRARIAN_FLIP (SM is {sm_direction})")
 
         leverage = get_leverage_for_score(thesis["score"])
         margin = round(av * INITIAL_MARGIN_PCT, 2)
@@ -315,13 +325,13 @@ def run():
                 "execution": {"asset": ASSET, "direction": thesis["direction"],
                     "leverage": leverage, "margin": margin,
                     "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-                "result": result, "_horribilis_version": "1.2",
+                "result": result, "_horribilis_version": "2.0",
             })
         else:
             cfg.output({"status": "ok", "action": "ENTRY_FAILED",
                 "signal": {"asset": ASSET, "direction": thesis["direction"],
                     "score": thesis["score"], "reasons": thesis["reasons"]},
-                "error": result, "_horribilis_version": "1.2"})
+                "error": result, "_horribilis_version": "2.0"})
         return
 
     # ── CASE 2: Position exists — evaluate for scale-up ──
@@ -351,10 +361,11 @@ def run():
             "note": f"RIDING: BTC {current_direction} ROE {current_roe:+.1f}%. No SM signal. DSL manages exit."})
         return
 
-    # Must agree with current direction
-    if thesis["direction"] != current_direction:
+    # CONTRARIAN: SM must still be OPPOSITE to our position (= same as original SM direction).
+    # We're fading SM. If SM flips to agree with us, the fade thesis is dead.
+    if thesis["direction"] == current_direction:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"RIDING: BTC {current_direction} ROE {current_roe:+.1f}%. SM flipped {thesis['direction']} — not adding."})
+            "note": f"RIDING: BTC {current_direction} ROE {current_roe:+.1f}%. SM flipped to agree with us — fade thesis over, not adding."})
         return
 
     # Higher bar for scale-ups
@@ -408,13 +419,13 @@ def run():
                 "existingMargin": round(current_margin, 2),
                 "newMargin": scale_margin,
             },
-            "result": result, "_horribilis_version": "1.2",
+            "result": result, "_horribilis_version": "2.0",
         })
     else:
         cfg.output({"status": "ok", "action": "SCALE_UP_FAILED",
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                 "score": thesis["score"], "reasons": thesis["reasons"]},
-            "error": result, "_horribilis_version": "1.2"})
+            "error": result, "_horribilis_version": "2.0"})
 
 
 if __name__ == "__main__":
