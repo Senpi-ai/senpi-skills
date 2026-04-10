@@ -3,7 +3,7 @@ name: kestrel-strategy
 description: >-
   KESTREL v1.0 — XYZ Macro Breakout Rider. Detects significant hourly price
   breakouts on commodities, precious metals, indices, and high-volume equities
-  during US market hours. Rides the macro trend. Price action is the primary
+  24/7 on Hyperliquid. Rides the macro trend. Price action is the primary
   signal; Smart Money is confirmation only. Conservative 3-5x leverage.
 license: MIT
 metadata:
@@ -21,7 +21,7 @@ A fundamentally new approach to XYZ trading on Hyperliquid. Where Bald Eagle use
 
 ## Thesis
 
-When a commodity or equity moves >1.5% in 1 hour during US market hours, something macro happened. Unlike crypto where big moves exhaust quickly, commodity and equity macro moves tend to continue for hours or days. Kestrel catches the breakout and rides the trend.
+When a commodity or equity moves >1.5% in 1 hour 24/7 on Hyperliquid, something macro happened. Unlike crypto where big moves exhaust quickly, commodity and equity macro moves tend to continue for hours or days. Kestrel catches the breakout and rides the trend.
 
 ## Why this is different from Bald Eagle
 
@@ -47,7 +47,7 @@ Equities: AAPL, NVDA, GOOGL, TSLA, AMZN, META, MSFT.
 - Funding alignment (0-1 pts)
 - Spread gate (hard gate — don't trade if spread >0.2%)
 
-MIN_SCORE: 6. Market hours only: 9:45 AM - 3:30 PM ET.
+MIN_SCORE: 6. Runs 24/7 — Hyperliquid XYZ trades around the clock.
 
 ## Files
 

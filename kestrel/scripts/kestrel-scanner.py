@@ -6,7 +6,7 @@
 """KESTREL v1.0 — XYZ Macro Breakout Rider.
 
 Thesis: When a commodity, equity, or precious metal moves >1.5% in 1 hour
-during US market hours, something macro happened (war, rate decision, OPEC,
+something macro happened (war, rate decision, OPEC,
 earnings). Unlike crypto where big moves exhaust quickly, commodity macro
 moves tend to CONTINUE for hours or days. Kestrel catches the breakout
 early and rides the trend.
@@ -70,10 +70,8 @@ LEVERAGE_TIERS = [
 ]
 DEFAULT_LEVERAGE = 3
 
-# US market hours (ET = UTC-4 in EDT, UTC-5 in EST)
-# We use UTC and approximate: 13:45 - 19:30 UTC covers 9:45 AM - 3:30 PM ET
-MARKET_OPEN_UTC = 13    # 9 AM ET (approximate, covers both EDT and EST)
-MARKET_CLOSE_UTC = 20   # 4 PM ET
+# No market hours gate — Hyperliquid XYZ trades 24/7.
+# Weekend and overnight moves (e.g., Iran/oil) are the whole point.
 
 
 def safe_float(v, d=0.0):
@@ -89,18 +87,6 @@ def get_leverage_for_score(score):
             return tier["leverage"]
     return DEFAULT_LEVERAGE
 
-
-def is_market_hours():
-    """Check if we're in US market hours (approximate UTC window)."""
-    hour = datetime.now(timezone.utc).hour
-    # 13:45 UTC (9:45 AM ET) to 19:30 UTC (3:30 PM ET)
-    if hour < MARKET_OPEN_UTC or hour >= MARKET_CLOSE_UTC:
-        return False
-    if hour == MARKET_OPEN_UTC:
-        minute = datetime.now(timezone.utc).minute
-        if minute < 45:
-            return False
-    return True
 
 
 def has_resting_orders(wallet):
@@ -320,15 +306,6 @@ def run():
     wallet, sid = cfg.get_wallet_and_strategy()
     if not wallet:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
-        return
-
-    # Market hours gate
-    if not is_market_hours():
-        hour = datetime.now(timezone.utc).hour
-        minute = datetime.now(timezone.utc).minute
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                     "note": f"OFF_HOURS: UTC {hour:02d}:{minute:02d}. "
-                             f"Kestrel hunts during US market hours only."})
         return
 
     account_value, positions = cfg.get_positions(wallet)
