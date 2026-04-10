@@ -1,0 +1,58 @@
+name: pangolin-tracker
+version: 1.0.0
+description: >
+  PANGOLIN v1.0 — Extreme Funding Rate Fader. Enters opposite to extreme
+  funding (>0.03%/8h), collecting funding while waiting for crowding
+  mean-reversion. Very wide DSL — crowded unwinds take hours to days.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 2
+  margin_per_slot: 250
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# Very wide DSL — funding mean-reversion takes hours to days.
+# The edge comes from collecting funding every 8 hours, so patience pays.
+# Dead weight cut catches entries where funding normalizes without price move.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 720
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 180
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 3,  lock_hw_pct: 15 }
+        - { trigger_pct: 7,  lock_hw_pct: 30 }
+        - { trigger_pct: 12, lock_hw_pct: 50 }
+        - { trigger_pct: 20, lock_hw_pct: 70 }
+        - { trigger_pct: 30, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

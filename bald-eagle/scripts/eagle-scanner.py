@@ -3,30 +3,21 @@
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""BALD EAGLE v3.0 — XYZ Alpha Hunter (Hardened).
+"""BALD EAGLE v4.0 — XYZ Contrarian (SM Exhaustion Fader on Macro Assets).
 
-v3.0 redesign from fleet audit data:
-- v2.0 bled -$75 across 54 trades. 14.3% win rate on DSL-managed trades.
-  Root causes: AMM slippage on entry+exit, 8% retrace at 7x = 1.1% price
-  move (oil noise), taker fallback destroying edge, too many illiquid assets.
+v4.0 — DIRECTION FLIP.
+Fleet analysis (April 10, 2026) found Bald Eagle's signal was inverted:
+12 positions on oil, 25% WR, avg winner +$1.82, avg loser -$7.22.
+Inversion test confirmed: buying tops and shorting bottoms on CL/BRENTOIL.
+Same signal inversion disease found across 5 crypto agents.
 
-Key changes:
-- FOCUSED ASSET LIST: CL, BRENTOIL, GOLD, SILVER, SP500, XYZ100 only.
-  These have the deepest SM signal (CL: 181 traders, BRENTOIL: 166).
-  Everything else is sub-50 traders on XYZ side — not enough signal.
-- CONVICTION-SCALED LEVERAGE: score 8-9 → 5x, score 10-11 → 7x, score 12+ → 10x.
-  High conviction = high leverage. When SM is screaming, press it.
-- WIDER DSL: retrace 12%, absolute floor -25% ROE, dead weight 120min,
-  weak peak 240min, hard timeout 480min. XYZ assets are macro-driven
-  and need hours to play out.
-- MAKER-ONLY execution: ensureExecutionAsTaker=false, no taker fallback.
-  AMM slippage on XYZ assets destroyed v2.0. A missed fill is cheaper
-  than -0.5% slippage on entry.
-- HIGHER MIN_SCORE: 9 (was 7). When you're paying AMM spread, the
-  macro thesis must be even stronger to overcome execution costs.
-- Scanner calls create_position internally (Wolverine pattern).
-- Thesis exit REMOVED. Scanner enters. RatchetStop exits.
-- All hard gates converted to score contributors.
+Changes from v3.0:
+- CONTRARIAN FLIP: trade opposite to SM consensus direction
+- Move-exhaustion BONUS: bigger 4H move = better fade (+2 at >2%, +1 at >1%)
+  (XYZ thresholds are lower than crypto — oil moves 1-3% in 4h, not 3-5%)
+- Leverage capped: 5x base, 7x max (contrarian on macro needs room)
+- MIN_SCORE lowered to 8 (was 9)
+- Market hours enforcement preserved from v3.0
 
 Runs every 5 minutes.
 """
@@ -51,19 +42,19 @@ ALLOWED_ASSETS = {"CL", "BRENTOIL", "GOLD", "SILVER", "SP500", "XYZ100"}
 
 # Conviction-scaled leverage
 LEVERAGE_TIERS = [
-    {"min_score": 12, "leverage": 10},
     {"min_score": 10, "leverage": 7},
     {"min_score": 8,  "leverage": 5},
 ]
 DEFAULT_LEVERAGE = 5
-MAX_LEVERAGE = 10
+MAX_LEVERAGE = 7
 MIN_LEVERAGE = 3
 
-MAX_POSITIONS = 2
-MAX_DAILY_ENTRIES = 4
+MAX_POSITIONS = 1
+MAX_DAILY_ENTRIES = 3
 COOLDOWN_MINUTES = 120
-MARGIN_PCT = 0.50           # 50% of account per trade
-MIN_SCORE = 9               # Higher bar for XYZ — AMM spread tax
+SAME_DIR_COOLDOWN_MINUTES = 60
+MARGIN_PCT = 0.40           # 40% of account per trade
+MIN_SCORE = 8               # Lowered — contrarian signals should fire
 MAX_SPREAD_PCT = 0.001      # 0.1% max spread
 
 MAX_DAILY_LOSS_PCT = 10
@@ -349,6 +340,17 @@ def score_candidate(cand, candle_data):
         score -= 1
         reasons.append(f"4H_OPPOSING +{p4h:.1f}%")
 
+    # ── MOVE EXHAUSTION BONUS (XYZ-tuned thresholds) ──
+    # Oil/commodities move 1-3% in 4h (vs crypto 3-5%). Lower thresholds.
+    if abs(p4h) >= 2.0:
+        if (direction == "LONG" and p4h > 0) or (direction == "SHORT" and p4h < 0):
+            score += 2
+            reasons.append(f"DEEP_EXHAUSTION {p4h:+.1f}%")
+    elif abs(p4h) >= 1.0:
+        if (direction == "LONG" and p4h > 0) or (direction == "SHORT" and p4h < 0):
+            score += 1
+            reasons.append(f"EXHAUSTION {p4h:+.1f}%")
+
     # ── Technical scoring from candles (if available) ──
     if candle_data:
         candles_1h = candle_data.get("candles", {}).get("1h", [])
@@ -552,6 +554,11 @@ def run():
             continue
         reasons.append(f"SPREAD_OK {spread_pct*100:.3f}%")
 
+        # ── CONTRARIAN FLIP ──
+        sm_direction = cand["direction"]
+        fade_direction = "SHORT" if sm_direction == "LONG" else "LONG"
+        reasons.insert(0, f"CONTRARIAN_FLIP xyz:{token} (SM is {sm_direction})")
+
         # Conviction-scaled leverage
         leverage = get_leverage_for_score(score)
 
@@ -560,13 +567,13 @@ def run():
 
         # Build DSL state
         dsl_state = build_dsl_state(
-            {"token": token, "direction": cand["direction"], "score": score},
+            {"token": token, "direction": fade_direction, "score": score},
             leverage,
         )
 
         # Execute trade directly
         success, result = execute_entry(
-            {"token": token, "direction": cand["direction"]},
+            {"token": token, "direction": fade_direction},
             margin, leverage,
         )
 
@@ -576,23 +583,22 @@ def run():
 
             cfg.output({
                 "status": "ok",
-                "action": "ENTRY",
+                "action": "FADE_ENTRY",
                 "signal": {
                     "asset": f"xyz:{token}",
-                    "direction": cand["direction"],
+                    "sm_direction": sm_direction,
+                    "fade_direction": fade_direction,
                     "score": score,
                     "leverage": leverage,
-                    "mode": "XYZ_SM",
+                    "mode": "XYZ_CONTRARIAN",
                     "reasons": reasons,
                     "smPct": cand["pct"],
                     "smTraders": cand["traders"],
                     "spread": round(spread_pct * 100, 4),
-                    "contribChg1h": cand["contrib_chg_1h"],
-                    "contribChg4h": cand["contrib_chg_4h"],
                 },
                 "execution": {
                     "asset": f"xyz:{token}",
-                    "direction": cand["direction"],
+                    "direction": fade_direction,
                     "leverage": leverage,
                     "margin": margin,
                     "orderType": "FEE_OPTIMIZED_LIMIT",
@@ -600,24 +606,13 @@ def run():
                 },
                 "dslState": dsl_state,
                 "result": result,
-                "constraints": {
-                    "allowedAssets": sorted(ALLOWED_ASSETS),
-                    "maxPositions": MAX_POSITIONS,
-                    "maxLeverage": MAX_LEVERAGE,
-                    "leverageTiers": LEVERAGE_TIERS,
-                    "maxDailyEntries": MAX_DAILY_ENTRIES,
-                    "cooldownMinutes": COOLDOWN_MINUTES,
-                    "maxSpreadPct": MAX_SPREAD_PCT,
-                    "minScore": MIN_SCORE,
-                    "_dslNote": "Use dslState directly. XYZ-tuned wide timings. Do NOT merge with dsl-profile.json.",
-                },
-                "_eagle_version": "3.0",
+                "_eagle_version": "4.0",
             })
             return
         else:
             cfg.output({
                 "status": "ok",
-                "action": "ENTRY_FAILED",
+                "action": "FADE_ENTRY_FAILED",
                 "signal": {"asset": f"xyz:{token}", "direction": cand["direction"],
                            "score": score, "reasons": reasons},
                 "error": result,
