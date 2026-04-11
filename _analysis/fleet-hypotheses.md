@@ -1,7 +1,7 @@
 # Fleet Hypotheses Log
 
-Last updated: April 10, 2026 (end of day)
-Updated by: Claude Code day-1 session
+Last updated: April 11, 2026 (day 2)
+Updated by: Claude Code day-2 session
 
 ---
 
@@ -16,7 +16,7 @@ Updated by: Claude Code day-1 session
 
 ### H2: Phoenix time cuts reduce median hold from 3h to ~30 min
 **Filed:** April 10, 2026
-**Status:** LIVE — PR #147 merged, agent instructed
+**Status:** CONFIRMED — median hold dropped from ~3h to ~30 min. Weak peak cut firing at 15 min, hard timeout at 45 min. Deployment bug discovered (npx skills add overwrote ensureExecutionAsTaker patch) but time cuts themselves validated.
 **How to score:** Pull Phoenix closed positions 48h after agent applies changes. Target: median hold <45 min.
 
 ### H3: Condor time cuts reduce median hold from 141 min to ~45 min
@@ -47,7 +47,8 @@ Updated by: Claude Code day-1 session
 
 ### H8: Direction flip produces profitable contrarian agents
 **Filed:** April 10, 2026 (Claude Code session)
-**Status:** LIVE — 4 agents flipped, 1 new agent (Vulture), all confirmed running
+**Status:** LIVE — early mixed results
+**Day-2 data:** Dog v2.0 is the strongest evidence FOR the thesis (+$19.08 realized, +$26.64 unrealized, contrarian shape confirmed with small losses and big winners). Cheetah v3.0 FAILED on HYPE (-$39.20, 40% WR — neither momentum nor contrarian SM works on HYPE in chop, retooled to funding fader). Grizzly v4.0 not firing (healthy, MOVE_EXHAUSTION filtering correctly, zero trades in 20h). Horribilis v2.0 flat (-$0.26 on 43 fills, contrarian trades offsetting in chop).
 **Prediction:** At least 2 of the 5 contrarian agents (Grizzly v4.0, Horribilis v2.0, Cheetah v3.0, Dog v2.0, Vulture) will be net-positive within 7 days.
 **How to score:** Pull PnL on all 5 contrarian agents 7 days post-flip. Any agent with positive gross PnL confirms the thesis. Net-positive confirms it overcomes fees.
 **Risk:** Market regime may shift from ranging (where contrarian works) to trending (where it doesn't). Cheetah and Dog already trading — early results will be visible within 24-48h.
@@ -55,7 +56,7 @@ Updated by: Claude Code day-1 session
 
 ### H9: Polar market-driven exits improve winner capture
 **Filed:** April 10, 2026 (Claude Code session)
-**Status:** LIVE — PR #158 merged, agent confirmed
+**Status:** CONFIRMED DIRECTIONALLY — post-swap trades show dead_weight_cut at 33 min, Phase 1 at 36 min, weak_peak_cut at 60 min. Zero trades hitting 480-min timeout. New exit distribution is working as designed. First 4 trades in window were legacy (pre-swap).
 **Prediction:** Polar's gross PnL per winning trade increases as winners are no longer killed by 180-min clock. Dead weight cut at 30 min catches losers faster than the old 180-min timeout.
 **How to score:** Compare avg winner ROE before vs after. Target: avg winner improves by >20%.
 
@@ -67,9 +68,24 @@ Updated by: Claude Code day-1 session
 
 ### H11: Orca DSL widening reduces winner clipping
 **Filed:** April 10, 2026 (Claude Code session)
-**Status:** LIVE — PR #154 merged, agent confirmed
+**Status:** LIVE — too early to score, only 13 new fills on Orca since change
 **Prediction:** Percentage of exits via weak_peak_cut drops from 50% to <30%. Winners get 10 more minutes to develop.
 **How to score:** Pull Orca exit distribution over next 20+ positions.
+
+### H12: Leverage above 10x destroys edge via fee amplification
+**Filed:** April 11, 2026
+**Status:** CONFIRMED — Kodiak's 15x SOL SHORT lost $45.55 + $9.35 fees. Same pattern seen across Grizzly Horribilis (was 7x-20x, now capped 7x-10x). Higher leverage amplifies fees proportionally while signal quality stays constant.
+**How to score:** Compare Kodiak loss-per-trade before (7/10/12/15x) vs after (7/10x cap).
+
+### H13: HYPE funding rate extremes are a better signal than SM consensus for HYPE-specific trading
+**Filed:** April 11, 2026
+**Status:** LIVE (Cheetah v4.0)
+**How to score:** Pull Cheetah v4.0 PnL after 10+ trades. Compare gross PnL to v3.0 contrarian (-$39.20 on 5 trades).
+
+### H14: Striker breakout signals need higher thresholds in low-volatility/chop regimes
+**Filed:** April 11, 2026
+**Status:** LIVE (Roach-B tightened — MIN_SCORE 9→10, velocity floor 10→15, vol ratio 1.5→2.0)
+**How to score:** Pull Roach-B peak ROE on next 10+ entries. Target: avg peak ROE >2% (vs 0.34% before tightening).
 
 ---
 
@@ -104,5 +120,21 @@ Updated by: Claude Code day-1 session
 - H9: Polar avg winner ROE improves >20%
 - H10: Scorpion no losses >$25 on next 14 positions
 - H11: Orca weak_peak_cut exits drop from 50% to <30%
+
+### April 11, 2026 — day-2 scoring (partial, where data available)
+
+**Scored:**
+- H2 (Phoenix time cuts): CONFIRMED — median hold dropped to ~30 min as predicted
+- H9 (Polar market-driven exits): CONFIRMED DIRECTIONALLY — new exit distribution working, zero timeout exits
+- H8 (Contrarian flip): MIXED early data — Dog strongly supports, Cheetah failed on HYPE, Horribilis flat in chop, Grizzly no data yet
+
+**Still awaiting data:**
+- H10 (Scorpion blacklist): not enough new positions yet
+- H11 (Orca DSL widening): only 13 fills, need 20+ positions
+
+**New predictions logged:**
+- H12: Leverage >10x destroys edge (CONFIRMED same day by Kodiak data)
+- H13: HYPE funding rate > SM consensus for HYPE trading (LIVE, Cheetah v4.0)
+- H14: Striker thresholds need tightening in chop (LIVE, Roach-B)
 
 **Scoring date: April 17, 2026**
