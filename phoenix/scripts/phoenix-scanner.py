@@ -248,6 +248,23 @@ def is_on_cooldown(asset):
     return time.time() < entry.get("until", 0)
 
 
+def set_cooldown(asset, minutes=None):
+    """Set per-asset cooldown after entry. Prevents re-entering the same
+    asset immediately after DSL cuts it."""
+    if minutes is None:
+        minutes = COOLDOWN_MINUTES
+    p = os.path.join(cfg.STATE_DIR, "cooldowns.json")
+    cooldowns = {}
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                cooldowns = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    cooldowns[asset] = {"until": time.time() + minutes * 60, "set_at": now_iso()}
+    cfg.atomic_write(p, cooldowns)
+
+
 # ═══════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════
@@ -313,13 +330,14 @@ def run():
             break
     margin = round(account_value * margin_pct, 2)
 
-    # ── INCREMENT COUNTER BEFORE OUTPUT ───────────────────────
-    # This is the v2.0 fix: increment happens HERE, in the scanner,
-    # BEFORE the signal is output. Even if the cron agent fails to
-    # execute the trade, the counter is incremented. This prevents
-    # the runaway entry bug from v1.0.1.
+    # ── INCREMENT COUNTER + SET COOLDOWN BEFORE OUTPUT ────────
+    # v2.0 fix: increment happens HERE, BEFORE signal output.
+    # v2.1 fix: set per-asset cooldown to prevent re-entering the
+    # same asset immediately after DSL cuts it. Without this,
+    # Phoenix hammers the same losing trade every 2 minutes.
     tc["entries"] = tc.get("entries", 0) + 1
     save_trade_counter(tc)
+    set_cooldown(best["token"])
 
     cfg.output({
         "status": "ok",
