@@ -528,7 +528,7 @@ def evaluate_reload(exit_state, entry_cfg):
 
 # ─── Hardcoded Constants ──────────────────────────────────────
 
-MAX_LEVERAGE = 15         # SOL max on HL is 20x; cap at 15x for conviction scaling
+MAX_LEVERAGE = 10         # Fleet analysis: 15-20x destroys edge via fee amplification
 MIN_LEVERAGE = 5
 SAME_DIR_COOLDOWN_MINUTES = 60
 
@@ -705,12 +705,12 @@ def run():
                 "note": f"SAME_DIR_COOLDOWN: won {last_win_dir} {remaining}min ago"})
             return
 
-    # Conviction-scaled leverage (v2.1 fleet: fixed tiers 7/10/12/15x)
-    if thesis["score"] >= 14:
-        leverage = 15
-    elif thesis["score"] >= 12:
-        leverage = 12
-    elif thesis["score"] >= 10:
+    # Conviction-scaled leverage (v2.2: compressed range 7/10x)
+    # Fleet analysis: 15-20x amplifies fees and retraces into catastrophic losses.
+    # Kodiak at 15x lost $45.55 on a normal SOL retrace + generated 8 exit fills.
+    # At 10x, same trade would have lost ~$30. Signal quality should express
+    # through conviction scaling on margin, not leverage that turns retraces into blowouts.
+    if thesis["score"] >= 10:
         leverage = 10
     else:
         leverage = 7

@@ -300,13 +300,16 @@ def detect_striker_signals(current_scan, history, config):
     Requires raw volume confirmation to filter blow-off tops."""
 
     striker_cfg = config.get("striker", {})
-    min_score = striker_cfg.get("minScore", 9)
+    # v1.1: Tightened thresholds. Fleet analysis (April 11) found 5 consecutive
+    # trades with max peak ROE of 0.57% — breakouts were firing on noise.
+    # Raising score to 10 and velocity floor to 15 filters fake breakouts.
+    min_score = striker_cfg.get("minScore", 10)          # was 9
     min_reasons = striker_cfg.get("minReasons", 4)
     min_rank_jump = striker_cfg.get("minRankJump", 15)
     min_velocity_override = striker_cfg.get("minVelocityOverride", 15)
-    min_velocity_floor = striker_cfg.get("minVelocityFloor", 10)
+    min_velocity_floor = striker_cfg.get("minVelocityFloor", 15)  # was 10
     require_volume = striker_cfg.get("requireVolumeConfirmation", True)
-    min_vol_ratio = striker_cfg.get("minVolRatio", 1.5)
+    min_vol_ratio = striker_cfg.get("minVolRatio", 2.0)  # was 1.5 — require stronger volume
 
     prev_scans = history.get("scans", [])
     if not prev_scans:

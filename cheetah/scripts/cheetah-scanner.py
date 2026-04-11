@@ -1,31 +1,39 @@
 #!/usr/bin/env python3
-# Senpi CHEETAH Scanner v2.1.1
+# Senpi CHEETAH Scanner v4.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""CHEETAH v3.0 — HYPE Contrarian (SM Exhaustion Fader).
+"""CHEETAH v4.0 — HYPE Funding Rate + Crowding Fader.
 
-v3.0 — DIRECTION FLIP.
-Fleet analysis (April 10, 2026) found Cheetah's signal was perfectly
-inverted: 33 trades, actual gross -$175, inverted +$175. The momentum
-scanner was buying HYPE breakouts that immediately mean-reverted.
-Cheetah's own diagnosis: "the thesis itself is actively broken for
-HYPE's current price action."
+v4.0 — COMPLETE RETOOL from SM consensus to funding rate thesis.
+Fleet analysis (April 10-11, 2026) found that on HYPE:
+- Momentum (v2.1): 33% WR, -$175 gross. Buying tops.
+- Contrarian SM (v3.0): 40% WR, -$39 in first 20h. Fading doesn't work
+  in erratic chop because HYPE doesn't immediately reverse — it grinds.
 
-Fix: flip direction. When SM piles into HYPE, fade it.
+The problem: SM consensus is the wrong signal for HYPE. Both directions fail.
 
-Changes from v2.1.1:
-- CONTRARIAN FLIP: trade opposite to SM consensus direction
-- Added MOVE_EXHAUSTION penalty (aligns with Horribilis/Grizzly v4.0)
-- Simplified 15m velocity tiers (less spike-chasing)
-- Added same-direction cooldown (60 min)
-- Fixed resting order filter (now ignores reduceOnly DSL stops)
+New thesis: HYPE has notoriously extreme funding rates — it's one of the
+most crowded assets on Hyperliquid. When funding goes extreme (>0.03%/8h),
+the crowd is paying heavily to hold. These extremes mean-revert as the
+cost of carry forces capitulation.
 
-HYPE single-asset contrarian. CIRCLE → FADE → RIDE reversal.
-Uses: leaderboard_get_markets + strategy_get_open_orders (2 API calls)
-Runs every 90 seconds.
+Cheetah v4.0:
+- PRIMARY signal: extreme HYPE funding rate (not SM consensus)
+- SECONDARY: SM divergence from funding direction (smart money fading crowd)
+- COLLECT funding every 8h while waiting for mean reversion
+- PATIENCE: wide DSL, let the funding thesis play out over hours
+- CONSERVATIVE: 5x leverage (HYPE is volatile even when you're right)
+
+Different from Wolverine: Wolverine uses SM consensus + velocity on HYPE.
+Cheetah v4.0 uses funding rate extremes. Completely uncorrelated signals.
+
+Runs every 3 minutes.
 """
 
-import json, sys, os, time
+import json
+import sys
+import os
+import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -33,28 +41,36 @@ import cheetah_config as cfg
 
 ASSET = "HYPE"
 MAX_POSITIONS = 1
-MAX_DAILY_ENTRIES = 4
-COOLDOWN_MINUTES = 90
-SAME_DIR_COOLDOWN_MINUTES = 60
-MARGIN_PCT = 0.50
-MIN_SCORE = 8
+MAX_DAILY_ENTRIES = 2           # Funding extremes are rare — fewer entries, higher quality
+COOLDOWN_MINUTES = 240          # 4 hours — funding regimes persist
+MARGIN_PCT = 0.40               # 40% of account
+MIN_SCORE = 6
+MIN_FUNDING_RATE = 0.0003       # 0.03%/8h = ~40% annualized
 XYZ_BANNED = True
 
+# Conservative leverage — HYPE is volatile
 LEVERAGE_TIERS = [
-    {"min_score": 10, "leverage": 10},   # HYPE max leverage on Hyperliquid is 10x
-    {"min_score": 8,  "leverage": 7},
+    {"min_score": 9, "leverage": 7},
+    {"min_score": 6, "leverage": 5},
 ]
-DEFAULT_LEVERAGE = 7
-MAX_LEVERAGE = 10  # Hyperliquid HYPE hard cap
+DEFAULT_LEVERAGE = 5
+MAX_LEVERAGE = 7                # HYPE cap is 10x but we stay conservative
 
 
 def safe_float(v, d=0.0):
-    if v is None: return d
-    try: return float(v)
-    except: return d
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return d
 
-def now_date(): return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-def now_iso(): return datetime.now(timezone.utc).isoformat()
+
+def now_date():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
 
 def get_leverage_for_score(score):
     for tier in LEVERAGE_TIERS:
@@ -64,7 +80,6 @@ def get_leverage_for_score(score):
 
 
 def has_resting_orders(wallet):
-    """Check for non-reduceOnly resting orders. Ignores DSL stop-losses."""
     data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
     if not data:
         return False
@@ -78,107 +93,139 @@ def has_resting_orders(wallet):
     return False
 
 
-def evaluate_hype():
-    """Score HYPE with multi-window Hyperfeed velocity. No hard gates."""
-    raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
-    if not raw: return None
+def evaluate_hype_funding():
+    """Score HYPE based on funding rate extremes + SM divergence."""
 
-    markets = raw
-    if isinstance(markets, dict): markets = markets.get("data", markets)
-    if isinstance(markets, dict): markets = markets.get("markets", markets)
-    if isinstance(markets, dict): markets = markets.get("markets", [])
-    if not isinstance(markets, list): return None
+    # Get funding rate from market data
+    asset_data = cfg.mcporter_call("market_get_asset_data",
+                                    asset=ASSET,
+                                    candle_intervals=["1h"],
+                                    include_funding=True,
+                                    include_order_book=False)
+    if not asset_data:
+        return None
 
-    hype = None
-    btc_4h = 0
-    for m in markets:
-        if not isinstance(m, dict): continue
-        token = str(m.get("token", "")).upper()
-        if token == ASSET:
-            hype = m
-        elif token == "BTC":
-            btc_4h = safe_float(m.get("token_price_change_pct_4h", 0))
+    ad = asset_data.get("data", asset_data)
+    if not isinstance(ad, dict):
+        return None
 
-    if not hype: return None
+    asset_ctx = ad.get("asset_context", ad.get("assetContext", {}))
+    if not isinstance(asset_ctx, dict):
+        return None
 
-    d = str(hype.get("direction", "")).upper()
-    if d not in ("LONG", "SHORT"): return None
+    funding = safe_float(asset_ctx.get("funding", 0))
 
-    pct = safe_float(hype.get("pct_of_top_traders_gain", 0))
-    traders = int(hype.get("trader_count", 0))
-    p4h = safe_float(hype.get("token_price_change_pct_4h", 0))
-    p1h = safe_float(hype.get("token_price_change_pct_1h", hype.get("price_change_1h", 0)))
-    cc_4h = safe_float(hype.get("contribution_pct_change_4h", 0))
-    cc_15m = safe_float(hype.get("contribution_pct_change_15m", 0))
-    cc_1h = safe_float(hype.get("contribution_pct_change_1h", 0))
+    # Must have extreme funding
+    if abs(funding) < MIN_FUNDING_RATE:
+        return None
 
-    # Need minimum data
-    if traders < 15: return None
+    # Determine crowd direction from funding
+    # Positive funding = longs paying shorts = crowd is long
+    # Negative funding = shorts paying longs = crowd is short
+    crowd_direction = "LONG" if funding > 0 else "SHORT"
+    fade_direction = "SHORT" if funding > 0 else "LONG"
 
-    score, reasons = 0, []
+    score = 0
+    reasons = []
 
-    # SM concentration (0-4) — Cheetah uses higher tiers than fleet for HYPE
-    if pct >= 30: score += 4; reasons.append(f"SM_DOMINANT {pct:.1f}% ({traders}t)")
-    elif pct >= 20: score += 3; reasons.append(f"SM_HEAVY {pct:.1f}% ({traders}t)")
-    elif pct >= 12: score += 2; reasons.append(f"SM_STRONG {pct:.1f}% ({traders}t)")
-    elif pct >= 5: score += 1; reasons.append(f"SM_ALIGNED {pct:.1f}% ({traders}t)")
+    # ── Funding extremity (2-4 pts) — the core signal ──
+    abs_funding = abs(funding)
+    annualized = abs_funding * 3 * 365 * 100
+    if abs_funding >= 0.001:    # 0.1%/8h = ~130% annualized
+        score += 4
+        reasons.append(f"EXTREME_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
+    elif abs_funding >= 0.0006: # 0.06%/8h = ~80% annualized
+        score += 3
+        reasons.append(f"HIGH_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
+    elif abs_funding >= MIN_FUNDING_RATE:
+        score += 2
+        reasons.append(f"ELEVATED_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
 
-    # SM depth (0-2)
-    if traders >= 200: score += 2; reasons.append(f"DEEP_SM ({traders}t)")
-    elif traders >= 100: score += 1; reasons.append(f"BROAD_SM ({traders}t)")
+    # ── SM divergence from crowd (0-3 pts) ──
+    # If SM is fading the crowd, the thesis is higher conviction
+    sm_raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+    if sm_raw:
+        markets = sm_raw.get("data", sm_raw)
+        if isinstance(markets, dict):
+            markets = markets.get("markets", markets)
+        if isinstance(markets, dict):
+            markets = markets.get("markets", [])
+        if isinstance(markets, list):
+            for m in markets:
+                if not isinstance(m, dict):
+                    continue
+                if str(m.get("token", "")).upper() != ASSET:
+                    continue
+                dex = str(m.get("dex", "")).lower()
+                if dex == "xyz":
+                    continue
 
-    # 4H price alignment (±2) — score contributor, not gate
-    if abs(p4h) >= 2.0:
-        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
-            score += 2; reasons.append(f"4H_STRONG {p4h:+.1f}%")
-        else:
-            score -= 1; reasons.append(f"4H_OPPOSING {p4h:+.1f}%")
-    elif abs(p4h) >= 0.5:
-        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
-            score += 1; reasons.append(f"4H_CONFIRMS {p4h:+.1f}%")
+                sm_dir = str(m.get("direction", "")).upper()
+                sm_pct = safe_float(m.get("pct_of_top_traders_gain", 0))
+                sm_traders = int(m.get("trader_count", 0))
+                cc_15m = safe_float(m.get("contribution_pct_change_15m", 0))
 
-    # 1H momentum (0-1)
-    if (d == "LONG" and p1h > 0.2) or (d == "SHORT" and p1h < -0.2):
-        score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
+                if sm_dir == fade_direction:
+                    # SM agrees with our fade — they're already fading the crowd
+                    if sm_pct >= 10:
+                        score += 3
+                        reasons.append(f"SM_FADING_CROWD {sm_pct:.1f}% ({sm_traders}t)")
+                    elif sm_pct >= 5:
+                        score += 2
+                        reasons.append(f"SM_ALIGNED_FADE {sm_pct:.1f}% ({sm_traders}t)")
+                    else:
+                        score += 1
+                        reasons.append(f"SM_CONFIRMS {sm_pct:.1f}% ({sm_traders}t)")
+                elif sm_dir == crowd_direction:
+                    # SM is WITH the crowd — riskier
+                    if sm_pct >= 15:
+                        score -= 2
+                        reasons.append(f"SM_WITH_CROWD {sm_pct:.1f}% (dangerous)")
+                    elif sm_pct >= 5:
+                        score -= 1
+                        reasons.append(f"SM_SLIGHT_CROWD {sm_pct:.1f}%")
 
-    # Move-exhaustion penalty
-    if abs(p4h) >= 4.0:
-        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
-            score -= 2; reasons.append(f"MOVE_EXHAUSTION {p4h:+.1f}%")
-    elif abs(p4h) >= 2.5:
-        if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
-            score -= 1; reasons.append(f"MOVE_TIRING {p4h:+.1f}%")
+                # SM velocity fading = crowd starting to break
+                if sm_dir == crowd_direction and cc_15m < -0.5:
+                    score += 1
+                    reasons.append(f"SM_MOMENTUM_FADING {cc_15m:.2f}")
 
-    # Contribution velocity — simplified tiers (aligned with fleet contrarian agents)
-    if cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
-    elif cc_15m > 0.1: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
-    elif cc_15m < -0.5: score -= 1; reasons.append(f"15M_FADING {cc_15m:.2f}")
+                break
 
-    if cc_1h > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")
+    # ── Price action — has the reversal started? (0-2 pts) ──
+    candles = ad.get("candles", {}).get("1h", [])
+    if len(candles) >= 2:
+        close_now = safe_float(candles[-1].get("close", candles[-1].get("c", 0)))
+        close_prev = safe_float(candles[-2].get("close", candles[-2].get("c", 0)))
+        if close_prev > 0:
+            pct_1h = ((close_now - close_prev) / close_prev) * 100
+            # Price moving against the crowd = reversal beginning
+            if crowd_direction == "LONG" and pct_1h < -0.5:
+                score += 2
+                reasons.append(f"PRICE_REVERSING {pct_1h:+.2f}%")
+            elif crowd_direction == "SHORT" and pct_1h > 0.5:
+                score += 2
+                reasons.append(f"PRICE_REVERSING {pct_1h:+.2f}%")
+            elif crowd_direction == "LONG" and pct_1h < 0:
+                score += 1
+                reasons.append(f"PRICE_SOFTENING {pct_1h:+.2f}%")
+            elif crowd_direction == "SHORT" and pct_1h > 0:
+                score += 1
+                reasons.append(f"PRICE_SOFTENING {pct_1h:+.2f}%")
 
-    if abs(cc_4h) >= 5.0: score += 1; reasons.append(f"4H_MAJOR_SHIFT {cc_4h:+.1f}")
+    reasons.insert(0, f"FUNDING_FADE HYPE (crowd is {crowd_direction})")
 
-    # Acceleration pattern: 15m > 1h > 0
-    if cc_15m > 0 and cc_1h > 0 and cc_15m > cc_1h:
-        score += 1; reasons.append(f"ACCEL_PATTERN 15m({cc_15m:.2f})>1h({cc_1h:.2f})")
-
-    # BTC as booster (0-1) — not a gate, fetched from same API call
-    if d == "LONG" and btc_4h > 0.5:
-        score += 1; reasons.append(f"BTC_CONFIRMS +{btc_4h:.1f}%")
-    elif d == "SHORT" and btc_4h < -0.5:
-        score += 1; reasons.append(f"BTC_CONFIRMS {btc_4h:.1f}%")
-
-    # US session bonus (0-1)
-    hour = datetime.now(timezone.utc).hour
-    if 13 <= hour <= 21:
-        score += 1; reasons.append("US_SESSION")
-
-    return {"score": score, "direction": d, "reasons": reasons,
-            "smPct": pct, "smTraders": traders, "priceChg4h": p4h}
+    return {
+        "score": score,
+        "funding": funding,
+        "annualized": annualized,
+        "crowd_direction": crowd_direction,
+        "fade_direction": fade_direction,
+        "reasons": reasons,
+    }
 
 
 def execute_entry(direction, margin, leverage):
-    """Call create_position directly via mcporter."""
     result = cfg.mcporter_call(
         "create_position",
         coin=ASSET,
@@ -193,26 +240,28 @@ def execute_entry(direction, margin, leverage):
     )
     if result and result.get("success"):
         return True, result
-    else:
-        error = result.get("error", "unknown") if result else "mcporter_call returned None"
-        return False, {"error": error}
+    error = result.get("error", "unknown") if result else "mcporter_call returned None"
+    return False, {"error": error}
 
 
 def load_tc():
     p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
-    default = {"date": now_date(), "entries": 0, "last_entry_ts": 0,
-               "last_win_direction": None, "last_win_ts": 0}
+    default = {"date": now_date(), "entries": 0, "last_entry_ts": 0}
     if os.path.exists(p):
         try:
-            with open(p) as f: tc = json.load(f)
+            with open(p) as f:
+                tc = json.load(f)
             if tc.get("date") != now_date():
                 tc["date"] = now_date()
                 tc["entries"] = 0
             for k, v in default.items():
-                if k not in tc: tc[k] = v
+                if k not in tc:
+                    tc[k] = v
             return tc
-        except: pass
+        except (json.JSONDecodeError, IOError):
+            pass
     return dict(default)
+
 
 def save_tc(tc):
     tc["date"] = now_date()
@@ -225,97 +274,101 @@ def run():
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
         return
 
-    av, positions = cfg.get_positions(wallet)
-    if av <= 0:
+    account_value, positions = cfg.get_positions(wallet)
+    if account_value <= 0:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
         return
 
-    # Check for resting orders
     if has_resting_orders(wallet):
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                     "note": "RESTING ORDER: HYPE limit order pending. Waiting for fill."})
+                     "note": "RESTING ORDER: HYPE limit order pending."})
         return
 
-    # RIDING: position open → NO_REPLY. DSL manages ALL exits.
     for p in positions:
         if p.get("coin", "").upper() == ASSET:
             cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                "note": f"RIDING: HYPE {p.get('direction','?')}. DSL manages exit.",
-                "_v2_no_thesis_exit": True})
+                         "note": f"STALKING: HYPE {p.get('direction','?')}. Collecting funding. DSL manages exit.",
+                         "_v2_no_thesis_exit": True})
             return
 
     tc = load_tc()
     if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"Daily limit ({MAX_DAILY_ENTRIES}) reached"})
+                     "note": f"Daily limit ({MAX_DAILY_ENTRIES}) reached"})
         return
 
-    # Cooldown
     last_entry = tc.get("last_entry_ts", 0)
     if last_entry and (time.time() - last_entry) < COOLDOWN_MINUTES * 60:
         remaining = int((COOLDOWN_MINUTES * 60 - (time.time() - last_entry)) / 60)
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"HYPE on cooldown ({remaining}min remaining)"})
+                     "note": f"HYPE on cooldown ({remaining}min remaining)"})
         return
 
-    thesis = evaluate_hype()
+    # Evaluate HYPE funding
+    thesis = evaluate_hype_funding()
     if not thesis:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": "CIRCLING: no HYPE thesis"})
+                     "note": "PROWLING: HYPE funding not extreme enough to fade"})
         return
+
     if thesis["score"] < MIN_SCORE:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"CIRCLING: HYPE SM={thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"})
+                     "note": f"PROWLING: HYPE funding {thesis['funding']*100:.4f}% "
+                             f"score {thesis['score']}<{MIN_SCORE}. "
+                             f"{', '.join(thesis['reasons'][:3])}"})
         return
 
-    # ── CONTRARIAN FLIP ──
-    sm_direction = thesis["direction"]
-    thesis["direction"] = "SHORT" if sm_direction == "LONG" else "LONG"
-    thesis["reasons"].insert(0, f"CONTRARIAN_FLIP (SM is {sm_direction})")
-
-    # Same-direction cooldown (post-flip direction)
-    last_win_dir = tc.get("last_win_direction")
-    last_win_ts = tc.get("last_win_ts", 0)
-    if last_win_dir and last_win_ts:
-        if (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
-            if thesis["direction"] == last_win_dir:
-                remaining = int((SAME_DIR_COOLDOWN_MINUTES * 60 - (time.time() - last_win_ts)) / 60)
-                cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"SAME_DIR_COOLDOWN: won {last_win_dir} {remaining}min ago"})
-                return
-
     leverage = get_leverage_for_score(thesis["score"])
-    margin = round(av * MARGIN_PCT, 2)
+    margin = round(account_value * MARGIN_PCT, 2)
 
-    success, result = execute_entry(thesis["direction"], margin, leverage)
+    success, result = execute_entry(thesis["fade_direction"], margin, leverage)
 
     if success:
         tc["entries"] = tc.get("entries", 0) + 1
         tc["last_entry_ts"] = time.time()
         save_tc(tc)
+
         cfg.output({
-            "status": "ok", "action": "ENTRY",
-            "signal": {"asset": ASSET, "direction": thesis["direction"],
-                "score": thesis["score"], "leverage": leverage,
-                "mode": "HYPE_PREDATOR", "reasons": thesis["reasons"]},
-            "execution": {"asset": ASSET, "direction": thesis["direction"],
-                "leverage": leverage, "margin": margin,
-                "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
+            "status": "ok",
+            "action": "FUNDING_FADE",
+            "signal": {
+                "asset": ASSET,
+                "crowd_direction": thesis["crowd_direction"],
+                "fade_direction": thesis["fade_direction"],
+                "funding_rate": thesis["funding"],
+                "annualized_pct": round(thesis["annualized"], 1),
+                "score": thesis["score"],
+                "leverage": leverage,
+                "mode": "HYPE_FUNDING_FADE",
+                "reasons": thesis["reasons"],
+            },
+            "execution": {
+                "asset": ASSET,
+                "direction": thesis["fade_direction"],
+                "leverage": leverage,
+                "margin": margin,
+                "orderType": "FEE_OPTIMIZED_LIMIT",
+                "ensureExecutionAsTaker": False,
+            },
             "result": result,
-            "_cheetah_version": "3.0",
+            "_cheetah_version": "4.0",
         })
     else:
         cfg.output({
-            "status": "ok", "action": "ENTRY_FAILED",
-            "signal": {"asset": ASSET, "direction": thesis["direction"],
-                "score": thesis["score"], "reasons": thesis["reasons"]},
-            "error": result, "_cheetah_version": "3.0",
+            "status": "ok",
+            "action": "FUNDING_FADE_FAILED",
+            "signal": {"asset": ASSET, "score": thesis["score"],
+                       "reasons": thesis["reasons"]},
+            "error": result,
+            "_cheetah_version": "4.0",
         })
 
 
 if __name__ == "__main__":
-    try: run()
+    try:
+        run()
     except Exception as e:
         cfg.log(f"CRITICAL: {e}")
-        import traceback; traceback.print_exc(file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         cfg.output({"status": "error", "error": str(e)})
