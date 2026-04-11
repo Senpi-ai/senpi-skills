@@ -1,7 +1,7 @@
 # Fleet Dossiers — Predators Agent Profiles
 
-Last updated: April 10, 2026 (end of day)
-Updated by: Claude Code day-1 session — all 24 active agents interrogated
+Last updated: April 11, 2026 (day 2)
+Updated by: Claude Code day-2 session
 
 ---
 
@@ -12,13 +12,15 @@ Updated by: Claude Code day-1 session — all 24 active agents interrogated
 - **Stats:** 56 positions, 55.4% WR, avg winner +$20.24, avg loser -$11.68. 1.73:1 payoff. Median hold: 45 min.
 - **Exit quality:** 8/10 best winners captured peaks within pennies. Phase 2 tiers excellently calibrated.
 - **Disease:** Fee only. $238.84 fees on -$119.56 net. Gross PnL: +$119.28. Fee fix recovers ~$153.
-- **Status:** No changes needed beyond FEE_OPTIMIZED_LIMIT. Waiting on Sarvesh.
+- **Day-2 update:** 15x leverage identified as a problem — recent 15x SOL SHORT lost $45.55 + $9.35 fees. Leverage now capped at 7x/10x max (PR #166, EXP-014). Same signal quality, fewer catastrophic losses from amplified retraces.
+- **Status:** Leverage compressed. Waiting on Sarvesh fee fix.
 
 ### Polar (ETH hunter)
 - **Signal:** Grizzly 3-mode lifecycle on ETH. Strong gross alpha (+$219.46).
 - **Stats:** 56 positions, 26.8% WR, avg winner +$29.97, avg loser -$14.81. Median hold: 41.4 min.
 - **Disease:** Fee primary ($372.19 paid), winner-clipping secondary. Hard timeout at 180 min was killing winners.
-- **Status:** PR #158 MERGED — hard_timeout 180→480, weak_peak_cut enabled at 60 min, dead_weight_cut at 30 min. Agent confirmed live. Fee fix waiting on Sarvesh.
+- **Day-2 update:** DSL retune confirmed directionally. Post-swap trades show dead_weight_cut at 33 min, Phase 1 at 36 min, weak_peak_cut at 60 min. Zero trades hitting 480-min timeout. New exit distribution working as designed. First 4 trades in window were legacy (pre-swap).
+- **Status:** PR #158 confirmed working. Fee fix waiting on Sarvesh.
 
 ### Lemon (counter-trade, degen fader)
 - **Signal:** Fades DEGEN/CHOPPY traders. 50% WR with 3.7:1 R/R ratio. Only profitable agent in fleet (+$3.79).
@@ -46,7 +48,8 @@ Updated by: Claude Code day-1 session — all 24 active agents interrogated
 - **Signal:** SM profit velocity diverging from price. 4x correct on inversion test.
 - **Stats:** 39 positions (360 fills), 48.7% WR. Median hold: ~3h. Gross PnL: -$71.29.
 - **Disease:** Thesis-exit removed + 180-min hard timeout. Trades drift long after signal resolves.
-- **Status:** PR #147 MERGED — hard_timeout 180→45, weak_peak_cut enabled at 15 min (min_value 1.5), dead_weight_cut at 20 min. Agent instructed. Fee fix waiting on Sarvesh.
+- **Day-2 update:** Time cuts CONFIRMED working. Median hold dropped from ~3h to ~30 min. Weak peak cut firing at 15 min, hard timeout at 45 min. Cooldown working. Deployment bug discovered: npx skills add overwrote local ensureExecutionAsTaker patch.
+- **Status:** PR #147 confirmed working. Fee fix waiting on Sarvesh. Deployment bug needs fix.
 
 ### Condor v2.0 (multi-asset alpha hunter)
 - **Signal:** SM consensus + extreme velocity on BTC/ETH/SOL/HYPE. Gross PnL: -$0.40 (almost break-even).
@@ -59,18 +62,12 @@ Updated by: Claude Code day-1 session — all 24 active agents interrogated
 - **Stats:** Winners 15.2 min avg, losers 9.9 min avg. DSL cuts losers 35% faster than winners.
 - **Disease:** Fee drag (entries maker, exits still taker). Edge razor-thin.
 - **Health:** Dual DSL tracker issue RESOLVED (orphaned Gateway cron killed April 10).
-- **Status:** Scalp-mode DSL already on main. Waiting on fee fix for DSL exits.
+- **Day-2 update:** 5 trades since fix, 0% net WR, avg peak ROE only 0.34%. Breakouts firing on noise in chop. Thresholds tightened in PR #166 (EXP-016): MIN_SCORE 9→10, velocity floor 10→15, vol ratio 1.5→2.0. Goal: fewer trades, higher quality breakouts.
+- **Status:** Thresholds tightened. Waiting on fee fix for DSL exits.
 
 ---
 
-## Tier 2b: Fee fix makes viable (2 agents)
-
-### Roach (original, Python cron)
-- **Signal:** Same striker logic as Roach-B, but Python runtime with advanced velocity scoring. 39 positions.
-- **Stats:** 41% WR, avg winner +7.02% ROE, avg loser -2.59% ROE. 2.7:1 R/R ratio (better than Roach-B).
-- **Disease:** Pure fee drag. -$192 net on $200K+ volume. Losses evenly distributed, no single bad asset.
-- **Health:** Clean — no duplicate DSL, maker entries working.
-- **Status:** Waiting on fee fix. Stronger candidate than Roach-B due to better R/R ratio.
+## Tier 2b: Fee fix makes viable (1 agent)
 
 ### Wolverine v2.0 (HYPE alpha hunter)
 - **Signal:** Extreme SM conviction + 15m/1h momentum on HYPE. Same thesis-exit disease as Phoenix.
@@ -82,23 +79,27 @@ Updated by: Claude Code day-1 session — all 24 active agents interrogated
 
 ## Contrarian flips (5 agents — new category, April 10)
 
-### Cheetah v3.0 (HYPE contrarian — was worst in fleet)
-- **Signal:** Was momentum, now contrarian. Inversion test: actual -$175, inverted +$175 on 33 trades.
-- **Disease (pre-flip):** Momentum scanner buying HYPE breakouts that immediately mean-reverted.
-- **Status:** PR #159 MERGED — direction flip, MOVE_EXHAUSTION added, velocity tiers simplified, same-dir cooldown added. Agent confirmed live, already trading. **Highest dollar-impact flip in fleet ($350+ swing potential).**
+### Cheetah v4.0 (HYPE funding fader — was worst in fleet)
+- **Signal:** Was momentum (v1), then contrarian SM (v3.0), now funding rate fader (v4.0). Complete retool.
+- **Disease (pre-flip):** Momentum scanner buying HYPE breakouts that immediately mean-reverted. Contrarian SM also failed — neither direction of SM consensus works on HYPE in chop.
+- **Day-2 update:** v3.0 contrarian FAILED — 5 trades, 40% WR, -$39.20. Retooled to funding rate thesis (EXP-015, PR #166). New hypothesis: funding extremes on HYPE mean-revert, collecting funding + fading direction produces positive EV. Baseline: -$351.28 net (worst in fleet).
+- **Status:** v4.0 LIVE — funding fader. Highest dollar-impact experiment if it works.
 
 ### Dog v2.0 (multi-asset contrarian)
 - **Signal:** Was SM consensus (BTC/ETH/SOL/HYPE), now contrarian. Inversion: actual -$61, inverted +$61.
 - **Disease (pre-flip):** HYPE caused -$91 of -$105 net loss. Entering after exhausted moves.
-- **Status:** PR #159 MERGED — direction flip, exhaustion logic INVERTED (now bonus), leverage reduced to 7x/10x, DSL widened (hard_timeout 120→360, Phase 2 tiers widened). Agent confirmed live, took first trade (HYPE LONG fading SM SHORT).
+- **Day-2 update:** BEST PERFORMER in fleet this window. +$19.08 realized with +$26.64 unrealized. 5 positions, one big SHORT HYPE winner covers all losses. Contrarian shape confirmed: small losses, big winners. Strongest evidence for the direction-flip thesis (H8).
+- **Status:** PR #159 confirmed working. Continue monitoring.
 
 ### Grizzly v4.0 (BTC contrarian — no pyramiding)
 - **Signal:** Was SM consensus on BTC, now contrarian. Inversion: 81.8% WR if flipped on 11 trades.
-- **Status:** PR #156 MERGED — direction flip, MOVE_EXHAUSTION added, velocity simplified, leverage capped at 10x, aligned with Horribilis. Agent confirmed live with dry-run output showing correct flip. **A/B control vs Horribilis (single entry).**
+- **Day-2 update:** Healthy, not firing. Zero trades in 20h. Scores hovering 5-7, MOVE_EXHAUSTION filtering correctly. Agent is waiting for a qualifying setup — this is by design.
+- **Status:** PR #156 MERGED — agent confirmed live with dry-run. **A/B control vs Horribilis (single entry).**
 
 ### Grizzly Horribilis v2.0 (BTC contrarian — with pyramiding)
 - **Signal:** Same as Grizzly v4.0 but pyramids into winners (up to 3 entries per position).
-- **Status:** PR #156 MERGED — direction flip on initial entry AND scale-up logic inverted (SM must disagree with position for scale-up). Agent confirmed live. **A/B experiment vs Grizzly v4.0 (pyramiding).**
+- **Day-2 update:** FLAT — -$0.26 on 43 fills. Contrarian trades offsetting each other in chop. Pyramiding not adding value — adds to positions that then reverse.
+- **Status:** PR #156 MERGED — agent confirmed live. **A/B experiment vs Grizzly v4.0 (pyramiding).**
 
 ### Vulture v1.0 (NEW — multi-asset SM exhaustion fader)
 - **Signal:** Purpose-built contrarian. Requires 4H price move >3% + strong SM consensus, then fades. BTC/ETH/SOL/HYPE.
@@ -119,7 +120,16 @@ Updated by: Claude Code day-1 session — all 24 active agents interrogated
 ### Spider (elite convergence scanner)
 - **Stats:** 5 positions (70 fills), 60% WR. Gross PnL: -$8.32. Inversion marginal (+$8.32).
 - **Disease:** BTC is the problem asset (-$48.82 gross). Both losers hit 180-min hard timeout.
-- **Status:** Too small sample to diagnose. 14 fills/position. Monitor.
+- **Day-2 update:** Health bug found — account value calculation was double-counting main+xyz DEX balances. This inflated position sizing from ~$439 to ~$825. FARTCOIN loss was amplified by the bug. Agent self-patched the fix (EXP-017). Position sizing should normalize going forward.
+- **Status:** Monitor post-fix. Too small sample to diagnose signal quality.
+
+### Roach (original, Python cron)
+- **Signal:** Same striker logic as Roach-B, but Python runtime with advanced velocity scoring. 39 positions.
+- **Stats:** 41% WR, avg winner +7.02% ROE, avg loser -2.59% ROE. 2.7:1 R/R ratio (better than Roach-B).
+- **Disease:** Pure fee drag. -$192 net on $200K+ volume. Losses evenly distributed, no single bad asset.
+- **Health:** Clean — no duplicate DSL, maker entries working.
+- **Day-2 update:** -$37.54 in measurement window. Bleeding on failed breakouts in chop. Better R/R ratio than Roach-B but still losing money.
+- **Status:** Monitor. Waiting on fee fix, but continued losses in current regime.
 
 ### Sentinel (quality trader convergence)
 - **Signal:** Inverted pipeline, 3x correct on inversion test. Highly predictive on ETH/TAO.
@@ -145,7 +155,7 @@ Updated by: Claude Code day-1 session — all 24 active agents interrogated
 ### Bald Eagle v2.0 (XYZ equities/commodities)
 - **Stats:** 12 positions (only CL and BRENTOIL), 25% WR. Avg winner +$1.82, avg loser -$7.22.
 - **Disease:** Same signal inversion as crypto agents — SM signal enters after oil moves exhaust.
-- **Status:** Market hours enforcement applied. Direction flip candidate but lower priority. Not fee-bound ($11.36).
+- **Status:** Market hours enforcement applied. Direction flip shipped in PR #162.
 
 ### Mantis v4.0 (Vixen/Orca scanner)
 - **Stats:** 15 positions, 46.7% WR. Signal marginally inverted. BLAST caused 150% of gross loss.
