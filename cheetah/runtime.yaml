@@ -1,5 +1,5 @@
 name: cheetah-tracker
-version: 4.0.0
+version: 1.0.0
 description: >
   CHEETAH v4.0 — HYPE Funding Rate + Crowding Fader. Enters opposite to
   extreme HYPE funding rates, collecting funding while waiting for crowded
