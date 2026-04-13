@@ -227,8 +227,12 @@ def main():
 
     start_time = args.start_time
     end_time   = args.end_time
-    if not start_time or not end_time:
-        start_time, end_time = compute_week_boundaries(week_offset=0)
+    if start_time is None or end_time is None:
+        default_start, default_end = compute_week_boundaries(week_offset=0)
+        if start_time is None:
+            start_time = default_start
+        if end_time is None:
+            end_time = default_end
 
     try:
         users, err = resolve_users(args)
