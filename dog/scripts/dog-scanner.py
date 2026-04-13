@@ -159,11 +159,14 @@ def evaluate_assets():
         if (d == "LONG" and p1h > 0.2) or (d == "SHORT" and p1h < -0.2):
             score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
-        # ── 15m velocity — only fresh spikes matter ──
+        # ── 15m velocity freshness gate ──
+        # For contrarian: SM must be actively building the position we're about to fade.
+        # If SM is already unwinding (15m <= 0), the fade opportunity is passing — skip.
+        if cc_15m <= 0:
+            continue  # SM not fresh — stale signal, don't fade
         if cc_15m > 2.0: score += 3; reasons.append(f"15M_STRONG_SPIKE +{cc_15m:.2f}")
         elif cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
         elif cc_15m > 0.1: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
-        elif cc_15m < -0.5: score -= 1; reasons.append(f"15M_FADING {cc_15m:.2f}")
 
         # ── 1h acceleration (0-1) ──
         if cc_1h > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")

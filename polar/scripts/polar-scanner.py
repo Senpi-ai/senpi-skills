@@ -152,12 +152,13 @@ def evaluate_eth():
     if (d == "LONG" and p1h > 0.2) or (d == "SHORT" and p1h < -0.2):
         score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
-    # Contribution velocity — expanded extreme tiers
-    if cc_15m > 5.0: score += 4; reasons.append(f"15M_EXTREME_SPIKE +{cc_15m:.2f}")
+    # 15m velocity freshness — conviction-class penalty (not hard gate)
+    if cc_15m <= 0:
+        score -= 3; reasons.append(f"15M_STALE_PENALTY ({cc_15m:.2f})")
+    elif cc_15m > 5.0: score += 4; reasons.append(f"15M_EXTREME_SPIKE +{cc_15m:.2f}")
     elif cc_15m > 2.0: score += 3; reasons.append(f"15M_STRONG_SPIKE +{cc_15m:.2f}")
     elif cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
     elif cc_15m > 0.1: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
-    elif cc_15m < -0.5: score -= 1; reasons.append(f"15M_FADING {cc_15m:.2f}")
 
     if cc_1h > 3.0: score += 2; reasons.append(f"1H_STRONG_ACCEL +{cc_1h:.2f}")
     elif cc_1h > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")

@@ -123,9 +123,11 @@ def score_hype_signal(markets_data):
         score += 1
         reasons.append(f"MODERATE_CONTRIB {contribution:.1f}%")
 
-    # Contribution velocity — multi-window (15m + 1h + 4h); v2.2 extreme tiers
-    # 15m is the entry timing signal — HYPE moves fast, this catches the inflection
-    if contrib_15m > 5.0:
+    # 15m velocity freshness — conviction-class penalty (not hard gate)
+    if contrib_15m <= 0:
+        score -= 3
+        reasons.append(f"15M_STALE_PENALTY ({contrib_15m:.2f})")
+    elif contrib_15m > 5.0:
         score += 4
         reasons.append(f"15M_EXTREME_SPIKE +{contrib_15m:.2f}")
     elif contrib_15m > 2.0:
@@ -137,9 +139,6 @@ def score_hype_signal(markets_data):
     elif contrib_15m > 0.1:
         score += 1
         reasons.append(f"15M_BUILDING +{contrib_15m:.2f}")
-    elif contrib_15m < -0.5:
-        score -= 1
-        reasons.append(f"15M_FADING {contrib_15m:.2f}")
 
     if contrib_1h > 3.0:
         score += 2

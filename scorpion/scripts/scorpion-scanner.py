@@ -181,6 +181,7 @@ def detect_swarm(markets):
             "direction": direction,
             "sm_pct": sm_pct,
             "contrib_change": m.get("contribution_pct_change_4h", 0) or 0,
+            "cc_15m": float(m.get("contribution_pct_change_15m", 0) or 0),
             "price_change_4h": m.get("token_price_change_pct_4h", 0),
             "trader_count": m.get("trader_count", 0),
             "max_leverage": m.get("max_leverage", 3),
@@ -309,6 +310,11 @@ def pick_best_target(swarm, state):
         clear, _ = check_asset_cooldown(state, token)
         if not clear:
             continue
+
+        # 15m velocity freshness gate — SM must be actively building, not stale
+        cc_15m = float(target.get("cc_15m", 0))
+        if cc_15m <= 0:
+            continue  # SM velocity is flat or fading — signal is stale, don't enter
 
         score, breakdown = score_target(target, swarm_size)
         if score >= MIN_SCORE:

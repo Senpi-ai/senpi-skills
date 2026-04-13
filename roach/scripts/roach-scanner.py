@@ -81,6 +81,7 @@ def parse_scan(raw_markets):
             "contribution": round(m.get("pct_of_top_traders_gain", 0), 6),
             "traders": m.get("trader_count", 0),
             "price_chg_4h": round(m.get("token_price_change_pct_4h", 0) or 0, 4),
+            "cc_15m": float(m.get("contribution_pct_change_15m", 0) or 0),
         })
     return scan
 
@@ -432,6 +433,11 @@ def detect_striker_signals(current_scan, history, config):
 
         if score < min_score or len(reasons) < min_reasons:
             continue
+
+        # 15m velocity freshness gate — SM must be actively building, not stale
+        cc_15m = float(market.get("cc_15m", 0))
+        if cc_15m <= 0:
+            continue  # SM velocity is flat or fading — signal is stale, don't enter
 
         # ── Volume confirmation (the PUMP filter) ──
         vol_ratio, vol_strong = 0, True

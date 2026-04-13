@@ -149,13 +149,14 @@ def evaluate_btc():
         if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
             score -= 1; reasons.append(f"MOVE_TIRING {p4h:+.1f}%")
 
-    # Contribution velocity — multi-window (NEW: 15m + 1h + 4h)
-    # 15m = entry timing signal (SM interest spiking NOW)
-    # 1h = trend confirmation
-    # 4h = existing signal (major shift)
+    # 15m velocity freshness gate — SM must be actively building
+    # For contrarian: we want SM aggressively piling in so we can fade the peak
+    if cc_15m <= 0:
+        return None  # SM not fresh — stale signal
+
+    # Contribution velocity scoring
     if cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
     elif cc_15m > 0.1: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
-    elif cc_15m < -0.5: score -= 1; reasons.append(f"15M_FADING {cc_15m:.2f}")
 
     if cc_1h > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")
 
