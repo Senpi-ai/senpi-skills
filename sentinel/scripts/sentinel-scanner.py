@@ -46,8 +46,20 @@ import sentinel_config as cfg
 # ═══════════════════════════════════════════════════════════════
 
 MIN_LEVERAGE = 5
-MAX_LEVERAGE = 7
+MAX_LEVERAGE = 10
 DEFAULT_LEVERAGE = 7
+
+# Per-asset leverage scaling — volatile assets get lower leverage so the
+# same DSL percentages translate to wider absolute price tolerance.
+# At 5x, 15% Phase 1 = 3% price move. At 10x, 15% = 1.5% price move.
+# HYPE/alts wick 2%+ in 5 minutes — they need 5x to survive noise.
+# ETH/SOL/TAO are calmer — 10x is fine.
+ASSET_LEVERAGE = {
+    "HYPE": 5, "MON": 5, "LIT": 5, "FARTCOIN": 5,
+    "ZRO": 5, "ZEC": 5, "WIF": 5,
+    "BTC": 7,
+    "ETH": 10, "SOL": 10, "TAO": 10,
+}
 MAX_POSITIONS = 2
 MAX_DAILY_ENTRIES = 4
 COOLDOWN_MINUTES = 120
@@ -503,7 +515,7 @@ def run():
             "entry": {
                 "asset": asset,
                 "direction": cand["direction"],
-                "leverage": DEFAULT_LEVERAGE,
+                "leverage": ASSET_LEVERAGE.get(asset, DEFAULT_LEVERAGE),
                 "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT",
                 "feeOptimizedLimitOptions": {
