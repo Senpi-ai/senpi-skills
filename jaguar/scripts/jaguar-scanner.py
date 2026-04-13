@@ -230,9 +230,14 @@ def detect_striker_signals(current_scan, history):
             score += 1
             reasons.append(f"DEEP_SM ({traders}t)")
 
-        # NEW: Hyperfeed 15m/1h contribution velocity
+        # Hyperfeed 15m/1h contribution velocity + freshness gate
         contrib_15m = market.get("contrib_15m", 0)
         contrib_1h = market.get("contrib_1h", 0)
+
+        # Striker-class hard gate: SM must be actively building right now
+        if contrib_15m <= 0:
+            reasons.append(f"15M_STALE ({contrib_15m:.2f})")
+            continue  # Signal not fresh, skip
 
         if contrib_15m > 2.0:
             score += 3
@@ -243,9 +248,6 @@ def detect_striker_signals(current_scan, history):
         elif contrib_15m > 0.1:
             score += 1
             reasons.append(f"15M_BUILDING +{contrib_15m:.2f}")
-        elif contrib_15m < -0.5:
-            score -= 1
-            reasons.append(f"15M_FADING {contrib_15m:.2f}")
 
         if contrib_1h > 1.0:
             score += 1
