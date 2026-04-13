@@ -99,7 +99,7 @@ def compute_week_boundaries(week_offset=0, _now=None):
     end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
     def to_utc_z(dt):
-        # Keep lexical comparisons compatible with API timestamps that use "Z".
+        # Emit canonical UTC timestamps with a "Z" suffix.
         return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
     return to_utc_z(start), to_utc_z(end)

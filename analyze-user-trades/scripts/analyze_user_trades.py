@@ -28,6 +28,7 @@ import argparse
 import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 
 from analyze_user_trades_config import (
     mcporter_call,
@@ -46,6 +47,62 @@ def parse_args():
     parser.add_argument("--start-time", type=str, default=None)
     parser.add_argument("--end-time",   type=str, default=None)
     return parser.parse_args()
+
+
+def _parse_iso_timestamp(timestamp):
+    """Parse an ISO 8601 timestamp into a UTC datetime."""
+    if not timestamp or not isinstance(timestamp, str):
+        return None
+    normalized = timestamp.strip()
+    if normalized.endswith("Z"):
+        normalized = normalized[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed
+
+
+def _is_second_precision(timestamp):
+    """True when timestamp has no fractional-second component."""
+    if not timestamp or not isinstance(timestamp, str):
+        return False
+    if "T" not in timestamp:
+        return False
+    time_part = timestamp.split("T", 1)[1]
+    for sep in ("+", "-", "Z"):
+        idx = time_part.find(sep)
+        if idx != -1:
+            time_part = time_part[:idx]
+            break
+    return "." not in time_part
+
+
+def _build_time_filter(start_time, end_time):
+    """Return a predicate that safely checks whether a timestamp is in range."""
+    start_dt = _parse_iso_timestamp(start_time)
+    end_dt = _parse_iso_timestamp(end_time)
+    if not start_dt or not end_dt:
+        # Preserve previous behavior when user input is not parseable.
+        return lambda ts: bool(ts) and start_time <= ts <= end_time
+
+    end_exclusive = end_dt + timedelta(seconds=1) if _is_second_precision(end_time) else None
+
+    def in_range(timestamp):
+        ts_dt = _parse_iso_timestamp(timestamp)
+        if not ts_dt:
+            return False
+        if ts_dt < start_dt:
+            return False
+        if end_exclusive is not None:
+            return ts_dt < end_exclusive
+        return ts_dt <= end_dt
+
+    return in_range
 
 
 # ---------------------------------------------------------------------------
@@ -141,9 +198,10 @@ def fetch_orders(address, start_time, end_time):
     if not data:
         return []
     positions = data.get("closedPositions", [])
+    in_range = _build_time_filter(start_time, end_time)
     filtered = [
         p for p in positions
-        if p.get("closeTime") and start_time <= p["closeTime"] <= end_time
+        if p.get("closeTime") and in_range(p["closeTime"])
     ]
     return [
         {
@@ -180,9 +238,10 @@ def fetch_audit_logs(strategy_id, start_time, end_time):
         return []
     logs = data.get("auditLogs", [])
     # Filter client-side — tool does not accept time range params
+    in_range = _build_time_filter(start_time, end_time)
     filtered = [
         log for log in logs
-        if log.get("timestamp") and start_time <= log["timestamp"] <= end_time
+        if log.get("timestamp") and in_range(log["timestamp"])
     ]
     return [
         {
