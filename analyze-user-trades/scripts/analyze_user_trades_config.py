@@ -98,4 +98,8 @@ def compute_week_boundaries(week_offset=0, _now=None):
     start = anchor + timedelta(weeks=target_week)
     end = start + timedelta(days=6, hours=23, minutes=59, seconds=59)
 
-    return start.isoformat(), end.isoformat()
+    def to_utc_z(dt):
+        # Keep lexical comparisons compatible with API timestamps that use "Z".
+        return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+    return to_utc_z(start), to_utc_z(end)
