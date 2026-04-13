@@ -193,6 +193,11 @@ def fetch_and_score():
                 score += 1
                 reasons.append(f"DIVERGENCE {velocity_ratio:.1f}x")
 
+        # 15m velocity freshness gate — SM must be actively building, not stale
+        cc_15m = safe_float(m.get("contribution_pct_change_15m", 0))
+        if cc_15m <= 0:
+            continue  # SM velocity is flat or fading — signal is stale, don't enter
+
         signals.append({
             "token": token,
             "dex": dex if dex else None,

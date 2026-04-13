@@ -177,6 +177,7 @@ def fetch_sm_data():
             "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
                                        m.get("price_change_1h", 0))),
             "contrib_change": safe_float(m.get("contribution_pct_change_4h", 0)),
+            "cc_15m": safe_float(m.get("contribution_pct_change_15m", 0)),
         }
 
     return sm_map
@@ -286,6 +287,7 @@ def find_convergence_signals(convergence_map, sm_map):
             "price_chg_4h": sm["price_chg_4h"],
             "price_chg_1h": sm["price_chg_1h"],
             "contrib_change": sm.get("contrib_change", 0),
+            "cc_15m": sm.get("cc_15m", 0),
             "trader_details": data["traders"],
         })
 
@@ -356,6 +358,15 @@ def score_candidate(cand):
     if contrib >= 0.01:
         score += 1
         reasons.append(f"CONTRIB_ACCEL +{contrib*100:.1f}%")
+
+    # 5. 15m velocity freshness (conviction penalty)
+    cc_15m = safe_float(cand.get("cc_15m", 0))
+    if cc_15m <= 0:
+        score -= 3
+        reasons.append(f"15M_STALE_PENALTY ({cc_15m:.2f})")
+    elif cc_15m > 0.5:
+        score += 1
+        reasons.append(f"15M_FRESH +{cc_15m:.2f}")
 
     return score, reasons
 

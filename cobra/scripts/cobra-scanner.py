@@ -456,6 +456,14 @@ def main():
         print(json.dumps(output, indent=2))
         return
 
+    # 15m velocity freshness gate — SM must be actively building, not stale
+    cc_15m = float(dominant.get("contribution_pct_change_15m", 0) or 0)
+    if cc_15m <= 0:
+        output["reason"] = f"15M_STALE ({cc_15m:.2f}) — signal not fresh on {token}"
+        output["breakdown"]["cc_15m"] = cc_15m
+        print(json.dumps(output, indent=2))
+        return
+
     # ================================================================
     # ENTRY SIGNAL — Score passed, all gates clear
     # ================================================================

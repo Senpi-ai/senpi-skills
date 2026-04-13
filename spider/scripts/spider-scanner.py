@@ -306,12 +306,14 @@ def score_convergences(convergences, velocity):
             if sm_dir == direction and sm_pct >= 5:
                 score += 1; reasons.append(f"SM_CONFIRMS {sm_pct:.1f}%")
 
+            # 15m velocity freshness gate — striker-class hard gate
+            if cc_15m <= 0:
+                reasons.append(f"15M_STALE ({cc_15m:.2f})")
+                continue  # SM not fresh, skip this convergence
             if cc_15m > 0.5:
                 score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
             elif cc_15m > 0.1:
                 score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
-            elif cc_15m < -0.5:
-                score -= 1; reasons.append(f"15M_FADING {cc_15m:.2f}")
 
             if cc_1h > 1.0:
                 score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")

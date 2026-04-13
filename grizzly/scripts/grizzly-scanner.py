@@ -133,10 +133,15 @@ def evaluate_btc():
         if (d == "LONG" and p4h > 0) or (d == "SHORT" and p4h < 0):
             score -= 1; reasons.append(f"MOVE_TIRING {p4h:+.1f}%")
 
-    # Contribution velocity — aligned with Horribilis (simpler tiers)
+    # 15m velocity freshness gate — SM must be actively building
+    # For contrarian: we want SM aggressively piling in (high 15m) so we can fade the peak
+    # If SM is already unwinding (15m <= 0), the fade opportunity is passing
+    if cc_15m <= 0:
+        return None  # SM not fresh — stale signal
+
+    # Contribution velocity scoring
     if cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
     elif cc_15m > 0.1: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
-    elif cc_15m < -0.5: score -= 1; reasons.append(f"15M_FADING {cc_15m:.2f}")
 
     if cc_1h_contrib > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h_contrib:.2f}")
 

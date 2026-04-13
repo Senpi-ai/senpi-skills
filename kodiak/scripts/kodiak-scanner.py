@@ -117,10 +117,11 @@ def get_btc_correlation():
 
 
 def get_sol_sm_direction():
-    """Get smart money positioning specifically for SOL."""
+    """Get smart money positioning specifically for SOL.
+    Returns (direction, pct, trader_count, cc_15m)."""
     data = cfg.mcporter_call("leaderboard_get_markets")
     if not data or not data.get("success"):
-        return None, 0, 0
+        return None, 0, 0, 0
 
     markets = data.get("data", data)
     if isinstance(markets, dict):
@@ -132,6 +133,7 @@ def get_sol_sm_direction():
     asset_long_pct = 0
     asset_short_pct = 0
     asset_traders = 0
+    sol_cc_15m = 0
     found = False
 
     for m in markets:
@@ -144,25 +146,28 @@ def get_sol_sm_direction():
         direction = m.get("direction", "").lower()
         pct = float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         traders = int(m.get("trader_count", m.get("traderCount", 0)))
+        cc_15m_val = float(m.get("contribution_pct_change_15m", 0) or 0)
         if direction == "long":
             asset_long_pct = pct
             asset_traders += traders
+            sol_cc_15m = cc_15m_val
         elif direction == "short":
             asset_short_pct = pct
             asset_traders += traders
+            sol_cc_15m = cc_15m_val
 
     if not found:
-        return None, 0, 0
+        return None, 0, 0, 0
 
     total = asset_long_pct + asset_short_pct
     if total == 0:
-        return "NEUTRAL", 50, asset_traders
+        return "NEUTRAL", 50, asset_traders, sol_cc_15m
     long_ratio = (asset_long_pct / total) * 100 if total > 0 else 50
     if long_ratio > 58:
-        return "LONG", long_ratio, asset_traders
+        return "LONG", long_ratio, asset_traders, sol_cc_15m
     elif long_ratio < 42:
-        return "SHORT", 100 - long_ratio, asset_traders
-    return "NEUTRAL", 50, asset_traders
+        return "SHORT", 100 - long_ratio, asset_traders, sol_cc_15m
+    return "NEUTRAL", 50, asset_traders, sol_cc_15m
 
 
 # ─── Thesis Builder (BTC Only) ───────────────────────────────
@@ -236,7 +241,7 @@ def build_sol_thesis(entry_cfg):
         reasons.append("4TF_aligned")
 
     # ── SM positioning (BTC-specific, very strong signal) ─────
-    sm_dir, sm_pct, sm_count = get_sol_sm_direction()
+    sm_dir, sm_pct, sm_count, sm_cc_15m = get_sol_sm_direction()
     if sm_dir == direction:
         score += 2
         reasons.append(f"sm_aligned_{sm_pct:.0f}%_{sm_count}traders")
@@ -246,6 +251,14 @@ def build_sol_thesis(entry_cfg):
     elif sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
         # SM opposes — hard block for BTC. SM has the best read on BTC.
         return None
+
+    # ── 15m velocity freshness (conviction penalty) ──────────
+    if sm_cc_15m <= 0:
+        score -= 3
+        reasons.append(f"15M_STALE_PENALTY ({sm_cc_15m:.2f})")
+    elif sm_cc_15m > 0.5:
+        score += 1
+        reasons.append(f"15M_FRESH +{sm_cc_15m:.2f}")
 
     # ── Funding alignment ─────────────────────────────────────
     if (direction == "LONG" and funding < 0):
@@ -360,7 +373,7 @@ def evaluate_sol_position(direction, entry_cfg):
         invalidations.append("4h_trend_flipped_bullish")
 
     # SM flipped against?
-    sm_dir, sm_pct, _ = get_sol_sm_direction()
+    sm_dir, sm_pct, _, _ = get_sol_sm_direction()
     if sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
         invalidations.append(f"sm_flipped_{sm_dir}_{sm_pct:.0f}%")
 
@@ -427,7 +440,7 @@ def evaluate_reload(exit_state, entry_cfg):
         kill_reasons.append(f"4h_trend_reversed_{trend_4h}")
 
     # KILL CHECK: SM flipped
-    sm_dir, sm_pct, _ = get_sol_sm_direction()
+    sm_dir, sm_pct, _, _ = get_sol_sm_direction()
     if sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
         kill_reasons.append(f"sm_flipped_{sm_dir}")
 

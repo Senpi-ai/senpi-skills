@@ -157,6 +157,7 @@ def parse_scan(raw_markets):
             "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
                                        m.get("price_change_1h", 0))),
             "contrib_change": safe_float(m.get("contribution_pct_change_4h", 0)),
+            "cc_15m": safe_float(m.get("contribution_pct_change_15m", 0)),
         })
 
     return {"markets": markets[:TOP_N], "time": now_iso()}
@@ -387,6 +388,11 @@ def detect_signals(current_scan, history, momentum_index):
 
         if score < STRIKER_MIN_SCORE or len(reasons) < STRIKER_MIN_REASONS:
             continue
+
+        # 15m velocity freshness gate — SM must be actively building, not stale
+        cc_15m = safe_float(market.get("cc_15m", 0))
+        if cc_15m <= 0:
+            continue  # SM velocity is flat or fading — signal is stale, don't enter
 
         # Volume confirmation
         vol_ratio, vol_strong = check_asset_volume(token, dex)

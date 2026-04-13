@@ -132,6 +132,7 @@ def fetch_all_sm_data():
             "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
                                        m.get("price_change_1h", 0))),
             "contrib_change": safe_float(m.get("contribution_pct_change_4h", 0)),
+            "cc_15m": safe_float(m.get("contribution_pct_change_15m", 0)),
             "rank": int(m.get("rank", m.get("position", 999))),
         }
 
@@ -264,6 +265,15 @@ def evaluate_thesis(asset, sm_data):
     if rank <= 10:
         score += 1
         reasons.append(f"TOP_10 #{rank}")
+
+    # 7. 15m velocity freshness (conviction penalty)
+    cc_15m = safe_float(sm.get("cc_15m", 0))
+    if cc_15m <= 0:
+        score -= 3
+        reasons.append(f"15M_STALE_PENALTY ({cc_15m:.2f})")
+    elif cc_15m > 0.5:
+        score += 1
+        reasons.append(f"15M_FRESH +{cc_15m:.2f}")
 
     return {
         "asset": asset, "direction": direction, "score": score,
