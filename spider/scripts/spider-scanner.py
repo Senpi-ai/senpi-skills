@@ -69,11 +69,14 @@ MIN_SCORE = 8
 MIN_CONVERGENCE = 2    # Minimum ELITE/RELIABLE traders on same asset+direction
 XYZ_BANNED = False     # Allow XYZ — elite traders trade CL, GOLD, etc.
 
+# Leverage reduced from 7x/10x to 5x/7x. At 7x, Phase 1's 8% retrace
+# gave only 1.14% price tolerance — normal volatility wicked every trade.
+# At 5x with widened retrace, tolerance is ~3%, enough to survive noise.
 LEVERAGE_TIERS = [
-    {"min_score": 10, "leverage": 10},
-    {"min_score": 8,  "leverage": 7},
+    {"min_score": 10, "leverage": 7},
+    {"min_score": 8,  "leverage": 5},
 ]
-DEFAULT_LEVERAGE = 7
+DEFAULT_LEVERAGE = 5
 
 # Quality filters for trader selection
 TRADER_TCS_FILTER = ["ELITE", "RELIABLE"]
