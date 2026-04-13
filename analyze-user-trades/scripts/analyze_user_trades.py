@@ -162,14 +162,20 @@ def fetch_orders(address, start_time, end_time):
 
 
 # ---------------------------------------------------------------------------
-# Step 4 — fetch audit logs
+# Step 4 — fetch strategy audit logs
 # ---------------------------------------------------------------------------
 
-def fetch_audit_logs(user_id, start_time, end_time):
+def fetch_audit_logs(strategy_id, start_time, end_time):
     data = mcporter_call_safe(
-        "audit_get_recent_actions",
-        user_ids=[user_id],
+        "audit_get_strategy_history",
+        strategy_id=strategy_id,
     )
+    # Keep a backward-compatible fallback for potential camelCase MCP schemas.
+    if not data:
+        data = mcporter_call_safe(
+            "audit_get_strategy_history",
+            strategyId=strategy_id,
+        )
     if not data:
         return []
     logs = data.get("auditLogs", [])
@@ -198,9 +204,10 @@ def analyze_user(user, start_time, end_time):
 
     def enrich_strategy(strategy):
         address = strategy["address"]
+        strategy_id = strategy["strategyId"]
         with ThreadPoolExecutor(max_workers=2) as ex:
             orders_f = ex.submit(fetch_orders,     address, start_time, end_time)
-            audit_f  = ex.submit(fetch_audit_logs, user_id, start_time, end_time)
+            audit_f  = ex.submit(fetch_audit_logs, strategy_id, start_time, end_time)
         strategy["orders"]    = orders_f.result()
         strategy["audit_log"] = audit_f.result()
         return strategy
