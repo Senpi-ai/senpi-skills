@@ -77,7 +77,7 @@ def mcporter_call_safe(tool, retries=3, timeout=30, **kwargs):
         return None
 
 
-def compute_week_boundaries(week_offset=0):
+def compute_week_boundaries(week_offset=0, _now=None):
     """Compute arena week start/end given an offset from the current week.
 
     Week 1 anchor: 2026-03-26T00:00:00Z (Thursday)
@@ -85,12 +85,13 @@ def compute_week_boundaries(week_offset=0):
 
     Args:
         week_offset: 0 = current week, -1 = last week, +1 = next week, etc.
+        _now: Override current time (datetime with tzinfo). For testing only.
 
     Returns:
         (start_iso, end_iso) tuple of ISO 8601 strings.
     """
     anchor = datetime(2026, 3, 26, 0, 0, 0, tzinfo=timezone.utc)
-    now = datetime.now(timezone.utc)
+    now = _now or datetime.now(timezone.utc)
     weeks_since_anchor = (now - anchor).days // 7
     target_week = weeks_since_anchor + week_offset
 
