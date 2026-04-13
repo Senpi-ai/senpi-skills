@@ -261,18 +261,21 @@ def analyze_user(user, start_time, end_time):
     user_id    = user["senpiUserId"]
     strategies = fetch_strategies(user_id)
 
-    def enrich_strategy(strategy):
-        address = strategy["address"]
-        strategy_id = strategy["strategyId"]
-        with ThreadPoolExecutor(max_workers=2) as ex:
-            orders_f = ex.submit(fetch_orders,     address, start_time, end_time)
-            audit_f  = ex.submit(fetch_audit_logs, strategy_id, start_time, end_time)
-        strategy["orders"]    = orders_f.result()
-        strategy["audit_log"] = audit_f.result()
-        return strategy
-
     with ThreadPoolExecutor(max_workers=5) as ex:
-        enriched = list(ex.map(enrich_strategy, strategies))
+        strategy_tasks = {}
+        for strategy in strategies:
+            orders_f = ex.submit(fetch_orders, strategy["address"], start_time, end_time)
+            audit_f = ex.submit(fetch_audit_logs, strategy["strategyId"], start_time, end_time)
+            strategy_tasks[orders_f] = (strategy, "orders")
+            strategy_tasks[audit_f] = (strategy, "audit_log")
+
+        for future in as_completed(strategy_tasks):
+            strategy, field = strategy_tasks[future]
+            strategy[field] = future.result()
+
+    for strategy in strategies:
+        strategy.setdefault("orders", [])
+        strategy.setdefault("audit_log", [])
 
     return {
         "senpiUserName": user["senpiUserName"],
@@ -280,7 +283,7 @@ def analyze_user(user, start_time, end_time):
         "rank":          user["rank"],
         "roePct":        user["roePct"],
         "totalPnl":      user["totalPnl"],
-        "strategies":    enriched,
+        "strategies":    strategies,
     }
 
 
