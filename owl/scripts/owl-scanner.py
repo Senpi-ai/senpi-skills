@@ -1,18 +1,33 @@
 #!/usr/bin/env python3
-# Senpi OWL Scanner v5.2
+# Senpi OWL Scanner v5.3
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0 — attribution required for derivative works
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""OWL v5.2 — Pure Contrarian.
+"""OWL v5.3 — Pure Contrarian (self-executing + persistence tolerance).
 
 One scanner. One thesis: the crowd is wrong.
 
-v5.2 changes:
-  - minFundingAnnualizedPct lowered from 20% to 12%. Assets below the funding
-    floor now score 0 on funding but continue through SM/OI checks instead of
-    early-returning. The minCrowdingScore of 8 remains the true quality gate.
-  - Added observability logging: top 3 crowding scores + active persistence
-    timers printed to stderr every scan cycle (not sent as notifications).
+v5.3 changes (fixes 30-day zero-trade drought):
+  - SELF-EXECUTING: scanner now calls create_position via mcporter directly,
+    matching Wolverine/Phoenix pattern. Previously the scanner only output a
+    signal JSON expecting an external action layer to execute — but Owl has
+    no runtime.yaml action layer wired up, so signals died at output. This
+    was the #1 reason Owl had traded zero times since 2026-03-15.
+  - PERSISTENCE TOLERANCE: clear_persistence no longer fires on a single dip
+    below minCrowdingScore. New belowThresholdCount allows up to 2 consecutive
+    below-threshold scans (30 min at 15-min cadence) before clearing. Old
+    pattern reset the 4-hour timer on any noise; no coin ever accumulated 4
+    uninterrupted hours in 30 days.
+  - Fleet-standard drawdown circuit breaker layered on top of existing
+    dynamicSlots earning-forward logic. Preserves capital during drawdowns.
+  - has_resting_orders() auto-cancels stale maker orders >10 min old
+    (fleet-standard pattern from PR #177).
+  - Added runtime.yaml for standard deployment.
+
+v5.2 changes (preserved):
+  - minFundingAnnualizedPct lowered from 20% to 12%. Below-floor assets score
+    0 on funding but continue through SM/OI checks.
+  - Observability logging: top 3 crowding scores + persistence timers to stderr.
 
 Monitors crowding across top 30 assets (funding extremity, OI concentration,
 SM tilt). When crowding persists 4+ hours AND exhaustion signals fire (volume
@@ -32,6 +47,137 @@ from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import owl_config as cfg
+
+
+# ═══════════════════════════════════════════════════════════════
+# FLEET-STANDARD GUARDRAILS (v5.3)
+# ═══════════════════════════════════════════════════════════════
+
+STARTING_BUDGET = 1000.0  # Owl's starting capital baseline
+STALE_ORDER_MAX_AGE_SEC = 600  # 10 min — matches fleet PR #177
+
+
+def get_effective_entry_cap(account_value, tc, entry_cfg):
+    """Fleet-standard drawdown circuit breaker layered on top of Owl's
+    existing dynamicSlots earning-forward logic.
+
+    Below -5% drawdown: hard clamps preserve capital.
+    Above -5%: use Owl's existing dynamicSlots logic (unlock more entries as
+    realized PnL grows) so the contrarian thesis can compound when winning.
+    """
+    starting = STARTING_BUDGET
+    pnl_pct = ((account_value - starting) / starting) * 100 if starting > 0 else 0
+
+    # Drawdown floor — hard clamps
+    if pnl_pct < -25:
+        return 0  # HARD STOP — circuit breaker
+    if pnl_pct < -15:
+        return 1  # Preserve — highest conviction only
+    if pnl_pct < -5:
+        return 2  # Defensive
+
+    # Above -5%, use Owl's existing dynamicSlots logic
+    dynamic = entry_cfg.get("dynamicSlots", {})
+    if not dynamic.get("enabled", True):
+        return entry_cfg.get("maxEntriesPerDay", 3)
+
+    base_max = dynamic.get("baseMax", 2)
+    day_pnl = tc.get("realizedPnl", 0)
+    effective_max = base_max
+    for t in dynamic.get("unlockThresholds", []):
+        if day_pnl >= t.get("pnl", 999999):
+            effective_max = t.get("maxEntries", effective_max)
+    return min(effective_max, dynamic.get("absoluteMax", 4))
+
+
+def has_resting_orders(wallet):
+    """Check for non-reduceOnly resting orders, auto-cancelling any older
+    than STALE_ORDER_MAX_AGE_SEC. Matches fleet-standard pattern from PR #177.
+
+    Without auto-cancel, a maker FEE_OPTIMIZED_LIMIT order that never fills
+    locks the scanner out of new entries indefinitely. Reduce-only orders
+    (DSL exit legs) are ignored.
+    """
+    data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data:
+        return False
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if not isinstance(orders, list):
+        return False
+    now_ms = time.time() * 1000
+    max_age_ms = STALE_ORDER_MAX_AGE_SEC * 1000
+    has_fresh = False
+    for o in orders:
+        if o.get("reduceOnly", False):
+            continue
+        ts_raw = o.get("timestamp", 0) or 0
+        try:
+            ts = float(ts_raw)
+        except (TypeError, ValueError):
+            ts = 0.0
+        if ts > 0 and (now_ms - ts) > max_age_ms:
+            oid = o.get("oid") or o.get("orderId") or o.get("id")
+            if oid:
+                try:
+                    cfg.mcporter_call(
+                        "cancel_order",
+                        strategyWalletAddress=wallet,
+                        orderId=int(oid),
+                    )
+                except Exception:
+                    pass
+            continue  # Treat cancelled order as gone
+        has_fresh = True
+    return has_fresh
+
+
+def execute_entry(wallet, signal, account_value, entry_cfg, leverage_cfg):
+    """Self-execute the entry via Senpi MCP create_position.
+
+    v5.3: Scanner now calls create_position directly instead of emitting a
+    signal JSON for an external action layer. Matches Wolverine/Phoenix
+    self-executing pattern. Previously Owl relied on a main-session action
+    layer that was never wired up, which is why signals died at output and
+    Owl traded zero times between 2026-03-15 and 2026-04-14.
+    """
+    base_margin_pct = entry_cfg.get("marginPctBase", 0.25)
+    if signal["score"] >= 18:
+        margin_pct = base_margin_pct * 1.5
+    elif signal["score"] >= 16:
+        margin_pct = base_margin_pct * 1.25
+    else:
+        margin_pct = base_margin_pct
+    margin = round(account_value * margin_pct, 2)
+    leverage = leverage_cfg.get("default", 8)
+
+    order = {
+        "coin": signal["coin"],
+        "direction": signal["direction"],
+        "leverage": leverage,
+        "marginAmount": margin,
+        "orderType": "FEE_OPTIMIZED_LIMIT",
+        "feeOptimizedLimitOptions": {
+            "ensureExecutionAsTaker": True,
+            "executionTimeoutSeconds": 30,
+        },
+    }
+
+    reason = (
+        f"OWL v5.3 contrarian fade: score={signal['score']}, "
+        f"crowd={signal['crowdDirection']}, "
+        f"persist={signal['persistHours']:.1f}h"
+    )
+    result = cfg.mcporter_call(
+        "create_position",
+        strategyWalletAddress=wallet,
+        orders=[order],
+        reason=reason,
+    )
+
+    success = bool(result and result.get("success"))
+    return success, result, margin, leverage
 
 
 # ─── Crowding Analysis ────────────────────────────────────────
@@ -231,28 +377,60 @@ def detect_exhaustion(coin, crowd_direction, exhaustion_cfg):
 # ─── Persistence Tracking ─────────────────────────────────────
 
 def check_persistence(state, coin, crowd_score, min_persist_hours):
-    """Track how long crowding has been elevated. Returns (persisted, hours)."""
+    """Track how long crowding has been elevated. Returns (persisted, hours).
+
+    v5.3: Resets belowThresholdCount to 0 when score is back above threshold
+    so the tolerance window only applies to consecutive dips.
+    """
     tracking = state.get("crowdingHistory", {})
     now_ts = cfg.now_ts()
 
     if coin not in tracking:
-        tracking[coin] = {"firstSeen": cfg.now_iso(), "ts": now_ts, "peakScore": crowd_score}
+        tracking[coin] = {
+            "firstSeen": cfg.now_iso(),
+            "ts": now_ts,
+            "peakScore": crowd_score,
+            "belowThresholdCount": 0,
+        }
         state["crowdingHistory"] = tracking
         return False, 0
 
     entry = tracking[coin]
     hours = (now_ts - entry.get("ts", now_ts)) / 3600
 
-    # Update peak
     if crowd_score > entry.get("peakScore", 0):
         entry["peakScore"] = crowd_score
+    # v5.3: reset tolerance counter when back above threshold
+    entry["belowThresholdCount"] = 0
 
     state["crowdingHistory"] = tracking
     return hours >= min_persist_hours, hours
 
 
+def mark_below_threshold(state, coin, max_tolerance=2):
+    """Mark a coin as temporarily below threshold. Returns True if persistence
+    should be cleared (exceeded tolerance), False to keep tracking.
+
+    v5.3: The old pattern cleared persistence instantly on any dip below
+    minCrowdingScore. At 15-min cadence, a single 15-min noisy dip would
+    reset the 4-hour timer, and Owl never accumulated persistence across a
+    full 4h window in 30 days. New pattern tolerates up to max_tolerance
+    consecutive below-threshold scans (30 min at 15-min cadence) before
+    clearing. This is the #1 reason Owl traded zero times since 2026-03-15.
+    """
+    tracking = state.get("crowdingHistory", {})
+    if coin not in tracking:
+        return True  # nothing to track, safe to "clear" (no-op)
+    entry = tracking[coin]
+    below_count = entry.get("belowThresholdCount", 0) + 1
+    entry["belowThresholdCount"] = below_count
+    state["crowdingHistory"] = tracking
+    return below_count > max_tolerance
+
+
 def clear_persistence(state, coin):
-    """Clear tracking when crowding score drops below threshold."""
+    """Clear tracking when crowding score drops below threshold for longer
+    than the tolerance window (see mark_below_threshold)."""
     tracking = state.get("crowdingHistory", {})
     tracking.pop(coin, None)
     state["crowdingHistory"] = tracking
@@ -348,19 +526,18 @@ def run():
             })
             return
 
-    # ── CHECK 2: Entry cap ────────────────────────────────────
+    # ── CHECK 2: Entry cap (v5.3: fleet-standard drawdown circuit breaker) ──
     max_positions = config.get("maxPositions", 2)
-    dynamic = entry_cfg.get("dynamicSlots", {})
-    if dynamic.get("enabled", True):
-        base_max = dynamic.get("baseMax", 2)
-        day_pnl = tc.get("realizedPnl", 0)
-        effective_max = base_max
-        for t in dynamic.get("unlockThresholds", []):
-            if day_pnl >= t.get("pnl", 999999):
-                effective_max = t.get("maxEntries", effective_max)
-        max_entries = min(effective_max, dynamic.get("absoluteMax", 4))
-    else:
-        max_entries = entry_cfg.get("maxEntriesPerDay", 3)
+    max_entries = get_effective_entry_cap(account_value, tc, entry_cfg)
+
+    if max_entries <= 0:
+        pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
+        cfg.output({
+            "success": True, "heartbeat": "NO_REPLY",
+            "note": f"HARD_STOP pnl={pnl_pct:+.1f}% — circuit breaker",
+        })
+        cfg.save_state(state, "owl-state.json")
+        return
 
     if tc.get("entries", 0) >= max_entries:
         cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": f"max entries ({max_entries})"})
@@ -369,6 +546,12 @@ def run():
 
     if len(positions) >= max_positions:
         cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "max positions"})
+        cfg.save_state(state, "owl-state.json")
+        return
+
+    # ── CHECK 2.5: Don't stack new entries while a maker order is still resting ──
+    if has_resting_orders(wallet):
+        cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "resting order pending"})
         cfg.save_state(state, "owl-state.json")
         return
 
@@ -395,7 +578,10 @@ def run():
             continue
 
         if crowd_score < min_crowd_score or not crowd_direction:
-            clear_persistence(state, asset["coin"])
+            # v5.3: tolerate brief dips (up to 2 consecutive scans = 30 min
+            # at 15-min cadence) before clearing the persistence timer
+            if mark_below_threshold(state, asset["coin"], max_tolerance=2):
+                clear_persistence(state, asset["coin"])
             continue
 
         # Phase 2: Check persistence (must be crowded for 4h+)
@@ -445,32 +631,42 @@ def run():
     candidates.sort(key=lambda x: x["score"], reverse=True)
     best = candidates[0]
 
-    # Conviction-scaled margin
-    base_margin_pct = entry_cfg.get("marginPctBase", 0.25)
-    if best["score"] >= 18:
-        margin_pct = base_margin_pct * 1.5
-    elif best["score"] >= 16:
-        margin_pct = base_margin_pct * 1.25
+    # v5.3: SELF-EXECUTE the entry (don't just emit a signal and hope an
+    # external action layer picks it up — Owl has no action layer wired up)
+    success, result, margin, leverage = execute_entry(
+        wallet, best, account_value, entry_cfg, config.get("leverage", {})
+    )
+
+    if success:
+        tc["entries"] = tc.get("entries", 0) + 1
+        cfg.save_trade_counter(tc)
+        cfg.output({
+            "success": True,
+            "action": "ENTRY",
+            "signal": best,
+            "execution": {
+                "coin": best["coin"],
+                "direction": best["direction"],
+                "leverage": leverage,
+                "margin": margin,
+                "orderType": "FEE_OPTIMIZED_LIMIT",
+            },
+            "result": result,
+            "scanned": len(assets),
+            "candidates": len(candidates),
+            "_owl_version": "5.3",
+        })
     else:
-        margin_pct = base_margin_pct
-    margin = round(account_value * margin_pct, 2)
-
-    leverage = config.get("leverage", {}).get("default", 8)
-
-    cfg.output({
-        "success": True,
-        "signal": best,
-        "entry": {
-            "coin": best["coin"],
-            "direction": best["direction"],
-            "leverage": leverage,
-            "margin": margin,
-            "orderType": config.get("execution", {}).get("entryOrderType", "FEE_OPTIMIZED_LIMIT"),
-        },
-        "scanned": len(assets),
-        "crowded": len([a for a in assets if score_crowding(a, crowding_cfg)[0] >= min_crowd_score]),
-        "candidates": len(candidates),
-    })
+        error = result.get("error", "unknown") if result else "mcporter_call returned None"
+        cfg.output({
+            "success": False,
+            "action": "ENTRY_FAILED",
+            "signal": best,
+            "error": error,
+            "scanned": len(assets),
+            "candidates": len(candidates),
+            "_owl_version": "5.3",
+        })
 
 
 if __name__ == "__main__":
