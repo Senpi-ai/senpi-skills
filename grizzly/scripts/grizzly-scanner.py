@@ -96,6 +96,21 @@ def evaluate_btc():
 
     if traders < 10: return None
 
+    # CONTRARIAN EXHAUSTION GATE (v4.1)
+    # Fleet analysis April 13: Grizzly v4.0 lost $107 in 15h shorting BTC while
+    # BTC pumped from $72,294 to $74,758 (+3.4%). The contrarian flip was fading
+    # an ACCELERATING breakout, not exhausted consensus.
+    #
+    # Before fading SM, require that the 4H price has already moved significantly
+    # in their direction. If BTC is only up 0.7% and SM is piling in, they might
+    # be early and RIGHT. Only fade when the move is actually exhausted.
+    MIN_EXHAUSTION_PCT = 2.5  # BTC 4H must have moved >2.5% in SM direction
+    if abs(p4h) < MIN_EXHAUSTION_PCT:
+        return None  # Not exhausted yet — don't fight a fresh trend
+    # Must be moving in SM direction (otherwise SM is already wrong)
+    if (d == "LONG" and p4h < 0) or (d == "SHORT" and p4h > 0):
+        return None  # SM direction opposes price — not an exhaustion pattern
+
     funding = 0
     try:
         ad = cfg.mcporter_call("market_get_asset_data", asset=ASSET, candle_intervals=["1h"], include_funding=True)
@@ -251,11 +266,11 @@ def run():
                 "leverage":leverage,"mode":"BTC_HUNTER","reasons":thesis["reasons"]},
             "execution":{"asset":ASSET,"direction":thesis["direction"],"leverage":leverage,
                 "margin":margin,"orderType":"FEE_OPTIMIZED_LIMIT","ensureExecutionAsTaker":False},
-            "result":result,"_grizzly_version":"4.0"})
+            "result":result,"_grizzly_version":"4.1"})
     else:
         cfg.output({"status":"ok","action":"ENTRY_FAILED",
             "signal":{"asset":ASSET,"direction":thesis["direction"],"score":thesis["score"],"reasons":thesis["reasons"]},
-            "error":result,"_grizzly_version":"4.0"})
+            "error":result,"_grizzly_version":"4.1"})
 
 if __name__ == "__main__":
     try: run()

@@ -115,6 +115,16 @@ def evaluate_btc():
 
     if traders < 10: return None
 
+    # CONTRARIAN EXHAUSTION GATE (v2.1)
+    # Fleet analysis April 13: contrarian flips without exhaustion gates
+    # fade accelerating trends instead of exhausted moves. Require 4H price
+    # to have already moved >2.5% in SM direction before fading.
+    MIN_EXHAUSTION_PCT = 2.5
+    if abs(p4h) < MIN_EXHAUSTION_PCT:
+        return None  # Not exhausted yet — don't fight a fresh trend
+    if (d == "LONG" and p4h < 0) or (d == "SHORT" and p4h > 0):
+        return None  # SM direction opposes price — not an exhaustion pattern
+
     funding = 0
     try:
         ad = cfg.mcporter_call("market_get_asset_data", asset=ASSET, candle_intervals=["1h"], include_funding=True)
@@ -326,13 +336,13 @@ def run():
                 "execution": {"asset": ASSET, "direction": thesis["direction"],
                     "leverage": leverage, "margin": margin,
                     "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-                "result": result, "_horribilis_version": "2.0",
+                "result": result, "_horribilis_version": "2.1",
             })
         else:
             cfg.output({"status": "ok", "action": "ENTRY_FAILED",
                 "signal": {"asset": ASSET, "direction": thesis["direction"],
                     "score": thesis["score"], "reasons": thesis["reasons"]},
-                "error": result, "_horribilis_version": "2.0"})
+                "error": result, "_horribilis_version": "2.1"})
         return
 
     # ── CASE 2: Position exists — evaluate for scale-up ──
@@ -420,13 +430,13 @@ def run():
                 "existingMargin": round(current_margin, 2),
                 "newMargin": scale_margin,
             },
-            "result": result, "_horribilis_version": "2.0",
+            "result": result, "_horribilis_version": "2.1",
         })
     else:
         cfg.output({"status": "ok", "action": "SCALE_UP_FAILED",
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                 "score": thesis["score"], "reasons": thesis["reasons"]},
-            "error": result, "_horribilis_version": "2.0"})
+            "error": result, "_horribilis_version": "2.1"})
 
 
 if __name__ == "__main__":

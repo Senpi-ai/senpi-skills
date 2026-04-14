@@ -126,6 +126,17 @@ def evaluate_assets():
         # Hard gate: minimum SM engagement
         if traders < 30: continue
 
+        # CONTRARIAN EXHAUSTION GATE (v2.1)
+        # Fleet analysis April 13: Grizzly v4.0 lost $107 in 15h fading an
+        # accelerating BTC breakout. Contrarian flip without an exhaustion gate
+        # fights live trends instead of exhausted moves.
+        # Require 4H price to have already moved >2.5% in SM direction.
+        MIN_EXHAUSTION_PCT = 2.5
+        if abs(p4h) < MIN_EXHAUSTION_PCT:
+            continue  # Not exhausted yet — don't fight a fresh trend
+        if (d == "LONG" and p4h < 0) or (d == "SHORT" and p4h > 0):
+            continue  # SM direction opposes price — not an exhaustion pattern
+
         score, reasons = 0, []
 
         # ── SM concentration (0-3) ──
@@ -333,12 +344,12 @@ def run():
             "execution": {"asset": best["asset"], "direction": best["direction"],
                 "leverage": leverage, "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-            "result": result, "_dog_version": "2.0"})
+            "result": result, "_dog_version": "2.1"})
     else:
         cfg.output({"status": "ok", "action": "ENTRY_FAILED",
             "signal": {"asset": best["asset"], "direction": best["direction"],
                 "score": best["score"], "reasons": best["reasons"]},
-            "error": result, "_dog_version": "2.0"})
+            "error": result, "_dog_version": "2.1"})
 
 if __name__ == "__main__":
     try: run()
