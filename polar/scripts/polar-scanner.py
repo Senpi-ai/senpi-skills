@@ -16,10 +16,10 @@ v2.3 changes from overnight analysis (2026-04-08):
   catch breakout -> exit -> scanner sees hot 4h candle -> re-enters at top.
 
 v2.2 changes:
-- Conviction-scaled leverage: score 8->7x, 9->10x, 10->15x, 11+->20x
+- Conviction-scaled leverage: score 8->7x, 10+->10x (fleet: >10x destroys edge)
 - Extreme velocity tiers: 15m >5.0->+4pts, >2.0->+3pts (was capped at +2)
 - 1h acceleration: >3.0->+2pts (was capped at +1)
-- ETH max leverage on Hyperliquid is 25x, we cap at 20x
+- ETH max leverage on Hyperliquid is 25x, we cap at 10x
 
 ETH single-asset lifecycle hunter. HUNT -> RIDE -> re-HUNT.
 Uses: leaderboard_get_markets + market_get_asset_data + strategy_get_open_orders
@@ -41,14 +41,15 @@ MARGIN_PCT = 0.50
 MIN_SCORE = 8
 XYZ_BANNED = True
 
+# Leverage compressed to 7x/10x. Fleet analysis proved >10x amplifies
+# fees and retraces into catastrophic losses. Polar at 20x lost $39 on
+# a position that would have been manageable at 10x.
 LEVERAGE_TIERS = [
-    {"min_score": 11, "leverage": 20},
-    {"min_score": 10, "leverage": 15},
-    {"min_score": 9,  "leverage": 10},
+    {"min_score": 10, "leverage": 10},
     {"min_score": 8,  "leverage": 7},
 ]
 DEFAULT_LEVERAGE = 7
-MAX_LEVERAGE = 20  # ETH max on HL is 25x, we cap at 20x
+MAX_LEVERAGE = 10
 
 
 def safe_float(v, d=0.0):
