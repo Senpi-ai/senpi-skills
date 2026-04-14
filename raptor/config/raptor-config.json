@@ -2,8 +2,8 @@
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "_version": "3.0",
-  "_description": "RAPTOR v3.0 — Hot Streak Follower. Uses leaderboard_get_top + discovery_get_top_traders to find ELITE/RELIABLE traders on active 4h hot streaks, then enters their strongest position with SM alignment confirmation.",
+  "_version": "3.1",
+  "_description": "RAPTOR v3.1 — Hot Streak Follower (quality-first). Starts from discovery_get_top_traders(WEEKLY, ELITE+RELIABLE) and filters to currently winning quality traders, then enters their strongest position with SM alignment confirmation.",
   "maxPositions": 2,
   "leverage": {
     "default": 7,
@@ -14,14 +14,13 @@
     ]
   },
   "hotStreak": {
-    "minDeltaPnl": 2000000,
-    "tier2Threshold": 5500000,
-    "tier3Threshold": 10000000,
-    "topTraderLimit": 30,
-    "qualityConsistency": ["ELITE", "RELIABLE"],
-    "qualityTimeFrame": "WEEKLY",
-    "minConcentration": 0.40,
-    "minPositionPnl": 500000
+    "qualityPoolSize": 20,
+    "positionsFetchLimit": 10,
+    "minDeltaPnl": 500000,
+    "tier2Threshold": 1500000,
+    "tier3Threshold": 3000000,
+    "minConcentration": 0.35,
+    "minPositionPnl": 100000
   },
   "smAlignment": {
     "minSmPct": 2.0,
