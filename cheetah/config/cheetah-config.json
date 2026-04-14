@@ -1,1 +1,64 @@
-{"strategyId": "", "wallet": "", "chatId": ""}
+{
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "_version": "5.0-APEX",
+  "_description": "CHEETAH APEX — Multi-signal confluence sniper purpose-built to win the Senpi Arena. Only fires on score >= 14 (all major signals aligning). Fewer trades, higher conviction, maximum leverage, aggressive profit ratcheting.",
+  "_thesis": "The Arena rewards asymmetric ROE%, not consistency. A sniper that takes 5 high-conviction trades per week with 80% margin and 10x leverage can outperform 200-trade scalpers.",
+  "maxPositions": 1,
+  "xyzBanned": true,
+  "risk": {
+    "startingBudget": 648.0,
+    "maxLossPct": 5.0,
+    "maxDailyLossPct": 12.0
+  },
+  "leverage": {
+    "default": 8,
+    "tiers": [
+      {"minScore": 15, "leverage": 10},
+      {"minScore": 14, "leverage": 8}
+    ]
+  },
+  "entry": {
+    "minScore": 14,
+    "marginPct": 0.80,
+    "orderType": "FEE_OPTIMIZED_LIMIT",
+    "ensureExecutionAsTaker": true,
+    "executionTimeoutSeconds": 30
+  },
+  "sm": {
+    "minSmPct": 10.0,
+    "minSmTraders": 25
+  },
+  "velocity": {
+    "min15m": 1.0,
+    "min1h": 3.0,
+    "requireAccelerating": true
+  },
+  "priceConfirmation": {
+    "min4hMovePct": 2.0,
+    "requireDualConfirm": true
+  },
+  "volume": {
+    "minVolumeRatio": 2.0
+  },
+  "qualityTraders": {
+    "poolSize": 8,
+    "consistency": ["ELITE", "RELIABLE"],
+    "timeFrame": "WEEKLY",
+    "cacheMinutes": 15
+  },
+  "rankClimb": {
+    "topNFilter": 15,
+    "minClimbPerTwoScans": 5
+  },
+  "cooldown": {
+    "perAssetMinutes": 240,
+    "afterLossMinutes": 120
+  },
+  "arena": {
+    "enabled": true,
+    "minWeeklyVolumeUsd": 25000,
+    "targetTradesPerWeek": 5
+  }
+}
