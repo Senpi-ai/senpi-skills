@@ -1,15 +1,17 @@
 name: cheetah-tracker
-version: 1.0.0
+version: 5.0.0
 description: >
-  CHEETAH v4.0 — HYPE Funding Rate + Crowding Fader. Enters opposite to
-  extreme HYPE funding rates, collecting funding while waiting for crowded
-  positions to mean-revert. Different thesis from Wolverine (SM consensus).
+  CHEETAH v5.0 APEX — Multi-signal confluence sniper built to win the Senpi
+  Arena. Only fires when ALL major signals align on the same asset (score
+  >= 14 out of 15). Aggressive profit ratcheting, -5% absolute loss floor,
+  80% margin per trade, 10x leverage. 5 target trades per week (hits the
+  $25k Arena volume floor). Fewer trades, higher conviction, maximum ROE%.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 1000
+  budget: 648
   slots: 1
-  margin_per_slot: 400
+  margin_per_slot: 518
   enabled: true
 
 scanners:
@@ -23,35 +25,37 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# Wide DSL — funding mean-reversion takes hours.
-# The edge includes collecting funding every 8h, so patience pays.
+# APEX DSL — aggressive profit ratcheting, tight -5% floor.
+# Max 5% loss per trade is the Arena killer avoidance. Earlier Phase 2 Tier 1
+# at +6% locks profit faster than fleet standard. Tight weak_peak_cut means
+# non-movers get cut in 35 min so we don't wait around for nothing.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 480
+      interval_in_minutes: 360
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 120
-      min_value: 2.0
+      interval_in_minutes: 35
+      min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 45
+      interval_in_minutes: 25
     phase1:
       enabled: true
-      max_loss_pct: 20.0
-      retrace_threshold: 10
+      max_loss_pct: 5.0
+      retrace_threshold: 5
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 3,  lock_hw_pct: 15 }
-        - { trigger_pct: 7,  lock_hw_pct: 30 }
-        - { trigger_pct: 12, lock_hw_pct: 50 }
+        - { trigger_pct: 6,  lock_hw_pct: 30 }
+        - { trigger_pct: 12, lock_hw_pct: 55 }
         - { trigger_pct: 20, lock_hw_pct: 70 }
-        - { trigger_pct: 30, lock_hw_pct: 85 }
+        - { trigger_pct: 35, lock_hw_pct: 85 }
+        - { trigger_pct: 60, lock_hw_pct: 92 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
