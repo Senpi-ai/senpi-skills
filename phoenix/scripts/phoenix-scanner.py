@@ -43,6 +43,31 @@ MAX_LEVERAGE = 10
 MIN_LEVERAGE = 5
 MAX_POSITIONS = 3
 MAX_DAILY_ENTRIES = 4               # Reduced from 6 — Phoenix's best days had 3-5 winners
+
+
+# ═══════════════════════════════════════════════════════════════
+# DYNAMIC DAILY CAP (P&L-aware circuit breaker)
+# ═══════════════════════════════════════════════════════════════
+
+STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+
+def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
+    """P&L-aware daily entry cap based on drawdown from starting budget.
+
+    Winners get more trades (ride the hot hand).
+    Losers get fewer trades (preserve capital).
+    Catastrophic drawdown triggers HARD STOP (circuit breaker).
+    """
+    if starting_budget <= 0:
+        return 4  # Safe fallback
+    pnl_pct = ((account_value - starting_budget) / starting_budget) * 100
+    if pnl_pct >= 5:       return 12   # Hot hand — up >5%
+    elif pnl_pct >= 0:     return 8    # Small win / breakeven
+    elif pnl_pct >= -5:    return 5    # Careful
+    elif pnl_pct >= -15:   return 3    # Defensive
+    elif pnl_pct >= -25:   return 1    # Preserve — only highest conviction
+    else:                  return 0    # HARD STOP — circuit breaker
+
 XYZ_BANNED = True
 
 # Contribution velocity thresholds (unchanged from v1.0.1)
@@ -300,10 +325,11 @@ def run():
         tc = {"date": now_date(), "entries": 0}
         save_trade_counter(tc)
 
-    if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
+    dynamic_cap = get_dynamic_daily_cap(account_value)
+    if tc.get("entries", 0) >= dynamic_cap:
+        pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"Daily entry limit ({MAX_DAILY_ENTRIES}) reached. "
-                            f"Counter: {tc.get('entries', 0)}/{MAX_DAILY_ENTRIES}"})
+                    "note": f"Daily cap ({dynamic_cap}) reached. Session PnL: {pnl_pct:+.1f}%. Entries: {tc.get('entries', 0)}/{dynamic_cap}"})
         return
 
     # ── Scan (single API call) ────────────────────────────────

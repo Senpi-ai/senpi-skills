@@ -50,6 +50,31 @@ MIN_SCORE = 8                   # Minimum conviction score to enter
 # Position management
 MAX_POSITIONS = 2               # Max concurrent — cascades correlate
 MAX_DAILY_ENTRIES = 4           # Max entries per day
+
+
+# ═══════════════════════════════════════════════════════════════
+# DYNAMIC DAILY CAP (P&L-aware circuit breaker)
+# ═══════════════════════════════════════════════════════════════
+
+STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+
+def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
+    """P&L-aware daily entry cap based on drawdown from starting budget.
+
+    Winners get more trades (ride the hot hand).
+    Losers get fewer trades (preserve capital).
+    Catastrophic drawdown triggers HARD STOP (circuit breaker).
+    """
+    if starting_budget <= 0:
+        return 4  # Safe fallback
+    pnl_pct = ((account_value - starting_budget) / starting_budget) * 100
+    if pnl_pct >= 5:       return 12   # Hot hand — up >5%
+    elif pnl_pct >= 0:     return 8    # Small win / breakeven
+    elif pnl_pct >= -5:    return 5    # Careful
+    elif pnl_pct >= -15:   return 3    # Defensive
+    elif pnl_pct >= -25:   return 1    # Preserve — only highest conviction
+    else:                  return 0    # HARD STOP — circuit breaker
+
 COOLDOWN_MINUTES = 120          # Per-asset cooldown
 DEFAULT_LEVERAGE = 7            # Conservative — v1.0 was 7-10x
 MAX_LEVERAGE = 10
@@ -354,9 +379,25 @@ def run():
                 return
             tc["gate"] = "OPEN"
 
-        if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
+        # Compute account_value for dynamic cap
+        ch_data_pre, _ = cfg.fetch_clearinghouse(wallet)
+        account_value = budget
+        if ch_data_pre:
+            for vk in ("main", "xyz"):
+                v = ch_data_pre.get(vk, {})
+                ms = v.get("marginSummary", {})
+                try:
+                    av = float(ms.get("accountValue", 0))
+                    if av > 0:
+                        account_value = av
+                except (TypeError, ValueError):
+                    pass
+
+        dynamic_cap = get_dynamic_daily_cap(account_value)
+        if tc.get("entries", 0) >= dynamic_cap:
+            pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
             cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "script": SCRIPT,
-                        "note": f"Daily entry limit ({MAX_DAILY_ENTRIES}) reached"})
+                        "note": f"Daily cap ({dynamic_cap}) reached. Session PnL: {pnl_pct:+.1f}%. Entries: {tc.get('entries', 0)}/{dynamic_cap}"})
             return
 
         # ── Gate 1: Scan SM markets ───────────────────────────

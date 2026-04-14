@@ -44,6 +44,31 @@ ASSET = "BTC"
 MAX_POSITIONS = 1              # Still 1 position — but we ADD to it
 MAX_SCALE_UPS = 2              # Max 2 additions to initial position (3 total entries)
 MAX_DAILY_ENTRIES = 4          # Total entries including scale-ups (was 2)
+
+
+# ═══════════════════════════════════════════════════════════════
+# DYNAMIC DAILY CAP (P&L-aware circuit breaker)
+# ═══════════════════════════════════════════════════════════════
+
+STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+
+def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
+    """P&L-aware daily entry cap based on drawdown from starting budget.
+
+    Winners get more trades (ride the hot hand).
+    Losers get fewer trades (preserve capital).
+    Catastrophic drawdown triggers HARD STOP (circuit breaker).
+    """
+    if starting_budget <= 0:
+        return 4  # Safe fallback
+    pnl_pct = ((account_value - starting_budget) / starting_budget) * 100
+    if pnl_pct >= 5:       return 12   # Hot hand — up >5%
+    elif pnl_pct >= 0:     return 8    # Small win / breakeven
+    elif pnl_pct >= -5:    return 5    # Careful
+    elif pnl_pct >= -15:   return 3    # Defensive
+    elif pnl_pct >= -25:   return 1    # Preserve — only highest conviction
+    else:                  return 0    # HARD STOP — circuit breaker
+
 COOLDOWN_MINUTES = 90          # Shorter cooldown — scale-ups should be timely (was 180)
 INITIAL_MARGIN_PCT = 0.50      # 50% of account on initial entry
 SCALEUP_MARGIN_PCT = 0.50      # 50% of REMAINING capital on each scale-up
@@ -263,9 +288,11 @@ def run():
         return
 
     tc = load_tc()
-    if tc.get("entries", 0) >= MAX_DAILY_ENTRIES:
+    dynamic_cap = get_dynamic_daily_cap(av)
+    if tc.get("entries", 0) >= dynamic_cap:
+        pnl_pct = ((av - STARTING_BUDGET) / STARTING_BUDGET) * 100
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                     "note": f"Daily limit ({MAX_DAILY_ENTRIES}) reached"})
+                    "note": f"Daily cap ({dynamic_cap}) reached. Session PnL: {pnl_pct:+.1f}%. Entries: {tc.get('entries', 0)}/{dynamic_cap}"})
         return
 
     # Find BTC position
