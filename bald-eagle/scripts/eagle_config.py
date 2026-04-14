@@ -85,14 +85,20 @@ def is_market_hours():
 # --- Trade Counter ---
 
 def load_trade_counter():
+    # v1.0.1: fleet-wide stale date fix. Without the date check, an agent that
+    # doesn't trade for a day (e.g. capped out on old day) stays locked forever
+    # because load returns stale data and the rollover only ran on save.
+    today = now_date()
     p = STATE_DIR / "trade-counter.json"
     if p.exists():
         try:
             with open(p) as f:
-                return json.load(f)
+                tc = json.load(f)
+            if tc.get("date") == today:
+                return tc
         except (json.JSONDecodeError, IOError):
             pass
-    return {"date": now_date(), "entries": 0}
+    return {"date": today, "entries": 0}
 
 
 def save_trade_counter(tc):

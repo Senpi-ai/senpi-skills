@@ -105,17 +105,48 @@ def get_leverage_for_score(score):
 
 
 def has_resting_orders(wallet):
+    """Check for non-reduceOnly resting orders, auto-cancelling any older
+    than STALE_ORDER_MAX_AGE_SEC (default 600s / 10 min).
+
+    Without auto-cancel, a maker FEE_OPTIMIZED_LIMIT order that never
+    fills can lock the scanner out of new entries indefinitely, because
+    every subsequent scan sees the stale order and aborts early. Ignores
+    reduceOnly orders (those are DSL exit legs)."""
+    import time as _time
+    STALE_ORDER_MAX_AGE_SEC = 600  # 10 minutes
     data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
     if not data:
         return False
     orders = data.get("data", data)
     if isinstance(orders, dict):
         orders = orders.get("orders", orders.get("openOrders", []))
-    if isinstance(orders, list):
-        for o in orders:
-            if not o.get("reduceOnly", False):
-                return True
-    return False
+    if not isinstance(orders, list):
+        return False
+    now_ms = _time.time() * 1000
+    max_age_ms = STALE_ORDER_MAX_AGE_SEC * 1000
+    has_fresh = False
+    for o in orders:
+        if o.get("reduceOnly", False):
+            continue
+        ts_raw = o.get("timestamp", 0) or 0
+        try:
+            ts = float(ts_raw)
+        except (TypeError, ValueError):
+            ts = 0.0
+        if ts > 0 and (now_ms - ts) > max_age_ms:
+            oid = o.get("oid") or o.get("orderId") or o.get("id")
+            if oid:
+                try:
+                    cfg.mcporter_call(
+                        "cancel_order",
+                        strategyWalletAddress=wallet,
+                        orderId=int(oid),
+                    )
+                except Exception:
+                    pass
+            continue  # Treat cancelled order as gone
+        has_fresh = True
+    return has_fresh
 
 
 def evaluate_hype_funding():
