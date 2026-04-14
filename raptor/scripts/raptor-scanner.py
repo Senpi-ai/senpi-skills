@@ -1,11 +1,49 @@
 #!/usr/bin/env python3
-# Senpi RAPTOR Scanner v3.0
+# Senpi RAPTOR Scanner v3.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""RAPTOR v3.0 — Hot Streak Follower (complete rewrite).
+"""RAPTOR v3.1 — Hot Streak Follower (quality-first architecture).
 
-v3.0 COMPLETE REWRITE — fixes the zero-trade bug.
+## v3.1 changes from v3.0
+
+v3.0 used leaderboard_get_top as the primary filter and then tried to
+cross-reference with discovery_get_top_traders for classification. Live
+data shows zero overlap between the 4h momentum leaderboard (dominated
+by CHOPPY/Degen volatility traders) and the weekly ELITE/RELIABLE pool.
+The 10 current top 4h traders are all CHOPPY. v3.0 was structurally
+correct but filtered to zero candidates every scan.
+
+v3.1 inverts the architecture: start from the quality pool, find the
+winners within it:
+
+  1. discovery_get_top_traders(
+       time_frame=WEEKLY,
+       sort_by=PROFIT_AND_LOSS_UNREALIZED,
+       consistency=[ELITE, RELIABLE],
+       open_position_filter=True,
+       limit=20
+     )
+     → 20 quality traders currently holding winning positions
+
+  2. Local filter: unRealizedProfitAndLoss >= min (default $500k weekly)
+
+  3. For top 5-10 quality winners:
+     leaderboard_get_trader_positions(trader_id=address)
+     → per-market delta PnL breakdown
+
+  4. Pick strongest position, compute concentration locally, check SM alignment
+
+  5. Score and execute via create_position (self-executing)
+
+v3.1 also fixes:
+  - _extract_list now handles the triple-nested `data.leaderboard.data`
+    response shape from leaderboard_get_top (Raptor agent patched this
+    locally in v3.0 but repo still had the bug)
+  - Correct field names for discovery_get_top_traders response:
+    address, tcsLabel, activityLabel, riskLabel, returnOnInvestment,
+    profitAndLoss, unRealizedProfitAndLoss (not consistency, activity,
+    risk, roi, pnl)
 
 ## Why v2.1 never traded
 
@@ -150,86 +188,125 @@ def has_resting_orders(wallet):
 # DATA FETCHING (v3.0: leaderboard_get_top, not momentum_events)
 # ═══════════════════════════════════════════════════════════════
 
-def _extract_list(raw, *keys):
-    """Unwrap nested {data: {...: [...]}} API responses to get the inner list."""
+def _dig(raw, *path):
+    """Walk an arbitrarily nested dict response to find a list at the end.
+
+    v3.1: handles the triple-nested `data.leaderboard.data` shape from
+    leaderboard_get_top and the `data.traders` shape from discovery.
+    Tries each path in sequence; first one that yields a list wins.
+    """
     if raw is None:
         return []
     cur = raw
-    if isinstance(cur, dict) and "data" in cur:
-        cur = cur["data"]
-    for k in keys:
-        if isinstance(cur, dict) and k in cur:
-            cur = cur[k]
+    for k in path:
+        if isinstance(cur, dict):
+            cur = cur.get(k, cur.get("data", {}).get(k) if isinstance(cur.get("data"), dict) else None)
+        if cur is None:
+            return []
     if isinstance(cur, list):
         return cur
     return []
 
 
-def fetch_top_traders(limit=30):
-    """Primary signal source: top traders by 4h delta PnL (rolling window).
-    This replaces momentum_events because the latter returns null fields on
-    blocked events (which is 100% of recent events)."""
-    raw = cfg.mcporter_call("leaderboard_get_top", limit=limit)
-    if not raw:
+def _extract_list(raw, *candidate_paths):
+    """Try multiple nested paths and return the first list found.
+    Each candidate_paths entry is a tuple of keys to walk."""
+    if raw is None:
         return []
-    traders = _extract_list(raw, "traders", "top", "leaderboard")
-    if not traders and isinstance(raw, dict):
-        data = raw.get("data", raw)
-        if isinstance(data, list):
-            traders = data
-    return traders if isinstance(traders, list) else []
+    # Try each path
+    for path in candidate_paths:
+        cur = raw
+        for k in path:
+            if isinstance(cur, dict) and k in cur:
+                cur = cur[k]
+            else:
+                cur = None
+                break
+        if isinstance(cur, list):
+            return cur
+    # Fallback: if raw or raw.data is already a list
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict) and isinstance(raw.get("data"), list):
+        return raw["data"]
+    return []
 
 
-def fetch_quality_classifications(addresses):
-    """Fetch ELITE/RELIABLE classifications for a batch of addresses in one
-    call via discovery_get_top_traders. Returns a dict: address -> labels."""
-    if not addresses:
-        return {}
+def fetch_quality_hot_traders(limit=20, min_delta_usd=500_000):
+    """v3.1 primary signal source: quality traders (ELITE/RELIABLE) currently
+    holding winning positions this week.
+
+    Inverts the v3.0 flow. v3.0 started from 4h momentum and filtered to
+    quality, but quality traders are almost never in the 4h momentum top 10.
+    v3.1 starts from the quality pool and filters to currently winning.
+
+    Returns list of dicts with: address, unrealized_pnl, tcs_label, etc.
+    """
     raw = cfg.mcporter_call(
         "discovery_get_top_traders",
         time_frame="WEEKLY",
-        sort_by="PROFIT_AND_LOSS",
+        sort_by="PROFIT_AND_LOSS_UNREALIZED",
         consistency=["ELITE", "RELIABLE"],
-        addresses=list(addresses),
-        limit=len(addresses),
+        open_position_filter=True,
+        limit=limit,
     )
     if not raw:
-        return {}
-    traders = _extract_list(raw, "traders")
-    if not traders and isinstance(raw, dict):
-        data = raw.get("data", raw)
-        if isinstance(data, list):
-            traders = data
-    classifications = {}
-    for t in traders:
+        return []
+    # Real response shape: {data: {traders: [...]}}
+    raw_list = _extract_list(
+        raw,
+        ("data", "traders"),
+        ("traders",),
+    )
+    quality = []
+    for t in raw_list:
         if not isinstance(t, dict):
             continue
-        addr = str(t.get("address", t.get("trader_address", ""))).lower()
+        addr = str(t.get("address", "")).lower()
         if not addr:
             continue
-        classifications[addr] = {
-            "consistency": str(t.get("consistency", t.get("consistency_label", ""))).upper(),
-            "activity": str(t.get("activity", t.get("activity_label", ""))).upper(),
-            "risk": str(t.get("risk", t.get("risk_label", ""))).upper(),
-            "roi": safe_float(t.get("roi", t.get("return_on_investment", 0))),
-            "pnl": safe_float(t.get("pnl", t.get("profit_and_loss", 0))),
-            "win_rate": safe_float(t.get("win_rate", 0)),
-        }
-    return classifications
+        # v3.1: correct discovery field names
+        unrealized = safe_float(t.get("unRealizedProfitAndLoss", 0))
+        realized = safe_float(t.get("realizedProfitAndLoss", 0))
+        total_pnl = safe_float(t.get("profitAndLoss", unrealized + realized))
+        tcs_label = str(t.get("tcsLabel", "")).upper()
+        if tcs_label not in ("ELITE", "RELIABLE"):
+            continue
+        # Filter to those with meaningful recent unrealized winnings
+        if unrealized < min_delta_usd:
+            continue
+        quality.append({
+            "address": addr,
+            "unrealized_pnl": unrealized,
+            "realized_pnl": realized,
+            "total_pnl": total_pnl,
+            "tcs_label": tcs_label,
+            "tcs_value": safe_float(t.get("tcsValue", 0)),
+            "activity_label": str(t.get("activityLabel", "")).upper(),
+            "risk_label": str(t.get("riskLabel", "")).upper(),
+            "roi": safe_float(t.get("returnOnInvestment", 0)),
+            "win_rate": safe_float(t.get("winRate", 0)),
+            "avg_leverage": safe_float(t.get("averageLeverageUsed", 0)),
+        })
+    # Sort by unrealized PnL desc — freshest winners first
+    quality.sort(key=lambda x: x["unrealized_pnl"], reverse=True)
+    return quality
 
 
 def fetch_trader_positions(trader_address):
-    """Get per-market delta PnL breakdown for a single trader. Populated data
-    (unlike blocked momentum event top_positions)."""
+    """Get per-market delta PnL breakdown for a single trader."""
     raw = cfg.mcporter_call("leaderboard_get_trader_positions", trader_id=trader_address)
     if not raw:
         return []
-    positions = _extract_list(raw, "positions", "top_positions")
-    if not positions and isinstance(raw, dict):
-        data = raw.get("data", raw)
-        if isinstance(data, dict):
-            positions = data.get("positions", data.get("top_positions", []))
-    return positions if isinstance(positions, list) else []
+    # Try common nested paths
+    positions = _extract_list(
+        raw,
+        ("data", "positions"),
+        ("data", "top_positions"),
+        ("positions",),
+        ("top_positions",),
+    )
+    return positions
 
 
 def fetch_sm_map():
@@ -366,17 +443,17 @@ def save_trade_counter(tc):
 # SIGNAL GENERATION
 # ═══════════════════════════════════════════════════════════════
 
-def build_signal(trader, classification, positions, sm_map, hot_cfg, sm_cfg):
-    """Given a quality hot trader + their positions + SM map, build a signal
-    dict (or return None if the trader doesn't produce a qualifying signal)."""
-    trader_id = str(trader.get("trader_id", trader.get("address", ""))).lower()
-    if not trader_id:
-        return None
+def build_signal(trader, positions, sm_map, hot_cfg, sm_cfg):
+    """Given a quality trader (already ELITE/RELIABLE with recent winnings)
+    + their positions + SM map, build a signal dict. Returns None if the
+    trader doesn't produce a qualifying signal."""
+    trader_id = trader["address"]
 
     # Pick strongest position by |delta_pnl|
     best_pos = None
     best_abs_pnl = 0.0
     total_abs_pnl = 0.0
+    position_count = 0
     for pos in positions:
         if not isinstance(pos, dict):
             continue
@@ -387,14 +464,22 @@ def build_signal(trader, classification, positions, sm_map, hot_cfg, sm_cfg):
             continue
         if XYZ_BANNED and asset.lower().startswith("xyz:"):
             continue
+        # Try multiple field names — different MCP tools use different keys
         delta_pnl = safe_float(
-            pos.get("delta_pnl", pos.get("deltaPnl", pos.get("unrealized_pnl", pos.get("pnl", 0))))
+            pos.get("delta_pnl",
+                    pos.get("deltaPnl",
+                            pos.get("unrealizedPnl",
+                                    pos.get("unrealized_pnl",
+                                            pos.get("pnl", 0)))))
         )
         direction = str(
-            pos.get("direction", "LONG" if delta_pnl >= 0 else "SHORT")
+            pos.get("direction",
+                    pos.get("side",
+                            "LONG" if delta_pnl >= 0 else "SHORT"))
         ).upper()
         if direction not in ("LONG", "SHORT"):
             continue
+        position_count += 1
         abs_pnl = abs(delta_pnl)
         total_abs_pnl += abs_pnl
         if abs_pnl > best_abs_pnl:
@@ -405,12 +490,12 @@ def build_signal(trader, classification, positions, sm_map, hot_cfg, sm_cfg):
                 "delta_pnl": delta_pnl,
             }
 
-    if not best_pos or best_abs_pnl < hot_cfg.get("minPositionPnl", 500_000):
+    if not best_pos or best_abs_pnl < hot_cfg.get("minPositionPnl", 100_000):
         return None
 
     # Concentration = top position PnL as fraction of total
     concentration = (best_abs_pnl / total_abs_pnl) if total_abs_pnl > 0 else 0
-    if concentration < hot_cfg.get("minConcentration", 0.40):
+    if concentration < hot_cfg.get("minConcentration", 0.35):
         return None
 
     # SM alignment check
@@ -428,29 +513,33 @@ def build_signal(trader, classification, positions, sm_map, hot_cfg, sm_cfg):
     score = 0
     reasons = []
 
-    tcs = classification.get("consistency", "")
+    # TCS consistency (already filtered to ELITE/RELIABLE upstream)
+    tcs = trader["tcs_label"]
     if tcs == "ELITE":
         score += 3
-        reasons.append("ELITE")
+        reasons.append(f"ELITE_tcs{trader['tcs_value']:.0f}")
     elif tcs == "RELIABLE":
         score += 2
-        reasons.append("RELIABLE")
+        reasons.append(f"RELIABLE_tcs{trader['tcs_value']:.0f}")
     else:
-        return None  # only ELITE/RELIABLE allowed
+        return None
 
-    # Delta PnL magnitude tiers
-    trader_delta = safe_float(
-        trader.get("delta_pnl", trader.get("unrealized_pnl", trader.get("pnl", 0)))
-    )
-    if trader_delta >= hot_cfg.get("tier3Threshold", 10_000_000):
+    # Trader's weekly unrealized PnL magnitude
+    trader_delta = trader["unrealized_pnl"]
+    if trader_delta >= hot_cfg.get("tier3Threshold", 3_000_000):
         score += 3
         reasons.append(f"TIER3_${trader_delta/1e6:.1f}M")
-    elif trader_delta >= hot_cfg.get("tier2Threshold", 5_500_000):
+    elif trader_delta >= hot_cfg.get("tier2Threshold", 1_500_000):
         score += 2
         reasons.append(f"TIER2_${trader_delta/1e6:.1f}M")
     else:
         score += 1
         reasons.append(f"TIER1_${trader_delta/1e6:.1f}M")
+
+    # ROI bonus — very high ROI = high-conviction trader on a real streak
+    if trader["roi"] >= 50:
+        score += 1
+        reasons.append(f"ROI_{trader['roi']:.0f}%")
 
     # Concentration conviction
     if concentration >= 0.70:
@@ -586,7 +675,7 @@ def run():
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
-            "_raptor_version": "3.0",
+            "_raptor_version": "3.1",
         })
         return
 
@@ -612,94 +701,47 @@ def run():
     entry_cfg = config.get("entry", {})
     leverage_cfg = config.get("leverage", {})
 
-    # ── PHASE 1: Fetch top hot traders by 4h delta PnL ──
-    top_traders = fetch_top_traders(limit=hot_cfg.get("topTraderLimit", 30))
-    if not top_traders:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": "leaderboard_get_top returned empty"})
-        return
-
-    # Filter to traders above the minimum delta PnL threshold
-    min_delta = hot_cfg.get("minDeltaPnl", 2_000_000)
-    hot_traders = []
-    for t in top_traders:
-        if not isinstance(t, dict):
-            continue
-        delta = safe_float(
-            t.get("delta_pnl", t.get("unrealized_pnl", t.get("pnl", 0)))
-        )
-        if delta >= min_delta:
-            hot_traders.append(t)
-
-    if not hot_traders:
-        cfg.output({
-            "status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"No traders above ${min_delta/1e6:.1f}M delta PnL ({len(top_traders)} scanned)",
-        })
-        return
-
-    # ── PHASE 2: Classify via discovery_get_top_traders (batch, 1 call) ──
-    addresses = [
-        str(t.get("trader_id", t.get("address", ""))).lower()
-        for t in hot_traders
-    ]
-    addresses = [a for a in addresses if a]
-    classifications = fetch_quality_classifications(addresses)
-
-    quality_traders = []
-    for t in hot_traders:
-        addr = str(t.get("trader_id", t.get("address", ""))).lower()
-        cls = classifications.get(addr)
-        if not cls:
-            continue  # not in ELITE/RELIABLE set
-        if cls["consistency"] not in ("ELITE", "RELIABLE"):
-            continue
-        t["_classification"] = cls
-        t["_address"] = addr
-        quality_traders.append(t)
+    # ── PHASE 1 (v3.1): Fetch quality winners directly ──
+    # Quality-first architecture: pull ELITE/RELIABLE traders with winning
+    # positions this week, rather than starting from 4h momentum (which is
+    # dominated by CHOPPY degens and almost never contains quality traders).
+    quality_traders = fetch_quality_hot_traders(
+        limit=hot_cfg.get("qualityPoolSize", 20),
+        min_delta_usd=hot_cfg.get("minDeltaPnl", 500_000),
+    )
 
     if not quality_traders:
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"{len(hot_traders)} hot traders, 0 ELITE/RELIABLE",
+            "note": f"No ELITE/RELIABLE traders above "
+                    f"${hot_cfg.get('minDeltaPnl', 500_000)/1e6:.1f}M weekly unrealized",
         })
         return
 
-    # Sort by delta PnL desc so we prioritize the hottest streaks first
-    quality_traders.sort(
-        key=lambda t: safe_float(
-            t.get("delta_pnl", t.get("unrealized_pnl", t.get("pnl", 0)))
-        ),
-        reverse=True,
-    )
-
-    # ── PHASE 3: SM map (1 call) ──
+    # ── PHASE 2: SM map (1 call) ──
     sm_map = fetch_sm_map()
     if not sm_map:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "No SM data"})
         return
 
-    # ── PHASE 4: Per-trader position fetch + signal build ──
+    # ── PHASE 3: Per-trader position fetch + signal build ──
     seen_events = load_seen_events()
     held_coins = {p["coin"].upper() for p in positions}
     dedupe_hours = dedupe_cfg.get("eventDedupeHours", 4)
     cooldown_minutes = dedupe_cfg.get("perAssetCooldownMinutes", 120)
 
     candidates = []
-    scan_limit = min(len(quality_traders), 10)  # cap positions fetch to top 10
+    scan_limit = min(len(quality_traders), hot_cfg.get("positionsFetchLimit", 10))
     for t in quality_traders[:scan_limit]:
-        addr = t["_address"]
-        positions_data = fetch_trader_positions(addr)
+        positions_data = fetch_trader_positions(t["address"])
         if not positions_data:
             continue
 
-        signal = build_signal(
-            t, t["_classification"], positions_data, sm_map, hot_cfg, sm_cfg
-        )
+        signal = build_signal(t, positions_data, sm_map, hot_cfg, sm_cfg)
         if not signal:
             continue
 
-        if is_event_seen(seen_events, addr, signal["asset"], dedupe_hours):
+        if is_event_seen(seen_events, t["address"], signal["asset"], dedupe_hours):
             continue
         if is_on_cooldown(signal["asset"], cooldown_minutes):
             continue
@@ -753,7 +795,7 @@ def run():
                 "orderType": entry_cfg.get("orderType", "FEE_OPTIMIZED_LIMIT"),
             },
             "result": result,
-            "_raptor_version": "3.0",
+            "_raptor_version": "3.1",
         })
     else:
         error = result.get("error", "unknown") if result else "mcporter_call returned None"
@@ -762,7 +804,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": error,
-            "_raptor_version": "3.0",
+            "_raptor_version": "3.1",
         })
 
 
