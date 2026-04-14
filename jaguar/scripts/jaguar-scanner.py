@@ -51,14 +51,13 @@ XYZ_BANNED = True
 # Fleet-standard conviction-scaled leverage.
 # Score 14+ is genuinely rare for Striker signals — requires FIRST_JUMP + deep SM
 # + 4H strong + high velocity + volume explosion. Max leverage only on extremes.
+# Fleet analysis: >10x leverage destroys edge via fee amplification
 LEVERAGE_TIERS = [
-    {"min_score": 14, "leverage": 20},
-    {"min_score": 12, "leverage": 15},
     {"min_score": 10, "leverage": 10},
     {"min_score": 9,  "leverage": 7},
 ]
 DEFAULT_LEVERAGE = 7
-MAX_LEVERAGE = 20
+MAX_LEVERAGE = 10
 
 # Striker thresholds
 STRIKER_MIN_RANK_JUMP = 15
