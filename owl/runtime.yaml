@@ -1,0 +1,61 @@
+name: owl-strategy
+version: 5.3.0
+description: >
+  OWL v5.3 — Pure Contrarian. Monitors crowding across top 30 assets
+  (funding extremity + SM tilt + OI concentration). When crowding persists
+  4+ hours AND exhaustion signals fire (volume declining, price stalling,
+  RSI divergence), enters AGAINST the crowd to ride the liquidation unwind.
+  1-2 trades per day max. Re-crowding exit. Self-executing (v5.3).
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 2
+  margin_per_slot: 250
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# DSL High Water Mode — mandatory per Owl's contrarian thesis.
+# Contrarian entries retrace hard before working. Wide early phases,
+# tighter late to protect unwind profits.
+# Spec: dsl-dynamic-stop-loss/dsl-high-water-spec 1.0.md
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 480
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 120
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 45
+    phase1:
+      enabled: true
+      max_loss_pct: 35.0
+      retrace_threshold: 15
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 20 }
+        - { trigger_pct: 20, lock_hw_pct: 40 }
+        - { trigger_pct: 35, lock_hw_pct: 60 }
+        - { trigger_pct: 50, lock_hw_pct: 75 }
+        - { trigger_pct: 75, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

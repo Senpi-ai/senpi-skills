@@ -1,23 +1,22 @@
 ---
 name: owl-strategy
 description: >-
-  OWL v5.2 — Pure contrarian. One scanner, one thesis: the crowd is wrong. Monitors crowding
-  across top 30 assets (funding extremity, OI concentration, SM tilt). When crowding persists
-  4+ hours AND exhaustion signals fire (volume declining, price stalling, RSI divergence),
-  enters AGAINST the crowd to ride the liquidation unwind. 1-2 trades per day max.
-  Re-crowding exit: if the crowd comes back, thesis is dead, exit immediately.
-  DSL High Water Mode (mandatory). The patient predator.
-  v5.2: funding floor lowered from 20% to 12% so the five-factor scoring model actually runs.
-  Added observability logging (top 3 crowding scores per scan cycle).
+  OWL v5.3 — Pure contrarian (self-executing). One scanner, one thesis: the crowd is wrong.
+  Monitors crowding across top 30 assets (funding extremity, OI concentration, SM tilt).
+  When crowding persists 4+ hours AND exhaustion signals fire (volume declining, price
+  stalling, RSI divergence), enters AGAINST the crowd to ride the liquidation unwind.
+  1-2 trades per day max. Re-crowding exit: if the crowd comes back, thesis is dead,
+  exit immediately. DSL High Water Mode (mandatory). The patient predator.
+  v5.3: self-executing scanner + persistence tolerance + fleet-standard guardrails.
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "5.2"
+  version: "5.3"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# OWL v5.2 — Pure Contrarian
+# OWL v5.3 — Pure Contrarian
 
 Wait for the crowd to overcommit. Wait for them to exhaust. Then eat their liquidations.
 
@@ -25,9 +24,22 @@ Wait for the crowd to overcommit. Wait for them to exhaust. Then eat their liqui
 
 **v5 is a complete rebuild.** v1-v4 had 3 scanners (contrarian + momentum + correlation). The momentum and correlation scanners caused the agent to enter WITH the crowd while thinking it was contrarian. v5 has one scanner that does one thing: find crowded assets that are exhausting.
 
-**v5.2 fix: funding floor lowered from 20% → 12%.** At 20%, the funding gate hard-blocked every asset before SM concentration, OI concentration, or any other signal was evaluated. Hyperliquid funding rates rarely exceed ~11% annualized in normal conditions, so the five-factor scoring model was never running. At 12%, funding must still be meaningfully elevated, but assets with strong SM/OI crowding signals can now accumulate a score. The `minCrowdingScore` of 8 remains the real quality gate.
+## v5.3 — the 30-day-drought fix
 
-**v5.2 also adds observability logging.** Every scan cycle logs the top 3 crowding scores and active persistence timers to stderr (internal log only, not notifications). This lets us diagnose "is OWL seeing anything?" without changing config or asking the agent.
+Owl v5.2 took zero trades between 2026-03-15 and 2026-04-14 despite running continuously. Two root causes, both fixed in v5.3:
+
+**1. Self-executing scanner (the main bug).** The v5.2 scanner emitted a signal JSON via `cfg.output()` and assumed an external "action layer" would read it and call `create_position`. Owl has no runtime.yaml action layer wired up, so signals died at stdout. Even perfect signals never became trades. v5.3 calls `create_position` directly via mcporter, matching the Wolverine/Phoenix self-executing pattern. When a score ≥ `minScore` (14) candidate is found, the scanner executes the entry order itself — no external action layer required.
+
+**2. Persistence tolerance.** The v5.2 `check_persistence`/`clear_persistence` pair cleared the 4-hour persistence timer on *any* single scan that fell below `minCrowdingScore`. At 15-minute cadence, a single noisy scan reset the clock to zero. Over 30 days, no coin ever accumulated 4 uninterrupted hours of high crowding. v5.3 adds a `mark_below_threshold` tolerance counter — persistence is only cleared after 2 consecutive below-threshold scans (30 min at 15-min cadence). A single noisy dip no longer destroys the 4h window.
+
+**Fleet-standard guardrails layered on top:**
+- **Drawdown circuit breaker.** Below -5% PnL from starting budget, the effective entry cap is hard-clamped (defensive). Below -25%, HARD STOP (circuit breaker). Preserves capital in drawdowns while still allowing Owl's `dynamicSlots` earning-forward logic to unlock more entries when winning.
+- **Auto-cancel stale resting orders.** `has_resting_orders()` cancels any non-reduceOnly maker order older than 10 minutes so the scanner is never locked out indefinitely by a FEE_OPTIMIZED_LIMIT order that didn't fill (fleet-standard pattern from PR #177).
+- **runtime.yaml added.** Owl now follows the standard Predators deployment pattern with a `position_tracker` scanner + DSL High Water exit engine preset.
+
+**v5.2 fixes (preserved in v5.3):**
+- Funding floor lowered from 20% → 12% so the five-factor scoring model actually runs. Assets below the funding floor score 0 on funding but continue through SM/OI checks instead of early-returning. `minCrowdingScore` of 8 remains the real quality gate.
+- Observability logging: every scan cycle logs the top 3 crowding scores and active persistence timers to stderr (internal log only, not notifications). Lets us answer "is OWL seeing anything?" without changing config or asking the agent.
 
 ## MANDATORY: DSL High Water Mode
 
