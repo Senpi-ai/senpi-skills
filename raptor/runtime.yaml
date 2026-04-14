@@ -1,0 +1,59 @@
+name: raptor-strategy
+version: 3.0.0
+description: >
+  RAPTOR v3.0 — Hot Streak Follower. Finds ELITE/RELIABLE traders currently
+  on a 4-hour hot streak via leaderboard_get_top + discovery_get_top_traders,
+  identifies their strongest position by delta PnL, confirms SM alignment,
+  and follows them in. Self-executing. 2 positions max, dynamic daily cap.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 2
+  margin_per_slot: 250
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# Raptor-tuned DSL: follow-the-streak trades need time to play out because
+# they're backed by a quality trader's active run. Wide phase 1, patient
+# phase 2 tiers to let winners compound.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 360
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 60
+      min_value: 2.5
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 40
+    phase1:
+      enabled: true
+      max_loss_pct: 25.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 25 }
+        - { trigger_pct: 15, lock_hw_pct: 50 }
+        - { trigger_pct: 25, lock_hw_pct: 65 }
+        - { trigger_pct: 40, lock_hw_pct: 80 }
+        - { trigger_pct: 60, lock_hw_pct: 88 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
