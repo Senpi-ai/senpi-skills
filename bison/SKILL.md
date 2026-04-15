@@ -149,3 +149,10 @@ On EVERY session, check `config/bootstrap-complete.json`. If missing:
 - Dead weight cuts added
 - Per-asset cooldown
 - XYZ banned, leverage capped 7-10x
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

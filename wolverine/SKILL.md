@@ -218,3 +218,10 @@ Wolverine cancels stale FEE_OPTIMIZED_LIMIT maker orders older than 10 minutes. 
 ## License
 
 MIT — Copyright 2026 Senpi (https://senpi.ai).
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

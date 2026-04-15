@@ -56,3 +56,10 @@ MIN_SCORE: 6. Runs 24/7 — Hyperliquid XYZ trades around the clock.
 | `scripts/kestrel-scanner.py` | Breakout detection scanner |
 | `scripts/kestrel_config.py` | Config helper |
 | `runtime.yaml` | Wide DSL for macro trend riding |
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

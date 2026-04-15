@@ -127,3 +127,10 @@ Send: "🐻 HORRIBILIS v1.1 online. BTC hunter. 7-10x conviction-scaled. Ratchet
 
 ### v1.0
 - Initial release: 7x-40x conviction-scaled leverage
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

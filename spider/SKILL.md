@@ -126,3 +126,10 @@ On EVERY session start, check `config/bootstrap-complete.json`. If missing:
 ## License
 
 MIT — Built by Senpi (https://senpi.ai).
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

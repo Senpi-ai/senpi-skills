@@ -291,3 +291,10 @@ For full DSL configuration with all fields, time-based cuts, close reasons, and 
 - [Strategy Examples](references/strategy-examples.md) — Ready-to-use YAML examples with different DSL tuning profiles
 - [Migration from DSL Cron](references/migration-from-dsl-cron.md) — Upgrade from old `dsl-v5.py` cron to plugin runtime
 - [Runtime Template](references/runtime-template.yaml) — Starter runtime.yaml with field mapping comments
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

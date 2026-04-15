@@ -140,3 +140,10 @@ Send: "🦂 SCORPION v2.0 online. Swarm hunter. Watching for coordinated altcoin
 
 ## License
 MIT — Built by Senpi (https://senpi.ai).
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

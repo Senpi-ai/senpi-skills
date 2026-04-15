@@ -143,3 +143,10 @@ On EVERY session start, check `config/bootstrap-complete.json`. If missing:
 
 MIT — Built by Senpi (https://senpi.ai).
 Source: https://github.com/Senpi-ai/senpi-skills
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

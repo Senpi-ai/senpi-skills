@@ -278,3 +278,10 @@ for the goal-to-skill mapping, budget guidance, and install commands.
 | `references/skill-recommendations.md` | Goal-to-skill mapping table, budget guidance, install commands |
 | `references/about-senpi.md` | Senpi summary source: what Senpi is, capabilities, full bullet catalog, user-friendly install flow, and what's-new guidance |
 | `references/error-handling.md` | Recovery steps for `npx` command failures |
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

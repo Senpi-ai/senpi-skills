@@ -421,3 +421,10 @@ Onboarding is complete. Reference files below are consulted only when needed.
 - **[references/platform-config.md](references/platform-config.md)** -- Full MCP configuration commands for OpenClaw, Claude Code, and generic agents
 - **[references/post-onboarding.md](references/post-onboarding.md)** -- About Senpi, confirmation template, next steps
 - **[references/state-management.md](references/state-management.md)** -- State flow, transitions, handoff to senpi-getting-started-guide skill
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

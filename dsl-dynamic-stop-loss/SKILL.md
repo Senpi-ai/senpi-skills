@@ -147,3 +147,10 @@ Full command reference and configuration merge rules: [references/cli-usage.md](
 | v5.3 | 2026-03-12 | High Water Mode: `lockMode: "pct_of_high_water"`, `lockHwPct` per tier |
 | v5.2 | 2026-03-01 | CLI lifecycle manager, multi-skill integration, SL order verification, reconciliation archive types, `cronIntervalMinutes`, config validation |
 | v5.0 | — | Two-phase trailing stop, exchange SL sync |
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

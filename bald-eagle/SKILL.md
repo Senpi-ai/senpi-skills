@@ -184,3 +184,10 @@ On EVERY session, check `config/bootstrap-complete.json`. If missing:
 
 ### v1.0
 - 20x leverage, no spread gate, DSL state bugs → -28.6%
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

@@ -41,3 +41,10 @@ Two edge sources:
 | `scripts/pangolin-scanner.py` | Funding rate scanner |
 | `scripts/pangolin_config.py` | Config helper |
 | `runtime.yaml` | DSL exit config (very wide for funding mean-reversion) |
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

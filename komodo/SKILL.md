@@ -137,3 +137,10 @@ On EVERY session, check if `config/bootstrap-complete.json` exists. If not:
 | `scripts/komodo-scanner.py` | Five-gate scanner (momentum events → quality → markets → volume → regime) |
 | `scripts/komodo_config.py` | Shared config, MCP helpers, state I/O |
 | `config/komodo-config.json` | All configurable variables with DSL High Water tiers |
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

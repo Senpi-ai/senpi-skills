@@ -155,3 +155,10 @@ Drop-in replacement. All v5 features have sensible defaults:
 - `hourlyTrend` and `trendAligned` added to output
 - `disqualifiedAssets` shows what was filtered
 - SM trader count 400+ tier added automatically
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
