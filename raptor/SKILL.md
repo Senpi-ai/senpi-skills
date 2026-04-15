@@ -127,3 +127,10 @@ python3 /data/workspace/skills/raptor-strategy/scripts/raptor-scanner.py
 ```
 
 Expected: clean exit, `_raptor_version: "3.0"` in output JSON. If `leaderboard_get_top` returns data and there's at least one ELITE/RELIABLE hot trader, the scanner may emit a candidate signal or fire a trade on the first run.
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

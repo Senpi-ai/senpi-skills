@@ -76,3 +76,10 @@ Barracuda is a PATIENT strategy. Extreme funding that persists for 6+ hours with
 ## License
 
 MIT — Built by Senpi (https://senpi.ai).
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

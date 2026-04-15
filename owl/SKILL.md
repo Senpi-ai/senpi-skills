@@ -183,3 +183,10 @@ Check `config/bootstrap-complete.json` every session. If missing:
 
 Apache-2.0 — Built by Senpi (https://senpi.ai). Attribution required for derivative works.
 Source: https://github.com/Senpi-ai/senpi-skills
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
