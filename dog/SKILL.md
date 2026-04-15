@@ -1,116 +1,235 @@
 ---
 name: dog-strategy
 description: >-
-  DOG v1.0 — The Loyal Consistent Performer. Multi-asset SM consensus scanner
-  targeting 5% ROE/week through small steady wins. Quick profit-taking DSL.
-  The most loyal pup in the fleet.
+  DOG v2.0 — The Contrarian Pup (SM Exhaustion Fader). Multi-asset
+  contrarian scanner targeting BTC, ETH, SOL, HYPE. Trades AGAINST
+  Smart Money consensus when the move is exhausted. Wide DSL lets
+  reversals develop. v2.0 is a complete direction flip from v1.0
+  after fleet audit found the original momentum-following thesis was
+  systematically entering after exhausted moves.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.0"
+  version: "2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐕 DOG v1.0 — The Loyal Consistent Performer
+# 🐕 DOG v2.0 — The Contrarian Pup
 
-5% ROE per week. Steady. Reliable. Good boy.
-
----
-
-## ⛔ CRITICAL AGENT RULES
-
-### RULE 1: Install path is `/data/workspace/skills/dog-strategy/`
-### RULE 2: THE SCANNER DOES NOT EXIT POSITIONS — DSL only.
-### RULE 3: MAX 1 POSITION AT A TIME
-### RULE 4: MAX 3 ENTRIES PER DAY — never reset this counter
-### RULE 5: 180-minute cooldown between entries — never bypass
-### RULE 6: MIN_SCORE 10 — never lower this threshold
-### RULE 7: 10x leverage max — never increase
-### RULE 8: 30% margin — never increase
-### RULE 9: Never modify DSL runtime tiers — they are tuned for quick profit-taking
-### RULE 10: Verify runtime on every session start
+Smart Money goes one way. Dog goes the other. The crowd is already in — let them eat the unwind.
 
 ---
 
-## How It Works
+## Why v2.0 is a complete rewrite
 
-Dog scans BTC, ETH, SOL, and HYPE every 3 minutes. Enters ONLY when:
-- SM consensus is overwhelming (>15% for +3 pts, >10% for +2)
-- 15m velocity is fresh and spiking
-- The 4h price move is SMALL (< 2% in entry direction = early move bonus)
-- The 4h move is NOT exhausted (> 2% = -2 penalty, > 3% = -3 penalty)
-- Combined score reaches 10+
+Dog v1.0 was "The Loyal Consistent Performer" — a multi-asset SM consensus FOLLOWER. The fleet audit on 2026-04-10 found the v1.0 signal was perfectly inverted. Real performance was -$61 gross; if you'd flipped every trade, it would have been +$61. HYPE alone caused -$91 of the -$105 net loss. The SM consensus scanner was systematically entering AFTER exhausted moves — buying tops and selling bottoms.
 
-Dog takes profit QUICKLY via tight Phase 2 tiers:
-- Tier 1 at 3% ROE / 50% lock = banks 1.5% ROE floor on first profit signal
-- Tier 2 at 5% ROE / 65% lock = banks 3.25% ROE floor
-- Tier 3 at 8% ROE / 75% lock = banks 6% ROE floor (weekly target in one trade!)
+**v2.0 flips the thesis.** Instead of chasing SM consensus, fade it. When SM consensus is overwhelmingly strong AND the move is already extended (4h price > 2-3% in the SM direction), trade the OPPOSITE direction. The crowd has already committed; the unwind is the alpha.
 
-Cuts losers FAST:
-- Dead weight cut at 45 minutes (if trade goes nowhere, exit)
-- Weak peak cut at 60 minutes (if peak was <1% and stalling, exit)
-- Hard timeout at 120 minutes (absolute max hold time)
-- Phase 1 max loss at -15% ROE (tight stop)
+### Key changes from v1.0
 
----
-
-## Scoring (max ~14 points)
-
-| Signal | Points | Notes |
+| Aspect | v1.0 | v2.0 |
 |---|---|---|
-| SM consensus | 1-3 | ≥15% dominant = +3 |
-| Trader depth | 0-1 | ≥100 traders = +1 |
-| 4H alignment | -1 to +2 | Confirms direction |
-| Move exhaustion | -3 to +1 | **Strictest in fleet**: >3% = -3, >2% = -2, <0.5% = +1 (early bonus) |
-| 1H momentum | 0-1 | Confirms direction |
-| 15m velocity | -1 to +3 | Strong spike = +3 |
-| 1h acceleration | 0-1 | Accel = +1 |
-| Funding alignment | 0-1 | Funding pays your direction |
-| US session | 0-1 | 13-21 UTC |
+| Direction | Trade WITH SM consensus | Trade OPPOSITE to SM consensus |
+| Move-exhaustion | -3 penalty (don't chase) | +1-2 BONUS (bigger move = better fade) |
+| Early-move bonus | +1 (jump in early) | Removed (early moves have nothing to fade) |
+| Leverage | 10x flat | 7x base, 10x at score 12+ |
+| Min score | 10 (very tight) | 8 (contrarian signals fire more often) |
+| DSL hold | 120 min hard timeout | 360 min hard timeout (reversals take time) |
+| Phase 2 tier 1 | 3% ROE / 50% lock (quick scalp) | 5% ROE / 20% lock (let it develop) |
 
-**Min score: 10.** Leverage: flat 10x. No conviction scaling.
+## What it does
 
----
+Dog scans BTC, ETH, SOL, HYPE every 3 minutes via `leaderboard_get_markets`. For each asset:
 
-## Runtime Setup
+1. **Identify SM dominant direction** — which side has the heaviest top-trader concentration
+2. **Verify the move is exhausted** — 4H price moved > 2-3% in the SM direction (mean reversion setup)
+3. **Verify the unwind hasn't started** — if 15m velocity is collapsing, the fade may already be in progress (still good)
+4. **Score the contrarian setup** — concentration, exhaustion, velocity, funding alignment
+5. **Fire the FADE** — open OPPOSITE direction at 7x or 10x leverage with FEE_OPTIMIZED_LIMIT
+6. **Hand off to DSL** — wide DSL lets the reversal develop over hours
 
-```bash
-sed -i 's/${WALLET_ADDRESS}/<WALLET>/' /data/workspace/skills/dog-strategy/runtime.yaml
-sed -i 's/${TELEGRAM_CHAT_ID}/<CHAT_ID>/' /data/workspace/skills/dog-strategy/runtime.yaml
-openclaw senpi runtime create --path /data/workspace/skills/dog-strategy/runtime.yaml
+## Why the contrarian thesis works
+
+Hyperliquid is dominated by leverage traders chasing momentum. When a coin moves 3% in 4 hours and SM consensus piles in 15%+, the crowd is already maximum exposed. The unwind happens for two reasons:
+
+1. **Funding pressure** — extreme positioning generates extreme funding rates, forcing the late entrants to capitulate
+2. **Mean reversion** — overextended moves draw counter-trend liquidity from contrarian traders
+
+Dog's edge is being on the unwind side BEFORE the capitulation accelerates. The `weak_peak_cut` and `dead_weight_cut` mechanisms protect against premature fades that don't reverse, and the wide Phase 2 tiers let real unwinds compound.
+
+## Scoring
+
+| Signal | Points |
+|---|---|
+| SM concentration ≥ 20% (DEEP_CROWD) | 4 |
+| SM concentration 15-20% (HEAVY_CROWD) | 3 |
+| SM concentration 10-15% (MODERATE_CROWD) | 2 |
+| Trader count ≥ 100 | 1 |
+| Move exhaustion (4H ≥ 3% in SM direction) | 2 |
+| Move exhaustion (4H ≥ 2% in SM direction) | 1 |
+| 15m velocity COLLAPSING (< -1.0) | 3 |
+| 15m velocity FADING (-1.0 to -0.3) | 2 |
+| 15m velocity COOLING (-0.3 to 0) | 1 |
+| 1h velocity decelerating | 1 |
+| 1H price reversing toward fade direction | 1 |
+| 4h SM contribution weakening | 1 |
+| Funding pays the fade direction | 1 |
+| US session bonus | 1 |
+
+**Min score: 8.** Leverage tiers: 7x base, 10x at score 12+.
+
+### Hard gates
+
+- **SM minimums**: pct ≥ 3%, traders ≥ 20
+- **15m velocity must be ≤ 0.1**: if SM is still actively building, the move isn't exhausting yet — skip
+- **XYZ DEX banned**: contrarian thesis is for crypto majors only
+- **No duplicate positions**: max 1 position at a time
+- **Cooldown**: 120 min after any trade on the same asset
+
+## Key settings
+
+| Setting | Value | Why |
+|---|---|---|
+| Assets | BTC, ETH, SOL, HYPE | Liquid majors only |
+| Max positions | 1 | Concentration |
+| Margin per trade | 30% | Smaller bets, survive drawdowns |
+| Leverage | 7x base, 10x at score 12+ | Conservative — contrarian needs room |
+| Min score | 8 | Tunable in scanner constants |
+| Per-asset cooldown | 120 min | Patience between trades |
+| Max daily entries | 3 | Quality over quantity |
+
+## DSL configuration (wide, patient)
+
+| Phase | Setting | Value | Why |
+|---|---|---|---|
+| 1 | max_loss_pct | 15% | Tighter than fleet 25% — contrarian losses should be small |
+| 1 | retrace_threshold | 8 | Standard |
+| 1 | consecutive_breaches_required | 3 | Standard |
+| Time cuts | hard_timeout | 360 min | Reversals take time to develop |
+| Time cuts | weak_peak_cut | 90 min, min 2.0% | Cut if peak ROE never breaks 2% in 90 min |
+| Time cuts | dead_weight_cut | 30 min | Cut early stallers |
+| 2 | Tier 1 | +5% / 20% lock | Don't bank too early — let it run |
+| 2 | Tier 2 | +10% / 40% lock | |
+| 2 | Tier 3 | +15% / 60% lock | |
+| 2 | Tier 4 | +20% / 75% lock | |
+| 2 | Tier 5 | +30% / 85% lock | |
+
+## Fleet-standard guardrails
+
+- Self-executing via `create_position` (no external action layer needed)
+- Dynamic P&L-aware daily cap (PR #176)
+- `has_resting_orders()` auto-cancels stale maker orders >10 min (PR #177)
+- Stale-date bug fix in `load_trade_counter()` (PR #177)
+- Conviction-scaled leverage capped at 10x (fleet H12 audit)
+- Contrarian exhaustion gate (PR #175) — requires the 4H move to be >2.5% before fading
+
+## ⛔ Critical agent rules
+
+1. **Install path** is `/data/workspace/skills/dog-strategy/`
+2. **THE SCANNER DOES NOT EXIT POSITIONS** — DSL handles all exits
+3. **MAX 1 POSITION AT A TIME**
+4. **MAX 3 ENTRIES PER DAY** (dynamic cap may lower this on drawdown)
+5. **120-minute cooldown** between entries on the same asset
+6. **MIN_SCORE 8** — never lower
+7. **10x leverage max** — never increase
+8. **30% margin per trade** — never increase
+9. **Never modify the contrarian direction logic** without testing
+10. **Verify runtime on every session start**
+
+## Setup
+
+### Install path
+
+The skill must live at `/data/workspace/skills/dog-strategy/`. Package contents:
+
+```
+dog/
+├── README.md                 # User-facing summary
+├── SKILL.md                  # This file (LLM-facing)
+├── runtime.yaml              # OpenClaw runtime + DSL preset (wide for contrarian)
+├── config/
+│   └── dog-config.json       # Wallet, strategy ID, chat ID
+└── scripts/
+    ├── dog-scanner.py        # Main contrarian scanner (v2.0)
+    └── dog_config.py         # Helper module
 ```
 
----
+### Pull from GitHub
 
-## Dog's Personality
+```bash
+mkdir -p /data/workspace/skills/dog-strategy/{config,scripts,state}
 
-Dog doesn't bark at every noise. Dog sits patiently, sniffs the market, and
-only moves when the scent is unmistakable. When Dog catches a trade, it banks
-the profit quickly and comes home wagging its tail. Dog never chases cars
-(exhausted moves), never fights bigger dogs (high leverage), and never stays
-out past curfew (120-min timeout).
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dog/runtime.yaml \
+  -o /data/workspace/skills/dog-strategy/runtime.yaml
 
-Dog's job isn't to be the flashiest agent in the fleet. Dog's job is to be
-the one you can count on every single week.
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dog/SKILL.md \
+  -o /data/workspace/skills/dog-strategy/SKILL.md
 
-Good boy.
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dog/config/dog-config.json \
+  -o /data/workspace/skills/dog-strategy/config/dog-config.json
 
----
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dog/scripts/dog-scanner.py \
+  -o /data/workspace/skills/dog-strategy/scripts/dog-scanner.py
 
-## Files
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dog/scripts/dog_config.py \
+  -o /data/workspace/skills/dog-strategy/scripts/dog_config.py
+```
 
-| File | Purpose |
-|---|---|
-| `scripts/dog-scanner.py` | Multi-asset scoring + entry execution |
-| `scripts/dog_config.py` | Config helper (MCP, state, positions) |
-| `config/dog-config.json` | Wallet, strategy ID |
-| `runtime.yaml` | Quick-profit DSL config |
+### Set wallet and chat ID
 
----
+```bash
+sed -i 's/${WALLET_ADDRESS}/<YOUR_STRATEGY_WALLET>/' /data/workspace/skills/dog-strategy/runtime.yaml
+sed -i 's/${TELEGRAM_CHAT_ID}/<YOUR_TELEGRAM_CHAT_ID>/' /data/workspace/skills/dog-strategy/runtime.yaml
+```
+
+Or set them in `config/dog-config.json`. The scanner also supports environment variables: `DOG_WALLET` and `DOG_STRATEGY_ID`.
+
+### Install runtime
+
+```bash
+openclaw senpi runtime create --path /data/workspace/skills/dog-strategy/runtime.yaml
+openclaw senpi runtime list && openclaw senpi status
+```
+
+### Verify with a manual scan
+
+```bash
+python3 /data/workspace/skills/dog-strategy/scripts/dog-scanner.py
+```
+
+Expected: clean exit, JSON output. Most likely first run shows a heartbeat (no fade signal) — contrarian setups are intentionally selective.
+
+### Run on a recurring schedule
+
+Recommended: detached bash loop (zero LLM wake cost):
+
+```bash
+nohup bash -c 'while true; do python3 /data/workspace/skills/dog-strategy/scripts/dog-scanner.py >> /tmp/dog-loop.log 2>&1; sleep 180; done' > /tmp/dog-nohup.log 2>&1 &
+
+ps aux | grep dog-scanner | grep -v grep
+tail -5 /tmp/dog-loop.log
+```
+
+3-minute cadence. The Python scanner does all work; no LLM is invoked.
+
+## Best for
+
+- Operators who believe momentum chasing is a losing edge on Hyperliquid
+- Multi-asset diversification across BTC/ETH/SOL/HYPE
+- Patient holds (1-6 hours per trade — reversals take time)
+- Counter-trend traders who want a deterministic execution layer
+
+## Not for
+
+- Momentum followers (use Wolverine, Phoenix, or Condor)
+- High-frequency scalping (Dog targets 2-3 trades per day max)
+- Single-asset specialists (use Wolverine for HYPE, Polar for ETH, Kodiak for SOL)
+- Anyone who wants the scanner to make exit decisions (DSL handles all exits)
 
 ## License
 
-MIT — Built by Senpi (https://senpi.ai). Good boy.
+MIT — Copyright 2026 Senpi (https://senpi.ai). The Contrarian Pup.

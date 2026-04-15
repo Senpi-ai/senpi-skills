@@ -1,9 +1,11 @@
 name: wolverine-tracker
-version: 1.0.0
+version: 2.3.0
 description: >
-  WOLVERINE v2.2 — HYPE Alpha Hunter. SM conviction + 15m/1h momentum
-  on HYPE. Conviction-scaled leverage 7x/10x. DSL time cuts tuned for
-  HYPE volatility — winners need 2-4 hours to play out fully.
+  WOLVERINE v2.3 — HYPE Alpha Hunter (chop-hardened). SM conviction +
+  15m/1h momentum on HYPE. Conviction-scaled leverage 7x/10x. DSL time
+  cuts tuned for HYPE volatility — winners need 2-4 hours to play out.
+  v2.3 adds chop-detection lockout, direction-flip hard gate, and
+  persistent entry log that survives session clears.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
