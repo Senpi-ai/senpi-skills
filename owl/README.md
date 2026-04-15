@@ -1,8 +1,8 @@
-# 🦉 Owl v5.3 — Pure Contrarian Crowding Fader
+# 🦉 Owl v6.0 — Pure Contrarian Crowding Fader (gate recalibration)
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-OWL v5.3 — Pure contrarian (self-executing). One scanner, one thesis: the crowd is wrong. Monitors crowding across top 30 assets (funding extremity, OI concentration, SM tilt).
+OWL v6.0 — Pure contrarian. One scanner, one thesis: the crowd is wrong. Monitors crowding across top 30 assets (funding extremity, OI concentration, SM tilt). **v6.0 fleet-fix:** minPersistHours reduced 4→1, entry.minScore reduced 14→12, DSL Phase 2 first tier tightened 10%→5% trigger. Diagnosis: only 7 trades in 30 days on v5.3 → over-gated. Re-crowding exit preserved (dormant, safe — 0 fires in 14 days).
 
 ## Install
 

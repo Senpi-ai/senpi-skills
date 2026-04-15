@@ -1,11 +1,28 @@
 #!/usr/bin/env python3
-# Senpi OWL Scanner v5.3
+# Senpi OWL Scanner v6.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0 — attribution required for derivative works
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""OWL v5.3 — Pure Contrarian (self-executing + persistence tolerance).
+"""OWL v6.0 — Pure Contrarian (gate recalibration).
 
 One scanner. One thesis: the crowd is wrong.
+
+v6.0 changes (fleet-fix: only 7 trades in 30 days → over-gated):
+  - minPersistHours reduced 4 → 1 in owl-config.json. The 4-hour persistence
+    requirement combined with the 14 minScore gate was effectively unreachable;
+    7 entries in 30+ days proved it. Reducing to 1h lets Owl actually act on
+    real crowding signals without waiting for them to persist through noise.
+  - entry.minScore reduced 14 → 12 in owl-config.json. Previous 14 required
+    near-perfect crowding + exhaustion confluence, which happened 2-3x/month
+    at best. 12 still requires strong confluence but is achievable weekly.
+  - runtime.yaml DSL Phase 2 first tier tightened 10% → 5% trigger (Lemon-
+    pattern learning: capture the first leg of the unwind before the market
+    reverses).
+  - runtime.yaml dead_weight_cut 45 → 30 min (Lemon-pattern: faster loser
+    cut, though still wider than Lemon's 20 min to preserve contrarian
+    retrace tolerance).
+  - recrowding_exit preserved — the 14-day audit found 0 fires in window
+    and 2 lifetime fires net-neutral (+5.73% / -7.44%). Not harmful.
 
 v5.3 changes (fixes 30-day zero-trade drought):
   - SELF-EXECUTING: scanner now calls create_position via mcporter directly,
@@ -165,7 +182,7 @@ def execute_entry(wallet, signal, account_value, entry_cfg, leverage_cfg):
     }
 
     reason = (
-        f"OWL v5.3 contrarian fade: score={signal['score']}, "
+        f"OWL v6.0 contrarian fade: score={signal['score']}, "
         f"crowd={signal['crowdDirection']}, "
         f"persist={signal['persistHours']:.1f}h"
     )

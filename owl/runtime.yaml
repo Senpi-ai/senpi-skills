@@ -1,11 +1,15 @@
 name: owl-strategy
-version: 5.3.0
+version: 6.0.0
 description: >
-  OWL v5.3 — Pure Contrarian. Monitors crowding across top 30 assets
-  (funding extremity + SM tilt + OI concentration). When crowding persists
-  4+ hours AND exhaustion signals fire (volume declining, price stalling,
-  RSI divergence), enters AGAINST the crowd to ride the liquidation unwind.
-  1-2 trades per day max. Re-crowding exit. Self-executing (v5.3).
+  OWL v6.0 — Pure Contrarian (gate recalibration). Monitors crowding across
+  top 30 assets (funding extremity + SM tilt + OI concentration). When
+  crowding persists 1+ hour AND exhaustion signals fire (volume declining,
+  price stalling, RSI divergence), enters AGAINST the crowd to ride the
+  liquidation unwind. v6.0 fixes the over-gated Owl: minPersistHours
+  reduced 4→1 and entry.minScore reduced 14→12 after fleet analysis found
+  Owl only traded 7 times in 30 days due to unreachable gate combination.
+  Re-crowding exit preserved (dormant, not harmful — 0 fires in 14 days).
+  DSL Phase 2 tightened to lock first leg at 5% ROE (Lemon-pattern learning).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -42,20 +46,21 @@ exit:
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 45
+      interval_in_minutes: 30    # v6.0: 45 → 30 (faster loser cut, Lemon-pattern inspired)
     phase1:
       enabled: true
-      max_loss_pct: 35.0
+      max_loss_pct: 35.0          # Kept wide — contrarian entries retrace hard before working
       retrace_threshold: 15
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 10, lock_hw_pct: 20 }
-        - { trigger_pct: 20, lock_hw_pct: 40 }
-        - { trigger_pct: 35, lock_hw_pct: 60 }
-        - { trigger_pct: 50, lock_hw_pct: 75 }
-        - { trigger_pct: 75, lock_hw_pct: 85 }
+        - { trigger_pct: 5,  lock_hw_pct: 20 }   # v6.0: 10 → 5 (capture first leg of unwind like Lemon)
+        - { trigger_pct: 10, lock_hw_pct: 35 }   # v6.0: new intermediate tier
+        - { trigger_pct: 20, lock_hw_pct: 50 }
+        - { trigger_pct: 35, lock_hw_pct: 65 }
+        - { trigger_pct: 50, lock_hw_pct: 78 }
+        - { trigger_pct: 75, lock_hw_pct: 88 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
