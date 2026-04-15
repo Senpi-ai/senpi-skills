@@ -1,0 +1,56 @@
+name: vixen-tracker
+version: 1.0.0
+description: >
+  VIXEN v1.0 — Multi-Asset Scanner. Standard trend scanner — see SKILL.md for details.
+  See SKILL.md for full thesis, scoring, and operational notes.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 1
+  margin_per_slot: 300
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# DSL preset tuned for trend thesis type.
+# Adjust interval_in_minutes and phase 2 tiers based on specific asset behavior.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 1440    # 24h safety net — let trends run
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 30
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 25
+    phase1:
+      enabled: true
+      max_loss_pct: 25.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 25 }
+        - { trigger_pct: 15, lock_hw_pct: 50 }
+        - { trigger_pct: 25, lock_hw_pct: 65 }
+        - { trigger_pct: 35, lock_hw_pct: 80 }
+        - { trigger_pct: 50, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

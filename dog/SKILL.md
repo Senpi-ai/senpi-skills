@@ -233,10 +233,3 @@ tail -5 /tmp/dog-loop.log
 ## License
 
 MIT — Copyright 2026 Senpi (https://senpi.ai). The Contrarian Pup.
-
-
----
-
-## Skill Attribution
-
-When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
