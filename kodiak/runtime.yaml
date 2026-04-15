@@ -24,20 +24,29 @@ actions:
     scanners: [position_tracker]
 
 # ── EXIT (DSL) ──
+# Philosophy: DSL Phase 2 trailing stops + weak_peak_cut + dead_weight_cut
+# do all the real exit work. hard_timeout is a 24h safety net that should
+# almost never fire — it only catches positions that somehow escaped every
+# other mechanism. We do NOT use hard_timeout to cap winning trends.
+#
+# Evidence: Kodiak's profitable SOL trades on 2026-04-14 held 19/26/50/228 min.
+# The 228-min SHORT peaked at +21.6% ROE in Phase 2 Tier 3. A 45-min or even
+# 360-min hard_timeout would have killed it well before peak, leaving 10-15%
+# ROE on the table. Phase 2 trailing stops are what should exit winners.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 45
+      interval_in_minutes: 1440      # 24h safety net — let trends run
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 20
+      interval_in_minutes: 25         # cut if peak ROE never breaks 3% in 25 min
       min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 15
+      interval_in_minutes: 18         # cut stalled non-movers fast
     phase1:
       enabled: true
       max_loss_pct: 25.0
