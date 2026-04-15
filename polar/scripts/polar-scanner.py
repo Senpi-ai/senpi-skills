@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
-# Senpi POLAR Scanner v2.3
+# Senpi POLAR Scanner v2.4
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""POLAR v2.3 — ETH Alpha Hunter (Entry Timing Fixes).
+"""POLAR v2.4 — ETH Alpha Hunter (sniper recalibration).
+
+v2.4 fleet-fix recalibration (April 15, 2026):
+- MIN_SCORE raised 8 → 10 (Cheetah v5.1 APEX pattern).
+  Diagnosis: 381 trades, $580K volume, -31.7% ROE = textbook over-trading.
+  At MIN_SCORE=10 confluence of DOMINANT_SM + 4H_STRONG + 15M_SPIKE +
+  DEEP_SM + ACCEL_PATTERN is required. Cuts entry rate ~90% to focus
+  capital on apex signals.
+- Leverage tiers shifted: 7x at score 10-11, 10x at score 12+
+  (was 7x at 8-9, 10x at 10+).
+- COOLDOWN_MINUTES raised 120 → 240 (sniper cadence, matches Cheetah v5.1).
+- MIN_SM_ACCEL_PCT added as hard gate: require contribution_pct_change_15m > 0.3
+  (was 0 — any positive). Prevents entries on marginal SM velocity.
 
 v2.3 changes from overnight analysis (2026-04-08):
 - FIX: UTC midnight cooldown bug — last_entry_ts and last_win_ts now persist
@@ -60,18 +72,19 @@ def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     elif pnl_pct >= -25:   return 1    # Preserve — only highest conviction
     else:                  return 0    # HARD STOP — circuit breaker
 
-COOLDOWN_MINUTES = 120
-SAME_DIR_COOLDOWN_MINUTES = 60
+COOLDOWN_MINUTES = 240         # v2.4: raised 120 → 240 (sniper cadence)
+SAME_DIR_COOLDOWN_MINUTES = 120  # v2.4: raised 60 → 120
 MARGIN_PCT = 0.50
-MIN_SCORE = 8
+MIN_SCORE = 10                 # v2.4: raised 8 → 10 (Cheetah v5.1 APEX pattern)
+MIN_SM_ACCEL_PCT = 0.3         # v2.4: new hard gate — require 15m velocity > 0.3%
 XYZ_BANNED = True
 
-# Leverage compressed to 7x/10x. Fleet analysis proved >10x amplifies
-# fees and retraces into catastrophic losses. Polar at 20x lost $39 on
-# a position that would have been manageable at 10x.
+# v2.4: Leverage tiers shifted. Score≥12 → 10x (true apex), 10-11 → 7x.
+# Below 10 = no entry (hard gate). Previously 8-9 got 7x which allowed
+# low-conviction trades to still take leverage.
 LEVERAGE_TIERS = [
-    {"min_score": 10, "leverage": 10},
-    {"min_score": 8,  "leverage": 7},
+    {"min_score": 12, "leverage": 10},
+    {"min_score": 10, "leverage": 7},
 ]
 DEFAULT_LEVERAGE = 7
 MAX_LEVERAGE = 10
@@ -210,12 +223,17 @@ def evaluate_eth():
         score += 1; reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
     # 15m velocity freshness — conviction-class penalty (not hard gate)
-    if cc_15m <= 0:
-        score -= 3; reasons.append(f"15M_STALE_PENALTY ({cc_15m:.2f})")
-    elif cc_15m > 5.0: score += 4; reasons.append(f"15M_EXTREME_SPIKE +{cc_15m:.2f}")
+    # v2.4 HARD GATE: 15m velocity must be actively building above
+    # MIN_SM_ACCEL_PCT. Previously this was a -3 score penalty only,
+    # which let marginal signals through when other scores were high.
+    # Hard-blocking stale/negative 15m velocity is the Lemon-pattern
+    # learning applied fleet-wide.
+    if cc_15m < MIN_SM_ACCEL_PCT:
+        return None  # SM velocity not building fast enough — stale signal
+    if cc_15m > 5.0: score += 4; reasons.append(f"15M_EXTREME_SPIKE +{cc_15m:.2f}")
     elif cc_15m > 2.0: score += 3; reasons.append(f"15M_STRONG_SPIKE +{cc_15m:.2f}")
     elif cc_15m > 0.5: score += 2; reasons.append(f"15M_SPIKE +{cc_15m:.2f}")
-    elif cc_15m > 0.1: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
+    else: score += 1; reasons.append(f"15M_BUILDING +{cc_15m:.2f}")
 
     if cc_1h > 3.0: score += 2; reasons.append(f"1H_STRONG_ACCEL +{cc_1h:.2f}")
     elif cc_1h > 1.0: score += 1; reasons.append(f"1H_ACCEL +{cc_1h:.2f}")

@@ -1,8 +1,9 @@
 name: polar-tracker
-version: 1.0.0
+version: 2.4.0
 description: >
-  ETH alpha hunter — single-asset lifecycle scanner with conviction-scaled
-  leverage, move-exhaustion scoring, and same-direction re-entry cooldown.
+  ETH alpha hunter v2.4 — sniper recalibration. Single-asset lifecycle scanner
+  with MIN_SCORE=10 gate (Cheetah v5.1 APEX pattern), 15m velocity hard gate,
+  conviction-scaled leverage (7x at 10-11, 10x at 12+), 240-min sniper cooldown.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"

@@ -1,8 +1,8 @@
-# 🐻 Grizzly Horribilis v1.1 — BTC Contrarian Sniper
+# 🐻 Grizzly Horribilis v2.1 — BTC Contrarian Sniper (recalibrated)
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-GRIZZLY HORRIBILIS v1.1 — BTC Conviction-Scaled Leverage Hunter (Hardened). Same thesis as Grizzly v3.0 — BTC single-asset lifecycle hunter. Conviction-scaled leverage: 7x at score 8-9, 10x at score 10+.
+GRIZZLY HORRIBILIS v2.1 — BTC contrarian sniper. Fades exhausted SM consensus moves on BTC with conviction-scaled leverage (7x at score 10-11, 10x at score 12+). v2.1 recalibration raised MIN_SCORE 8→10 (Cheetah v5.1 APEX pattern) and MIN_EXHAUSTION_PCT 2.5→4.5 (Dog v2.2 fix — stops fighting fresh trends). 50% margin, internal execution, DSL-only exits.
 
 ## Install
 
