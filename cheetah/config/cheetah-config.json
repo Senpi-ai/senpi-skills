@@ -2,9 +2,9 @@
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "_version": "5.0-APEX",
-  "_description": "CHEETAH APEX — Multi-signal confluence sniper purpose-built to win the Senpi Arena. Only fires on score >= 14 (all major signals aligning). Fewer trades, higher conviction, maximum leverage, aggressive profit ratcheting.",
-  "_thesis": "The Arena rewards asymmetric ROE%, not consistency. A sniper that takes 5 high-conviction trades per week with 80% margin and 10x leverage can outperform 200-trade scalpers.",
+  "_version": "5.1-APEX",
+  "_description": "CHEETAH APEX v5.1 — Multi-signal confluence sniper purpose-built to win the Senpi Arena. Score threshold lowered from 14 to 10 based on 24h live data — max observed score was 10 (HYPE LONG), so the 14 gate was mathematically unreachable. Leverage scales by score: 10=7x, 11=8x, 12-13=9x, 14+=10x. Still the tightest gate in the fleet.",
+  "_thesis": "The Arena rewards asymmetric ROE%, not consistency. A sniper that takes 5 high-conviction trades per week with 80% margin and conviction-scaled leverage can outperform 200-trade scalpers.",
   "maxPositions": 1,
   "xyzBanned": true,
   "risk": {
@@ -13,14 +13,16 @@
     "maxDailyLossPct": 12.0
   },
   "leverage": {
-    "default": 8,
+    "default": 7,
     "tiers": [
-      {"minScore": 15, "leverage": 10},
-      {"minScore": 14, "leverage": 8}
+      {"minScore": 14, "leverage": 10},
+      {"minScore": 12, "leverage": 9},
+      {"minScore": 11, "leverage": 8},
+      {"minScore": 10, "leverage": 7}
     ]
   },
   "entry": {
-    "minScore": 14,
+    "minScore": 10,
     "marginPct": 0.80,
     "orderType": "FEE_OPTIMIZED_LIMIT",
     "ensureExecutionAsTaker": true,

@@ -2,7 +2,18 @@
 # Senpi DOG Scanner v1.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""DOG v2.0 — The Contrarian Pup (SM Exhaustion Fader).
+"""DOG v2.2 — The Contrarian Pup (SM Exhaustion Fader).
+
+v2.2 — EXHAUSTION GATE WIDENED.
+After v2.1 shipped with a 2.5% exhaustion gate, 24h live data on
+2026-04-15 showed Dog was taking small losses because BTC and HYPE
+trends were blowing through the 2.5% level without reversing.
+Example losses in that window:
+  HYPE SHORT -$28.61, SOL LONG -$47.72, BTC SHORT -$32.58
+The 2.5% gate was insufficient to identify genuine exhaustion in
+trending markets. v2.2 raises the gate to 4.5% — a meaningful
+overextension that requires the market to have genuinely moved too
+far before Dog will fade it.
 
 v2.0 — DIRECTION FLIP.
 Fleet analysis (April 10, 2026) found Dog's signal was perfectly inverted:
@@ -177,12 +188,17 @@ def evaluate_assets():
         # Hard gate: minimum SM engagement
         if traders < 30: continue
 
-        # CONTRARIAN EXHAUSTION GATE (v2.1)
-        # Fleet analysis April 13: Grizzly v4.0 lost $107 in 15h fading an
-        # accelerating BTC breakout. Contrarian flip without an exhaustion gate
-        # fights live trends instead of exhausted moves.
-        # Require 4H price to have already moved >2.5% in SM direction.
-        MIN_EXHAUSTION_PCT = 2.5
+        # CONTRARIAN EXHAUSTION GATE (v2.2 — widened)
+        # v2.1 shipped with 2.5% gate. Dog-reported data on 2026-04-15 showed
+        # BTC and HYPE were "blowing straight through the 2.5% exhaustion
+        # gates" — 4H moves of 2.5-3% in trending markets aren't exhaustion,
+        # they're continuation candles. Dog fires the fade, the trend
+        # continues, DSL SL fires. Result: 10-trade window, -$53 net,
+        # equity at $782 (approaching the -22% HARD STOP threshold).
+        # v2.2 raises the gate to 4.5% — a meaningful overextension in a
+        # trending market. In ranging markets Dog will still fire but on
+        # more meaningful exhaustion signals.
+        MIN_EXHAUSTION_PCT = 4.5
         if abs(p4h) < MIN_EXHAUSTION_PCT:
             continue  # Not exhausted yet — don't fight a fresh trend
         if (d == "LONG" and p4h < 0) or (d == "SHORT" and p4h > 0):
@@ -398,12 +414,12 @@ def run():
             "execution": {"asset": best["asset"], "direction": best["direction"],
                 "leverage": leverage, "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-            "result": result, "_dog_version": "2.1"})
+            "result": result, "_dog_version": "2.2"})
     else:
         cfg.output({"status": "ok", "action": "ENTRY_FAILED",
             "signal": {"asset": best["asset"], "direction": best["direction"],
                 "score": best["score"], "reasons": best["reasons"]},
-            "error": result, "_dog_version": "2.1"})
+            "error": result, "_dog_version": "2.2"})
 
 if __name__ == "__main__":
     try: run()

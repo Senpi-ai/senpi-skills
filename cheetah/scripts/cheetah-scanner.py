@@ -1,11 +1,30 @@
 #!/usr/bin/env python3
-# Senpi CHEETAH Scanner v5.0-APEX
+# Senpi CHEETAH Scanner v5.1-APEX
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""CHEETAH v5.0 APEX — Multi-signal confluence sniper.
+"""CHEETAH v5.1 APEX — Multi-signal confluence sniper.
 
 Purpose-built to win the Senpi Arena via asymmetric ROE% optimization.
+
+## v5.1 change — threshold recalibration
+
+v5.0 shipped with MIN_SCORE = 14 out of a max possible 15. Live data from
+24h of scanning showed the highest observed score was 10 (HYPE LONG). The
+14 threshold was mathematically unreachable in practice because the
+quality-trader-alignment gate (+3 points) rarely fires — the intersection
+of ELITE/RELIABLE traders with current SM consensus is usually empty.
+
+v5.1 lowers MIN_SCORE from 14 to 10 and introduces score-scaled leverage:
+
+  Score 10 → 7x leverage
+  Score 11 → 8x leverage
+  Score 12-13 → 9x leverage
+  Score 14-15 → 10x leverage
+
+Score 10 is still 2-3 points above the rest of the fleet's gates (most
+are 5-8), so APEX remains the tightest gate in the fleet. It just fires
+occasionally instead of never.
 
 ## Thesis
 
@@ -15,9 +34,9 @@ winning shapes exist: scalpers (100+ trades, tiny edge each) and snipers
 (the fleet is 37 red / 2 green precisely because of this). Sniping works.
 
 APEX takes the sniper path: refuse to trade unless ALL major signals align
-simultaneously (score >= 14 out of 15). 5 target trades per week hits the
-$25k volume floor at 80% margin + 10x leverage. Every trade is maximum
-conviction, maximum size, aggressive profit ratcheting.
+simultaneously (score >= 10 out of 15). 5 target trades per week hits the
+$25k volume floor at 80% margin and score-scaled leverage. Every trade is
+maximum conviction, maximum size, aggressive profit ratcheting.
 
 ## Pipeline
 
@@ -27,11 +46,11 @@ Every 3 minutes:
   3. fetch_quality_trader_positions() - cached 15 min, top 8 ELITE/RELIABLE
   4. For each asset that passes hard gates:
      - score_confluence() - add up all signals
-     - Keep if score >= 14
+     - Keep if score >= 10
   5. Pick highest score, execute via create_position (Wolverine pattern)
   6. Log entry to entry-log.jsonl (survives session clears)
 
-## Scoring (max = 15, threshold = 14)
+## Scoring (max = 15, threshold = 10)
 
   +4  SM_STRONG: pct_of_top_traders_gain >= 10% AND trader_count >= 25
   +2  VELOCITY: 15m contribution >= 1.0 OR 1h contribution >= 3.0
@@ -565,7 +584,7 @@ def run():
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
-            "_cheetah_version": "5.0-APEX",
+            "_cheetah_version": "5.1-APEX",
         })
         return
 
@@ -577,7 +596,7 @@ def run():
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"Daily cap ({dynamic_cap}) reached. Session PnL: {pnl_pct:+.1f}%",
-            "_cheetah_version": "5.0-APEX",
+            "_cheetah_version": "5.1-APEX",
         })
         return
 
@@ -585,7 +604,7 @@ def run():
     if has_resting_orders(wallet):
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY", "note": "resting order pending",
-            "_cheetah_version": "5.0-APEX",
+            "_cheetah_version": "5.1-APEX",
         })
         return
 
@@ -611,7 +630,7 @@ def run():
     leverage_cfg = config.get("leverage", {})
     cooldown_cfg = config.get("cooldown", {})
     cooldown_min = cooldown_cfg.get("perAssetMinutes", 240)
-    min_score = entry_cfg.get("minScore", 14)
+    min_score = entry_cfg.get("minScore", 10)
 
     candidates = []
     all_scored = []
@@ -651,7 +670,7 @@ def run():
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"0 candidates at score >= {min_score} ({len(all_scored)} scored)",
             "topScored": top3,
-            "_cheetah_version": "5.0-APEX",
+            "_cheetah_version": "5.1-APEX",
         })
         return
 
@@ -699,7 +718,7 @@ def run():
                 "orderType": entry_cfg.get("orderType", "FEE_OPTIMIZED_LIMIT"),
             },
             "result": result,
-            "_cheetah_version": "5.0-APEX",
+            "_cheetah_version": "5.1-APEX",
         })
     else:
         error = result.get("error", "unknown") if result else "mcporter_call returned None"
@@ -715,7 +734,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": error,
-            "_cheetah_version": "5.0-APEX",
+            "_cheetah_version": "5.1-APEX",
         })
 
 
