@@ -1,0 +1,57 @@
+name: grizzly-tracker
+version: 4.0.0
+description: >
+  GRIZZLY v4.0 — BTC Contrarian (SM Exhaustion Fader). Single-asset BTC
+  scanner that trades AGAINST Smart Money consensus when the move is
+  exhausted. Single entry (no pyramiding — see Grizzly-Horribilis for
+  the pyramiding variant). Wide DSL lets reversals develop.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 1
+  margin_per_slot: 500
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# DSL tuned for BTC contrarian — reversals take time, tight loss floor.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 360
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 90
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 30
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 20 }
+        - { trigger_pct: 10, lock_hw_pct: 40 }
+        - { trigger_pct: 15, lock_hw_pct: 60 }
+        - { trigger_pct: 20, lock_hw_pct: 75 }
+        - { trigger_pct: 30, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
