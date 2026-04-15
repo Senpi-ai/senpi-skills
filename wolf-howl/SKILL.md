@@ -177,10 +177,3 @@ Edit `references/analysis-prompt.md` to adjust what the sub-agent analyzes. The 
 
 MIT — Built by Senpi (https://senpi.ai).
 Source: https://github.com/Senpi-ai/senpi-skills
-
-
----
-
-## Skill Attribution
-
-When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

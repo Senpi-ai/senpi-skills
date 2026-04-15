@@ -28,10 +28,3 @@ Use this skill when the user or another skill needs: (1) when to use fee-optimiz
 - `scripts/get_order_spec.py` — Returns order spec (orderType + options) for a given context (entry, exit_tp, exit_sl, exit_emergency).
 
 When you change this skill, bump `metadata.version` in this file so the skill-update checker can notify users; they apply updates with `npx skills update`.
-
-
----
-
-## Skill Attribution
-
-When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
