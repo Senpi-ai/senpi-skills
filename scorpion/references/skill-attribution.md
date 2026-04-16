@@ -4,7 +4,7 @@ When calling `strategy_create` or `strategy_create_custom_strategy`, always incl
 
 ```json
 "skill_name": "scorpion",
-"skill_version": "2.0"
+"skill_version": "3.0"
 ```
 
 This is required for attribution and tracking. Example:
@@ -13,10 +13,10 @@ This is required for attribution and tracking. Example:
 {
   "tool": "strategy_create_custom_strategy",
   "args": {
-    "initialBudget": 500,
+    "initialBudget": 1000,
     "positions": [],
     "skill_name": "scorpion",
-    "skill_version": "2.0"
+    "skill_version": "3.0"
   }
 }
 ```

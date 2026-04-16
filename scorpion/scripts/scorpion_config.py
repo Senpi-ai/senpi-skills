@@ -1,4 +1,4 @@
-"""Scorpion Strategy — Shared config, MCP helpers, state I/O.
+"""Scorpion v3.0 Multi-Market Active Trader — Shared config, MCP helpers, state I/O.
 
 Fleet-standard helper module imported by scorpion-scanner.py.
 """
@@ -91,7 +91,7 @@ def is_asset_cooled_down(asset, cooldown_minutes=180):
     return time.time() < entry.get("until", 0)
 
 
-def set_asset_cooldown(asset, cooldown_minutes=180):
+def set_asset_cooldown(asset, cooldown_minutes=180, reason="exit"):
     p = STATE_DIR / "cooldowns.json"
     cooldowns = {}
     if p.exists():
@@ -103,6 +103,7 @@ def set_asset_cooldown(asset, cooldown_minutes=180):
     cooldowns[asset] = {
         "until": time.time() + cooldown_minutes * 60,
         "set_at": now_iso(),
+        "reason": reason,
     }
     atomic_write(str(p), cooldowns)
 
