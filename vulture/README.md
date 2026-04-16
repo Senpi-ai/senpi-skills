@@ -1,16 +1,47 @@
-# 🦅 VULTURE v1.0 — Multi-Asset SM Exhaustion Fader
+# 🦅 Vulture v2.0 — Long-Tail Momentum Rider
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## Thesis
+**COMPLETE REWRITE from v1.0.** Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, etc.) that no other Senpi predator covers. Follows SM direction when confluence is strong. Hold winners for days (7-day hard_timeout), cut losers fast (60-min dead_weight_cut). Built from the #1 Arena winner's 3-week playbook (38.6% win rate, 6.15x profit factor).
 
-Vulture watches BTC, ETH, SOL, and HYPE for moments when Smart Money consensus is overwhelmingly strong in one direction AND the 4H price has already moved more than 3%. That's the telltale sign of an exhausted move about to reverse. When it detects exhaustion (fading 15m velocity, stalling 1h momentum, deep SM concentration), it takes the opposite side with conservative 5-7x leverage and a wide 6-hour DSL that gives the reversal time to develop.
+## Install
 
-Born from fleet analysis that found 5 agents were perfectly inverted — buying every top and shorting every bottom — Vulture turns that systematic failure into a deliberate strategy.
+```bash
+mkdir -p /data/workspace/skills/vulture-strategy/{config,scripts,state}
 
-## Quick Start
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/runtime.yaml -o /data/workspace/skills/vulture-strategy/runtime.yaml
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/SKILL.md -o /data/workspace/skills/vulture-strategy/SKILL.md
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/config/vulture-config.json -o /data/workspace/skills/vulture-strategy/config/vulture-config.json
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scripts/vulture-scanner.py -o /data/workspace/skills/vulture-strategy/scripts/vulture-scanner.py
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scripts/vulture_config.py -o /data/workspace/skills/vulture-strategy/scripts/vulture_config.py
+```
 
-See [SKILL.md](SKILL.md) for full setup instructions, agent rules, and runtime configuration.
+## Configure
+
+```bash
+sed -i 's/${WALLET_ADDRESS}/<YOUR_STRATEGY_WALLET>/' /data/workspace/skills/vulture-strategy/runtime.yaml
+sed -i 's/${TELEGRAM_CHAT_ID}/<YOUR_TELEGRAM_CHAT_ID>/' /data/workspace/skills/vulture-strategy/runtime.yaml
+```
+
+## Install runtime + create scanner cron
+
+```bash
+openclaw senpi runtime create --path /data/workspace/skills/vulture-strategy/runtime.yaml
+openclaw senpi runtime list
+# Create 3-minute cron: python3 /data/workspace/skills/vulture-strategy/scripts/vulture-scanner.py
+```
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Universe | 25 small/mid-cap perps (see SKILL.md) |
+| Max positions | 2 concurrent |
+| Leverage | 3-7x (score-scaled) |
+| hard_timeout | 7 days |
+| dead_weight_cut | 60 min |
+| MIN_SCORE | 7 |
+| Cooldown | 4h per asset |
 
 ## License
 
