@@ -1,27 +1,27 @@
-# 🦂 SCORPION v2.0 — Altcoin Swarm Hunter
+# SCORPION v3.0 — Multi-Market Active Trader
 
-**The swarm forms. Scorpion picks the weakest prey.**
+**The only predator that hunts across both crypto and commodities.**
 
-Scorpion detects coordinated altcoin risk-off events and trades the highest-conviction target.
+Scorpion trades BOTH the main Hyperliquid DEX (crypto) and the XYZ DEX (commodities/indices) using SM concentration + 4H price trend alignment. Arena winner #2/#3 playbook.
 
 ## Quick Stats
-- **Strategy**: Detect altcoin swarms (5+ alts with SM >2%), trade the best one
-- **Margin**: $350 per trade (35% of $1K budget)
-- **Leverage**: 5x (altcoin typical), up to 10x on select mid-caps
-- **Entry threshold**: Swarm confirmed + Score 5/8
-- **Max positions**: 1 at a time
-- **Timeout**: 240 minutes (altcoin trends develop slowly)
-- **Daily cap**: 3 entries, 90-min cooldown
-- **Order type**: FEE_OPTIMIZED_LIMIT (maker first)
+- **Strategy**: SM trend-following across crypto + XYZ DEX
+- **Universe**: BTC, ETH, SOL, HYPE, ZEC, LIT, GRASS, FARTCOIN, TAO, ONDO, SUI, ARB, WLD, DOGE, AVAX + xyz:CL, xyz:BRENTOIL, xyz:GOLD, xyz:SPX
+- **Margin**: 30% per position (3 x 30% = 90% max exposure)
+- **Leverage**: 5-10x (score-scaled)
+- **Entry threshold**: Score 6+ (SM + trend + velocity + depth)
+- **Max positions**: 3 concurrent
+- **Hard timeout**: 720 minutes (12 hours)
+- **Daily cap**: 6 entries, 120-min per-asset cooldown
+- **Order type**: FEE_OPTIMIZED_LIMIT with ensureExecutionAsTaker
 
-## The Swarm Signal
-When 5+ non-major altcoins simultaneously attract SM SHORT concentration >2%, something systemic is happening. This coordinated pattern is higher conviction than any single asset signal.
+## What Makes This Different
+No other Senpi predator trades XYZ DEX assets. Scorpion v3.0 trades crude oil, Brent, gold, and SPX alongside crypto — capturing opportunities across uncorrelated markets.
 
-## What It Trades
-Assets that no other Predator touches: LIT, TAO, MON, FARTCOIN, VVV, ZRO, CC, AVAX, XMR, PUMP, and more. These are the altcoins generating the most SM PnL on Hyperliquid.
-
-## Complementary to Cobra
-Cobra trades the #1 SM asset (usually BTC/ETH/HYPE). Scorpion trades the #1 altcoin within a confirmed swarm. They never overlap and can run simultaneously.
+## XYZ DEX Handling
+- XYZ assets use `xyz:` prefix in create_position calls (e.g., `coin="xyz:CL"`)
+- XYZ assets require `leverageType="ISOLATED"`
+- XYZ price thresholds are lower (commodities move 0.5-3% in 4h vs 1-5% for crypto)
 
 ## Install
 See [SKILL.md](SKILL.md) for full setup instructions.

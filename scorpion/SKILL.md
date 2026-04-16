@@ -1,128 +1,96 @@
 ---
 name: scorpion-strategy
 description: >-
-  SCORPION v2.0 — Altcoin Swarm Hunter. Detects coordinated risk-off
-  events where 5+ altcoins simultaneously attract SM concentration,
-  then trades the highest-conviction target within the swarm.
+  SCORPION v3.0 — Multi-Market Active Trader. Trades BOTH crypto AND XYZ
+  DEX commodities/indices using SM concentration + 4H trend alignment.
+  Up to 3 concurrent positions, short holds, Arena winner playbook.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "3.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🦂 SCORPION v2.0 — Altcoin Swarm Hunter
+# SCORPION v3.0 — Multi-Market Active Trader
 
-The swarm forms. Scorpion picks the weakest prey.
+The only predator that hunts across both crypto and commodities.
 
 ## The Thesis
 
-When SM goes risk-off, altcoins dump in a correlated swarm. The top traders
-on Hyperliquid make their biggest returns not on BTC/ETH, but on altcoin
-SHORTs: LIT, TAO, MON, FARTCOIN, VVV, ZRO, CC.
+Arena winners #2 and #3 share a playbook: trade across BOTH the main Hyperliquid
+DEX (crypto) AND the XYZ DEX (commodities, indices), follow SM direction with 4H
+price trend confirmation, hold for hours not days, and run multiple positions
+simultaneously.
 
-On April 3, 2026, trader 0x039c was up **99.8% in 4 hours** with 33 positions.
-Biggest winners were all altcoin SHORTs: LIT +$11.6K, FARTCOIN +$6.3K,
-TAO +$4.9K. The same day, the SM leaderboard showed 7+ altcoins simultaneously
-at >2% SM SHORT concentration — a clear coordinated swarm.
+No other Senpi predator trades both markets. Scorpion v3.0 fills that gap.
 
-**No current agent detects this pattern.** Our agents evaluate assets individually.
-Scorpion detects the *meta-pattern* first — then picks the best target.
+### Universe
 
-### The Data Advantage
+| Market | Assets |
+|---|---|
+| Crypto majors | BTC, ETH, SOL, HYPE |
+| Crypto mid-caps | ZEC, LIT, GRASS, FARTCOIN, TAO, ONDO, SUI, ARB, WLD, DOGE, AVAX |
+| XYZ commodities | CL (crude oil), BRENTOIL, GOLD |
+| XYZ indices | SPX |
 
-| Signal | What it means | Who uses it |
+### What Makes This Different
+
+| Feature | Most Predators | Scorpion v3.0 |
 |---|---|---|
-| SM concentration on BTC | Smart money is trading BTC | Grizzly, Cobra |
-| SM concentration on HYPE | Smart money is trading HYPE | Cheetah |
-| SM concentration on ETH | Smart money is trading ETH | Polar |
-| **5+ altcoins all SM SHORT** | **Coordinated risk-off event** | **Only Scorpion** |
+| Markets | Crypto only | Crypto + XYZ DEX |
+| Max positions | 1 | 3 concurrent |
+| Hold time | Hours to days | Hours (12h max) |
+| Daily entries | 2-4 | Up to 6 |
+| Direction | Fixed or contrarian | Signal-driven both ways |
 
-## ⛔ CRITICAL AGENT RULES
+## CRITICAL AGENT RULES
 ### RULE 1: Install path is `/data/workspace/skills/scorpion-strategy/`
 ### RULE 2: THE SCANNER DOES NOT EXIT POSITIONS — DSL only.
-### RULE 3: MAX 1 POSITION at a time.
-### RULE 4: MAX 3 ENTRIES PER DAY. 90-minute cooldown. 120-minute per-asset cooldown.
-### RULE 5: Must detect swarm (5+ altcoins) BEFORE evaluating individual targets.
-### RULE 6: XYZ equities are BANNED from trading.
-### RULE 7: Major assets (BTC, ETH, SOL, HYPE) are EXCLUDED — those are Cobra's territory.
-### RULE 8: USE FEE_OPTIMIZED_LIMIT for all entries.
+### RULE 3: MAX 3 POSITIONS at a time.
+### RULE 4: MAX 6 ENTRIES PER DAY. 120-minute per-asset cooldown.
+### RULE 5: XYZ assets use "xyz:" prefix for create_position (e.g. coin="xyz:CL").
+### RULE 6: XYZ assets require leverageType="ISOLATED".
+### RULE 7: USE FEE_OPTIMIZED_LIMIT for all entries with ensureExecutionAsTaker=true.
 
 ## Scanner Logic (1 API call)
 
 ```
 1. leaderboard_get_markets (limit=100)
 
-STEP 1 — SWARM DETECTION:
-   → Count non-major, non-XYZ altcoins with SM >2% in each direction
-   → If SHORT count >= 5: SHORT swarm confirmed
-   → If LONG count >= 5: LONG swarm confirmed
-   → If neither: NO TRADE (no coordinated event)
+For each asset in the universe (crypto + XYZ):
+  - Check SM direction and concentration
+  - Check 4H price alignment with SM direction
+    (crypto: >= 1.0%, XYZ: >= 0.5%)
+  - Score: SM concentration + 4H trend + 15m velocity +
+           1H acceleration + trader depth + 4H conviction
+  - MIN_SCORE: 6
 
-STEP 2 — TARGET SELECTION (only if swarm confirmed):
-   → Score each altcoin in the swarm:
-     - Swarm Size: >=7 = +2, >=5 = +1
-     - SM Concentration: >10% = +2, >5% = +1
-     - Price Confirmation: >1% in direction = +2, >0.5% = +1
-     - Trader Count: >=50 = +1
-     - Contribution Velocity: >3% = +1
-
-   MIN_SCORE: 5/8
-
-   → Pick highest-scoring target
-   → ENTER with $350 margin, 5x leverage, FEE_OPTIMIZED_LIMIT
+Pick up to (3 - current_positions) best candidates.
+Enter with 30% margin, 5-10x leverage (score-scaled).
 ```
 
-## DSL Configuration (Altcoin-Optimized)
-
-Altcoins are more volatile than majors. They need wider stops and more time.
+## DSL Configuration (Short-Hold Profile)
 
 **Phase 1 (Loss Protection):**
-- Max loss: -20% (wider than Cobra's -15% — alts bounce harder)
-- Retrace from high water: 10% (alts retrace 5-8% before continuing)
+- Max loss: -15%
+- Retrace from high water: 8%
 - 3 consecutive breaches required
-- Phase 1 max time: 45 minutes
 
-**Phase 2 (Profit Locking — let altcoin trends develop):**
-- +5% → lock 20% (very loose — let it run)
-- +10% → lock 40%
-- +15% → lock 55%
-- +20% → lock 70%
-- +30% → lock 82%
-- +50% → lock 90% (huge winners get maximum room)
+**Phase 2 (Profit Locking):**
+- +5% -> lock 20%
+- +10% -> lock 40%
+- +15% -> lock 60%
+- +20% -> lock 75%
+- +30% -> lock 85%
+- +50% -> lock 90%
 
 **Timeouts:**
-- Hard timeout: 240 minutes (4 hours — altcoin moves are slower to develop)
-- Weak peak cut: 90 minutes at +3% minimum
-- Dead weight cut: 45 minutes
-
-## Why This Works
-
-1. **Pattern detection > single-asset detection.** When 7 altcoins simultaneously
-   attract SM SHORT concentration, something systemic is happening. Individual
-   signals might be noise. Correlated signals are conviction.
-
-2. **Untapped altcoin alpha.** No other Predator agent trades LIT, TAO, MON,
-   FARTCOIN, VVV, ZRO, or CC. These are the assets generating the most SM PnL
-   right now. We're leaving the highest-ROE trades on the table.
-
-3. **Higher move magnitude.** BTC moves 0.2% in 4 hours. LIT moves 3.1%. At the
-   same leverage, the altcoin trade has 15x the ROE impact.
-
-4. **Complementary to Cobra.** Cobra trades the #1 SM asset (usually a major).
-   Scorpion trades the #1 altcoin within a confirmed swarm. They never overlap.
-
-## ROE Math
-
-$350 margin × 5x leverage = $1,750 notional position
-LIT drops 3% (today's actual move): $1,750 × 0.03 = $52.50 profit
-$52.50 / $1,000 account = **5.25% ROE per trade**
-
-With 3 entries/day over 5 remaining Arena days = 15 potential trades.
-Need 4 winners at 5%+ each = **+20% weekly ROE** with room for losers.
+- Hard timeout: 720 minutes (12 hours)
+- Weak peak cut: 60 minutes at +3% minimum
+- Dead weight cut: 30 minutes
 
 ## Runtime Setup
 ```bash
@@ -136,7 +104,7 @@ openclaw senpi runtime list && openclaw senpi status
 Verify runtime + status + scanner cron (90s, main).
 CRITICAL: The cron must be configured to call `create_position` via Senpi MCP
 when the scanner outputs a signal with an entry block.
-Send: "🦂 SCORPION v2.0 online. Swarm hunter. Watching for coordinated altcoin risk-off."
+Send: "SCORPION v3.0 online. Multi-market active trader. Hunting crypto + XYZ."
 
 ## License
 MIT — Built by Senpi (https://senpi.ai).
