@@ -1,22 +1,30 @@
 ---
 name: mantis-strategy
 description: >-
-  MANTIS v4.0 — Striker-Only SM Explosion Scanner. Stalker removed.
+  MANTIS v4.1 — Striker-Only SM Explosion Scanner. Stalker removed.
   Detects violent rank jumps across 50+ markets. Fast-cycling DSL.
   DSL exit managed by plugin runtime via runtime.yaml.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.0"
+  version: "4.1"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🦗 MANTIS v4.0 — Striker-Only SM Explosion Scanner
+# 🦗 MANTIS v4.1 — Striker-Only SM Explosion Scanner
 
 Stalker is dead. Only explosions.
+
+## v4.1 changelog (fleet-fix batch 4)
+
+- `STRIKER_MIN_SCORE` raised 9 → 11. Gross PnL -$5.21 but fees $30.72 (6x
+  fee drag). Raising the score gate cuts trade count ~60%, eliminating
+  fee drag while preserving the strongest Striker signals.
+- Leverage clamping applied to emitted entry (`get_safe_leverage`) so the
+  downstream executor never hits CREATE_INVALID_LEVERAGE.
 
 ---
 
@@ -54,7 +62,7 @@ On EVERY session start, check `config/bootstrap-complete.json`. If missing:
 5. Verify: `openclaw senpi runtime list` and `openclaw senpi status`
 6. Create scanner cron (90s, main)
 7. Write `config/bootstrap-complete.json`
-8. Send: "🦗 MANTIS v4.0 online. Striker-only. Silence = no explosions."
+8. Send: "🦗 MANTIS v4.1 online. Striker-only. Silence = no explosions."
 
 ---
 
@@ -66,7 +74,7 @@ On EVERY session start, check `config/bootstrap-complete.json`. If missing:
 | Max entries/day | 6 |
 | Leverage | 7x |
 | Cooldown | 120 min per asset |
-| Min Striker score | 9 |
+| Min Striker score | 11 |
 
 ---
 

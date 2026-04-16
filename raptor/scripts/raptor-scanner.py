@@ -612,6 +612,34 @@ def build_signal(trader, positions, sm_map, hot_cfg, sm_cfg):
 # EXECUTION
 # ═══════════════════════════════════════════════════════════════
 
+def get_safe_leverage(wallet, asset, requested_leverage):
+    """Query Hyperliquid's max leverage for this asset and clamp.
+
+    Fleet-wide leverage safety fix (batch 4). Raptor's quality pool can
+    surface low-cap assets whose Hyperliquid max is below the scanner's
+    requested tier. Clamping prevents CREATE_INVALID_LEVERAGE rejections
+    and the phantom ENTRY logs they cause.
+    """
+    try:
+        limits = cfg.mcporter_call(
+            "strategy_get_asset_trading_limits",
+            strategy_wallet=wallet,
+            coin=asset,
+        )
+        if limits:
+            data = limits.get("data", limits)
+            if isinstance(data, dict):
+                lev = data.get("leverage", {})
+                if isinstance(lev, dict):
+                    max_lev = int(float(lev.get("value", 20)))
+                    return min(requested_leverage, max_lev)
+                elif isinstance(lev, (int, float)):
+                    return min(requested_leverage, int(lev))
+    except Exception:
+        pass
+    return requested_leverage
+
+
 def execute_entry(wallet, signal, account_value, entry_cfg, leverage_cfg):
     """Self-execute the entry via Senpi MCP create_position.
     Matches Wolverine/Phoenix pattern."""
@@ -620,11 +648,13 @@ def execute_entry(wallet, signal, account_value, entry_cfg, leverage_cfg):
     margin_pct = high_conv_pct if signal["score"] >= 10 else base_margin_pct
     margin = round(account_value * margin_pct, 2)
 
-    leverage = get_leverage_for_score(
+    requested_leverage = get_leverage_for_score(
         signal["score"],
         leverage_cfg.get("tiers", []),
         leverage_cfg.get("default", 7),
     )
+    # Fleet-wide batch-4 leverage safety: clamp to asset max.
+    leverage = get_safe_leverage(wallet, signal["asset"], requested_leverage)
 
     order = {
         "coin": signal["asset"],
@@ -650,6 +680,16 @@ def execute_entry(wallet, signal, account_value, entry_cfg, leverage_cfg):
         reason=reason,
     )
     success = bool(result and result.get("success"))
+    # Fleet-wide batch-4 inner-order success validation.
+    if success:
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+        if isinstance(data, dict):
+            orders_result = data.get("orders", data.get("results", []))
+            if isinstance(orders_result, list) and orders_result:
+                inner = orders_result[0]
+                if isinstance(inner, dict) and inner.get("success") is False:
+                    err = inner.get("error", "inner order failed")
+                    return False, {"error": f"INNER_FAILURE: {err}"}, margin, leverage
     return success, result, margin, leverage
 
 

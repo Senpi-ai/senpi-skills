@@ -1,25 +1,38 @@
 #!/usr/bin/env python3
-# Senpi PHOENIX Scanner v2.0
+# Senpi PHOENIX Scanner v3.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""PHOENIX v2.0 — Contribution Velocity Scanner (Hardened).
+"""PHOENIX v3.0 — Contribution Velocity Scanner (Lemon DSL profile + reset).
 
-Same signal as v1.0.1 — contribution_pct_change_4h diverging from price.
-The signal works. Phoenix found SOL LONG +$24, ETH LONG +$11, SOL SHORT +$22
-on 4/1. The HYPE SHORT at 54x divergence peaked at +50% ROE.
+Same contribution-velocity signal as v1.0.1/v2.0. Phoenix found SOL LONG
++$24, ETH LONG +$11, SOL SHORT +$22 on 4/1. The HYPE SHORT at 54x
+divergence peaked at +50% ROE. The signal works.
 
-What broke in v1.0.1: the trade counter. When DSL exits moved to the plugin,
-the scanner stopped incrementing the counter after entries. Result: 24 entries
-in one day instead of 6. -$228 in one day. -40.6% total.
+## v3.0 changes — DSL profile adoption + capital reset
 
-v2.0 fixes:
-1. Trade counter is SELF-CONTAINED — the scanner increments it in the output
-   flow, not dependent on the exit path
-2. SAFETY CHECK: before any entry, query the strategy wallet's clearinghouse
-   state and count how many positions were opened today. If that count exceeds
-   the daily limit, refuse to enter regardless of what the counter file says.
-3. Daily entry cap reduced from 6 to 4 (Phoenix's best days had 3-5 winners)
-4. No thesis exit, no DSL state generation
+Phoenix was locked by the circuit breaker at -36.3% drawdown (daily cap=0
+after the pnl-aware trigger fell past -25%). Scanner diagnostics show
+54% of losing trades were killed by `weak_peak_cut` — valid signals were
+being cut before they could run. The Lemon DSL profile removes
+weak_peak_cut entirely and widens Phase 2 tiers.
+
+Runtime.yaml changes:
+- Removed `weak_peak_cut` block entirely (54% of losers killed by it)
+- `hard_timeout.interval_in_minutes`: 45 → 480 (winners need time to run)
+- `dead_weight_cut.interval_in_minutes`: → 20
+- `phase1.max_loss_pct`: 25.0 → 15.0
+- `phase1.retrace_threshold`: → 8
+- `phase1.consecutive_breaches_required`: → 3
+- `phase2.tiers`: replaced with Lemon's wider ladder
+  (5/20, 10/40, 15/60, 20/75, 30/85, 50/92)
+
+Scanner capital reset:
+- `STARTING_BUDGET` 1000.0 → 637.93 (current equity from latest
+  leaderboard data). Rebases the pnl-aware daily cap so Phoenix can
+  actually enter again after the previous drawdown.
+
+v2.0 retained fixes (trade counter SELF-CONTAINED, stale-date reset,
+no thesis exit, no DSL state generation).
 
 One API call per scan: leaderboard_get_markets.
 Runs every 2 minutes.
@@ -49,7 +62,7 @@ MAX_DAILY_ENTRIES = 4               # Reduced from 6 — Phoenix's best days had
 # DYNAMIC DAILY CAP (P&L-aware circuit breaker)
 # ═══════════════════════════════════════════════════════════════
 
-STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+STARTING_BUDGET = 637.93  # v3.0: rebased to current equity after drawdown
 
 def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     """P&L-aware daily entry cap based on drawdown from starting budget.
@@ -402,7 +415,7 @@ def run():
         "allSignals": [{"token": s["token"], "score": s["score"],
                         "direction": s["direction"]} for s in signals[:5]],
         "marketsScanned": markets_count,
-        "_phoenix_version": "2.0",
+        "_phoenix_version": "3.0",
     })
 
 

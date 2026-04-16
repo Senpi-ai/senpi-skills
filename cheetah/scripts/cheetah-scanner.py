@@ -1,9 +1,25 @@
 #!/usr/bin/env python3
-# Senpi CHEETAH Scanner v5.1-APEX
+# Senpi CHEETAH Scanner v5.1.1-APEX
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""CHEETAH v5.1 APEX — Multi-signal confluence sniper.
+"""CHEETAH v5.1.1 APEX — Multi-signal confluence sniper.
+
+## v5.1.1 change — leverage safety fix
+
+v5.1 APEX fired MON LONG at 7x, but MON's Hyperliquid max leverage is 5x.
+The order was rejected with CREATE_INVALID_LEVERAGE. The MCP wrapper
+returned outer success=true despite inner per-order success=false, so
+the scanner logged a phantom ENTRY. v5.1.1 adds:
+
+  1. get_safe_leverage() — queries strategy_get_asset_trading_limits for
+     each candidate asset and clamps the requested leverage to the asset's
+     Hyperliquid max. Prevents CREATE_INVALID_LEVERAGE rejections.
+  2. Inner-order success validation — after create_position returns,
+     inspect data.orders[0].success and surface INNER_FAILURE when the
+     per-order status is false even if the outer envelope claims success.
+     Prevents phantom ENTRY logs that corrupt the counter.
+
 
 Purpose-built to win the Senpi Arena via asymmetric ROE% optimization.
 
@@ -125,6 +141,34 @@ def get_leverage_for_score(score, tiers, default_leverage):
         if score >= tier.get("minScore", 0):
             return tier.get("leverage", default_leverage)
     return default_leverage
+
+
+def get_safe_leverage(wallet, asset, requested_leverage):
+    """Query Hyperliquid's max leverage for this asset and clamp.
+
+    v5.1.1 leverage safety fix. Prevents CREATE_INVALID_LEVERAGE rejections
+    on assets whose Hyperliquid max is below the scanner's requested tier
+    (e.g. MON max=5x while tier requested 7x).
+    """
+    try:
+        coin = asset  # For XYZ assets, asset already carries the xyz: prefix.
+        limits = cfg.mcporter_call(
+            "strategy_get_asset_trading_limits",
+            strategy_wallet=wallet,
+            coin=coin,
+        )
+        if limits:
+            data = limits.get("data", limits)
+            if isinstance(data, dict):
+                lev = data.get("leverage", {})
+                if isinstance(lev, dict):
+                    max_lev = int(float(lev.get("value", 20)))
+                    return min(requested_leverage, max_lev)
+                elif isinstance(lev, (int, float)):
+                    return min(requested_leverage, int(lev))
+    except Exception:
+        pass
+    return requested_leverage  # Fallback — best effort.
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -529,11 +573,13 @@ def execute_entry(wallet, signal, account_value, entry_cfg, leverage_cfg):
     margin_pct = entry_cfg.get("marginPct", 0.80)
     margin = round(account_value * margin_pct, 2)
 
-    leverage = get_leverage_for_score(
+    requested_leverage = get_leverage_for_score(
         signal["score"],
         leverage_cfg.get("tiers", []),
         leverage_cfg.get("default", 8),
     )
+    # v5.1.1: clamp to asset max to avoid CREATE_INVALID_LEVERAGE phantom fills.
+    leverage = get_safe_leverage(wallet, signal["asset"], requested_leverage)
 
     order = {
         "coin": signal["asset"],
@@ -548,7 +594,7 @@ def execute_entry(wallet, signal, account_value, entry_cfg, leverage_cfg):
     }
 
     reason = (
-        f"CHEETAH APEX v5.0 confluence fire: score={signal['score']}, "
+        f"CHEETAH APEX v5.1.1 confluence fire: score={signal['score']}, "
         f"reasons={','.join(signal['reasons'][:5])}"
     )
     result = cfg.mcporter_call(
@@ -558,6 +604,18 @@ def execute_entry(wallet, signal, account_value, entry_cfg, leverage_cfg):
         reason=reason,
     )
     success = bool(result and result.get("success"))
+    # v5.1.1 inner-order success validation. The outer envelope lies when a
+    # per-order rejection (e.g. CREATE_INVALID_LEVERAGE) happens. Dig into
+    # data.orders[0].success before claiming the entry landed.
+    if success:
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+        if isinstance(data, dict):
+            orders_result = data.get("orders", data.get("results", []))
+            if isinstance(orders_result, list) and orders_result:
+                inner = orders_result[0]
+                if isinstance(inner, dict) and inner.get("success") is False:
+                    err = inner.get("error", "inner order failed")
+                    return False, {"error": f"INNER_FAILURE: {err}"}, margin, leverage
     return success, result, margin, leverage
 
 
@@ -584,7 +642,7 @@ def run():
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
-            "_cheetah_version": "5.1-APEX",
+            "_cheetah_version": "5.1.1-APEX",
         })
         return
 
@@ -596,7 +654,7 @@ def run():
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"Daily cap ({dynamic_cap}) reached. Session PnL: {pnl_pct:+.1f}%",
-            "_cheetah_version": "5.1-APEX",
+            "_cheetah_version": "5.1.1-APEX",
         })
         return
 
@@ -604,7 +662,7 @@ def run():
     if has_resting_orders(wallet):
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY", "note": "resting order pending",
-            "_cheetah_version": "5.1-APEX",
+            "_cheetah_version": "5.1.1-APEX",
         })
         return
 
@@ -670,7 +728,7 @@ def run():
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"0 candidates at score >= {min_score} ({len(all_scored)} scored)",
             "topScored": top3,
-            "_cheetah_version": "5.1-APEX",
+            "_cheetah_version": "5.1.1-APEX",
         })
         return
 
@@ -718,7 +776,7 @@ def run():
                 "orderType": entry_cfg.get("orderType", "FEE_OPTIMIZED_LIMIT"),
             },
             "result": result,
-            "_cheetah_version": "5.1-APEX",
+            "_cheetah_version": "5.1.1-APEX",
         })
     else:
         error = result.get("error", "unknown") if result else "mcporter_call returned None"
@@ -734,7 +792,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": error,
-            "_cheetah_version": "5.1-APEX",
+            "_cheetah_version": "5.1.1-APEX",
         })
 
 

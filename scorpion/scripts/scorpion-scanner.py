@@ -124,6 +124,35 @@ def get_leverage_for_score(score):
     return DEFAULT_LEVERAGE
 
 
+def get_safe_leverage(wallet, asset, requested_leverage):
+    """Query Hyperliquid's max leverage for this asset and clamp.
+
+    Fleet-wide leverage safety fix (batch 4). Scorpion trades a broad
+    crypto + XYZ universe; some assets' Hyperliquid max is below the
+    scanner's requested tier. For XYZ assets, asset should already carry
+    the "xyz:" prefix. Clamping prevents CREATE_INVALID_LEVERAGE
+    rejections and the phantom ENTRY logs they cause.
+    """
+    try:
+        limits = cfg.mcporter_call(
+            "strategy_get_asset_trading_limits",
+            strategy_wallet=wallet,
+            coin=asset,
+        )
+        if limits:
+            data = limits.get("data", limits)
+            if isinstance(data, dict):
+                lev = data.get("leverage", {})
+                if isinstance(lev, dict):
+                    max_lev = int(float(lev.get("value", 20)))
+                    return min(requested_leverage, max_lev)
+                elif isinstance(lev, (int, float)):
+                    return min(requested_leverage, int(lev))
+    except Exception:
+        pass
+    return requested_leverage
+
+
 def has_resting_orders(wallet):
     """Check for non-reduceOnly resting orders, auto-cancelling stale ones >10min."""
     import time as _time
@@ -309,6 +338,15 @@ def execute_entry(wallet, token, direction, margin, leverage, is_xyz):
         }],
     )
     if result and result.get("success"):
+        # Fleet-wide batch-4 inner-order success validation.
+        data = result.get("data", {})
+        if isinstance(data, dict):
+            orders_result = data.get("orders", data.get("results", []))
+            if isinstance(orders_result, list) and orders_result:
+                inner = orders_result[0]
+                if isinstance(inner, dict) and inner.get("success") is False:
+                    err = inner.get("error", "inner order failed")
+                    return False, {"error": f"INNER_FAILURE: {err}"}
         return True, result
     error = result.get("error", "unknown") if result else "mcporter_call returned None"
     return False, {"error": error}
@@ -374,7 +412,11 @@ def run():
         if cfg.is_asset_cooled_down(token, COOLDOWN_MINUTES):
             continue
 
-        leverage = get_leverage_for_score(candidate["score"])
+        requested_leverage = get_leverage_for_score(candidate["score"])
+        # Fleet-wide batch-4 leverage safety: clamp to asset max. Pass the
+        # coin string that will actually be submitted (xyz: prefix for XYZ).
+        coin_for_clamp = coin_for_position(token) if candidate["is_xyz"] else token
+        leverage = get_safe_leverage(wallet, coin_for_clamp, requested_leverage)
         margin = round(account_value * MARGIN_PCT, 2)
 
         success, result = execute_entry(

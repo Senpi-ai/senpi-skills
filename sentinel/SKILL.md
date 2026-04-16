@@ -1,22 +1,37 @@
 ---
 name: sentinel-strategy
 description: >-
-  SENTINEL v2.0 — Quality Trader Convergence Scanner. Inverted pipeline:
+  SENTINEL v2.2 — Quality Trader Convergence Scanner. Inverted pipeline:
   find ELITE/RELIABLE traders, see where they converge. When 5+ quality
-  traders hold the same asset in the same direction, enter.
+  traders hold the same asset in the same direction, enter. Batch 4
+  widens Phase 2 tiers ([5,10,15] → [15,30,50,75,100]) per Sentinel's
+  own rec + rebases starting budget to current equity ($786.60).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "2.2"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🛡️ SENTINEL v2.0 — Quality Trader Convergence
+# 🛡️ SENTINEL v2.2 — Quality Trader Convergence
 
 When the best traders agree, follow them.
+
+## v2.2 changelog (fleet-fix batch 4)
+
+Sentinel was stuck at -21.44% drawdown with daily cap = 1 (pnl-aware
+circuit breaker severely restricting entries). 45.2% win rate confirmed
+the signal is valid; DSL was bleeding value via slow cuts on 17/23
+losers.
+
+- Phase 2 tiers widened to Sentinel's own rec:
+  [15/35, 30/60, 50/75, 75/85, 100/92]. Keeps early lock at 15% but
+  pushes upper tiers out so winners have room to run.
+- `STARTING_BUDGET` 1000.0 → 786.60 (current equity) — unblocks the
+  pnl-aware daily cap.
 
 ---
 
@@ -54,7 +69,7 @@ On EVERY session start, check `config/bootstrap-complete.json`. If missing:
 5. Verify: `openclaw senpi runtime list` and `openclaw senpi status`
 6. Create scanner cron (5 min, main)
 7. Write `config/bootstrap-complete.json`
-8. Send: "🛡️ SENTINEL v2.0 online. Tracking quality convergence. Silence = no consensus."
+8. Send: "🛡️ SENTINEL v2.2 online. Wider Phase 2 tiers. Silence = no consensus."
 
 ---
 

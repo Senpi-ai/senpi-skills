@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
-# Senpi JAGUAR Scanner v3.1
+# Senpi JAGUAR Scanner v3.2
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""JAGUAR v3.1 — Striker-Only (Fleet Hardened).
+"""JAGUAR v3.2 — Striker-Only (threshold recalibrated).
+
+v3.2 change — rank jump threshold loosening (2026-04-15):
+- STRIKER_MIN_RANK_JUMP: 15 → 10. 0 events fired in 10,239 evaluations
+  under the prior threshold — the signal was unreachable in the current
+  market regime. Lowering to 10 re-engages Striker detection.
 
 v3.1 changes from fleet audit (2026-04-09):
 - Scanner calls create_position internally via mcporter (Wolverine pattern)
@@ -85,7 +90,7 @@ DEFAULT_LEVERAGE = 7
 MAX_LEVERAGE = 10
 
 # Striker thresholds
-STRIKER_MIN_RANK_JUMP = 15
+STRIKER_MIN_RANK_JUMP = 10  # v3.2: lowered 15 → 10 (signal was dormant market-wide)
 STRIKER_MIN_PREV_RANK = 25
 STRIKER_MIN_VOLUME_RATIO = 1.5
 STRIKER_MIN_REASONS = 4
@@ -593,7 +598,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_jaguar_version": "3.1",
+                "_jaguar_version": "3.2",
             })
         else:
             cfg.output({
@@ -606,7 +611,7 @@ def run():
                     "reasons": signal["reasons"],
                 },
                 "error": result,
-                "_jaguar_version": "3.1",
+                "_jaguar_version": "3.2",
             })
         return
 

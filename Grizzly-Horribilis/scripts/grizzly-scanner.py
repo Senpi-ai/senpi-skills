@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
-# Senpi GRIZZLY HORRIBILIS Scanner v2.1
+# Senpi GRIZZLY HORRIBILIS Scanner v2.1.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""GRIZZLY HORRIBILIS v2.1 — BTC Contrarian with Pyramiding (tightened).
+"""GRIZZLY HORRIBILIS v2.1.1 — BTC Contrarian with Pyramiding (capital reset).
+
+## v2.1.1 change — capital reset (2026-04-15)
+
+Grizzly Horribilis was hard-stopped at -35.3% drawdown with daily
+cap = 0. Rebasing `STARTING_BUDGET` from 1000.0 to 648.35 (current
+equity = $1000 − $351.65) so the pnl-aware daily cap unblocks from the
+circuit breaker.
+
+
 
 v2.1 fleet-fix recalibration (April 15, 2026):
 - MIN_EXHAUSTION_PCT raised 2.5 → 4.5 (same fix Dog v2.2 got).
@@ -64,7 +73,7 @@ MAX_DAILY_ENTRIES = 4          # Total entries including scale-ups (was 2)
 # DYNAMIC DAILY CAP (P&L-aware circuit breaker)
 # ═══════════════════════════════════════════════════════════════
 
-STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+STARTING_BUDGET = 648.35  # v2.1.1: rebased to current equity after -35.3% drawdown
 
 def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     """P&L-aware daily entry cap based on drawdown from starting budget.
@@ -411,13 +420,13 @@ def run():
                 "execution": {"asset": ASSET, "direction": thesis["direction"],
                     "leverage": leverage, "margin": margin,
                     "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-                "result": result, "_horribilis_version": "2.1",
+                "result": result, "_horribilis_version": "2.1.1",
             })
         else:
             cfg.output({"status": "ok", "action": "ENTRY_FAILED",
                 "signal": {"asset": ASSET, "direction": thesis["direction"],
                     "score": thesis["score"], "reasons": thesis["reasons"]},
-                "error": result, "_horribilis_version": "2.1"})
+                "error": result, "_horribilis_version": "2.1.1"})
         return
 
     # ── CASE 2: Position exists — evaluate for scale-up ──
@@ -505,13 +514,13 @@ def run():
                 "existingMargin": round(current_margin, 2),
                 "newMargin": scale_margin,
             },
-            "result": result, "_horribilis_version": "2.1",
+            "result": result, "_horribilis_version": "2.1.1",
         })
     else:
         cfg.output({"status": "ok", "action": "SCALE_UP_FAILED",
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                 "score": thesis["score"], "reasons": thesis["reasons"]},
-            "error": result, "_horribilis_version": "2.1"})
+            "error": result, "_horribilis_version": "2.1.1"})
 
 
 if __name__ == "__main__":

@@ -1,8 +1,27 @@
 #!/usr/bin/env python3
-# Senpi SENTINEL Scanner v2.0
+# Senpi SENTINEL Scanner v2.0 (fleet-fix batch 4 — wider Phase 2 + equity reset)
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 """SENTINEL v2.0 — Quality Trader Convergence Scanner.
+
+## v2.0 fleet-fix batch 4 changes (2026-04-15)
+
+Sentinel was stuck at -21.44% drawdown with daily cap = 1 (severely
+restricted by the pnl-aware circuit breaker). 45.2% win rate confirms
+the signal is valid; inversion test was 3x worse inverted. Diagnosis:
+losers were bleeding out via slow cuts — `weak_peak_cut` and
+`hard_timeout` accounted for 17 of 23 losers.
+
+Runtime.yaml changes:
+- Phase 2 tiers widened from [5/25, 10/50, 15/65, 20/80, 30/85] to
+  Sentinel's own recommendation: [15/35, 30/60, 50/75, 75/85, 100/92].
+  Keeps early lock at 15% (still meaningful profit protection) but
+  pushes upper tiers out so genuine winners have room to run to 100%+.
+
+Scanner capital reset:
+- `STARTING_BUDGET` 1000.0 → 786.60 (current equity). Rebases the
+  pnl-aware daily cap so Sentinel unblocks from the restricted state.
+
 
 Inverted pipeline: instead of starting with an asset and checking if
 SM is there, start with QUALITY TRADERS and find where they converge.
@@ -68,7 +87,7 @@ MAX_DAILY_ENTRIES = 4
 # DYNAMIC DAILY CAP (P&L-aware circuit breaker)
 # ═══════════════════════════════════════════════════════════════
 
-STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+STARTING_BUDGET = 786.60  # v2.0 fleet-fix batch 4: rebased to current equity
 
 def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     """P&L-aware daily entry cap based on drawdown from starting budget.
@@ -596,7 +615,7 @@ def run():
                 "_v2_no_thesis_exit": True,
                 "_note": "DSL managed by plugin runtime. Scanner does NOT manage exits.",
             },
-            "_sentinel_version": "2.1",
+            "_sentinel_version": "2.2",
         })
         return
 

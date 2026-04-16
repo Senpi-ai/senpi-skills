@@ -1,23 +1,38 @@
 ---
 name: cheetah-strategy
 description: >-
-  CHEETAH v5.0 APEX — Multi-signal confluence sniper. Purpose-built to win
-  the Senpi Arena by taking ~5 high-conviction trades per week at 80% margin
-  and 10x leverage. Only fires when ALL major signals align (score >=14/15).
-  Fewer trades, higher ROE%, maximum edge per entry. Previous Cheetah versions
-  (v1-v4) iterated thesis on HYPE and failed; v5.0 is a complete architectural
-  redesign optimizing for asymmetric ROE% rather than absolute PnL.
+  CHEETAH v5.1.1 APEX — Multi-signal confluence sniper with leverage safety.
+  Purpose-built to win the Senpi Arena by taking ~5 high-conviction trades
+  per week at 80% margin and score-scaled leverage. v5.1.1 adds
+  get_safe_leverage() (clamps requested leverage to the asset's Hyperliquid
+  max via strategy_get_asset_trading_limits) and inner-order success
+  validation (rejects phantom ENTRY logs when the outer envelope lies).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "5.0-APEX"
+  version: "5.1.1-APEX"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐆 CHEETAH v5.0 APEX — The Arena Sniper
+# 🐆 CHEETAH v5.1.1 APEX — The Arena Sniper
+
+## v5.1.1 changelog (fleet-fix batch 4)
+
+- **Leverage safety fix.** v5.1 fired MON LONG at 7x but MON's Hyperliquid
+  max is 5x. Order rejected with CREATE_INVALID_LEVERAGE — but the MCP
+  wrapper returned outer success=true, so the scanner logged a phantom
+  ENTRY. v5.1.1 adds `get_safe_leverage()` which queries
+  `strategy_get_asset_trading_limits` and clamps requested leverage to the
+  asset's Hyperliquid max before submission.
+- **Inner-order success validation.** After `create_position` returns,
+  inspect `data.orders[0].success` and surface `INNER_FAILURE` when the
+  per-order status is false even if the outer envelope claims success.
+  Prevents phantom ENTRY logs from corrupting the daily counter.
+
+
 
 **SM commits. Quality traders commit. Price confirms. Volume commits. All at once. Cheetah pounces once.**
 
@@ -152,7 +167,7 @@ curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/cheetah/con
 python3 /data/workspace/skills/cheetah-strategy/scripts/cheetah-scanner.py
 ```
 
-Expected first-run output: no exceptions, `_cheetah_version: "5.0-APEX"` in the JSON, and either `note: "no score >= 14 candidates"` (most common) or a rare `action: "ENTRY"` if a confluence setup exists right now.
+Expected first-run output: no exceptions, `_cheetah_version: "5.1.1-APEX"` in the JSON, and either `note: "no score >= 14 candidates"` (most common) or a rare `action: "ENTRY"` if a confluence setup exists right now.
 
 ## Cron configuration
 
