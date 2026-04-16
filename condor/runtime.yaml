@@ -1,16 +1,21 @@
 name: condor-tracker
-version: 2.1.0
+version: 3.0.0
 description: >
-  Multi-asset alpha hunter v2.1. Evaluates BTC, ETH, SOL, HYPE and picks
-  the strongest thesis. Conviction-scaled margin. Fleet audit fixes applied.
-  v2.1: has_resting_orders reduceOnly, midnight fix, move-exhaustion,
-  same-dir cooldown, conviction leverage tiers, leverage-aware Phase 2 DSL.
+  CONDOR v3.0 — "One Amazing Trade per Day." Complete rewrite from v2.0
+  multi-asset alpha hunter. v3.0 scans top 50 Hyperliquid assets by 24h
+  notional volume for pure trend-continuation apex setups (4h + 1h + 15m
+  + SM direction all aligned + macro-trend gate + BTC aligned). Goes big
+  on apex confluence (50-80% margin, 10x leverage) and holds for 1 trade
+  per day while DSL manages exits. Built from Kodiak's top 3 lifetime
+  winners (+$133, +$87, +$78 on SOL) + Wolverine's HYPE SHORT post-mortem
+  (-$160 loss stepping in front of a 32% macro trend). Max 1 position,
+  2h post-exit cooldown.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
   slots: 1
-  margin_per_slot: 450
+  margin_per_slot: 500
   enabled: true
 
 scanners:
@@ -24,34 +29,43 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
+# ─── EXIT (DSL) — v3.0 mid-beta default profile ──────────────
+# Condor v3.0 scans 50 assets; most are mid-beta (SOL/ETH/LINK/AAVE class).
+# DSL profile calibrated off Kodiak's SOL empirical wins:
+#   - Phase 2 first lock at +8% ROE / 30% of HW (lets winners breathe)
+#   - Subsequent tiers escalate lock-in as ROE climbs
+#   - Tier 4 at +40% locks 85% of HW (Kodiak's best exit tier)
+#   - Hard timeout 1440 min = 24h "one trade per day" discipline
+#
+# Single-breach DSL is enforced onchain (RatchetStop backend). Floors are
+# wider than pre-RatchetStop era to survive normal wicks within apex moves.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 75
+      interval_in_minutes: 1440       # 24h — one trade per day
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 40
-      min_value: 2.0
+      interval_in_minutes: 120         # 2h peak stale = position isn't developing
+      min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 30
+      interval_in_minutes: 60          # 60 min no movement = dead
     phase1:
       enabled: true
-      max_loss_pct: 25.0
+      max_loss_pct: 20.0               # Wolverine's HYPE SHORT died at -20%. Keep this.
       retrace_threshold: 8
-      consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        # Phase 2 tiers — leverage-aware for multi-asset (fleet audit April 2026)
-        - { trigger_pct: 8,  lock_hw_pct: 25 }
-        - { trigger_pct: 15, lock_hw_pct: 50 }
-        - { trigger_pct: 25, lock_hw_pct: 65 }
-        - { trigger_pct: 35, lock_hw_pct: 80 }
-        - { trigger_pct: 50, lock_hw_pct: 85 }
+        - { trigger_pct: 8,   lock_hw_pct: 30 }   # Kodiak mid-beta Tier 1
+        - { trigger_pct: 15,  lock_hw_pct: 50 }   # Tier 2
+        - { trigger_pct: 25,  lock_hw_pct: 70 }   # Tier 3 — Kodiak's #3 exit
+        - { trigger_pct: 40,  lock_hw_pct: 85 }   # Tier 4 — Kodiak's #1/#2 exit tier
+        - { trigger_pct: 60,  lock_hw_pct: 90 }   # Tier 5 — infinite trail
+        - { trigger_pct: 100, lock_hw_pct: 94 }   # Tier 6 — monster winners
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
