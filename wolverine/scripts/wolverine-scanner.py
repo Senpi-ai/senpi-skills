@@ -465,19 +465,22 @@ def score_hype_signal(markets_data):
     return score, direction, reasons
 
 
-def execute_entry(direction, margin, leverage):
+def execute_entry(wallet, direction, margin, leverage):
     """Call create_position directly via mcporter."""
     result = cfg.mcporter_call(
         "create_position",
-        coin=ASSET,
-        direction=direction.upper(),
-        leverage=leverage,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": False,
-            "executionTimeoutSeconds": 30,
-        },
+        strategyWalletAddress=wallet,
+        orders=[{
+            "coin": ASSET,
+            "direction": direction.upper(),
+            "leverage": leverage,
+            "marginAmount": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": False,
+                "executionTimeoutSeconds": 30,
+            },
+        }],
     )
     if result and result.get("success"):
         return True, result
@@ -599,7 +602,7 @@ def run():
     margin = round(account_value * MARGIN_PCT, 2)
 
     # Execute trade directly
-    success, result = execute_entry(direction, margin, leverage)
+    success, result = execute_entry(wallet, direction, margin, leverage)
 
     if success:
         tc["entries"] = tc.get("entries", 0) + 1

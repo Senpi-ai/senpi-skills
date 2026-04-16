@@ -397,19 +397,22 @@ def score_convergences(convergences, velocity):
 # EXECUTION
 # ═══════════════════════════════════════════════════════════════
 
-def execute_entry(asset, direction, margin, leverage):
+def execute_entry(wallet, asset, direction, margin, leverage):
     """Call create_position directly via mcporter."""
     result = cfg.mcporter_call(
         "create_position",
-        coin=asset,
-        direction=direction,
-        leverage=leverage,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": False,
-            "executionTimeoutSeconds": 30,
-        },
+        strategyWalletAddress=wallet,
+        orders=[{
+            "coin": asset,
+            "direction": direction,
+            "leverage": leverage,
+            "marginAmount": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": False,
+                "executionTimeoutSeconds": 30,
+            },
+        }],
     )
     if result and result.get("success"):
         return True, result
@@ -526,7 +529,7 @@ def run():
     leverage = get_leverage_for_score(best["score"])
     margin = round(av * MARGIN_PCT, 2)
 
-    success, result = execute_entry(best["asset"], best["direction"], margin, leverage)
+    success, result = execute_entry(wallet, best["asset"], best["direction"], margin, leverage)
 
     if success:
         tc["entries"] = tc.get("entries", 0) + 1

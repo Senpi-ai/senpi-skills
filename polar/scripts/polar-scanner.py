@@ -256,11 +256,18 @@ def evaluate_eth():
             "smPct": pct, "smTraders": traders, "priceChg4h": p4h}
 
 
-def execute_entry(direction, margin, leverage):
+def execute_entry(wallet, direction, margin, leverage):
     result = cfg.mcporter_call(
-        "create_position", coin=ASSET, direction=direction, leverage=leverage,
-        margin=margin, orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={"ensureExecutionAsTaker": False, "executionTimeoutSeconds": 30},
+        "create_position",
+        strategyWalletAddress=wallet,
+        orders=[{
+            "coin": ASSET,
+            "direction": direction,
+            "leverage": leverage,
+            "marginAmount": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {"ensureExecutionAsTaker": False, "executionTimeoutSeconds": 30},
+        }],
     )
     if result and result.get("success"): return True, result
     error = result.get("error", "unknown") if result else "mcporter_call returned None"
@@ -352,7 +359,7 @@ def run():
     leverage = get_leverage_for_score(thesis["score"])
     margin = round(av * MARGIN_PCT, 2)
 
-    success, result = execute_entry(thesis["direction"], margin, leverage)
+    success, result = execute_entry(wallet, thesis["direction"], margin, leverage)
     if success:
         tc["entries"] = tc.get("entries", 0) + 1
         tc["last_entry_ts"] = time.time()

@@ -287,23 +287,26 @@ def evaluate_markets(held_coins):
     return candidates
 
 
-def execute_entry(token, direction, margin, leverage, is_xyz):
+def execute_entry(wallet, token, direction, margin, leverage, is_xyz):
     """Execute a position entry via mcporter."""
     coin = coin_for_position(token) if is_xyz else token
     lev_type = leverage_type_for(token) if is_xyz else "CROSS"
 
     result = cfg.mcporter_call(
         "create_position",
-        coin=coin,
-        direction=direction,
-        leverage=leverage,
-        leverageType=lev_type,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": True,
-            "executionTimeoutSeconds": 30,
-        },
+        strategyWalletAddress=wallet,
+        orders=[{
+            "coin": coin,
+            "direction": direction,
+            "leverage": leverage,
+            "leverageType": lev_type,
+            "marginAmount": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": True,
+                "executionTimeoutSeconds": 30,
+            },
+        }],
     )
     if result and result.get("success"):
         return True, result
@@ -375,7 +378,7 @@ def run():
         margin = round(account_value * MARGIN_PCT, 2)
 
         success, result = execute_entry(
-            token, direction, margin, leverage, candidate["is_xyz"]
+            wallet, token, direction, margin, leverage, candidate["is_xyz"]
         )
 
         if success:

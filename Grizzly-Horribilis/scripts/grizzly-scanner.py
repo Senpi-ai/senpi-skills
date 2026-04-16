@@ -257,18 +257,21 @@ def evaluate_btc():
     }
 
 
-def execute_entry(direction, margin, leverage):
+def execute_entry(wallet, direction, margin, leverage):
     result = cfg.mcporter_call(
         "create_position",
-        coin=ASSET,
-        direction=direction,
-        leverage=leverage,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": False,
-            "executionTimeoutSeconds": 30,
-        },
+        strategyWalletAddress=wallet,
+        orders=[{
+            "coin": ASSET,
+            "direction": direction,
+            "leverage": leverage,
+            "marginAmount": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": False,
+                "executionTimeoutSeconds": 30,
+            },
+        }],
     )
     if result and result.get("success"):
         return True, result
@@ -388,7 +391,7 @@ def run():
         leverage = get_leverage_for_score(thesis["score"])
         margin = round(av * INITIAL_MARGIN_PCT, 2)
 
-        success, result = execute_entry(thesis["direction"], margin, leverage)
+        success, result = execute_entry(wallet, thesis["direction"], margin, leverage)
 
         if success:
             tc["entries"] = tc.get("entries", 0) + 1
@@ -473,7 +476,7 @@ def run():
     scale_margin = round(remaining_capital * SCALEUP_MARGIN_PCT, 2)
     leverage = get_leverage_for_score(thesis["score"])
 
-    success, result = execute_entry(thesis["direction"], scale_margin, leverage)
+    success, result = execute_entry(wallet, thesis["direction"], scale_margin, leverage)
 
     if success:
         tc["entries"] = tc.get("entries", 0) + 1

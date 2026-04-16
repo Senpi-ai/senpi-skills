@@ -338,18 +338,21 @@ def scan_xyz_breakouts():
     return candidates
 
 
-def execute_entry(token, direction, margin, leverage):
+def execute_entry(wallet, token, direction, margin, leverage):
     result = cfg.mcporter_call(
         "create_position",
-        coin=token,
-        direction=direction,
-        leverage=leverage,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": False,
-            "executionTimeoutSeconds": 45,
-        },
+        strategyWalletAddress=wallet,
+        orders=[{
+            "coin": token,
+            "direction": direction,
+            "leverage": leverage,
+            "marginAmount": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": False,
+                "executionTimeoutSeconds": 45,
+            },
+        }],
         dex="xyz",
     )
     if result and result.get("success"):
@@ -414,7 +417,7 @@ def run():
         leverage = get_leverage_for_score(cand["score"])
         margin = round(account_value * MARGIN_PCT, 2)
 
-        success, result = execute_entry(token, cand["breakout_direction"],
+        success, result = execute_entry(wallet, token, cand["breakout_direction"],
                                          margin, leverage)
 
         if success:
