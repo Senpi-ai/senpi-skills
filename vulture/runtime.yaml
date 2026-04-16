@@ -1,15 +1,15 @@
 name: vulture-tracker
-version: 2.0.0
+version: 2.1.0
 description: >
-  VULTURE v2.0 — Long-Tail Momentum Rider. COMPLETE REWRITE from v1.0's
-  contrarian fader thesis. Scans 25+ small/mid-cap Hyperliquid perps
-  (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, etc.) that
-  no other Senpi predator covers. Follows SM direction when confluence
-  is strong (heavy flow + aligned 4h trend + 15m velocity accelerating).
-  Built from the #1 Arena winner's playbook (3-week champion, 38.6% win
-  rate, 6.15x profit factor, hold times 24h to 8 days). Max 2 positions,
-  5-7x leverage (small caps can't handle 20x — slippage). Signal-driven
-  direction, NOT long-only bias.
+  VULTURE v2.1 — Long-Tail Momentum Rider (wider small-cap DSL).
+  v2.1 widens the DSL tier curve after fleet analysis found that Senpi's
+  onchain DSL now enforces SINGLE-BREACH exits (consecutive-breach
+  tolerance is no longer supported at runtime). Narrow floors designed
+  for 3-breach protection were exiting on normal small-cap wicks. v2.1
+  pushes Phase 2 tier locks wider so normal 3-8% wicks don't breach.
+  Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL,
+  AIXBT, ARB, ASTER, ZEC, LIT, TAO, etc.). Built from the #1 Arena
+  winner's playbook. Max 2 positions, 5-7x leverage.
 
 # ── STRATEGY ──
 strategy:
@@ -32,21 +32,15 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ── EXIT (DSL) — Long-Tail Rider profile ──
-# Winners need DAYS to develop. Arena winner #1 held HEMI for 8 days,
-# WLD for 4 days, MON for 5 days. Losers need to be cut FAST because
-# small caps don't retrace kindly — once a momentum signal fails, the
-# asset usually keeps falling.
+# ── EXIT (DSL) — v2.1 WIDER small-cap profile ──────────────────────
+# CRITICAL: Senpi runtime now enforces single-breach exits (orders on-
+# chain). `consecutive_breaches_required` fields are no-ops. We adapt
+# by setting floors wide enough that normal small-cap wicks (3-8%)
+# don't breach them in the first place.
 #
-#   hard_timeout: 10080 min (7 days) — let winners run a full week
-#   dead_weight_cut: 60 min — loser exit, faster than Owl's 90 but
-#     slower than Lemon's 20 because small-cap wicks are deeper
-#   weak_peak_cut: 120 min @ 2% min — catch fades that stalled
-#   Phase 1 max_loss_pct: 20% — wider than Lemon's 15% because
-#     small caps retrace harder, but tighter than Owl's 35% because
-#     we're following momentum, not fading
-#   Phase 2: start locking at 5% (Lemon-pattern learning — capture
-#     the first leg of the trend before it reverses)
+# Target: Winning moves on HEMI/WLD/MON can wick back 5-8% from peak
+# without exiting. We accept giving back more on true reversals; net
+# EV wins because the wicks-that-continue-trending dominate the sample.
 exit:
   engine: dsl
   interval_seconds: 30
@@ -56,26 +50,27 @@ exit:
       interval_in_minutes: 10080    # 7 days — let momentum runners run
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 120
+      interval_in_minutes: 180       # v2.1: 120 → 180 (more patience on small-cap flats)
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 60       # 60 min loser cut — small-cap wick tolerance
+      interval_in_minutes: 90        # v2.1: 60 → 90 (looser loser cut)
     phase1:
       enabled: true
-      max_loss_pct: 20.0            # Wider than Lemon's 15%, tighter than Owl's 35%
-      retrace_threshold: 10
-      consecutive_breaches_required: 3
+      max_loss_pct: 25.0             # v2.1: 20 → 25 (small caps retrace harder)
+      retrace_threshold: 15          # v2.1: 10 → 15
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 5,  lock_hw_pct: 20 }     # Lock first leg at 5%
-        - { trigger_pct: 10, lock_hw_pct: 35 }
-        - { trigger_pct: 20, lock_hw_pct: 55 }
-        - { trigger_pct: 35, lock_hw_pct: 70 }
-        - { trigger_pct: 50, lock_hw_pct: 80 }
-        - { trigger_pct: 75, lock_hw_pct: 88 }
-        - { trigger_pct: 100, lock_hw_pct: 92 }    # Infinite trail on massive winners
+        # v2.1: WIDER tiers — single-breach runtime requires floors that
+        # survive 3-8% wicks. At +15% peak, floor is +3%. At +30% peak,
+        # floor is +12%. At +50%, +30% — hard to breach on noise.
+        - { trigger_pct: 15, lock_hw_pct: 20 }   # v2.1: was 5/20 — don't lock until +15% peak
+        - { trigger_pct: 30, lock_hw_pct: 40 }   # v2.1: was 10/35
+        - { trigger_pct: 50, lock_hw_pct: 60 }   # v2.1: was 20/55
+        - { trigger_pct: 75, lock_hw_pct: 75 }   # v2.1: was 35/70
+        - { trigger_pct: 100, lock_hw_pct: 85 }  # v2.1: was 50/80
+        - { trigger_pct: 150, lock_hw_pct: 92 }  # Infinite trail on monster winners
 
 # ── NOTIFICATIONS ──
 notifications:
