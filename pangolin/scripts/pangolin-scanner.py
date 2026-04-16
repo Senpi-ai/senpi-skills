@@ -1,9 +1,31 @@
 #!/usr/bin/env python3
-# Senpi PANGOLIN Scanner v1.2
+# Senpi PANGOLIN Scanner v1.3
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""PANGOLIN v1.2 — Extreme Funding Rate Fader (universe expansion).
+"""PANGOLIN v1.3 — Extreme Funding Rate Fader (critical bug fix).
+
+## v1.3 changes (2026-04-16) — CRITICAL UNBLOCK
+
+Root cause analysis: Pangolin has executed 0 trades since inception
+despite 3 version increments. Live diagnostic via direct MCP inspection
+revealed that market_list_instruments returns `funding`, `openInterest`,
+`markPx`, and `midPx` NESTED INSIDE the `context` sub-object, not at
+the top level of each instrument entry. All pre-v1.3 Pangolin scanners
+read `inst.get("funding", 0)` at the top level — which always returned
+0 — and every asset failed the MIN_FUNDING_RATE filter. Pangolin was
+structurally unable to trade regardless of threshold or universe.
+
+v1.3 fixes:
+1. Read funding/OI/price from ctx = inst["context"], with top-level
+   fallback for future schema changes.
+2. MIN_OI_USD lowered $3M → $1M. Live market analysis showed only 2
+   assets passed OI>$3M AND |funding|>=0.00015 (one XYZ-banned, one
+   at $2.47M). Funding extremes cluster in the $500K-$2.5M OI range;
+   $1M floor captures them while filtering micro-cap noise.
+
+Post-fix the scanner should immediately start catching setups like
+MAVIA +47% annualized, GRIFFAIN +25% annualized, etc.
 
 ## v1.2 change — universe expansion (2026-04-16)
 
@@ -108,13 +130,13 @@ LEVERAGE_TIERS = [
 ]
 DEFAULT_LEVERAGE = 3
 
-# v1.2: UNIVERSE EXPANSION. Previously ALLOWED_ASSETS was a hardcoded set
-# of 20 top-volume majors. Per Owl's 2026-04-16 diagnosis: the most
-# extreme funding unwinds happen on mid-cap assets (ZEC, MON, LIT —
-# >1000% annualized funding at probe time) that weren't in the top-20
-# by volume. Now any asset with sufficient OI liquidity ($3M minimum)
-# qualifies — the liquidity floor replaces the brand-whitelist.
-MIN_OI_USD = 3_000_000          # v1.2: liquidity gate (replaces ALLOWED_ASSETS)
+# v1.3: LOWERED OI FLOOR. $3M was too tight — in current market, only 2
+# assets passed OI>$3M AND |funding|>=MIN_FUNDING_RATE (one XYZ-banned,
+# one at $2.47M). Funding extremes cluster in the $500K-$2.5M OI range.
+# Lowering to $1M captures MAVIA-class setups while filtering micro-cap
+# noise. Combined with the v1.3 context-nesting bug fix, this actually
+# unblocks Pangolin to trade.
+MIN_OI_USD = 1_000_000          # v1.3: lowered from $3M to $1M
 
 
 def safe_float(v, d=0.0):
@@ -219,14 +241,23 @@ def scan_funding_extremes():
         if XYZ_BANNED and dex == "xyz":
             continue
 
+        # v1.3 CRITICAL BUG FIX: funding, OI, and prices are nested inside
+        # `context` on the market_list_instruments response, not top-level.
+        # Pre-v1.3 Pangolin read these at the top level and always got 0 —
+        # every asset failed the filter and Pangolin took 0 trades since
+        # inception. v1.3 reads from context correctly, with a fallback to
+        # top-level for backward compatibility.
+        ctx = inst.get("context", {}) if isinstance(inst.get("context"), dict) else {}
+
         # v1.2: liquidity gate — replaces old ALLOWED_ASSETS hardcoded set
-        oi = safe_float(inst.get("openInterest", 0))
-        mark_px = safe_float(inst.get("markPx", inst.get("midPx", 0)))
+        oi = safe_float(ctx.get("openInterest", inst.get("openInterest", 0)))
+        mark_px = safe_float(ctx.get("markPx", ctx.get("midPx",
+                              inst.get("markPx", inst.get("midPx", 0)))))
         oi_usd = oi * mark_px if mark_px > 0 else 0
         if oi_usd < MIN_OI_USD:
             continue
 
-        funding = safe_float(inst.get("funding", 0))
+        funding = safe_float(ctx.get("funding", inst.get("funding", 0)))
 
         # Must have extreme funding
         if abs(funding) < MIN_FUNDING_RATE:
@@ -431,7 +462,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_pangolin_version": "1.2",
+                "_pangolin_version": "1.3",
             })
             return
         else:
@@ -441,7 +472,7 @@ def run():
                 "signal": {"asset": token, "score": cand["score"],
                            "reasons": cand["reasons"]},
                 "error": result,
-                "_pangolin_version": "1.2",
+                "_pangolin_version": "1.3",
             })
             return
 
