@@ -176,8 +176,11 @@ def get_scan_candidates(entry_cfg):
         # Gate: ban XYZ equities
         if any(coin.lower().startswith(p) for p in banned):
             continue
-        oi = float(inst.get("openInterest", 0))
-        mark_px = float(inst.get("markPx", inst.get("midPx", 0)))
+        # CRITICAL FIX (2026-04-16): OI/price nested in context
+        ctx = inst.get("context", {}) if isinstance(inst.get("context"), dict) else {}
+        oi = float(ctx.get("openInterest", inst.get("openInterest", 0)) or 0)
+        mark_px = float(ctx.get("markPx", ctx.get("midPx",
+                                 inst.get("markPx", inst.get("midPx", 0)))) or 0)
         oi_usd = oi * mark_px if mark_px > 0 else 0
         if coin and oi_usd > min_oi_usd:
             candidates.append({"coin": coin, "oi": oi, "oi_usd": oi_usd, "price": mark_px})

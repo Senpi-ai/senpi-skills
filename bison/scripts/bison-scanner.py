@@ -151,8 +151,12 @@ def get_top_assets(n=10):
         if not isinstance(inst, dict):
             continue
         coin = inst.get("coin") or inst.get("name", "")
-        vol = float(inst.get("dayNtlVlm", inst.get("volume24h", 0)))
-        mark_px = float(inst.get("markPx", inst.get("midPx", 0)))
+        # CRITICAL FIX (2026-04-16): volume/price nested in context
+        ctx = inst.get("context", {}) if isinstance(inst.get("context"), dict) else {}
+        vol = float(ctx.get("dayNtlVlm", ctx.get("volume24h",
+                             inst.get("dayNtlVlm", inst.get("volume24h", 0)))) or 0)
+        mark_px = float(ctx.get("markPx", ctx.get("midPx",
+                                 inst.get("markPx", inst.get("midPx", 0)))) or 0)
         if coin and vol > 0:
             assets.append({"coin": coin, "volume": vol, "price": mark_px})
     assets.sort(key=lambda x: x["volume"], reverse=True)
