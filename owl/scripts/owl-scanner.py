@@ -1,11 +1,18 @@
 #!/usr/bin/env python3
-# Senpi OWL Scanner v6.0
+# Senpi OWL Scanner v6.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0 — attribution required for derivative works
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""OWL v6.0 — Pure Contrarian (gate recalibration).
+"""OWL v6.1 — Pure Contrarian (universe expansion).
 
 One scanner. One thesis: the crowd is wrong.
+
+v6.1 changes (2026-04-16 — per Owl's self-diagnosis):
+  - REMOVED top-30 OI truncation in get_all_assets(). Owl was blinded
+    to mid-cap extreme-funding setups ranked 30-60 in OI — exactly
+    where the most violent liquidation unwinds happen. ZEC, MON, LIT
+    hit >1000% annualized funding at probe time but were filtered out.
+    $3M OI minimum remains as the sole liquidity gate.
 
 v6.0 changes (fleet-fix: only 7 trades in 30 days → over-gated):
   - minPersistHours reduced 4 → 1 in owl-config.json. The 4-hour persistence
@@ -182,7 +189,7 @@ def execute_entry(wallet, signal, account_value, entry_cfg, leverage_cfg):
     }
 
     reason = (
-        f"OWL v6.0 contrarian fade: score={signal['score']}, "
+        f"OWL v6.1 contrarian fade: score={signal['score']}, "
         f"crowd={signal['crowdDirection']}, "
         f"persist={signal['persistHours']:.1f}h"
     )
@@ -200,7 +207,16 @@ def execute_entry(wallet, signal, account_value, entry_cfg, leverage_cfg):
 # ─── Crowding Analysis ────────────────────────────────────────
 
 def get_all_assets():
-    """Top 30 assets by OI for crowding scan."""
+    """All assets with OI > $3M for crowding scan.
+
+    v6.1 — UNIVERSE EXPANSION. Previously truncated to top 30 by OI,
+    which blinded Owl to mid-cap extreme-funding setups. Owl's self-
+    diagnosis (2026-04-16): "The most violent unwinds (extreme funding
+    + heavy tilt) are on assets ranked 30-60 in OI. ZEC, MON, LIT hit
+    >1000% annualized funding but get filtered out by the top-30 cap."
+    The $3M OI minimum IS the real liquidity gate — the 30-cap was
+    redundant and actively harmful.
+    """
     data = cfg.mcporter_call("market_list_instruments")
     if not data or not data.get("success"):
         return []
@@ -222,7 +238,7 @@ def get_all_assets():
                 "price": mark_px, "funding": funding,
             })
     assets.sort(key=lambda x: x["oi_usd"], reverse=True)
-    return assets[:30]
+    return assets  # v6.1: no truncation
 
 
 def get_sm_positioning(coin):

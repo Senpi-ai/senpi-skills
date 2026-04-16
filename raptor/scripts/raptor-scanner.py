@@ -1,9 +1,32 @@
 #!/usr/bin/env python3
-# Senpi RAPTOR Scanner v3.1
+# Senpi RAPTOR Scanner v3.2
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""RAPTOR v3.1 — Hot Streak Follower (quality-first architecture).
+"""RAPTOR v3.2 — Hot Streak Follower (whale entry-price discipline).
+
+## v3.2 changes from v3.1 (2026-04-16)
+
+Raptor's self-diagnosis identified the core failure mode: "We are buying
+the top of the whale's bags. High-tier traders often sit in underwater or
+flat positions for days, averaging down. Following them blindly without
+knowing their entry price means we assume all their risk without their
+padding."
+
+v3.2 adds an entry-discipline check:
+  1. Extract `entryPx` from each whale position (the whale's average entry).
+  2. Fetch current market price via `market_get_prices`.
+  3. HARD GATE: if current price has run >20% in the whale's favor from
+     their entry, SKIP the trade — we'd be buying their top. For a LONG
+     whale at $100, if current is >$120, skip. For a SHORT whale at $100,
+     if current is <$80, skip.
+  4. SCORE BONUS: if current price is WORSE than whale's entry (we'd get
+     a better fill than the whale did), add +1 or +2 points to the score.
+     This rewards trades where we're piggybacking but at a discount.
+
+This directly addresses why Raptor v3.1 spiraled from +$50 unrealized
+to -$60 realized: it kept re-entering the same assets where whales had
+already made their money, buying the tops and shorting the bottoms.
 
 ## v3.1 changes from v3.0
 
@@ -479,6 +502,15 @@ def build_signal(trader, positions, sm_map, hot_cfg, sm_cfg):
         ).upper()
         if direction not in ("LONG", "SHORT"):
             continue
+        # v3.2: capture whale entry price for entry-discipline check
+        whale_entry_px = safe_float(
+            pos.get("entryPx",
+                    pos.get("entry_px",
+                            pos.get("entryPrice",
+                                    pos.get("entry_price",
+                                            pos.get("avgEntryPx",
+                                                    pos.get("avg_entry_px", 0))))))
+        )
         position_count += 1
         abs_pnl = abs(delta_pnl)
         total_abs_pnl += abs_pnl
@@ -488,6 +520,7 @@ def build_signal(trader, positions, sm_map, hot_cfg, sm_cfg):
                 "asset": asset,
                 "direction": direction,
                 "delta_pnl": delta_pnl,
+                "whale_entry_px": whale_entry_px,  # v3.2: track for entry discipline
             }
 
     if not best_pos or best_abs_pnl < hot_cfg.get("minPositionPnl", 100_000):
@@ -508,6 +541,50 @@ def build_signal(trader, positions, sm_map, hot_cfg, sm_cfg):
         return None
     if sm["traders"] < sm_cfg.get("minSmTraders", 10):
         return None
+
+    # ─────────────────────────────────────────────────────────────
+    # v3.2 ENTRY DISCIPLINE: don't buy the top of the whale's bag
+    # ─────────────────────────────────────────────────────────────
+    # Raptor's 2026-04-16 self-diagnosis: "Elite traders often sit in
+    # underwater or flat positions for days, averaging down. Following
+    # them blindly without knowing their entry price means we assume all
+    # their risk without their padding. We are buying the top of their bags."
+    #
+    # Fix: compare current market price to whale's entryPx.
+    # - If current price is WORSE than whale's entry (asset moved against
+    #   their position post-entry), we get a BETTER fill than the whale did
+    #   → take the trade.
+    # - If current price has run 20%+ FROM whale's entry in their favor,
+    #   we'd be buying their top → skip.
+    MAX_PRICE_RUN_PCT_FROM_WHALE_ENTRY = 20.0
+    whale_entry_px = best_pos.get("whale_entry_px", 0)
+    if whale_entry_px > 0:
+        # Get current price — prefer market_get_prices (fresh) but fall
+        # back to any price hint in sm_map if the MCP call fails.
+        current_px = 0
+        try:
+            px_raw = cfg.mcporter_call("market_get_prices",
+                                        assets=[best_pos["asset"]])
+            if px_raw:
+                data = px_raw.get("data", px_raw)
+                if isinstance(data, dict):
+                    current_px = safe_float(data.get(best_pos["asset"], 0))
+        except Exception:
+            current_px = 0
+
+        if current_px > 0:
+            if best_pos["direction"] == "LONG":
+                # Whale is long. We want to enter at entryPx or better
+                # (lower). If current > entry * 1.20, we're late.
+                run_pct = ((current_px - whale_entry_px) / whale_entry_px) * 100
+                if run_pct > MAX_PRICE_RUN_PCT_FROM_WHALE_ENTRY:
+                    return None  # Buying their top
+            else:  # SHORT
+                # Whale is short. We want to enter at entryPx or better
+                # (higher). If current < entry * 0.80, we're late.
+                run_pct = ((whale_entry_px - current_px) / whale_entry_px) * 100
+                if run_pct > MAX_PRICE_RUN_PCT_FROM_WHALE_ENTRY:
+                    return None  # Shorting their bottom (they've already made the money)
 
     # Scoring
     score = 0
@@ -590,6 +667,23 @@ def build_signal(trader, positions, sm_map, hot_cfg, sm_cfg):
         score -= 1
         reasons.append(f"15M_STALE_{c15m:.2f}")
 
+    # v3.2: ENTRY_DISCIPLINE bonus — reward trades where we're getting
+    # a better fill than the whale (their position is underwater post-entry).
+    if whale_entry_px > 0 and current_px > 0:
+        if best_pos["direction"] == "LONG":
+            edge_pct = ((whale_entry_px - current_px) / whale_entry_px) * 100
+        else:
+            edge_pct = ((current_px - whale_entry_px) / whale_entry_px) * 100
+        if edge_pct >= 5:
+            score += 2
+            reasons.append(f"BETTER_THAN_WHALE_+{edge_pct:.1f}%")
+        elif edge_pct >= 2:
+            score += 1
+            reasons.append(f"EDGE_VS_WHALE_+{edge_pct:.1f}%")
+        elif edge_pct < -10:
+            # We're far worse than whale's entry but still under the 20% skip gate
+            reasons.append(f"LATE_VS_WHALE_{edge_pct:.1f}%")
+
     return {
         "asset": best_pos["asset"],
         "direction": best_pos["direction"],
@@ -605,6 +699,8 @@ def build_signal(trader, positions, sm_map, hot_cfg, sm_cfg):
         "smTraders": sm["traders"],
         "priceChg4h": p4h,
         "priceChg1h": p1h,
+        "whaleEntryPx": whale_entry_px if whale_entry_px > 0 else None,  # v3.2
+        "currentPx": current_px if (whale_entry_px > 0 and current_px > 0) else None,  # v3.2
     }
 
 
@@ -715,7 +811,7 @@ def run():
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
-            "_raptor_version": "3.1",
+            "_raptor_version": "3.2",
         })
         return
 
@@ -835,7 +931,7 @@ def run():
                 "orderType": entry_cfg.get("orderType", "FEE_OPTIMIZED_LIMIT"),
             },
             "result": result,
-            "_raptor_version": "3.1",
+            "_raptor_version": "3.2",
         })
     else:
         error = result.get("error", "unknown") if result else "mcporter_call returned None"
@@ -844,7 +940,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": error,
-            "_raptor_version": "3.1",
+            "_raptor_version": "3.2",
         })
 
 

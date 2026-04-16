@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
-# Senpi SPIDER Scanner v1.0
+# Senpi SPIDER Scanner v1.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""SPIDER v1.0 — Elite Convergence Scanner.
+"""SPIDER v1.1 — Elite Convergence Scanner (leverage safety added).
+
+v1.1 (2026-04-16 — fleet-fix batch 5): Adds get_safe_leverage() helper
+and inner-order success validation. Spider was missed from batch 4's
+fleet-wide canonical-schema fix, so the phantom-trade bug (where
+CREATE_INVALID_LEVERAGE errors returned outer success=true but inner
+success=false) was still active here. Spider self-flagged this in
+the fleet broadcast response. Fixed now.
+
+Original v1.0 logic:
 
 THESIS: When 2+ independently-operating ELITE/RELIABLE traders with
 SNIPER/AGGRESSIVE risk profiles converge on the same asset and direction,
@@ -397,15 +406,49 @@ def score_convergences(convergences, velocity):
 # EXECUTION
 # ═══════════════════════════════════════════════════════════════
 
+def get_safe_leverage(wallet, asset, requested_leverage):
+    """Clamp leverage to asset's max allowed on Hyperliquid.
+
+    Fleet-fix batch 5 addition (was missed in batch 4 broadcast).
+    Prevents the CREATE_INVALID_LEVERAGE phantom-trade bug that
+    silently failed Cheetah's MON LONG (MON max 5x, requested 7x).
+    """
+    try:
+        limits = cfg.mcporter_call(
+            "strategy_get_asset_trading_limits",
+            strategy_wallet=wallet,
+            coin=asset,
+        )
+        if limits:
+            data = limits.get("data", limits)
+            if isinstance(data, dict):
+                lev = data.get("leverage", {})
+                if isinstance(lev, dict):
+                    max_lev = int(float(lev.get("value", 20)))
+                    return min(requested_leverage, max_lev)
+                elif isinstance(lev, (int, float)):
+                    return min(requested_leverage, int(lev))
+    except Exception:
+        pass
+    return requested_leverage  # fallback
+
+
 def execute_entry(wallet, asset, direction, margin, leverage):
-    """Call create_position directly via mcporter."""
+    """Call create_position directly via mcporter.
+
+    Fleet-fix batch 5: added inner-order success validation to catch
+    the phantom-trade bug where the outer MCP envelope returns
+    success=true but the inner exchange order was rejected.
+    """
+    # Clamp leverage to asset max before sending
+    safe_lev = get_safe_leverage(wallet, asset, leverage)
     result = cfg.mcporter_call(
         "create_position",
         strategyWalletAddress=wallet,
         orders=[{
             "coin": asset,
             "direction": direction,
-            "leverage": leverage,
+            "leverage": safe_lev,
             "marginAmount": margin,
             "orderType": "FEE_OPTIMIZED_LIMIT",
             "feeOptimizedLimitOptions": {
@@ -415,6 +458,15 @@ def execute_entry(wallet, asset, direction, margin, leverage):
         }],
     )
     if result and result.get("success"):
+        # Validate inner order success (phantom-trade guard)
+        data = result.get("data", {})
+        if isinstance(data, dict):
+            orders_result = data.get("orders", data.get("results", []))
+            if isinstance(orders_result, list) and orders_result:
+                inner = orders_result[0]
+                if isinstance(inner, dict) and inner.get("success") is False:
+                    err = inner.get("error", "inner order failed")
+                    return False, {"error": f"INNER_FAILURE: {err}"}
         return True, result
     else:
         error = result.get("error", "unknown") if result else "mcporter_call returned None"
@@ -560,14 +612,14 @@ def run():
                 "ensureExecutionAsTaker": False,
             },
             "result": result,
-            "_spider_version": "1.0",
+            "_spider_version": "1.1",
         })
     else:
         cfg.output({
             "status": "ok", "action": "ENTRY_FAILED",
             "signal": {"asset": best["asset"], "direction": best["direction"],
                 "score": best["score"], "reasons": best["reasons"]},
-            "error": result, "_spider_version": "1.0",
+            "error": result, "_spider_version": "1.1",
         })
 
 
