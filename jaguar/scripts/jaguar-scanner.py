@@ -396,19 +396,22 @@ def build_scan_snapshot(markets_data):
 # EXECUTION
 # ═══════════════════════════════════════════════════════════════
 
-def execute_entry(token, direction, leverage, margin):
+def execute_entry(wallet, token, direction, leverage, margin):
     """Call create_position directly via mcporter."""
     result = cfg.mcporter_call(
         "create_position",
-        coin=token,
-        direction=direction,
-        leverage=leverage,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": False,
-            "executionTimeoutSeconds": 30,
-        },
+        strategyWalletAddress=wallet,
+        orders=[{
+            "coin": token,
+            "direction": direction,
+            "leverage": leverage,
+            "marginAmount": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": False,
+                "executionTimeoutSeconds": 30,
+            },
+        }],
     )
     if result and result.get("success"):
         return True, result
@@ -559,7 +562,7 @@ def run():
         leverage = get_leverage_for_score(signal["score"])
         margin = round(account_value * MARGIN_PCT, 2)
 
-        success, result = execute_entry(token, signal["direction"], leverage, margin)
+        success, result = execute_entry(wallet, token, signal["direction"], leverage, margin)
 
         if success:
             tc["entries"] = tc.get("entries", 0) + 1

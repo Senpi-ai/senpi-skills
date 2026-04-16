@@ -425,15 +425,18 @@ def execute_entry(signal, margin, leverage, wallet, strategy_id):
 
     result = cfg.mcporter_call(
         "create_position",
-        coin=coin,
-        direction=direction,
-        leverage=leverage,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": False,
-            "executionTimeoutSeconds": 30,
-        },
+        strategyWalletAddress=wallet,
+        orders=[{
+            "coin": coin,
+            "direction": direction,
+            "leverage": leverage,
+            "marginAmount": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": False,
+                "executionTimeoutSeconds": 30,
+            },
+        }],
     )
 
     if result and result.get("success"):

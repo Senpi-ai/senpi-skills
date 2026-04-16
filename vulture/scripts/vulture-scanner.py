@@ -374,21 +374,24 @@ def evaluate_momentum(asset, sm):
 # EXECUTION
 # ═══════════════════════════════════════════════════════════════
 
-def execute_entry(asset, direction, leverage, margin):
+def execute_entry(wallet, asset, direction, leverage, margin):
     """Call create_position directly via mcporter (Wolverine/Lemon pattern)."""
     # Handle k-prefixed tokens (kBONK, kPEPE) — Hyperliquid expects exact casing
     coin = asset  # TRACKED_ASSETS already preserves case
     result = cfg.mcporter_call(
         "create_position",
-        coin=coin,
-        direction=direction,
-        leverage=leverage,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": False,
-            "executionTimeoutSeconds": 30,
-        },
+        strategyWalletAddress=wallet,
+        orders=[{
+            "coin": coin,
+            "direction": direction,
+            "leverage": leverage,
+            "marginAmount": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": False,
+                "executionTimeoutSeconds": 30,
+            },
+        }],
     )
     if result and result.get("success"):
         return True, result
@@ -485,7 +488,7 @@ def run():
     leverage = get_leverage_for_score(best["score"])
     margin = round(account_value * MARGIN_PCT, 2)
 
-    success, result = execute_entry(best["asset"], best["direction"], leverage, margin)
+    success, result = execute_entry(wallet, best["asset"], best["direction"], leverage, margin)
 
     if success:
         tc["entries"] = tc.get("entries", 0) + 1

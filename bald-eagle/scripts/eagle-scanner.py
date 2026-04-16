@@ -482,22 +482,25 @@ def build_dsl_state(signal, leverage):
 # EXECUTE TRADE (Wolverine pattern)
 # ═══════════════════════════════════════════════════════════════
 
-def execute_entry(signal, margin, leverage):
+def execute_entry(wallet, signal, margin, leverage):
     """Call create_position directly from the scanner."""
     asset = f"xyz:{signal['token']}"
     direction = signal["direction"]
 
     result = cfg.mcporter_call(
         "create_position",
-        coin=signal["token"],
-        direction=direction,
-        leverage=leverage,
-        margin=margin,
-        orderType="FEE_OPTIMIZED_LIMIT",
-        feeOptimizedLimitOptions={
-            "ensureExecutionAsTaker": False,
-            "executionTimeoutSeconds": 45,
-        },
+        strategyWalletAddress=wallet,
+        orders=[{
+            "coin": signal["token"],
+            "direction": direction,
+            "leverage": leverage,
+            "marginAmount": margin,
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "feeOptimizedLimitOptions": {
+                "ensureExecutionAsTaker": False,
+                "executionTimeoutSeconds": 45,
+            },
+        }],
         dex="xyz",
     )
 
@@ -600,6 +603,7 @@ def run():
 
         # Execute trade directly
         success, result = execute_entry(
+            wallet,
             {"token": token, "direction": fade_direction},
             margin, leverage,
         )
