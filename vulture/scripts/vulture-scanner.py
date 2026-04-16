@@ -142,6 +142,35 @@ def get_leverage_for_score(score):
     return DEFAULT_LEVERAGE
 
 
+def get_safe_leverage(wallet, asset, requested_leverage):
+    """Query Hyperliquid's max leverage for this asset and clamp.
+
+    Fleet-wide leverage safety fix (batch 4). Vulture's small-cap universe
+    frequently contains assets whose Hyperliquid max is below the scanner's
+    requested tier (e.g. MON max=5x). Clamping prevents
+    CREATE_INVALID_LEVERAGE rejections and the phantom ENTRY logs they
+    cause.
+    """
+    try:
+        limits = cfg.mcporter_call(
+            "strategy_get_asset_trading_limits",
+            strategy_wallet=wallet,
+            coin=asset,
+        )
+        if limits:
+            data = limits.get("data", limits)
+            if isinstance(data, dict):
+                lev = data.get("leverage", {})
+                if isinstance(lev, dict):
+                    max_lev = int(float(lev.get("value", 20)))
+                    return min(requested_leverage, max_lev)
+                elif isinstance(lev, (int, float)):
+                    return min(requested_leverage, int(lev))
+    except Exception:
+        pass
+    return requested_leverage
+
+
 def has_resting_orders(wallet):
     """Check for non-reduceOnly resting orders, auto-cancelling any older
     than STALE_ORDER_MAX_AGE_SEC (default 600s). Fleet-standard pattern."""
@@ -394,6 +423,17 @@ def execute_entry(wallet, asset, direction, leverage, margin):
         }],
     )
     if result and result.get("success"):
+        # Fleet-wide batch-4 inner-order success validation. Outer envelope
+        # lies when a per-order rejection (e.g. CREATE_INVALID_LEVERAGE)
+        # happens — dig into data.orders[0].success before claiming success.
+        data = result.get("data", {})
+        if isinstance(data, dict):
+            orders_result = data.get("orders", data.get("results", []))
+            if isinstance(orders_result, list) and orders_result:
+                inner = orders_result[0]
+                if isinstance(inner, dict) and inner.get("success") is False:
+                    err = inner.get("error", "inner order failed")
+                    return False, {"error": f"INNER_FAILURE: {err}"}
         return True, result
     error = result.get("error", "unknown") if result else "mcporter_call returned None"
     return False, {"error": error}
@@ -485,7 +525,10 @@ def run():
     best = signals[0]
 
     # Execute entry
-    leverage = get_leverage_for_score(best["score"])
+    requested_leverage = get_leverage_for_score(best["score"])
+    # Fleet-wide batch-4 leverage safety: clamp to asset max to avoid
+    # CREATE_INVALID_LEVERAGE rejections on low-cap Hyperliquid assets.
+    leverage = get_safe_leverage(wallet, best["asset"], requested_leverage)
     margin = round(account_value * MARGIN_PCT, 2)
 
     success, result = execute_entry(wallet, best["asset"], best["direction"], leverage, margin)

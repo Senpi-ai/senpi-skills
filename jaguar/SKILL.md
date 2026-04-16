@@ -1,25 +1,30 @@
 ---
 name: jaguar-strategy
 description: >-
-  JAGUAR v3.0 — Striker-Only. Stalker and Hunter removed. Pyramiding removed.
-  v1.0 lost -29.3% across 5 trades. 4 of 5 had broken DSL (missing size field
-  in state file). v2.0 fixes DSL state generation with wallet+size fields,
-  reduces leverage to 7x, and focuses exclusively on STRIKER signals (violent
-  FIRST_JUMP explosions, score 9+, volume 1.5x).
-  DSL exit managed by plugin runtime via runtime.yaml.
+  JAGUAR v3.2 — Striker-Only. Rank-jump threshold loosened 15 → 10
+  (0 events fired in 10,239 evals under prior threshold). Stalker/Hunter
+  removed in v3.0. Pyramiding removed in v3.0. v3.1 fleet-hardened exec
+  path (internal create_position, fee-optimized limit, conviction-scaled
+  leverage). DSL exit managed by plugin runtime via runtime.yaml.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0"
+  version: "3.2"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐆 JAGUAR v3.0 — Striker-Only
+# 🐆 JAGUAR v3.2 — Striker-Only
 
 Violent explosions only. DSL manages exits.
+
+## v3.2 changelog (fleet-fix batch 4)
+
+- `STRIKER_MIN_RANK_JUMP` lowered 15 → 10. 0 events fired in 10,239
+  evaluations under the prior threshold — signal was unreachable in the
+  current market regime. Lowering the jump floor re-engages Striker.
 
 ---
 
@@ -119,7 +124,7 @@ On EVERY session start, check `config/bootstrap-complete.json`. If missing:
 7. Remove old DSL cron (if upgrading): run `openclaw crons list`, delete any cron containing `dsl-v5.py` via `openclaw crons delete <id>`
 8. Create scanner cron (3 min, main)
 9. Write `config/bootstrap-complete.json`
-10. Send: "🐆 JAGUAR v3.0 online. Striker-only scanner. DSL managed by plugin runtime. Silence = no explosions."
+10. Send: "🐆 JAGUAR v3.2 online. Striker-only scanner (rank-jump ≥ 10). DSL managed by plugin runtime. Silence = no explosions."
 
 If bootstrap exists, still verify runtime and scanner cron on every session start.
 

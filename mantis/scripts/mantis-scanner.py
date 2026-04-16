@@ -1,8 +1,21 @@
 #!/usr/bin/env python3
-# Senpi MANTIS Scanner v4.0
+# Senpi MANTIS Scanner v4.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""MANTIS v4.0 — Striker-Only SM Explosion Scanner.
+"""MANTIS v4.1 — Striker-Only SM Explosion Scanner.
+
+## v4.1 change — MIN_SCORE raised to cut fee drag
+
+Diagnostic probe: gross PnL -$5.21, fees $30.72 (6x fee drag). The signal
+is borderline profitable but fees are eating the edge. Raising MIN_SCORE
+from 9 to 11 cuts trade count ~60% (fewer low-conviction entries while
+preserving the high-conviction tail), eliminating fee drag while keeping
+the strongest Striker signals active.
+
+Also applies the fleet-wide batch-4 leverage safety fix: the emitted
+entry.leverage is clamped via strategy_get_asset_trading_limits so
+downstream executors never request more leverage than Hyperliquid allows.
+
 
 Stalker is dead. Orca v1.3 proved it: 58 Stalker trades at 43% win rate,
 -$0.73 avg P&L. The "slow accumulation" signal catches chop, not trends.
@@ -83,7 +96,7 @@ XYZ_BANNED = True
 MARGIN_PCT = 0.18
 
 # Striker thresholds
-STRIKER_MIN_SCORE = 9
+STRIKER_MIN_SCORE = 11          # v4.1: raised 9 → 11 to cut fee drag (6x gross loss)
 STRIKER_MIN_REASONS = 4
 STRIKER_MIN_RANK_JUMP = 15
 STRIKER_MIN_PREV_RANK = 25
@@ -141,6 +154,34 @@ def get_market_in_scan(scan, token, dex):
         if m["token"] == token and m.get("dex", "") == dex:
             return m
     return None
+
+
+def get_safe_leverage(wallet, asset, requested_leverage):
+    """Query Hyperliquid's max leverage for this asset and clamp.
+
+    Fleet-wide leverage safety fix (batch 4). Mantis emits signal with a
+    suggested leverage but does not itself call create_position — clamp
+    the suggested leverage here so the downstream executor never requests
+    more than the asset's Hyperliquid max.
+    """
+    try:
+        limits = cfg.mcporter_call(
+            "strategy_get_asset_trading_limits",
+            strategy_wallet=wallet,
+            coin=asset,
+        )
+        if limits:
+            data = limits.get("data", limits)
+            if isinstance(data, dict):
+                lev = data.get("leverage", {})
+                if isinstance(lev, dict):
+                    max_lev = int(float(lev.get("value", 20)))
+                    return min(requested_leverage, max_lev)
+                elif isinstance(lev, (int, float)):
+                    return min(requested_leverage, int(lev))
+    except Exception:
+        pass
+    return requested_leverage
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -429,6 +470,10 @@ def run():
     # ── Best signal → entry ───────────────────────────────────
     best = signals[0]
     margin = round(account_value * MARGIN_PCT, 2)
+    # Fleet-wide batch-4 leverage safety: clamp emitted leverage to the
+    # asset's Hyperliquid max so downstream executors don't hit
+    # CREATE_INVALID_LEVERAGE.
+    safe_leverage = get_safe_leverage(wallet, best["token"], DEFAULT_LEVERAGE)
 
     tc["entries"] = tc.get("entries", 0) + 1
     cfg.save_trade_counter(tc)
@@ -439,7 +484,7 @@ def run():
         "entry": {
             "asset": best["token"],
             "direction": best["direction"],
-            "leverage": DEFAULT_LEVERAGE,
+            "leverage": safe_leverage,
             "margin": margin,
             "orderType": "FEE_OPTIMIZED_LIMIT",
         },
@@ -452,7 +497,7 @@ def run():
             "_v2_no_thesis_exit": True,
             "_note": "DSL managed by plugin runtime. Scanner does NOT manage exits.",
         },
-        "_mantis_version": "4.0",
+        "_mantis_version": "4.1",
     })
 
 

@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
-# Senpi PANGOLIN Scanner v1.0
+# Senpi PANGOLIN Scanner v1.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""PANGOLIN v1.0 — Extreme Funding Rate Fader.
+"""PANGOLIN v1.1 — Extreme Funding Rate Fader (threshold recalibrated).
+
+## v1.1 change — threshold recalibration
+
+Diagnostic probe: funding signal totally absent in the current market.
+Peak funding was 9% annualized vs the v1.0 threshold of 40%. Pangolin
+never fired. v1.1 lowers MIN_FUNDING_RATE from 0.0003 (0.03%/8h =
+~40% annualized) to 0.00015 (0.015%/8h = ~20% annualized) so the
+scanner can actually engage the signal in today's calmer funding regime.
+
 
 Thesis: When funding rates are extreme (>0.03%/8h = ~40% annualized),
 the crowd is paying heavily to hold their position. History shows these
@@ -74,7 +83,7 @@ def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
 COOLDOWN_MINUTES = 240          # 4 hours between same-asset entries
 MARGIN_PCT = 0.25               # 25% per position (conservative)
 MIN_SCORE = 7
-MIN_FUNDING_RATE = 0.0003       # 0.03%/8h = ~40% annualized
+MIN_FUNDING_RATE = 0.00015      # v1.1: 0.015%/8h = ~20% annualized (was 0.0003 / 40%)
 XYZ_BANNED = True
 
 # Very conservative leverage — crowded unwinds are violent
@@ -396,7 +405,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_pangolin_version": "1.0",
+                "_pangolin_version": "1.1",
             })
             return
         else:
@@ -406,7 +415,7 @@ def run():
                 "signal": {"asset": token, "score": cand["score"],
                            "reasons": cand["reasons"]},
                 "error": result,
-                "_pangolin_version": "1.0",
+                "_pangolin_version": "1.1",
             })
             return
 

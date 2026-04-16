@@ -1,23 +1,35 @@
 ---
 name: orca-strategy
 description: >-
-  ORCA v2.0 — Gen-2 Striker with momentum event quality confirmation.
-  FIRST_JUMP detection enhanced with Tier 2 momentum events and TCS
-  trader quality tags. Stalker permanently removed.
+  ORCA v3.0 — Gen-1 Vanilla Striker revert. Quality confirmation removed
+  (it was buying local tops via second-API-call latency per Orca's own
+  self-diagnosis). Pure FIRST_JUMP detection + base Striker scoring +
+  volume confirmation. Stalker permanently removed (v2.0 pattern kept).
   DSL exit managed by plugin runtime via runtime.yaml.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "3.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐋 ORCA v2.0 — Gen-2 Striker
+# 🐋 ORCA v3.0 — Gen-1 Vanilla Striker
 
-Explosions confirmed by quality traders.
+Back to pure FIRST_JUMP explosions.
+
+## v3.0 changelog (fleet-fix batch 4)
+
+Reverted Gen-2 quality confirmation. Orca's own self-diagnosis:
+"Gen-2 confirmation adds latency and buys local tops after the move."
+
+- Removed `leaderboard_get_momentum_events` API call
+- Removed TCS ELITE/RELIABLE gate and ELITE_BONUS booster
+- Removed `contribution_pct_change_4h` acceleration booster
+- Back to single API call per scan (`leaderboard_get_markets`)
+- Leverage clamping applied to emitted entry (`get_safe_leverage`)
 
 ---
 
@@ -55,7 +67,7 @@ On EVERY session start, check `config/bootstrap-complete.json`. If missing:
 5. Verify: `openclaw senpi runtime list` and `openclaw senpi status`
 6. Create scanner cron (90s, main)
 7. Write `config/bootstrap-complete.json`
-8. Send: "🐋 ORCA v2.0 online. Gen-2 Striker. Silence = no quality explosions."
+8. Send: "🐋 ORCA v3.0 online. Vanilla Striker. Silence = no explosions."
 
 ---
 
@@ -75,7 +87,7 @@ On EVERY session start, check `config/bootstrap-complete.json`. If missing:
 
 | File | Purpose |
 |---|---|
-| `scripts/orca-scanner.py` | Gen-2 Striker scanner |
+| `scripts/orca-scanner.py` | Gen-1 vanilla Striker scanner |
 | `scripts/orca_config.py` | Config helper |
 | `config/orca-config.json` | Wallet, strategy ID |
 | `runtime.yaml` | Runtime YAML for DSL plugin |

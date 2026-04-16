@@ -1,10 +1,11 @@
 name: sentinel-tracker
-version: 2.1.0
+version: 2.2.0
 description: >
-  Quality trader convergence scanner v2.1. Finds assets where multiple
-  ELITE/RELIABLE traders converge. Fleet audit fixes applied.
-  v2.1: has_resting_orders reduceOnly, midnight fix, move-exhaustion,
-  same-dir cooldown, leverage-aware Phase 2 tiers.
+  Quality trader convergence scanner v2.2. Finds assets where multiple
+  ELITE/RELIABLE traders converge. v2.2 widens Phase 2 tiers
+  ([5,10,15] → [15,30,50,75,100]) per Sentinel's own rec; 45% WR
+  confirms the signal is valid, DSL was bleeding value via slow cuts
+  on 17/23 losers.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -46,12 +47,15 @@ exit:
     phase2:
       enabled: true
       tiers:
-        # Phase 2 tiers — leverage-aware (fleet audit April 2026)
-        - { trigger_pct: 8,  lock_hw_pct: 25 }
-        - { trigger_pct: 15, lock_hw_pct: 50 }
-        - { trigger_pct: 25, lock_hw_pct: 65 }
-        - { trigger_pct: 35, lock_hw_pct: 80 }
-        - { trigger_pct: 50, lock_hw_pct: 85 }
+        # v2.2 (fleet-fix batch 4): widened per Sentinel's own rec.
+        # 45% WR confirms signal is valid, DSL was bleeding value via
+        # slow cuts on 17/23 losers. Tiers retain early lock (15/35)
+        # but push upper tiers out so winners have room to run.
+        - { trigger_pct: 15, lock_hw_pct: 35 }
+        - { trigger_pct: 30, lock_hw_pct: 60 }
+        - { trigger_pct: 50, lock_hw_pct: 75 }
+        - { trigger_pct: 75, lock_hw_pct: 85 }
+        - { trigger_pct: 100, lock_hw_pct: 92 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"

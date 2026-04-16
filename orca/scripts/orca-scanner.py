@@ -1,37 +1,30 @@
 #!/usr/bin/env python3
-# Senpi ORCA Scanner v2.0
+# Senpi ORCA Scanner v3.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""ORCA v2.0 — Gen-2 Striker with Momentum Event Quality Confirmation.
+"""ORCA v3.0 — Gen-1 Vanilla Striker revert.
 
-The best Striker we can build. Same FIRST_JUMP explosion detection as
-Roach/Jaguar/Mantis v4.0, but enhanced with Gen-2 Hyperfeed signals:
+## v3.0 change — revert to Gen-1 vanilla Striker
 
-1. SCAN: leaderboard_get_markets → detect FIRST_JUMP rank explosions
-2. CONFIRM: leaderboard_get_momentum_events (Tier 2) → is a quality trader
-   driving this move? Check TCS tags (ELITE/RELIABLE only).
-3. BOOST: contribution_pct_change_4h as conviction modifier
-4. ENTER: only when FIRST_JUMP + quality trader confirmation
+v2.0 added Gen-2 quality confirmation (Tier 2 momentum events + TCS
+trader quality tags + contribution_pct_change_4h booster). Live data and
+Orca's own self-diagnosis: the second API call adds latency, and by the
+time the quality confirmation score lands, the move has already run — we
+buy local tops after the move. Orca's recommendation was explicit: revert
+to Gen-1 vanilla Striker (pure FIRST_JUMP + base scoring + volume
+confirmation). v3.0 executes that:
 
-Why this is better than vanilla Striker:
-- Roach/Jaguar enter on ANY violent rank jump. Orca v2.0 requires a
-  quality trader (TCS ELITE or RELIABLE) to be generating momentum events
-  on the same asset. This filters out pump-and-dumps driven by CHOPPY/DEGEN
-  traders that Striker alone can't distinguish.
+- Removed leaderboard_get_momentum_events API call
+- Removed QUALITY_TCS gate (ELITE/RELIABLE)
+- Removed MOMENTUM_CONCENTRATION_MIN check
+- Removed QUALITY_CONFIRM_POINTS / ELITE_BONUS score booster
+- Removed CONTRIB_ACCEL_POINTS booster
+- Removed contrib_change field from parse_scan
+- Back to a single API call: leaderboard_get_markets
 
-IMPORTANT: The Gen-2 confirmation is a SCORE BOOSTER, not a hard gate.
-A vanilla Striker signal at score 12+ can still enter without quality
-confirmation. But a score 7-8 signal that ALSO has ELITE confirmation
-gets boosted to 9-11 and enters. This keeps the agent trading while
-improving signal quality.
-
-Architecture:
-- 2 API calls per scan: leaderboard_get_markets + leaderboard_get_momentum_events
-- Momentum events pre-indexed by asset for O(1) lookup
-- Tier 2 events only (155/day, $5.5M+ threshold — Tier 1 is noise at 5,123/day)
-- TCS gate on momentum: only ELITE and RELIABLE trader events count
-
-Trade frequency: 2-5 per day
+Also applies the fleet-wide batch-4 leverage safety fix: the emitted
+entry.leverage is clamped via strategy_get_asset_trading_limits so
+downstream executors never hit CREATE_INVALID_LEVERAGE.
 
 DSL exit managed by plugin runtime. Scanner does NOT manage exits.
 Runs every 90 seconds.
@@ -92,14 +85,6 @@ STRIKER_MIN_REASONS = 4
 STRIKER_MIN_RANK_JUMP = 15
 STRIKER_MIN_PREV_RANK = 25
 STRIKER_MIN_VOL_RATIO = 1.5
-
-# Gen-2 momentum quality
-MOMENTUM_TIER = 2
-QUALITY_TCS = {"ELITE", "RELIABLE"}
-MOMENTUM_CONCENTRATION_MIN = 0.4
-QUALITY_CONFIRM_POINTS = 2
-ELITE_BONUS = 1
-CONTRIB_ACCEL_POINTS = 1
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -181,73 +166,38 @@ def parse_scan(raw_markets):
             "price_chg_4h": safe_float(m.get("token_price_change_pct_4h", 0)),
             "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
                                        m.get("price_change_1h", 0))),
-            "contrib_change": safe_float(m.get("contribution_pct_change_4h", 0)),
             "cc_15m": safe_float(m.get("contribution_pct_change_15m", 0)),
         })
 
     return {"markets": markets[:TOP_N], "time": now_iso()}
 
 
-def fetch_momentum_index():
-    """Fetch Tier 2 momentum events and index by asset."""
-    data = cfg.mcporter_call("leaderboard_get_momentum_events",
-                              tier=MOMENTUM_TIER, limit=100)
-    if not data:
-        return {}
+def get_safe_leverage(wallet, asset, requested_leverage):
+    """Query Hyperliquid's max leverage for this asset and clamp.
 
-    events = data.get("events", data.get("data", []))
-    if isinstance(events, dict):
-        events = events.get("events", [])
-    if not isinstance(events, list):
-        return {}
-
-    index = {}
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-
-        tags = event.get("trader_tags", event.get("tags", {}))
-        if isinstance(tags, str):
-            try:
-                tags = json.loads(tags)
-            except (json.JSONDecodeError, TypeError):
-                tags = {}
-
-        tcs = str(tags.get("TCS", tags.get("tcs", ""))).upper()
-        if tcs not in QUALITY_TCS:
-            continue
-
-        concentration = safe_float(event.get("concentration", 0))
-        if concentration < MOMENTUM_CONCENTRATION_MIN:
-            continue
-
-        top_positions = event.get("top_positions", [])
-        if isinstance(top_positions, str):
-            try:
-                top_positions = json.loads(top_positions)
-            except (json.JSONDecodeError, TypeError):
-                top_positions = []
-
-        trader_id = event.get("trader_id", event.get("address", ""))
-
-        for pos in top_positions:
-            if not isinstance(pos, dict):
-                continue
-            asset = str(pos.get("market", pos.get("asset", ""))).upper()
-            if not asset:
-                continue
-
-            if asset not in index:
-                index[asset] = []
-
-            index[asset].append({
-                "trader_id": trader_id,
-                "tcs": tcs,
-                "concentration": concentration,
-                "direction": str(pos.get("direction", "")).upper(),
-            })
-
-    return index
+    Fleet-wide leverage safety fix (batch 4). Orca emits a signal with a
+    suggested leverage but does not itself call create_position — clamp
+    the suggested leverage here so the downstream executor never requests
+    more than the asset's Hyperliquid max.
+    """
+    try:
+        limits = cfg.mcporter_call(
+            "strategy_get_asset_trading_limits",
+            strategy_wallet=wallet,
+            coin=asset,
+        )
+        if limits:
+            data = limits.get("data", limits)
+            if isinstance(data, dict):
+                lev = data.get("leverage", {})
+                if isinstance(lev, dict):
+                    max_lev = int(float(lev.get("value", 20)))
+                    return min(requested_leverage, max_lev)
+                elif isinstance(lev, (int, float)):
+                    return min(requested_leverage, int(lev))
+    except Exception:
+        pass
+    return requested_leverage
 
 
 def check_asset_volume(token, dex):
@@ -274,37 +224,10 @@ def check_asset_volume(token, dex):
 
 
 # ═══════════════════════════════════════════════════════════════
-# GEN-2 QUALITY CONFIRMATION
-# ═══════════════════════════════════════════════════════════════
-
-def get_momentum_quality(momentum_index, asset, direction):
-    """Check if a quality trader has momentum events on this asset."""
-    events = momentum_index.get(asset, [])
-    if not events:
-        return 0, [], False
-
-    aligned = [e for e in events if e["direction"] == direction]
-    if not aligned:
-        return 0, [], False
-
-    best = max(aligned, key=lambda e: (1 if e["tcs"] == "ELITE" else 0,
-                                        e["concentration"]))
-
-    score = QUALITY_CONFIRM_POINTS
-    reasons = [f"QUALITY_CONFIRMED ({best['tcs']}, conc={best['concentration']:.2f})"]
-
-    if best["tcs"] == "ELITE":
-        score += ELITE_BONUS
-        reasons.append("ELITE_TRADER")
-
-    return score, reasons, True
-
-
-# ═══════════════════════════════════════════════════════════════
 # SIGNAL DETECTION
 # ═══════════════════════════════════════════════════════════════
 
-def detect_signals(current_scan, history, momentum_index):
+def detect_signals(current_scan, history):
     prev_scans = history.get("scans", [])
     if not prev_scans:
         return []
@@ -399,18 +322,6 @@ def detect_signals(current_scan, history, momentum_index):
         if tod_reason:
             reasons.append(tod_reason)
 
-        # ── Gen-2: Momentum quality boost ──
-        q_score, q_reasons, has_quality = get_momentum_quality(
-            momentum_index, token, direction)
-        score += q_score
-        reasons.extend(q_reasons)
-
-        # ── Gen-2: Contribution acceleration boost ──
-        contrib_change = market.get("contrib_change", 0)
-        if abs(contrib_change) >= 0.02:
-            score += CONTRIB_ACCEL_POINTS
-            reasons.append(f"CONTRIB_ACCEL +{abs(contrib_change)*100:.1f}%")
-
         if score < STRIKER_MIN_SCORE or len(reasons) < STRIKER_MIN_REASONS:
             continue
 
@@ -429,7 +340,7 @@ def detect_signals(current_scan, history, momentum_index):
             "token": token,
             "dex": dex if dex else None,
             "direction": direction,
-            "mode": "GEN2_STRIKER",
+            "mode": "STRIKER",
             "score": score,
             "reasons": reasons,
             "currentRank": current_rank,
@@ -441,7 +352,6 @@ def detect_signals(current_scan, history, momentum_index):
             "contribution": round(current_contrib * 100, 3),
             "traders": market["traders"],
             "priceChg4h": market.get("price_chg_4h", 0),
-            "hasQualityConfirmation": has_quality,
         })
 
     signals.sort(key=lambda s: s["score"], reverse=True)
@@ -487,9 +397,8 @@ def run():
 
     current_scan = parse_scan(raw_markets)
     history = cfg.load_scan_history()
-    momentum_index = fetch_momentum_index()
 
-    signals = detect_signals(current_scan, history, momentum_index)
+    signals = detect_signals(current_scan, history)
 
     history["scans"].append(current_scan)
     cfg.save_scan_history(history)
@@ -500,17 +409,16 @@ def run():
     signals = [s for s in signals if s["token"] not in held_coins]
 
     if not signals:
-        quality_assets = list(momentum_index.keys())[:5]
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"No Gen-2 Striker signals. "
-                            f"Scanned {len(current_scan['markets'])} markets. "
-                            f"Quality momentum on: {quality_assets or 'none'}.",
-                    "scansInHistory": len(history["scans"]),
-                    "momentumAssetsTracked": len(momentum_index)})
+                    "note": f"No Striker signals. "
+                            f"Scanned {len(current_scan['markets'])} markets.",
+                    "scansInHistory": len(history["scans"])})
         return
 
     best = signals[0]
     margin = round(account_value * MARGIN_PCT, 2)
+    # Fleet-wide batch-4 leverage safety: clamp emitted leverage to asset max.
+    safe_leverage = get_safe_leverage(wallet, best["token"], DEFAULT_LEVERAGE)
 
     tc["entries"] = tc.get("entries", 0) + 1
     save_trade_counter(tc)
@@ -521,7 +429,7 @@ def run():
         "entry": {
             "asset": best["token"],
             "direction": best["direction"],
-            "leverage": DEFAULT_LEVERAGE,
+            "leverage": safe_leverage,
             "margin": margin,
             "orderType": "FEE_OPTIMIZED_LIMIT",
         },
@@ -534,7 +442,7 @@ def run():
             "_v2_no_thesis_exit": True,
             "_note": "DSL managed by plugin runtime. Scanner does NOT manage exits.",
         },
-        "_orca_version": "2.0",
+        "_orca_version": "3.0",
     })
 
 

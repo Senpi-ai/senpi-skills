@@ -1,8 +1,16 @@
 #!/usr/bin/env python3
-# Senpi POLAR Scanner v2.4
+# Senpi POLAR Scanner v2.4.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""POLAR v2.4 — ETH Alpha Hunter (sniper recalibration).
+"""POLAR v2.4.1 — ETH Alpha Hunter (capital reset).
+
+## v2.4.1 change — capital reset (2026-04-15)
+
+Polar was hard-stopped at -32% drawdown with daily cap = 0. Rebasing
+`STARTING_BUDGET` from 1000.0 to 682.84 (current equity) so the
+pnl-aware daily cap unblocks from the circuit breaker.
+
+
 
 v2.4 fleet-fix recalibration (April 15, 2026):
 - MIN_SCORE raised 8 → 10 (Cheetah v5.1 APEX pattern).
@@ -53,7 +61,7 @@ MAX_DAILY_ENTRIES = 4
 # DYNAMIC DAILY CAP (P&L-aware circuit breaker)
 # ═══════════════════════════════════════════════════════════════
 
-STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+STARTING_BUDGET = 682.84  # v2.4.1: rebased to current equity after -32% drawdown
 
 def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     """P&L-aware daily entry cap based on drawdown from starting budget.
@@ -371,12 +379,12 @@ def run():
             "execution": {"asset": ASSET, "direction": thesis["direction"],
                 "leverage": leverage, "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-            "result": result, "_polar_version": "2.3"})
+            "result": result, "_polar_version": "2.4.1"})
     else:
         cfg.output({"status": "ok", "action": "ENTRY_FAILED",
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                 "score": thesis["score"], "reasons": thesis["reasons"]},
-            "error": result, "_polar_version": "2.3"})
+            "error": result, "_polar_version": "2.4.1"})
 
 if __name__ == "__main__":
     try: run()

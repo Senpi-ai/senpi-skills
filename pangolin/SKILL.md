@@ -1,27 +1,36 @@
 ---
 name: pangolin-strategy
 description: >-
-  PANGOLIN v1.0 — Extreme Funding Rate Fader. Enters opposite to extreme
-  funding rates (>0.03%/8h = ~40% annualized), collecting funding while
-  waiting for crowded positions to mean-revert. Conservative 3-5x leverage,
-  very wide DSL (12h hard timeout). Top 20 crypto assets by volume.
+  PANGOLIN v1.1 — Extreme Funding Rate Fader. Enters opposite to elevated
+  funding rates (>0.015%/8h = ~20% annualized, recalibrated down from
+  the v1.0 40% threshold that never fired in the current market regime),
+  collecting funding while waiting for crowded positions to mean-revert.
+  Conservative 3-5x leverage, very wide DSL (12h hard timeout). Top 20
+  crypto assets by volume.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.0"
+  version: "1.1"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🦔 PANGOLIN v1.0 — Extreme Funding Rate Fader
+# 🦔 PANGOLIN v1.1 — Extreme Funding Rate Fader
 
 An entirely new strategy archetype for the Predators fleet. No other agent trades on funding rate signals.
 
+## v1.1 changelog (fleet-fix batch 4)
+
+- `MIN_FUNDING_RATE` lowered from 0.0003 (0.03%/8h = ~40% annualized) to
+  0.00015 (0.015%/8h = ~20% annualized). v1.0 never fired: peak funding
+  in the current regime was only 9% annualized. Recalibrated threshold
+  re-engages the signal.
+
 ## Thesis
 
-When funding rates are extreme (>0.03%/8h = ~40% annualized), the crowd is paying heavily to maintain their position. These extremes mean-revert within 24-48h as the cost of carry forces liquidation or position reduction. Pangolin enters opposite to the funding direction, collecting funding every 8 hours while waiting for the crowd to capitulate.
+When funding rates are elevated (>0.015%/8h = ~20% annualized), the crowd is paying to maintain their position. These extremes mean-revert within 24-48h as the cost of carry forces liquidation or position reduction. Pangolin enters opposite to the funding direction, collecting funding every 8 hours while waiting for the crowd to capitulate.
 
 Two edge sources:
 1. **Funding collection** — paid every 8h while holding the position

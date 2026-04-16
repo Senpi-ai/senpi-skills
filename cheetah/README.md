@@ -1,6 +1,10 @@
-# 🐆 CHEETAH v2.0 — HYPE Predator
+# 🐆 CHEETAH v5.1.1 APEX — Multi-signal confluence sniper
 
-Top performer in the Senpi Predators fleet at +7.6% ROE.
+v5.1.1 adds leverage safety (clamps to asset max via
+`strategy_get_asset_trading_limits`) and inner-order success validation
+to eliminate phantom ENTRY logs on CREATE_INVALID_LEVERAGE rejections.
+
+Top performer in the Senpi Predators fleet at +7.6% ROE (v2.0 peak).
 
 Hunts HYPE exclusively using SM commitment as the primary signal. When SM concentration exceeds threshold with 4H trend alignment, Cheetah enters. BTC trend is a conviction booster, not a hard gate. HYPE-specific wide DSL tiers give volatile HYPE positions room to breathe.
 
