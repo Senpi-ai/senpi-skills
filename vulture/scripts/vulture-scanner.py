@@ -1,9 +1,27 @@
 #!/usr/bin/env python3
-# Senpi VULTURE Scanner v2.0
+# Senpi VULTURE Scanner v2.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""VULTURE v2.0 — Long-Tail Momentum Rider.
+"""VULTURE v2.1 — Long-Tail Momentum Rider (wider DSL).
+
+## v2.1 changes (2026-04-16)
+
+Senpi runtime now enforces single-breach DSL exits (orders onchain).
+v2.0's Phase 2 floors (5%/20%) were exiting on normal small-cap wicks.
+v2.1 widens Phase 2 tiers so floors survive normal volatility:
+
+  +15% peak → +3% floor (was +1% floor on a +7% peak in v2.0)
+  +30% peak → +12% floor
+  +50% peak → +30% floor
+
+Also: Phase 1 max_loss 20→25%, retrace 10→15%; dead_weight_cut 60→90 min;
+weak_peak_cut 120→180 min. Scanner logic unchanged — only DSL widened.
+
+Complements Scorpion v3.1's scalp re-entry approach: VULTURE tries to
+hold THROUGH wicks; SCORPION tries to re-enter AFTER exits. A/B test.
+
+## v2.0 scanner logic (unchanged in v2.1)
 
 COMPLETE REWRITE. v1.0 was a contrarian SM-exhaustion fader on 4 crypto majors
 (BTC/ETH/SOL/HYPE) gated at MIN_4H_MOVE_PCT=3.0, which made the entry gate
@@ -461,7 +479,7 @@ def run():
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
             "_v2_no_thesis_exit": True,
-            "_vulture_version": "2.0",
+            "_vulture_version": "2.1",
         })
         return
 
@@ -557,7 +575,7 @@ def run():
                 {"asset": s["asset"], "direction": s["direction"], "score": s["score"]}
                 for s in signals[:5]
             ],
-            "_vulture_version": "2.0",
+            "_vulture_version": "2.1",
         })
     else:
         cfg.output({
@@ -565,7 +583,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": result,
-            "_vulture_version": "2.0",
+            "_vulture_version": "2.1",
         })
 
 

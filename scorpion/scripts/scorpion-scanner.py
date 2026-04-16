@@ -1,9 +1,40 @@
 #!/usr/bin/env python3
-# Senpi SCORPION Scanner v3.0
+# Senpi SCORPION Scanner v3.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SCORPION v3.0 — Multi-Market Active Trader.
+"""SCORPION v3.1 — Multi-Market Active Trader (scalp re-entry).
+
+## v3.1 changes (2026-04-16)
+
+Inspired by pr0br000's 3-week Arena sweep: 21 fills on $HEMI in Week 2,
+33 fills in Week 3, total 369 fills across 22 assets. The pattern: exit
+on any meaningful wick, re-enter fast when thesis is still intact. We're
+matching that behavior.
+
+Critical context: Senpi runtime no longer supports multi-breach DSL
+(orders placed onchain → single-breach is enforced). Every DSL exit is
+final. The ONLY way to capture more of a trending move is to re-enter
+cleanly after an exit.
+
+v3.1 adds SCALP RE-ENTRY logic:
+- SCALP_WINDOW_MINUTES = 60: if last entry on an asset was within 60 min,
+  treat next entry as a scalp re-entry rather than a fresh entry.
+- SCALP_COOLDOWN_MINUTES = 15: short cooldown on scalp re-entries vs the
+  120-min standard fresh-entry cooldown.
+- MAX_REENTRIES_PER_ASSET = 10: daily cap per asset prevents death-
+  spiral re-entry on a breaking thesis. After 10 entries on same asset
+  in one day, lockout for 24h.
+- Scalp re-entries BYPASS the overall daily cap (they continue a position
+  the scanner already validated rather than opening a new thesis).
+- Fresh entries still use 120-min cooldown and count against daily cap.
+
+Target behavior: when SCORPION enters $HEMI at 10am and DSL exits at
+10:30am with +2% realized PnL, the scanner can re-enter HEMI at 10:45am
+(past the 15-min scalp cooldown) if the signal still fires. Instead of
+1 entry per day, SCORPION gets 5-10 fills per asset when the move runs.
+
+## v3.0 changes
 
 Arena winner #2/#3 playbook: trade BOTH crypto AND XYZ DEX commodities,
 signal-driven LONG and SHORT, up to 3 concurrent positions, short holds.
@@ -75,7 +106,10 @@ def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     else:                  return 0    # HARD STOP — circuit breaker
 
 
-COOLDOWN_MINUTES = 120
+COOLDOWN_MINUTES = 120          # Fresh-entry cooldown (different asset, or >60 min since last entry on same asset)
+SCALP_COOLDOWN_MINUTES = 15     # v3.1: short cooldown for scalp re-entries on recently-active assets
+SCALP_WINDOW_MINUTES = 60       # v3.1: within this window of last entry, asset is a scalp candidate
+MAX_REENTRIES_PER_ASSET = 10    # v3.1: cap per-asset daily entries to prevent death spiral
 MARGIN_PCT = 0.30
 MIN_SCORE = 6
 
@@ -385,15 +419,11 @@ def run():
         })
         return
 
-    # Daily limits
+    # Daily limits — note: scalp re-entries bypass the overall daily cap (v3.1)
     tc = cfg.load_trade_counter()
     dynamic_cap = get_dynamic_daily_cap(account_value)
     effective_cap = min(dynamic_cap, MAX_DAILY_ENTRIES)
-    if tc.get("entries", 0) >= effective_cap:
-        pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"Daily cap ({effective_cap}) reached. PnL: {pnl_pct:+.1f}%. Entries: {tc.get('entries', 0)}/{effective_cap}"})
-        return
+    # We'll check the daily cap PER-CANDIDATE below based on scalp vs fresh.
 
     # Evaluate all allowed assets
     candidates = evaluate_markets(held_coins)
@@ -403,18 +433,47 @@ def run():
                      "note": f"SCANNING: no qualifying signal across crypto+XYZ universe. Holding: {pos_desc}"})
         return
 
+    # v3.1: ensure asset_entries dict exists in trade counter
+    if "asset_entries" not in tc:
+        tc["asset_entries"] = {}
+
+    now_ts = time.time()
+
     # Try candidates in order until one passes cooldown and executes
     for candidate in candidates:
         token = candidate["token"]
         direction = candidate["direction"]
 
-        # Per-asset cooldown
-        if cfg.is_asset_cooled_down(token, COOLDOWN_MINUTES):
+        # ─── v3.1 SCALP RE-ENTRY LOGIC ──────────────────────────────
+        # Determine if this is a scalp candidate (recently active asset)
+        # or a fresh entry. Scalp re-entries use a 15-min cooldown and
+        # BYPASS the overall daily cap. Fresh entries use 120-min
+        # cooldown and count against the daily cap.
+        asset_state = tc["asset_entries"].get(token, {})
+        last_entry_ts = asset_state.get("last_entry_ts", 0)
+        entries_today_for_asset = asset_state.get("entries_today", 0)
+        seconds_since_last = now_ts - last_entry_ts if last_entry_ts > 0 else float('inf')
+
+        # Per-asset daily cap (prevents death-spiral re-entry on a breaking thesis)
+        if entries_today_for_asset >= MAX_REENTRIES_PER_ASSET:
             continue
 
+        is_scalp_candidate = seconds_since_last < SCALP_WINDOW_MINUTES * 60
+
+        if is_scalp_candidate:
+            # Scalp re-entry path: check short cooldown only
+            if seconds_since_last < SCALP_COOLDOWN_MINUTES * 60:
+                continue  # Still within scalp cooldown
+            entry_type = "scalp_reentry"
+        else:
+            # Fresh entry path: check standard cooldown + daily cap
+            if cfg.is_asset_cooled_down(token, COOLDOWN_MINUTES):
+                continue
+            if tc.get("entries", 0) >= effective_cap:
+                continue  # Daily cap blocks fresh entries (scalps bypass)
+            entry_type = "fresh_entry"
+
         requested_leverage = get_leverage_for_score(candidate["score"])
-        # Fleet-wide batch-4 leverage safety: clamp to asset max. Pass the
-        # coin string that will actually be submitted (xyz: prefix for XYZ).
         coin_for_clamp = coin_for_position(token) if candidate["is_xyz"] else token
         leverage = get_safe_leverage(wallet, coin_for_clamp, requested_leverage)
         margin = round(account_value * MARGIN_PCT, 2)
@@ -424,14 +483,28 @@ def run():
         )
 
         if success:
-            tc["entries"] = tc.get("entries", 0) + 1
+            # v3.1: update per-asset tracker
+            tc["asset_entries"][token] = {
+                "last_entry_ts": now_ts,
+                "entries_today": entries_today_for_asset + 1,
+            }
+            # Only fresh entries count against overall daily cap
+            if entry_type == "fresh_entry":
+                tc["entries"] = tc.get("entries", 0) + 1
             cfg.save_trade_counter(tc)
-            cfg.set_asset_cooldown(token, COOLDOWN_MINUTES, reason="entry")
+
+            # Set cooldown: short for scalp, long for fresh
+            if entry_type == "scalp_reentry":
+                cfg.set_asset_cooldown(token, SCALP_COOLDOWN_MINUTES, reason="scalp_reentry")
+            else:
+                cfg.set_asset_cooldown(token, COOLDOWN_MINUTES, reason="fresh_entry")
 
             coin_label = coin_for_position(token) if candidate["is_xyz"] else token
             cfg.output({
                 "status": "ok",
                 "action": "ENTRY",
+                "entry_type": entry_type,  # v3.1: expose scalp vs fresh
+                "asset_entries_today": entries_today_for_asset + 1,
                 "signal": {
                     "asset": coin_label,
                     "direction": direction,
@@ -454,7 +527,7 @@ def run():
                 "result": result,
                 "positions_held": pos_count + 1,
                 "max_positions": MAX_POSITIONS,
-                "_scorpion_version": "3.0",
+                "_scorpion_version": "3.1",
             })
             return
         else:
