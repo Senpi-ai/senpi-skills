@@ -228,9 +228,17 @@ def get_all_assets():
         if not isinstance(inst, dict):
             continue
         coin = inst.get("coin") or inst.get("name", "")
-        oi = float(inst.get("openInterest", 0))
-        mark_px = float(inst.get("markPx", inst.get("midPx", 0)))
-        funding = float(inst.get("funding", 0))
+        # CRITICAL FIX (2026-04-16): funding/OI/price are nested inside
+        # the `context` sub-object on market_list_instruments response,
+        # NOT top-level. Pre-fix, every asset had oi=0 and funding=0
+        # here, which meant Owl's universe was empty. With v6.1
+        # universe expansion this bug was hidden because the $3M check
+        # was the gate that always rejected everything.
+        ctx = inst.get("context", {}) if isinstance(inst.get("context"), dict) else {}
+        oi = float(ctx.get("openInterest", inst.get("openInterest", 0)) or 0)
+        mark_px = float(ctx.get("markPx", ctx.get("midPx",
+                                 inst.get("markPx", inst.get("midPx", 0)))) or 0)
+        funding = float(ctx.get("funding", inst.get("funding", 0)) or 0)
         oi_usd = oi * mark_px if mark_px > 0 else 0
         if coin and oi_usd > 3_000_000:
             assets.append({
