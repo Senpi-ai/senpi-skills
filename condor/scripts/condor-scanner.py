@@ -1,9 +1,26 @@
 #!/usr/bin/env python3
-# Senpi CONDOR Scanner v3.0
+# Senpi CONDOR Scanner v3.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""CONDOR v3.0 — "One Amazing Trade per Day"
+"""CONDOR v3.1 — "One Amazing Trade per Day" (BTC-gate removed).
+
+## v3.1 change (2026-04-16 — same day as v3.0 ship)
+
+The v3.0 hard-gate for BTC macro alignment was too restrictive for the
+current regime. Chart evidence: HYPE has been +100% since Jan 2026 while
+BTC has been -15%, decoupled 4+ months running. HIP-3 narrative drives
+native Hyperliquid assets independent of BTC. The v3.0 gate would have
+blocked every HYPE LONG setup despite HYPE being one of the strongest
+trending assets on Hyperliquid.
+
+v3.1 changes:
+  - BTC macro alignment REMOVED as hard gate
+  - BTC macro alignment now a scoring BONUS only (+1 when aligned and strong)
+  - No penalty for BTC non-alignment — each asset trades on its own merit
+  - MACRO TREND GATE retained (that's about the asset's own trend, not BTC)
+
+## v3.0 description (unchanged)
 
 COMPLETE REWRITE from v2.0. v2.0 was a multi-asset alpha hunter with
 generic signals. v3.0 is a pure trend-continuation sniper built from
@@ -354,13 +371,14 @@ def evaluate_trend_continuation(asset_info, sm, btc_macro):
     if sm_dir == "SHORT" and p4h > MACRO_GATE_THRESHOLD_PCT:
         return None  # SM says SHORT but price ripped — block
 
-    # HARD GATE: BTC macro alignment (alts only)
-    if btc_macro and coin != "BTC":
-        btc_p4h = btc_macro["p4h"]
-        btc_strong = abs(btc_p4h) >= 1.5
-        if btc_strong and btc_macro["direction"] in ("LONG", "SHORT"):
-            if sm_dir != btc_macro["direction"]:
-                return None
+    # v3.1: BTC macro alignment REMOVED as hard gate.
+    # Chart evidence (2026-04): HYPE +100% while BTC -15%, decoupled 4+ months
+    # running. HIP-3 narrative drives native Hyperliquid assets independent
+    # of BTC. The v3.0 hard gate would have blocked every HYPE LONG setup
+    # despite HYPE being one of the strongest apex-trending assets on HL.
+    # BTC alignment is now a scoring BONUS only (see below), not a block.
+    # The MACRO TREND GATE still enforces "don't fight the asset's own
+    # runaway trend" — Wolverine's fix, orthogonal to BTC correlation.
 
     # ─── SCORING ───
     score = 0
@@ -513,7 +531,7 @@ def run():
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
             "_v2_no_thesis_exit": True,
-            "_condor_version": "3.0",
+            "_condor_version": "3.1",
         })
         return
 
@@ -535,7 +553,7 @@ def run():
         remaining = int((POST_EXIT_COOLDOWN_MINUTES * 60 - seconds_since_last) / 60)
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
                     "note": f"post-exit cooldown ({remaining}min remaining)",
-                    "_condor_version": "3.0"})
+                    "_condor_version": "3.1"})
         return
 
     # Dynamic daily cap
@@ -580,7 +598,7 @@ def run():
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"SCANNING {len(universe)} assets — no apex trend-continuation setup >= MIN_SCORE={MIN_SCORE}.",
-            "_condor_version": "3.0",
+            "_condor_version": "3.1",
         })
         return
 
@@ -629,7 +647,7 @@ def run():
                 {"coin": c["coin"], "direction": c["direction"], "score": c["score"]}
                 for c in candidates[:5]
             ],
-            "_condor_version": "3.0",
+            "_condor_version": "3.1",
         })
     else:
         cfg.output({
@@ -637,7 +655,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": result,
-            "_condor_version": "3.0",
+            "_condor_version": "3.1",
         })
 
 
