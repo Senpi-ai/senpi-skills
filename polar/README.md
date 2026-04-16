@@ -1,4 +1,4 @@
-# 🐻‍❄️ POLAR v2.3 — ETH Alpha Hunter
+# 🐻‍❄️ POLAR v2.4 — ETH Alpha Hunter (sniper recalibration)
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 

@@ -1,20 +1,24 @@
 ---
 name: polar-strategy
 description: >-
-  POLAR v2.3 — ETH Alpha Hunter. Single-asset ETH lifecycle scanner with
-  conviction-scaled leverage, move-exhaustion scoring, and same-direction
-  re-entry cooldown. DSL exit managed by plugin runtime via runtime.yaml.
+  POLAR v2.4 — ETH Alpha Hunter (sniper recalibration). Single-asset ETH
+  lifecycle scanner with conviction-scaled leverage, move-exhaustion scoring,
+  and same-direction re-entry cooldown. v2.4 recalibration after -31.7% ROE
+  on 381 trades: MIN_SCORE raised 8→10 (Cheetah v5.1 APEX pattern), leverage
+  tiers shifted to 7x at 10-11 / 10x at 12+, cooldown raised 120→240 min,
+  new MIN_SM_ACCEL_PCT=0.3 hard gate on 15m velocity. DSL exit managed by
+  plugin runtime via runtime.yaml.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.3"
+  version: "2.4"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐻‍❄️ POLAR v2.3 — ETH Alpha Hunter
+# 🐻‍❄️ POLAR v2.4 — ETH Alpha Hunter (sniper recalibration)
 
 Best gross trader in the fleet. Single asset. Maximum conviction.
 
@@ -28,8 +32,10 @@ Best gross trader in the fleet. Single asset. Maximum conviction.
 ### RULE 4: Verify runtime on every session start
 ### RULE 5: Never modify parameters
 ### RULE 6: MAX 4 ENTRIES PER DAY
-### RULE 7: 120-minute cooldown between entries
-### RULE 8: 60-minute same-direction cooldown after wins
+### RULE 7: 240-minute cooldown between entries (v2.4 — sniper cadence)
+### RULE 8: 120-minute same-direction cooldown after wins
+### RULE 9: MIN_SCORE = 10 (v2.4 — was 8 in v2.3)
+### RULE 10: 15m velocity must exceed MIN_SM_ACCEL_PCT=0.3% (v2.4 hard gate)
 
 ---
 

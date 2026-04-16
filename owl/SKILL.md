@@ -1,22 +1,23 @@
 ---
 name: owl-strategy
 description: >-
-  OWL v5.3 — Pure contrarian (self-executing). One scanner, one thesis: the crowd is wrong.
-  Monitors crowding across top 30 assets (funding extremity, OI concentration, SM tilt).
-  When crowding persists 4+ hours AND exhaustion signals fire (volume declining, price
-  stalling, RSI divergence), enters AGAINST the crowd to ride the liquidation unwind.
-  1-2 trades per day max. Re-crowding exit: if the crowd comes back, thesis is dead,
-  exit immediately. DSL High Water Mode (mandatory). The patient predator.
-  v5.3: self-executing scanner + persistence tolerance + fleet-standard guardrails.
+  OWL v6.0 — Pure contrarian (gate recalibration). One scanner, one thesis: the crowd
+  is wrong. Monitors crowding across top 30 assets (funding extremity, OI concentration,
+  SM tilt). When crowding persists 1+ hour AND exhaustion signals fire (volume declining,
+  price stalling, RSI divergence), enters AGAINST the crowd to ride the liquidation
+  unwind. v6.0 fleet-fix: minPersistHours reduced 4→1 and entry.minScore reduced 14→12
+  after fleet analysis found Owl only traded 7 times in 30 days due to unreachable gate
+  combination. DSL Phase 2 first tier tightened 10%→5% trigger (Lemon-pattern learning).
+  Re-crowding exit preserved (dormant, not harmful — 0 fires in 14 days).
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "5.3"
+  version: "6.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# OWL v5.3 — Pure Contrarian
+# OWL v6.0 — Pure Contrarian (gate recalibration)
 
 Wait for the crowd to overcommit. Wait for them to exhaust. Then eat their liquidations.
 

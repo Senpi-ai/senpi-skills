@@ -1,8 +1,22 @@
 #!/usr/bin/env python3
-# Senpi GRIZZLY HORRIBILIS Scanner v1.2
+# Senpi GRIZZLY HORRIBILIS Scanner v2.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""GRIZZLY HORRIBILIS v2.0 — BTC Contrarian with Pyramiding.
+"""GRIZZLY HORRIBILIS v2.1 — BTC Contrarian with Pyramiding (tightened).
+
+v2.1 fleet-fix recalibration (April 15, 2026):
+- MIN_EXHAUSTION_PCT raised 2.5 → 4.5 (same fix Dog v2.2 got).
+  Diagnosis: at 2.5% exhaustion floor, contrarian flips were entering on
+  fresh trends rather than actually-exhausted moves, turning into fight-
+  the-tape losses. 4.5% ensures BTC has ALREADY moved substantially
+  before we fade it. Matches current Dog v2.2 calibration fleet-wide.
+- MIN_SCORE raised 8 → 10 (Cheetah v5.1 APEX pattern).
+  Diagnosis: 232 trades / -35.2% ROE = over-entering on weak signals.
+  At MIN_SCORE=10 confluence of DOMINANT_SM + STRONG_4H + 15M_SPIKE +
+  DEEP_CONSENSUS is required before taking the contrarian side.
+- SCALE_MIN_SCORE raised 9 → 12 (pyramid only on apex conviction).
+  Diagnosis: scaling up on marginal signals amplified losses. Require
+  near-perfect confluence to add to an existing position.
 
 v2.0: DIRECTION FLIP — trade opposite to SM consensus.
 Fleet analysis (April 10, 2026) found that the SM consensus signal is
@@ -69,11 +83,11 @@ def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     elif pnl_pct >= -25:   return 1    # Preserve — only highest conviction
     else:                  return 0    # HARD STOP — circuit breaker
 
-COOLDOWN_MINUTES = 90          # Shorter cooldown — scale-ups should be timely (was 180)
+COOLDOWN_MINUTES = 180         # v2.1: raised 90 → 180 to match sniper cadence
 INITIAL_MARGIN_PCT = 0.50      # 50% of account on initial entry
 SCALEUP_MARGIN_PCT = 0.50      # 50% of REMAINING capital on each scale-up
-MIN_SCORE = 8                  # Min score for initial entry
-SCALE_MIN_SCORE = 9            # Higher bar for adding to position
+MIN_SCORE = 10                 # v2.1: raised 8 → 10 (Cheetah v5.1 APEX pattern)
+SCALE_MIN_SCORE = 12           # v2.1: raised 9 → 12 (pyramid only on apex conviction)
 SCALE_MIN_ROE_PCT = 5.0        # Position must be at least +5% ROE to add
 XYZ_BANNED = True
 SAME_DIR_COOLDOWN_MINUTES = 60
@@ -170,11 +184,12 @@ def evaluate_btc():
 
     if traders < 10: return None
 
-    # CONTRARIAN EXHAUSTION GATE (v2.1)
-    # Fleet analysis April 13: contrarian flips without exhaustion gates
-    # fade accelerating trends instead of exhausted moves. Require 4H price
-    # to have already moved >2.5% in SM direction before fading.
-    MIN_EXHAUSTION_PCT = 2.5
+    # CONTRARIAN EXHAUSTION GATE (v2.1 — widened)
+    # Fleet analysis April 15: at 2.5% the contrarian flip was still
+    # fighting fresh trends (same bug Dog v2.1 had, fixed in Dog v2.2).
+    # Raising to 4.5% ensures BTC has ACTUALLY moved meaningfully in the
+    # SM direction before we take the fade. Matches Dog v2.2 calibration.
+    MIN_EXHAUSTION_PCT = 4.5  # was 2.5
     if abs(p4h) < MIN_EXHAUSTION_PCT:
         return None  # Not exhausted yet — don't fight a fresh trend
     if (d == "LONG" and p4h < 0) or (d == "SHORT" and p4h > 0):

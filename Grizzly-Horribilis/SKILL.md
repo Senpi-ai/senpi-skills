@@ -1,23 +1,23 @@
 ---
 name: grizzly-horribilis-strategy
 description: >-
-  GRIZZLY HORRIBILIS v1.1 — BTC Conviction-Scaled Leverage Hunter (Hardened).
-  Same thesis as Grizzly v3.0 — BTC single-asset lifecycle hunter. Conviction-scaled
-  leverage: 7x at score 8-9, 10x at score 10+. 50% margin. Scanner calls
-  create_position internally (Wolverine pattern). No thesis exit — RatchetStop only.
-  v1.1: leverage capped at 10x (was 40x), margin 50% (was 15%), internal execution,
-  ensureExecutionAsTaker=false, 4H alignment → score contributor.
+  GRIZZLY HORRIBILIS v2.1 — BTC Contrarian Sniper (recalibrated). Fades exhausted
+  SM consensus moves on BTC with conviction-scaled leverage (7x at score 10-11, 10x
+  at score 12+). v2.1 tightens the gate after -35% ROE on v1.1: MIN_SCORE raised
+  8→10 (matches Cheetah v5.1 APEX pattern), MIN_EXHAUSTION_PCT raised 2.5→4.5
+  (matches Dog v2.2 — stops fighting fresh trends), pyramid scale-up bar raised
+  9→12 (apex conviction only). 50% margin, internal execution, DSL-only exits.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.1"
+  version: "2.1"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# GRIZZLY HORRIBILIS v1.1 — BTC Conviction-Scaled Leverage Hunter
+# GRIZZLY HORRIBILIS v2.1 — BTC Contrarian Sniper (recalibrated)
 
 Same BTC thesis as Grizzly v3.0. Conviction-scaled leverage. Always RatchetStop protected.
 
@@ -33,10 +33,10 @@ The cron command is just: `python3 grizzly-scanner.py`. No parsing, no execution
 
 | Score | Leverage |
 |---|---|
-| 8-9 | 7x |
-| 10+ | 10x |
+| 10-11 | 7x |
+| 12+ | 10x |
 
-**40x is BANNED.** Fleet max is 10x. No exceptions.
+**40x is BANNED.** Fleet max is 10x. Score below 10 = no entry.
 
 ### RULE 6: ensureExecutionAsTaker = false
 All entries use FEE_OPTIMIZED_LIMIT with ensureExecutionAsTaker: false.
@@ -64,7 +64,7 @@ If asked about sizing on an open trade, explain the issue and fix it for the NEX
 | Funding alignment | +1 |
 | Deep consensus (≥100 traders) | +1 |
 
-Min score: 8. 4H alignment is a score contributor, NOT a hard gate.
+Min score: **10** (v2.1 — raised from 8). Plus **MIN_EXHAUSTION_PCT=4.5** hard gate — BTC must have already moved ≥4.5% in the SM direction before we fade it. This is the v2.1 recalibration — stops the contrarian from fighting fresh trends.
 
 ### Exit — RatchetStop Only
 Phase 2 tiers lock profit aggressively:
@@ -95,7 +95,7 @@ openclaw senpi runtime list
 
 ## Bootstrap Gate
 On EVERY session start, verify runtime + scanner cron (3 min, main).
-Send: "🐻 HORRIBILIS v1.1 online. BTC hunter. 7-10x conviction-scaled. RatchetStop protects everything. Silence = no conviction."
+Send: "🐻 HORRIBILIS v2.1 online. BTC contrarian sniper. Score≥10 entries only, 4.5% exhaustion floor, 7-10x conviction-scaled. RatchetStop protects everything. Silence = no conviction."
 
 ## Risk
 | Rule | Value |
@@ -116,6 +116,13 @@ Send: "🐻 HORRIBILIS v1.1 online. BTC hunter. 7-10x conviction-scaled. Ratchet
 | `runtime.yaml` | Plugin runtime (position tracker + RatchetStop) |
 
 ## Changelog
+### v2.1 (2026-04-15) — fleet-fix recalibration
+- MIN_SCORE raised 8 → 10 (Cheetah v5.1 APEX pattern)
+- MIN_EXHAUSTION_PCT raised 2.5 → 4.5 (Dog v2.2 fix — stops fighting fresh trends)
+- SCALE_MIN_SCORE raised 9 → 12 (pyramid only on apex conviction)
+- Leverage tiers shifted: 7x at 10-11, 10x at 12+ (was 7x at 8-9, 10x at 10+)
+- Cooldown raised 90 → 180 min (sniper cadence)
+
 ### v1.1 (2026-04-06)
 - Leverage capped at 10x (was 40x)
 - Conviction-scaled: 7x at score 8-9, 10x at score 10+

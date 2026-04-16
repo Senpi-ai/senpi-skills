@@ -6,7 +6,7 @@
   "leverage": {"default": 8, "min": 7, "max": 10},
   "crowding": {
     "minCrowdingScore": 8,
-    "minPersistHours": 4,
+    "minPersistHours": 1,
     "reCrowdingMinScore": 6,
     "minFundingAnnualizedPct": 12,
     "weights": {
@@ -22,7 +22,7 @@
     "minSignals": 2
   },
   "entry": {
-    "minScore": 14,
+    "minScore": 12,
     "marginPctBase": 0.25,
     "maxEntriesPerDay": 3,
     "lossCooldownHours": 6,

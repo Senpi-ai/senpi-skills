@@ -1,10 +1,11 @@
 name: horribilis-tracker
-version: 1.3.0
+version: 2.1.0
 description: >
-  BTC conviction-scaled leverage hunter v1.3. Fleet audit fixes applied.
-  7x at score 8-9, 10x at score 10+. 50% margin per trade.
-  v1.3: reduceOnly filter, midnight fix, move-exhaustion, same-dir cooldown,
-  leverage-aware Phase 2 tiers.
+  BTC Contrarian Sniper v2.1 — sniper recalibration. Fades exhausted SM
+  consensus moves on BTC. v2.1: MIN_SCORE raised 8→10 (Cheetah v5.1 APEX
+  pattern), MIN_EXHAUSTION_PCT raised 2.5→4.5 (Dog v2.2 fix — stops
+  fighting fresh trends), pyramid scale-up bar raised 9→12 (apex only).
+  7x at score 10-11, 10x at score 12+. 50% margin per trade.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
