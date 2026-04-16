@@ -1,17 +1,22 @@
 name: vulture-tracker
-version: 1.0.0
+version: 2.0.0
 description: >
-  VULTURE v1.0 — Multi-Asset SM Exhaustion Fader. Detects when Smart Money
-  consensus is overwhelmingly strong AND the 4H price move is already
-  extended (>3%), then fades the exhausted move. BTC/ETH/SOL/HYPE only.
-  Conservative leverage (5-7x), wide DSL, let reversals develop.
+  VULTURE v2.0 — Long-Tail Momentum Rider. COMPLETE REWRITE from v1.0's
+  contrarian fader thesis. Scans 25+ small/mid-cap Hyperliquid perps
+  (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, etc.) that
+  no other Senpi predator covers. Follows SM direction when confluence
+  is strong (heavy flow + aligned 4h trend + 15m velocity accelerating).
+  Built from the #1 Arena winner's playbook (3-week champion, 38.6% win
+  rate, 6.15x profit factor, hold times 24h to 8 days). Max 2 positions,
+  5-7x leverage (small caps can't handle 20x — slippage). Signal-driven
+  direction, NOT long-only bias.
 
 # ── STRATEGY ──
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
-  slots: 1
-  margin_per_slot: 300
+  slots: 2
+  margin_per_slot: 400
   enabled: true
 
 # ── SCANNERS ──
@@ -27,39 +32,50 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ── EXIT (DSL) ──
-# Wide DSL for contrarian trades — reversals take time to develop.
-# Dead weight cut at 30 min catches fades that never worked.
-# Weak peak cut at 90 min catches fades that stalled.
-# Hard timeout at 360 min (6h) — backstop, not rotation mechanism.
-# Phase 2 tiers wide to let winners run when the reversal hits.
+# ── EXIT (DSL) — Long-Tail Rider profile ──
+# Winners need DAYS to develop. Arena winner #1 held HEMI for 8 days,
+# WLD for 4 days, MON for 5 days. Losers need to be cut FAST because
+# small caps don't retrace kindly — once a momentum signal fails, the
+# asset usually keeps falling.
+#
+#   hard_timeout: 10080 min (7 days) — let winners run a full week
+#   dead_weight_cut: 60 min — loser exit, faster than Owl's 90 but
+#     slower than Lemon's 20 because small-cap wicks are deeper
+#   weak_peak_cut: 120 min @ 2% min — catch fades that stalled
+#   Phase 1 max_loss_pct: 20% — wider than Lemon's 15% because
+#     small caps retrace harder, but tighter than Owl's 35% because
+#     we're following momentum, not fading
+#   Phase 2: start locking at 5% (Lemon-pattern learning — capture
+#     the first leg of the trend before it reverses)
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 360
+      interval_in_minutes: 10080    # 7 days — let momentum runners run
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 90
+      interval_in_minutes: 120
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 30
+      interval_in_minutes: 60       # 60 min loser cut — small-cap wick tolerance
     phase1:
       enabled: true
-      max_loss_pct: 15.0
-      retrace_threshold: 8
+      max_loss_pct: 20.0            # Wider than Lemon's 15%, tighter than Owl's 35%
+      retrace_threshold: 10
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 5,  lock_hw_pct: 20 }
-        - { trigger_pct: 10, lock_hw_pct: 40 }
-        - { trigger_pct: 15, lock_hw_pct: 60 }
-        - { trigger_pct: 20, lock_hw_pct: 75 }
-        - { trigger_pct: 30, lock_hw_pct: 85 }
+        - { trigger_pct: 5,  lock_hw_pct: 20 }     # Lock first leg at 5%
+        - { trigger_pct: 10, lock_hw_pct: 35 }
+        - { trigger_pct: 20, lock_hw_pct: 55 }
+        - { trigger_pct: 35, lock_hw_pct: 70 }
+        - { trigger_pct: 50, lock_hw_pct: 80 }
+        - { trigger_pct: 75, lock_hw_pct: 88 }
+        - { trigger_pct: 100, lock_hw_pct: 92 }    # Infinite trail on massive winners
 
 # ── NOTIFICATIONS ──
 notifications:

@@ -1,4 +1,4 @@
-"""VULTURE v1.0 — SM Exhaustion Fader config helper.
+"""VULTURE v2.0 — Long-Tail Momentum Rider config helper.
 Self-contained. Standard Senpi skill pattern."""
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
@@ -195,6 +195,11 @@ def now_ts():
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+# Scanner-facing aliases (scanner uses is_on_cooldown/set_cooldown)
+is_on_cooldown = is_asset_cooled_down
+set_cooldown = set_asset_cooldown
+
 
 def now_date():
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")

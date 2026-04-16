@@ -1,143 +1,228 @@
 ---
 name: vulture-strategy
 description: >-
-  VULTURE v1.0 — Multi-Asset SM Exhaustion Fader. Detects when Smart Money
-  consensus is overwhelmingly strong AND the 4H price move is already
-  extended (>3%), then fades the exhausted move. BTC/ETH/SOL/HYPE only.
-  Conservative leverage (5-7x), wide DSL, let reversals develop.
-  FEE_OPTIMIZED_LIMIT maker entries. DSL exit managed by plugin runtime.
+  VULTURE v2.0 — Long-Tail Momentum Rider. COMPLETE REWRITE from v1.0's
+  contrarian SM-exhaustion fader thesis (which produced 0 trades in 14+ days).
+  Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL, AIXBT, ARB,
+  ASTER, ZEC, LIT, TAO, POLYX, LDO, APT, DYDX, ONDO, SUI, etc.) that no
+  other Senpi predator covers. Follows SM direction when confluence is strong
+  (heavy flow + aligned 4h trend + 15m velocity accelerating). Hold winners
+  for days via 7-day hard_timeout, cut losers fast via 60-min dead_weight_cut.
+  Built from the #1 Arena winner's 3-week playbook (38.6% win rate, 6.15x
+  profit factor). Signal-driven direction, NOT long-only bias. 5-7x leverage
+  (small caps can't handle 20x).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.0"
+  version: "2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🦅 VULTURE v1.0 — Multi-Asset SM Exhaustion Fader
+# 🦅 VULTURE v2.0 — Long-Tail Momentum Rider
 
-Purpose-built contrarian strategy. Born from fleet analysis (April 10, 2026) which found that 5 agents using SM consensus scanners had perfectly inverted signals — systematically buying tops and shorting bottoms because multi-timeframe confirmation enters after the move is exhausted. Vulture turns that systematic failure into a deliberate strategy.
+**COMPLETE REWRITE from v1.0.** v1.0 was a contrarian SM-exhaustion fader on 4 majors (BTC/ETH/SOL/HYPE) gated at MIN_4H_MOVE_PCT=3.0 — the combination was mathematically unreachable and produced 0 trades in 14+ days.
 
----
-
-## CRITICAL AGENT RULES
-
-### RULE 1: Install path is `/data/workspace/skills/vulture-strategy/`
-
-### RULE 2: MAX 1 POSITION — check before EVERY entry
-
-Before opening ANY position, call `strategy_get_clearinghouse_state` and count open positions. If positions >= 1, SKIP.
-
-### RULE 3: Scanner output is AUTHORITATIVE — never override from memory
-
-### RULE 4: Verify runtime is installed on every session start
-
-Run `openclaw senpi runtime list`. Runtime must be listed.
-
-### RULE 5: Never retry timed-out position creation
-
-If `create_position` times out, check clearinghouse state first.
-
-### RULE 6: Never modify your own configuration
+v2.0 is a totally different agent. Designed from the #1 Arena winner's playbook (3-week reigning Arena champion, 102 trades, 38.6% win rate, **6.15x profit factor**, ~80% of profit from 6 trades out of 102, hold times 24h to 8 days).
 
 ---
 
 ## Thesis
 
-When SM consensus is overwhelmingly strong in one direction AND the 4H price move is already extended (>3%), the move is exhausted and about to reverse. Trade the opposite direction.
+Small-cap Hyperliquid perps have thicker trader-count signal-to-noise ratios than the majors. When Smart Money concentration on a small cap ALIGNS with a fresh 4h price trend AND 15m velocity is accelerating, enter in the direction of the trend and hold it via the DSL tier curve for **days, not hours**.
 
-Key insight: the SM consensus signal is a lagging indicator. By the time 100+ traders are concentrated with 15%+ of gains in one direction, the move has already happened. Vulture fades the tail.
+**Key insight:** The Arena winner's asset universe (HEMI, WLD, MON, XPL, AIXBT, ARB) is a **fleet-wide blind spot**. No current Senpi predator scans small-cap alts — they're all locked to 4-12 majors or single assets. Vulture v2.0 fills the gap.
 
-## Scoring
+---
 
-- **SM concentration (0-3):** stronger consensus = more exhausted
-- **Exhaustion gate:** 4H price must have moved >3% in SM direction (mandatory)
-- **Exhaustion bonus (1-3):** bigger move = better fade (>5% = +3, >4% = +2, >3% = +1)
-- **1H reversal detection (0-2):** fading 1H momentum confirms exhaustion
-- **15M SM velocity fading (0-2):** SM starting to cool = reversal beginning
-- **Trader depth (0-1):** deep consensus = more crowded = better fade
+## Philosophy (copied from Arena winner #1)
 
-MIN_SCORE: 8. Direction is FLIPPED after scoring.
+- **Low win rate is fine** (~38%) if winners are 5-10x bigger than losers
+- **Tight loss cuts** via DSL dead_weight_cut (60 min)
+- **Long holds on winners** via hard_timeout=10080 min (7 days)
+- **Moderate leverage (5-7x)** — small caps can't handle 20x (slippage kills you on low-liquidity books)
+- **Signal-driven direction, NOT long-only bias.** The Arena winner was long because April 2026 was a bullish regime, not because LONG is a rule. Vulture v2.0 takes SHORTs when signals support.
+- **Max 2 concurrent positions**
 
-## Entry
+---
 
-- Assets: BTC, ETH, SOL, HYPE only
-- Leverage: 5x base, 7x at score 10+
-- Margin: 30% of account
-- Max 1 position, max 2 entries/day
-- 120-min per-asset cooldown, 60-min same-direction cooldown after win
-- FEE_OPTIMIZED_LIMIT, ensureExecutionAsTaker: false, 30s timeout
+## Asset Universe (25 small/mid-caps)
+
+```
+HYPE, HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, POLYX, LDO,
+APT, DYDX, ONDO, SUI, kBONK, kPEPE, TAO, GRASS, ZEC, LIT,
+FARTCOIN, MORPHO, NEAR, INJ, AVAX, LINK, DOGE
+```
+
+**Banned:** BTC, ETH, SOL (handled by other predators). XYZ DEX assets (handled by Bald Eagle).
+
+---
+
+## Entry Scoring
+
+### Hard gates (all must pass)
+- Asset must be in TRACKED_ASSETS and not in BANNED_ASSETS
+- SM direction must be LONG or SHORT (not neutral)
+- `pct >= 3.0` AND `traders >= 15` (signal validity)
+- 4h price ALIGNED with SM direction by at least 1% (momentum confirmation)
+- 15m velocity `> 0.3` (actively building, not flat)
+
+### Scoring contributors (max ~14 pts)
+
+| Signal | Points |
+|---|---:|
+| SM concentration ≥18% (HEAVY_FLOW) | +4 |
+| SM concentration ≥12% (STRONG_FLOW) | +3 |
+| SM concentration ≥7% (MODERATE_FLOW) | +2 |
+| SM concentration ≥3% (LIGHT_FLOW) | +1 |
+| 4h price aligned ≥8% (TREND_RUNNING) | +3 |
+| 4h price aligned ≥4% (TREND_STRONG) | +2 |
+| 4h price aligned ≥2% (TREND_BUILDING) | +1 |
+| 15m velocity ≥3.0 (15M_EXPLOSIVE) | +3 |
+| 15m velocity ≥1.0 (15M_STRONG) | +2 |
+| 15m velocity ≥0.5 (15M_BUILDING) | +1 |
+| ACCELERATING pattern (15m > 1h > 0) | +2 |
+| 1h velocity ≥1.0 (1H_POSITIVE) | +1 |
+| 4h contribution ≥2.0 (4H_CONTINUATION) | +1 |
+| Trader count ≥50 (DEEP_DEPTH) | +1 |
+| **Move ≥15% in direction (LATE_ENTRY_PENALTY)** | **-3** |
+| **Move ≥12% in direction (MOVE_EXTENDED)** | **-2** |
+
+**MIN_SCORE: 7** — entry floor. The scoring dimensions (especially HEAVY_FLOW requiring ≥18% SM concentration) do the real quality work.
+
+---
+
+## Conviction-Scaled Leverage
+
+| Score | Leverage |
+|---|---:|
+| ≥11 | 7x |
+| ≥9 | 5x |
+| ≥7 | 3x |
+
+**Capped at 7x because small-cap liquidity can't support 20x.** Lemon can go 20x on BTC/ETH because slippage is <0.1%. Small caps can have 0.5%+ slippage per fill, which eats gains at 20x.
+
+---
 
 ## Exit (DSL)
 
-Wide DSL — reversals take time to develop.
-- hard_timeout: 360 min (6h backstop)
-- weak_peak_cut: 90 min, min_value 2.0% ROE
-- dead_weight_cut: 30 min
-- Phase 1: max_loss 15%, retrace 8%, 3 consecutive breaches
-- Phase 2: 5%/20%, 10%/40%, 15%/60%, 20%/75%, 30%/85%
+The DSL tier curve is the single biggest difference from other Senpi predators. **Winners need DAYS to develop.** Arena winner #1 held HEMI for 8 days, WLD for 4 days, MON for 5 days.
+
+| Mechanism | Value | Rationale |
+|---|---|---|
+| hard_timeout | **10080 min (7 days)** | Let momentum runners run a full week |
+| dead_weight_cut | **60 min** | Faster than Owl's 90, slower than Lemon's 20 (small-cap wick tolerance) |
+| weak_peak_cut | 120 min @ 2% min | Catch fades that stalled |
+| Phase 1 max_loss_pct | 20% | Wider than Lemon's 15%, tighter than Owl's 35% |
+| Phase 1 retrace | 8% | Standard |
+| Phase 1 breaches | 3 | Standard |
+| Phase 2 tier 1 | 5% trigger → 20% lock | Capture first leg (Lemon-pattern learning) |
+| Phase 2 tier 2 | 10% → 35% lock | |
+| Phase 2 tier 3 | 20% → 55% lock | |
+| Phase 2 tier 4 | 35% → 70% lock | |
+| Phase 2 tier 5 | 50% → 80% lock | |
+| Phase 2 tier 6 | 75% → 88% lock | |
+| Phase 2 tier 7 | 100% → 92% lock | Infinite trail on massive winners |
+
+---
+
+## Risk Management
+
+| Rule | Value |
+|---|---|
+| Max positions | 2 concurrent |
+| Max entries/day | 4 (dynamic, scales with P&L) |
+| Per-asset cooldown | 240 min (4h sniper cadence) |
+| Margin per position | 40% of account |
+| Leverage range | 3-7x |
+| Asset blocklist | BTC, ETH, SOL, all XYZ |
+| Daily loss cap | HARD STOP at -25% drawdown |
+
+---
+
+## Differences from Lemon
+
+Both agents are "fleet alpha extractors" but via **opposite** philosophies:
+
+| Dimension | Lemon v1.1 (Degen Fader) | Vulture v2.0 (Long-Tail Rider) |
+|---|---|---|
+| Asset universe | 12 majors | 25 small caps |
+| Direction vs SM | **Fades** (counter-trade) | **Follows** (momentum) |
+| Entry condition | SM high + 15m collapsing | SM high + 15m accelerating |
+| Avg hold time | 235 min | 24h to 7 days |
+| hard_timeout | 480 min | 10,080 min (21x longer) |
+| dead_weight_cut | 20 min | 60 min |
+| Max leverage | 20x (apex) | 7x (liquidity limit) |
+| MIN_SCORE | 8 | 7 |
+
+**Both are bets on asymmetric payoff** — low win rate + big winners / tiny losers — but Lemon bets on mean reversion of exhausted crowds while Vulture bets on continuation of small-cap trends.
+
+---
 
 ## Runtime Setup
 
-**Step 1:** Set strategy wallet in runtime.yaml:
+**Step 1:** Install package files:
 ```bash
-sed -i 's/${WALLET_ADDRESS}/<STRATEGY_WALLET_ADDRESS>/' /data/workspace/skills/vulture-strategy/runtime.yaml
+mkdir -p /data/workspace/skills/vulture-strategy/{config,scripts,state}
+
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/runtime.yaml -o /data/workspace/skills/vulture-strategy/runtime.yaml
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/SKILL.md -o /data/workspace/skills/vulture-strategy/SKILL.md
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/config/vulture-config.json -o /data/workspace/skills/vulture-strategy/config/vulture-config.json
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scripts/vulture-scanner.py -o /data/workspace/skills/vulture-strategy/scripts/vulture-scanner.py
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scripts/vulture_config.py -o /data/workspace/skills/vulture-strategy/scripts/vulture_config.py
 ```
 
-**Step 2:** Set telegram chat ID:
+**Step 2:** Set strategy wallet and telegram chat:
 ```bash
+sed -i 's/${WALLET_ADDRESS}/<STRATEGY_WALLET_ADDRESS>/' /data/workspace/skills/vulture-strategy/runtime.yaml
 sed -i 's/${TELEGRAM_CHAT_ID}/<CHAT_ID>/' /data/workspace/skills/vulture-strategy/runtime.yaml
 ```
 
 **Step 3:** Install runtime:
 ```bash
 openclaw senpi runtime create --path /data/workspace/skills/vulture-strategy/runtime.yaml
-```
-
-**Step 4:** Verify:
-```bash
 openclaw senpi runtime list
 ```
 
+**Step 4:** Create scanner cron (3-minute interval):
+```bash
+# In openclaw: create a cron scanning every 3 minutes
+# Command: python3 /data/workspace/skills/vulture-strategy/scripts/vulture-scanner.py
+```
+
+---
+
 ## Bootstrap Gate
 
-On EVERY session start, check `config/bootstrap-complete.json`. If missing:
-1. Read senpi-trading-runtime SKILL.md
-2. Verify Senpi MCP
-3. Set wallet and Telegram in runtime.yaml
-4. Install runtime
-5. Verify runtime installed
-6. Create scanner cron (3 min interval)
-7. Write `config/bootstrap-complete.json`
-8. Send: "VULTURE v1.0 online. SM exhaustion fader active. Circling for exhausted moves on BTC/ETH/SOL/HYPE."
+On EVERY session start, verify:
+1. senpi-trading-runtime SKILL is loaded
+2. Senpi MCP is connected
+3. Runtime is installed (`openclaw senpi runtime list`)
+4. Scanner cron is active (3 min interval)
 
-## Risk Management
+Send: "🦅 VULTURE v2.0 online. Long-Tail Momentum Rider. Riding small-cap trends. Silence = no momentum confluence."
 
-| Rule | Value |
-|---|---|
-| Max positions | 1 |
-| Max entries/day | 2 |
-| Leverage | 5-7x |
-| Per-asset cooldown | 2 hours |
-| Same-dir cooldown | 1 hour after win |
-| XYZ equities | Banned |
-| 4H exhaustion gate | >3% price move required |
+---
 
-## Notification Policy
+## Changelog
 
-**ONLY alert:** Position OPENED (include SM direction, fade direction, score), position CLOSED (P&L), critical error.
+### v2.0 (2026-04-15) — **COMPLETE REWRITE**
+- Thesis flipped: contrarian fader → momentum rider
+- Universe expanded: 4 majors → 25 small caps
+- DSL hard_timeout: 360 min → 10,080 min (7 days)
+- Leverage: 5-7x (unchanged, appropriate for small caps)
+- MIN_4H_MOVE_PCT gate removed (was unreachable)
+- New MIN_15M_VELOCITY=0.3 hard gate (actively-building confirmation)
+- Max positions: 1 → 2
+- Signal-driven direction (not bias)
+- Based on Arena winner #1 3-week playbook
 
-**NEVER alert:** Scanner found nothing, reasoning details.
+### v1.0 (pre-2026-04-15)
+- Initial release. Contrarian SM-exhaustion fader on 4 majors. 0 trades produced.
 
-## Files
-
-| File | Purpose |
-|---|---|
-| `scripts/vulture-scanner.py` | SM exhaustion fader scanner |
-| `scripts/vulture_config.py` | Config helper |
-| `runtime.yaml` | DSL exit config (wide for contrarian) |
+---
 
 ## License
 
