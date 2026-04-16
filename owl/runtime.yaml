@@ -1,15 +1,16 @@
 name: owl-strategy
-version: 6.0.0
+version: 6.1.0
 description: >
-  OWL v6.0 — Pure Contrarian (gate recalibration). Monitors crowding across
-  top 30 assets (funding extremity + SM tilt + OI concentration). When
-  crowding persists 1+ hour AND exhaustion signals fire (volume declining,
-  price stalling, RSI divergence), enters AGAINST the crowd to ride the
-  liquidation unwind. v6.0 fixes the over-gated Owl: minPersistHours
-  reduced 4→1 and entry.minScore reduced 14→12 after fleet analysis found
-  Owl only traded 7 times in 30 days due to unreachable gate combination.
-  Re-crowding exit preserved (dormant, not harmful — 0 fires in 14 days).
-  DSL Phase 2 tightened to lock first leg at 5% ROE (Lemon-pattern learning).
+  OWL v6.1 — Pure Contrarian (universe expansion). Monitors crowding across
+  ALL assets with OI > $3M (v6.1 — was top 30 only in v6.0). Funding
+  extremity + SM tilt + OI concentration signals. When crowding persists
+  1+ hour AND exhaustion signals fire (volume declining, price stalling,
+  RSI divergence), enters AGAINST the crowd to ride the liquidation unwind.
+  v6.1 removes the top-30 OI truncation that was blinding Owl to mid-cap
+  extreme-funding setups (ZEC/MON/LIT hit >1000% annualized at probe time
+  but were filtered out). v6.0 fixed the over-gated Owl: minPersistHours
+  reduced 4→1 and entry.minScore reduced 14→12. DSL Phase 2 locks first
+  leg at 5% ROE (Lemon-pattern learning).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"

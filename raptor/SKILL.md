@@ -1,20 +1,26 @@
 ---
 name: raptor-strategy
 description: >-
-  RAPTOR v3.0 — Hot Streak Follower. Finds ELITE/RELIABLE traders currently
-  on a 4-hour hot streak via leaderboard_get_top + discovery_get_top_traders,
-  identifies their strongest position by delta PnL, confirms SM alignment,
-  and follows them in. Self-executing, runtime.yaml standard deployment,
-  fleet-standard guardrails. 2 positions max. Conviction-scaled leverage 7-10x.
+  RAPTOR v3.2 — Hot Streak Follower (whale entry-price discipline).
+  Finds ELITE/RELIABLE traders currently on a 4-hour hot streak via
+  leaderboard_get_top + discovery_get_top_traders, identifies their
+  strongest position, confirms SM alignment, and piggybacks — but
+  ONLY if we get a fill at a better price than the whale did.
+  v3.2 (2026-04-16) adds entry-discipline: fetch current price vs
+  whale's entryPx; if asset has run 20%+ in whale's favor post-entry,
+  SKIP (we'd be buying their top). Bonus +1/+2 points if we're
+  getting a better fill than the whale. Prior v3.1 spiral (-$60 in
+  16h) was caused by re-entering whales' positions at worse prices
+  than they originally filled.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0"
+  version: "3.2"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# RAPTOR v3.0 — Hot Streak Follower
+# RAPTOR v3.2 — Hot Streak Follower (entry-price discipline)
 
 Find traders who are already winning big right now, confirm they're quality (ELITE or RELIABLE on TCS), figure out what bet is driving their streak, check the smart money crowd agrees, and piggyback the same trade.
 

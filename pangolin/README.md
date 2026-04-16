@@ -1,10 +1,14 @@
-# 🦔 PANGOLIN v1.1 — Extreme Funding Rate Fader
+# 🦔 PANGOLIN v1.2 — Extreme Funding Rate Fader (universe expansion)
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 ## Thesis
 
-When funding rates are elevated (>20% annualized), the crowd is paying to hold their position. Pangolin enters opposite to the funding direction — collecting funding every 8 hours while waiting for the crowded side to capitulate. Conservative 3-5x leverage, very wide DSL (12-hour hard timeout), top 20 crypto assets by volume.
+When funding rates are elevated (>20% annualized), the crowd is paying to hold their position. Pangolin enters opposite to the funding direction — collecting funding every 8 hours while waiting for the crowded side to capitulate. Conservative 3-5x leverage, very wide DSL (12-hour hard timeout). **Scans every Hyperliquid perp with OI > $3M** (~60 assets, post-v1.2 expansion).
+
+## v1.2 Changelog (2026-04-16)
+
+- **UNIVERSE EXPANSION.** Removed hardcoded top-20 `ALLOWED_ASSETS` whitelist. Pangolin now scans every instrument with OI > $3M — ~60 assets instead of 20. Addresses Owl's diagnostic finding that extreme funding signals on mid-caps (ZEC/MON/LIT hit >1000% annualized at probe time) were being filtered out.
 
 ## v1.1 Changelog
 

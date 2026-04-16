@@ -1,8 +1,8 @@
-# 🦅 Raptor v3.0 — Hot Streak Follower
+# 🦅 Raptor v3.2 — Hot Streak Follower (whale entry-price discipline)
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-RAPTOR v3.0 — Hot Streak Follower. Finds ELITE/RELIABLE traders currently on a 4-hour hot streak via leaderboard_get_top + discovery_get_top_traders, identifies their strongest position by delta PnL, confirms SM alignment, and follows them in. Self-executing, runtime.yaml standard deployment, fleet-standard guardrails.
+RAPTOR v3.2 — Hot Streak Follower. Finds ELITE/RELIABLE traders on a 4-hour hot streak, identifies their strongest position by delta PnL, confirms SM alignment, and piggybacks — **but only if we get a better fill than the whale did**. **v3.2** adds entry-discipline: skip if the asset has run 20%+ in the whale's favor since their entry (we'd be buying their top). Bonus +1/+2 score if we're getting a better fill than the whale. Addresses Raptor's own self-diagnosis that v3.1 spiraled -$60 by buying the tops of whales' bags.
 
 ## Install
 

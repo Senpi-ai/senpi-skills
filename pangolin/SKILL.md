@@ -1,25 +1,36 @@
 ---
 name: pangolin-strategy
 description: >-
-  PANGOLIN v1.1 — Extreme Funding Rate Fader. Enters opposite to elevated
-  funding rates (>0.015%/8h = ~20% annualized, recalibrated down from
-  the v1.0 40% threshold that never fired in the current market regime),
+  PANGOLIN v1.2 — Extreme Funding Rate Fader (universe expansion).
+  Enters opposite to elevated funding rates (>0.015%/8h = ~20% annualized),
   collecting funding while waiting for crowded positions to mean-revert.
-  Conservative 3-5x leverage, very wide DSL (12h hard timeout). Top 20
-  crypto assets by volume.
+  Conservative 3-5x leverage, very wide DSL (12h hard timeout). v1.2
+  replaces the hardcoded top-20 ALLOWED_ASSETS whitelist with a dynamic
+  liquidity floor (OI > $3M) — now scans ~60 assets instead of 20,
+  unlocking mid-cap unwind setups (ZEC/MON/LIT hit >1000% annualized
+  at probe time but were filtered out pre-v1.2).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.1"
+  version: "1.2"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🦔 PANGOLIN v1.1 — Extreme Funding Rate Fader
+# 🦔 PANGOLIN v1.2 — Extreme Funding Rate Fader (universe expansion)
 
 An entirely new strategy archetype for the Predators fleet. No other agent trades on funding rate signals.
+
+## v1.2 changelog (fleet-fix batch 5, 2026-04-16)
+
+- **UNIVERSE EXPANSION.** Removed the hardcoded `ALLOWED_ASSETS` set
+  of 20 top-volume majors. Now scans every instrument with OI > $3M
+  (~60 assets). This addresses Owl's diagnostic finding that extreme
+  funding signals (>1000% annualized on ZEC/MON/LIT at probe time)
+  were happening on mid-cap assets Pangolin was filtering out.
+- XYZ DEX remains banned.
 
 ## v1.1 changelog (fleet-fix batch 4)
 

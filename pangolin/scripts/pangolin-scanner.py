@@ -1,9 +1,24 @@
 #!/usr/bin/env python3
-# Senpi PANGOLIN Scanner v1.1
+# Senpi PANGOLIN Scanner v1.2
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""PANGOLIN v1.1 — Extreme Funding Rate Fader (threshold recalibrated).
+"""PANGOLIN v1.2 — Extreme Funding Rate Fader (universe expansion).
+
+## v1.2 change — universe expansion (2026-04-16)
+
+Owl's diagnostic revealed that extreme funding signals DO exist in
+current market conditions — just not in Pangolin's universe. ZEC, MON,
+and LIT all hit >1000% annualized funding at probe time, but Pangolin's
+hardcoded ALLOWED_ASSETS set (top-20 by volume: BTC, ETH, SOL, HYPE,
+DOGE, XRP, AVAX, LINK, ADA, DOT, NEAR, UNI, LTC, BCH, TAO, INJ, AAVE,
+ZEC, WIF, PEPE) filtered them out. ZEC was the only overlap — the
+most extreme funding on mid-caps was invisible.
+
+v1.2 replaces the brand whitelist with a liquidity floor: any asset
+with OI > $3M qualifies. XYZ DEX remains banned. This expands the
+scannable universe from ~20 to ~60 assets and unlocks the exact
+unwind setups Pangolin was designed for.
 
 ## v1.1 change — threshold recalibration
 
@@ -93,12 +108,13 @@ LEVERAGE_TIERS = [
 ]
 DEFAULT_LEVERAGE = 3
 
-# Top assets by volume — only trade liquid markets
-ALLOWED_ASSETS = {
-    "BTC", "ETH", "SOL", "HYPE", "DOGE", "XRP", "AVAX", "LINK",
-    "ADA", "DOT", "NEAR", "UNI", "LTC", "BCH", "TAO", "INJ",
-    "AAVE", "ZEC", "WIF", "PEPE",
-}
+# v1.2: UNIVERSE EXPANSION. Previously ALLOWED_ASSETS was a hardcoded set
+# of 20 top-volume majors. Per Owl's 2026-04-16 diagnosis: the most
+# extreme funding unwinds happen on mid-cap assets (ZEC, MON, LIT —
+# >1000% annualized funding at probe time) that weren't in the top-20
+# by volume. Now any asset with sufficient OI liquidity ($3M minimum)
+# qualifies — the liquidity floor replaces the brand-whitelist.
+MIN_OI_USD = 3_000_000          # v1.2: liquidity gate (replaces ALLOWED_ASSETS)
 
 
 def safe_float(v, d=0.0):
@@ -197,7 +213,17 @@ def scan_funding_extremes():
             continue
 
         name = str(inst.get("name", inst.get("coin", ""))).upper()
-        if name not in ALLOWED_ASSETS:
+        dex = str(inst.get("dex", "")).lower()
+
+        # v1.2: XYZ filter (banned)
+        if XYZ_BANNED and dex == "xyz":
+            continue
+
+        # v1.2: liquidity gate — replaces old ALLOWED_ASSETS hardcoded set
+        oi = safe_float(inst.get("openInterest", 0))
+        mark_px = safe_float(inst.get("markPx", inst.get("midPx", 0)))
+        oi_usd = oi * mark_px if mark_px > 0 else 0
+        if oi_usd < MIN_OI_USD:
             continue
 
         funding = safe_float(inst.get("funding", 0))
@@ -405,7 +431,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_pangolin_version": "1.1",
+                "_pangolin_version": "1.2",
             })
             return
         else:
@@ -415,7 +441,7 @@ def run():
                 "signal": {"asset": token, "score": cand["score"],
                            "reasons": cand["reasons"]},
                 "error": result,
-                "_pangolin_version": "1.1",
+                "_pangolin_version": "1.2",
             })
             return
 
