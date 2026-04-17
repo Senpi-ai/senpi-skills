@@ -1,0 +1,68 @@
+name: jackal-tracker
+version: 1.0.0
+description: >
+  JACKAL v1.0 — The Smart Stalker. The fleet's first SECONDARY-SIGNAL
+  agent. Observes other Senpi users' trades (via the new any-user-lookup
+  MCP capability) and executes filtered, consensus-weighted trades with
+  its own DSL. Maintains a rolling pool of ~20-30 qualified traders
+  scored by trajectory (not rank) — catches emerging movers BEFORE they
+  hit the top of the Arena leaderboard. Acts only when source quality +
+  consensus + independent TA confirmation all align.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 3
+  margin_per_slot: 250
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# ─── EXIT (DSL) — Consensus-aware patience profile ───────────
+# Jackal inherits Python's patience DSL but with TWO adjustments:
+#
+#   1. Wider Phase-1 floor (22%): consensus signals take time to
+#      develop; we don't want to stop out on the first shakeout.
+#   2. Looser early Phase-2: even consensus signals need runway.
+#
+# The GOLD SIGNAL case (newly-promoted source + 2+ existing consensus)
+# is where the fat-tail lives. Tight early locks kill those.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 4320        # 72h = 3 days
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480          # 8h — consensus consolidations
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 240          # 4h no movement
+    phase1:
+      enabled: true
+      max_loss_pct: 22.0                # Wider than Python (20%) — consensus signals deserve breathing room
+      retrace_threshold: 10
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 6,   lock_hw_pct: 20 }   # Loose first lock
+        - { trigger_pct: 14,  lock_hw_pct: 40 }
+        - { trigger_pct: 28,  lock_hw_pct: 62 }
+        - { trigger_pct: 50,  lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 90 }
+        - { trigger_pct: 200, lock_hw_pct: 94 }   # Monster winner trail
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
