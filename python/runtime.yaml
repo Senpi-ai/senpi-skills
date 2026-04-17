@@ -1,0 +1,68 @@
+name: python-tracker
+version: 1.0.0
+description: >
+  PYTHON v1.0 — The Patience Hunter. The fleet's first multi-day hold
+  agent. Scans top 50 HL assets every 10 minutes, takes up to 2 concurrent
+  positions, holds for 2-4 days, low leverage (3-7x), LONG-biased.
+  Derived from pr0br000's Arena Week 2-3 pattern (+221% in 27 days,
+  36% win rate, 3.14:1 win/loss ratio, top 5 winners drove 90% of gross).
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 2
+  margin_per_slot: 250
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# ─── EXIT (DSL) — Patience profile ──────────────────────────
+# The whole point of Python is to NOT exit early.
+# DSL timing must match multi-day thesis:
+#
+#   Python (multi-day):   Dead Weight 360min | Weak Peak 720min | Hard Timeout 5760min (96h)
+#   Condor (daily):       Dead Weight 60min  | Weak Peak 120min | Hard Timeout 1440min (24h)
+#   HYPE/fast alts:       Dead Weight 30min  | Weak Peak 60min  | Hard Timeout 180min (3h)
+#
+# Phase 2 tiers are WIDER — first lock at +5% only locks 15%, letting
+# winners breathe. Early aggressive locking would kill the +1000% tail
+# trades pr0br000 won on.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 5760       # 96h = 4 days
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 720         # 12h peak-stale = thesis not developing
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 360         # 6h no movement
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0               # Wider than Condor (15%) — patient on losers too
+      retrace_threshold: 10
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,   lock_hw_pct: 15 }   # LOOSE initial lock — let winners breathe
+        - { trigger_pct: 12,  lock_hw_pct: 35 }
+        - { trigger_pct: 25,  lock_hw_pct: 60 }
+        - { trigger_pct: 50,  lock_hw_pct: 80 }   # pr0br000's MON/WLD-tier
+        - { trigger_pct: 100, lock_hw_pct: 90 }   # Monster winner trail
+        - { trigger_pct: 200, lock_hw_pct: 94 }   # 200%+ — pr0br000 had 2 of these
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
