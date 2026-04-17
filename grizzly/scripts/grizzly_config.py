@@ -61,20 +61,50 @@ def get_wallet_and_strategy():
 def load_trade_counter():
     today = now_date()
     p = STATE_DIR / "trade-counter.json"
+    default = {
+        "date": today, "entries": 0, "realizedPnl": 0,
+        "gate": "OPEN", "gateReason": None, "cooldownUntil": None,
+        "lastResults": [],
+        "last_entry_ts": 0, "last_win_direction": None, "last_win_ts": 0,
+    }
     if p.exists():
         try:
             with open(p) as f:
                 tc = json.load(f)
-            if tc.get("date") == today:
-                return tc
+            if tc.get("date") != today:
+                tc["date"] = today
+                tc["entries"] = 0
+                tc["realizedPnl"] = 0
+                tc["lastResults"] = []
+            for k, v in default.items():
+                if k not in tc:
+                    tc[k] = v
+            return tc
         except (json.JSONDecodeError, IOError):
             pass
-    return {"date": today, "entries": 0}
+    return dict(default)
 
 
 def save_trade_counter(tc):
     tc["date"] = now_date()
     atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
+
+
+# ─── State I/O (v5.0 — 3-mode lifecycle) ─────────────────────
+
+def load_state(filename="grizzly-state.json"):
+    path = STATE_DIR / filename
+    if path.exists():
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+    return {}
+
+
+def save_state(data, filename="grizzly-state.json"):
+    atomic_write(str(STATE_DIR / filename), data)
 
 
 def is_asset_cooled_down(asset, cooldown_minutes=180):
