@@ -1,10 +1,12 @@
 name: grizzly-tracker
-version: 4.0.0
+version: 5.0.0
 description: >
-  GRIZZLY v4.0 — BTC Contrarian (SM Exhaustion Fader). Single-asset BTC
-  scanner that trades AGAINST Smart Money consensus when the move is
-  exhausted. Single entry (no pyramiding — see Grizzly-Horribilis for
-  the pyramiding variant). Wide DSL lets reversals develop.
+  GRIZZLY v5.0 — BTC Alpha Hunter with Position Lifecycle. Single-asset
+  BTC scanner, trend-following (flipped back from v4.x contrarian).
+  Family member alongside Kodiak (SOL), Wolverine (HYPE), Polar (ETH) —
+  all four share the same architecture, tuned per asset. BTC-specific
+  tuning: tighter momentum thresholds (BTC moves 3x slower than alts),
+  RSI 70/30 extremes, wider DSL timing per RatchetStop guide.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -24,34 +26,43 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# DSL tuned for BTC contrarian — reversals take time, tight loss floor.
+# ─── EXIT (DSL) — BTC-tuned per RatchetStop timing guide ──────
+# BTC moves 0.6% in 4h. Time-based exits must match asset speed or
+# they'll kill every position before the trend develops.
+#
+#   BTC:      Dead Weight 90min  |  Weak Peak 120min  |  Hard Timeout 360min
+#   ETH/SOL:  Dead Weight 60min  |  Weak Peak 90min   |  Hard Timeout 240min
+#   HYPE:     Dead Weight 30min  |  Weak Peak 60min   |  Hard Timeout 180min
+#
+# Phase 2 tiers calibrated for BTC's slower grinds — first lock at +5%
+# (BTC rarely sees +8% quickly), then escalates.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 360
+      interval_in_minutes: 360       # 6h — BTC trends take time
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 90
+      interval_in_minutes: 120        # 2h — BTC peaks consolidate slowly
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 30
+      interval_in_minutes: 90         # 90min — BTC can sit quietly in trend
     phase1:
       enabled: true
       max_loss_pct: 15.0
       retrace_threshold: 8
-      consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 5,  lock_hw_pct: 20 }
-        - { trigger_pct: 10, lock_hw_pct: 40 }
-        - { trigger_pct: 15, lock_hw_pct: 60 }
-        - { trigger_pct: 20, lock_hw_pct: 75 }
-        - { trigger_pct: 30, lock_hw_pct: 85 }
+        - { trigger_pct: 5,   lock_hw_pct: 25 }   # First profit lock
+        - { trigger_pct: 10,  lock_hw_pct: 45 }
+        - { trigger_pct: 15,  lock_hw_pct: 65 }
+        - { trigger_pct: 20,  lock_hw_pct: 80 }
+        - { trigger_pct: 30,  lock_hw_pct: 90 }   # Apex lock
+        - { trigger_pct: 50,  lock_hw_pct: 94 }   # Monster winner trail
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
