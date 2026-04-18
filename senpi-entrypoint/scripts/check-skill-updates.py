@@ -7,6 +7,11 @@ all installed Senpi skills, then checks GitHub for:
   - Version bumps (hash change in skill folder + version field changed in SKILL.md)
   - New skills added to the repo that the user has never been shown
 
+GitHub REST calls use optional auth from `GH_TOKEN`, `GITHUB_TOKEN`, or
+`SENPI_GITHUB_TOKEN` (first set wins). Without a token, unauthenticated API
+access is capped at about 60 requests/hour per IP — shared NAT or tight cron
+intervals can exhaust that and skip updates silently.
+
 Uses `$SENPI_STATE_DIR/pending-skill-updates.json` (default:
 `~/.config/senpi/pending-skill-updates.json` if `SENPI_STATE_DIR` is unset)
 to track last-known versions and which skills have already been surfaced to the user.
@@ -47,6 +52,26 @@ NON_SKILL_DIRS = {
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def github_api_token():
+    """Return a PAT for api.github.com if any supported env var is set."""
+    for key in ("GH_TOKEN", "GITHUB_TOKEN", "SENPI_GITHUB_TOKEN"):
+        val = os.environ.get(key)
+        if val and val.strip():
+            return val.strip()
+    return None
+
+
+def github_api_request_headers():
+    headers = {
+        "User-Agent": "senpi-skill-update-checker/1.0",
+        "Accept": "application/vnd.github+json",
+    }
+    token = github_api_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
 
 def load_json(path, default=None):
     try:
@@ -172,10 +197,7 @@ def apply_pending_to_catalog(known_versions, seen_available, pending_result):
 
 def github_get(url, max_attempts=3, delay=3):
     """GET a GitHub API URL. Returns parsed JSON or None after all retries fail."""
-    req = urllib.request.Request(
-        url,
-        headers={"User-Agent": "senpi-skill-update-checker/1.0"},
-    )
+    req = urllib.request.Request(url, headers=github_api_request_headers())
     for attempt in range(max_attempts):
         try:
             with urllib.request.urlopen(req, timeout=15) as resp:

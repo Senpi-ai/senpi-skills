@@ -18,6 +18,22 @@ rendering. If it is heartbeat/empty, continue to normal response flow.
 
 ---
 
+## GitHub API rate limits (skill update checker)
+
+`scripts/check-skill-updates.py` calls the GitHub REST API once per run (repo
+root listing). Unauthenticated access is limited to roughly **60 requests per
+hour per IP**. On a shared network or with frequent manual runs, that ceiling
+can be hit; the script then exits with a heartbeat and **does not surface
+updates**.
+
+Set **`GH_TOKEN`**, **`GITHUB_TOKEN`**, or **`SENPI_GITHUB_TOKEN`** to a
+personal access token with `public_repo` (or classic `repo` if you use private
+forks). The script picks the first of these variables that is non-empty.
+Authenticated requests get a much higher quota and are less likely to fail on
+busy IPs.
+
+---
+
 ## Output Handling
 
 At session startup the entrypoint reads

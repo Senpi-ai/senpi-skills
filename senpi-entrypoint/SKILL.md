@@ -12,7 +12,7 @@ license: Apache-2.0
 compatibility: "Node.js, shell, Python 3, OpenClaw (optional — Step 5 cron)"
 metadata:
   author: Senpi
-  version: "1.2.2"
+  version: "1.2.3"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -36,6 +36,7 @@ steps.
 |---|---|---|
 | `SENPI_MCP_ENDPOINT` | `{{SENPI_MCP_ENDPOINT}}` | `https://mcp.prod.senpi.ai` |
 | `REFERRAL_CODE` | `{{REFERRAL_CODE}}` | _(empty — optional)_ |
+| `GH_TOKEN` / `GITHUB_TOKEN` / `SENPI_GITHUB_TOKEN` | _(none)_ | _(optional — skill update checker uses the first set value to authenticate GitHub REST calls; avoids shared-IP rate limit exhaustion)_ |
 
 If a placeholder appears as a literal `{{...}}` string (not substituted),
 use the default value from the table above.
