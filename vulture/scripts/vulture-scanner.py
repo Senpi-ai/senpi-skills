@@ -233,6 +233,32 @@ def has_resting_orders(wallet):
 # SIGNAL SCORING — momentum following (opposite philosophy from Lemon)
 # ═══════════════════════════════════════════════════════════════
 
+def _get_funding_regime():
+    """v2.2: market-wide funding regime via new MCP tool."""
+    try:
+        r = cfg.mcporter_call("market_get_funding_regime")
+        if r:
+            return r.get("data", r).get("regime")
+    except Exception:
+        pass
+    return None
+
+
+def _get_funding_history(asset):
+    """v2.2: per-asset persistence + trend via new MCP tool."""
+    try:
+        r = cfg.mcporter_call("market_get_funding_history", asset=asset)
+        if r:
+            data = r.get("data", r)
+            return {
+                "persistence_hours": data.get("persistence_hours"),
+                "trend": data.get("trend"),
+            }
+    except Exception:
+        pass
+    return None
+
+
 def fetch_sm_data():
     """Get Hyperfeed SM data for all tracked small caps."""
     raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
@@ -400,6 +426,37 @@ def evaluate_momentum(asset, sm):
         score -= 2
         reasons.append(f"MOVE_EXTENDED {p4h:+.1f}%")
 
+    # ── v2.2: Regime alignment (momentum thesis — not a hard gate) ──
+    # Vulture FOLLOWS momentum. Unlike Dog (which fades crowding),
+    # Vulture wants the macro trend behind it.
+    #   Regime matches direction      → trend has macro backing (+1)
+    #   Regime opposes direction      → fighting the macro tide (-1)
+    #   Regime NEUTRAL / unavailable  → no adjustment
+    regime = evaluate_momentum._regime_cache  # populated by caller per scan
+    if regime == "LONG_CROWDED" and direction == "LONG":
+        score += 1; reasons.append("REGIME_LONG_CROWDED_aligned")
+    elif regime == "SHORT_CROWDED" and direction == "SHORT":
+        score += 1; reasons.append("REGIME_SHORT_CROWDED_aligned")
+    elif regime == "LONG_CROWDED" and direction == "SHORT":
+        score -= 1; reasons.append("REGIME_LONG_CROWDED_fighting")
+    elif regime == "SHORT_CROWDED" and direction == "LONG":
+        score -= 1; reasons.append("REGIME_SHORT_CROWDED_fighting")
+    elif regime is not None:
+        reasons.append(f"REGIME_{regime}")
+
+    # ── v2.2: Persistence validates macro trend durability ──
+    # If funding has been crowded in our direction for hours, the macro
+    # trend is mature — Vulture's momentum ride has runway.
+    fh = evaluate_momentum._fh_cache.get(asset) if hasattr(evaluate_momentum, "_fh_cache") else None
+    if fh:
+        ph = fh.get("persistence_hours")
+        try:
+            ph_val = float(ph) if ph is not None else None
+        except (TypeError, ValueError):
+            ph_val = None
+        if ph_val is not None and ph_val >= 6:
+            score += 1; reasons.append(f"TREND_PERSISTENT_{ph_val:.0f}h")
+
     if score < MIN_SCORE:
         return None
 
@@ -414,6 +471,7 @@ def evaluate_momentum(asset, sm):
         "priceChg4h": p4h,
         "contrib15m": c15m,
         "contrib1h": c1h,
+        "regime": regime,
     }
 
 
@@ -505,6 +563,10 @@ def run():
                     "note": "No SM data on tracked small caps"})
         return
 
+    # v2.2: populate regime + funding_history caches once per scan
+    evaluate_momentum._regime_cache = _get_funding_regime()
+    evaluate_momentum._fh_cache = {}
+
     # Evaluate momentum signals
     signals = []
     rejections = {}
@@ -525,6 +587,9 @@ def run():
         if cfg.is_asset_cooled_down(asset, COOLDOWN_MINUTES):
             rejections[asset] = "cooldown"
             continue
+
+        # v2.2: fetch per-asset funding_history for persistence scoring
+        evaluate_momentum._fh_cache[asset] = _get_funding_history(asset)
 
         result = evaluate_momentum(asset, sm)
         if result:
