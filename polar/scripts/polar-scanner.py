@@ -187,14 +187,23 @@ def evaluate_eth():
     if traders < 15: return None
 
     funding = 0
+    oi_vel_change = None  # v3.1: OI velocity from new MCP data
     try:
         ad = cfg.mcporter_call("market_get_asset_data", asset=ASSET,
                                 candle_intervals=["1h"], include_funding=True)
         if ad:
-            ac = ad.get("data", ad).get("asset_context",
-                 ad.get("data", ad).get("assetContext", {}))
+            ad_data = ad.get("data", ad)
+            ac = ad_data.get("asset_context", ad_data.get("assetContext", {}))
             if isinstance(ac, dict):
                 funding = safe_float(ac.get("funding", 0))
+            # v3.1: extract oi_velocity from same response (free read)
+            oi_vel = ad_data.get("oi_velocity", {}) if isinstance(ad_data.get("oi_velocity"), dict) else {}
+            oi_vel_1h = oi_vel.get("1h", {}) if isinstance(oi_vel.get("1h"), dict) else {}
+            if oi_vel_1h.get("change_pct") is not None:
+                try:
+                    oi_vel_change = float(oi_vel_1h.get("change_pct"))
+                except (TypeError, ValueError):
+                    oi_vel_change = None
     except: pass
 
     score, reasons = 0, []
@@ -254,6 +263,17 @@ def evaluate_eth():
     # Funding alignment (0-1)
     if (d == "SHORT" and funding > 0.0002) or (d == "LONG" and funding < -0.0002):
         score += 1; reasons.append(f"FUNDING_PAYS {funding*100:.4f}%")
+
+    # v3.1: OI velocity (real OI change from new MCP tool)
+    # Accelerating OI = real capital committing → conviction boost.
+    # Null handling: 1h window can be null until poller has run, treat as insufficient.
+    if oi_vel_change is not None:
+        if oi_vel_change > 5:
+            score += 2; reasons.append(f"OI_ACCELERATING_{oi_vel_change:+.1f}%")
+        elif oi_vel_change > 2:
+            score += 1; reasons.append(f"OI_rising_{oi_vel_change:+.1f}%")
+        elif oi_vel_change < -3:
+            score -= 1; reasons.append(f"OI_draining_{oi_vel_change:+.1f}%")
 
     # US session bonus (0-1)
     hour = datetime.now(timezone.utc).hour
