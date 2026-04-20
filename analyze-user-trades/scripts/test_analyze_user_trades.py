@@ -8,6 +8,16 @@ import analyze_user_trades
 
 
 class TimeFilteringTests(unittest.TestCase):
+    def test_build_time_filter_accepts_mixed_utc_suffixes(self):
+        in_range = analyze_user_trades._build_time_filter(
+            "2026-04-03T00:00:00+00:00",
+            "2026-04-09T23:59:59+00:00",
+        )
+
+        self.assertTrue(in_range("2026-04-03T00:00:00.250Z"))
+        self.assertTrue(in_range("2026-04-09T23:59:59.750Z"))
+        self.assertFalse(in_range("2026-04-10T00:00:00Z"))
+
     def test_build_time_filter_includes_fractional_start_second(self):
         in_range = analyze_user_trades._build_time_filter(
             "2026-04-03T00:00:00Z",
@@ -25,6 +35,20 @@ class TimeFilteringTests(unittest.TestCase):
 
         self.assertTrue(in_range("2026-04-09T23:59:59.500Z"))
         self.assertFalse(in_range("2026-04-10T00:00:00Z"))
+
+    def test_build_time_filter_rejects_unparseable_boundaries(self):
+        with self.assertRaises(ValueError):
+            analyze_user_trades._build_time_filter(
+                "not-a-timestamp",
+                "2026-04-09T23:59:59Z",
+            )
+
+    def test_build_time_filter_rejects_start_after_end(self):
+        with self.assertRaises(ValueError):
+            analyze_user_trades._build_time_filter(
+                "2026-04-10T00:00:00Z",
+                "2026-04-09T23:59:59Z",
+            )
 
     @patch("analyze_user_trades.mcporter_call_safe")
     def test_fetch_orders_filters_with_parsed_timestamps(self, mcporter_call_safe):

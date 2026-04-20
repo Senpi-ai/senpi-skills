@@ -87,8 +87,13 @@ def _build_time_filter(start_time, end_time):
     start_dt = _parse_iso_timestamp(start_time)
     end_dt = _parse_iso_timestamp(end_time)
     if not start_dt or not end_dt:
-        # Preserve previous behavior when user input is not parseable.
-        return lambda ts: bool(ts) and start_time <= ts <= end_time
+        raise ValueError(
+            f"Invalid ISO 8601 time range: start_time={start_time!r}, end_time={end_time!r}"
+        )
+    if start_dt > end_dt:
+        raise ValueError(
+            f"Invalid time range: start_time {start_time!r} is after end_time {end_time!r}"
+        )
 
     end_exclusive = end_dt + timedelta(seconds=1) if _is_second_precision(end_time) else None
 
@@ -292,21 +297,27 @@ def analyze_user(user, start_time, end_time):
 # ---------------------------------------------------------------------------
 
 def main():
-    args = parse_args()
-
-    start_time = args.start_time
-    end_time   = args.end_time
-    if start_time is None or end_time is None:
-        default_start, default_end = compute_week_boundaries(week_offset=0)
-        if start_time is None:
-            start_time = default_start
-        if end_time is None:
-            end_time = default_end
-
     try:
+        args = parse_args()
+
+        start_time = args.start_time
+        end_time   = args.end_time
+        if start_time is None or end_time is None:
+            default_start, default_end = compute_week_boundaries(week_offset=0)
+            if start_time is None:
+                start_time = default_start
+            if end_time is None:
+                end_time = default_end
+
+        # Validate the user-provided/default time window before processing users.
+        _build_time_filter(start_time, end_time)
+
         users, err = resolve_users(args)
     except RuntimeError as e:
         print(json.dumps({"success": False, "error": str(e), "actionable": False}))
+        sys.exit(0)
+    except ValueError as e:
+        print(json.dumps({"success": False, "error": str(e), "actionable": True}))
         sys.exit(0)
 
     if err:
