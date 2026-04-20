@@ -1,82 +1,73 @@
 #!/usr/bin/env python3
-# Senpi PANGOLIN Scanner v1.3
+# Senpi PANGOLIN Scanner v1.4
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""PANGOLIN v1.3 — Extreme Funding Rate Fader (critical bug fix).
+"""PANGOLIN v1.4 — Extreme Funding Rate Fader (persistence + regime upgrade).
+
+## v1.4 changes (2026-04-20) — SIGNAL QUALITY UPGRADE
+
+Integrates three new Senpi MCP market-data tools. Pangolin's original thesis
+was right — fade extreme funding — but the execution suffered from two blind
+spots that the new tools solve:
+
+1. NO PERSISTENCE CHECK: v1.3 fired on instantaneous funding rate, so a
+   one-hour funding spike could trigger a trade before the crowd was
+   actually crowded. Now uses market_get_funding_history.persistence_hours
+   to require funding has been extreme for at least 3 consecutive hours.
+
+2. NO MACRO CROWDING SIGNAL: v1.3 judged crowding per-asset only. Now uses
+   market_get_funding_regime to cross-check market-wide positioning.
+   If we want to fade longs (go SHORT) but the market regime isn't
+   LONG_CROWDED, we're probably looking at an isolated anomaly, not
+   a real crowding setup.
+
+### New scoring components
+
+    persistence_hours >= 12  → +3 (mature crowding, highest-conviction fade)
+    persistence_hours >= 6   → +2 (stable crowding)
+    persistence_hours >= 3   → +1 (minimum to act)
+    persistence_hours < 3    → SKIP (fresh spike, likely noise)
+
+    trend == INCREASING      → +1 (crowding still building, strong fade)
+    trend == DECREASING      → -1 (crowding already unwinding, late entry)
+
+    regime matches fade      → +2 (macro consensus with our trade)
+    regime opposes fade      → SKIP (we'd be fighting the crowd, not fading)
+
+MIN_SCORE raised 7 → 9 because v1.4 adds up to +6 new points.
+
+### Null handling (per skill-dev notes)
+
+persistence_hours uses up to 48h of ClickHouse history. On freshly-polled
+assets it starts low (~1h). funding_history values can be null on first
+deployment. v1.4 handles null as "not enough data, skip" rather than as
+zero — conservative default.
+
+---
 
 ## v1.3 changes (2026-04-16) — CRITICAL UNBLOCK
 
-Root cause analysis: Pangolin has executed 0 trades since inception
-despite 3 version increments. Live diagnostic via direct MCP inspection
-revealed that market_list_instruments returns `funding`, `openInterest`,
-`markPx`, and `midPx` NESTED INSIDE the `context` sub-object, not at
-the top level of each instrument entry. All pre-v1.3 Pangolin scanners
-read `inst.get("funding", 0)` at the top level — which always returned
-0 — and every asset failed the MIN_FUNDING_RATE filter. Pangolin was
-structurally unable to trade regardless of threshold or universe.
+Root cause: market_list_instruments returns funding/OI/price nested inside
+the `context` sub-object. Pre-v1.3 read them at top level and got 0 — every
+asset failed filters. v1.3 reads from context correctly + lowered MIN_OI_USD
+from $3M to $1M. Unblocked Pangolin to actually trade.
 
-v1.3 fixes:
-1. Read funding/OI/price from ctx = inst["context"], with top-level
-   fallback for future schema changes.
-2. MIN_OI_USD lowered $3M → $1M. Live market analysis showed only 2
-   assets passed OI>$3M AND |funding|>=0.00015 (one XYZ-banned, one
-   at $2.47M). Funding extremes cluster in the $500K-$2.5M OI range;
-   $1M floor captures them while filtering micro-cap noise.
+## Thesis
 
-Post-fix the scanner should immediately start catching setups like
-MAVIA +47% annualized, GRIFFAIN +25% annualized, etc.
+Extreme funding = crowd paying heavily to hold position. Mean-reverts within
+24-48h as cost of carry forces liquidation. Pangolin enters opposite direction
+— collects funding every 8h while waiting for crowd to capitulate.
 
-## v1.2 change — universe expansion (2026-04-16)
-
-Owl's diagnostic revealed that extreme funding signals DO exist in
-current market conditions — just not in Pangolin's universe. ZEC, MON,
-and LIT all hit >1000% annualized funding at probe time, but Pangolin's
-hardcoded ALLOWED_ASSETS set (top-20 by volume: BTC, ETH, SOL, HYPE,
-DOGE, XRP, AVAX, LINK, ADA, DOT, NEAR, UNI, LTC, BCH, TAO, INJ, AAVE,
-ZEC, WIF, PEPE) filtered them out. ZEC was the only overlap — the
-most extreme funding on mid-caps was invisible.
-
-v1.2 replaces the brand whitelist with a liquidity floor: any asset
-with OI > $3M qualifies. XYZ DEX remains banned. This expands the
-scannable universe from ~20 to ~60 assets and unlocks the exact
-unwind setups Pangolin was designed for.
-
-## v1.1 change — threshold recalibration
-
-Diagnostic probe: funding signal totally absent in the current market.
-Peak funding was 9% annualized vs the v1.0 threshold of 40%. Pangolin
-never fired. v1.1 lowers MIN_FUNDING_RATE from 0.0003 (0.03%/8h =
-~40% annualized) to 0.00015 (0.015%/8h = ~20% annualized) so the
-scanner can actually engage the signal in today's calmer funding regime.
-
-
-Thesis: When funding rates are extreme (>0.03%/8h = ~40% annualized),
-the crowd is paying heavily to hold their position. History shows these
-extremes mean-revert within 24-48h as the cost of carry forces liquidation
-or position reduction. Pangolin enters opposite to the funding direction
-(collecting funding while waiting for the crowd to capitulate).
-
-This is different from:
-- Barracuda (follows trend + collects funding as a bonus)
-- Lemon (fades degen traders based on their track record)
-- Vulture (fades SM consensus exhaustion on price action)
-
-Pangolin specifically fades EXTREME FUNDING — it's a pure crowding
-mean-reversion play using a quantitative funding threshold. The edge
-comes from two sources:
+Edge comes from:
 1. Collecting funding every 8 hours while waiting for mean reversion
 2. Price reversal when the overcrowded side unwinds
 
-Design:
-- Scan all crypto instruments for extreme funding (>0.03%/8h)
-- Confirm with SM positioning (SM should be fading the crowd)
-- Enter opposite to the funding direction (collect funding)
-- Conservative leverage (3-5x) — crowded unwinds are violent
-- Very wide DSL (8-12 hours) — mean reversion takes time
-- Max 2 positions (diversify across uncorrelated funding extremes)
+Different from:
+- Barracuda (follows trend + collects funding as bonus)
+- Lemon (fades degen traders based on track record)
+- Vulture (fades SM consensus exhaustion on price action)
 
-Assets: Top 20 by volume (crypto only, no XYZ)
 Runs every 5 minutes.
 """
 
@@ -98,45 +89,36 @@ MAX_DAILY_ENTRIES = 3
 # DYNAMIC DAILY CAP (P&L-aware circuit breaker)
 # ═══════════════════════════════════════════════════════════════
 
-STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+STARTING_BUDGET = 1000.0
 
 def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
-    """P&L-aware daily entry cap based on drawdown from starting budget.
-
-    Winners get more trades (ride the hot hand).
-    Losers get fewer trades (preserve capital).
-    Catastrophic drawdown triggers HARD STOP (circuit breaker).
-    """
     if starting_budget <= 0:
-        return 4  # Safe fallback
+        return 4
     pnl_pct = ((account_value - starting_budget) / starting_budget) * 100
-    if pnl_pct >= 5:       return 12   # Hot hand — up >5%
-    elif pnl_pct >= 0:     return 8    # Small win / breakeven
-    elif pnl_pct >= -5:    return 5    # Careful
-    elif pnl_pct >= -15:   return 3    # Defensive
-    elif pnl_pct >= -25:   return 1    # Preserve — only highest conviction
-    else:                  return 0    # HARD STOP — circuit breaker
+    if pnl_pct >= 5:       return 12
+    elif pnl_pct >= 0:     return 8
+    elif pnl_pct >= -5:    return 5
+    elif pnl_pct >= -15:   return 3
+    elif pnl_pct >= -25:   return 1
+    else:                  return 0
 
-COOLDOWN_MINUTES = 240          # 4 hours between same-asset entries
-MARGIN_PCT = 0.25               # 25% per position (conservative)
-MIN_SCORE = 7
-MIN_FUNDING_RATE = 0.00015      # v1.1: 0.015%/8h = ~20% annualized (was 0.0003 / 40%)
+
+COOLDOWN_MINUTES = 240
+MARGIN_PCT = 0.25
+MIN_SCORE = 9                    # v1.4: raised from 7 (new signals add points)
+MIN_FUNDING_RATE = 0.00015
 XYZ_BANNED = True
+MIN_OI_USD = 1_000_000
+
+# v1.4: persistence requirements (new funding_history tool)
+MIN_PERSISTENCE_HOURS = 3        # Hard gate: skip funding spikes < 3h old
 
 # Very conservative leverage — crowded unwinds are violent
 LEVERAGE_TIERS = [
-    {"min_score": 10, "leverage": 5},
-    {"min_score": 7,  "leverage": 3},
+    {"min_score": 13, "leverage": 5},  # raised from score 10 (new point ceiling)
+    {"min_score": 9,  "leverage": 3},
 ]
 DEFAULT_LEVERAGE = 3
-
-# v1.3: LOWERED OI FLOOR. $3M was too tight — in current market, only 2
-# assets passed OI>$3M AND |funding|>=MIN_FUNDING_RATE (one XYZ-banned,
-# one at $2.47M). Funding extremes cluster in the $500K-$2.5M OI range.
-# Lowering to $1M captures MAVIA-class setups while filtering micro-cap
-# noise. Combined with the v1.3 context-nesting bug fix, this actually
-# unblocks Pangolin to trade.
-MIN_OI_USD = 1_000_000          # v1.3: lowered from $3M to $1M
 
 
 def safe_float(v, d=0.0):
@@ -154,15 +136,9 @@ def get_leverage_for_score(score):
 
 
 def has_resting_orders(wallet):
-    """Check for non-reduceOnly resting orders, auto-cancelling any older
-    than STALE_ORDER_MAX_AGE_SEC (default 600s / 10 min).
-
-    Without auto-cancel, a maker FEE_OPTIMIZED_LIMIT order that never
-    fills can lock the scanner out of new entries indefinitely, because
-    every subsequent scan sees the stale order and aborts early. Ignores
-    reduceOnly orders (those are DSL exit legs)."""
+    """Check for non-reduceOnly resting orders, auto-cancelling stale >10min."""
     import time as _time
-    STALE_ORDER_MAX_AGE_SEC = 600  # 10 minutes
+    STALE_ORDER_MAX_AGE_SEC = 600
     data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
     if not data:
         return False
@@ -193,25 +169,76 @@ def has_resting_orders(wallet):
                     )
                 except Exception:
                     pass
-            continue  # Treat cancelled order as gone
+            continue
         has_fresh = True
     return has_fresh
 
 
+# ═══════════════════════════════════════════════════════════════
+# v1.4: New MCP data tools integration
+# ═══════════════════════════════════════════════════════════════
+
+def get_funding_regime():
+    """Fetch market-wide funding regime (LONG_CROWDED / SHORT_CROWDED / NEUTRAL).
+    One call per scan. Returns regime string or None on failure."""
+    try:
+        r = cfg.mcporter_call("market_get_funding_regime")
+        if not r:
+            return None
+        data = r.get("data", r)
+        return data.get("regime")
+    except Exception:
+        return None
+
+
+def get_funding_history(asset):
+    """Fetch per-asset funding history with persistence + trend.
+    Returns dict with persistence_hours, trend, or None on failure / no data."""
+    try:
+        r = cfg.mcporter_call("market_get_funding_history", asset=asset)
+        if not r:
+            return None
+        data = r.get("data", r)
+        return {
+            "persistence_hours": data.get("persistence_hours"),
+            "funding_direction": data.get("funding_direction"),
+            "trend": data.get("trend"),
+            "annualized_pct": data.get("annualized_pct"),
+        }
+    except Exception:
+        return None
+
+
+def regime_confirms_fade(fade_direction, regime):
+    """A fade is confirmed when regime shows crowding in the OPPOSITE direction
+    of our trade. We go SHORT to fade LONG_CROWDED. We go LONG to fade SHORT_CROWDED.
+
+    Returns True/False/None (None = regime unavailable, neutral)."""
+    if regime is None or regime == "NEUTRAL":
+        return None
+    if fade_direction == "SHORT" and regime == "LONG_CROWDED":
+        return True
+    if fade_direction == "LONG" and regime == "SHORT_CROWDED":
+        return True
+    return False
+
+
+# ═══════════════════════════════════════════════════════════════
+
 def scan_funding_extremes():
-    """Find assets with extreme funding rates and score them."""
-    # Get all instruments with funding data
+    """Find assets with extreme funding rates, gate by v1.4 persistence +
+    regime checks, then score. Returns sorted list of candidates."""
+    # Pull universe + SM data (one call each)
     raw = cfg.mcporter_call("market_list_instruments")
     if not raw:
-        return []
+        return [], None
 
     instruments = raw.get("data", raw)
     if isinstance(instruments, dict):
         instruments = instruments.get("instruments", instruments.get("universe", []))
     if not isinstance(instruments, list):
-        return []
+        return [], None
 
-    # Also get SM data for confirmation
     sm_raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
     sm_map = {}
     if sm_raw:
@@ -228,6 +255,9 @@ def scan_funding_extremes():
                     if dex != "xyz":
                         sm_map[token] = m
 
+    # v1.4: Fetch market-wide regime once
+    regime = get_funding_regime()
+
     candidates = []
 
     for inst in instruments:
@@ -237,19 +267,12 @@ def scan_funding_extremes():
         name = str(inst.get("name", inst.get("coin", ""))).upper()
         dex = str(inst.get("dex", "")).lower()
 
-        # v1.2: XYZ filter (banned)
         if XYZ_BANNED and dex == "xyz":
             continue
 
-        # v1.3 CRITICAL BUG FIX: funding, OI, and prices are nested inside
-        # `context` on the market_list_instruments response, not top-level.
-        # Pre-v1.3 Pangolin read these at the top level and always got 0 —
-        # every asset failed the filter and Pangolin took 0 trades since
-        # inception. v1.3 reads from context correctly, with a fallback to
-        # top-level for backward compatibility.
+        # v1.3 context-nested read
         ctx = inst.get("context", {}) if isinstance(inst.get("context"), dict) else {}
 
-        # v1.2: liquidity gate — replaces old ALLOWED_ASSETS hardcoded set
         oi = safe_float(ctx.get("openInterest", inst.get("openInterest", 0)))
         mark_px = safe_float(ctx.get("markPx", ctx.get("midPx",
                               inst.get("markPx", inst.get("midPx", 0)))))
@@ -259,34 +282,90 @@ def scan_funding_extremes():
 
         funding = safe_float(ctx.get("funding", inst.get("funding", 0)))
 
-        # Must have extreme funding
         if abs(funding) < MIN_FUNDING_RATE:
             continue
 
-        # Determine crowd direction from funding sign
-        # Positive funding = longs paying shorts = crowd is long
-        # Negative funding = shorts paying longs = crowd is short
+        # Determine directions
         crowd_direction = "LONG" if funding > 0 else "SHORT"
         fade_direction = "SHORT" if funding > 0 else "LONG"
+
+        # ═══════════════════════════════════════════════════════
+        # v1.4 HARD GATE 1: regime must confirm fade (or be neutral/unavailable)
+        # ═══════════════════════════════════════════════════════
+        regime_confirms = regime_confirms_fade(fade_direction, regime)
+        if regime_confirms is False:
+            # Regime says crowd is on OUR side — we'd be fighting, not fading. Skip.
+            continue
+
+        # ═══════════════════════════════════════════════════════
+        # v1.4 HARD GATE 2: persistence must be >= MIN_PERSISTENCE_HOURS
+        # ═══════════════════════════════════════════════════════
+        fh = get_funding_history(name)
+        if fh is None:
+            # No history tool response — treat as insufficient data, skip
+            continue
+
+        persistence_hours = fh.get("persistence_hours")
+        if persistence_hours is None:
+            # Null persistence = not enough ClickHouse history yet, skip conservatively
+            continue
+        try:
+            persistence_hours = float(persistence_hours)
+        except (TypeError, ValueError):
+            continue
+
+        if persistence_hours < MIN_PERSISTENCE_HOURS:
+            # Funding is extreme NOW but has been that way <3h — likely a spike, skip
+            continue
+
+        # ═══════════════════════════════════════════════════════
+        # Scoring
+        # ═══════════════════════════════════════════════════════
 
         score = 0
         reasons = []
 
         # ── Funding extremity (1-4 pts) ──
         abs_funding = abs(funding)
-        annualized = abs_funding * 3 * 365 * 100  # rough annualized %
-        if abs_funding >= 0.001:  # 0.1%/8h = ~130% annualized
+        annualized = abs_funding * 3 * 365 * 100
+        if abs_funding >= 0.001:
             score += 4
             reasons.append(f"EXTREME_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
-        elif abs_funding >= 0.0006:  # 0.06%/8h = ~80% annualized
+        elif abs_funding >= 0.0006:
             score += 3
             reasons.append(f"HIGH_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
-        elif abs_funding >= 0.0003:  # 0.03%/8h = ~40% annualized
+        elif abs_funding >= 0.0003:
             score += 2
             reasons.append(f"ELEVATED_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")
 
+        # ── v1.4: Persistence bonus (1-3 pts) ──
+        if persistence_hours >= 12:
+            score += 3
+            reasons.append(f"MATURE_CROWDING {persistence_hours:.0f}h")
+        elif persistence_hours >= 6:
+            score += 2
+            reasons.append(f"STABLE_CROWDING {persistence_hours:.0f}h")
+        else:
+            score += 1
+            reasons.append(f"FRESH_CROWDING {persistence_hours:.0f}h")
+
+        # ── v1.4: Trend direction (-1 to +1 pts) ──
+        trend = fh.get("trend", "").upper() if fh.get("trend") else ""
+        if trend == "INCREASING":
+            score += 1
+            reasons.append("CROWDING_INCREASING")
+        elif trend == "DECREASING":
+            score -= 1
+            reasons.append("CROWDING_DECREASING")
+
+        # ── v1.4: Regime confirmation bonus (+2 pts) ──
+        if regime_confirms is True:
+            score += 2
+            reasons.append(f"REGIME_CONFIRMS_{regime}")
+        elif regime_confirms is None and regime is not None:
+            reasons.append(f"REGIME_{regime}")  # neutral, no score adjustment
+
         # ── SM confirmation (0-3 pts) ──
-        # If SM is positioned opposite to the crowd, the fade is higher conviction
         sm = sm_map.get(name)
         if sm:
             sm_dir = str(sm.get("direction", "")).upper()
@@ -294,7 +373,6 @@ def scan_funding_extremes():
             sm_traders = int(sm.get("trader_count", 0))
 
             if sm_dir == fade_direction:
-                # SM agrees with our fade — they're already fading the crowd
                 if sm_pct >= 10:
                     score += 3
                     reasons.append(f"SM_FADING_CROWD {sm_pct:.1f}% ({sm_traders}t)")
@@ -305,7 +383,6 @@ def scan_funding_extremes():
                     score += 1
                     reasons.append(f"SM_CONFIRMS {sm_pct:.1f}% ({sm_traders}t)")
             elif sm_dir == crowd_direction:
-                # SM is WITH the crowd — riskier fade
                 if sm_pct >= 10:
                     score -= 2
                     reasons.append(f"SM_WITH_CROWD {sm_pct:.1f}% (dangerous)")
@@ -313,23 +390,20 @@ def scan_funding_extremes():
                     score -= 1
                     reasons.append(f"SM_SLIGHT_CROWD {sm_pct:.1f}%")
 
-            # SM velocity — is SM momentum fading? (good for us)
             cc_15m = safe_float(sm.get("contribution_pct_change_15m", 0))
             if sm_dir == crowd_direction and cc_15m < -0.5:
                 score += 1
                 reasons.append(f"SM_MOMENTUM_FADING {cc_15m:.2f}")
 
-        # ── Open interest concentration ──
-        oi = safe_float(inst.get("openInterest", inst.get("oi", 0)))
+        # ── OI turnover (sticky positions) ──
         volume_24h = safe_float(inst.get("dayNtlVlm", inst.get("volume24h", 0)))
         if oi > 0 and volume_24h > 0:
             oi_turnover = volume_24h / oi if oi > 0 else 0
             if oi_turnover < 0.5:
-                # Low turnover = positions are sticky = more crowded
                 score += 1
                 reasons.append(f"STICKY_OI (turnover {oi_turnover:.2f}x)")
 
-        # ── Price action — has the move already started reversing? ──
+        # ── Price reversing already? ──
         p4h = safe_float(sm.get("token_price_change_pct_4h", 0)) if sm else 0
         if crowd_direction == "LONG" and p4h < -0.5:
             score += 1
@@ -348,10 +422,12 @@ def scan_funding_extremes():
             "score": score,
             "reasons": reasons,
             "annualized_pct": annualized,
+            "persistence_hours": persistence_hours,
+            "trend": trend,
         })
 
     candidates.sort(key=lambda c: c["score"], reverse=True)
-    return candidates
+    return candidates, regime
 
 
 def execute_entry(wallet, token, direction, margin, leverage):
@@ -370,10 +446,20 @@ def execute_entry(wallet, token, direction, margin, leverage):
             },
         }],
     )
-    if result and result.get("success"):
-        return True, result
-    error = result.get("error", "unknown") if result else "mcporter_call returned None"
-    return False, {"error": error}
+    if not result:
+        return False, {"error": "mcporter_call returned None"}
+    if not result.get("success"):
+        return False, {"error": result.get("error", "outer_envelope_failed"), "raw": result}
+
+    # v1.4: inner-order validation (fleet-standard pattern)
+    data = result.get("data", result)
+    orders = data.get("orders", []) if isinstance(data, dict) else []
+    if orders and isinstance(orders, list):
+        first = orders[0] if isinstance(orders[0], dict) else {}
+        if first and not first.get("success", True):
+            return False, {"error": first.get("error", "inner_order_failed"), "raw": result}
+
+    return True, result
 
 
 def run():
@@ -407,14 +493,13 @@ def run():
                     "note": f"Daily cap ({dynamic_cap}) reached. Session PnL: {pnl_pct:+.1f}%. Entries: {tc.get('entries', 0)}/{dynamic_cap}"})
         return
 
-    # Scan for extreme funding
-    candidates = scan_funding_extremes()
+    # Scan with v1.4 gates
+    candidates, regime = scan_funding_extremes()
     if not candidates:
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                     "note": "SNIFFING: no extreme funding on allowed assets"})
+                     "note": f"SNIFFING: no candidates passed gates. regime={regime}"})
         return
 
-    # Already-held coins
     held_coins = {p["coin"].upper() for p in positions}
 
     for cand in candidates:
@@ -448,6 +533,9 @@ def run():
                     "fade_direction": cand["fade_direction"],
                     "funding_rate": cand["funding"],
                     "annualized_pct": round(cand["annualized_pct"], 1),
+                    "persistence_hours": cand["persistence_hours"],
+                    "trend": cand["trend"],
+                    "regime": regime,
                     "score": cand["score"],
                     "leverage": leverage,
                     "mode": "FUNDING_FADE",
@@ -462,7 +550,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_pangolin_version": "1.3",
+                "_pangolin_version": "1.4",
             })
             return
         else:
@@ -472,7 +560,7 @@ def run():
                 "signal": {"asset": token, "score": cand["score"],
                            "reasons": cand["reasons"]},
                 "error": result,
-                "_pangolin_version": "1.3",
+                "_pangolin_version": "1.4",
             })
             return
 
@@ -480,9 +568,10 @@ def run():
     best = candidates[0] if candidates else None
     if best:
         note = (f"SNIFFING: best {best['token']} funding {best['funding']*100:.4f}% "
-                f"score {best['score']}<{MIN_SCORE}")
+                f"persistence {best['persistence_hours']:.0f}h score {best['score']}<{MIN_SCORE} "
+                f"regime={regime}")
     else:
-        note = "SNIFFING: no extreme funding detected"
+        note = f"SNIFFING: no extreme funding passed gates. regime={regime}"
     cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": note})
 
 
