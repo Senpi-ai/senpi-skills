@@ -1,0 +1,25 @@
+{
+  "wallet": "",
+  "strategyId": "",
+  "asset": "xyz:BRENTOIL",
+  "startingBudget": 1000,
+  "minScore": 9,
+  "maxLeverage": 3,
+  "maxMarginPct": 0.30,
+  "dailyEntryCap": 2,
+  "drawdownGatePct": 0.15,
+  "drawdownPeakWindowDays": 7,
+  "drawdownAutoResumePct": 0.90,
+  "scanIntervalSeconds": 60,
+  "executionTimeoutSeconds": 10,
+  "dslTiers": [
+    { "triggerRoe": 5,  "lockRoe": 25 },
+    { "triggerRoe": 10, "lockRoe": 50 },
+    { "triggerRoe": 20, "lockRoe": 70 },
+    { "triggerRoe": 35, "lockRoe": 80 },
+    { "triggerRoe": 50, "lockRoe": 90 }
+  ],
+  "volumeSpikeThreshold": 2.5,
+  "priceCleanlinessMaxWickPct": 1.5,
+  "priceCleanlinessLookbackMinutes": 30
+}

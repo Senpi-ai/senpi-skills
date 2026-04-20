@@ -1,0 +1,74 @@
+name: dire-tracker
+version: 1.0.0
+description: >
+  Onchain position tracker — monitors strategy wallet on Hyperliquid XYZ DEX
+  for BRENTOIL position lifecycle events and wires them into the DSL exit engine.
+  News-driven momentum breakouts on oil with aggressive early-tier DSL locks.
+
+# ── STRATEGY ──
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  enabled: true
+
+# ── SCANNERS ──
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+# ── ACTIONS ──
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+# ── EXIT (DSL) ──
+# Philosophy: Oil reverses hard on news overshoot (Apr 17: $108 → $89 in 4h).
+# Aggressive early-tier lock (T0 at +5% ROE locks 25% of HW) protects against
+# V-reversals. Later tiers (T2 at +20%, T3 at +35%, T4 at +50%) capture
+# parabolic extensions during sustained geopolitical trends.
+#
+# Tuning rationale:
+# - T0 +5%/25% HW: catches the first meaningful directional commit. Oil can
+#   run 2-5% on news and reverse fully within 30 min if the news was
+#   misinterpreted. Locking at 25% of HW means a +5% move locks ~1.25% ROE.
+# - T1 +10%/50% HW: breakout confirmed. Half the high water locked.
+# - T2 +20%/70%: momentum extension. Aggressive lock — oil rarely gives back
+#   from +20% ROE without a clear reversal signal.
+# - T3 +35%/80%: late-stage parabolic protection.
+# - T4 +50%/90%: blowoff-top lock. Oil very rarely sustains +50% ROE on perp.
+#
+# hard_timeout kept at 24h as safety net — do not use for capping winners.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 1440      # 24h safety net
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 20         # tighter than Kodiak — oil moves fast
+      min_value: 2.5                  # lower threshold — a +2.5% oil move is meaningful
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 15         # cut stalled non-movers faster than crypto
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0              # tighter than Kodiak's 25% — oil tail risk
+      retrace_threshold: 8
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        # Dire-specific ladder — aggressive early lock for oil reversal protection
+        - { trigger_pct: 5,  lock_hw_pct: 25 }
+        - { trigger_pct: 10, lock_hw_pct: 50 }
+        - { trigger_pct: 20, lock_hw_pct: 70 }
+        - { trigger_pct: 35, lock_hw_pct: 80 }
+        - { trigger_pct: 50, lock_hw_pct: 90 }
+
+# ── NOTIFICATIONS ──
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
