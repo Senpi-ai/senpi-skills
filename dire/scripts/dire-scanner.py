@@ -47,7 +47,7 @@ from dire_config import (
     save_state,
 )
 
-VERSION = "1.0"
+VERSION = "1.1"
 
 
 # ─── Momentum & Signal Evaluation ────────────────────────────
@@ -159,8 +159,13 @@ def score_oi_velocity(oi_vel_change):
     return 0, None
 
 
-def volume_spike_score(candles_15m, candles_1h, threshold=2.5):
+def volume_spike_score(candles_15m, candles_1h, threshold=2.5, strong_threshold=5.0):
     """News-impact proxy: is the latest 15m volume > threshold × 1h average?
+
+    Tiered scoring:
+      > strong_threshold (5x default) → +2 (extreme news spike, "something big happened")
+      > threshold (2.5x default)      → +1 (moderate news activity)
+      otherwise                        → 0
 
     Returns (score, reason).
     """
@@ -177,8 +182,32 @@ def volume_spike_score(candles_15m, candles_1h, threshold=2.5):
     if avg_15m_equiv <= 0:
         return 0, None
     ratio = last_15m_vol / avg_15m_equiv
+    if ratio > strong_threshold:
+        return 2, f"VOL_EXTREME_{ratio:.1f}x"
     if ratio > threshold:
         return 1, f"VOL_SPIKE_{ratio:.1f}x"
+    return 0, None
+
+
+def sm_conviction_score(premium_pct_abs, moderate_threshold=0.001, strong_threshold=0.003):
+    """Score Smart Money conviction strength based on absolute premium magnitude.
+
+    Premium is (markPx - oraclePx) / oraclePx — positive means longs aggressive,
+    negative means shorts aggressive. Absolute magnitude measures conviction.
+
+    Tiered scoring:
+      |premium| > strong_threshold (0.3% default)   → +2 (extreme tilt)
+      |premium| > moderate_threshold (0.1% default) → +1 (meaningful tilt)
+      otherwise                                      → 0 (direction detected but weak)
+
+    Returns (score, reason).
+    """
+    if premium_pct_abs is None:
+        return 0, None
+    if premium_pct_abs > strong_threshold:
+        return 2, f"SM_EXTREME_{premium_pct_abs * 100:.3f}%"
+    if premium_pct_abs > moderate_threshold:
+        return 1, f"SM_STRONG_{premium_pct_abs * 100:.3f}%"
     return 0, None
 
 
@@ -216,35 +245,36 @@ def price_cleanliness_score(candles_5m, direction, max_wick_pct=1.5, lookback_mi
 def get_sm_direction(asset_data):
     """Derive Smart Money direction from market data.
 
-    For XYZ assets we use a proxy: net position skew from asset_context
-    combined with price-action direction. SM HARD BLOCK requires alignment.
+    For XYZ assets we use a proxy: markPx vs oraclePx premium from asset_context.
+    Positive premium → mark > oracle → longs aggressive → SM LONG.
+    Negative premium → mark < oracle → shorts aggressive → SM SHORT.
 
-    Returns (direction, confidence_pct, reasons).
-    If direction is None, SM is ambiguous → HARD BLOCK triggers.
+    Returns (direction, premium_abs, reason).
+    - direction: "LONG", "SHORT", or None (ambiguous → HARD BLOCK)
+    - premium_abs: absolute premium as a decimal (e.g. 0.002 = 0.2%). Used
+      downstream by sm_conviction_score() to add conviction points.
+    - reason: human-readable detail string.
+
+    Direction is detected at any premium magnitude > 0.0005 (0.05%) in either
+    direction. Below that, SM is treated as ambiguous.
     """
     ctx = asset_data.get("asset_context") or {}
-    # Use oraclePx vs markPx premium as proxy for smart money tilt
     try:
         premium = float(ctx.get("premium", 0) or 0)
         mark_px = float(ctx.get("markPx", 0) or 0)
-        oracle_px = float(ctx.get("oraclePx", 0) or 0)
     except (TypeError, ValueError):
-        return None, 0, "parse_error"
+        return None, 0.0, "parse_error"
 
-    # If no premium data available, fall back to 4TF signal — but at this stage
-    # we treat it as neutral (ambiguous) → HARD BLOCK
     if mark_px <= 0:
-        return None, 0, "no_mark_px"
+        return None, 0.0, "no_mark_px"
 
-    premium_pct = premium * 100 if abs(premium) < 1 else premium  # handle both decimal and pct forms
+    # Premium arrives as a decimal (e.g. 0.00293 = 0.293%). Keep as decimal
+    # internally; present as % in reason strings.
+    if abs(premium) < 0.0005:
+        return None, abs(premium), f"sm_ambiguous_premium_{premium * 100:+.3f}%"
 
-    # Positive premium → mark > oracle → longs aggressive → SM LONG
-    # Negative premium → mark < oracle → shorts aggressive → SM SHORT
-    if premium_pct > 0.05:
-        return "LONG", min(100, abs(premium_pct) * 1000), f"premium_{premium_pct:+.3f}%"
-    if premium_pct < -0.05:
-        return "SHORT", min(100, abs(premium_pct) * 1000), f"premium_{premium_pct:+.3f}%"
-    return None, 0, f"sm_ambiguous_premium_{premium_pct:+.3f}%"
+    direction = "LONG" if premium > 0 else "SHORT"
+    return direction, abs(premium), f"premium_{premium * 100:+.3f}%"
 
 
 # ─── Scoring ─────────────────────────────────────────────────
@@ -278,7 +308,7 @@ def evaluate_setup(asset_data, config):
     reasons.append(f"4TF_aligned_{direction}_{align_detail}")
 
     # Gate 2: SM HARD BLOCK
-    sm_dir, sm_conf, sm_detail = get_sm_direction(asset_data)
+    sm_dir, sm_premium_abs, sm_detail = get_sm_direction(asset_data)
     if sm_dir is None:
         return {
             "direction": direction,
@@ -298,26 +328,38 @@ def evaluate_setup(asset_data, config):
             "trends": trends,
             "sm": sm_detail,
         }
-    reasons.append(f"SM_aligned_{sm_dir}_{sm_conf:.0f}%")
+    reasons.append(f"SM_aligned_{sm_dir}_{sm_detail}")
 
-    # Base score from 4TF + SM alignment
-    score = 6  # starting score for aligned setup
+    # Base score from 4TF + SM alignment (both hard gates passed)
+    score = 6  # baseline for any aligned setup
 
-    # Gate 3: OI velocity (soft score)
+    # Gate 3: SM conviction strength (soft score, tiered)
+    sm_mod = float(config.get("smPremiumModerateAbsPct", 0.001))
+    sm_str = float(config.get("smPremiumStrongAbsPct", 0.003))
+    sm_score, sm_reason = sm_conviction_score(sm_premium_abs, moderate_threshold=sm_mod, strong_threshold=sm_str)
+    score += sm_score
+    if sm_reason:
+        reasons.append(sm_reason)
+
+    # Gate 4: OI velocity (soft score)
     oi_vel = extract_oi_velocity_1h(asset_data)
     oi_score, oi_reason = score_oi_velocity(oi_vel)
     score += oi_score
     if oi_reason:
         reasons.append(oi_reason)
 
-    # Gate 4: Volume spike (soft score)
+    # Gate 5: Volume spike (soft score, tiered)
     vol_threshold = float(config.get("volumeSpikeThreshold", 2.5))
-    vol_score, vol_reason = volume_spike_score(candles_by_tf["15m"], candles_by_tf["1h"], vol_threshold)
+    vol_strong = float(config.get("volumeSpikeStrongThreshold", 5.0))
+    vol_score, vol_reason = volume_spike_score(
+        candles_by_tf["15m"], candles_by_tf["1h"],
+        threshold=vol_threshold, strong_threshold=vol_strong,
+    )
     score += vol_score
     if vol_reason:
         reasons.append(vol_reason)
 
-    # Gate 5: Price cleanliness (soft score)
+    # Gate 6: Price cleanliness (soft score)
     clean_score, clean_reason = price_cleanliness_score(
         candles_by_tf["5m"],
         direction,
@@ -339,28 +381,71 @@ def evaluate_setup(asset_data, config):
         "block_reason": None,
         "trends": trends,
         "sm": sm_detail,
+        "sm_premium_abs": sm_premium_abs,
         "oi_vel": oi_vel,
         "mark_px": mark_px,
     }
 
 
-# ─── Sizing ──────────────────────────────────────────────────
+# ─── Sizing (conviction-scaled) ──────────────────────────────
+
+# v1.1: leverage and margin scale with score. Higher conviction = bigger
+# position. This is the fix to the "tight DSL + capped winners = fee churn
+# death spiral" failure mode. Cobra lesson applied: let winners run big when
+# conviction is there, stay small on weak setups.
+#
+# Default tiers (overridable via config.sizingTiers):
+#   score 9  → 3x  × 20% = 0.6x  notional  (cautious — just cleared MIN)
+#   score 10 → 5x  × 25% = 1.25x notional  (standard — fleet baseline)
+#   score 11 → 7x  × 30% = 2.1x  notional  (conviction — above standard)
+#   score 12+ → 10x × 30% = 3.0x notional  (apex — maximum deployed)
+#
+# Hyperliquid's BRENTOIL max leverage is 20x. Our 10x cap is 50% of that;
+# leaves safety margin for tail events. ISOLATED margin means each trade's
+# risk is bounded by its own margin allocation.
+
+_DEFAULT_SIZING_TIERS = [
+    {"minScore": 9,  "leverage": 3,  "marginPct": 0.20, "label": "cautious"},
+    {"minScore": 10, "leverage": 5,  "marginPct": 0.25, "label": "standard"},
+    {"minScore": 11, "leverage": 7,  "marginPct": 0.30, "label": "conviction"},
+    {"minScore": 12, "leverage": 10, "marginPct": 0.30, "label": "apex"},
+]
+
+
+def resolve_sizing_tier(score, config):
+    """Resolve the highest-applicable sizing tier for a given score.
+
+    Returns dict with keys: leverage, marginPct, label, minScore.
+    Returns None if score doesn't meet any tier's minScore.
+    """
+    tiers = config.get("sizingTiers") or _DEFAULT_SIZING_TIERS
+    applicable = [t for t in tiers if score >= int(t.get("minScore", 0))]
+    if not applicable:
+        return None
+    # Pick the tier with the highest minScore that the score clears
+    return max(applicable, key=lambda t: int(t.get("minScore", 0)))
+
 
 def compute_leverage(score, config):
-    """Scale leverage with score, capped at maxLeverage."""
-    max_lev = int(config.get("maxLeverage", 3))
-    # Scale: score 9 = 2x, 10 = 2.5x rounded to 3x max, 11+ = 3x
-    if score >= 11:
-        return max_lev
-    if score >= 10:
-        return min(max_lev, 3)
-    return min(max_lev, 2)
+    """Return the leverage for this score, hard-capped at maxLeverage."""
+    max_lev = int(config.get("maxLeverage", 10))
+    tier = resolve_sizing_tier(score, config)
+    if not tier:
+        return 0
+    lev = int(tier.get("leverage", 3))
+    return min(lev, max_lev)
 
 
-def compute_margin(account_value, config):
-    """Compute margin to allocate based on max_margin_pct."""
-    max_pct = float(config.get("maxMarginPct", 0.30))
-    return round(account_value * max_pct, 2)
+def compute_margin(account_value, score, config):
+    """Compute margin allocation based on the resolved sizing tier for this score.
+
+    Returns (margin_usd, tier_label).
+    """
+    tier = resolve_sizing_tier(score, config)
+    if not tier:
+        return 0.0, "none"
+    pct = float(tier.get("marginPct", 0.20))
+    return round(account_value * pct, 2), str(tier.get("label", ""))
 
 
 # ─── Main Scanner Loop ───────────────────────────────────────
@@ -474,13 +559,16 @@ def run_scan():
     score = setup["score"]
     mark_px = setup["mark_px"]
 
+    # v1.1: conviction-scaled sizing. Higher score → more leverage AND more margin.
+    # Lets apex setups (score 12+) deploy up to 3x account notional to capture
+    # big winners that pay for fee drag + small losers.
     leverage = compute_leverage(score, config)
-    margin = compute_margin(account_value, config)
-    if margin < 10:
+    margin, sizing_label = compute_margin(account_value, score, config)
+    if leverage <= 0 or margin < 10:
         output({
             "status": "ok",
             "heartbeat": "NO_REPLY",
-            "note": f"MARGIN_TOO_SMALL: ${margin:.2f}",
+            "note": f"SIZING_TIER_UNRESOLVED_OR_TOO_SMALL: lev={leverage} margin=${margin:.2f} score={score}",
             "version": VERSION,
         })
         return
@@ -563,6 +651,8 @@ def run_scan():
             "direction": direction,
             "leverage": leverage,
             "margin": margin,
+            "sizing_tier": sizing_label,
+            "notional_vs_account": round((leverage * margin) / account_value, 2) if account_value > 0 else None,
             "fill_size": filled_size,
             "fill_price": fill_price,
             "order_id": order_id,

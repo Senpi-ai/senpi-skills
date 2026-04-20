@@ -4,8 +4,7 @@
   "asset": "xyz:BRENTOIL",
   "startingBudget": 1000,
   "minScore": 9,
-  "maxLeverage": 3,
-  "maxMarginPct": 0.30,
+  "maxLeverage": 10,
   "dailyEntryCap": 2,
   "drawdownGatePct": 0.15,
   "drawdownPeakWindowDays": 7,
@@ -19,7 +18,16 @@
     { "triggerRoe": 35, "lockRoe": 80 },
     { "triggerRoe": 50, "lockRoe": 90 }
   ],
+  "sizingTiers": [
+    { "minScore": 9,  "leverage": 3,  "marginPct": 0.20, "label": "cautious"  },
+    { "minScore": 10, "leverage": 5,  "marginPct": 0.25, "label": "standard"  },
+    { "minScore": 11, "leverage": 7,  "marginPct": 0.30, "label": "conviction"},
+    { "minScore": 12, "leverage": 10, "marginPct": 0.30, "label": "apex"      }
+  ],
   "volumeSpikeThreshold": 2.5,
+  "volumeSpikeStrongThreshold": 5.0,
+  "smPremiumModerateAbsPct": 0.001,
+  "smPremiumStrongAbsPct": 0.003,
   "priceCleanlinessMaxWickPct": 1.5,
   "priceCleanlinessLookbackMinutes": 30
 }

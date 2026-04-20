@@ -1,15 +1,17 @@
 ---
 name: dire-strategy
 description: >-
-  DIRE v1.0 — BRENTOIL XYZ specialist. Catches news-driven momentum breakouts
-  on oil with tight DSL protection against sharp geopolitical reversals.
-  First Kodiak-family port to a non-crypto asset class. 3x leverage cap,
-  ISOLATED margin (required for XYZ), Wolverine execution pattern.
+  DIRE v1.1 — BRENTOIL XYZ specialist with conviction-scaled sizing.
+  Catches news-driven momentum breakouts on oil with tight DSL protection
+  against sharp geopolitical reversals. Leverage scales 3x → 10x with score
+  so apex setups deploy up to 3x account notional, letting big winners pay
+  for fee drag + small losers. First Kodiak-family port to a non-crypto asset
+  class. ISOLATED margin (required for XYZ), Wolverine execution pattern.
   DSL exit managed by plugin runtime via runtime.yaml.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.0"
+  version: "1.1"
   platform: senpi
   exchange: hyperliquid
   dex: xyz
@@ -58,10 +60,21 @@ Runtime consumes it; logs trust it.
 Run `openclaw senpi runtime list`. Runtime must be listed. The position tracker
 and DSL exit engine are handled by the plugin runtime via `runtime.yaml`.
 
-### RULE 8: Max leverage 3x — hardcoded. Max margin 30%. One position. Period.
+### RULE 8: Leverage scales with conviction. Hard-capped at 10x. One position. Period.
 
-Oil vol is ~1.5x crypto on typical days, higher during geopolitical events.
-3x is plenty for directional conviction. 5x+ risks liquidation on normal spikes.
+v1.1: Sizing is tiered by score, not fixed. Higher conviction → more leverage
+AND more margin, enabling big winners to pay for fees and small losers:
+
+| Score | Leverage | Margin | Notional / account | Tier |
+|---|---|---|---|---|
+| 9 | 3x | 20% | 0.6x | cautious (just cleared MIN) |
+| 10 | 5x | 25% | 1.25x | standard (fleet baseline) |
+| 11 | 7x | 30% | 2.1x | conviction |
+| 12+ | 10x | 30% | 3.0x | apex |
+
+10x cap = 50% of Hyperliquid's 20x BRENTOIL max. ISOLATED margin means each
+trade's risk is bounded by its own margin allocation. DSL triggers in minutes
+at 10x (a 0.5% price move = +5% ROE → T0 lock).
 
 ### RULE 9: Drawdown circuit breaker at 15% from 7-day rolling peak
 
@@ -127,15 +140,22 @@ news breaks faster than crypto on-chain signals.
 Aggressive early lock at T0 (+5% → 25% HW) protects against geopolitical V-reversals
 like the Apr 17 BRENTOIL wick ($108 → $89 → $97 in 4 hours).
 
-### Sizing
+### Sizing (v1.1 — conviction-scaled)
 
+Fixed caps:
 | Parameter | Value |
 |---|---|
-| max_leverage | 3x |
-| max_margin_pct | 30% of account value |
-| max_notional | 1x account value (margin × leverage) |
+| absolute max leverage | 10x (50% of HL's 20x BRENTOIL max) |
 | leverageType | ISOLATED (required for XYZ) |
 | positions max | 1 |
+
+Tier table (leverage AND margin scale with score):
+| Score | Leverage | Margin % | Notional / account | Tier label |
+|---|---|---|---|---|
+| 9 | 3x | 20% | 0.6x | cautious |
+| 10 | 5x | 25% | 1.25x | standard |
+| 11 | 7x | 30% | 2.1x | conviction |
+| 12+ | 10x | 30% | 3.0x | apex |
 
 ### Gate order (all must pass)
 
@@ -143,10 +163,13 @@ like the Apr 17 BRENTOIL wick ($108 → $89 → $97 in 4 hours).
 2. Daily entry cap (max 2 per 24h)
 3. 4TF alignment HARD GATE (5m, 15m, 1h, 4h all same direction)
 4. SM HARD BLOCK (SM direction must match)
-5. OI velocity scoring: `oi_velocity.oi_change_pct_1h > +5 → +2`, `> +2 → +1`, `< -3 → -1`, null passes
-6. Volume ratio (news-spike proxy): 15m vol / 1h avg > 2.5 → +1
-7. Price action cleanliness: no 5m wicks > 1.5% against direction in last 30 min → +1
-8. MIN_SCORE ≥ 9 (tunable)
+5. SM conviction scoring (v1.1): premium |>0.1%| → +1, |>0.3%| → +2
+6. OI velocity: `oi_velocity.oi_change_pct_1h > +5 → +2`, `> +2 → +1`, `< -3 → -1`, null passes
+7. Volume ratio (v1.1 tiered): 15m vol / 1h avg > 2.5x → +1, > 5x → +2 (extreme news)
+8. Price action cleanliness: no 5m wicks > 1.5% against direction in last 30 min → +1
+9. MIN_SCORE ≥ 9 (tunable)
+
+Max attainable score: 6 (base for 4TF+SM aligned) + 2 (SM conviction) + 2 (OI) + 2 (vol) + 1 (clean) = **13**. Apex tier (score 12+) is rare by design.
 
 ### Execution
 
@@ -202,4 +225,10 @@ Written to `state/` inside the skill directory:
 
 ## Version history
 
-- v1.0 — Initial release. First XYZ specialist. Kodiak-family port.
+- **v1.1** — Conviction-scaled sizing. Leverage 3x→10x and margin 20%→30% scale
+  with score. Added SM conviction scoring (premium tier bonus) and volume spike
+  tier-2 (>5x for extreme news). Fixes the v1.0 failure mode where capped winners
+  + tight DSL + normal fee drag would produce slow bleed even on 50%+ win rates.
+  Apex setups (score 12+) now deploy up to 3x account notional.
+- v1.0 — Initial release. First XYZ specialist. Kodiak-family port. Fixed 3x
+  leverage / 30% margin. Deprecated — capped upside couldn't pay for fees.

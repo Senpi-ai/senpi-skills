@@ -111,15 +111,22 @@ See `SKILL.md` for full architecture doc. Summary:
 - Wolverine execution pattern (mcporter CLI direct, no LLM parse loop)
 - 5-tier DSL ladder with aggressive early lock (T0 at +5% → 25% HW)
 
-## Sizing
+## Sizing (v1.1 — conviction-scaled)
 
-| Parameter | Value |
-|---|---|
-| max leverage | 3x |
-| max margin pct | 30% of account |
-| max notional | 1x account value |
-| leverageType | ISOLATED (XYZ requirement) |
-| max positions | 1 |
+Leverage and margin scale with score. Higher conviction = bigger position.
+
+| Score | Leverage | Margin % | Notional / account | Tier |
+|---|---|---|---|---|
+| 9 | 3x | 20% | 0.6x | cautious |
+| 10 | 5x | 25% | 1.25x | standard |
+| 11 | 7x | 30% | 2.1x | conviction |
+| 12+ | 10x | 30% | 3.0x | apex |
+
+Hard caps:
+- absolute max leverage: **10x** (50% of Hyperliquid's 20x BRENTOIL max)
+- leverageType: **ISOLATED** (XYZ requirement)
+- max positions: **1**
+- max notional/account value: **3.0x** (at apex tier)
 
 ## Key files
 
