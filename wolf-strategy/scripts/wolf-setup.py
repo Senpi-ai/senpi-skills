@@ -55,8 +55,8 @@ PROVIDER_MODELS = {
         "budget": "openai/gpt-4o-mini",
     },
     "google": {
-        "mid": "google/gemini-2.0-flash",
-        "budget": "google/gemini-2.0-flash-lite",
+        "mid": "google/gemini-2.5-flash",
+        "budget": "google/gemini-2.5-flash-lite",
     },
 }
 

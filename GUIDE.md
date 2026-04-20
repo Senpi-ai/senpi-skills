@@ -69,8 +69,8 @@ Token burn is the single biggest operational cost. These patterns reduce it dram
 
 | Tier | Use When | Session Type | Example Model IDs |
 |------|----------|-------------|-------------------|
-| **Mid** | Structured tasks, script output parsing, rule-based actions, routing decisions | Isolated | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.0-flash` |
-| **Budget** | Simple threshold checks, binary decisions, heartbeat-heavy crons | Isolated | `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.0-flash-lite` |
+| **Mid** | Structured tasks, script output parsing, rule-based actions, routing decisions | Isolated | `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`, `google/gemini-2.5-flash` |
+| **Budget** | Simple threshold checks, binary decisions, heartbeat-heavy crons | Isolated | `anthropic/claude-haiku-4-5`, `openai/gpt-4o-mini`, `google/gemini-2.5-flash-lite` |
 
 **Before reaching for Primary tier**, ask: does this cron genuinely need cross-run accumulated context (e.g., remembering routing decisions from previous runs)? If the script can include all necessary context in its JSON output — strategy slots, positions, routing state — the cron can run on Mid tier in an isolated session.
 
