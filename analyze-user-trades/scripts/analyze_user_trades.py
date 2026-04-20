@@ -229,12 +229,12 @@ def fetch_audit_logs(strategy_id, start_time, end_time):
         strategy_id=strategy_id,
     )
     # Keep a backward-compatible fallback for potential camelCase MCP schemas.
-    if not data:
+    if data is None:
         data = mcporter_call_safe(
             "audit_get_strategy_history",
             strategyId=strategy_id,
         )
-    if not data:
+    if data is None:
         return []
     logs = data.get("auditLogs", [])
     # Filter client-side — tool does not accept time range params
