@@ -352,13 +352,35 @@ def build_btc_thesis():
         score += 1
         reasons.append(f"vol_rising_{vol_trend_1h:+.0f}%")
 
-    # ── OI growth proxy (new money entering) ──────────────────
+    # ── OI growth proxy (legacy, kept as fallback) ────────────
     vol_recent = sum(safe_float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-3:])
     vol_earlier = sum(safe_float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles_1h[-6:-3])
     oi_proxy = ((vol_recent - vol_earlier) / vol_earlier * 100) if vol_earlier > 0 else 0
     if oi_proxy > 10:
         score += 1
         reasons.append(f"oi_growing_{oi_proxy:+.0f}%")
+
+    # ── OI velocity (v5.1 — real OI data from new MCP tool) ──
+    # market_get_asset_data now includes oi_velocity (5m/15m/1h/4h).
+    # Accelerating OI in direction = real capital committing → conviction boost.
+    # Null handling: 1h/4h can be null on fresh deploys, treat as insufficient.
+    oi_vel = btc_data.get("oi_velocity", {}) if isinstance(btc_data.get("oi_velocity"), dict) else {}
+    oi_vel_1h = oi_vel.get("1h", {}) if isinstance(oi_vel.get("1h"), dict) else {}
+    oi_vel_change = oi_vel_1h.get("change_pct")
+    if oi_vel_change is not None:
+        try:
+            oi_vel_change = float(oi_vel_change)
+            if oi_vel_change > 5:
+                score += 2
+                reasons.append(f"OI_ACCELERATING_{oi_vel_change:+.1f}%")
+            elif oi_vel_change > 2:
+                score += 1
+                reasons.append(f"OI_rising_{oi_vel_change:+.1f}%")
+            elif oi_vel_change < -3:
+                score -= 1
+                reasons.append(f"OI_draining_{oi_vel_change:+.1f}%")
+        except (TypeError, ValueError):
+            pass
 
     # ── RSI filter (BTC rarely pushes >70 or <30) ─────────────
     closes_1h = [safe_float(c.get("close", c.get("c", 0))) for c in candles_1h]
