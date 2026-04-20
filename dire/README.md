@@ -1,7 +1,9 @@
-# 🐺 DIRE v1.0 — BRENTOIL XYZ Specialist
+# 🐺 DIRE v1.1 — BRENTOIL XYZ Specialist
 
 First Kodiak-family port to a non-crypto asset class. Single-asset specialist
-on `xyz:BRENTOIL`. News-driven momentum breakouts with aggressive early-tier DSL locks.
+on `xyz:BRENTOIL`. News-driven momentum breakouts with aggressive early-tier DSL
+locks and **conviction-scaled sizing** (3x → 10x leverage based on signal
+strength — big winners pay for fees + small losers).
 
 ## Quickstart
 
@@ -42,7 +44,7 @@ mcporter call senpi strategy_create_custom_strategy --args '{
   "positions": [],
   "strategyName": "dire-brentoil-v1",
   "skillName": "dire-strategy",
-  "skillVersion": "1.0"
+  "skillVersion": "1.1"
 }'
 ```
 
@@ -79,15 +81,15 @@ Expected output shapes:
 
 - No position open, market quiet:
   ```json
-  {"status":"ok","heartbeat":"NO_REPLY","note":"HUNTING: gate_blocked 4TF_MISALIGNED:...","version":"1.0"}
+  {"status":"ok","heartbeat":"NO_REPLY","note":"HUNTING: gate_blocked 4TF_MISALIGNED:...","version":"1.1"}
   ```
 - No position open, score below threshold:
   ```json
-  {"status":"ok","heartbeat":"NO_REPLY","note":"HUNTING: score_low 7/9","reasons":[...],"version":"1.0"}
+  {"status":"ok","heartbeat":"NO_REPLY","note":"HUNTING: score_low 7/9","reasons":[...],"version":"1.1"}
   ```
-- Entry taken:
+- Entry taken (v1.1 includes `sizing_tier` and `notional_vs_account` in execution):
   ```json
-  {"status":"ok","action":"ENTRY","direction":"LONG","score":10,"reasons":[...],"execution":{...},"dsl":{"attached":true,...}}
+  {"status":"ok","action":"ENTRY","direction":"LONG","score":12,"reasons":["4TF_aligned_LONG_all_bullish","SM_aligned_LONG_premium_+0.412%","SM_EXTREME_0.412%","OI_ACCELERATING_+7.3%","VOL_SPIKE_3.2x","CLEAN_PX"],"execution":{"asset":"xyz:BRENTOIL","direction":"LONG","leverage":10,"margin":300,"sizing_tier":"apex","notional_vs_account":3.0,"fill_size":33.18,"fill_price":90.42,"order_id":"...","orderType":"FEE_OPTIMIZED_LIMIT","ensureExecutionAsTaker":true,"leverageType":"ISOLATED"},"dsl":{"attached":true,...}}
   ```
 - Position already open (scanner does not exit):
   ```json
@@ -103,13 +105,16 @@ See `SKILL.md` for full architecture doc. Summary:
 - 60s scan cadence
 - 4TF alignment hard gate (5m/15m/1h/4h all same direction)
 - SM HARD BLOCK (Smart Money direction must align)
+- SM conviction scoring (v1.1): premium magnitude gives +1 or +2
 - OI velocity scoring (flat-path from day 1 — no nested-path bug)
-- Volume spike scoring (news-impact proxy)
+- Volume spike scoring (v1.1 tiered: >2.5x → +1, >5x → +2 for extreme news)
 - Price cleanliness gate (no adverse wicks in last 30 min)
 - Drawdown circuit breaker (15% from rolling 7-day peak)
 - Daily entry cap (2 per 24h)
 - Wolverine execution pattern (mcporter CLI direct, no LLM parse loop)
 - 5-tier DSL ladder with aggressive early lock (T0 at +5% → 25% HW)
+- **Conviction-scaled sizing (v1.1)**: leverage 3x→10x and margin 20%→30%
+  scale with score (see Sizing section below)
 
 ## Sizing (v1.1 — conviction-scaled)
 
@@ -127,6 +132,49 @@ Hard caps:
 - leverageType: **ISOLATED** (XYZ requirement)
 - max positions: **1**
 - max notional/account value: **3.0x** (at apex tier)
+
+### Why conviction-scaled sizing
+
+Tight DSL alone produces a slow bleed: losers get capped (good), but winners
+also get capped, and fees grind both down. Math at v1.0's fixed 3x × 30%:
+
+- Typical winner: +5-10% ROE × 0.9x notional = $45-90 per $1k account
+- Fees: $5-10 per trade
+- Losers: DSL-capped around -5% ROE × 0.9x = ~$45
+
+At 60 trades/month × $5 fee = $300/month in fees. You'd need a 65%+ win rate
+just to break even on fee drag, which no agent architecture sustainably does.
+
+v1.1 fixes this by making the apex winner big enough to pay for many small
+losers:
+
+| Price move | v1.0 (3x × 30%) lock | v1.1 apex (10x × 30%) lock |
+|---|---|---|
+| +1% → +10% ROE → T1 50% HW | $13.50 | **$150** |
+| +2% → +20% ROE → T2 70% HW | $37.80 | **$420** |
+| +5% → +50% ROE → T4 90% HW | $121.50 | **$1,350** |
+
+v1.1 captures **10x more on the same winning move** when the score justifies
+apex sizing. That's what makes tight DSL + fee drag survivable: apex winners
+subsidize the cautious-tier losers.
+
+### Why 10x is safe
+
+- **ISOLATED margin**: max loss is bounded by the $300 margin, nothing more
+- **DSL triggers at +5% ROE** which at 10x is just a 0.5% price move —
+  that fires in seconds on any real BRENTOIL move
+- **The dangerous window** is entry → first DSL lock, measured in seconds
+- **10x = 50% of exchange max** — leaves headroom for gap events
+
+### Scoring ladder (max 13)
+
+Base 6 (4TF + SM both aligned) + soft-score gates:
+- SM conviction: |premium|>0.1% → +1, |>0.3%| → +2
+- OI velocity: >+2% → +1, >+5% → +2, <-3% → -1
+- Volume spike: >2.5x 1h-avg → +1, >5x → +2 (extreme news)
+- Price cleanliness (no adverse wicks last 30 min) → +1
+
+Score 12+ = apex tier (needs 6 out of 7 soft-score points, rare).
 
 ## Key files
 
@@ -201,6 +249,18 @@ Investigate `ratchet_stop_add` MCP tool state before re-enabling.
 **Red:**
 - XYZ markets have structural differences requiring different architecture
 - $1,000 cost for a clear learning outcome
+
+## Changelog
+
+- **v1.1 — Conviction-scaled sizing.** Leverage scales 3x → 10x and margin
+  20% → 30% with score. Added SM conviction scoring (premium-magnitude tier
+  bonus) and volume spike tier 2 (ratio > 5x for extreme news). Fixes the v1.0
+  failure mode where tight DSL + capped upside would lose to fee drag even on
+  50%+ win rates. Apex setups (score 12+) deploy up to 3.0x account notional.
+  Scanner output now includes `sizing_tier` and `notional_vs_account` in
+  execution JSON.
+- v1.0 — Initial release. First XYZ specialist. Kodiak-family port. Fixed 3x
+  leverage / 30% margin. Deprecated — capped upside couldn't pay for fees.
 
 ## References
 
