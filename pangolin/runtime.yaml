@@ -1,9 +1,11 @@
 name: pangolin-tracker
-version: 1.0.0
+version: 1.4.0
 description: >
-  PANGOLIN v1.0 — Extreme Funding Rate Fader. Enters opposite to extreme
-  funding (>0.03%/8h), collecting funding while waiting for crowding
-  mean-reversion. Very wide DSL — crowded unwinds take hours to days.
+  PANGOLIN v1.4 — Extreme Funding Rate Fader with persistence + regime
+  gates. v1.4 integrates the new market_get_funding_history and
+  market_get_funding_regime MCP tools. Hard-gates on persistence_hours >= 3
+  (no spike fades) and regime matching (no fighting crowds). MIN_SCORE
+  raised 7 → 9 because new signals add up to +6 points of scoring surface.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
