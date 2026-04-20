@@ -263,24 +263,23 @@ def fetch_audit_logs(strategy_id, start_time, end_time):
 # ---------------------------------------------------------------------------
 
 def analyze_user(user, start_time, end_time):
-    user_id    = user["senpiUserId"]
-    strategies = fetch_strategies(user_id)
+    user_id = user["senpiUserId"]
+
+    # Fetch strategies and audit logs in parallel — audit is per-user, not per-strategy
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        strategies_f = ex.submit(fetch_strategies, user_id)
+        audit_f      = ex.submit(fetch_audit_logs, user_id, start_time, end_time)
+    strategies = strategies_f.result()
+    audit_log  = audit_f.result()
+
+    def enrich_strategy(strategy):
+        address = strategy["address"]
+        strategy["orders"]    = fetch_orders(address, start_time, end_time) if address else []
+        strategy["audit_log"] = audit_log
+        return strategy
 
     with ThreadPoolExecutor(max_workers=5) as ex:
-        strategy_tasks = {}
-        for strategy in strategies:
-            orders_f = ex.submit(fetch_orders, strategy["address"], start_time, end_time)
-            audit_f = ex.submit(fetch_audit_logs, strategy["strategyId"], start_time, end_time)
-            strategy_tasks[orders_f] = (strategy, "orders")
-            strategy_tasks[audit_f] = (strategy, "audit_log")
-
-        for future in as_completed(strategy_tasks):
-            strategy, field = strategy_tasks[future]
-            strategy[field] = future.result()
-
-    for strategy in strategies:
-        strategy.setdefault("orders", [])
-        strategy.setdefault("audit_log", [])
+        enriched = list(ex.map(enrich_strategy, strategies))
 
     return {
         "senpiUserName": user["senpiUserName"],
@@ -288,7 +287,7 @@ def analyze_user(user, start_time, end_time):
         "rank":          user["rank"],
         "roePct":        user["roePct"],
         "totalPnl":      user["totalPnl"],
-        "strategies":    strategies,
+        "strategies":    enriched,
     }
 
 
