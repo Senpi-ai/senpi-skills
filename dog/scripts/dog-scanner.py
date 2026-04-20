@@ -147,6 +147,44 @@ def has_resting_orders(wallet):
         has_fresh = True
     return has_fresh
 
+def _get_funding_regime():
+    """v2.3: market-wide funding regime via new MCP tool."""
+    try:
+        r = cfg.mcporter_call("market_get_funding_regime")
+        if r:
+            return r.get("data", r).get("regime")
+    except Exception:
+        pass
+    return None
+
+
+def _get_funding_history(asset):
+    """v2.3: per-asset persistence + trend via new MCP tool."""
+    try:
+        r = cfg.mcporter_call("market_get_funding_history", asset=asset)
+        if r:
+            data = r.get("data", r)
+            return {
+                "persistence_hours": data.get("persistence_hours"),
+                "trend": data.get("trend"),
+            }
+    except Exception:
+        pass
+    return None
+
+
+def _regime_confirms_fade(fade_direction, regime):
+    """v2.3: fade is confirmed when regime shows crowding in OPPOSITE direction
+    of trade. Dog goes SHORT to fade LONG_CROWDED. Returns True/False/None."""
+    if regime is None or regime == "NEUTRAL":
+        return None  # neutral — neither confirms nor denies
+    if fade_direction == "SHORT" and regime == "LONG_CROWDED":
+        return True
+    if fade_direction == "LONG" and regime == "SHORT_CROWDED":
+        return True
+    return False
+
+
 def evaluate_assets():
     """Score all four assets and return the best candidate above MIN_SCORE."""
     raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
@@ -155,6 +193,9 @@ def evaluate_assets():
     if isinstance(markets, dict): markets = markets.get("markets", markets)
     if isinstance(markets, dict): markets = markets.get("markets", [])
     if not isinstance(markets, list): return None
+
+    # v2.3: fetch market-wide regime once per scan
+    regime = _get_funding_regime()
 
     # Build asset map
     asset_data = {}
@@ -263,6 +304,39 @@ def evaluate_assets():
                     if (d == "SHORT" and funding > 0.0002) or (d == "LONG" and funding < -0.0002):
                         score += 1; reasons.append(f"FUNDING_PAYS {funding*100:.4f}%")
         except: pass
+
+        # ── v2.3: Regime HARD GATE ──
+        # Dog fades SM consensus. Regime confirms crowding in the direction
+        # we're fading. If regime contradicts (says crowd is with our direction),
+        # we're fighting — not fading — and the signal is suspect. Skip.
+        regime_confirms = _regime_confirms_fade(d, regime)
+        if regime_confirms is False:
+            continue  # regime contradicts fade direction — skip
+        if regime_confirms is True:
+            score += 2; reasons.append(f"REGIME_CONFIRMS_{regime}")
+        elif regime is not None:
+            reasons.append(f"REGIME_{regime}")  # neutral, no score change
+
+        # ── v2.3: Persistence + trend via funding_history ──
+        # If SM crowding has been persistent for hours, the fade is mature and
+        # high-conviction. If crowding is still INCREASING, Dog may be early.
+        fh = _get_funding_history(token)
+        if fh:
+            ph = fh.get("persistence_hours")
+            trend = (fh.get("trend") or "").upper()
+            try:
+                ph_val = float(ph) if ph is not None else None
+            except (TypeError, ValueError):
+                ph_val = None
+            if ph_val is not None:
+                if ph_val >= 12:
+                    score += 2; reasons.append(f"MATURE_CROWDING_{ph_val:.0f}h")
+                elif ph_val >= 6:
+                    score += 1; reasons.append(f"STABLE_CROWDING_{ph_val:.0f}h")
+            if trend == "INCREASING":
+                score -= 1; reasons.append("CROWDING_STILL_BUILDING (early fade)")
+            elif trend == "DECREASING":
+                score += 1; reasons.append("CROWDING_UNWINDING (fade confirmed)")
 
         # ── US session bonus (0-1) ──
         hour = datetime.now(timezone.utc).hour
