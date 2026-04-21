@@ -1,9 +1,12 @@
 name: kodiak-tracker
-version: 1.0.0
+version: 5.1.0
 description: >
-  Onchain position tracker — monitors strategy wallet on Hyperliquid
-  for position lifecycle events and wires them into the DSL exit engine.
-  SOL alpha hunter with position lifecycle.
+  SOL alpha hunter with position lifecycle. v5.1 adds base-tech-score
+  floor: requires 4h structural strength ≥ 0.75 (was 0.60) and forces
+  at least one 4TF confluence beyond minimum gate passes. Prevents
+  external factors (SM positioning, funding, OI velocity, volume) from
+  being the sole driver of MIN_SCORE on marginal price structure.
+  Scanner-only change. DSL and leverage unchanged from v5.0.
 
 # ── STRATEGY ──
 strategy:

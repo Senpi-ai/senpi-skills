@@ -1,19 +1,46 @@
 #!/usr/bin/env python3
-# Senpi KODIAK Scanner v1.1.1
+# Senpi KODIAK Scanner v5.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""KODIAK v2.0 — SOL Alpha Hunter with Position Lifecycle.
+"""KODIAK v5.1 — SOL Alpha Hunter with Base-Tech-Score Floor.
 
 Single-asset focus. SOL only. Every signal source available (SM, funding, OI,
 4-timeframe trend, volume, BTC correlation). 15-20x leverage, maximum conviction.
 
-v2.0 adds three-mode position lifecycle:
+## v5.1 — base-tech-score floor (2026-04-21)
+
+Problem: the original v2.0 hard gates (4h trend, 1h matches, 15m momentum)
+permit marginal-pass signals where all three conditions are *just* met. Once
+past those gates, external factors (SM positioning, funding, OI velocity,
+volume) can add +12-14 points and push score to MIN_SCORE=10 even when
+price structure is weak.
+
+Observed today: a SOL LONG signal scored 13 with only +1 point from price
+structure (marginal 4h BULLISH pass that flipped to NEUTRAL shortly after)
+and +12 from external factors. SOL then moved -1.4% against the LONG
+direction before execution — exactly the "external factors overrode weak
+structure" failure mode.
+
+Fix: two additional gates after the existing v2.0 hard gates:
+
+1. Require trend_strength_4h >= 0.75 (was: 0.60 implicit in trend_structure).
+   Rejects marginal 4h patterns where only 3 of 5 candles show higher-lows
+   / lower-highs. v5.1 requires 4 of 5 for proper structural conviction.
+
+2. Require at least ONE of: strong 15m magnitude (|mom_15m| > 2× min) OR
+   5m direction alignment. This forces true 4TF confluence, not just
+   minimum-threshold gate passes. Prevents external factors from being
+   the sole driver of MIN_SCORE.
+
+MIN_SCORE stays at 10. DSL unchanged. Leverage unchanged. Only entry gates
+are tightened. Expected effect: fewer marginal entries, no change on
+well-aligned setups.
+
+## v2.0 three-mode position lifecycle (unchanged)
   MODE 1 — HUNTING: normal scanning, all signals must align, score 10+ to enter
   MODE 2 — RIDING: position open, DSL trails, monitor thesis
   MODE 3 — STALKING: DSL closed, watch for reload on dip, or reset if thesis dies
-
-The loop: HUNTING → enter → RIDING → DSL closes → STALKING → reload or reset.
 
 Runs every 3 minutes.
 """
@@ -197,6 +224,13 @@ def build_sol_thesis(entry_cfg):
     if trend_4h == "NEUTRAL":
         return None  # No conviction without macro structure
 
+    # v5.1: Require STRONG 4h structural alignment, not barely-passing (60%).
+    # trend_structure() returns BULLISH when higher_lows >= 60% of lookback,
+    # which is only 3 of 5 candles at lookback=6 — too permissive. Marginal
+    # patterns flip to NEUTRAL on the next candle close. Require 4 of 5 (75%).
+    if trend_strength_4h < 0.75:
+        return None
+
     direction = "LONG" if trend_4h == "BULLISH" else "SHORT"
 
     # ── REQUIRED: 1h trend agrees ─────────────────────────────
@@ -214,6 +248,19 @@ def build_sol_thesis(entry_cfg):
     if direction == "LONG" and mom_15m < min_mom_15m:
         return None
     if direction == "SHORT" and mom_15m > -min_mom_15m:
+        return None
+
+    # ── v5.1: BASE-TECH-SCORE FLOOR ────────────────────────────
+    # After the v2.0 hard gates (4h, 1h, 15m), require at least ONE additional
+    # 4TF confluence beyond minimum-threshold passes: either strong 15m
+    # magnitude (|mom_15m| > 2× min) OR 5m alignment with direction. Prevents
+    # external factors (SM positioning, funding, OI, volume) from carrying
+    # signals where price structure only marginally agrees with the thesis.
+    # Base tech without this gate: 4h(+3) + 1h_confirms(+2) = 5 minimum.
+    # With this gate: requires base tech ≥ 6, forcing true 4TF confluence.
+    strong_15m = abs(mom_15m) > min_mom_15m * 2
+    aligned_5m = (direction == "LONG" and mom_5m > 0) or (direction == "SHORT" and mom_5m < 0)
+    if not (strong_15m or aligned_5m):
         return None
 
     # ── SCORING ───────────────────────────────────────────────
