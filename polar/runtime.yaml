@@ -1,9 +1,15 @@
 name: polar-tracker
-version: 2.4.0
+version: 3.0.0
 description: >
-  ETH alpha hunter v2.4 — sniper recalibration. Single-asset lifecycle scanner
-  with MIN_SCORE=10 gate (Cheetah v5.1 APEX pattern), 15m velocity hard gate,
-  conviction-scaled leverage (7x at 10-11, 10x at 12+), 240-min sniper cooldown.
+  ETH alpha hunter v3.0 — hybrid hyperfeed + structural-veto architecture.
+  Complete rewrite. v2.4 used leaderboard_get_markets alone (no candle
+  confirmation) and produced 32% gross win rate on 81 positions. v3.0 keeps
+  hyperfeed (SM positioning) as primary direction signal but adds structural
+  candle gates as vetos: trend_4h must match SM direction with strength ≥
+  0.75; 1h must match 4h; 15m momentum confirms; RSI gate; base-tech floor
+  requires strong 15m OR 5m alignment. Fixes silent-None OI velocity bug
+  (flat path). MIN_SCORE raised 10 → 14. Conviction-scaled leverage (5x
+  standard, 7x conviction, 10x apex at score ≥ 17). DSL tiers unchanged.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
