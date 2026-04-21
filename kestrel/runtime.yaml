@@ -1,10 +1,13 @@
 name: kestrel-tracker
-version: 1.0.0
+version: 1.1.0
 description: >
-  KESTREL v1.0 — XYZ Macro Breakout Rider. Detects >1.5% hourly price
-  breakouts on commodities, metals, indices, and equities during US market
-  hours. Rides the macro trend with wide DSL. Price action primary,
-  SM confirmation secondary.
+  KESTREL v1.1 — XYZ Macro Breakout Rider (trailing-4H + exhaustion
+  penalty). Detects >1.5% hourly price breakouts on commodities, metals,
+  indices, and equities 24/7. Rides the macro trend with wide DSL.
+  v1.1 fixes late-FOMO entries: trailing-4H calculation (1H-candle
+  based, not grid-based) + MOVE_EXHAUSTION_PENALTY (-2 pts when 4H
+  move in breakout direction is ≥4%, -1 pt when ≥2.5%). Price action
+  primary, SM confirmation secondary.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"

@@ -1,9 +1,32 @@
 #!/usr/bin/env python3
-# Senpi KESTREL Scanner v1.0
+# Senpi KESTREL Scanner v1.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""KESTREL v1.0 — XYZ Macro Breakout Rider.
+"""KESTREL v1.1 — XYZ Macro Breakout Rider (trailing-4H + exhaustion penalty).
+
+## v1.1 changes (2026-04-21)
+
+Fixes the late-FOMO entry pattern observed on the 19:48 UTC BRENTOIL LONG
+(-$18 loss). Root cause: v1.0 computed `pct_4h` via a rigid 4H candle
+grid (active 4H candle vs previous 4H candle), which missed trailing
+momentum. On 2026-04-21 BRENT had rallied +4.5% trailing 4H but the
+grid-based calc only saw +1.60%. Kestrel scored the setup 7/6 and
+entered at $94.62 — near the top of the day's rally. Price then
+retraced to $93.76, dead_weight_cut fired at 45 min, -2.7% ROE exit.
+
+Two fixes:
+1. pct_4h now uses a trailing window: close of candles_1h[-5] vs
+   candles_1h[-1]. Grid-independent, matches Kodiak-family pattern.
+2. MOVE_EXHAUSTION_PENALTY added — when trailing pct_4h magnitude is
+   >= 4% in the breakout direction, -2 points. Between 2.5% and 4%,
+   -1 point. Mirrors Kodiak's MOVE_EXHAUSTION/MOVE_TIRING penalties.
+
+Under v1.1, the 19:48 UTC BRENT signal scores 7 - 2 = 5, which is below
+MIN_SCORE=6 → correctly rejected. Going forward, only fresh breakouts
+with <4% already-built 4H momentum score high enough to enter.
+
+## v1.0 thesis (unchanged)
 
 Thesis: When a commodity, equity, or precious metal moves >1.5% in 1 hour
 something macro happened (war, rate decision, OPEC,
@@ -216,13 +239,18 @@ def scan_xyz_breakouts():
 
         pct_1h = ((close_now - close_prev) / close_prev) * 100
 
-        # Also check 4H trend
+        # Also check 4H trend — v1.1: trailing window via 1H candles, not
+        # rigid 4H candle grid. Previous grid approach missed actual trailing
+        # momentum because the active 4H candle being compared to the previous
+        # closed 4H candle underweights moves that happened recently within
+        # the active window. Trailing window (current 1H close vs 4 hours
+        # prior) matches Kodiak-family's price_momentum() pattern.
         pct_4h = 0
-        if len(candles_4h) >= 2:
-            close_4h_now = safe_float(candles_4h[-1].get("close", candles_4h[-1].get("c", 0)))
-            close_4h_prev = safe_float(candles_4h[-2].get("close", candles_4h[-2].get("c", 0)))
-            if close_4h_prev > 0:
-                pct_4h = ((close_4h_now - close_4h_prev) / close_4h_prev) * 100
+        if len(candles_1h) >= 5:
+            close_1h_now = safe_float(candles_1h[-1].get("close", candles_1h[-1].get("c", 0)))
+            close_1h_4h_ago = safe_float(candles_1h[-5].get("close", candles_1h[-5].get("c", 0)))
+            if close_1h_4h_ago > 0:
+                pct_4h = ((close_1h_now - close_1h_4h_ago) / close_1h_4h_ago) * 100
 
         # Must have a meaningful 1H breakout
         if abs(pct_1h) < BREAKOUT_THRESHOLD_1H:
@@ -256,6 +284,23 @@ def scan_xyz_breakouts():
                (breakout_dir == "SHORT" and pct_4h < 0):
                 score += 1
                 reasons.append(f"4H_ALIGNED {pct_4h:+.2f}%")
+
+        # ── Move-exhaustion penalty (NEW in v1.1) ──
+        # When the 4H move in the breakout direction is already mature
+        # (>= 4%), the breakout has likely played out and we're chasing.
+        # Penalize to prevent late-FOMO entries. Mirrors Kodiak-family's
+        # MOVE_EXHAUSTION / MOVE_TIRING pattern. Uses the trailing pct_4h
+        # computed above (1H-candle-based, not grid-based).
+        if abs(pct_4h) >= 4.0:
+            if (breakout_dir == "LONG" and pct_4h > 0) or \
+               (breakout_dir == "SHORT" and pct_4h < 0):
+                score -= 2
+                reasons.append(f"MOVE_EXHAUSTION_PENALTY {pct_4h:+.2f}%_4H_already_ran")
+        elif abs(pct_4h) >= 2.5:
+            if (breakout_dir == "LONG" and pct_4h > 0) or \
+               (breakout_dir == "SHORT" and pct_4h < 0):
+                score -= 1
+                reasons.append(f"MOVE_TIRING_PENALTY {pct_4h:+.2f}%_4H_mature")
 
         # ── Volume surge (0-2 pts) ──
         if len(candles_1h) >= 4:
@@ -448,7 +493,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_kestrel_version": "1.0",
+                "_kestrel_version": "1.1",
             })
             return
         else:
@@ -459,7 +504,7 @@ def run():
                            "score": cand["score"],
                            "reasons": cand["reasons"]},
                 "error": result,
-                "_kestrel_version": "1.0",
+                "_kestrel_version": "1.1",
             })
             return
 
