@@ -26,8 +26,9 @@
   ],
   "volumeSpikeThreshold": 2.5,
   "volumeSpikeStrongThreshold": 5.0,
-  "smPremiumModerateAbsPct": 0.001,
-  "smPremiumStrongAbsPct": 0.003,
+  "smAmbiguousPremiumAbsPct": 0.0001,
+  "smPremiumModerateAbsPct": 0.0003,
+  "smPremiumStrongAbsPct": 0.001,
   "priceCleanlinessMaxWickPct": 1.5,
   "priceCleanlinessLookbackMinutes": 30
 }

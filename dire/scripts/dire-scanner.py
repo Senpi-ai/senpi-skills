@@ -47,7 +47,7 @@ from dire_config import (
     save_state,
 )
 
-VERSION = "1.1"
+VERSION = "1.2"
 
 
 # ─── Momentum & Signal Evaluation ────────────────────────────
@@ -242,7 +242,7 @@ def price_cleanliness_score(candles_5m, direction, max_wick_pct=1.5, lookback_mi
 
 # ─── SM Direction (Smart Money) ──────────────────────────────
 
-def get_sm_direction(asset_data):
+def get_sm_direction(asset_data, config=None):
     """Derive Smart Money direction from market data.
 
     For XYZ assets we use a proxy: markPx vs oraclePx premium from asset_context.
@@ -255,8 +255,12 @@ def get_sm_direction(asset_data):
       downstream by sm_conviction_score() to add conviction points.
     - reason: human-readable detail string.
 
-    Direction is detected at any premium magnitude > 0.0005 (0.05%) in either
-    direction. Below that, SM is treated as ambiguous.
+    Ambiguous-premium threshold is configurable via
+    `smAmbiguousPremiumAbsPct` (default 0.0001 = 0.01%). XYZ (HIP-3)
+    markets structurally have smaller mark-oracle premiums than crypto
+    perps because the oracle tracks mark closely by design — a crypto-
+    perp-calibrated threshold (0.0005) permanently blocks XYZ entries.
+    v1.2: lowered from hardcoded 0.0005 → configurable, default 0.0001.
     """
     ctx = asset_data.get("asset_context") or {}
     try:
@@ -268,13 +272,20 @@ def get_sm_direction(asset_data):
     if mark_px <= 0:
         return None, 0.0, "no_mark_px"
 
+    ambiguous_threshold = 0.0001
+    if config is not None:
+        try:
+            ambiguous_threshold = float(config.get("smAmbiguousPremiumAbsPct", 0.0001))
+        except (TypeError, ValueError):
+            pass
+
     # Premium arrives as a decimal (e.g. 0.00293 = 0.293%). Keep as decimal
     # internally; present as % in reason strings.
-    if abs(premium) < 0.0005:
-        return None, abs(premium), f"sm_ambiguous_premium_{premium * 100:+.3f}%"
+    if abs(premium) < ambiguous_threshold:
+        return None, abs(premium), f"sm_ambiguous_premium_{premium * 100:+.4f}%_threshold_{ambiguous_threshold * 100:.4f}%"
 
     direction = "LONG" if premium > 0 else "SHORT"
-    return direction, abs(premium), f"premium_{premium * 100:+.3f}%"
+    return direction, abs(premium), f"premium_{premium * 100:+.4f}%"
 
 
 # ─── Scoring ─────────────────────────────────────────────────
@@ -308,7 +319,7 @@ def evaluate_setup(asset_data, config):
     reasons.append(f"4TF_aligned_{direction}_{align_detail}")
 
     # Gate 2: SM HARD BLOCK
-    sm_dir, sm_premium_abs, sm_detail = get_sm_direction(asset_data)
+    sm_dir, sm_premium_abs, sm_detail = get_sm_direction(asset_data, config)
     if sm_dir is None:
         return {
             "direction": direction,
