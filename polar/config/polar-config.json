@@ -2,5 +2,12 @@
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "startingBudget": 1000
+  "startingBudget": 1000,
+  "dslTiers": [
+    { "triggerRoe": 8,  "lockRoe": 25 },
+    { "triggerRoe": 15, "lockRoe": 50 },
+    { "triggerRoe": 25, "lockRoe": 65 },
+    { "triggerRoe": 35, "lockRoe": 80 },
+    { "triggerRoe": 50, "lockRoe": 85 }
+  ]
 }

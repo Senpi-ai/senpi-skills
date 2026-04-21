@@ -82,7 +82,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import polar_config as cfg
 
 
-VERSION = "3.0.1"
+VERSION = "3.0.2"
 ASSET = "ETH"
 MAX_POSITIONS = 1
 MAX_DAILY_ENTRIES = 4
@@ -111,6 +111,32 @@ def _resolve_starting_budget():
 
 
 STARTING_BUDGET = _resolve_starting_budget()
+
+
+# ═══════════════════════════════════════════════════════════════
+# DSL TIER LADDER (config-driven, default matches runtime.yaml)
+# ═══════════════════════════════════════════════════════════════
+
+_DEFAULT_DSL_TIERS = [
+    {"triggerRoe": 8,  "lockRoe": 25},
+    {"triggerRoe": 15, "lockRoe": 50},
+    {"triggerRoe": 25, "lockRoe": 65},
+    {"triggerRoe": 35, "lockRoe": 80},
+    {"triggerRoe": 50, "lockRoe": 85},
+]
+
+
+def _resolve_dsl_tiers():
+    """Read dslTiers from config.json; default matches runtime.yaml phase2 tiers.
+    Users override via local config, never edit the code default."""
+    try:
+        c = cfg.load_config()
+        t = c.get("dslTiers")
+        if isinstance(t, list) and t:
+            return t
+    except Exception:
+        pass
+    return _DEFAULT_DSL_TIERS
 
 
 def get_dynamic_daily_cap(account_value, starting_budget=None):
@@ -803,7 +829,71 @@ def run():
         })
         return
 
-    # Success — increment counter + set cooldown
+    # v3.0.2: MANDATORY DSL ATTACH — fleet-standard pattern.
+    # Position is open on Hyperliquid. Attach Ratchet Stop immediately so
+    # tiered trailing exits are tracked. If attach fails, close the position
+    # market-order to prevent unprotected exposure (Dire-pattern).
+    fill_price = thesis["price"]  # fallback to scan-time mark
+    fill_size_abs = margin * leverage / fill_price if fill_price > 0 else 0
+    try:
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+        orders = data.get("orders", data.get("results", []))
+        if orders and isinstance(orders[0], dict):
+            main = orders[0].get("mainOrder", orders[0])
+            if isinstance(main, dict):
+                fp = main.get("fillPrice") or main.get("avgFillPrice") or main.get("price")
+                fs = main.get("filledSize") or main.get("filledSz") or main.get("size")
+                if fp:
+                    try:
+                        fill_price = float(fp)
+                    except (TypeError, ValueError):
+                        pass
+                if fs:
+                    try:
+                        fill_size_abs = abs(float(fs))
+                    except (TypeError, ValueError):
+                        pass
+    except Exception:
+        pass
+
+    dsl_tiers = _resolve_dsl_tiers()
+    dsl_response = cfg.mcporter_call(
+        "ratchet_stop_add",
+        strategyId=strategy_id,
+        strategy_wallet_address=wallet,
+        asset=ASSET,
+        direction=direction,
+        entryPrice=fill_price,
+        size=fill_size_abs,
+        leverage=leverage,
+        ratchetStopConfig={"tiered": {"tiers": dsl_tiers}},
+    )
+    dsl_ok = bool(dsl_response) and (
+        dsl_response.get("success", False) if isinstance(dsl_response, dict) else False
+    )
+
+    if not dsl_ok:
+        # CRITICAL: DSL failed to attach. Close position immediately to prevent
+        # unprotected exposure. This is the fleet-standard pattern — do NOT
+        # let positions run without DSL protection.
+        close_response = cfg.mcporter_call(
+            "close_position",
+            strategyWalletAddress=wallet,
+            coin=ASSET,
+        )
+        cfg.output({
+            "status": "critical",
+            "action": "DSL_ATTACH_FAILED_EMERGENCY_CLOSE",
+            "direction": direction,
+            "score": score,
+            "reasons": thesis["reasons"],
+            "dsl_response": str(dsl_response)[:300] if dsl_response else "null",
+            "close_triggered": close_response is not None,
+            "version": VERSION,
+        })
+        return
+
+    # Success — DSL attached, increment counter + set cooldown
     tc["entries"] = tc.get("entries", 0) + 1
     tc["last_entry_ts"] = time.time()
     save_tc(tc)
@@ -825,6 +915,13 @@ def run():
             "notional_vs_account": round((leverage * margin) / account_value, 2),
             "orderType": "FEE_OPTIMIZED_LIMIT",
             "ensureExecutionAsTaker": True,
+            "fill_price": fill_price,
+            "fill_size": fill_size_abs,
+        },
+        "dsl": {
+            "attached": True,
+            "tiers": dsl_tiers,
+            "entry_price": fill_price,
         },
         "thesis": {
             "rsi": thesis["rsi"],
