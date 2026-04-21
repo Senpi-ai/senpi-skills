@@ -82,7 +82,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import polar_config as cfg
 
 
-VERSION = "3.0"
+VERSION = "3.0.1"
 ASSET = "ETH"
 MAX_POSITIONS = 1
 MAX_DAILY_ENTRIES = 4
@@ -92,11 +92,32 @@ MAX_DAILY_ENTRIES = 4
 # DYNAMIC DAILY CAP (P&L-aware circuit breaker)
 # ═══════════════════════════════════════════════════════════════
 
-STARTING_BUDGET = 635.62  # v3.0: rebased to current equity at rewrite time
+def _resolve_starting_budget():
+    """Read startingBudget from config.json; default 1000 for fresh deploys.
 
-def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
+    Wallet-specific values (e.g. post-drawdown rebases, post-topup values)
+    belong in the user's LOCAL config, not in the public repo. Scanner reads
+    config on each cron invocation (fresh Python subprocess), so config
+    edits take effect on the next scan without any code change.
+    """
+    try:
+        c = cfg.load_config()
+        v = c.get("startingBudget")
+        if v is not None:
+            return float(v)
+    except Exception:
+        pass
+    return 1000.0
+
+
+STARTING_BUDGET = _resolve_starting_budget()
+
+
+def get_dynamic_daily_cap(account_value, starting_budget=None):
     """P&L-aware daily entry cap. Winners get more trades, losers fewer.
     Catastrophic drawdown triggers HARD STOP."""
+    if starting_budget is None:
+        starting_budget = STARTING_BUDGET
     if starting_budget <= 0:
         return 4
     pnl_pct = ((account_value - starting_budget) / starting_budget) * 100

@@ -1,5 +1,5 @@
 name: polar-tracker
-version: 3.0.0
+version: 3.0.1
 description: >
   ETH alpha hunter v3.0 — hybrid hyperfeed + structural-veto architecture.
   Complete rewrite. v2.4 used leaderboard_get_markets alone (no candle

@@ -1,5 +1,6 @@
 {
   "strategyId": "",
   "wallet": "",
-  "chatId": ""
+  "chatId": "",
+  "startingBudget": 1000
 }
