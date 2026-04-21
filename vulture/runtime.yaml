@@ -1,15 +1,19 @@
 name: vulture-tracker
-version: 2.2.0
+version: 2.3.0
 description: >
-  VULTURE v2.2 — Long-Tail Momentum Rider (mid-tier profit protection).
-  v2.2 tightens Phase 2 tier 1 and tier 2 lockHwPct to protect more of
-  earned gains without changing exit frequency. Tier 0 stays wide (15/20
-  → +3% floor) for small-cap early-wick tolerance. Tiers 1 and 2 move to
-  60% and 75% lockHwPct so a 30% peak locks +18% (was +12%) and a 50%
-  peak locks +37.5% (was +30%). Hard_timeout (7 days), dead_weight_cut
-  (90 min), and weak_peak_cut (180 min @ 2%) are unchanged from v2.1 by
-  design — those belong to the "let winners breathe" experiment and are
-  not the source of late-position give-back. Phase 1 also unchanged.
+  VULTURE v2.3 — Long-Tail Momentum Rider (tier 2 pre-arm for winners).
+  v2.3 drops tier 2's trigger from 50% → 40% peak ROE. Once a winning
+  position climbs past 40% peak, it immediately graduates to tier 2's
+  75% lockHwPct (from tier 1's 60%) — 30% floor instead of 24% at a
+  40% peak, or 37.5% floor at 50% peak. This compresses the "tier 1
+  upper band" (30-40% peak) that previously let strong winners give
+  back too much as they ratcheted through. Tier 0 stays wide (15/20 →
+  +3% floor) for small-cap early-wick tolerance.
+  v2.2 established 60% / 75% lockHwPct on tiers 1 / 2. v2.3 preserves
+  those lock values; only tier 2's trigger threshold moves.
+  Hard_timeout (7 days), dead_weight_cut (90 min), and weak_peak_cut
+  (180 min @ 2%) are unchanged from v2.1 by design — those belong to
+  the "let winners breathe" experiment. Phase 1 also unchanged.
   Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL,
   AIXBT, ARB, ASTER, ZEC, LIT, TAO, etc.). Built from the #1 Arena
   winner's playbook. Max 2 positions, 5-7x leverage.
@@ -35,25 +39,25 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ── EXIT (DSL) — v2.2 mid-tier profit protection ──────────────────
-# v2.1 established wide floors to survive single-breach runtime on 3-8%
-# small-cap wicks. That philosophy is preserved for tier 0. However, the
-# mid-tiers (1 and 2) were giving back 18-20 ROE points on positions
-# that had already earned meaningful gains — the breathing-room rationale
-# applies to fresh positions, not to ones that have already climbed past
-# multiple wick thresholds. v2.2 tightens tier 1 and tier 2 lockHwPct to
-# retain more of earned profit. Critically, this does NOT add entries
-# or exits — it only changes where the eventual Phase 2 exit fires on
-# retracing winners. Zero fee delta, pure protection upgrade.
+# ── EXIT (DSL) — v2.3 tier 2 pre-arm for winners ──────────────────
+# v2.2 established the mid-tier tightening (60% / 75% lockHwPct on
+# tier 1 / tier 2). v2.3 adjusts tier 2's trigger threshold: 50% → 40%
+# peak ROE. This compresses the "tier 1 upper band" (previously 30-50%
+# peak) down to 30-40% peak. Once a position climbs past 40% peak, it
+# immediately graduates to tier 2's 75% lock instead of staying in
+# tier 1's 60% lock until 50%.
 #
-# Kodiak (Predators all-time green) is the reference for aggressive
-# mid-tier tightening. Kodiak ramps lockHwPct 25/50/65/80/85. Vulture
-# keeps a wider tier 0 (15 vs Kodiak 8) for small-cap vs SOL tolerance,
-# but aligns mid-tiers toward Kodiak's discipline.
+# Math impact on a winning position:
+#   At 40% peak: floor was 24% ROE (60% × 40%), now 30% ROE (75% × 40%)
+#   At 45% peak: floor was 27% ROE (tier 1 band), now 33.75% ROE (tier 2)
+#   At 50% peak: floor was 37.5% ROE (tier 2 arming), unchanged
 #
-# Timeouts, cuts, and Phase 1 retrace are unchanged from v2.1 — those
-# are the "let winners breathe" experiment and are not the source of
-# late-position give-back.
+# Zero fee delta — tier lockHwPct changes only move where Phase 2 exits
+# fire on retracing winners, not entry/exit frequency.
+#
+# Tier 0 (15/20) preserved for small-cap early-wick tolerance. Timeouts,
+# cuts, and Phase 1 retrace are unchanged from v2.1 — those belong to
+# the "let winners breathe" experiment.
 exit:
   engine: dsl
   interval_seconds: 30
@@ -75,15 +79,17 @@ exit:
     phase2:
       enabled: true
       tiers:
-        # v2.2 mid-tier tighten: tiers 1 and 2 lockHwPct up to protect
-        # more of earned gains. Tier 0 stays wide for small-cap early
-        # wicks. Tiers 3+ already tight.
+        # v2.3 tier 2 pre-arm: trigger 50 → 40. Winning positions past
+        # 40% peak now jump from tier 1's 60% lock to tier 2's 75% lock
+        # immediately instead of waiting until 50% peak.
         #
-        #   Peak 30% → floor was 12%, now 18% (+6pp protected)
-        #   Peak 50% → floor was 30%, now 37.5% (+7.5pp protected)
+        #   Peak 30% → floor 18% (tier 1, unchanged)
+        #   Peak 40% → floor 30% (tier 2 armed, was 24% in tier 1)
+        #   Peak 45% → floor 33.75% (tier 2, was 27% in tier 1)
+        #   Peak 50% → floor 37.5% (tier 2, unchanged)
         - { trigger_pct: 15, lock_hw_pct: 20 }   # UNCHANGED
-        - { trigger_pct: 30, lock_hw_pct: 60 }   # v2.2: was 40 → 60 (floor 12% → 18%)
-        - { trigger_pct: 50, lock_hw_pct: 75 }   # v2.2: was 60 → 75 (floor 30% → 37.5%)
+        - { trigger_pct: 30, lock_hw_pct: 60 }   # UNCHANGED from v2.2
+        - { trigger_pct: 40, lock_hw_pct: 75 }   # v2.3: trigger 50 → 40
         - { trigger_pct: 75, lock_hw_pct: 75 }   # UNCHANGED
         - { trigger_pct: 100, lock_hw_pct: 85 }  # UNCHANGED
         - { trigger_pct: 150, lock_hw_pct: 92 }  # UNCHANGED
