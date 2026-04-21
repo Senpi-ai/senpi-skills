@@ -1,12 +1,15 @@
 name: vulture-tracker
-version: 2.1.0
+version: 2.2.0
 description: >
-  VULTURE v2.1 — Long-Tail Momentum Rider (wider small-cap DSL).
-  v2.1 widens the DSL tier curve after fleet analysis found that Senpi's
-  onchain DSL now enforces SINGLE-BREACH exits (consecutive-breach
-  tolerance is no longer supported at runtime). Narrow floors designed
-  for 3-breach protection were exiting on normal small-cap wicks. v2.1
-  pushes Phase 2 tier locks wider so normal 3-8% wicks don't breach.
+  VULTURE v2.2 — Long-Tail Momentum Rider (mid-tier profit protection).
+  v2.2 tightens Phase 2 tier 1 and tier 2 lockHwPct to protect more of
+  earned gains without changing exit frequency. Tier 0 stays wide (15/20
+  → +3% floor) for small-cap early-wick tolerance. Tiers 1 and 2 move to
+  60% and 75% lockHwPct so a 30% peak locks +18% (was +12%) and a 50%
+  peak locks +37.5% (was +30%). Hard_timeout (7 days), dead_weight_cut
+  (90 min), and weak_peak_cut (180 min @ 2%) are unchanged from v2.1 by
+  design — those belong to the "let winners breathe" experiment and are
+  not the source of late-position give-back. Phase 1 also unchanged.
   Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL,
   AIXBT, ARB, ASTER, ZEC, LIT, TAO, etc.). Built from the #1 Arena
   winner's playbook. Max 2 positions, 5-7x leverage.
@@ -32,45 +35,58 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ── EXIT (DSL) — v2.1 WIDER small-cap profile ──────────────────────
-# CRITICAL: Senpi runtime now enforces single-breach exits (orders on-
-# chain). `consecutive_breaches_required` fields are no-ops. We adapt
-# by setting floors wide enough that normal small-cap wicks (3-8%)
-# don't breach them in the first place.
+# ── EXIT (DSL) — v2.2 mid-tier profit protection ──────────────────
+# v2.1 established wide floors to survive single-breach runtime on 3-8%
+# small-cap wicks. That philosophy is preserved for tier 0. However, the
+# mid-tiers (1 and 2) were giving back 18-20 ROE points on positions
+# that had already earned meaningful gains — the breathing-room rationale
+# applies to fresh positions, not to ones that have already climbed past
+# multiple wick thresholds. v2.2 tightens tier 1 and tier 2 lockHwPct to
+# retain more of earned profit. Critically, this does NOT add entries
+# or exits — it only changes where the eventual Phase 2 exit fires on
+# retracing winners. Zero fee delta, pure protection upgrade.
 #
-# Target: Winning moves on HEMI/WLD/MON can wick back 5-8% from peak
-# without exiting. We accept giving back more on true reversals; net
-# EV wins because the wicks-that-continue-trending dominate the sample.
+# Kodiak (Predators all-time green) is the reference for aggressive
+# mid-tier tightening. Kodiak ramps lockHwPct 25/50/65/80/85. Vulture
+# keeps a wider tier 0 (15 vs Kodiak 8) for small-cap vs SOL tolerance,
+# but aligns mid-tiers toward Kodiak's discipline.
+#
+# Timeouts, cuts, and Phase 1 retrace are unchanged from v2.1 — those
+# are the "let winners breathe" experiment and are not the source of
+# late-position give-back.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 10080    # 7 days — let momentum runners run
+      interval_in_minutes: 10080    # 7 days — UNCHANGED from v2.1 (experiment)
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 180       # v2.1: 120 → 180 (more patience on small-cap flats)
+      interval_in_minutes: 180       # UNCHANGED from v2.1 (experiment)
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 90        # v2.1: 60 → 90 (looser loser cut)
+      interval_in_minutes: 90        # UNCHANGED from v2.1 (experiment)
     phase1:
       enabled: true
-      max_loss_pct: 25.0             # v2.1: 20 → 25 (small caps retrace harder)
-      retrace_threshold: 15          # v2.1: 10 → 15
+      max_loss_pct: 25.0             # UNCHANGED from v2.1
+      retrace_threshold: 15          # UNCHANGED from v2.1 (tighter = more fee churn on wicks)
     phase2:
       enabled: true
       tiers:
-        # v2.1: WIDER tiers — single-breach runtime requires floors that
-        # survive 3-8% wicks. At +15% peak, floor is +3%. At +30% peak,
-        # floor is +12%. At +50%, +30% — hard to breach on noise.
-        - { trigger_pct: 15, lock_hw_pct: 20 }   # v2.1: was 5/20 — don't lock until +15% peak
-        - { trigger_pct: 30, lock_hw_pct: 40 }   # v2.1: was 10/35
-        - { trigger_pct: 50, lock_hw_pct: 60 }   # v2.1: was 20/55
-        - { trigger_pct: 75, lock_hw_pct: 75 }   # v2.1: was 35/70
-        - { trigger_pct: 100, lock_hw_pct: 85 }  # v2.1: was 50/80
-        - { trigger_pct: 150, lock_hw_pct: 92 }  # Infinite trail on monster winners
+        # v2.2 mid-tier tighten: tiers 1 and 2 lockHwPct up to protect
+        # more of earned gains. Tier 0 stays wide for small-cap early
+        # wicks. Tiers 3+ already tight.
+        #
+        #   Peak 30% → floor was 12%, now 18% (+6pp protected)
+        #   Peak 50% → floor was 30%, now 37.5% (+7.5pp protected)
+        - { trigger_pct: 15, lock_hw_pct: 20 }   # UNCHANGED
+        - { trigger_pct: 30, lock_hw_pct: 60 }   # v2.2: was 40 → 60 (floor 12% → 18%)
+        - { trigger_pct: 50, lock_hw_pct: 75 }   # v2.2: was 60 → 75 (floor 30% → 37.5%)
+        - { trigger_pct: 75, lock_hw_pct: 75 }   # UNCHANGED
+        - { trigger_pct: 100, lock_hw_pct: 85 }  # UNCHANGED
+        - { trigger_pct: 150, lock_hw_pct: 92 }  # UNCHANGED
 
 # ── NOTIFICATIONS ──
 notifications:
