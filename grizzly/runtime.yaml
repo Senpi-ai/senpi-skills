@@ -1,12 +1,15 @@
 name: grizzly-tracker
-version: 5.0.0
+version: 5.1.0
 description: >
-  GRIZZLY v5.0 — BTC Alpha Hunter with Position Lifecycle. Single-asset
-  BTC scanner, trend-following (flipped back from v4.x contrarian).
-  Family member alongside Kodiak (SOL), Wolverine (HYPE), Polar (ETH) —
-  all four share the same architecture, tuned per asset. BTC-specific
-  tuning: tighter momentum thresholds (BTC moves 3x slower than alts),
-  RSI 70/30 extremes, wider DSL timing per RatchetStop guide.
+  GRIZZLY v5.1 — BTC Alpha Hunter (DSL loosened for multi-day BTC trends).
+  Single-asset BTC scanner, trend-following (flipped back from v4.x
+  contrarian). Family member alongside Kodiak (SOL), Wolverine (HYPE),
+  Polar (ETH) — all four share the same architecture, tuned per asset.
+  v5.1 loosens DSL timing: v5.0's 6h hard_timeout killed multi-day BTC
+  trends (Trade 17 on 2026-04-17 was +$53 winner cut at exactly 360min
+  while BTC was still rallying $75.7k → $78k+). v5.1 matches Kodiak's
+  24h hard_timeout and widens Phase 1 max_loss to 20% to survive
+  drawdowns during bull-rally pullbacks.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -26,33 +29,37 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ─── EXIT (DSL) — BTC-tuned per RatchetStop timing guide ──────
-# BTC moves 0.6% in 4h. Time-based exits must match asset speed or
-# they'll kill every position before the trend develops.
+# ─── EXIT (DSL) — v5.1 loosened for multi-day BTC trends ──────
+# BTC trends span days, not hours. v5.0's 6h hard_timeout killed the
+# +$53 winner on 2026-04-17 at exactly 360 min while BTC was rallying
+# from $75.7k → $78k. Kodiak (Predators-green) uses 24h hard_timeout
+# on SOL; BTC moves slower and should have AT LEAST as much runway.
 #
-#   BTC:      Dead Weight 90min  |  Weak Peak 120min  |  Hard Timeout 360min
-#   ETH/SOL:  Dead Weight 60min  |  Weak Peak 90min   |  Hard Timeout 240min
-#   HYPE:     Dead Weight 30min  |  Weak Peak 60min   |  Hard Timeout 180min
+# v5.1 changes:
+#   hard_timeout   360 → 1440 min (24h)  match Kodiak family
+#   weak_peak_cut  120 → 180 min         consistent with longer hold
+#   dead_weight_cut 90 → 120 min         small loosen (BTC can sit 2h in trend)
+#   phase1 max_loss 15% → 20%            more room for bull-rally drawdowns
 #
-# Phase 2 tiers calibrated for BTC's slower grinds — first lock at +5%
-# (BTC rarely sees +8% quickly), then escalates.
+# Phase 2 tiers unchanged — the escalating trailing-lock ladder
+# (5/25, 10/45, 15/65, 20/80, 30/90, 50/94) is appropriate for BTC.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 360       # 6h — BTC trends take time
+      interval_in_minutes: 1440       # v5.1: 360 → 1440 (24h, match Kodiak)
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 120        # 2h — BTC peaks consolidate slowly
+      interval_in_minutes: 180         # v5.1: 120 → 180
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 90         # 90min — BTC can sit quietly in trend
+      interval_in_minutes: 120         # v5.1: 90 → 120
     phase1:
       enabled: true
-      max_loss_pct: 15.0
+      max_loss_pct: 20.0               # v5.1: 15.0 → 20.0
       retrace_threshold: 8
     phase2:
       enabled: true
