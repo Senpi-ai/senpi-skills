@@ -1,15 +1,15 @@
 name: grizzly-tracker
-version: 5.2.0
+version: 5.3.0
 description: >
-  GRIZZLY v5.1 — BTC Alpha Hunter (DSL loosened for multi-day BTC trends).
-  Single-asset BTC scanner, trend-following (flipped back from v4.x
-  contrarian). Family member alongside Kodiak (SOL), Wolverine (HYPE),
-  Polar (ETH) — all four share the same architecture, tuned per asset.
-  v5.1 loosens DSL timing: v5.0's 6h hard_timeout killed multi-day BTC
-  trends (Trade 17 on 2026-04-17 was +$53 winner cut at exactly 360min
-  while BTC was still rallying $75.7k → $78k+). v5.1 matches Kodiak's
-  24h hard_timeout and widens Phase 1 max_loss to 20% to survive
-  drawdowns during bull-rally pullbacks.
+  GRIZZLY v5.3 — BTC Alpha Hunter (base-tech-score floor + strong
+  4h structural alignment). Single-asset BTC scanner, trend-following.
+  Kodiak-family alignment (SOL/BTC/HYPE/ETH variants).
+  v5.3 adds Kodiak v5.1 gates: require trend_strength_4h ≥ 0.75 AND
+  (strong_15m OR 5m aligned). Rejects marginal 4h BEARISH/BULLISH
+  patterns on intra-trend pullbacks. Designed to eliminate the
+  SHORT-in-bull-rally pattern (9 of 15 losers on BTC's $70k→$78k run).
+  v5.2 made startingBudget config-driven for daily-cap rebase.
+  v5.1 loosened DSL timing to 24h hard_timeout + Phase 1 max_loss 20%.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"

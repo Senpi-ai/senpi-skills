@@ -285,6 +285,17 @@ def build_btc_thesis():
     if trend_4h == "NEUTRAL":
         return None  # No conviction without macro structure
 
+    # v5.3: Require STRONG 4h structural alignment, not barely-passing (60%).
+    # trend_structure() returns BULLISH/BEARISH at higher_lows/lower_highs >= 60%
+    # of lookback — only 3 of 5 candles at lookback=6 — too permissive for BTC.
+    # Marginal patterns flip on the next candle close. Require 4 of 5 (75%).
+    # This is the Kodiak v5.1 fix ported to Grizzly. Designed specifically to
+    # reject SHORT signals during bull-rally pullbacks (BTC $70k→$78k run
+    # produced 9 of 15 SHORT losses because 4h pullbacks briefly scored as
+    # BEARISH at 60% threshold).
+    if trend_strength_4h < 0.75:
+        return None
+
     direction = "LONG" if trend_4h == "BULLISH" else "SHORT"
 
     # ── REQUIRED: 1h trend agrees ─────────────────────────────
@@ -301,6 +312,19 @@ def build_btc_thesis():
     if direction == "LONG" and mom_15m < MIN_MOM_15M:
         return None
     if direction == "SHORT" and mom_15m > -MIN_MOM_15M:
+        return None
+
+    # ── v5.3: BASE-TECH-SCORE FLOOR (Kodiak v5.1 pattern) ─────
+    # After the v5.2 hard gates (4h, 1h, 15m), require at least ONE additional
+    # 4TF confluence beyond minimum-threshold passes: either strong 15m
+    # magnitude (|mom_15m| > 2× min) OR 5m alignment with direction. Prevents
+    # external factors (SM positioning, funding, OI, volume) from carrying
+    # signals where price structure only marginally agrees with the thesis.
+    # Base tech without this gate: 4h(+3) + 1h_confirms(+2) = 5 minimum.
+    # With this gate: requires base tech ≥ 6, forcing true 4TF confluence.
+    strong_15m = abs(mom_15m) > MIN_MOM_15M * 2
+    aligned_5m = (direction == "LONG" and mom_5m > 0) or (direction == "SHORT" and mom_5m < 0)
+    if not (strong_15m or aligned_5m):
         return None
 
     # ── SCORING ───────────────────────────────────────────────
