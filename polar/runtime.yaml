@@ -1,15 +1,14 @@
 name: polar-tracker
-version: 3.0.2
+version: 3.0.3
 description: >
-  ETH alpha hunter v3.0 — hybrid hyperfeed + structural-veto architecture.
-  Complete rewrite. v2.4 used leaderboard_get_markets alone (no candle
-  confirmation) and produced 32% gross win rate on 81 positions. v3.0 keeps
-  hyperfeed (SM positioning) as primary direction signal but adds structural
-  candle gates as vetos: trend_4h must match SM direction with strength ≥
-  0.75; 1h must match 4h; 15m momentum confirms; RSI gate; base-tech floor
-  requires strong 15m OR 5m alignment. Fixes silent-None OI velocity bug
-  (flat path). MIN_SCORE raised 10 → 14. Conviction-scaled leverage (5x
-  standard, 7x conviction, 10x apex at score ≥ 17). DSL tiers unchanged.
+  Polar v3.0.3 — DSL patience for apex-trend thesis. v3.0.2 had
+  dead_weight_cut=30 min which was firing at ~42-45 min wall-clock and
+  killing ETH winners mid-consolidation (4-5 recent trades all closed
+  <-1% price move with most of the loss being fees). Apex-trend
+  continuation on ETH unfolds over 4h+ — 30 min doesn't give the
+  thesis room to develop. v3.0.3 widens dead_weight 30→90 and
+  weak_peak 60→120. Signal scanner logic, scoring, leverage tiers,
+  Phase 1/2 tiers, and DSL attach-or-close behavior all unchanged.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -38,11 +37,11 @@ exit:
       interval_in_minutes: 480
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 60
+      interval_in_minutes: 120     # v3.0.3: 60 → 120 (ETH apex-trend consolidates 30-60 min between legs)
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 30
+      interval_in_minutes: 90      # v3.0.3: 30 → 90 (killing ETH winners mid-consolidation at 45 min)
     phase1:
       enabled: true
       max_loss_pct: 25.0
