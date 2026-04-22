@@ -1,13 +1,16 @@
 name: mantis-tracker
-version: 5.0.0
+version: 1.5.0
+# Note: skill/strategy is "Mantis v5.0 — Slipstream" but the runtime
+# contract is v1.x to remain compatible with senpi-trading-runtime
+# major version 1. Track the strategy version in description + SKILL.md.
 description: >
   MANTIS v5.0 — Slipstream. Cross-asset catchup hunter built on the new
   market_get_cross_asset_flows MCP tool. When BTC (or another leader)
   makes a significant 4h move and a correlated alt hasn't responded yet,
   Mantis strikes the alt before the catchup completes. Trades the
   statistical lag, not the momentum itself. Hard veto if the leader
-  reverses mid-position. First Predator built around cross-asset flow
-  detection.
+  reverses mid-position (enforced by the scanner, not the runtime).
+  First Predator built around cross-asset flow detection.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -63,29 +66,26 @@ sizing:
     - { confidence_min: 0.92, margin_pct: 75, leverage: 8 }
   max_leverage: 8                 # tighter than HYPE/SOL hunters — alt vol is higher
 
-# ── EXIT (DSL + LEADER-REVERSAL VETO) ───────────────────────────
-# The catchup-trade thesis has a hard time window: the alt either
-# catches up within its historical lag distribution or it doesn't.
-# DSL hard_timeout is computed dynamically per-trade as
-# avg_lag_minutes × 1.5. Phase 1 max_loss is tight — if the catchup
-# isn't happening, get out cheap.
+# ── EXIT (standard DSL — Mantis-specific exits live in scanner code) ──
+# The catchup thesis has TWO Mantis-specific exit conditions that the
+# runtime DSL doesn't natively support yet:
+#   1. Dynamic hard_timeout per trade (avg_lag_minutes × 1.5) — the
+#      scanner computes this and includes it in each STRIKE payload
+#   2. Leader-reversal veto — the scanner re-checks the leader move
+#      every 60s and emits VETO_CLOSE actions when threshold breached
 #
-# The hardest rule: if the leader reverses >1% during the position
-# hold, Mantis closes immediately. The leader's move was the entire
-# thesis; if it dies, the trade dies.
+# Both behaviors live in scripts/mantis-scanner.py; this YAML provides
+# the standard DSL preset as the safety net. Hard timeout below is the
+# absolute ceiling (4h) — the scanner's dynamic timeout will typically
+# fire much sooner.
 
 exit:
   engine: dsl
   interval_seconds: 30
-  dynamic_hard_timeout:
-    enabled: true
-    formula: avg_lag_minutes_x_1.5
-    floor_minutes: 30
-    ceiling_minutes: 240
-  leader_reversal_veto:
-    enabled: true
-    threshold_pct: 1.0            # leader retraces >1% from entry move = exit immediately
   dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 240    # absolute ceiling; scanner enforces tighter dynamic timeout
     weak_peak_cut:
       enabled: true
       interval_in_minutes: 20
