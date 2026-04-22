@@ -1,12 +1,13 @@
 name: kodiak-tracker
-version: 5.1.0
+version: 5.2.0
 description: >
-  SOL alpha hunter with position lifecycle. v5.1 adds base-tech-score
-  floor: requires 4h structural strength ≥ 0.75 (was 0.60) and forces
-  at least one 4TF confluence beyond minimum gate passes. Prevents
-  external factors (SM positioning, funding, OI velocity, volume) from
-  being the sole driver of MIN_SCORE on marginal price structure.
-  Scanner-only change. DSL and leverage unchanged from v5.0.
+  Kodiak v5.2 — disable dead_weight_cut (architectural fix).
+  Single-asset SOL agent has no rotation opportunity cost — cutting
+  on time is a bad proxy when DSL Phase 1/2 + weak_peak + hard_timeout
+  already handle stalled positions via price action. v5.1 added the
+  base-tech-score floor (4h ≥ 0.75 + 4TF confluence); scanner logic
+  and scoring unchanged in v5.2. DSL dead_weight_cut is the only
+  runtime change.
 
 # ── STRATEGY ──
 strategy:
@@ -48,8 +49,8 @@ exit:
       interval_in_minutes: 25         # cut if peak ROE never breaks 3% in 25 min
       min_value: 3.0
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 18         # cut stalled non-movers fast
+      enabled: false                  # v5.2: DISABLED. Single-asset agent has no rotation opportunity cost.
+      interval_in_minutes: 18
     phase1:
       enabled: true
       max_loss_pct: 25.0

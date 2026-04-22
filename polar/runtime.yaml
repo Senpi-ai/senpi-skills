@@ -1,14 +1,14 @@
 name: polar-tracker
-version: 3.0.3
+version: 3.0.4
 description: >
-  Polar v3.0.3 — DSL patience for apex-trend thesis. v3.0.2 had
-  dead_weight_cut=30 min which was firing at ~42-45 min wall-clock and
-  killing ETH winners mid-consolidation (4-5 recent trades all closed
-  <-1% price move with most of the loss being fees). Apex-trend
-  continuation on ETH unfolds over 4h+ — 30 min doesn't give the
-  thesis room to develop. v3.0.3 widens dead_weight 30→90 and
-  weak_peak 60→120. Signal scanner logic, scoring, leverage tiers,
-  Phase 1/2 tiers, and DSL attach-or-close behavior all unchanged.
+  Polar v3.0.4 — disable dead_weight_cut (architectural fix).
+  dead_weight_cut is a time-based proxy for opportunity cost —
+  "free the slot so another signal can fire." But Polar is
+  single-asset (ETH only, 1 slot) — there's nowhere to rotate.
+  Cutting early just books a fee loss on a consolidation that DSL
+  Phase 1/2 would handle correctly via price action. v3.0.3 already
+  loosened weak_peak→120 min and hard_timeout=480 min; those still
+  catch stalled positions. dead_weight_cut now disabled.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -40,8 +40,8 @@ exit:
       interval_in_minutes: 120     # v3.0.3: 60 → 120 (ETH apex-trend consolidates 30-60 min between legs)
       min_value: 2.0
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 90      # v3.0.3: 30 → 90 (killing ETH winners mid-consolidation at 45 min)
+      enabled: false                # v3.0.4: DISABLED. Single-asset agent has no rotation opportunity cost.
+      interval_in_minutes: 90
     phase1:
       enabled: true
       max_loss_pct: 25.0

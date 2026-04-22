@@ -1,16 +1,13 @@
 name: wolverine-tracker
-version: 3.0.0
+version: 3.0.1
 description: >
-  WOLVERINE v3.0 — HYPE Alpha Hunter (Kodiak-family port, complete rewrite).
-  Single-asset HYPE specialist. Replaces v2.x rotation scanner that
-  accumulated -26% over 162 trades (Cobra-pattern fee-churn). v3.0 is
-  built from Kodiak v5.1 template with three HYPE-specific additions:
-  drawdown circuit breaker (pause HUNTING at >15% 7-day DD), funding
-  regime check (Vulture v2.2 pattern), and funding persistence bonus
-  (Vulture v2.2). Max leverage 5x (tight vs Kodiak 10x — HYPE vol is
-  higher). Max notional 1.5x account (hard cap). DSL tiers tighter than
-  Kodiak SOL (10/15, 20/35, 35/55, 55/70, 80/85) to match HYPE's faster
-  reversals. Mandatory DSL attach on every entry, close-on-fail.
+  Wolverine v3.0.1 — disable dead_weight_cut (architectural fix).
+  Single-asset HYPE agent has no rotation opportunity cost — cutting
+  on time is a bad proxy when DSL Phase 1/2 + weak_peak + hard_timeout
+  already handle stalled positions via price action. Scanner logic and
+  all scoring unchanged from v3.0. Previous: v3.0 HYPE Alpha Hunter
+  Kodiak-family port (complete rewrite replacing v2.x Cobra-pattern
+  rotation scanner).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -50,7 +47,7 @@ exit:
       interval_in_minutes: 90
       min_value: 3.0
     dead_weight_cut:
-      enabled: true
+      enabled: false                 # v3.0.1: DISABLED. Single-asset agent has no rotation opportunity cost.
       interval_in_minutes: 45
     phase1:
       enabled: true

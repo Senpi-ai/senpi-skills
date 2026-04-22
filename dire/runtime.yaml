@@ -1,9 +1,12 @@
 name: dire-tracker
-version: 1.0.0
+version: 1.3.0
 description: >
-  Onchain position tracker — monitors strategy wallet on Hyperliquid XYZ DEX
-  for BRENTOIL position lifecycle events and wires them into the DSL exit engine.
-  News-driven momentum breakouts on oil with aggressive early-tier DSL locks.
+  Dire v1.3 — disable dead_weight_cut (architectural fix).
+  Single-asset BRENTOIL agent has no rotation opportunity cost — cutting
+  on time is a bad proxy when DSL Phase 1/2 + weak_peak + hard_timeout
+  already handle stalled positions via price action. Scanner logic and
+  all scoring unchanged. Previous versions: v1.2 XYZ-calibrated SM
+  premium thresholds; v1.1 initial ship.
 
 # ── STRATEGY ──
 strategy:
@@ -52,8 +55,8 @@ exit:
       interval_in_minutes: 20         # tighter than Kodiak — oil moves fast
       min_value: 2.5                  # lower threshold — a +2.5% oil move is meaningful
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 15         # cut stalled non-movers faster than crypto
+      enabled: false                  # v1.3: DISABLED. Single-asset agent has no rotation opportunity cost.
+      interval_in_minutes: 15
     phase1:
       enabled: true
       max_loss_pct: 20.0              # tighter than Kodiak's 25% — oil tail risk
