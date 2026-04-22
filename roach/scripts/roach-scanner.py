@@ -472,11 +472,11 @@ def detect_striker_signals(current_scan, history, config):
 
 # HARDCODED CONSTANTS — learned from 5+ days of live trading across 22 agents.
 # These are NOT configurable by the agent. They are in the code.
-MIN_LEVERAGE = 7          # Assets below 7x exchange max are skipped (3x entries can't overcome fees)
-MAX_LEVERAGE = 10         # Never exceed 10x
-MAX_POSITIONS = 3         # Concentration > diversification
-MAX_DAILY_LOSS_PCT = 10   # Fox's setting — Vixen drifted to 25% and bled 2.5x more per bad day
-XYZ_BANNED = True         # SNDK was Fox's biggest single loss; all xyz equities net negative across all agents
+MIN_LEVERAGE = 5          # v1.1: 7→5 (room for winner development without liquidation)
+MAX_LEVERAGE = 7          # v1.1: 10→7 (fee burn at 10x×506 fills = -43% alone)
+MAX_POSITIONS = 1         # v1.1: 3→1 (kill-candidate lockdown — concentrate into only the best)
+MAX_DAILY_LOSS_PCT = 10
+XYZ_BANNED = True
 
 def run():
     config = cfg.load_config()
@@ -537,7 +537,7 @@ def run():
             "assetCooldownMinutes": cooldown_min,
             "_note": "These constraints are HARDCODED in the scanner. Do not override.",
         },
-        "_roach_version": "1.0",
+        "_roach_version": "1.1",
     })
 
 

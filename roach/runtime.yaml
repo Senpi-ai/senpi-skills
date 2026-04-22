@@ -1,9 +1,13 @@
 name: roach-tracker
-version: 1.0.0
+version: 1.1.0
 description: >
-  Onchain position tracker — monitors strategy wallet on Hyperliquid
-  for position lifecycle events and wires them into the DSL exit engine.
-  Striker-only scanner (Stalker disabled).
+  Roach v1.1 — KILL-CANDIDATE LOCKDOWN. v1.0 shipped with 8/12/25 min
+  DSL timing (dead_weight/weak_peak/hard_timeout) which is mathematically
+  incompatible with any striker-class hold: fees at 10x round-trip =
+  0.85% per trade, 506 fills = 430% gross fee burn. v1.1 widens DSL so
+  winners have room to develop AND tightens MIN_SCORE + MAX_POSITIONS
+  to reduce churn. If this doesn't turn the corner in 20 trades,
+  recommend full kill (pause the strategy from UI and recycle capital).
 
 # ── STRATEGY ──
 strategy:
@@ -30,14 +34,14 @@ exit:
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 25
+      interval_in_minutes: 120      # v1.1: 25 → 120 (strikers need runway to develop)
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 12
+      interval_in_minutes: 45       # v1.1: 12 → 45
       min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 8
+      interval_in_minutes: 25       # v1.1: 8 → 25
     phase1:
       enabled: true
       max_loss_pct: 18.0
