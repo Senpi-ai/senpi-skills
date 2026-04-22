@@ -1,9 +1,11 @@
 name: jaguar-tracker
-version: 3.2.0
+version: 3.3.0
 description: >
-  Jaguar v3.2 — Striker-only. Rank-jump threshold loosened 15 → 10
-  (0 events fired in 10,239 evals under prior threshold). Scanner
-  handles execution internally. DSL managed by plugin runtime.
+  Jaguar v3.3 — Striker-only (dormancy fix #2). v3.2 loosened rank-jump
+  15→10 but agent stayed dormant because the combined
+  (jump>=10 AND prev_rank>=25) window is very narrow (prev#25-35 →
+  current#11-25) AND reasons>=4 rejected valid 3-label signals. v3.3
+  loosens all three: jump 10→7, prev_rank 25→20, reasons 4→3.
 
 # ── STRATEGY ──
 strategy:

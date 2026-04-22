@@ -1,8 +1,17 @@
 #!/usr/bin/env python3
-# Senpi JAGUAR Scanner v3.2
+# Senpi JAGUAR Scanner v3.3
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""JAGUAR v3.2 — Striker-Only (threshold recalibrated).
+"""JAGUAR v3.3 — Striker-Only (dormancy fix #2).
+
+v3.3 change (2026-04-22) — still dormant after v3.2:
+- STRIKER_MIN_RANK_JUMP: 10 → 7
+- STRIKER_MIN_PREV_RANK: 25 → 20
+- STRIKER_MIN_REASONS: 4 → 3
+- Inline `rank_jump >= 10` replaced with STRIKER_MIN_RANK_JUMP constant.
+v3.2 widened one gate but the combined (jump>=10 AND prev_rank>=25)
+window is (prev#25-35 → current#11-25) — very narrow. And requiring 4
+reason labels rejected valid 3-label signals. v3.3 widens all three.
 
 v3.2 change — rank jump threshold loosening (2026-04-15):
 - STRIKER_MIN_RANK_JUMP: 15 → 10. 0 events fired in 10,239 evaluations
@@ -90,10 +99,15 @@ DEFAULT_LEVERAGE = 7
 MAX_LEVERAGE = 10
 
 # Striker thresholds
-STRIKER_MIN_RANK_JUMP = 10  # v3.2: lowered 15 → 10 (signal was dormant market-wide)
-STRIKER_MIN_PREV_RANK = 25
+# v3.3 (2026-04-22): dormancy fix.
+#   v3.2's 10-jump-from-rank-25 window = very narrow (prev#25-35 → current#11-25).
+#   Also STRIKER_MIN_REASONS=4 required 4 distinct reason labels — typical valid
+#   signals have 3 (IMMEDIATE+FIRST_JUMP+15M_SPIKE or IMMEDIATE+15M_SPIKE+STRONG_4H).
+#   Widen: jump 10→7, prev-rank 25→20, reasons 4→3.
+STRIKER_MIN_RANK_JUMP = 7   # v3.3: 10→7
+STRIKER_MIN_PREV_RANK = 20  # v3.3: 25→20
 STRIKER_MIN_VOLUME_RATIO = 1.5
-STRIKER_MIN_REASONS = 4
+STRIKER_MIN_REASONS = 3     # v3.3: 4→3
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -230,7 +244,7 @@ def detect_striker_signals(current_scan, history):
         is_immediate = False
         reasons = []
 
-        if rank_jump >= 10 and prev_rank >= STRIKER_MIN_PREV_RANK:
+        if rank_jump >= STRIKER_MIN_RANK_JUMP and prev_rank >= STRIKER_MIN_PREV_RANK:
             is_immediate = True
             reasons.append(f"IMMEDIATE_MOVER +{rank_jump} from #{prev_rank}")
 
@@ -598,7 +612,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_jaguar_version": "3.2",
+                "_jaguar_version": "3.3",
             })
         else:
             cfg.output({
@@ -611,7 +625,7 @@ def run():
                     "reasons": signal["reasons"],
                 },
                 "error": result,
-                "_jaguar_version": "3.2",
+                "_jaguar_version": "3.3",
             })
         return
 
