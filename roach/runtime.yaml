@@ -1,13 +1,14 @@
 name: roach-tracker
-version: 1.1.0
+version: 1.2.0
 description: >
-  Roach v1.1 — KILL-CANDIDATE LOCKDOWN. v1.0 shipped with 8/12/25 min
-  DSL timing (dead_weight/weak_peak/hard_timeout) which is mathematically
-  incompatible with any striker-class hold: fees at 10x round-trip =
-  0.85% per trade, 506 fills = 430% gross fee burn. v1.1 widens DSL so
-  winners have room to develop AND tightens MIN_SCORE + MAX_POSITIONS
-  to reduce churn. If this doesn't turn the corner in 20 trades,
-  recommend full kill (pause the strategy from UI and recycle capital).
+  Roach v1.2 — signal+DSL overhaul for positive expectancy. v1.0 had
+  DSL timing (8/12/25 min) too tight for striker-class holds AND
+  signal gates (cc_15m > 0) too permissive, giving 506 fills / -28%
+  ROI. v1.1 widened DSL (120/45/25). v1.2 now also strengthens signal
+  quality: cc_15m floor 0 → 0.5 (reject noise-grade velocity), and
+  require 1h price confirmation of 4h direction (rejects SM-velocity
+  spikes unconfirmed by price). Combined effect: fewer fires, each
+  with real macro + SM backing.
 
 # ── STRATEGY ──
 strategy:

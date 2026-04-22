@@ -81,6 +81,7 @@ def parse_scan(raw_markets):
             "contribution": round(m.get("pct_of_top_traders_gain", 0), 6),
             "traders": m.get("trader_count", 0),
             "price_chg_4h": round(m.get("token_price_change_pct_4h", 0) or 0, 4),
+            "price_chg_1h": round(m.get("token_price_change_pct_1h", m.get("price_change_1h", 0)) or 0, 4),
             "cc_15m": float(m.get("contribution_pct_change_15m", 0) or 0),
         })
     return scan
@@ -434,10 +435,23 @@ def detect_striker_signals(current_scan, history, config):
         if score < min_score or len(reasons) < min_reasons:
             continue
 
-        # 15m velocity freshness gate — SM must be actively building, not stale
+        # 15m velocity freshness gate — SM must be actively building, not stale.
+        # v1.2: tightened 0 → 0.5. Zero-floor accepted barely-positive velocity,
+        # which is functionally indistinguishable from noise. Require real spike.
         cc_15m = float(market.get("cc_15m", 0))
-        if cc_15m <= 0:
-            continue  # SM velocity is flat or fading — signal is stale, don't enter
+        if cc_15m < 0.5:
+            continue
+
+        # v1.2: also require 1h price to confirm 4h direction. cc_15m alone is
+        # SM velocity which can spike without price following. If 1h price is
+        # flat or counter, the "first jump" is SM chasing a move that's not
+        # actually happening in price.
+        p1h = float(market.get("price_chg_1h", market.get("price_change_1h", 0)))
+        if direction == "LONG" and p1h < 0.1:
+            continue
+        if direction == "SHORT" and p1h > -0.1:
+            continue
+        reasons.append(f"1H_CONFIRMS {p1h:+.2f}%")
 
         # ── Volume confirmation (the PUMP filter) ──
         vol_ratio, vol_strong = 0, True
@@ -537,7 +551,7 @@ def run():
             "assetCooldownMinutes": cooldown_min,
             "_note": "These constraints are HARDCODED in the scanner. Do not override.",
         },
-        "_roach_version": "1.1",
+        "_roach_version": "1.2",
     })
 
 
