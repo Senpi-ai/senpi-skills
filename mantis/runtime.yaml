@@ -1,55 +1,124 @@
 name: mantis-tracker
-version: 1.0.0
+version: 5.0.0
 description: >
-  Striker-only SM explosion scanner. Detects violent rank jumps
-  across 50+ markets. Fast-cycling DSL — quick cuts on losers.
+  MANTIS v5.0 — Slipstream. Cross-asset catchup hunter built on the new
+  market_get_cross_asset_flows MCP tool. When BTC (or another leader)
+  makes a significant 4h move and a correlated alt hasn't responded yet,
+  Mantis strikes the alt before the catchup completes. Trades the
+  statistical lag, not the momentum itself. Hard veto if the leader
+  reverses mid-position. First Predator built around cross-asset flow
+  detection.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
-  slots: 3
-  margin_per_slot: 180
   enabled: true
 
+# ── SCANNERS ─────────────────────────────────────────────────────
+# Mantis runs a single composite scanner every 60s. The cron job that
+# powers market_get_cross_asset_flows runs once daily (00:00 UTC) to
+# pre-compute the 30-day correlation matrix and 90-day lag distribution;
+# Mantis just consumes the live flow output.
+
 scanners:
-  - name: position_tracker
-    type: position_tracker
-    interval: 10s
+  - name: cross_asset_flow_scanner
+    type: composite
+    interval: 60s
+    primary_tool: market_get_cross_asset_flows
+    leader_universe:
+      - BTC
+      # ETH/SOL/HYPE will be added when their pre-computed lag data ships
+      # (per the Cross-Asset Flow Detection release notes — only BTC has
+      # full lag coverage in v1)
 
 actions:
-  - name: position_tracker_action
-    action_type: POSITION_TRACKER
+  - name: slipstream_strike
+    action_type: SCANNER_INTERNAL
+    scanners: [cross_asset_flow_scanner]
     decision_mode: rule
-    scanners: [position_tracker]
 
-# Fast-cycling DSL for multi-asset Striker scanner.
-# Striker signals are explosive — they work fast or not at all.
+# ── ENTRY FILTERS ───────────────────────────────────────────────
+# Each laggard from the cross-asset flow tool must pass ALL of these
+# to be eligible for entry. The thresholds are intentionally strict —
+# the tool will surface dozens of laggards in volatile windows; we
+# only strike the highest-confidence subset.
+
+entry_filters:
+  min_follow_rate: 0.85           # alt must historically follow leader 85%+ of the time
+  min_confidence: 0.75            # composite score floor (correlation + follow + lag + SM)
+  min_gap_pct: 1.5                # at least 1.5% catchup opportunity
+  require_sm_rotation: true       # smart money must be starting to enter the alt
+  max_lag_stddev_minutes: 90      # only trade alts with predictable timing
+
+# ── SIZING ──────────────────────────────────────────────────────
+# Conviction-scaled directly off the tool's confidence score. Honest
+# mapping: more confidence = more size. Caps prevent any single setup
+# from blowing the book.
+
+sizing:
+  conviction_scaled: true
+  tiers:
+    - { confidence_min: 0.75, margin_pct: 25, leverage: 5 }
+    - { confidence_min: 0.85, margin_pct: 50, leverage: 7 }
+    - { confidence_min: 0.92, margin_pct: 75, leverage: 8 }
+  max_leverage: 8                 # tighter than HYPE/SOL hunters — alt vol is higher
+
+# ── EXIT (DSL + LEADER-REVERSAL VETO) ───────────────────────────
+# The catchup-trade thesis has a hard time window: the alt either
+# catches up within its historical lag distribution or it doesn't.
+# DSL hard_timeout is computed dynamically per-trade as
+# avg_lag_minutes × 1.5. Phase 1 max_loss is tight — if the catchup
+# isn't happening, get out cheap.
+#
+# The hardest rule: if the leader reverses >1% during the position
+# hold, Mantis closes immediately. The leader's move was the entire
+# thesis; if it dies, the trade dies.
+
 exit:
   engine: dsl
   interval_seconds: 30
+  dynamic_hard_timeout:
+    enabled: true
+    formula: avg_lag_minutes_x_1.5
+    floor_minutes: 30
+    ceiling_minutes: 240
+  leader_reversal_veto:
+    enabled: true
+    threshold_pct: 1.0            # leader retraces >1% from entry move = exit immediately
   dsl_preset:
-    hard_timeout:
-      enabled: true
-      interval_in_minutes: 30
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 15
-      min_value: 3.0
-    dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 10
+      interval_in_minutes: 20
+      min_value: 1.5
     phase1:
       enabled: true
-      max_loss_pct: 20.0
-      retrace_threshold: 3
+      max_loss_pct: 12.0
+      retrace_threshold: 5
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
         - { trigger_pct: 5,  lock_hw_pct: 30 }
-        - { trigger_pct: 10, lock_hw_pct: 50 }
-        - { trigger_pct: 15, lock_hw_pct: 70 }
-        - { trigger_pct: 20, lock_hw_pct: 85 }
+        - { trigger_pct: 10, lock_hw_pct: 60 }
+        - { trigger_pct: 15, lock_hw_pct: 75 }
+        - { trigger_pct: 25, lock_hw_pct: 85 }
+
+# ── RISK CONTROLS ───────────────────────────────────────────────
+# Designed to prevent the v1 fee-churn pathology. Hard caps on
+# concurrency, daily entries, and per-asset cooldowns.
+
+risk:
+  max_concurrent_positions: 2     # diversify across catchup setups, not concentrated
+  cooldown_per_asset_minutes: 240 # don't re-strike same alt within 4 hours
+  max_daily_entries: 6            # behavioral fee-churn ceiling
+  max_position_notional_pct: 75   # of available margin
+
+# ── NOTIFICATIONS ───────────────────────────────────────────────
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  events:
+    - STRIKE
+    - LEADER_REVERSAL_EXIT
+    - DSL_TRIGGERED
+    - DAILY_CAP_REACHED
