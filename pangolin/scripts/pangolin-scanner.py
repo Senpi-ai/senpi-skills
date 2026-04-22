@@ -1,9 +1,26 @@
 #!/usr/bin/env python3
-# Senpi PANGOLIN Scanner v1.4
+# Senpi PANGOLIN Scanner v1.5
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""PANGOLIN v1.4 — Extreme Funding Rate Fader (persistence + regime upgrade).
+"""PANGOLIN v1.5 — Extreme Funding Rate Fader (parser fix).
+
+## v1.5 changes (2026-04-22) — DORMANT-FIX
+
+v1.4 scanner was silently skipping every candidate because
+`get_funding_history` read `data.persistence_hours` directly. The MCP
+actually returns `data.data=[{asset, persistence_hours, ...}]` — a list
+keyed by asset. Scanner got `None` for persistence_hours on every call,
+so the MIN_PERSISTENCE_HOURS=3 gate rejected everything. Pangolin has
+been dormant since v1.4 shipped (0 trades, $1K idle).
+
+Also normalized funding_trend enum: MCP returns INTENSIFYING/STABLE/DECAYING,
+scanner scored on INCREASING/DECREASING — the trend bonus never fired.
+v1.5 maps INTENSIFYING→INCREASING and DECAYING→DECREASING at parse time.
+
+No scoring or gate changes. Pure unblock.
+
+---
 
 ## v1.4 changes (2026-04-20) — SIGNAL QUALITY UPGRADE
 
@@ -193,17 +210,36 @@ def get_funding_regime():
 
 def get_funding_history(asset):
     """Fetch per-asset funding history with persistence + trend.
-    Returns dict with persistence_hours, trend, or None on failure / no data."""
+    Returns dict with persistence_hours, trend, or None on failure / no data.
+
+    v1.5 parser fix: MCP returns data.data=[{asset, persistence_hours, ...}, ...]
+    (double-nested list keyed by asset). v1.4 read data.persistence_hours directly
+    and got None, silently skipping every candidate. Now iterates the list and
+    matches by asset symbol. Also normalizes funding_trend enum
+    (INTENSIFYING/STABLE/DECAYING) to legacy INCREASING/DECREASING for scoring."""
     try:
         r = cfg.mcporter_call("market_get_funding_history", asset=asset)
         if not r:
             return None
-        data = r.get("data", r)
+        outer = r.get("data", r)
+        rows = outer.get("data") if isinstance(outer, dict) else None
+        if not rows:
+            return None
+        row = next((x for x in rows if x.get("asset") == asset), None)
+        if row is None:
+            return None
+        raw_trend = (row.get("funding_trend") or row.get("trend") or "").upper()
+        if raw_trend == "INTENSIFYING":
+            trend = "INCREASING"
+        elif raw_trend == "DECAYING":
+            trend = "DECREASING"
+        else:
+            trend = raw_trend  # STABLE or empty
         return {
-            "persistence_hours": data.get("persistence_hours"),
-            "funding_direction": data.get("funding_direction"),
-            "trend": data.get("trend"),
-            "annualized_pct": data.get("annualized_pct"),
+            "persistence_hours": row.get("persistence_hours"),
+            "funding_direction": row.get("funding_direction"),
+            "trend": trend,
+            "annualized_pct": row.get("funding_annualized_pct") or row.get("annualized_pct"),
         }
     except Exception:
         return None
@@ -550,7 +586,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_pangolin_version": "1.4",
+                "_pangolin_version": "1.5",
             })
             return
         else:
@@ -560,7 +596,7 @@ def run():
                 "signal": {"asset": token, "score": cand["score"],
                            "reasons": cand["reasons"]},
                 "error": result,
-                "_pangolin_version": "1.4",
+                "_pangolin_version": "1.5",
             })
             return
 

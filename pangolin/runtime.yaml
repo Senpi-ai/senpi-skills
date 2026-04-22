@@ -1,11 +1,13 @@
 name: pangolin-tracker
-version: 1.4.0
+version: 1.5.0
 description: >
-  PANGOLIN v1.4 — Extreme Funding Rate Fader with persistence + regime
-  gates. v1.4 integrates the new market_get_funding_history and
-  market_get_funding_regime MCP tools. Hard-gates on persistence_hours >= 3
-  (no spike fades) and regime matching (no fighting crowds). MIN_SCORE
-  raised 7 → 9 because new signals add up to +6 points of scoring surface.
+  PANGOLIN v1.5 — Extreme Funding Rate Fader (parser unblock).
+  v1.4 has been dormant (0 trades) because get_funding_history read
+  data.persistence_hours directly when the MCP actually returns
+  data.data=[{asset, persistence_hours, ...}]. v1.5 fixes the parser
+  to iterate the list and match by asset, and normalizes the
+  funding_trend enum (INTENSIFYING→INCREASING, DECAYING→DECREASING)
+  so the trend bonus actually fires. No scoring changes.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
