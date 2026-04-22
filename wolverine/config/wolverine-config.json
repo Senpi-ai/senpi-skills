@@ -1,5 +1,13 @@
 {
   "strategyId": "",
   "wallet": "",
-  "chatId": ""
+  "chatId": "",
+  "startingBudget": 1000,
+  "dslTiers": [
+    { "triggerRoe": 10, "lockRoe": 15 },
+    { "triggerRoe": 20, "lockRoe": 35 },
+    { "triggerRoe": 35, "lockRoe": 55 },
+    { "triggerRoe": 55, "lockRoe": 70 },
+    { "triggerRoe": 80, "lockRoe": 85 }
+  ]
 }

@@ -1,17 +1,22 @@
 name: wolverine-tracker
-version: 2.3.0
+version: 3.0.0
 description: >
-  WOLVERINE v2.3 — HYPE Alpha Hunter (chop-hardened). SM conviction +
-  15m/1h momentum on HYPE. Conviction-scaled leverage 7x/10x. DSL time
-  cuts tuned for HYPE volatility — winners need 2-4 hours to play out.
-  v2.3 adds chop-detection lockout, direction-flip hard gate, and
-  persistent entry log that survives session clears.
+  WOLVERINE v3.0 — HYPE Alpha Hunter (Kodiak-family port, complete rewrite).
+  Single-asset HYPE specialist. Replaces v2.x rotation scanner that
+  accumulated -26% over 162 trades (Cobra-pattern fee-churn). v3.0 is
+  built from Kodiak v5.1 template with three HYPE-specific additions:
+  drawdown circuit breaker (pause HUNTING at >15% 7-day DD), funding
+  regime check (Vulture v2.2 pattern), and funding persistence bonus
+  (Vulture v2.2). Max leverage 5x (tight vs Kodiak 10x — HYPE vol is
+  higher). Max notional 1.5x account (hard cap). DSL tiers tighter than
+  Kodiak SOL (10/15, 20/35, 35/55, 55/70, 80/85) to match HYPE's faster
+  reversals. Mandatory DSL attach on every entry, close-on-fail.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
   slots: 1
-  margin_per_slot: 500
+  margin_per_slot: 250
   enabled: true
 
 scanners:
@@ -25,36 +30,41 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# HYPE-specific DSL — wide for volatility, patient for trends.
-# Wolverine's two biggest winners held for 251 min (+$146) and 268 min (+$88).
-# Winners need 2-4 hours. Losers get cut fast by weak_peak_cut and dead_weight_cut.
+# ─── EXIT (DSL) — HYPE-tuned, tighter than Kodiak SOL ──────────
+# HYPE reverses faster than SOL. Triggers and locks compressed to catch
+# profit earlier. Hard_timeout 6h — HYPE moves are typically hours, not
+# days (unlike BTC which needs 24h).
+#
+# Phase 2 matches scanner's _DSL_TIERS_DEFAULT via config.json dslTiers
+# (scanner attaches via ratchet_stop_add; runtime.yaml is operator
+# reference and for backup DSL engine behavior).
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 240
+      interval_in_minutes: 360       # 6h — HYPE trends are typically hours
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 25
-      min_value: 2.0
+      interval_in_minutes: 90
+      min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 35
+      interval_in_minutes: 45
     phase1:
       enabled: true
-      max_loss_pct: 25.0
+      max_loss_pct: 20.0
       retrace_threshold: 8
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 8,  lock_hw_pct: 25 }
-        - { trigger_pct: 15, lock_hw_pct: 50 }
-        - { trigger_pct: 25, lock_hw_pct: 65 }
-        - { trigger_pct: 35, lock_hw_pct: 80 }
-        - { trigger_pct: 50, lock_hw_pct: 85 }
+        - { trigger_pct: 10, lock_hw_pct: 15 }
+        - { trigger_pct: 20, lock_hw_pct: 35 }
+        - { trigger_pct: 35, lock_hw_pct: 55 }
+        - { trigger_pct: 55, lock_hw_pct: 70 }
+        - { trigger_pct: 80, lock_hw_pct: 85 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"

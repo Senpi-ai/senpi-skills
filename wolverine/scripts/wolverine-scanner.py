@@ -1,654 +1,964 @@
 #!/usr/bin/env python3
-# Senpi WOLVERINE Scanner v2.3
+# Senpi WOLVERINE Scanner v3.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""WOLVERINE v2.3 — HYPE Alpha Hunter (chop-hardened).
+"""WOLVERINE v3.0 — HYPE Alpha Hunter (Kodiak-family port).
 
-## v2.3 — chop-loss post-mortem fixes
+Complete rewrite. v2.x was a rotation-scanner that accumulated -26%
+drawdown over 162 trades — textbook Cobra-pattern fee-churn. v3.0 is a
+single-asset HYPE specialist built from the Kodiak v5.1 template, with
+three modules added that are not in Kodiak:
 
-On 2026-04-14 Wolverine took 5 consecutive losing HYPE trades over ~3h
-of chop for -$113 total. Every entry was a "fresh signal" by v2.2's
-criteria (15m freshness + SM consensus + 4H alignment). The DSL did
-its job (bounded each loss to -$3/-$18/-$21/-$52 etc.) but the scanner
-kept firing into the chop because it had no concept of "we just lost
-N times on this coin."
+  1. Drawdown circuit breaker — pause HUNTING on 7-day drawdown > 15%
+  2. Funding regime check — from Vulture v2.2
+  3. Funding persistence bonus — from Vulture v2.2
 
-v2.3 adds three fixes:
+## Gate stack (all must pass before entry)
 
-1. **Chop-detection lockout.** After 2 losses on the same coin within
-   3 hours, that coin is locked out for 6 hours. The scanner emits
-   "CHOP_LOCKED" and refuses any new entry until the lockout expires.
-   Tuned for Wolverine's single-asset (HYPE) profile — the first ~2
-   trades absorb the chop, then Wolverine stops bleeding.
+  1. 4h trend BULLISH or BEARISH (not NEUTRAL)
+  2. trend_strength_4h >= 0.75 (Kodiak v5.1 pattern)
+  3. 1h trend matches 4h
+  4. 15m momentum confirms direction with minimum magnitude
+  5. Base-tech floor: strong_15m OR 5m_aligned (Kodiak v5.1 pattern)
+  6. SM HARD BLOCK if against direction
+  7. RSI filter: 72 for LONG, 28 for SHORT (HYPE-tuned)
+  8. Drawdown circuit breaker: pause if account < 85% of 7d peak
 
-2. **Direction-flip penalty.** If the new signal is opposite to the
-   last trade on the same coin within the last 2 hours AND the last
-   trade was a loss, the score is hard-gated (return 0). Prevents
-   LONG -> SHORT -> LONG whipsaw within a single chop window. If the
-   last trade was a winner, no penalty (catching a legitimate flip).
+## Scoring (max ~18)
 
-3. **Persistent entry log** (entry-log.jsonl) — every scanner entry
-   writes to /data/workspace/skills/wolverine-strategy/state/entry-log.jsonl
-   with timestamp, asset, direction, score, reasons, leverage, margin,
-   and entry metadata. This log SURVIVES session clears. When the
-   operator asks "what score was my last trade?" after a /clear, the
-   answer lives on disk.
+  4h trend (+3), 1h_confirms (+2), 15m strong (+1), 5m aligned (+1),
+  SM aligned (+2), SM strongly tilted (+1), SM 15m fresh (+1 or -3),
+  funding aligned (+2), funding regime aligned (+1), funding persistent (+1),
+  volume 1h (+1), volume rising (+1), OI accelerating (+2),
+  BTC correlation (+1), RSI room (+1), 4h momentum (+1),
+  MOVE_EXHAUSTION (-2), MOVE_TIRING (-1).
 
-4. **Exit tracking hook** — when the scanner detects a position has
-   closed since the last scan (was in our position list, now gone),
-   it fetches the closed PnL from execution_get_closed_position_details
-   and appends an exit event to entry-log.jsonl. This closes the loop
-   so chop-detection can see actual realized PnL per trade.
+MIN_SCORE = 9. Conviction-scaled leverage: score >= 11 → 5x, else 3x.
 
-## v2.2 changes (preserved)
+## Sizing constraints
 
-- Extreme velocity tiers on 15m/1h contribution (score up to +4 / +2)
-- MAX_LEVERAGE constant 10x (HL cap)
+  MARGIN_PCT = 25% of account per position
+  MAX_NOTIONAL = 1.5x account value (hard cap)
+  MAX_LEVERAGE = 5 (HYPE vol is ~1.5-2x BTC; tight cap vs Kodiak's 10x)
 
-## v2.1 changes (preserved)
+## DSL tiers (tighter than Kodiak SOL — HYPE reverses faster)
 
-- Scanner calls create_position internally via mcporter
-- feeOptimizedLimitOptions with ensureExecutionAsTaker: false
-- Conviction-scaled leverage: score 8-9 → 7x, score 10+ → 10x
-- Margin 50% of account
-- 4H/1H alignment as +2 score (not hard gate)
-- No thesis exit
+  T0: trigger 10%, lock 15% of high-water
+  T1: trigger 20%, lock 35%
+  T2: trigger 35%, lock 55%
+  T3: trigger 55%, lock 70%
+  T4: trigger 80%, lock 85%
 
-Uses: leaderboard_get_markets (SM consensus on HYPE)
+DSL attach is MANDATORY after every successful entry. If attach fails,
+immediate close_position (Dire/Polar v3.0.2 pattern).
+
+## Fleet-standard learnings applied from day 1
+
+  - Config-driven startingBudget (Polar v3.0.1 pattern)
+  - Config-driven dslTiers
+  - FLAT oi_velocity path (not nested — Cobra-antipattern silent-None fix)
+  - FEE_OPTIMIZED_LIMIT with ensureExecutionAsTaker=True, 15s timeout
+  - Inner-order success validation in execute_entry
+
 Runs every 3 minutes.
 """
 
 import json
-import sys
 import os
+import sys
 import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wolverine_config as cfg
 
+
+VERSION = "3.0"
 ASSET = "HYPE"
 MAX_POSITIONS = 1
-MAX_DAILY_ENTRIES = 4
-
-# ═══════════════════════════════════════════════════════════════
-# v2.3 CHOP-DETECTION CONFIG
-# ═══════════════════════════════════════════════════════════════
-
-CHOP_WINDOW_HOURS = 3             # look back window for loss counting
-CHOP_MAX_LOSSES = 2               # 2 losses in window = locked
-CHOP_LOCKOUT_HOURS = 6            # how long to stay locked out
-FLIP_PENALTY_WINDOW_HOURS = 2     # direction-flip hard gate window
-ENTRY_LOG_FILE = "entry-log.jsonl"
 
 
 # ═══════════════════════════════════════════════════════════════
-# DYNAMIC DAILY CAP (P&L-aware circuit breaker)
+# CONFIG-DRIVEN STARTING BUDGET (daily-cap rebase support)
 # ═══════════════════════════════════════════════════════════════
 
-STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+def _resolve_starting_budget():
+    """Read startingBudget from config.json; default 1000.0.
+    Wallet-specific rebases go in user's LOCAL config."""
+    try:
+        c = cfg.load_config()
+        v = c.get("startingBudget")
+        if v is not None:
+            return float(v)
+    except Exception:
+        pass
+    return 1000.0
 
-def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
-    """P&L-aware daily entry cap based on drawdown from starting budget.
 
-    Winners get more trades (ride the hot hand).
-    Losers get fewer trades (preserve capital).
-    Catastrophic drawdown triggers HARD STOP (circuit breaker).
-    """
+STARTING_BUDGET = _resolve_starting_budget()
+
+
+def get_dynamic_daily_cap(account_value, starting_budget=None):
+    """P&L-aware daily entry cap."""
+    if starting_budget is None:
+        starting_budget = STARTING_BUDGET
     if starting_budget <= 0:
-        return 4  # Safe fallback
+        return 4
     pnl_pct = ((account_value - starting_budget) / starting_budget) * 100
-    if pnl_pct >= 5:       return 12   # Hot hand — up >5%
-    elif pnl_pct >= 0:     return 8    # Small win / breakeven
-    elif pnl_pct >= -5:    return 5    # Careful
-    elif pnl_pct >= -15:   return 3    # Defensive
-    elif pnl_pct >= -25:   return 1    # Preserve — only highest conviction
-    else:                  return 0    # HARD STOP — circuit breaker
+    if pnl_pct >= 5:       return 12
+    elif pnl_pct >= 0:     return 8
+    elif pnl_pct >= -5:    return 5
+    elif pnl_pct >= -15:   return 3
+    elif pnl_pct >= -25:   return 1
+    else:                  return 0
 
-MAX_DAILY_LOSS_PCT = 10
-COOLDOWN_MINUTES = 180
-MARGIN_PCT = 0.50
-MIN_SCORE = 8
-MIN_SM_TRADERS = 15
-MIN_SM_RANK = 30
-XYZ_BANNED = True
+
+# ═══════════════════════════════════════════════════════════════
+# CONSTANTS — HYPE-tuned per v3.0 spec
+# ═══════════════════════════════════════════════════════════════
+
+COOLDOWN_MINUTES = 120
+SAME_DIR_COOLDOWN_MINUTES = 60
+MARGIN_PCT = 0.25
+MAX_NOTIONAL_MULT = 1.5
+MIN_SCORE = 9
+
+MIN_MOM_15M = 0.15
+STRONG_4H_PCT = 2.5
+MOVE_EXHAUSTION_PCT = 3.5
+MOVE_TIRING_PCT = 2.0
+RSI_MAX_LONG = 72
+RSI_MIN_SHORT = 28
+FUNDING_EXTREME = 0.0008
+FUNDING_CROWDED = 0.005
+
+DRAWDOWN_PAUSE_PCT = 0.85
+DRAWDOWN_RESUME_PCT = 0.90
 
 LEVERAGE_TIERS = [
-    {"min_score": 10, "leverage": 10},  # HYPE max on HL is 10x
-    {"min_score": 8,  "leverage": 7},
+    {"min_score": 11, "leverage": 5, "label": "apex"},
+    {"min_score": 9,  "leverage": 3, "label": "standard"},
 ]
-DEFAULT_LEVERAGE = 7
-MAX_LEVERAGE = 10
+DEFAULT_LEVERAGE = 3
+MAX_LEVERAGE = 5
+MIN_LEVERAGE = 2
+
+DSL_TIERS_DEFAULT = [
+    {"triggerRoe": 10, "lockRoe": 15},
+    {"triggerRoe": 20, "lockRoe": 35},
+    {"triggerRoe": 35, "lockRoe": 55},
+    {"triggerRoe": 55, "lockRoe": 70},
+    {"triggerRoe": 80, "lockRoe": 85},
+]
 
 
-def safe_float(val, default=0.0):
+def _resolve_dsl_tiers():
+    """Read dslTiers from config; default matches runtime.yaml."""
     try:
-        return float(val)
-    except (TypeError, ValueError):
-        return default
-
-
-# ═══════════════════════════════════════════════════════════════
-# v2.3: PERSISTENT ENTRY LOG + CHOP DETECTION
-# ═══════════════════════════════════════════════════════════════
-
-def _entry_log_path():
-    return os.path.join(cfg.STATE_DIR, ENTRY_LOG_FILE)
-
-
-def append_entry_log(event_type, asset, direction, **kwargs):
-    """Append a structured JSONL line to entry-log.jsonl. Survives session
-    clears because it lives on disk, not in LLM context.
-
-    event_type: 'ENTRY' | 'EXIT' | 'CHOP_LOCKOUT' | 'FLIP_BLOCKED'
-    Additional kwargs are merged into the record.
-    """
-    record = {
-        "ts": time.time(),
-        "iso": datetime.now(timezone.utc).isoformat(),
-        "event": event_type,
-        "asset": asset,
-        "direction": direction,
-    }
-    record.update(kwargs)
-    try:
-        with open(_entry_log_path(), "a") as f:
-            f.write(json.dumps(record, default=str) + "\n")
-    except (IOError, OSError):
-        pass
-
-
-def read_entry_log(limit=50):
-    """Read the most recent N entries from entry-log.jsonl. Returns list
-    of dicts, newest last."""
-    p = _entry_log_path()
-    if not os.path.exists(p):
-        return []
-    try:
-        with open(p) as f:
-            lines = f.readlines()
-    except (IOError, OSError):
-        return []
-    records = []
-    for line in lines[-limit:]:
-        try:
-            records.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
-    return records
-
-
-def get_recent_trades(asset, window_hours=CHOP_WINDOW_HOURS):
-    """Return a list of recent EXIT events for the given asset within the
-    window, each with {ts, direction, pnl, exit_reason}."""
-    cutoff = time.time() - window_hours * 3600
-    trades = []
-    for rec in read_entry_log(limit=200):
-        if rec.get("event") != "EXIT":
-            continue
-        if rec.get("asset", "").upper() != asset.upper():
-            continue
-        if rec.get("ts", 0) < cutoff:
-            continue
-        trades.append(rec)
-    return trades
-
-
-def is_chop_locked(asset):
-    """Returns (locked, reason, unlock_ts).
-
-    Locked if there are >= CHOP_MAX_LOSSES losses on this asset within
-    CHOP_WINDOW_HOURS, AND the lockout window from the last loss hasn't
-    expired yet.
-    """
-    recent = get_recent_trades(asset, window_hours=CHOP_WINDOW_HOURS)
-    losses = [t for t in recent if safe_float(t.get("pnl", 0)) < 0]
-    if len(losses) < CHOP_MAX_LOSSES:
-        return False, "", 0
-    last_loss_ts = max(safe_float(t.get("ts", 0)) for t in losses)
-    unlock_ts = last_loss_ts + CHOP_LOCKOUT_HOURS * 3600
-    if time.time() >= unlock_ts:
-        return False, "", 0
-    reason = (
-        f"{len(losses)} losses in {CHOP_WINDOW_HOURS}h, "
-        f"locked until {datetime.fromtimestamp(unlock_ts, timezone.utc).isoformat()}"
-    )
-    return True, reason, unlock_ts
-
-
-def is_direction_flip_blocked(asset, new_direction):
-    """Hard-gate new entries that flip direction relative to the most
-    recent losing trade within FLIP_PENALTY_WINDOW_HOURS.
-
-    Returns (blocked, last_direction, last_pnl).
-
-    This prevents LONG→SHORT→LONG chop whipsaw: if the previous trade
-    on this asset was a loss and the new signal is opposite direction,
-    refuse to re-enter. A winning flip is allowed (legit reversal catch);
-    a losing flip is blocked (chop chasing).
-    """
-    cutoff = time.time() - FLIP_PENALTY_WINDOW_HOURS * 3600
-    recent = [
-        t for t in get_recent_trades(asset, window_hours=FLIP_PENALTY_WINDOW_HOURS)
-        if t.get("ts", 0) >= cutoff
-    ]
-    if not recent:
-        return False, None, 0
-    last = max(recent, key=lambda t: t.get("ts", 0))
-    last_dir = str(last.get("direction", "")).upper()
-    last_pnl = safe_float(last.get("pnl", 0))
-    if last_dir and last_dir != new_direction and last_pnl < 0:
-        return True, last_dir, last_pnl
-    return False, last_dir, last_pnl
-
-
-def sync_closed_positions(wallet, state):
-    """Detect positions that were open last scan but are now closed,
-    fetch their realized PnL, and append EXIT events to the log.
-
-    Tracks last-seen positions in state['last_open_positions'] keyed by
-    coin. On each scan, compare current positions to last-seen: anything
-    missing has been closed since the last scan.
-    """
-    current_by_coin = {}
-    # Fetch actual current positions from clearinghouse
-    try:
-        _, current_positions = cfg.get_positions(wallet)
+        c = cfg.load_config()
+        t = c.get("dslTiers")
+        if isinstance(t, list) and t:
+            return t
     except Exception:
-        return state
-    for p in current_positions:
-        coin = p.get("coin", "").upper()
-        if coin:
-            current_by_coin[coin] = {
-                "direction": p.get("direction", ""),
-                "entry_price": safe_float(p.get("entryPrice", 0)),
-                "size": safe_float(p.get("size", 0)),
-                "margin": safe_float(p.get("margin", 0)),
-            }
-
-    last_open = state.get("last_open_positions", {})
-    closed_coins = set(last_open.keys()) - set(current_by_coin.keys())
-
-    for coin in closed_coins:
-        last = last_open[coin]
-        # Look up the most recent ENTRY event for this coin so we can
-        # compute trade PnL context (entry price, score, etc.)
-        entry_rec = None
-        for rec in reversed(read_entry_log(limit=200)):
-            if rec.get("event") == "ENTRY" and rec.get("asset", "").upper() == coin:
-                entry_rec = rec
-                break
-
-        # Best-effort: fetch closed position PnL via MCP. May fail if
-        # there's no open/close order ID handy — fall back to mark-entry
-        # delta or zero.
-        pnl = 0.0
-        exit_reason = "unknown"
-        try:
-            closed_data = cfg.mcporter_call(
-                "execution_get_open_position_details",
-                traderAddress=wallet,
-                coin=coin,
-            )
-            # Position may still exist briefly during transition; ignore
-            if closed_data and closed_data.get("success"):
-                pass
-        except Exception:
-            pass
-
-        append_entry_log(
-            "EXIT",
-            asset=coin,
-            direction=last.get("direction", ""),
-            pnl=pnl,
-            exit_reason=exit_reason,
-            entry_price=last.get("entry_price", 0),
-            entry_score=(entry_rec or {}).get("score") if entry_rec else None,
-            entry_reasons=(entry_rec or {}).get("reasons") if entry_rec else None,
-        )
-
-    # Update last-seen snapshot
-    state["last_open_positions"] = current_by_coin
-    return state
+        pass
+    return DSL_TIERS_DEFAULT
 
 
-def load_scanner_state():
-    p = os.path.join(cfg.STATE_DIR, "scanner-state.json")
-    if os.path.exists(p):
-        try:
-            with open(p) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {"last_open_positions": {}}
+# ═══════════════════════════════════════════════════════════════
+# TECHNICAL HELPERS (ported from Kodiak v5.1)
+# ═══════════════════════════════════════════════════════════════
+
+def safe_float(v, d=0.0):
+    if v is None:
+        return d
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return d
 
 
-def save_scanner_state(state):
-    p = os.path.join(cfg.STATE_DIR, "scanner-state.json")
-    cfg.atomic_write(p, state)
+def price_momentum(candles, n_bars=1):
+    if len(candles) < n_bars + 1:
+        return 0
+    old = safe_float(candles[-(n_bars + 1)].get("close", candles[-(n_bars + 1)].get("c", 0)))
+    new = safe_float(candles[-1].get("close", candles[-1].get("c", 0)))
+    if old == 0:
+        return 0
+    return ((new - old) / old) * 100
 
 
-def get_leverage_for_score(score):
-    for tier in LEVERAGE_TIERS:
-        if score >= tier["min_score"]:
-            return tier["leverage"]
-    return DEFAULT_LEVERAGE
+def trend_structure(candles, lookback=6):
+    if len(candles) < lookback:
+        return "NEUTRAL", 0
+    lows = [safe_float(c.get("low", c.get("l", 0))) for c in candles[-lookback:]]
+    highs = [safe_float(c.get("high", c.get("h", 0))) for c in candles[-lookback:]]
+    higher_lows = sum(1 for i in range(1, len(lows)) if lows[i] > lows[i - 1])
+    lower_highs = sum(1 for i in range(1, len(highs)) if highs[i] < highs[i - 1])
+    total = lookback - 1
+    if higher_lows >= total * 0.6:
+        return "BULLISH", higher_lows / total
+    elif lower_highs >= total * 0.6:
+        return "BEARISH", lower_highs / total
+    return "NEUTRAL", 0
 
 
-def score_hype_signal(markets_data):
-    """Score HYPE. All signals are score contributors — no hard gates."""
-    hype_data = None
-    for m in markets_data:
+def volume_ratio(candles, lookback=10):
+    if len(candles) < lookback + 1:
+        return 1.0
+    vols = [safe_float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles[-(lookback + 1):-1]]
+    avg = sum(vols) / len(vols) if vols else 1
+    latest = safe_float(candles[-1].get("volume", candles[-1].get("v", candles[-1].get("vlm", 0))))
+    return latest / avg if avg > 0 else 1.0
+
+
+def volume_trend(candles, lookback=6):
+    if len(candles) < lookback + 2:
+        return 0
+    vols = [safe_float(c.get("volume", c.get("v", c.get("vlm", 0)))) for c in candles[-(lookback + 2):]]
+    half = lookback // 2
+    recent = sum(vols[-half:]) / half if half > 0 else 1
+    earlier = sum(vols[:half]) / half if half > 0 else 1
+    if earlier == 0:
+        return 0
+    return ((recent - earlier) / earlier) * 100
+
+
+def calc_rsi(closes, period=14):
+    if len(closes) < period + 1:
+        return 50
+    gains, losses = [], []
+    for i in range(1, len(closes)):
+        d = closes[i] - closes[i - 1]
+        gains.append(max(0, d))
+        losses.append(max(0, -d))
+    g = gains[-period:]
+    l = losses[-period:]
+    avg_g = sum(g) / period
+    avg_l = sum(l) / period
+    if avg_l == 0:
+        return 100.0
+    return 100.0 - (100.0 / (1.0 + avg_g / avg_l))
+
+
+# ═══════════════════════════════════════════════════════════════
+# DATA FETCH
+# ═══════════════════════════════════════════════════════════════
+
+def get_hype_full_picture():
+    data = cfg.mcporter_call(
+        "market_get_asset_data", asset=ASSET,
+        candle_intervals=["5m", "15m", "1h", "4h"],
+        include_funding=True, include_order_book=False,
+    )
+    if not data or not data.get("success"):
+        return None
+    return data.get("data", data)
+
+
+def get_btc_correlation():
+    """Pull BTC 15m/1h momentum for correlation scoring."""
+    data = cfg.mcporter_call(
+        "market_get_asset_data", asset="BTC",
+        candle_intervals=["15m", "1h"],
+        include_funding=False, include_order_book=False,
+    )
+    if not data or not data.get("success"):
+        return None, None
+    candles_15m = data.get("data", {}).get("candles", {}).get("15m", [])
+    candles_1h = data.get("data", {}).get("candles", {}).get("1h", [])
+    mom_15m = price_momentum(candles_15m, 1) if len(candles_15m) >= 2 else None
+    mom_1h = price_momentum(candles_1h, 1) if len(candles_1h) >= 2 else None
+    return mom_15m, mom_1h
+
+
+def get_hype_sm_direction():
+    """Get HYPE SM direction from leaderboard_get_markets.
+    Returns (direction, pct, trader_count, cc_15m)."""
+    data = cfg.mcporter_call("leaderboard_get_markets")
+    if not data or not data.get("success"):
+        return None, 0, 0, 0
+
+    markets = data.get("data", data)
+    if isinstance(markets, dict):
+        markets = markets.get("markets", markets.get("leaderboard", markets))
+    if isinstance(markets, dict):
+        markets = markets.get("markets", [])
+
+    long_pct = 0.0
+    short_pct = 0.0
+    traders = 0
+    cc_15m = 0.0
+    found = False
+
+    for m in markets:
         if not isinstance(m, dict):
             continue
-        token = str(m.get("token", m.get("asset", ""))).upper()
-        dex = str(m.get("dex", "")).lower()
-        if token == ASSET and dex != "xyz":
-            hype_data = m
-            break
+        token = str(m.get("token", m.get("coin", ""))).upper()
+        if token != ASSET:
+            continue
+        found = True
+        direction = str(m.get("direction", "")).lower()
+        pct = safe_float(m.get("pct_of_top_traders_gain", 0))
+        t_count = int(m.get("trader_count", 0))
+        cc_15m_val = safe_float(m.get("contribution_pct_change_15m", 0))
+        if direction == "long":
+            long_pct = pct
+            traders += t_count
+            cc_15m = cc_15m_val
+        elif direction == "short":
+            short_pct = pct
+            traders += t_count
+            cc_15m = cc_15m_val
 
+    if not found:
+        return None, 0, 0, 0
+
+    total = long_pct + short_pct
+    if total == 0:
+        return "NEUTRAL", 50, traders, cc_15m
+    long_ratio = (long_pct / total) * 100
+    if long_ratio > 58:
+        return "LONG", long_ratio, traders, cc_15m
+    elif long_ratio < 42:
+        return "SHORT", 100 - long_ratio, traders, cc_15m
+    return "NEUTRAL", 50, traders, cc_15m
+
+
+def get_funding_regime():
+    """Vulture v2.2 pattern: market-wide funding regime."""
+    try:
+        r = cfg.mcporter_call("market_get_funding_regime")
+        if r:
+            return r.get("data", r).get("regime")
+    except Exception:
+        pass
+    return None
+
+
+def get_funding_history_hype():
+    """Vulture v2.2 pattern: per-asset funding persistence."""
+    try:
+        r = cfg.mcporter_call("market_get_funding_history", asset=ASSET)
+        if r:
+            data = r.get("data", r)
+            return {
+                "persistence_hours": data.get("persistence_hours"),
+                "trend": data.get("trend"),
+            }
+    except Exception:
+        pass
+    return None
+
+
+# ═══════════════════════════════════════════════════════════════
+# DRAWDOWN CIRCUIT BREAKER (v3.0 new module, not in Kodiak)
+# ═══════════════════════════════════════════════════════════════
+
+def check_drawdown_gate(account_value, tc):
+    """Pause HUNTING if 7-day drawdown > 15%. Resume at 90% recovery.
+
+    Tracks rolling 7-day peak in trade counter state. State fields:
+      tc["peak_7d"]: max account_value observed in last 7 days
+      tc["peak_ts"]: timestamp of peak
+      tc["dd_paused"]: bool, whether currently paused
+
+    Returns (gate_open, reason).
+    """
+    peak_7d = tc.get("peak_7d", 0)
+    peak_ts = tc.get("peak_ts", 0)
+    now = time.time()
+
+    if account_value > peak_7d:
+        tc["peak_7d"] = account_value
+        tc["peak_ts"] = now
+        tc["dd_paused"] = False
+        return True, f"new_peak_{account_value:.2f}"
+
+    if peak_ts > 0 and (now - peak_ts) > 7 * 86400:
+        tc["peak_7d"] = account_value
+        tc["peak_ts"] = now
+        tc["dd_paused"] = False
+        return True, "peak_aged_out_7d_reset"
+
+    if peak_7d <= 0:
+        tc["peak_7d"] = account_value
+        tc["peak_ts"] = now
+        tc["dd_paused"] = False
+        return True, "no_peak_init"
+
+    dd_ratio = account_value / peak_7d
+    was_paused = tc.get("dd_paused", False)
+
+    if not was_paused and dd_ratio < DRAWDOWN_PAUSE_PCT:
+        tc["dd_paused"] = True
+        return False, f"dd_pause_trigger_{dd_ratio:.2%}_of_peak_{peak_7d:.2f}"
+
+    if was_paused and dd_ratio >= DRAWDOWN_RESUME_PCT:
+        tc["dd_paused"] = False
+        return True, f"dd_resumed_{dd_ratio:.2%}_of_peak"
+
+    if was_paused:
+        return False, f"dd_paused_{dd_ratio:.2%}_of_peak_{peak_7d:.2f}"
+
+    return True, f"dd_ok_{dd_ratio:.2%}_of_peak"
+
+
+# ═══════════════════════════════════════════════════════════════
+# THESIS BUILDER — Kodiak v5.1 + HYPE tuning + Vulture funding
+# ═══════════════════════════════════════════════════════════════
+
+def build_hype_thesis():
+    """Build HYPE entry thesis. Returns thesis dict or None on any gate fail."""
+
+    hype_data = get_hype_full_picture()
     if not hype_data:
-        return 0, None, []
+        return None
 
-    sm_direction = str(hype_data.get("direction", "")).lower()
-    trader_count = int(hype_data.get("trader_count", 0))
-    sm_rank = int(hype_data.get("rank", hype_data.get("position", 999)))
-    contribution = safe_float(hype_data.get("pct_of_top_traders_gain", 0))
-    contrib_change = safe_float(hype_data.get("contribution_pct_change_4h", 0))
-    contrib_15m = safe_float(hype_data.get("contribution_pct_change_15m", 0))
-    contrib_1h = safe_float(hype_data.get("contribution_pct_change_1h", 0))
+    candles_5m = hype_data.get("candles", {}).get("5m", [])
+    candles_15m = hype_data.get("candles", {}).get("15m", [])
+    candles_1h = hype_data.get("candles", {}).get("1h", [])
+    candles_4h = hype_data.get("candles", {}).get("4h", [])
+    asset_ctx = hype_data.get("asset_context", hype_data.get("assetContext", {})) or {}
+    funding = safe_float(asset_ctx.get("funding", 0))
 
-    if not sm_direction or sm_direction not in ("long", "short"):
-        return 0, None, []
+    if len(candles_5m) < 12 or len(candles_15m) < 8 or len(candles_1h) < 8 or len(candles_4h) < 6:
+        return None
 
-    direction = sm_direction
+    price = safe_float(candles_5m[-1].get("close", candles_5m[-1].get("c", 0)))
 
-    # Minimum traders — keep as gate (need data to score)
-    if trader_count < MIN_SM_TRADERS:
-        return 0, None, [f"LOW_TRADERS ({trader_count} < {MIN_SM_TRADERS})"]
+    # GATE 1: 4h trend structure
+    trend_4h, trend_strength_4h = trend_structure(candles_4h)
+    if trend_4h == "NEUTRAL":
+        return None
 
+    # GATE 2: strong 4h structural alignment (Kodiak v5.1)
+    if trend_strength_4h < 0.75:
+        return None
+
+    direction = "LONG" if trend_4h == "BULLISH" else "SHORT"
+
+    # GATE 3: 1h matches 4h
+    trend_1h, trend_strength_1h = trend_structure(candles_1h)
+    if trend_1h != trend_4h:
+        return None
+
+    # GATE 4: 15m momentum confirms
+    mom_5m = price_momentum(candles_5m, 1)
+    mom_15m = price_momentum(candles_15m, 1)
+    mom_1h = price_momentum(candles_1h, 2)
+    mom_4h = price_momentum(candles_4h, 1)
+
+    if direction == "LONG" and mom_15m < MIN_MOM_15M:
+        return None
+    if direction == "SHORT" and mom_15m > -MIN_MOM_15M:
+        return None
+
+    # GATE 5: Base-tech floor (Kodiak v5.1)
+    strong_15m = abs(mom_15m) > MIN_MOM_15M * 2
+    aligned_5m = (direction == "LONG" and mom_5m > 0) or (direction == "SHORT" and mom_5m < 0)
+    if not (strong_15m or aligned_5m):
+        return None
+
+    # SCORING
     score = 0
     reasons = []
 
-    # SM presence (base)
+    score += 3
+    reasons.append(f"4h_{trend_4h.lower()}_{trend_strength_4h:.0%}")
     score += 2
-    reasons.append(f"SM_{direction.upper()} rank#{sm_rank} ({trader_count}t)")
-
-    # SM rank bonus
-    if sm_rank <= 5:
+    reasons.append(f"1h_confirms_{mom_1h:+.2f}%")
+    if strong_15m:
         score += 1
-        reasons.append(f"TOP_5_SM")
-
-    # Trader count depth
-    if trader_count >= 40:
-        score += 2
-        reasons.append(f"DEEP_SM ({trader_count}t)")
-    elif trader_count >= 25:
-        score += 1
-        reasons.append(f"SOLID_SM ({trader_count}t)")
-
-    # Contribution strength
-    if contribution >= 5.0:
-        score += 2
-        reasons.append(f"HIGH_CONTRIB {contribution:.1f}%")
-    elif contribution >= 2.0:
-        score += 1
-        reasons.append(f"MODERATE_CONTRIB {contribution:.1f}%")
-
-    # 15m velocity freshness — conviction-class penalty (not hard gate)
-    if contrib_15m <= 0:
-        score -= 3
-        reasons.append(f"15M_STALE_PENALTY ({contrib_15m:.2f})")
-    elif contrib_15m > 5.0:
-        score += 4
-        reasons.append(f"15M_EXTREME_SPIKE +{contrib_15m:.2f}")
-    elif contrib_15m > 2.0:
-        score += 3
-        reasons.append(f"15M_STRONG_SPIKE +{contrib_15m:.2f}")
-    elif contrib_15m > 0.5:
-        score += 2
-        reasons.append(f"15M_SPIKE +{contrib_15m:.2f}")
-    elif contrib_15m > 0.1:
-        score += 1
-        reasons.append(f"15M_BUILDING +{contrib_15m:.2f}")
-
-    if contrib_1h > 3.0:
-        score += 2
-        reasons.append(f"1H_STRONG_ACCEL +{contrib_1h:.2f}")
-    elif contrib_1h > 1.0:
-        score += 1
-        reasons.append(f"1H_ACCEL +{contrib_1h:.2f}")
-
-    if abs(contrib_change) >= 5.0:
-        score += 1
-        reasons.append(f"4H_MAJOR_SHIFT {contrib_change:+.1f}")
-
-    # Acceleration pattern: 15m > 1h > 0 = SM inflow accelerating
-    if contrib_15m > 0 and contrib_1h > 0 and contrib_15m > contrib_1h:
-        score += 1
-        reasons.append(f"ACCEL_PATTERN 15m({contrib_15m:.2f})>1h({contrib_1h:.2f})")
-
-    # Price momentum — score contributor, not gate
-    price_4h = safe_float(hype_data.get("token_price_change_pct_4h", 0))
-    price_1h = safe_float(hype_data.get("token_price_change_pct_1h",
-                          hype_data.get("price_change_1h", 0)))
-
-    if direction == "long":
-        if price_4h > 0 and price_1h > 0:
-            score += 2
-            reasons.append(f"4H_1H_ALIGNED (+{price_4h:.1f}%/+{price_1h:.1f}%)")
-        elif price_4h > 0:
-            score += 1
-            reasons.append(f"4H_ALIGNED (+{price_4h:.1f}%)")
-        elif price_4h < -1:
-            score -= 1
-            reasons.append(f"4H_OPPOSING ({price_4h:.1f}%)")
+        reasons.append(f"15m_strong_{mom_15m:+.2f}%")
     else:
-        if price_4h < 0 and price_1h < 0:
-            score += 2
-            reasons.append(f"4H_1H_ALIGNED ({price_4h:.1f}%/{price_1h:.1f}%)")
-        elif price_4h < 0:
-            score += 1
-            reasons.append(f"4H_ALIGNED ({price_4h:.1f}%)")
-        elif price_4h > 1:
-            score -= 1
-            reasons.append(f"4H_OPPOSING (+{price_4h:.1f}%)")
-
-    # Volume confirmation
-    volume = safe_float(hype_data.get("volume", hype_data.get("volume_24h", 0)))
-    avg_volume = safe_float(hype_data.get("avg_volume_6h", hype_data.get("avgVolume", 0)))
-    if avg_volume > 0 and volume > avg_volume * 1.2:
+        reasons.append(f"15m_{mom_15m:+.2f}%")
+    if aligned_5m:
         score += 1
-        reasons.append(f"VOLUME_UP ({volume / avg_volume:.1f}x)")
+        reasons.append("4TF_aligned")
 
-    return score, direction, reasons
+    # SM positioning — HARD BLOCK if opposes
+    sm_dir, sm_pct, sm_count, sm_cc_15m = get_hype_sm_direction()
+    if sm_dir == direction:
+        score += 2
+        reasons.append(f"sm_aligned_{sm_pct:.0f}%_{sm_count}traders")
+        if sm_pct > 65:
+            score += 1
+            reasons.append("sm_strongly_tilted")
+    elif sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
+        return None  # SM HARD BLOCK
+
+    # SM 15m freshness
+    if sm_cc_15m <= 0:
+        score -= 3
+        reasons.append(f"15M_STALE_PENALTY ({sm_cc_15m:.2f})")
+    elif sm_cc_15m > 0.5:
+        score += 1
+        reasons.append(f"15M_FRESH +{sm_cc_15m:.2f}")
+
+    # Funding alignment
+    if direction == "LONG" and funding < 0:
+        score += 2
+        reasons.append(f"funding_pays_longs_{funding:+.4f}")
+    elif direction == "SHORT" and funding > 0:
+        score += 2
+        reasons.append(f"funding_pays_shorts_{funding:+.4f}")
+    elif (direction == "LONG" and funding > FUNDING_CROWDED) or \
+         (direction == "SHORT" and funding < -FUNDING_CROWDED):
+        score -= 1
+        reasons.append(f"funding_crowded_{funding:+.4f}")
+
+    # Funding regime (Vulture v2.2)
+    regime = get_funding_regime()
+    if regime == "LONG_CROWDED" and direction == "LONG":
+        score += 1
+        reasons.append("REGIME_LONG_CROWDED_aligned")
+    elif regime == "SHORT_CROWDED" and direction == "SHORT":
+        score += 1
+        reasons.append("REGIME_SHORT_CROWDED_aligned")
+    elif regime == "LONG_CROWDED" and direction == "SHORT":
+        score -= 1
+        reasons.append("REGIME_LONG_CROWDED_fighting")
+    elif regime == "SHORT_CROWDED" and direction == "LONG":
+        score -= 1
+        reasons.append("REGIME_SHORT_CROWDED_fighting")
+    elif regime is not None:
+        reasons.append(f"REGIME_{regime}")
+
+    # Funding persistence (Vulture v2.2)
+    fh = get_funding_history_hype()
+    if fh:
+        ph = fh.get("persistence_hours")
+        try:
+            ph_val = float(ph) if ph is not None else None
+        except (TypeError, ValueError):
+            ph_val = None
+        if ph_val is not None and ph_val >= 6:
+            score += 1
+            reasons.append(f"FUNDING_PERSISTENT_{ph_val:.0f}h")
+
+    # Volume
+    vol_1h = volume_ratio(candles_1h)
+    if vol_1h >= 1.2:
+        score += 1
+        reasons.append(f"vol_{vol_1h:.1f}x")
+    elif vol_1h < 0.7:
+        score -= 1
+        reasons.append("vol_weak")
+
+    vol_trend_1h = volume_trend(candles_1h)
+    if vol_trend_1h > 15:
+        score += 1
+        reasons.append(f"vol_rising_{vol_trend_1h:+.0f}%")
+
+    # OI velocity — FLAT PATH (no Cobra-antipattern silent-None bug)
+    oi_vel = hype_data.get("oi_velocity") if isinstance(hype_data.get("oi_velocity"), dict) else {}
+    if isinstance(oi_vel, dict):
+        oi_change = oi_vel.get("oi_change_pct_1h")
+        if oi_change is not None:
+            try:
+                oi_change = float(oi_change)
+                if oi_change > 5:
+                    score += 2
+                    reasons.append(f"OI_ACCELERATING_{oi_change:+.1f}%")
+                elif oi_change > 2:
+                    score += 1
+                    reasons.append(f"OI_rising_{oi_change:+.1f}%")
+                elif oi_change < -3:
+                    score -= 1
+                    reasons.append(f"OI_draining_{oi_change:+.1f}%")
+            except (TypeError, ValueError):
+                pass
+
+    # BTC correlation
+    corr_mom_15m, corr_mom_1h = get_btc_correlation()
+    if corr_mom_15m is not None and corr_mom_1h is not None:
+        corr_agrees = (direction == "LONG" and corr_mom_15m > 0 and corr_mom_1h > 0) or \
+                     (direction == "SHORT" and corr_mom_15m < 0 and corr_mom_1h < 0)
+        if corr_agrees:
+            score += 1
+            reasons.append(f"btc_confirms_{corr_mom_1h:+.2f}%")
+
+    # RSI filter (HARD GATE for extremes)
+    closes_1h = [safe_float(c.get("close", c.get("c", 0))) for c in candles_1h]
+    rsi = calc_rsi(closes_1h)
+    if direction == "LONG" and rsi > RSI_MAX_LONG:
+        return None
+    if direction == "SHORT" and rsi < RSI_MIN_SHORT:
+        return None
+    if (direction == "LONG" and rsi < 55) or (direction == "SHORT" and rsi > 45):
+        score += 1
+        reasons.append(f"rsi_room_{rsi:.0f}")
+
+    # 4h momentum bonus
+    if abs(mom_4h) > STRONG_4H_PCT:
+        score += 1
+        reasons.append(f"4h_strong_{mom_4h:+.1f}%")
+
+    # MOVE_EXHAUSTION / MOVE_TIRING penalties
+    if abs(mom_4h) >= MOVE_EXHAUSTION_PCT:
+        if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
+            score -= 2
+            reasons.append(f"MOVE_EXHAUSTION {mom_4h:+.1f}%")
+    elif abs(mom_4h) >= MOVE_TIRING_PCT:
+        if (direction == "LONG" and mom_4h > 0) or (direction == "SHORT" and mom_4h < 0):
+            score -= 1
+            reasons.append(f"MOVE_TIRING {mom_4h:+.1f}%")
+
+    return {
+        "coin": ASSET,
+        "direction": direction,
+        "score": score,
+        "reasons": reasons,
+        "price": price,
+        "trend_4h": trend_4h,
+        "trend_strength_4h": trend_strength_4h,
+        "momentum": {"5m": mom_5m, "15m": mom_15m, "1h": mom_1h, "4h": mom_4h},
+        "sm_direction": sm_dir,
+        "sm_pct": sm_pct,
+        "funding": funding,
+        "regime": regime,
+        "rsi": rsi,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# EXECUTION
+# ═══════════════════════════════════════════════════════════════
+
+def get_leverage_tier(score):
+    for tier in LEVERAGE_TIERS:
+        if score >= tier["min_score"]:
+            return tier["leverage"], tier["label"]
+    return DEFAULT_LEVERAGE, "default"
 
 
 def execute_entry(wallet, direction, margin, leverage):
-    """Call create_position directly via mcporter."""
+    """Fire create_position with taker fallback."""
     result = cfg.mcporter_call(
         "create_position",
         strategyWalletAddress=wallet,
         orders=[{
             "coin": ASSET,
-            "direction": direction.upper(),
+            "direction": direction,
             "leverage": leverage,
             "marginAmount": margin,
             "orderType": "FEE_OPTIMIZED_LIMIT",
             "feeOptimizedLimitOptions": {
-                "ensureExecutionAsTaker": False,
-                "executionTimeoutSeconds": 30,
+                "ensureExecutionAsTaker": True,
+                "executionTimeoutSeconds": 15,
             },
         }],
     )
     if result and result.get("success"):
+        data = result.get("data", {})
+        if isinstance(data, dict):
+            orders_result = data.get("orders", data.get("results", []))
+            if isinstance(orders_result, list) and orders_result:
+                inner = orders_result[0]
+                if isinstance(inner, dict) and inner.get("success") is False:
+                    err = inner.get("error", "inner order failed")
+                    return False, {"error": f"INNER_FAILURE: {err}"}
         return True, result
-    else:
-        error = result.get("error", "unknown") if result else "mcporter_call returned None"
-        return False, {"error": error}
+    error = result.get("error", "unknown") if result else "mcporter_call returned None"
+    return False, {"error": error}
 
+
+def has_resting_orders(wallet):
+    """Auto-cancel stale resting orders > 600s old."""
+    import time as _time
+    STALE_ORDER_MAX_AGE_SEC = 600
+    data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data:
+        return False
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if not isinstance(orders, list):
+        return False
+    now_ms = _time.time() * 1000
+    max_age_ms = STALE_ORDER_MAX_AGE_SEC * 1000
+    has_fresh = False
+    for o in orders:
+        if o.get("reduceOnly", False):
+            continue
+        ts_raw = o.get("timestamp", 0) or 0
+        try:
+            ts = float(ts_raw)
+        except (TypeError, ValueError):
+            ts = 0.0
+        if ts > 0 and (now_ms - ts) > max_age_ms:
+            oid = o.get("oid") or o.get("orderId") or o.get("id")
+            if oid:
+                try:
+                    cfg.mcporter_call(
+                        "cancel_order",
+                        strategyWalletAddress=wallet,
+                        orderId=int(oid),
+                    )
+                except Exception:
+                    pass
+            continue
+        has_fresh = True
+    return has_fresh
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN — HUNTING or RIDING (DSL manages exits)
+# ═══════════════════════════════════════════════════════════════
 
 def run():
-    config = cfg.load_config()
     wallet, strategy_id = cfg.get_wallet_and_strategy()
-
     if not wallet:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": "wallet_not_configured", "version": VERSION})
         return
 
-    # v2.3: sync closed positions to entry log BEFORE running the scan
-    # This records any trade that closed since the last scan, which feeds
-    # the chop-detection logic below.
-    scanner_state = load_scanner_state()
-    scanner_state = sync_closed_positions(wallet, scanner_state)
-    save_scanner_state(scanner_state)
-
-    # Check existing positions — do NOT re-evaluate
     account_value, positions = cfg.get_positions(wallet)
-    hype_positions = [p for p in positions if p["coin"].upper() == ASSET]
+    if account_value <= 0:
+        cfg.output({"status": "error", "heartbeat": "NO_REPLY",
+                    "note": f"account_value_zero_or_unreadable account={account_value}",
+                    "version": VERSION})
+        return
 
-    if len(hype_positions) >= MAX_POSITIONS:
+    # RIDING mode — position open, DSL manages exit
+    if positions:
+        p = positions[0]
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"HYPE position active. DSL manages exit.",
-            "_v2_no_thesis_exit": True,
+            "note": (f"RIDING: {p['coin']} {p['direction']} "
+                     f"upnl=${p['upnl']:.2f} margin=${p['margin']:.2f}"),
+            "version": VERSION,
         })
         return
 
-    if account_value <= 0:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
+    # HUNTING mode
+    tc = cfg.load_trade_counter()
+
+    # Drawdown circuit breaker
+    dd_open, dd_reason = check_drawdown_gate(account_value, tc)
+    cfg.save_trade_counter(tc)
+    if not dd_open:
+        cfg.output({
+            "status": "ok", "heartbeat": "NO_REPLY",
+            "note": f"HUNTING_PAUSED: {dd_reason}",
+            "account_value": account_value,
+            "peak_7d": tc.get("peak_7d"),
+            "version": VERSION,
+        })
         return
 
-    # Daily limits
-    tc = cfg.load_trade_counter()
+    # Dynamic daily cap
     dynamic_cap = get_dynamic_daily_cap(account_value)
     if tc.get("entries", 0) >= dynamic_cap:
         pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"Daily cap ({dynamic_cap}) reached. Session PnL: {pnl_pct:+.1f}%. Entries: {tc.get('entries', 0)}/{dynamic_cap}"})
+        cfg.output({
+            "status": "ok", "heartbeat": "NO_REPLY",
+            "note": (f"DAILY_CAP_REACHED {tc.get('entries', 0)}/{dynamic_cap} "
+                     f"pnl={pnl_pct:+.1f}%"),
+            "version": VERSION,
+        })
         return
 
-    # Cooldown
+    # Resting order guard
+    if has_resting_orders(wallet):
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": "RESTING_ORDER_pending", "version": VERSION})
+        return
+
+    # Per-asset cooldown
     if cfg.is_asset_cooled_down(ASSET, COOLDOWN_MINUTES):
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                     "note": f"HYPE on cooldown ({COOLDOWN_MINUTES} min)"})
+                    "note": f"COOLDOWN_{ASSET}_active_{COOLDOWN_MINUTES}min",
+                    "version": VERSION})
         return
 
-    # v2.3: CHOP DETECTION LOCKOUT
-    # If Wolverine lost >= CHOP_MAX_LOSSES times on HYPE within the last
-    # CHOP_WINDOW_HOURS, refuse any new entry until CHOP_LOCKOUT_HOURS have
-    # passed since the last loss. Prevents chop-chasing whipsaw.
-    chop_locked, chop_reason, unlock_ts = is_chop_locked(ASSET)
-    if chop_locked:
-        append_entry_log("CHOP_LOCKOUT", ASSET, direction="", reason=chop_reason, unlock_ts=unlock_ts)
+    # Build thesis
+    thesis = build_hype_thesis()
+    if not thesis:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": "HUNTING: no thesis (gate blocked)",
+                    "version": VERSION})
+        return
+
+    if thesis["score"] < MIN_SCORE:
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"CHOP_LOCKED {ASSET}: {chop_reason}",
-            "_wolverine_version": "2.3",
+            "note": f"HUNTING_score_low {thesis['score']}/{MIN_SCORE}",
+            "direction": thesis["direction"],
+            "reasons": thesis["reasons"],
+            "version": VERSION,
         })
         return
 
-    # Fetch SM data
-    raw = cfg.mcporter_call("leaderboard_get_markets")
-    if not raw:
-        cfg.output({"status": "error", "error": "failed to fetch markets"})
-        return
+    direction = thesis["direction"]
 
-    markets = []
-    if isinstance(raw, dict):
-        data = raw.get("data", raw)
-        if isinstance(data, dict):
-            markets = data.get("markets", [])
-            if isinstance(markets, dict):
-                markets = markets.get("markets", [])
-        elif isinstance(data, list):
-            markets = data
-    elif isinstance(raw, list):
-        markets = raw
+    # Same-direction cooldown after a win
+    last_win_dir = tc.get("last_win_direction")
+    last_win_ts = tc.get("last_win_ts", 0)
+    if last_win_dir and last_win_ts and direction == last_win_dir:
+        if (time.time() - last_win_ts) < SAME_DIR_COOLDOWN_MINUTES * 60:
+            remaining = int((SAME_DIR_COOLDOWN_MINUTES * 60 - (time.time() - last_win_ts)) / 60)
+            cfg.output({
+                "status": "ok", "heartbeat": "NO_REPLY",
+                "note": f"SAME_DIR_COOLDOWN won {last_win_dir} {remaining}min ago",
+                "thesis_score": thesis["score"],
+                "version": VERSION,
+            })
+            return
 
-    # Score HYPE
-    score, direction, reasons = score_hype_signal(markets)
-
-    if score < MIN_SCORE or not direction:
-        cfg.output({
-            "status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"HYPE score {score} < {MIN_SCORE}. {', '.join(reasons[:3]) if reasons else 'Waiting.'}",
-        })
-        return
-
-    # v2.3: DIRECTION-FLIP HARD GATE
-    # If the previous trade on HYPE was a loss in the opposite direction
-    # within the last FLIP_PENALTY_WINDOW_HOURS, refuse this entry. This
-    # catches the LONG→SHORT→LONG chop whipsaw pattern that cost -$113
-    # on 2026-04-14. A winning flip is allowed (legit reversal); a losing
-    # flip is blocked (chop chasing).
-    flip_blocked, last_dir, last_pnl = is_direction_flip_blocked(ASSET, direction.upper())
-    if flip_blocked:
-        append_entry_log(
-            "FLIP_BLOCKED", ASSET, direction=direction.upper(),
-            score=score, reasons=reasons,
-            last_direction=last_dir, last_pnl=last_pnl,
-        )
-        cfg.output({
-            "status": "ok", "heartbeat": "NO_REPLY",
-            "note": f"FLIP_BLOCKED {direction.upper()} (prev {last_dir} lost ${last_pnl:.2f} within {FLIP_PENALTY_WINDOW_HOURS}h)",
-            "_wolverine_version": "2.3",
-        })
-        return
-
-    # Conviction-scaled leverage and margin
-    leverage = get_leverage_for_score(score)
+    # Sizing
+    leverage, tier_label = get_leverage_tier(thesis["score"])
+    leverage = max(MIN_LEVERAGE, min(leverage, MAX_LEVERAGE))
     margin = round(account_value * MARGIN_PCT, 2)
 
-    # Execute trade directly
-    success, result = execute_entry(wallet, direction, margin, leverage)
+    # Enforce max notional hard cap
+    notional = margin * leverage
+    max_notional = account_value * MAX_NOTIONAL_MULT
+    if notional > max_notional:
+        margin = round(max_notional / leverage, 2)
+        thesis["reasons"].append(f"notional_capped_at_{MAX_NOTIONAL_MULT}x_account")
 
-    if success:
-        tc["entries"] = tc.get("entries", 0) + 1
-        cfg.save_trade_counter(tc)
+    if margin < 10 or leverage <= 0:
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": f"SIZING_TOO_SMALL lev={leverage} margin={margin}",
+                    "version": VERSION})
+        return
 
-        # v2.3: persist entry to disk-backed log that survives session clears
-        append_entry_log(
-            "ENTRY",
-            asset=ASSET,
-            direction=direction.upper(),
-            score=score,
-            reasons=reasons,
-            leverage=leverage,
-            margin=margin,
-            order_type="FEE_OPTIMIZED_LIMIT",
-            dynamic_cap=dynamic_cap,
-            account_value=account_value,
-        )
-
+    # Fire entry
+    ok, result = execute_entry(wallet, direction, margin, leverage)
+    if not ok:
         cfg.output({
-            "status": "ok",
-            "action": "ENTRY",
-            "signal": {"asset": ASSET, "direction": direction.upper(),
-                       "score": score, "leverage": leverage, "reasons": reasons},
-            "execution": {"asset": ASSET, "direction": direction.upper(),
-                          "leverage": leverage, "margin": margin,
-                          "orderType": "FEE_OPTIMIZED_LIMIT",
-                          "ensureExecutionAsTaker": False},
-            "result": result,
-            "_wolverine_version": "2.3",
-        })
-    else:
-        cfg.output({
-            "status": "ok", "action": "ENTRY_FAILED",
-            "signal": {"asset": ASSET, "direction": direction.upper(),
-                       "score": score, "reasons": reasons},
+            "status": "error",
+            "action": "ENTRY_FAILED",
+            "direction": direction,
+            "score": thesis["score"],
+            "reasons": thesis["reasons"],
             "error": result,
-            "_wolverine_version": "2.3",
+            "version": VERSION,
         })
+        return
+
+    # Parse fill details
+    fill_price = thesis["price"]
+    fill_size_abs = margin * leverage / fill_price if fill_price > 0 else 0
+    try:
+        data = result.get("data", {}) if isinstance(result, dict) else {}
+        orders = data.get("orders", data.get("results", []))
+        if orders and isinstance(orders[0], dict):
+            main = orders[0].get("mainOrder", orders[0])
+            if isinstance(main, dict):
+                fp = main.get("fillPrice") or main.get("avgFillPrice") or main.get("price")
+                fs = main.get("filledSize") or main.get("filledSz") or main.get("size")
+                if fp:
+                    try:
+                        fill_price = float(fp)
+                    except (TypeError, ValueError):
+                        pass
+                if fs:
+                    try:
+                        fill_size_abs = abs(float(fs))
+                    except (TypeError, ValueError):
+                        pass
+    except Exception:
+        pass
+
+    # MANDATORY DSL attach (close-on-fail)
+    dsl_tiers = _resolve_dsl_tiers()
+    dsl_response = cfg.mcporter_call(
+        "ratchet_stop_add",
+        strategyId=strategy_id,
+        strategy_wallet_address=wallet,
+        asset=ASSET,
+        direction=direction,
+        entryPrice=fill_price,
+        size=fill_size_abs,
+        leverage=leverage,
+        ratchetStopConfig={"tiered": {"tiers": dsl_tiers}},
+    )
+    dsl_ok = bool(dsl_response) and (
+        dsl_response.get("success", False) if isinstance(dsl_response, dict) else False
+    )
+
+    if not dsl_ok:
+        close_response = cfg.mcporter_call(
+            "close_position",
+            strategyWalletAddress=wallet,
+            coin=ASSET,
+        )
+        cfg.output({
+            "status": "critical",
+            "action": "DSL_ATTACH_FAILED_EMERGENCY_CLOSE",
+            "direction": direction,
+            "score": thesis["score"],
+            "reasons": thesis["reasons"],
+            "dsl_response": str(dsl_response)[:300] if dsl_response else "null",
+            "close_triggered": close_response is not None,
+            "version": VERSION,
+        })
+        return
+
+    # Success — increment counter + set cooldown
+    tc["entries"] = tc.get("entries", 0) + 1
+    tc["last_entry_ts"] = time.time()
+    tc["lastDirection"] = direction
+    cfg.save_trade_counter(tc)
+    cfg.set_asset_cooldown(ASSET, COOLDOWN_MINUTES)
+
+    cfg.output({
+        "status": "ok",
+        "action": "ENTRY",
+        "direction": direction,
+        "coin": ASSET,
+        "score": thesis["score"],
+        "reasons": thesis["reasons"],
+        "execution": {
+            "asset": ASSET,
+            "direction": direction,
+            "leverage": leverage,
+            "margin": margin,
+            "sizing_tier": tier_label,
+            "notional_vs_account": round((leverage * margin) / account_value, 2),
+            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "ensureExecutionAsTaker": True,
+            "fill_price": fill_price,
+            "fill_size": fill_size_abs,
+        },
+        "dsl": {
+            "attached": True,
+            "tiers": dsl_tiers,
+            "entry_price": fill_price,
+        },
+        "thesis": {
+            "rsi": thesis["rsi"],
+            "sm_direction": thesis["sm_direction"],
+            "sm_pct": thesis["sm_pct"],
+            "funding": thesis["funding"],
+            "regime": thesis["regime"],
+            "trend_4h": thesis["trend_4h"],
+            "trend_strength_4h": thesis["trend_strength_4h"],
+            "momentum": thesis["momentum"],
+        },
+        "account": {
+            "value": account_value,
+            "peak_7d": tc.get("peak_7d"),
+            "entries_today": tc.get("entries"),
+            "daily_cap": dynamic_cap,
+        },
+        "version": VERSION,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
 
 
 if __name__ == "__main__":
     try:
         run()
     except Exception as e:
-        cfg.log(f"CRITICAL ERROR: {e}")
         import traceback
-        traceback.print_exc(file=sys.stderr)
-        cfg.output({"status": "error", "error": str(e)})
+        cfg.output({
+            "status": "error",
+            "heartbeat": "NO_REPLY",
+            "note": f"scanner_exception: {type(e).__name__}: {str(e)[:200]}",
+            "traceback": traceback.format_exc()[-500:],
+            "version": VERSION,
+        })
