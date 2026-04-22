@@ -2,31 +2,32 @@
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "_version": "5.1-APEX",
-  "_description": "CHEETAH APEX v5.1 — Multi-signal confluence sniper purpose-built to win the Senpi Arena. Score threshold lowered from 14 to 10 based on 24h live data — max observed score was 10 (HYPE LONG), so the 14 gate was mathematically unreachable. Leverage scales by score: 10=7x, 11=8x, 12-13=9x, 14+=10x. Still the tightest gate in the fleet.",
-  "_thesis": "The Arena rewards asymmetric ROE%, not consistency. A sniper that takes 5 high-conviction trades per week with 80% margin and conviction-scaled leverage can outperform 200-trade scalpers.",
+  "_version": "5.2",
+  "_description": "CHEETAH v5.2 — Multi-signal confluence sniper (over-trading fix). v5.1 shipped with 80% margin + 5% max_loss + 25-min dead_weight_cut, produced 406 fills / -28% ROI / ~$1,600 in fees. v5.2 pulls every knob toward Kodiak-family discipline: marginPct 80%→30%, MIN_SCORE 10→11, DSL loosened across every dimension. Same signal architecture, just no longer self-destructive sizing.",
+  "_thesis": "Asymmetric Arena ROE is achievable with 30% margin when signal quality is actually high. 80% margin was concentration-gambling, not sniping. v5.2 preserves the confluence thesis with survivable sizing.",
+  "startingBudget": 648,
   "maxPositions": 1,
   "xyzBanned": true,
   "risk": {
     "startingBudget": 648.0,
-    "maxLossPct": 5.0,
-    "maxDailyLossPct": 12.0
+    "maxLossPct": 15.0,
+    "maxDailyLossPct": 25.0
   },
   "leverage": {
-    "default": 7,
+    "default": 5,
     "tiers": [
-      {"minScore": 14, "leverage": 10},
-      {"minScore": 12, "leverage": 9},
-      {"minScore": 11, "leverage": 8},
-      {"minScore": 10, "leverage": 7}
+      {"minScore": 14, "leverage": 8},
+      {"minScore": 12, "leverage": 7},
+      {"minScore": 11, "leverage": 5},
+      {"minScore": 10, "leverage": 3}
     ]
   },
   "entry": {
-    "minScore": 10,
-    "marginPct": 0.80,
+    "minScore": 11,
+    "marginPct": 0.30,
     "orderType": "FEE_OPTIMIZED_LIMIT",
     "ensureExecutionAsTaker": true,
-    "executionTimeoutSeconds": 30
+    "executionTimeoutSeconds": 15
   },
   "sm": {
     "minSmPct": 10.0,

@@ -1,17 +1,26 @@
 name: cheetah-tracker
-version: 5.0.0
+version: 5.2.0
 description: >
-  CHEETAH v5.0 APEX — Multi-signal confluence sniper built to win the Senpi
-  Arena. Only fires when ALL major signals align on the same asset (score
-  >= 14 out of 15). Aggressive profit ratcheting, -5% absolute loss floor,
-  80% margin per trade, 10x leverage. 5 target trades per week (hits the
-  $25k Arena volume floor). Fewer trades, higher conviction, maximum ROE%.
+  CHEETAH v5.2 — Multi-signal confluence sniper (over-trading fix).
+  v5.1 shipped with 80% margin + 5% max_loss + 25-min dead_weight_cut, which
+  produced 406 fills / -28% ROI / $1,600+ in fees. The "sniper" framing
+  was contradicted by the actual trade frequency. v5.2 pulls every knob
+  toward Kodiak-family discipline:
+    entry.marginPct 80% → 30% (kill the all-in concentration)
+    MIN_SCORE 10 → 11 (stricter bar)
+    phase1.max_loss_pct 5% → 15% (give room for volatility)
+    phase1.retrace_threshold 5 → 8
+    dead_weight_cut 25 → 60 min (let positions develop)
+    weak_peak_cut 35 → 90 min (patience before cutting)
+    hard_timeout 360 → 480 min
+  The sniper can still win asymmetric Arena ROE with 30% margin and tighter
+  score — it just won't nuke the account with one wrong call at 80%/10x.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 648
   slots: 1
-  margin_per_slot: 518
+  margin_per_slot: 200
   enabled: true
 
 scanners:
@@ -25,28 +34,27 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# APEX DSL — aggressive profit ratcheting, tight -5% floor.
-# Max 5% loss per trade is the Arena killer avoidance. Earlier Phase 2 Tier 1
-# at +6% locks profit faster than fleet standard. Tight weak_peak_cut means
-# non-movers get cut in 35 min so we don't wait around for nothing.
+# v5.2 DSL — loosened across every dimension. Tight 5% max_loss at 10x
+# leverage means a 0.5% adverse price move = full stop. That's noise,
+# not thesis invalidation.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 360
+      interval_in_minutes: 480       # v5.2: 360 → 480 (8h)
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 35
+      interval_in_minutes: 90        # v5.2: 35 → 90
       min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 25
+      interval_in_minutes: 60        # v5.2: 25 → 60
     phase1:
       enabled: true
-      max_loss_pct: 5.0
-      retrace_threshold: 5
+      max_loss_pct: 15.0             # v5.2: 5 → 15
+      retrace_threshold: 8           # v5.2: 5 → 8
       consecutive_breaches_required: 3
     phase2:
       enabled: true
