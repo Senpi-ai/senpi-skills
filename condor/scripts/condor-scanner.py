@@ -109,11 +109,20 @@ MIN_15M_VELOCITY = 0.2              # SM velocity (proxy for 15m alignment)
 MACRO_GATE_THRESHOLD_PCT = 10.0     # Don't fight moves >10% opposite direction
 
 # SM gates
-MIN_SM_CONSENSUS_PCT = 65.0
+# v3.2: 65 → 75. 65% consensus often means the move is mid-stage with
+# plenty of wrong-siders still fueling the trend — fine for momentum
+# but Condor enters at "apex confluence" so we need higher conviction.
+MIN_SM_CONSENSUS_PCT = 75.0
 STRONGLY_TILTED_PCT = 80.0
 
 # Scoring
-MIN_SCORE = 11
+# v3.2: 11 → 13. At MIN_SCORE=11 Condor was catching setups that had
+# only partial confluence (e.g. 4h_light + 1h_confirms + 15m_building +
+# 3TF_aligned + sm_aligned = exactly 11). 246 fills / -16.4% says those
+# borderline setups are mostly losers. Require Kodiak's winner-median
+# score. 13 is still achievable: 4h_momentum(3) + 1h_strong(2) +
+# 15m_spike(2) + 3TF(3) + sm_convergent(3) = 13.
+MIN_SCORE = 13
 
 # Position management
 MAX_POSITIONS = 1
@@ -531,7 +540,7 @@ def run():
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
             "_v2_no_thesis_exit": True,
-            "_condor_version": "3.1",
+            "_condor_version": "3.2",
         })
         return
 
@@ -553,7 +562,7 @@ def run():
         remaining = int((POST_EXIT_COOLDOWN_MINUTES * 60 - seconds_since_last) / 60)
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
                     "note": f"post-exit cooldown ({remaining}min remaining)",
-                    "_condor_version": "3.1"})
+                    "_condor_version": "3.2"})
         return
 
     # Dynamic daily cap
@@ -598,7 +607,7 @@ def run():
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"SCANNING {len(universe)} assets — no apex trend-continuation setup >= MIN_SCORE={MIN_SCORE}.",
-            "_condor_version": "3.1",
+            "_condor_version": "3.2",
         })
         return
 
@@ -647,7 +656,7 @@ def run():
                 {"coin": c["coin"], "direction": c["direction"], "score": c["score"]}
                 for c in candidates[:5]
             ],
-            "_condor_version": "3.1",
+            "_condor_version": "3.2",
         })
     else:
         cfg.output({
@@ -655,7 +664,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": result,
-            "_condor_version": "3.1",
+            "_condor_version": "3.2",
         })
 
 

@@ -1,15 +1,14 @@
 name: condor-tracker
-version: 3.0.0
+version: 3.2.0
 description: >
-  CONDOR v3.0 — "One Amazing Trade per Day." Complete rewrite from v2.0
-  multi-asset alpha hunter. v3.0 scans top 50 Hyperliquid assets by 24h
-  notional volume for pure trend-continuation apex setups (4h + 1h + 15m
-  + SM direction all aligned + macro-trend gate + BTC aligned). Goes big
-  on apex confluence (50-80% margin, 10x leverage) and holds for 1 trade
-  per day while DSL manages exits. Built from Kodiak's top 3 lifetime
-  winners (+$133, +$87, +$78 on SOL) + Wolverine's HYPE SHORT post-mortem
-  (-$160 loss stepping in front of a 32% macro trend). Max 1 position,
-  2h post-exit cooldown.
+  CONDOR v3.2 — signal-quality tightening. v3.1 was firing at too
+  broad a confluence threshold (MIN_SCORE=11, SM=65%) — 246 fills /
+  -16.4% says borderline setups were mostly losers. v3.2 raises
+  MIN_SCORE 11→13 (Kodiak's winner-median score) and SM consensus
+  65→75%. Same 3TF alignment + macro-gate architecture, just demands
+  higher conviction before firing. Expected: ~50% fewer entries with
+  higher hit rate. Also fixes version drift (scanner was v3.1 but
+  runtime still pinned v3.0).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
