@@ -110,13 +110,28 @@ def leader_reversed(leader_pct_at_entry: float, current_leader_move_pct: float) 
         return delta > cfg.LEADER_REVERSAL_VETO_PCT
 
 
+def _unwrap_flow_response(result: Any) -> Optional[Dict[str, Any]]:
+    """The MCP tool returns {success: bool, data: {...}}. Unwrap to the
+    inner data dict. Returns None on any unexpected shape."""
+    if not result or not isinstance(result, dict):
+        return None
+    if "data" in result and isinstance(result["data"], dict):
+        return result["data"]
+    # Fallback: tool may have returned the data dict directly
+    if "leader" in result or "laggards" in result:
+        return result
+    return None
+
+
 def get_current_leader_move(leader_asset: str) -> Optional[float]:
     """Re-call the cross-asset flow tool for the leader and read
     the current 4h move. Cheap because the tool is pre-computed."""
-    result = cfg.get_cross_asset_flows(leader_asset)
-    if not result or not isinstance(result, dict):
+    raw = cfg.get_cross_asset_flows(leader_asset)
+    data = _unwrap_flow_response(raw)
+    if not data:
         return None
-    return safe_float(result.get("leader_move_pct"))
+    leader = data.get("leader") or {}
+    return safe_float(leader.get("move_pct"))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -172,12 +187,14 @@ def run_leader_reversal_veto(open_positions: List[Dict[str, Any]]) -> List[Dict[
 def gather_candidates() -> List[Dict[str, Any]]:
     candidates = []
     for leader in cfg.LEADER_UNIVERSE:
-        result = cfg.get_cross_asset_flows(leader)
-        if not result or not isinstance(result, dict):
+        raw = cfg.get_cross_asset_flows(leader)
+        data = _unwrap_flow_response(raw)
+        if not data:
             cfg.log(f"no flow data for leader={leader}")
             continue
-        leader_move_pct = safe_float(result.get("leader_move_pct"))
-        laggards = result.get("laggards", []) or []
+        leader_block = data.get("leader") or {}
+        leader_move_pct = safe_float(leader_block.get("move_pct"))
+        laggards = data.get("laggards", []) or []
         if not laggards:
             cfg.log(f"empty laggards for leader={leader} (move={leader_move_pct:.2f}%)")
             continue
