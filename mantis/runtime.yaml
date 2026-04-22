@@ -17,67 +17,42 @@ strategy:
   budget: 1000
   enabled: true
 
-# ── SCANNERS ─────────────────────────────────────────────────────
-# Mantis runs a single composite scanner every 60s. The cron job that
-# powers market_get_cross_asset_flows runs once daily (00:00 UTC) to
-# pre-compute the 30-day correlation matrix and 90-day lag distribution;
-# Mantis just consumes the live flow output.
+# ── SCANNERS / ACTIONS (standard fleet pattern) ─────────────────
+# Mantis follows the Wolverine/Polar fleet pattern: the runtime hosts
+# a position_tracker scanner that keeps the DSL exit engine fed.
+# The actual cross-asset flow scanning logic runs as a separate
+# cron-scheduled Python job (scripts/mantis-scanner.py, every 60s)
+# that calls market_get_cross_asset_flows directly via mcporter and
+# emits STRIKE / VETO_CLOSE / NO_ENTRY actions. Cron schedule lives
+# in OpenClaw, not in this YAML.
+#
+# Entry filters, sizing tiers, risk caps, and Mantis-specific exit
+# logic (dynamic hard_timeout + leader-reversal veto) all live in
+# scripts/mantis_config.py and scripts/mantis-scanner.py — the runtime
+# YAML only declares the standard exit DSL preset as the safety net.
 
 scanners:
-  - name: cross_asset_flow_scanner
-    type: composite
-    interval: 60s
-    primary_tool: market_get_cross_asset_flows
-    leader_universe:
-      - BTC
-      # ETH/SOL/HYPE will be added when their pre-computed lag data ships
-      # (per the Cross-Asset Flow Detection release notes — only BTC has
-      # full lag coverage in v1)
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
 
 actions:
-  - name: slipstream_strike
-    action_type: SCANNER_INTERNAL
-    scanners: [cross_asset_flow_scanner]
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
     decision_mode: rule
-
-# ── ENTRY FILTERS ───────────────────────────────────────────────
-# Each laggard from the cross-asset flow tool must pass ALL of these
-# to be eligible for entry. The thresholds are intentionally strict —
-# the tool will surface dozens of laggards in volatile windows; we
-# only strike the highest-confidence subset.
-
-entry_filters:
-  min_follow_rate: 0.85           # alt must historically follow leader 85%+ of the time
-  min_confidence: 0.75            # composite score floor (correlation + follow + lag + SM)
-  min_gap_pct: 1.5                # at least 1.5% catchup opportunity
-  require_sm_rotation: true       # smart money must be starting to enter the alt
-  max_lag_stddev_minutes: 90      # only trade alts with predictable timing
-
-# ── SIZING ──────────────────────────────────────────────────────
-# Conviction-scaled directly off the tool's confidence score. Honest
-# mapping: more confidence = more size. Caps prevent any single setup
-# from blowing the book.
-
-sizing:
-  conviction_scaled: true
-  tiers:
-    - { confidence_min: 0.75, margin_pct: 25, leverage: 5 }
-    - { confidence_min: 0.85, margin_pct: 50, leverage: 7 }
-    - { confidence_min: 0.92, margin_pct: 75, leverage: 8 }
-  max_leverage: 8                 # tighter than HYPE/SOL hunters — alt vol is higher
+    scanners: [position_tracker]
 
 # ── EXIT (standard DSL — Mantis-specific exits live in scanner code) ──
-# The catchup thesis has TWO Mantis-specific exit conditions that the
-# runtime DSL doesn't natively support yet:
+# The catchup thesis has TWO Mantis-specific exit conditions enforced
+# by the scanner (not the runtime DSL):
 #   1. Dynamic hard_timeout per trade (avg_lag_minutes × 1.5) — the
 #      scanner computes this and includes it in each STRIKE payload
 #   2. Leader-reversal veto — the scanner re-checks the leader move
 #      every 60s and emits VETO_CLOSE actions when threshold breached
 #
-# Both behaviors live in scripts/mantis-scanner.py; this YAML provides
-# the standard DSL preset as the safety net. Hard timeout below is the
-# absolute ceiling (4h) — the scanner's dynamic timeout will typically
-# fire much sooner.
+# The DSL preset below is the standard fleet safety net. The hard_timeout
+# of 240 min is an absolute ceiling — the scanner's dynamic timeout will
+# typically fire much sooner.
 
 exit:
   engine: dsl
@@ -85,7 +60,7 @@ exit:
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 240    # absolute ceiling; scanner enforces tighter dynamic timeout
+      interval_in_minutes: 240
     weak_peak_cut:
       enabled: true
       interval_in_minutes: 20
@@ -103,22 +78,5 @@ exit:
         - { trigger_pct: 15, lock_hw_pct: 75 }
         - { trigger_pct: 25, lock_hw_pct: 85 }
 
-# ── RISK CONTROLS ───────────────────────────────────────────────
-# Designed to prevent the v1 fee-churn pathology. Hard caps on
-# concurrency, daily entries, and per-asset cooldowns.
-
-risk:
-  max_concurrent_positions: 2     # diversify across catchup setups, not concentrated
-  cooldown_per_asset_minutes: 240 # don't re-strike same alt within 4 hours
-  max_daily_entries: 6            # behavioral fee-churn ceiling
-  max_position_notional_pct: 75   # of available margin
-
-# ── NOTIFICATIONS ───────────────────────────────────────────────
-
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
-  events:
-    - STRIKE
-    - LEADER_REVERSAL_EXIT
-    - DSL_TRIGGERED
-    - DAILY_CAP_REACHED
