@@ -88,19 +88,20 @@ def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     else:                  return 0    # HARD STOP — circuit breaker
 
 COOLDOWN_MINUTES = 120
-MARGIN_PCT = 0.50
-MIN_SCORE = 8
+MARGIN_PCT = 0.30               # v1.2: 0.50 → 0.30 (reduce fade concentration)
+MIN_SCORE = 9                   # v1.2: 8 → 9 (higher bar for fade signals)
 XYZ_BANNED = True
 
-# Conviction-scaled leverage — fleet standard
+# Conviction-scaled leverage — fleet standard caps at 10x. v1.2 removed
+# 15/20x tiers — empirical fleet ceiling is 10x per Kodiak docstring.
+# 20x fader that gets faded in its own trade = catastrophic loss.
 LEVERAGE_TIERS = [
-    {"min_score": 14, "leverage": 20},
-    {"min_score": 12, "leverage": 15},
-    {"min_score": 10, "leverage": 10},
-    {"min_score": 8,  "leverage": 7},
+    {"min_score": 13, "leverage": 10},
+    {"min_score": 11, "leverage": 7},
+    {"min_score": 9,  "leverage": 5},
 ]
-DEFAULT_LEVERAGE = 7
-MAX_LEVERAGE = 20
+DEFAULT_LEVERAGE = 5
+MAX_LEVERAGE = 10               # v1.2: 20 → 10 (fleet-standard ceiling)
 
 # Fade thresholds
 MIN_SM_PCT = 3.0           # Asset must have at least 3% SM concentration

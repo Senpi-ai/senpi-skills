@@ -1,8 +1,12 @@
 name: lemon-tracker
-version: 1.1.0
+version: 1.2.0
 description: >
-  Lemon v1.1 — Degen Fader. Counter-trades CHOPPY/DEGEN traders when their
-  consensus is fading. Fleet-hardened, scanner handles execution internally.
+  Lemon v1.2 — Degen Fader (leverage + margin normalization).
+  v1.1 shipped with MAX_LEVERAGE=20x tiers and MARGIN_PCT=0.50 — catastrophic
+  when a fade fails. Result: 215 fills / -20% ROI. v1.2 caps leverage at
+  fleet-standard 10x, reduces margin to 0.30, raises MIN_SCORE 8→9, and
+  loosens dead_weight_cut 20→45 min to let fades develop. Scanner logic
+  unchanged — same CHOPPY/DEGEN contrarian signal.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -35,7 +39,7 @@ exit:
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 20
+      interval_in_minutes: 45       # v1.2: 20 → 45 (let fades develop)
     phase1:
       enabled: true
       max_loss_pct: 15.0
