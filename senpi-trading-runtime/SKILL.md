@@ -1,18 +1,17 @@
 ---
 name: senpi-trading-runtime
-description: >-
-  Configure, deploy, and manage Senpi Trading Runtime (OpenClaw plugin @senpi-ai/runtime) for automated on-chain position tracking with DSL trailing stop-loss protection. Use when a user needs to create or modify runtime YAML files, configure DSL (Dynamic Stop-Loss) exit engine parameters (phases, tiers, time-based cuts), set up the position_tracker scanner to monitor a wallet's positions on Hyperliquid, install/list/delete runtimes via CLI, or inspect DSL-tracked positions. The runtime does NOT create strategy wallets; create/get the strategy wallet via Senpi MCP first, then link that existing wallet in runtime YAML. Triggers on mentions of senpi, Senpi runtime, DSL exit, stop-loss tiers, position tracker, trailing stop, openclaw senpi, dsl_preset, or strategy YAML configuration."
+description: "Configure, deploy, and manage runtimes in the Senpi Trading Runtime OpenClaw plugin for automated on-chain position tracking with DSL trailing stop-loss protection. Use when a user needs to create or modify runtime YAML files, configure DSL (Dynamic Stop-Loss) exit engine parameters (phases, tiers, time-based cuts), set up the position_tracker scanner to monitor a wallet's positions on Hyperliquid, install/list/delete runtimes via CLI, inspect DSL-tracked positions, or check runtime health and system state. Triggers on mentions of senpi, trading runtime, DSL exit, stop-loss tiers, position tracker, trailing stop, openclaw senpi, dsl_preset, strategy YAML configuration, runtime status, runtime health, system state, or scanner health."
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.0"
+  version: "2.0"
   platform: senpi
   exchange: hyperliquid
 ---
 
 # Senpi Trading Runtime — OpenClaw Plugin
 
-On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Monitors a wallet's positions on Hyperliquid for lifecycle events (open, close, edit, flip) and applies two-phase trailing stop-loss protection to all positions. It links to an existing strategy wallet address and does not create wallets.
+On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Monitors a wallet's positions on Hyperliquid for lifecycle events (open, close, edit, flip) and applies two-phase trailing stop-loss protection to all positions.
 
 ## Core Concepts
 
@@ -20,34 +19,40 @@ On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Mo
 
 1. **Position Tracker** (`position_tracker` scanner) polls the wallet on-chain, detecting opens, closes, increases, decreases, and flips.
 2. **DSL exit engine** monitors tracked positions on a timer, computing trailing stop-loss floors across two phases.
-3. **Strategy (in runtime)** = link to an existing wallet address. The wallet address is the strategy identifier everywhere, but wallet creation happens via Senpi MCP (not the runtime).
+3. **Strategy** = a wallet address. The wallet address is the strategy identifier everywhere.
 
 **Key insight:** The position tracker enables DSL protection for ALL positions of a strategy address — including those opened manually on the exchange or by other tools.
 
+**Wallet uniqueness:** Only one running runtime per wallet address is allowed. Installing a second runtime for the same wallet is rejected. Delete the existing runtime first, then install the new one.
+
+## Strategy Wallet Validation (MCP-first)
+
+The runtime does **not** create wallets — it links to an existing strategy wallet that you create separately via Senpi MCP. Installing a runtime is a linking operation, never a wallet-creation operation.
+
 ### Wallet lifecycle (required order)
 
-1. Create strategy wallet address via Senpi MCP calls (or confirm it already exists).
-2. Put that wallet address into runtime YAML (`strategies.<name>.wallet` / `${WALLET_ADDRESS}`).
-3. Install/create runtime. This links the runtime to the existing wallet for monitoring and exits.
+1. Create the strategy wallet via Senpi MCP (or confirm it already exists).
+2. Put that wallet address into the runtime YAML (`strategy.wallet` / `${WALLET_ADDRESS}`).
+3. Install/create the runtime — this links the runtime to the existing wallet for monitoring and exits.
 
 Never treat `openclaw senpi runtime create` as wallet creation.
 
-### Strategy wallet validation (mandatory before runtime create/install)
+### Validation guardrail (mandatory before runtime create/install)
 
-Use this exact MCP-first guardrail to avoid using embedded wallets by mistake:
+Use this exact MCP-first flow to avoid linking to an embedded wallet by mistake:
 
 1. Call `strategy_list` and collect `strategies[].strategyWalletAddress`.
 2. A runtime wallet is valid only if it appears in that list (case-insensitive match).
-3. If list is empty OR provided wallet is not in list: call `strategy_create_custom_strategy` to create a strategy wallet first.
-4. Use the newly created strategy wallet address directly as `WALLET_ADDRESS` in runtime YAML, then install runtime.
+3. If the list is empty OR the provided wallet is not in the list: call `strategy_create_custom_strategy` to create a strategy wallet first.
+4. Use the newly created strategy wallet address directly as `WALLET_ADDRESS` in the runtime YAML, then install the runtime.
 
-Hard rules:
-- Never use embedded wallet/injected wallet for runtime linking.
-- Never treat a wallet as a strategy wallet unless it exists in `strategy_list`.
+**Hard rules:**
+- Never use an embedded wallet / injected wallet for runtime linking.
+- Never treat a wallet as a strategy wallet unless it appears in `strategy_list`.
 - Runtime install is blocked until strategy wallet validation passes.
-- Always confirm with the user before creating a new strategy wallet address, and explicitly confirm the budget (`initialBudget`) that will be used.
+- Always confirm with the user before creating a new strategy wallet, and explicitly confirm the budget (`initialBudget`) that will be used.
 
-Example MCP flow (tool names from Senpi MCP):
+**Example MCP flow:**
 
 ```text
 strategy_list({})
@@ -67,22 +72,16 @@ Notes:
 
 ## CLI Commands
 
-All commands require the OpenClaw gateway running (`openclaw gateway run`).
-
-Use `openclaw senpi --cheatsheet` to print the full plugin command cheatsheet to stdout.
+All commands require the OpenClaw gateway running (`openclaw gateway run`). Print a full commands cheatsheet at any time with `openclaw senpi --cheatsheet`.
 
 ### Runtime management
-
-Prerequisite: strategy wallet address already exists (created/fetched via Senpi MCP).
 
 ```bash
 # Create a runtime from YAML file
 openclaw senpi runtime create --path ./my-strategy.yaml
-openclaw senpi runtime create -p ./my-strategy.yaml          # short form
 
 # Create with inline YAML content
 openclaw senpi runtime create --content "<yaml>"
-openclaw senpi runtime create -c "<yaml>"                    # short form
 
 # Create with custom ID
 openclaw senpi runtime create --path ./my-strategy.yaml --runtime-id my-name
@@ -90,9 +89,10 @@ openclaw senpi runtime create --path ./my-strategy.yaml --runtime-id my-name
 # List installed runtimes (id, wallet, source, status)
 openclaw senpi runtime list
 
-# Delete a runtime
-openclaw senpi runtime delete <runtime_id>                   # positional id
-openclaw senpi runtime delete --id <runtime_id>              # named flag
+# Delete a runtime by id or wallet address
+openclaw senpi runtime delete --id <runtime_id>
+openclaw senpi runtime delete --address <wallet>
+openclaw senpi runtime delete <runtime_id>   # positional also works
 ```
 
 ### DSL position inspection
@@ -100,95 +100,122 @@ openclaw senpi runtime delete --id <runtime_id>              # named flag
 ```bash
 # All active DSL-tracked positions
 openclaw senpi dsl positions
-openclaw senpi dsl positions -r <id>                         # filter by runtime id
-openclaw senpi dsl positions -a <addr>                       # filter by wallet address
+openclaw senpi dsl positions --runtime <id>
+openclaw senpi dsl positions --address <0x...>
 openclaw senpi dsl positions --json
 
 # Inspect one position (full DslState)
 openclaw senpi dsl inspect <ASSET>
-openclaw senpi dsl inspect SOL -r <id>
-openclaw senpi dsl inspect SOL -a <addr>
+openclaw senpi dsl inspect SOL --runtime <id>
 openclaw senpi dsl inspect BTC --json
 
-# Archived (closed) positions — reason, ROE, phase, tier
+# Archived (closed) positions
 openclaw senpi dsl closes
-openclaw senpi dsl closes -r <id>
-openclaw senpi dsl closes -a <addr>
-openclaw senpi dsl closes -l <n>
-openclaw senpi dsl closes --json
+openclaw senpi dsl closes --limit 20 --json
 ```
 
-### Runtime diagnostics
+### Health and system state
+
+Use these commands to check whether the runtime is operating correctly and to diagnose issues.
+
+**`status`** — lightweight health check. Use as a first step when something seems wrong (e.g., positions not being tracked, stop-losses not firing, scanners not running). Shows overall health, scanner summary, and DSL summary per runtime.
 
 ```bash
-openclaw senpi status                    # lightweight health summary (all runtimes)
-openclaw senpi status -r <id>
-openclaw senpi status --json
-
-openclaw senpi state                     # full operational state (all runtimes)
-openclaw senpi state -r <id>
-openclaw senpi state --json
+openclaw senpi status                  # Health for all running runtimes
+openclaw senpi status --runtime <id>   # Health for a specific runtime
+openclaw senpi status --json           # Raw JSON output
 ```
 
-### In-shell reference (`senpi guide`)
+**`state`** — full runtime snapshot. Use when `status` shows a problem and you need to dig deeper — it includes scanner registration details, DSL monitor telemetry (tick counts, errors, timing), active positions, and state directory location.
 
 ```bash
-openclaw senpi guide                 # overview + quick command list
-openclaw senpi guide scanners        # scanner types and config fields
-openclaw senpi guide actions         # action types and decision modes
-openclaw senpi guide dsl             # DSL exit engine: phases, tiers, time cuts
-openclaw senpi guide examples        # print minimal strategy YAML to stdout
-openclaw senpi guide schema          # full YAML schema field reference
-openclaw senpi guide version         # plugin version and changelog URL
+openclaw senpi state                   # Full state for all running runtimes
+openclaw senpi state --runtime <id>    # Full state for a specific runtime
+openclaw senpi state --json            # Raw JSON output
 ```
 
-### CLI preferences (`senpi config`)
+**When to use which:**
+- Start with `status` — if everything shows healthy, the runtime is operating normally.
+- Move to `state` when `status` reports degraded/unhealthy and you need to understand why (e.g., which scanner is erroring, whether the DSL monitor is stuck, tick error counts).
+- Use `dsl positions` / `dsl inspect` for position-level detail (trailing stop floors, current tier, breach counts) — those are about individual positions, not runtime health.
 
-Persists to `~/.openclaw/senpi-cli.json`. Restart gateway to apply.
+### In-shell reference
 
 ```bash
-openclaw senpi config set-chat-id <chatId>
-openclaw senpi config set-senpi-jwt-token <token>
-openclaw senpi config set-state-dir <dir>
-openclaw senpi config get <key>      # telegram-chat-id | senpi-jwt-token | state-dir
-openclaw senpi config list           # secrets masked
+openclaw senpi guide              # Overview and quick command list
+openclaw senpi guide scanners     # Scanner types and config fields
+openclaw senpi guide actions      # Action types and decision modes
+openclaw senpi guide dsl          # DSL exit engine reference
+openclaw senpi guide examples     # Print minimal strategy YAML
+openclaw senpi guide schema       # Full YAML schema
+openclaw senpi guide version      # Plugin version and changelog URL
+```
+
+### External scanner ingest
+
+Use this flow when a scanner's data comes from another system and should be
+pushed into the runtime instead of polled on an interval. Declare the scanner
+in YAML, then push payloads via the CLI.
+
+```yaml
+scanners:
+  - name: custom_regime
+    type: external_scanner
+    outputs:
+      signals: false
+      context: true
+    retention: last_only
+    config:
+      fields:
+        regime: { type: string, required: true }
+        confidence: { type: number, required: true }
+```
+
+```bash
+openclaw senpi external-scanner ingest \
+  --address 0xYourStrategyWallet \
+  --scanner custom_regime \
+  --payload '{"data":{"regime":"RISK_ON","confidence":0.91}}'
+```
+
+The CLI accepts `--payload <json>` inline or `--payload-path <file>` for a JSON file. Payloads may be a single-signal shape (`asset`, `direction`, `score`, `signal_type`, `data`) or a batch (`{"signals":[...]}`). For context-only scanners, just send a `data` blob.
+
+Use namespaced prompt/context keys only:
+
+- `{{signal_custom_regime}}` for ingested signal arrays
+- `{{context_custom_regime}}` for retained external context
+- flat aliases like `{{custom_regime}}` are not supported
+
+For producer operations (scheduling with `openclaw cron`, shipped producers, custom producer guidance), see [External Producers](references/external-producers.md). For a complete strategy wired end-to-end with the shipped momentum producer, see [Momentum-Guarded Strategy](references/momentum-guarded-strategy.md).
+
+### Diagnostic action commands
+
+Use these when a trade didn't fire as expected, to audit decision-engine runs and execution history.
+
+```bash
+openclaw senpi action list                          # All registered actions with counters
+openclaw senpi action inspect <action-name>         # Persisted latest state for one action
+openclaw senpi action history [action-name]         # Rolling execution history
+openclaw senpi action decisions [action-name]       # Rows where decision engine ran (LLM reasoning)
+```
+
+All accept `--runtime <id>`, `--address <wallet>`, `--limit <n>`, and `--json`.
+
+### Configuration
+
+```bash
+openclaw senpi config set-chat-id <chatId>           # Telegram notifications
+openclaw senpi config set-senpi-jwt-token <token>     # Senpi MCP auth
+openclaw senpi config set-state-dir <dir>             # State directory
+openclaw senpi config get <key>
+openclaw senpi config list
 openclaw senpi config unset <key>
 openclaw senpi config reset
 ```
 
-### Gateway RPC (advanced)
-
-**Common calls:**
-
-```bash
-openclaw gateway call senpi.installRuntime --params '{"runtimeYamlContent":"..."}'
-openclaw gateway call senpi.listRuntimes --json --params '{}'
-openclaw gateway call senpi.deleteRuntime --params '{"id":"my-runtime"}'
-openclaw gateway call senpi.listDslPositions --json --params '{}'
-openclaw gateway call senpi.getDslPositionState --json --params '{"asset":"SOL"}'
-openclaw gateway call senpi.listDslArchives --json --params '{"limit":20}'
-openclaw gateway call senpi.getHealthStatus --json --params '{}'
-openclaw gateway call senpi.getSystemState --json --params '{}'
-```
-
-**Methods summary**
-
-| Method | Params | Success response |
-|--------|--------|------------------|
-| `senpi.installRuntime` | `runtimeYamlContent` or `runtimeYamlPath` | Runtime installed |
-| `senpi.listRuntimes` | — | List of runtimes |
-| `senpi.deleteRuntime` | `id` or address | Deleted |
-| `senpi.listDslPositions` | `runtimeId?` | Active positions |
-| `senpi.getDslPositionState` | `asset`, `runtimeId?` | Single position state |
-| `senpi.listDslArchives` | `runtimeId?`, `address?`, `limit?` | `closes[]` (asset, direction, entryPrice, lastPrice, currentROE, closeReason, closedAt, phase, …) |
-| `senpi.getHealthStatus` | `runtimeId?` (string) | `status` or `statuses[]` (health, components.scanners, components.dsl) |
-| `senpi.getSystemState` | `runtimeId?` (string) | `state` or `states[]` (health, stateDir, scanner/DSL components) |
-
-Close reasons for `listDslArchives`: `dsl_breach`, `hard_timeout`, `weak_peak_cut`, `dead_weight_cut`, `exchange_sl_hit`, `manual`.
-
 ## Runtime YAML
 
-The runtime YAML drives all behavior. Top-level keys: `name`, `strategies`, `scanners`, `actions`, `exit`, `notifications`.
+The runtime YAML drives all behavior. Top-level keys: `name`, `strategy`, `scanners`, `actions`, `exit`, `risk`, `notifications`.
 
 ```yaml
 name: my-tracker
@@ -196,14 +223,12 @@ version: 1.0.0
 description: >
   On-chain position tracker with DSL trailing stop-loss.
 
-strategies:
-  main:
-    wallet: "${WALLET_ADDRESS}"
-    budget: 500
-    slots: 2
-    margin_per_slot: 200
-    trading_risk: conservative    # conservative | moderate | aggressive
-    enabled: true
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  slots: 2
+  margin_pct: 15
+  trading_risk: conservative    # conservative | moderate | aggressive
+  enabled: true
 
 scanners:
   - name: position_tracker
@@ -219,6 +244,10 @@ actions:
 exit:
   engine: dsl
   interval_seconds: 30            # how often the price monitor runs (5-3600)
+  order_type: FEE_OPTIMIZED_LIMIT # MARKET (default) or FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true       # fall back to market if maker doesn't fill
+    execution_timeout_seconds: 15         # seconds to wait for maker fill (1-300, default 45)
   dsl_preset:                     # single preset (no named map needed)
     hard_timeout:
       enabled: true
@@ -255,30 +284,24 @@ For full field details: [YAML Schema Reference](references/yaml-schema.md)
 
 **Two-phase trailing stop-loss** protecting open positions:
 
-**Phase 1** (from entry until the first tier is reached):
-- **Absolute floor** from `max_loss_pct` (cap on loss from entry, scaled by leverage)
-- **Trailing floor** from `retrace_threshold` (ROE % pullback from high-water mark)
-- Effective floor = stricter of both (LONG: higher price; SHORT: lower)
-- Optional **time-based cuts** at preset level: `hard_timeout`, `weak_peak_cut`, `dead_weight_cut`
-- Exchange SL stays at the absolute floor only; tighter exits enforced by runtime
+- **Phase 1** (entry → first tier): limits downside. `max_loss_pct` sets a hard loss cap; `retrace_threshold` trails the high-water mark. Optional time-based cuts (`hard_timeout`, `weak_peak_cut`, `dead_weight_cut`) close stagnant positions.
+- **Phase 2** (after first tier reached): locks in profits. Each tier's `lock_hw_pct` sets a floor as a % of the high-water ROE — the floor trails upward and never loosens.
 
-**Phase 2** (after the first tier is reached — Phase 2 always starts at tier 0):
-- **Tier floor** = `lock_hw_pct` % of current high-water ROE (trails as HW advances, never loosens)
-- Exchange SL tracks the full effective floor and updates as it moves
+**Tiers** are profit milestones. `trigger_pct` = ROE % that activates the tier, `lock_hw_pct` = % of high-water ROE to lock as floor. Tiers must have strictly increasing `trigger_pct`.
 
-**Tiers** are profit milestones (by ROE % from entry). Each tier has two fields: `trigger_pct` (ROE % that activates it) and `lock_hw_pct` (% of high-water ROE to lock as floor). Tiers must have strictly increasing `trigger_pct`.
+**Tuning guidance:**
+- Higher `max_loss_pct` = more room before hard stop (conservative: 5-6%, aggressive: 2-3%)
+- Higher `retrace_threshold` = more tolerance for pullbacks from peak
+- Higher `consecutive_breaches_required` = more tolerant of temporary dips (1 = instant, 3 = sustained)
+- Longer time-cut intervals = more patience before cutting underperformers
 
-**Consecutive breaches** are tick-based (not time-based). Each monitor tick (every `interval_seconds`), if price violates the floor, the breach counter increments. Recovery resets it.
-
-**Retrace convention:** `retrace_threshold` is ROE %. Engine converts to price: `retrace_ROE% / 100 / leverage`. At 10x leverage, 7% ROE retrace = 0.7% price below high-water.
-
-For full DSL configuration with all fields, time-based cuts, close reasons, and events: [DSL Configuration Reference](references/dsl-configuration.md)
+For full DSL mechanics (retrace math, breach logic, close reasons, events): [DSL Configuration Reference](references/dsl-configuration.md)
 
 ## Environment Variables
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `WALLET_ADDRESS` | Yes | Existing strategy wallet address from Senpi MCP (used in YAML via `${WALLET_ADDRESS}`). |
+| `WALLET_ADDRESS` | Yes | Strategy wallet address (used in YAML via `${WALLET_ADDRESS}`). |
 | `SENPI_API_KEY` | For live MCP | Senpi MCP authentication. |
 | `TELEGRAM_CHAT_ID` | No | Telegram chat ID for notifications. |
 | `DSL_STATE_DIR` | No | Override DSL state file directory. |
@@ -286,8 +309,8 @@ For full DSL configuration with all fields, time-based cuts, close reasons, and 
 ## References
 
 - [Runtime Concepts](references/runtime-concepts.md) — Conceptual explanation of scanners, actions, DSL phases, and what every field controls in trading terms
-- [YAML Schema Reference](references/yaml-schema.md) — All runtime YAML fields and DSL preset options
-- [DSL Configuration Reference](references/dsl-configuration.md) — Full DSL exit engine: phases, tiers, time cuts, close reasons, events
-- [Strategy Examples](references/strategy-examples.md) — Ready-to-use YAML examples with different DSL tuning profiles
-- [Migration from DSL Cron](references/migration-from-dsl-cron.md) — Upgrade from old `dsl-v5.py` cron to plugin runtime
-- [Runtime Template](references/runtime-template.yaml) — Starter runtime.yaml with field mapping comments
+- [Strategy YAML Reference](references/yaml-schema.md) — Schema reference: top-level sections, building blocks, template variables, wiring rules, validation errors
+- [DSL Configuration Reference](references/dsl-configuration.md) — DSL exit engine: phases, tiers, time cuts, tuning guidance, close reasons, events
+- [Strategy Examples](references/strategy-examples.md) — Position-tracker runtimes with different DSL tuning profiles
+- [Momentum-Guarded Strategy](references/momentum-guarded-strategy.md) — End-to-end quick-start strategy exercising external scanners, LLM decisions, risk gates, and DSL exits — with producer cron setup
+- [External Producers](references/external-producers.md) — How to schedule, deploy, and build external-scanner producers

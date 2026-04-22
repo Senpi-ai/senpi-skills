@@ -1,6 +1,22 @@
-# DSL Exit Engine — Full Configuration Reference
+# DSL Exit Engine — Configuration Reference
+
+> For the complete strategy YAML specification (all sections), see [yaml-schema.md](yaml-schema.md).
 
 The DSL (Dynamic Stop-Loss) manages exit logic for open perpetual positions. It monitors prices on a fixed interval and closes positions when price breaches a computed floor. Two-phase design: Phase 1 protects from initial loss, Phase 2 locks in profits as they grow.
+
+## Tuning Guidance
+
+| Profile | Description | Typical settings |
+|---------|-------------|------------------|
+| **Conservative** | Wide stops, long timeouts. For swing-style or low-conviction entries. | max_loss_pct: 5-8, retrace_threshold: 10+, hard_timeout: 360+ min |
+| **Moderate** | Balanced protection. Suitable for most momentum strategies. | max_loss_pct: 2.5-4, retrace_threshold: 7, hard_timeout: 120-240 min |
+| **Aggressive** | Tight stops, fast cuts. For scalp-style or high-conviction entries. | max_loss_pct: 1.5-2.5, retrace_threshold: 5, hard_timeout: 60-90 min |
+
+Key trade-offs:
+- Lower `max_loss_pct` = less risk per trade, but more stop-outs on noise
+- Higher `retrace_threshold` = more room to breathe, but gives back more profit on reversals
+- More phase2 tiers = smoother profit locking, but each tier is a potential exit trigger
+- Lower `consecutive_breaches_required` = faster exit on breach, but more false triggers
 
 ---
 
@@ -24,18 +40,26 @@ The DSL (Dynamic Stop-Loss) manages exit logic for open perpetual positions. It 
 
 ## Exit block
 
-Configured under the `exit` key in the runtime YAML.
+Configured under the `exit` key in the recipe YAML.
 
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `engine` | string | Yes | — | Must be `"dsl"` to activate the DSL exit engine. |
 | `interval_seconds` | integer | No | `30` | How often the price monitor runs (seconds). Range: 5–3600. |
+| `order_type` | string | No | `MARKET` | Execution method for DSL exit closes: `MARKET` or `FEE_OPTIMIZED_LIMIT`. |
+| `fee_optimized_limit_options` | object | No | — | Only valid when `order_type` is `FEE_OPTIMIZED_LIMIT`. |
+| `fee_optimized_limit_options.ensure_execution_as_taker` | boolean | No | — | When `true`, falls back to market order if maker doesn't fill within timeout. |
+| `fee_optimized_limit_options.execution_timeout_seconds` | integer | No | `45` | Seconds to wait for maker fill (1–300). |
 | `dsl_preset` | object | Yes | — | Single preset config (see below). |
 
 ```yaml
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 15
   dsl_preset:
     ...
 ```
@@ -52,7 +76,7 @@ The `dsl_preset` object contains time-based cuts (at preset level), Phase 1, and
 |-----|------|----------|-------------|
 | `hard_timeout` | object | No | Time-based cut: close after N minutes in Phase 1. |
 | `weak_peak_cut` | object | No | Time-based cut: close if peak ROE stayed weak. |
-| `dead_weight_cut` | object | No | Time-based cut: close if position never went positive. |
+| `dead_weight_cut` | object | No | Time-based cut: close after interval with `currentROE ≤ 0` since last tick with `currentROE > 0`. |
 | `phase1` | object | Yes | Phase 1 config (see below). |
 | `phase2` | object | Yes | Phase 2 config with tiers (see below). |
 
@@ -116,14 +140,13 @@ Close reason: `weak_peak_cut`
 
 ### dead_weight_cut
 
-Close when position never went favorable vs entry after the interval.
+Stagnation cut: `deadWeightCutStartedAt` is set at open and **reset every tick** while **`currentROE > 0`**. Close when elapsed ≥ `interval_in_minutes` **and** `currentROE ≤ 0` on that tick.
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
 | `enabled` | boolean | Yes | Must be `true` to activate. |
-| `interval_in_minutes` | number | Yes | Evaluate only after this many minutes. |
+| `interval_in_minutes` | number | Yes | Wall-clock minutes since `deadWeightCutStartedAt` (see above). |
 
-Condition: LONG -> highWaterPrice <= entryPrice; SHORT -> highWaterPrice >= entryPrice.
 Close reason: `dead_weight_cut`
 
 ```yaml
@@ -245,16 +268,19 @@ Emitted on the runtime event bus:
 
 | Event | When | Key Payload |
 |-------|------|-------------|
-| `dsl.created` | Position opened, initial state + SL written. | address, asset, preset, tiers, floorPrice |
-| `dsl.phase_changed` | Phase 1 -> Phase 2 transition. | address, asset, phase, tierIndex |
-| `dsl.tier_advanced` | Price moved into a higher tier. | address, asset, tier, lockHwPct, triggerPct, newFloorPrice |
+| `dsl.created` | Position opened, initial state + SL written. | address, asset, preset, tiers, floorPrice, direction, entryPrice, dex |
+| `dsl.phase_changed` | Phase 1 → Phase 2 transition (first tier reached). | address, asset, phase, tierIndex, timestamp |
+| `dsl.tier_advanced` | Price moved into a higher tier (includes profit-lock fields for alerts). | address, asset, dex, tier, lockHwPct, triggerPct, newFloorPrice |
+| `dsl.heartbeat` | Periodic open-position status (sparse interval). | address, asset, dex, direction, floorPrice, ROE fields, elapsedMinutes |
 | `dsl.sl_updated` | Exchange stop-loss synced. | address, asset, newSLPrice, slOrderId |
-| `dsl.closed` | Position closed by DSL. | address, asset, reason, closeReason |
+| `dsl.closed` | Position closed (DSL paths, exchange SL, hooks). Close alerts may wait for trade history for PnL. | address, asset, dex, reason, closeReason, snapshot fields |
 | `dsl.close_pending` | Close in progress (will retry). | address, asset, attempt |
 | `dsl.settings_updated` | DSL config changed. | address, asset, updated |
-| `dsl.deleted` | DSL state removed. | address, asset |
+| `dsl.deleted` | DSL state removed (e.g. strategy delete). | address, asset, dex |
 
-**Position events DSL listens to:** `on_position_opened`, `on_position_closed`, `on_position_flipped`, `position.increased`, `position.decreased`.
+**Telegram:** If the recipe defines `notifications` with `telegram_chat_id`, DSL lifecycle events are forwarded as plain-text alerts by default (gateway HTTP uses `OPENCLAW_GATEWAY_TOKEN` from the environment unless you set optional `gateway_token` in YAML). Set `notifications.dsl_lifecycle: false` to turn off only DSL Telegram messages. Set `notifications.dsl_notify_sl_updates: true` to include `dsl.sl_updated` (noisy; off by default). Close lines are deferred briefly when needed so realized PnL can be filled from trade history; increase/decrease/flip rebuilds suppress the `dsl.created` ping.
+
+**Position events DSL listens to:** `on_position_opened`, `on_position_closed`, `on_position_flipped`, `on_position_increased`, `on_position_decreased`.
 
 ---
 
@@ -264,6 +290,10 @@ Emitted on the runtime event bus:
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 15
   dsl_preset:
     hard_timeout:
       enabled: true
