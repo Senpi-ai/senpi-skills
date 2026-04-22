@@ -90,7 +90,28 @@ FUNDING_EXTREME = 0.0008   # BTC funding is lower magnitude than alts
 FUNDING_CROWDED = 0.003
 
 # Dynamic daily cap
-STARTING_BUDGET = 1000.0
+# v5.2: startingBudget is config-driven with 1000.0 fallback for fresh deploys.
+# Rationale: wallet-specific values (post-drawdown rebases, post-topup rebases)
+# belong in the user's LOCAL config, not in the public repo. The P&L-aware
+# daily cap uses this as the denominator; if the agent has been through a
+# meaningful drawdown and the operator wants to rebase the "new baseline"
+# (e.g., acknowledge -24% loss and start from current equity forward), they
+# set startingBudget in config.json without needing a scanner code change.
+# Scanner reads config on each cron invocation (fresh Python subprocess).
+
+
+def _resolve_starting_budget():
+    try:
+        c = cfg.load_config()
+        v = c.get("startingBudget")
+        if v is not None:
+            return float(v)
+    except Exception:
+        pass
+    return 1000.0
+
+
+STARTING_BUDGET = _resolve_starting_budget()
 
 
 # ═══════════════════════════════════════════════════════════════

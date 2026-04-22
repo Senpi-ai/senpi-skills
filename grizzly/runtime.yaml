@@ -1,5 +1,5 @@
 name: grizzly-tracker
-version: 5.1.0
+version: 5.2.0
 description: >
   GRIZZLY v5.1 — BTC Alpha Hunter (DSL loosened for multi-day BTC trends).
   Single-asset BTC scanner, trend-following (flipped back from v4.x
