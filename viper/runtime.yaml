@@ -1,8 +1,12 @@
 name: viper-tracker
-version: 2.1.0
+version: 2.2.0
 description: >
-  VIPER v2.1 — Range-Bound Liquidity Sniper. Range S/R trader — tight DSL, works in chop.
-  See SKILL.md for full thesis, scoring, and operational notes.
+  VIPER v2.2 — Range-Bound Liquidity Sniper (DSL loosen for winners).
+  v2.1 shipped with 15/20 min dead_weight/weak_peak cuts and 4h
+  hard_timeout. Result: 240 fills / -19.9% ROI. The "range trades
+  resolve fast" assumption cut winners before they could develop. v2.2
+  doubles the timing windows: 30/45/480. Phase 1 stays tight since
+  range-fader stops should be close to entry. Phase 2 unchanged.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -30,14 +34,14 @@ exit:
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 240     # 4h — range trades resolve fast
+      interval_in_minutes: 480     # v2.2: 240 → 480 (let range winners develop)
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 20
+      interval_in_minutes: 45       # v2.2: 20 → 45
       min_value: 1.5
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 15
+      interval_in_minutes: 30       # v2.2: 15 → 30
     phase1:
       enabled: true
       max_loss_pct: 15.0

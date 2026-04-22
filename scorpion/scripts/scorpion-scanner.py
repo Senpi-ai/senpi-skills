@@ -84,8 +84,8 @@ CRYPTO_ASSETS = {
 }
 XYZ_ASSETS = {"CL", "BRENTOIL", "GOLD", "SPX"}
 
-MAX_POSITIONS = 3
-MAX_DAILY_ENTRIES = 6
+MAX_POSITIONS = 2               # v3.2: 3 → 2 (reduce concurrent fee exposure)
+MAX_DAILY_ENTRIES = 3           # v3.2: 6 → 3 (tighten daily cap)
 
 # ═══════════════════════════════════════════════════════════════
 # DYNAMIC DAILY CAP (P&L-aware circuit breaker)
@@ -106,12 +106,12 @@ def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     else:                  return 0    # HARD STOP — circuit breaker
 
 
-COOLDOWN_MINUTES = 120          # Fresh-entry cooldown (different asset, or >60 min since last entry on same asset)
-SCALP_COOLDOWN_MINUTES = 15     # v3.1: short cooldown for scalp re-entries on recently-active assets
-SCALP_WINDOW_MINUTES = 60       # v3.1: within this window of last entry, asset is a scalp candidate
-MAX_REENTRIES_PER_ASSET = 10    # v3.1: cap per-asset daily entries to prevent death spiral
-MARGIN_PCT = 0.30
-MIN_SCORE = 6
+COOLDOWN_MINUTES = 120          # Fresh-entry cooldown
+SCALP_COOLDOWN_MINUTES = 60     # v3.2: 15 → 60 (pr0br000's scalp pattern got them wiped; don't emulate)
+SCALP_WINDOW_MINUTES = 60
+MAX_REENTRIES_PER_ASSET = 3     # v3.2: 10 → 3 (caps per-asset fee-churn on breaking thesis)
+MARGIN_PCT = 0.25               # v3.2: 0.30 → 0.25 (slight reduction in concentration)
+MIN_SCORE = 9                   # v3.2: 6 → 9 (major bar raise — kill coin-flip signals)
 
 # 4H price alignment thresholds — XYZ assets move less than crypto
 MIN_4H_ALIGNED_PCT_CRYPTO = 1.0

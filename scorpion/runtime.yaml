@@ -1,17 +1,25 @@
 name: scorpion-tracker
-version: 3.0.0
+version: 3.2.0
 description: >
-  SCORPION v3.0 — Multi-Market Active Trader. Trades BOTH crypto AND XYZ
-  DEX commodities/indices using SM concentration + 4H trend alignment.
-  Up to 3 concurrent positions, 5-10x leverage, 12-hour max hold.
-  Arena winner #2/#3 playbook.
+  SCORPION v3.2 — Multi-Market Active Trader (over-trading fix).
+  v3.1 targeted pr0br000's 369-fills-in-3-weeks scalp-re-entry pattern.
+  Result: 413 fills, -17.9% ROI. pr0br000 subsequently got wiped out
+  week 4 — the pattern doesn't work at sample. v3.2 pulls discipline:
+    MIN_SCORE 6 → 9 (kill coin-flip entries)
+    MAX_POSITIONS 3 → 2 (reduce concurrent fee exposure)
+    MAX_DAILY_ENTRIES 6 → 3
+    SCALP_COOLDOWN 15 → 60 min (no more 15-min re-entries)
+    MAX_REENTRIES_PER_ASSET 10 → 3 (cap per-asset fee-churn)
+    MARGIN_PCT 30% → 25%
+  Scanner logic unchanged — same multi-market SM + 4H trend gating,
+  just stricter thresholds and less re-entry aggression.
 
 # -- STRATEGY --
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
-  slots: 3
-  margin_per_slot: 300
+  slots: 2
+  margin_per_slot: 250
   enabled: true
 
 # -- SCANNERS --
