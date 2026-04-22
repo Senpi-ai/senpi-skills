@@ -1,13 +1,11 @@
 name: jackal-tracker
-version: 1.0.0
+version: 1.1.0
 description: >
-  JACKAL v1.0 — The Smart Stalker. The fleet's first SECONDARY-SIGNAL
-  agent. Observes other Senpi users' trades (via the new any-user-lookup
-  MCP capability) and executes filtered, consensus-weighted trades with
-  its own DSL. Maintains a rolling pool of ~20-30 qualified traders
-  scored by trajectory (not rank) — catches emerging movers BEFORE they
-  hit the top of the Arena leaderboard. Acts only when source quality +
-  consensus + independent TA confirmation all align.
+  JACKAL v1.1 — The Smart Stalker (promotion loosen). v1.0 was dormant
+  (0 trades) because PROMOTE_SCORE_THRESHOLD=70 + 6h sustain rejected
+  every candidate. v1.1 loosens to 65 + 3h to let the active pool fill.
+  Active-pool size cap unchanged — over-promotion still self-corrects.
+  No scanner logic, signal scoring, or DSL changes.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"

@@ -23,7 +23,7 @@ import jackal_config as cfg
 # Promotion / Demotion thresholds
 # ═══════════════════════════════════════════════════════════════
 
-PROMOTE_SCORE_THRESHOLD = 70       # Watchlist → Active Pool
+PROMOTE_SCORE_THRESHOLD = 65       # v1.1: 70 → 65 (unblock — no promotions at 70)
 RETAIN_SCORE_THRESHOLD = 50        # Below this, demote from Active Pool
 DRAWDOWN_HARD_DEMOTE_PCT = 10.0    # 24h drawdown >10% = instant demote
 FEE_DRAG_HARD_LIMIT = 40.0         # fee_drag >40% = disqualified
@@ -570,7 +570,7 @@ def refresh_pool_scores(pool, candidates, own_user_id=None):
             first_seen_ts = existing.get("first_seen_ts", now)
             hours_watched = (now - first_seen_ts) / 3600
 
-            if score >= PROMOTE_SCORE_THRESHOLD and hours_watched >= 6:
+            if score >= PROMOTE_SCORE_THRESHOLD and hours_watched >= 3:  # v1.1: 6→3h sustain
                 pool_entry["promoted_at"] = now
                 pool_entry["first_seen_ts"] = first_seen_ts
                 new_active[user_id] = pool_entry

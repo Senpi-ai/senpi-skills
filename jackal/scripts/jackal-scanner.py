@@ -1,9 +1,23 @@
 #!/usr/bin/env python3
-# Senpi JACKAL Scanner v1.0
+# Senpi JACKAL Scanner v1.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/996
-"""JACKAL v1.0 — The Smart Stalker.
+"""JACKAL v1.1 — The Smart Stalker (promotion loosen).
+
+## v1.1 changes (2026-04-22) — DORMANT-FIX
+
+v1.0 has been dormant (0 trades) because the active pool never fills:
+PROMOTE_SCORE_THRESHOLD=70 + sustain >= 6h is too strict against the
+actual distribution of Senpi user quality scores. v1.1 loosens to 65 +
+3h to unblock promotions. Active pool still capped at
+MAX_ACTIVE_POOL_SIZE, so over-promotion still self-corrects.
+
+No scanner logic, signal scoring, or DSL changes.
+
+---
+
+## v1.0 (original) — The Smart Stalker
 
 The fleet's first SECONDARY-SIGNAL agent. While every other predator
 (Kodiak, Condor, Python, Wolverine, Polar, Grizzly, Scorpion, etc.)
@@ -736,7 +750,7 @@ def run():
                 for c in candidates[:3]
             ],
             "maintenance": pool_maintenance_actions,
-            "_jackal_version": "1.0",
+            "_jackal_version": "1.1",
         })
     else:
         cfg.output({
@@ -747,7 +761,7 @@ def run():
                 "score": best["score"], "reasons": best["reasons"],
             },
             "error": result,
-            "_jackal_version": "1.0",
+            "_jackal_version": "1.1",
         })
 
 
