@@ -1,0 +1,23 @@
+{
+  "_doc": "Atlas v0.1 — operator-facing config overlay. Copy to atlas-config.json and edit. Anything you set here overrides defaults in scripts/atlas_config.py. Anything you omit uses the default.",
+
+  "STATE_DIR": "/data/workspace/skills/atlas-strategy/state",
+
+  "ANCHOR_UNIVERSE_SIZE": 15,
+  "ANCHOR_STRIKE_THRESHOLD": 7.0,
+  "ANCHOR_PERSISTENCE_DAYS": 2,
+  "ANCHOR_MAX_LEVERAGE": 3,
+  "ANCHOR_MIN_HOLD_DAYS": 7,
+
+  "BASKET_TARGET_MEMBERS": 4,
+  "BASKET_TARGET_HEDGE_RATIO": 0.40,
+  "BASKET_MAX_LEVERAGE": 2,
+
+  "WARMUP_DAYS": 7,
+  "PILOT_ABORT_DRAWDOWN_PCT": 5.0,
+
+  "PORTFOLIO_MAX_DRAWDOWN_WEEKLY_PCT": 12,
+  "PORTFOLIO_CASH_FLOOR_PCT": 10,
+
+  "DAILY_DECISION_TIME_UTC": "13:00"
+}

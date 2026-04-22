@@ -1,0 +1,206 @@
+name: atlas-tracker
+version: 0.1.0
+description: >
+  ATLAS v0.1 — Agentic portfolio operator. First Senpi strategy that
+  operates at portfolio composition level, not single-position level.
+  Picks an anchor (high-conviction long) + funding-driven short basket
+  (3-5 names, risk-parity sized to 40% hedge ratio). Daily decision
+  cycle. 7-day paper-trading warmup before first strike. Staggered
+  pilot entry on first strike. Long horizon (7+ day holds), low turnover.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 2000
+  enabled: true
+
+# ── SCANNERS ─────────────────────────────────────────────────────
+# Atlas runs four scanners on a daily cadence. The scanners produce
+# scored candidate slates; the LLM action layer picks composition.
+# Scanners do NOT pick trades.
+
+scanners:
+  - name: anchor_candidates
+    type: composite_score
+    interval: 24h
+    universe: top_15_volume_perps
+    signal_sources:
+      arena_leaders_7d:
+        weight: 0.40
+        method: top_10_roe_aggregate_long_exposure
+        recency_filter_days: 5
+        conviction_weight: pct_of_account
+        floor_active_traders: 150
+      sm_consensus_7d_delta:
+        weight: 0.30
+      funding_favorability:
+        weight: 0.15
+      relative_strength_30d:
+        weight: 0.15
+    output: ranked_top_5_with_reasons
+
+  - name: basket_candidates
+    type: composite_score
+    interval: 24h
+    universe: top_50_volume_perps
+    exclusions:
+      - current_anchor
+      - correlation_above_0.85_with_anchor
+    signal_sources:
+      funding_descending:
+        weight: 0.40
+      sm_rotation_negative:
+        weight: 0.25
+      relative_weakness_vs_anchor_7d:
+        weight: 0.20
+      squeeze_risk_inverse:
+        weight: 0.15
+    output: ranked_top_10_with_reasons
+
+  - name: portfolio_state
+    type: portfolio_snapshot
+    interval: 4h
+    fields:
+      - legs
+      - days_held_per_leg
+      - pnl_per_leg
+      - funding_accrued_per_leg
+      - gross_exposure
+      - net_delta
+      - portfolio_drawdown_from_week_start
+
+  - name: fleet_overlap
+    type: predators_position_aggregator
+    interval: 6h
+    exclude_self: true
+    output: per_asset_long_count_short_count_net_notional_pct
+
+# ── ACTIONS ──────────────────────────────────────────────────────
+
+actions:
+  - name: portfolio_decide
+    action_type: LLM_PORTFOLIO_DECISION
+    decision_mode: llm
+    scanners: [anchor_candidates, basket_candidates, portfolio_state, fleet_overlap]
+    output_schema:
+      decision: enum[HOLD, SWAP_BASKET_MEMBER, RESIZE, FULL_REBALANCE, GO_TO_CASH]
+      anchor: { asset, side, leverage, target_notional }
+      basket: [{ asset, side, leverage, target_notional, weight_method }]
+      conviction: float  # 0.0 - 10.0, agent self-rated
+      rationale: string
+      alternatives_considered: array
+
+# ── COLD START ───────────────────────────────────────────────────
+# The single most important section. Atlas does NOT trade until the
+# operator has reviewed 7 days of paper-trading rationale logs AND
+# the anchor signal qualifies for 2 consecutive daily scans.
+
+cold_start:
+  warmup:
+    enabled: true
+    duration_days: 7
+    mode: paper_trade_with_rationale_logging
+    purpose: threshold_calibration_and_operator_review
+    rationale_log_review_required_before_strike: true
+
+  first_strike:
+    require_warmup_complete: true
+    require_anchor_score: 7.0           # higher than steady-state threshold (6.5)
+    require_score_persistence_days: 2   # two consecutive qualifying scans
+    require_no_catastrophic_regime: true
+    regime_vetoes:
+      - btc_drawdown_48h_pct: 10
+      - funding_regime_breadth: flipping
+      - vol_regime: expansion_spike
+
+  pilot_protocol:
+    day_1: { anchor_pct: 0.50, basket_pct: 0.00 }
+    day_2: { anchor_pct: 0.75, basket_pct: 0.25, conditional_on: thesis_confirming }
+    day_3: { anchor_pct: 1.00, basket_pct: 0.40, conditional_on: thesis_confirming }
+    abort_triggers:
+      anchor_drawdown_pct: 5
+      anchor_score_falls_below: 6.5
+    abort_action:
+      close_all: true
+      warmup_reset_days: 3
+
+# ── RISK ENVELOPE ────────────────────────────────────────────────
+
+risk_envelope:
+  anchor:
+    max_leverage: 3
+    min_hold_days: 7
+    max_notional_pct_of_equity: 100
+  basket:
+    max_members: 5
+    min_members: 3
+    max_leverage: 2
+    target_hedge_ratio: 0.40            # of anchor notional
+    hedge_ratio_tolerance: [0.25, 0.55]
+    min_holding_days_per_member: 3      # prevents oscillation
+  portfolio:
+    max_gross_exposure_pct: 200
+    max_drawdown_weekly_pct: 12
+    drawdown_action: close_basket_first
+    cash_floor_pct: 10                  # always keep dry powder
+
+  fleet_concentration:
+    enabled: true
+    treatment: leverage_modifier_only   # never a hard veto
+    rules:
+      - if_same_direction_predator_count_gte: 5
+        cap_leverage_at: 2
+      - if_fleet_notional_pct_in_asset_gt: 30
+        cap_leverage_at: 2
+
+# ── CYCLE ────────────────────────────────────────────────────────
+
+cycle:
+  daily_decision:
+    enabled: true
+    time_utc: "13:00"                   # not Thursday — Arena resets Thu 00:00 UTC
+    skip_thursday_morning_window:
+      enabled: true
+      window_start_utc: "00:00"
+      window_end_utc: "12:00"
+      reason: arena_leaderboard_just_reset_signal_quality_low
+
+  emergency_check:
+    enabled: true
+    interval_hours: 1
+    triggers:
+      - portfolio_drawdown_circuit
+      - basket_member_funding_flip
+      - catastrophic_regime_event
+
+  weekly_review:
+    enabled: true
+    time_utc: "15:00"
+    day_of_week: sunday
+    actions:
+      - reselect_basket_full
+      - resize_all_legs
+      - write_attribution_record
+
+# ── EXIT (placeholder until dsl_portfolio engine ships) ─────────
+# Per-leg hard stop is a safety net only. Atlas should manage exits
+# via daily decision loop. The dsl_portfolio engine (runtime addition,
+# not yet shipped) will replace this with portfolio-level exit logic.
+
+exit:
+  engine: dsl_portfolio_pending
+  fallback_per_leg_safety_stop:
+    enabled: true
+    hard_stop_loss_pct: 25
+    note: safety_net_only_normal_exits_via_decision_loop
+
+# ── NOTIFICATIONS ────────────────────────────────────────────────
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  events:
+    - WARMUP_END
+    - STRIKE
+    - ABORT
+    - FULL_REBALANCE
+    - drawdown_circuit_breaker_fired
+    - weekly_attribution
