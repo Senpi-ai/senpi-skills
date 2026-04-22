@@ -1,8 +1,12 @@
 name: dog-tracker
-version: 2.0.0
+version: 2.4.0
 description: >
-  The Contrarian Pup. Multi-asset SM exhaustion fader. Detects exhausted
-  moves on BTC/ETH/SOL/HYPE and trades the opposite direction. Wide DSL.
+  Dog v2.4 — Contrarian Pup (parser fix + DSL loosen). Fixes the same
+  funding_history parser bug as Pangolin (MCP returns data.data=[{...}],
+  not data.<field>) that silently disabled v2.3's persistence+trend
+  bonus scoring. Also loosens dead_weight_cut 30→60 min because fades
+  need time to develop. Signal gates unchanged — Arena W4 +12.9%
+  recovery says the thesis is still working.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -37,7 +41,7 @@ exit:
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 30
+      interval_in_minutes: 60       # v2.4: 30 → 60 (let fades develop before cutting)
     phase1:
       enabled: true
       max_loss_pct: 15.0

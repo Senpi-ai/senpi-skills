@@ -1,10 +1,32 @@
 #!/usr/bin/env python3
-# Senpi DOG Scanner v1.0
+# Senpi DOG Scanner v2.4
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""DOG v2.2 — The Contrarian Pup (SM Exhaustion Fader).
+"""DOG v2.4 — Contrarian Pup (parser fix + DSL loosen for fades).
 
-v2.2 — EXHAUSTION GATE WIDENED.
+## v2.4 changes (2026-04-22) — WATCH-tier recovery support
+
+Two surgical changes after Arena W4 showed +12.9% recovery while
+Predators still at -11.2%:
+
+1. funding_history parser fix — v2.3 added persistence + trend bonus
+   scoring but it never fired because the parser read data.<field>
+   directly; MCP returns data.data=[{asset, ...}]. Now parses the list
+   correctly and normalizes funding_trend enum
+   (INTENSIFYING→INCREASING, DECAYING→DECREASING). Same bug family as
+   Pangolin v1.5.
+
+2. DSL dead_weight_cut 30 → 60 min in runtime.yaml. Fades are mean
+   reversions — need time to develop. 30 min cut winners that were
+   consolidating before reversal.
+
+Signal quality gates (MIN_SCORE=8, exhaustion gates) unchanged —
+Arena W4 says the signal is working. Don't over-tune a recovering agent.
+
+---
+
+## v2.2 — EXHAUSTION GATE WIDENED.
+
 After v2.1 shipped with a 2.5% exhaustion gate, 24h live data on
 2026-04-15 showed Dog was taking small losses because BTC and HYPE
 trends were blowing through the 2.5% level without reversing.
@@ -159,18 +181,34 @@ def _get_funding_regime():
 
 
 def _get_funding_history(asset):
-    """v2.3: per-asset persistence + trend via new MCP tool."""
+    """v2.4 parser fix: MCP returns data.data=[{asset, ...}], not data.<field>.
+    v2.3 silently got None for persistence_hours and trend so the bonus
+    scoring branch never fired. Now iterate the list + match by asset, and
+    normalize funding_trend enum (INTENSIFYING→INCREASING, DECAYING→DECREASING)."""
     try:
         r = cfg.mcporter_call("market_get_funding_history", asset=asset)
-        if r:
-            data = r.get("data", r)
-            return {
-                "persistence_hours": data.get("persistence_hours"),
-                "trend": data.get("trend"),
-            }
+        if not r:
+            return None
+        outer = r.get("data", r)
+        rows = outer.get("data") if isinstance(outer, dict) else None
+        if not rows:
+            return None
+        row = next((x for x in rows if x.get("asset") == asset), None)
+        if row is None:
+            return None
+        raw_trend = (row.get("funding_trend") or row.get("trend") or "").upper()
+        if raw_trend == "INTENSIFYING":
+            trend = "INCREASING"
+        elif raw_trend == "DECAYING":
+            trend = "DECREASING"
+        else:
+            trend = raw_trend
+        return {
+            "persistence_hours": row.get("persistence_hours"),
+            "trend": trend,
+        }
     except Exception:
-        pass
-    return None
+        return None
 
 
 def _regime_confirms_fade(fade_direction, regime):
@@ -495,12 +533,12 @@ def run():
             "execution": {"asset": best["asset"], "direction": best["direction"],
                 "leverage": leverage, "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-            "result": result, "_dog_version": "2.2"})
+            "result": result, "_dog_version": "2.4"})
     else:
         cfg.output({"status": "ok", "action": "ENTRY_FAILED",
             "signal": {"asset": best["asset"], "direction": best["direction"],
                 "score": best["score"], "reasons": best["reasons"]},
-            "error": result, "_dog_version": "2.2"})
+            "error": result, "_dog_version": "2.4"})
 
 if __name__ == "__main__":
     try: run()
