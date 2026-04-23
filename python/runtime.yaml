@@ -1,23 +1,16 @@
 name: python-tracker
-version: 1.1.0
+version: 1.2.0
 description: >
-  PYTHON v1.1 — Patience Hunter (DSL-thesis alignment fix).
-  v1.0 diagnosed its own problem on 2026-04-23: the multi-day patience
-  thesis was being "chopped out by normal intraday volatility" because
-  phase1.retrace_threshold=10 is a scalper's leash (10% ROE drop at 5x
-  leverage = 2% price move = market noise). 10 recent trades averaged
-  <4h hold times instead of the 2-4 day target.
-
-  v1.1 changes — runtime-only, scanner unchanged:
-    retrace_threshold  10 → 30    # 6% price retrace at 5x = real thesis break
-    dead_weight_cut    6h → 24h   # patience thesis needs a full day before "dead"
-    weak_peak_cut      12h → 48h  # multi-day weak-peak tolerance
-    phase2 tier 6      removed    # trigger_pct: 200 rejected by runtime validation (cap 100)
-    phase2 tier 5      lock_hw_pct: 90 → 94  # catch the monster-winner trail
-
-  hard_timeout preserved at 96h (matches 2-4 day thesis target).
-  max_loss_pct preserved at 20% (absolute downside cap).
-  Scanner, MIN_SCORE, leverage tiers all unchanged.
+  PYTHON v1.2 — disable weak_peak_cut (completes patience thesis fix).
+  v1.1 loosened Phase 1 retrace 10→30 and extended time cuts after
+  Python's self-diagnostic showed trades averaging <4h despite a 2-4
+  day thesis target. v1.2 removes weak_peak_cut entirely — a
+  multi-day patience thesis cannot tolerate ANY time-based cut. A
+  position peaking at 2% ROE on day 1 of a 3-day thesis can still
+  develop into a monster over day 3. Phase 1 retrace (30%) + max_loss
+  (20%) + Phase 2 tiers own all exits. dead_weight_cut + hard_timeout
+  (96h) preserved — 96h matches thesis target as an outer bound.
+  Scanner unchanged. v1.1 retrace/dead_weight loosening preserved.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -51,8 +44,8 @@ exit:
       enabled: true
       interval_in_minutes: 5760       # 96h = 4 days (matches thesis target)
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 2880        # v1.1: 720 → 2880 (48h peak-stale before cut)
+      enabled: false                   # v1.2: DISABLED. Multi-day patience thesis cannot tolerate ANY time-based cut. Phase 1 retrace (30%) + max_loss (20%) + Phase 2 tiers own exits.
+      interval_in_minutes: 2880
       min_value: 3.0
     dead_weight_cut:
       enabled: true

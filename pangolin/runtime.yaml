@@ -1,13 +1,14 @@
 name: pangolin-tracker
-version: 1.5.0
+version: 1.6.0
 description: >
-  PANGOLIN v1.5 — Extreme Funding Rate Fader (parser unblock).
-  v1.4 has been dormant (0 trades) because get_funding_history read
-  data.persistence_hours directly when the MCP actually returns
-  data.data=[{asset, persistence_hours, ...}]. v1.5 fixes the parser
-  to iterate the list and match by asset, and normalizes the
-  funding_trend enum (INTENSIFYING→INCREASING, DECAYING→DECREASING)
-  so the trend bonus actually fires. No scoring changes.
+  PANGOLIN v1.6 — disable weak_peak_cut (patience-thesis alignment).
+  Funding-rate fades are mean-reversion plays that take 24-48h to
+  develop; a position peaking at 1.5% ROE in 3h can still run into its
+  funding-cycle target over the next day. Time-based weak_peak cut
+  was pre-empting the thesis. Phase 1 retrace + max_loss + Phase 2
+  tiers own all exits.
+  Previous versions: v1.5 fixed data.data[{asset}] parser bug; v1.4
+  integrated persistence + regime gates.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -38,7 +39,7 @@ exit:
       enabled: true
       interval_in_minutes: 720
     weak_peak_cut:
-      enabled: true
+      enabled: false                 # v1.6: DISABLED. Funding-rate fade thesis takes 24-48h to develop; time cut pre-empts it. Phase 1 retrace + max_loss + Phase 2 tiers own exits.
       interval_in_minutes: 180
       min_value: 2.0
     dead_weight_cut:

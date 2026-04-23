@@ -529,7 +529,7 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_jackal_producer_version": "2.0.3",
+            "_jackal_producer_version": "2.0.5",
         }))
         return
 
@@ -569,7 +569,7 @@ def main():
                 "pool_size": len(pool),
                 "candidates": 0,
                 "elapsed_sec": round(elapsed, 2),
-                "_jackal_producer_version": "2.0.3",
+                "_jackal_producer_version": "2.0.5",
             }))
             return
 
@@ -598,7 +598,7 @@ def main():
             "funding_regime": funding_regime,
             "elapsed_sec": round(elapsed, 2),
             "warn": warn,
-            "_jackal_producer_version": "2.0.3",
+            "_jackal_producer_version": "2.0.5",
         }))
     finally:
         release_lock(lock)
