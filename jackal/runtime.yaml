@@ -1,5 +1,11 @@
 name: jackal-tracker
-version: 2.0.3
+# Note: the top-level `version` is the SCHEMA version the
+# senpi-trading-runtime plugin expects (must be major=1). The
+# STRATEGY/skill is "Jackal v2.0" — that lives in description + SKILL.md
+# + _jackal_producer_version. Using version: 2.x at runtime level is
+# rejected by the plugin as "Unsupported version: 2.x (major: 2).
+# Supported major versions: 1." Keep this at 1.x.x forever.
+version: 1.0.4
 description: >
   JACKAL v2.0 — The Smart Stalker (v2-runtime-native rewrite).
   First fleet agent built on the senpi-trading-runtime v2 architecture:

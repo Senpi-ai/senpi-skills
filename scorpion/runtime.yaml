@@ -1,5 +1,8 @@
 name: scorpion-tracker
-version: 4.0.1
+# Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
+# plugin. Strategy/skill is "Scorpion v4.0.1" — lives in description +
+# SKILL.md + _scorpion_producer_version. Do not set this to 4.x.x.
+version: 1.4.1
 description: >
   SCORPION v4.0 — Multi-Market Active Trader (v2-runtime-native rewrite).
   First multi-asset agent on senpi-trading-runtime v2. Replaces v3.2
