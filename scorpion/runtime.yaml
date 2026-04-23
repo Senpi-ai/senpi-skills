@@ -1,5 +1,5 @@
 name: scorpion-tracker
-version: 4.0.0
+version: 4.0.1
 description: >
   SCORPION v4.0 — Multi-Market Active Trader (v2-runtime-native rewrite).
   First multi-asset agent on senpi-trading-runtime v2. Replaces v3.2

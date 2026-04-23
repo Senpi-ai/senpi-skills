@@ -32,6 +32,7 @@ Environment variables (standard v2 producer):
   EXTERNAL_SCANNER_NAME — optional override (default "jackal_signals")
 """
 
+import fcntl
 import json
 import os
 import subprocess
@@ -43,6 +44,46 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import jackal_config as cfg
 import jackal_state as state
+
+
+# ═══════════════════════════════════════════════════════════════
+# REENTRANCY GUARD (v2.0.3 — Daniel's review)
+# ═══════════════════════════════════════════════════════════════
+# Cron fires every 60s. If a run takes longer (MCP latency × candidate
+# count can push past 60s when many new entries appear), the next tick
+# would start a second concurrent run. That races on last-seen.json —
+# run B reads the pre-run-A state, re-detects the SAME entries, and
+# pushes duplicate signals to the runtime.
+# fcntl.LOCK_EX | LOCK_NB is non-blocking: if another run holds the
+# lock, acquire_lock() returns None and we skip this tick cleanly.
+# fcntl locks auto-release when the process dies, so crashes self-heal.
+
+_LOCK_PATH = state.STATE_DIR / "producer.lock"
+
+
+def acquire_lock():
+    """Non-blocking exclusive lock. Returns file handle or None if held."""
+    try:
+        f = open(_LOCK_PATH, "w")
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        f.write(f"{os.getpid()} {int(time.time())}\n")
+        f.flush()
+        return f
+    except (IOError, OSError, BlockingIOError):
+        return None
+
+
+def release_lock(lock_file):
+    if lock_file is None:
+        return
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        pass
+    try:
+        lock_file.close()
+    except Exception:
+        pass
 
 
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "jackal_signals")
@@ -262,15 +303,34 @@ def enrich_with_consensus(candidates, current_positions):
     return candidates
 
 
-def enrich_with_ta(candidate):
-    """Pull 4h/1h/15m trend + funding regime for the candidate asset."""
+def fetch_funding_regime():
+    """Fetch market-wide funding regime once per run (NOT per candidate)."""
+    try:
+        fr = cfg.mcporter_call("market_get_funding_regime")
+        if fr:
+            data = fr.get("data", fr)
+            if isinstance(data, dict):
+                return data.get("regime")
+    except Exception:
+        pass
+    return None
+
+
+def enrich_with_ta(candidate, funding_regime):
+    """Pull 4h/1h/15m trend + asset funding for the candidate asset.
+
+    Takes pre-fetched funding_regime as arg — do NOT call
+    market_get_funding_regime here; it's a global per-run state and
+    calling it per-candidate wastes 1 MCP call × N candidates per cron
+    tick (Daniel's review, 2026-04-23).
+    """
     coin = candidate["coin"]
     out = {
         "trend_4h": None,
         "trend_1h": None,
         "trend_15m": None,
         "price_change_4h_pct": None,
-        "funding_regime": None,
+        "funding_regime": funding_regime,
         "funding_annualized_pct": None,
     }
     try:
@@ -299,16 +359,6 @@ def enrich_with_ta(candidate):
                         pass
     except Exception:
         pass
-
-    try:
-        fr = cfg.mcporter_call("market_get_funding_regime")
-        if fr:
-            data = fr.get("data", fr)
-            if isinstance(data, dict):
-                out["funding_regime"] = data.get("regime")
-    except Exception:
-        pass
-
     return out
 
 
@@ -432,48 +482,73 @@ def build_signal_payload(candidate, ta, btc_macro):
 # ═══════════════════════════════════════════════════════════════
 
 def main():
-    force_refresh = os.environ.get("REFRESH_POOL", "").lower() in ("1", "true", "yes")
-    pool = refresh_pool(force=force_refresh)
-    if not pool:
-        print(json.dumps({"status": "no_pool", "reason": "pool refresh returned empty"}))
-        return
-
-    current_positions = fetch_pool_positions(pool)
-    last_seen = state.load_last_seen()
-
-    candidates = detect_new_entries(pool, current_positions, last_seen)
-    candidates = enrich_with_consensus(candidates, current_positions)
-
-    # Always persist current positions as new baseline — regardless of whether
-    # we emitted signals. If we don't, dropped signals resurface forever.
-    state.save_last_seen({addr: pos for addr, pos in current_positions.items()})
-
-    if not candidates:
+    run_start = time.time()
+    lock = acquire_lock()
+    if lock is None:
         print(json.dumps({
-            "status": "ok",
-            "pool_size": len(pool),
-            "candidates": 0,
-            "_jackal_producer_version": "2.0",
+            "status": "skip",
+            "reason": "previous run still active — cron reentrancy guard",
+            "_jackal_producer_version": "2.0.3",
         }))
         return
 
-    btc_macro = fetch_btc_macro()
+    try:
+        force_refresh = os.environ.get("REFRESH_POOL", "").lower() in ("1", "true", "yes")
+        pool = refresh_pool(force=force_refresh)
+        if not pool:
+            print(json.dumps({"status": "no_pool", "reason": "pool refresh returned empty"}))
+            return
 
-    pushed = 0
-    for c in candidates:
-        ta = enrich_with_ta(c)
-        payload = build_signal_payload(c, ta, btc_macro)
-        if push_signal(payload):
-            pushed += 1
+        current_positions = fetch_pool_positions(pool)
+        last_seen = state.load_last_seen()
 
-    print(json.dumps({
-        "status": "ok",
-        "pool_size": len(pool),
-        "candidates_detected": len(candidates),
-        "signals_pushed": pushed,
-        "btc_macro": btc_macro,
-        "_jackal_producer_version": "2.0",
-    }))
+        candidates = detect_new_entries(pool, current_positions, last_seen)
+        candidates = enrich_with_consensus(candidates, current_positions)
+
+        # Always persist current positions as new baseline — regardless of whether
+        # we emitted signals. If we don't, dropped signals resurface forever.
+        state.save_last_seen({addr: pos for addr, pos in current_positions.items()})
+
+        if not candidates:
+            elapsed = time.time() - run_start
+            print(json.dumps({
+                "status": "ok",
+                "pool_size": len(pool),
+                "candidates": 0,
+                "elapsed_sec": round(elapsed, 2),
+                "_jackal_producer_version": "2.0.3",
+            }))
+            return
+
+        # v2.0.3: fetch BTC macro + funding regime ONCE per run (shared
+        # across all candidates). Previously market_get_funding_regime
+        # was called per-candidate inside enrich_with_ta — 1 MCP call
+        # per candidate × N candidates = wasted MCP budget.
+        btc_macro = fetch_btc_macro()
+        funding_regime = fetch_funding_regime()
+
+        pushed = 0
+        for c in candidates:
+            ta = enrich_with_ta(c, funding_regime)
+            payload = build_signal_payload(c, ta, btc_macro)
+            if push_signal(payload):
+                pushed += 1
+
+        elapsed = time.time() - run_start
+        warn = "WARN_OVER_60S" if elapsed > 60 else None
+        print(json.dumps({
+            "status": "ok",
+            "pool_size": len(pool),
+            "candidates_detected": len(candidates),
+            "signals_pushed": pushed,
+            "btc_macro": btc_macro,
+            "funding_regime": funding_regime,
+            "elapsed_sec": round(elapsed, 2),
+            "warn": warn,
+            "_jackal_producer_version": "2.0.3",
+        }))
+    finally:
+        release_lock(lock)
 
 
 if __name__ == "__main__":

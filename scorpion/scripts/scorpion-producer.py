@@ -33,15 +33,57 @@ Environment:
   EXTERNAL_SCANNER_NAME — optional override (default "scorpion_signals")
 """
 
+import fcntl
 import json
 import os
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scorpion_config as cfg
+
+
+# ═══════════════════════════════════════════════════════════════
+# REENTRANCY GUARD (v4.0.1 — inherited from Jackal's Daniel-review fix)
+# ═══════════════════════════════════════════════════════════════
+# Cron fires every 60s. If a run takes longer (can happen when many
+# candidates clear MIN_SCORE=9 and each needs a push to the runtime),
+# the next tick would start a concurrent run. We don't share state
+# between runs the way Jackal does, but concurrent `openclaw senpi
+# external-scanner ingest` calls could pile up at the runtime. Skip
+# the tick if a previous run holds the lock.
+
+_LOCK_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "scorpion-tracker" / "state"
+_LOCK_DIR.mkdir(parents=True, exist_ok=True)
+_LOCK_PATH = _LOCK_DIR / "producer.lock"
+
+
+def acquire_lock():
+    """Non-blocking exclusive lock. Returns file handle or None if held."""
+    try:
+        f = open(_LOCK_PATH, "w")
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        f.write(f"{os.getpid()} {int(time.time())}\n")
+        f.flush()
+        return f
+    except (IOError, OSError, BlockingIOError):
+        return None
+
+
+def release_lock(lock_file):
+    if lock_file is None:
+        return
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+    except Exception:
+        pass
+    try:
+        lock_file.close()
+    except Exception:
+        pass
 
 
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "scorpion_signals")
@@ -321,61 +363,80 @@ def push_signal(candidate, btc_macro, funding_regime, held_assets):
 # ═══════════════════════════════════════════════════════════════
 
 def main():
-    raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
-    if not raw:
-        print(json.dumps({"status": "no_markets", "_scorpion_producer_version": "4.0"}))
-        return
-
-    markets = raw.get("data", raw)
-    if isinstance(markets, dict):
-        markets = markets.get("markets", markets)
-    if isinstance(markets, dict):
-        markets = markets.get("markets", [])
-    if not isinstance(markets, list):
-        print(json.dumps({"status": "bad_shape", "_scorpion_producer_version": "4.0"}))
-        return
-
-    # Score all markets; keep only those at/above MIN_SCORE
-    candidates = []
-    for m in markets:
-        if not isinstance(m, dict):
-            continue
-        c = score_market(m)
-        if c is not None:
-            candidates.append(c)
-
-    if not candidates:
+    run_start = time.time()
+    lock = acquire_lock()
+    if lock is None:
         print(json.dumps({
-            "status": "ok",
-            "scanned": len(markets),
-            "candidates": 0,
-            "_scorpion_producer_version": "4.0",
+            "status": "skip",
+            "reason": "previous run still active — cron reentrancy guard",
+            "_scorpion_producer_version": "4.0.1",
         }))
         return
 
-    # Enrich once per run (shared context for all candidates)
-    btc_macro = fetch_btc_macro()
-    funding_regime = fetch_funding_regime()
-    held_assets = fetch_held_assets()
+    try:
+        raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+        if not raw:
+            print(json.dumps({"status": "no_markets", "_scorpion_producer_version": "4.0.1"}))
+            return
 
-    # Push all qualifying candidates. Runtime's LLM gate + risk guard
-    # rails will decide which (if any) to execute.
-    candidates.sort(key=lambda c: c["score"], reverse=True)
-    pushed = 0
-    for c in candidates:
-        if push_signal(c, btc_macro, funding_regime, held_assets):
-            pushed += 1
+        markets = raw.get("data", raw)
+        if isinstance(markets, dict):
+            markets = markets.get("markets", markets)
+        if isinstance(markets, dict):
+            markets = markets.get("markets", [])
+        if not isinstance(markets, list):
+            print(json.dumps({"status": "bad_shape", "_scorpion_producer_version": "4.0.1"}))
+            return
 
-    print(json.dumps({
-        "status": "ok",
-        "scanned": len(markets),
-        "candidates": len(candidates),
-        "signals_pushed": pushed,
-        "btc_macro": btc_macro,
-        "funding_regime": funding_regime,
-        "held_assets": held_assets,
-        "_scorpion_producer_version": "4.0",
-    }))
+        # Score all markets; keep only those at/above MIN_SCORE
+        candidates = []
+        for m in markets:
+            if not isinstance(m, dict):
+                continue
+            c = score_market(m)
+            if c is not None:
+                candidates.append(c)
+
+        if not candidates:
+            elapsed = time.time() - run_start
+            print(json.dumps({
+                "status": "ok",
+                "scanned": len(markets),
+                "candidates": 0,
+                "elapsed_sec": round(elapsed, 2),
+                "_scorpion_producer_version": "4.0.1",
+            }))
+            return
+
+        # Enrich once per run (shared context for all candidates)
+        btc_macro = fetch_btc_macro()
+        funding_regime = fetch_funding_regime()
+        held_assets = fetch_held_assets()
+
+        # Push all qualifying candidates. Runtime's LLM gate + risk guard
+        # rails will decide which (if any) to execute.
+        candidates.sort(key=lambda c: c["score"], reverse=True)
+        pushed = 0
+        for c in candidates:
+            if push_signal(c, btc_macro, funding_regime, held_assets):
+                pushed += 1
+
+        elapsed = time.time() - run_start
+        warn = "WARN_OVER_60S" if elapsed > 60 else None
+        print(json.dumps({
+            "status": "ok",
+            "scanned": len(markets),
+            "candidates": len(candidates),
+            "signals_pushed": pushed,
+            "btc_macro": btc_macro,
+            "funding_regime": funding_regime,
+            "held_assets": held_assets,
+            "elapsed_sec": round(elapsed, 2),
+            "warn": warn,
+            "_scorpion_producer_version": "4.0.1",
+        }))
+    finally:
+        release_lock(lock)
 
 
 if __name__ == "__main__":

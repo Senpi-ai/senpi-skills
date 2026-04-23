@@ -1,5 +1,5 @@
 name: jackal-tracker
-version: 2.0.2
+version: 2.0.3
 description: >
   JACKAL v2.0 — The Smart Stalker (v2-runtime-native rewrite).
   First fleet agent built on the senpi-trading-runtime v2 architecture:
