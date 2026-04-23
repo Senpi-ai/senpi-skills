@@ -1,302 +1,247 @@
 ---
-name: jackal-strategy
+name: jackal-tracker
 description: >-
-  JACKAL v1.0 — The Smart Stalker. The fleet's first SECONDARY-SIGNAL
-  agent. Observes other top-performing Senpi users' trades (via the new
-  any-user-lookup MCP capability) and executes filtered,
-  consensus-weighted trades with its own sizing and its own DSL.
-  Maintains a rolling two-tier pool of tracked traders — Active Pool
-  (~20-30 qualified) + Watchlist (~100-200 candidates) — scored by
-  trajectory-velocity rather than absolute rank. Acts only when source
-  quality + multi-trader consensus + independent Senpi TA confirmation
-  all align. Gold signals (newly-promoted source + existing pool
-  consensus within 2h) trigger max-sizing entries.
+  JACKAL v2.0 — The Smart Stalker (v2-runtime-native rewrite). First
+  fleet agent built on the senpi-trading-runtime v2 architecture: pure
+  producer + external_scanner + LLM-gated OPEN_POSITION action +
+  declarative risk guardrails + runtime-managed DSL. Thesis unchanged
+  from v1: observe top-performing Senpi traders, detect new entries by
+  pool members, enrich with consensus + TA + funding context, and let a
+  Claude-Sonnet decision prompt evaluate each candidate before the
+  runtime executes with our own DSL. Separation of concerns: the
+  producer has zero execution authority; the runtime owns entry, risk,
+  and exit.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.0"
+  version: "2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime@v2
 ---
 
-# 🐺 JACKAL v1.0 — The Smart Stalker
+# 🐺 JACKAL v2.0 — The Smart Stalker (v2-native)
 
-The jackal watches bigger predators hunt. It doesn't chase kills blindly
-— it waits for the moment when multiple hunters converge on the same
-prey, confirms the kill is worth joining, and then acts with its own
-instincts. Jackal is the fleet's first secondary-signal agent.
+The jackal watches bigger predators hunt. v2 splits the hunt into two
+processes that can't step on each other:
 
-> **Note:** This replaces an earlier Jackal v2.0 concept (FOX v1.6
-> config-override / First Jump pyramider). That design lives in
-> `legacy-fox-pyramid-concept/` for reference.
+- **The producer** runs on a cron, builds the trader pool, detects new
+  entries, enriches with context, and pushes candidate signals. Nothing
+  else. No execution, no DSL, no risk code.
+- **The runtime** receives signals, gates each through a Claude decision
+  prompt with `min_confidence: 7`, executes approved entries,
+  auto-manages DSL exits, and enforces declarative risk guardrails.
 
----
-
-## ⛔ CRITICAL AGENT RULES
-
-### RULE 1: Install path is `/data/workspace/skills/jackal-strategy/`
-### RULE 2: THE SCANNER DOES NOT EXIT POSITIONS — DSL only.
-### RULE 3: MAX 3 POSITIONS concurrent
-### RULE 4: This is NOT a mirror strategy. Custom execution with independent filters.
-### RULE 5: Never act on a signal without independent TA confirmation.
-### RULE 6: Per-source exposure cap 40% — no single trader dominates.
-### RULE 7: HARD_STOP circuit breaker triggers at -25% drawdown.
+This is the fleet's first v2-runtime-native agent. Legacy v1 scanner +
+pool code is preserved in `legacy-v1/` for reference.
 
 ---
 
-## Why This Agent Exists
+## What changed from v1.1
 
-Every other Senpi predator generates signals from MARKET data — price,
-volume, SM positioning, funding. None use the actions of other
-top-performing Senpi users as a signal source. That's a missing layer.
-
-The new any-user-lookup MCP capability (`strategy_list` with `userIds`
-filter, plus `strategy_get_clearinghouse_state` on any wallet) makes it
-possible to observe what other Senpi users are doing in real time.
-Jackal turns that observation into a trading signal.
-
-Naive "copy the winner" fails because:
-- Winners regress (pr0br000 went +$1,275 week 3 → -$500 week 4)
-- Signals lag (by the time you copy, trade is half-over)
-- Style-mismatches amplify risk (scalpers' signals aren't copyable)
-- No filter layer means you copy losers too
-
-Jackal solves these with a 4-layer funnel.
-
----
-
-## Architecture: 4-layer funnel
-
-```
-LAYER 1 — ELIGIBILITY  (every 6h full refresh, 1h rescore)
-  Trajectory-based scoring (not rank-based):
-    pnl_trajectory  35%   — improving trend beats absolute level
-    rank_velocity   25%   — rising fast catches emerging movers
-    recent_outcomes 15%   — last 5 trades W/L pattern
-    win_loss_ratio  10%   — classic asymmetry
-    fee_efficiency  10%   — not overtrading
-    consistency      5%   — positive days in last 14
-  
-  Hard disqualifiers:
-    - fee_drag > 40% (overtrader)
-    - avg_winner_hold < 2h (scalper — can't copy at our latency)
-    - drawdown_24h > 10% (active blowup)
-    - ratio < 1.5 (no edge)
-    - <10 closed trades or <7 days old (insufficient history)
-
-LAYER 2 — POSITION DISCOVERY  (every 3 min)
-  For each Active Pool member: strategy_get_clearinghouse_state
-  (with forceFetch=true for <60s latency)
-  Diff against last-known → detect NEW positions
-  Track first_seen_ts for age filtering
-
-LAYER 3 — SIGNAL SCORING  (per detected position)
-  score = 
-    0.40 × source_quality      (avg quality_score of source traders)
-  + 0.30 × consensus           (1.0x for 1 source, 1.8x for 2, 3.0x for 3+)
-  + 0.30 × position_freshness  (peaks at 1h, declines past 4h)
-  + GOLD_BONUS (+15)           (newly-promoted source + 2+ pool consensus)
-
-LAYER 4 — INDEPENDENT CONFIRMATION + EXECUTION
-  Senpi TA gate: 4h trend, 1h momentum, SM alignment
-  If any fails: SKIP even at high score
-  If passes: size by score tier (20/35/55% margin × 3/5/7x leverage)
-  Own DSL manages exit — never wait for source to close
-```
-
----
-
-## Two-tier pool mechanics
-
-**Watchlist (~100–200 traders):**
-- Pulled from Arena leaderboard + top Senpi points leaderboard
-- Polled for re-eligibility every 6h (full refresh) / 1h (rescore)
-- Jackal does NOT act on their trades
-- Entry/exit automatic — crosses score thresholds to promote
-
-**Active Pool (~20–30 traders):**
-- Quality score ≥ 70 for 6+ consecutive hours
-- Polled every 3 min (scan) with forceFetch=true
-- Jackal acts on their trades subject to consensus + TA filters
-- Demoted if score < 50 for 12h OR 24h drawdown > 10%
-- 48h re-promotion cooldown after demote
-
-**Catching pr0br000 counterfactual (Arena Weeks 2-3):**
-
-| Date | Rank | 7d PnL | quality_score | Tier |
-|---|---:|---:|---:|---|
-| Mar 28 | unranked | -$200 | below threshold | Watchlist low-priority |
-| Apr 2 | 40 | +$400 | rising | Watchlist monitored |
-| **Apr 3** | **20** | **+$800** | **crosses threshold** | **→ Active Pool** |
-| Apr 4 | 8 | +$1,200 | high | Active (Jackal acts) |
-| Apr 14 | 1 | +$3,100 peak | high | Active |
-| **Apr 17** | **38** | **-$500 24h** | **drawdown trigger** | **→ Watchlist (demoted)** |
-
-Jackal would have acted on pr0br000's trades from April 3 to April 16 —
-catching WLD, HEMI, MON winners. Auto-demoted BEFORE the April 17 ZEC
-disaster because the 24h drawdown trigger fires at -10%.
-
----
-
-## The GOLD SIGNAL
-
-The highest-conviction pattern: a trader who was just promoted from
-Watchlist to Active Pool (within last 24h) opens a position that 2+
-already-Active Pool members are also in. This means:
-- A new rising star is agreeing with proven smart money
-- Signal is BOTH new (emerging mover) AND confirmed (consensus)
-- Historical win pattern aligns with existing pool
-
-When Jackal detects a GOLD SIGNAL:
-- Max sizing: 55% margin × 7x leverage
-- Bypass score tiers (gold_signal_flag = true)
-- Still requires TA confirmation — no TA override
-
-This is where Jackal's asymmetric upside lives.
-
----
-
-## Sizing tiers
-
-| Score | Tier | Margin | Leverage |
-|---|---|---:|---:|
-| 65-74 | BASE | 20% | 3x |
-| 75-84 | STRONG | 35% | 5x |
-| **85+** | **GOLD** | **55%** | **7x** |
-
-Never exceeds 7x. Patient hold profile — multi-day consensus signals
-play out slowly. Leverage + fees would kill the edge.
-
----
-
-## DSL — Consensus-aware patience
-
-Jackal inherits Python's patience DSL profile but with adjustments:
-- Wider Phase-1 floor (22% vs Python's 20%) — consensus signals need
-  breathing room
-- Looser early Phase-2 (+6%→20% lock vs Python's +5%→15%) — even
-  consensus trades need runway
-
-| Mechanism | Value | Rationale |
+| Layer | v1.1 | v2.0 |
 |---|---|---|
-| hard_timeout | 4320 min (72h / 3 days) | Consensus trades typically play out in 1-3 days |
-| weak_peak_cut | 480 min (8h) @ 3% min | Consolidations on consensus moves |
-| dead_weight_cut | 240 min (4h) | Patient but not asleep |
-| Phase 1 max_loss | 22% | Room for consensus shakeouts |
-| Phase 1 retrace | 10% | |
-| Phase 2 tier 1 | +6% → 20% lock | Loose first lock |
-| Phase 2 tier 2 | +14% → 40% | |
-| Phase 2 tier 3 | +28% → 62% | |
-| Phase 2 tier 4 | +50% → 80% | |
-| Phase 2 tier 5 | +100% → 90% | Monster trail |
-| Phase 2 tier 6 | +200% → 94% | Ultra-rare (pr0br000-class) |
+| Scanner | 760-line Python scanner with execution + DSL + risk logic | 400-line producer that only emits signals |
+| Entry decision | Hardcoded score thresholds in Python | Claude Sonnet `decision_prompt` with `min_confidence: 7` |
+| DSL attach | Manual `ratchet_stop_add` call after every entry | Runtime manages via position_tracker lifecycle events |
+| Risk gates | `MAX_POSITIONS`, `MAX_DAILY_ENTRIES`, cooldowns in code | `risk.guard_rails` YAML block |
+| Pool maintenance | Two-tier (Watchlist + Active) with quality scoring | Single top-N pool from `discovery_get_top_traders` |
+| Fresh-entry gate | Position age 15m–8h in scanner | `entry_age < 10 min` in producer (runtime handles cooldowns) |
+| Signal shape | Internal dict passed to execute function | Typed JSON matching `config.fields` schema |
+| Execution code | `create_position` + `ratchet_stop_add` in scanner | None — runtime handles |
 
 ---
 
-## Risk controls
+## Why this thesis wants LLM gating
 
-| Control | Value |
-|---|---|
-| Max concurrent positions | 3 |
-| Daily entry cap | 5 (dynamic by PnL) |
-| Per-source exposure cap | 40% of budget |
-| Per-asset cooldown (after exit) | 6h |
-| Same-direction cooldown | 4h |
-| Position age gate | 15 min – 8 hours (sweet spot 1h) |
-| Consensus window | 2h (same coin+direction) |
-| HARD_STOP drawdown | -25% |
+Jackal's thesis has subjective elements that don't compress into hard
+scoring thresholds well:
 
----
+- **Source quality is multidimensional.** Win rate, ROI, consistency,
+  trader age, fee efficiency — a scoring formula flattens these into one
+  number. An LLM can weigh them contextually (e.g., "win rate 60% is
+  weaker for a 14-day trader than for a 90-day trader").
+- **Consensus is nuanced.** 2 other pool members in the same trade is
+  stronger if all 3 traders are independently high-quality, weaker if
+  they share correlation (e.g., all subscribe to the same paid signal).
+- **TA + fundamentals interact.** A LONG copy when 4h is BULLISH + funding
+  is LONG_CROWDED is riskier than when funding is neutral. Hard scoring
+  can't capture the interaction gracefully.
+- **Regression risk is a feel call.** A trader on a 5-win streak might
+  be peaking (regress incoming) or riding a genuine alpha period. An LLM
+  can reason about which.
 
-## What Jackal Does NOT Do
-
-1. **Does NOT use Senpi's native MIRROR strategy.** Those are passive
-   single-trader copies. Jackal is a multi-source custom strategy that
-   uses MCP read capability + own execution.
-
-2. **Does NOT copy scalpers.** Traders whose avg winning hold is <2h
-   get filtered out. Latency makes their edge uncopyable.
-
-3. **Does NOT copy a trader's size or exit.** Own sizing (conviction
-   score) and own DSL. A source trader holding through drawdown doesn't
-   mean we hold.
-
-4. **Does NOT require perfect source stability.** Sources can lose
-   trades — they just can't dominate the pool. Per-source 40% cap
-   + auto-demotion on drawdown protects against one-source reliance.
-
-5. **Does NOT chase rank-1 traders who are peaking.** Trajectory scoring
-   means cooling-off stars get demoted naturally.
+v2 moves these decisions from code to prompt — easier to iterate, and
+decisions are auditable via `openclaw senpi action decisions`.
 
 ---
 
-## Install
+## Architecture
 
-```bash
-mkdir -p /data/workspace/skills/jackal-strategy/{config,scripts,state}
-
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/runtime.yaml -o /data/workspace/skills/jackal-strategy/runtime.yaml
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/SKILL.md -o /data/workspace/skills/jackal-strategy/SKILL.md
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/config/jackal-config.json -o /data/workspace/skills/jackal-strategy/config/jackal-config.json
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/scripts/jackal-scanner.py -o /data/workspace/skills/jackal-strategy/scripts/jackal-scanner.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/scripts/jackal_config.py -o /data/workspace/skills/jackal-strategy/scripts/jackal_config.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/scripts/jackal_pool.py -o /data/workspace/skills/jackal-strategy/scripts/jackal_pool.py
+```
+┌──────────────────────────────┐
+│ jackal-producer.py (60s cron)│  ── 1. refresh pool daily via discovery_get_top_traders
+│                              │  ── 2. diff positions against last-seen
+│                              │  ── 3. enrich with consensus + TA + funding + BTC macro
+│                              │  ── 4. push signal via
+│                              │         openclaw senpi external-scanner ingest
+└──────────────┬───────────────┘
+               │
+               ▼ ingest CLI
+┌──────────────────────────────┐
+│ senpi-trading-runtime (v2)   │
+│  jackal_signals scanner      │  ── receives typed signal payload
+│  jackal_entry action         │  ── LLM (claude-sonnet-4) evaluates
+│    decision_mode: llm        │      with decision_prompt
+│    min_confidence: 7         │  ── executes if confidence >= 7
+│  position_tracker            │  ── detects open → starts DSL
+│  DSL exit engine             │  ── Phase 1/2, hard_timeout 72h,
+│                              │      weak_peak 4h @ 3%, no dead_weight
+│  risk.guard_rails            │  ── enforces daily_loss_limit,
+│                              │      max_entries, consecutive_losses,
+│                              │      drawdown_halt, per_asset_cooldown
+└──────────────────────────────┘
 ```
 
-## Configure
+---
 
-```bash
-sed -i 's/${WALLET_ADDRESS}/<YOUR_STRATEGY_WALLET>/' /data/workspace/skills/jackal-strategy/runtime.yaml
-sed -i 's/${TELEGRAM_CHAT_ID}/<YOUR_TELEGRAM_CHAT_ID>/' /data/workspace/skills/jackal-strategy/runtime.yaml
+## Pool selection (v2 simplified)
+
+v1.1 maintained a two-tier pool (Watchlist + Active) with quality-score
+promotion/demotion rules. v2 replaces that with a daily refresh from
+`discovery_get_top_traders`:
+
+- Filters: win_rate ≥ 0.50, roi_30d ≥ 10%, trader_age ≥ 14 days
+- Sort: by composite quality score (win_rate, ROI, age, gain-to-pain)
+- Size: top 25
+
+The v1 complexity (velocity scoring, watchlist sustain windows,
+demotion cooldowns) is replaced by the Senpi discovery API's own
+ranking. If that ranking isn't good enough, we can reintroduce
+trajectory scoring inside the producer — but starting simple and
+validating the v2 plumbing first.
+
+---
+
+## Risk guard rails (runtime-enforced)
+
+Declared in `runtime.yaml`, enforced before every entry:
+
+```yaml
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 5
+    max_entries_per_day: 4
+    max_consecutive_losses: 3
+    cooldown_minutes: 120
+    drawdown_halt_pct: 20
+    per_asset_cooldown_minutes: 240
 ```
 
-## Install runtime + create scanner cron
+No Python bookkeeping required. No risk of counter-reset bugs (like
+Dire's daily-cap issue on 2026-04-23). Runtime is the source of truth.
+
+---
+
+## DSL (patience preserved)
+
+Jackal's v1 patience profile survives:
+
+| Control | v1.1 | v2.0 |
+|---|---|---|
+| hard_timeout | 72h | 72h |
+| weak_peak_cut | 8h @ 3% | 4h @ 3% (tightened — v1 was too forgiving on fade) |
+| dead_weight_cut | 4h | **disabled** (v2 runtime auto-disables once Phase 2 reached; single-decision thesis doesn't benefit from time-based loss cuts) |
+| Phase 1 max_loss | 22% | 22% |
+| Phase 2 tiers | 6 tiers | 6 tiers (same ladder) |
+
+---
+
+## Producer install (on OpenClaw host)
 
 ```bash
-openclaw senpi runtime create --path /data/workspace/skills/jackal-strategy/runtime.yaml
+# 1. Pull the skill
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/runtime.yaml \
+  -o /data/workspace/skills/jackal-tracker/runtime.yaml
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/scripts/jackal-producer.py \
+  -o /data/workspace/skills/jackal-tracker/scripts/jackal-producer.py
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/scripts/jackal_config.py \
+  -o /data/workspace/skills/jackal-tracker/scripts/jackal_config.py
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/scripts/jackal_state.py \
+  -o /data/workspace/skills/jackal-tracker/scripts/jackal_state.py
+
+# 2. Install the runtime
+WALLET_ADDRESS=0x... TELEGRAM_CHAT_ID=... \
+  openclaw senpi runtime create --path /data/workspace/skills/jackal-tracker/runtime.yaml
+
+# 3. Schedule the producer
+openclaw cron add \
+  --name "jackal-v2-producer" \
+  --cron "* * * * *" \
+  --session isolated \
+  --wake now \
+  --message "Run \`SENPI_API_KEY=<KEY> STRATEGY_ADDRESS=0x... python3 /data/workspace/skills/jackal-tracker/scripts/jackal-producer.py >> /var/log/openclaw/jackal-v2.log 2>&1\` and report success/failure in this log." \
+  --no-deliver
+
+# 4. Verify
 openclaw senpi runtime list
-# Create 3-minute cron: python3 /data/workspace/skills/jackal-strategy/scripts/jackal-scanner.py
+openclaw senpi status --runtime jackal-tracker
+tail -f /var/log/openclaw/jackal-v2.log
 ```
+
+## Verify the LLM gate is doing work
+
+```bash
+# All decisions (LLM reasoning JSON per candidate)
+openclaw senpi action decisions jackal_entry
+
+# Only executed entries
+openclaw senpi action history jackal_entry
+```
+
+A healthy Jackal v2 will show LLM decisions regularly but only a
+fraction (~20–40%) at `execute: true`. If every decision is
+`execute: true` the threshold is too loose; if none are, the pool or
+context is too strict.
+
+---
 
 ## First-run behavior
 
-On the first run, Jackal has no pool yet. The scanner will:
-1. Fetch Arena leaderboard + Senpi points leaderboard (~100-200 candidates)
-2. Score each candidate's recent trade history + PnL trajectory
-3. Build initial Watchlist
-4. No candidate will be promoted to Active Pool yet (requires 6h consistency)
-5. First real trades typically start 6-24 hours after first run
-
-This is expected and desired. Patience from setup.
+1. Producer fetches top 25 traders (daily refresh) — first run takes
+   ~30s as it populates the pool.
+2. `last-seen.json` is seeded with current positions — no false signals
+   from existing positions the producer has never seen before.
+3. First real signals arrive when a pool member opens a new position.
+4. LLM gates each one. Expect 2–5 signals/day at current pool size,
+   with ~30% passing the confidence threshold.
+5. Risk guardrails cap entries at 4/day regardless of signal volume.
 
 ---
 
-## Operational cost
+## Cost & latency
 
-- Watchlist refresh: 6h cadence, ~100-200 MCP calls per refresh (batched over several minutes)
-- Score refresh: 1h cadence, ~30-100 MCP calls per refresh
-- Position scan: 3min cadence, ~20-30 MCP calls per scan
-- Total: ~1.2 MCP calls/second sustained
+- Producer: ~30 MCP calls/run × 60s cadence = ~30k calls/day. Mostly
+  discovery_get_trader_state (batched) + market_get_asset_data.
+- LLM: 1 Sonnet call per signal × ~5 signals/day = ~5 calls/day. Trivial.
+- Entry latency: ~2-3s from signal emission to order placement (LLM
+  call + runtime execution). Fine for Jackal's 4h+ hold profile.
 
 ---
 
 ## Changelog
 
-### v1.0 (2026-04-17) — FIRST SHIP
-- First secondary-signal agent in the fleet
-- Two-tier pool architecture (Watchlist + Active Pool)
-- Trajectory-based quality scoring (6 components, weighted composite)
-- Emerging-mover detection via rank velocity
-- GOLD SIGNAL pattern (new promotion + existing consensus)
-- Consensus multiplier (3+ traders = 3.0x score boost)
-- Independent Senpi TA confirmation gate
-- Own sizing + own DSL (not native MIRROR)
-- Hard disqualifiers: scalper filter, fee-drag cap, drawdown trigger
-- Per-source 40% exposure cap
-- 48h re-promotion cooldown
-- Patient DSL profile (72h timeout, wide Phase 1)
+### v2.0 (2026-04-23) — V2-RUNTIME-NATIVE REWRITE
+- First fleet agent on senpi-trading-runtime v2
+- Producer-only Python (400 lines vs v1's 760 line scanner)
+- LLM `decision_mode: llm` replaces hardcoded score thresholds
+- `risk.guard_rails` YAML replaces Python risk code
+- Runtime-managed DSL (no ratchet_stop_add bookkeeping)
+- Simplified top-N pool replaces two-tier Watchlist/Active architecture
+
+### v1.1 (2026-04-22) — promotion threshold loosen (dormant, 0 trades)
+### v1.0 (2026-04-17) — first ship
 
 ---
 

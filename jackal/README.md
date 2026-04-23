@@ -1,37 +1,51 @@
-# 🐺 JACKAL v1.0 — The Smart Stalker
+# 🐺 JACKAL v2.0 — The Smart Stalker (v2-native)
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 ## Thesis
 
-The fleet's first SECONDARY-SIGNAL agent. Observes top-performing Senpi users and executes filtered, consensus-weighted trades with its own sizing and own DSL. NOT a passive mirror — a smart stalker with independent decision logic.
+The fleet's first SECONDARY-SIGNAL agent AND the first built natively on `senpi-trading-runtime` v2. Observes top-performing Senpi perp traders, detects new entries by pool members, and lets a Claude Sonnet decision prompt decide whether to mirror with our own DSL + risk guardrails.
 
-> Replaces the earlier Jackal v2.0 concept (FOX config-override pyramider). That design is preserved in `legacy-fox-pyramid-concept/` for reference.
+Not a passive mirror — an intelligent stalker where the runtime LLM gates every entry.
 
-## Key Settings
+## Architecture
+
+```
+jackal-producer.py (60s cron)      senpi-trading-runtime (v2)
+  refresh pool (daily)              jackal_signals scanner
+  diff positions vs last-seen   →   jackal_entry action (LLM-gated)
+  enrich + push signal              position_tracker + DSL
+                                    risk.guard_rails
+```
+
+## Key Settings (v2)
 
 | Setting | Value |
 |---|---|
-| Pool architecture | Two-tier (Watchlist ~200 + Active ~30) |
-| Quality scoring | 6-component trajectory-based composite |
-| Min signal score | 65 (BASE) / 75 (STRONG) / 85 (GOLD) |
-| Consensus multiplier | 1.0x / 1.8x / 3.0x (1/2/3+ sources) |
-| Max positions | 3 concurrent |
-| Leverage cap | 7x |
-| Margin tier | 20% / 35% / 55% by score |
-| Per-source cap | 40% of budget |
-| TA gate | Required — SM, 4h trend, 1h momentum |
-| DSL | Consensus-aware patient profile (72h timeout) |
+| Pool | Top 25 by composite quality score (refreshed daily) |
+| Pool filters | win_rate ≥ 0.50, roi_30d ≥ 10%, trader_age ≥ 14d |
+| Entry age gate | < 10 min (producer-side freshness) |
+| Entry decision | Claude Sonnet 4 via `decision_prompt`, min_confidence 7 |
+| Max concurrent | 2 slots |
+| Leverage | 5x default (runtime-enforced) |
+| Margin per slot | $300 |
+| Daily loss cap | 5% |
+| Max entries/day | 4 |
+| Consecutive losers pause | 3 → 120 min cooldown |
+| Drawdown halt | 20% |
+| Per-asset cooldown | 240 min (4h) |
+| DSL hard_timeout | 72h |
+| DSL Phase 1 max_loss | 22% |
 
-## What's different
+## What's different from v1.1
 
-- **Reads other traders' actions as signals** — via the new any-user-lookup MCP capability
-- **Trajectory scoring** — catches rising traders BEFORE rank-1
-- **Consensus multiplier** — 3+ trader agreement = max conviction
-- **GOLD SIGNAL** — newly-promoted source + existing pool consensus = biggest sizing
-- **Scalper filter** — drops traders whose avg winning hold <2h
-- **Auto-demotion** — drawdown >10% or score <50 = source demoted, 48h cooldown
-- **Independent DSL** — exits on own terms, not source's
+| | v1.1 | v2.0 |
+|---|---|---|
+| Scanner size | 760 lines | 400-line producer |
+| Entry decision | Hardcoded score thresholds | LLM prompt |
+| DSL attach | Manual `ratchet_stop_add` | Runtime auto-managed |
+| Risk | Python constants | Declarative YAML |
+| Pool | Two-tier watchlist + active | Single top-N from discovery API |
 
 ## License
 

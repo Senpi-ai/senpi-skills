@@ -1,23 +1,75 @@
 name: jackal-tracker
-version: 1.1.0
+version: 2.0.0
 description: >
-  JACKAL v1.1 — The Smart Stalker (promotion loosen). v1.0 was dormant
-  (0 trades) because PROMOTE_SCORE_THRESHOLD=70 + 6h sustain rejected
-  every candidate. v1.1 loosens to 65 + 3h to let the active pool fill.
-  Active-pool size cap unchanged — over-promotion still self-corrects.
-  No scanner logic, signal scoring, or DSL changes.
+  JACKAL v2.0 — The Smart Stalker (v2-runtime-native rewrite).
+  First fleet agent built on the senpi-trading-runtime v2 architecture:
+  pure producer + external_scanner + LLM-gated OPEN_POSITION action +
+  declarative risk guardrails + runtime-managed DSL.
+
+  Thesis unchanged from v1: observe other Senpi users' trades, maintain
+  a quality-scored trader pool, copy filtered high-conviction entries
+  with our own DSL. v2 changes are purely architectural:
+    - jackal-producer.py detects pool-member entries and pushes signals
+    - Runtime LLM (claude-sonnet-4) evaluates each signal with market
+      + source-trader context, executes at confidence >= 7
+    - Risk guardrails enforced by runtime, not scanner code
+    - DSL lifecycle fully auto-managed (no ratchet_stop_add bookkeeping)
+  Replaces v1.1 (commit 55a418f) which had zero live trades despite
+  threshold loosening, making it the ideal v2 migration candidate.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 1000
-  slots: 3
-  margin_per_slot: 250
+  slots: 2
+  margin_per_slot: 300
+  trading_risk: moderate
+  default_leverage: 5
   enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 5
+    max_entries_per_day: 4
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 120
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 240
 
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: jackal_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        sourceTraderAddress: { type: string, required: true }
+        sourceTraderUserId: { type: string, required: false }
+        sourceTraderUsername: { type: string, required: false }
+        sourceQualityScore: { type: number, required: true }
+        sourceWinRate: { type: number, required: false }
+        sourceRoi30d: { type: number, required: false }
+        sourceConsecutiveWins: { type: number, required: false }
+        entryTimestamp: { type: number, required: true }
+        leverage: { type: number, required: true }
+        sizeUsd: { type: number, required: true }
+        entryPrice: { type: number, required: true }
+        poolConsensusCount: { type: number, required: true }
+        poolConsensusAssetCount: { type: number, required: true }
+        trend4h: { type: string, required: false }
+        trend1h: { type: string, required: false }
+        trend15m: { type: string, required: false }
+        priceChange4hPct: { type: number, required: false }
+        fundingRegime: { type: string, required: false }
+        fundingAnnualizedPct: { type: number, required: false }
+        btcMacroDirection: { type: string, required: false }
+        btcMacro24hPct: { type: number, required: false }
 
 actions:
   - name: position_tracker_action
@@ -25,42 +77,105 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ─── EXIT (DSL) — Consensus-aware patience profile ───────────
-# Jackal inherits Python's patience DSL but with TWO adjustments:
-#
-#   1. Wider Phase-1 floor (22%): consensus signals take time to
-#      develop; we don't want to stop out on the first shakeout.
-#   2. Looser early Phase-2: even consensus signals need runway.
-#
-# The GOLD SIGNAL case (newly-promoted source + 2+ existing consensus)
-# is where the fat-tail lives. Tight early locks kill those.
+  - name: jackal_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: claude-sonnet-4-20250514
+    scanners: [jackal_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 15
+    context:
+      - type: signal
+        scanner: jackal_signals
+    decision_prompt: |
+      You are Jackal's trade-decisioning evaluator. A member of Jackal's
+      trader pool just opened a position on Hyperliquid perps. Decide
+      whether to mirror the trade with independent sizing, our own DSL,
+      and our own risk envelope.
+
+      SIGNAL:
+      {{signal_jackal_signals}}
+
+      Jackal's thesis: high-quality traders telegraph alpha, but naïve
+      copy-trading fails because (a) winners regress, (b) signals lag,
+      (c) style mismatches amplify risk. Jackal copies only when:
+      - source trader's quality + recent consistency is high
+      - pool consensus exists (other tracked traders aligned)
+      - independent TA on the asset agrees with source direction
+      - market regime supports the thesis
+
+      Evaluate these factors, then output a JSON object:
+      {
+        "execute": true | false,
+        "actionType": "OPEN_POSITION",
+        "confidence": 1-10,
+        "reasoning": "one sentence on the deciding factor",
+        "payload": {
+          "signals": [
+            {
+              "asset": "<ticker>",
+              "direction": "LONG" | "SHORT",
+              "reason": "copying <trader> on <pool consensus or solo>, <TA note>"
+            }
+          ]
+        }
+      }
+
+      Decision heuristics (not rigid):
+      - sourceQualityScore >= 75 + poolConsensusCount >= 2 + TA aligned -> confidence 8-9
+      - sourceQualityScore >= 65 + poolConsensusCount >= 1 + TA aligned -> 7-8
+      - sourceQualityScore < 65 or TA disagrees -> skip (confidence below 7)
+      - fundingRegime fighting the fade direction -> reduce confidence
+      - btcMacro24hPct opposite of direction AND asset not decoupled -> skip
+      - sourceConsecutiveWins >= 4 OR sourceRoi30d > 50 -> note possible regression risk,
+        do NOT auto-skip but factor into confidence
+      The LLM has final say — these are priors, not rules.
+
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 15
+  # Jackal's thesis is patience — consensus signals take time to develop.
+  # Wide Phase 1 (22% max_loss), loose early Phase 2 locks (preserve
+  # the gold-signal case: newly-promoted source + 2+ existing consensus).
+  # Hard timeout 72h lets multi-day holds breathe. No dead_weight_cut
+  # (v1 had it; runtime v2 disables time cuts once Phase 2 reached
+  # automatically — preserving the patience philosophy).
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 4320        # 72h = 3 days
+      interval_in_minutes: 4320        # 72h
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 480          # 8h — consensus consolidations
+      interval_in_minutes: 240          # 4h of stale peak before cut
       min_value: 3.0
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 240          # 4h no movement
+      enabled: false                    # Jackal is patient; no time-based loss cuts
+      interval_in_minutes: 240
     phase1:
       enabled: true
-      max_loss_pct: 22.0                # Wider than Python (20%) — consensus signals deserve breathing room
+      max_loss_pct: 22.0
       retrace_threshold: 10
+      consecutive_breaches_required: 2
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 6,   lock_hw_pct: 20 }   # Loose first lock
+        - { trigger_pct: 6,   lock_hw_pct: 20 }
         - { trigger_pct: 14,  lock_hw_pct: 40 }
         - { trigger_pct: 28,  lock_hw_pct: 62 }
         - { trigger_pct: 50,  lock_hw_pct: 80 }
         - { trigger_pct: 100, lock_hw_pct: 90 }
-        - { trigger_pct: 200, lock_hw_pct: 94 }   # Monster winner trail
+        - { trigger_pct: 200, lock_hw_pct: 94 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle_notifications: true
