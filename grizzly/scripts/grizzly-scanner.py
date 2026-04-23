@@ -327,6 +327,34 @@ def build_btc_thesis():
     if not (strong_15m or aligned_5m):
         return None
 
+    # ── v5.5: MACRO V-RECOVERY GATE ───────────────────────────
+    # The 4h structural trend metric is lagging — takes 8-12h for 4h candle
+    # structure to break after a reversal. During V-recoveries the 4h gate
+    # still says "BEARISH lower-highs 100%" while price has already rallied
+    # 1-2% off the 24h low.
+    # Live failure 2026-04-23: BTC V-bottomed at $76.4k at ~04:00 UTC, rallied
+    # to $77,495 by 10:38 UTC (+1.43% off low). Scanner had trend_strength_4h
+    # = 0.80 and confidently fired SHORT. BTC continued to $78,063. Second
+    # SHORT at 14:12 UTC had trend_strength_4h = 1.0 (100% lower highs vs
+    # yesterday's $79.4k peak) and fired again. Both losers.
+    # This gate checks distance from 24h extreme using 1h-candle highs/lows.
+    # If price has bounced > MACRO_VRECOVERY_DISTANCE_PCT from 24h low, block
+    # SHORTs (V-bottom recovery). Mirror for LONGs off the 24h high.
+    MACRO_VRECOVERY_DISTANCE_PCT = 1.25
+    if len(candles_1h) >= 24:
+        highs_1h_24 = [safe_float(c.get("high", c.get("h", 0))) for c in candles_1h[-24:]]
+        lows_1h_24 = [safe_float(c.get("low", c.get("l", 0))) for c in candles_1h[-24:]]
+        high_24h = max([h for h in highs_1h_24 if h > 0], default=0)
+        low_24h = min([l for l in lows_1h_24 if l > 0], default=0)
+        if direction == "SHORT" and low_24h > 0:
+            distance_from_low_pct = (price - low_24h) / low_24h * 100
+            if distance_from_low_pct > MACRO_VRECOVERY_DISTANCE_PCT:
+                return None
+        if direction == "LONG" and high_24h > 0:
+            distance_from_high_pct = (high_24h - price) / high_24h * 100
+            if distance_from_high_pct > MACRO_VRECOVERY_DISTANCE_PCT:
+                return None
+
     # ── SCORING ───────────────────────────────────────────────
     score = 0
     reasons = []
@@ -799,7 +827,7 @@ def run():
                                       "leverage": leverage, "margin": margin,
                                       "orderType": "FEE_OPTIMIZED_LIMIT"},
                         "result": result,
-                        "_grizzly_version": "5.0",
+                        "_grizzly_version": "5.5",
                     })
                 else:
                     # Reload failed — back to HUNTING
@@ -809,7 +837,7 @@ def run():
                         "success": True, "action": "RELOAD_FAILED",
                         "signal": {"asset": ASSET, "direction": direction,
                                    "reasons": reasons},
-                        "error": result, "_grizzly_version": "5.0",
+                        "error": result, "_grizzly_version": "5.5",
                     })
                 return
 
@@ -899,7 +927,7 @@ def run():
             },
             "constraints": {"minLeverage": MIN_LEVERAGE, "maxLeverage": MAX_LEVERAGE},
             "result": result,
-            "_grizzly_version": "5.0",
+            "_grizzly_version": "5.5",
         })
     else:
         cfg.output({
@@ -908,7 +936,7 @@ def run():
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                        "score": thesis["score"], "reasons": thesis["reasons"]},
             "error": result,
-            "_grizzly_version": "5.0",
+            "_grizzly_version": "5.5",
         })
 
 

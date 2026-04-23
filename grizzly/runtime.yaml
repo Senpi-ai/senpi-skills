@@ -1,13 +1,16 @@
 name: grizzly-tracker
-version: 5.4.0
+version: 5.5.0
 description: >
-  GRIZZLY v5.4 — disable dead_weight_cut (architectural fix).
-  Single-asset BTC agent has no rotation opportunity cost — cutting
-  on time is a bad proxy when DSL Phase 1/2 + weak_peak + hard_timeout
-  already handle stalled positions via price action. v5.3 added Kodiak
-  v5.1 gates (trend_strength_4h ≥ 0.75); scanner logic unchanged in v5.4.
-  v5.2 made startingBudget config-driven. v5.1 loosened DSL to 24h
-  hard_timeout + Phase 1 max_loss 20%.
+  Grizzly v5.5 — Macro V-recovery gate (counter-trend SHORT blocker).
+  Live failure 2026-04-23: scanner fired 2 BTC SHORTs against a clear
+  intraday rally ($76.4k → $78k, +1.43-1.66% off 24h low) because the
+  4h structural trend still read "100% lower highs" from yesterday's
+  $79.4k peak. v5.3's trend_strength_4h ≥ 0.75 Kodiak gate measures
+  structural lower-highs — LAGGING during V-recoveries (takes 8-12h
+  for 4h candles to break pattern). v5.5 adds a final macro gate:
+  reject SHORTs if price is > 1.25% above the 24h low (V-bottom
+  recovery), reject LONGs if price is > 1.25% below the 24h high.
+  All other gates preserved. Scanner-only change. DSL unchanged.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
