@@ -5,7 +5,7 @@ name: jackal-tracker
 # + _jackal_producer_version. Using version: 2.x at runtime level is
 # rejected by the plugin as "Unsupported version: 2.x (major: 2).
 # Supported major versions: 1." Keep this at 1.x.x forever.
-version: 1.0.4
+version: 1.0.5
 description: >
   JACKAL v2.0 — The Smart Stalker (v2-runtime-native rewrite).
   First fleet agent built on the senpi-trading-runtime v2 architecture:
@@ -107,40 +107,81 @@ actions:
       SIGNAL:
       {{signal_jackal_signals}}
 
-      Jackal's thesis: high-quality traders telegraph alpha, but naïve
-      copy-trading fails because (a) winners regress, (b) signals lag,
-      (c) style mismatches amplify risk. Jackal copies only when:
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. The `asset` field in your output payload MUST be the exact value
+         from the signal's `asset` field. Do NOT substitute a different
+         asset. Do NOT abbreviate or expand (e.g. if signal says "xyz:TSLA"
+         output exactly "xyz:TSLA", not "TSLA" and not "SOL").
+      2. The `direction` in your output MUST match the signal's `direction`
+         field exactly (LONG or SHORT).
+      3. Every claim in your `reasoning` MUST reference values that appear
+         literally in the SIGNAL payload above. Do NOT fabricate numbers,
+         trader counts, or TA states. If a field is missing from the
+         signal, say so in reasoning — do not invent values.
+      4. If `poolConsensusCount` is 0, you MUST NOT write phrases like
+         "strong consensus" or "exceptional consensus" — there is zero
+         consensus by definition. Report it as "solo signal, no pool
+         consensus" in reasoning.
+      5. If any of `trend4h`, `trend1h`, `trend15m` is "UNKNOWN", treat
+         that as NEGATIVE evidence (we have no independent confirmation),
+         not neutral.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - If `sourceQualityScore` < 65 — source not trustworthy enough
+      - If `poolConsensusCount` == 0 AND no TA fields confirm direction
+        (all UNKNOWN or contradict) — no independent confirmation at all
+      - If `trend4h`, `trend1h`, `trend15m` all UNKNOWN — we don't have
+        the data to make an informed call
+      - If `fundingRegime` actively fights the direction (e.g. SHORT into
+        SHORT_CROWDED, LONG into LONG_CROWDED)
+      - If `recentEntryCountThisAsset` >= 3 within 24h — over-traded
+
+      ## JACKAL'S THESIS
+
+      High-quality traders telegraph alpha, but naïve copy-trading fails
+      because (a) winners regress, (b) signals lag, (c) style mismatches
+      amplify risk. Jackal copies only when:
       - source trader's quality + recent consistency is high
       - pool consensus exists (other tracked traders aligned)
       - independent TA on the asset agrees with source direction
       - market regime supports the thesis
 
-      Evaluate these factors, then output a JSON object:
+      ## OUTPUT FORMAT
+
+      Return a JSON object with this exact shape. Field values should be
+      your decision, NOT template placeholders:
+
       {
-        "execute": true | false,
+        "execute": true OR false,
         "actionType": "OPEN_POSITION",
-        "confidence": 1-10,
-        "reasoning": "one sentence on the deciding factor",
+        "confidence": an integer 1-10,
+        "reasoning": "a concrete sentence that quotes specific numbers
+                      from the signal — e.g. 'copying 0x06ce...164b
+                      (qscore 60, roi30d 677%), 14-consensus SHORT, 4h
+                      bullish against us but 1h+15m bearish confirm,
+                      BTC macro DOWN -0.82%'",
         "payload": {
           "signals": [
             {
-              "asset": "<ticker>",
-              "direction": "LONG" | "SHORT",
-              "reason": "copying <trader> on <pool consensus or solo>, <TA note>"
+              "asset": "copy the signal's asset field EXACTLY",
+              "direction": "copy the signal's direction field EXACTLY",
+              "reason": "human-readable one-liner citing actual values"
             }
           ]
         }
       }
 
-      Decision heuristics (not rigid):
-      - sourceQualityScore >= 75 + poolConsensusCount >= 2 + TA aligned -> confidence 8-9
-      - sourceQualityScore >= 65 + poolConsensusCount >= 1 + TA aligned -> 7-8
-      - sourceQualityScore < 65 or TA disagrees -> skip (confidence below 7)
-      - fundingRegime fighting the fade direction -> reduce confidence
-      - btcMacro24hPct opposite of direction AND asset not decoupled -> skip
-      - sourceConsecutiveWins >= 4 OR sourceRoi30d > 50 -> note possible regression risk,
-        do NOT auto-skip but factor into confidence
-      The LLM has final say — these are priors, not rules.
+      ## CONFIDENCE SCORING
+
+      - 9-10: quality>=75 AND consensus>=3 AND TA fully aligned AND BTC macro supports
+      - 7-8: quality>=65 AND consensus>=1 AND TA majority aligned
+      - 4-6: quality>=65 but consensus 0 or TA mixed — SKIP (execute: false)
+      - 1-3: any hard-skip condition above — SKIP (execute: false)
+
+      The minimum to execute is confidence 7. If you cannot honestly
+      justify >=7 citing values from the signal, output execute: false.
 
 exit:
   engine: dsl

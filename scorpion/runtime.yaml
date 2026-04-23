@@ -99,39 +99,72 @@ actions:
       SIGNAL:
       {{signal_scorpion_signals}}
 
-      Scorpion's thesis: follow trends that have SM conviction + 4TF
-      price alignment, across a broad crypto + XYZ universe (CL,
-      BRENTOIL, GOLD, SPX plus ~15 crypto majors/mid-caps). Short-hold
-      active trading — DSL manages exits, you manage entries.
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
 
-      Evaluate and output a JSON object:
+      1. The `asset` in your output payload MUST be the exact value from
+         the signal's `asset` field. Do NOT substitute a different asset.
+         If signal says "xyz:BRENTOIL", output exactly "xyz:BRENTOIL",
+         not "BRENTOIL" and not "OIL".
+      2. The `direction` MUST match the signal's `direction` field exactly.
+      3. Every claim in `reasoning` MUST reference values that appear
+         literally in the signal payload. Do NOT fabricate SM percentages,
+         trader counts, or TA states. Quote actual values from the signal.
+      4. If a signal field is UNKNOWN or 0, do NOT describe it with
+         confidence-inflating language ("strong", "exceptional", "deep").
+         Report the literal value.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 9 (producer should filter, but skip defensively)
+      - BTC macro direction opposite of signal direction AND asset is
+        crypto major (BTC, ETH, SOL) AND score < 11 — macro risk
+      - recentEntryCountThisAsset >= 2 within 24h — over-traded
+      - fundingRegime opposes direction in a way that makes thesis
+        structurally broken (e.g. LONG into deep LONG_CROWDED)
+
+      ## SCORPION'S THESIS
+
+      Follow trends with SM conviction + 4TF price alignment across a
+      broad crypto + XYZ universe (CL, BRENTOIL, GOLD, SPX plus ~15
+      crypto majors/mid-caps). Short-hold active trading — DSL manages
+      exits, you manage entries.
+
+      ## OUTPUT FORMAT
+
+      Return this JSON. Values must be your decisions, NOT placeholders.
+
       {
-        "execute": true | false,
+        "execute": true OR false,
         "actionType": "OPEN_POSITION",
-        "confidence": 1-10,
-        "reasoning": "one sentence on the deciding factor",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing specific numbers from the
+                      signal — e.g. 'score 12 LONG on ETH, 4h +4.2%,
+                      SM 18.3% DOMINANT with 67 traders, BTC macro UP
+                      +1.2%, funding LONG_CROWDED supports'",
         "payload": {
           "signals": [
             {
-              "asset": "<ticker or xyz:ticker>",
-              "direction": "LONG" | "SHORT",
-              "reason": "<score + top 2 reasons>"
+              "asset": "copy signal's asset EXACTLY",
+              "direction": "copy signal's direction EXACTLY",
+              "reason": "one-liner citing actual score + top 2 reason labels"
             }
           ]
         }
       }
 
-      Heuristics (not rigid):
-      - score >= 11 + all 4TFs aligned + SM >= 10% -> confidence 8-9
-      - score 9-10 + SM building + clean 4H trend -> 7-8
-      - score < 9 -> skip (shouldn't reach here; producer filters)
-      - BTC macro opposing direction AND asset is crypto major -> reduce confidence
-      - recentEntryCountThisAsset >= 2 within 24h -> flag as over-traded; confidence -1
-      - XYZ assets: be MORE selective. Oil/gold/indices have different volatility
-        profiles — treat a 4H move of 2% on GOLD as equivalent to 5% on a crypto alt.
-      - heldAssets already includes a correlated asset (e.g. holding BTC LONG,
-        this signal is ETH LONG) -> note correlation risk; do NOT auto-skip.
-      The LLM has final say.
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 12 AND all 4TFs aligned AND SM >= 10% AND BTC macro supports
+      - 7-8: score >= 10 AND SM building AND clean 4H trend
+      - 4-6: score 9 but mixed confirmation — SKIP (execute: false)
+      - 1-3: any hard-skip condition — SKIP (execute: false)
+
+      For XYZ assets: be MORE selective. Oil/gold/indices have different
+      volatility profiles — a 4H move of 2% on GOLD is equivalent to 5%
+      on a crypto alt. Factor that into confidence.
+
+      Minimum confidence to execute is 7. If you cannot honestly justify
+      >=7 citing values from the signal, output execute: false.
 
 exit:
   engine: dsl

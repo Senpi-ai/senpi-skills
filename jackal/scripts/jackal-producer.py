@@ -145,8 +145,23 @@ def refresh_pool(force=False):
         if not isinstance(t, dict):
             continue
         win_rate = float(t.get("win_rate") or t.get("winRate") or 0)
-        roi_30d = float(t.get("return_on_investment") or t.get("roi") or 0)
-        age_days = float(t.get("trader_age_days") or t.get("traderAgeDays") or 0)
+        # v2.0.4: MCP returns returnOnInvestment (camelCase), not
+        # return_on_investment. Also traderAgeSeconds not traderAgeDays.
+        # Without these fallbacks, every trader scored ROI=0 and age=0,
+        # producing a pool full of "0%-ROI 0-day-old" traders that
+        # silently filtered out. Jackal found this live 2026-04-23.
+        roi_30d = float(
+            t.get("return_on_investment")
+            or t.get("roi")
+            or t.get("returnOnInvestment")
+            or 0
+        )
+        age_days = float(
+            t.get("trader_age_days")
+            or t.get("traderAgeDays")
+            or (t.get("traderAgeSeconds") or 0) / 86400
+            or 0
+        )
         address = t.get("address") or t.get("trader_address")
         if not address:
             continue
@@ -182,8 +197,18 @@ def refresh_pool(force=False):
 def _compute_quality_score(trader):
     """Composite quality score 0-100. Higher = better stalk target."""
     win_rate = float(trader.get("win_rate") or trader.get("winRate") or 0)
-    roi_30d = float(trader.get("return_on_investment") or trader.get("roi") or 0)
-    age_days = float(trader.get("trader_age_days") or trader.get("traderAgeDays") or 0)
+    roi_30d = float(
+        trader.get("return_on_investment")
+        or trader.get("roi")
+        or trader.get("returnOnInvestment")
+        or 0
+    )
+    age_days = float(
+        trader.get("trader_age_days")
+        or trader.get("traderAgeDays")
+        or (trader.get("traderAgeSeconds") or 0) / 86400
+        or 0
+    )
     gain_to_pain = float(trader.get("gain_to_pain_ratio") or trader.get("gainToPainRatio") or 0)
 
     score = 0.0
@@ -231,7 +256,17 @@ def detect_new_entries(pool, current_positions, last_seen):
         addr = trader["address"]
         cur = current_positions.get(addr, [])
         prev = last_seen.get(addr, [])
-        prev_keys = {(p.get("coin"), p.get("direction")) for p in prev if isinstance(p, dict)}
+        # v2.0.4: MCP positions don't carry an explicit "direction" key;
+        # derive it from the sign of szi. Without this, prev_keys always
+        # contained (coin, None) which never matched current positions,
+        # causing every current position to be re-detected as "new" on
+        # every run.
+        def _derive_key(p):
+            coin = p.get("coin") or p.get("asset")
+            szi = float(p.get("szi") or p.get("size") or 0)
+            direction = "LONG" if szi > 0 else ("SHORT" if szi < 0 else None)
+            return (coin, direction)
+        prev_keys = {_derive_key(p) for p in prev if isinstance(p, dict)}
 
         for pos in cur:
             if not isinstance(pos, dict):
@@ -249,7 +284,13 @@ def detect_new_entries(pool, current_positions, last_seen):
                 continue  # not new
 
             # Freshness gate: entry must be recent
-            entry_ts = float(pos.get("openedAtTs") or pos.get("openTime") or 0)
+            # v2.0.4: MCP returns startTime, not openedAtTs/openTime.
+            entry_ts = float(
+                pos.get("openedAtTs")
+                or pos.get("openTime")
+                or pos.get("startTime")
+                or 0
+            )
             if entry_ts > 0 and (now - entry_ts) > MAX_ENTRY_AGE_SECONDS:
                 continue
 
@@ -502,8 +543,20 @@ def main():
         current_positions = fetch_pool_positions(pool)
         last_seen = state.load_last_seen()
 
-        candidates = detect_new_entries(pool, current_positions, last_seen)
-        candidates = enrich_with_consensus(candidates, current_positions)
+        # v2.0.4: CRITICAL — baseline-seed guard.
+        # If last_seen is empty (first run ever, or state file deleted),
+        # DO NOT treat every current pool-member position as "new." That
+        # would emit signals for all existing positions → LLM approves
+        # a few → unintended entries on startup. Observed live 2026-04-23:
+        # Jackal v2.0.3 opened 2 positions (ETH SHORT + SOL SHORT)
+        # immediately on first install before the baseline settled.
+        # On empty baseline, emit 0 signals, just save the baseline. The
+        # NEXT run has a populated baseline and can safely detect diffs.
+        if not last_seen:
+            candidates = []
+        else:
+            candidates = detect_new_entries(pool, current_positions, last_seen)
+            candidates = enrich_with_consensus(candidates, current_positions)
 
         # Always persist current positions as new baseline — regardless of whether
         # we emitted signals. If we don't, dropped signals resurface forever.
