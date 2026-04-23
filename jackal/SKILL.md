@@ -6,9 +6,9 @@ description: >-
   producer + external_scanner + LLM-gated OPEN_POSITION action +
   declarative risk guardrails + runtime-managed DSL. Thesis unchanged
   from v1: observe top-performing Senpi traders, detect new entries by
-  pool members, enrich with consensus + TA + funding context, and let a
-  Claude-Sonnet decision prompt evaluate each candidate before the
-  runtime executes with our own DSL. Separation of concerns: the
+  pool members, enrich with consensus + TA + funding context, and let
+  an LLM (operator-selected via `$JACKAL_DECISION_MODEL`) evaluate each
+  candidate before the runtime executes with our own DSL. Separation of concerns: the
   producer has zero execution authority; the runtime owns entry, risk,
   and exit.
 license: MIT
@@ -30,11 +30,12 @@ processes that can't step on each other:
   entries, enriches with context, and pushes candidate signals. Nothing
   else. No execution, no DSL, no risk code.
 - **The runtime** receives signals, gates each through an LLM decision
-  prompt with `min_confidence: 7` (model configured via
-  `actions.decision_model` — currently `claude-sonnet-4-20250514`,
-  pluggable per the runtime's model registry), executes approved
-  entries, auto-manages DSL exits, and enforces declarative risk
-  guardrails.
+  prompt with `min_confidence: 7`. The model is required at deploy
+  time via the `$JACKAL_DECISION_MODEL` env var (no default by design
+  — operators pick whatever model they prefer from the runtime's
+  registry: e.g. `gemini-2.5-pro`, `claude-sonnet-4-20250514`, etc.).
+  The runtime executes approved entries, auto-manages DSL exits, and
+  enforces declarative risk guardrails.
 
 This is the fleet's first v2-runtime-native agent. Legacy v1 scanner +
 pool code is preserved in `legacy-v1/` for reference.
@@ -175,7 +176,12 @@ curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jackal/scri
   -o /data/workspace/skills/jackal-tracker/scripts/jackal_state.py
 
 # 2. Install the runtime
-WALLET_ADDRESS=0x... TELEGRAM_CHAT_ID=... \
+# JACKAL_DECISION_MODEL is REQUIRED — pick any model supported by the
+# runtime's model registry. Examples: gemini-2.5-pro,
+# claude-sonnet-4-20250514, etc. There is no default.
+WALLET_ADDRESS=0x... \
+TELEGRAM_CHAT_ID=... \
+JACKAL_DECISION_MODEL=gemini-2.5-pro \
   openclaw senpi runtime create --path /data/workspace/skills/jackal-tracker/runtime.yaml
 
 # 3. Schedule the producer

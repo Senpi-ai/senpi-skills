@@ -25,7 +25,7 @@ jackal-producer.py (60s cron)      senpi-trading-runtime (v2)
 | Pool | Top 25 by composite quality score (refreshed daily) |
 | Pool filters | win_rate ≥ 0.50, roi_30d ≥ 10%, trader_age ≥ 14d |
 | Entry age gate | < 10 min (producer-side freshness) |
-| Entry decision | LLM-gated via `decision_prompt`, min_confidence 7 (model set by `actions.decision_model`, currently `claude-sonnet-4-20250514`) |
+| Entry decision | LLM-gated via `decision_prompt`, min_confidence 7 (model required at deploy time via `$JACKAL_DECISION_MODEL` env var — no default) |
 | Max concurrent | 2 slots |
 | Leverage | 5x default (runtime-enforced) |
 | Margin per slot | $300 |
