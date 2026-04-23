@@ -1,10 +1,28 @@
 #!/usr/bin/env python3
-# Senpi JAGUAR Scanner v3.3
+# Senpi JAGUAR Scanner v3.4
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""JAGUAR v3.3 — Striker-Only (dormancy fix #2).
+"""JAGUAR v3.4 — Striker-Only (volume-ratio silent-None bug fix).
 
-v3.3 change (2026-04-22) — still dormant after v3.2:
+v3.4 change (2026-04-23) — THE ACTUAL DORMANCY CAUSE:
+After v3.3 widened striker gates, Jaguar still fired 0 trades. Live diag
+revealed CHIP SHORT score 11 and XMR SHORT score 9 were BOTH valid
+signals but 100% rejected by the `vol_ratio < 1.5` gate. Root cause:
+`leaderboard_get_markets` API doesn't emit `vol_ratio` / `volume_ratio` /
+`avg_volume` fields, so `vol_ratio` silently defaulted to 0 → rejected
+every signal.
+
+v3.4 replaces the 1.5x ratio hard gate with:
+  - Absolute liquidity floor via `day_notional_volume` ≥ $3M (fleet standard)
+  - Soft vol_ratio bonus when data IS available (no rejection if missing)
+Preserves the gate's intent (liquidity/participation check) without
+silently zeroing every candidate.
+
+This is the same silent-None family as Pangolin v1.5 and Dog v2.4
+`funding_history` parser bugs. Check scanner output for presence of
+all gated fields in live API responses before trusting a gate.
+
+v3.3 change (2026-04-22) — widened gates (still useful — kept):
 - STRIKER_MIN_RANK_JUMP: 10 → 7
 - STRIKER_MIN_PREV_RANK: 25 → 20
 - STRIKER_MIN_REASONS: 4 → 3
@@ -334,16 +352,38 @@ def detect_striker_signals(current_scan, history):
         if score < MIN_SCORE or len(reasons) < STRIKER_MIN_REASONS:
             continue
 
-        # Volume confirmation
+        # v3.4: Volume confirmation — previously a silent-None killer.
+        # `vol_ratio` / `volume_ratio` / `avg_volume` fields don't exist on
+        # leaderboard_get_markets responses, so vol_ratio was always 0 and
+        # every signal was rejected. Jaguar has been silently dormant
+        # since the baseline scanner was written.
+        #
+        # The intent of the gate is "confirm participation/liquidity." We
+        # already have stronger participation signals (cc_15m > 0 is a
+        # hard gate above, contrib_explosion/velocity score into MIN_SCORE).
+        # So: replace the hard 1.5x-ratio gate with:
+        #   - Absolute liquidity floor via day_notional_volume (if present)
+        #   - Soft ratio bonus when data IS available (no rejection if missing)
+        MIN_DAY_NOTIONAL_VOLUME_USD = 3_000_000  # $3M 24h liquidity floor
+        day_notional = safe_float(
+            market.get("day_notional_volume",
+                market.get("dayNotionalVolume",
+                    market.get("volume_24h_usd", 0)))
+        )
+        if day_notional > 0 and day_notional < MIN_DAY_NOTIONAL_VOLUME_USD:
+            continue  # liquidity too thin
+
+        # Soft vol_ratio bonus — only add reason if data genuinely available
         vol_ratio = safe_float(market.get("vol_ratio", market.get("volume_ratio", 0)))
-        if vol_ratio < STRIKER_MIN_VOLUME_RATIO:
+        if vol_ratio == 0:
             volume = safe_float(market.get("volume", 0))
             avg_volume = safe_float(market.get("avg_volume", market.get("avgVolume", 0)))
             if avg_volume > 0:
                 vol_ratio = volume / avg_volume
-            if vol_ratio < STRIKER_MIN_VOLUME_RATIO:
-                continue
-        reasons.append(f"VOL {vol_ratio:.1f}x")
+        if vol_ratio >= STRIKER_MIN_VOLUME_RATIO:
+            reasons.append(f"VOL {vol_ratio:.1f}x")
+        elif day_notional > 0:
+            reasons.append(f"LIQUID ${day_notional/1e6:.1f}M")
 
         signals.append({
             "token": token,
@@ -612,7 +652,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_jaguar_version": "3.3",
+                "_jaguar_version": "3.4",
             })
         else:
             cfg.output({
@@ -625,7 +665,7 @@ def run():
                     "reasons": signal["reasons"],
                 },
                 "error": result,
-                "_jaguar_version": "3.3",
+                "_jaguar_version": "3.4",
             })
         return
 

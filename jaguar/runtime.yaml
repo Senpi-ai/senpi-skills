@@ -1,11 +1,15 @@
 name: jaguar-tracker
-version: 3.3.0
+version: 3.4.0
 description: >
-  Jaguar v3.3 — Striker-only (dormancy fix #2). v3.2 loosened rank-jump
-  15→10 but agent stayed dormant because the combined
-  (jump>=10 AND prev_rank>=25) window is very narrow (prev#25-35 →
-  current#11-25) AND reasons>=4 rejected valid 3-label signals. v3.3
-  loosens all three: jump 10→7, prev_rank 25→20, reasons 4→3.
+  Jaguar v3.4 — Striker-only (ACTUAL dormancy root cause found).
+  v3.3 widened striker gates but live diag revealed CHIP SHORT (score 11)
+  and XMR SHORT (score 9) both got valid signals through — only to be
+  100% rejected by `vol_ratio < 1.5`. The API doesn't emit `vol_ratio` /
+  `avg_volume` fields, so the scanner silently defaulted to 0 → rejected
+  every candidate. Silent-None bug family (same as Pangolin v1.5 +
+  Dog v2.4 funding_history). v3.4 replaces the hard ratio gate with an
+  absolute day_notional_volume ≥ $3M floor + soft vol_ratio bonus when
+  data is genuinely present. Preserves intent; doesn't fail-closed.
 
 # ── STRATEGY ──
 strategy:
