@@ -543,20 +543,28 @@ def build_signal(trader, positions, sm_map, hot_cfg, sm_cfg):
         return None
 
     # ─────────────────────────────────────────────────────────────
-    # v3.2 ENTRY DISCIPLINE: don't buy the top of the whale's bag
+    # v3.3 ENTRY DISCIPLINE: don't buy the top of the whale's bag
     # ─────────────────────────────────────────────────────────────
-    # Raptor's 2026-04-16 self-diagnosis: "Elite traders often sit in
-    # underwater or flat positions for days, averaging down. Following
-    # them blindly without knowing their entry price means we assume all
-    # their risk without their padding. We are buying the top of their bags."
+    # v3.2 introduced this gate at 20% threshold. Raptor's 2026-04-23
+    # self-diagnostic: "The 120-minute cooldown works, but it's a blind
+    # gate. When it expired, the same whale was holding the same position
+    # and SM still agreed, so the scanner fired again. It lacked the
+    # context to realize the thesis was failing." Raptor's proposed fix:
+    # "Only execute the follow if the current price is better than the
+    # whale's entry, or within a strict 1-2% deviation."
     #
-    # Fix: compare current market price to whale's entryPx.
-    # - If current price is WORSE than whale's entry (asset moved against
-    #   their position post-entry), we get a BETTER fill than the whale did
-    #   → take the trade.
-    # - If current price has run 20%+ FROM whale's entry in their favor,
-    #   we'd be buying their top → skip.
-    MAX_PRICE_RUN_PCT_FROM_WHALE_ENTRY = 20.0
+    # v3.3 tightens 20% → 5%. Raptor's proposed 1-2% would likely zero
+    # the scanner since most detected whales are already 5-10% into
+    # profit by the time they appear on the board. 5% is a 4x tightening
+    # from v3.2 — significant but leaves fire rate. If 5% still allows
+    # top-buying (evidence: post-fix entries still dying in ordinary
+    # volatility), tighten to 3% then 2% per Raptor's original target.
+    #
+    # Logic unchanged:
+    # - Whale underwater → we get a BETTER fill than they did → always OK
+    # - Whale up 0-5% from entry → piggyback range, take it
+    # - Whale up >5% → we'd be buying their top → skip
+    MAX_PRICE_RUN_PCT_FROM_WHALE_ENTRY = 5.0
     whale_entry_px = best_pos.get("whale_entry_px", 0)
     if whale_entry_px > 0:
         # Get current price — prefer market_get_prices (fresh) but fall
@@ -811,7 +819,7 @@ def run():
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
-            "_raptor_version": "3.2",
+            "_raptor_version": "3.3",
         })
         return
 
@@ -931,7 +939,7 @@ def run():
                 "orderType": entry_cfg.get("orderType", "FEE_OPTIMIZED_LIMIT"),
             },
             "result": result,
-            "_raptor_version": "3.2",
+            "_raptor_version": "3.3",
         })
     else:
         error = result.get("error", "unknown") if result else "mcporter_call returned None"
@@ -940,7 +948,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": error,
-            "_raptor_version": "3.2",
+            "_raptor_version": "3.3",
         })
 
 
