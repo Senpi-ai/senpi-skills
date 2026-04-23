@@ -1,11 +1,23 @@
 name: python-tracker
-version: 1.0.0
+version: 1.1.0
 description: >
-  PYTHON v1.0 — The Patience Hunter. The fleet's first multi-day hold
-  agent. Scans top 50 HL assets every 10 minutes, takes up to 2 concurrent
-  positions, holds for 2-4 days, low leverage (3-7x), LONG-biased.
-  Derived from pr0br000's Arena Week 2-3 pattern (+221% in 27 days,
-  36% win rate, 3.14:1 win/loss ratio, top 5 winners drove 90% of gross).
+  PYTHON v1.1 — Patience Hunter (DSL-thesis alignment fix).
+  v1.0 diagnosed its own problem on 2026-04-23: the multi-day patience
+  thesis was being "chopped out by normal intraday volatility" because
+  phase1.retrace_threshold=10 is a scalper's leash (10% ROE drop at 5x
+  leverage = 2% price move = market noise). 10 recent trades averaged
+  <4h hold times instead of the 2-4 day target.
+
+  v1.1 changes — runtime-only, scanner unchanged:
+    retrace_threshold  10 → 30    # 6% price retrace at 5x = real thesis break
+    dead_weight_cut    6h → 24h   # patience thesis needs a full day before "dead"
+    weak_peak_cut      12h → 48h  # multi-day weak-peak tolerance
+    phase2 tier 6      removed    # trigger_pct: 200 rejected by runtime validation (cap 100)
+    phase2 tier 5      lock_hw_pct: 90 → 94  # catch the monster-winner trail
+
+  hard_timeout preserved at 96h (matches 2-4 day thesis target).
+  max_loss_pct preserved at 20% (absolute downside cap).
+  Scanner, MIN_SCORE, leverage tiers all unchanged.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -25,35 +37,30 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ─── EXIT (DSL) — Patience profile ──────────────────────────
-# The whole point of Python is to NOT exit early.
-# DSL timing must match multi-day thesis:
-#
-#   Python (multi-day):   Dead Weight 360min | Weak Peak 720min | Hard Timeout 5760min (96h)
-#   Condor (daily):       Dead Weight 60min  | Weak Peak 120min | Hard Timeout 1440min (24h)
-#   HYPE/fast alts:       Dead Weight 30min  | Weak Peak 60min  | Hard Timeout 180min (3h)
-#
-# Phase 2 tiers are WIDER — first lock at +5% only locks 15%, letting
-# winners breathe. Early aggressive locking would kill the +1000% tail
-# trades pr0br000 won on.
+# ─── EXIT (DSL) — Patience profile (v1.1 aligned with thesis) ──
+# Python's thesis: 2-4 day holds, high-conviction signals, let winners
+# run 100%+. v1.0's DSL was a scalper's leash.
+# v1.1 loosens the trailing-retrace floor 3x so normal intraday noise
+# doesn't trigger exits, and extends time cuts to match multi-day hold
+# expectations. Phase 1 max_loss preserved as the absolute backstop.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 5760       # 96h = 4 days
+      interval_in_minutes: 5760       # 96h = 4 days (matches thesis target)
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 720         # 12h peak-stale = thesis not developing
+      interval_in_minutes: 2880        # v1.1: 720 → 2880 (48h peak-stale before cut)
       min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 360         # 6h no movement
+      interval_in_minutes: 1440        # v1.1: 360 → 1440 (24h no movement)
     phase1:
       enabled: true
-      max_loss_pct: 20.0               # Wider than Condor (15%) — patient on losers too
-      retrace_threshold: 10
+      max_loss_pct: 20.0               # absolute hard stop (unchanged)
+      retrace_threshold: 30            # v1.1: 10 → 30 (core thesis-alignment fix)
     phase2:
       enabled: true
       tiers:
@@ -61,8 +68,7 @@ exit:
         - { trigger_pct: 12,  lock_hw_pct: 35 }
         - { trigger_pct: 25,  lock_hw_pct: 60 }
         - { trigger_pct: 50,  lock_hw_pct: 80 }   # pr0br000's MON/WLD-tier
-        - { trigger_pct: 100, lock_hw_pct: 90 }   # Monster winner trail
-        - { trigger_pct: 200, lock_hw_pct: 94 }   # 200%+ — pr0br000 had 2 of these
+        - { trigger_pct: 100, lock_hw_pct: 94 }   # v1.1: was 90; bumped to final tier
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
