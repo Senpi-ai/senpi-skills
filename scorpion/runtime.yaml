@@ -1,76 +1,179 @@
 name: scorpion-tracker
-version: 3.2.0
+version: 4.0.0
 description: >
-  SCORPION v3.2 — Multi-Market Active Trader (over-trading fix).
-  v3.1 targeted pr0br000's 369-fills-in-3-weeks scalp-re-entry pattern.
-  Result: 413 fills, -17.9% ROI. pr0br000 subsequently got wiped out
-  week 4 — the pattern doesn't work at sample. v3.2 pulls discipline:
-    MIN_SCORE 6 → 9 (kill coin-flip entries)
-    MAX_POSITIONS 3 → 2 (reduce concurrent fee exposure)
-    MAX_DAILY_ENTRIES 6 → 3
-    SCALP_COOLDOWN 15 → 60 min (no more 15-min re-entries)
-    MAX_REENTRIES_PER_ASSET 10 → 3 (cap per-asset fee-churn)
-    MARGIN_PCT 30% → 25%
-  Scanner logic unchanged — same multi-market SM + 4H trend gating,
-  just stricter thresholds and less re-entry aggression.
+  SCORPION v4.0 — Multi-Market Active Trader (v2-runtime-native rewrite).
+  First multi-asset agent on senpi-trading-runtime v2. Replaces v3.2
+  which logged 43 fills / 18h / -$79.84 in Arena Week 5 despite
+  MAX_DAILY_ENTRIES=3 — the scalp re-entry bypass logic and in-Python
+  trade counter were silently leaking. v4.0 removes all that
+  bookkeeping and delegates to the runtime:
 
-# -- STRATEGY --
+    - Producer emits signals only (no execution, no counters, no cooldowns)
+    - LLM gate evaluates each signal with 4TF + SM + BTC macro context
+    - risk.guard_rails ENFORCES max_entries_per_day: 5 with no bypass
+    - per_asset_cooldown_minutes: 120 (runtime-authoritative; no scalp
+      re-entry shortcut path)
+    - DSL now uses FEE_OPTIMIZED_LIMIT on EXITS — v2's biggest win for
+      high-turnover agents. At ~40 trades/day this is the single
+      largest P&L improvement in the migration (~$20/week in fee
+      savings from maker-preferred exits).
+
+  Thesis preserved: crypto + XYZ DEX multi-market trend-follower, SM
+  direction gated on 4H price alignment, multi-factor score.
+
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 1000
   slots: 2
   margin_per_slot: 250
+  trading_risk: moderate
   enabled: true
 
-# -- SCANNERS --
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 5
+    max_entries_per_day: 5
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 90
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 120
+
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
 
-# -- ACTIONS --
+  - name: scorpion_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        isXyz: { type: boolean, required: true }
+        reasons: { type: array, required: true }
+        smPct: { type: number, required: true }
+        smTraders: { type: number, required: true }
+        priceChange4hPct: { type: number, required: true }
+        priceChange1hPct: { type: number, required: false }
+        contribChange15m: { type: number, required: false }
+        contribChange1h: { type: number, required: false }
+        contribChange4h: { type: number, required: false }
+        btcMacroDirection: { type: string, required: false }
+        btcMacro24hPct: { type: number, required: false }
+        fundingRegime: { type: string, required: false }
+        heldAssets: { type: array, required: false }
+        recentEntryCountThisAsset: { type: number, required: false }
+
 actions:
   - name: position_tracker_action
     action_type: POSITION_TRACKER
     decision_mode: rule
     scanners: [position_tracker]
 
-# -- EXIT (DSL) --
-# Short-hold profile for active multi-market trading.
-# Dead weight cut at 30 min — kill losers fast, free up slots.
-# Weak peak cut at 60 min — don't let small winners decay.
-# Hard timeout at 720 min (12h) — forced rotation, not a buy-and-hold.
-# Phase 1 max loss 15% — standard fleet tightness.
-# Phase 2 starts at +5% with standard tier progression.
+  - name: scorpion_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${SCORPION_DECISION_MODEL}"  # required — e.g. gemini-2.5-pro, claude-sonnet-4-20250514. No default.
+    scanners: [scorpion_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 15
+    context:
+      - type: signal
+        scanner: scorpion_signals
+    decision_prompt: |
+      You are Scorpion's trade-decisioning evaluator. A multi-market
+      scanner just surfaced a trend-following signal on a crypto or
+      XYZ DEX asset. Decide whether to open a position.
+
+      SIGNAL:
+      {{signal_scorpion_signals}}
+
+      Scorpion's thesis: follow trends that have SM conviction + 4TF
+      price alignment, across a broad crypto + XYZ universe (CL,
+      BRENTOIL, GOLD, SPX plus ~15 crypto majors/mid-caps). Short-hold
+      active trading — DSL manages exits, you manage entries.
+
+      Evaluate and output a JSON object:
+      {
+        "execute": true | false,
+        "actionType": "OPEN_POSITION",
+        "confidence": 1-10,
+        "reasoning": "one sentence on the deciding factor",
+        "payload": {
+          "signals": [
+            {
+              "asset": "<ticker or xyz:ticker>",
+              "direction": "LONG" | "SHORT",
+              "reason": "<score + top 2 reasons>"
+            }
+          ]
+        }
+      }
+
+      Heuristics (not rigid):
+      - score >= 11 + all 4TFs aligned + SM >= 10% -> confidence 8-9
+      - score 9-10 + SM building + clean 4H trend -> 7-8
+      - score < 9 -> skip (shouldn't reach here; producer filters)
+      - BTC macro opposing direction AND asset is crypto major -> reduce confidence
+      - recentEntryCountThisAsset >= 2 within 24h -> flag as over-traded; confidence -1
+      - XYZ assets: be MORE selective. Oil/gold/indices have different volatility
+        profiles — treat a 4H move of 2% on GOLD as equivalent to 5% on a crypto alt.
+      - heldAssets already includes a correlated asset (e.g. holding BTC LONG,
+        this signal is ETH LONG) -> note correlation risk; do NOT auto-skip.
+      The LLM has final say.
+
 exit:
   engine: dsl
   interval_seconds: 30
+  # v4.0 KEY WIN — maker-preferred exits. At ~40 trades/day this is
+  # the largest single P&L improvement in the migration. HL taker is
+  # 0.035%, maker is 0.015% — saves ~0.020% on every exit. At $14k
+  # daily exit notional, that's ~$2.85/day / ~$20/week / ~$1k/year.
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true       # maker first; fall back to taker on no-fill
+    execution_timeout_seconds: 15
+  # Short-hold DSL profile preserved from v3.2. Time cuts kept because
+  # Scorpion is multi-asset + multi-slot: rotation opportunity cost is
+  # real. v2 runtime auto-disables time cuts in Phase 2 per spec, so
+  # the v1-DSL Phase-2 wrongful-close bug (that bit Polar overnight
+  # 2026-04-23) is fixed by the runtime — not by disabling timers.
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 720
+      interval_in_minutes: 720             # 12h forced rotation ceiling
     weak_peak_cut:
       enabled: true
       interval_in_minutes: 60
-      min_value: 3.0
+      min_value: 2.0
     dead_weight_cut:
       enabled: true
       interval_in_minutes: 30
     phase1:
       enabled: true
       max_loss_pct: 15.0
-      retrace_threshold: 8
-      consecutive_breaches_required: 3
+      retrace_threshold: 6
+      consecutive_breaches_required: 2
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 5,  lock_hw_pct: 20 }
-        - { trigger_pct: 10, lock_hw_pct: 40 }
-        - { trigger_pct: 15, lock_hw_pct: 60 }
-        - { trigger_pct: 20, lock_hw_pct: 75 }
-        - { trigger_pct: 30, lock_hw_pct: 85 }
-        - { trigger_pct: 50, lock_hw_pct: 90 }
+        - { trigger_pct: 5,   lock_hw_pct: 30 }
+        - { trigger_pct: 10,  lock_hw_pct: 50 }
+        - { trigger_pct: 15,  lock_hw_pct: 70 }
+        - { trigger_pct: 25,  lock_hw_pct: 85 }
+        - { trigger_pct: 40,  lock_hw_pct: 90 }
+        - { trigger_pct: 80,  lock_hw_pct: 94 }
 
-# -- NOTIFICATIONS --
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

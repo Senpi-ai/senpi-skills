@@ -1,0 +1,6 @@
+{
+  "_comment": "Scorpion v4.0 example config. Copy to scorpion-config.json and fill in real values, or pass via env vars (STRATEGY_ADDRESS, WALLET_ADDRESS, TELEGRAM_CHAT_ID, SCORPION_DECISION_MODEL). Keep the committed file as example-only.",
+  "wallet": "",
+  "strategyId": "",
+  "chatId": ""
+}

@@ -1,0 +1,382 @@
+#!/usr/bin/env python3
+# Senpi SCORPION Producer v4.0
+# Copyright 2026 Senpi (https://senpi.ai)
+# Licensed under MIT
+# Source: https://github.com/Senpi-ai/senpi-skills
+"""SCORPION v4.0 Producer — Multi-market signal emitter for v2 runtime.
+
+v3.x was a full-agency scanner: scored signals, counted daily entries,
+managed asset cooldowns + scalp re-entry windows, called create_position.
+The scalp-reentry bypass meant MAX_DAILY_ENTRIES=3 silently leaked to
+43 fills / 18h in Week 5.
+
+v4.0 flips to pure producer:
+  - Scan crypto + XYZ markets via leaderboard_get_markets
+  - Apply the multi-factor score gate (MIN_SCORE >= 9)
+  - Enrich with BTC macro + funding regime + current-position context
+  - Push to the runtime via `openclaw senpi external-scanner ingest`
+
+The runtime handles everything else:
+  - LLM gate (decision_mode: llm) filters each signal
+  - risk.guard_rails enforces max_entries_per_day, per_asset_cooldown,
+    drawdown_halt — no Python counters that can drift
+  - DSL manages exits (maker-preferred on v2)
+
+NO execution code. NO trade counters. NO cooldown state. NO scalp
+re-entry logic. The runtime owns all of that.
+
+Environment:
+  SENPI_API_KEY     — MCP access
+  STRATEGY_ADDRESS  — Scorpion wallet (must match runtime YAML)
+  SENPI_MCP_URL     — optional, default https://mcp.prod.senpi.ai/mcp
+  OPENCLAW_BIN      — optional, default "openclaw"
+  EXTERNAL_SCANNER_NAME — optional override (default "scorpion_signals")
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+from datetime import datetime, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import scorpion_config as cfg
+
+
+SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "scorpion_signals")
+STRATEGY_ADDRESS = os.environ.get("STRATEGY_ADDRESS", "")
+OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+
+
+# ═══════════════════════════════════════════════════════════════
+# UNIVERSE + SCORING CONFIG (preserved from v3.2)
+# ═══════════════════════════════════════════════════════════════
+
+CRYPTO_ASSETS = {
+    "BTC", "ETH", "SOL", "HYPE", "ZEC", "LIT", "GRASS", "FARTCOIN",
+    "TAO", "ONDO", "SUI", "ARB", "WLD", "DOGE", "AVAX",
+}
+XYZ_ASSETS = {"CL", "BRENTOIL", "GOLD", "SPX"}
+
+# MIN_SCORE stays at 9 (v3.2 setting). LLM gate applies further on top.
+MIN_SCORE = 9
+
+# 4H price-alignment thresholds — XYZ moves less than crypto
+MIN_4H_ALIGNED_PCT_CRYPTO = 1.0
+MIN_4H_ALIGNED_PCT_XYZ = 0.5
+
+
+def safe_float(v, d=0.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return d
+
+
+def is_xyz(token):
+    return token in XYZ_ASSETS
+
+
+def coin_label(token, is_xyz_asset):
+    return f"xyz:{token}" if is_xyz_asset else token
+
+
+# ═══════════════════════════════════════════════════════════════
+# SIGNAL SCORING (preserved from v3.2 — unchanged logic)
+# ═══════════════════════════════════════════════════════════════
+
+def score_market(m):
+    """Score a single market candidate. Returns dict or None if below threshold."""
+    token = str(m.get("token", "")).upper()
+    dex = str(m.get("dex", "")).lower()
+
+    is_xyz_asset = (dex == "xyz" and token in XYZ_ASSETS)
+    is_crypto_asset = (dex != "xyz" and token in CRYPTO_ASSETS)
+    if not is_xyz_asset and not is_crypto_asset:
+        return None
+
+    sm_direction = str(m.get("direction", "")).upper()
+    if sm_direction not in ("LONG", "SHORT"):
+        return None
+
+    pct = safe_float(m.get("pct_of_top_traders_gain", 0))
+    traders = int(m.get("trader_count", 0))
+    p4h = safe_float(m.get("token_price_change_pct_4h", 0))
+    p1h = safe_float(m.get("token_price_change_pct_1h",
+                           m.get("price_change_1h", 0)))
+    cc_15m = safe_float(m.get("contribution_pct_change_15m", 0))
+    cc_1h = safe_float(m.get("contribution_pct_change_1h", 0))
+    cc_4h = safe_float(m.get("contribution_pct_change_4h", 0))
+
+    if traders < 5:
+        return None
+
+    # 4H price alignment gate — SM direction must match price trend
+    min_4h = MIN_4H_ALIGNED_PCT_XYZ if is_xyz_asset else MIN_4H_ALIGNED_PCT_CRYPTO
+    price_aligned = (sm_direction == "LONG" and p4h >= min_4h) or \
+                    (sm_direction == "SHORT" and p4h <= -min_4h)
+    if not price_aligned:
+        return None
+
+    score = 0
+    reasons = []
+
+    # SM concentration (0-3)
+    if pct >= 15:
+        score += 3; reasons.append(f"DOMINANT_SM {pct:.1f}% ({traders}t)")
+    elif pct >= 10:
+        score += 2; reasons.append(f"STRONG_SM {pct:.1f}% ({traders}t)")
+    elif pct >= 5:
+        score += 1; reasons.append(f"SM_PRESENT {pct:.1f}% ({traders}t)")
+
+    # 4H price alignment (0-3)
+    big_move = 3.0 if is_xyz_asset else 5.0
+    med_move = 1.5 if is_xyz_asset else 3.0
+    if abs(p4h) >= big_move:
+        score += 3; reasons.append(f"STRONG_TREND {p4h:+.1f}%")
+    elif abs(p4h) >= med_move:
+        score += 2; reasons.append(f"TREND {p4h:+.1f}%")
+    elif abs(p4h) >= min_4h:
+        score += 1; reasons.append(f"ALIGNED {p4h:+.1f}%")
+
+    # 15m SM velocity (0-2, penalty -1 on fade)
+    if cc_15m > 1.0:
+        score += 2; reasons.append(f"15M_SM_BUILDING {cc_15m:+.2f}")
+    elif cc_15m > 0.3:
+        score += 1; reasons.append(f"15M_SM_FRESH {cc_15m:+.2f}")
+    elif cc_15m < -0.5:
+        score -= 1; reasons.append(f"15M_SM_FADING {cc_15m:+.2f}")
+
+    # 1H acceleration
+    if sm_direction == "LONG" and p1h > 0.5:
+        score += 1; reasons.append(f"1H_ACCEL {p1h:+.2f}%")
+    elif sm_direction == "SHORT" and p1h < -0.5:
+        score += 1; reasons.append(f"1H_ACCEL {p1h:+.2f}%")
+
+    # Trader depth
+    if traders >= 50:
+        score += 1; reasons.append(f"DEEP_SM ({traders}t)")
+
+    # 4H contribution shift
+    if abs(cc_4h) >= 5.0:
+        score += 1; reasons.append(f"4H_CONVICTION {cc_4h:+.1f}")
+
+    if score < MIN_SCORE:
+        return None
+
+    reasons.insert(0, f"TREND_FOLLOW {coin_label(token, is_xyz_asset)} {sm_direction}")
+
+    return {
+        "asset": coin_label(token, is_xyz_asset),
+        "token": token,
+        "is_xyz": is_xyz_asset,
+        "direction": sm_direction,
+        "score": score,
+        "reasons": reasons,
+        "sm_pct": pct,
+        "sm_traders": traders,
+        "p4h": p4h,
+        "p1h": p1h,
+        "cc_15m": cc_15m,
+        "cc_1h": cc_1h,
+        "cc_4h": cc_4h,
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# CONTEXT ENRICHMENT
+# ═══════════════════════════════════════════════════════════════
+
+def fetch_btc_macro():
+    try:
+        ad = cfg.mcporter_call(
+            "market_get_asset_data",
+            asset="BTC",
+            candle_intervals=["1h"],
+            include_funding=False,
+            include_order_book=False,
+        )
+        if not ad:
+            return {"direction": None, "pct": None}
+        data = ad.get("data", ad)
+        candles_1h = (data.get("candles", {}) or {}).get("1h", [])
+        if len(candles_1h) < 24:
+            return {"direction": None, "pct": None}
+        opens = [float(c.get("open") or c.get("o") or 0) for c in candles_1h[-24:]]
+        closes = [float(c.get("close") or c.get("c") or 0) for c in candles_1h[-24:]]
+        if opens[0] <= 0:
+            return {"direction": None, "pct": None}
+        pct = (closes[-1] - opens[0]) / opens[0] * 100
+        return {"direction": "UP" if pct > 0 else "DOWN", "pct": round(pct, 2)}
+    except Exception:
+        return {"direction": None, "pct": None}
+
+
+def fetch_funding_regime():
+    try:
+        fr = cfg.mcporter_call("market_get_funding_regime")
+        if fr:
+            data = fr.get("data", fr)
+            if isinstance(data, dict):
+                return data.get("regime")
+    except Exception:
+        pass
+    return None
+
+
+def fetch_held_assets():
+    """Read current positions from the strategy wallet. Returns list of asset labels."""
+    wallet = STRATEGY_ADDRESS or os.environ.get("WALLET_ADDRESS", "")
+    if not wallet:
+        return []
+    try:
+        ch = cfg.mcporter_call("strategy_get_clearinghouse_state",
+                                strategy_wallet=wallet)
+        if not ch:
+            return []
+        data = ch.get("data", ch)
+        held = []
+        for section in ("main", "xyz"):
+            s = data.get(section, {})
+            if not isinstance(s, dict):
+                continue
+            for ap in s.get("assetPositions", []):
+                pos = ap.get("position", ap)
+                szi = float(pos.get("szi", 0) or 0)
+                if szi == 0:
+                    continue
+                coin = pos.get("coin", "")
+                if coin:
+                    held.append(coin)
+        return held
+    except Exception:
+        return []
+
+
+def recent_entry_count(asset):
+    """Stub — the runtime owns the trade counter. We emit 0 and let the
+    LLM prompt treat it as a soft hint only. If we need accurate counts
+    we'd query the runtime state via a separate CLI call — but for v4.0
+    the risk.guard_rails enforcement is authoritative."""
+    return 0
+
+
+# ═══════════════════════════════════════════════════════════════
+# INGEST
+# ═══════════════════════════════════════════════════════════════
+
+def push_signal(candidate, btc_macro, funding_regime, held_assets):
+    if not STRATEGY_ADDRESS:
+        print("ERROR: STRATEGY_ADDRESS env var not set", file=sys.stderr)
+        return False
+
+    payload = {
+        "asset": candidate["asset"],
+        "direction": candidate["direction"],
+        "score": candidate["score"] / 20.0,  # normalize 0-1 (theoretical max ~13)
+        "signal_type": "SCORPION_TREND_FOLLOW",
+        "data": {
+            "score": candidate["score"],
+            "isXyz": candidate["is_xyz"],
+            "reasons": candidate["reasons"],
+            "smPct": candidate["sm_pct"],
+            "smTraders": candidate["sm_traders"],
+            "priceChange4hPct": candidate["p4h"],
+            "priceChange1hPct": candidate["p1h"],
+            "contribChange15m": candidate["cc_15m"],
+            "contribChange1h": candidate["cc_1h"],
+            "contribChange4h": candidate["cc_4h"],
+            "btcMacroDirection": btc_macro["direction"] or "UNKNOWN",
+            "btcMacro24hPct": btc_macro["pct"] or 0,
+            "fundingRegime": funding_regime or "UNKNOWN",
+            "heldAssets": held_assets,
+            "recentEntryCountThisAsset": recent_entry_count(candidate["asset"]),
+        },
+    }
+
+    cmd = [
+        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
+        "--address", STRATEGY_ADDRESS,
+        "--scanner", SCANNER_NAME,
+        "--payload", json.dumps(payload),
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        if result.returncode != 0:
+            print(f"INGEST_FAILED {candidate['asset']}: {result.stderr}", file=sys.stderr)
+            return False
+        response = json.loads(result.stdout) if result.stdout.strip() else {}
+        if not response.get("ok", False):
+            print(f"INGEST_REJECTED {candidate['asset']}: {response.get('error', {})}", file=sys.stderr)
+            return False
+        return True
+    except Exception as e:
+        print(f"INGEST_EXCEPTION {candidate['asset']}: {e}", file=sys.stderr)
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN
+# ═══════════════════════════════════════════════════════════════
+
+def main():
+    raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+    if not raw:
+        print(json.dumps({"status": "no_markets", "_scorpion_producer_version": "4.0"}))
+        return
+
+    markets = raw.get("data", raw)
+    if isinstance(markets, dict):
+        markets = markets.get("markets", markets)
+    if isinstance(markets, dict):
+        markets = markets.get("markets", [])
+    if not isinstance(markets, list):
+        print(json.dumps({"status": "bad_shape", "_scorpion_producer_version": "4.0"}))
+        return
+
+    # Score all markets; keep only those at/above MIN_SCORE
+    candidates = []
+    for m in markets:
+        if not isinstance(m, dict):
+            continue
+        c = score_market(m)
+        if c is not None:
+            candidates.append(c)
+
+    if not candidates:
+        print(json.dumps({
+            "status": "ok",
+            "scanned": len(markets),
+            "candidates": 0,
+            "_scorpion_producer_version": "4.0",
+        }))
+        return
+
+    # Enrich once per run (shared context for all candidates)
+    btc_macro = fetch_btc_macro()
+    funding_regime = fetch_funding_regime()
+    held_assets = fetch_held_assets()
+
+    # Push all qualifying candidates. Runtime's LLM gate + risk guard
+    # rails will decide which (if any) to execute.
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+    pushed = 0
+    for c in candidates:
+        if push_signal(c, btc_macro, funding_regime, held_assets):
+            pushed += 1
+
+    print(json.dumps({
+        "status": "ok",
+        "scanned": len(markets),
+        "candidates": len(candidates),
+        "signals_pushed": pushed,
+        "btc_macro": btc_macro,
+        "funding_regime": funding_regime,
+        "held_assets": held_assets,
+        "_scorpion_producer_version": "4.0",
+    }))
+
+
+if __name__ == "__main__":
+    main()
