@@ -41,7 +41,7 @@ Python trade counter leaked. v4.0 deletes all that bookkeeping.
 | Per-asset cooldown | Python (with scalp bypass) | `per_asset_cooldown_minutes: 120` (authoritative) |
 | Scalp re-entry | Special bypass logic | Removed; runtime owns cooldowns |
 | DSL exit order type | Market (taker) | **FEE_OPTIMIZED_LIMIT** (maker-preferred) |
-| Phase-2 time-cut wrongful close | Yes (v1 DSL bug) | Auto-disabled in Phase 2 per v2 spec |
+| Phase-2 hard_timeout behavior | Fires regardless | Fires regardless (per Daniel's test) — outer-bound protection, not phase-gated. 12h is chosen so it doesn't truncate legitimate winners. |
 
 ## Architecture
 

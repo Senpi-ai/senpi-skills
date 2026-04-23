@@ -143,9 +143,19 @@ exit:
     execution_timeout_seconds: 15
   # Short-hold DSL profile preserved from v3.2. Time cuts kept because
   # Scorpion is multi-asset + multi-slot: rotation opportunity cost is
-  # real. v2 runtime auto-disables time cuts in Phase 2 per spec, so
-  # the v1-DSL Phase-2 wrongful-close bug (that bit Polar overnight
-  # 2026-04-23) is fixed by the runtime — not by disabling timers.
+  # real.
+  # Note on hard_timeout behavior: Daniel's test (2026-04-23) confirmed
+  # hard_timeout fires at its configured interval REGARDLESS of phase —
+  # the v2 runtime-concepts.md doc that says "disabled in Phase 2" is
+  # incorrect per implementation. hard_timeout is an outer-bound
+  # protection, not a phase-gated patience violation. At 12h it caps
+  # Scorpion's short-hold rotation ceiling in both phases — acceptable
+  # for this thesis.
+  # weak_peak_cut is effectively Phase-1-only by its own trigger logic
+  # (min_value=2 < tier 1 trigger_pct=5, so once Phase 2 is reached
+  # peakROE > min_value and the cut condition is mathematically
+  # impossible). dead_weight_cut similarly fires only in Phase 1
+  # because ROE must be <= 0 and Phase 2 requires positive ROE.
   dsl_preset:
     hard_timeout:
       enabled: true
