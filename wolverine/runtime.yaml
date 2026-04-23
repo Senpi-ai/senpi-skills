@@ -1,5 +1,5 @@
 name: wolverine-tracker
-version: 3.0.3
+version: 3.0.4
 description: >
   Wolverine v3.0.3 — 4h magnitude gate (entry discipline fix).
   Wolverine self-diagnosed 2026-04-23: all 6 Week 5 HYPE LONG trades
@@ -48,7 +48,7 @@ exit:
       enabled: false                 # v3.0.2: DISABLED. v1 DSL fires this in Phase 2 incorrectly. Phase 1 + Phase 2 own all exits.
       interval_in_minutes: 360
     weak_peak_cut:
-      enabled: true
+      enabled: false                 # v3.0.4: DISABLED. Completes time-cuts sweep. v3.0.3 scanner-side magnitude gate handles "don't enter chop"; runtime exits are now 100% price-action.
       interval_in_minutes: 90
       min_value: 3.0
     dead_weight_cut:

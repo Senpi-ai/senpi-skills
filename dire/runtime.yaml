@@ -1,5 +1,5 @@
 name: dire-tracker
-version: 1.4.0
+version: 1.5.0
 description: >
   Dire v1.4 — disable hard_timeout (complete time-cuts removal on
   single-asset BRENTOIL). Pairs with v1.3's dead_weight_cut disable.
@@ -52,9 +52,9 @@ exit:
       enabled: false                 # v1.4: DISABLED. v1 DSL fires this in Phase 2 incorrectly. Phase 1 + Phase 2 own all exits.
       interval_in_minutes: 1440
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 20         # tighter than Kodiak — oil moves fast
-      min_value: 2.5                  # lower threshold — a +2.5% oil move is meaningful
+      enabled: false                  # v1.5: DISABLED. Time cuts removed on all single-asset agents. Aggressive Phase 2 T0 (+5%/25% HW) catches oil reversals via price action, not clock.
+      interval_in_minutes: 20
+      min_value: 2.5
     dead_weight_cut:
       enabled: false                  # v1.3: DISABLED. Single-asset agent has no rotation opportunity cost.
       interval_in_minutes: 15

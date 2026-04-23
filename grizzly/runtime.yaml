@@ -1,5 +1,5 @@
 name: grizzly-tracker
-version: 5.6.0
+version: 5.7.0
 description: >
   Grizzly v5.6 — disable hard_timeout (complete time-cuts removal).
   Pairs with v5.4's dead_weight_cut disable. v1 DSL fires hard_timeout
@@ -50,8 +50,8 @@ exit:
       enabled: false                  # v5.6: DISABLED. v1 DSL fires this in Phase 2 incorrectly. Phase 1 + Phase 2 own all exits.
       interval_in_minutes: 1440
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 180         # v5.1: 120 → 180
+      enabled: false                   # v5.7: DISABLED. Completes the time-cuts sweep. Phase 1 + Phase 2 own all exits via price action.
+      interval_in_minutes: 180
       min_value: 2.0
     dead_weight_cut:
       enabled: false                   # v5.4: DISABLED. Single-asset agent has no rotation opportunity cost.

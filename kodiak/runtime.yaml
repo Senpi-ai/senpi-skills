@@ -1,5 +1,5 @@
 name: kodiak-tracker
-version: 5.3.0
+version: 5.4.0
 description: >
   Kodiak v5.3 — disable hard_timeout (complete time-cuts removal on
   single-asset agent). Pairs with v5.2's dead_weight_cut disable.
@@ -47,8 +47,8 @@ exit:
       enabled: false                  # v5.3: DISABLED. v1 DSL fires this in Phase 2 incorrectly. Phase 1 max_loss + Phase 2 trailing own all exits.
       interval_in_minutes: 1440
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 25         # cut if peak ROE never breaks 3% in 25 min
+      enabled: false                  # v5.4: DISABLED. Completes the time-cuts architectural sweep. Exits now 100% price-action.
+      interval_in_minutes: 25
       min_value: 3.0
     dead_weight_cut:
       enabled: false                  # v5.2: DISABLED. Single-asset agent has no rotation opportunity cost.

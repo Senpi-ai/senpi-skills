@@ -1,5 +1,5 @@
 name: polar-tracker
-version: 3.0.5
+version: 3.0.6
 description: >
   Polar v3.0.5 — disable hard_timeout (fixes Phase-2 wrongful-close bug).
   2026-04-23 overnight: Polar entered Phase 2 on an ETH Short at 4:09 AM
@@ -40,8 +40,8 @@ exit:
       enabled: false                # v3.0.5: DISABLED. v1 DSL fires this in Phase 2 incorrectly (per v2 spec it's Phase-1-only). Phase 1 max_loss + Phase 2 trailing own exits.
       interval_in_minutes: 480
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 120     # v3.0.3: 60 → 120 (ETH apex-trend consolidates 30-60 min between legs)
+      enabled: false                # v3.0.6: DISABLED. Completes the "no time-based cuts on single-asset patience agents" architectural sweep (after v3.0.4 dead_weight + v3.0.5 hard_timeout). Exits now 100% price-action (Phase 1 max_loss + retrace + Phase 2 trailing).
+      interval_in_minutes: 120
       min_value: 2.0
     dead_weight_cut:
       enabled: false                # v3.0.4: DISABLED. Single-asset agent has no rotation opportunity cost.
