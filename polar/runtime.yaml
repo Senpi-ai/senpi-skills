@@ -1,14 +1,18 @@
 name: polar-tracker
-version: 3.0.4
+version: 3.0.5
 description: >
-  Polar v3.0.4 — disable dead_weight_cut (architectural fix).
-  dead_weight_cut is a time-based proxy for opportunity cost —
-  "free the slot so another signal can fire." But Polar is
-  single-asset (ETH only, 1 slot) — there's nowhere to rotate.
-  Cutting early just books a fee loss on a consolidation that DSL
-  Phase 1/2 would handle correctly via price action. v3.0.3 already
-  loosened weak_peak→120 min and hard_timeout=480 min; those still
-  catch stalled positions. dead_weight_cut now disabled.
+  Polar v3.0.5 — disable hard_timeout (fixes Phase-2 wrongful-close bug).
+  2026-04-23 overnight: Polar entered Phase 2 on an ETH Short at 4:09 AM
+  (Tier 1 locked, peak +11.79% ROE), then hard_timeout fired at 5:28 AM
+  and closed the position at +12.33% — while still in Phase 2 trailing.
+  Per the v2 runtime spec hard_timeout is Phase-1-only, but v1 DSL fires
+  it regardless of phase. The exit was lucky (+$71.15 booked) but
+  unprincipled — Phase 2 trailing should own that decision, not a clock.
+  v3.0.5 disables hard_timeout entirely. Phase 1 max_loss_pct=25 caps
+  downside; Phase 1 retrace (8% ROE from peak) catches stuck positions;
+  weak_peak_cut catches minor-peak faders; Phase 2 trailing owns winner
+  exits. Pairs with v3.0.4's dead_weight_cut disable — no time-based
+  cuts remain on this single-asset patience thesis.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -33,7 +37,7 @@ exit:
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
-      enabled: true
+      enabled: false                # v3.0.5: DISABLED. v1 DSL fires this in Phase 2 incorrectly (per v2 spec it's Phase-1-only). Phase 1 max_loss + Phase 2 trailing own exits.
       interval_in_minutes: 480
     weak_peak_cut:
       enabled: true

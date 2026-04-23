@@ -1,13 +1,15 @@
 name: kodiak-tracker
-version: 5.2.0
+version: 5.3.0
 description: >
-  Kodiak v5.2 — disable dead_weight_cut (architectural fix).
-  Single-asset SOL agent has no rotation opportunity cost — cutting
-  on time is a bad proxy when DSL Phase 1/2 + weak_peak + hard_timeout
-  already handle stalled positions via price action. v5.1 added the
-  base-tech-score floor (4h ≥ 0.75 + 4TF confluence); scanner logic
-  and scoring unchanged in v5.2. DSL dead_weight_cut is the only
-  runtime change.
+  Kodiak v5.3 — disable hard_timeout (complete time-cuts removal on
+  single-asset agent). Pairs with v5.2's dead_weight_cut disable.
+  v1 DSL fires hard_timeout in Phase 2 incorrectly (per v2 spec
+  hard_timeout is Phase-1-only) — observed on Polar v3.0.4 overnight
+  2026-04-23, where a Phase-2 trailing ETH Short got clock-closed.
+  Kodiak shares the same v1 DSL bug. v5.3 removes the last time cut:
+  no more artificial 24h ceiling on SOL trend holds. Phase 1 max_loss
+  (25%) + Phase 1 retrace (8%) + weak_peak_cut (25m @ 3%) + Phase 2
+  trailing tiers handle all exits via price action. Scanner unchanged.
 
 # ── STRATEGY ──
 strategy:
@@ -42,8 +44,8 @@ exit:
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 1440      # 24h safety net — let trends run
+      enabled: false                  # v5.3: DISABLED. v1 DSL fires this in Phase 2 incorrectly. Phase 1 max_loss + Phase 2 trailing own all exits.
+      interval_in_minutes: 1440
     weak_peak_cut:
       enabled: true
       interval_in_minutes: 25         # cut if peak ROE never breaks 3% in 25 min

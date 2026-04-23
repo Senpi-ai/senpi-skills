@@ -1,13 +1,14 @@
 name: wolverine-tracker
-version: 3.0.1
+version: 3.0.2
 description: >
-  Wolverine v3.0.1 — disable dead_weight_cut (architectural fix).
-  Single-asset HYPE agent has no rotation opportunity cost — cutting
-  on time is a bad proxy when DSL Phase 1/2 + weak_peak + hard_timeout
-  already handle stalled positions via price action. Scanner logic and
-  all scoring unchanged from v3.0. Previous: v3.0 HYPE Alpha Hunter
-  Kodiak-family port (complete rewrite replacing v2.x Cobra-pattern
-  rotation scanner).
+  Wolverine v3.0.2 — disable hard_timeout (complete time-cuts removal
+  on single-asset HYPE). Pairs with v3.0.1's dead_weight_cut disable.
+  v1 DSL fires hard_timeout in Phase 2 incorrectly (per v2 spec it's
+  Phase-1-only) — observed on Polar v3.0.4 overnight 2026-04-23.
+  Wolverine shares the same v1 DSL bug. v3.0 had hard_timeout at 6h
+  which was particularly aggressive for HYPE — this fix matters most
+  here. Phase 1 (20% max_loss) + Phase 2 tiers (HYPE-tight ladder)
+  own all exits. Scanner unchanged (Kodiak-family gates preserved).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -40,8 +41,8 @@ exit:
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 360       # 6h — HYPE trends are typically hours
+      enabled: false                 # v3.0.2: DISABLED. v1 DSL fires this in Phase 2 incorrectly. Phase 1 + Phase 2 own all exits.
+      interval_in_minutes: 360
     weak_peak_cut:
       enabled: true
       interval_in_minutes: 90

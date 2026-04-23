@@ -1,16 +1,14 @@
 name: grizzly-tracker
-version: 5.5.0
+version: 5.6.0
 description: >
-  Grizzly v5.5 — Macro V-recovery gate (counter-trend SHORT blocker).
-  Live failure 2026-04-23: scanner fired 2 BTC SHORTs against a clear
-  intraday rally ($76.4k → $78k, +1.43-1.66% off 24h low) because the
-  4h structural trend still read "100% lower highs" from yesterday's
-  $79.4k peak. v5.3's trend_strength_4h ≥ 0.75 Kodiak gate measures
-  structural lower-highs — LAGGING during V-recoveries (takes 8-12h
-  for 4h candles to break pattern). v5.5 adds a final macro gate:
-  reject SHORTs if price is > 1.25% above the 24h low (V-bottom
-  recovery), reject LONGs if price is > 1.25% below the 24h high.
-  All other gates preserved. Scanner-only change. DSL unchanged.
+  Grizzly v5.6 — disable hard_timeout (complete time-cuts removal).
+  Pairs with v5.4's dead_weight_cut disable. v1 DSL fires hard_timeout
+  in Phase 2 incorrectly (per v2 spec it's Phase-1-only) — observed
+  on Polar v3.0.4 overnight 2026-04-23. Grizzly shares the same v1
+  DSL bug. v5.6 removes the 24h ceiling on BTC trend holds so Phase 2
+  trailing can run multi-day winners without clock interference.
+  Phase 1 max_loss (20%) + retrace + weak_peak_cut + Phase 2 tiers
+  own all exits. Scanner unchanged from v5.5 (V-recovery gate preserved).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -49,8 +47,8 @@ exit:
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 1440       # v5.1: 360 → 1440 (24h, match Kodiak)
+      enabled: false                  # v5.6: DISABLED. v1 DSL fires this in Phase 2 incorrectly. Phase 1 + Phase 2 own all exits.
+      interval_in_minutes: 1440
     weak_peak_cut:
       enabled: true
       interval_in_minutes: 180         # v5.1: 120 → 180
