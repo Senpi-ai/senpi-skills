@@ -1,14 +1,18 @@
 name: wolverine-tracker
-version: 3.0.2
+version: 3.0.3
 description: >
-  Wolverine v3.0.2 — disable hard_timeout (complete time-cuts removal
-  on single-asset HYPE). Pairs with v3.0.1's dead_weight_cut disable.
-  v1 DSL fires hard_timeout in Phase 2 incorrectly (per v2 spec it's
-  Phase-1-only) — observed on Polar v3.0.4 overnight 2026-04-23.
-  Wolverine shares the same v1 DSL bug. v3.0 had hard_timeout at 6h
-  which was particularly aggressive for HYPE — this fix matters most
-  here. Phase 1 (20% max_loss) + Phase 2 tiers (HYPE-tight ladder)
-  own all exits. Scanner unchanged (Kodiak-family gates preserved).
+  Wolverine v3.0.3 — 4h magnitude gate (entry discipline fix).
+  Wolverine self-diagnosed 2026-04-23: all 6 Week 5 HYPE LONG trades
+  died in consolidation because trend_strength_4h is a structural
+  metric (lower-highs count) that passes even when 4H price magnitude
+  is nearly flat. HYPE at -0.26% net / 24h was still scoring 9+ as
+  "structurally bearish" and firing trades that never breached +3%
+  ROE. Wolverine's own conclusion: "the time cuts aren't the core
+  problem — the entry gate is."
+  v3.0.3 adds GATE 6 after base-tech floor: require
+  abs(mom_4h) >= 1.5%. Rejects entries into dead-flat 4H chop
+  regardless of structural signal. Scanner-only change; DSL
+  unchanged. Previous v3.0.2 hard_timeout disable preserved.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"

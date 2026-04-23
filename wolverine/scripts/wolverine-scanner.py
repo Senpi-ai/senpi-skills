@@ -74,7 +74,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wolverine_config as cfg
 
 
-VERSION = "3.0"
+VERSION = "3.0.3"
 ASSET = "HYPE"
 MAX_POSITIONS = 1
 
@@ -458,6 +458,19 @@ def build_hype_thesis():
     strong_15m = abs(mom_15m) > MIN_MOM_15M * 2
     aligned_5m = (direction == "LONG" and mom_5m > 0) or (direction == "SHORT" and mom_5m < 0)
     if not (strong_15m or aligned_5m):
+        return None
+
+    # GATE 6 (v3.0.3): 4h MAGNITUDE floor
+    # trend_strength_4h measures structural lower-highs/higher-lows — it can
+    # pass at 100% even when price moved <1% over 24h. That's "flat chop with
+    # technical structure" and HYPE at those conditions produces legitimate-
+    # looking score 9+ setups that immediately die in the consolidation.
+    # Wolverine's self-diagnostic 2026-04-23: all 4 v3.0+ Week 5 trades
+    # fired on HYPE's -0.26% / 24h "dead flat" regime. None reached Phase 2
+    # tier 1. Every one chopped out.
+    # Require 4h price magnitude >= MIN_4H_MAGNITUDE_PCT before entering.
+    MIN_4H_MAGNITUDE_PCT = 1.5
+    if abs(mom_4h) < MIN_4H_MAGNITUDE_PCT:
         return None
 
     # SCORING
