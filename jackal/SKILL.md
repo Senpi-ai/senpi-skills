@@ -29,9 +29,12 @@ processes that can't step on each other:
 - **The producer** runs on a cron, builds the trader pool, detects new
   entries, enriches with context, and pushes candidate signals. Nothing
   else. No execution, no DSL, no risk code.
-- **The runtime** receives signals, gates each through a Claude decision
-  prompt with `min_confidence: 7`, executes approved entries,
-  auto-manages DSL exits, and enforces declarative risk guardrails.
+- **The runtime** receives signals, gates each through an LLM decision
+  prompt with `min_confidence: 7` (model configured via
+  `actions.decision_model` — currently `claude-sonnet-4-20250514`,
+  pluggable per the runtime's model registry), executes approved
+  entries, auto-manages DSL exits, and enforces declarative risk
+  guardrails.
 
 This is the fleet's first v2-runtime-native agent. Legacy v1 scanner +
 pool code is preserved in `legacy-v1/` for reference.
@@ -43,7 +46,7 @@ pool code is preserved in `legacy-v1/` for reference.
 | Layer | v1.1 | v2.0 |
 |---|---|---|
 | Scanner | 760-line Python scanner with execution + DSL + risk logic | 400-line producer that only emits signals |
-| Entry decision | Hardcoded score thresholds in Python | Claude Sonnet `decision_prompt` with `min_confidence: 7` |
+| Entry decision | Hardcoded score thresholds in Python | LLM `decision_prompt` with `min_confidence: 7` (model via `actions.decision_model`) |
 | DSL attach | Manual `ratchet_stop_add` call after every entry | Runtime manages via position_tracker lifecycle events |
 | Risk gates | `MAX_POSITIONS`, `MAX_DAILY_ENTRIES`, cooldowns in code | `risk.guard_rails` YAML block |
 | Pool maintenance | Two-tier (Watchlist + Active) with quality scoring | Single top-N pool from `discovery_get_top_traders` |
@@ -92,7 +95,7 @@ decisions are auditable via `openclaw senpi action decisions`.
 ┌──────────────────────────────┐
 │ senpi-trading-runtime (v2)   │
 │  jackal_signals scanner      │  ── receives typed signal payload
-│  jackal_entry action         │  ── LLM (claude-sonnet-4) evaluates
+│  jackal_entry action         │  ── LLM (actions.decision_model) evaluates
 │    decision_mode: llm        │      with decision_prompt
 │    min_confidence: 7         │  ── executes if confidence >= 7
 │  position_tracker            │  ── detects open → starts DSL

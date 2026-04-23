@@ -4,7 +4,7 @@ Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 ## Thesis
 
-The fleet's first SECONDARY-SIGNAL agent AND the first built natively on `senpi-trading-runtime` v2. Observes top-performing Senpi perp traders, detects new entries by pool members, and lets a Claude Sonnet decision prompt decide whether to mirror with our own DSL + risk guardrails.
+The fleet's first SECONDARY-SIGNAL agent AND the first built natively on `senpi-trading-runtime` v2. Observes top-performing Senpi perp traders, detects new entries by pool members, and lets an LLM decision prompt (model configured via `actions.decision_model`) decide whether to mirror with our own DSL + risk guardrails.
 
 Not a passive mirror — an intelligent stalker where the runtime LLM gates every entry.
 
@@ -25,7 +25,7 @@ jackal-producer.py (60s cron)      senpi-trading-runtime (v2)
 | Pool | Top 25 by composite quality score (refreshed daily) |
 | Pool filters | win_rate ≥ 0.50, roi_30d ≥ 10%, trader_age ≥ 14d |
 | Entry age gate | < 10 min (producer-side freshness) |
-| Entry decision | Claude Sonnet 4 via `decision_prompt`, min_confidence 7 |
+| Entry decision | LLM-gated via `decision_prompt`, min_confidence 7 (model set by `actions.decision_model`, currently `claude-sonnet-4-20250514`) |
 | Max concurrent | 2 slots |
 | Leverage | 5x default (runtime-enforced) |
 | Margin per slot | $300 |

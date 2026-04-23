@@ -1,5 +1,5 @@
 name: jackal-tracker
-version: 2.0.0
+version: 2.0.1
 description: >
   JACKAL v2.0 — The Smart Stalker (v2-runtime-native rewrite).
   First fleet agent built on the senpi-trading-runtime v2 architecture:
@@ -10,8 +10,9 @@ description: >
   a quality-scored trader pool, copy filtered high-conviction entries
   with our own DSL. v2 changes are purely architectural:
     - jackal-producer.py detects pool-member entries and pushes signals
-    - Runtime LLM (claude-sonnet-4) evaluates each signal with market
-      + source-trader context, executes at confidence >= 7
+    - Runtime LLM (configured via actions.decision_model) evaluates
+      each signal with market + source-trader context, executes at
+      confidence >= 7
     - Risk guardrails enforced by runtime, not scanner code
     - DSL lifecycle fully auto-managed (no ratchet_stop_add bookkeeping)
   Replaces v1.1 (commit 55a418f) which had zero live trades despite
@@ -167,15 +168,18 @@ exit:
     phase2:
       enabled: true
       tiers:
+        # trigger_pct is capped at 100% by runtime validation. A tier with
+        # trigger_pct above 100 rejects the whole config. Beyond the top
+        # tier's trigger_pct, the runtime uses the highest tier's
+        # lock_hw_pct for any further high-water growth.
         - { trigger_pct: 6,   lock_hw_pct: 20 }
         - { trigger_pct: 14,  lock_hw_pct: 40 }
         - { trigger_pct: 28,  lock_hw_pct: 62 }
         - { trigger_pct: 50,  lock_hw_pct: 80 }
-        - { trigger_pct: 100, lock_hw_pct: 90 }
-        - { trigger_pct: 200, lock_hw_pct: 94 }
+        - { trigger_pct: 100, lock_hw_pct: 94 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
   dsl_lifecycle: true
   dsl_notify_sl_updates: false
-  action_lifecycle_notifications: true
+  action_lifecycle: true
