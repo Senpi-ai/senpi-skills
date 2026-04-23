@@ -25,6 +25,70 @@ On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Mo
 
 **Wallet uniqueness:** Only one running runtime per wallet address is allowed. Installing a second runtime for the same wallet is rejected. Delete the existing runtime first, then install the new one.
 
+## Deploy Checklist
+
+Follow these steps in order for any strategy. Step 5 only applies when the YAML declares an `external_scanner`.
+
+### 1. Pre-flight environment probe
+
+Before proposing any command, probe your own environment so you know whether to execute directly or hand commands to the user:
+
+```bash
+openclaw --version                      # confirms the CLI is reachable
+openclaw senpi status                   # confirms the senpi plugin is running on this host
+printenv | grep -E 'RAILWAY|OPENCLAW'   # detects a Railway / OpenClaw-hosted environment
+```
+
+If those succeed, **you can exec here** — run the deployment commands yourself instead of handing the user copy/paste blocks. Only fall back to "please run this on your host" if the probe fails.
+
+**Where secrets live on an owned host.** On the user's own OpenClaw host (self-hosted, Railway, etc.) the Senpi API key is already on disk — reading it from the expected locations is expected behavior, not a breach. Common locations:
+
+- `$SENPI_AUTH_TOKEN` environment variable
+- `openclaw.json` at `plugins.entries.runtime.config.apiKey`
+
+Pass the key through env vars in the command you run (e.g. inside the cron `--message`). Do not echo it into chat or log files.
+
+### 2. Validate the strategy wallet
+
+Call `strategy_list` via MCP (see the **Strategy Wallet Validation** section below). If the wallet is not in the list, confirm with the user before calling `strategy_create_custom_strategy`.
+
+### 3. Write the YAML to disk
+
+**Never handwrite or re-stream a full strategy YAML into chat.** Chat transports (Telegram, etc) frequently corrupt indentation and code fences in long YAML blocks — don't spend turns re-sending it. Instead, read the matching reference file in this skill and write it to disk in one command:
+
+```bash
+cat > <name>.yaml <<'YAML'
+<contents from the matching reference file, with ${VAR} placeholders as-is>
+YAML
+```
+
+Sources of truth by strategy type:
+
+- Momentum-guarded quickstart → [`references/momentum-guarded-strategy.md`](references/momentum-guarded-strategy.md)
+- Bare position-tracker (DSL only) → [`references/strategy-examples.md`](references/strategy-examples.md), or `openclaw senpi guide examples` for a minimal template
+
+Only handwrite YAML when no shipped reference fits the user's ask — and still write it straight to disk via heredoc, never paste it into chat for the user to copy.
+
+### 4. Create the runtime
+
+```bash
+openclaw senpi runtime create --path ./<name>.yaml
+```
+
+### 5. Wire producers (only if the YAML declares an `external_scanner`)
+
+External scanners are push-driven — without a producer, the scanner stays silent. Schedule the producer with `openclaw cron add` (or any scheduler that can exec on an interval). Producer paths, common env vars, and the cron template are in [`references/external-producers.md`](references/external-producers.md); strategy-specific env vars (e.g. momentum's `TIMEFRAME`, `MIN_MOVE_PCT`) are in the strategy's own reference.
+
+### 6. Verify the strategy is live
+
+```bash
+openclaw senpi status                      # overall health, scanner + DSL summary
+openclaw senpi runtime list                # runtime shows status: running
+openclaw senpi dsl positions               # positions under DSL tracking (once opened)
+tail -f <path-to-producer-log>             # if step 5 applied
+openclaw senpi action history <action>     # LLM/rule decisions, if the strategy has actions
+```
+
 ## Strategy Wallet Validation (MCP-first)
 
 The runtime does **not** create wallets — it links to an existing strategy wallet that you create separately via Senpi MCP. Installing a runtime is a linking operation, never a wallet-creation operation.
@@ -39,16 +103,18 @@ Never treat `openclaw senpi runtime create` as wallet creation.
 
 ### Validation guardrail (mandatory before runtime create/install)
 
-Use this exact MCP-first flow to avoid linking to an embedded wallet by mistake:
+**Validation is agent-side, not user-side.** Call `strategy_list` via MCP *yourself* — do not ask the user to check the Senpi UI or run the call on their host. If the wallet appears in `strategies[].strategyWalletAddress` (case-insensitive), validation passes and you proceed directly to runtime install. If it does not appear, confirm with the user before creating a new one.
+
+MCP-first flow:
 
 1. Call `strategy_list` and collect `strategies[].strategyWalletAddress`.
-2. A runtime wallet is valid only if it appears in that list (case-insensitive match).
-3. If the list is empty OR the provided wallet is not in the list: call `strategy_create_custom_strategy` to create a strategy wallet first.
-4. Use the newly created strategy wallet address directly as `WALLET_ADDRESS` in the runtime YAML, then install the runtime.
+2. If the provided wallet matches an entry (case-insensitive), validation passes — proceed to runtime install.
+3. If the list is empty OR the wallet is not in the list: confirm with the user (including the `initialBudget` in USDC), then call `strategy_create_custom_strategy`.
+4. Use the returned strategy wallet address as `WALLET_ADDRESS` in the YAML, then install the runtime.
 
 **Hard rules:**
 - Never use an embedded wallet / injected wallet for runtime linking.
-- Never treat a wallet as a strategy wallet unless it appears in `strategy_list`.
+- Never treat a wallet as a strategy wallet unless it appears in `strategy_list` — a user saying "it's my strategy wallet" is not a substitute; still call `strategy_list` to confirm.
 - Runtime install is blocked until strategy wallet validation passes.
 - Always confirm with the user before creating a new strategy wallet, and explicitly confirm the budget (`initialBudget`) that will be used.
 
@@ -61,7 +127,7 @@ if provided_wallet not in strategies[].strategyWalletAddress:
   strategy_create_custom_strategy({
     initialBudget: <budget_usdc>,
     positions: [],
-    skillName: <strategy_or_runtime_name>,
+    skillName: <runtime_name>,
     skillVersion: "1.0.0"
   })
 ```
@@ -213,6 +279,17 @@ openclaw senpi config unset <key>
 openclaw senpi config reset
 ```
 
+### Telegram notifications — two layers
+
+Two independent mechanisms exist by design; they deliver different event classes, not duplicates.
+
+| Layer | Set via | Scope | Events delivered |
+|-------|---------|-------|------------------|
+| Runtime-wide infra channel | `openclaw senpi config set-chat-id <id>` | Per host (all runtimes) | Plugin lifecycle, startup, infra / runtime-level errors |
+| Per-strategy channel | `notifications.telegram_chat_id` in YAML (usually via `${TELEGRAM_CHAT_ID}`) | Per strategy | Position opens, closes, DSL exits, action decisions |
+
+Typical setup: set both to the same chat id. They are not redundant — they cover different event classes, so setting only one leaves a class unnotified.
+
 ## Runtime YAML
 
 The runtime YAML drives all behavior. Top-level keys: `name`, `strategy`, `scanners`, `actions`, `exit`, `risk`, `notifications`.
@@ -278,6 +355,8 @@ notifications:
 
 Environment variable substitution: `${VAR}` and `${VAR:-default}` resolved at load time.
 
+The `risk:` block is optional — include it when the strategy needs guard rails (daily loss cap, max entries per day, drawdown halt, per-asset cooldown, etc.). See the momentum-guarded reference for a worked example and the YAML schema reference for the full field list.
+
 For full field details: [YAML Schema Reference](references/yaml-schema.md)
 
 ## DSL Exit Engine — Key Concepts
@@ -308,9 +387,10 @@ For full DSL mechanics (retrace math, breach logic, close reasons, events): [DSL
 
 ## References
 
+- [Momentum-Guarded Strategy](references/momentum-guarded-strategy.md) — End-to-end quick-start strategy exercising external scanners, LLM decisions, risk gates, and DSL exits — with producer cron setup
 - [Runtime Concepts](references/runtime-concepts.md) — Conceptual explanation of scanners, actions, DSL phases, and what every field controls in trading terms
 - [Strategy YAML Reference](references/yaml-schema.md) — Schema reference: top-level sections, building blocks, template variables, wiring rules, validation errors
 - [DSL Configuration Reference](references/dsl-configuration.md) — DSL exit engine: phases, tiers, time cuts, tuning guidance, close reasons, events
 - [Strategy Examples](references/strategy-examples.md) — Position-tracker runtimes with different DSL tuning profiles
-- [Momentum-Guarded Strategy](references/momentum-guarded-strategy.md) — End-to-end quick-start strategy exercising external scanners, LLM decisions, risk gates, and DSL exits — with producer cron setup
 - [External Producers](references/external-producers.md) — How to schedule, deploy, and build external-scanner producers
+
