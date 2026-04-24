@@ -159,18 +159,24 @@ def query_asset_data(asset):
     if not isinstance(ad, dict):
         return None
 
-    # Spread from order book
+    # Spread from order book.
+    # v2.0.2 (2026-04-24): same silent-zero bug as Bald Eagle's scanner.
+    # Live API returns order_book.levels = [bids_array, asks_array].
+    # Prior code looked for order_book.bids / order_book.asks which
+    # don't exist. Verified against live XYZ assets.
     ob = ad.get("order_book") or ad.get("orderBook") or {}
-    bids = ob.get("bids") or ob.get("bid") or []
-    asks = ob.get("asks") or ob.get("ask") or []
+    levels = ob.get("levels", [])
+    if not isinstance(levels, list) or len(levels) < 2:
+        return None
+    bids, asks = levels[0], levels[1]
     if not bids or not asks:
         return None
 
     def _lvl_px(lvl):
-        if isinstance(lvl, list):
-            return cfg.safe_float(lvl[0])
         if isinstance(lvl, dict):
-            return cfg.safe_float(lvl.get("price") or lvl.get("px"))
+            return cfg.safe_float(lvl.get("px", lvl.get("price", 0)))
+        if isinstance(lvl, list) and lvl:
+            return cfg.safe_float(lvl[0])
         return 0.0
 
     bid = _lvl_px(bids[0])
@@ -238,7 +244,7 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             "spreadBps": spread_bps,
             "slotIndex": slot_index,
             "isXyz": is_xyz(asset),
-            "_turbine_producer_version": "2.0.1",
+            "_turbine_producer_version": "2.0.2",
         },
     }
     try:
@@ -375,7 +381,7 @@ def run():
                 "signals_emitted_today": ss["signals_emitted_today"],
                 "rotation_index": ss["rotation_index"],
             },
-            "_turbine_producer_version": "2.0.1",
+            "_turbine_producer_version": "2.0.2",
         })
 
     finally:
