@@ -384,11 +384,16 @@ def scan_xyz_breakouts():
 
 
 def execute_entry(wallet, token, direction, margin, leverage):
+    # v1.2 (2026-04-24): inner order `coin` field must be prefixed
+    # ("xyz:CL"), not bare token ("CL"), when outer dex="xyz".
+    # Same class of bug as Bald Eagle v4.3. If `token` is already
+    # prefixed, don't double-prefix.
+    coin = token if token.startswith("xyz:") else f"xyz:{token}"
     result = cfg.mcporter_call(
         "create_position",
         strategyWalletAddress=wallet,
         orders=[{
-            "coin": token,
+            "coin": coin,
             "direction": direction,
             "leverage": leverage,
             "marginAmount": margin,
@@ -493,7 +498,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_kestrel_version": "1.1",
+                "_kestrel_version": "1.2",
             })
             return
         else:
@@ -504,7 +509,7 @@ def run():
                            "score": cand["score"],
                            "reasons": cand["reasons"]},
                 "error": result,
-                "_kestrel_version": "1.1",
+                "_kestrel_version": "1.2",
             })
             return
 
