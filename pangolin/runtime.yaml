@@ -1,14 +1,21 @@
 name: pangolin-tracker
-version: 1.6.0
+version: 1.7.0
 description: >
-  PANGOLIN v1.6 — disable weak_peak_cut (patience-thesis alignment).
-  Funding-rate fades are mean-reversion plays that take 24-48h to
-  develop; a position peaking at 1.5% ROE in 3h can still run into its
-  funding-cycle target over the next day. Time-based weak_peak cut
-  was pre-empting the thesis. Phase 1 retrace + max_loss + Phase 2
-  tiers own all exits.
-  Previous versions: v1.5 fixed data.data[{asset}] parser bug; v1.4
-  integrated persistence + regime gates.
+  PANGOLIN v1.7 — DSL-thesis alignment (agent self-diagnosed).
+  v1.6 preserved weak_peak disable but left Phase 2 tiers + max_loss +
+  dead_weight tuned for short-hold theses, which is wrong for a
+  funding-fade mean-reversion that collects every 8h and needs 24-48h
+  to complete. Agent diagnostic 2026-04-24: "using a scalper DSL for
+  a swing-trade macro thesis." Three changes:
+    - phase1.max_loss_pct 20 → 30 (at 3x lev = 10% price buffer,
+      lets MAVIA's 5-8% funding-induced spikes play out)
+    - dead_weight_cut 60min → 480min (8h = one full funding cycle;
+      current 60min was cutting trades before even one funding
+      payment landed)
+    - phase2 first tier: 3%/15% removed. New ladder starts at
+      12% trigger. At 3x leverage that's a 4% price move before
+      Phase 2 trailing arms — above MAVIA's normal wick noise.
+  Scanner (v1.5 parser + persistence gate) unchanged.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -44,20 +51,23 @@ exit:
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 60
+      interval_in_minutes: 480          # v1.7: 60 → 480 (8h = one full funding cycle; was cutting before any funding payment)
     phase1:
       enabled: true
-      max_loss_pct: 20.0
+      max_loss_pct: 30.0                # v1.7: 20 → 30 (10% price buffer at 3x for MAVIA funding-induced spikes)
       retrace_threshold: 10
       consecutive_breaches_required: 3
     phase2:
       enabled: true
+      # v1.7: removed 3%/15% and 7%/30% first tiers. At 3x leverage,
+      # 3% ROE = 1% price move = within MAVIA's normal wick noise.
+      # Phase 2 was arming on chop + locking breakeven + stopping
+      # trades before funding payment landed.
       tiers:
-        - { trigger_pct: 3,  lock_hw_pct: 15 }
-        - { trigger_pct: 7,  lock_hw_pct: 30 }
-        - { trigger_pct: 12, lock_hw_pct: 50 }
+        - { trigger_pct: 12, lock_hw_pct: 50 }   # 4% price move at 3x before Phase 2 trailing
         - { trigger_pct: 20, lock_hw_pct: 70 }
         - { trigger_pct: 30, lock_hw_pct: 85 }
+        - { trigger_pct: 50, lock_hw_pct: 92 }   # monster funding unwind trail
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
