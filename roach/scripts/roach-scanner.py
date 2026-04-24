@@ -311,7 +311,7 @@ def detect_striker_signals(current_scan, history, config):
     min_velocity_override = striker_cfg.get("minVelocityOverride", 15)
     min_velocity_floor = striker_cfg.get("minVelocityFloor", 15)  # was 10
     require_volume = striker_cfg.get("requireVolumeConfirmation", True)
-    min_vol_ratio = striker_cfg.get("minVolRatio", 2.0)  # was 1.5 — require stronger volume
+    min_vol_ratio = striker_cfg.get("minVolRatio", 1.5)  # v1.1: 2.0 → 1.5. Loosened 2026-04-24 after Jaguar+Roach volume-gate diagnostic: both agents had abundant rank-jump supply (Jaguar 30 full-score events/24h; Roach 6 candidates in 3h window) but 100% suppressed by the 2.0x gate. At 1.5x the original fleet calibration, candidates flow through while still excluding dead volume. Revisit if Roach over-fires.
 
     prev_scans = history.get("scans", [])
     if not prev_scans:
@@ -551,7 +551,7 @@ def run():
             "assetCooldownMinutes": cooldown_min,
             "_note": "These constraints are HARDCODED in the scanner. Do not override.",
         },
-        "_roach_version": "1.2",
+        "_roach_version": "1.3",
     })
 
 
