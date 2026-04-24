@@ -138,13 +138,19 @@ def query_asset_data(asset):
     """Pull spread + funding regime for an asset in one MCP call.
     Returns dict with: bid, ask, spread_bps, funding_regime, funding_annualized_pct.
     None if query fails."""
-    # market_get_asset_data returns order_book + funding_history if asked
+    # market_get_asset_data returns order_book + funding_history if asked.
+    # 2026-04-24 fix: XYZ assets require dex="xyz" passed as an explicit
+    # parameter in addition to the "xyz:" asset prefix. Without it, the
+    # orderbook silently returns None. Bald Eagle was spread-gate-blocked
+    # for an unknown number of days due to this same bug in its scanner.
     params = {
         "asset": asset,
         "candle_intervals": [],
         "include_funding": True,
         "include_order_book": True,
     }
+    if is_xyz(asset):
+        params["dex"] = "xyz"
     resp = cfg.mcporter_call("market_get_asset_data", **params)
     if not resp or not isinstance(resp, dict):
         return None
@@ -232,7 +238,7 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             "spreadBps": spread_bps,
             "slotIndex": slot_index,
             "isXyz": is_xyz(asset),
-            "_turbine_producer_version": "2.0",
+            "_turbine_producer_version": "2.0.1",
         },
     }
     try:
@@ -369,7 +375,7 @@ def run():
                 "signals_emitted_today": ss["signals_emitted_today"],
                 "rotation_index": ss["rotation_index"],
             },
-            "_turbine_producer_version": "2.0",
+            "_turbine_producer_version": "2.0.1",
         })
 
     finally:
