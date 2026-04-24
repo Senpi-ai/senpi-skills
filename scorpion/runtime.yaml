@@ -1,9 +1,18 @@
 name: scorpion-tracker
 # Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
-# plugin. Strategy/skill is "Scorpion v4.0.1" — lives in description +
+# plugin. Strategy/skill is "Scorpion v4.0.2" — lives in description +
 # SKILL.md + _scorpion_producer_version. Do not set this to 4.x.x.
-version: 1.4.1
+version: 1.4.2
 description: >
+  SCORPION v4.0.2 — Maker-exit timeout bumped 15s → 60s.
+  2026-04-24 controlled test: at 30s the ALO timed out → taker fallback.
+  At 60s the ALO was crossed by a mild retracement → maker fill
+  (saved 0.030% on exit). Prior to this fix, 23/23 close fills over
+  36h were taker. 60s is long enough for soft exits + Phase 2
+  trailing locks to catch maker; max_loss hard cuts in fast-moving
+  chops may still fall through — that's a structural mismatch
+  requiring an engine change (reprice-ladder), not a config fix.
+
   SCORPION v4.0 — Multi-Market Active Trader (v2-runtime-native rewrite).
   First multi-asset agent on senpi-trading-runtime v2. Replaces v3.2
   which logged 43 fills / 18h / -$79.84 in Arena Week 5 despite
@@ -87,7 +96,7 @@ actions:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
         ensure_execution_as_taker: true
-        execution_timeout_seconds: 15
+        execution_timeout_seconds: 60      # v4.0.2: 15 → 60 — 2026-04-24 live test with 60s timeout landed maker fill (vs 30s fell to taker). Entries typically non-adverse so ALO catches market easily.
     context:
       - type: signal
         scanner: scorpion_signals
@@ -169,14 +178,19 @@ actions:
 exit:
   engine: dsl
   interval_seconds: 30
-  # v4.0 KEY WIN — maker-preferred exits. At ~40 trades/day this is
-  # the largest single P&L improvement in the migration. HL taker is
-  # 0.035%, maker is 0.015% — saves ~0.020% on every exit. At $14k
-  # daily exit notional, that's ~$2.85/day / ~$20/week / ~$1k/year.
+  # v4.0 KEY WIN — maker-preferred exits. HL taker is 0.045%, maker
+  # is 0.015% — saves ~0.030% on every maker-filled exit.
+  # v4.0.2 update (2026-04-24): execution_timeout bumped 15 → 60.
+  # Evidence: 23/23 Scorpion close fills over prior 36h were taker
+  # (queried via HL Info API userFillsByTime). Jason ran controlled
+  # test — 30s timeout fell to taker, 60s timeout landed maker fill.
+  # 60s gives ALO time to be crossed by a mild retracement. Max_loss
+  # hard cuts in fast-moving chops may still fall through; Phase 2
+  # trailing locks + soft exits are the big wins.
   order_type: FEE_OPTIMIZED_LIMIT
   fee_optimized_limit_options:
     ensure_execution_as_taker: true       # maker first; fall back to taker on no-fill
-    execution_timeout_seconds: 15
+    execution_timeout_seconds: 60          # v4.0.2: 15 → 60 — see test evidence in comment above
   # Short-hold DSL profile preserved from v3.2. Time cuts kept because
   # Scorpion is multi-asset + multi-slot: rotation opportunity cost is
   # real.
