@@ -195,8 +195,28 @@ def refresh_pool(force=False):
 
 
 def _compute_quality_score(trader):
-    """Composite quality score 0-100. Higher = better stalk target."""
-    win_rate = float(trader.get("win_rate") or trader.get("winRate") or 0)
+    """Composite quality score 0-100. Higher = better stalk target.
+
+    v2.0.6 rewrite. Two bugs in the prior formula:
+
+    1. `win_rate * 100` treated MCP's `winRate` field as a 0-1 fraction.
+       But discovery_get_top_traders returns winRate as a 0-100 PERCENTAGE
+       (e.g. 1.07 = 1.07%, 40.0 = 40%). The * 100 multiplier pegged every
+       non-zero winRate at the 60 cap, yielding 60.0 composite for every
+       trader → all below the 65 LLM threshold → 0 approvals.
+
+    2. The weighting rewarded high winrate, but Jackal's alpha source is
+       tail-winner trend-followers: low winrate, huge winners that pay
+       for many small losers. A 115% ROI + 1% winrate trader is the IDEAL
+       pool member, not disqualified. Old formula penalized this pattern.
+
+    New weighting reflects the actual edge pattern:
+      - ROI 35% (reward big-winner distributions, capped at 150%)
+      - Gain-to-pain 25% (risk-adjusted pnl, the real quality signal)
+      - Age 15% (survivorship buffer)
+      - Win rate 10% (small weight — we don't want high-winrate scalpers)
+    """
+    win_rate = float(trader.get("win_rate") or trader.get("winRate") or 0)  # already 0-100 %
     roi_30d = float(
         trader.get("return_on_investment")
         or trader.get("roi")
@@ -212,10 +232,10 @@ def _compute_quality_score(trader):
     gain_to_pain = float(trader.get("gain_to_pain_ratio") or trader.get("gainToPainRatio") or 0)
 
     score = 0.0
-    score += min(win_rate * 100, 60) * 0.4           # win rate max 60 pts weighted 40%
-    score += min(roi_30d, 100) * 0.3                  # roi max 100 pts weighted 30%
-    score += min(age_days / 90.0 * 20, 20) * 0.15    # age max 20 pts (caps at 90 days) weighted 15%
-    score += min(gain_to_pain * 10, 20) * 0.15       # g/p max 20 pts weighted 15%
+    score += min(roi_30d / 150.0 * 50, 50)            # 50 pts for 150%+ ROI
+    score += min(gain_to_pain / 5.0 * 25, 25)         # 25 pts for g/p >= 5
+    score += min(age_days / 90.0 * 15, 15)            # 15 pts for 90+ day age
+    score += min(win_rate / 60.0 * 10, 10)            # 10 pts for 60%+ winrate (ceiling, not requirement)
     return round(score, 2)
 
 
@@ -529,7 +549,7 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_jackal_producer_version": "2.0.5",
+            "_jackal_producer_version": "2.0.6",
         }))
         return
 
@@ -569,7 +589,7 @@ def main():
                 "pool_size": len(pool),
                 "candidates": 0,
                 "elapsed_sec": round(elapsed, 2),
-                "_jackal_producer_version": "2.0.5",
+                "_jackal_producer_version": "2.0.6",
             }))
             return
 
@@ -598,7 +618,7 @@ def main():
             "funding_regime": funding_regime,
             "elapsed_sec": round(elapsed, 2),
             "warn": warn,
-            "_jackal_producer_version": "2.0.5",
+            "_jackal_producer_version": "2.0.6",
         }))
     finally:
         release_lock(lock)
