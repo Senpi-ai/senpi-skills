@@ -38,7 +38,11 @@ description: >
       weak_peak, no dead_weight — pure time-based rotation). Price-
       action cuts fire only at the extreme (max_loss 50%) as safety.
 
-  Initial budget $1,500 on strategy wallet 0xcb6c8279b1a49fe472e44bde4f565500d147e4ce.
+  Initial budget $1,500 (operator-configured). Wallet address is
+  substituted via ${WALLET_ADDRESS} at deploy time — do not hardcode
+  here. The first Turbine v2 deployment on 2026-04-24 used a freshly
+  provisioned wallet after the original v1 wallet was permanently
+  CLOSED and no longer eligible for top-ups.
   Phase 1 target: maker fill rate >= 90% across entries + exits,
   measured via executionAsMaker on every fill. If Phase 1 passes,
   scale slot count + margin per slot before touching asset list or
@@ -197,6 +201,7 @@ exit:
       consecutive_breaches_required: 10
     phase2:
       enabled: false                            # no trailing — Turbine doesn't care about winners
+      tiers: []                                 # v2 runtime validator requires `tiers` to be present even when phase2.enabled is false. Empty array satisfies the schema without creating trailing behavior.
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
