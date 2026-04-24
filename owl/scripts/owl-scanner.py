@@ -289,7 +289,9 @@ def score_crowding(asset, crowding_cfg):
     # Funding extremity (biggest signal — funding IS the crowd's positioning)
     # v5.2: lowered minFundingAnnualizedPct from 20→12. Below-floor assets
     # now score 0 on funding but continue to SM/OI checks instead of early-returning.
-    # The minCrowdingScore of 8 remains the real quality gate.
+    # v6.2 (2026-04-24): minCrowdingScore dropped from 8→6 because 8 was
+    # structurally unreachable without extreme funding >60%; persistence
+    # timer never fired. entry.minScore=12 remains as the execution gate.
     min_funding = crowding_cfg.get("minFundingAnnualizedPct", 12)
     if funding_ann >= 60:
         score += 4
@@ -598,7 +600,7 @@ def run():
 
     # ── CHECK 3: Scan for crowded assets ──────────────────────
     assets = get_all_assets()
-    min_crowd_score = crowding_cfg.get("minCrowdingScore", 8)
+    min_crowd_score = crowding_cfg.get("minCrowdingScore", 6)        # v6.2: 8 → 6 (2026-04-24). Persistence gate was structurally blocked — without extreme funding >60%, market-wide max crowding score caps at 8. Assets could never hold 8 for 1h continuously, so the 1h persistence timer never fired, so entry.minScore=12 was unreachable. Lowering the persistence-gate entry threshold to 6 lets assets start their 1h timer; entry.minScore=12 remains as the unchanged execution gate.
     min_exhaust_score = exhaustion_cfg.get("minExhaustionScore", 5)
     min_persist_hours = crowding_cfg.get("minPersistHours", 4)
     min_total_score = entry_cfg.get("minScore", 14)

@@ -190,7 +190,21 @@ def has_resting_orders(wallet):
     return has_fresh
 
 def fetch_quality_traders():
-    """Get top ELITE + RELIABLE traders with open positions."""
+    """Get top ELITE + RELIABLE traders and fetch their open positions.
+
+    v2.3 (2026-04-24): discovery_get_top_traders returns trader metadata
+    (address, tcsLabel, roi, etc.) but does NOT include open_positions.
+    Prior to this fix, the convergence logic at line ~283 always read
+    trader.get("open_positions", []) and got [] for every trader, so
+    Gate 1 (convergence) produced 0 passes regardless of market state.
+    Sentinel had been silently dormant since v2.0 shipped.
+
+    Fix: after fetching trader metadata, batch-call
+    discovery_get_trader_state for each trader (up to 50/batch) which
+    DOES return openPositions. Merge the two responses. Each returned
+    record has shape {address, consistency, open_positions: [{asset, direction}]}
+    so downstream convergence code works unchanged.
+    """
     data = cfg.mcporter_call("discovery_get_top_traders",
                               time_frame=DISCOVERY_TIMEFRAME,
                               consistency=["ELITE", "RELIABLE"],
@@ -200,13 +214,64 @@ def fetch_quality_traders():
     if not data:
         return []
 
-    traders = data.get("traders", data.get("data", []))
-    if isinstance(traders, dict):
-        traders = traders.get("traders", [])
-    if not isinstance(traders, list):
+    traders_meta = data.get("traders", data.get("data", []))
+    if isinstance(traders_meta, dict):
+        traders_meta = traders_meta.get("traders", [])
+    if not isinstance(traders_meta, list) or not traders_meta:
         return []
 
-    return traders
+    addresses = [t.get("address") for t in traders_meta if t.get("address")]
+    if not addresses:
+        return []
+
+    tcs_map = {
+        t.get("address"): str(
+            t.get("tcsLabel", t.get("consistencyLabel", t.get("consistency", "")))
+        ).upper()
+        for t in traders_meta
+    }
+
+    traders_with_positions = []
+    for i in range(0, len(addresses), 50):
+        batch = addresses[i:i+50]
+        state_data = cfg.mcporter_call(
+            "discovery_get_trader_state",
+            trader_addresses=batch,
+            latest=False,
+        )
+        if not state_data:
+            continue
+
+        payload = state_data.get("data", state_data)
+        if not isinstance(payload, dict):
+            continue
+
+        fetched_traders = payload.get("traders", [])
+        for ft in fetched_traders:
+            if not isinstance(ft, dict):
+                continue
+            address = ft.get("address")
+            open_positions = ft.get("openPositions", [])
+            normalized_positions = []
+            for op in open_positions:
+                if not isinstance(op, dict):
+                    continue
+                szi = safe_float(op.get("szi", 0))
+                if szi == 0:
+                    continue
+                normalized_positions.append({
+                    "asset": str(op.get("coin", "")).upper(),
+                    "direction": "LONG" if szi > 0 else "SHORT",
+                })
+
+            if normalized_positions:
+                traders_with_positions.append({
+                    "address": address,
+                    "consistency": tcs_map.get(address, "RELIABLE"),
+                    "open_positions": normalized_positions,
+                })
+
+    return traders_with_positions
 
 
 def fetch_sm_data():
@@ -615,7 +680,7 @@ def run():
                 "_v2_no_thesis_exit": True,
                 "_note": "DSL managed by plugin runtime. Scanner does NOT manage exits.",
             },
-            "_sentinel_version": "2.2",
+            "_sentinel_version": "2.3",
         })
         return
 

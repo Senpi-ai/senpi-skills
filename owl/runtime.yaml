@@ -1,6 +1,17 @@
 name: owl-strategy
-version: 6.1.0
+version: 6.2.0
 description: >
+  OWL v6.2 — Persistence-gate unblocking (2026-04-24). v6.1 was still
+  dormant: scanner evaluated 103 assets correctly but persistence timer
+  never started because minCrowdingScore=8 was structurally unreachable
+  without extreme funding >60%. Peak observed scores were 6-8 with rare
+  8s, dropping to 7 immediately, which cleared the timer. Fix: drop
+  minCrowdingScore 8 → 6 so assets can START the 1h persistence timer.
+  entry.minScore=12 kept as the unchanged execution gate — when an
+  asset eventually DOES crowd into 12+, it'll already have persistence
+  banked. Diagnostic from Owl agent on 2026-04-24 confirmed: without
+  this fix, entry was mathematically impossible.
+
   OWL v6.1 — Pure Contrarian (universe expansion). Monitors crowding across
   ALL assets with OI > $3M (v6.1 — was top 30 only in v6.0). Funding
   extremity + SM tilt + OI concentration signals. When crowding persists

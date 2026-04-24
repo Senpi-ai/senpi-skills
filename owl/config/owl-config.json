@@ -5,7 +5,7 @@
   "maxPositions": 2,
   "leverage": {"default": 8, "min": 7, "max": 10},
   "crowding": {
-    "minCrowdingScore": 8,
+    "minCrowdingScore": 6,
     "minPersistHours": 1,
     "reCrowdingMinScore": 6,
     "minFundingAnnualizedPct": 12,
