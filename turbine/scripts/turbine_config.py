@@ -144,7 +144,9 @@ def get_open_positions(wallet):
     """
     if not wallet:
         return []
-    ch = mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+    # v2.0.3: tight timeout. Clearinghouse reads should be sub-second in
+    # the happy case; 8s×2 retries bounds hang propagation to ~16s max.
+    ch = mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet, timeout=8, retries=2)
     if not ch or not isinstance(ch, dict):
         return []
     data = ch.get("data", ch)

@@ -37,10 +37,43 @@ Runs every 60s via cron. Single tick = one rotation decision per empty slot.
 import fcntl
 import json
 import os
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+
+# ═══════════════════════════════════════════════════════════════
+# WALL-CLOCK TIMEOUT (v2.0.3 — 2026-04-24)
+# ═══════════════════════════════════════════════════════════════
+# Hard guarantee the producer doesn't exceed the cron interval.
+# Without this, a hanging MCP subprocess (any stalled market data
+# call) holds the fcntl lock forever. Subsequent ticks silently
+# skip with "prior run holds lock" and the producer is effectively
+# dead while appearing active.
+#
+# At 60s cron + 3 slots × 14 rotation entries × 30s MCP retry,
+# worst case was >10 minutes per tick. This caps it.
+
+_PRODUCER_MAX_SECONDS = int(os.environ.get("TURBINE_PRODUCER_MAX_SECONDS", 45))
+
+
+class ProducerTimeout(Exception):
+    """Raised when producer exceeds its wall-clock budget."""
+
+
+def _alarm_handler(signum, frame):
+    raise ProducerTimeout(f"producer exceeded {_PRODUCER_MAX_SECONDS}s budget")
+
+
+def install_timeout():
+    signal.signal(signal.SIGALRM, _alarm_handler)
+    signal.alarm(_PRODUCER_MAX_SECONDS)
+
+
+def clear_timeout():
+    signal.alarm(0)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import turbine_config as cfg
@@ -151,7 +184,11 @@ def query_asset_data(asset):
     }
     if is_xyz(asset):
         params["dex"] = "xyz"
-    resp = cfg.mcporter_call("market_get_asset_data", **params)
+    # Tight per-call timeout: 8s × 2 retries = 16s max per asset.
+    # Producer tick budget is 45s (PRODUCER_MAX_SECONDS). Three slots
+    # × ~2 candidates per slot = ~6 MCP calls per tick in common case.
+    # Any slow MCP call gets abandoned before it can hang the whole tick.
+    resp = cfg.mcporter_call("market_get_asset_data", timeout=8, retries=2, **params)
     if not resp or not isinstance(resp, dict):
         return None
 
@@ -244,7 +281,7 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             "spreadBps": spread_bps,
             "slotIndex": slot_index,
             "isXyz": is_xyz(asset),
-            "_turbine_producer_version": "2.0.2",
+            "_turbine_producer_version": "2.0.3",
         },
     }
     try:
@@ -253,7 +290,7 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             input=json.dumps(signal),
             capture_output=True,
             text=True,
-            timeout=15,
+            timeout=6,
         )
         if r.returncode != 0:
             cfg.log(f"ingest failed for {asset} {direction}: {r.stderr.strip()}")
@@ -381,7 +418,7 @@ def run():
                 "signals_emitted_today": ss["signals_emitted_today"],
                 "rotation_index": ss["rotation_index"],
             },
-            "_turbine_producer_version": "2.0.2",
+            "_turbine_producer_version": "2.0.3",
         })
 
     finally:
@@ -389,10 +426,20 @@ def run():
 
 
 if __name__ == "__main__":
+    install_timeout()
     try:
         run()
+    except ProducerTimeout as e:
+        # Release the lock BEFORE exiting so next tick isn't blocked.
+        # No tool call can outlive this process; killing the producer
+        # ends any child subprocesses and unblocks the fcntl lock.
+        cfg.log(f"TIMEOUT: {e}. Exiting so next cron tick can run.")
+        cfg.output({"status": "timeout", "max_seconds": _PRODUCER_MAX_SECONDS})
+        sys.exit(0)
     except Exception as e:
         cfg.log(f"CRITICAL: {e}")
         import traceback
         traceback.print_exc(file=sys.stderr)
         cfg.output({"status": "error", "error": str(e)})
+    finally:
+        clear_timeout()
