@@ -641,16 +641,57 @@ def run():
 
         # ── Entry ─────────────────────────────────────────────
         margin = round(account_value * MARGIN_PCT, 2)
+        leverage = ASSET_LEVERAGE.get(asset, DEFAULT_LEVERAGE)
+        direction = cand["direction"]
 
-        tc["entries"] = tc.get("entries", 0) + 1
-        tc["last_entry_ts"] = int(time.time())
-        save_trade_counter(tc)
+        # v2.4 (2026-04-24): execute via direct Python call to
+        # mcporter rather than emitting JSON for an LLM sub-agent
+        # to translate. The cron-spawned sub-agent's tool allowlist
+        # doesn't include senpi.create_position (mutation tool,
+        # gateway-restricted). Every other working fleet scanner
+        # (Bald Eagle, Kestrel, Wolverine, Scorpion v1) calls
+        # mcporter_call("create_position", ...) directly. Matches
+        # fleet-standard pattern from README.md: "Scanners Enter.
+        # DSL Exits." with DSL managed by the runtime plugin.
+        wallet, _strategy_id = cfg.get_wallet_and_strategy()
+        if not wallet:
+            cfg.output({"status": "error", "error": "no wallet configured"})
+            return
+
+        entry_result = cfg.mcporter_call(
+            "create_position",
+            strategyWalletAddress=wallet,
+            orders=[{
+                "coin": asset,
+                "direction": direction,
+                "leverage": leverage,
+                "marginAmount": margin,
+                "orderType": "FEE_OPTIMIZED_LIMIT",
+                "feeOptimizedLimitOptions": {
+                    "ensureExecutionAsTaker": False,
+                    "executionTimeoutSeconds": 30,
+                },
+            }],
+        )
+
+        success = bool(entry_result and entry_result.get("success"))
+        error = None if success else (
+            entry_result.get("error", "unknown") if entry_result
+            else "mcporter_call returned None"
+        )
+
+        if success:
+            tc["entries"] = tc.get("entries", 0) + 1
+            tc["last_entry_ts"] = int(time.time())
+            save_trade_counter(tc)
 
         cfg.output({
-            "status": "ok",
+            "status": "ok" if success else "entry_failed",
+            "action": "ENTRY_EXECUTED" if success else "ENTRY_FAILED",
+            "error": error,
             "signal": {
                 "asset": asset,
-                "direction": cand["direction"],
+                "direction": direction,
                 "score": cand["score"],
                 "mode": "CONVERGENCE",
                 "reasons": cand["reasons"],
@@ -662,8 +703,8 @@ def run():
             },
             "entry": {
                 "asset": asset,
-                "direction": cand["direction"],
-                "leverage": ASSET_LEVERAGE.get(asset, DEFAULT_LEVERAGE),
+                "direction": direction,
+                "leverage": leverage,
                 "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT",
                 "feeOptimizedLimitOptions": {
@@ -680,7 +721,7 @@ def run():
                 "_v2_no_thesis_exit": True,
                 "_note": "DSL managed by plugin runtime. Scanner does NOT manage exits.",
             },
-            "_sentinel_version": "2.3",
+            "_sentinel_version": "2.4",
         })
         return
 
