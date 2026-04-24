@@ -102,7 +102,7 @@ actions:
   - name: turbine_entry
     action_type: OPEN_POSITION
     decision_mode: llm
-    decision_model: "${TURBINE_DECISION_MODEL}"  # REQUIRED. Pass BARE model name only — NO provider prefix. Valid: "gemini-3.1-pro-preview", "claude-sonnet-4-20250514". INVALID: "google/gemini-3.1-pro-preview" (OpenClaw double-prefixes → 500 Unknown model). Recommended: match fleet standard (gemini-3.1-pro-preview on all other Senpi predators as of 2026-04-24) for operational consistency. Although this gate is a pass-through, Pro-tier reliability on structured-output edge cases outweighs the ~$2/day cost delta vs Flash Lite.
+    decision_model: "${TURBINE_DECISION_MODEL}"  # REQUIRED. Pass BARE model name only — NO provider prefix. INVALID: "google/gemini-3.1-pro-preview" (OpenClaw double-prefixes → 500 Unknown model). Start with the fleet-standard model (gemini-3.1-pro-preview as of 2026-04-24) to control variables during Phase 1 validation. Downgrade to Flash Lite / Haiku once Turbine has a clean baseline — this gate is a pass-through rubber-stamp (producer already filters), so cheapest model that reliably returns structured JSON wins long-term. Model downgrade is a separate experiment, not a Phase 1 variable.
     scanners: [turbine_signals]
     min_confidence: 7
     params:
