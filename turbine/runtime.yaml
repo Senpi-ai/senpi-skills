@@ -102,7 +102,7 @@ actions:
   - name: turbine_entry
     action_type: OPEN_POSITION
     decision_mode: llm
-    decision_model: "${TURBINE_DECISION_MODEL}"  # REQUIRED. Pass BARE model name only — NO provider prefix. Valid: "gemini-2.5-flash-lite", "claude-haiku-4-5-20251001". INVALID: "google/gemini-2.5-flash-lite" (OpenClaw double-prefixes the provider → "google/google/..." → 500 Unknown model). This is a pass-through gate, not a thesis evaluator — use cheapest available model.
+    decision_model: "${TURBINE_DECISION_MODEL}"  # REQUIRED. Pass BARE model name only — NO provider prefix. Valid: "gemini-3.1-pro-preview", "claude-sonnet-4-20250514". INVALID: "google/gemini-3.1-pro-preview" (OpenClaw double-prefixes → 500 Unknown model). Recommended: match fleet standard (gemini-3.1-pro-preview on all other Senpi predators as of 2026-04-24) for operational consistency. Although this gate is a pass-through, Pro-tier reliability on structured-output edge cases outweighs the ~$2/day cost delta vs Flash Lite.
     scanners: [turbine_signals]
     min_confidence: 7
     params:
