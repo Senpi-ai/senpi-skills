@@ -251,6 +251,20 @@ def get_resting_orders(wallet):
             coin = o.get("coin") or o.get("asset") or ""
             if not coin:
                 continue
+            # v2.0.7 (2026-04-25): exclude reduceOnly orders. DSL attaches
+            # stop-loss / take-profit as reduceOnly orders to protect existing
+            # positions — those are NOT entry signals in flight, they're
+            # post-fill protection. Counting them as held_assets caused the
+            # producer to think slots were occupied when they were just
+            # protected by SL. Bug found by Turbine agent on 2026-04-25
+            # after observing slots stuck "full" with 1 position + 2 SL orders.
+            if (
+                o.get("reduceOnly")
+                or o.get("reduce_only")
+                or o.get("isReduceOnly")
+                or o.get("is_reduce_only")
+            ):
+                continue
             # HL convention: positive size = buy/long, negative = sell/short
             sz = safe_float(o.get("size", o.get("sz")))
             side = o.get("side")  # may be 'B' (buy) / 'A' (ask/sell) on HL

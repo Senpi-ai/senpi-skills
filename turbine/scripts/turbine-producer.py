@@ -285,7 +285,7 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             "spreadBps": spread_bps,
             "slotIndex": slot_index,
             "isXyz": is_xyz(asset),
-            "_turbine_producer_version": "2.0.6",
+            "_turbine_producer_version": "2.0.7",
         },
     }
     try:
@@ -435,7 +435,7 @@ def run():
                 "signals_emitted_today": ss["signals_emitted_today"],
                 "rotation_index": ss["rotation_index"],
             },
-            "_turbine_producer_version": "2.0.6",
+            "_turbine_producer_version": "2.0.7",
         })
 
     finally:
