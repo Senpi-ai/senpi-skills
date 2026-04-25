@@ -151,8 +151,8 @@ MAX_SPREAD_BPS_XYZ = 15
 def load_runtime_params():
     c = cfg.load_config()
     return {
-        "max_slots": int(os.environ.get("TURBINE_MAX_SLOTS", c.get("maxSlots", 2))),
-        "margin_per_slot_usd": float(os.environ.get("TURBINE_MARGIN_USD", c.get("marginPerSlotUsd", 690))),
+        "max_slots": int(os.environ.get("TURBINE_MAX_SLOTS", c.get("maxSlots", 3))),
+        "margin_per_slot_usd": float(os.environ.get("TURBINE_MARGIN_USD", c.get("marginPerSlotUsd", 500))),
         "leverage": float(os.environ.get("TURBINE_LEVERAGE", c.get("leverage", 5))),
         "max_spread_bps_main": float(os.environ.get("TURBINE_MAX_SPREAD_MAIN", c.get("maxSpreadBpsMain", MAX_SPREAD_BPS_MAIN))),
         "max_spread_bps_xyz": float(os.environ.get("TURBINE_MAX_SPREAD_XYZ", c.get("maxSpreadBpsXyz", MAX_SPREAD_BPS_XYZ))),
@@ -281,7 +281,7 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             "spreadBps": spread_bps,
             "slotIndex": slot_index,
             "isXyz": is_xyz(asset),
-            "_turbine_producer_version": "2.0.5",
+            "_turbine_producer_version": "2.0.4",
         },
     }
     try:
@@ -431,7 +431,7 @@ def run():
                 "signals_emitted_today": ss["signals_emitted_today"],
                 "rotation_index": ss["rotation_index"],
             },
-            "_turbine_producer_version": "2.0.5",
+            "_turbine_producer_version": "2.0.4",
         })
 
     finally:

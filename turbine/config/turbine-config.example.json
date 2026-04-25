@@ -3,8 +3,8 @@
   "wallet": "",
   "strategyId": "",
   "chatId": "",
-  "maxSlots": 2,
-  "marginPerSlotUsd": 690,
+  "maxSlots": 3,
+  "marginPerSlotUsd": 500,
   "leverage": 5,
   "maxSpreadBpsMain": 5,
   "maxSpreadBpsXyz": 15
