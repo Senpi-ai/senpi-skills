@@ -172,6 +172,91 @@ def get_open_positions(wallet):
     return positions
 
 
+def get_resting_orders(wallet):
+    """Return list of resting open orders across main + xyz DEXes.
+
+    v2.0.4 (2026-04-25): added to fix the ghost-trade bug. With
+    ensure_execution_as_taker: false on entry, ALO orders rest on
+    the book for up to 120s before filling. During that window they
+    don't appear in get_open_positions(). Producer would see the
+    slot as empty and emit an opposing-direction signal for the
+    SAME asset on the next tick (alternation logic). When market
+    crossed both ALOs, one would fill (open) and the other fill
+    (close) in the same second → ghost trades with 0-second hold
+    time. Five such trades observed on 2026-04-24, all on xyz:GOLD
+    and xyz:TSLA where ALO rest times are longest.
+
+    Including resting orders in held_assets prevents the producer
+    from re-emitting on the same asset during the ALO window.
+
+    Returns: [{coin, direction, dex, size, limit_price}, ...]
+    """
+    if not wallet:
+        return []
+
+    orders = []
+    for dex in ("", "xyz"):
+        resp = mcporter_call(
+            "strategy_get_open_orders",
+            strategy_wallet=wallet,
+            dex=dex,
+            timeout=8,
+            retries=2,
+        )
+        if not resp or not isinstance(resp, dict):
+            continue
+
+        # Response shape — orders may be at .data.orders, .orders, or top-level array
+        payload = resp.get("data", resp)
+        if isinstance(payload, list):
+            order_list = payload
+        elif isinstance(payload, dict):
+            order_list = payload.get("orders", payload.get("openOrders", []))
+        else:
+            order_list = []
+
+        for o in order_list:
+            if not isinstance(o, dict):
+                continue
+            coin = o.get("coin") or o.get("asset") or ""
+            if not coin:
+                continue
+            # HL convention: positive size = buy/long, negative = sell/short
+            sz = safe_float(o.get("size", o.get("sz")))
+            side = o.get("side")  # may be 'B' (buy) / 'A' (ask/sell) on HL
+            if side == "B" or sz > 0:
+                direction = "LONG"
+            elif side == "A" or sz < 0:
+                direction = "SHORT"
+            else:
+                direction = "UNKNOWN"
+            orders.append({
+                "coin": coin,
+                "direction": direction,
+                "dex": dex if dex else "main",
+                "size": abs(sz),
+                "limit_price": safe_float(o.get("limitPx", o.get("price"))),
+            })
+
+    return orders
+
+
+def normalize_coin_key(coin):
+    """Strip 'xyz:' prefix and uppercase. Used to compare across rotation
+    list, open positions, and resting orders consistently.
+    'xyz:GOLD' → 'GOLD'. 'BTC' → 'BTC'. None → ''.
+
+    v2.0.4: previously held_assets used p['coin'].upper() which preserved
+    the xyz prefix ('XYZ:GOLD'), but rotation comparisons stripped via
+    split(':')[-1] ('GOLD'). The mismatch meant even genuinely-open XYZ
+    positions weren't blocking re-emission on that asset. Now both sides
+    normalize through this helper.
+    """
+    if not coin:
+        return ""
+    return str(coin).split(":")[-1].upper()
+
+
 # ─── Output / logging / time ──────────────────────────────────
 
 def output(data):

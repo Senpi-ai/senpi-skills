@@ -281,7 +281,7 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             "spreadBps": spread_bps,
             "slotIndex": slot_index,
             "isXyz": is_xyz(asset),
-            "_turbine_producer_version": "2.0.3",
+            "_turbine_producer_version": "2.0.4",
         },
     }
     try:
@@ -324,13 +324,23 @@ def run():
 
         ss = cfg.load_session_state()
         open_positions = cfg.get_open_positions(wallet)
+        resting_orders = cfg.get_resting_orders(wallet)
 
-        empty_slots = params["max_slots"] - len(open_positions)
+        # v2.0.4: count BOTH filled positions AND resting ALO orders against
+        # max_slots. Without this, producer thinks slot is empty during the
+        # 120s ALO rest window and emits an opposing-direction signal on the
+        # same asset → ghost trade when market crosses both orders. Also
+        # normalize coin keys (strip xyz: prefix) so XYZ asset comparisons
+        # work correctly between held_assets and the rotation_list candidates.
+        active_count = len(open_positions) + len(resting_orders)
+        empty_slots = params["max_slots"] - active_count
+
         if empty_slots <= 0:
             cfg.output({
                 "status": "ok",
-                "note": f"all {params['max_slots']} slots occupied",
+                "note": f"all {params['max_slots']} slots occupied (positions + resting orders)",
                 "positions": [{"coin": p["coin"], "direction": p["direction"], "upnl": round(p["upnl"], 2)} for p in open_positions],
+                "resting_orders": [{"coin": o["coin"], "direction": o["direction"], "limit_price": o["limit_price"]} for o in resting_orders],
                 "session": {
                     "cycles_opened_today": ss["cycles_opened_today"],
                     "signals_emitted_today": ss["signals_emitted_today"],
@@ -338,8 +348,11 @@ def run():
             })
             return
 
-        # Avoid emitting a signal for an asset already held
-        held_assets = {p["coin"].upper() for p in open_positions}
+        # Avoid emitting a signal for an asset already held OR pending fill.
+        # Both lookups go through normalize_coin_key so 'xyz:GOLD' and 'GOLD'
+        # canonicalize to the same key.
+        held_assets = {cfg.normalize_coin_key(p["coin"]) for p in open_positions}
+        held_assets.update(cfg.normalize_coin_key(o["coin"]) for o in resting_orders)
 
         emitted = []
         rotation_len = len(ROTATION_LIST)
@@ -418,7 +431,7 @@ def run():
                 "signals_emitted_today": ss["signals_emitted_today"],
                 "rotation_index": ss["rotation_index"],
             },
-            "_turbine_producer_version": "2.0.3",
+            "_turbine_producer_version": "2.0.4",
         })
 
     finally:
