@@ -285,20 +285,42 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             "spreadBps": spread_bps,
             "slotIndex": slot_index,
             "isXyz": is_xyz(asset),
-            "_turbine_producer_version": "2.0.7",
+            "_turbine_producer_version": "2.0.8",
         },
     }
+    # v2.0.8 (2026-04-25): correct CLI invocation shape. Previous code
+    # passed scanner_name as a positional argument and the JSON payload
+    # via stdin — the openclaw CLI rejected this with "too many arguments
+    # for 'ingest'. Expected 0 arguments but got 1." Jackal's working
+    # producer uses named flags (--address, --scanner, --payload).
+    # Matching that pattern, plus widening timeout 6s → 20s to match
+    # Jackal's tested value (the 6s was too tight for some MCP routes
+    # and caused intermittent timeout exceptions in the 1-hour log).
+    cmd = [
+        openclaw_bin, "senpi", "external-scanner", "ingest",
+        "--address", wallet,
+        "--scanner", scanner_name,
+        "--payload", json.dumps(signal),
+    ]
     try:
         r = subprocess.run(
-            [openclaw_bin, "senpi", "external-scanner", "ingest", scanner_name],
-            input=json.dumps(signal),
+            cmd,
             capture_output=True,
             text=True,
-            timeout=6,
+            timeout=20,
         )
         if r.returncode != 0:
             cfg.log(f"ingest failed for {asset} {direction}: {r.stderr.strip()}")
             return False
+        # Jackal pattern: validate response.ok if present
+        if r.stdout.strip():
+            try:
+                response = json.loads(r.stdout)
+                if isinstance(response, dict) and response.get("ok") is False:
+                    cfg.log(f"ingest rejected for {asset} {direction}: {response.get('error')}")
+                    return False
+            except (json.JSONDecodeError, TypeError):
+                pass  # Tolerate non-JSON success responses
         return True
     except (subprocess.TimeoutExpired, OSError) as e:
         cfg.log(f"ingest exception for {asset} {direction}: {e}")
@@ -414,6 +436,14 @@ def run():
                 coin_key = asset.split(":")[-1].upper()
                 ss["last_direction_by_asset"][coin_key] = direction
                 ss["signals_emitted_today"] += 1
+                # v2.0.8: cycles_opened_today now tracks signal emission
+                # success (matching the original intent — every successful
+                # signal becomes an attempted cycle). Was always 0 before
+                # because nothing incremented it. Note: this is "emitted
+                # cycle attempts," not "filled cycles." The runtime's
+                # ingest acknowledges receipt; whether it converts to a
+                # filled position depends on the LLM gate + ALO fill.
+                ss["cycles_opened_today"] = ss.get("cycles_opened_today", 0) + 1
                 held_assets.add(coin_key)
                 emitted.append({
                     "asset": asset,
@@ -435,7 +465,7 @@ def run():
                 "signals_emitted_today": ss["signals_emitted_today"],
                 "rotation_index": ss["rotation_index"],
             },
-            "_turbine_producer_version": "2.0.7",
+            "_turbine_producer_version": "2.0.8",
         })
 
     finally:
