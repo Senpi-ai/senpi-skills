@@ -25,8 +25,38 @@ from pathlib import Path
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "turbine-tracker"
 CONFIG_PATH = SKILL_DIR / "config" / "turbine-config.json"
-STATE_DIR = SKILL_DIR / "state"
 
+# v2.0.6 (2026-04-25): per-wallet state isolation.
+#
+# When the Turbine agent runs multiple wallets concurrently from the same
+# install (e.g. splitting $1,380 into 3 × $460 strategy wallets), every
+# producer invocation must write to its OWN producer.lock and
+# session-state.json. Without isolation:
+#   - All N producers share one fcntl lock → only 1 of N wallets runs per
+#     cron tick (the others skip with "prior run holds lock")
+#   - All N producers share one rotation_index → they all hit the same
+#     asset on each tick, defeating multi-wallet parallelism
+#
+# Per-wallet state dir is derived from a short hash of the wallet address,
+# auto-isolating without operator config. Single-wallet deploys still
+# work — the wallet env var is read at module load.
+def _state_dir_for_wallet(wallet_address):
+    """Return the per-wallet state directory. Hash wallet to 8 chars
+    for path stability across restarts."""
+    if not wallet_address:
+        return SKILL_DIR / "state"
+    short = wallet_address.lower().replace("0x", "")[:8]
+    return SKILL_DIR / "state" / f"wallet_{short}"
+
+
+# Resolve at module load — env vars set by the per-wallet runtime instance.
+# Falls back to legacy "state/" if no wallet is set yet (e.g. setup phase).
+_RUNTIME_WALLET = (
+    os.environ.get("TURBINE_WALLET")
+    or os.environ.get("STRATEGY_ADDRESS")
+    or ""
+)
+STATE_DIR = _state_dir_for_wallet(_RUNTIME_WALLET)
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 

@@ -83,7 +83,11 @@ import turbine_config as cfg
 # REENTRANCY GUARD (inherited from Jackal/Scorpion's Daniel-review fix)
 # ═══════════════════════════════════════════════════════════════
 
-_LOCK_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "turbine-tracker" / "state"
+# v2.0.6: per-wallet lock isolation. STATE_DIR is now wallet-scoped
+# (derived from TURBINE_WALLET / STRATEGY_ADDRESS env var) so multiple
+# concurrent producers — one per wallet — don't share a single lockfile.
+# Without this, only 1 of N wallets would run per cron tick.
+_LOCK_DIR = cfg.STATE_DIR
 _LOCK_DIR.mkdir(parents=True, exist_ok=True)
 _LOCK_PATH = _LOCK_DIR / "producer.lock"
 
@@ -281,7 +285,7 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             "spreadBps": spread_bps,
             "slotIndex": slot_index,
             "isXyz": is_xyz(asset),
-            "_turbine_producer_version": "2.0.4",
+            "_turbine_producer_version": "2.0.6",
         },
     }
     try:
@@ -431,7 +435,7 @@ def run():
                 "signals_emitted_today": ss["signals_emitted_today"],
                 "rotation_index": ss["rotation_index"],
             },
-            "_turbine_producer_version": "2.0.4",
+            "_turbine_producer_version": "2.0.6",
         })
 
     finally:
