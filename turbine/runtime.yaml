@@ -51,8 +51,8 @@ description: >
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1500
-  slots: 3
-  margin_per_slot: 500
+  slots: 2                                    # v2.0.5 (2026-04-25): 3 → 2. With 3 slots, runtime fragmented allocation across main+xyz DEXes — main got $600 cross margin (close to full), xyz divided between 2 slots at ~$170 each. Result: ~64% of capital ($880 of $1,380) sat idle. With 2 slots, runtime allocates 1 main + 1 xyz, each gets the full per-DEX bucket (~$690+ each), capital fully deployed.
+  margin_per_slot: 690                        # v2.0.5: 500 → 690. Matches the 2-slot post-fix expected allocation. Runtime treats this as advisory (observed actual sizing varies ±30%), but the higher target prevents the runtime from sizing down.
   default_leverage: 5
   trading_risk: conservative
   enabled: true
