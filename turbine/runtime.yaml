@@ -143,7 +143,11 @@ actions:
 
       ## OUTPUT FORMAT
 
-      Return JSON with this exact shape:
+      Return JSON with this exact shape. The `leverage` and
+      `marginUsd` fields MUST be copied from the signal's meta —
+      this enforces Turbine's spec sizing instead of letting the
+      runtime fall back to HL's per-asset defaults (which can be
+      10x or higher and break Turbine's risk envelope).
 
       {
         "execute": true OR false,
@@ -155,6 +159,8 @@ actions:
             {
               "asset": "copy signal's asset EXACTLY",
               "direction": "copy signal's direction EXACTLY",
+              "leverage": "copy signal meta.leverage EXACTLY (an integer, typically 5)",
+              "marginUsd": "copy signal meta.marginUsd EXACTLY (a number, typically 500)",
               "reason": "turbine cycle open"
             }
           ]

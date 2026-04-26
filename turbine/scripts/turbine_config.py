@@ -49,13 +49,13 @@ def _state_dir_for_wallet(wallet_address):
     return SKILL_DIR / "state" / f"wallet_{short}"
 
 
-# Resolve at module load — env vars set by the per-wallet runtime instance.
+# Resolve at module load. v2.0.9 (2026-04-25): READ ONLY TURBINE_WALLET.
+# Previous code fell back to STRATEGY_ADDRESS, which is a generic env var
+# often set by other agents/strategies on shared machines. That fallback
+# was a contamination vector — if TURBINE_WALLET wasn't set, Turbine would
+# silently pick up another strategy's wallet and emit signals there.
 # Falls back to legacy "state/" if no wallet is set yet (e.g. setup phase).
-_RUNTIME_WALLET = (
-    os.environ.get("TURBINE_WALLET")
-    or os.environ.get("STRATEGY_ADDRESS")
-    or ""
-)
+_RUNTIME_WALLET = os.environ.get("TURBINE_WALLET", "")
 STATE_DIR = _state_dir_for_wallet(_RUNTIME_WALLET)
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -73,9 +73,17 @@ def load_config():
 
 
 def get_wallet_and_strategy():
-    """Wallet + strategy id are required to emit signals. Env > config."""
-    w = os.environ.get("TURBINE_WALLET") or os.environ.get("STRATEGY_ADDRESS", "")
-    s = os.environ.get("TURBINE_STRATEGY_ID") or os.environ.get("STRATEGY_ID", "")
+    """Wallet + strategy id are required to emit signals. Env > config.
+
+    v2.0.9 (2026-04-25): removed STRATEGY_ADDRESS / STRATEGY_ID fallbacks.
+    Those generic env vars are often set by sibling agents on shared
+    machines (Sentinel, Mantis, Jackal, etc.). Falling back to them
+    silently pointed Turbine at the wrong wallet. If TURBINE_WALLET is
+    unset, return empty so the producer logs "no wallet configured" and
+    refuses to emit — fail loud instead of fail silent.
+    """
+    w = os.environ.get("TURBINE_WALLET", "")
+    s = os.environ.get("TURBINE_STRATEGY_ID", "")
     if not w or not s:
         c = load_config()
         w = w or c.get("wallet", "")
