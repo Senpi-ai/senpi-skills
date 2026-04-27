@@ -267,6 +267,15 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
                 funding_annualized_pct, slot_index, leverage, margin_usd,
                 wallet, scanner_name, openclaw_bin):
     """Push a signal to the runtime's external_scanner via openclaw CLI."""
+    # v2.0.11 (2026-04-27): runtime-declared scanner fields must be in the
+    # `data` envelope, NOT `meta`. The runtime.yaml `external_scanner.config.fields`
+    # block declares thesis, leverage, marginUsd, etc. as REQUIRED top-level
+    # fields the runtime expects to read from the signal payload's `data` key.
+    # Original code put them under `meta` which the strict schema validator
+    # rejected with empty "ingest failed for X" errors.
+    #
+    # `meta` is preserved for OUR-side metadata (version stamp). All declared
+    # runtime fields go in `data`.
     signal = {
         "address": wallet,
         "scannerId": scanner_name,
@@ -276,7 +285,10 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
         "score": 10.0,
         "timestamp": int(cfg.now_ts() * 1000),
         "factors": {},
-        "meta": {
+        "data": {
+            # These match the runtime.yaml external_scanner.config.fields declaration.
+            # Required: thesis, leverage, marginUsd, isXyz.
+            # Optional: fundingRegime, fundingAnnualizedPct, spreadBps, slotIndex.
             "thesis": thesis,
             "leverage": leverage,
             "marginUsd": margin_usd,
@@ -285,7 +297,9 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             "spreadBps": spread_bps,
             "slotIndex": slot_index,
             "isXyz": is_xyz(asset),
-            "_turbine_producer_version": "2.0.10",
+        },
+        "meta": {
+            "_turbine_producer_version": "2.0.11",
         },
     }
     # v2.0.8 (2026-04-25): correct CLI invocation shape. Previous code
@@ -465,7 +479,7 @@ def run():
                 "signals_emitted_today": ss["signals_emitted_today"],
                 "rotation_index": ss["rotation_index"],
             },
-            "_turbine_producer_version": "2.0.10",
+            "_turbine_producer_version": "2.0.11",
         })
 
     finally:
