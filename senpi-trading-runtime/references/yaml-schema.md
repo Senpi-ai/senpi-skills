@@ -52,7 +52,9 @@ notifications:
 | `telegram_chat_id` | Your Telegram chat ID | — |
 | `dsl_lifecycle` | Notify on DSL position open/close | `true` |
 | `dsl_notify_sl_updates` | Notify on stop-loss level changes | `false` |
-| `action_lifecycle_notifications` | Notify on action execution | — |
+| `action_lifecycle` | Notify on action execution (open/close) | `true` |
+
+> **Field name caveat:** The `notifications` block currently accepts unknown keys without erroring, so a typo like `action_lifecycle_notifications` is silently ignored and the default takes effect. Use the exact key shown above.
 
 **Requirement:** The `OPENCLAW_GATEWAY_TOKEN` environment variable must be set for Telegram delivery.
 
@@ -66,13 +68,15 @@ risk:
   guard_rails:
     daily_loss_limit_pct: 4           # Stop if daily loss exceeds 4%
     max_entries_per_day: 6            # Max 6 entries per UTC day
-    bypass_max_entries_per_day_on_profit: false  # Don't bypass on profit
+    bypass_max_entries_per_day_on_profit: false  # At cap: allow more if today_snapshot.pnl.delta_since_open > 0
     max_consecutive_losses: 3         # Pause after 3 losers in a row
     cooldown_minutes: 90              # Pause duration after consecutive losses
     drawdown_halt_pct: 20             # Stop if drawdown from peak exceeds 20%
     drawdown_reset_on_day_rollover: false  # Keep drawdown tracking across days
     per_asset_cooldown_minutes: 45    # No re-entry on same asset for 45 min
 ```
+
+`max_entries_per_day` is enforced using MCP trade and position times as **Unix seconds** vs UTC midnight in seconds (see [`risk-gates.md`](risk-gates.md)). With `bypass_max_entries_per_day_on_profit: true`, at the cap the runtime consults `today_snapshot.pnl.delta_since_open` (shared with daily-loss snapshot when configured, else one lazy MCP call).
 
 All guard rail fields are optional — only configure the gates you want active.
 

@@ -79,12 +79,26 @@ openclaw senpi runtime create --path ./<name>.yaml
 
 External scanners are push-driven — without a producer, the scanner stays silent. Schedule the producer with `openclaw cron add` (or any scheduler that can exec on an interval). Producer paths, common env vars, and the cron template are in [`references/external-producers.md`](references/external-producers.md); strategy-specific env vars (e.g. momentum's `TIMEFRAME`, `MIN_MOVE_PCT`) are in the strategy's own reference.
 
+**The cron job `--name` is a contract, not a label.** It must follow `senpi-producer-<scanner-name>-<wallet-suffix>`, where `<wallet-suffix>` is the last 4 hex characters of the strategy wallet, lowercased (e.g. `senpi-producer-external_momentum-2345`). The liveness verification step uses this name to reconcile producers against running runtimes — names that don't match are treated as unclassified. See [external-producers.md](references/external-producers.md#required-cron-job-naming-convention).
+
 ### 6. Verify the strategy is live
 
+Do not declare success on `runtime list: running` alone — that field is process status, not functional liveness. Run the full liveness verification (see [Liveness Verification](#liveness-verification) below and [`references/liveness-verification.md`](references/liveness-verification.md) for the field-level decision tree).
+
+At minimum, confirm all three self-questions pass:
+
+1. Runtime is `running` in `runtime list`.
+2. Every scanner in the YAML has executed at least once and recently (`state.components.scanners.state.scanners[].lastRunFinishedAt`).
+3. If the YAML declares an `external_scanner`: a producer cron exists with the canonical name `senpi-producer-<scanner>-<wallet-suffix>` (last 4 hex of wallet, lowercased), and the scanner's `runCount > 0`.
+
+Quick commands:
+
 ```bash
-openclaw senpi status                      # overall health, scanner + DSL summary
 openclaw senpi runtime list                # runtime shows status: running
+openclaw senpi state --json                # field-level liveness data — walk per the reference
+openclaw senpi status                      # health summary (do not rely on this alone for external scanners)
 openclaw senpi dsl positions               # positions under DSL tracking (once opened)
+openclaw cron list --json                  # cron entries — for reconciliation against external scanners
 tail -f <path-to-producer-log>             # if step 5 applied
 openclaw senpi action history <action>     # LLM/rule decisions, if the strategy has actions
 ```
@@ -290,6 +304,39 @@ Two independent mechanisms exist by design; they deliver different event classes
 
 Typical setup: set both to the same chat id. They are not redundant — they cover different event classes, so setting only one leaves a class unnotified.
 
+## Liveness Verification
+
+`openclaw senpi runtime list: running` reports process status, not functional liveness. A runtime can be `running` while every component inside it is silent — scanners not ticking, DSL not evaluating positions, external scanners declared but no producer pushing data, actions wired but never invoked. **Never declare the runtime live based on `runtime list` alone.**
+
+This is an **agent-side check**. Run the commands yourself (the pre-flight probe in Deploy Step 1 confirms you can exec here); do not ask the user to confirm "is it working?"
+
+### Self-questions checklist
+
+Before claiming the runtime is operating, the agent must be able to answer **yes** to all three — with field values as evidence, not assertions:
+
+1. **Is the target runtime in `runtime list` with `status: running`?**
+2. **For every scanner declared in the YAML, has it executed at least once and recently?** Walk `state.components.scanners.state.scanners[]` — for interval scanners check `lastRunFinishedAt` is within `2 × intervalSeconds`; for external scanners check `runCount > 0` and `lastRunFinishedAt` is within (producer cadence + buffer).
+3. **For every external scanner in a running runtime, does a paired producer cron exist? And vice versa?** Reconcile `openclaw cron list --json` (filtered to names matching `senpi-producer-<scanner>-<wallet-suffix>`, where `<wallet-suffix>` is the last 4 hex of the wallet, lowercased) against running runtimes' external scanners from `state`. Report orphans on either side, and treat suffix collisions as ambiguous matches rather than guessing.
+
+DSL counters (`tickSuccessCount`, `lastTickFinishedAt`) are intentionally not in this checklist — they prove the runtime's internal tick loop moved, not that the protective path actually works (price providers, MCP, exchange connectivity are outside the runtime's visibility). Use `openclaw senpi dsl inspect <ASSET>` for per-position triage instead.
+
+### What you can and can't trust from `senpi status`
+
+- `status` is a useful first signal but **does not prove liveness for external scanners** — push-driven scanners are reported `healthy` even with `runCount === 0`, because the health layer cannot distinguish "waiting for first ingest" from "broken pipe."
+- `status` aggregates across components; a hung DSL monitor can be masked by healthy scanners. Drill into the DSL component specifically.
+- For anything more than a sanity check, walk `state --json` field-by-field per the decision tree.
+
+### Decision tree and reconciliation
+
+For the per-component field rules (interval scanner, external scanner, action) and the cron ↔ runtime reconciliation algorithm, see [`references/liveness-verification.md`](references/liveness-verification.md). It is the authoritative source on which fields prove operation versus silence.
+
+### Reporting back to the user
+
+When liveness verification fails, surface the specific failing field and the remediation — never a generic "looks fine" or "still starting up." Examples:
+
+- "Position tracker scanner is registered but `runCount === 0` and `lastRunFinishedAt` is null — the scheduler hasn't picked it up. `lastError`: `<message>`. Recommend recreating the runtime."
+- "External scanner `external_momentum` has `runCount === 0`. No cron job named `senpi-producer-external_momentum-<suffix>` (where `<suffix>` is the last 4 hex of the strategy wallet) exists — the producer was never scheduled. Run Deploy Checklist Step 5."
+
 ## Runtime YAML
 
 The runtime YAML drives all behavior. Top-level keys: `name`, `strategy`, `scanners`, `actions`, `exit`, `risk`, `notifications`.
@@ -363,8 +410,9 @@ For full field details: [YAML Schema Reference](references/yaml-schema.md)
 
 **Two-phase trailing stop-loss** protecting open positions:
 
-- **Phase 1** (entry → first tier): limits downside. `max_loss_pct` sets a hard loss cap; `retrace_threshold` trails the high-water mark. Optional time-based cuts (`hard_timeout`, `weak_peak_cut`, `dead_weight_cut`) close stagnant positions.
+- **Phase 1** (entry → first tier): limits downside. `max_loss_pct` sets a hard loss cap; `retrace_threshold` trails the high-water mark.
 - **Phase 2** (after first tier reached): locks in profits. Each tier's `lock_hw_pct` sets a floor as a % of the high-water ROE — the floor trails upward and never loosens.
+- **Time-based cuts** (`hard_timeout`, `weak_peak_cut`, `dead_weight_cut`) — declared at the preset level (siblings of `phase1`/`phase2`) and evaluated **in both phases** as outer-bound protections, not Phase-1 patience knobs. `hard_timeout` fires whenever elapsed time exceeds its interval, regardless of phase or handoff status (a deliberate test-locked behavior). `weak_peak_cut` evaluates in both phases too, but its `peakROE < min_value` guard makes it *effectively* Phase 1 only when `min_value` is set below the first tier's `trigger_pct`.
 
 **Tiers** are profit milestones. `trigger_pct` = ROE % that activates the tier, `lock_hw_pct` = % of high-water ROE to lock as floor. Tiers must have strictly increasing `trigger_pct`.
 
@@ -392,5 +440,5 @@ For full DSL mechanics (retrace math, breach logic, close reasons, events): [DSL
 - [Strategy YAML Reference](references/yaml-schema.md) — Schema reference: top-level sections, building blocks, template variables, wiring rules, validation errors
 - [DSL Configuration Reference](references/dsl-configuration.md) — DSL exit engine: phases, tiers, time cuts, tuning guidance, close reasons, events
 - [Strategy Examples](references/strategy-examples.md) — Position-tracker runtimes with different DSL tuning profiles
-- [External Producers](references/external-producers.md) — How to schedule, deploy, and build external-scanner producers
-
+- [External Producers](references/external-producers.md) — How to schedule, deploy, and build external-scanner producers (includes the canonical cron naming convention)
+- [Liveness Verification](references/liveness-verification.md) — Field-level decision tree and cron ↔ runtime reconciliation for confirming the runtime is actually operating, not just registered

@@ -74,9 +74,9 @@ The `dsl_preset` object contains time-based cuts (at preset level), Phase 1, and
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
-| `hard_timeout` | object | No | Time-based cut: close after N minutes in Phase 1. |
-| `weak_peak_cut` | object | No | Time-based cut: close if peak ROE stayed weak. |
-| `dead_weight_cut` | object | No | Time-based cut: close after interval with `currentROE ≤ 0` since last tick with `currentROE > 0`. |
+| `hard_timeout` | object | No | Time-based cut: close after N minutes since open. Evaluates in **both phases** as an outer-bound protection. |
+| `weak_peak_cut` | object | No | Time-based cut: close if peak ROE stayed weak. Evaluates in both phases, but practically only fires in Phase 1 when `min_value` < first tier `trigger_pct` (entering Phase 2 implies `peakROE ≥ trigger_pct`, so the `peakROE < min_value` guard becomes unsatisfiable). Set `min_value` above the first tier if you want it active in Phase 2. |
+| `dead_weight_cut` | object | No | Time-based cut: close after interval with `currentROE ≤ 0` since last tick with `currentROE > 0`. Evaluates in both phases. |
 | `phase1` | object | Yes | Phase 1 config (see below). |
 | `phase2` | object | Yes | Phase 2 config with tiers (see below). |
 
@@ -111,13 +111,13 @@ phase1:
 
 ## Time-based cuts
 
-Defined at **preset level** (NOT inside `phase1`). All optional. Evaluated after breach logic in Phase 1 only; first match wins.
+Defined at **preset level** (NOT inside `phase1`). All optional. Evaluated every tick after breach logic, **regardless of phase**; first match wins. The only exception is `hard_timeout`, which is skipped on the exact tick a position crosses into Phase 2 so a boundary hit cannot lose to the clock before the tier advance runs.
 
 Time-cut intervals are clamped to at least the DSL cron interval (e.g. `interval_seconds: 30` -> min 0.5 min), so very small values cannot fire every tick.
 
 ### hard_timeout
 
-Close when position has been open for at least N minutes in Phase 1.
+Close when position has been open for at least N minutes. Fires in both Phase 1 and Phase 2 — this is an outer-bound protection against capital being tied up indefinitely, not a Phase 1 patience knob.
 
 | Key | Type | Required | Description |
 |-----|------|----------|-------------|
@@ -210,8 +210,8 @@ Example: `{ trigger_pct: 7, lock_hw_pct: 40 }` means: when ROE reaches 7% from e
 
 **On each tick:**
 1. Update high water -> recompute floors.
-2. If breached enough times -> close (`dsl_breach`).
-3. Else apply time cuts if still in Phase 1.
+2. If breached enough times (Phase 1 only) -> close (`dsl_breach`).
+3. Else apply time cuts (`hard_timeout`, `dead_weight_cut`, `weak_peak_cut`) — evaluated in both phases; first match wins.
 4. Else detect tier from current ROE; on new higher tier, update tier floor and possibly transition to Phase 2.
 5. If tier active, recompute tier floor every tick so `lock_hw_pct` trails high-water ROE.
 
@@ -253,9 +253,9 @@ Example: `interval_seconds: 30` and `consecutive_breaches_required: 1` means a s
 | `dsl_breach` | Floor breached for required consecutive ticks. |
 | `flipped` | Position flipped (same asset, reverse direction). |
 | `close_position_failed` | Close failed after max retries. |
-| `hard_timeout` | Phase 1 hard_timeout time cut. |
-| `weak_peak_cut` | Phase 1 weak_peak_cut triggered. |
-| `dead_weight_cut` | Phase 1 dead_weight_cut triggered. |
+| `hard_timeout` | Time-since-open exceeded `hard_timeout.interval_in_minutes` (fires in both phases). |
+| `weak_peak_cut` | Peak ROE stayed below `min_value` and current ROE has retreated from peak (fires in both phases; practically Phase 1 only when `min_value` < first tier `trigger_pct`). |
+| `dead_weight_cut` | `currentROE ≤ 0` for at least `dead_weight_cut.interval_in_minutes` since the last positive-ROE tick (fires in both phases). |
 | `position_increased` | Position size increased (size-change event). |
 | `position_decreased` | Position size decreased (size-change event). |
 | `dsl_deleted` | DSL state purged. |

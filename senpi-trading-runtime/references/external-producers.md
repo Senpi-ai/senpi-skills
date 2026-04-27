@@ -80,24 +80,45 @@ The OpenClaw parent CLI ships a cron scheduler that works well for producers. Th
 
 ```bash
 openclaw cron add \
-  --name "<producer-name>" \
+  --name "senpi-producer-<scanner-name>-<wallet-suffix>" \
   --cron "<cron-expression>" \
   --session isolated \
   --wake now \
-  --message "Run \`<ENV_VARS> node <PATH-TO-PRODUCER>/producer.mjs >> <PATH-TO-LOG>/<producer-name>.log 2>&1\` and report success/failure in this log." \
+  --message "Run \`<ENV_VARS> node <PATH-TO-PRODUCER>/producer.mjs >> <PATH-TO-LOG>/senpi-producer-<scanner-name>-<wallet-suffix>.log 2>&1\` and report success/failure in this log." \
   --no-deliver
 ```
 
 | Flag | Purpose |
 |------|---------|
-| `--name` | Unique name for the cron job (used to list/delete later) |
+| `--name` | Canonical producer name — see naming convention below. Used by reconciliation to join cron entries against running runtimes. |
 | `--cron` | Standard cron expression (e.g. `*/5 * * * *` for every 5 minutes) |
 | `--session isolated` | Run in an isolated session (no conversation state leaks) |
 | `--wake now` | Schedule starts immediately |
 | `--no-deliver` | Run headless (no agent delivery) |
 | `--message` | Shell command to execute, wrapped in backticks; redirect stdout+stderr to a log file you can tail |
 
-The `openclaw cron` scheduler is just one option — any scheduler (custom scheduler, cron, systemd timer, launchd, Kubernetes CronJob, etc.) can run producers. The only contract is "exec a command on an interval."
+### Required cron job naming convention
+
+The `--name` MUST follow this exact shape:
+
+```
+senpi-producer-<scanner-name>-<wallet-suffix>
+```
+
+- `<scanner-name>` is the `name:` of the external scanner block in the strategy YAML (e.g. `external_momentum`).
+- `<wallet-suffix>` is the **last 4 hex characters** of the strategy wallet, lowercased (no `0x` prefix on the suffix). For wallet `0xAbC123dEf4567890aBc123def4567890ABc12345` the suffix is `2345`.
+
+Example:
+
+```
+senpi-producer-external_momentum-2345
+```
+
+This naming is not cosmetic — it is the join key for cron ↔ runtime reconciliation. The agent uses the cron name to detect orphan producers (a cron exists with no matching running runtime) and orphan consumers (a runtime declares an external scanner but no producer cron is firing for it). The freeform `--message` field cannot be parsed reliably, so the name carries the contract.
+
+**Collision caveat.** 4 hex characters give ~65k uniqueness, so suffix collisions between two strategy wallets on the same host are unlikely below ~30 wallets but possible. Reconciliation reports any suffix that matches more than one running runtime as **ambiguous** rather than auto-resolving — see [liveness-verification.md](liveness-verification.md#reconciliation-algorithm). If the host outgrows this scheme, lengthen the suffix.
+
+If you must use a different scheduler (systemd timer, launchd, Kubernetes CronJob, etc.) the only contract is "exec the producer command on an interval." Reconciliation against `openclaw cron list` will not see those jobs, so document them out-of-band and verify liveness from the data side (see [liveness-verification.md](liveness-verification.md)) — `runCount > 0` and a recent `lastRunFinishedAt` on the external scanner is the canonical proof of life regardless of where the schedule lives.
 
 ---
 
@@ -108,7 +129,60 @@ A producer must:
 1. **Gather or compute the data** you want ingested.
 2. **Format a payload** that matches the `external_scanner`'s `config.fields` declared in the strategy YAML.
 3. **Shell out** to `openclaw senpi external-scanner ingest --address <wallet> --scanner <name> --payload '<json>'`.
+4. **Validate the CLI response** against the rules below — the CLI always returns JSON on stdout, so the same checks work in any language.
 
-For Node-based producers, reuse the helper at `src/scanners/external/shared/ingest.mjs`. It handles CLI shell-out, payload normalization, and response validation so producers never diverge on the wire format.
+### Batch item shape (wire format)
 
-For producers in other languages, match the CLI payload shape directly. The CLI always returns JSON on stdout, which makes error handling uniform across languages.
+The runtime accepts either a single signal payload or `{ "signals": [ ... ] }` for batches. Each batch item has this shape:
+
+```json
+{
+  "asset": "ETH",
+  "direction": "LONG",
+  "score": 0.85,
+  "signal_type": "momentum_breakout",
+  "data": {
+    "sourceScannerId": "...",
+    "sourceSignalType": "...",
+    "sourceTimestamp": 1714200000,
+    "sourceFactors": { "...": "..." },
+    "sourceMeta": { "...": "..." }
+  }
+}
+```
+
+- `asset`, `direction`, `score`, `signal_type` are top-level routing fields the runtime uses directly.
+- Everything else the producer wants to preserve goes under `data` — by convention with the `source*` prefix so downstream consumers can reconstruct producer-side context. The fields you put under `data` must satisfy the scanner's `config.fields` schema in the strategy YAML.
+
+A producer that keeps a richer in-process signal object (`scannerId` / `factors` / `meta` / `timestamp`) should normalize to the shape above before shipping — preserve the rich fields under `data.source*` rather than dropping them.
+
+### CLI response contract
+
+On success:
+
+```json
+{ "ok": true, "result": { "accepted": true, "signalCount": <N>, "...": "..." } }
+```
+
+On failure:
+
+```json
+{ "ok": false, "error": { "code": "...", "message": "..." } }
+```
+
+A producer must treat the ingest as failed (and log + exit non-zero so the scheduler can retry / alert) when **any** of these are true:
+
+- The stdout is not valid JSON.
+- `response.ok !== true`.
+- `response.result.accepted !== true`.
+- `response.result.signalCount !== <number of signals you sent>` — a count mismatch means part of your batch was dropped silently.
+
+These four checks are the load-bearing contract — silently treating a partial-acceptance response as success is the most common producer bug.
+
+### Node producers
+
+Node producers shipped with this plugin share an internal ingest helper (CLI shell-out + normalization + response validation in one call) so they never drift on the contract above. If you are writing a Node producer inside this repo, follow the existing producers' pattern. If you are writing one outside the repo, implement the four response-validation checks yourself against the JSON shape documented above — the contract, not the helper, is what's stable.
+
+### Non-Node producers
+
+Match the CLI payload shape directly and parse the JSON stdout. The four response checks above apply identically.

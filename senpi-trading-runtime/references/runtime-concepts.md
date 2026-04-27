@@ -208,15 +208,17 @@ The breach counter resets on any tick where price is above the floor.
 
 ### Time-Based Exit Conditions
 
-These run every tick alongside the phase logic and can trigger exits independently of breach counting. They are **Phase-1 only** — once Phase 2 is reached, the position is profitable and time cuts no longer apply.
+These run every tick alongside the phase logic and can trigger exits independently of breach counting. They evaluate in **both Phase 1 and Phase 2** — they are outer-bound protections, not Phase-1-only patience knobs. The only exception is `hard_timeout`, which skips the exact tick a position crosses into Phase 2 so a boundary hit cannot lose to the clock before the tier advance runs.
+
+`weak_peak_cut` is a special case: it evaluates in both phases by code, but its guard `peakROE < min_value` becomes unsatisfiable in Phase 2 whenever `min_value` is set below the first tier's `trigger_pct` (entering Phase 2 implies `peakROE ≥ trigger_pct`). In that common configuration it is *effectively* Phase-1-only. Set `min_value` above the first tier if you want it to remain active in Phase 2.
 
 ---
 
 #### `hard_timeout`
 
-> "If the position is still in Phase 1 after N minutes, close it."
+> "Close any position that has been open for at least N minutes."
 
-Prevents tying up capital in a position that never developed enough profit to trigger a tier. Once Phase 2 is entered, `hard_timeout` is disabled — the position is profitable, so let it run.
+An outer-bound protection against capital being tied up indefinitely. Fires in both phases — even a profitable Phase 2 position will be closed once it crosses the timeout. Tune the interval high enough to give your strategy room (e.g. 6–72h), not as a Phase 1 patience knob.
 
 **Field:** `interval_in_minutes` — time from position open. Must be > 0.
 
@@ -244,7 +246,7 @@ Exit condition (all must be true after `interval_in_minutes` elapsed):
 
 **Fields:**
 - `interval_in_minutes` — how long to wait before cutting. Must be > 0.
-- `min_value` — minimum ROE% the position must have reached to be considered "made real profit". If the peak exceeds this, the position enters Phase 2 via a tier and `weak_peak_cut` no longer applies. Must be > 0.
+- `min_value` — minimum ROE% the position must have reached to be considered "made real profit". The cut evaluates in both phases, but if `min_value` sits below the first tier's `trigger_pct` it cannot fire in Phase 2 (peak ROE will already exceed `min_value` by the time the tier triggered). Must be > 0.
 
 ---
 
@@ -263,10 +265,10 @@ Exit condition (all must be true after `interval_in_minutes` elapsed):
 
 | Reason | Cause |
 |---|---|
-| `dsl_breach` | Consecutive breach count reached threshold (Phase 1) |
-| `hard_timeout` | Position stayed in Phase 1 past `hard_timeout.interval_in_minutes` |
-| `weak_peak_cut` | Position peaked below `min_value` and then declined |
-| `dead_weight_cut` | Position stayed in non-positive ROE past `dead_weight_cut.interval_in_minutes` |
+| `dsl_breach` | Consecutive breach count reached threshold (Phase 1 only) |
+| `hard_timeout` | Position open longer than `hard_timeout.interval_in_minutes` (fires in both phases) |
+| `weak_peak_cut` | Position peaked below `min_value` and then declined (fires in both phases; practically Phase 1 only when `min_value` < first tier `trigger_pct`) |
+| `dead_weight_cut` | Position stayed in non-positive ROE past `dead_weight_cut.interval_in_minutes` (fires in both phases) |
 | `exchange_sl_hit` | Exchange stop-loss triggered (Phase 2 floor hit externally, or Phase 1 absolute floor) |
 | `manual_close` | Position closed by user or action |
 | `closed_externally` | Position closed outside the runtime (e.g., exchange UI) |
