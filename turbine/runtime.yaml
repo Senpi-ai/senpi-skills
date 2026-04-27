@@ -57,19 +57,37 @@ strategy:
   trading_risk: conservative
   enabled: true
 
-# Safety bounds. Per-cycle losses are expected near zero (time-rotation,
-# not thesis), but we cap daily drawdown so a bad regime day can't
-# cascade. Turbine is volume-first — if daily_loss_limit_pct trips, we
-# halt and investigate rather than keep burning.
+# v2.0.10 (2026-04-27): NEUTRALIZED P&L-based halts.
+#
+# Turbine's mission is volume generation, NOT P&L preservation. The
+# economic model: builder fees recycle to Senpi (~30 bp/volume),
+# trading P&L fluctuates around zero (~±1 bp/volume), Senpi-net is
+# positive across normal noise. Halting on a 10% wallet drawdown
+# stops volume generation precisely when nothing is wrong — wallet
+# drawdowns of 10-15% are NORMAL noise on a $1,500 wallet × 5x lev
+# × 3 slot config.
+#
+# Original guard_rails (3% daily / 10% drawdown / 20 consec losses)
+# were copy-pasted from Scorpion-style thesis agents where a loss
+# streak signals "thesis is broken, halt before bigger damage."
+# That logic doesn't apply to Turbine: it has NO thesis to break.
+#
+# Right halt criteria for Turbine are EFFICIENCY-based, not P&L-based:
+#   - Maker fill rate < 80% (architecture broken)
+#   - 24h HL fees > budget cap (real cost ceiling)
+#   - Wallet equity < 50% of starting (catastrophic margin event)
+# None natively supported by v2 guard_rails — must be monitored
+# externally. The P&L gates here are kept only as catastrophe safety
+# nets at extreme thresholds.
 risk:
   data_retention_hours: 72
   guard_rails:
-    daily_loss_limit_pct: 3              # $45 on $1,500 — tight because this is a breakeven agent, not a bet
-    max_entries_per_day: 500             # aggressive — target ~288 cycles/day across 3 slots
+    daily_loss_limit_pct: 50             # was 3 — neutralized; only catches catastrophic single-day loss
+    max_entries_per_day: 1000            # never gate on volume
     bypass_max_entries_per_day_on_profit: false
-    max_consecutive_losses: 20           # loose — Turbine will have loss streaks, it's expected at breakeven
+    max_consecutive_losses: 200          # was 20 — long loss streaks expected at breakeven
     cooldown_minutes: 0                  # producer manages rotation pacing
-    drawdown_halt_pct: 10                # $150 drawdown halts — hard stop for the Phase 1 test
+    drawdown_halt_pct: 50                # was 10 — 10-15% drawdowns are normal noise; only halt on catastrophic 50% drops
     drawdown_reset_on_day_rollover: true
 
 scanners:

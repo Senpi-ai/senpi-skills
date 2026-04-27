@@ -285,7 +285,7 @@ def emit_signal(asset, direction, thesis, spread_bps, funding_regime,
             "spreadBps": spread_bps,
             "slotIndex": slot_index,
             "isXyz": is_xyz(asset),
-            "_turbine_producer_version": "2.0.9",
+            "_turbine_producer_version": "2.0.10",
         },
     }
     # v2.0.8 (2026-04-25): correct CLI invocation shape. Previous code
@@ -465,7 +465,7 @@ def run():
                 "signals_emitted_today": ss["signals_emitted_today"],
                 "rotation_index": ss["rotation_index"],
             },
-            "_turbine_producer_version": "2.0.9",
+            "_turbine_producer_version": "2.0.10",
         })
 
     finally:
