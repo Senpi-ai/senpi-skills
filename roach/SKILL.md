@@ -103,7 +103,7 @@ The producer reads:
 
 | Var | Purpose | Default |
 |---|---|---|
-| `STRATEGY_ADDRESS` | Wallet (must match runtime YAML's wallet) | — |
+| `ROACH_WALLET` | Wallet (must match runtime YAML's wallet). **Agent-specific by design — do NOT use generic `STRATEGY_ADDRESS`.** Per Turbine v2.0.9 contamination fix: a shared env var is a fleet-wide vector if multiple agents share an install. | — (required; producer fails loud) |
 | `OPENCLAW_BIN` | CLI binary name | `openclaw` |
 | `EXTERNAL_SCANNER_NAME` | Scanner ID | `roach_signals` |
 | `ROACH_LEVERAGE` | Leverage to assert in signal payload | `7` |
@@ -114,21 +114,27 @@ The producer reads:
 ## Runtime setup
 
 ```bash
-# 1. Set wallet, chat ID, and LLM model in env
+# 1. Set runtime env (used by runtime.yaml ${VAR} substitutions)
 export WALLET_ADDRESS="0x..."
 export TELEGRAM_CHAT_ID="..."
-export ROACH_DECISION_MODEL="gemini-3.1-pro-preview"     # or claude-sonnet-4-20250514, etc.
-export STRATEGY_ADDRESS="$WALLET_ADDRESS"
+export ROACH_DECISION_MODEL="gemini-3.1-pro-preview"     # or claude-sonnet-4-20250514, etc. NO provider prefix.
 
-# 2. Install runtime
+# 2. Set producer env (used by roach-producer.py)
+export ROACH_WALLET="$WALLET_ADDRESS"                    # MUST match runtime YAML's wallet
+# Optional overrides:
+# export ROACH_LEVERAGE=7
+# export ROACH_MARGIN_USD=250
+
+# 3. Install runtime
 openclaw senpi runtime create --path /data/workspace/skills/roach-strategy/runtime.yaml
 
-# 3. Verify
+# 4. Verify
 openclaw senpi runtime list
 
-# 4. Schedule producer cron (90s)
+# 5. Schedule producer cron (90s)
 #    The producer should run every 90s under the same env. Use openclaw crons
-#    or your scheduler of choice.
+#    or your scheduler of choice. The producer fails loud (status: error)
+#    if ROACH_WALLET is not set, so a misconfigured cron is visible immediately.
 ```
 
 ---

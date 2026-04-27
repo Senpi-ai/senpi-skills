@@ -38,7 +38,14 @@ Striker detection logic preserved verbatim from v1.2 scanner:
 
 Environment variables (standard v2 producer):
   SENPI_API_KEY     — for MCP access
-  STRATEGY_ADDRESS  — Roach v2 wallet (must match runtime YAML)
+  ROACH_WALLET      — Roach v2 wallet (must match runtime YAML's wallet).
+                      AGENT-SPECIFIC env var by design — do NOT fall back
+                      to a generic STRATEGY_ADDRESS. Per Turbine v2.0.9
+                      contamination fix: a shared env var is a fleet-wide
+                      vector — if two agents are deployed in the same
+                      install (Railway service, container, etc.) and one
+                      sets STRATEGY_ADDRESS, the other inherits it and
+                      silently emits to the wrong wallet.
   SENPI_MCP_URL     — optional, default https://mcp.prod.senpi.ai/mcp
   OPENCLAW_BIN      — optional, default "openclaw"
   EXTERNAL_SCANNER_NAME — optional override (default "roach_signals")
@@ -71,7 +78,10 @@ import roach_config as cfg
 # lock, acquire_lock() returns None and we skip this tick cleanly.
 # fcntl locks auto-release when the process dies, so crashes self-heal.
 
-STRATEGY_ADDRESS = os.environ.get("STRATEGY_ADDRESS", "").lower()
+# v2.0.0: Agent-specific wallet env var. NO fallback to STRATEGY_ADDRESS
+# (contamination risk per Turbine v2.0.9 fix — see feedback_mcp_auth_is_fleet_wide.md).
+# Read case-preserved for CLI calls; lowercased separately for stable state-dir hashing.
+ROACH_WALLET = os.environ.get("ROACH_WALLET", "")
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "roach_signals")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 
@@ -81,14 +91,16 @@ DEFAULT_MARGIN_USD = float(os.environ.get("ROACH_MARGIN_USD", "250"))
 
 
 # Wallet-isolated state (forward-compat for multi-wallet deployments).
-# Falls back to "default" if STRATEGY_ADDRESS not set, so the producer
-# remains functional in single-wallet test installs. State lives under
-# SKILL_DIR/state/<wallet-hash>/...
+# Falls back to "unset" if ROACH_WALLET not configured, so the module
+# loads cleanly. main() refuses to run without ROACH_WALLET — see below.
 def _wallet_state_dir():
-    if STRATEGY_ADDRESS:
-        h = hashlib.sha256(STRATEGY_ADDRESS.encode()).hexdigest()[:12]
+    if ROACH_WALLET:
+        # Lowercase for stable hashing — ETH addresses are case-insensitive
+        # but checksum casing varies; we don't want different state paths
+        # for "0xEf51..." vs "0xef51..." pointing to the same wallet.
+        h = hashlib.sha256(ROACH_WALLET.lower().encode()).hexdigest()[:12]
     else:
-        h = "default"
+        h = "unset"
     d = cfg.SKILL_DIR / "state" / h
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -499,7 +511,7 @@ def build_signal_payload(s):
     """Build the payload matching runtime.yaml's roach_signals.config.fields schema.
     All declared scanner fields go in `data`, NOT `meta`. (Turbine v2.0.11 lesson.)"""
     return {
-        "address": STRATEGY_ADDRESS,
+        "address": ROACH_WALLET,
         "scannerId": SCANNER_NAME,
         "signalType": "ROACH_STRIKER",
         "asset": s["asset"],
@@ -534,13 +546,13 @@ def build_signal_payload(s):
 
 def push_signal(payload):
     """Push a signal payload to the runtime via CLI."""
-    if not STRATEGY_ADDRESS:
-        cfg.log("STRATEGY_ADDRESS env var not set; cannot push signal")
+    if not ROACH_WALLET:
+        cfg.log("ROACH_WALLET env var not set; cannot push signal")
         return False
 
     cmd = [
         OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", STRATEGY_ADDRESS,
+        "--address", ROACH_WALLET,
         "--scanner", SCANNER_NAME,
         "--payload", json.dumps(payload),
     ]
@@ -569,6 +581,18 @@ def push_signal(payload):
 
 def main():
     run_start = time.time()
+
+    # Fail loud if wallet not configured (Turbine v2.0.9 pattern).
+    # Don't silently process scan history when we couldn't push a signal
+    # if we tried — that just builds up state in the "unset" hash dir.
+    if not ROACH_WALLET:
+        cfg.output({
+            "status": "error",
+            "error": "ROACH_WALLET env var not set. Set it to the Roach strategy wallet (must match runtime.yaml).",
+            "_roach_producer_version": "2.0.0",
+        })
+        return
+
     lock = acquire_lock()
     if lock is None:
         print(json.dumps({

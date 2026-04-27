@@ -154,10 +154,11 @@ actions:
       ## OUTPUT FORMAT
 
       Return JSON with this exact shape. The `leverage` and
-      `marginUsd` fields MUST be copied from the signal — this
-      enforces Roach's spec sizing instead of letting the runtime
-      fall back to HL's per-asset defaults (which can be 10x or
-      higher and break Roach's risk envelope).
+      `marginUsd` fields MUST be copied from the signal's `data`
+      block (the producer asserts them there) — this enforces
+      Roach's spec sizing instead of letting the runtime fall back
+      to HL's per-asset defaults (which can be 10x or higher and
+      break Roach's risk envelope).
 
       {
         "execute": true OR false,
@@ -167,10 +168,10 @@ actions:
         "payload": {
           "signals": [
             {
-              "asset": "copy signal's asset EXACTLY",
-              "direction": "copy signal's direction EXACTLY",
-              "leverage": "copy signal's leverage EXACTLY (typically 7)",
-              "marginUsd": "copy signal's marginUsd EXACTLY (typically 250)",
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY (typically 7)",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY (typically 250)",
               "reason": "roach striker entry"
             }
           ]
