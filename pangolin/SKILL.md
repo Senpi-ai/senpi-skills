@@ -151,21 +151,44 @@ TELEGRAM_CHAT_ID=... \
 PANGOLIN_DECISION_MODEL=gemini-3.1-pro-preview \
   openclaw senpi runtime create --path /data/workspace/skills/pangolin-strategy/runtime.yaml
 
-# 3. Schedule the producer (5 minute cadence — funding doesn't change that fast)
+# 3. Schedule the producer (5 min cadence — funding doesn't change that fast)
 # PANGOLIN_WALLET (NOT generic STRATEGY_ADDRESS) is required by the producer.
 # Producer fails loud at startup if not set — misconfig is visible immediately.
+#
+# RECOMMENDED PATTERN: cron-as-Claude-turn with NO_REPLY filter.
+# Each cron tick spins up an isolated session, runs the producer, and
+# replies to TG ONLY if there's a non-zero event (signal pushed, error,
+# unexpected state). On the silence-is-correct ticks (most of them for
+# Pangolin — funding extremes are rare), the agent stays quiet — zero
+# TG noise, zero log file growth. Cron run records are still accessible
+# via `openclaw cron runs --id <id>`.
 openclaw cron add \
   --name "pangolin-v2-producer" \
   --cron "*/5 * * * *" \
   --session isolated \
   --wake now \
-  --message "Run \`SENPI_API_KEY=<KEY> PANGOLIN_WALLET=0x... python3 /data/workspace/skills/pangolin-strategy/scripts/pangolin-producer.py >> /var/log/openclaw/pangolin-v2.log 2>&1\` and report success/failure in this log." \
+  --message $'export PANGOLIN_WALLET=0x... && python3 /data/workspace/skills/pangolin-strategy/scripts/pangolin-producer.py\n\nCRITICAL INSTRUCTION: If the output shows "signals_pushed": 0 (or just "candidates" with no push) and "status": "ok", you MUST reply EXACTLY with NO_REPLY to remain silent. Only report to the user if there is an error, a crash, or if signals are actually pushed.' \
   --no-deliver
+
+# Alternative pattern: shell-redirect (cheaper, no Claude tokens per tick,
+# but generates a log file that needs rotation). Use this if you prefer
+# to grep raw producer JSON output:
+#
+#   --message "Run \`SENPI_API_KEY=<KEY> PANGOLIN_WALLET=0x... python3 /data/workspace/skills/pangolin-strategy/scripts/pangolin-producer.py >> /var/log/openclaw/pangolin-v2.log 2>&1\` and report success/failure in this log."
 
 # 4. Verify
 openclaw senpi runtime list                        # expect: pangolin-tracker v1.8.0
 openclaw senpi status --runtime pangolin-tracker
-tail -f /var/log/openclaw/pangolin-v2.log
+
+# Cron-as-Claude-turn pattern — verify via OpenClaw's structured run log:
+openclaw cron list --json                          # find the cron id
+openclaw cron runs --id <cron-id> --limit 5        # last 5 tick records (ts, status, durationMs, nextRunAtMs)
+
+# Inspect producer state (this is the same regardless of cron pattern):
+ls -la /data/workspace/skills/pangolin-strategy/state/<wallet-hash>/
+# Expect: producer.lock + asset-cooldowns.json + trade-counter.json with
+# mtime in last few minutes. A fresh trade-counter.json (after first emit)
+# or producer.lock mtime confirms the cron is firing.
 ```
 
 ---

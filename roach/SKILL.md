@@ -144,26 +144,47 @@ TELEGRAM_CHAT_ID=... \
 ROACH_DECISION_MODEL=gemini-3.1-pro-preview \
   openclaw senpi runtime create --path /data/workspace/skills/roach-strategy/runtime.yaml
 
-# 3. Schedule the producer (90s cadence)
+# 3. Schedule the producer (~90s cadence)
 # ROACH_WALLET (NOT generic STRATEGY_ADDRESS) is required by the producer.
 # Producer fails loud at startup if not set — misconfig is visible immediately.
+#
+# RECOMMENDED PATTERN: cron-as-Claude-turn with NO_REPLY filter.
+# Each cron tick spins up an isolated session, runs the producer, and
+# replies to TG ONLY if there's a non-zero event (signal pushed, error,
+# unexpected state). On the silence-is-correct ticks (most of them for
+# Roach), the agent stays quiet — zero TG noise, zero log file growth.
+# Cron run records are still accessible via `openclaw cron runs --id <id>`.
 openclaw cron add \
   --name "roach-v2-producer" \
   --cron "*/2 * * * *" \
   --session isolated \
   --wake now \
-  --message "Run \`SENPI_API_KEY=<KEY> ROACH_WALLET=0x... python3 /data/workspace/skills/roach-strategy/scripts/roach-producer.py >> /var/log/openclaw/roach-v2.log 2>&1\` and report success/failure in this log." \
+  --message $'export ROACH_WALLET=0x... && python3 /data/workspace/skills/roach-strategy/scripts/roach-producer.py\n\nCRITICAL INSTRUCTION: If the output shows \'candidates\': 0 and \'status\': \'ok\', you MUST reply EXACTLY with NO_REPLY to remain silent. Only report to the user if there is an error, a crash, or if signals are actually pushed.' \
   --no-deliver
 
 # Note: openclaw cron resolution is 1 minute. The producer is designed for
-# 90s cadence but */2 (every 2 min) is the closest cron-supported approximation.
-# The fcntl reentrancy guard handles overlapping runs safely if you choose
-# a faster cadence via a different scheduler.
+# 90s cadence; */2 (every 2 min) is the closest cron-supported approximation.
+# Some installs run faster via the underlying scheduler (~90s observed).
+# The fcntl reentrancy guard handles any overlap safely.
+
+# Alternative pattern: shell-redirect (cheaper, no Claude tokens per tick,
+# but generates a log file that needs rotation). Use this if you prefer
+# to grep raw producer JSON output:
+#
+#   --message "Run \`SENPI_API_KEY=<KEY> ROACH_WALLET=0x... python3 /data/workspace/skills/roach-strategy/scripts/roach-producer.py >> /var/log/openclaw/roach-v2.log 2>&1\` and report success/failure in this log."
 
 # 4. Verify
 openclaw senpi runtime list                        # expect: roach-tracker v1.3.0
 openclaw senpi status --runtime roach-tracker
-tail -f /var/log/openclaw/roach-v2.log
+
+# Cron-as-Claude-turn pattern — verify via OpenClaw's structured run log:
+openclaw cron list --json                          # find the cron id
+openclaw cron runs --id <cron-id> --limit 5        # last 5 tick records (ts, status, durationMs, nextRunAtMs)
+
+# Inspect producer state (this is the same regardless of cron pattern):
+ls -la /data/workspace/skills/roach-strategy/state/<wallet-hash>/
+# Expect: producer.lock + scan-history.json with mtime in last few minutes.
+# A fresh scan-history.json (mtime < 5 min) confirms the cron is firing.
 ```
 
 ---
