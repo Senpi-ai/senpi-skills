@@ -1,9 +1,31 @@
 #!/usr/bin/env python3
-# Senpi VULTURE Scanner v2.1
+# Senpi VULTURE Scanner v2.4
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""VULTURE v2.1 — Long-Tail Momentum Rider (wider DSL).
+"""VULTURE v2.4 — Long-Tail Momentum Rider (1h alignment gate added).
+
+## v2.4 changes (2026-04-27)
+
+Diagnostic on the prior 22 trades found 13/17 losses came from
+dead_weight_cut firings — entries that never built momentum within
+the 90-min window. High-water ROE on those was 0.0%-5.2%. Pattern
+analysis showed the failure mode was `4h up + 1h rejecting + 15m
+spike = false breakout`: 4h trend hard-gate passed, 15m velocity
+hard-gate passed, but the 1h was already rejecting at entry. Position
+stalled instantly, dead_weight_cut fired, repeat.
+
+Fix: add 1h price confirmation gate matching Orca v3.1 / Roach v1.2
+pattern. Reject signal if `p1h_aligned < 0.1` (require 1h aligned in
+SM direction by at least 0.1% — strict, not "not strongly opposing").
+
+This is asset-agnostic — applies the same gate to every asset in the
+universe. Catches ZEC's whipsaw failures the same way it catches
+similar patterns on any small-cap.
+
+Also added priceChg1h, priceChg15m to the JSON signal output for
+post-fix telemetry: lets us measure whether the 1h gate's value
+holds across the next 20 trades.
 
 ## v2.1 changes (2026-04-16)
 
@@ -302,6 +324,8 @@ def fetch_sm_data():
             "price_chg_4h": safe_float(m.get("token_price_change_pct_4h", 0)),
             "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
                                        m.get("price_change_1h", 0))),
+            "price_chg_15m": safe_float(m.get("token_price_change_pct_15m",
+                                        m.get("price_change_15m", 0))),
             "contrib_15m": safe_float(m.get("contribution_pct_change_15m", 0)),
             "contrib_1h": safe_float(m.get("contribution_pct_change_1h", 0)),
             "contrib_4h": safe_float(m.get("contribution_pct_change_4h", 0)),
@@ -325,6 +349,7 @@ def evaluate_momentum(asset, sm):
     traders = sm["traders"]
     p4h = sm["price_chg_4h"]
     p1h = sm["price_chg_1h"]
+    p15m = sm.get("price_chg_15m", 0)
     c15m = sm["contrib_15m"]
     c1h = sm["contrib_1h"]
     c4h = sm["contrib_4h"]
@@ -338,6 +363,15 @@ def evaluate_momentum(asset, sm):
     price_aligned = (direction == "LONG" and p4h >= MIN_4H_ALIGNED_PCT) or \
                     (direction == "SHORT" and p4h <= -MIN_4H_ALIGNED_PCT)
     if not price_aligned:
+        return None
+
+    # v2.4: 1h price must be ALIGNED with SM direction (Orca v3.1 pattern).
+    # Catches the "4h up + 1h rejecting + 15m spike" false-breakout pattern
+    # that was driving most dead_weight_cut losses. Diagnosed 2026-04-27:
+    # 13 of 17 losses had HW ROE < 5% within 90 min — entries that never
+    # built momentum because the 1h was already fading at entry time.
+    p1h_aligned = p1h if direction == "LONG" else -p1h
+    if p1h_aligned < 0.1:
         return None
 
     # 15m velocity must be actively building in SM direction.
@@ -469,6 +503,8 @@ def evaluate_momentum(asset, sm):
         "smPct": pct,
         "smTraders": traders,
         "priceChg4h": p4h,
+        "priceChg1h": p1h,           # v2.4: telemetry for post-fix evaluation
+        "priceChg15m": p15m,         # v2.4
         "contrib15m": c15m,
         "contrib1h": c1h,
         "regime": regime,
@@ -537,7 +573,7 @@ def run():
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
             "_v2_no_thesis_exit": True,
-            "_vulture_version": "2.1",
+            "_vulture_version": "2.4",
         })
         return
 
@@ -640,7 +676,7 @@ def run():
                 {"asset": s["asset"], "direction": s["direction"], "score": s["score"]}
                 for s in signals[:5]
             ],
-            "_vulture_version": "2.1",
+            "_vulture_version": "2.4",
         })
     else:
         cfg.output({
@@ -648,7 +684,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": result,
-            "_vulture_version": "2.1",
+            "_vulture_version": "2.4",
         })
 
 
