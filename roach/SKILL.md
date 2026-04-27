@@ -111,30 +111,59 @@ The producer reads:
 
 ---
 
-## Runtime setup
+## Producer install (on OpenClaw host)
+
+Source path in the senpi-skills repo: `roach/`. Install destination on the
+OpenClaw host: `/data/workspace/skills/roach-strategy/`. The two names
+differ — repo uses `roach`, install dir uses the SKILL.md `name` field
+(`roach-strategy`).
 
 ```bash
-# 1. Set runtime env (used by runtime.yaml ${VAR} substitutions)
-export WALLET_ADDRESS="0x..."
-export TELEGRAM_CHAT_ID="..."
-export ROACH_DECISION_MODEL="gemini-3.1-pro-preview"     # or claude-sonnet-4-20250514, etc. NO provider prefix.
+# 1. Pull the skill files (source: senpi-skills/main/roach/)
+mkdir -p /data/workspace/skills/roach-strategy/scripts
+mkdir -p /data/workspace/skills/roach-strategy/config
 
-# 2. Set producer env (used by roach-producer.py)
-export ROACH_WALLET="$WALLET_ADDRESS"                    # MUST match runtime YAML's wallet
-# Optional overrides:
-# export ROACH_LEVERAGE=7
-# export ROACH_MARGIN_USD=250
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/roach/runtime.yaml \
+  -o /data/workspace/skills/roach-strategy/runtime.yaml
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/roach/scripts/roach-producer.py \
+  -o /data/workspace/skills/roach-strategy/scripts/roach-producer.py
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/roach/scripts/roach_config.py \
+  -o /data/workspace/skills/roach-strategy/scripts/roach_config.py
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/roach/config/roach-config.json \
+  -o /data/workspace/skills/roach-strategy/config/roach-config.json
 
-# 3. Install runtime
-openclaw senpi runtime create --path /data/workspace/skills/roach-strategy/runtime.yaml
+# Remove the v1 scanner if it's still there from a prior install
+rm -f /data/workspace/skills/roach-strategy/scripts/roach-scanner.py
+
+# 2. Install the runtime
+# ROACH_DECISION_MODEL is REQUIRED — pick any model supported by the runtime's
+# model registry. Examples: gemini-3.1-pro-preview, claude-sonnet-4-20250514.
+# Pass BARE model name only — NO provider prefix (OpenClaw double-prefixes).
+WALLET_ADDRESS=0x... \
+TELEGRAM_CHAT_ID=... \
+ROACH_DECISION_MODEL=gemini-3.1-pro-preview \
+  openclaw senpi runtime create --path /data/workspace/skills/roach-strategy/runtime.yaml
+
+# 3. Schedule the producer (90s cadence)
+# ROACH_WALLET (NOT generic STRATEGY_ADDRESS) is required by the producer.
+# Producer fails loud at startup if not set — misconfig is visible immediately.
+openclaw cron add \
+  --name "roach-v2-producer" \
+  --cron "*/2 * * * *" \
+  --session isolated \
+  --wake now \
+  --message "Run \`SENPI_API_KEY=<KEY> ROACH_WALLET=0x... python3 /data/workspace/skills/roach-strategy/scripts/roach-producer.py >> /var/log/openclaw/roach-v2.log 2>&1\` and report success/failure in this log." \
+  --no-deliver
+
+# Note: openclaw cron resolution is 1 minute. The producer is designed for
+# 90s cadence but */2 (every 2 min) is the closest cron-supported approximation.
+# The fcntl reentrancy guard handles overlapping runs safely if you choose
+# a faster cadence via a different scheduler.
 
 # 4. Verify
-openclaw senpi runtime list
-
-# 5. Schedule producer cron (90s)
-#    The producer should run every 90s under the same env. Use openclaw crons
-#    or your scheduler of choice. The producer fails loud (status: error)
-#    if ROACH_WALLET is not set, so a misconfigured cron is visible immediately.
+openclaw senpi runtime list                        # expect: roach-tracker v1.3.0
+openclaw senpi status --runtime roach-tracker
+tail -f /var/log/openclaw/roach-v2.log
 ```
 
 ---
