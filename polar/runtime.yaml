@@ -1,66 +1,221 @@
 name: polar-tracker
-version: 3.0.6
+# Note: top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (must be major=1). The STRATEGY/skill is "Polar v2.5.0" —
+# that lives in description, SKILL.md, and _polar_producer_version. Do
+# NOT set this to 2.x or 3.x — the plugin rejects v2.x.
+version: 1.5.0
 description: >
-  Polar v3.0.5 — disable hard_timeout (fixes Phase-2 wrongful-close bug).
-  2026-04-23 overnight: Polar entered Phase 2 on an ETH Short at 4:09 AM
-  (Tier 1 locked, peak +11.79% ROE), then hard_timeout fired at 5:28 AM
-  and closed the position at +12.33% — while still in Phase 2 trailing.
-  Per the v2 runtime spec hard_timeout is Phase-1-only, but v1 DSL fires
-  it regardless of phase. The exit was lucky (+$71.15 booked) but
-  unprincipled — Phase 2 trailing should own that decision, not a clock.
-  v3.0.5 disables hard_timeout entirely. Phase 1 max_loss_pct=25 caps
-  downside; Phase 1 retrace (8% ROE from peak) catches stuck positions;
-  weak_peak_cut catches minor-peak faders; Phase 2 trailing owns winner
-  exits. Pairs with v3.0.4's dead_weight_cut disable — no time-based
-  cuts remain on this single-asset patience thesis.
+  POLAR v2.5.0 — v2-runtime-native rewrite + asymmetry-optimized DSL.
 
+  Mission unchanged: ETH alpha hunter. Single-asset focus. Hyperfeed
+  primary direction + structural-veto gates from candle data + multi-
+  factor scoring + conviction-tiered leverage.
+
+  Naming note: this is v2.5.0 (not v3.x). Naming reset because v3.0's
+  diagnostic was correct (v2.4's 32% WR + 'fee drag dominated' was
+  the problem) but v3.0's MIN_SCORE 14 + over-strict structural veto
+  produced too few entries (16 trades / 10 days / -$72) — the right
+  thesis applied too restrictively. v2.5 keeps v3.0's structural veto
+  (4h NEUTRAL block, trend_strength_4h ≥ 0.75, 1h matches 4h, 15m
+  direction confirms, base-tech-score floor) but lowers MIN_SCORE
+  back to 12 (between v2.4's 10 and v3.0's 14) and adds the v6 Kodiak
+  asymmetry-optimized DSL: tight Phase 1 + wide Phase 2.
+
+  v2.5 architectural changes (v2-runtime-native):
+    - Producer (polar-producer.py) emits scored thesis signals via
+      `openclaw senpi external-scanner ingest`. NO execution code.
+    - Runtime LLM (decision_model env var) is a pass-through gate —
+      producer has already applied every filter (4h structure, 1h
+      agree, 15m direction, base-tech floor, MIN_SCORE 12).
+    - Maker exits via FEE_OPTIMIZED_LIMIT — v3.x used MARKET orders.
+      Fee per close drops from ~$1.40-2.70 to ~$0.40. THIS IS THE
+      ASYMMETRY ENABLER: at 5x leverage with max_loss 15%, per-loser
+      cost is ~$15 + $0.40 fee. Per-winner at Phase 2 tier 3+ is
+      $30-100+. 32% WR profitable when asymmetry holds.
+    - Risk gates declarative — runtime owns enforcement.
+    - DSL exit: ASYMMETRY-OPTIMIZED (matches Kodiak v6.0). Phase 1
+      max_loss 15% with retrace 5 and breaches 2 — cut losers FAST.
+      Phase 2 wider first tier 10/20 and extreme top tier 75/88 —
+      RIDE WINNERS HARD.
+    - Time cuts (hard_timeout, weak_peak_cut, dead_weight_cut) all
+      DISABLED. v3.0.5/v3.0.6 architectural sweep preserved.
+
+  Synthesizes v2 learnings:
+    - Producer + LLM pass-through + DSL maker exits (Roach v2.0)
+    - POLAR_WALLET (no STRATEGY_ADDRESS fallback — Turbine v2.0.9)
+    - Fail-loud on missing wallet; signal `data` envelope (Turbine v2.0.11)
+    - fcntl reentrancy guard; CLI --address --scanner --payload (v2.0.8)
+    - Asymmetry-optimized DSL (Kodiak v6.0)
+
+# ── STRATEGY ──
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
   slots: 1
-  margin_per_slot: 500
+  margin_per_slot: 250
+  trading_risk: aggressive
+  default_leverage: 5
   enabled: true
 
+# ── RISK GUARDRAILS ──
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_minutes: 0
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 240
+
+# ── SCANNERS ──
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
 
+  - name: polar_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        smPctOfTopTraders: { type: number, required: false }
+        smTraderCount: { type: number, required: false }
+        smCc15m: { type: number, required: false }
+        smAligned: { type: boolean, required: false }
+        trend4h: { type: string, required: false }
+        trendStrength4h: { type: number, required: false }
+        trend1h: { type: string, required: false }
+        mom15mPct: { type: number, required: false }
+        mom1hPct: { type: number, required: false }
+        mom4hPct: { type: number, required: false }
+        fundingRate: { type: number, required: false }
+        oiTrend: { type: string, required: false }
+        btcMom1hPct: { type: number, required: false }
+        rsi: { type: number, required: false }
+        reasons: { type: string, required: false }
+
+# ── ACTIONS ──
 actions:
   - name: position_tracker_action
     action_type: POSITION_TRACKER
     decision_mode: rule
     scanners: [position_tracker]
 
+  - name: polar_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${POLAR_DECISION_MODEL}"
+    scanners: [polar_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: polar_signals
+    decision_prompt: |
+      You are Polar's pass-through gate. The producer has already
+      applied every filter (4h trend NEUTRAL block, trend_strength_4h
+      >= 0.75, structural direction matches SM direction, 1h matches
+      4h, 15m direction confirms, base-tech-score floor, RSI gate,
+      score >= 12, per-asset 240min cooldown). Your job is simply to
+      honor the signal and convert it to OPEN_POSITION.
+
+      SIGNAL:
+      {{signal_polar_signals}}
+
+      ## RULES
+
+      1. Output execute: true UNLESS one of these hard skips applies:
+         - score < 12 (signal failed producer floor — defensive)
+         - leverage <= 0 OR marginUsd <= 0 (malformed signal)
+         - leverage > 10 (defensive — Polar v2.5 caps at 10x)
+
+      2. The `asset` field MUST be "ETH". This is a single-asset agent.
+
+      3. The `direction` MUST match the signal's direction.
+
+      4. Confidence 7 unless hard-skip fires (then execute: false).
+
+      ## OUTPUT FORMAT
+
+      Copy `leverage` and `marginUsd` EXACTLY from signal.data — this
+      enforces v2.5's 5/7/10x sizing.
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": 7,
+        "reasoning": "ETH <direction> score <X> 4h-<trend> SM-<aligned/no>",
+        "payload": {
+          "signals": [
+            {
+              "asset": "ETH",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY (5, 7, or 10)",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY (~25% of account)",
+              "reason": "polar v2.5 eth-thesis"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — asymmetry-optimized + maker recovery) ──
+#
+# Philosophy (v2.5): cut losers FAST and CHEAP, ride winners HARD.
+# Maker exits via FEE_OPTIMIZED_LIMIT cut per-trade fee from $1.40+
+# (v3.x MARKET) to ~$0.40 (v2.5 maker-first). At 5x leverage with
+# max_loss 15% = 3% price stop, per-loser cost is ~$15 + $0.40 fee.
+# Per-winner at Phase 2 tier 3+ is $30-100+. 32% WR profitable.
+#
+# NO TIME CUTS — single-asset patience preserved from v3.0.6.
+# v1 DSL fires hard_timeout in Phase 2 incorrectly (v3.0.4 evidence
+# 2026-04-23 overnight — Phase 2 trailing ETH Short clock-closed).
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: false                # v3.0.5: DISABLED. v1 DSL fires this in Phase 2 incorrectly (per v2 spec it's Phase-1-only). Phase 1 max_loss + Phase 2 trailing own exits.
+      enabled: false
       interval_in_minutes: 480
     weak_peak_cut:
-      enabled: false                # v3.0.6: DISABLED. Completes the "no time-based cuts on single-asset patience agents" architectural sweep (after v3.0.4 dead_weight + v3.0.5 hard_timeout). Exits now 100% price-action (Phase 1 max_loss + retrace + Phase 2 trailing).
+      enabled: false
       interval_in_minutes: 120
       min_value: 2.0
     dead_weight_cut:
-      enabled: false                # v3.0.4: DISABLED. Single-asset agent has no rotation opportunity cost.
+      enabled: false
       interval_in_minutes: 90
     phase1:
       enabled: true
-      max_loss_pct: 25.0
-      retrace_threshold: 8
-      consecutive_breaches_required: 3
+      max_loss_pct: 15.0
+      retrace_threshold: 5
+      consecutive_breaches_required: 2
     phase2:
       enabled: true
       tiers:
-        # Phase 2 tiers — leverage-aware for ETH (fleet audit April 2026)
-        # At 20x, old Tier 1 (5%/30%) created a $1.19 lock — normal ETH wick is $5-8
-        - { trigger_pct: 8,  lock_hw_pct: 25 }
-        - { trigger_pct: 15, lock_hw_pct: 50 }
-        - { trigger_pct: 25, lock_hw_pct: 65 }
-        - { trigger_pct: 35, lock_hw_pct: 80 }
-        - { trigger_pct: 50, lock_hw_pct: 85 }
+        - { trigger_pct: 10, lock_hw_pct: 20 }
+        - { trigger_pct: 18, lock_hw_pct: 40 }
+        - { trigger_pct: 30, lock_hw_pct: 60 }
+        - { trigger_pct: 45, lock_hw_pct: 75 }
+        - { trigger_pct: 75, lock_hw_pct: 88 }
 
+# ── NOTIFICATIONS ──
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

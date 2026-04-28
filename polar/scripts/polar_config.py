@@ -1,5 +1,24 @@
-"""POLAR Strategy — Shared config, MCP helpers, state I/O.
-Self-contained — does not depend on wolf_config."""
+"""POLAR v2.5 — Shared MCP helper + atomic state I/O + output helpers.
+
+v2.5 producer responsibilities are narrower than v3.x:
+  - Fetch market data via MCP (market_get_asset_data,
+    leaderboard_get_markets, strategy_get_clearinghouse_state)
+  - Push signals via `openclaw senpi external-scanner ingest`
+    (runtime owns execution)
+
+Runtime handles: position tracking, DSL exits, risk guardrails,
+trade counting, asset cooldowns. All of that state lives in the
+runtime's state dir, not here.
+
+This module provides:
+  - load_config()    — read config/polar-config.json
+  - mcporter_call()  — Senpi MCP call helper
+  - atomic_write()   — atomic temp+rename write for JSON state files
+  - output() / log() / now_iso() — output helpers
+
+Per-wallet state lives under SKILL_DIR/state/<wallet-hash>/ — see
+polar-producer.py for the wallet hashing.
+"""
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
@@ -16,14 +35,17 @@ from pathlib import Path
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "polar-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "polar-config.json"
-STATE_DIR = SKILL_DIR / "state"
-HISTORY_FILE = os.path.join(WORKSPACE, "polar-emerging-history.json")
-COOLDOWN_FILE = STATE_DIR / "asset-cooldowns.json"
-
-STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ─── Atomic Write ────────────────────────────────────────────
+def load_config():
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
 
 def atomic_write(path, data):
     """Write JSON atomically via tmp file + os.replace."""
@@ -33,7 +55,7 @@ def atomic_write(path, data):
     fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=2)
+            json.dump(data, f, indent=2, default=str)
         os.replace(tmp_path, path)
     except BaseException:
         try:
@@ -43,94 +65,8 @@ def atomic_write(path, data):
         raise
 
 
-# ─── Config ──────────────────────────────────────────────────
-
-def load_config():
-    if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
-            return json.load(f)
-    return {}
-
-
-def get_wallet_and_strategy():
-    wallet = os.environ.get("POLAR_WALLET", "")
-    strategy_id = os.environ.get("POLAR_STRATEGY_ID", "")
-    if not wallet or not strategy_id:
-        config = load_config()
-        wallet = wallet or config.get("wallet", "")
-        strategy_id = strategy_id or config.get("strategyId", "")
-    return wallet, strategy_id
-
-
-# ─── State I/O ───────────────────────────────────────────────
-
-def load_state(filename="state.json"):
-    path = STATE_DIR / filename
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-    return {}
-
-
-def save_state(data, filename="state.json"):
-    atomic_write(str(STATE_DIR / filename), data)
-
-
-# ─── Asset Cooldowns ─────────────────────────────────────────
-
-def load_cooldowns():
-    if COOLDOWN_FILE.exists():
-        try:
-            with open(COOLDOWN_FILE) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
-
-
-def save_cooldowns(cooldowns):
-    atomic_write(str(COOLDOWN_FILE), cooldowns)
-
-
-def is_asset_cooled_down(token, cooldown_minutes=120):
-    cooldowns = load_cooldowns()
-    if token not in cooldowns:
-        return False
-    exit_ts = cooldowns[token].get("exitTimestamp", 0)
-    elapsed_min = (now_ts() - exit_ts) / 60
-    return elapsed_min < cooldown_minutes
-
-
-def set_asset_cooldown(token, reason="phase1_exit"):
-    cooldowns = load_cooldowns()
-    cooldowns[token] = {
-        "exitTimestamp": now_ts(),
-        "reason": reason,
-        "setAt": now_iso(),
-    }
-    save_cooldowns(cooldowns)
-
-
-# ─── Scanner History ─────────────────────────────────────────
-
-def load_scan_history():
-    try:
-        with open(HISTORY_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"scans": []}
-
-
-def save_scan_history(history, max_scans=120):
-    if len(history["scans"]) > max_scans:
-        history["scans"] = history["scans"][-max_scans:]
-    atomic_write(HISTORY_FILE, history)
-
-
-# ─── MCP Helpers ─────────────────────────────────────────────
-
 def mcporter_call(tool, retries=2, timeout=25, **params):
-    """Call a Senpi MCP tool via mcporter."""
+    """Call a Senpi MCP tool via mcporter. Returns parsed JSON or None on failure."""
     args = json.dumps(params) if params else "{}"
     cmd = ["mcporter", "call", "senpi", tool, "--args", args]
     for attempt in range(retries):
@@ -162,48 +98,13 @@ def mcporter_call(tool, retries=2, timeout=25, **params):
     return None
 
 
-def get_clearinghouse(wallet):
-    if not wallet:
-        return None
-    return mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
-
-
-def get_positions(wallet):
-    ch = get_clearinghouse(wallet)
-    if not ch:
-        return 0, []
-    data = ch.get("data", ch)
-    positions, account_value = [], 0
-    for section in ("main", "xyz"):
-        s = data.get(section, {})
-        if not isinstance(s, dict):
-            continue
-        ms = s.get("marginSummary", {})
-        account_value += float(ms.get("accountValue", 0))
-        for ap in s.get("assetPositions", []):
-            pos = ap.get("position", ap)
-            szi = float(pos.get("szi", 0))
-            if szi == 0:
-                continue
-            positions.append({
-                "coin": pos.get("coin", ""),
-                "direction": "LONG" if szi > 0 else "SHORT",
-                "upnl": float(pos.get("unrealizedPnl", 0)),
-                "margin": float(pos.get("marginUsed", 0)),
-                "entryPrice": float(pos.get("entryPx", 0)),
-                "size": abs(szi),
-            })
-    return account_value, positions
-
-
 def output(data):
-    print(json.dumps(data))
+    print(json.dumps(data, default=str))
     sys.stdout.flush()
 
 
 def log(msg):
-    print(f"[POLAR] {msg}", file=sys.stderr)
-    sys.stderr.flush()
+    print(f"[POLAR-v2.5] {msg}", file=sys.stderr)
 
 
 def now_ts():

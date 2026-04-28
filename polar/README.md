@@ -1,43 +1,39 @@
-# 🐻‍❄️ POLAR v2.4 — ETH Alpha Hunter (sniper recalibration)
+# 🐻‍❄️ POLAR v2.5.0 — ETH Alpha Hunter (asymmetry-optimized)
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 ## Thesis
 
-Single-asset ETH lifecycle hunter. Scores ETH using Smart Money concentration,
-multi-timeframe contribution velocity, price momentum, and funding alignment.
-Enters on high conviction, lets DSL manage all exits.
+Single-asset ETH alpha hunter. Hyperfeed primary direction (SM concentration) + structural-veto gates from candle data + multi-factor scoring + conviction-tiered leverage. v3.0's structural-veto thesis preserved — entries require 4h direction to match SM direction (the v3.0 anti-chop gate).
 
-Best gross trader in the Predators fleet (+$196 lifetime gross PnL).
+## v2.5.0 architecture
 
-## v2.3 Changes (April 8, 2026)
+| Layer | v3.0.6 | v2.5.0 |
+|---|---|---|
+| Trading loop | Scanner + `create_position` | Producer pushes signals via `external-scanner ingest`; runtime owns execution |
+| MIN_SCORE | 14 (16 trades / 10 days = too few) | **12** (between v2.4's 10 and v3.0's 14) |
+| Exit order | DSL + MARKET orders | DSL + **FEE_OPTIMIZED_LIMIT** (maker-first, ~$0.40 per close vs $1.40+) |
+| Phase 1 | max_loss 25% / retrace 8% / breaches 3 | **max_loss 15% / retrace 5% / breaches 2** — cut losers FAST/CHEAP |
+| Phase 2 | tiers 8/25, 15/50, 25/65, 35/80, 50/85 | **10/20, 18/40, 30/60, 45/75, 75/88** — RIDE WINNERS HARD |
+| Risk | Agent enforces in scanner | Declarative `runtime.risk.guard_rails` |
 
-From overnight position-level analysis of 5 trades:
+**Naming note:** v2.5 (not v3.x). v3.0's diagnostic was correct — v2.4's 32% WR + 'fee drag dominated' was the real issue. But v3.0 over-corrected with MIN_SCORE 14 + over-strict gates → 16 trades / 10 days / -$72. v2.5 keeps v3.0's structural veto, lowers MIN_SCORE to 12, and pairs with maker-exit fees + asymmetry-optimized DSL.
 
-- **UTC midnight cooldown bug fix** — cooldown timestamps now persist across
-  date rollover. Previously, a trade at 22:42 UTC could be followed by a
-  re-entry at 00:03 UTC (81 min later) because the date change wiped the
-  cooldown memory.
-- **Move-exhaustion scoring** — penalizes entering after large 4h moves.
-  A 3% 4h move gets net +1 (confirmed). A 5% move gets net 0 (exhausted).
-  Prevents the "catch breakout, exit, re-enter the same move at the top" pattern.
-- **Same-direction re-entry cooldown** — after a winning exit, blocks
-  re-entering the same direction for 60 minutes.
+## The asymmetry math
 
-## Key Settings
+At 5x leverage: per-loser cost ≈ -$15 (3% price stop + $0.40 maker fee). Per Phase 2 tier 3+ winner ≈ +$50-150. **32% WR × $30 avg winner − 0.68 × $15 = +$11.84/trade expectancy.**
 
-| Setting | Value |
+## Files
+
+| File | Purpose |
 |---|---|
-| Asset | ETH only |
-| Leverage | 7x (score 8), 10x (9), 15x (10), 20x (11+) |
-| Max positions | 1 |
-| Min score | 8 |
-| DSL hard timeout | 180 min |
-| Margin | 50% |
-| General cooldown | 120 min |
-| Same-direction cooldown | 60 min (after wins) |
-| Max daily entries | 4 |
+| `runtime.yaml` | v2 runtime spec |
+| `scripts/polar-producer.py` | Cron-driven producer (3 min cadence) |
+| `scripts/polar_config.py` | Shared MCP helper + atomic state I/O |
+| `config/polar-config.json` | Operator-tunable defaults |
+
+See [`SKILL.md`](SKILL.md) for full setup, env vars, and behavior expectations.
 
 ## License
 
-MIT — Copyright 2026 Senpi (https://senpi.ai)
+MIT — Built by Senpi (https://senpi.ai).

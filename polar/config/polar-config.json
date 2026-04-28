@@ -1,13 +1,41 @@
 {
-  "strategyId": "",
-  "wallet": "",
-  "chatId": "",
-  "startingBudget": 1000,
-  "dslTiers": [
-    { "triggerRoe": 8,  "lockRoe": 25 },
-    { "triggerRoe": 15, "lockRoe": 50 },
-    { "triggerRoe": 25, "lockRoe": 65 },
-    { "triggerRoe": 35, "lockRoe": 80 },
-    { "triggerRoe": 50, "lockRoe": 85 }
-  ]
+  "_doc": "Polar v2.5.0 — operator-tunable config. Wallet/chatId/decision_model resolved from env vars at runtime install (${WALLET_ADDRESS}, ${TELEGRAM_CHAT_ID}, ${POLAR_DECISION_MODEL}); do NOT hardcode here. Risk gates, leverage caps, and asset cooldowns are enforced by the runtime via runtime.yaml and the producer's hardcoded constants.",
+  "version": "2.5.0",
+  "asset": "ETH",
+  "leverage": {
+    "default": 5,
+    "_v2.5_change": "v3.0 ran 5/7/10 by score. v2.5 preserves these tiers but lowers MIN_SCORE 14 → 12 to fire more entries (v3.0 had 16 trades / 10 days = too few).",
+    "tiers": [
+      {"min_score": 17, "leverage": 10, "_note": "apex"},
+      {"min_score": 15, "leverage": 7, "_note": "conviction"},
+      {"min_score": 12, "leverage": 5, "_note": "standard / default"}
+    ]
+  },
+  "marginPct": {
+    "default": 0.25,
+    "_note": "25% of account value per slot. Override per-deploy via POLAR_MARGIN_PCT env var."
+  },
+  "entry": {
+    "minScore": 12,
+    "minMom15mPct": 0.1,
+    "minTrendStrength4h": 0.75,
+    "minSmConcentration": 5.0,
+    "minSmTraderCount": 30,
+    "minSmAccelPct": 0.3,
+    "rsiMaxLong": 74,
+    "rsiMinShort": 26,
+    "assetCooldownMinutes": 240,
+    "_note": "v3.0 hyperfeed + structural-veto gates preserved verbatim. MIN_SCORE relaxed 14 → 12. Producer constants WIN — config is informational/audit only in v2.5."
+  },
+  "_runtime_owns": {
+    "_doc": "These were v3.x concerns. In v2.5, the runtime owns them via runtime.yaml.guard_rails.",
+    "maxPositions": "runtime.strategy.slots (= 1)",
+    "maxEntriesPerDay": "runtime.risk.guard_rails.max_entries_per_day (= 6)",
+    "maxDailyLossPct": "runtime.risk.guard_rails.daily_loss_limit_pct (= 10)",
+    "maxDrawdownPct": "runtime.risk.guard_rails.drawdown_halt_pct (= 25)",
+    "maxConsecutiveLosses": "runtime.risk.guard_rails.max_consecutive_losses (= 4)",
+    "perAssetCooldown": "runtime.risk.guard_rails.per_asset_cooldown_minutes (= 240)",
+    "execution.entryOrderType": "runtime.actions.polar_entry.params.order_type (FEE_OPTIMIZED_LIMIT, ensure_execution_as_taker:false)",
+    "execution.exitOrderType": "runtime.exit.order_type (FEE_OPTIMIZED_LIMIT, ensure_execution_as_taker:true — taker fallback as safety floor)"
+  }
 }
