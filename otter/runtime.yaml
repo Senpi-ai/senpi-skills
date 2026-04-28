@@ -1,0 +1,249 @@
+name: otter-tracker
+# Note: top-level `version` is the SCHEMA version the
+# senpi-trading-runtime plugin expects (must be major=1). The
+# STRATEGY/skill is "Otter v1.0" — that lives in description, SKILL.md,
+# and _otter_producer_version. Using version: 2.x at runtime level is
+# rejected by the plugin as "Unsupported version: 2.x". Keep this at
+# 1.x.x forever.
+version: 1.0.0
+description: >
+  OTTER v1.0 — Open Interest Velocity Hunter (v2-runtime-native from day 1).
+
+  Mission: trade fresh leveraged positioning detected by Open Interest
+  delta over time. When 1h OI delta is >= 5% AND price moves in the same
+  direction by >= 0.5%, that's the TOP-LEFT (LONGS entering) or TOP-RIGHT
+  (SHORTS entering) quadrant of the OI/price matrix — fresh institutional
+  flow with directional conviction. Otter rides for 1-3 hours.
+
+  THE LANE — verified open by fleet grep 2026-04-27:
+  every Senpi agent that touches OI (Mamba, Condor, Barracuda, Pangolin)
+  reads it as a SNAPSHOT FILTER (size threshold). NONE compute OI delta
+  over time. Otter is the first.
+
+  Why this is a real edge:
+    - OI is uniquely a perp-native signal. Spot trading doesn't
+      generate OI. So OI growth = real new leveraged capital deployed.
+    - 4-quadrant logic separates flow (top quadrants) from unwinds
+      (bottom quadrants). Otter only trades the top.
+    - Different from Pangolin (cost of carry) — Otter trades growth
+      of positioning. Different from Mantis (cross-asset lag) — Otter
+      is asset-agnostic. Different from SM scanners (Roach/Vulture) —
+      OI velocity is HOW MUCH new leverage entered, not WHO is positioned.
+
+  Architecture (v2-native from day 1, no v1 to migrate from):
+    - Producer (otter-producer.py) maintains rolling 5h OI history
+      per asset and emits velocity-detected signals via
+      `openclaw senpi external-scanner ingest`. NO execution code.
+    - Runtime LLM (decision_model env var) is a pass-through gate —
+      producer has already applied every filter (1h OI Δ >= 5%,
+      price aligned >= 0.5%, 4h not net unwinding, OI USD >= $1M,
+      score >= 9, spread <= 5 bps, asset cooldown).
+    - Maker entries via FEE_OPTIMIZED_LIMIT with ensure_execution_as_taker=false:
+      if maker can't fill in 60s, cancel and skip — OI velocity isn't urgent.
+    - Maker exits via FEE_OPTIMIZED_LIMIT with ensure_execution_as_taker=true:
+      taker fallback as safety floor on Phase 1 stops.
+    - Risk gates declarative — runtime owns enforcement.
+    - DSL: hard_timeout 240min (positioning thesis horizon), weak_peak
+      60min, dead_weight 90min, Phase 1 max_loss 12% / 3-breach,
+      Phase 2 ladder 5/30, 10/55, 15/75, 20/85.
+
+  Synthesizes winning DNA from fleet leaders:
+    - Bald Eagle v3.0 (+$131): conviction-scaled leverage + maker-only
+    - Cheetah v5.2 (+$16, sniper): multi-signal confluence at MIN_SCORE high bar
+    - Pangolin v2.0 (+$112): producer-side state + economic-variable signal
+    - Polar v2.4: 240min per-asset cooldown
+    - Roach v2.0 / Jackal v2.0: producer + LLM pass-through + DSL maker exits
+    - Turbine v2.0.11: signal envelope `data` block, fcntl reentrancy, fail-loud
+
+  Bootstrap: first 12 cron ticks (1 hour) build OI history before any
+  signals can fire. After that, 1h delta is computable. After 48 ticks
+  (4 hours), 4h confirmation gate also active. Output reports
+  "bootstrapping_history" during this window.
+
+# ── STRATEGY ──
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 2
+  margin_per_slot: 250
+  trading_risk: moderate
+  default_leverage: 5                            # conviction-scaled in producer (5/7/10 by score)
+  enabled: true
+
+# ── RISK GUARDRAILS ──
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4                    # 4 losses in a row = signal regime broken; halt
+    cooldown_minutes: 0                          # producer manages cooldowns
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 240
+
+# ── SCANNERS ──
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+  - name: otter_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        # Required identity
+        score: { type: number, required: true }                  # producer composite (>= 9 floor)
+        leverage: { type: number, required: true }               # producer-asserted (5/7/10 by score)
+        marginUsd: { type: number, required: true }              # producer-asserted (25% of account)
+        oiDelta1hPct: { type: number, required: true }           # primary signal — 1h OI growth %
+        priceDelta1hPct: { type: number, required: true }        # 1h price move %
+        oiUsd: { type: number, required: true }                  # current OI in USD
+        # Optional enrichment
+        oiDelta4hPct: { type: number, required: false }          # 4h confirmation
+        priceDelta4hPct: { type: number, required: false }
+        spreadBps: { type: number, required: false }
+        smAligned: { type: boolean, required: false }            # SM concentration confirms direction
+        smPctOfTopTraders: { type: number, required: false }
+        markPx: { type: number, required: false }
+        samplesInHistory: { type: number, required: false }      # how many history samples we have for this asset
+        reasons: { type: string, required: false }               # joined " | "
+
+# ── ACTIONS ──
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: otter_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${OTTER_DECISION_MODEL}"  # REQUIRED. Pass BARE model name only — NO provider prefix. INVALID: "google/gemini-3.1-pro-preview" (OpenClaw double-prefixes → 500 Unknown model). The LLM gate here is a pass-through rubber-stamp (producer already applied every filter); the cheapest model that reliably returns structured JSON wins. No default by design — operators pick their own.
+    scanners: [otter_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false         # ENTRIES: cancel-and-skip if maker can't fill in 60s. OI velocity isn't urgent — taker fees would erase the convergence edge.
+        execution_timeout_seconds: 60            # Jackal v2.0.6 / Roach v2.0 standard
+    context:
+      - type: signal
+        scanner: otter_signals
+    decision_prompt: |
+      You are Otter's pass-through gate. The producer has already
+      applied every filter (1h OI delta >= 5%, price aligned with
+      OI direction by >= 0.5%, 4h OI not net unwinding, score >= 9,
+      spread <= 5 bps, OI USD >= $1M, per-asset 240min cooldown,
+      XYZ ban, time-of-day modifier). Your job is simply to honor
+      the signal and convert it to an OPEN_POSITION.
+
+      SIGNAL:
+      {{signal_otter_signals}}
+
+      ## RULES
+
+      1. Output execute: true UNLESS one of these hard skips applies:
+         - score < 9 (signal failed producer floor — should never reach you, defensive only)
+         - leverage <= 0 OR marginUsd <= 0 (malformed signal)
+         - leverage > 10 (defensive — Otter caps at 10x; HL default
+           per-asset max could be higher)
+         - oiDelta1hPct sign disagrees with priceDelta1hPct sign
+           (defensive — should never happen given producer gates)
+         - oiDelta1hPct absolute value < 5 (defensive — producer floor)
+
+      2. The `asset` field MUST be copied EXACTLY from the signal.
+         If signal says "ETH" output exactly "ETH", not "eth" or "ETH-USD".
+
+      3. The `direction` MUST match the signal's `direction` field.
+         The direction is determined by the SIGN of OI delta + price
+         delta (both positive = LONG, both negative = SHORT). Producer
+         sets this; LLM just copies.
+
+      4. Confidence should always be 7 unless a hard skip fires, in
+         which case output execute: false with a reason. Otter's
+         thesis IS quantitative — no confidence gradation.
+
+      ## OUTPUT FORMAT
+
+      Return JSON with this exact shape. The `leverage` and `marginUsd`
+      fields MUST be copied from the signal's `data` block (the producer
+      asserts them there) — this enforces Otter's spec sizing instead
+      of letting the runtime fall back to HL's per-asset defaults
+      (which can be 10x or higher and break Otter's risk envelope at
+      low scores).
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": 7,
+        "reasoning": "one-liner citing asset + direction + 1h OI Δ + 1h price Δ + score",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY (5, 7, or 10 by score)",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY (~25% of account value)",
+              "reason": "otter oi-velocity"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL with maker-exit recovery) ──
+#
+# Otter is short-hold (30-180 min typical, 240 min hard cap). DSL must
+# lock profits earlier than long-hold strategies. Phase 2 tiers start at
+# 5% ROE = 1% price move at 5x — above wick noise, below typical
+# OI-flow follow-through (3-5% price typical when conviction flow lands).
+#
+# Phase 1 max_loss 12% = 2.4% price stop at 5x — clean cut on regime
+# breaks. Tighter than Pangolin (30%) because Otter has a clear
+# thesis-invalidation signal: 4h hard timeout (positioning either
+# develops or doesn't).
+#
+# weak_peak_cut 60min @ 1.5% — if peak ROE never exceeded 1.5%, the
+# flow isn't translating to price. Cut.
+# dead_weight_cut 90min — flat positions = thesis expired.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true              # EXITS: taker fallback as safety floor on Phase 1 stops. Flow can reverse violently if leveraged positions unwind.
+    execution_timeout_seconds: 60                # Jackal v2.0.6 / Roach v2.0 standard
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 240                   # 4h positioning thesis horizon
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 60                    # if HW ROE < 1.5% in first hour, flow isn't translating
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 90                    # flat positions = thesis expired
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                         # 2.4% price stop at 5x — clean cut on flow reversal
+      retrace_threshold: 5
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 30 }   # 1% price move at 5x — early profit lock
+        - { trigger_pct: 10, lock_hw_pct: 55 }
+        - { trigger_pct: 15, lock_hw_pct: 75 }
+        - { trigger_pct: 20, lock_hw_pct: 85 }   # monster flow continuation (rare but happens)
+
+# ── NOTIFICATIONS ──
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
