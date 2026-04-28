@@ -1,89 +1,59 @@
 {
-  "strategyId": "",
-  "wallet": "",
-  "chatId": "",
-  "maxPositions": 2,
-  "leverage": {"default": 8, "min": 7, "max": 10},
+  "_doc": "Owl v7.0 — operator-tunable config. Wallet/chatId/decision_model resolved from env vars at runtime install (${WALLET_ADDRESS}, ${TELEGRAM_CHAT_ID}, ${OWL_DECISION_MODEL}); do NOT hardcode here. Risk gates and asset cooldowns are enforced by the runtime via runtime.yaml and the producer's hardcoded constants.",
+  "version": "7.0",
+  "leverage": {
+    "default": 7,
+    "tiers": [
+      {"min_score": 16, "leverage": 10, "_note": "max conviction — extreme funding + heavy SM tilt + high OI + strong exhaustion"},
+      {"min_score": 14, "leverage": 8,  "_note": "high conviction"},
+      {"min_score": 12, "leverage": 7,  "_note": "default — minimum viable signal"}
+    ]
+  },
+  "marginPct": {
+    "default": 0.25,
+    "_note": "25% of account value per slot. Override per-deploy via OWL_MARGIN_PCT env var."
+  },
   "crowding": {
     "minCrowdingScore": 6,
     "minPersistHours": 1,
-    "reCrowdingMinScore": 6,
     "minFundingAnnualizedPct": 12,
-    "weights": {
-      "fundingExtremity": 0.30,
-      "smConcentration": 0.25,
-      "oiConcentration": 0.20,
-      "volumeDecline": 0.15,
-      "priceStalling": 0.10
-    }
+    "belowThresholdTolerance": 2,
+    "_note": "Crowding score components: funding extremity (0-4), SM tilt (0-3, +1 if confirms funding), OI concentration (0-2). Persistence tolerance: 2 consecutive below-threshold scans (30 min at 15-min cadence) before clear, prevents single-noise-tick reset (v5.3 fix)."
   },
   "exhaustion": {
     "minExhaustionScore": 5,
-    "minSignals": 2
+    "minSignals": 2,
+    "_note": "Exhaustion signals: volume declining (3pts), price stalling vs crowd direction (3pts), volume spike no follow-through (2pts), 4h RSI divergence (2pts). At least 2 distinct signals required to fire."
   },
   "entry": {
     "minScore": 12,
-    "marginPctBase": 0.25,
-    "maxEntriesPerDay": 3,
-    "lossCooldownHours": 6,
-    "dynamicSlots": {
-      "enabled": true,
-      "baseMax": 2,
-      "absoluteMax": 4,
-      "unlockThresholds": [
-        {"pnl": 150, "maxEntries": 3},
-        {"pnl": 400, "maxEntries": 4}
-      ]
-    }
+    "_note": "Combined crowding + exhaustion score. Mirrors owl-producer.py hardcoded MIN_COMBINED_SCORE. Producer constants WIN — config is informational/audit only in v7."
   },
-  "dsl": {
-    "_spec": "https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md",
-    "lockMode": "pct_of_high_water",
-    "phase1RetraceRoe": 15,
-    "phase1HardTimeoutMin": 0,
-    "phase1WeakPeakMin": 0,
-    "phase1DeadWeightMin": 0,
-    "floorBase": 0.04,
-    "phase2TriggerRoe": 10,
-    "convictionTiers": [
-      {"minScore": 14, "absoluteFloorRoe": -35, "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0},
-      {"minScore": 16, "absoluteFloorRoe": -45, "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0},
-      {"minScore": 18, "absoluteFloorRoe": 0,   "hardTimeoutMin": 0, "weakPeakCutMin": 0, "deadWeightCutMin": 0}
-    ],
+  "universe": {
+    "minOiUsd": 3000000,
+    "bannedDexes": ["xyz"],
+    "_note": "v6.1 universe expansion preserved — ALL crypto perps with OI > $3M (no top-30 truncation). XYZ commodities banned (different unwind dynamics, that's not Owl's lane)."
+  },
+  "dynamicDailyCap": {
+    "_note": "Producer-side PnL-aware daily cap. Drawdown circuit breaker mirrors runtime.guard_rails.drawdown_halt_pct=25.",
     "tiers": [
-      {"triggerPct": 10, "lockHwPct": 20, "consecutiveBreachesRequired": 3, "_note": "contrarian entries retrace hard before working"},
-      {"triggerPct": 20, "lockHwPct": 40, "consecutiveBreachesRequired": 3, "_note": "still patient"},
-      {"triggerPct": 35, "lockHwPct": 60, "consecutiveBreachesRequired": 2, "_note": "unwind accelerating"},
-      {"triggerPct": 50, "lockHwPct": 75, "consecutiveBreachesRequired": 1, "_note": "cascade confirmed"},
-      {"triggerPct": 75, "lockHwPct": 85, "consecutiveBreachesRequired": 1, "_note": "infinite trail"}
-    ],
-    "tiersLegacyFallback": [
-      {"triggerPct": 10, "lockPct": 2},
-      {"triggerPct": 20, "lockPct": 8,  "retrace": 0.018},
-      {"triggerPct": 35, "lockPct": 21, "retrace": 0.015},
-      {"triggerPct": 50, "lockPct": 38, "retrace": 0.010},
-      {"triggerPct": 75, "lockPct": 60, "retrace": 0.008},
-      {"triggerPct": 100, "lockPct": 85, "retrace": 0.005}
-    ],
-    "stagnationTp": {
-      "enabled": true,
-      "roeMin": 15,
-      "hwStaleMin": 120
-    }
+      {"pnl_pct_min": -100, "_note": "below -25% PnL", "max_entries": 0},
+      {"pnl_pct_min": -25,  "max_entries": 1},
+      {"pnl_pct_min": -15,  "max_entries": 2},
+      {"day_realized_pnl_min": 0,   "max_entries": 2},
+      {"day_realized_pnl_min": 150, "max_entries": 3},
+      {"day_realized_pnl_min": 400, "max_entries": 4}
+    ]
   },
-  "risk": {
-    "maxDailyLossPct": 10,
-    "maxDrawdownPct": 25,
-    "maxSingleLossPct": 10,
-    "maxConsecutiveLosses": 2,
-    "cooldownMinutes": 180,
-    "reCrowdingExitEnabled": true
-  },
-  "execution": {
-    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
-    "entryEnsureTaker": true,
-    "exitOrderType": "MARKET",
-    "slOrderType": "MARKET",
-    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  "_runtime_owns": {
+    "_doc": "These were v6.x concerns. In v7, the runtime owns them via runtime.yaml.guard_rails. DO NOT add gates here.",
+    "maxPositions": "runtime.strategy.slots",
+    "maxEntriesPerDay": "runtime.risk.guard_rails.max_entries_per_day",
+    "maxDailyLossPct": "runtime.risk.guard_rails.daily_loss_limit_pct",
+    "maxDrawdownPct": "runtime.risk.guard_rails.drawdown_halt_pct",
+    "maxConsecutiveLosses": "runtime.risk.guard_rails.max_consecutive_losses",
+    "perAssetCooldown": "runtime.risk.guard_rails.per_asset_cooldown_minutes",
+    "execution.entryOrderType": "runtime.actions.owl_entry.params.order_type (FEE_OPTIMIZED_LIMIT, ensure_execution_as_taker:false — entries cancel-and-skip if maker can't fill)",
+    "execution.exitOrderType": "runtime.exit.order_type (FEE_OPTIMIZED_LIMIT, ensure_execution_as_taker:true — exits use taker fallback as safety floor)"
   }
 }
