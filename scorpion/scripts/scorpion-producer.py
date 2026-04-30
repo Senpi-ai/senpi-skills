@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
-# Senpi SCORPION Producer v4.0
+# Senpi SCORPION Producer v4.1.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SCORPION v4.0 Producer — Multi-market signal emitter for v2 runtime.
+"""SCORPION v4.1.0 Producer — Multi-market signal emitter for v2 runtime.
+
+v4.1.0 (2026-04-30) — XYZ-fixed:
+  - Asymmetric MIN_SCORE: crypto raised 9 → 11 (score-9 crypto bled
+    -$10.07 across 11 trades in v4.0.2 sample); XYZ held at 9 (no
+    accept data yet — let the new LLM rubric prove out)
+  - btcMacroDirection set to NOT_APPLICABLE for XYZ signals (v4.0
+    was injecting irrelevant crypto-macro context into oil/brent
+    decisions; LLM was citing BTC macro to skip XYZ trades)
+  - xyzPeerMomentum field added — counts other XYZ assets trending
+    same direction; macro tailwind signal for the LLM rubric
+
+v4.0 history:
 
 v3.x was a full-agency scanner: scored signals, counted daily entries,
 managed asset cooldowns + scalp re-entry windows, called create_position.
@@ -101,8 +113,14 @@ CRYPTO_ASSETS = {
 }
 XYZ_ASSETS = {"CL", "BRENTOIL", "GOLD", "SPX"}
 
-# MIN_SCORE stays at 9 (v3.2 setting). LLM gate applies further on top.
-MIN_SCORE = 9
+# v4.1.0 — asymmetric score floor by asset class.
+# Crypto at score 9 demonstrably bleeds in the v4.0.2 sample
+# (11 trades, -$10.07 realized, all weak_peak / dead_weight exits).
+# XYZ had zero acceptances in the sample because the LLM rubric
+# was gating it out — we have no data on whether XYZ at score 9
+# wins or loses. Keep XYZ permissive until we collect that data.
+MIN_SCORE_CRYPTO = 11   # raised from 9 — score-9 crypto loses
+MIN_SCORE_XYZ    = 9    # held — no data yet; let the new rubric prove out
 
 # 4H price-alignment thresholds — XYZ moves less than crypto
 MIN_4H_ALIGNED_PCT_CRYPTO = 1.0
@@ -204,7 +222,8 @@ def score_market(m):
     if abs(cc_4h) >= 5.0:
         score += 1; reasons.append(f"4H_CONVICTION {cc_4h:+.1f}")
 
-    if score < MIN_SCORE:
+    min_score = MIN_SCORE_XYZ if is_xyz_asset else MIN_SCORE_CRYPTO
+    if score < min_score:
         return None
 
     reasons.insert(0, f"TREND_FOLLOW {coin_label(token, is_xyz_asset)} {sm_direction}")
@@ -305,14 +324,48 @@ def recent_entry_count(asset):
 
 
 # ═══════════════════════════════════════════════════════════════
+# v4.1.0 — XYZ ENRICHMENT
+# ═══════════════════════════════════════════════════════════════
+
+def build_macro_context(candidate, btc_macro):
+    """BTC macro is structurally irrelevant to XYZ assets — don't anchor
+    the LLM on it. v4.0 was injecting btcMacroDirection into XYZ signal
+    payloads; the LLM then cited BTC macro as a reason to skip oil/brent
+    trades. v4.1 sets NOT_APPLICABLE for XYZ so the rubric ignores it."""
+    if candidate["is_xyz"]:
+        return {"direction": "NOT_APPLICABLE", "pct": 0.0}
+    return {
+        "direction": btc_macro["direction"] or "UNKNOWN",
+        "pct": btc_macro["pct"] or 0,
+    }
+
+
+def compute_xyz_peer_momentum(candidates):
+    """For each XYZ direction, count peer XYZ assets trending the same
+    way in the same scan. Oil + Brent + SPX up together = macro
+    tailwind; single-asset XYZ move on noise = no peer support.
+    Returns dict: {(token, direction): peer_count}."""
+    xyz_signals = [c for c in candidates if c["is_xyz"]]
+    result = {}
+    for c in xyz_signals:
+        peers = sum(
+            1 for p in xyz_signals
+            if p["token"] != c["token"] and p["direction"] == c["direction"]
+        )
+        result[(c["token"], c["direction"])] = peers
+    return result
+
+
+# ═══════════════════════════════════════════════════════════════
 # INGEST
 # ═══════════════════════════════════════════════════════════════
 
-def push_signal(candidate, btc_macro, funding_regime, held_assets):
+def push_signal(candidate, btc_macro, funding_regime, held_assets, xyz_peer_count=0):
     if not STRATEGY_ADDRESS:
         print("ERROR: STRATEGY_ADDRESS env var not set", file=sys.stderr)
         return False
 
+    macro_ctx = build_macro_context(candidate, btc_macro)
     payload = {
         "asset": candidate["asset"],
         "direction": candidate["direction"],
@@ -329,11 +382,12 @@ def push_signal(candidate, btc_macro, funding_regime, held_assets):
             "contribChange15m": candidate["cc_15m"],
             "contribChange1h": candidate["cc_1h"],
             "contribChange4h": candidate["cc_4h"],
-            "btcMacroDirection": btc_macro["direction"] or "UNKNOWN",
-            "btcMacro24hPct": btc_macro["pct"] or 0,
+            "btcMacroDirection": macro_ctx["direction"],
+            "btcMacro24hPct": macro_ctx["pct"],
             "fundingRegime": funding_regime or "UNKNOWN",
             "heldAssets": held_assets,
             "recentEntryCountThisAsset": recent_entry_count(candidate["asset"]),
+            "xyzPeerMomentum": xyz_peer_count,
         },
     }
 
@@ -369,7 +423,7 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_scorpion_producer_version": "4.0.1",
+            "_scorpion_producer_version": "4.1.0",
         }))
         return
 
@@ -404,7 +458,7 @@ def main():
                 "scanned": len(markets),
                 "candidates": 0,
                 "elapsed_sec": round(elapsed, 2),
-                "_scorpion_producer_version": "4.0.1",
+                "_scorpion_producer_version": "4.1.0",
             }))
             return
 
@@ -416,9 +470,11 @@ def main():
         # Push all qualifying candidates. Runtime's LLM gate + risk guard
         # rails will decide which (if any) to execute.
         candidates.sort(key=lambda c: c["score"], reverse=True)
+        xyz_peer_map = compute_xyz_peer_momentum(candidates)
         pushed = 0
         for c in candidates:
-            if push_signal(c, btc_macro, funding_regime, held_assets):
+            peer_count = xyz_peer_map.get((c["token"], c["direction"]), 0) if c["is_xyz"] else 0
+            if push_signal(c, btc_macro, funding_regime, held_assets, peer_count):
                 pushed += 1
 
         elapsed = time.time() - run_start
@@ -433,7 +489,7 @@ def main():
             "held_assets": held_assets,
             "elapsed_sec": round(elapsed, 2),
             "warn": warn,
-            "_scorpion_producer_version": "4.0.1",
+            "_scorpion_producer_version": "4.1.0",
         }))
     finally:
         release_lock(lock)
