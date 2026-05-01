@@ -1,22 +1,87 @@
 ---
 name: wolverine-strategy
 description: >-
-  WOLVERINE v2.3 — HYPE Alpha Hunter (chop-hardened). Single-asset
-  HYPE momentum scanner combining Smart Money conviction, 15m/1h velocity
-  acceleration, and 4H/1H price confirmation. Self-executing, conviction-
-  scaled leverage 7x/10x, persistent entry log, chop-detection lockout
-  prevents whipsaw losses on choppy days. Best held 2-4 hours per trade.
+  WOLVERINE v4.0.0 — HYPE Alpha Hunter, v2-runtime-native rewrite. v3.x was
+  a full-agency scanner with Python-side state (load_tc / has_resting_orders
+  / Python cooldowns) — same crash-class bug pattern that bit Vulture v2.x.
+  292 audit entries on M193170 since Apr 15, mostly schema-validation
+  failures. v4.0 flips to producer + v2 runtime: producer emits HYPE
+  signals via external-scanner ingest; runtime LLM gate is pass-through;
+  risk.guard_rails enforces declaratively; DSL uses FEE_OPTIMIZED_LIMIT;
+  trade chain DB emits per-trade telemetry. v3.0.3 six-gate entry
+  validation preserved (incl. the v3.0.3 4h-magnitude fix that rejects
+  dead-flat chop). v3.0.1/2/4 v1-DSL fixes preserved (all time-based cuts
+  disabled — exits 100% price-action via Phase 1 max_loss/retrace +
+  Phase 2 trailing).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.3"
+  version: "4.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🦡 WOLVERINE v2.3 — HYPE Alpha Hunter
+# 🦡 WOLVERINE v4.0.0 — HYPE Alpha Hunter (v2-runtime-native)
+
+**v3 → v4 architectural rewrite.** v3.x was a full-agency scanner. v4.0 flips to the standard senpi-trading-runtime v2 pattern: producer emits signals, runtime owns execution + state.
+
+**What changed structurally:**
+- `wolverine-producer.py` (NEW) replaces `wolverine-scanner.py` (DELETED)
+- v2-runtime-native: external_scanner + LLM-pass-through gate + native `risk.guard_rails`
+- DSL exits via `FEE_OPTIMIZED_LIMIT` (saves ~0.020-0.030% per maker-filled close)
+- Trade chain DB emits per-trade telemetry — chain DB visibility on Wolverine for the first time
+- Python-state-crash class of bug (load_tc / set_cooldown / has_resting_orders) is structurally impossible in v4.0
+
+**What's preserved from v3.0.3/v3.0.4 EXACTLY:**
+- HYPE single-asset thesis
+- **Six-gate entry validation:**
+  1. 4h trend != NEUTRAL
+  2. 4h structural strength ≥ 0.75 (Kodiak v5.1 pattern)
+  3. 1h direction matches 4h
+  4. 15m momentum ≥ MIN_MOM_15M (0.15) in direction
+  5. Base-tech floor (strong_15m OR aligned_5m)
+  6. **4h MAGNITUDE ≥ 1.5%** — the v3.0.3 fix that rejects dead-flat chop. Wolverine's own 2026-04-23 self-diagnostic: all 6 Week 5 trades died because trend_strength_4h is structural (lower-highs count) and passes even when 4h price magnitude is nearly flat.
+- SM HARD BLOCK if direction opposes
+- RSI hard gates (74 LONG / 26 SHORT)
+- Multi-factor scoring (~17 max points): base-tech + SM concentration + SM velocity + funding alignment + funding regime + funding persistence + volume + OI velocity + BTC correlation + RSI room + 4h momentum bonus + move-exhaustion penalty
+- MIN_SCORE = 9 (config-overridable)
+- Conviction-tiered leverage: 5x apex (score ≥11) / 3x standard (≥9)
+- DSL preset preserved: time-cuts ALL DISABLED, Phase 1 max_loss 20% / retrace 8 / 3 breaches, Phase 2 ladder (10/15, 20/35, 35/55, 55/70, 80/85)
+
+**v3.0.1/3.0.2/3.0.4 v1-DSL fixes preserved:**
+- `dead_weight_cut`: DISABLED (single-asset has no rotation cost)
+- `hard_timeout`: DISABLED (v1 DSL fired this in Phase 2 incorrectly)
+- `weak_peak_cut`: DISABLED (v3.0.4 — completes time-cuts sweep)
+- All exits now 100% price-action
+
+---
+
+## ⛔ Hard Rules (Fleet Patches)
+
+### RULE FP-002: User-conversation Claude sessions MUST NOT trade
+
+**Hard rule, not a heuristic.** When responding to a user message, the Claude Code session MUST NOT call any of:
+
+- `create_position`
+- `close_position`
+- `edit_position`
+- `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
+- `cancel_order`
+- `strategy_close` / `strategy_close_positions`
+
+These tools are reserved for the **producer cron** (wolverine-producer.py) and the **DSL ratchet engine**. The cron is the only entry path. The DSL is the only exit path. User-conversation sessions are read-only.
+
+### RULE FP-001: Quiet hours for low-liquidity windows
+
+Producer skips emission during 00:00-04:00 UTC by default. Apex setups (score >= `quietHours.apexBypassScore`, default 11) bypass.
+
+Configurable via `quietHours.{startUtc,endUtc,apexBypassScore}` in `wolverine-config.json`. Set `startUtc == endUtc` to disable.
+
+---
+
+# 🦡 WOLVERINE — Original Thesis
 
 Single asset. One thesis. Smart money commits, Wolverine pounces, DSL trails the trend.
 

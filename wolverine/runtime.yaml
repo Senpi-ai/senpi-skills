@@ -1,30 +1,96 @@
 name: wolverine-tracker
-version: 3.0.4
+# Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
+# plugin. Strategy/skill is "Wolverine v4.0.0" — lives in description +
+# SKILL.md + _wolverine_producer_version. Do not set this to 4.x.x.
+version: 1.0.0
 description: >
-  Wolverine v3.0.3 — 4h magnitude gate (entry discipline fix).
-  Wolverine self-diagnosed 2026-04-23: all 6 Week 5 HYPE LONG trades
-  died in consolidation because trend_strength_4h is a structural
-  metric (lower-highs count) that passes even when 4H price magnitude
-  is nearly flat. HYPE at -0.26% net / 24h was still scoring 9+ as
-  "structurally bearish" and firing trades that never breached +3%
-  ROE. Wolverine's own conclusion: "the time cuts aren't the core
-  problem — the entry gate is."
-  v3.0.3 adds GATE 6 after base-tech floor: require
-  abs(mom_4h) >= 1.5%. Rejects entries into dead-flat 4H chop
-  regardless of structural signal. Scanner-only change; DSL
-  unchanged. Previous v3.0.2 hard_timeout disable preserved.
+  WOLVERINE v4.0.0 — HYPE Alpha Hunter, v2-runtime-native rewrite.
+
+  v3.x was a full-agency scanner with Python-side state. 292 audit
+  entries on M193170, mostly schema-validation failures (silent-None
+  bug pattern). v4.0 flips to producer + v2 runtime (Polar v4.0 /
+  Vulture v3.0 template).
+
+  WHAT v4.0 ENABLES:
+    - Producer (wolverine-producer.py) emits HYPE signals via
+      `openclaw senpi external-scanner ingest`. NO execution code.
+    - Runtime LLM gate is pass-through — producer applies all gates.
+    - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-
+      loss halt, per-asset cooldown. No Python state to drift.
+    - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits.
+    - Trade chain DB emits per-trade telemetry — chain DB visibility
+      on Wolverine for the first time.
+
+  WHAT'S PRESERVED FROM v3.0.3/v3.0.4:
+    - HYPE single-asset thesis
+    - Six-gate entry validation (4h trend != NEUTRAL; 4h structure
+      ≥0.75; 1h matches 4h; 15m momentum ≥0.15; base-tech floor;
+      4h MAGNITUDE ≥1.5% — the v3.0.3 fix that rejected dead-flat chop)
+    - SM HARD BLOCK if direction opposes
+    - RSI hard gates (74 LONG / 26 SHORT)
+    - Multi-factor scoring + conviction tiers (5x apex / 3x standard)
+    - DSL preset preserved exactly: time-cuts ALL DISABLED (v3.0.1/2/4),
+      Phase 1 max_loss 20% / retrace 8 / 3 breaches, Phase 2 ladder
+      10/15, 20/35, 35/55, 55/70, 80/85
+
+  FLEET PATCHES:
+    - FP-001 quiet hours (00-04 UTC unless apex score 11+)
+    - FP-002 hard rule in SKILL.md (user-conversation Claude sessions
+      are read-only)
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 1000
   slots: 1
   margin_per_slot: 250
+  trading_risk: moderate
   enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 4
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 60
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 120     # preserves v3.x same-asset cooldown
 
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: wolverine_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        tier: { type: string, required: true }
+        leverage: { type: number, required: true }
+        reasons: { type: array, required: true }
+        smPct: { type: number, required: true }
+        smTraders: { type: number, required: true }
+        smCc15m: { type: number, required: false }
+        trend4h: { type: string, required: true }
+        trendStrength4h: { type: number, required: false }
+        rsi: { type: number, required: false }
+        funding: { type: number, required: false }
+        fundingRegime: { type: string, required: false }
+        fundingPersistenceHours: { type: number, required: false }
+        oiChange1h: { type: number, required: false }
+        vol1h: { type: number, required: false }
+        priceChange5m: { type: number, required: false }
+        priceChange15m: { type: number, required: false }
+        priceChange1h: { type: number, required: false }
+        priceChange4h: { type: number, required: false }
+        btcMom15m: { type: number, required: false }
+        btcMom1h: { type: number, required: false }
+        heldAssets: { type: array, required: false }
 
 actions:
   - name: position_tracker_action
@@ -32,27 +98,93 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ─── EXIT (DSL) — HYPE-tuned, tighter than Kodiak SOL ──────────
-# HYPE reverses faster than SOL. Triggers and locks compressed to catch
-# profit earlier. Hard_timeout 6h — HYPE moves are typically hours, not
-# days (unlike BTC which needs 24h).
-#
-# Phase 2 matches scanner's _DSL_TIERS_DEFAULT via config.json dslTiers
-# (scanner attaches via ratchet_stop_add; runtime.yaml is operator
-# reference and for backup DSL engine behavior).
+  - name: wolverine_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${WOLVERINE_DECISION_MODEL}"  # REQUIRED. BARE model name only — NO provider prefix.
+    scanners: [wolverine_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: wolverine_signals
+    decision_prompt: |
+      You are Wolverine's pass-through gate. The producer has already
+      applied EVERY gate (4h structural trend ≥0.75, 1h confirmation,
+      15m momentum ≥0.15, base-tech floor, 4h magnitude ≥1.5%, SM
+      direction match, RSI band 26-74, multi-factor scoring with
+      MIN_SCORE 9). Your job is to honor the signal unless something
+      is structurally broken.
+
+      SIGNAL:
+      {{signal_wolverine_signals}}
+
+      ## STRICT OUTPUT RULES
+
+      1. The `asset` MUST be "HYPE" (Wolverine is single-asset).
+      2. The `direction` MUST match signal.direction exactly.
+      3. The `leverage` MUST be copied from signal.data.leverage
+         (3x standard / 5x apex).
+      4. Every claim in `reasoning` MUST cite values from the signal.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 9 (producer floor; defensive)
+      - leverage <= 0 OR signal data missing
+      - heldAssets contains "HYPE" (duplicate)
+      - reasons array empty
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 11 (apex tier, 5x leverage) AND SM aligned
+        AND OI accelerating AND funding pays
+      - 7-8: score >= 9 (standard tier, 3x leverage) — producer has
+        gated this. Honor it unless a hard-skip applies.
+      - <7: producer floor not cleared.
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values",
+        "payload": {
+          "signals": [
+            {
+              "asset": "HYPE",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "reason": "score N WOLVERINE_HYPE DIR — top reason"
+            }
+          ]
+        }
+      }
+
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  # DSL preset preserved EXACTLY from v3.0.4 — time-cuts all disabled,
+  # 100% price-action exits via Phase 1 max_loss/retrace + Phase 2
+  # trailing.
   dsl_preset:
     hard_timeout:
-      enabled: false                 # v3.0.2: DISABLED. v1 DSL fires this in Phase 2 incorrectly. Phase 1 + Phase 2 own all exits.
+      enabled: false                  # v3.0.2: DISABLED.
       interval_in_minutes: 360
     weak_peak_cut:
-      enabled: false                 # v3.0.4: DISABLED. Completes time-cuts sweep. v3.0.3 scanner-side magnitude gate handles "don't enter chop"; runtime exits are now 100% price-action.
+      enabled: false                  # v3.0.4: DISABLED.
       interval_in_minutes: 90
       min_value: 3.0
     dead_weight_cut:
-      enabled: false                 # v3.0.1: DISABLED. Single-asset agent has no rotation opportunity cost.
+      enabled: false                  # v3.0.1: DISABLED.
       interval_in_minutes: 45
     phase1:
       enabled: true
@@ -70,3 +202,6 @@ exit:
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

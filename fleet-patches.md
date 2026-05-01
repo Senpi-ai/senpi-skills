@@ -166,4 +166,12 @@ When bumping any agent's version:
   cuts remain disabled (v3.0.4/5/6 fixes carried forward). Wallet read
   from config.json (Vulture v3.0.2 pattern). Live ETH LONG (+$54
   unrealized at migration time) preserved via venue-side DSL stops
-  during the runtime swap.
+  during the runtime swap. Deployed cleanly: producer logging
+  _polar_producer_version="4.0.0" with healthy gate output (e.g.
+  "BLOCKED: sm_weak_1.9%").
+- 2026-05-01: Wolverine v4.0.0 — third v1→v2 migration. v3.0.3 six-gate
+  entry validation preserved EXACTLY (incl. the v3.0.3 4h-magnitude
+  fix that rejects dead-flat HYPE chop — Wolverine's own self-
+  diagnostic from 2026-04-23). All v3.0.1/2/4 v1-DSL fixes preserved
+  (time-cuts disabled). Currently flat (no live position), so
+  migration is risk-free.
