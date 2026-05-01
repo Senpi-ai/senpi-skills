@@ -35,9 +35,16 @@ v2.4 architectural fixes preserved:
   - FP-001 quiet hours (00-04 UTC unless apex score)
   - FP-002 (in SKILL.md) — user-conversation Claude sessions read-only
 
-Environment:
-  SENPI_API_KEY              — MCP access
-  VULTURE_WALLET_ADDRESS     — Vulture wallet (must match runtime YAML)
+Environment / config resolution:
+  Strategy wallet is read from config/vulture-config.json (the canonical
+  source). VULTURE_WALLET_ADDRESS env var is supported as an optional
+  override but is NOT required for routine cron runs — operators just
+  set "wallet" in vulture-config.json and the cron command stays
+  wallet-agnostic. This complies with the fleet rule against hardcoding
+  wallet-specific values outside config files.
+
+  SENPI_API_KEY              — MCP access (required)
+  VULTURE_WALLET_ADDRESS     — optional override; defaults to config.wallet
   SENPI_MCP_URL              — optional, default https://mcp.prod.senpi.ai/mcp
   OPENCLAW_BIN               — optional, default "openclaw"
   EXTERNAL_SCANNER_NAME      — optional override (default "vulture_signals")
@@ -94,12 +101,31 @@ def release_lock(lock_file):
         pass
 
 
-VERSION = "3.0.0"
+VERSION = "3.0.2"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "vulture_signals")
-# v3.0: agent-specific wallet env var (per fleet-standard memory rule —
-# generic STRATEGY_ADDRESS fallback removed to prevent contamination).
-STRATEGY_ADDRESS = os.environ.get("VULTURE_WALLET_ADDRESS", "")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+
+
+def _resolve_wallet():
+    """Resolve strategy wallet — config.json is the canonical source.
+    Env var VULTURE_WALLET_ADDRESS is supported as an optional override
+    (useful for CI/testing) but is NOT required for routine cron runs.
+    This avoids forcing operators to inline wallet addresses in crontab,
+    which violates the fleet rule against hardcoding wallet-specific
+    values outside config files."""
+    env_val = (os.environ.get("VULTURE_WALLET_ADDRESS") or "").strip()
+    if env_val:
+        return env_val
+    try:
+        return (cfg.load_config().get("wallet") or "").strip()
+    except Exception:
+        return ""
+
+
+# v3.0: agent-specific wallet (per fleet-standard memory rule — generic
+# STRATEGY_ADDRESS fallback removed to prevent contamination). Read from
+# config.json by default; env var override available for testing.
+STRATEGY_ADDRESS = _resolve_wallet()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -427,7 +453,11 @@ def fetch_held_assets():
 
 def push_signal(candidate, regime, held_assets):
     if not STRATEGY_ADDRESS:
-        print("ERROR: VULTURE_WALLET_ADDRESS env var not set", file=sys.stderr)
+        print(
+            "ERROR: strategy wallet not resolved — set 'wallet' in "
+            "vulture-config.json (preferred) or VULTURE_WALLET_ADDRESS env var",
+            file=sys.stderr,
+        )
         return False
 
     # Skip if already holding this asset (runtime would reject anyway,

@@ -226,19 +226,19 @@ curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scr
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scripts/vulture_config.py -o /data/workspace/skills/vulture-strategy/scripts/vulture_config.py
 ```
 
-**Step 2:** Set environment variables:
-- `VULTURE_WALLET_ADDRESS` — strategy wallet (must match runtime.yaml)
-- `VULTURE_DECISION_MODEL` — LLM model BARE name (no provider prefix). E.g. `gemini-2.5-pro` or `claude-sonnet-4-20250514`. INVALID: `google/gemini-2.5-pro` (OpenClaw double-prefixes → 500 Unknown model).
-- `TELEGRAM_CHAT_ID` — chat for DSL/action notifications
+**Step 2:** Set wallet, strategyId, chatId in `config/vulture-config.json` (this is the canonical source — producer reads from here on every cron tick; runtime reads at startup).
 
-**Step 3:** Install runtime via `openclaw senpi runtime install --path /data/workspace/skills/vulture-strategy/runtime.yaml`. Verify with `openclaw senpi runtime list` — `vulture-tracker` must appear ACTIVE.
+**Step 3:** Set the LLM model env var at runtime-create time only:
+- `VULTURE_DECISION_MODEL` — LLM model BARE name (no provider prefix). E.g. `gemini-2.5-pro` or `claude-sonnet-4-20250514`. INVALID: `google/gemini-2.5-pro` (OpenClaw double-prefixes → 500 Unknown model). This env var is resolved ONCE into runtime.yaml's `${VULTURE_DECISION_MODEL}` placeholder when openclaw creates the runtime — it doesn't need to be set in the cron environment.
 
-**Step 4:** Add cron (3-min cadence — same as Scorpion/Roach):
+**Step 4:** Install runtime via `openclaw senpi runtime create --path /data/workspace/skills/vulture-strategy/runtime.yaml`. Verify with `openclaw senpi runtime list` — `vulture-tracker` must appear ACTIVE.
+
+**Step 5:** Add cron (3-min cadence — wallet is read from config.json, no env vars needed):
 ```cron
 */3 * * * * cd /data/workspace/skills/vulture-strategy && python3 scripts/vulture-producer.py >> state/producer.log 2>&1
 ```
 
-**Step 5 (legacy cleanup if migrating from v2.x):** Remove old vulture-scanner.py cron entry. Delete `state/trade-counter.json`, `state/cooldowns.json` — runtime owns this state now.
+**Step 6 (legacy cleanup if migrating from v2.x):** Remove old vulture-scanner.py cron entry. Delete `state/trade-counter.json`, `state/cooldowns.json` — runtime owns this state now.
 
 
 

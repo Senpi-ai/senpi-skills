@@ -27,16 +27,24 @@ curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scr
 
 ## Configure
 
-Set the strategy wallet, decision model, and chat ID via environment variables (runtime.yaml uses `${WALLET_ADDRESS}` / `${VULTURE_DECISION_MODEL}` / `${TELEGRAM_CHAT_ID}` placeholders):
+**Set wallet, strategy ID, and chat ID in `config/vulture-config.json`** — this is the canonical source of truth. Producer reads from here on every cron tick; runtime reads from here at startup.
 
-```bash
-export WALLET_ADDRESS=0xYourStrategyWallet
-export VULTURE_WALLET_ADDRESS=0xYourStrategyWallet            # used by producer for context fetches
-export VULTURE_DECISION_MODEL=gemini-2.5-pro                  # bare model name; NO provider prefix
-export TELEGRAM_CHAT_ID=YourTelegramChatId
+```json
+{
+  "strategyId": "your-strategy-id",
+  "wallet": "0xYourStrategyWallet",
+  "chatId": "YourTelegramChatId",
+  ...
+}
 ```
 
-Edit `config/vulture-config.json` and set `wallet`, `strategyId`, and `chatId`. Optional: tune `quietHours.{startUtc,endUtc,apexBypassScore}` to override the default 00:00-04:00 UTC defer window.
+Set the LLM decision model via env var at runtime-create time (resolved once into runtime.yaml's `${VULTURE_DECISION_MODEL}` placeholder):
+
+```bash
+export VULTURE_DECISION_MODEL=gemini-2.5-pro    # bare model name; NO provider prefix
+```
+
+Optional: tune `quietHours.{startUtc,endUtc,apexBypassScore}` in config.json to override the default 00:00-04:00 UTC defer window.
 
 ## Install runtime + create producer cron
 
