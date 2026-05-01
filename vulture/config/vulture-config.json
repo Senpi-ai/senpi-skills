@@ -49,5 +49,11 @@
     "exitOrderType": "MARKET",
     "slOrderType": "MARKET",
     "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  },
+  "quietHours": {
+    "startUtc": 0,
+    "endUtc": 4,
+    "apexBypassScore": 12,
+    "_note": "FP-001: skip emission 00-04 UTC unless best signal score >= apexBypassScore. Set startUtc==endUtc to disable."
   }
 }

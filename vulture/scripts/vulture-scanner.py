@@ -1,9 +1,31 @@
 #!/usr/bin/env python3
-# Senpi VULTURE Scanner v2.4
+# Senpi VULTURE Scanner v2.4.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""VULTURE v2.4 — Long-Tail Momentum Rider (1h alignment gate added).
+"""VULTURE v2.4.0 — Long-Tail Momentum Rider + fleet patches FP-001 / FP-002.
+
+## v2.4.0 changes (2026-05-01)
+
+Live ZEC LONG running +22.8% margin ROE / +$117 unrealized validates
+v2.3's tier ladder + the 1h-alignment fix. DSL is ratcheting (venue stop
+moved from entry to $347.17 — T0 lock fired correctly). Vulture's
+architecture is performing as designed: low WR (~38%) + fast loser cuts
+(90-min dead_weight) + big winners on the right tail. **Don't disturb
+the strategy** — just add the two fleet patches that apply to every
+agent's next v-bump.
+
+  - FP-001 quiet hours: skip emission 00:00-04:00 UTC unless setup
+    score >= apex bypass (default 12). Reduces fleet-wide midnight-UTC
+    pile-in pattern after daily-cap reset.
+  - FP-002 enforcement is in SKILL.md: Claude Code conversation
+    sessions must NOT call create_position / close_position /
+    edit_position / ratchet_stop_* / cancel_order. Producer cron and
+    DSL engine are the only paths.
+  - VERSION constant added; emitted in stdout JSON for ferry/audit
+    correlation.
+  - Scoring + DSL config unchanged from v2.3 — proving correct on
+    the live ZEC trade.
 
 ## v2.4 changes (2026-04-27)
 
@@ -114,9 +136,46 @@ TRACKED_ASSETS = [
 # Banned — crypto majors handled by other predators; XYZ handled by Bald Eagle
 BANNED_ASSETS = {"BTC", "ETH", "SOL"}
 
+VERSION = "2.4.0"
 MAX_POSITIONS = 2
 MAX_DAILY_ENTRIES = 4
 XYZ_BANNED = True
+
+
+# ═══════════════════════════════════════════════════════════════
+# v2.4.0 fleet patches
+# ═══════════════════════════════════════════════════════════════
+
+def _config_safe():
+    """Load config dict; returns {} on any failure."""
+    try:
+        return cfg.load_config() or {}
+    except Exception:
+        return {}
+
+
+def in_quiet_hours():
+    """FP-001: skip emission during low-liquidity UTC window.
+
+    Default 00:00-04:00 UTC. Returns (in_quiet: bool, hour: int, apex_bypass: int).
+    Apex setups (score >= apex_bypass, default 12) bypass — high-conviction
+    small-cap momentum can fire any hour.
+
+    Config keys (all under top-level "quietHours" object):
+      quietHours.startUtc, quietHours.endUtc, quietHours.apexBypassScore
+    Set startUtc == endUtc to disable.
+    """
+    qh = _config_safe().get("quietHours") or {}
+    start = int(qh.get("startUtc", 0))
+    end = int(qh.get("endUtc", 4))
+    apex = int(qh.get("apexBypassScore", 12))
+    if start == end:
+        return False, -1, apex  # disabled
+    h = datetime.now(timezone.utc).hour
+    if start < end:
+        return (start <= h < end), h, apex
+    # wrap window
+    return (h >= start or h < end), h, apex
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -573,7 +632,7 @@ def run():
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
             "_v2_no_thesis_exit": True,
-            "_vulture_version": "2.4",
+            "_vulture_version": VERSION,
         })
         return
 
@@ -591,6 +650,11 @@ def run():
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
                     "note": f"Daily cap ({dynamic_cap}) reached. Session PnL: {pnl_pct:+.1f}%. Entries: {tc.get('entries', 0)}/{dynamic_cap}"})
         return
+
+    # FP-001: quiet hours gate (small-cap apex still bypasses).
+    # Captured here BEFORE we evaluate momentum so apex setups can be
+    # checked downstream and override; all other times we short-circuit.
+    quiet_now, current_hour, apex_bypass = in_quiet_hours()
 
     # Fetch SM data for all tracked assets
     sm_map = fetch_sm_data()
@@ -643,6 +707,19 @@ def run():
     signals.sort(key=lambda s: s["score"], reverse=True)
     best = signals[0]
 
+    # FP-001: quiet hours block (apex score bypasses). Sub-apex setups
+    # during 00:00-04:00 UTC are deferred to avoid the fleet-wide
+    # midnight-pile-in pattern after daily-cap reset.
+    if quiet_now and best["score"] < apex_bypass:
+        cfg.output({
+            "status": "ok",
+            "heartbeat": "NO_REPLY",
+            "note": f"QUIET_HOURS: hour={current_hour}_UTC best_score={best['score']}_below_apex_{apex_bypass}",
+            "best_signal": {"asset": best["asset"], "direction": best["direction"], "score": best["score"]},
+            "_vulture_version": VERSION,
+        })
+        return
+
     # Execute entry
     requested_leverage = get_leverage_for_score(best["score"])
     # Fleet-wide batch-4 leverage safety: clamp to asset max to avoid
@@ -676,7 +753,7 @@ def run():
                 {"asset": s["asset"], "direction": s["direction"], "score": s["score"]}
                 for s in signals[:5]
             ],
-            "_vulture_version": "2.4",
+            "_vulture_version": VERSION,
         })
     else:
         cfg.output({
@@ -684,7 +761,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": result,
-            "_vulture_version": "2.4",
+            "_vulture_version": VERSION,
         })
 
 

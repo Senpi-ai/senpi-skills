@@ -1,31 +1,63 @@
 ---
 name: vulture-strategy
 description: >-
-  VULTURE v2.0 — Long-Tail Momentum Rider. COMPLETE REWRITE from v1.0's
-  contrarian SM-exhaustion fader thesis (which produced 0 trades in 14+ days).
-  Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL, AIXBT, ARB,
-  ASTER, ZEC, LIT, TAO, POLYX, LDO, APT, DYDX, ONDO, SUI, etc.) that no
-  other Senpi predator covers. Follows SM direction when confluence is strong
-  (heavy flow + aligned 4h trend + 15m velocity accelerating). Hold winners
-  for days via 7-day hard_timeout, cut losers fast via 60-min dead_weight_cut.
-  Built from the #1 Arena winner's 3-week playbook (38.6% win rate, 6.15x
-  profit factor). Signal-driven direction, NOT long-only bias. 5-7x leverage
-  (small caps can't handle 20x).
+  VULTURE v2.4.0 — Long-Tail Momentum Rider + fleet patches FP-001 / FP-002.
+  v2.3 ladder + 1h-alignment fix is performing as designed (live ZEC LONG
+  ran +22.8% margin ROE / +$117 unrealized; DSL ratchet fired T0 lock at
+  $347.17). v2.4.0 adds quiet hours (FP-001) and the user-conversation
+  hard rule (FP-002) without changing scoring or DSL — those are working.
+  Original v2.0 thesis: long-tail momentum rider on 25+ small/mid-cap
+  Hyperliquid perps (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT,
+  TAO, POLYX, LDO, APT, DYDX, ONDO, SUI, etc.) that no other Senpi
+  predator covers. Follows SM direction when confluence is strong (heavy
+  flow + aligned 4h trend + 15m velocity accelerating + 1h alignment).
+  Hold winners for days via 7-day hard_timeout, cut losers fast via
+  90-min dead_weight_cut. Built from the #1 Arena winner's 3-week
+  playbook (38.6% win rate, 6.15x profit factor).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "2.4.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🦅 VULTURE v2.0 — Long-Tail Momentum Rider
+# 🦅 VULTURE v2.4.0 — Long-Tail Momentum Rider
 
 **COMPLETE REWRITE from v1.0.** v1.0 was a contrarian SM-exhaustion fader on 4 majors (BTC/ETH/SOL/HYPE) gated at MIN_4H_MOVE_PCT=3.0 — the combination was mathematically unreachable and produced 0 trades in 14+ days.
 
-v2.0 is a totally different agent. Designed from the #1 Arena winner's playbook (3-week reigning Arena champion, 102 trades, 38.6% win rate, **6.15x profit factor**, ~80% of profit from 6 trades out of 102, hold times 24h to 8 days).
+v2.0 was designed from the #1 Arena winner's playbook (3-week reigning Arena champion, 102 trades, 38.6% win rate, **6.15x profit factor**, ~80% of profit from 6 trades out of 102, hold times 24h to 8 days). v2.4.0 keeps that thesis intact and adds two fleet patches.
+
+---
+
+## ⛔ Hard Rules (Fleet Patches)
+
+### RULE FP-002: User-conversation Claude sessions MUST NOT trade
+
+**Hard rule, not a heuristic.** When responding to a user message (Telegram ping, status check, "tell me about your trades", etc.), the Claude Code session MUST NOT call any of:
+
+- `create_position`
+- `close_position`
+- `edit_position`
+- `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
+- `cancel_order`
+- `strategy_close` / `strategy_close_positions`
+
+These tools are reserved for the **producer cron** (vulture-scanner.py) and the **DSL ratchet engine**. The cron is the only entry path. The DSL is the only exit path. User-conversation sessions are read-only.
+
+If a user asks "should I take this trade?" or "anything close to triggering?", respond by reading current state — DO NOT execute. The producer will fire on its next tick if a real signal is there.
+
+### RULE FP-001: Quiet hours for low-liquidity windows
+
+Producer skips emission during 00:00-04:00 UTC by default. Apex setups (best signal score >= `quietHours.apexBypassScore`, default 12) bypass — high-conviction small-cap momentum can fire any hour; routine sub-apex entries wait until 04:00 UTC.
+
+Configurable via `quietHours.startUtc`, `quietHours.endUtc`, `quietHours.apexBypassScore` in `vulture-config.json`. Set `startUtc == endUtc` to disable.
+
+Rationale: fleet-wide pattern of midnight-UTC pile-ins after daily-cap reset. For Vulture specifically, small-cap order books are thinnest in this window and entry slippage compounds.
+
+---
 
 ---
 

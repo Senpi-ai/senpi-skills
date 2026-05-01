@@ -141,3 +141,9 @@ When bumping any agent's version:
   Grizzly Apr 30 trade (+$76 / +29.9% via Tier 5 lock) narrowed FP-004
   scope from "fleet-wide" to "Dire / XYZ-DEX-specific or restart-timing-
   specific." BTC main-DEX ratchet path confirmed working end-to-end.
+- 2026-05-01: FP-001 + FP-002 third adoption in Vulture v2.4.0. Vulture
+  ZEC LONG (live, +22.8% margin ROE / +$117 unrealized; T0 lock fired
+  at $347.17) is the second main-DEX agent confirming DSL ratchet works
+  on small-cap perps. FP-003 (pattern-completeness gate) NOT applied to
+  Vulture — its multi-mode signal architecture (Stalker + Striker) isn't
+  a 5-confirmation pattern; forcing it would break the strategy.

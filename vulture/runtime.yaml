@@ -1,6 +1,27 @@
 name: vulture-tracker
+# Runtime SCHEMA stays at 2.3.0 — DSL preset unchanged in v2.4 (live ZEC
+# LONG running +22.8% margin ROE confirms tier ladder is correctly tuned;
+# T0 lock fired at $347.17 = +4.7% margin ROE locked floor on the venue).
+# Strategy/skill version is v2.4.0 (see scanner VERSION + SKILL.md metadata).
 version: 2.3.0
 description: >
+  VULTURE v2.4.0 — Long-Tail Momentum Rider + fleet patches FP-001 / FP-002
+  (scanner-only changes; DSL preset unchanged from v2.3). Live ZEC LONG
+  running +22.8% margin ROE / +$117 unrealized validates v2.3's ladder +
+  v2.4 scanner's 1h-alignment fix. DSL ratchet fired T0 lock at $347.17
+  (above entry $341.76) — confirms Senpi DSL ratchet works on small-cap
+  main-DEX end-to-end (second main-DEX confirmation after Grizzly BTC).
+  v2.4.0 adds:
+    - FP-001 quiet hours (skip 00-04 UTC unless apex score >= 12)
+    - FP-002 hard rule in SKILL.md (user-conversation Claude sessions
+      must NOT call trading MCP tools — only producer cron may enter,
+      only DSL may exit)
+    - VERSION constant added; emitted in stdout JSON
+  Scoring + DSL config unchanged — v2.3 architecture is performing as
+  designed (38% WR target with 6.15x profit factor; 30+ entries in
+  9 days, 18/20 audit closes are time-cuts as designed; current ZEC
+  trade is the right-tail winner the strategy targets).
+
   VULTURE v2.3 — Long-Tail Momentum Rider (tier 2 pre-arm for winners).
   v2.3 drops tier 2's trigger from 50% → 40% peak ROE. Once a winning
   position climbs past 40% peak, it immediately graduates to tier 2's
