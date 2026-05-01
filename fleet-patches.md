@@ -156,3 +156,14 @@ When bumping any agent's version:
   This pattern is the template for migrating other v1-runtime agents
   (Polar, Kodiak, Wolverine, Grizzly, Bison, Python, Lemon, etc.) to
   v2 runtime.
+- 2026-05-01: Vulture v3.0.1 — drop tier 5 (trigger_pct 150 invalid in
+  v2 runtime; cap is 0 < trigger_pct <= 100). T4 (100/85) becomes apex.
+- 2026-05-01: Vulture v3.0.2 — wallet read from config.json (no
+  hardcoded env vars in cron). Per fleet rule against hardcoding wallet-
+  specific values outside config files.
+- 2026-05-01: Polar v4.0.0 — second v1→v2 migration (template proven on
+  Vulture). v3.x scoring + Phase 2 ladder preserved exactly. All time-
+  cuts remain disabled (v3.0.4/5/6 fixes carried forward). Wallet read
+  from config.json (Vulture v3.0.2 pattern). Live ETH LONG (+$54
+  unrealized at migration time) preserved via venue-side DSL stops
+  during the runtime swap.

@@ -1,13 +1,13 @@
 {
+  "_comment": "POLAR v4.0.0 config — simplified for v2-runtime-native architecture. Runtime owns position tracking, daily caps, cooldowns, and drawdown gates via runtime.yaml's risk.guard_rails block. DSL tier ladder is in runtime.yaml exit.dsl_preset.phase2.tiers (no longer duplicated here). Producer reads only the few fields below.",
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "startingBudget": 1000,
-  "dslTiers": [
-    { "triggerRoe": 8,  "lockRoe": 25 },
-    { "triggerRoe": 15, "lockRoe": 50 },
-    { "triggerRoe": 25, "lockRoe": 65 },
-    { "triggerRoe": 35, "lockRoe": 80 },
-    { "triggerRoe": 50, "lockRoe": 85 }
-  ]
+  "minScore": 14,
+  "quietHours": {
+    "_comment": "FP-001: skip emission during low-liquidity UTC window. Apex setups (score >= apexBypassScore) bypass. Set startUtc == endUtc to disable.",
+    "startUtc": 0,
+    "endUtc": 4,
+    "apexBypassScore": 17
+  }
 }
