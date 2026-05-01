@@ -75,7 +75,7 @@ Add 3-minute cron:
 
 ## DSL Phase 2 ladder
 
-Preserved exactly from v2.3 (proved correct on the live ZEC trade):
+Preserved from v2.3 (proved correct on the live ZEC trade), with one v3.0.1 adjustment: v2.x's T5 (`trigger_pct: 150`) was dropped because the v2 runtime validator rejects `trigger_pct > 100`. Apex protection now ends at T4 (100% / 85% lock); monster-winner scenarios (peak >> 100% margin ROE) still get the same 85% × peak lock at T4.
 
 | Tier | Trigger (margin ROE) | Lock (% of HW) |
 |---|---|---|
@@ -83,8 +83,7 @@ Preserved exactly from v2.3 (proved correct on the live ZEC trade):
 | T1 | +30% | 60% |
 | T2 | +40% | 75% (v2.3 pre-arm) |
 | T3 | +75% | 75% |
-| T4 | +100% | 85% |
-| T5 | +150% | 92% |
+| T4 (apex) | +100% | 85% |
 
 ## Migrating from v2.x
 

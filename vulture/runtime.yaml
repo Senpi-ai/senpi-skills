@@ -222,12 +222,15 @@ exit:
       tiers:
         # v2.3 ladder — proved correct on live ZEC. T0 wide for small-cap
         # early-wick tolerance; T2 pre-arm at 40% peak (was 50% in v2.2).
+        # v3.0.1: dropped v2.x's T5 (trigger_pct 150) — v2 runtime
+        # validator enforces 0 < trigger_pct <= 100, so the >100 tier is
+        # rejected. T4 (100/85) becomes the apex; monster-winner scenario
+        # (peak >>100% margin ROE) still gets the same 85% × peak lock.
         - { trigger_pct: 15,  lock_hw_pct: 20 }   # Tier 0 — small-cap early lock
         - { trigger_pct: 30,  lock_hw_pct: 60 }   # Tier 1 — winner forming
         - { trigger_pct: 40,  lock_hw_pct: 75 }   # Tier 2 — pre-armed (v2.3)
         - { trigger_pct: 75,  lock_hw_pct: 75 }   # Tier 3 — runner protection
-        - { trigger_pct: 100, lock_hw_pct: 85 }   # Tier 4 — apex
-        - { trigger_pct: 150, lock_hw_pct: 92 }   # Tier 5 — monster
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # Tier 4 — apex (v3.0.1: now the final tier)
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
