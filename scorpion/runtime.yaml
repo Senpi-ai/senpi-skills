@@ -1,9 +1,28 @@
 name: scorpion-tracker
 # Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
-# plugin. Strategy/skill is "Scorpion v4.1.0" — lives in description +
+# plugin. Strategy/skill is "Scorpion v4.1.1" — lives in description +
 # SKILL.md + _scorpion_producer_version. Do not set this to 4.x.x.
-version: 1.4.3
+version: 1.4.4
 description: >
+  SCORPION v4.1.1 — held-asset dedup hot-patch (P0).
+  Post-v4.1.0 ferry, Scorpion accumulated 154+ create_position calls
+  in 2.5h all firing ZEC LONG at score 11 because three layers of
+  defense silently failed: (1) LLM prompt missing held-asset hard
+  skip, (2) runtime per_asset_cooldown not enforcing, (3) producer
+  recent_entry_count stub returned 0. Each LLM-approved emit became
+  an HL "add to position" — live ZEC LONG accumulated to $1,484
+  notional / $742 margin (essentially maxed out).
+  v4.1.1 fixes all three layers defensively:
+    (A) Producer skips emission entirely if signal asset is in
+        held_assets — strongest fix; signal never reaches LLM.
+    (B) recent_entry_count returns 99 if asset is held — trips
+        the LLM's existing >=2 over-traded rule as backstop.
+    (C) LLM prompt updated with explicit held-asset hard skip.
+  Defense in depth — three independent layers; only a coordinated
+  three-way silent failure could leak. Layer (B) and (C) are
+  redundant given (A) but cost nothing and protect against any
+  producer-side regression.
+
   SCORPION v4.1.0 — XYZ unblock + asymmetric MIN_SCORE.
   v4.0.2 sample (12 accepts / 1,089 rejects, 2026-04-24 → 2026-04-30)
   surfaced two structural breaks:
@@ -148,11 +167,21 @@ actions:
 
       ## HARD SKIP CONDITIONS (output execute: false)
 
+      - **heldAssets contains this signal's asset (any direction)** —
+        v4.1.1: this is a HARD SKIP. Never add to an existing position.
+        After v4.1.0 the agent accumulated 154+ ZEC LONG creates in
+        2.5h because this rule was missing. The producer skips at
+        emission level too, so this is defense-in-depth — but if
+        anything ever sends you a candidate whose asset is in
+        heldAssets, output execute: false with reason
+        "duplicate_position_already_held".
       - score < 9 (producer should filter, but skip defensively)
       - score < 11 AND asset is crypto (v4.1 producer floor; defensive)
       - BTC macro direction opposite of signal direction AND asset is
         crypto major (BTC, ETH, SOL) AND score < 12 — macro risk
       - recentEntryCountThisAsset >= 2 within 24h — over-traded
+        (v4.1.1: producer now returns 99 if asset is in heldAssets,
+        so this rule also trips on duplicates as a backstop)
       - fundingRegime opposes direction in a way that makes thesis
         structurally broken (e.g. LONG into deep LONG_CROWDED)
 

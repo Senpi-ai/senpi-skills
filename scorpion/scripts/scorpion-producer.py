@@ -1,9 +1,32 @@
 #!/usr/bin/env python3
-# Senpi SCORPION Producer v4.1.0
+# Senpi SCORPION Producer v4.1.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SCORPION v4.1.0 Producer — Multi-market signal emitter for v2 runtime.
+"""SCORPION v4.1.1 Producer — Multi-market signal emitter for v2 runtime.
+
+v4.1.1 (2026-05-01) — held-asset dedup hot-patch (P0):
+  After v4.1.0 ferry, Scorpion accumulated 154+ create_position calls
+  in 2.5h all firing ZEC LONG at score 11. Three layers of defense
+  silently failed simultaneously:
+    (1) LLM prompt's HARD SKIP CONDITIONS list missed "held_assets
+        contains this asset → SKIP" — only mentioned correlation risk.
+    (2) Runtime per_asset_cooldown_minutes: 120 was not enforcing
+        (separate Erik investigation).
+    (3) recent_entry_count stub returned 0, making the >=2 over-traded
+        rule mathematically unreachable.
+  Each LLM-approved create_position became an HL "add to existing
+  position" — the live ZEC LONG accumulated to $1,484 notional /
+  $742 margin (essentially maxed out, $44 withdrawable).
+
+v4.1.1 fixes ALL THREE LAYERS defensively:
+  (A) Producer skips emission if signal asset is already held (the
+      strongest fix — never even sends the signal to the LLM)
+  (B) recent_entry_count returns 99 if asset is held — makes the
+      LLM's existing >=2 rule trip
+  (C) LLM prompt updated with explicit held-asset hard skip
+  Defense in depth — any one of these would prevent the runaway. With
+  all three, only a coordinated three-way silent failure could leak.
 
 v4.1.0 (2026-04-30) — XYZ-fixed:
   - Asymmetric MIN_SCORE: crypto raised 9 → 11 (score-9 crypto bled
@@ -315,11 +338,24 @@ def fetch_held_assets():
         return []
 
 
-def recent_entry_count(asset):
-    """Stub — the runtime owns the trade counter. We emit 0 and let the
-    LLM prompt treat it as a soft hint only. If we need accurate counts
-    we'd query the runtime state via a separate CLI call — but for v4.0
-    the risk.guard_rails enforcement is authoritative."""
+def recent_entry_count(asset, held_assets=None):
+    """v4.1.1: return 99 if asset is in held_assets so the LLM's
+    'recentEntryCountThisAsset >= 2 within 24h' rule trips on duplicates.
+
+    The runtime per_asset_cooldown was supposed to backstop this but isn't
+    enforcing reliably (separate Erik investigation post-v4.1.0 runaway).
+    Tripping the LLM's existing rule is a defense-in-depth backstop;
+    the producer-level held_assets skip in main() is the primary fix.
+    """
+    if held_assets:
+        held_norm = {h.upper() for h in held_assets}
+        if asset.upper() in held_norm:
+            return 99
+        # XYZ-prefixed signals: also check token portion (e.g. xyz:BRENTOIL)
+        if ":" in asset:
+            token = asset.split(":", 1)[1].upper()
+            if token in held_norm:
+                return 99
     return 0
 
 
@@ -386,7 +422,7 @@ def push_signal(candidate, btc_macro, funding_regime, held_assets, xyz_peer_coun
             "btcMacro24hPct": macro_ctx["pct"],
             "fundingRegime": funding_regime or "UNKNOWN",
             "heldAssets": held_assets,
-            "recentEntryCountThisAsset": recent_entry_count(candidate["asset"]),
+            "recentEntryCountThisAsset": recent_entry_count(candidate["asset"], held_assets),
             "xyzPeerMomentum": xyz_peer_count,
         },
     }
@@ -423,14 +459,14 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_scorpion_producer_version": "4.1.0",
+            "_scorpion_producer_version": "4.1.1",
         }))
         return
 
     try:
         raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
         if not raw:
-            print(json.dumps({"status": "no_markets", "_scorpion_producer_version": "4.0.1"}))
+            print(json.dumps({"status": "no_markets", "_scorpion_producer_version": "4.1.1"}))
             return
 
         markets = raw.get("data", raw)
@@ -439,7 +475,7 @@ def main():
         if isinstance(markets, dict):
             markets = markets.get("markets", [])
         if not isinstance(markets, list):
-            print(json.dumps({"status": "bad_shape", "_scorpion_producer_version": "4.0.1"}))
+            print(json.dumps({"status": "bad_shape", "_scorpion_producer_version": "4.1.1"}))
             return
 
         # Score all markets; keep only those at/above MIN_SCORE
@@ -458,7 +494,7 @@ def main():
                 "scanned": len(markets),
                 "candidates": 0,
                 "elapsed_sec": round(elapsed, 2),
-                "_scorpion_producer_version": "4.1.0",
+                "_scorpion_producer_version": "4.1.1",
             }))
             return
 
@@ -467,12 +503,33 @@ def main():
         funding_regime = fetch_funding_regime()
         held_assets = fetch_held_assets()
 
+        # v4.1.1: PRIMARY held-asset dedup fix. Skip emission entirely
+        # if the candidate's asset is already in held_assets. This is
+        # the strongest layer of the three-layer fix — a candidate that
+        # never reaches the LLM can't possibly trigger a duplicate add.
+        held_norm = {h.upper() for h in held_assets}
+
+        def _asset_already_held(candidate):
+            asset = candidate["asset"]
+            if asset.upper() in held_norm:
+                return True
+            # XYZ-prefixed: also check token portion (e.g. xyz:BRENTOIL → BRENTOIL)
+            if ":" in asset:
+                token = asset.split(":", 1)[1].upper()
+                if token in held_norm:
+                    return True
+            return False
+
         # Push all qualifying candidates. Runtime's LLM gate + risk guard
         # rails will decide which (if any) to execute.
         candidates.sort(key=lambda c: c["score"], reverse=True)
         xyz_peer_map = compute_xyz_peer_momentum(candidates)
         pushed = 0
+        skipped_held = 0
         for c in candidates:
+            if _asset_already_held(c):
+                skipped_held += 1
+                continue
             peer_count = xyz_peer_map.get((c["token"], c["direction"]), 0) if c["is_xyz"] else 0
             if push_signal(c, btc_macro, funding_regime, held_assets, peer_count):
                 pushed += 1
@@ -484,12 +541,13 @@ def main():
             "scanned": len(markets),
             "candidates": len(candidates),
             "signals_pushed": pushed,
+            "skipped_held_assets": skipped_held,
             "btc_macro": btc_macro,
             "funding_regime": funding_regime,
             "held_assets": held_assets,
             "elapsed_sec": round(elapsed, 2),
             "warn": warn,
-            "_scorpion_producer_version": "4.1.0",
+            "_scorpion_producer_version": "4.1.1",
         }))
     finally:
         release_lock(lock)
