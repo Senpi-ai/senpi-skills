@@ -147,3 +147,12 @@ When bumping any agent's version:
   on small-cap perps. FP-003 (pattern-completeness gate) NOT applied to
   Vulture — its multi-mode signal architecture (Stalker + Striker) isn't
   a 5-confirmation pattern; forcing it would break the strategy.
+- 2026-05-01: Vulture v3.0.0 — full v2-runtime-native rewrite. Producer
+  + LLM-pass-through gate + native risk.guard_rails + DSL with
+  FEE_OPTIMIZED_LIMIT exits + chain DB telemetry. v2.x's cfg.set_cooldown
+  silent crash is structurally impossible in v3.0 (state owned by runtime,
+  not Python). All scoring + DSL preset preserved from v2.4 (proved
+  correct on the +$117 ZEC trade). FP-001 / FP-002 carried forward.
+  This pattern is the template for migrating other v1-runtime agents
+  (Polar, Kodiak, Wolverine, Grizzly, Bison, Python, Lemon, etc.) to
+  v2 runtime.

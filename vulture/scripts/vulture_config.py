@@ -1,5 +1,17 @@
-"""VULTURE v2.0 — Long-Tail Momentum Rider config helper.
-Self-contained. Standard Senpi skill pattern."""
+"""VULTURE v3.0.0 — Shared MCP helpers + config loader.
+
+v3.0 producer responsibilities are narrower than v2.x:
+  - Fetch market universe via MCP (leaderboard_get_markets)
+  - Apply scoring + hard gates
+  - Push signals via `openclaw senpi external-scanner ingest`
+    (runtime owns execution + DSL + risk + counters)
+
+This module is just the MCP call helper + config loader. All state
+(position tracking, trade counters, cooldowns, dynamic slots) lives
+in the runtime, not here. v2.x's set_cooldown / load_trade_counter /
+save_state functions are GONE — they were the source of the
+cfg.set_cooldown silent crash that blew out 27 trades' telemetry.
+"""
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 
@@ -7,7 +19,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,101 +26,24 @@ from pathlib import Path
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "vulture-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "vulture-config.json"
-STATE_DIR = SKILL_DIR / "state"
-
-STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def atomic_write(path, data):
-    path = str(path)
-    d = os.path.dirname(path) or "."
-    os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=2, default=str)
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
+# ─── Config ──────────────────────────────────────────────────
 
 def load_config():
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
-            return json.load(f)
+        try:
+            with open(CONFIG_PATH) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
     return {}
 
 
-def get_wallet_and_strategy():
-    w = os.environ.get("VULTURE_WALLET", "")
-    s = os.environ.get("VULTURE_STRATEGY_ID", "")
-    if not w or not s:
-        c = load_config()
-        w = w or c.get("wallet", "")
-        s = s or c.get("strategyId", "")
-    return w, s
-
-
-def load_trade_counter():
-    today = now_date()
-    p = STATE_DIR / "trade-counter.json"
-    default = {"date": today, "entries": 0,
-               "last_win_direction": None, "last_win_ts": 0}
-    if p.exists():
-        try:
-            with open(p) as f:
-                tc = json.load(f)
-            if tc.get("date") != today:
-                tc["date"] = today
-                tc["entries"] = 0
-            for k, v in default.items():
-                if k not in tc:
-                    tc[k] = v
-            return tc
-        except (json.JSONDecodeError, IOError):
-            pass
-    return dict(default)
-
-
-def save_trade_counter(tc):
-    tc["date"] = now_date()
-    atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
-
-
-def is_asset_cooled_down(token, minutes=120):
-    p = STATE_DIR / "cooldowns.json"
-    if not p.exists():
-        return False
-    try:
-        with open(p) as f:
-            cooldowns = json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return False
-    entry = cooldowns.get(token)
-    if not entry:
-        return False
-    return time.time() < entry.get("until", 0)
-
-
-def set_asset_cooldown(token, minutes=120, reason="exit"):
-    p = STATE_DIR / "cooldowns.json"
-    cooldowns = {}
-    if p.exists():
-        try:
-            with open(p) as f:
-                cooldowns = json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    cooldowns[token] = {"until": time.time() + minutes * 60, "set_at": now_iso(),
-                        "reason": reason}
-    atomic_write(str(p), cooldowns)
-
+# ─── MCP Helper ──────────────────────────────────────────────
 
 def mcporter_call(tool, retries=2, timeout=30, **params):
+    """Call a Senpi MCP tool via mcporter. Returns parsed JSON or None on failure."""
     args = json.dumps(params) if params else "{}"
     cmd = ["mcporter", "call", "senpi", tool, "--args", args]
     for attempt in range(retries):
@@ -141,65 +75,18 @@ def mcporter_call(tool, retries=2, timeout=30, **params):
     return None
 
 
-def get_positions(wallet=None):
-    if not wallet:
-        wallet, _ = get_wallet_and_strategy()
-    if not wallet:
-        return 0, []
-    ch = mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
-    if not ch or not isinstance(ch, dict):
-        return 0, []
-    data = ch.get("data", ch)
-    positions = []
-    account_value = 0
-    for section in ("main", "xyz"):
-        s = data.get(section, {})
-        if not isinstance(s, dict):
-            continue
-        ms = s.get("marginSummary", {})
-        account_value += float(ms.get("accountValue", 0))
-        for ap in s.get("assetPositions", []):
-            pos = ap.get("position", ap)
-            szi = float(pos.get("szi", 0))
-            if szi == 0:
-                continue
-            positions.append({
-                "coin": pos.get("coin", ""),
-                "direction": "LONG" if szi > 0 else "SHORT",
-                "szi": szi,
-                "size": abs(szi),
-                "margin": float(pos.get("marginUsed", 0)),
-                "entryPrice": float(pos.get("entryPx", 0)),
-                "markPrice": float(pos.get("markPx", 0)),
-                "leverage": float(
-                    pos.get("leverage", {}).get("value", 5)
-                    if isinstance(pos.get("leverage"), dict)
-                    else pos.get("leverage", 5)
-                ),
-                "upnl": float(pos.get("unrealizedPnl", 0)),
-            })
-    return account_value, positions
-
-
 def output(data):
     print(json.dumps(data, default=str))
     sys.stdout.flush()
 
 
 def log(msg):
-    print(f"[VULTURE] {msg}", file=sys.stderr)
+    print(f"[VULTURE-v3] {msg}", file=sys.stderr)
 
 
 def now_ts():
     return time.time()
 
+
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
-
-# Scanner-facing aliases (scanner uses is_on_cooldown/set_cooldown)
-is_on_cooldown = is_asset_cooled_down
-set_cooldown = set_asset_cooldown
-
-
-def now_date():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
