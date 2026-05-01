@@ -1,6 +1,23 @@
 name: grizzly-tracker
+# Runtime SCHEMA stays at 5.7.0 — DSL preset unchanged in v5.8 (Apr 30
+# +30% peak runner ran the ratchet ladder through Tier 5 cleanly, locked
+# at 90% HW, venue SL fired at $78,592 = +29.9% ROE / +$76.36. DSL
+# architecture is correct and validated end-to-end on BTC main-DEX).
+# Strategy/skill version is v5.8.0 (see scanner VERSION + SKILL.md metadata).
 version: 5.7.0
 description: >
+  Grizzly v5.8.0 — "hit fewer, win bigger" patch (scanner-only changes;
+  DSL preset unchanged from v5.7). v5.7 sample: 16 entries, Apr 30 BTC
+  LONG ran +33% peak ROE through Tier 5 lock for +$76.36 / +29.9% —
+  DSL ratchet ladder fired T1 → T2 → T3 → T4 → T5 with venue SL ratcheted
+  cleanly at each transition (proves Senpi DSL ratchet works on BTC
+  main-DEX end-to-end). v5.8 raises minScore 10 → 12 (config-driven),
+  requires all 5 Kodiak-family confirmations to fire (4TF + SM + Funding
+  + Volume + OI accelerating) — pattern completeness on top of score
+  floor. Adds FP-001 quiet hours (skip 00-04 UTC unless apex 14+) and
+  FP-002 hard rule in SKILL.md (no trading-tool MCP calls during user-
+  conversation sessions; producer cron is the only entry path).
+
   Grizzly v5.6 — disable hard_timeout (complete time-cuts removal).
   Pairs with v5.4's dead_weight_cut disable. v1 DSL fires hard_timeout
   in Phase 2 incorrectly (per v2 spec it's Phase-1-only) — observed

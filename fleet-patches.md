@@ -91,23 +91,28 @@ Dire's post-patch trade frequency and outcome distribution.
 
 ---
 
-## FP-004 (open) — DSL ratchet exchange-SL synchronization (UPSTREAM)
+## FP-004 (narrowed scope) — DSL ratchet exchange-SL synchronization
 
-**Bug observed (Dire, Apr 29 → May 1):** DSL engine internally tracked
-peak ROE 57.15% correctly and entered Phase 2. But the exchange-side Stop
-Limit order was placed at position open ($106.05 trigger) and **never
-updated** as Phase 2 tiers fired. Audit log shows zero
+**Bug originally observed (Dire, Apr 29 → May 1):** DSL engine internally
+tracked peak ROE 57.15% correctly and entered Phase 2. But the exchange-
+side Stop Limit order was placed at position open ($106.05 trigger) and
+**never updated** as Phase 2 tiers fired. Audit log shows zero
 `ratchet_stop_edit` / `cancel_order` events across the entire run-up.
-Position retraced from +57% peak to +16% with the original entry-level
-stop still in place — runner protection effectively unarmed.
+Position retraced from +57% peak with the original entry-level stop
+still in place — runner protection effectively unarmed.
 
-Additionally: today's runtime restart re-baselined the DSL trailing-stop
-HW from current mid price instead of reloading from chain-stored peak.
+**Counter-example (Grizzly, Apr 30 → May 1):** BTC LONG opened Apr 30
+22:09 UTC. DSL ratchet ladder fired Tier 1 at +5%, Tier 3 at +15%, Tier
+5 at +30% — telegram alerts confirm tier-transition events propagated
+to the venue. Position closed via venue SL at $78,592 / +29.9% / +$76.36.
+**Ratchet engine works on BTC main-DEX end-to-end.**
 
-**Status:** Reported to Erik via Telegram 2026-05-01. Backend fix.
-**Not a per-skill patch** — affects every v1-runtime agent holding a
-position. Pending team investigation. Documented here for cross-reference;
-no per-skill action.
+**Narrowed scope:** the Dire-specific issue is likely XYZ-DEX-only OR
+runtime-restart-during-peak timing. NOT a fleet-wide ratchet bug.
+Erik notified 2026-05-01.
+
+**Status:** Awaiting Erik investigation on the narrower XYZ / restart-
+timing path. **No per-skill patch.** Documented for cross-reference.
 
 ---
 
@@ -132,3 +137,7 @@ When bumping any agent's version:
 
 - 2026-05-01: FP-001 + FP-002 + FP-003 candidate first applied in Dire v1.6.0.
 - 2026-05-01: FP-004 logged after Dire DSL state mismatch diagnosis.
+- 2026-05-01: FP-001 + FP-002 + FP-003 second adoption in Grizzly v5.8.0.
+  Grizzly Apr 30 trade (+$76 / +29.9% via Tier 5 lock) narrowed FP-004
+  scope from "fleet-wide" to "Dire / XYZ-DEX-specific or restart-timing-
+  specific." BTC main-DEX ratchet path confirmed working end-to-end.

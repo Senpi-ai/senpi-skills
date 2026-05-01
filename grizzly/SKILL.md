@@ -1,23 +1,31 @@
 ---
 name: grizzly-strategy
 description: >-
-  GRIZZLY v5.0 — BTC Alpha Hunter with Position Lifecycle. Single-asset
-  BTC scanner, trend-following. Family member alongside Kodiak (SOL),
-  Wolverine (HYPE), Polar (ETH) — all four share the same architecture,
-  tuned per asset. v5.0 is a complete rewrite that reverts v4.x contrarian
-  direction flip and ports Kodiak's winning 3-mode lifecycle (HUNTING /
-  RIDING / STALKING) with BTC-specific tuning.
+  GRIZZLY v5.8.0 — BTC Alpha Hunter, "hit fewer, win bigger" patch.
+  v5.7 sample (16 entries / Apr 30 +30% peak runner that closed +$76 / 
+  +29.9% ROE on Tier 5 lock) confirmed signal architecture works AND DSL
+  ratchet ladder fires correctly on BTC main-DEX through Tier 5. v5.8
+  raises minScore floor 10 → 12 (config-driven), requires ALL FIVE
+  Kodiak-family confirmations (4TF aligned + SM aligned + Funding aligned
+  + Volume confirmed + OI accelerating) to fire — pattern completeness,
+  not just score-summing. Adds FP-001 quiet hours (skip 00-04 UTC unless
+  apex 14+) and FP-002 hard rule (Claude Code conversation sessions must
+  NOT call trading MCP tools — only producer cron may enter). DSL preset
+  unchanged from v5.7 — that architecture is right (Apr 30 trade proved it).
+  v5.0 architecture: BTC variant of the Kodiak/Wolverine/Polar single-asset
+  family. Family member alongside Kodiak (SOL), Wolverine (HYPE), Polar
+  (ETH) — all four share the same architecture, tuned per asset.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "5.0"
+  version: "5.8.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐻 GRIZZLY v5.0 — BTC Alpha Hunter
+# 🐻 GRIZZLY v5.8.0 — BTC Alpha Hunter
 
 Trend-continuation on BTC. Same architecture as Kodiak / Wolverine / Polar.
 One asset, one scanner, one exit system. No contrarian flips.
@@ -32,6 +40,44 @@ One asset, one scanner, one exit system. No contrarian flips.
 ### RULE 4: Verify runtime on every session start
 ### RULE 5: Never modify parameters without family-wide review
 ### RULE 6: HARD_STOP circuit breaker triggers at -25% drawdown
+
+### RULE 7 (FP-002): User-conversation Claude sessions MUST NOT trade
+
+**Hard rule, not a heuristic.** When responding to a user message (Telegram
+ping, status check, "tell me about your trades", etc.), the Claude Code
+session MUST NOT call any of:
+
+- `create_position`
+- `close_position`
+- `edit_position`
+- `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
+- `cancel_order`
+- `strategy_close` / `strategy_close_positions`
+
+These tools are reserved for the **producer cron** (grizzly-scanner.py)
+and the **DSL ratchet engine**. The cron is the only entry path. The DSL
+is the only exit path. User-conversation sessions are read-only.
+
+If the user asks an action-implying question ("anything close to
+triggering?", "should I take this trade?"), respond by reading current
+state — DO NOT execute. The producer will fire on its next tick if a
+real signal is there. Pattern observed across the fleet: agents have
+been opening positions immediately after user pings because their
+conversation sessions had MCP write access. This rule closes that gap.
+
+### RULE 8 (FP-001): Quiet hours for low-liquidity windows
+
+Producer skips emission during 00:00-04:00 UTC by default. Apex setups
+(score >= `quietHoursApexBypassScore`, default 14) bypass — high-conviction
+BTC trends can fire any hour; routine sub-apex entries wait until 04:00 UTC.
+
+Configurable via `quietHoursStartUtc`, `quietHoursEndUtc`,
+`quietHoursApexBypassScore` in `grizzly-config.json`. Set start == end
+to disable.
+
+Rationale: fleet-wide pattern of 00:00 UTC pile-ins after daily-cap reset.
+For Grizzly specifically, BTC overnight liquidity is thinnest in this
+window and entry slippage can eat a low-conviction edge.
 
 ---
 
