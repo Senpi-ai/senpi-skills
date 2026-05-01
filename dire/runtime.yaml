@@ -1,6 +1,20 @@
 name: dire-tracker
+# Runtime SCHEMA stays at 1.5.0 — DSL preset unchanged in v1.6.
+# Strategy/skill version is v1.6.0 (see scanner VERSION + SKILL.md metadata).
 version: 1.5.0
 description: >
+  Dire v1.6.0 — "hit fewer, win bigger" patch (scanner-only changes; DSL
+  preset unchanged). v1.0 sample (16 entries / 11 closes / -$140 realized)
+  showed signal works (Apr 29 +57% peak runner) but score 9-10 floor let
+  through low-conviction entries that closed at protective exits. v1.6
+  raises minScore 9 → 11 AND requires all 5 soft confirmations (Volume +
+  OI velocity + SM premium + Price cleanliness in addition to 4TF/SM hard
+  gates). Adds FP-001 quiet hours (skip 00-04 UTC unless apex 12+) and
+  FP-002 hard rule in SKILL.md (Claude Code conversation sessions must
+  NOT call trading MCP tools — only producer cron may enter). Ratchet-
+  engine state-sync bug observed Apr 29-May 1 is upstream Senpi backend
+  (separate Erik ferry); v1.5 DSL architecture remains correct.
+
   Dire v1.4 — disable hard_timeout (complete time-cuts removal on
   single-asset BRENTOIL). Pairs with v1.3's dead_weight_cut disable.
   v1 DSL fires hard_timeout in Phase 2 incorrectly (per v2 spec it's

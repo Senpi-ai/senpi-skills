@@ -1,17 +1,24 @@
 ---
 name: dire-strategy
 description: >-
-  DIRE v1.1 — BRENTOIL XYZ specialist with conviction-scaled sizing.
-  Catches news-driven momentum breakouts on oil with tight DSL protection
-  against sharp geopolitical reversals. Leverage scales 3x → 10x with score
-  so apex setups deploy up to 3x account notional, letting big winners pay
-  for fee drag + small losers. First Kodiak-family port to a non-crypto asset
-  class. ISOLATED margin (required for XYZ), Wolverine execution pattern.
-  DSL exit managed by plugin runtime via runtime.yaml.
+  DIRE v1.6.0 — BRENTOIL XYZ specialist, "hit fewer, win bigger" patch.
+  v1.0 sample (16 entries / 11 closes / -$140 realized) showed Dire's signal
+  works — Apr 29 entry caught a +57% peak runner — but the score 9-10 floor
+  also let through low-conviction entries that closed at protective exits.
+  v1.6 raises minScore floor 9 → 11 and requires ALL FIVE soft confirmations
+  (Volume + OI velocity + SM premium + Price cleanliness + the 4TF/SM hard
+  gates) to fire. Pattern completeness, not just score-summing.
+  Adds FP-001 quiet hours (skip 00-04 UTC unless apex) and FP-002 hard rule
+  (Claude Code conversation sessions must NOT call trading MCP tools — only
+  the producer cron may enter positions). DSL config unchanged from v1.5.
+  v1.1: conviction-scaled sizing (3x → 10x leverage by score). News-driven
+  momentum breakouts on oil. First Kodiak-family port to a non-crypto asset.
+  ISOLATED margin (required for XYZ), Wolverine execution pattern. DSL exit
+  managed by plugin runtime via runtime.yaml.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.1"
+  version: "1.6.0"
   platform: senpi
   exchange: hyperliquid
   dex: xyz
@@ -20,7 +27,7 @@ metadata:
     - senpi-trading-runtime
 ---
 
-# 🐺 DIRE v1.0 — BRENTOIL XYZ Specialist
+# 🐺 DIRE v1.6.0 — BRENTOIL XYZ Specialist
 
 One asset. News-driven. Scanner enters. DSL exits.
 
@@ -88,6 +95,45 @@ Scanner calls MCP via mcporter CLI subprocess directly. No LLM parse loop for
 entry execution. Required for news-latency-sensitive oil entries. DSL attach
 happens inline before scanner returns — if DSL attachment fails, position is
 immediately closed to prevent unprotected exposure.
+
+### RULE 11 (FP-002): User-conversation Claude sessions MUST NOT trade
+
+**This is a hard rule, not a heuristic.** When a Claude Code session is
+responding to a user message (Telegram ping, "tell me about your trades",
+status check, etc.), it MUST NOT call any of:
+
+- `create_position`
+- `close_position`
+- `edit_position`
+- `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
+- `cancel_order`
+- `strategy_close_positions` / `strategy_close`
+
+These tools are reserved for the **producer cron** (dire-scanner.py) and
+the **DSL ratchet engine**. The cron is the only entry path. The DSL is
+the only exit path. A user-conversation Claude session is read-only.
+
+If the user asks a question that implies action ("anything close to
+triggering?", "should I open a position?"), respond by reading the current
+state — but DO NOT execute. If a trade should fire, the producer cron will
+handle it on its next tick. Pattern observed across the fleet: agents have
+been opening positions immediately after user pings because their
+conversation sessions had MCP write access. This rule closes the gap.
+
+### RULE 12 (FP-001): Quiet hours for low-liquidity windows
+
+Producer skips emission during 00:00-04:00 UTC by default. xyz:BRENTOIL
+liquidity is structurally thin in that window (Asia overnight, EU pre-open).
+News catalysts can still bypass this rule: any setup scoring >= apex
+threshold (default 12) overrides the quiet-hours block.
+
+Configurable via `quietHoursStartUtc`, `quietHoursEndUtc`,
+`quietHoursApexBypassScore` in `dire-config.json`. To disable, set start
+== end (e.g. both 0).
+
+Rationale: the broader fleet showed a midnight-UTC pile-in pattern after
+daily-cap reset. For Dire specifically the bigger concern is venue
+liquidity — wide spreads + thin book = bad entries even on real signals.
 
 ---
 

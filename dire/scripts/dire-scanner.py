@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""DIRE v1.0 — BRENTOIL XYZ Specialist Scanner.
+"""DIRE v1.6.0 — BRENTOIL XYZ Specialist Scanner.
 
 Single-asset specialist on xyz:BRENTOIL. News-driven momentum breakouts on oil
 with tight DSL protection against sharp geopolitical reversals.
@@ -9,6 +9,23 @@ Execution: Wolverine pattern (Python → mcporter CLI → MCP, no LLM parse loop
 
 Scanner is authoritative. Scanner does not exit positions — DSL owns all exits.
 When a BRENTOIL position is open, scanner emits NO_REPLY.
+
+v1.6.0 (2026-05-01): "Hit fewer, win bigger" patch.
+  - minScore floor raised 9 → 11 (config). The Apr 29 +57% peak runner scored
+    11/13 with all 5 confirmations firing. The 11 closed-loss trades almost
+    certainly came from score 9-10 entries with partial confirmation. Cutting
+    those out trades frequency for conviction.
+  - All-5-confirmations gate (FP-003 candidate): even at score >= 11, require
+    each soft component (Volume, OI velocity, SM premium, Price cleanliness)
+    to contribute >= 1. Pattern-completeness check on top of score floor.
+  - FP-001 quiet hours: skip 00:00-04:00 UTC unless score >= apex (12+).
+    Oil liquidity is thin in that window; high-conviction news catalysts can
+    bypass.
+  - FP-002 enforcement is in SKILL.md (RULE 11) — Claude Code conversation
+    sessions must NOT call create_position / close_position / edit_position
+    / ratchet_stop_*. Producer cron is the ONLY entry path.
+  - DSL config unchanged. Ratchet engine state-persistence bug is upstream
+    (Senpi backend); fix is independent of this skill version.
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
@@ -47,7 +64,7 @@ from dire_config import (
     save_state,
 )
 
-VERSION = "1.2"
+VERSION = "1.6.0"
 
 
 # ─── Momentum & Signal Evaluation ────────────────────────────
@@ -290,6 +307,51 @@ def get_sm_direction(asset_data, config=None):
 
 # ─── Scoring ─────────────────────────────────────────────────
 
+# ─── v1.6.0 fleet patches ────────────────────────────────────
+
+def in_quiet_hours(config, now=None):
+    """FP-001: skip emission during low-liquidity UTC window.
+
+    Default 00:00-04:00 UTC. Returns (in_quiet_hours: bool, current_hour: int).
+    Apex setups (score >= quietHoursApexBypassScore) bypass this — news
+    catalysts can hit any time and a +12 score warrants action.
+    """
+    start = int(config.get("quietHoursStartUtc", 0))
+    end = int(config.get("quietHoursEndUtc", 4))
+    if start == end:
+        return False, -1  # disabled
+    h = (now or datetime.now(timezone.utc)).hour
+    if start < end:
+        return (start <= h < end), h
+    # wrap window (e.g. 22-04)
+    return (h >= start or h < end), h
+
+
+def all_confirmations_present(setup):
+    """FP-003 candidate: require every soft confirmation to contribute >= 1
+    in addition to clearing minScore.
+
+    The 4TF + SM hard gates are already required by evaluate_setup. This
+    additionally checks that each of (Volume, OI velocity, SM premium,
+    Price cleanliness) fired at minimum tier — i.e. the signal pattern is
+    complete, not just score-summed.
+
+    Returns (ok: bool, missing: list[str]).
+    """
+    reasons = setup.get("reasons") or []
+    needed = {
+        "VOLUME": ("VOL_SPIKE", "VOL_STRONG"),
+        "OI_VELOCITY": ("OI_VEL_BUILDING", "OI_VEL_ACCEL", "OI_VEL_FAST", "OI_VEL"),
+        "SM_PREMIUM": ("SM_PREMIUM_MOD", "SM_PREMIUM_STRONG", "SM_PREMIUM"),
+        "PRICE_CLEAN": ("CLEAN_PX",),
+    }
+    missing = []
+    for label, prefixes in needed.items():
+        if not any(any(r.startswith(p) for p in prefixes) for r in reasons):
+            missing.append(label)
+    return (not missing), missing
+
+
 def evaluate_setup(asset_data, config):
     """Full scoring pipeline for a BRENTOIL entry setup.
 
@@ -526,6 +588,15 @@ def run_scan():
         })
         return
 
+    # Gate: FP-001 quiet hours (low-liquidity UTC window).
+    # Default 00:00-04:00 UTC. Apex setups (score >= quietHoursApexBypassScore,
+    # default 12) bypass. We still SCORE the setup even in quiet hours so an
+    # apex signal can fire, but anything below apex is held until the window
+    # ends — avoids the fleet-wide 00:00-UTC pile-in pattern after daily-cap
+    # reset and reflects oil's structurally thin Asia-overnight book.
+    quiet, current_hour = in_quiet_hours(config)
+    quiet_apex_score = int(config.get("quietHoursApexBypassScore", 12))
+
     # Fetch BRENTOIL market data
     asset_data_raw = get_asset_data()
     if not asset_data_raw:
@@ -552,13 +623,45 @@ def run_scan():
         })
         return
 
-    # Score check
-    min_score = int(config.get("minScore", 9))
+    # Score check (v1.6: default raised 9 → 11; below-floor entries
+    # historically generated the realized losses)
+    min_score = int(config.get("minScore", 11))
     if setup["score"] < min_score:
         output({
             "status": "ok",
             "heartbeat": "NO_REPLY",
             "note": f"HUNTING: score_low {setup['score']}/{min_score}",
+            "direction": setup["direction"],
+            "reasons": setup["reasons"],
+            "version": VERSION,
+        })
+        return
+
+    # FP-003 candidate: require ALL soft confirmations (Volume, OI velocity,
+    # SM premium, Price cleanliness) to contribute >= 1, in addition to
+    # clearing minScore. The Apr 29 +57% peak runner had all 5 firing —
+    # this is the pattern we want to repeat.
+    if bool(config.get("requireAllConfirmations", True)):
+        ok, missing = all_confirmations_present(setup)
+        if not ok:
+            output({
+                "status": "ok",
+                "heartbeat": "NO_REPLY",
+                "note": f"HUNTING: confirmations_incomplete missing={','.join(missing)}",
+                "direction": setup["direction"],
+                "score": setup["score"],
+                "reasons": setup["reasons"],
+                "version": VERSION,
+            })
+            return
+
+    # FP-001 quiet hours — apex setups (score >= apex_bypass) override.
+    # Block sub-apex entries during the configured low-liquidity window.
+    if quiet and setup["score"] < quiet_apex_score:
+        output({
+            "status": "ok",
+            "heartbeat": "NO_REPLY",
+            "note": f"HUNTING: quiet_hours_block hour={current_hour}_UTC score={setup['score']}_below_apex_{quiet_apex_score}",
             "direction": setup["direction"],
             "reasons": setup["reasons"],
             "version": VERSION,
