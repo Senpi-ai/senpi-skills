@@ -3,7 +3,22 @@
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""PANGOLIN v2.0 Producer — Funding-fade signal emitter for v2 runtime.
+"""PANGOLIN v2.1 Producer — Funding-fade signal emitter for v2 runtime.
+
+v2.1.0 (2026-05-02 P0 hot-patch — "phantom close + duplicate emission"):
+  - get_account_value() now returns held_assets set (uppercase coin
+    symbols of any open position). Three-layer defense for held-
+    asset dedup, mirroring Scorpion v4.1.1.
+  - Producer-side filter: candidates with already-held tokens are
+    DROPPED before emission. Layer 1.
+  - Signal payload includes heldAssets list; LLM gate hard-skips
+    on duplicate. Layer 2.
+  - Runtime per_asset_cooldown_minutes 240 is layer 3 (existing).
+  - Triggered by 2026-05-02 incident: MAVIA short ballooned from
+    -38,808 → -79,493 size in 24h via repeated emission, while
+    DSL_CLOSED telegrams fired phantom closes leaving positions
+    naked. Same bug class as Scorpion v4.1.0.
+
 
 Pangolin v1.x ran as a full-agency Python scanner that:
   - Fetched market_list_instruments + leaderboard_get_markets
@@ -238,16 +253,23 @@ def save_trade_counter(tc):
 
 def get_account_value():
     """Read account value from clearinghouse for dynamic-cap math.
-    Returns (value, position_count) or (None, None) on failure."""
+    Returns (value, position_count, held_assets_set) on success or
+    (None, None, set()) on failure.
+
+    v1.5: now also returns set of held asset symbols (uppercase) for
+    held-asset dedup. Same fix family as Scorpion v4.1.1 — producer
+    must skip emission on held assets even if runtime cooldown gates
+    don't enforce, and LLM gate must hard-skip duplicates."""
     if not PANGOLIN_WALLET:
-        return None, None
+        return None, None, set()
     ch = cfg.mcporter_call("strategy_get_clearinghouse_state",
                             strategy_wallet=PANGOLIN_WALLET)
     if not ch:
-        return None, None
+        return None, None, set()
     data = ch.get("data", ch) if isinstance(ch, dict) else {}
     total_value = 0.0
     pos_count = 0
+    held = set()
     for section in ("main", "xyz"):
         s = data.get(section, {}) if isinstance(data, dict) else {}
         if not isinstance(s, dict):
@@ -258,7 +280,10 @@ def get_account_value():
             pos = ap.get("position", ap) if isinstance(ap, dict) else {}
             if safe_float(pos.get("szi", 0)) != 0:
                 pos_count += 1
-    return total_value, pos_count
+                coin = pos.get("coin")
+                if coin:
+                    held.add(str(coin).upper())
+    return total_value, pos_count, held
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -531,9 +556,13 @@ def scan_funding_extremes():
 # SIGNAL EMISSION
 # ═══════════════════════════════════════════════════════════════
 
-def build_signal_payload(c, leverage, margin_usd):
+def build_signal_payload(c, leverage, margin_usd, held_assets=None):
     """Build the payload matching runtime.yaml's pangolin_signals.config.fields schema.
-    All declared scanner fields go in `data`, NOT `meta`. (Turbine v2.0.11 lesson.)"""
+    All declared scanner fields go in `data`, NOT `meta`. (Turbine v2.0.11 lesson.)
+
+    v1.5: heldAssets list pushed to LLM gate so it can hard-skip
+    duplicates as defense layer 2 (producer dedup is layer 1)."""
+    held_list = sorted(list(held_assets)) if held_assets else []
     return {
         "address": PANGOLIN_WALLET,
         "scannerId": SCANNER_NAME,
@@ -562,9 +591,10 @@ def build_signal_payload(c, leverage, margin_usd):
             "oiUsd": float(c.get("oi_usd", 0)),
             "oiTurnover": round(c.get("oi_turnover", 0), 3),
             "reasons": " | ".join(c.get("reasons", [])),
+            "heldAssets": held_list,    # v1.5: dedup defense layer 2 (LLM gate)
         },
         "meta": {
-            "_pangolin_producer_version": "2.0.0",
+            "_pangolin_producer_version": "2.1.0",
         },
     }
 
@@ -612,7 +642,7 @@ def main():
         cfg.output({
             "status": "error",
             "error": "PANGOLIN_WALLET env var not set. Set it to the Pangolin strategy wallet (must match runtime.yaml).",
-            "_pangolin_producer_version": "2.0.0",
+            "_pangolin_producer_version": "2.1.0",
         })
         return
 
@@ -621,18 +651,19 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_pangolin_producer_version": "2.0.0",
+            "_pangolin_producer_version": "2.1.0",
         }))
         return
 
     try:
         # Read account value for dynamic-cap math + sizing
-        account_value, pos_count = get_account_value()
+        # v1.5: also pull held assets for emission-side dedup.
+        account_value, pos_count, held_assets = get_account_value()
         if account_value is None or account_value <= 0:
             cfg.output({
                 "status": "ok",
                 "note": "cannot read account value; skip tick",
-                "_pangolin_producer_version": "2.0.0",
+                "_pangolin_producer_version": "2.1.0",
             })
             return
 
@@ -644,7 +675,7 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": f"dynamic cap reached: entries {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",
-                "_pangolin_producer_version": "2.0.0",
+                "_pangolin_producer_version": "2.1.0",
             })
             return
 
@@ -654,14 +685,33 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": f"no candidates passed gates (regime={regime})",
-                "_pangolin_producer_version": "2.0.0",
+                "_pangolin_producer_version": "2.1.0",
             })
             return
 
-        # Filter cooldowns + min score
+        # v1.5: held-asset dedup is the FIRST filter. Producer must
+        # never emit a duplicate signal on an already-held position;
+        # this was the runaway-emission bug that ballooned MAVIA
+        # short from -38k → -79k size in 24h on 2026-05-02.
+        def _asset_already_held(token):
+            if not held_assets:
+                return False
+            t = str(token).upper()
+            if t in held_assets:
+                return True
+            # Tolerate "VENUE:TOKEN" or namespaced variants (defensive)
+            if ":" in t and t.split(":", 1)[1] in held_assets:
+                return True
+            return False
+
+        # Filter held + cooldown + min score
         eligible = []
+        skipped_held = 0
         for c in candidates:
             if c["score"] < MIN_SCORE:
+                continue
+            if _asset_already_held(c["token"]):
+                skipped_held += 1
                 continue
             if is_asset_cooled_down(c["token"]):
                 continue
@@ -672,7 +722,7 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": f"no candidates passed score+cooldown. best={best['token']} score={best['score']} regime={regime}",
-                "_pangolin_producer_version": "2.0.0",
+                "_pangolin_producer_version": "2.1.0",
             })
             return
 
@@ -685,7 +735,7 @@ def main():
         pushed = 0
         for c in eligible[:1]:    # only top candidate per tick
             leverage = get_leverage_for_score(c["score"])
-            payload = build_signal_payload(c, leverage, margin_usd)
+            payload = build_signal_payload(c, leverage, margin_usd, held_assets)
             if push_signal(payload):
                 pushed += 1
                 mark_asset_emitted(c["token"])
@@ -707,7 +757,7 @@ def main():
             "entries_today": tc.get("entries", 0),
             "elapsed_sec": round(elapsed, 2),
             "warn": warn,
-            "_pangolin_producer_version": "2.0.0",
+            "_pangolin_producer_version": "2.1.0",
         })
     finally:
         release_lock(lock)

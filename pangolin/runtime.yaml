@@ -7,7 +7,13 @@ name: pangolin-tracker
 # 1.x.x forever.
 version: 1.8.0
 description: >
-  PANGOLIN v2.0 — v2-runtime-native rewrite + maker-exit fee recovery.
+  PANGOLIN v2.1 — held-asset dedup hot-patch (2026-05-02 P0).
+  Producer + LLM gate now hard-skip on already-held positions.
+  Triggered by MAVIA short ballooning -38k → -79k via repeat emission.
+  Three-layer defense: producer pre-filter / LLM hard-skip / runtime
+  per_asset_cooldown. Mirrors Scorpion v4.1.1 pattern.
+
+  v2.0 — v2-runtime-native rewrite + maker-exit fee recovery.
 
   Mission unchanged from v1.7: extreme funding rate fader. Enters
   opposite to elevated funding (>0.015%/8h ≈ 20% annualized) on assets
@@ -104,6 +110,7 @@ scanners:
         oiUsd: { type: number, required: false }
         oiTurnover: { type: number, required: false }
         reasons: { type: string, required: false }                  # joined " | "
+        heldAssets: { type: array, required: false }                # v2.1: held-asset dedup defense layer 2
 
 # ── ACTIONS ──
 actions:
@@ -145,6 +152,12 @@ actions:
          - regime is "LONG_CROWDED" AND direction is "LONG" (or symmetric — fighting crowd, not fading)
          - regime is "SHORT_CROWDED" AND direction is "SHORT" (same)
          - persistenceHours < 3 (defensive — producer should never emit this)
+         - **heldAssets contains this signal's asset (any direction)** —
+           v2.1 hard skip. Pangolin must NEVER add to an existing position;
+           the 2026-05-02 incident ballooned MAVIA short from -38k → -79k
+           via repeated emission while DSL_CLOSED telegrams fired phantom
+           closes. Producer should pre-filter, but this is the LLM-side
+           defense layer 2.
 
       2. The `asset` field MUST be copied EXACTLY from the signal.
          If signal says "MAVIA" output exactly "MAVIA", not "mavia"
