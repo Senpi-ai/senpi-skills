@@ -97,7 +97,7 @@ def release_lock(lock_file):
         pass
 
 
-VERSION = "4.0.0"
+VERSION = "4.1.0"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "wolverine_signals")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 

@@ -4,7 +4,8 @@ name: wolverine-tracker
 # SKILL.md + _wolverine_producer_version. Do not set this to 4.x.x.
 version: 1.0.0
 description: >
-  WOLVERINE v4.0.0 — HYPE Alpha Hunter, v2-runtime-native rewrite.
+  WOLVERINE v4.1.0 — DSL ratchet T0/T1 patch (fleet-wide).
+  v4.0.0 — HYPE Alpha Hunter, v2-runtime-native rewrite.
 
   v3.x was a full-agency scanner with Python-side state. 292 audit
   entries on M193170, mostly schema-validation failures (silent-None
@@ -194,10 +195,17 @@ exit:
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 10, lock_hw_pct: 15 }
-        - { trigger_pct: 20, lock_hw_pct: 35 }
-        - { trigger_pct: 35, lock_hw_pct: 55 }
-        - { trigger_pct: 55, lock_hw_pct: 70 }
+        # v4.1.0 fleet-wide DSL ratchet patch (2026-05-02):
+        # Wolverine had the loosest T0 in the fleet (15% lock). Full
+        # T0/T1 overhaul: T0 lock 15→35, T1 trigger 20→17 / lock 35→55,
+        # T2 lock 55→65. Closes the 10→20 dead zone where +12% margin
+        # ROE locked only 1.8% (=2.5x giveback). Triggered by Polar
+        # ladder review — Wolverine inherited Kodiak-family ladder
+        # without the v3.x lock tightening.
+        - { trigger_pct: 10, lock_hw_pct: 35 }
+        - { trigger_pct: 17, lock_hw_pct: 55 }
+        - { trigger_pct: 35, lock_hw_pct: 65 }
+        - { trigger_pct: 55, lock_hw_pct: 75 }
         - { trigger_pct: 80, lock_hw_pct: 85 }
 
 notifications:

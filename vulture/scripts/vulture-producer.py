@@ -101,7 +101,7 @@ def release_lock(lock_file):
         pass
 
 
-VERSION = "3.0.2"
+VERSION = "3.1.0"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "vulture_signals")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 
