@@ -722,6 +722,8 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": f"no candidates passed score+cooldown. best={best['token']} score={best['score']} regime={regime}",
+                "skipped_held": skipped_held,
+                "held_assets": sorted(list(held_assets)),
                 "_pangolin_producer_version": "2.1.0",
             })
             return
@@ -750,6 +752,8 @@ def main():
             "regime": regime,
             "candidates_total": len(candidates),
             "eligible": len(eligible),
+            "skipped_held": skipped_held,
+            "held_assets": sorted(list(held_assets)),
             "signals_pushed": pushed,
             "account_value": round(account_value, 2),
             "open_positions": pos_count,
