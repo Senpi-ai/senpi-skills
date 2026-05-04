@@ -1,67 +1,8 @@
 {
+  "_comment": "CHEETAH v6.0 config — simplified for v2-runtime-native architecture. Runtime owns position tracking, daily caps, cooldowns, and drawdown gates via runtime.yaml's risk.guard_rails block. DSL tier ladder is in runtime.yaml exit.dsl_preset.phase2.tiers (no longer duplicated here). Producer reads only the few fields below. Operators set wallet/strategyId/chatId at deploy time.",
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "_version": "5.2",
-  "_description": "CHEETAH v5.2 — Multi-signal confluence sniper (over-trading fix). v5.1 shipped with 80% margin + 5% max_loss + 25-min dead_weight_cut, produced 406 fills / -28% ROI / ~$1,600 in fees. v5.2 pulls every knob toward Kodiak-family discipline: marginPct 80%→30%, MIN_SCORE 10→11, DSL loosened across every dimension. Same signal architecture, just no longer self-destructive sizing.",
-  "_thesis": "Asymmetric Arena ROE is achievable with 30% margin when signal quality is actually high. 80% margin was concentration-gambling, not sniping. v5.2 preserves the confluence thesis with survivable sizing.",
-  "startingBudget": 648,
-  "maxPositions": 1,
-  "xyzBanned": true,
-  "risk": {
-    "startingBudget": 648.0,
-    "maxLossPct": 15.0,
-    "maxDailyLossPct": 25.0
-  },
-  "leverage": {
-    "default": 5,
-    "tiers": [
-      {"minScore": 14, "leverage": 8},
-      {"minScore": 12, "leverage": 7},
-      {"minScore": 11, "leverage": 5},
-      {"minScore": 10, "leverage": 3}
-    ]
-  },
-  "entry": {
-    "minScore": 11,
-    "marginPct": 0.30,
-    "orderType": "FEE_OPTIMIZED_LIMIT",
-    "ensureExecutionAsTaker": true,
-    "executionTimeoutSeconds": 15
-  },
-  "sm": {
-    "minSmPct": 10.0,
-    "minSmTraders": 25
-  },
-  "velocity": {
-    "min15m": 1.0,
-    "min1h": 3.0,
-    "requireAccelerating": true
-  },
-  "priceConfirmation": {
-    "min4hMovePct": 2.0,
-    "requireDualConfirm": true
-  },
-  "volume": {
-    "minVolumeRatio": 2.0
-  },
-  "qualityTraders": {
-    "poolSize": 8,
-    "consistency": ["ELITE", "RELIABLE"],
-    "timeFrame": "WEEKLY",
-    "cacheMinutes": 15
-  },
-  "rankClimb": {
-    "topNFilter": 15,
-    "minClimbPerTwoScans": 5
-  },
-  "cooldown": {
-    "perAssetMinutes": 240,
-    "afterLossMinutes": 120
-  },
-  "arena": {
-    "enabled": true,
-    "minWeeklyVolumeUsd": 25000,
-    "targetTradesPerWeek": 5
-  }
+  "minScore": 10,
+  "_thesis": "Multi-signal confluence sniper. v6.0 restores MIN_SCORE 10 (from v5.2's 11) to bring back the trade flow that produced +$182 net in the v5.0/v5.1 era before over-tightening caused 8 days of zero trades."
 }

@@ -1,32 +1,109 @@
 name: cheetah-tracker
-version: 5.2.0
+# Note: top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (must be major=1). The STRATEGY/skill is "Cheetah v6.0" —
+# that lives in description + SKILL.md + _cheetah_producer_version.
+# Using version: 6.x at runtime level is rejected by the plugin as
+# "Unsupported version: 6.x". Keep this at 1.x.x forever.
+version: 1.0.0
 description: >
-  CHEETAH v5.2 — Multi-signal confluence sniper (over-trading fix).
-  v5.1 shipped with 80% margin + 5% max_loss + 25-min dead_weight_cut, which
-  produced 406 fills / -28% ROI / $1,600+ in fees. The "sniper" framing
-  was contradicted by the actual trade frequency. v5.2 pulls every knob
-  toward Kodiak-family discipline:
-    entry.marginPct 80% → 30% (kill the all-in concentration)
-    MIN_SCORE 10 → 11 (stricter bar)
-    phase1.max_loss_pct 5% → 15% (give room for volatility)
-    phase1.retrace_threshold 5 → 8
-    dead_weight_cut 25 → 60 min (let positions develop)
-    weak_peak_cut 35 → 90 min (patience before cutting)
-    hard_timeout 360 → 480 min
-  The sniper can still win asymmetric Arena ROE with 30% margin and tighter
-  score — it just won't nuke the account with one wrong call at 80%/10x.
+  CHEETAH v6.0 — Multi-signal confluence sniper, v2-runtime-native rewrite.
+
+  v5.x was a v1 full-agency Python scanner: scored signals, called
+  create_position directly, maintained Python-side counters /
+  cooldowns / resting-order guards. v6.0 flips to producer + v2
+  runtime (Polar v4.0 / Pangolin v2.1 / Vulture v3.0 pattern).
+
+  WHAT v6.0 ENABLES:
+    - Producer (cheetah-producer.py) emits signals via
+      `openclaw senpi external-scanner ingest`. NO execution code.
+    - Runtime LLM gate is pass-through (Roach pattern) — producer has
+      applied every filter; LLM only catches malformed signals.
+    - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-
+      loss halt, per-asset cooldown — no Python state to drift.
+    - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits — saves
+      ~0.020-0.030% per maker-filled close vs v5.x MARKET orders.
+      Cheetah's HYPE-era trades burned ~$206 in fees on 44 trades;
+      maker exits would have recovered $90-140 of that.
+    - Trade chain DB emits LIFECYCLE / DECISION_EXECUTED / ACTION_RESULT
+      / DSL_CREATED / DSL_CLOSED for every trade — telemetry restored.
+
+  WHAT'S PRESERVED FROM v5.2:
+    - Multi-signal confluence scoring (max 15 points, 7 components)
+    - Top-100 SM leaderboard universe (leaderboard_get_markets)
+    - Quality-trader cache (15 min, ELITE/RELIABLE)
+    - Rank-climb tracking (20-scan history)
+    - Score-scaled leverage tiers (3x at score 10, up to 8x at score 14+)
+    - get_safe_leverage() — clamps requested leverage to HL asset max
+    - XYZ banned, max 1 position, 30% margin per slot
+
+  v6.0 CHANGES vs v5.2:
+    - MIN_SCORE 11 → 10 (restore trade flow that worked in v5.0/v5.1
+      era — produced +$182 net before v5.2 over-tightened to 11
+      and caused 8 days of zero trades).
+    - Architecture v1 → v2 (producer + runtime, not full-agency scanner).
+    - FEE_OPTIMIZED_LIMIT on EXITS too (v5.2 only had it on entries).
+    - Held-asset dedup (3-layer: producer + LLM gate + runtime cooldown).
+    - Post-close cooldown (Pangolin v2.1.2 pattern; backstop for
+      runtime per_asset_cooldown_minutes silent enforcement bug).
+    - Reentrancy lockfile (fcntl).
+    - Wallet from config/cheetah-config.json (canonical source).
+
+  FLEET PATCHES NOT YET APPLIED:
+    - FP-001 quiet hours — deferred until fleet telemetry confirms
+      time-of-day P&L correlation (per Jason 2026-05-04).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 648
   slots: 1
-  margin_per_slot: 200
+  margin_per_slot: 250
+  trading_risk: moderate
   enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 25
+    max_entries_per_day: 8                # v5.2 dynamic cap upper bound
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 30
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false # avoid the next-day reset
+                                          # leak observed on Roach
+                                          # 2026-05-03 Sat-Sun bleed.
+    per_asset_cooldown_minutes: 240       # 4h — known to silently
+                                          # not-enforce on some v2
+                                          # agents; producer-side
+                                          # post-close cooldown is
+                                          # the backstop.
 
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: cheetah_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        reasons: { type: string, required: false }
+        smPct: { type: number, required: true }
+        smTraders: { type: number, required: true }
+        rank: { type: number, required: false }
+        contrib15m: { type: number, required: false }
+        contrib1h: { type: number, required: false }
+        priceChg4hPct: { type: number, required: false }
+        priceChg1hPct: { type: number, required: false }
+        volRatio: { type: number, required: false }
+        qualityAlign: { type: number, required: false }
+        rankClimb: { type: number, required: false }
+        heldAssets: { type: array, required: false }
 
 actions:
   - name: position_tracker_action
@@ -34,36 +111,141 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# v5.2 DSL — loosened across every dimension. Tight 5% max_loss at 10x
-# leverage means a 0.5% adverse price move = full stop. That's noise,
-# not thesis invalidation.
+  - name: cheetah_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${CHEETAH_DECISION_MODEL}"  # REQUIRED. BARE model name only — NO provider prefix.
+    scanners: [cheetah_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: cheetah_signals
+    decision_prompt: |
+      You are Cheetah's pass-through gate. The producer has already
+      applied EVERY filter (top-100 SM leaderboard, hard SM consensus
+      gate, hard velocity gate, multi-signal confluence scoring with
+      MIN_SCORE 10, per-asset cooldown, post-close cooldown, XYZ ban,
+      held-asset dedup, leverage clamp to HL asset max).
+      Your job is to honor the signal unless something is structurally
+      broken.
+
+      SIGNAL:
+      {{signal_cheetah_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. The `asset` MUST be copied EXACTLY from the signal's `asset`
+         field. If signal says "BTC", output "BTC", not "btc".
+      2. The `direction` MUST match the signal's `direction` field exactly.
+      3. The `leverage` MUST be copied from signal.data.leverage (already
+         clamped to HL asset max by producer's get_safe_leverage()).
+      4. Every claim in `reasoning` MUST cite values from the signal —
+         score, smPct, smTraders, contrib15m/1h, priceChg, volRatio, etc.
+         Do not fabricate.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 10 (producer floor; defensive only)
+      - leverage <= 0 OR marginUsd <= 0 (malformed signal)
+      - reasons string empty (malformed signal)
+      - heldAssets contains this signal's asset (any direction) —
+        dedup defense layer 2; producer should pre-filter, but this
+        is the LLM-side hard skip. NEVER add to an existing position.
+
+      ## CHEETAH'S THESIS
+
+      Multi-signal confluence sniper. Refuses to trade unless ALL major
+      signals align: SM consensus (>=10% of top traders, >=25 traders),
+      velocity (15m or 1h contribution rising), accelerating (15m > 1h),
+      dual price confirmation (4h >= 2% and 1h aligned), volume spike
+      (>=2x 6h avg), quality trader alignment (ELITE/RELIABLE positioned
+      same direction), and rank climb. Score 10/15 is the floor —
+      higher scores get higher leverage tiers (3x/5x/7x/8x).
+
+      Patience is the edge. Long stretches of silence are EXPECTED and
+      correct. When a signal does fire, every confluence factor has
+      lined up — be permissive with confidence.
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 13 AND quality_align >= 1 AND volume confirmed
+      - 7-8: score >= 11 AND smPct >= 12 AND dual price confirmed
+      - 7: score 10 (floor) AND smPct >= 10 AND velocity > 0
+      - <7: structurally broken (hard skip applies)
+
+      Minimum confidence to execute is 7. Cheetah's producer is strict
+      enough that any signal reaching you should clear 7. Be permissive
+      unless something is structurally broken.
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values — e.g. 'score 12 LONG ETH, SM 15.2%/57t, contrib15m 3.4 accel, 4h +3.1%/1h +1.2%, vol 2.8x, quality_align 2_traders'",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "score N CHEETAH ASSET DIR — top reason"
+            }
+          ]
+        }
+      }
+
 exit:
   engine: dsl
   interval_seconds: 30
+  # v6.0: maker-preferred exits via FEE_OPTIMIZED_LIMIT.
+  # HL taker is 0.045%, maker is 0.015% — saves ~0.020-0.030% per
+  # maker-filled close. Cheetah's pre-pivot HYPE-era burned ~$206 in
+  # fees on 44 trades; maker exits would have saved $90-140 of that.
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  # DSL preset — Cheetah is high-conviction sniper with multi-hour holds.
+  # Time cuts kept (multi-asset rotation has opportunity cost — unlike
+  # single-asset patience agents Polar/Wolverine where time cuts are
+  # disabled). Phase 2 ladder uses fleet-standard T0/T1 patch (commit
+  # 6cad383 pattern: T0 trigger 5%, lock 35%; T1 trigger 10%, lock 50%).
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 480       # v5.2: 360 → 480 (8h)
+      interval_in_minutes: 720          # 12h fail-safe
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 90        # v5.2: 35 → 90
+      interval_in_minutes: 90
       min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 60        # v5.2: 25 → 60
+      interval_in_minutes: 60           # rotation cost: cut dead weight
     phase1:
       enabled: true
-      max_loss_pct: 15.0             # v5.2: 5 → 15
-      retrace_threshold: 8           # v5.2: 5 → 8
+      max_loss_pct: 15.0
+      retrace_threshold: 6
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 6,  lock_hw_pct: 30 }
-        - { trigger_pct: 12, lock_hw_pct: 55 }
-        - { trigger_pct: 20, lock_hw_pct: 70 }
-        - { trigger_pct: 35, lock_hw_pct: 85 }
-        - { trigger_pct: 60, lock_hw_pct: 92 }
+        # Fleet-standard T0/T1 ladder (closes T0->T1 dead zone)
+        - { trigger_pct: 5,  lock_hw_pct: 35 }
+        - { trigger_pct: 10, lock_hw_pct: 50 }
+        - { trigger_pct: 20, lock_hw_pct: 65 }
+        - { trigger_pct: 35, lock_hw_pct: 80 }
+        - { trigger_pct: 50, lock_hw_pct: 90 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
