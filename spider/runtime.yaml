@@ -125,7 +125,7 @@ actions:
     decision_prompt: |
       You are Spider's regime-aware gate. The producer has applied
       every quantitative filter (top-15 SM universe, hard SM + trader
-      count gates, 4-factor composite scoring with MIN_SCORE 7.0,
+      count gates, 4-factor composite scoring with MIN_SCORE 5.5,
       LONG-only, XYZ banned, held-asset dedup, post-close cooldown,
       leverage clamped to HL asset max).
 
@@ -147,7 +147,7 @@ actions:
 
       ## HARD SKIP CONDITIONS (output execute: false)
 
-      - score < 7.0 (producer floor; defensive only)
+      - score < 5.5 (producer floor; defensive only)
       - direction != "LONG" (producer should never emit non-LONG)
       - leverage <= 0 OR marginUsd <= 0 (malformed signal)
       - heldAssets non-empty (already holding an anchor — never add)
@@ -178,9 +178,12 @@ actions:
 
       ## CONFIDENCE SCORING
 
-      - 9-10: score >= 9.0 AND arenaScore >= 3 AND fundingScore >= 1.0
+      - 9-10: score >= 8.0 AND arenaScore >= 2 AND fundingScore >= 1.0
               AND no regime concerns
-      - 7-8: score 7.0-8.9 AND no regime veto
+      - 7-8: score 6.5-7.9 AND no regime veto
+      - 7: score 5.5-6.4 (entry-level tier, MIN_SCORE floor) AND
+           SM_score >= 2.0 AND no regime concerns. Producer has
+           gated this — be permissive unless regime veto applies.
       - <7: regime veto applies (output execute: false)
 
       Minimum confidence to execute is 7. Be conservative — Spider's

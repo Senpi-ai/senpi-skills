@@ -3,7 +3,22 @@
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SPIDER v3.0.1 Producer — Single-leg patient anchor sniper, v2-runtime-native.
+"""SPIDER v3.0.2 Producer — Single-leg patient anchor sniper, v2-runtime-native.
+
+v3.0.2 (2026-05-04 — calibration relax):
+  Diagnostic of first 3 hourly scans showed arena=0.0 in every scan
+  because top-10 arena traders' positions (mostly BTC/ETH/HYPE) rarely
+  overlap with Spider's top-15 SM-leaderboard universe (mostly alts).
+  Without arena, max achievable score is SM(3.0) + Funding(1.5) +
+  RelStr(1.5) = 6.0, making MIN_SCORE 7.0 mathematically unreachable
+  most of the time. Same calibration trap Kestrel v1.x had.
+
+  v3.0.2 lowers MIN_SCORE 7.0 -> 5.5. Strong signals (full SM +
+  favorable funding + mild relstr) can now trade WITHOUT arena overlap.
+  Arena scoring still contributes when it does fire — making bigger
+  signals score 7+. Keeps the "patience is the edge" thesis intact.
+
+
 
 v3.0.1 (hot-patch, 2026-05-04):
   arena_leaderboard returns senpiUserId (M-prefix), NOT wallet addresses.
@@ -74,7 +89,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spider_config as cfg
 
 
-VERSION = "3.0.1"
+VERSION = "3.0.2"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "spider_signals")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 
@@ -144,7 +159,19 @@ def release_lock(lock_file):
 # CONSTANTS (fleet-tuned, not operator-set)
 # ═══════════════════════════════════════════════════════════════
 
-MIN_SCORE_DEFAULT = 7.0               # v3.0 anchor floor (max ~10)
+MIN_SCORE_DEFAULT = 5.5               # v3.0.2 anchor floor (was 7.0)
+                                      # Diagnostic of first 3 hourly scans showed
+                                      # arena=0.0 in every scan because top-10
+                                      # arena traders' positions (mostly BTC/ETH/
+                                      # HYPE) rarely overlap with Spider's top-15
+                                      # SM-leaderboard universe (mostly alts).
+                                      # Without arena, max achievable score is
+                                      # SM(3.0) + Funding(1.5) + RelStr(1.5) = 6.0
+                                      # — making 7.0 mathematically unreachable
+                                      # most of the time. Same calibration trap
+                                      # as Kestrel v1.x. 5.5 floor lets a strong
+                                      # signal (full SM + favorable funding +
+                                      # mild relstr) trade WITHOUT arena overlap.
 ANCHOR_UNIVERSE_SIZE = 15
 MIN_HOLD_DAYS = 7                     # 7-day min anchor hold
 POST_CLOSE_COOLDOWN_MINUTES = 7 * 24 * 60   # 7d — match min-hold

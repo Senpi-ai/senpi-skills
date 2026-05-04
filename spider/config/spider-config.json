@@ -3,6 +3,6 @@
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "minScore": 7.0,
+  "minScore": 5.5,
   "_thesis": "Spider v3.0 — patient long-anchor sniper. Holds one anchor for 7+ days, scored on arena alignment + SM consensus + funding favorability + 30d relative strength. v3.0 redesign drops the basket leg from v2.0 because the runtime doesn't implement the portfolio-level scanner/action types. Anchor-only: patience without the portfolio complexity."
 }
