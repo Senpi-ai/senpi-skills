@@ -7,9 +7,19 @@ name: pangolin-tracker
 # 1.x.x forever.
 version: 1.8.0
 description: >
-  PANGOLIN v2.1 — held-asset dedup hot-patch (2026-05-02 P0).
-  Producer + LLM gate now hard-skip on already-held positions.
-  Triggered by MAVIA short ballooning -38k → -79k via repeat emission.
+  PANGOLIN v2.1.2 — post-close thrash-cycle fix (2026-05-04).
+  Producer-side post-close cooldown 240 min. Workaround for runtime
+  guard_rails.per_asset_cooldown_minutes silent non-enforcement
+  (Senpi backend bug, also affects Scorpion v4.1.0). Diffs held_assets
+  across ticks to detect closes; skips emission for 4h after any
+  close on that asset. Becomes a defense layer once Senpi fixes the
+  runtime gate. Does NOT fix the parallel runtime-swap orphan bug
+  (separate Senpi backend issue — runtime delete+create with open
+  positions leaves them in registry/protection dead zone).
+
+  v2.1.1 — observability: skipped_held + held_assets in output JSON.
+  v2.1.0 — held-asset dedup hot-patch (2026-05-02 P0).
+  Producer + LLM gate hard-skip on already-held positions.
   Three-layer defense: producer pre-filter / LLM hard-skip / runtime
   per_asset_cooldown. Mirrors Scorpion v4.1.1 pattern.
 

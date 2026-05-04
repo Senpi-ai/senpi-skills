@@ -3,7 +3,36 @@
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""PANGOLIN v2.1 Producer — Funding-fade signal emitter for v2 runtime.
+"""PANGOLIN v2.1.2 Producer — Funding-fade signal emitter for v2 runtime.
+
+v2.1.2 (2026-05-04 — "post-close thrash-cycle fix"):
+  Workaround for runtime guard_rails.per_asset_cooldown_minutes being
+  silently non-enforcing. Pangolin's 240-min cooldown was declared
+  but ZEREBRO reopened within 3-25 min of close, repeatedly — 7
+  reopens in 36 hours. One of those reopens landed across a runtime
+  swap, where the new runtime registered the position as baseline
+  but never attached local DSL — naked exposure for ~36h.
+
+  v2.1.2 producer-side mitigation:
+    - Diff held_assets across ticks; record close timestamps when an
+      asset disappears from the held set (no audit-log dependency).
+    - New filter: is_in_post_close_cooldown(token) — skips emission
+      for POST_CLOSE_COOLDOWN_MINUTES (240) after a close.
+    - State files: state/<wallet-hash>/last-closed.json,
+      previously-held.json — atomic_write, persistent across cron runs.
+    - Output JSON now includes skipped_post_close, post_close_skips
+      with remaining_min, and closed_this_tick — operators can verify
+      the guard is firing without source-reading.
+
+  Once Senpi fixes the runtime gate, this becomes a defense layer
+  instead of the primary control. The other open Senpi bug — runtime
+  swap orphaning positions from local DSL — is NOT fixed by this
+  patch and requires backend resolution.
+
+v2.1.1 (observability fix — bundles into v2.1.2):
+  - Surface skipped_held and held_assets in cfg.output JSON sites.
+  - Fixed v2.1.0 gap where dedup counter incremented but wasn't
+    visible to operators tailing producer.log.
 
 v2.1.0 (2026-05-02 P0 hot-patch — "phantom close + duplicate emission"):
   - get_account_value() now returns held_assets set (uppercase coin
@@ -108,6 +137,10 @@ _STATE_DIR = _wallet_state_dir()
 _LOCK_PATH = _STATE_DIR / "producer.lock"
 _COOLDOWN_FILE = _STATE_DIR / "asset-cooldowns.json"
 _COUNTER_FILE = _STATE_DIR / "trade-counter.json"
+# v2.1.2: post-close cooldown (workaround for runtime
+# per_asset_cooldown_minutes silent non-enforcement).
+_LAST_CLOSED_FILE = _STATE_DIR / "last-closed.json"
+_PREV_HELD_FILE = _STATE_DIR / "previously-held.json"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -150,7 +183,12 @@ MIN_SCORE = 9                         # v1.4: raised from 7 (new persistence + r
 MIN_FUNDING_RATE = 0.00015            # v1.1: 20% annualized threshold
 MIN_OI_USD = 1_000_000                # v1.3 floor — ensures liquidity
 MIN_PERSISTENCE_HOURS = 3             # v1.4: hard gate against fresh spikes
-ASSET_COOLDOWN_MINUTES = 240          # v1 — 4h
+ASSET_COOLDOWN_MINUTES = 240          # v1 — 4h. Post-EMIT cooldown.
+POST_CLOSE_COOLDOWN_MINUTES = 240     # v2.1.2 — post-CLOSE cooldown.
+                                      # Mirrors runtime.guard_rails.per_asset_cooldown_minutes
+                                      # which is silently not enforcing in v2 runtime
+                                      # (also broken on Scorpion v4.1.0). Producer-side
+                                      # backstop until Senpi fixes the runtime gate.
 STARTING_BUDGET = 1000.0              # for dynamic-cap PnL math
 XYZ_BANNED = True                     # never trade equities
 
@@ -245,6 +283,84 @@ def load_trade_counter():
 def save_trade_counter(tc):
     tc["updatedAt"] = cfg.now_iso()
     cfg.atomic_write(str(_COUNTER_FILE), tc)
+
+
+# ═══════════════════════════════════════════════════════════════
+# v2.1.2 POST-CLOSE COOLDOWN STATE
+# ═══════════════════════════════════════════════════════════════
+# Detects close events by diffing held_assets across ticks. When an
+# asset disappears from held set (held last tick, not held this
+# tick), records a close timestamp. Producer skips emission for
+# POST_CLOSE_COOLDOWN_MINUTES from that timestamp.
+#
+# Workaround for runtime guard_rails.per_asset_cooldown_minutes
+# silently not enforcing in v2 runtime. Caused 7 ZEREBRO thrash
+# reopens between 2026-05-03 03:55 and 2026-05-04 00:19 (incident).
+# Once Senpi fixes the runtime gate, this becomes a defense layer
+# instead of the primary control.
+
+def load_last_closed():
+    try:
+        with open(_LAST_CLOSED_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_last_closed(d):
+    cfg.atomic_write(str(_LAST_CLOSED_FILE), d)
+
+
+def load_previously_held():
+    try:
+        with open(_PREV_HELD_FILE) as f:
+            data = json.load(f)
+        return set(data.get("assets", []))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+
+def save_previously_held(held):
+    payload = {
+        "assets": sorted(list(held)),
+        "updatedAt": cfg.now_iso(),
+    }
+    cfg.atomic_write(str(_PREV_HELD_FILE), payload)
+
+
+def detect_closes(current_held, previously_held):
+    """Return set of assets that were held last tick but are not held now.
+    Updates last-closed.json with current timestamp for each detected close."""
+    closed = set(previously_held) - set(current_held)
+    if not closed:
+        return set()
+    last = load_last_closed()
+    now_ts = time.time()
+    now_iso = cfg.now_iso()
+    for asset in closed:
+        last[asset] = {"closedTimestamp": now_ts, "closedAt": now_iso}
+    save_last_closed(last)
+    return closed
+
+
+def is_in_post_close_cooldown(token, cooldown_minutes=POST_CLOSE_COOLDOWN_MINUTES):
+    last = load_last_closed()
+    if token not in last:
+        return False
+    last_close = last[token].get("closedTimestamp", 0)
+    elapsed_min = (time.time() - last_close) / 60
+    return elapsed_min < cooldown_minutes
+
+
+def post_close_cooldown_remaining_min(token, cooldown_minutes=POST_CLOSE_COOLDOWN_MINUTES):
+    """For observability — minutes left in cooldown, or 0 if not cooled."""
+    last = load_last_closed()
+    if token not in last:
+        return 0
+    last_close = last[token].get("closedTimestamp", 0)
+    elapsed_min = (time.time() - last_close) / 60
+    remaining = cooldown_minutes - elapsed_min
+    return round(max(0.0, remaining), 1)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -594,7 +710,7 @@ def build_signal_payload(c, leverage, margin_usd, held_assets=None):
             "heldAssets": held_list,    # v1.5: dedup defense layer 2 (LLM gate)
         },
         "meta": {
-            "_pangolin_producer_version": "2.1.0",
+            "_pangolin_producer_version": "2.1.2",
         },
     }
 
@@ -642,7 +758,7 @@ def main():
         cfg.output({
             "status": "error",
             "error": "PANGOLIN_WALLET env var not set. Set it to the Pangolin strategy wallet (must match runtime.yaml).",
-            "_pangolin_producer_version": "2.1.0",
+            "_pangolin_producer_version": "2.1.2",
         })
         return
 
@@ -651,7 +767,7 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_pangolin_producer_version": "2.1.0",
+            "_pangolin_producer_version": "2.1.2",
         }))
         return
 
@@ -663,9 +779,17 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": "cannot read account value; skip tick",
-                "_pangolin_producer_version": "2.1.0",
+                "_pangolin_producer_version": "2.1.2",
             })
             return
+
+        # v2.1.2: detect close events by diffing held_assets against
+        # last tick's held set. Anything that disappeared just closed.
+        # Record close timestamp into last-closed.json so the next
+        # candidate filter can apply post-close cooldown.
+        previously_held = load_previously_held()
+        closed_this_tick = detect_closes(held_assets, previously_held)
+        save_previously_held(held_assets)
 
         # Producer-side dynamic daily cap (v1 carryover; runtime ceiling at 12)
         tc = load_trade_counter()
@@ -675,7 +799,7 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": f"dynamic cap reached: entries {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",
-                "_pangolin_producer_version": "2.1.0",
+                "_pangolin_producer_version": "2.1.2",
             })
             return
 
@@ -685,7 +809,7 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": f"no candidates passed gates (regime={regime})",
-                "_pangolin_producer_version": "2.1.0",
+                "_pangolin_producer_version": "2.1.2",
             })
             return
 
@@ -704,14 +828,27 @@ def main():
                 return True
             return False
 
-        # Filter held + cooldown + min score
+        # v2.1.2: filter order — held > post-close-cooldown > emit-cooldown > score.
+        # Held first (cheapest, prevents pyramiding); post-close blocks
+        # the thrash-cycle bug (asset just closed, runtime per-asset
+        # cooldown isn't enforcing); emit-cooldown is the v1 emission
+        # debounce; min score is last.
         eligible = []
         skipped_held = 0
+        skipped_post_close = 0
+        post_close_skips = []   # observability detail per skipped token
         for c in candidates:
             if c["score"] < MIN_SCORE:
                 continue
             if _asset_already_held(c["token"]):
                 skipped_held += 1
+                continue
+            if is_in_post_close_cooldown(c["token"]):
+                skipped_post_close += 1
+                post_close_skips.append({
+                    "token": c["token"],
+                    "remaining_min": post_close_cooldown_remaining_min(c["token"]),
+                })
                 continue
             if is_asset_cooled_down(c["token"]):
                 continue
@@ -721,10 +858,13 @@ def main():
             best = candidates[0]
             cfg.output({
                 "status": "ok",
-                "note": f"no candidates passed score+cooldown. best={best['token']} score={best['score']} regime={regime}",
+                "note": f"no candidates passed filters. best={best['token']} score={best['score']} regime={regime}",
                 "skipped_held": skipped_held,
+                "skipped_post_close": skipped_post_close,
+                "post_close_skips": post_close_skips,
+                "closed_this_tick": sorted(list(closed_this_tick)),
                 "held_assets": sorted(list(held_assets)),
-                "_pangolin_producer_version": "2.1.0",
+                "_pangolin_producer_version": "2.1.2",
             })
             return
 
@@ -753,6 +893,9 @@ def main():
             "candidates_total": len(candidates),
             "eligible": len(eligible),
             "skipped_held": skipped_held,
+            "skipped_post_close": skipped_post_close,
+            "post_close_skips": post_close_skips,
+            "closed_this_tick": sorted(list(closed_this_tick)),
             "held_assets": sorted(list(held_assets)),
             "signals_pushed": pushed,
             "account_value": round(account_value, 2),
@@ -761,7 +904,7 @@ def main():
             "entries_today": tc.get("entries", 0),
             "elapsed_sec": round(elapsed, 2),
             "warn": warn,
-            "_pangolin_producer_version": "2.1.0",
+            "_pangolin_producer_version": "2.1.2",
         })
     finally:
         release_lock(lock)
