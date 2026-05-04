@@ -1,32 +1,91 @@
 name: kestrel-tracker
-version: 1.1.1
+# Top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (must be major=1). Strategy/skill is "Kestrel v2.0" —
+# that lives in description + SKILL.md + _kestrel_producer_version.
+version: 1.0.0
 description: >
-  KESTREL v1.1.1 — SILVER asset bug fix (2026-05-04). v1.1 hardcoded
-  SILVER in ALLOWED_ASSETS but Hyperliquid does not support a SILVER
-  ticker; any >1.5% trigger on SILVER would pass to LLM execution and
-  crash with "Invalid coin" error, wasting the LLM scan slot. v1.1.1
-  removes SILVER from the list. Proper long-term fix: validate
-  ALLOWED_ASSETS against market_list_instruments on startup (PR pending).
+  KESTREL v2.0.0 — XYZ Macro Breakout Rider, v2-runtime-native rewrite.
 
-  KESTREL v1.1 — XYZ Macro Breakout Rider (trailing-4H + exhaustion
-  penalty). Detects >1.5% hourly price breakouts on commodities, metals,
-  indices, and equities 24/7. Rides the macro trend with wide DSL.
-  v1.1 fixes late-FOMO entries: trailing-4H calculation (1H-candle
-  based, not grid-based) + MOVE_EXHAUSTION_PENALTY (-2 pts when 4H
-  move in breakout direction is ≥4%, -1 pt when ≥2.5%). Price action
-  primary, SM confirmation secondary.
+  v1.x was a v1 full-agency Python scanner: scored signals, called
+  create_position directly, maintained Python-side counters/cooldowns.
+  v2.0 flips to producer + v2 runtime (Cheetah v6.0 / Spider v3.0 /
+  Pangolin v2.1 pattern).
+
+  WHAT v2.0 ENABLES:
+    - Producer (kestrel-producer.py) emits signals via
+      `openclaw senpi external-scanner ingest`. NO execution code.
+    - Runtime LLM gate is regime-aware — applies macro vetoes
+      (BTC drawdown propagating to risk-off equities, vol expansion
+      spikes) that the producer can't see.
+    - risk.guard_rails ENFORCES daily caps, drawdown halt,
+      consecutive-loss halt, per-asset cooldown.
+    - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits with
+      ensure_execution_as_taker:true (fixes v1.x's resting-on-book bug
+      seen on Kodiak v6.0 — "ensureExecutionAsTaker:false" caused
+      orders to rest on book indefinitely).
+    - Trade chain DB emits LIFECYCLE / DECISION_EXECUTED /
+      ACTION_RESULT / DSL_CREATED / DSL_CLOSED — telemetry restored.
+
+  WHAT'S PRESERVED FROM v1.1.1:
+    - 12-asset macro universe (CL, BRENTOIL, GOLD, SP500, XYZ100,
+      AAPL, NVDA, GOOGL, TSLA, AMZN, META, MSFT) — SILVER removed
+    - Hard gate: 1H price move >= 1.5%
+    - Volume surge, SM concentration, funding alignment scoring
+    - MOVE_EXHAUSTION penalty pattern
+    - 24/7 trading (no market hours gate — HL XYZ trades all hours)
+
+  v2.0 CALIBRATION CHANGES (from v1.2 analysis):
+    - 1H base scores +1 across the board (1.5%->+3, 2%->+4, 3%->+5)
+    - MOVE_EXHAUSTION threshold 4%->6%, MOVE_TIRING 2.5%->4%.
+      v1.1's penalties cancelled out 4H alignment on most trades.
+    - MIN_SCORE 6 -> 5 (modest relaxation)
+    - Spread gate 0.2% -> 0.35% (XYZ tickers have wider natural spreads)
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
-  slots: 2
-  margin_per_slot: 300
+  slots: 2                                    # 2-position macro book
+  margin_per_slot: 300                        # 30% per slot
+  trading_risk: moderate
   enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 12                   # upper bound; producer dynamic-cap below
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 30
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false     # Roach Sat-Sun bleed lesson
+    per_asset_cooldown_minutes: 180           # 3h between same-asset entries
 
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: kestrel_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        rawAsset: { type: string, required: true }
+        pct1h: { type: number, required: true }
+        pct4h: { type: number, required: false }
+        smPct: { type: number, required: false }
+        smTraders: { type: number, required: false }
+        smDir: { type: string, required: false }
+        fundingRate: { type: number, required: false }
+        spreadPct: { type: number, required: false }
+        reasons: { type: string, required: false }
+        heldAssets: { type: array, required: false }
 
 actions:
   - name: position_tracker_action
@@ -34,37 +93,150 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# Wide DSL — macro trends on commodities/equities persist for hours/days.
-# Unlike crypto contrarian, this is MOMENTUM — ride the trend.
-# Dead weight cut catches false breakouts early.
+  - name: kestrel_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${KESTREL_DECISION_MODEL}"  # REQUIRED. BARE model name only — NO provider prefix.
+    scanners: [kestrel_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # v2.0 — was false in v1.x; forced taker fallback after 60s ALO timeout (Kodiak v6.0.1 lesson)
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: kestrel_signals
+    decision_prompt: |
+      You are Kestrel's regime-aware gate. The producer has applied
+      every quantitative filter (XYZ asset universe, hard 1H breakout
+      >= 1.5%, score with 1H magnitude / 4H trend / volume / SM /
+      funding / spread, MIN_SCORE 5, per-asset cooldown 180min,
+      held-asset dedup, post-close cooldown, leverage clamped).
+
+      Your job is to evaluate REGIME conditions the producer doesn't
+      see, and either honor the signal or veto it. Kestrel trades
+      macro assets (commodities, indices, equities) 24/7 on
+      Hyperliquid XYZ DEX.
+
+      SIGNAL:
+      {{signal_kestrel_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. The `asset` field MUST be the value from signal.asset (with
+         "xyz:" prefix already applied). Copy exactly.
+      2. The `direction` MUST match signal.direction.
+      3. The `leverage` MUST be copied from signal.data.leverage
+         (3x or 5x score-tiered).
+      4. Every claim in `reasoning` MUST cite signal values
+         (pct1h, pct4h, smPct, fundingRate, etc.). Do not fabricate.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 5 (producer floor; defensive only)
+      - leverage <= 0 OR marginUsd <= 0 (malformed signal)
+      - heldAssets contains the rawAsset (defense-in-depth)
+      - reasons string empty (malformed)
+
+      ## REGIME VETOES (use general macro knowledge + signal data)
+
+      Veto with execute: false if:
+        - rawAsset is in {AAPL, NVDA, GOOGL, TSLA, AMZN, META, MSFT, SP500, XYZ100}
+          AND signal direction is LONG AND BTC has dropped >7% in 24h
+          (equity-tech sell-off correlates strongly with crypto liquidations
+          in this regime).
+        - rawAsset is GOLD or BRENTOIL/CL AND signal direction is SHORT
+          AND a major geopolitical risk event is unfolding (operator
+          override — agent should be conservative on safe-haven shorts
+          during crisis windows).
+        - The signal's pct1h is in conflict with pct4h beyond
+          reasonable: e.g., pct1h >= +3% but pct4h <= -3% suggests a
+          mean-reversion countertrend rather than a continuation
+          breakout (regime mismatch).
+
+      Otherwise honor the signal.
+
+      ## KESTREL'S THESIS
+
+      Macro 1H breakout rider. When a commodity/index/equity moves
+      >=1.5% in an hour with volume confirmation, the move usually
+      continues for 1-3 hours. DSL Phase 1 max_loss / Phase 2 ladder
+      manage exits. Wide spreads on XYZ are normal — accepted up to
+      0.35%.
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 9 (5x leverage tier) AND pct4h confirms AND
+        volume surge AND no regime concerns
+      - 7-8: score 7-8 AND clean breakout pattern
+      - 7: score 5-6 (3x leverage tier) AND no regime veto
+      - <7: regime veto applies (output execute: false)
+
+      Minimum confidence to execute is 7. Be moderately permissive —
+      Kestrel's producer is strict enough that any signal reaching
+      you has cleared real gates.
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values — e.g. 'score 7 LONG xyz:NVDA, 1H +2.1%, 4H +1.4% aligned, vol 1.8x, SM 0.5% (12t), spread 0.18% — clean breakout, no regime concerns'",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY (with xyz: prefix)",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "kestrel xyz-breakout"
+            }
+          ]
+        }
+      }
+
 exit:
   engine: dsl
   interval_seconds: 30
+  # v2.0: maker-preferred exits via FEE_OPTIMIZED_LIMIT.
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  # DSL preset — Kestrel is a macro breakout rider. Wide DSL because
+  # macro trends on commodities/equities persist hours-to-days, not
+  # minutes-to-hours like crypto. Dead weight cut catches false
+  # breakouts within 45min. Phase 2 ladder uses fleet-standard pattern.
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 480
+      interval_in_minutes: 480              # 8h fail-safe
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 180
-      min_value: 3.0
+      interval_in_minutes: 60
+      min_value: 2.0
     dead_weight_cut:
       enabled: true
       interval_in_minutes: 45
     phase1:
       enabled: true
-      max_loss_pct: 20.0
-      retrace_threshold: 10
+      max_loss_pct: 18.0
+      retrace_threshold: 8
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 3,  lock_hw_pct: 15 }
-        - { trigger_pct: 7,  lock_hw_pct: 30 }
-        - { trigger_pct: 12, lock_hw_pct: 50 }
+        # Fleet-standard T0/T1 ladder
+        - { trigger_pct: 5,  lock_hw_pct: 35 }
+        - { trigger_pct: 10, lock_hw_pct: 50 }
         - { trigger_pct: 20, lock_hw_pct: 65 }
-        - { trigger_pct: 30, lock_hw_pct: 80 }
+        - { trigger_pct: 35, lock_hw_pct: 80 }
         - { trigger_pct: 50, lock_hw_pct: 90 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
