@@ -539,7 +539,7 @@ def build_signal_payload(s):
             "marginUsd": DEFAULT_MARGIN_USD,
         },
         "meta": {
-            "_roach_producer_version": "2.0.0",
+            "_roach_producer_version": "2.1.0",
         },
     }
 
@@ -589,7 +589,7 @@ def main():
         cfg.output({
             "status": "error",
             "error": "ROACH_WALLET env var not set. Set it to the Roach strategy wallet (must match runtime.yaml).",
-            "_roach_producer_version": "2.0.0",
+            "_roach_producer_version": "2.1.0",
         })
         return
 
@@ -598,7 +598,7 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_roach_producer_version": "2.0.0",
+            "_roach_producer_version": "2.1.0",
         }))
         return
 
@@ -609,7 +609,7 @@ def main():
             cfg.output({
                 "status": "error",
                 "error": "failed to fetch markets",
-                "_roach_producer_version": "2.0.0",
+                "_roach_producer_version": "2.1.0",
             })
             return
 
@@ -640,7 +640,7 @@ def main():
                 "scansInHistory": len(history["scans"]),
                 "candidates": 0,
                 "elapsed_sec": round(elapsed, 2),
-                "_roach_producer_version": "2.0.0",
+                "_roach_producer_version": "2.1.0",
             })
             return
 
@@ -662,7 +662,7 @@ def main():
             "signals_pushed": pushed,
             "elapsed_sec": round(elapsed, 2),
             "warn": warn,
-            "_roach_producer_version": "2.0.0",
+            "_roach_producer_version": "2.1.0",
         })
     finally:
         release_lock(lock)
