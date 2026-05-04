@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Senpi KESTREL Scanner v1.1
+# Senpi KESTREL Scanner v1.1.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
@@ -44,7 +44,7 @@ This is a MOMENTUM strategy on XYZ, not a contrarian one. Commodity
 trends persist — oil doesn't mean-revert after a war starts.
 
 Design:
-- Watch commodities (CL, BRENTOIL, GOLD, SILVER) + indices (SP500, XYZ100)
+- Watch commodities (CL, BRENTOIL, GOLD) + indices (SP500, XYZ100) — v1.1.1: SILVER removed (unsupported on HL)
   + high-volume equities (AAPL, NVDA, GOOGL, TSLA, AMZN)
 - Trigger: 1H price move >1.5% (breakout detected)
 - Confirmation: SM building in breakout direction (early, not exhausted)
@@ -68,11 +68,16 @@ import kestrel_config as cfg
 
 # ── CONFIGURATION ──
 # Commodities + precious metals + indices + high-volume equities
+# v1.1.1 (2026-05-04): SILVER removed. Hyperliquid does NOT support a
+# SILVER ticker; if the >1.5% gate triggered on SILVER the scanner
+# would pass it to LLM execution and crash with "Invalid coin" error.
+# Wasted LLM scan slot per occurrence. Proper long-term fix: validate
+# ALLOWED_ASSETS against market_list_instruments on startup (PR pending).
 ALLOWED_ASSETS = {
     # Commodities
     "CL", "BRENTOIL",
     # Precious metals
-    "GOLD", "SILVER",
+    "GOLD",
     # Indices
     "SP500", "XYZ100",
     # High-volume equities
@@ -498,7 +503,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_kestrel_version": "1.2",
+                "_kestrel_version": "1.1.1",
             })
             return
         else:
@@ -509,7 +514,7 @@ def run():
                            "score": cand["score"],
                            "reasons": cand["reasons"]},
                 "error": result,
-                "_kestrel_version": "1.2",
+                "_kestrel_version": "1.1.1",
             })
             return
 

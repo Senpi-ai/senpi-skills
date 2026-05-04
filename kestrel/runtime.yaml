@@ -1,6 +1,13 @@
 name: kestrel-tracker
-version: 1.1.0
+version: 1.1.1
 description: >
+  KESTREL v1.1.1 — SILVER asset bug fix (2026-05-04). v1.1 hardcoded
+  SILVER in ALLOWED_ASSETS but Hyperliquid does not support a SILVER
+  ticker; any >1.5% trigger on SILVER would pass to LLM execution and
+  crash with "Invalid coin" error, wasting the LLM scan slot. v1.1.1
+  removes SILVER from the list. Proper long-term fix: validate
+  ALLOWED_ASSETS against market_list_instruments on startup (PR pending).
+
   KESTREL v1.1 — XYZ Macro Breakout Rider (trailing-4H + exhaustion
   penalty). Detects >1.5% hourly price breakouts on commodities, metals,
   indices, and equities 24/7. Rides the macro trend with wide DSL.
