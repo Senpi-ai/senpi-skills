@@ -4,7 +4,12 @@ name: polar-tracker
 # SKILL.md + _polar_producer_version. Do not set this to 4.x.x.
 version: 1.0.0
 description: >
-  POLAR v4.1.0 — DSL ratchet T0/T1 patch (fleet-wide).
+  POLAR v4.2.0 — MIN_SCORE 14 → 12 calibration restore (2026-05-04).
+  v4.0/v4.1 silently regressed to v3.0's MIN_SCORE 14 floor which
+  was diagnosed as over-strict (v3.0 sample: 16 trades/10 days/-$72).
+  v2.5 ran on MIN_SCORE 12 successfully — restored.
+
+  v4.1.0 — DSL ratchet T0/T1 patch (fleet-wide).
   v4.0.0 — ETH Alpha Hunter, v2-runtime-native rewrite.
 
   v3.x was a full-agency scanner: scored signals, tracked counters, called
@@ -29,7 +34,9 @@ description: >
     - Hyperfeed SM gates: pct≥5%, traders≥30, cc_15m≥0.3 acceleration
     - Structural gates: 4h trend != NEUTRAL, matches SM direction, 1h
       matches 4h, 15m momentum aligned, RSI 26-74 band
-    - Multi-factor scoring (~17 max points, MIN_SCORE 14)
+    - Multi-factor scoring (~17 max points, MIN_SCORE 12) — v4.2
+      restored from v4.0/v4.1's accidental 14 (over-strict per v3.0
+      "16 trades / 10 days / -$72" lesson)
     - Conviction-tiered leverage: 5x standard / 7x conviction / 10x apex
     - DSL preset preserved exactly (proved correct on 2026-04-23 ETH
       Short that locked +$71.15 via Phase 2 Tier 1; the time-cuts that
@@ -127,7 +134,7 @@ actions:
       You are Polar's pass-through gate. The producer has already
       applied EVERY filter (Hyperfeed SM gates, 4h structural trend,
       1h structural confirmation, 15m momentum alignment, RSI band,
-      base-tech floor, multi-factor scoring with MIN_SCORE 14).
+      base-tech floor, multi-factor scoring with MIN_SCORE 12).
       Your job is to honor the signal unless something is structurally
       broken.
 
@@ -145,7 +152,7 @@ actions:
 
       ## HARD SKIP CONDITIONS (output execute: false)
 
-      - score < 14 (producer floor; defensive only)
+      - score < 12 (producer floor; defensive only)
       - leverage <= 0 OR signal data missing (malformed)
       - heldAssets already contains "ETH" (duplicate position)
       - reasons array empty (malformed signal)
@@ -161,10 +168,10 @@ actions:
 
       - 9-10: score >= 17 (apex tier, 10x leverage) AND SM_DOMINANT
         AND 4h trend strong AND no MOVE_EXHAUSTION
-      - 7-8: score >= 15 (conviction tier, 7x leverage) AND SM_STRONG+
+      - 7-8: score >= 14 (conviction tier, 7x leverage) AND SM_STRONG+
         AND 1h confirms AND OI rising/accelerating
-      - 7: score 14 (standard tier, 5x leverage) — producer has gated
-        this. Honor it unless a hard-skip applies.
+      - 7: score 12-13 (standard tier, 5x leverage) — producer has
+        gated this. Honor it unless a hard-skip applies.
       - <7: producer floor not cleared — should never reach you.
 
       Minimum confidence to execute is 7. Polar's single-asset patience

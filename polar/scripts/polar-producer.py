@@ -32,7 +32,8 @@ WHAT'S PRESERVED FROM v3.0.6:
     concentration, SM velocity, SM accelerating, trader depth,
     funding, OI velocity, BTC correlation, RSI room, 4h momentum,
     move-exhaustion penalty)
-  - MIN_SCORE = 14 (default; config-overridable)
+  - MIN_SCORE = 12 (default; config-overridable). v4.2 restored from
+    v4.0/v4.1's 14 (which silently regressed v3.0's over-strict floor).
   - Conviction-tiered leverage (5x standard / 7x conviction / 10x apex)
   - DSL preset: time-cuts disabled, Phase 1 max_loss 25% / retrace 8 /
     3 breaches, Phase 2 leverage-aware ladder
@@ -100,7 +101,7 @@ def release_lock(lock_file):
         pass
 
 
-VERSION = "4.1.0"
+VERSION = "4.2.0"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "polar_signals")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 
@@ -125,7 +126,15 @@ STRATEGY_ADDRESS = _resolve_wallet()
 # ═══════════════════════════════════════════════════════════════
 
 ASSET = "ETH"
-MIN_SCORE_DEFAULT = 14            # config-overridable via "minScore"
+MIN_SCORE_DEFAULT = 12            # config-overridable via "minScore"
+                                  # v4.2 (2026-05-04): 14 → 12. v4.0/v4.1
+                                  # accidentally regressed to v3.0's
+                                  # MIN_SCORE 14 which was diagnosed as
+                                  # over-strict (v3.0 sample: 16 trades /
+                                  # 10 days / -$72 — too few entries).
+                                  # v2.5's MIN_SCORE 12 produced ETH LONG
+                                  # +$83 winner alongside acceptable
+                                  # frequency. Restored.
 
 # Hard gates (v3.x — proven calibrated)
 MIN_SM_ACCEL_PCT = 0.3
