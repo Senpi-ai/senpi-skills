@@ -3,7 +3,15 @@
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""PANGOLIN v2.1.2 Producer — Funding-fade signal emitter for v2 runtime.
+"""PANGOLIN v2.2.0 Producer — Funding-fade signal emitter for v2 runtime.
+
+v2.2.0 (2026-05-04 — "DSL T0 ladder calibration"):
+  Chain DB analysis of 6 ACCEPTED trades showed 4 of 4 ZEREBRO winners
+  peaked at 6.7-9.7% margin ROE — never engaged Phase 2 (T0 was 12%).
+  All 4 closed via dsl_breach giving back to negative ROE; only funding
+  accrual saved them from being net losses. Lowered T0 from 12 to 8
+  (catches 8-9.7% peaks); T1 from 20 to 16 (closes T0→T1 gap).
+  No producer code changes — runtime.yaml DSL preset only.
 
 v2.1.2 (2026-05-04 — "post-close thrash-cycle fix"):
   Workaround for runtime guard_rails.per_asset_cooldown_minutes being
@@ -710,7 +718,7 @@ def build_signal_payload(c, leverage, margin_usd, held_assets=None):
             "heldAssets": held_list,    # v1.5: dedup defense layer 2 (LLM gate)
         },
         "meta": {
-            "_pangolin_producer_version": "2.1.2",
+            "_pangolin_producer_version": "2.2.0",
         },
     }
 
@@ -758,7 +766,7 @@ def main():
         cfg.output({
             "status": "error",
             "error": "PANGOLIN_WALLET env var not set. Set it to the Pangolin strategy wallet (must match runtime.yaml).",
-            "_pangolin_producer_version": "2.1.2",
+            "_pangolin_producer_version": "2.2.0",
         })
         return
 
@@ -767,7 +775,7 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_pangolin_producer_version": "2.1.2",
+            "_pangolin_producer_version": "2.2.0",
         }))
         return
 
@@ -779,7 +787,7 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": "cannot read account value; skip tick",
-                "_pangolin_producer_version": "2.1.2",
+                "_pangolin_producer_version": "2.2.0",
             })
             return
 
@@ -799,7 +807,7 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": f"dynamic cap reached: entries {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",
-                "_pangolin_producer_version": "2.1.2",
+                "_pangolin_producer_version": "2.2.0",
             })
             return
 
@@ -809,7 +817,7 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": f"no candidates passed gates (regime={regime})",
-                "_pangolin_producer_version": "2.1.2",
+                "_pangolin_producer_version": "2.2.0",
             })
             return
 
@@ -864,7 +872,7 @@ def main():
                 "post_close_skips": post_close_skips,
                 "closed_this_tick": sorted(list(closed_this_tick)),
                 "held_assets": sorted(list(held_assets)),
-                "_pangolin_producer_version": "2.1.2",
+                "_pangolin_producer_version": "2.2.0",
             })
             return
 
@@ -904,7 +912,7 @@ def main():
             "entries_today": tc.get("entries", 0),
             "elapsed_sec": round(elapsed, 2),
             "warn": warn,
-            "_pangolin_producer_version": "2.1.2",
+            "_pangolin_producer_version": "2.2.0",
         })
     finally:
         release_lock(lock)

@@ -7,6 +7,13 @@ name: pangolin-tracker
 # 1.x.x forever.
 version: 1.8.0
 description: >
+  PANGOLIN v2.2.0 — DSL T0 ladder calibration (2026-05-04).
+  Chain DB analysis of 6 ACCEPTED trades showed 4/4 ZEREBRO winners
+  peaked at 6.7-9.7% margin ROE — never engaged Phase 2 (T0 was 12%).
+  All exited via dsl_breach giving back to negative ROE; only funding
+  accrual saved them. v2.2 lowers T0 to 8 (catches 8-9.7% peaks),
+  T1 to 16 (closes T0→T1 gap). Same fleet T0 ladder pattern.
+
   PANGOLIN v2.1.2 — post-close thrash-cycle fix (2026-05-04).
   Producer-side post-close cooldown 240 min. Workaround for runtime
   guard_rails.per_asset_cooldown_minutes silent non-enforcement
@@ -252,8 +259,15 @@ exit:
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 12, lock_hw_pct: 50 }   # 4% price move at 3x before Phase 2 arms
-        - { trigger_pct: 20, lock_hw_pct: 70 }
+        # v2.2 (2026-05-04) — T0 trigger 12→8, T1 trigger 20→16.
+        # Chain analysis of 6 ACCEPTED trades showed 4 of 4 ZEREBRO winners
+        # peaked at 6.7-9.7% margin ROE — never engaged Phase 2 (T0 was 12).
+        # All 4 closed via dsl_breach giving back to negative ROE; only
+        # funding accrual saved them. Lowering T0 to 8% catches the 8-9.7%
+        # peaks. Locks 50% of HW at +8% peak = +4% margin ROE locked vs
+        # current 0% (no lock). T1 16/65 closes T0→T1 dead zone.
+        - { trigger_pct: 8,  lock_hw_pct: 50 }   # ~2.7% price move at 3x
+        - { trigger_pct: 16, lock_hw_pct: 65 }   # tightened gap from 20
         - { trigger_pct: 30, lock_hw_pct: 85 }
         - { trigger_pct: 50, lock_hw_pct: 92 }   # monster funding unwind trail
 
