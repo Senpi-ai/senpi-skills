@@ -3,7 +3,19 @@
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SPIDER v3.0 Producer — Single-leg patient anchor sniper, v2-runtime-native.
+"""SPIDER v3.0.1 Producer — Single-leg patient anchor sniper, v2-runtime-native.
+
+v3.0.1 (hot-patch, 2026-05-04):
+  arena_leaderboard returns senpiUserId (M-prefix), NOT wallet addresses.
+  v3.0.0 passed M-IDs to leaderboard_get_trader_positions which rejected
+  them silently (TRADER_NOT_FOUND), making arenaScore=0 for every asset
+  and capping any candidate score at ~6. With MIN_SCORE 7.0, Spider
+  could never trade in v3.0.0. v3.0.1 resolves senpiUserIds to strategy
+  wallets via strategy_list({userIds:[...], status:["ACTIVE"]}) before
+  querying positions. Per-user asset deduping prevents over-counting
+  when a user has multiple ACTIVE strategies.
+
+
 
 v2.0 was an elaborate 2-leg portfolio operator (anchor + basket) with
 custom scanner types (`composite_score`, `portfolio_snapshot`,
@@ -62,7 +74,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spider_config as cfg
 
 
-VERSION = "3.0.0"
+VERSION = "3.0.1"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "spider_signals")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 
@@ -440,7 +452,17 @@ def fetch_sm_markets():
 
 
 def fetch_arena_long_exposure():
-    """Returns asset -> count of arena top-10 traders long that asset."""
+    """Returns asset -> count of arena top-10 traders long that asset.
+
+    v3.0.1 fix: arena_leaderboard returns senpiUserId (M-prefix) NOT
+    wallet addresses. We must resolve userId -> strategyWalletAddress
+    via strategy_list before querying positions. The original v3.0.0
+    code passed M-IDs to leaderboard_get_trader_positions which
+    rejected them with TRADER_NOT_FOUND, silently returning arenaScore
+    0 for every asset and capping any candidate score at ~6 (below
+    MIN_SCORE 7.0). Spider could never trade in v3.0.0.
+    """
+    # Step 1: pull arena top-10 senpiUserIds
     try:
         raw = cfg.mcporter_call("arena_leaderboard", limit=10)
     except Exception:
@@ -451,43 +473,109 @@ def fetch_arena_long_exposure():
     if isinstance(raw, dict):
         data = raw.get("data", raw)
         if isinstance(data, dict):
-            traders = data.get("traders", data.get("leaderboard", []))
+            traders = data.get("traders", data.get("leaderboard", data.get("entries", [])))
         elif isinstance(data, list):
             traders = data
-    addresses = []
-    for t in traders:
-        if isinstance(t, dict):
-            addr = str(t.get("address", t.get("strategyWalletAddress", "")) or "").lower()
-            if addr:
-                addresses.append(addr)
+    elif isinstance(raw, list):
+        traders = raw
 
+    user_ids = []
+    for t in traders:
+        if not isinstance(t, dict):
+            continue
+        uid = str(t.get("senpiUserId") or t.get("userId") or t.get("user_id") or "").strip()
+        if uid:
+            user_ids.append(uid)
+
+    if not user_ids:
+        return {}
+
+    # Step 2: resolve senpiUserIds -> strategy wallets via strategy_list.
+    # Each user can have multiple strategies; we take all ACTIVE strategies
+    # and aggregate positions. Per-asset counts are deduplicated per user
+    # (one user can't double-count for the same asset across multiple of
+    # their strategies).
+    try:
+        strategies_raw = cfg.mcporter_call(
+            "strategy_list",
+            userIds=user_ids,
+            status=["ACTIVE"],
+        )
+    except Exception:
+        return {}
+    if not strategies_raw:
+        return {}
+
+    strategies = []
+    if isinstance(strategies_raw, dict):
+        sd = strategies_raw.get("data", strategies_raw)
+        if isinstance(sd, dict):
+            strategies = sd.get("strategies", sd.get("results", []))
+            if not isinstance(strategies, list):
+                strategies = []
+        elif isinstance(sd, list):
+            strategies = sd
+    elif isinstance(strategies_raw, list):
+        strategies = strategies_raw
+
+    # Build user_id -> [wallet, ...] map
+    user_to_wallets = {}
+    for s in strategies:
+        if not isinstance(s, dict):
+            continue
+        uid = str(s.get("userId") or s.get("senpiUserId") or s.get("user_id") or "").strip()
+        wallet = str(
+            s.get("strategyWalletAddress")
+            or s.get("walletAddress")
+            or s.get("strategy_wallet_address")
+            or ""
+        ).lower().strip()
+        if uid and wallet and wallet.startswith("0x"):
+            user_to_wallets.setdefault(uid, []).append(wallet)
+
+    if not user_to_wallets:
+        return {}
+
+    # Step 3: for each user, fetch positions across their strategies.
+    # Track per-user asset-direction sets to dedupe (one count per user).
     long_count = {}
-    for addr in addresses:
-        positions_data = cfg.mcporter_call("leaderboard_get_trader_positions", trader_id=addr)
-        if not positions_data:
+    for uid in user_ids:
+        wallets = user_to_wallets.get(uid, [])
+        if not wallets:
             continue
-        positions = []
-        if isinstance(positions_data, dict):
-            d = positions_data.get("data", positions_data)
-            if isinstance(d, dict):
-                positions = d.get("positions", d.get("top_positions", []))
-            elif isinstance(d, list):
-                positions = d
-        if not isinstance(positions, list):
-            continue
-        for pos in positions:
-            if not isinstance(pos, dict):
+        user_long_assets = set()
+        for wallet in wallets:
+            positions_data = cfg.mcporter_call(
+                "leaderboard_get_trader_positions", trader_id=wallet,
+            )
+            if not positions_data:
                 continue
-            asset = str(
-                pos.get("coin", pos.get("market", pos.get("asset", pos.get("symbol", ""))))
-            ).upper()
-            if not asset:
+            positions = []
+            if isinstance(positions_data, dict):
+                d = positions_data.get("data", positions_data)
+                if isinstance(d, dict):
+                    positions = d.get("positions", d.get("top_positions", []))
+                elif isinstance(d, list):
+                    positions = d
+            if not isinstance(positions, list):
                 continue
-            szi = safe_float(pos.get("szi", 0))
-            direction = str(pos.get("direction", pos.get("side", ""))).upper()
-            is_long = (direction == "LONG") if direction in ("LONG", "SHORT") else (szi > 0)
-            if is_long:
-                long_count[asset] = long_count.get(asset, 0) + 1
+            for pos in positions:
+                if not isinstance(pos, dict):
+                    continue
+                asset = str(
+                    pos.get("coin", pos.get("market", pos.get("asset", pos.get("symbol", ""))))
+                ).upper()
+                if not asset:
+                    continue
+                szi = safe_float(pos.get("szi", 0))
+                direction = str(pos.get("direction", pos.get("side", ""))).upper()
+                is_long = (direction == "LONG") if direction in ("LONG", "SHORT") else (szi > 0)
+                if is_long:
+                    user_long_assets.add(asset)
+        # Increment the count once per user-asset pair.
+        for asset in user_long_assets:
+            long_count[asset] = long_count.get(asset, 0) + 1
+
     return long_count
 
 
