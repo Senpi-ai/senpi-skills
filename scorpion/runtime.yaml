@@ -1,9 +1,30 @@
 name: scorpion-tracker
 # Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
-# plugin. Strategy/skill is "Scorpion v4.1.1" — lives in description +
+# plugin. Strategy/skill is "Scorpion v4.1.2" — lives in description +
 # SKILL.md + _scorpion_producer_version. Do not set this to 4.x.x.
-version: 1.4.4
+version: 1.4.5
 description: >
+  SCORPION v4.1.2 — post-close cooldown backstop (Cheetah v6.0 pattern).
+  Live evidence 2026-05-05 ZEC sequence: 4 round trips in ~2.5h with
+  three sub-1-minute re-entries (37s, 63s, 47s gaps after each close).
+  Net realized: +$63.88 (3 wins, 1 small loss) — pattern was fee-positive
+  but each re-entry hit a higher entry price than the prior exit
+  ($456→$474→$482→$517), eventually chasing the top and giving back
+  -$8.34 on the fourth.
+  v4.1.1 held-asset dedup blocks CONCURRENT duplicates but resets the
+  moment a position closes, leaving SERIAL scalp re-entry open. Same
+  pathway that produced v4.1.0's 154-emission ZEC runaway, just
+  serialized instead of concurrent.
+  Runtime per_asset_cooldown_minutes: 120 silently doesn't enforce
+  (Erik investigation pending). v4.1.2 ports Cheetah's pattern:
+  producer diffs held_assets between ticks, records close timestamp,
+  blocks emission for POST_CLOSE_COOLDOWN_MINUTES on that asset.
+  Calibrated to 10 minutes — well above the diagnostic-clear sub-1-minute
+  pathology, well below 30+ min that would strangle real trend
+  follow-ups. The runtime per_asset_cooldown 120 stays in place as
+  policy intent; producer 10-min is the fast backstop. Two persistent
+  state files (last_closed.json + previously_held.json) in state dir.
+
   SCORPION v4.1.1 — held-asset dedup hot-patch (P0).
   Post-v4.1.0 ferry, Scorpion accumulated 154+ create_position calls
   in 2.5h all firing ZEC LONG at score 11 because three layers of

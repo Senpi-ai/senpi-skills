@@ -1,9 +1,46 @@
 #!/usr/bin/env python3
-# Senpi SCORPION Producer v4.1.1
+# Senpi SCORPION Producer v4.1.2
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SCORPION v4.1.1 Producer — Multi-market signal emitter for v2 runtime.
+"""SCORPION v4.1.2 Producer — Multi-market signal emitter for v2 runtime.
+
+v4.1.2 (2026-05-05) — post-close cooldown backstop (Cheetah v6.0 pattern):
+  Live evidence 2026-05-05 ZEC sequence (4 round trips in ~2.5h):
+    #1: 3:12 → 3:23 — held 11m, +$19.62
+    #2: 3:23 → 3:49 — opened 37s after #1 close, +$7.95
+    #3: 3:50 → 4:04 — opened 63s after #2 close, +$44.65
+    #4: 4:04 → 5:40 — opened 47s after #3 close, -$8.34
+  Net realized: +$63.88 (3 wins, 1 loss). Three sub-1-minute re-entries
+  paid out, the fourth chased a top and gave back. Pattern is fee-positive
+  but tail-risk-positive even when the trend is real, AND it's the same
+  pathway that produced v4.1.0's 154-emission ZEC runaway (just
+  serialized instead of concurrent).
+
+  v4.1.1 held-asset dedup blocks CONCURRENT duplicates but resets the
+  moment a position closes — leaving SERIAL re-entry open. Three
+  defense layers all silent on serial:
+    (1) Runtime per_asset_cooldown_minutes: 120 — known broken,
+        acknowledged in v4.1.1 comments. No fix landed yet.
+    (2) Producer held_assets check — works for concurrent only.
+    (3) LLM recentEntryCountThisAsset >=2 — counter feeds from
+        held_assets; also resets after close.
+
+  v4.1.2 ports Cheetah v6.0's pattern: producer diffs held_assets
+  between scan ticks; anything that disappeared just closed → record
+  timestamp → block emission for POST_CLOSE_COOLDOWN_MINUTES (10) on
+  that asset. Two persistent state files (last_closed.json +
+  previously_held.json) in state dir alongside the producer.lock fcntl
+  guard. recent_entry_count() also returns 99 if asset is in cooldown
+  (LLM-side backstop layer).
+
+  Calibration: 10 min, deliberately short. Today's four re-entries were
+  all <2 min gap; 10 min is well above that. 30-min default (Cheetah's
+  number) would have killed today's three winning re-entries and cost
+  +$44.26 in this session. 10 min blocks the diagnostic-clear pathology
+  (sub-1-min = re-firing on stale state, not new conviction) while
+  letting score-11 signals 15+ min after close go through. The runtime
+  per_asset_cooldown 120 stays in place as policy intent.
 
 v4.1.1 (2026-05-01) — held-asset dedup hot-patch (P0):
   After v4.1.0 ferry, Scorpion accumulated 154+ create_position calls
@@ -95,6 +132,15 @@ _LOCK_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "ski
 _LOCK_DIR.mkdir(parents=True, exist_ok=True)
 _LOCK_PATH = _LOCK_DIR / "producer.lock"
 
+# v4.1.2 — post-close cooldown state (Cheetah v6.0 pattern).
+# Backstop for the runtime per_asset_cooldown_minutes silent-enforcement
+# bug. Producer diffs held_assets between ticks; anything that
+# disappeared from current_held vs previously_held just closed.
+# Records timestamp into _LAST_CLOSED_FILE and blocks emission for
+# POST_CLOSE_COOLDOWN_MINUTES on that asset.
+_LAST_CLOSED_FILE = _LOCK_DIR / "last_closed.json"
+_PREV_HELD_FILE = _LOCK_DIR / "previously_held.json"
+
 
 def acquire_lock():
     """Non-blocking exclusive lock. Returns file handle or None if held."""
@@ -148,6 +194,34 @@ MIN_SCORE_XYZ    = 9    # held — no data yet; let the new rubric prove out
 # 4H price-alignment thresholds — XYZ moves less than crypto
 MIN_4H_ALIGNED_PCT_CRYPTO = 1.0
 MIN_4H_ALIGNED_PCT_XYZ = 0.5
+
+# v4.1.2 — post-close cooldown (Cheetah v6.0 pattern, calibrated short).
+#
+# 2026-05-05 ZEC sequence (4 round trips in ~2.5h, $456→$474→$482→$517):
+#   #1: 3:12 → 3:23 — held 11m, +$19.62
+#   #2: 3:23 → 3:49 — opened 37s after #1 close, +$7.95
+#   #3: 3:50 → 4:04 — opened 1m 3s after #2 close, +$44.65
+#   #4: 4:04 → 5:40 — opened 47s after #3 close, -$8.34
+# Net ZEC: +$63.88 realized. Three sub-1-minute re-entries paid out;
+# the fourth chased a top and gave back a small loss. Pattern is
+# fee-positive and tail-risk-positive even when the trend is real.
+#
+# v4.1.0 ran the SAME pathway differently — 154 ZEC LONG emissions in
+# 2.5h all firing because held-asset check was missing. v4.1.1 fixed
+# concurrent dedup. v4.1.2 fixes the SERIAL re-entry pathway (sub-1-min
+# emit-after-close) without strangling legitimate trend follow-ups.
+#
+# Calibration: 10 min. Today's four re-entries were all <2 min gap;
+# 10 min is well above that. A 30-min default (Cheetah's pattern) would
+# have killed today's three winning re-entries and cost +$44.26. 10 min
+# blocks the diagnostic-clear pathology (sub-1-min = re-firing on stale
+# state, not new conviction) while letting score-11 signals 15+ min
+# after close go through.
+#
+# The runtime per_asset_cooldown_minutes: 120 in runtime.yaml remains
+# the policy intent (a slow-grade safety net); this 10-min is the
+# producer-side fast backstop until Erik's runtime fix lands.
+POST_CLOSE_COOLDOWN_MINUTES = 10
 
 
 def safe_float(v, d=0.0):
@@ -338,6 +412,93 @@ def fetch_held_assets():
         return []
 
 
+# ═══════════════════════════════════════════════════════════════
+# v4.1.2 — POST-CLOSE COOLDOWN STATE (Cheetah v6.0 pattern)
+# ═══════════════════════════════════════════════════════════════
+
+def _atomic_write_json(path, data):
+    """Best-effort atomic write: tmp file + rename. State files only;
+    if a crash mid-write loses the file, post-close cooldown is a
+    backstop and we'll just miss one tick of cooldown enforcement."""
+    tmp = Path(str(path) + ".tmp")
+    try:
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        tmp.replace(path)
+    except Exception:
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
+
+
+def load_last_closed():
+    """{coin: {closedTimestamp: float, closedAt: iso}}"""
+    try:
+        with open(_LAST_CLOSED_FILE) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def save_last_closed(d):
+    _atomic_write_json(_LAST_CLOSED_FILE, d)
+
+
+def load_previously_held():
+    try:
+        with open(_PREV_HELD_FILE) as f:
+            data = json.load(f)
+        return set(data.get("assets", []))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+
+def save_previously_held(held):
+    _atomic_write_json(_PREV_HELD_FILE, {
+        "assets": sorted(list(held)),
+        "updatedAt": cfg.now_iso(),
+    })
+
+
+def detect_closes(current_held_set, previously_held_set):
+    """Diff held_assets across ticks. Anything that disappeared just
+    closed — record close timestamp into last-closed.json. Returns the
+    set of newly-closed coins (uppercase)."""
+    closed = previously_held_set - current_held_set
+    if not closed:
+        return closed
+    last = load_last_closed()
+    now_ts = time.time()
+    now_iso = cfg.now_iso()
+    for asset in closed:
+        last[asset] = {"closedTimestamp": now_ts, "closedAt": now_iso}
+    save_last_closed(last)
+    return closed
+
+
+def is_in_post_close_cooldown(token, cooldown_minutes=POST_CLOSE_COOLDOWN_MINUTES):
+    last = load_last_closed()
+    rec = last.get(token.upper())
+    if not rec:
+        return False
+    last_close = rec.get("closedTimestamp", 0)
+    elapsed_min = (time.time() - last_close) / 60
+    return elapsed_min < cooldown_minutes
+
+
+def post_close_cooldown_remaining_min(token, cooldown_minutes=POST_CLOSE_COOLDOWN_MINUTES):
+    last = load_last_closed()
+    rec = last.get(token.upper())
+    if not rec:
+        return 0
+    last_close = rec.get("closedTimestamp", 0)
+    elapsed_min = (time.time() - last_close) / 60
+    remaining = cooldown_minutes - elapsed_min
+    return round(max(0.0, remaining), 1)
+
+
 def recent_entry_count(asset, held_assets=None):
     """v4.1.1: return 99 if asset is in held_assets so the LLM's
     'recentEntryCountThisAsset >= 2 within 24h' rule trips on duplicates.
@@ -346,6 +507,10 @@ def recent_entry_count(asset, held_assets=None):
     enforcing reliably (separate Erik investigation post-v4.1.0 runaway).
     Tripping the LLM's existing rule is a defense-in-depth backstop;
     the producer-level held_assets skip in main() is the primary fix.
+
+    v4.1.2: Also returns 99 if asset is in post-close cooldown — same
+    rationale as held_assets. This makes the LLM's >=2 rule trip on
+    just-closed scalp-re-entry attempts (third defense layer).
     """
     if held_assets:
         held_norm = {h.upper() for h in held_assets}
@@ -356,6 +521,12 @@ def recent_entry_count(asset, held_assets=None):
             token = asset.split(":", 1)[1].upper()
             if token in held_norm:
                 return 99
+    # v4.1.2: post-close cooldown backstop layer
+    asset_check = asset.upper()
+    if ":" in asset:
+        asset_check = asset.split(":", 1)[1].upper()
+    if is_in_post_close_cooldown(asset_check):
+        return 99
     return 0
 
 
@@ -459,14 +630,14 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_scorpion_producer_version": "4.1.1",
+            "_scorpion_producer_version": "4.1.2",
         }))
         return
 
     try:
         raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
         if not raw:
-            print(json.dumps({"status": "no_markets", "_scorpion_producer_version": "4.1.1"}))
+            print(json.dumps({"status": "no_markets", "_scorpion_producer_version": "4.1.2"}))
             return
 
         markets = raw.get("data", raw)
@@ -475,7 +646,7 @@ def main():
         if isinstance(markets, dict):
             markets = markets.get("markets", [])
         if not isinstance(markets, list):
-            print(json.dumps({"status": "bad_shape", "_scorpion_producer_version": "4.1.1"}))
+            print(json.dumps({"status": "bad_shape", "_scorpion_producer_version": "4.1.2"}))
             return
 
         # Score all markets; keep only those at/above MIN_SCORE
@@ -494,7 +665,7 @@ def main():
                 "scanned": len(markets),
                 "candidates": 0,
                 "elapsed_sec": round(elapsed, 2),
-                "_scorpion_producer_version": "4.1.1",
+                "_scorpion_producer_version": "4.1.2",
             }))
             return
 
@@ -502,6 +673,16 @@ def main():
         btc_macro = fetch_btc_macro()
         funding_regime = fetch_funding_regime()
         held_assets = fetch_held_assets()
+
+        # v4.1.2: detect-closes via held-set diff (Cheetah v6.0 pattern).
+        # Anything that disappeared from current_held vs previously_held
+        # closed since the last scan tick → record timestamp for
+        # post-close cooldown enforcement below. Persist current held
+        # set for the next tick's diff.
+        current_held_set = {h.upper() for h in held_assets}
+        previously_held_set = load_previously_held()
+        closed_this_tick = detect_closes(current_held_set, previously_held_set)
+        save_previously_held(current_held_set)
 
         # v4.1.1: PRIMARY held-asset dedup fix. Skip emission entirely
         # if the candidate's asset is already in held_assets. This is
@@ -520,15 +701,35 @@ def main():
                     return True
             return False
 
+        def _asset_in_post_close_cooldown(candidate):
+            """v4.1.2: backstop for the runtime per_asset_cooldown silent
+            enforcement bug. Block emission if asset closed within the
+            POST_CLOSE_COOLDOWN_MINUTES window."""
+            asset = candidate["asset"]
+            check = asset.upper()
+            if ":" in asset:
+                check = asset.split(":", 1)[1].upper()
+            return is_in_post_close_cooldown(check)
+
         # Push all qualifying candidates. Runtime's LLM gate + risk guard
         # rails will decide which (if any) to execute.
         candidates.sort(key=lambda c: c["score"], reverse=True)
         xyz_peer_map = compute_xyz_peer_momentum(candidates)
         pushed = 0
         skipped_held = 0
+        skipped_post_close = 0
+        post_close_skips = []
         for c in candidates:
             if _asset_already_held(c):
                 skipped_held += 1
+                continue
+            if _asset_in_post_close_cooldown(c):
+                skipped_post_close += 1
+                check = c["token"].upper() if ":" not in c["asset"] else c["asset"].split(":", 1)[1].upper()
+                post_close_skips.append({
+                    "asset": c["asset"],
+                    "remaining_min": post_close_cooldown_remaining_min(check),
+                })
                 continue
             peer_count = xyz_peer_map.get((c["token"], c["direction"]), 0) if c["is_xyz"] else 0
             if push_signal(c, btc_macro, funding_regime, held_assets, peer_count):
@@ -542,12 +743,15 @@ def main():
             "candidates": len(candidates),
             "signals_pushed": pushed,
             "skipped_held_assets": skipped_held,
+            "skipped_post_close": skipped_post_close,
+            "post_close_skips": post_close_skips,
+            "closed_this_tick": sorted(list(closed_this_tick)),
             "btc_macro": btc_macro,
             "funding_regime": funding_regime,
             "held_assets": held_assets,
             "elapsed_sec": round(elapsed, 2),
             "warn": warn,
-            "_scorpion_producer_version": "4.1.1",
+            "_scorpion_producer_version": "4.1.2",
         }))
     finally:
         release_lock(lock)
