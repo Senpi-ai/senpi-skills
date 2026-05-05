@@ -10,7 +10,9 @@ is a near drop-in for `mcporter_call(tool, **params)`.
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 
+import itertools
 import json
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -34,20 +36,21 @@ class _MCPSession:
 
     def __init__(self) -> None:
         self.session_id: Optional[str] = None
-        self.next_id: int = 0
+        self._id_counter = itertools.count(1)
         self.initialized: bool = False
 
     def alloc_id(self) -> int:
-        self.next_id += 1
-        return self.next_id
+        # itertools.count is implemented in C and atomic w.r.t. the GIL,
+        # so request IDs stay unique under multi-threaded use.
+        return next(self._id_counter)
 
 
 def _post_json(
     url: str,
-    body: Dict[str, Any],
+    body: Any,
     headers: Dict[str, str],
     timeout: float,
-) -> "urllib.request.addinfourl":
+):
     data = json.dumps(body).encode("utf-8")
     req = urllib.request.Request(url, data=data, method="POST")
     req.add_header("Content-Type", "application/json")
@@ -57,11 +60,13 @@ def _post_json(
     return urllib.request.urlopen(req, timeout=timeout)
 
 
-def _read_response_body(resp: "urllib.request.addinfourl") -> Dict[str, Any]:
+def _read_response_body(resp) -> Dict[str, Any]:
     """Streamable-HTTP allows a single JSON response or an SSE stream of events.
 
     For tool calls we expect one response; we accept either content-type and
-    return the first JSON-RPC payload we can parse.
+    return the first JSON-RPC payload we can parse. Raises `SenpiClientError`
+    on empty / malformed bodies — the caller treating those as "tool returned
+    nothing" silently was the previous behavior, which masked real failures.
     """
     content_type = (resp.headers.get("Content-Type") or "").lower()
     raw = resp.read()
@@ -78,14 +83,14 @@ def _read_response_body(resp: "urllib.request.addinfourl") -> Dict[str, Any]:
                             return parsed
                     except json.JSONDecodeError:
                         continue
-        return {}
+        raise SenpiClientError("MCP SSE response had no parseable data event")
     if not text:
-        return {}
+        raise SenpiClientError("MCP response body was empty")
     try:
         parsed = json.loads(text)
-        return parsed if isinstance(parsed, dict) else {"result": parsed}
-    except json.JSONDecodeError:
-        return {}
+    except json.JSONDecodeError as e:
+        raise SenpiClientError(f"MCP response not valid JSON: {e}") from e
+    return parsed if isinstance(parsed, dict) else {"result": parsed}
 
 
 def _unwrap_tool_result(rpc_response: Dict[str, Any]) -> Any:
@@ -125,6 +130,13 @@ class SenpiClient:
         self.runtime_host = runtime_host or cfg.RUNTIME_API_HOST
         self.runtime_port = runtime_port or cfg.RUNTIME_API_PORT
         self._session = _MCPSession()
+        # Per-process per-client cache (used by cache.py); making the cache
+        # instance-scoped removes the cross-client key-namespace leak that
+        # the previous module-level _store had.
+        self._cache: Dict[str, Any] = {}
+        # Serializes initialize / notifications/initialized handshake so
+        # parallel callers don't issue duplicate init POSTs.
+        self._init_lock = threading.Lock()
 
     # ──────────────── MCP ────────────────
 
@@ -135,49 +147,69 @@ class SenpiClient:
         return h
 
     def _initialize_if_needed(self, timeout: float) -> None:
+        # Double-checked locking: cheap path takes no lock when already
+        # initialized; slow path holds `_init_lock` so only one thread runs
+        # the initialize + notifications/initialized handshake even when
+        # called from `parallel(...)` workers.
         if self._session.initialized:
             return
-        body = {
-            "jsonrpc": "2.0",
-            "id": self._session.alloc_id(),
-            "method": "initialize",
-            "params": {
-                "protocolVersion": _MCP_PROTOCOL_VERSION,
-                "capabilities": {},
-                "clientInfo": {"name": _HELPERS_NAME, "version": _HELPERS_VERSION},
-            },
-        }
-        started = time.time()
-        try:
-            with _post_json(self.mcp_url, body, self._mcp_headers(), timeout) as resp:
-                sid = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
-                if sid:
-                    self._session.session_id = sid
-                _ = _read_response_body(resp)
-            # Streamable-HTTP requires a `notifications/initialized` after init.
-            note = {
+        with self._init_lock:
+            if self._session.initialized:
+                return
+            body = {
                 "jsonrpc": "2.0",
-                "method": "notifications/initialized",
-                "params": {},
+                "id": self._session.alloc_id(),
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": _MCP_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": _HELPERS_NAME, "version": _HELPERS_VERSION},
+                },
             }
-            with _post_json(self.mcp_url, note, self._mcp_headers(), timeout) as resp:
-                _ = resp.read()
-        except urllib.error.HTTPError as e:
-            log_event(
-                "mcp_init_http_error",
-                status=getattr(e, "code", None),
-                duration_ms=int((time.time() - started) * 1000),
-            )
-            raise
-        except urllib.error.URLError as e:
-            log_event(
-                "mcp_init_network_error",
-                reason=str(e.reason),
-                duration_ms=int((time.time() - started) * 1000),
-            )
-            raise
-        self._session.initialized = True
-        log_event("mcp_initialized", session_id_present=bool(self._session.session_id))
+            started = time.time()
+            sid: Optional[str] = None
+            try:
+                with _post_json(self.mcp_url, body, self._mcp_headers(), timeout) as resp:
+                    sid = resp.headers.get("Mcp-Session-Id")  # case-insensitive in CPython
+                    _ = _read_response_body(resp)
+                # Streamable-HTTP requires `notifications/initialized` after init.
+                # Use the candidate sid in headers for THIS handshake so the
+                # server can correlate; only commit it to the session if the
+                # whole two-step succeeds.
+                note_headers = {"Authorization": f"Bearer {self.auth_token}"} if self.auth_token else {}
+                if sid:
+                    note_headers["Mcp-Session-Id"] = sid
+                note = {
+                    "jsonrpc": "2.0",
+                    "method": "notifications/initialized",
+                    "params": {},
+                }
+                with _post_json(self.mcp_url, note, note_headers, timeout) as resp:
+                    _ = resp.read()
+            except urllib.error.HTTPError as e:
+                # Init failed cleanly — leave session_id unset so the next
+                # attempt starts from scratch. No partial commit.
+                self._session.session_id = None
+                self._session.initialized = False
+                log_event(
+                    "mcp_init_http_error",
+                    status=getattr(e, "code", None),
+                    duration_ms=int((time.time() - started) * 1000),
+                )
+                raise
+            except urllib.error.URLError as e:
+                self._session.session_id = None
+                self._session.initialized = False
+                log_event(
+                    "mcp_init_network_error",
+                    reason=str(e.reason),
+                    duration_ms=int((time.time() - started) * 1000),
+                )
+                raise
+            # Both POSTs succeeded — commit the session_id atomically.
+            self._session.session_id = sid
+            self._session.initialized = True
+            log_event("mcp_initialized", session_id_present=bool(sid))
 
     def mcp_call(
         self,
@@ -225,6 +257,18 @@ class SenpiClient:
                 reason=str(e.reason),
             )
             raise
+        except SenpiClientError as e:
+            # Server-reported tool error or malformed protocol payload —
+            # distinct from transport-layer exceptions in 3e.
+            duration_ms = int((time.time() - started) * 1000)
+            log_event(
+                "mcp_call",
+                tool=tool,
+                duration_ms=duration_ms,
+                status="server_error",
+                error=str(e)[:200],
+            )
+            raise
         except Exception as e:
             duration_ms = int((time.time() - started) * 1000)
             log_event(
@@ -260,10 +304,22 @@ class SenpiClient:
         for i, it in enumerate(items):
             if not isinstance(it, dict):
                 raise SenpiClientError(f"item[{i}] must be a dict")
-            if "address" not in it or "scanner" not in it:
+            address = it.get("address")
+            scanner = it.get("scanner")
+            if not isinstance(address, str) or not address.startswith("0x") or len(address) < 4:
                 raise SenpiClientError(
-                    f"item[{i}] missing required fields: address, scanner"
+                    f"item[{i}].address must be a 0x-prefixed string (got {type(address).__name__})"
                 )
+            if not isinstance(scanner, str) or not scanner:
+                raise SenpiClientError(
+                    f"item[{i}].scanner must be a non-empty string (got {type(scanner).__name__})"
+                )
+            if "score" in it:
+                s = it["score"]
+                if not isinstance(s, (int, float)) or not (0.0 <= float(s) <= 1.0):
+                    raise SenpiClientError(
+                        f"item[{i}].score must be a number in [0, 1] (got {s!r})"
+                    )
         timeout = timeout if timeout is not None else cfg.SIGNAL_TIMEOUT_SECONDS
         body = items  # bare array — runtime schema is Array<SignalItem>
         started = time.time()

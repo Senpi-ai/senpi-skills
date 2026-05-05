@@ -25,7 +25,7 @@ the fix works (Railway log search).
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
 
-from .cache import cached_mcp_call, clear_cache, tick_cache
+from .cache import cache_summary, cached_mcp_call, clear_cache, tick_cache
 from .client import SenpiClient, SenpiClientError
 from .daemon import producer_daemon
 from .lock import scanner_lock
@@ -39,6 +39,7 @@ __all__ = [
     "parallel",
     "tick_cache",
     "cached_mcp_call",
+    "cache_summary",
     "clear_cache",
     "producer_daemon",
     "enable_logging",

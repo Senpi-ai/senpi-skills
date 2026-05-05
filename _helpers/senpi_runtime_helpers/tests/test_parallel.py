@@ -1,4 +1,4 @@
-"""parallel — concurrency cap + queue + result ordering."""
+"""parallel — concurrency cap + queue + result ordering + tuple-shaped results."""
 
 import os
 import sys
@@ -14,10 +14,10 @@ from senpi_runtime_helpers.parallel import parallel
 
 
 class ParallelTests(unittest.TestCase):
-    def test_returns_in_order(self) -> None:
+    def test_returns_in_order_with_ok_tuples(self) -> None:
         calls = [(lambda i=i: i * 10) for i in range(5)]
         results = parallel(calls, max_concurrent=4)
-        self.assertEqual(results, [0, 10, 20, 30, 40])
+        self.assertEqual(results, [(True, 0), (True, 10), (True, 20), (True, 30), (True, 40)])
 
     def test_concurrency_cap_observed(self) -> None:
         active = {"current": 0, "peak": 0}
@@ -36,9 +36,10 @@ class ParallelTests(unittest.TestCase):
         calls = [slow for _ in range(20)]
         results = parallel(calls, max_concurrent=cap)
         self.assertEqual(len(results), 20)
+        self.assertTrue(all(ok for ok, _ in results))
         self.assertLessEqual(active["peak"], cap)
 
-    def test_exceptions_returned_in_place(self) -> None:
+    def test_exceptions_returned_in_place_as_failure_tuples(self) -> None:
         def bad():
             raise RuntimeError("boom")
 
@@ -46,19 +47,32 @@ class ParallelTests(unittest.TestCase):
             return "yay"
 
         results = parallel([good, bad, good], max_concurrent=2)
-        self.assertEqual(results[0], "yay")
-        self.assertIsInstance(results[1], RuntimeError)
-        self.assertEqual(results[2], "yay")
+        self.assertEqual(results[0], (True, "yay"))
+        ok, value = results[1]
+        self.assertFalse(ok)
+        self.assertIsInstance(value, RuntimeError)
+        self.assertEqual(results[2], (True, "yay"))
 
-    def test_raise_first_exception_flag(self) -> None:
+    def test_raise_after_completion_flag(self) -> None:
         def bad():
             raise ValueError("oops")
 
         with self.assertRaises(ValueError):
-            parallel([bad], max_concurrent=1, raise_first_exception=True)
+            parallel([bad], max_concurrent=1, raise_after_completion=True)
 
     def test_empty_input(self) -> None:
         self.assertEqual(parallel([], max_concurrent=4), [])
+
+    def test_legitimate_exception_return_not_misclassified(self) -> None:
+        """A tool that legitimately returns an Exception subclass as a value
+        should be classified as success, distinguishable from real failures."""
+        def returns_exception():
+            return ValueError("this is the legitimate return value, not a failure")
+
+        results = parallel([returns_exception], max_concurrent=1)
+        ok, value = results[0]
+        self.assertTrue(ok)  # success — the function returned normally
+        self.assertIsInstance(value, ValueError)
 
 
 if __name__ == "__main__":

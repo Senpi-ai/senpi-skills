@@ -67,22 +67,23 @@ class LockTests(unittest.TestCase):
                 print("HELD", flush=True)
                 time.sleep(2.0)
         """)
-        proc = subprocess.Popen(
+        # Popen as a context manager auto-closes stdout/stderr file objects.
+        with subprocess.Popen(
             [sys.executable, "-c", script],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
-        )
-        try:
-            # Wait for child to signal "HELD".
-            line = proc.stdout.readline().strip()
-            self.assertEqual(line, "HELD")
-            with self.assertRaises(BlockingIOError):
-                with scanner_lock("test3", lock_dir=self.tmpdir):
-                    pass
-        finally:
-            proc.terminate()
-            proc.wait(timeout=5)
+        ) as proc:
+            try:
+                # Wait for child to signal "HELD".
+                line = proc.stdout.readline().strip()
+                self.assertEqual(line, "HELD")
+                with self.assertRaises(BlockingIOError):
+                    with scanner_lock("test3", lock_dir=self.tmpdir):
+                        pass
+            finally:
+                proc.terminate()
+                proc.wait(timeout=5)
 
 
 if __name__ == "__main__":

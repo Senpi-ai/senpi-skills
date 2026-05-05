@@ -158,7 +158,12 @@ def producer_daemon(
             if max_ticks is not None and tick_count >= max_ticks:
                 break
 
-            # Sleep until the next interval boundary (no drift accumulation).
+            # Schedule the next tick `interval_seconds` after THIS tick's
+            # start. If a tick overran (tick_duration > interval), the next
+            # tick fires immediately (sleep_for=0) — a single-overrun shifts
+            # the schedule, no further accumulation. If you need true
+            # non-drifting cron-like cadence aligned to a fixed boundary,
+            # target `start_loop + n * interval_seconds` instead.
             elapsed = time.time() - tick_started_at
             sleep_for = max(0.0, interval_seconds - elapsed)
             if sleep_for > 0:
