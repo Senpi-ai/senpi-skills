@@ -734,9 +734,16 @@ def push_signal(payload):
     if not PANGOLIN_WALLET:
         cfg.log("PANGOLIN_WALLET env var not set; cannot push signal")
         return False
+    # `asset` and `direction` are top-level routing fields on the runtime
+    # SignalItem (per runtime-api/routes/signals.schema.ts). Extract them
+    # from the payload alongside passing the full payload as data — the
+    # runtime validator requires top-level asset to route a single-item
+    # signal to the right scanner state slot.
     cfg._wrapper_client.push_signal(
         address=PANGOLIN_WALLET,
         scanner=SCANNER_NAME,
+        asset=payload.get("asset"),
+        direction=payload.get("direction"),
         data=payload,
     )
     return True
