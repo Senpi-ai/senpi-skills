@@ -734,17 +734,22 @@ def push_signal(payload):
     if not PANGOLIN_WALLET:
         cfg.log("PANGOLIN_WALLET env var not set; cannot push signal")
         return False
-    # `asset` and `direction` are top-level routing fields on the runtime
-    # SignalItem (per runtime-api/routes/signals.schema.ts). Extract them
-    # from the payload alongside passing the full payload as data — the
-    # runtime validator requires top-level asset to route a single-item
-    # signal to the right scanner state slot.
+    # The producer's build_signal_payload returns a Signal-shaped dict:
+    #   { address, scannerId, asset, direction, score, data: {...}, meta: {...} }
+    # The legacy `external-scanner ingest` CLI accepted the whole shape as a
+    # blob via `--payload`. The HTTP `/signals` endpoint, however, expects
+    # the SignalItem schema:
+    #   - top-level: address, scanner, asset, direction (routing fields)
+    #   - data: scanner-config-validated fields only
+    # Map accordingly. `score` stays inside data (Pangolin's composite is
+    # an unbounded integer; SignalItem.score is bounded 0..1, different
+    # semantics — don't conflate them).
     cfg._wrapper_client.push_signal(
         address=PANGOLIN_WALLET,
         scanner=SCANNER_NAME,
         asset=payload.get("asset"),
         direction=payload.get("direction"),
-        data=payload,
+        data=payload.get("data"),
     )
     return True
 

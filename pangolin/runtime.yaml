@@ -108,10 +108,15 @@ scanners:
     config:
       fields:
         # Required identity
+        # NOTE: `asset` and `direction` are TOP-LEVEL SignalItem fields
+        # (per runtime-api/routes/signals.schema.ts), used by the runtime
+        # to build the canonical Signal. Producers pass them at the top
+        # level via wrapper.push_signal(asset=..., direction=...). They
+        # MUST NOT appear inside `data` — declaring them here would cause
+        # the runtime to store two copies (signal.asset and signal.meta.asset)
+        # which downstream consumers read inconsistently.
         mode: { type: string, required: true }                       # always "FUNDING_FADE"
         score: { type: number, required: true }                      # producer composite (>=9 floor)
-        asset: { type: string, required: true }                      # ticker symbol (e.g. TST, MAVIA) — runtime LLM prompt references signal.asset
-        direction: { type: string, required: true }                  # fade direction (SHORT/LONG) — opposite of crowd
         funding: { type: number, required: true }                   # raw funding rate (e.g. 0.0003)
         annualizedPct: { type: number, required: true }             # annualized funding %
         persistenceHours: { type: number, required: true }          # how long funding has been extreme
