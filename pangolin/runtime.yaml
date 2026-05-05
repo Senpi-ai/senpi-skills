@@ -110,6 +110,8 @@ scanners:
         # Required identity
         mode: { type: string, required: true }                       # always "FUNDING_FADE"
         score: { type: number, required: true }                      # producer composite (>=9 floor)
+        asset: { type: string, required: true }                      # ticker symbol (e.g. TST, MAVIA) — runtime LLM prompt references signal.asset
+        direction: { type: string, required: true }                  # fade direction (SHORT/LONG) — opposite of crowd
         funding: { type: number, required: true }                   # raw funding rate (e.g. 0.0003)
         annualizedPct: { type: number, required: true }             # annualized funding %
         persistenceHours: { type: number, required: true }          # how long funding has been extreme

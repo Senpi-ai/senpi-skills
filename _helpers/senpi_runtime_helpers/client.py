@@ -275,6 +275,29 @@ class SenpiClient:
                 parsed = json.loads(raw.decode("utf-8")) if raw else {}
             except json.JSONDecodeError:
                 parsed = {}
+            # The runtime always returns HTTP 200 with a per-item results array;
+            # individual items can have success=false (e.g. INVALID_REQUEST when
+            # an undeclared data field is sent). Surface those rejections so
+            # producers don't silently send into a black hole.
+            results = parsed.get("results") if isinstance(parsed, dict) else None
+            failed = []
+            if isinstance(results, list):
+                failed = [r for r in results if isinstance(r, dict) and r.get("success") is False]
+            if failed:
+                log_event(
+                    "signal_post",
+                    batch_size=len(items),
+                    bytes=len(raw),
+                    duration_ms=duration_ms,
+                    status="rejected",
+                    failed_count=len(failed),
+                    first_code=failed[0].get("code"),
+                    first_message=str(failed[0].get("message", ""))[:200],
+                )
+                raise SenpiClientError(
+                    f"signal_post: {len(failed)}/{len(items)} item(s) rejected; "
+                    f"first: code={failed[0].get('code')} message={failed[0].get('message')}"
+                )
             log_event(
                 "signal_post",
                 batch_size=len(items),
