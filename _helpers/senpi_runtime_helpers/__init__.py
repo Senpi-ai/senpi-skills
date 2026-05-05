@@ -26,6 +26,7 @@ the fix works (Railway log search).
 
 from .cache import cached_mcp_call, clear_cache, tick_cache
 from .client import SenpiClient, SenpiClientError
+from .daemon import producer_daemon
 from .lock import scanner_lock
 from ._logging import enable_logging, log_event
 from .parallel import parallel
@@ -38,6 +39,7 @@ __all__ = [
     "tick_cache",
     "cached_mcp_call",
     "clear_cache",
+    "producer_daemon",
     "enable_logging",
     "log_event",
 ]
