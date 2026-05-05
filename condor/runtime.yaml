@@ -1,20 +1,33 @@
 name: condor-tracker
 # Runtime SCHEMA version must have major=1 per senpi-trading-runtime
-# plugin ("Supported major versions: 1"). Strategy/skill is "Condor v3.3"
+# plugin ("Supported major versions: 1"). Strategy/skill is "Condor v3.4"
 # — that semver lives in description + SKILL.md + _condor_version in
 # scanner output. Do not set this to 3.x.x.
-version: 1.3.3
+version: 1.3.4
 description: >
+  CONDOR v3.4 — gate calibration fix (2026-05-05). v3.2's tightening
+  (MIN_SCORE 11→13, MIN_SM 65%→75%) over-corrected. Account flatlined
+  at $1001.28 across 13 days post-deploy (2026-04-22 → 2026-05-05) —
+  zero trades, zero PnL change, vlm metric stuck at 213k from the
+  v3.0/v3.1 era. The gate combination required basically every scoring
+  lane to fire simultaneously, including the rare 15m_spike (c15m>=2.0).
+  v3.4 splits the difference: MIN_SCORE 13→12 (achievable without
+  rare 15m_spike lane), MIN_SM 75→70 (mid-stage moves now scoreable),
+  MIN_15M_VELOCITY 0.2→0.1 (was silent killer in 3TF structural gate).
+  Other gates preserved: MACRO_TREND_GATE 10% (Wolverine's lesson),
+  trader_count >= 50, OI >= $1M, MAX_LEVERAGE 10, position sizing
+  tiers, DSL preset (v3.3 weak_peak_cut disabled). Architecture
+  unchanged (still v1 full-agency); v4.0 producer migration on the
+  queue pending v3.4 calibration validation.
+
   CONDOR v3.3 — disable weak_peak_cut (apex-patience alignment).
   Condor runs 1 trade/day (1 slot effectively) on apex-confluence
   setups that develop over 4-8h. 2h weak_peak_cut at 3% ROE was
   pre-empting the thesis the same way Polar's hard_timeout did on
   2026-04-23 overnight — a structural mismatch between "I haven't
   hit 3% ROE in 2 hours" and "this apex setup hasn't had time to
-  develop yet." MIN_SCORE=13 means every entry is high-conviction;
-  treat it like a single-asset patience agent. Phase 1 max_loss
-  (20%) + retrace (8%) + Phase 2 tiers own exits. hard_timeout
-  (24h) preserved as outer bound. v3.2 signal tightening preserved.
+  develop yet." Phase 1 max_loss (20%) + retrace (8%) + Phase 2 tiers
+  own exits. hard_timeout (24h) preserved as outer bound.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
