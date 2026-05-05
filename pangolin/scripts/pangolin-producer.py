@@ -724,11 +724,33 @@ def build_signal_payload(c, leverage, margin_usd, held_assets=None):
 
 
 def push_signal(payload):
-    """Push a signal payload to the runtime via openclaw CLI."""
+    """Push a signal payload to the runtime.
+
+    Routes through `senpi_runtime_helpers` when SENPI_USE_WRAPPER=1 — direct
+    HTTP POST to the runtime API on 127.0.0.1, no `openclaw senpi
+    external-scanner ingest` subprocess, no per-call CLI cold start.
+    Falls back to the legacy CLI path otherwise.
+    """
     if not PANGOLIN_WALLET:
         cfg.log("PANGOLIN_WALLET env var not set; cannot push signal")
         return False
 
+    if cfg._wrapper_client is not None:
+        try:
+            cfg._wrapper_client.push_signal(
+                address=PANGOLIN_WALLET,
+                scanner=SCANNER_NAME,
+                data=payload,
+            )
+            return True
+        except Exception as e:  # noqa: BLE001
+            cfg.log(
+                f"ingest exception (wrapper) for {payload.get('asset','?')}: "
+                f"{type(e).__name__}: {e}"
+            )
+            return False
+
+    # Legacy CLI subprocess path — unchanged.
     cmd = [
         OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
         "--address", PANGOLIN_WALLET,

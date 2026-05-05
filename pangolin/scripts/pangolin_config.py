@@ -39,6 +39,33 @@ SKILL_DIR = Path(WORKSPACE) / "skills" / "pangolin-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "pangolin-config.json"
 
 
+# ─── senpi_runtime_helpers (opt-in via SENPI_USE_WRAPPER=1) ───
+# When enabled:
+#   - mcporter_call() routes via direct HTTPS to MCP (no mcporter subprocess)
+#   - the producer's push_signal() routes via HTTP POST to the runtime's
+#     /signals endpoint (no `openclaw senpi external-scanner ingest`
+#     subprocess)
+# Falls back automatically on any init error so the change is safe to ship
+# behind the env flag.
+
+_USE_WRAPPER = os.environ.get("SENPI_USE_WRAPPER", "").strip().lower() in ("1", "true", "yes")
+_wrapper_client = None
+
+if _USE_WRAPPER:
+    try:
+        _helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
+        if _helpers_path not in sys.path:
+            sys.path.insert(0, _helpers_path)
+        from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore
+        _wrapper_client = SenpiClient()
+        log_event("pangolin_wrapper_enabled", helpers_path=_helpers_path)
+    except Exception as _wrap_err:  # noqa: BLE001
+        sys.stderr.write(
+            f"[senpi_helpers] pangolin_wrapper_init_failed: {_wrap_err}\n"
+        )
+        _wrapper_client = None
+
+
 # ─── Config ──────────────────────────────────────────────────
 
 def load_config():
@@ -74,7 +101,31 @@ def atomic_write(path, data):
 # ─── MCP Helper ──────────────────────────────────────────────
 
 def mcporter_call(tool, retries=2, timeout=25, **params):
-    """Call a Senpi MCP tool via mcporter. Returns parsed JSON or None on failure."""
+    """Call a Senpi MCP tool.
+
+    Routes through `senpi_runtime_helpers` when SENPI_USE_WRAPPER=1 (direct
+    HTTPS, no mcporter subprocess, no 6-process spawn tree). Falls back to
+    the legacy mcporter subprocess otherwise — same return shape either way
+    (mcporter envelope `content[0].text` JSON unwrapped). Returns parsed JSON
+    or None on failure.
+    """
+    if _wrapper_client is not None:
+        last_err: Exception | None = None
+        for attempt in range(retries):
+            try:
+                return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+            except Exception as e:  # noqa: BLE001
+                last_err = e
+                if attempt < retries - 1:
+                    time.sleep(2)
+                    continue
+        sys.stderr.write(
+            f"[senpi_helpers] mcp_call_exhausted tool={tool} retries={retries} "
+            f"err={type(last_err).__name__}: {last_err}\n"
+        )
+        return None
+
+    # Legacy mcporter subprocess path — unchanged.
     args = json.dumps(params) if params else "{}"
     cmd = ["mcporter", "call", "senpi", tool, "--args", args]
     for attempt in range(retries):
