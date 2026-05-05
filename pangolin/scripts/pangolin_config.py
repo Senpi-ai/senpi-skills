@@ -4,8 +4,10 @@ v2 producer responsibilities are narrower than v1:
   - Fetch market data via MCP (market_list_instruments,
     leaderboard_get_markets, market_get_funding_regime,
     market_get_funding_history, strategy_get_clearinghouse_state)
-  - Push signals via `openclaw senpi external-scanner ingest`
-    (runtime owns execution)
+  - Push signals via direct HTTP POST to the runtime API on 127.0.0.1
+    through `senpi_runtime_helpers.SenpiClient.push_signal` (no
+    `openclaw senpi external-scanner ingest` subprocess; no CLI cold
+    start). The runtime owns execution.
 
 Runtime handles: position tracking, DSL exits, risk guardrails,
 trade counting, asset cooldowns. All of that state lives in the
@@ -13,9 +15,10 @@ runtime's state dir, not here.
 
 This module provides:
   - load_config()    — read config/pangolin-config.json
-  - mcporter_call()  — Senpi MCP call helper
+  - mcporter_call()  — Senpi MCP call helper, routes via wrapper
   - atomic_write()   — atomic temp+rename write for JSON state files
   - output() / log() / now_iso() — output helpers
+  - _wrapper_client  — process-wide SenpiClient (lazy, see pangolin-producer)
 
 Per-wallet state (asset cooldowns, daily counter, lock) lives under
 SKILL_DIR/state/<wallet-hash>/ — see pangolin-producer.py for the

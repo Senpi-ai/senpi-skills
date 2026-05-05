@@ -21,9 +21,11 @@ _initialized = False
 
 def _emit(event: str, **fields: Any) -> None:
     """Write one structured line to stderr. Robust to non-serialisable values."""
+    now = time.time()
+    ms = int((now - int(now)) * 1000)
     payload = {
-        "ts": time.time(),
-        "iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()) + ".000Z",
+        "ts": now,
+        "iso": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(now)) + f".{ms:03d}Z",
         "pid": os.getpid(),
         "event": event,
     }

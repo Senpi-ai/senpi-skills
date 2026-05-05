@@ -52,5 +52,15 @@ QUEUE_WARN_DEPTH = _env_int("SENPI_HELPERS_QUEUE_WARN_DEPTH", 50)
 # Per-tick cache TTL in seconds — the same MCP call within this window returns cached.
 TICK_CACHE_TTL = _env_float("SENPI_HELPERS_TICK_CACHE_TTL", 120.0)
 
-# Lock heartbeat freshness. If a held lock's mtime exceeds this, treat as stale.
+# Stale-lock detection: today this is PID-aliveness only (no heartbeat thread,
+# despite the legacy variable name). The numeric value is retained for backward
+# compatibility but is unused by the current `lock.py` predicate.
 LOCK_HEARTBEAT_TIMEOUT = _env_float("SENPI_HELPERS_LOCK_HEARTBEAT_TIMEOUT", 300.0)
+
+# Where lock files live. Used by scanner_lock when no explicit lock_dir is passed.
+LOCK_DIR = _env_str("SENPI_HELPERS_LOCK_DIR", "/tmp")
+
+# Per-tick MCP cache hard ceiling (entries). Beyond this, oldest entries are
+# evicted via OrderedDict LRU. Prevents long-running daemons from accumulating
+# unbounded cached responses.
+TICK_CACHE_MAX_ENTRIES = _env_int("SENPI_HELPERS_TICK_CACHE_MAX_ENTRIES", 512)

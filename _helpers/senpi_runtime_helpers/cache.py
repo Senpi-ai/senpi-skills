@@ -9,7 +9,6 @@ seconds so duplicate calls within a tick reuse the result.
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 
-import functools
 import hashlib
 import json
 import threading
@@ -67,19 +66,21 @@ def cached_mcp_call(
 
 
 def tick_cache(client: Any, ttl: Optional[float] = None) -> Callable[..., Any]:
-    """Decorator-factory: returns a function that calls MCP through the per-tick cache.
+    """Returns a callable that wraps `client.mcp_call` with per-process TTL cache.
 
     Example:
         from senpi_runtime_helpers import SenpiClient, tick_cache
 
         client = SenpiClient()
         mcp = tick_cache(client)
-        markets = mcp("leaderboard_get_markets", limit=100)
-        ch = mcp("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+        markets = mcp("leaderboard_get_markets", limit=100)  # MCP call
+        markets = mcp("leaderboard_get_markets", limit=100)  # cache hit
 
-    Repeated calls with identical (tool, arguments) return the cached value.
+    The returned `call(tool, timeout=None, **arguments)` invokes
+    `cached_mcp_call(client, tool, ttl=ttl, timeout=timeout, **arguments)`.
+    Repeated calls with identical (tool, arguments) return the cached value
+    until `ttl` elapses or `clear_cache()` is invoked.
     """
-    @functools.wraps(client.mcp_call)
     def call(tool: str, timeout: Optional[float] = None, **arguments: Any) -> Any:
         return cached_mcp_call(client, tool, ttl=ttl, timeout=timeout, **arguments)
     return call

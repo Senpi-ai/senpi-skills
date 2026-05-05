@@ -20,9 +20,6 @@ from . import _config as cfg
 from ._logging import log_event
 
 
-_LOCK_DIR_FALLBACK = "/tmp"
-
-
 def _process_alive(pid: int) -> bool:
     """Cheap liveness check via signal(0). Returns True if process exists and we have permission to signal it."""
     if pid <= 0:
@@ -40,7 +37,7 @@ def _process_alive(pid: int) -> bool:
 
 
 def _lock_path(name: str, lock_dir: Optional[str]) -> Path:
-    base = Path(lock_dir or os.environ.get("SENPI_HELPERS_LOCK_DIR") or _LOCK_DIR_FALLBACK)
+    base = Path(lock_dir or cfg.LOCK_DIR)
     base.mkdir(parents=True, exist_ok=True)
     return base / f"senpi-{name}.lock"
 

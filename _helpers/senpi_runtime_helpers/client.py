@@ -340,11 +340,41 @@ class SenpiClient:
     ) -> Dict[str, Any]:
         """Push one signal — convenience wrapping a one-element batch.
 
-        Maps 1:1 to `openclaw senpi external-scanner ingest`:
-        - `address` ↔ `--address`
-        - `scanner` ↔ `--scanner`
-        - `data`    ↔ `--payload`
+        Field semantics (per
+        senpi-trading-runtime/src/runtime-api/routes/signals.schema.ts and
+        external-scanner-receiver.ts):
+
+        Routing fields (top-level on SignalItem):
+        - `address` (required): wallet address — runtime routes by lowercased copy.
+        - `scanner` (required): scanner id declared in the strategy's runtime.yaml.
+        - `asset` (required for signal-emitting single ingests): ticker — uppercase
+          Hyperliquid-canonical ("MAVIA", "TST"). No runtime-side normalizer.
+        - `direction` (optional): "LONG" | "SHORT" | None. Strict — the receiver's
+          `normalizeDirection` rejects anything else with INVALID_REQUEST.
+        - `score` (optional): **0..1 confidence**, NOT a strategy composite.
+          Used downstream by `decision-engine.ts` as
+          `Math.round(highestScore * 10)` to derive a 1..10 confidence integer.
+          A value > 1 is rejected by the schema — keep producer composites
+          inside `data.score` instead.
+        - `signal_type` (optional): per-signal override. When omitted, the
+          runtime falls back to the scanner definition's `defaultSignalType`.
+
+        Payload field (validated against scanner config.fields):
+        - `data` (optional): scanner-declared field-bag. Becomes `signal.meta`
+          downstream. Field names not declared in the scanner's
+          `config.fields` are rejected with INVALID_REQUEST.
+
+        - `timeout`: per-call wall-clock cap; defaults to
+          SENPI_HELPERS_SIGNAL_TIMEOUT (5s).
+
+        Replaces `subprocess.run(["openclaw","senpi","external-scanner","ingest",
+        "--address",address,"--scanner",scanner,"--payload",json.dumps(data)])`.
         """
+        if score is not None and not (0.0 <= score <= 1.0):
+            raise SenpiClientError(
+                f"push_signal: top-level score must be in [0, 1] (got {score!r}); "
+                f"keep strategy-specific composite scores inside data."
+            )
         item: Dict[str, Any] = {"address": address, "scanner": scanner}
         if data is not None:
             item["data"] = data
