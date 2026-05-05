@@ -28,6 +28,7 @@ wallet hashing.
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
 
+import functools
 import json
 import os
 import sys
@@ -41,18 +42,49 @@ SKILL_DIR = Path(WORKSPACE) / "skills" / "pangolin-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "pangolin-config.json"
 
 
-# ─── senpi_runtime_helpers ───
-# `wrapped-skills` ships the helpers package alongside the skill, so the
-# wrapper is guaranteed available. Import is hard-required — if it fails,
-# the deployment is broken and we want to scream, not silently fall back.
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+# `wrapped-skills` ships the helpers package alongside the skill so the
+# wrapper is always available. Import is sys.path-mounted at module load,
+# but the SenpiClient construction is deferred to first use via
+# `_get_wrapper_client()`. Two reasons for lazy:
+#   1. Importing pangolin_config (e.g. from a test, REPL, or a sibling
+#      module that wants `now_iso()`) shouldn't instantiate a network
+#      client or write to stderr.
+#   2. SENPI_AUTH_TOKEN is validated explicitly on first use — a missing
+#      token raises loudly here instead of silently producing a 401 on
+#      the first MCP call.
 
 _helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
 if _helpers_path not in sys.path:
     sys.path.insert(0, _helpers_path)
 from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore
 
-_wrapper_client = SenpiClient()
-log_event("pangolin_wrapper_enabled", helpers_path=_helpers_path)
+
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    """Lazy SenpiClient accessor with explicit auth validation."""
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Pangolin's MCP calls and signal "
+            "POST both require it. Set it on the runtime host (e.g. as a "
+            "Railway service variable) before starting the producer."
+        )
+    client = SenpiClient()
+    log_event("pangolin_wrapper_enabled", helpers_path=_helpers_path)
+    return client
+
+
+class _WrapperClientProxy:
+    """Module-level attribute that defers SenpiClient construction until first
+    attribute access. Preserves the legacy `cfg._wrapper_client.mcp_call(...)`
+    call shape used by the producer + scanner without forcing eager
+    instantiation at import time."""
+
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
 
 
 # ─── Config ──────────────────────────────────────────────────
