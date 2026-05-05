@@ -97,7 +97,7 @@ def release_lock(lock_file):
         pass
 
 
-VERSION = "4.1.0"
+VERSION = "4.2.0"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "wolverine_signals")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 
@@ -126,8 +126,17 @@ MIN_SCORE_DEFAULT = 9             # config-overridable via "minScore"
 
 # Hard gates
 MIN_MOM_15M = 0.15
-MIN_4H_STRUCTURE = 0.75
-MIN_4H_MAGNITUDE_PCT = 1.5        # v3.0.3 GATE 6
+MIN_4H_STRUCTURE = 0.65           # v4.2: 0.75 → 0.65. v3.0.3's 0.75
+                                  # required 4 of 5 4h candles aligned —
+                                  # missed multi-day grinds where 1-2
+                                  # pullback candles are normal. 0.65 =
+                                  # 3 of 5 candles, captures clean
+                                  # trends with normal pullback structure.
+MIN_4H_MAGNITUDE_PCT = 1.0        # v4.2: 1.5 → 1.0. Combined with
+                                  # trailing-window calculation below,
+                                  # 1.0% over 4 hours captures HYPE's
+                                  # typical multi-day grind cadence
+                                  # (0.8-1.2% per 4h on cumulative move).
 RSI_MAX_LONG = 72
 RSI_MIN_SHORT = 28
 FUNDING_CROWDED = 0.005
@@ -445,7 +454,22 @@ def build_hype_thesis():
     mom_5m = price_momentum(candles_5m, 1)
     mom_15m = price_momentum(candles_15m, 1)
     mom_1h = price_momentum(candles_1h, 2)
-    mom_4h = price_momentum(candles_4h, 1)
+
+    # v4.2: mom_4h via TRAILING WINDOW using 1H candles, not grid-based
+    # 4h candle. The grid-based approach (price_momentum(candles_4h, 1))
+    # only sees ONE 4h candle's change — typically 0.5-1.5% on HYPE
+    # multi-day grinds. The trailing window captures cumulative momentum
+    # across the past 4 hours, matching how price actually moved. Same
+    # fix Kestrel got in v1.1 (kestrel-scanner v1.1 trailing-4H comment).
+    if len(candles_1h) >= 5:
+        close_1h_now = candle_close(candles_1h[-1])
+        close_1h_4h_ago = candle_close(candles_1h[-5])
+        if close_1h_4h_ago > 0:
+            mom_4h = ((close_1h_now - close_1h_4h_ago) / close_1h_4h_ago) * 100
+        else:
+            mom_4h = price_momentum(candles_4h, 1)   # fallback to grid-based
+    else:
+        mom_4h = price_momentum(candles_4h, 1)       # not enough 1h candles
 
     if direction == "LONG" and mom_15m < MIN_MOM_15M:
         return {"blocked": True, "reason": f"15m_too_weak_{mom_15m:+.2f}"}
@@ -459,7 +483,8 @@ def build_hype_thesis():
         return {"blocked": True,
                 "reason": f"base_tech_weak_15m({mom_15m:+.2f})_5m({mom_5m:+.2f})"}
 
-    # GATE 6 (v3.0.3): 4h MAGNITUDE floor — reject dead-flat chop
+    # GATE 6 (v3.0.3): 4h MAGNITUDE floor — reject dead-flat chop.
+    # v4.2: now uses trailing-window mom_4h above, threshold lowered to 1.0%.
     if abs(mom_4h) < MIN_4H_MAGNITUDE_PCT:
         return {"blocked": True, "reason": f"4h_magnitude_too_flat_{mom_4h:+.2f}_min_{MIN_4H_MAGNITUDE_PCT}"}
 
