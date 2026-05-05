@@ -940,11 +940,37 @@ def main():
         release_lock(lock)
 
 
-if __name__ == "__main__":
+def _run_main_safely():
+    """One tick of the producer. Catches exceptions so the daemon loop
+    can keep running across transient failures."""
     try:
         main()
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         cfg.log(f"CRITICAL ERROR: {e}")
         import traceback
         traceback.print_exc(file=sys.stderr)
         cfg.output({"status": "error", "error": str(e)})
+
+
+if __name__ == "__main__":
+    # Daemon mode (opt-in via SENPI_USE_DAEMON=1) — long-lived loop that
+    # fires the producer on a fixed interval. Replaces openclaw cron +
+    # per-tick agentTurn for this skill: no LLM coupling, no CLI cold
+    # start, no fork-storm risk on overlap (scanner_lock skips overlap
+    # cleanly). Requires SENPI_USE_WRAPPER=1 too (the wrapper package
+    # is what provides producer_daemon).
+    _USE_DAEMON = os.environ.get("SENPI_USE_DAEMON", "").strip().lower() in ("1", "true", "yes")
+    _DAEMON_INTERVAL = int(os.environ.get("SENPI_DAEMON_INTERVAL_SECONDS", "300"))  # 5 min — Pangolin default cadence
+    _DAEMON_TIMEOUT = int(os.environ.get("SENPI_DAEMON_TICK_TIMEOUT", "120"))       # 2 min per tick
+
+    if _USE_DAEMON and cfg._wrapper_client is not None:
+        from senpi_runtime_helpers import producer_daemon
+        producer_daemon(
+            fn=_run_main_safely,
+            interval_seconds=_DAEMON_INTERVAL,
+            name="pangolin-producer",
+            tick_timeout=_DAEMON_TIMEOUT,
+        )
+    else:
+        # Single-shot (legacy cron-fired) mode.
+        _run_main_safely()
