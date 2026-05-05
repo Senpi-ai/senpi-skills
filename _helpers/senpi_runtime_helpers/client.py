@@ -4,19 +4,28 @@ Bypasses openclaw gateway and mcporter entirely. The 6-process spawn tree
 (gateway → sh → python → node mcporter → npm exec → sh → node mcp-remote)
 is replaced with a single Python HTTP request.
 
-Returns the same unwrapped JSON shape that `mcporter call` returns — so it
-is a near drop-in for `mcporter_call(tool, **params)`.
+Connection reuse: a thread-local pool of `http.client.HTTPSConnection`
+keeps one keep-alive connection per (scheme, host, port) per thread. The
+first MCP call in a tick pays the TLS handshake; subsequent calls reuse
+the connection and only pay the request round-trip. On errors the
+connection is closed and re-opened on next use.
+
+Returns the same unwrapped JSON shape that `mcporter call` returns — so
+it is a near drop-in for `mcporter_call(tool, **params)`.
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 
+import http.client
+import io
 import itertools
 import json
 import threading
 import time
 import urllib.error
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit
 
 from . import _config as cfg
 from ._logging import log_event
@@ -45,19 +54,98 @@ class _MCPSession:
         return next(self._id_counter)
 
 
+class _ConnectionPool:
+    """Thread-local keep-alive connection pool keyed by (scheme, host, port).
+
+    Each worker thread keeps its own connection per host, so two threads
+    in `parallel(...)` don't serialise on one connection. http.client's
+    HTTPConnection is single-request-at-a-time per instance; the
+    thread-local layout is the simplest way to get keep-alive without
+    adding a dependency on a real pool library.
+    """
+
+    def __init__(self) -> None:
+        self._local = threading.local()
+
+    def _conns(self) -> Dict[Tuple[str, str, int], "http.client.HTTPConnection"]:
+        if not hasattr(self._local, "conns"):
+            self._local.conns = {}
+        return self._local.conns
+
+    def get(self, scheme: str, host: str, port: int, timeout: float) -> "http.client.HTTPConnection":
+        key = (scheme, host, port)
+        conns = self._conns()
+        conn = conns.get(key)
+        if conn is None:
+            cls = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
+            conn = cls(host, port, timeout=timeout)
+            conns[key] = conn
+        else:
+            # Update timeout for next request without recreating the connection.
+            conn.timeout = timeout
+        return conn
+
+    def reset(self, scheme: str, host: str, port: int) -> None:
+        key = (scheme, host, port)
+        conns = self._conns()
+        conn = conns.pop(key, None)
+        if conn is not None:
+            try:
+                conn.close()
+            except OSError:
+                pass
+
+
 def _post_json(
+    pool: "_ConnectionPool",
     url: str,
     body: Any,
     headers: Dict[str, str],
     timeout: float,
 ):
+    """POST a JSON body and return the open `http.client.HTTPResponse`.
+
+    Reuses a per-thread keep-alive connection from `pool`. On any
+    transport error the connection is closed (so the next call gets a
+    fresh one) and a `urllib.error.URLError` / `HTTPError` is raised to
+    keep the existing exception-handling shape intact.
+    """
+    parts = urlsplit(url)
+    scheme = parts.scheme
+    host = parts.hostname or ""
+    port = parts.port or (443 if scheme == "https" else 80)
+    path = parts.path or "/"
+    if parts.query:
+        path += "?" + parts.query
+
     data = json.dumps(body).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST")
-    req.add_header("Content-Type", "application/json")
-    req.add_header("Accept", "application/json, text/event-stream")
-    for k, v in headers.items():
-        req.add_header(k, v)
-    return urllib.request.urlopen(req, timeout=timeout)
+    request_headers = {
+        "Host": parts.netloc,
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+        "Content-Length": str(len(data)),
+    }
+    request_headers.update(headers)
+
+    conn = pool.get(scheme, host, port, timeout)
+    try:
+        conn.request("POST", path, body=data, headers=request_headers)
+        resp = conn.getresponse()
+    except (http.client.HTTPException, ConnectionError, OSError, TimeoutError) as e:
+        pool.reset(scheme, host, port)
+        raise urllib.error.URLError(str(e)) from e
+
+    if resp.status >= 400:
+        # Drain so the connection can be reused for the next request.
+        body_bytes = resp.read()
+        # If the server signalled connection-close, drop our reference.
+        if resp.getheader("Connection", "").lower() == "close":
+            pool.reset(scheme, host, port)
+        raise urllib.error.HTTPError(
+            url, resp.status, resp.reason, dict(resp.getheaders()), io.BytesIO(body_bytes)
+        )
+
+    return resp
 
 
 def _read_response_body(resp) -> Dict[str, Any]:
@@ -137,6 +225,9 @@ class SenpiClient:
         # Serializes initialize / notifications/initialized handshake so
         # parallel callers don't issue duplicate init POSTs.
         self._init_lock = threading.Lock()
+        # Thread-local keep-alive HTTP connections. First call per thread
+        # pays a TLS handshake; subsequent calls reuse the connection.
+        self._pool = _ConnectionPool()
 
     # ──────────────── MCP ────────────────
 
@@ -169,7 +260,7 @@ class SenpiClient:
             started = time.time()
             sid: Optional[str] = None
             try:
-                with _post_json(self.mcp_url, body, self._mcp_headers(), timeout) as resp:
+                with _post_json(self._pool, self.mcp_url, body, self._mcp_headers(), timeout) as resp:
                     sid = resp.headers.get("Mcp-Session-Id")  # case-insensitive in CPython
                     _ = _read_response_body(resp)
                 # Streamable-HTTP requires `notifications/initialized` after init.
@@ -184,7 +275,7 @@ class SenpiClient:
                     "method": "notifications/initialized",
                     "params": {},
                 }
-                with _post_json(self.mcp_url, note, note_headers, timeout) as resp:
+                with _post_json(self._pool, self.mcp_url, note, note_headers, timeout) as resp:
                     _ = resp.read()
             except urllib.error.HTTPError as e:
                 # Init failed cleanly — leave session_id unset so the next
@@ -232,7 +323,7 @@ class SenpiClient:
         }
         started = time.time()
         try:
-            with _post_json(self.mcp_url, body, self._mcp_headers(), timeout) as resp:
+            with _post_json(self._pool, self.mcp_url, body, self._mcp_headers(), timeout) as resp:
                 rpc = _read_response_body(resp)
             duration_ms = int((time.time() - started) * 1000)
             log_event("mcp_call", tool=tool, duration_ms=duration_ms, status="ok")
@@ -324,7 +415,7 @@ class SenpiClient:
         body = items  # bare array — runtime schema is Array<SignalItem>
         started = time.time()
         try:
-            with _post_json(self._signals_url(), body, {}, timeout) as resp:
+            with _post_json(self._pool, self._signals_url(), body, {}, timeout) as resp:
                 raw = resp.read()
             duration_ms = int((time.time() - started) * 1000)
             try:

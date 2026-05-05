@@ -80,6 +80,50 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(c1.calls, 1)
         self.assertEqual(c2.calls, 1)
 
+    def test_thundering_herd_coalesced_to_one_call(self) -> None:
+        """N parallel callers missing the same key should issue ONE MCP call.
+
+        The owner makes the call; waiters block on the per-key event and read
+        the result once it lands.
+        """
+        import threading
+        client = _FakeClient()
+        # Make mcp_call slow so concurrent callers all see the miss.
+        original = client.mcp_call
+        gate = threading.Event()
+
+        def slow_mcp_call(tool, timeout=None, **arguments):
+            gate.wait(2.0)  # wait for all threads to register before returning
+            return original(tool, timeout=timeout, **arguments)
+
+        client.mcp_call = slow_mcp_call
+
+        results = [None] * 8
+        threads = []
+        def worker(i):
+            results[i] = cached_mcp_call(client, "x", limit=10)
+
+        for i in range(8):
+            t = threading.Thread(target=worker, args=(i,))
+            threads.append(t)
+            t.start()
+        # Give all threads a moment to register as waiters.
+        import time as _t
+        _t.sleep(0.2)
+        gate.set()
+        for t in threads:
+            t.join()
+
+        # Owner made one call; waiters reused the result.
+        self.assertEqual(client.calls, 1)
+        # All threads got the same value.
+        first = results[0]
+        for r in results:
+            self.assertEqual(r, first)
+        s = cache_summary(client)
+        self.assertEqual(s["misses"], 1)
+        self.assertGreaterEqual(s["coalesced"], 7)  # 8 callers, 1 owner, >=7 waiters
+
     def test_lru_eviction_when_cap_exceeded(self) -> None:
         from senpi_runtime_helpers import _config as cfg
         original = cfg.TICK_CACHE_MAX_ENTRIES

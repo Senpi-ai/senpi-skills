@@ -63,6 +63,34 @@ class ParallelTests(unittest.TestCase):
     def test_empty_input(self) -> None:
         self.assertEqual(parallel([], max_concurrent=4), [])
 
+    def test_thread_count_bounded_by_max_concurrent(self) -> None:
+        """1000 calls should NOT spawn 1000 OS threads — the executor's
+        internal queue holds the rest behind `max_concurrent` workers.
+        Verified via thread-count active during run."""
+        import threading as _t
+        cap = 4
+        seen_counts = []
+        check_lock = _t.Lock()
+        ready = _t.Event()
+
+        def task(i=0):
+            # Snapshot active senpi-parallel thread count while we hold a slot.
+            with check_lock:
+                count = sum(
+                    1 for t in _t.enumerate()
+                    if t.name.startswith("senpi-parallel")
+                )
+                seen_counts.append(count)
+            # Hold the slot briefly so the count is meaningful.
+            time.sleep(0.02)
+            return i
+
+        results = parallel([task] * 200, max_concurrent=cap)
+        self.assertEqual(len(results), 200)
+        self.assertTrue(all(ok for ok, _ in results))
+        # Peak observed senpi-parallel thread count must be <= cap.
+        self.assertLessEqual(max(seen_counts), cap)
+
     def test_legitimate_exception_return_not_misclassified(self) -> None:
         """A tool that legitimately returns an Exception subclass as a value
         should be classified as success, distinguishable from real failures."""

@@ -45,9 +45,16 @@ def _client_cache(client: Any) -> "_Cache":
 
 
 class _Cache:
-    """OrderedDict-backed LRU cache with TTL eviction and counters."""
+    """OrderedDict-backed LRU cache with TTL eviction and counters.
 
-    __slots__ = ("store", "lock", "hits", "misses", "evictions", "skipped")
+    Per-key in-flight tracking prevents thundering herd: if N parallel
+    callers miss the same key simultaneously, only the first issues the
+    MCP call; the others wait on a `threading.Event` and read the result
+    once it lands.
+    """
+
+    __slots__ = ("store", "lock", "hits", "misses", "evictions", "skipped",
+                 "coalesced", "pending")
 
     def __init__(self) -> None:
         self.store: "OrderedDict[str, _Entry]" = OrderedDict()
@@ -56,6 +63,10 @@ class _Cache:
         self.misses = 0
         self.evictions = 0
         self.skipped = 0
+        self.coalesced = 0  # how many waiters merged into an in-flight call
+        # key → threading.Event for in-flight MCP calls. Owner removes the
+        # event after publishing the value; waiters block on it.
+        self.pending: Dict[str, threading.Event] = {}
 
 
 class _Entry:
@@ -98,6 +109,8 @@ def cached_mcp_call(
         return client.mcp_call(tool, timeout=timeout, **arguments)
 
     now = time.time()
+    pending: Optional[threading.Event] = None
+    is_owner = False
     with cache.lock:
         entry = cache.store.get(key)
         if entry is not None and now - entry.ts <= ttl_value:
@@ -106,21 +119,61 @@ def cached_mcp_call(
             age = now - entry.ts
             log_event("cache_hit", tool=tool, age_s=round(age, 3))
             return entry.value
+        # Miss path. Coalesce concurrent misses on the same key: if a
+        # caller is already issuing this MCP call, register as a waiter
+        # on its event; otherwise become the owner.
+        pending = cache.pending.get(key)
+        if pending is None:
+            pending = threading.Event()
+            cache.pending[key] = pending
+            is_owner = True
+        else:
+            cache.coalesced += 1
 
-    # Miss — issue the MCP call without holding the lock so concurrent
-    # callers on different keys aren't serialised behind one slow request.
+    if not is_owner:
+        # Another caller is fetching this key. Wait for them and read the
+        # value they publish. Use a timeout so a stalled owner doesn't
+        # wedge waiters forever — the wait timeout is the call's own
+        # `timeout` (or the default MCP timeout) plus a small slack.
+        wait_for = (timeout if timeout is not None else cfg.MCP_TIMEOUT_SECONDS) + 5.0
+        signaled = pending.wait(wait_for)
+        if not signaled:
+            # Owner stalled past its budget. Fall through to issue our
+            # own call so the caller doesn't deadlock on a dead owner.
+            log_event("cache_coalesce_timeout", tool=tool, wait_for_s=round(wait_for, 1))
+            # Don't claim ownership — race with the original owner is OK;
+            # last writer wins for the cache entry.
+            value = client.mcp_call(tool, timeout=timeout, **arguments)
+            return value
+        with cache.lock:
+            entry = cache.store.get(key)
+        if entry is not None:
+            return entry.value
+        # Owner finished but didn't publish (e.g. raised). Issue our own.
+        return client.mcp_call(tool, timeout=timeout, **arguments)
+
+    # Owner path. Issue the MCP call without holding the cache lock so
+    # other-key callers aren't serialized behind us. On any outcome
+    # (success or exception), signal pending and clear the entry.
     miss_started = time.time()
-    value = client.mcp_call(tool, timeout=timeout, **arguments)
+    try:
+        value = client.mcp_call(tool, timeout=timeout, **arguments)
+    except BaseException:
+        with cache.lock:
+            cache.pending.pop(key, None)
+        pending.set()
+        raise
     miss_duration_ms = int((time.time() - miss_started) * 1000)
 
     with cache.lock:
         cache.store[key] = _Entry(time.time(), value)
         cache.store.move_to_end(key)
-        # LRU evict if over cap.
         while len(cache.store) > cfg.TICK_CACHE_MAX_ENTRIES:
             cache.store.popitem(last=False)
             cache.evictions += 1
         cache.misses += 1
+        cache.pending.pop(key, None)
+    pending.set()
 
     log_event(
         "cache_miss",
@@ -181,4 +234,5 @@ def cache_summary(client: Any) -> Dict[str, int]:
             "misses": cache.misses,
             "evictions": cache.evictions,
             "skipped": cache.skipped,
+            "coalesced": cache.coalesced,
         }
