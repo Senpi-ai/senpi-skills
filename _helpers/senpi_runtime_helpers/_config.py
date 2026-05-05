@@ -37,7 +37,7 @@ SENPI_AUTH_TOKEN = os.environ.get("SENPI_AUTH_TOKEN", "")
 
 # Runtime API for signal ingest.
 RUNTIME_API_HOST = _env_str("SENPI_RUNTIME_API_HOST", "127.0.0.1")
-RUNTIME_API_PORT = _env_int("SENPI_RUNTIME_API_PORT", 18790)
+RUNTIME_API_PORT = _env_int("SENPI_RUNTIME_API_PORT", 8787)
 
 # Wall-clock timeouts. Enforced default; producer can override per-call.
 MCP_TIMEOUT_SECONDS = _env_float("SENPI_HELPERS_MCP_TIMEOUT", 30.0)
