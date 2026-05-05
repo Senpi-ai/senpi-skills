@@ -12,7 +12,8 @@ Replaces, for the producer author:
   - repeated identical MCP calls in one tick
     → `mcp = tick_cache(client); mcp(tool, ...)`
   - `subprocess.run(["openclaw", "senpi", "external-scanner", "ingest", ...])`
-    → `client.signal({...})`  — POST to runtime API
+    → `client.push_signal(address, scanner, data, ...)`  — POST to runtime API
+    → `client.push_signals(items)` for batches
 
 Wall-clock timeouts are enforced by default on every MCP and signal call;
 producers can override per-call.

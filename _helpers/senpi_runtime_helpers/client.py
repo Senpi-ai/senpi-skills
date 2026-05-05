@@ -14,7 +14,6 @@ import json
 import time
 import urllib.error
 import urllib.request
-import uuid
 from typing import Any, Dict, List, Optional
 
 from . import _config as cfg
@@ -242,16 +241,31 @@ class SenpiClient:
     def _signals_url(self) -> str:
         return f"http://{self.runtime_host}:{self.runtime_port}/signals"
 
-    def signals(
+    def push_signals(
         self,
-        batch: List[Dict[str, Any]],
+        items: List[Dict[str, Any]],
         timeout: Optional[float] = None,
     ) -> Dict[str, Any]:
-        """POST a batch of signals to the runtime API. Always an array, length >= 1."""
-        if not isinstance(batch, list) or not batch:
-            raise SenpiClientError("signals() requires a non-empty list")
+        """POST a batch of signal items to the runtime API at `/signals`.
+
+        Body wire-shape is the bare JSON array (per
+        `runtime-api/routes/signals.schema.ts`). Each item must include at
+        minimum `address` and `scanner`. Use `data` for a single ingest
+        payload (signal- or context-producing scanner).
+
+        Replaces `subprocess.run(["openclaw","senpi","external-scanner","ingest",...])`.
+        """
+        if not isinstance(items, list) or not items:
+            raise SenpiClientError("push_signals() requires a non-empty list")
+        for i, it in enumerate(items):
+            if not isinstance(it, dict):
+                raise SenpiClientError(f"item[{i}] must be a dict")
+            if "address" not in it or "scanner" not in it:
+                raise SenpiClientError(
+                    f"item[{i}] missing required fields: address, scanner"
+                )
         timeout = timeout if timeout is not None else cfg.SIGNAL_TIMEOUT_SECONDS
-        body = {"signals": batch, "request_id": str(uuid.uuid4())}
+        body = items  # bare array — runtime schema is Array<SignalItem>
         started = time.time()
         try:
             with _post_json(self._signals_url(), body, {}, timeout) as resp:
@@ -263,7 +277,7 @@ class SenpiClient:
                 parsed = {}
             log_event(
                 "signal_post",
-                batch_size=len(batch),
+                batch_size=len(items),
                 bytes=len(raw),
                 duration_ms=duration_ms,
                 status="ok",
@@ -273,7 +287,7 @@ class SenpiClient:
             duration_ms = int((time.time() - started) * 1000)
             log_event(
                 "signal_post",
-                batch_size=len(batch),
+                batch_size=len(items),
                 duration_ms=duration_ms,
                 status="http_error",
                 code=getattr(e, "code", None),
@@ -283,13 +297,40 @@ class SenpiClient:
             duration_ms = int((time.time() - started) * 1000)
             log_event(
                 "signal_post",
-                batch_size=len(batch),
+                batch_size=len(items),
                 duration_ms=duration_ms,
                 status="network_error",
                 reason=str(e.reason),
             )
             raise
 
-    def signal(self, payload: Dict[str, Any], timeout: Optional[float] = None) -> Dict[str, Any]:
-        """Convenience for a single signal — wraps to a one-element batch."""
-        return self.signals([payload], timeout=timeout)
+    def push_signal(
+        self,
+        address: str,
+        scanner: str,
+        data: Optional[Dict[str, Any]] = None,
+        asset: Optional[str] = None,
+        direction: Optional[str] = None,
+        score: Optional[float] = None,
+        signal_type: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> Dict[str, Any]:
+        """Push one signal — convenience wrapping a one-element batch.
+
+        Maps 1:1 to `openclaw senpi external-scanner ingest`:
+        - `address` ↔ `--address`
+        - `scanner` ↔ `--scanner`
+        - `data`    ↔ `--payload`
+        """
+        item: Dict[str, Any] = {"address": address, "scanner": scanner}
+        if data is not None:
+            item["data"] = data
+        if asset is not None:
+            item["asset"] = asset
+        if direction is not None:
+            item["direction"] = direction
+        if score is not None:
+            item["score"] = score
+        if signal_type is not None:
+            item["signal_type"] = signal_type
+        return self.push_signals([item], timeout=timeout)

@@ -24,7 +24,18 @@ class _Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         body = self.rfile.read(length).decode("utf-8") if length else ""
         msg = json.loads(body) if body else {}
-        method = msg.get("method")
+
+        # /signals path: body is a JSON array (per runtime API schema).
+        # Route by URL path BEFORE assuming msg is a JSON-RPC object.
+        if self.path == "/signals":
+            count = len(msg) if isinstance(msg, list) else 0
+            self.send_response(202)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"accepted": count}).encode("utf-8"))
+            return
+
+        method = msg.get("method") if isinstance(msg, dict) else None
         if method == "initialize":
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -53,13 +64,6 @@ class _Handler(BaseHTTPRequestHandler):
                 "result": {"content": [{"type": "text", "text": json.dumps(inner)}]},
             }
             self.wfile.write(json.dumps(envelope).encode("utf-8"))
-            return
-        # /signals path
-        if self.path == "/signals":
-            self.send_response(202)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"accepted": len(msg.get("signals", []))}).encode("utf-8"))
             return
         self.send_response(404)
         self.end_headers()
@@ -99,20 +103,38 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(client._session.session_id, first_session)
         self.assertTrue(client._session.initialized)
 
-    def test_signals_post_batch(self) -> None:
+    def test_push_signal_single(self) -> None:
         client = SenpiClient(
             runtime_host="127.0.0.1",
             runtime_port=self.port,
         )
-        # Override the path so server's /signals branch fires.
-        # The real client posts to /signals; our test server checks self.path.
-        result = client.signals([{"k": 1}, {"k": 2}])
+        result = client.push_signal(
+            address="0xabc",
+            scanner="pangolin_signals",
+            data={"score": 12, "asset": "TST"},
+        )
+        self.assertEqual(result.get("accepted"), 1)
+
+    def test_push_signals_batch(self) -> None:
+        client = SenpiClient(
+            runtime_host="127.0.0.1",
+            runtime_port=self.port,
+        )
+        result = client.push_signals([
+            {"address": "0xabc", "scanner": "s1", "data": {"k": 1}},
+            {"address": "0xabc", "scanner": "s1", "data": {"k": 2}},
+        ])
         self.assertEqual(result.get("accepted"), 2)
 
-    def test_signals_rejects_empty(self) -> None:
+    def test_push_signals_rejects_empty(self) -> None:
         client = SenpiClient()
         with self.assertRaises(SenpiClientError):
-            client.signals([])
+            client.push_signals([])
+
+    def test_push_signals_validates_required_fields(self) -> None:
+        client = SenpiClient()
+        with self.assertRaises(SenpiClientError):
+            client.push_signals([{"data": {"k": 1}}])  # missing address + scanner
 
 
 if __name__ == "__main__":

@@ -25,7 +25,7 @@ with scanner_lock("phoenix"):
 | Helper | Replaces | Why |
 |---|---|---|
 | `client.mcp_call(tool, **kwargs)` | `subprocess.run(["mcporter","call","senpi",tool,...])` | Direct HTTPS to MCP. Kills the 6-process tree (`gateway → sh → python → node mcporter → npm exec → sh → node mcp-remote`) per call. Saves 250-300 MB transient RSS and 2.5-5s per call. |
-| `client.signal(...)` / `client.signals([...])` | `subprocess.run(["openclaw","senpi","external-scanner","ingest",...])` | HTTP POST to the runtime's `/signals` endpoint on `127.0.0.1`. Saves the 5-8s CLI cold start. |
+| `client.push_signal(address, scanner, data, ...)` / `client.push_signals(items)` | `subprocess.run(["openclaw","senpi","external-scanner","ingest",...])` | HTTP POST to the runtime's `/signals` endpoint on `127.0.0.1`. Body is the bare array of `SignalItem` per the runtime schema. Saves the 5-8s CLI cold start. |
 | `scanner_lock(name)` | hand-rolled `fcntl.flock(...)` | PID + heartbeat-mtime liveness check; auto-recovers from killed/crashed processes. No more "manual `rm /tmp/foo.lock`" runbook. |
 | `parallel([...])` | serial loop of MCP calls | Concurrency-bounded fan-out. Beyond `max_concurrent` calls **queue**, never reject. |
 | `tick_cache(client)` | repeated identical MCP calls in one tick | Per-process TTL cache. Same tool + same args within `TICK_CACHE_TTL`s reuses the result. |
