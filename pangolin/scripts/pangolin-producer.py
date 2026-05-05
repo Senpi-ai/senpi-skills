@@ -930,12 +930,22 @@ if __name__ == "__main__":
     # Long-lived daemon: fires `main()` every 5 min. Replaces openclaw
     # cron + per-tick agentTurn for this skill — no LLM coupling, no CLI
     # cold start. producer_daemon wraps each tick in scanner_lock so
-    # overlap is skipped cleanly, enforces a 2-min wall-clock per-tick
-    # via SIGALRM, and drains gracefully on SIGTERM/SIGINT.
+    # overlap is skipped cleanly, enforces a 6-min wall-clock per-tick
+    # via SIGALRM (longer than the producer's WARN_OVER_300S budget so
+    # the warn fires before the alarm), and drains gracefully on
+    # SIGTERM/SIGINT.
+    #
+    # Lock name is per-wallet so multi-wallet hosts (one daemon per
+    # wallet) don't collide on a single global lock file.
     from senpi_runtime_helpers import producer_daemon
+    _wallet_lock_id = (
+        hashlib.sha256(PANGOLIN_WALLET.lower().encode()).hexdigest()[:12]
+        if PANGOLIN_WALLET
+        else "unset"
+    )
     producer_daemon(
         fn=_run_main_safely,
-        interval_seconds=300,   # 5 min — Pangolin's standard cadence
-        name="pangolin-producer",
-        tick_timeout=120,       # 2 min per tick
+        interval_seconds=300,
+        name=f"pangolin-producer-{_wallet_lock_id}",
+        tick_timeout=360,
     )

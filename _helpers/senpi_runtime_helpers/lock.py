@@ -1,8 +1,15 @@
-"""scanner_lock — liveness-aware fcntl lock.
+"""scanner_lock — fcntl lock with PID-aliveness stale recovery.
 
-Detects stale locks (process killed, crashed, OOM) by reading the holder PID
-and a heartbeat mtime. If the holder is dead OR has not refreshed mtime within
-LOCK_HEARTBEAT_TIMEOUT, the lock is forcibly cleared and re-acquired.
+If a previous holder died holding the file (kill -9, OOM, container restart),
+the lock file persists but `flock` is auto-released by the kernel. The next
+caller's `flock(LOCK_EX | LOCK_NB)` succeeds; this module just records the
+new holder's metadata via in-place write so the inode stays stable.
+
+If a metadata-claiming holder is still alive AND `flock` is held by it,
+the new caller's `flock` fails with `BlockingIOError` — surfaced verbatim.
+
+The unlink-then-open pattern is deliberately not used: it would create a
+new inode and let two callers flock different inodes for the same path.
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
@@ -74,54 +81,68 @@ def _write_metadata_inplace(fd: int, payload: dict) -> None:
 def scanner_lock(
     name: str,
     lock_dir: Optional[str] = None,
-    heartbeat_timeout: Optional[float] = None,
+    heartbeat_timeout: Optional[float] = None,  # noqa: ARG001 — kept for API compat; unused
 ) -> Iterator[None]:
-    """Acquire an exclusive lock for the named scanner. Auto-recovers stale locks.
+    """Acquire an exclusive lock for the named scanner.
+
+    Implementation: open the lock file with `O_CREAT` (create if absent,
+    do NOT truncate or unlink anything that exists), then attempt
+    `fcntl.flock(LOCK_EX | LOCK_NB)`.
+
+    - If `flock` succeeds, the kernel guarantees no other process holds
+      it. If the file already existed with stale metadata, that means a
+      previous holder died — the kernel auto-released its flock. We
+      overwrite metadata in place via `_write_metadata_inplace` (keeps
+      inode stable).
+    - If `flock` fails (`BlockingIOError`), a live process is holding
+      the lock; we propagate the error. The caller decides whether to
+      skip this tick or retry later.
+
+    PID-aliveness in metadata is informational only — used in the
+    `lock_acquired` event for observability, not for stealing locks.
+    The previous "alive AND mtime > timeout" predicate could steal a
+    lock from a slow but alive holder, and was removed.
 
     Args:
-        name: scanner identifier; becomes the lock filename (`senpi-<name>.lock`).
-        lock_dir: directory to hold the lock file. Defaults to env SENPI_HELPERS_LOCK_DIR or /tmp.
-        heartbeat_timeout: seconds; if held lock's mtime is older than this and
-            its PID is also dead, the lock is forcibly cleared. Defaults to
-            SENPI_HELPERS_LOCK_HEARTBEAT_TIMEOUT (300s).
+        name: scanner identifier; lock file lives at
+            `<lock_dir>/senpi-<name>.lock`. Include a wallet hash in
+            `name` when the host runs multiple wallets.
+        lock_dir: optional override; defaults to `cfg.LOCK_DIR`.
+        heartbeat_timeout: legacy parameter, accepted but unused.
 
     Raises:
         BlockingIOError: another live process holds the lock.
     """
-    timeout = heartbeat_timeout if heartbeat_timeout is not None else cfg.LOCK_HEARTBEAT_TIMEOUT
     path = _lock_path(name, lock_dir)
-
-    # Pre-check existing metadata for stale recovery.
-    meta = _read_lock_metadata(path)
-    if meta:
-        prev_pid = int(meta.get("pid", -1))
-        try:
-            mtime = path.stat().st_mtime
-        except FileNotFoundError:
-            mtime = 0.0
-        age = time.time() - mtime
-        alive = _process_alive(prev_pid)
-        if not alive or age > timeout:
-            log_event(
-                "lock_stale_recovered",
-                name=name,
-                prev_pid=prev_pid,
-                prev_age_s=int(age),
-                prev_alive=alive,
-            )
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
-
     fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
     try:
         try:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            log_event("lock_busy", name=name)
+            # Inspect metadata for an informative log line — the BlockingIOError
+            # is the authoritative result (a live process owns the flock).
+            meta = _read_lock_metadata(path)
+            prev_pid = int(meta.get("pid", -1)) if meta else -1
+            log_event(
+                "lock_busy",
+                name=name,
+                prev_pid=prev_pid,
+                prev_alive=_process_alive(prev_pid) if prev_pid > 0 else False,
+            )
             os.close(fd)
             raise
+
+        # We hold the flock. If metadata existed, the previous holder must be
+        # dead (kernel released its flock). Surface that for ops visibility.
+        prior = _read_lock_metadata(path)
+        if prior is not None:
+            log_event(
+                "lock_recovered_after_crash",
+                name=name,
+                prev_pid=int(prior.get("pid", -1)),
+                prev_alive=_process_alive(int(prior.get("pid", -1))),
+            )
+
         payload = {
             "pid": os.getpid(),
             "started": time.time(),
