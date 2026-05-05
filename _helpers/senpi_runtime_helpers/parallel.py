@@ -30,7 +30,14 @@ class _BoundedExecutor:
         self._lock = threading.Lock()
         self._last_warn_emitted = 0.0
 
-    def _adjust(self, in_flight_delta: int = 0, waiting_delta: int = 0) -> Tuple[int, int]:
+    def _adjust(self, in_flight_delta: int = 0, waiting_delta: int = 0) -> None:
+        """Mutate the in-flight / waiting counters. Use `_snapshot` to read."""
+        with self._lock:
+            self._in_flight += in_flight_delta
+            self._waiting += waiting_delta
+
+    def _adjust_and_snapshot(self, in_flight_delta: int = 0, waiting_delta: int = 0) -> Tuple[int, int]:
+        """Mutate then return current (in_flight, waiting). One critical section."""
         with self._lock:
             self._in_flight += in_flight_delta
             self._waiting += waiting_delta
@@ -53,11 +60,11 @@ class _BoundedExecutor:
 
     def run_call(self, fn: Callable[[], Any]) -> Tuple[bool, Any]:
         """Run a single call. Acquires semaphore (queues if needed), runs, releases."""
-        in_flight, waiting = self._adjust(waiting_delta=1)
+        _in_flight, waiting = self._adjust_and_snapshot(waiting_delta=1)
         self._maybe_warn(waiting)
         self._sem.acquire()
         try:
-            in_flight, waiting = self._adjust(in_flight_delta=1, waiting_delta=-1)
+            self._adjust(in_flight_delta=1, waiting_delta=-1)
             try:
                 result = fn()
                 return True, result

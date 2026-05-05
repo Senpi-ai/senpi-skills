@@ -15,8 +15,6 @@ graceful drain (current tick finishes, then loop exits).
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 
-import errno
-import os
 import signal
 import threading
 import time
@@ -28,10 +26,6 @@ from .lock import scanner_lock
 
 
 _DEFAULT_TICK_TIMEOUT = 60.0
-
-
-class _ShutdownSignal(BaseException):
-    """Raised internally to break out of the current tick on SIGTERM/SIGINT."""
 
 
 class _TickTimeout(BaseException):
@@ -144,9 +138,6 @@ def producer_daemon(
             except BlockingIOError:
                 # scanner_lock raised — another live process holds the lock.
                 tick_status = "skipped_locked"
-            except _ShutdownSignal:
-                tick_status = "interrupted"
-                stop_event.set()
             except Exception as e:  # noqa: BLE001 — log and keep looping
                 tick_status = "error"
                 tick_err = f"{type(e).__name__}: {e}"

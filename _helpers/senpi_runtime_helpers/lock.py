@@ -95,7 +95,6 @@ def scanner_lock(
     meta = _read_lock_metadata(path)
     if meta:
         prev_pid = int(meta.get("pid", -1))
-        prev_started = float(meta.get("started", 0))
         try:
             mtime = path.stat().st_mtime
         except FileNotFoundError:
@@ -133,12 +132,6 @@ def scanner_lock(
         try:
             yield
         finally:
-            try:
-                # Heartbeat-touch on release so the next acquirer knows the lock was
-                # properly released and not stale.
-                os.utime(str(path), None)
-            except OSError:
-                pass
             try:
                 fcntl.flock(fd, fcntl.LOCK_UN)
             except OSError:

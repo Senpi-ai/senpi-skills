@@ -89,14 +89,23 @@ def atomic_write(path, data):
 
 # ─── MCP Helper ──────────────────────────────────────────────
 
-def mcporter_call(tool, retries=2, timeout=25, **params):
+def mcporter_call(tool, timeout=25, **params):
     """Call a Senpi MCP tool via the wrapper. Direct HTTPS, no subprocess.
 
-    `retries` is accepted for caller-API compatibility but unused — the
-    wrapper has its own timeout. If the wrapper raises, we let it propagate
-    (we are testing the wrapper; silencing errors defeats the point).
+    Returns the unwrapped JSON document on success, or `None` if the wrapper
+    raised a transport / protocol error. Per-call retries are intentionally
+    not implemented here — a transient failure is recovered by the daemon's
+    next tick (5 minutes); the producer's pre-existing `if not r:` early
+    returns continue to handle the no-data case gracefully.
     """
-    return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+    try:
+        return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+    except Exception as e:  # noqa: BLE001 — transport/protocol surface
+        sys.stderr.write(
+            f"[senpi_helpers] mcporter_call_failed tool={tool} "
+            f"err={type(e).__name__}: {e}\n"
+        )
+        return None
 
 
 # ─── Output helpers ──────────────────────────────────────────

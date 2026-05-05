@@ -102,7 +102,6 @@ Environment variables:
                       sets STRATEGY_ADDRESS, the other inherits it and
                       silently emits to the wrong wallet.
   SENPI_MCP_URL     — optional, default https://mcp.prod.senpi.ai/mcp
-  OPENCLAW_BIN      — optional, default "openclaw"
   EXTERNAL_SCANNER_NAME — optional override (default "pangolin_signals")
   PANGOLIN_MARGIN_PCT — optional, default 0.25 (25% of account value)
 """
@@ -111,7 +110,6 @@ import fcntl
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -123,10 +121,8 @@ import pangolin_config as cfg
 
 # v2.0.0: Agent-specific wallet env var. NO fallback to STRATEGY_ADDRESS
 # (contamination risk per Turbine v2.0.9 fix — see feedback_mcp_auth_is_fleet_wide.md).
-# Read case-preserved for CLI calls; lowercased separately for stable state-dir hashing.
 PANGOLIN_WALLET = os.environ.get("PANGOLIN_WALLET", "")
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "pangolin_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 MARGIN_PCT = float(os.environ.get("PANGOLIN_MARGIN_PCT", "0.25"))
 
 
