@@ -724,56 +724,22 @@ def build_signal_payload(c, leverage, margin_usd, held_assets=None):
 
 
 def push_signal(payload):
-    """Push a signal payload to the runtime.
+    """Push a signal payload to the runtime via the wrapper.
 
-    Routes through `senpi_runtime_helpers` when SENPI_USE_WRAPPER=1 — direct
-    HTTP POST to the runtime API on 127.0.0.1, no `openclaw senpi
-    external-scanner ingest` subprocess, no per-call CLI cold start.
-    Falls back to the legacy CLI path otherwise.
+    Direct HTTP POST to the runtime API on 127.0.0.1; no subprocess.
+    Wrapper-raised exceptions propagate — the daemon's _run_main_safely
+    catches them per tick and the next tick starts fresh. We are testing
+    the wrapper; silencing errors defeats the point.
     """
     if not PANGOLIN_WALLET:
         cfg.log("PANGOLIN_WALLET env var not set; cannot push signal")
         return False
-
-    if cfg._wrapper_client is not None:
-        try:
-            cfg._wrapper_client.push_signal(
-                address=PANGOLIN_WALLET,
-                scanner=SCANNER_NAME,
-                data=payload,
-            )
-            return True
-        except Exception as e:  # noqa: BLE001
-            cfg.log(
-                f"ingest exception (wrapper) for {payload.get('asset','?')}: "
-                f"{type(e).__name__}: {e}"
-            )
-            return False
-
-    # Legacy CLI subprocess path — unchanged.
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", PANGOLIN_WALLET,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if r.returncode != 0:
-            cfg.log(f"ingest failed for {payload['asset']} {payload['direction']}: {r.stderr.strip()}")
-            return False
-        if r.stdout.strip():
-            try:
-                response = json.loads(r.stdout)
-                if isinstance(response, dict) and response.get("ok") is False:
-                    cfg.log(f"ingest rejected for {payload['asset']} {payload['direction']}: {response.get('error')}")
-                    return False
-            except (json.JSONDecodeError, TypeError):
-                pass
-        return True
-    except (subprocess.TimeoutExpired, OSError) as e:
-        cfg.log(f"ingest exception for {payload['asset']}: {e}")
-        return False
+    cfg._wrapper_client.push_signal(
+        address=PANGOLIN_WALLET,
+        scanner=SCANNER_NAME,
+        data=payload,
+    )
+    return True
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -953,24 +919,15 @@ def _run_main_safely():
 
 
 if __name__ == "__main__":
-    # Daemon mode (opt-in via SENPI_USE_DAEMON=1) — long-lived loop that
-    # fires the producer on a fixed interval. Replaces openclaw cron +
-    # per-tick agentTurn for this skill: no LLM coupling, no CLI cold
-    # start, no fork-storm risk on overlap (scanner_lock skips overlap
-    # cleanly). Requires SENPI_USE_WRAPPER=1 too (the wrapper package
-    # is what provides producer_daemon).
-    _USE_DAEMON = os.environ.get("SENPI_USE_DAEMON", "").strip().lower() in ("1", "true", "yes")
-    _DAEMON_INTERVAL = int(os.environ.get("SENPI_DAEMON_INTERVAL_SECONDS", "300"))  # 5 min — Pangolin default cadence
-    _DAEMON_TIMEOUT = int(os.environ.get("SENPI_DAEMON_TICK_TIMEOUT", "120"))       # 2 min per tick
-
-    if _USE_DAEMON and cfg._wrapper_client is not None:
-        from senpi_runtime_helpers import producer_daemon
-        producer_daemon(
-            fn=_run_main_safely,
-            interval_seconds=_DAEMON_INTERVAL,
-            name="pangolin-producer",
-            tick_timeout=_DAEMON_TIMEOUT,
-        )
-    else:
-        # Single-shot (legacy cron-fired) mode.
-        _run_main_safely()
+    # Long-lived daemon: fires `main()` every 5 min. Replaces openclaw
+    # cron + per-tick agentTurn for this skill — no LLM coupling, no CLI
+    # cold start. producer_daemon wraps each tick in scanner_lock so
+    # overlap is skipped cleanly, enforces a 2-min wall-clock per-tick
+    # via SIGALRM, and drains gracefully on SIGTERM/SIGINT.
+    from senpi_runtime_helpers import producer_daemon
+    producer_daemon(
+        fn=_run_main_safely,
+        interval_seconds=300,   # 5 min — Pangolin's standard cadence
+        name="pangolin-producer",
+        tick_timeout=120,       # 2 min per tick
+    )

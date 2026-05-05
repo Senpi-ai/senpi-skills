@@ -27,7 +27,6 @@ wallet hashing.
 
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -39,31 +38,18 @@ SKILL_DIR = Path(WORKSPACE) / "skills" / "pangolin-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "pangolin-config.json"
 
 
-# ─── senpi_runtime_helpers (opt-in via SENPI_USE_WRAPPER=1) ───
-# When enabled:
-#   - mcporter_call() routes via direct HTTPS to MCP (no mcporter subprocess)
-#   - the producer's push_signal() routes via HTTP POST to the runtime's
-#     /signals endpoint (no `openclaw senpi external-scanner ingest`
-#     subprocess)
-# Falls back automatically on any init error so the change is safe to ship
-# behind the env flag.
+# ─── senpi_runtime_helpers ───
+# `wrapped-skills` ships the helpers package alongside the skill, so the
+# wrapper is guaranteed available. Import is hard-required — if it fails,
+# the deployment is broken and we want to scream, not silently fall back.
 
-_USE_WRAPPER = os.environ.get("SENPI_USE_WRAPPER", "").strip().lower() in ("1", "true", "yes")
-_wrapper_client = None
+_helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore
 
-if _USE_WRAPPER:
-    try:
-        _helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
-        if _helpers_path not in sys.path:
-            sys.path.insert(0, _helpers_path)
-        from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore
-        _wrapper_client = SenpiClient()
-        log_event("pangolin_wrapper_enabled", helpers_path=_helpers_path)
-    except Exception as _wrap_err:  # noqa: BLE001
-        sys.stderr.write(
-            f"[senpi_helpers] pangolin_wrapper_init_failed: {_wrap_err}\n"
-        )
-        _wrapper_client = None
+_wrapper_client = SenpiClient()
+log_event("pangolin_wrapper_enabled", helpers_path=_helpers_path)
 
 
 # ─── Config ──────────────────────────────────────────────────
@@ -101,60 +87,13 @@ def atomic_write(path, data):
 # ─── MCP Helper ──────────────────────────────────────────────
 
 def mcporter_call(tool, retries=2, timeout=25, **params):
-    """Call a Senpi MCP tool.
+    """Call a Senpi MCP tool via the wrapper. Direct HTTPS, no subprocess.
 
-    Routes through `senpi_runtime_helpers` when SENPI_USE_WRAPPER=1 (direct
-    HTTPS, no mcporter subprocess, no 6-process spawn tree). Falls back to
-    the legacy mcporter subprocess otherwise — same return shape either way
-    (mcporter envelope `content[0].text` JSON unwrapped). Returns parsed JSON
-    or None on failure.
+    `retries` is accepted for caller-API compatibility but unused — the
+    wrapper has its own timeout. If the wrapper raises, we let it propagate
+    (we are testing the wrapper; silencing errors defeats the point).
     """
-    if _wrapper_client is not None:
-        last_err: Exception | None = None
-        for attempt in range(retries):
-            try:
-                return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
-            except Exception as e:  # noqa: BLE001
-                last_err = e
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-        sys.stderr.write(
-            f"[senpi_helpers] mcp_call_exhausted tool={tool} retries={retries} "
-            f"err={type(last_err).__name__}: {last_err}\n"
-        )
-        return None
-
-    # Legacy mcporter subprocess path — unchanged.
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
+    return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
 
 
 # ─── Output helpers ──────────────────────────────────────────
