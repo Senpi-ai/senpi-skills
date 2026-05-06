@@ -181,7 +181,45 @@ Crons run in one of two session types:
 
 ---
 
-## 3. Using Senpi MCP (mcporter)
+## 3. Using Senpi MCP
+
+### 3.0 Use the wrapper — `senpi_runtime_helpers`
+
+New producer/scanner skills should be built on `senpi_runtime_helpers` — the stdlib-only Python wrapper at `_helpers/senpi_runtime_helpers/`. It has its own `SKILL.md` with the full reference; the snippet below is the minimum to start.
+
+```python
+import os, sys
+from pathlib import Path
+
+_helpers_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "_helpers")
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+
+from senpi_runtime_helpers import SenpiClient, scanner_lock, tick_cache, producer_daemon
+
+client = SenpiClient()           # reads SENPI_MCP_URL + SENPI_AUTH_TOKEN
+mcp = tick_cache(client)
+
+def run_one_tick():
+    with scanner_lock(f"<skill>-{wallet_hash}"):
+        markets = mcp("leaderboard_get_markets", limit=100)
+        # …gating…
+        if signal_ready:
+            client.push_signal(address=wallet, scanner="<skill>_signals",
+                               asset=asset, direction=direction, data={...})
+
+if __name__ == "__main__":
+    producer_daemon(tick=run_one_tick, interval_seconds=300,
+                    name=f"<skill>-{wallet_hash}")
+```
+
+**What the wrapper gives you** (full breakdown in `senpi-trading-runtime/docs/runtime-v2-fixes/runtime-2-performance-findings.md`):
+
+- A persistent HTTPS keep-alive client to MCP — ~280 ms per call. The legacy `mcporter` subprocess spawned a 6-process tree (gateway → sh → python → mcporter → npm → mcp-remote) at 2.5–5 s and 250–300 MB transient RSS per call.
+- Direct POST to the runtime's `/signals` endpoint via `push_signal(...)`. The legacy `openclaw senpi external-scanner ingest` cold-started the openclaw CLI at 5–8 s per emit.
+- An internal `producer_daemon` scheduler. No openclaw cron, no agentTurn LLM in the dispatch path; ticks fire on a fixed interval inside one long-lived process.
+
+Sections 3.1–3.7 below document the older `mcporter`-subprocess pattern. They stay published as a reference for skills authored before the wrapper landed and not yet migrated. New skills follow Section 3.0.
 
 ### 3.1 Always Use MCP — Never Direct API Calls
 
