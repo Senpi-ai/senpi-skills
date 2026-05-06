@@ -250,7 +250,6 @@ Use advanced Hyperfeed signals — momentum events, trader quality tags (TCS/TRP
 | 🦬 [Bison v1.2](./bison) | Conviction trend holder. Requires 4H/1H agreement. |
 | 🐟 [Barracuda](./barracuda) | Funding decay collector. Building local funding history (230 assets, 11K+ snapshots). |
 | 🦉 [Owl](./owl) | Contrarian crowding-unwind. |
-| 🦈 [Mako](./mako-strategy) | Volume generation engine. Single Python process, no LLM in execution path. |
 
 ---
 
