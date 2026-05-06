@@ -1,8 +1,20 @@
 #!/usr/bin/env python3
-# Senpi JAGUAR Scanner v3.4
+# Senpi JAGUAR Scanner v3.5
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""JAGUAR v3.4 — Striker-Only (volume-ratio silent-None bug fix).
+"""JAGUAR v3.5 — Striker-Only (per-asset leverage clamp fix).
+
+v3.5 change (2026-05-06) — CREATE_INVALID_LEVERAGE on small-cap perps:
+Live failure: XMR LONG signal at score 10 tried 10x leverage, HL rejected
+with "Max leverage for XMR is 5, got 10." Producer was picking leverage
+from conviction tier without clamping to per-asset HL max. Same fleet
+pattern that other agents (Wolverine, Grizzly, Cheetah, Vulture, etc.)
+use via get_safe_leverage(). Ports the standard pattern: query
+strategy_get_asset_trading_limits per asset, clamp to min(desired,
+asset_max, MAX_LEVERAGE). Asset list affected: XMR (max 5x), kBONK,
+kPEPE-class small caps, and any HIP-3 instrument with caps below the
+fleet 10x ceiling. Without this clamp, ~5-10% of striker signals would
+silently fail at execute_entry without retry.
 
 v3.4 change (2026-04-23) — THE ACTUAL DORMANCY CAUSE:
 After v3.3 widened striker gates, Jaguar still fired 0 trades. Live diag
@@ -152,6 +164,34 @@ def get_leverage_for_score(score):
         if score >= tier["min_score"]:
             return min(tier["leverage"], MAX_LEVERAGE)
     return DEFAULT_LEVERAGE
+
+
+def get_safe_leverage(wallet, coin, desired):
+    """Clamp leverage to the per-asset HL max (PR #194 fleet pattern).
+    Without this, signals on assets with HL max < MAX_LEVERAGE (e.g. XMR
+    capped at 5x) hit CREATE_INVALID_LEVERAGE and the entry fails. Caught
+    live 2026-05-06: XMR LONG signal at score 10 tried 10x, HL rejected
+    because XMR max is 5x. Returns the largest leverage that satisfies
+    BOTH the conviction tier AND the asset's HL ceiling."""
+    try:
+        r = cfg.mcporter_call("strategy_get_asset_trading_limits",
+                              strategy_wallet=wallet, coin=coin)
+        if r:
+            d = r.get("data", r)
+            if isinstance(d, dict):
+                lev = d.get("leverage", {})
+                if isinstance(lev, dict):
+                    max_lev = int(float(lev.get("value", MAX_LEVERAGE)))
+                    return min(desired, max_lev, MAX_LEVERAGE)
+                elif isinstance(lev, (int, float)):
+                    return min(desired, int(lev), MAX_LEVERAGE)
+                # Older schema: maxLeverage / max_leverage flat field
+                if "maxLeverage" in d or "max_leverage" in d:
+                    max_lev = int(d.get("maxLeverage", d.get("max_leverage", MAX_LEVERAGE)))
+                    return min(desired, max_lev, MAX_LEVERAGE)
+    except Exception:
+        pass
+    return min(desired, MAX_LEVERAGE)
 
 
 def has_resting_orders(wallet):
@@ -618,7 +658,12 @@ def run():
             continue
 
         # Execute entry directly
-        leverage = get_leverage_for_score(signal["score"])
+        # v3.4: clamp leverage to per-asset HL max. XMR (max 5x), kBONK,
+        # and other small-cap perps have lower ceilings than Jaguar's
+        # 10x conviction tier — without clamp, HL rejects with
+        # CREATE_INVALID_LEVERAGE and the entry fails silently.
+        desired_leverage = get_leverage_for_score(signal["score"])
+        leverage = get_safe_leverage(wallet, token, desired_leverage)
         margin = round(account_value * MARGIN_PCT, 2)
 
         success, result = execute_entry(wallet, token, signal["direction"], leverage, margin)
