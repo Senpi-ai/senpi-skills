@@ -1,6 +1,24 @@
 name: lemon-tracker
-version: 1.2.0
+version: 1.3.0
 description: >
+  Lemon v1.3 — Degen Fader (macro gate + XYZ unban).
+  v1.2 (10x cap / 30% margin / MIN_SCORE 9) eliminated catastrophic
+  blow-ups but didn't fix signal quality: -$246 lifetime / 37% win rate /
+  -$2 per trade avg / asymmetric win-loss size ($2 win vs $6 loss).
+  v1.3 targets the underlying signal:
+    1. MACRO_TREND_GATE (crypto only): block fades when |BTC 4h| > 3%.
+       Fade thesis structurally fails in trending regimes — pattern
+       documented across Wolverine HYPE (-$160), Cobra (-60%), and
+       Condor v3.0's MACRO_TREND_GATE precedent. XYZ bypasses the
+       gate (oil/gold/spx trade on their own macro).
+    2. XYZ unban: prior XYZ_BANNED=True was a lazy scaffold default;
+       fade thesis applies to news-driven XYZ moves (Apr 17 Iranian
+       ship seizure on oil = textbook crowd-pile fade setup). Erik's
+       XYZ DSL prefix fix (2026-05-05) wires exit protection
+       correctly. Adds xyz:BRENTOIL/CL/GOLD/SPX. ISOLATED margin set
+       automatically on XYZ orders per HIP-3.
+  DSL config unchanged from v1.2.
+
   Lemon v1.2 — Degen Fader (leverage + margin normalization).
   v1.1 shipped with MAX_LEVERAGE=20x tiers and MARGIN_PCT=0.50 — catastrophic
   when a fade fails. Result: 215 fills / -20% ROI. v1.2 caps leverage at
