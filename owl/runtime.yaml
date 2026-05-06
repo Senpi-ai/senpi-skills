@@ -1,12 +1,25 @@
 name: owl-tracker
 # Note: top-level `version` is the SCHEMA version the
 # senpi-trading-runtime plugin expects (must be major=1). The
-# STRATEGY/skill is "Owl v7.0" — that lives in description, SKILL.md,
+# STRATEGY/skill is "Owl v7.1" — that lives in description, SKILL.md,
 # and _owl_producer_version. Using version: 7.x at runtime level is
 # rejected by the plugin as "Unsupported version: 7.x". Keep this at
 # 1.x.x forever.
-version: 1.7.0
+version: 1.7.1
 description: >
+  OWL v7.1 — Pure Contrarian + macro trend gate (2026-05-06).
+  v7.0 architectural rewrite (Apr 28) didn't change the thesis — same
+  contrarian unwind logic from v6.2. Empirically lost -$63 additional
+  Apr 28 → May 6 (lifetime -$203 / $187k notional / -0.108% per round
+  trip; below maker-fee breakeven). Same disease as Lemon: fade thesis
+  fails in trending regimes. v7.1 ports the fleet macro_trend_gate
+  pattern: block crypto fades when |BTC 4h move| > 3%. Inherits from
+  Wolverine HYPE post-mortem, Cobra rotation, Condor v3.0, Lemon v1.3
+  (same fix shipped same day). XYZ unban deferred to v7.2 — Owl's
+  scoring uses funding + SM long_pct calibrated on crypto data shape;
+  XYZ needs its own calibration pass. Producer fetches BTC 4h move from
+  same leaderboard_get_markets call (no extra MCP cost).
+
   OWL v7.0 — Pure Contrarian (v2-runtime-native rewrite).
 
   Mission: enter AGAINST the crowd when crowding persists 1+ hour AND
