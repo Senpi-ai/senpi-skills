@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Senpi VULTURE Producer v3.0.0
+# Senpi VULTURE Producer v3.1.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
@@ -101,7 +101,7 @@ def release_lock(lock_file):
         pass
 
 
-VERSION = "3.1.0"
+VERSION = "3.1.1"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "vulture_signals")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 
@@ -498,15 +498,38 @@ def push_signal(candidate, regime, held_assets):
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
         if result.returncode != 0:
-            print(f"INGEST_FAILED {candidate['asset']}: {result.stderr}", file=sys.stderr)
+            # v3.1.1: openclaw was exiting non-zero with empty stderr in the
+            # 2026-05-02 → 2026-05-06 dormancy window. Pre-v3.1.1 only
+            # logged stderr, so we couldn't tell whether the error was on
+            # stdout, missing entirely (panic), or a schema rejection.
+            # Now log returncode + stderr + stdout + payload so any future
+            # ingest failure is self-diagnosing from the producer log alone.
+            print(
+                f"INGEST_FAILED {candidate['asset']}: rc={result.returncode} "
+                f"stderr={result.stderr.strip()!r} "
+                f"stdout={result.stdout.strip()!r} "
+                f"payload={json.dumps(payload)}",
+                file=sys.stderr,
+            )
             return False
         response = json.loads(result.stdout) if result.stdout.strip() else {}
         if not response.get("ok", False):
-            print(f"INGEST_REJECTED {candidate['asset']}: {response.get('error', {})}", file=sys.stderr)
+            # v3.1.1: also include the rejected payload so we can tell
+            # WHICH field tripped the runtime's schema validator.
+            print(
+                f"INGEST_REJECTED {candidate['asset']}: "
+                f"error={response.get('error', {})} "
+                f"payload={json.dumps(payload)}",
+                file=sys.stderr,
+            )
             return False
         return True
     except Exception as e:
-        print(f"INGEST_EXCEPTION {candidate['asset']}: {e}", file=sys.stderr)
+        print(
+            f"INGEST_EXCEPTION {candidate['asset']}: {e!r} "
+            f"payload={json.dumps(payload)}",
+            file=sys.stderr,
+        )
         return False
 
 

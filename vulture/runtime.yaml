@@ -2,8 +2,18 @@ name: vulture-tracker
 # Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
 # plugin. Strategy/skill is "Vulture v3.0.0" — lives in description +
 # SKILL.md + _vulture_producer_version. Do not set this to 3.x.x.
-version: 1.0.0
+version: 1.0.1
 description: >
+  VULTURE v3.1.1 — observability fix: full ingest-failure logging.
+  2026-05-02 → 2026-05-06 dormancy was caused by a 4-day stuck producer
+  lockfile combined with silent INGEST_FAILED errors (openclaw exited
+  non-zero with empty stderr; producer only logged stderr, so the actual
+  failure cause was invisible). v3.1.1 widens the log on ingest failure
+  to capture returncode + stderr + stdout + the rejected payload, so any
+  future ingest issue is self-diagnosing from the producer log alone.
+  Same widening applied to INGEST_REJECTED (schema validator) and
+  INGEST_EXCEPTION (Python errors). No scoring or DSL changes.
+
   VULTURE v3.1.0 — DSL ratchet T0/T1 patch (fleet-wide).
   v3.0.0 — Long-Tail Momentum Rider, v2-runtime-native rewrite.
 
