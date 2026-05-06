@@ -1,34 +1,43 @@
 ---
 name: grizzly-strategy
 description: >-
-  GRIZZLY v5.8.0 — BTC Alpha Hunter, "hit fewer, win bigger" patch.
-  v5.7 sample (16 entries / Apr 30 +30% peak runner that closed +$76 / 
-  +29.9% ROE on Tier 5 lock) confirmed signal architecture works AND DSL
-  ratchet ladder fires correctly on BTC main-DEX through Tier 5. v5.8
-  raises minScore floor 10 → 12 (config-driven), requires ALL FIVE
-  Kodiak-family confirmations (4TF aligned + SM aligned + Funding aligned
-  + Volume confirmed + OI accelerating) to fire — pattern completeness,
-  not just score-summing. Adds FP-001 quiet hours (skip 00-04 UTC unless
-  apex 14+) and FP-002 hard rule (Claude Code conversation sessions must
-  NOT call trading MCP tools — only producer cron may enter). DSL preset
-  unchanged from v5.7 — that architecture is right (Apr 30 trade proved it).
-  v5.0 architecture: BTC variant of the Kodiak/Wolverine/Polar single-asset
-  family. Family member alongside Kodiak (SOL), Wolverine (HYPE), Polar
-  (ETH) — all four share the same architecture, tuned per asset.
+  GRIZZLY v6.0.0 — BTC Alpha Hunter, v2-runtime-native rewrite.
+  v5.x was a 1073-line full-agency Python scanner with a 3-mode state
+  machine and direct create_position calls. The Apr 30 BTC LONG ran
+  +33% peak ROE through Tier 5 cleanly for +$76.36 / +29.9% realized —
+  proves the scoring works. v6.0 flips to producer + v2 runtime
+  (Wolverine v4 / Cheetah v6 / Vulture v3 template): producer emits
+  signals via openclaw external-scanner ingest, runtime LLM gate is
+  pass-through, risk.guard_rails enforces daily caps + drawdown halt
+  + cooldowns, DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits, and
+  trade chain DB telemetry comes online for the first time. ALL gates
+  and scoring preserved verbatim from v5.8: six entry gates (4h trend
+  != NEUTRAL, 4h structural strength ≥ 0.75, 1h matches 4h, 15m
+  momentum aligned, base-tech floor, v5.5 macro V-recovery gate),
+  SM hard block, RSI hard gates (70/30), MIN_SCORE 12, BTC-tuned
+  thresholds, conviction-scaled leverage (10x apex/conviction), DSL
+  preset (time-cuts disabled, Phase 2 v5.9 ratchet ladder T0/T1
+  patch). Trades WITH SM consensus and trend, NOT contrarian.
+  Family member alongside Kodiak (SOL), Wolverine (HYPE), Polar (ETH).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "5.8.0"
+  version: "6.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐻 GRIZZLY v5.8.0 — BTC Alpha Hunter
+# 🐻 GRIZZLY v6.0.0 — BTC Alpha Hunter
 
-Trend-continuation on BTC. Same architecture as Kodiak / Wolverine / Polar.
-One asset, one scanner, one exit system. No contrarian flips.
+Trend-continuation on BTC, v2-runtime-native. Same Kodiak-family
+architecture as Wolverine / Polar / Kodiak. Producer emits signals,
+runtime executes via LLM gate, DSL manages exits via maker-first
+FEE_OPTIMIZED_LIMIT.
+
+**Trades WITH the trend and WITH the smart money.** Not contrarian.
+SM-opposes is a hard block.
 
 ---
 
@@ -54,7 +63,7 @@ session MUST NOT call any of:
 - `cancel_order`
 - `strategy_close` / `strategy_close_positions`
 
-These tools are reserved for the **producer cron** (grizzly-scanner.py)
+These tools are reserved for the **producer cron** (grizzly-producer.py)
 and the **DSL ratchet engine**. The cron is the only entry path. The DSL
 is the only exit path. User-conversation sessions are read-only.
 
@@ -210,25 +219,30 @@ Leverage auto-clamped to BTC's Hyperliquid max via `strategy_get_asset_trading_l
 
 ---
 
-## 3-Mode Lifecycle
+## Lifecycle (v6.0 — runtime-owned)
 
 ```
-HUNTING → [all gates pass, score >= 10] → ENTER → RIDING
-RIDING  → [DSL closes position]         → STALKING
-STALKING → [reload conditions met]      → RELOAD → RIDING
-STALKING → [kill conditions hit]        → RESET  → HUNTING
-STALKING → [6h timeout]                 → RESET  → HUNTING
+producer.py  → [all gates pass, score >= MIN_SCORE] → external-scanner ingest
+runtime LLM  → [pass-through gate, min_confidence 7] → OPEN_POSITION
+runtime DSL  → [tracks position, ratchets through Phase 2 ladder] → exit
+runtime risk → [enforces daily caps + drawdown halt + cooldowns] → block next entry
 ```
 
-**HUNTING:** scanner evaluates BTC every 3 minutes. All hard gates must pass.
+**Producer (HUNTING):** scanner evaluates BTC every 3 minutes. All hard
+gates must pass. NO Python state — emits a signal and exits.
 
-**RIDING:** scanner does NOT re-evaluate the position. DSL manages all exits.
-(Wolverine v1.1 data: 25/27 trades killed by thesis re-evaluation, not DSL.)
+**Runtime (RIDING):** position_tracker scanner detects open via
+`POSITION_OPENED`, fires `ON_POSITION_OPENED`, DSL engine starts
+trailing. Producer's held-asset check prevents duplicate emission while
+position is open.
 
-**STALKING:** after DSL closes, scanner watches for conditions to reload
-same direction — fresh 5m impulse + volume holding + SM still aligned +
-4h trend intact. Kills if trend reverses, SM flips, funding extremes, or
-OI collapses.
+**Runtime (POST-EXIT):** when DSL closes, `per_asset_cooldown_minutes`
+gate blocks new BTC entries for 60 min. v5.x's STALKING mode and
+reload-on-dip logic are dropped — DSL owns position lifecycle and the
+producer does NOT add to existing positions.
+
+**v5.x Python state machine** (HUNTING/RIDING/STALKING) is gone. Runtime
+owns all state. No Python state files to corrupt.
 
 ---
 
@@ -239,9 +253,9 @@ All four single-asset specialists run the same architecture:
 | Agent | Asset | MIN_SCORE | DSL Profile |
 |---|---|---:|---|
 | Kodiak | SOL | 10 | Mid-beta (240/60/90min) |
-| Wolverine | HYPE | 10 | High-beta (180/45/60min) |
+| Wolverine | HYPE | 9 | High-beta, time-cuts disabled (v4.0+) |
 | Polar | ETH | 10 | Mid-beta (240/60/90min) |
-| **Grizzly** | **BTC** | **10** | **Low-beta (360/90/120min)** |
+| **Grizzly** | **BTC** | **12** | **Low-beta, time-cuts disabled (v6.0)** |
 
 Bug fixes and signal improvements propagate across the family. If one
 member discovers an edge, all four get it. If one has a bleed, all four
@@ -251,34 +265,55 @@ get audited.
 
 ## Install
 
+**Prerequisite:** plugin must be on `runtime-phase-2` build. Verify with
+`openclaw senpi external-scanner ingest --help` — should show `--address`
+flag. If not, see README install steps.
+
 ```bash
 mkdir -p /data/workspace/skills/grizzly-strategy/{config,scripts,state}
 
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/runtime.yaml -o /data/workspace/skills/grizzly-strategy/runtime.yaml
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/SKILL.md -o /data/workspace/skills/grizzly-strategy/SKILL.md
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/config/grizzly-config.json -o /data/workspace/skills/grizzly-strategy/config/grizzly-config.json
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/scripts/grizzly-scanner.py -o /data/workspace/skills/grizzly-strategy/scripts/grizzly-scanner.py
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/scripts/grizzly-producer.py -o /data/workspace/skills/grizzly-strategy/scripts/grizzly-producer.py
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/scripts/grizzly_config.py -o /data/workspace/skills/grizzly-strategy/scripts/grizzly_config.py
 ```
 
 ## Configure
 
-```bash
-sed -i 's/${WALLET_ADDRESS}/<YOUR_STRATEGY_WALLET>/' /data/workspace/skills/grizzly-strategy/runtime.yaml
-sed -i 's/${TELEGRAM_CHAT_ID}/<YOUR_TELEGRAM_CHAT_ID>/' /data/workspace/skills/grizzly-strategy/runtime.yaml
-```
+Edit `config/grizzly-config.json` with `wallet`, `startingBudget`,
+optional `minScore` / `quietHours*` overrides. Runtime resolves
+`${WALLET_ADDRESS}`, `${TELEGRAM_CHAT_ID}`, `${GRIZZLY_DECISION_MODEL}`
+from environment.
 
-## Install runtime + create scanner cron
+## Install runtime + register producer cron
 
 ```bash
 openclaw senpi runtime create --path /data/workspace/skills/grizzly-strategy/runtime.yaml
 openclaw senpi runtime list
-# Create 3-minute cron: python3 /data/workspace/skills/grizzly-strategy/scripts/grizzly-scanner.py
+
+openclaw cron add \
+  --name senpi-producer-grizzly_signals-<wallet-suffix> \
+  --interval 3m \
+  --message "python3 /data/workspace/skills/grizzly-strategy/scripts/grizzly-producer.py"
 ```
+
+`<wallet-suffix>` = last 4 hex chars of strategy wallet, lowercased.
 
 ---
 
 ## Changelog
+
+### v6.0.0 (2026-05-06) — v2-RUNTIME-NATIVE REWRITE
+- **Architecture:** v1 full-agency Python scanner (1073 lines) → v2 producer + LLM gate + native risk + DSL maker exits
+- **Producer:** `grizzly-producer.py` emits via `openclaw senpi external-scanner ingest`. NO execution code.
+- **LLM gate:** pass-through (min_confidence 7); honors producer signals unless structurally broken
+- **risk.guard_rails:** declarative daily caps / drawdown halt / consecutive losses / per-asset cooldown — replaces Python `get_dynamic_daily_cap`, `set_cooldown`, etc.
+- **DSL:** `FEE_OPTIMIZED_LIMIT` on entries AND exits (~0.020-0.030% fee recovery per maker close)
+- **Trade chain DB:** `LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED` per trade
+- **DROPPED:** 3-mode state machine (HUNTING/RIDING/STALKING), `evaluate_reload`, `has_resting_orders`, `create_position`, `get_safe_leverage`, `get_dynamic_daily_cap`
+- **PRESERVED VERBATIM:** all 6 entry gates (4h trend != NEUTRAL, 4h structure ≥ 0.75, 1h matches 4h, 15m momentum, base-tech floor, v5.5 macro V-recovery), SM hard block, RSI 70/30 hard gates, multi-factor scoring (~17 max), MIN_SCORE 12, BTC-tuned thresholds, leverage tiers, DSL preset
+- **Observability fix:** Vulture v3.1.1 forensic-logging pattern — `INGEST_FAILED` / `INGEST_REJECTED` / `INGEST_EXCEPTION` all log rc + stderr + stdout + payload
 
 ### v5.0 (2026-04-16) — COMPLETE REWRITE
 - Direction logic flipped back from v4.x contrarian to trend-following
