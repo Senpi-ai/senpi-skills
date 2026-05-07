@@ -109,7 +109,8 @@ that paid for a full inference each time. Daemon-mode skips the agentTurn
 entirely:
 
 - Producer is a long-lived Python process.
-- Internal scheduler fires `tick=run_one_tick` every `interval_seconds`.
+- Internal scheduler fires `run_one_tick()` every `interval_seconds`
+  (the callable is passed as `producer_daemon(fn=run_one_tick, ...)`).
 - SIGTERM / SIGINT trigger graceful shutdown.
 - Per-tick `scanner_lock` prevents accidental re-entry.
 

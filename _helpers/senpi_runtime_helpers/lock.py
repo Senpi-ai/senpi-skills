@@ -129,7 +129,10 @@ def scanner_lock(
                 prev_pid=prev_pid,
                 prev_alive=_process_alive(prev_pid) if prev_pid > 0 else False,
             )
-            os.close(fd)
+            # Don't os.close(fd) here — the outer finally at the end of this
+            # function handles cleanup for both success and failure paths.
+            # A redundant close here would race with another thread that
+            # might have just opened a file and received the same fd number.
             raise
 
         # We hold the flock. If metadata existed, the previous holder must be
@@ -157,10 +160,15 @@ def scanner_lock(
                 fcntl.flock(fd, fcntl.LOCK_UN)
             except OSError:
                 pass
-            try:
-                path.unlink()
-            except FileNotFoundError:
-                pass
+            # Do NOT unlink the lock file. The unlink-then-open pattern
+            # documented as "deliberately not used" at the top of this file
+            # applies to release as well as acquire: between LOCK_UN and
+            # unlink, another process can open the still-existing inode and
+            # flock it; a third process arriving after the unlink would then
+            # open with O_CREAT and get a brand-new inode, flocking it
+            # independently — two processes holding flocks on different
+            # inodes for the same path. Leaving the file in place keeps every
+            # opener pointing at the same inode.
             log_event("lock_released", name=name, pid=os.getpid())
     finally:
         try:

@@ -32,8 +32,16 @@ class LockTests(unittest.TestCase):
             meta = _read_lock_metadata(path)
             self.assertIsNotNone(meta)
             self.assertEqual(meta["pid"], os.getpid())
-        # File should be cleaned up.
-        self.assertFalse(_lock_path("test1", self.tmpdir).exists())
+        # File persists across release on purpose. Unlinking after LOCK_UN
+        # would let a second opener acquire flock on the still-existing inode
+        # while a third opener (arriving after the unlink) creates a new
+        # inode via O_CREAT and flocks it independently — two processes
+        # would then hold flocks on different inodes for the same path.
+        # Leaving the file in place keeps every opener pointing at the same
+        # inode. Re-acquisition after release must still succeed.
+        self.assertTrue(_lock_path("test1", self.tmpdir).exists())
+        with scanner_lock("test1", lock_dir=self.tmpdir):
+            pass
 
     def test_recovers_stale_dead_pid(self) -> None:
         # Plant a lock file claiming a dead PID.
