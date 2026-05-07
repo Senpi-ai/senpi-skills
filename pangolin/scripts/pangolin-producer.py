@@ -920,5 +920,6 @@ if __name__ == "__main__":
         fn=_run_main_safely,
         interval_seconds=300,
         name=f"pangolin-producer-{_wallet_lock_id}",
-        tick_timeout=360,
+        wallet=PANGOLIN_WALLET,  # enables default alive_check — daemon self-terminates
+        tick_timeout=360,         # if the runtime for this wallet is deleted
     )

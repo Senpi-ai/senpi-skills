@@ -210,7 +210,7 @@ def run_one_tick():
 
 if __name__ == "__main__":
     producer_daemon(fn=run_one_tick, interval_seconds=300,
-                    name=f"<skill>-{wallet_hash}")
+                    name=f"<skill>-{wallet_hash}", wallet=wallet)
 ```
 
 **What the wrapper gives you** (full breakdown in `senpi-trading-runtime/docs/runtime-v2-fixes/runtime-2-performance-findings.md`):

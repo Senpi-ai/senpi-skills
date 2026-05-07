@@ -178,6 +178,7 @@ if __name__ == "__main__":
         fn=run_one_tick,
         interval_seconds=300,                   # 5-minute ticks
         name=LOCK_NAME,
+        wallet=WALLET,                          # enables default runtime liveness check
     )
 ```
 
@@ -270,9 +271,11 @@ TTL defaults to 120 s (`SENPI_HELPERS_TICK_CACHE_TTL`). Hard-cap entries:
 
 ```python
 producer_daemon(
-    fn=run_one_tick,             # the per-tick callable
-    interval_seconds=300,        # 5-minute ticks
+    fn=run_one_tick,                # the per-tick callable
+    interval_seconds=300,           # 5-minute ticks
     name=f"<skill>-{wallet_hash}",  # used by scanner_lock + log fields
+    wallet=WALLET,                  # enables default runtime liveness check
+                                    # (pass alive_check=None to opt out)
 )
 ```
 

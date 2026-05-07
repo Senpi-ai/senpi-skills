@@ -26,6 +26,7 @@ class DaemonTests(unittest.TestCase):
             tick_timeout=5.0,
             max_ticks=3,
             install_signal_handlers=False,
+            alive_check=None,  # opt out — this test doesn't need a runtime
         )
         self.assertEqual(ticks, 3)
         self.assertEqual(len(calls), 3)
@@ -49,6 +50,7 @@ class DaemonTests(unittest.TestCase):
             tick_timeout=5.0,
             max_ticks=4,
             install_signal_handlers=False,
+            alive_check=None,
         )
         self.assertEqual(ticks, 4)
         self.assertEqual(attempts["n"], 4)
@@ -72,6 +74,7 @@ class DaemonTests(unittest.TestCase):
             tick_timeout=5.0,
             max_ticks=3,
             install_signal_handlers=False,
+            alive_check=None,
         )
         self.assertEqual(ticks, 3)
         # Gaps should track the tick duration (~100ms) rather than balloon.
@@ -98,6 +101,7 @@ class DaemonTests(unittest.TestCase):
             tick_timeout=0.05,  # 50ms
             max_ticks=2,
             install_signal_handlers=False,
+            alive_check=None,
         )
         self.assertEqual(ticks, 2)
         self.assertGreaterEqual(timeouts["n"], 2)
@@ -174,6 +178,24 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(returned_ticks, 3)
         self.assertEqual(ticks_run["n"], 3)
         self.assertGreaterEqual(probes["n"], 3)
+
+    def test_no_wallet_no_alive_check_raises(self) -> None:
+        """Opt-out semantics: omitting `wallet` AND not passing `alive_check`
+        must raise a clear ValueError (not silently disable the check)."""
+        def fn() -> None:
+            pass
+
+        with self.assertRaises(ValueError) as ctx:
+            producer_daemon(
+                fn=fn,
+                interval_seconds=0.02,
+                name="test_no_wallet_no_optout",
+                tick_timeout=1.0,
+                max_ticks=1,
+                install_signal_handlers=False,
+            )
+        self.assertIn("wallet", str(ctx.exception).lower())
+        self.assertIn("alive_check=None", str(ctx.exception))
 
     def test_alive_check_cadence_computed_from_interval(self) -> None:
         """alive_check_interval_seconds determines tick-multiple cadence."""

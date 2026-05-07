@@ -19,7 +19,7 @@ import signal
 import threading
 import time
 from contextlib import suppress
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from ._logging import log_event
 from .lock import scanner_lock
@@ -27,6 +27,11 @@ from .lock import scanner_lock
 
 _DEFAULT_TICK_TIMEOUT = 60.0
 _DEFAULT_ALIVE_CHECK_INTERVAL_SECONDS = 300.0  # 5 min — runtime delete-detection cadence
+
+# Sentinel: lets us distinguish "caller did not specify alive_check"
+# (→ build the default check from wallet) from "caller passed None"
+# (→ opt out of the check entirely). Plain `None` would conflate the two.
+_DEFAULT_ALIVE_CHECK = object()
 
 
 class _TickTimeout(BaseException):
@@ -95,12 +100,13 @@ def producer_daemon(
     fn: Callable[[], None],
     interval_seconds: float,
     name: str,
+    wallet: Optional[str] = None,
     tick_timeout: Optional[float] = None,
     lock_dir: Optional[str] = None,
     max_ticks: Optional[int] = None,
     install_signal_handlers: bool = True,
-    alive_check: Optional[Callable[[], bool]] = None,
-    alive_check_interval_seconds: float = _DEFAULT_ALIVE_CHECK_INTERVAL_SECONDS,  # configurable kwarg; default 300 s (5 min)
+    alive_check: Any = _DEFAULT_ALIVE_CHECK,
+    alive_check_interval_seconds: float = _DEFAULT_ALIVE_CHECK_INTERVAL_SECONDS,
 ) -> int:
     """Run `fn` every `interval_seconds` until SIGTERM / SIGINT, returning tick count.
 
@@ -110,6 +116,10 @@ def producer_daemon(
             If a tick takes longer than the interval, the next tick fires immediately
             after the current one finishes (scanner_lock prevents overlap).
         name: identifier used by `scanner_lock` and log fields.
+        wallet: strategy wallet address. **Required unless `alive_check=None`.**
+            When the default alive_check is used (the common path), this is the
+            wallet the daemon probes the runtime API for. Pass the same address
+            you'd pass to `client.push_signal(address=...)`.
         tick_timeout: per-tick wall-clock budget in seconds. Default 60s.
             On UNIX, enforced via SIGALRM (raises `_TickTimeout` to abort the call).
             On platforms without SIGALRM, this is best-effort (logged only).
@@ -117,22 +127,32 @@ def producer_daemon(
         max_ticks: cap on number of ticks (mostly for tests). None = unbounded.
         install_signal_handlers: whether to wire SIGTERM/SIGINT for graceful shutdown.
             False is useful in tests where the test runner installs its own.
-        alive_check: optional zero-arg callable returning True if the daemon
-            should keep running, False if it should self-terminate. Typical use:
-            probe `senpi-trading-runtime`'s `/health` and verify the daemon's
-            wallet still appears in `runtimes.items[]`. Called once before
-            tick 1 (boot probe — exits before any tick if False); then between
-            ticks at the cadence below. Network/transient errors raised by the
-            callable are swallowed and treated as "still alive" — only an
-            explicit False from a successful probe terminates the daemon.
+        alive_check: how to decide if the daemon should keep running.
+            - **Omitted (default)**: build the canonical check from `wallet` —
+              probe `senpi-trading-runtime`'s `/health` and verify the wallet
+              still appears in `runtimes.items[]`. Most producers want this.
+            - **`None`**: opt out. Daemon will run forever (until SIGTERM /
+              SIGINT) regardless of runtime registration. Use only for tests,
+              standalone simulation, or producers that don't push signals.
+            - **A callable**: zero-arg, returns True (keep going) / False
+              (terminate). Custom predicates (e.g. multi-wallet daemons,
+              alternate health endpoints).
+            The boot probe runs once before tick 1; periodic probes run
+            between ticks at the cadence below. Network / transient errors
+            are swallowed and treated as "still alive" — only an explicit
+            False from a successful probe terminates the daemon.
         alive_check_interval_seconds: target cadence for the alive_check between
             ticks. Daemon computes the nearest integer Nth tick at which to
             run it: `n = max(1, round(alive_check_interval_seconds / interval_seconds))`.
             Default 300 s. For 300-s ticks → every tick; 60-s ticks → every 5
-            ticks; 90-s ticks → every 3 ticks. Ignored if alive_check is None.
+            ticks; 90-s ticks → every 3 ticks. Ignored if alive_check resolves to None.
 
     Returns:
         Total number of ticks attempted (succeeded + failed + skipped).
+
+    Raises:
+        ValueError: if `interval_seconds` <= 0, `tick_timeout` <= 0, OR if the
+            default alive_check was requested but no `wallet` was provided.
     """
     if interval_seconds <= 0:
         raise ValueError("interval_seconds must be > 0")
@@ -140,6 +160,24 @@ def producer_daemon(
         tick_timeout = _DEFAULT_TICK_TIMEOUT
     if tick_timeout <= 0:
         raise ValueError("tick_timeout must be > 0 if provided")
+
+    # Resolve the alive_check sentinel: omitted → default check (requires
+    # wallet); explicit None → opt out; callable → use as-is.
+    if alive_check is _DEFAULT_ALIVE_CHECK:
+        if wallet is None:
+            raise ValueError(
+                "producer_daemon requires `wallet=...` for the default runtime "
+                "liveness check. Pass `wallet=<your strategy wallet>` to enable "
+                "auto-self-termination on runtime delete, or `alive_check=None` "
+                "to opt out."
+            )
+        # Local import keeps daemon importable in environments without a full
+        # SenpiClient stack (tests, simulators).
+        from .client import SenpiClient
+        _client = SenpiClient()
+        _wallet = wallet  # capture for closure to avoid late binding
+        alive_check = lambda: _client.is_runtime_registered(_wallet)
+    # alive_check is now either None (opt-out) or a callable.
 
     stop_event = threading.Event()
     if install_signal_handlers:
