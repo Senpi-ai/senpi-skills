@@ -113,9 +113,10 @@ entirely:
 - SIGTERM / SIGINT trigger graceful shutdown.
 - Per-tick `scanner_lock` prevents accidental re-entry.
 
-For the openclaw operator, the change is: replace the cron entry with a
-daemon entry (or a supervisor like `tini`-managed `python …-producer.py`).
-The skill remains otherwise identical.
+How the producer is started is a host-side concern — anything from a
+one-shot `nohup python3 …-producer.py &` to a Procfile or supervisor entry
+works. The daemon's lifecycle (SIGTERM-graceful shutdown, per-tick error
+containment) is the same regardless.
 
 ## Why scanner_lock has PID-aliveness recovery
 
