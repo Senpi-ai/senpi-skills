@@ -97,7 +97,15 @@ def parallel(
             return idx, False, e
 
     results: List[Tuple[bool, Any]] = [(False, None)] * submitted_count
-    with ThreadPoolExecutor(max_workers=cap, thread_name_prefix="senpi-parallel") as pool:
+    # Manage the pool manually instead of `with ThreadPoolExecutor(...)`.
+    # The context manager calls `shutdown(wait=True)` unconditionally on
+    # exit, which means a `_TickTimeout` BaseException raised in the main
+    # thread by producer_daemon's SIGALRM handler would still block here
+    # until every worker's MCP call returned — defeating the per-tick
+    # wall-clock budget. We need the budget to be hard.
+    pool = ThreadPoolExecutor(max_workers=cap, thread_name_prefix="senpi-parallel")
+    exited_cleanly = False
+    try:
         futures = [pool.submit(worker, i, fn) for i, fn in enumerate(calls)]
         for fut in futures:
             idx, ok, value = fut.result()
@@ -108,6 +116,16 @@ def parallel(
                     index=idx,
                     error=str(value)[:200] if isinstance(value, BaseException) else None,
                 )
+        exited_cleanly = True
+    finally:
+        # Clean exit → wait for any drained workers (there shouldn't be any
+        # since fut.result() above already collected each one).
+        # Exception (incl. BaseException like _TickTimeout) → cancel queued
+        # work and return immediately. In-flight workers continue in the
+        # background; they don't write to `results` directly (the main
+        # thread does, via the for-loop above) so leaking them is safe.
+        # cancel_futures requires Python 3.9+; cfg states 3.10+ is required.
+        pool.shutdown(wait=exited_cleanly, cancel_futures=not exited_cleanly)
 
     duration_ms = int((time.time() - started) * 1000)
     failed = sum(1 for ok, _ in results if not ok)

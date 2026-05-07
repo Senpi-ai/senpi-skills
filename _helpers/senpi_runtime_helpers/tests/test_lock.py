@@ -93,6 +93,34 @@ class LockTests(unittest.TestCase):
                 proc.terminate()
                 proc.wait(timeout=5)
 
+    def test_no_false_recovery_log_on_same_pid_reacquire(self) -> None:
+        """Re-acquiring the lock from the same PID (the producer_daemon
+        common case) must NOT emit `lock_recovered_after_crash`. The lock
+        file persists across releases by design; without the same-PID guard,
+        every tick after the first would log a phantom crash event."""
+        from senpi_runtime_helpers import _logging
+        events: list[dict] = []
+        original = _logging.log_event
+
+        def capture(event: str, **fields):
+            events.append({"event": event, **fields})
+
+        _logging.log_event = capture
+        try:
+            with scanner_lock("test_norecov", lock_dir=self.tmpdir):
+                pass
+            with scanner_lock("test_norecov", lock_dir=self.tmpdir):
+                pass
+        finally:
+            _logging.log_event = original
+
+        recoveries = [e for e in events if e["event"] == "lock_recovered_after_crash"]
+        self.assertEqual(
+            recoveries,
+            [],
+            f"unexpected crash-recovery events: {recoveries}",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

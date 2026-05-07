@@ -135,15 +135,29 @@ def scanner_lock(
             # might have just opened a file and received the same fd number.
             raise
 
-        # We hold the flock. If metadata existed, the previous holder must be
-        # dead (kernel released its flock). Surface that for ops visibility.
+        # We hold the flock. The lock file persists across releases on
+        # purpose (see comment in the release block below), so prior
+        # metadata exists on every tick after the first — it does NOT
+        # imply a crash. Only treat the prior holder as a crash recovery
+        # when (a) the prior PID is some other process, AND (b) that
+        # process is dead. Same-PID re-acquire (a long-lived daemon
+        # cycling through ticks) and live-other-PID handoffs (rare;
+        # cooperative multi-daemon) are normal and intentionally silent
+        # here, otherwise producer_daemon would emit ~288 false-positive
+        # crash events per day and drown real recoveries.
         prior = _read_lock_metadata(path)
-        if prior is not None:
+        prior_pid = int(prior.get("pid", -1)) if prior is not None else -1
+        if (
+            prior is not None
+            and prior_pid > 0
+            and prior_pid != os.getpid()
+            and not _process_alive(prior_pid)
+        ):
             log_event(
                 "lock_recovered_after_crash",
                 name=name,
-                prev_pid=int(prior.get("pid", -1)),
-                prev_alive=_process_alive(int(prior.get("pid", -1))),
+                prev_pid=prior_pid,
+                prev_alive=False,
             )
 
         payload = {

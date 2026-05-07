@@ -246,13 +246,30 @@ Full schema: [`references/signal-schema.md`](references/signal-schema.md).
 
 ### Recipe: Parallel MCP fan-out
 
+`parallel(...)` returns `List[Tuple[bool, Any]]` — one tuple per input call,
+in order. Each tuple is `(True, value)` on success or `(False, exception)`
+on failure. Two unpack patterns:
+
 ```python
+# Pattern A — let any failure kill the tick (most common for producers)
+[(_, ch), (_, markets), (_, funding)] = parallel(
+    [
+        lambda: mcp("strategy_get_clearinghouse_state", strategy_wallet=WALLET),
+        lambda: mcp("leaderboard_get_markets", limit=100),
+        lambda: mcp("market_get_funding_history", coin="BTC", limit=24),
+    ],
+    raise_after_completion=True,  # re-raises the first exception after the fan-out
+)
+
+# Pattern B — handle each result individually (e.g. some calls are nice-to-have)
 results = parallel([
     lambda: mcp("strategy_get_clearinghouse_state", strategy_wallet=WALLET),
     lambda: mcp("leaderboard_get_markets", limit=100),
-    lambda: mcp("market_get_funding_history", coin="BTC", limit=24),
 ])
-ch, markets, funding = results
+ch_ok, ch = results[0]
+mkt_ok, markets = results[1]
+if not ch_ok:
+    log.warning("clearinghouse fetch failed: %s", ch)
 ```
 
 `parallel(...)` is bounded by `SENPI_HELPERS_MAX_CONCURRENT` (default 8).

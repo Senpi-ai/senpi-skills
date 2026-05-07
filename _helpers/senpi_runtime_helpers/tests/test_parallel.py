@@ -102,6 +102,47 @@ class ParallelTests(unittest.TestCase):
         self.assertTrue(ok)  # success — the function returned normally
         self.assertIsInstance(value, ValueError)
 
+    def test_baseexception_in_main_thread_does_not_block_on_workers(self) -> None:
+        """If a BaseException (like producer_daemon's _TickTimeout via SIGALRM)
+        is raised in the main thread mid-fan-out, parallel() must NOT block
+        until every worker finishes — that would defeat the per-tick budget."""
+        import signal as _signal
+        if not hasattr(_signal, "SIGALRM"):
+            self.skipTest("SIGALRM unsupported on this platform")
+
+        slow_release = threading.Event()
+
+        def slow():
+            slow_release.wait(5.0)  # would hold for 5s without release
+            return "late"
+
+        class _FakeTimeout(BaseException):
+            pass
+
+        def alarm_handler(_sig, _frame):
+            raise _FakeTimeout("simulated tick budget exceeded")
+
+        _signal.signal(_signal.SIGALRM, alarm_handler)
+        _signal.setitimer(_signal.ITIMER_REAL, 0.05)  # fire after 50ms
+
+        started = time.time()
+        try:
+            try:
+                parallel([slow, slow], max_concurrent=2)
+                self.fail("expected _FakeTimeout to propagate")
+            except _FakeTimeout:
+                pass
+            elapsed = time.time() - started
+            self.assertLess(
+                elapsed,
+                2.0,
+                f"parallel() blocked {elapsed:.2f}s after BaseException — "
+                f"per-tick budget would not be enforced",
+            )
+        finally:
+            _signal.setitimer(_signal.ITIMER_REAL, 0)
+            slow_release.set()  # let leaked workers finish
+
 
 if __name__ == "__main__":
     unittest.main()
