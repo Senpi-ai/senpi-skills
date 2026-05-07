@@ -1,17 +1,13 @@
-# Replicate the wrapper-test environment
+# Runtime deployment
 
-This is what runs in `Rachin Kapoor's Projects → pangolin-wrapper-test` on Railway. Anyone with Railway + npm + a Senpi MCP token can stand up an identical box in three steps.
-
-## What you get
-
-A single Railway service running the OpenClaw gateway + the senpi-trading-runtime plugin (a specific dev npm tag) + the pangolin producer skill, talking to senpi-prod MCP. Producer ticks every 5 minutes via `producer_daemon`, no openclaw cron, no per-call subprocess fan-out.
+A wrapper-based deployment runs the OpenClaw gateway + the senpi-trading-runtime plugin + a producer skill on a single Railway service. The producer ticks every 5 minutes via `producer_daemon`, talks directly to senpi-prod MCP over HTTPS, and POSTs signals to the runtime on `127.0.0.1:8787` — no openclaw cron, no per-call subprocess fan-out.
 
 ## Prerequisites
 
-- Railway account (any plan; the test box fits in Hobby's 22 GB cgroup).
-- Senpi MCP bearer token for the wallet you'll trade with — get it from `senpi-auth-service` (or copy yours from the existing wrapper-test).
-- A funded Hyperliquid strategy wallet address (use Senpi MCP's `strategy_create_custom_strategy` if you don't have one).
-- Telegram bot token + chat id (optional; only needed for runtime notifications).
+- Railway account (Hobby tier is enough — the service fits under the 22 GB cgroup).
+- Senpi MCP bearer token for the wallet you'll trade with (issued by `senpi-auth-service`).
+- A funded Hyperliquid strategy wallet address. If you don't have one, create it via Senpi MCP's `strategy_create_custom_strategy`.
+- Telegram bot token + chat id (optional — only needed if you want runtime notifications).
 
 ## The three steps
 
@@ -22,8 +18,6 @@ Open https://railway.app/template/openclaw and deploy. The template provisions a
 This step gives you a service ID, a project ID, and an environment ID — keep them; you'll need them in step 2.
 
 ### 2. Set these environment variables
-
-Set every one of these on the Railway service. The first four are the wrapper-test pin set; everything else is wallet/token-specific.
 
 ```bash
 # Pin the runtime + skills to the verified-working pair
@@ -46,7 +40,7 @@ TELEGRAM_BOT_TOKEN=<your bot token>
 TELEGRAM_CHAT_ID=<your chat id>
 ```
 
-Hit "Deploy" — Railway will rebuild and the bootstrap script will install `@senpi/runtime` + clone `senpi-skills` at the pinned branch.
+Hit "Deploy" — Railway will rebuild and the bootstrap script will install `@senpi/runtime` from the pinned npm spec and clone `senpi-skills` at the pinned branch.
 
 ### 3. Register the pangolin runtime + start the producer
 
@@ -82,7 +76,7 @@ That's it. First tick should land within ~5 minutes; you'll see `daemon_tick_fin
 
 ## Pin rationale
 
-The two pins above (`SENPI_RUNTIME_NPM_SPEC` + `SENPI_SKILLS_BRANCH`) are a matched pair. The `runtime-phase-2-api.20260507134852` build ships the `/signals` + `/audit` envelope shape that `helper-mcp-envelope-aligned` parses for. Mixing pins from different shapes will produce silent envelope-parse failures or `INVALID_REQUEST` rejections. When in doubt, copy the wrapper-test variables verbatim.
+The two pins above (`SENPI_RUNTIME_NPM_SPEC` + `SENPI_SKILLS_BRANCH`) are a matched pair. The `runtime-phase-2-api.20260507134852` build ships the `/signals` + `/audit` envelope shape that `helper-mcp-envelope-aligned` parses for. Mixing pins from different shapes will produce silent envelope-parse failures or `INVALID_REQUEST` rejections.
 
 ## Useful diagnostic one-liners
 
@@ -97,7 +91,7 @@ grep '\[senpi_helpers\]' /tmp/pangolin-daemon.log | tail -20
 grep '"event": "signal_post"' /tmp/pangolin-daemon.log
 ```
 
-## What doesn't replicate
+## What's not portable across deployments
 
-- Wallet-specific PnL history, DSL state, or position-tracker archives. These accumulate per-wallet and don't transfer.
-- Cron-driven runs from the senpi.ai legacy stack. The wrapper-test deliberately does not use openclaw cron + agentTurn; the producer_daemon scheduler replaces it.
+- Wallet-specific PnL history, DSL state, position-tracker archives. These accumulate per-wallet and don't transfer.
+- Producer dispatch via openclaw cron + `agentTurn`. The wrapper-based path uses `producer_daemon` instead — that's a property of the deployment, not configurable per-tick.

@@ -9,7 +9,7 @@ compatibility: >-
   /signals and /audit (success / data / error). The wrapper does not parse the
   legacy { results: [...] } envelope. Currently verified against
   runtime-phase-2-api dev pin v1.0.95-dev.runtime-phase-2-api.20260507134852 —
-  see references/replicate-test-environment.md for the matching senpi-skills
+  see references/runtime-deployment.md for the matching senpi-skills
   branch pin. After the runtime ships its release line, follow the release
   version. Loaded from `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
 metadata:
