@@ -151,7 +151,7 @@ The cron paid for a full LLM inference whose only job was to invoke
 # at the bottom of <skill>/scripts/<skill>-producer.py
 if __name__ == "__main__":
     producer_daemon(
-        tick=run_one_tick,
+        fn=run_one_tick,                     # the per-tick callable
         interval_seconds=300,                # match the legacy cron interval
         name=f"<skill>-{WALLET[2:10]}",     # used by scanner_lock + log fields
     )
@@ -243,7 +243,7 @@ The reference fully-cleaned producer:
 |---|---|---|
 | Putting `asset` / `direction` in `data` | `INVALID_REQUEST` rejection on every signal | Move to top-level kwargs of `push_signal` |
 | Forgetting to wrap with `scanner_lock` | Concurrent ticks duplicate work / fight for state files | Wrap `run_one_tick` body |
-| Calling `producer_daemon` from inside `run_one_tick` | Recursive daemon | `producer_daemon` is the entry point — it CALLS `tick=run_one_tick`, not the other way around |
+| Calling `producer_daemon` from inside `run_one_tick` | Recursive daemon | `producer_daemon` is the entry point — it CALLS `fn=run_one_tick`, not the other way around |
 | Using `mcporter_call` shim that swallows exceptions and a caller that doesn't check `None` | Silent failures, missing signals | Migrate the caller to direct `_cached_mcp` + `try/except SenpiClientError` |
 | Leaving the openclaw cron entry alongside the daemon | Two producers contending for the same lock | Delete the cron entry once daemon is verified |
 | Different `LOCK_NAME` between scanner_lock and producer_daemon | Both take separate locks; concurrency safety partially broken | Pass the same `name=` to both |

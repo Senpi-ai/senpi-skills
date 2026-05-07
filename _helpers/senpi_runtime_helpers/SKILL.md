@@ -155,7 +155,7 @@ def run_one_tick():
 
 if __name__ == "__main__":
     producer_daemon(
-        tick=run_one_tick,
+        fn=run_one_tick,
         interval_seconds=300,                   # 5-minute ticks
         name=LOCK_NAME,
     )
@@ -172,7 +172,7 @@ Mechanical replacements — apply in order:
 | Serial loop of MCP calls | `parallel([lambda: mcp(t1, …), lambda: mcp(t2, …)])` |
 | `subprocess.run(["openclaw", "senpi", "external-scanner", "ingest", …])` | `client.push_signal(address=…, scanner=…, asset=…, direction=…, data={…})` |
 | Hand-rolled `fcntl.flock(...)` lock | `with scanner_lock(name): …` |
-| openclaw cron entry → invokes script per tick | `producer_daemon(tick=run_one_tick, interval_seconds=N, name=…)` and remove the cron entry |
+| openclaw cron entry → invokes script per tick | `producer_daemon(fn=run_one_tick, interval_seconds=N, name=…)` and remove the cron entry |
 
 After migration, `[senpi_helpers]` log events appear in stderr; gateway plugin
 re-registrations drop to ~0/hour. Filter Railway logs by `[senpi_helpers]` to
@@ -245,7 +245,7 @@ TTL defaults to 120 s (`SENPI_HELPERS_TICK_CACHE_TTL`). Hard-cap entries:
 
 ```python
 producer_daemon(
-    tick=run_one_tick,
+    fn=run_one_tick,             # the per-tick callable
     interval_seconds=300,        # 5-minute ticks
     name=f"<skill>-{wallet_hash}",  # used by scanner_lock + log fields
 )

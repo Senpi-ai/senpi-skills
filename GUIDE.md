@@ -209,7 +209,7 @@ def run_one_tick():
                                asset=asset, direction=direction, data={...})
 
 if __name__ == "__main__":
-    producer_daemon(tick=run_one_tick, interval_seconds=300,
+    producer_daemon(fn=run_one_tick, interval_seconds=300,
                     name=f"<skill>-{wallet_hash}")
 ```
 
