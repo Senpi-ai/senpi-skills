@@ -1,24 +1,13 @@
 ---
 name: senpi-runtime-helpers
 description: >-
-  Stdlib-only Python helper package (`senpi_runtime_helpers`) for senpi-skills
-  producers running under runtime-2. Use this skill when authoring or
-  migrating any producer / scanner skill that calls Senpi MCP tools or emits
-  signals to the runtime — it replaces the legacy `mcporter` subprocess and
-  `openclaw senpi external-scanner ingest` CLI patterns with a persistent
-  HTTPS keep-alive client, a daemon scheduler, scanner_lock with stale-PID
-  recovery, bounded `parallel(...)` fan-out, and a per-tick TTL cache. Mandatory
-  for new producers; required for any skill that needs sub-second MCP latency,
-  predictable memory, or freedom from the cron-+-LLM agentTurn coupling that
-  causes fork-storms on shared infra. Triggers on mentions of mcporter,
-  mcporter_call, external-scanner ingest, openclaw cron + agent main,
-  producer skill authoring, signal emission, fork-storm, mcp-remote spawn,
-  per-call CLI cold start, runtime-2 producer migration.
+  Canonical Python wrapper for senpi-skills producers — Python scripts that call Senpi MCP and push signals to senpi-trading-runtime. Use this skill whenever you author a new producer/scanner skill, migrate a producer that still uses `mcporter` subprocess or `openclaw senpi external-scanner ingest`, debug a SenpiClientError from a producer, or need any of: persistent HTTPS MCP client, scanner_lock with stale-PID recovery, bounded parallel fan-out, per-tick TTL cache, or a daemon scheduler that replaces openclaw cron + agentTurn. Mandatory for new producers; required for sub-second MCP latency, predictable memory, freedom from fork-storms on shared infra.
 license: MIT
 compatibility: >-
-  Python 3.10+. Stdlib only (no third-party deps). Requires senpi-trading-runtime
-  v1.0.95-dev.runtime-phase-2-api.* or newer for the `/signals` endpoint.
-  Intended to be loaded from `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
+  Python 3.10+. Stdlib only — no third-party deps. Requires senpi-trading-runtime
+  v1.0.95-dev.runtime-phase-2-api.* or newer (the version that ships the senpi-stack
+  response envelope on `/signals`). Loaded from
+  `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
 metadata:
   author: senpi
   version: "1.0"
@@ -26,34 +15,112 @@ metadata:
   exchange: hyperliquid
 ---
 
-# senpi_runtime_helpers — the producer wrapper
+# senpi_runtime_helpers — wrapper for Senpi producers
 
-Use this skill whenever you are writing or modifying a Senpi producer (any script that calls MCP tools and emits signals). The wrapper gives you, in one persistent client:
+This is the canonical Python client for everything a producer needs:
+calling MCP, emitting signals, locking per tick, fanning out in parallel,
+caching, scheduling. **One import; no subprocesses.**
 
-| For | Use |
+[`pangolin/scripts/pangolin-producer.py`](../../pangolin/scripts/pangolin-producer.py)
+is the reference wrapper-based producer. Copy its skeleton when starting a new
+skill.
+
+---
+
+## When to use
+
+- Authoring a **new** producer / scanner / external-scanner Python script.
+- Migrating an **existing** producer that uses `subprocess.run(["mcporter", …])`
+  or `subprocess.run(["openclaw", "senpi", "external-scanner", "ingest", …])`.
+- Calling **any** Senpi MCP tool from Python in this repo.
+- Pushing signals to a `senpi-trading-runtime` instance over `/signals`.
+
+## When NOT to use
+
+- You're editing the runtime itself (`senpi-trading-runtime/`) — that's
+  TypeScript; this helper is for Python producers.
+- You're writing a non-Python tool. The runtime accepts any HTTP client; this
+  wrapper is just the Python one.
+
+---
+
+## ⚠️ The one footgun that costs trading capital
+
+**Keep `asset` and `direction` out of the `data` block.** They are top-level
+routing fields on `SignalItem`. Putting them in `data` makes the runtime store
+two copies (`signal.asset` vs `signal.meta.asset`) which downstream consumers
+read inconsistently — that triggered `INVALID_REQUEST` rejections in the
+Pangolin TST incident on 2026-05-05.
+
+**Right:**
+```python
+client.push_signal(
+    address=wallet, scanner="my_signals",
+    asset="BTC", direction="LONG",        # routing → top level
+    score=0.85,                            # confidence 0..1 → top level
+    data={"rsi": 75, "funding_bps": 18},  # scanner-specific → data
+)
+```
+
+**Wrong:**
+```python
+client.push_signal(
+    address=wallet, scanner="my_signals",
+    data={"asset": "BTC", "direction": "LONG", "score": 0.85},  # ❌
+)
+```
+
+---
+
+## Decision tree — pick your starting point
+
+| What you need to do | Jump to |
 |---|---|
-| MCP tool calls | `client.mcp_call(tool, **kwargs)` |
-| Signal emission | `client.push_signal(...)` / `client.push_signals([...])` |
-| Per-tick lock | `with scanner_lock(name): ...` |
-| Bounded fan-out | `parallel([fn0, fn1, …], max_concurrent=N)` |
-| Tick scheduler | `producer_daemon(tick=run_one_tick, interval_seconds=N, name=...)` |
+| Write a new producer from scratch | [Recipe: New producer](#recipe-new-producer) |
+| Migrate a legacy `mcporter` / CLI producer | [Recipe: Migrate legacy producer](#recipe-migrate-legacy-producer) |
+| Emit a signal to the runtime | [Recipe: Emit a signal](#recipe-emit-a-signal) |
+| Fan out N parallel MCP calls in one tick | [Recipe: Parallel MCP fan-out](#recipe-parallel-mcp-fan-out) |
+| Reuse identical MCP results within a tick | [Recipe: Per-tick cache](#recipe-per-tick-cache) |
+| Schedule a recurring tick (replaces openclaw cron) | [Recipe: Daemon scheduling](#recipe-daemon-scheduling) |
+| Debug a `SenpiClientError` from a producer | [Errors → fixes](#errors--fixes) |
 
-`senpi-skills/GUIDE.md` Section 3 documents older `mcporter`-subprocess and `openclaw senpi external-scanner ingest` patterns — those stay published as a reference for skills authored before the wrapper landed and not yet migrated. New skills follow the table above.
+---
 
-## Why it exists
+## The import shim (paste at top of every producer file)
 
-`senpi-trading-runtime/docs/runtime-v2-fixes/runtime-2-performance-findings.md` documents the failure mode the wrapper was built to eliminate:
-
-- Per-call CLI cold start: 5–8 s to bootstrap Node + register the openclaw plugin.
-- Per-call `mcp-remote` spawn: 6-process tree (`gateway → sh → python → node mcporter → npm exec → sh → node mcp-remote`), 250–300 MB transient RSS, 2.5–5 s per call.
-- Cron + `agentTurn` coupling: every cron tick paid for a full LLM inference whose only job was to dispatch a python script.
-- Fork-storm under concurrent load: kernel returns `EAGAIN`; tools fail.
-
-The wrapper replaces all of this with a persistent HTTPS connection, an internal scheduler, and bounded fan-out. Producer ticks drop from minutes to ~4 seconds; per-MCP-call latency drops from 2.5 s to ~280 ms.
-
-## Quick start
+This is the only import boilerplate you ever need:
 
 ```python
+import os, sys
+from pathlib import Path
+
+_helpers_path = str(
+    Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
+    / "skills" / "_helpers"
+)
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+
+from senpi_runtime_helpers import (
+    SenpiClient, SenpiClientError,
+    scanner_lock, tick_cache, parallel, producer_daemon,
+)
+```
+
+`SenpiClient()` reads `SENPI_MCP_URL`, `SENPI_AUTH_TOKEN`,
+`SENPI_RUNTIME_API_HOST`, `SENPI_RUNTIME_API_PORT` from env.
+
+---
+
+## Recipes
+
+### Recipe: New producer
+
+Full self-contained skeleton. Adapt `<skill>`, `<scanner_name>`, env-var
+names, and the signal payload to your strategy.
+
+```python
+# scripts/<skill>-producer.py — wrapper-based producer (replaces openclaw cron)
 import os, sys
 from pathlib import Path
 
@@ -62,114 +129,211 @@ if _helpers_path not in sys.path:
     sys.path.insert(0, _helpers_path)
 
 from senpi_runtime_helpers import (
-    SenpiClient, scanner_lock, tick_cache, parallel, producer_daemon,
+    SenpiClient, scanner_lock, tick_cache, producer_daemon,
 )
 
-client = SenpiClient()           # reads SENPI_MCP_URL + SENPI_AUTH_TOKEN from env
-mcp = tick_cache(client)         # per-tick TTL cache wrapper
+WALLET = os.environ["<SKILL>_WALLET"]                      # e.g. PANGOLIN_WALLET
+SCANNER_NAME = "<scanner_name>"                            # matches runtime.yaml
+LOCK_NAME = f"<skill>-{WALLET[2:10]}"                      # per-wallet → multi-wallet hosts safe
+
+client = SenpiClient()                                     # MCP + signals client
+mcp = tick_cache(client)                                   # per-tick TTL memoization
 
 def run_one_tick():
-    with scanner_lock(f"<skill>-{wallet_hash}"):
+    with scanner_lock(LOCK_NAME):
+        ch = mcp("strategy_get_clearinghouse_state", strategy_wallet=WALLET)
         markets = mcp("leaderboard_get_markets", limit=100)
-        ch = mcp("strategy_get_clearinghouse_state", strategy_wallet=wallet)
-        # …gating logic…
+        # ... gating logic ...
         if signal_ready:
             client.push_signal(
-                address=wallet,
-                scanner="<skill>_signals",
-                asset=asset,
-                direction=direction,
-                data={...},      # validated against scanner config.fields
+                address=WALLET,
+                scanner=SCANNER_NAME,
+                asset="BTC", direction="LONG",  # routing
+                score=0.85,                      # 0..1 confidence
+                data={"funding_bps": 18},       # scanner-specific
             )
 
 if __name__ == "__main__":
-    producer_daemon(tick=run_one_tick, interval_seconds=300, name=f"<skill>-{wallet_hash}")
+    producer_daemon(
+        tick=run_one_tick,
+        interval_seconds=300,                   # 5-minute ticks
+        name=LOCK_NAME,
+    )
 ```
 
-Three things to notice:
+### Recipe: Migrate legacy producer
 
-1. **No subprocess anywhere.** Both MCP and signal emission go through the persistent client.
-2. **`scanner_lock` name should include the wallet** when a host runs multiple wallets — the lock file is `<lock_dir>/senpi-<name>.lock` and a per-wallet name keeps multi-wallet hosts safe.
-3. **`producer_daemon` replaces openclaw cron.** No `agentTurn`, no per-tick LLM. The daemon stays alive across ticks; on tick failure it logs and continues to the next tick.
+Mechanical replacements — apply in order:
 
-## What each helper does
+| Old (legacy) | New (wrapper) |
+|---|---|
+| `subprocess.run(["mcporter", "call", "senpi", tool, …])` → parse JSON | `client.mcp_call(tool, **kwargs)` |
+| Repeated identical `mcporter_call` in one tick | `mcp = tick_cache(client); mcp(tool, **kwargs)` |
+| Serial loop of MCP calls | `parallel([lambda: mcp(t1, …), lambda: mcp(t2, …)])` |
+| `subprocess.run(["openclaw", "senpi", "external-scanner", "ingest", …])` | `client.push_signal(address=…, scanner=…, asset=…, direction=…, data={…})` |
+| Hand-rolled `fcntl.flock(...)` lock | `with scanner_lock(name): …` |
+| openclaw cron entry → invokes script per tick | `producer_daemon(tick=run_one_tick, interval_seconds=N, name=…)` and remove the cron entry |
 
-| Helper | Replaces | Why |
+After migration, `[senpi_helpers]` log events appear in stderr; gateway plugin
+re-registrations drop to ~0/hour. Filter Railway logs by `[senpi_helpers]` to
+verify.
+
+Long-form migration steps with before/after snippets:
+[`references/migration-cookbook.md`](references/migration-cookbook.md).
+
+### Recipe: Emit a signal
+
+```python
+client.push_signal(
+    address=wallet,
+    scanner="my_signals",        # must match runtime.yaml `external_scanner.name`
+    asset="BTC",                 # uppercase Hyperliquid ticker
+    direction="LONG",            # "LONG" | "SHORT" — strict
+    score=0.85,                  # 0..1 — top-level confidence
+    signal_type="MOMENTUM",      # optional override; falls back to defaultSignalType
+    data={                        # validated against scanner config.fields
+        "rsi": 75,
+        "funding_bps": 18,
+    },
+)
+```
+
+Batch form for emitting N signals in one HTTP round-trip:
+
+```python
+client.push_signals([
+    {"address": wallet, "scanner": "my_signals", "asset": "BTC", "direction": "LONG", "data": {…}},
+    {"address": wallet, "scanner": "my_signals", "asset": "ETH", "direction": "LONG", "data": {…}},
+])
+```
+
+The helper raises `SenpiClientError` if **any** item is rejected. The runtime
+itself is **not** atomic — successful items WERE ingested even when the helper
+raises. If your producer needs per-item outcome, push one at a time (the
+pangolin pattern) or catch and inspect.
+
+Full schema: [`references/signal-schema.md`](references/signal-schema.md).
+
+### Recipe: Parallel MCP fan-out
+
+```python
+results = parallel([
+    lambda: mcp("strategy_get_clearinghouse_state", strategy_wallet=WALLET),
+    lambda: mcp("leaderboard_get_markets", limit=100),
+    lambda: mcp("market_get_funding_history", coin="BTC", limit=24),
+])
+ch, markets, funding = results
+```
+
+`parallel(...)` is bounded by `SENPI_HELPERS_MAX_CONCURRENT` (default 8).
+Calls beyond the cap **queue**, never reject. Combine with `tick_cache` so
+duplicated calls in the same tick don't hit the wire twice.
+
+### Recipe: Per-tick cache
+
+```python
+mcp = tick_cache(client)        # wrap once at module load
+ch = mcp("strategy_get_clearinghouse_state", strategy_wallet=WALLET)
+# ... 30 lines later ...
+ch_again = mcp("strategy_get_clearinghouse_state", strategy_wallet=WALLET)  # cache hit, no HTTP
+```
+
+TTL defaults to 120 s (`SENPI_HELPERS_TICK_CACHE_TTL`). Hard-cap entries:
+512 (`SENPI_HELPERS_TICK_CACHE_MAX_ENTRIES`, LRU eviction).
+
+### Recipe: Daemon scheduling
+
+```python
+producer_daemon(
+    tick=run_one_tick,
+    interval_seconds=300,        # 5-minute ticks
+    name=f"<skill>-{wallet_hash}",  # used by scanner_lock + log fields
+)
+```
+
+Replaces openclaw cron + `agentTurn`. The daemon stays alive across ticks; on
+tick failure it logs and continues to the next tick. SIGTERM / SIGINT trigger
+graceful shutdown.
+
+---
+
+## Errors → fixes
+
+| Error message contains | Likely cause | Fix |
 |---|---|---|
-| `SenpiClient.mcp_call(tool, **kwargs)` | `subprocess.run(["mcporter","call","senpi",tool,...])` | Direct streamable-HTTP to MCP. Eliminates the 6-process tree per call. ~10× faster (250–320 ms vs 2.5–5 s). |
-| `SenpiClient.push_signal(...)` / `push_signals([...])` | `subprocess.run(["openclaw","senpi","external-scanner","ingest",...])` | HTTP POST to runtime `/signals` on `127.0.0.1:8787`. Eliminates the 5–8 s CLI cold start. Body is a bare `Array<SignalItem>` per the runtime schema. |
-| `scanner_lock(name)` | `fcntl.flock(...)` | `flock` + PID-aliveness stale recovery. A crashed prior holder no longer permanently bricks future ticks. |
-| `tick_cache(client)` | repeated identical MCP calls in one tick | Per-process LRU+TTL cache with thundering-herd coalescing on the same key. |
-| `parallel([fn0, fn1, …], max_concurrent=N)` | serial loop of MCP calls | Bounded fan-out via `ThreadPoolExecutor`. Beyond `max_concurrent`, calls queue — never reject. |
-| `producer_daemon(tick, interval_seconds, name)` | openclaw cron + `agentTurn` LLM dispatch | Internal scheduler with SIGALRM tick timeout, scanner_lock per tick, SIGTERM/SIGINT graceful shutdown. |
+| `signal_post: response body was empty` | Proxy/sidecar stripped the body | Check container network, `SENPI_RUNTIME_API_HOST/PORT` |
+| `signal_post: response not valid JSON` | Mid-stream truncation (TLS, broken proxy) | Network instability; retry on next tick. Inspect first 200 bytes in error message |
+| `signal_post: unexpected envelope shape` | Helper version expects `{success, data, error}`; runtime returned the legacy `{results: …}` | Bump runtime to ≥ `runtime-phase-2-api.*` (the helper requires the new envelope) |
+| `signal_post: N/M item(s) rejected; first: code=INVALID_REQUEST …` | Per-item schema violation. **Most common: `asset`/`direction` inside `data`** | Move `asset`/`direction` to top level. Verify `data` keys match `runtime.yaml` `config.fields` |
+| `signal_post: N/M item(s) rejected; first: code=NOT_FOUND` | No runtime is registered for the wallet, or the scanner name doesn't exist in `runtime.yaml` | Verify the runtime is installed for the wallet (`openclaw senpi runtime list`); verify `scanner` matches `runtime.yaml` |
+| `signal_post: HTTP 400 INVALID_REQUEST: Exceeded api.maxItemsPerSignalsRequest=10` | Batch larger than runtime cap | Split the batch (default cap is 10) |
+| `signal_post: HTTP 4xx/5xx ENVELOPE_CODE: …` | Runtime rejected the envelope itself | Read the human message in the exception — it's the runtime's diagnostic |
+| `MCP error: …` from `mcp_call` | MCP server reported a tool-side error | Check tool name + arguments against `senpi-hyperliquid-mcp` schema |
+| `urllib.error.URLError` from `mcp_call` | Network / connect / TLS failure | Verify `SENPI_MCP_URL`, `SENPI_AUTH_TOKEN`. Retry transient errors at next tick |
+| `socket.timeout` from `mcp_call` or `signal_post` | Wall-clock timeout exceeded | Override per-call: `client.mcp_call(tool, timeout=60.0, …)` |
+| `lock_stale_recovered` (info, not error) | Previous holder crashed; lock auto-recovered | No action; this is the intended self-healing behaviour |
 
-## Signal schema
-
-Per `senpi-trading-runtime` `runtime-api/routes/signals.schema.ts`:
-
-- **Top-level `SignalItem` fields** — `address`, `scanner`, `asset`, `direction`, `score` (0..1), `signal_type`. Pass them as kwargs to `push_signal(...)`.
-- **Scanner-specific `data` block** — must match the `<scanner>.config.fields` declaration in `runtime.yaml`. Fields marked `required: true` must be present; everything else is free-form.
-- **Score** — top-level `score` is 0..1. Producer-internal composites (e.g. funding-fade strategies typically score >=9) live in `data.score`; pass a separate normalized score, or omit, at the top level.
-
-The one footgun worth a hard-stop: **keep `asset` and `direction` out of `data`.** They're top-level routing fields. Putting them in `data` makes the runtime store two copies (`signal.asset` vs `signal.meta.asset`) and downstream consumers read inconsistently — that's the failure mode that triggered `INVALID_REQUEST` rejections in the Pangolin tick-2 incident on 2026-05-05.
-
-## Wall-clock timeouts (always on)
-
-Every `mcp_call` and signal POST has a default timeout. Producers cannot accidentally hang forever. Override per call: `client.mcp_call(tool, timeout=60.0, **kwargs)`.
-
-## Logging
-
-Every helper emits JSON lines to **stderr** prefixed `[senpi_helpers]`. Stdout stays clean for skills that print signals to stdout. Field order is fixed: `ts → iso → pid → event → ...`.
-
-```
-[senpi_helpers] {"ts": ..., "event": "lock_acquired", "name": "pangolin-producer-a919c1e21a24"}
-[senpi_helpers] {"ts": ..., "event": "mcp_call", "tool": "leaderboard_get_markets", "duration_ms": 265, "status": "ok"}
-[senpi_helpers] {"ts": ..., "event": "cache_hit", "tool": "strategy_get_clearinghouse_state", "age_s": 0.78}
-[senpi_helpers] {"ts": ..., "event": "signal_post", "batch_size": 1, "duration_ms": 12, "status": "ok"}
-[senpi_helpers] {"ts": ..., "event": "daemon_tick_finished", "tick": 34, "duration_ms": 4011, "status": "ok"}
-```
-
-Filter by `[senpi_helpers]` in Railway logs to verify the wrapper is being used and to compare pre/post migration.
+---
 
 ## Configuration — env vars only
 
 | Env var | Default | Purpose |
 |---|---|---|
-| `SENPI_MCP_URL` | `https://mcp.prod.senpi.ai/mcp` | Direct MCP endpoint (no gateway). |
-| `SENPI_AUTH_TOKEN` | _(required)_ | Bearer token for MCP. |
-| `SENPI_RUNTIME_API_HOST` | `127.0.0.1` | Runtime API host (signals). |
-| `SENPI_RUNTIME_API_PORT` | `8787` | Runtime API port (signals). |
-| `SENPI_HELPERS_MCP_TIMEOUT` | `30.0` | Per-call MCP timeout (seconds). |
-| `SENPI_HELPERS_SIGNAL_TIMEOUT` | `5.0` | Per-call signal POST timeout. |
-| `SENPI_HELPERS_MAX_CONCURRENT` | `8` | Cap on in-flight `parallel(...)` calls. |
-| `SENPI_HELPERS_TICK_CACHE_TTL` | `120.0` | Per-tick cache TTL (seconds). |
-| `SENPI_HELPERS_TICK_CACHE_MAX_ENTRIES` | `512` | Hard cap on cached entries (LRU eviction). |
-| `SENPI_HELPERS_LOCK_DIR` | `/tmp` | Where lock files live. |
+| `SENPI_MCP_URL` | `https://mcp.prod.senpi.ai/mcp` | Direct MCP endpoint (no gateway) |
+| `SENPI_AUTH_TOKEN` | _(required)_ | Bearer token for MCP |
+| `SENPI_RUNTIME_API_HOST` | `127.0.0.1` | Runtime API host (signals) |
+| `SENPI_RUNTIME_API_PORT` | `8787` | Runtime API port (signals) |
+| `SENPI_HELPERS_MCP_TIMEOUT` | `30.0` | Per-call MCP timeout (seconds) |
+| `SENPI_HELPERS_SIGNAL_TIMEOUT` | `5.0` | Per-call signal POST timeout (seconds) |
+| `SENPI_HELPERS_MAX_CONCURRENT` | `8` | Cap on in-flight `parallel(...)` calls |
+| `SENPI_HELPERS_QUEUE_WARN_DEPTH` | `50` | Warn when this many calls queue |
+| `SENPI_HELPERS_TICK_CACHE_TTL` | `120.0` | Per-tick cache TTL (seconds) |
+| `SENPI_HELPERS_TICK_CACHE_MAX_ENTRIES` | `512` | Hard cap on cached entries (LRU) |
+| `SENPI_HELPERS_LOCK_DIR` | `/tmp` | Where lock files live |
 
-## Migration cookbook
+`OPENCLAW_WORKSPACE` (default `/data/workspace`) is read by the import shim
+to locate this package.
 
-Migrating a legacy `mcporter_call`-based producer is mechanical:
+---
 
-1. Add the import shim from "Quick start" near the top of `<skill>/scripts/<skill>_config.py`.
-2. Replace each `mcporter_call(tool, **params)` call with `_cached_mcp(tool, **params)`. The legacy `mcporter_call(...)` body can become a thin wrapper that delegates to `_cached_mcp(...)` and catches exceptions to preserve `None`-on-failure callers.
-3. Replace the `subprocess.run(["openclaw","senpi","external-scanner","ingest",...])` block with `_client.push_signal(address=wallet, scanner="<skill>_signals", asset=..., direction=..., data={...})`.
-4. Replace the cron-driven entry point with `if __name__ == "__main__": producer_daemon(tick=run_one_tick, interval_seconds=N, name=f"<skill>-{wallet_hash}")`. Remove the openclaw cron entry that used to dispatch this script.
-5. Drop any hand-rolled `fcntl.flock(...)` lock — `scanner_lock(name)` inside `run_one_tick` replaces it.
-6. Verify: tail the daemon log; `[senpi_helpers]` events should appear, gateway plugin re-registrations should drop to ~0/hour.
+## Logging
+
+Every helper emits JSON lines to **stderr** prefixed `[senpi_helpers]`.
+Stdout stays clean for skills that print to stdout. Field order is fixed:
+`ts → iso → pid → event → ...`.
+
+```
+[senpi_helpers] {"ts": …, "event": "lock_acquired",       "name": "pangolin-a919c1e2"}
+[senpi_helpers] {"ts": …, "event": "mcp_call",            "tool": "leaderboard_get_markets", "duration_ms": 265, "status": "ok"}
+[senpi_helpers] {"ts": …, "event": "cache_hit",           "tool": "strategy_get_clearinghouse_state", "age_s": 0.78}
+[senpi_helpers] {"ts": …, "event": "signal_post",         "batch_size": 1, "duration_ms": 12, "status": "ok"}
+[senpi_helpers] {"ts": …, "event": "daemon_tick_finished","tick": 34, "duration_ms": 4011, "status": "ok"}
+```
+
+Filter Railway logs by `[senpi_helpers]` to verify the wrapper is in use and
+to compare pre/post-migration.
+
+---
 
 ## Tests
 
-Stdlib `unittest`. From the package directory:
+Stdlib `unittest` — no credentials needed.
 
 ```bash
+cd _helpers/senpi_runtime_helpers
 python3 -m unittest discover -s tests -v
 ```
 
-29 unit tests cover the client, lock, cache, parallel, and daemon modules. They run with no credentials (the client tests use a mock MCP and the daemon tests use stub callbacks).
+35 tests cover client (HTTP + envelope parsing), lock (PID-aliveness recovery),
+cache (TTL + LRU + thundering-herd coalescing), parallel (concurrency cap),
+daemon (tick lifecycle + signal handling).
+
+---
 
 ## See also
 
-- `_helpers/senpi_runtime_helpers/README.md` — the package's user-facing README, mostly overlaps this skill but is more concise.
-- `senpi-trading-runtime/docs/runtime-v2-fixes/runtime-2-performance-findings.md` — the doc that motivated the wrapper.
-- `senpi-skills/GUIDE.md` Section 3 — legacy `mcporter_call` pattern for skills not yet migrated.
-- `senpi-skills/pangolin/scripts/pangolin-producer.py` — the canonical wrapper-based producer; copy this skeleton when authoring a new skill.
+- [`references/migration-cookbook.md`](references/migration-cookbook.md) — long-form migration with before/after snippets.
+- [`references/architecture.md`](references/architecture.md) — why this exists, performance numbers, incident background.
+- [`references/signal-schema.md`](references/signal-schema.md) — full `SignalItem` shape, validation rules, `data` block conventions.
+- [`pangolin/scripts/pangolin-producer.py`](../../pangolin/scripts/pangolin-producer.py) — reference wrapper-based producer.
+- [`senpi-trading-runtime/SKILL.md`](../../senpi-trading-runtime/SKILL.md) — the runtime that consumes signals from this helper.
