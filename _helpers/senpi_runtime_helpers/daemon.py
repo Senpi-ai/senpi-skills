@@ -101,6 +101,7 @@ def producer_daemon(
     interval_seconds: float,
     name: str,
     wallet: Optional[str] = None,
+    scanner: Optional[str] = None,
     tick_timeout: Optional[float] = None,
     lock_dir: Optional[str] = None,
     max_ticks: Optional[int] = None,
@@ -120,6 +121,14 @@ def producer_daemon(
             When the default alive_check is used (the common path), this is the
             wallet the daemon probes the runtime API for. Pass the same address
             you'd pass to `client.push_signal(address=...)`.
+        scanner: external_scanner name (e.g. "pangolin_signals"). Optional.
+            When provided alongside `wallet`, the default alive_check is the
+            stricter `is_scanner_registered(wallet, scanner)` — the daemon
+            self-terminates not just when the runtime is deleted, but also
+            when the runtime is recreated with the producer's scanner
+            renamed / dropped / replaced. When omitted, the default check is
+            the looser wallet-only `is_runtime_registered(wallet)`.
+            Pass the same name you'd pass to `client.push_signal(scanner=...)`.
         tick_timeout: per-tick wall-clock budget in seconds. Default 60s.
             On UNIX, enforced via SIGALRM (raises `_TickTimeout` to abort the call).
             On platforms without SIGALRM, this is best-effort (logged only).
@@ -162,7 +171,8 @@ def producer_daemon(
         raise ValueError("tick_timeout must be > 0 if provided")
 
     # Resolve the alive_check sentinel: omitted → default check (requires
-    # wallet); explicit None → opt out; callable → use as-is.
+    # wallet; uses scanner when provided); explicit None → opt out;
+    # callable → use as-is.
     if alive_check is _DEFAULT_ALIVE_CHECK:
         if wallet is None:
             raise ValueError(
@@ -175,8 +185,16 @@ def producer_daemon(
         # SenpiClient stack (tests, simulators).
         from .client import SenpiClient
         _client = SenpiClient()
-        _wallet = wallet  # capture for closure to avoid late binding
-        alive_check = lambda: _client.is_runtime_registered(_wallet)
+        _wallet = wallet      # capture for closure to avoid late binding
+        _scanner = scanner
+        if _scanner is not None:
+            # Strict check — wallet AND scanner. Recommended for all
+            # producers because it catches both runtime-delete AND
+            # runtime-recreate-with-different-scanner-config.
+            alive_check = lambda: _client.is_scanner_registered(_wallet, _scanner)
+        else:
+            # Looser fallback — wallet-only. Catches runtime-delete only.
+            alive_check = lambda: _client.is_runtime_registered(_wallet)
     # alive_check is now either None (opt-out) or a callable.
 
     stop_event = threading.Event()

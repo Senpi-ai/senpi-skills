@@ -140,6 +140,66 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(404)
         self.end_headers()
 
+    def do_GET(self):
+        # /state probe endpoint. Shape mirrors the live runtime:
+        #   200 OK + senpi-stack envelope with `data.runtimes[]` of
+        #   RuntimeSystemState. The mock supports a `?address=` filter and
+        #   wallet-conditional canned responses keyed off the query value.
+        if self.path.startswith("/state"):
+            # Naive query parsing — the test only exercises ?address=…
+            address = ""
+            if "?" in self.path:
+                _, _, qs = self.path.partition("?")
+                for pair in qs.split("&"):
+                    if pair.startswith("address="):
+                        address = pair[len("address="):].lower()
+            # Address conventions for the mock:
+            #   0xrt1*  → registered runtime, scanners=[my_signals, alt_scanner]
+            #   0xrt2*  → registered runtime, scanners=[]   (no external scanners)
+            #   anything else → 0 runtimes (wallet not registered)
+            runtimes = []
+            if address.startswith("0xrt1"):
+                runtimes = [{
+                    "runtimeName": "rt1",
+                    "components": {
+                        "scanners": {
+                            "component": "scanners",
+                            "data": {
+                                "totalRegistered": 2,
+                                "totalEnabled": 2,
+                                "scanners": [
+                                    {"scannerId": "my_signals", "enabled": True, "initialized": True},
+                                    {"scannerId": "alt_scanner", "enabled": True, "initialized": True},
+                                ],
+                            },
+                        },
+                    },
+                }]
+            elif address.startswith("0xrt2"):
+                runtimes = [{
+                    "runtimeName": "rt2",
+                    "components": {
+                        "scanners": {
+                            "component": "scanners",
+                            "data": {
+                                "totalRegistered": 0,
+                                "totalEnabled": 0,
+                                "scanners": [],
+                            },
+                        },
+                    },
+                }]
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "success": True,
+                "data": {"runtimes": runtimes},
+            }).encode("utf-8"))
+            return
+        self.send_response(404)
+        self.end_headers()
+
 
 class ClientTests(unittest.TestCase):
     @classmethod
@@ -386,6 +446,53 @@ class ClientTests(unittest.TestCase):
         client = SenpiClient()
         with self.assertRaises(SenpiClientError):
             client.push_signals([{"data": {"k": 1}}])  # missing address + scanner
+
+    # ──────────────── /state probes ────────────────
+
+    def _client_for_state(self) -> SenpiClient:
+        # The state probe uses runtime_host/runtime_port (not mcp_url). The
+        # mock server runs on 127.0.0.1:<port>; point both at it.
+        return SenpiClient(
+            mcp_url=f"http://127.0.0.1:{self.port}",
+            auth_token="test-token",
+            runtime_host="127.0.0.1",
+            runtime_port=self.port,
+        )
+
+    def test_is_runtime_registered_true_when_wallet_present(self) -> None:
+        c = self._client_for_state()
+        self.assertTrue(c.is_runtime_registered("0xrt1ABCDEF"))
+
+    def test_is_runtime_registered_false_when_wallet_absent(self) -> None:
+        c = self._client_for_state()
+        self.assertFalse(c.is_runtime_registered("0xnotregistered"))
+
+    def test_is_scanner_registered_true_when_both_match(self) -> None:
+        c = self._client_for_state()
+        self.assertTrue(c.is_scanner_registered("0xrt1ABCDEF", "my_signals"))
+        self.assertTrue(c.is_scanner_registered("0xrt1ABCDEF", "alt_scanner"))
+
+    def test_is_scanner_registered_false_when_scanner_missing(self) -> None:
+        c = self._client_for_state()
+        self.assertFalse(c.is_scanner_registered("0xrt1ABCDEF", "nonexistent_scanner"))
+
+    def test_is_scanner_registered_false_when_runtime_has_no_scanners(self) -> None:
+        c = self._client_for_state()
+        self.assertFalse(c.is_scanner_registered("0xrt2ABCDEF", "any_scanner"))
+
+    def test_is_scanner_registered_false_when_wallet_absent(self) -> None:
+        c = self._client_for_state()
+        self.assertFalse(c.is_scanner_registered("0xnotregistered", "my_signals"))
+
+    def test_state_probe_rejects_non_hex_wallet(self) -> None:
+        c = self._client_for_state()
+        with self.assertRaises(SenpiClientError):
+            c.is_runtime_registered("not-a-wallet")
+
+    def test_state_probe_rejects_empty_scanner(self) -> None:
+        c = self._client_for_state()
+        with self.assertRaises(SenpiClientError):
+            c.is_scanner_registered("0xrt1ABCDEF", "")
 
 
 if __name__ == "__main__":

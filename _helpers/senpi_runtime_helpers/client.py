@@ -380,35 +380,35 @@ class SenpiClient:
     def _signals_url(self) -> str:
         return f"http://{self.runtime_host}:{self.runtime_port}/signals"
 
-    def _health_url(self) -> str:
-        return f"http://{self.runtime_host}:{self.runtime_port}/health"
+    def _state_url(self, address: Optional[str] = None) -> str:
+        base = f"http://{self.runtime_host}:{self.runtime_port}/state"
+        return f"{base}?address={address}" if address else base
 
-    def is_runtime_registered(
+    def _fetch_state(
         self,
         wallet: str,
         timeout: Optional[float] = None,
-    ) -> bool:
-        """Probe the runtime API's `/health` and check if `wallet` is registered.
+    ) -> Optional[Dict[str, Any]]:
+        """GET /state?address=<wallet>, return the matching `RuntimeSystemState` or None.
 
-        Returns:
-            True if `/health` lists `wallet` (case-insensitive) under
-            `runtimes.items[].address`. False if the endpoint responded
-            successfully but `wallet` is absent (the runtime for this wallet
-            has been deleted, or never installed). Raises `SenpiClientError`
-            on transport errors, malformed responses, or non-2xx responses —
-            callers (e.g. `producer_daemon`) should treat raised errors as
-            "still alive" since a flaky `/health` should not kill the daemon.
+        Used internally by `is_runtime_registered` and `is_scanner_registered`
+        as the single shared probe path. Returns None when the runtime API
+        responds successfully but the wallet has no registered runtime
+        (deleted, or never installed). Raises `SenpiClientError` on transport
+        errors, malformed responses, or non-2xx responses — callers (e.g.
+        `producer_daemon`) treat raised errors as "still alive" since a flaky
+        `/state` endpoint must not kill the daemon.
         """
         if not isinstance(wallet, str) or not wallet.startswith("0x"):
             raise SenpiClientError(f"wallet must be a 0x-prefixed string (got {wallet!r})")
         wallet_lower = wallet.lower()
         timeout = timeout if timeout is not None else cfg.SIGNAL_TIMEOUT_SECONDS
-        url = self._health_url()
+        url = self._state_url(address=wallet_lower)
         parts = urlsplit(url)
         scheme = parts.scheme
         host = parts.hostname or ""
         port = parts.port or 80
-        path = parts.path or "/"
+        path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
 
         conn = self._pool.get(scheme, host, port, timeout)
         try:
@@ -416,7 +416,7 @@ class SenpiClient:
             resp = conn.getresponse()
         except (http.client.HTTPException, ConnectionError, OSError, TimeoutError) as e:
             self._pool.reset(scheme, host, port)
-            raise SenpiClientError(f"health probe transport error: {e}") from e
+            raise SenpiClientError(f"state probe transport error: {e}") from e
 
         try:
             raw = resp.read()
@@ -426,24 +426,97 @@ class SenpiClient:
 
         if resp.status != 200:
             raise SenpiClientError(
-                f"health probe HTTP {resp.status}: {raw[:200]!r}"
+                f"state probe HTTP {resp.status}: {raw[:200]!r}"
             )
         try:
             parsed = json.loads(raw.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            raise SenpiClientError(f"health probe response not valid JSON: {e}") from e
+            raise SenpiClientError(f"state probe response not valid JSON: {e}") from e
 
-        # /health shape: {"status":"ok", "runtimes":{"count":N,"items":[{"address":"0x..."}, ...]}, ...}
-        runtimes = parsed.get("runtimes") if isinstance(parsed, dict) else None
-        items = runtimes.get("items") if isinstance(runtimes, dict) else None
-        if not isinstance(items, list):
+        # Senpi-stack envelope:
+        #   { "success": true, "data": { "runtimes": [RuntimeSystemState, ...] } }
+        if not isinstance(parsed, dict) or parsed.get("success") is not True:
+            err = parsed.get("error") if isinstance(parsed, dict) else None
             raise SenpiClientError(
-                f"health probe response missing runtimes.items[]: top-level keys="
-                f"{sorted(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__}"
+                f"state probe envelope error: {err if err else parsed!r}"[:300]
             )
-        for it in items:
-            addr = it.get("address") if isinstance(it, dict) else None
-            if isinstance(addr, str) and addr.lower() == wallet_lower:
+        envelope_data = parsed.get("data")
+        runtimes = envelope_data.get("runtimes") if isinstance(envelope_data, dict) else None
+        if not isinstance(runtimes, list):
+            raise SenpiClientError(
+                f"state probe response missing data.runtimes[]: keys="
+                f"{sorted(envelope_data.keys()) if isinstance(envelope_data, dict) else type(envelope_data).__name__}"
+            )
+        # Filter to the requested wallet (case-insensitive). The runtime
+        # already filtered when we passed ?address=, but be defensive in case
+        # of future shape changes — callers ask about a specific wallet.
+        for rt in runtimes:
+            if not isinstance(rt, dict):
+                continue
+            # RuntimeSystemState doesn't carry `address` at the top level;
+            # the wallet identity comes from the route's filter. With
+            # ?address=, a non-empty list means the wallet is registered.
+            return rt
+        return None
+
+    def is_runtime_registered(
+        self,
+        wallet: str,
+        timeout: Optional[float] = None,
+    ) -> bool:
+        """Probe `/state` and return True if `wallet` has a running runtime.
+
+        Wallet-level liveness — does **any** runtime exist for this wallet?
+        For a stricter "this scanner is still valid" check, use
+        `is_scanner_registered(wallet, scanner)` instead.
+        """
+        return self._fetch_state(wallet, timeout=timeout) is not None
+
+    def is_scanner_registered(
+        self,
+        wallet: str,
+        scanner: str,
+        timeout: Optional[float] = None,
+    ) -> bool:
+        """Probe `/state` and return True if `scanner` is registered for `wallet`.
+
+        Stricter than `is_runtime_registered`: catches the case where a runtime
+        exists for the wallet but the producer's specific external_scanner
+        (e.g. `pangolin_signals`) was renamed, dropped, or replaced when the
+        runtime was reinstalled. Walks `components.scanners.scanners[]` and
+        looks for a matching `scannerId` (the runtime-side identifier — same
+        value as the producer's `client.push_signal(scanner=...)` argument).
+
+        Enabled / disabled state of the scanner is **not** considered:
+        registration is the binary the daemon cares about. A scanner that's
+        registered-but-temporarily-disabled is still a valid target on the
+        next ingest; the daemon should not commit suicide on transient state.
+        """
+        if not isinstance(scanner, str) or not scanner:
+            raise SenpiClientError(f"scanner must be a non-empty string (got {scanner!r})")
+        rt = self._fetch_state(wallet, timeout=timeout)
+        if rt is None:
+            return False
+        components = rt.get("components") if isinstance(rt, dict) else None
+        scanners_block = components.get("scanners") if isinstance(components, dict) else None
+        # ScannerSystemState wraps the registration list under .data.scanners[]
+        # in the new shape (mirrors ComponentSystemState<{...,scanners:[...]}>).
+        # Earlier dev builds put it under .scanners[] directly. Tolerate both.
+        scanners_list = None
+        if isinstance(scanners_block, dict):
+            data_block = scanners_block.get("data")
+            if isinstance(data_block, dict) and isinstance(data_block.get("scanners"), list):
+                scanners_list = data_block["scanners"]
+            elif isinstance(scanners_block.get("scanners"), list):
+                scanners_list = scanners_block["scanners"]
+        if not isinstance(scanners_list, list):
+            raise SenpiClientError(
+                f"state probe: cannot locate scanners[] in components.scanners; "
+                f"keys={sorted(scanners_block.keys()) if isinstance(scanners_block, dict) else type(scanners_block).__name__}"
+            )
+        for s in scanners_list:
+            sid = s.get("scannerId") if isinstance(s, dict) else None
+            if isinstance(sid, str) and sid == scanner:
                 return True
         return False
 

@@ -154,8 +154,10 @@ if __name__ == "__main__":
         fn=run_one_tick,                     # the per-tick callable
         interval_seconds=300,                # match the legacy cron interval
         name=f"<skill>-{WALLET[2:10]}",      # used by scanner_lock + log fields
-        wallet=WALLET,                       # enables default runtime liveness
-                                              # check; pass alive_check=None to opt out
+        wallet=WALLET,                       # daemon self-terminates if the
+        scanner=SCANNER_NAME,                # runtime is deleted OR the scanner
+                                              # is dropped/renamed.
+                                              # Pass alive_check=None to opt out.
     )
 ```
 
