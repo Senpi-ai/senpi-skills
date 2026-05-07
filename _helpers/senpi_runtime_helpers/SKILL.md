@@ -4,13 +4,14 @@ description: >-
   Canonical Python wrapper for senpi-skills producers — Python scripts that call Senpi MCP and push signals to senpi-trading-runtime. Use this skill whenever you author a new producer/scanner skill, migrate a producer that still uses `mcporter` subprocess or `openclaw senpi external-scanner ingest`, debug a SenpiClientError from a producer, or need any of: persistent HTTPS MCP client, scanner_lock with stale-PID recovery, bounded parallel fan-out, per-tick TTL cache, or a daemon scheduler that replaces openclaw cron + agentTurn. Mandatory for new producers; required for sub-second MCP latency, predictable memory, freedom from fork-storms on shared infra.
 license: MIT
 compatibility: >-
-  Python 3.10+. Stdlib only — no third-party deps. Requires senpi-trading-runtime
-  >= v1.0.95-dev.runtime-phase-2-api.20260507134852 — the first build that
-  combines the senpi-stack response envelope on `/signals` (commit 6324907)
-  with the openclaw-loadable single-file plugin entry (commit cc05073). Older
-  runtime-phase-2-api builds either lack the new envelope or fail to load on
-  openclaw 2026.2.22 with `SyntaxError: Cannot use 'import.meta' outside a module`.
-  Loaded from `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
+  Python 3.10+. Stdlib only — no third-party deps. Requires the
+  senpi-trading-runtime build that ships the senpi-stack response envelope on
+  /signals and /audit (success / data / error). The wrapper does not parse the
+  legacy { results: [...] } envelope. Currently verified against
+  runtime-phase-2-api dev pin v1.0.95-dev.runtime-phase-2-api.20260507134852 —
+  see references/replicate-test-environment.md for the matching senpi-skills
+  branch pin. After the runtime ships its release line, follow the release
+  version. Loaded from `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
 metadata:
   author: senpi
   version: "1.0"
