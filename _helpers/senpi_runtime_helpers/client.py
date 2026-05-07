@@ -380,6 +380,73 @@ class SenpiClient:
     def _signals_url(self) -> str:
         return f"http://{self.runtime_host}:{self.runtime_port}/signals"
 
+    def _health_url(self) -> str:
+        return f"http://{self.runtime_host}:{self.runtime_port}/health"
+
+    def is_runtime_registered(
+        self,
+        wallet: str,
+        timeout: Optional[float] = None,
+    ) -> bool:
+        """Probe the runtime API's `/health` and check if `wallet` is registered.
+
+        Returns:
+            True if `/health` lists `wallet` (case-insensitive) under
+            `runtimes.items[].address`. False if the endpoint responded
+            successfully but `wallet` is absent (the runtime for this wallet
+            has been deleted, or never installed). Raises `SenpiClientError`
+            on transport errors, malformed responses, or non-2xx responses —
+            callers (e.g. `producer_daemon`) should treat raised errors as
+            "still alive" since a flaky `/health` should not kill the daemon.
+        """
+        if not isinstance(wallet, str) or not wallet.startswith("0x"):
+            raise SenpiClientError(f"wallet must be a 0x-prefixed string (got {wallet!r})")
+        wallet_lower = wallet.lower()
+        timeout = timeout if timeout is not None else cfg.SIGNAL_TIMEOUT_SECONDS
+        url = self._health_url()
+        parts = urlsplit(url)
+        scheme = parts.scheme
+        host = parts.hostname or ""
+        port = parts.port or 80
+        path = parts.path or "/"
+
+        conn = self._pool.get(scheme, host, port, timeout)
+        try:
+            conn.request("GET", path, headers={"Host": parts.netloc, "Accept": "application/json"})
+            resp = conn.getresponse()
+        except (http.client.HTTPException, ConnectionError, OSError, TimeoutError) as e:
+            self._pool.reset(scheme, host, port)
+            raise SenpiClientError(f"health probe transport error: {e}") from e
+
+        try:
+            raw = resp.read()
+        finally:
+            if resp.getheader("Connection", "").lower() == "close":
+                self._pool.reset(scheme, host, port)
+
+        if resp.status != 200:
+            raise SenpiClientError(
+                f"health probe HTTP {resp.status}: {raw[:200]!r}"
+            )
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            raise SenpiClientError(f"health probe response not valid JSON: {e}") from e
+
+        # /health shape: {"status":"ok", "runtimes":{"count":N,"items":[{"address":"0x..."}, ...]}, ...}
+        runtimes = parsed.get("runtimes") if isinstance(parsed, dict) else None
+        items = runtimes.get("items") if isinstance(runtimes, dict) else None
+        if not isinstance(items, list):
+            raise SenpiClientError(
+                f"health probe response missing runtimes.items[]: top-level keys="
+                f"{sorted(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__}"
+            )
+        for it in items:
+            addr = it.get("address") if isinstance(it, dict) else None
+            if isinstance(addr, str) and addr.lower() == wallet_lower:
+                return True
+        return False
+
     def push_signals(
         self,
         items: List[Dict[str, Any]],

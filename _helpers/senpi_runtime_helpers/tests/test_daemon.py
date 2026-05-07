@@ -102,6 +102,104 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(ticks, 2)
         self.assertGreaterEqual(timeouts["n"], 2)
 
+    def test_alive_check_false_at_boot_skips_all_ticks(self) -> None:
+        """If alive_check returns False before tick 1, daemon must not run any tick."""
+        ticks_run = {"n": 0}
+
+        def fn() -> None:
+            ticks_run["n"] += 1
+
+        returned_ticks = producer_daemon(
+            fn=fn,
+            interval_seconds=0.02,
+            name="test_alive_boot_false",
+            tick_timeout=1.0,
+            max_ticks=10,
+            install_signal_handlers=False,
+            alive_check=lambda: False,
+        )
+        self.assertEqual(returned_ticks, 0)
+        self.assertEqual(ticks_run["n"], 0)
+
+    def test_alive_check_false_mid_loop_breaks_gracefully(self) -> None:
+        """alive_check returning False between ticks must stop the loop cleanly."""
+        ticks_run = {"n": 0}
+        probes = {"n": 0}
+
+        def fn() -> None:
+            ticks_run["n"] += 1
+
+        def probe() -> bool:
+            probes["n"] += 1
+            # First probe (boot) returns True; flip False on the next probe.
+            return probes["n"] <= 1
+
+        returned_ticks = producer_daemon(
+            fn=fn,
+            interval_seconds=0.02,
+            name="test_alive_mid_false",
+            tick_timeout=1.0,
+            max_ticks=10,
+            install_signal_handlers=False,
+            alive_check=probe,
+            alive_check_interval_seconds=0.02,  # probe between every tick
+        )
+        # Boot probe (True) → tick 1 runs → probe (False) → exit before tick 2.
+        self.assertEqual(ticks_run["n"], 1)
+        self.assertEqual(returned_ticks, 1)
+
+    def test_alive_check_transient_error_does_not_terminate(self) -> None:
+        """Exceptions from alive_check are swallowed; daemon stays alive."""
+        ticks_run = {"n": 0}
+        probes = {"n": 0}
+
+        def fn() -> None:
+            ticks_run["n"] += 1
+
+        def flaky_probe() -> bool:
+            probes["n"] += 1
+            raise ConnectionError("simulated /health flake")
+
+        returned_ticks = producer_daemon(
+            fn=fn,
+            interval_seconds=0.02,
+            name="test_alive_transient",
+            tick_timeout=1.0,
+            max_ticks=3,
+            install_signal_handlers=False,
+            alive_check=flaky_probe,
+            alive_check_interval_seconds=0.02,
+        )
+        # Probes raised on every call but daemon kept ticking until max_ticks.
+        self.assertEqual(returned_ticks, 3)
+        self.assertEqual(ticks_run["n"], 3)
+        self.assertGreaterEqual(probes["n"], 3)
+
+    def test_alive_check_cadence_computed_from_interval(self) -> None:
+        """alive_check_interval_seconds determines tick-multiple cadence."""
+        probes = {"n": 0}
+
+        def fn() -> None:
+            pass
+
+        def probe() -> bool:
+            probes["n"] += 1
+            return True
+
+        # interval=0.02 s, alive_check_interval=0.10 s → n = round(0.10/0.02) = 5.
+        # 6 ticks total: probe at boot + after tick 5 = 2 probes.
+        producer_daemon(
+            fn=fn,
+            interval_seconds=0.02,
+            name="test_alive_cadence",
+            tick_timeout=1.0,
+            max_ticks=6,
+            install_signal_handlers=False,
+            alive_check=probe,
+            alive_check_interval_seconds=0.10,
+        )
+        self.assertEqual(probes["n"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()

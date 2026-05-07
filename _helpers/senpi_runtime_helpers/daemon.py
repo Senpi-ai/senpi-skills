@@ -26,6 +26,7 @@ from .lock import scanner_lock
 
 
 _DEFAULT_TICK_TIMEOUT = 60.0
+_DEFAULT_ALIVE_CHECK_INTERVAL_SECONDS = 300.0  # 5 min — runtime delete-detection cadence
 
 
 class _TickTimeout(BaseException):
@@ -70,6 +71,26 @@ def _interruptible_sleep(seconds: float, stop_event: threading.Event) -> bool:
     return not stop_event.wait(seconds)
 
 
+def _alive(check: Callable[[], bool], name: str, phase: str) -> bool:
+    """Run an alive_check, returning True (keep going) on any error.
+
+    Only an explicit False return from a successful invocation is terminal.
+    Network errors / transient failures are logged and treated as "still
+    alive" — we don't want a flaky /health endpoint to kill the daemon.
+    """
+    try:
+        return bool(check())
+    except Exception as e:  # noqa: BLE001 — daemon must not crash on probe failure
+        log_event(
+            "daemon_alive_check_error",
+            name=name,
+            phase=phase,
+            error=f"{type(e).__name__}: {e}"[:200],
+            note="treated as alive; transient errors do not terminate",
+        )
+        return True
+
+
 def producer_daemon(
     fn: Callable[[], None],
     interval_seconds: float,
@@ -78,6 +99,8 @@ def producer_daemon(
     lock_dir: Optional[str] = None,
     max_ticks: Optional[int] = None,
     install_signal_handlers: bool = True,
+    alive_check: Optional[Callable[[], bool]] = None,
+    alive_check_interval_seconds: float = _DEFAULT_ALIVE_CHECK_INTERVAL_SECONDS,  # configurable kwarg; default 300 s (5 min)
 ) -> int:
     """Run `fn` every `interval_seconds` until SIGTERM / SIGINT, returning tick count.
 
@@ -94,6 +117,19 @@ def producer_daemon(
         max_ticks: cap on number of ticks (mostly for tests). None = unbounded.
         install_signal_handlers: whether to wire SIGTERM/SIGINT for graceful shutdown.
             False is useful in tests where the test runner installs its own.
+        alive_check: optional zero-arg callable returning True if the daemon
+            should keep running, False if it should self-terminate. Typical use:
+            probe `senpi-trading-runtime`'s `/health` and verify the daemon's
+            wallet still appears in `runtimes.items[]`. Called once before
+            tick 1 (boot probe — exits before any tick if False); then between
+            ticks at the cadence below. Network/transient errors raised by the
+            callable are swallowed and treated as "still alive" — only an
+            explicit False from a successful probe terminates the daemon.
+        alive_check_interval_seconds: target cadence for the alive_check between
+            ticks. Daemon computes the nearest integer Nth tick at which to
+            run it: `n = max(1, round(alive_check_interval_seconds / interval_seconds))`.
+            Default 300 s. For 300-s ticks → every tick; 60-s ticks → every 5
+            ticks; 90-s ticks → every 3 ticks. Ignored if alive_check is None.
 
     Returns:
         Total number of ticks attempted (succeeded + failed + skipped).
@@ -109,19 +145,58 @@ def producer_daemon(
     if install_signal_handlers:
         _install_shutdown_handlers(stop_event)
 
+    alive_check_every_n = (
+        max(1, round(alive_check_interval_seconds / interval_seconds))
+        if alive_check is not None
+        else 0
+    )
+
     log_event(
         "daemon_started",
         name=name,
         interval_seconds=interval_seconds,
         tick_timeout=tick_timeout,
         max_ticks=max_ticks,
+        alive_check_enabled=alive_check is not None,
+        alive_check_every_n_ticks=alive_check_every_n if alive_check is not None else None,
     )
+
+    # Boot probe — fail fast if the runtime isn't there to consume our work.
+    # Treats only an explicit False as terminal; transient errors from the
+    # probe (network blip, etc.) are not enough to kill the daemon at boot.
+    if alive_check is not None and not _alive(alive_check, name, phase="boot"):
+        log_event(
+            "daemon_aborted_no_runtime",
+            name=name,
+            phase="boot",
+            reason="alive_check returned False before tick 1",
+        )
+        return 0
 
     tick_count = 0
     start_loop = time.time()
 
     try:
         while not stop_event.is_set():
+            # Periodic alive probe between ticks. tick_count is the count of
+            # FINISHED ticks at this point — so the modulo is taken against a
+            # post-completion counter. tick_count > 0 skips the boundary right
+            # after the boot probe (we already probed at boot).
+            if (
+                alive_check is not None
+                and tick_count > 0
+                and tick_count % alive_check_every_n == 0
+                and not _alive(alive_check, name, phase="periodic")
+            ):
+                log_event(
+                    "daemon_self_terminated_no_runtime",
+                    name=name,
+                    phase="periodic",
+                    after_tick=tick_count,
+                    reason="alive_check returned False between ticks",
+                )
+                break
+
             tick_count += 1
             tick_started_at = time.time()
             log_event("daemon_tick_started", name=name, tick=tick_count)
