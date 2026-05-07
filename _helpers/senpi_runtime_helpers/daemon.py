@@ -81,7 +81,8 @@ def _alive(check: Callable[[], bool], name: str, phase: str) -> bool:
 
     Only an explicit False return from a successful invocation is terminal.
     Network errors / transient failures are logged and treated as "still
-    alive" — we don't want a flaky /health endpoint to kill the daemon.
+    alive" — we don't want a flaky probe (e.g. transient /state outage)
+    to kill the daemon.
     """
     try:
         return bool(check())
@@ -137,9 +138,10 @@ def producer_daemon(
         install_signal_handlers: whether to wire SIGTERM/SIGINT for graceful shutdown.
             False is useful in tests where the test runner installs its own.
         alive_check: how to decide if the daemon should keep running.
-            - **Omitted (default)**: build the canonical check from `wallet` —
-              probe `senpi-trading-runtime`'s `/health` and verify the wallet
-              still appears in `runtimes.items[]`. Most producers want this.
+            - **Omitted (default)**: build the canonical check from `wallet`
+              (and `scanner` if provided) — probe `senpi-trading-runtime`'s
+              `/state` endpoint and verify the wallet (and scanner) is still
+              registered. Most producers want this.
             - **`None`**: opt out. Daemon will run forever (until SIGTERM /
               SIGINT) regardless of runtime registration. Use only for tests,
               standalone simulation, or producers that don't push signals.

@@ -158,13 +158,19 @@ class _Handler(BaseHTTPRequestHandler):
             #   0xrt2*  → registered runtime, scanners=[]   (no external scanners)
             #   anything else → 0 runtimes (wallet not registered)
             runtimes = []
+            # Mock body mirrors the real runtime shape. The scanners block
+            # nests under `.state.scanners[]` (per ComponentSystemState<T>
+            # in senpi-trading-runtime/src/health/types.ts). Using the wrong
+            # path here would make the wrapper unit tests pass against a
+            # fake the parser tolerates, but fail in production — exactly
+            # the bug the bugbot pass caught on 2026-05-07.
             if address.startswith("0xrt1"):
                 runtimes = [{
                     "runtimeName": "rt1",
                     "components": {
                         "scanners": {
                             "component": "scanners",
-                            "data": {
+                            "state": {
                                 "totalRegistered": 2,
                                 "totalEnabled": 2,
                                 "scanners": [
@@ -181,7 +187,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "components": {
                         "scanners": {
                             "component": "scanners",
-                            "data": {
+                            "state": {
                                 "totalRegistered": 0,
                                 "totalEnabled": 0,
                                 "scanners": [],

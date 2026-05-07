@@ -14,13 +14,15 @@ description: >-
 license: MIT
 compatibility: >-
   Python 3.10+. Stdlib only — no third-party deps. Requires the
-  senpi-trading-runtime build that ships the senpi-stack response envelope on
-  /signals and /audit (success / data / error). The wrapper does not parse the
-  legacy { results: [...] } envelope. Currently verified against
-  runtime-phase-2-api dev pin v1.0.95-dev.runtime-phase-2-api.20260507134852 —
-  see references/runtime-deployment.md for the matching senpi-skills
-  branch pin. After the runtime ships its release line, follow the release
-  version. Loaded from `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
+  senpi-trading-runtime build that ships (a) the senpi-stack response envelope
+  on /signals and /audit (success / data / error), AND (b) GET /state for
+  scanner-level liveness probes. The wrapper does not parse the legacy
+  { results: [...] } envelope and the daemon's default alive_check requires
+  /state to detect runtime-delete and scanner-rename. The matching
+  runtime-phase-2-api dev pin is recorded in
+  references/runtime-deployment.md and bumped each time both halves
+  republish together. After the runtime ships its release line, follow the
+  release version. Loaded from `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
 metadata:
   author: senpi
   version: "1.0"

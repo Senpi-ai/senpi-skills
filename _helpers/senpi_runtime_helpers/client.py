@@ -499,20 +499,26 @@ class SenpiClient:
             return False
         components = rt.get("components") if isinstance(rt, dict) else None
         scanners_block = components.get("scanners") if isinstance(components, dict) else None
-        # ScannerSystemState wraps the registration list under .data.scanners[]
-        # in the new shape (mirrors ComponentSystemState<{...,scanners:[...]}>).
-        # Earlier dev builds put it under .scanners[] directly. Tolerate both.
-        scanners_list = None
-        if isinstance(scanners_block, dict):
-            data_block = scanners_block.get("data")
-            if isinstance(data_block, dict) and isinstance(data_block.get("scanners"), list):
-                scanners_list = data_block["scanners"]
-            elif isinstance(scanners_block.get("scanners"), list):
-                scanners_list = scanners_block["scanners"]
+        # ScannerSystemState shape (per
+        # senpi-trading-runtime/src/health/types.ts ScannerSystemState
+        # extends ComponentSystemState<{totalRegistered, totalEnabled, scanners}>):
+        #
+        #   { component: "scanners", health, updatedAt, state: {
+        #       totalRegistered, totalEnabled, scanners: [...]
+        #     }
+        #   }
+        #
+        # The `state` key (not `data`) carries the typed payload. Be strict —
+        # if the shape ever changes, fail loudly rather than silently treating
+        # every scanner as "not registered" (which would cause every daemon
+        # using this check to self-terminate on the next probe).
+        state_block = scanners_block.get("state") if isinstance(scanners_block, dict) else None
+        scanners_list = state_block.get("scanners") if isinstance(state_block, dict) else None
         if not isinstance(scanners_list, list):
             raise SenpiClientError(
-                f"state probe: cannot locate scanners[] in components.scanners; "
-                f"keys={sorted(scanners_block.keys()) if isinstance(scanners_block, dict) else type(scanners_block).__name__}"
+                f"state probe: cannot locate components.scanners.state.scanners[]; "
+                f"scanners_block keys="
+                f"{sorted(scanners_block.keys()) if isinstance(scanners_block, dict) else type(scanners_block).__name__}"
             )
         for s in scanners_list:
             sid = s.get("scannerId") if isinstance(s, dict) else None
