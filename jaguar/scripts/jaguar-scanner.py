@@ -1,8 +1,41 @@
 #!/usr/bin/env python3
-# Senpi JAGUAR Scanner v3.5
+# Senpi JAGUAR Scanner v3.6
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""JAGUAR v3.5 — Striker-Only (per-asset leverage clamp fix).
+"""JAGUAR v3.6 — Striker-Only (pyramiding fix + config-driven starting budget).
+
+v3.6 change (2026-05-06, operator-diagnosed) — TWO fixes:
+
+1. PYRAMIDING BUG: live failure 2026-05-06 evening — NEAR went from $25 →
+   $398 margin in 60 seconds via 5 "DSL position increased" events on
+   the same signal during partial-fill state. Same Pangolin v2.1 /
+   Scorpion v4.1.0 dedup-bug-class — the producer was checking
+   held_coins (positions present in clearinghouseState) but NOT
+   pending_coins (resting non-reduceOnly entry orders). When an entry
+   ALO is partially filled, the next scan tick sees the asset NOT yet
+   in held positions and emits the same signal → runtime executes as
+   ADD to existing partial fill rather than skip.
+
+   Fix ports the Scorpion v4.1.1 pattern: get_pending_entry_coins(wallet)
+   queries strategy_get_open_orders, returns set of non-reduceOnly
+   coins. main() unions held_coins ∪ pending_coins before checking
+   duplicate. Same-asset retry blocked until the resting order either
+   fills (becomes held) or cancels (no longer pending).
+
+2. STARTING_BUDGET config-driven: prior versions hardcoded
+   STARTING_BUDGET=1000.0 in this file, which forced operators to edit
+   the producer code to rebase capital after drawdown. Per fleet rule
+   (memory feedback_never_hardcode_wallet_specific.md), wallet-specific
+   values belong in config.json. Ports the Grizzly v5.2
+   _resolve_starting_budget() pattern: read 'startingBudget' from
+   jaguar-config.json, fall back to 1000.0 if absent. Operator can now
+   set "startingBudget": <value> in their local config without modifying
+   code that gets clobbered by the next git pull.
+
+   NOTE: Per v3.7 runtime.yaml risk.guard_rails, the dynamic daily cap
+   below is now redundant defense. Runtime is the authoritative gate
+   when its risk block fires. Producer's get_dynamic_daily_cap stays as
+   fallback for v1-runtime hosts that don't enforce risk.guard_rails.
 
 v3.5 change (2026-05-06) — CREATE_INVALID_LEVERAGE on small-cap perps:
 Live failure: XMR LONG signal at score 10 tried 10x leverage, HL rejected
@@ -93,7 +126,24 @@ MAX_DAILY_ENTRIES = 3
 # DYNAMIC DAILY CAP (P&L-aware circuit breaker)
 # ═══════════════════════════════════════════════════════════════
 
-STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+def _resolve_starting_budget():
+    """v3.6: read startingBudget from jaguar-config.json, fall back to
+    $1000.0. Mirrors Grizzly v5.2 pattern. Lets operators rebase capital
+    baseline (e.g. acknowledge a drawdown and start fresh from current
+    equity) without editing producer code that gets clobbered by next
+    git pull."""
+    try:
+        c = cfg.load_config()
+        v = c.get("startingBudget") if isinstance(c, dict) else None
+        if v is not None:
+            return float(v)
+    except Exception:
+        pass
+    return 1000.0
+
+
+STARTING_BUDGET = _resolve_starting_budget()
+
 
 def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     """P&L-aware daily entry cap based on drawdown from starting budget.
@@ -192,6 +242,33 @@ def get_safe_leverage(wallet, coin, desired):
     except Exception:
         pass
     return min(desired, MAX_LEVERAGE)
+
+
+def get_pending_entry_coins(wallet):
+    """v3.6: return set of coins with non-reduceOnly resting orders
+    (pending entries). Used by the dedup check below to prevent the
+    pyramiding bug — when an entry ALO is partially filled, the asset
+    is NOT yet in held positions but the next scan tick should still
+    skip it because there's a pending entry on the book.
+
+    Pangolin v2.1 / Scorpion v4.1.0 dedup-bug-class fix. Reads
+    strategy_get_open_orders, filters non-reduceOnly orders, returns
+    coin set."""
+    data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data:
+        return set()
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if not isinstance(orders, list):
+        return set()
+    pending = set()
+    for o in orders:
+        if not o.get("reduceOnly", False):
+            coin = (o.get("coin") or "").upper()
+            if coin:
+                pending.add(coin)
+    return pending
 
 
 def has_resting_orders(wallet):
@@ -646,7 +723,14 @@ def run():
         return
 
     # Filter and select best signal
+    # v3.6: union held_coins with pending_coins. Without pending_coins,
+    # an asset with a partially-filled entry ALO would re-emit on the
+    # next scan and the runtime would treat it as ADD instead of skip,
+    # causing the pyramiding bug observed live 2026-05-06 (NEAR went
+    # $25 → $398 margin in 60s via 5 size-up events on the same signal).
     held_coins = {p["coin"].upper() for p in our_positions}
+    pending_coins = get_pending_entry_coins(wallet)
+    held_coins.update(pending_coins)
 
     for signal in signals:
         token = signal["token"]
@@ -697,7 +781,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_jaguar_version": "3.4",
+                "_jaguar_version": "3.6",
             })
         else:
             cfg.output({
@@ -710,7 +794,7 @@ def run():
                     "reasons": signal["reasons"],
                 },
                 "error": result,
-                "_jaguar_version": "3.4",
+                "_jaguar_version": "3.6",
             })
         return
 
