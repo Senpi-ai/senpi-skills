@@ -1,7 +1,16 @@
 ---
 name: senpi-runtime-helpers
 description: >-
-  Canonical Python wrapper for senpi-skills producers — Python scripts that call Senpi MCP and push signals to senpi-trading-runtime. Use this skill whenever you author a new producer/scanner skill, migrate a producer that still uses `mcporter` subprocess or `openclaw senpi external-scanner ingest`, debug a SenpiClientError from a producer, or need any of: persistent HTTPS MCP client, scanner_lock with stale-PID recovery, bounded parallel fan-out, per-tick TTL cache, or a daemon scheduler that replaces openclaw cron + agentTurn. Mandatory for new producers; required for sub-second MCP latency, predictable memory, freedom from fork-storms on shared infra.
+  Python wrapper for senpi-skills producers: persistent MCP client, signal
+  emission, scanner_lock, parallel fan-out, tick cache, daemon scheduler.
+  Replaces mcporter subprocess and `openclaw senpi external-scanner ingest`
+  CLI calls.
+
+
+  Triggers: producer authoring, scanner authoring, external_scanner producer,
+  mcporter, mcporter_call, external-scanner ingest, push_signal,
+  SenpiClientError, scanner_lock, tick_cache, parallel MCP, producer_daemon,
+  fork-storm, runtime-2 producer migration.
 license: MIT
 compatibility: >-
   Python 3.10+. Stdlib only — no third-party deps. Requires the
@@ -28,6 +37,13 @@ caching, scheduling. **One import; no subprocesses.**
 [`pangolin/scripts/pangolin-producer.py`](../../pangolin/scripts/pangolin-producer.py)
 is the reference wrapper-based producer. Copy its skeleton when starting a new
 skill.
+
+## Glossary
+
+- **Producer** — Python script in a Senpi skill (e.g. `<skill>/scripts/<skill>-producer.py`) that runs on a schedule, calls MCP for market data, evaluates a trading thesis, and pushes signals to a `senpi-trading-runtime` instance.
+- **Scanner / external_scanner** — the runtime-side declaration (in `runtime.yaml`) that names a producer's signal stream and validates the `data` block against `config.fields`. The producer's `client.push_signal(scanner=…)` must match this name.
+- **Runtime** — `senpi-trading-runtime`, the OpenClaw plugin that consumes producer signals at `POST /signals` (on `127.0.0.1:8787`), routes them through the LLM gauntlet + risk gates, opens positions, and runs the DSL exit engine.
+- **Daemon** — `producer_daemon(...)` from this wrapper. A long-lived Python process that fires `run_one_tick()` on a fixed interval. Replaces openclaw cron + agentTurn (which paid for a full LLM inference per tick to dispatch a Python script).
 
 ---
 
@@ -178,11 +194,16 @@ Mechanical replacements — apply in order:
 | Hand-rolled `fcntl.flock(...)` lock | `with scanner_lock(name): …` |
 | openclaw cron entry → invokes script per tick | `producer_daemon(fn=run_one_tick, interval_seconds=N, name=…)` and remove the cron entry |
 
-After migration, `[senpi_helpers]` log events appear in stderr; gateway plugin
-re-registrations drop to ~0/hour. Filter Railway logs by `[senpi_helpers]` to
-verify.
+**Verify after migration** (one tick is enough — no need to wait for a candidate):
 
-Long-form migration steps with before/after snippets:
+- `[senpi_helpers]` log events appear in stderr (filter Railway logs by `[senpi_helpers]`).
+- Tick wall-clock drops ~10× (e.g. 30–60 s → ~4 s for a 9-MCP-call producer).
+- `mcp_initialized` event appears exactly once per process lifetime (proves keep-alive is working).
+- Per-MCP-call `duration_ms` lands in 250–500 ms typical (was 2.5–5 s under mcporter).
+- Gateway log: plugin re-registrations drop to ~0/hour (was 605 in 3.5 days under legacy stack).
+
+Long-form migration steps with before/after snippets — including the cron-cleanup
+and lock-name conventions for multi-wallet hosts —
 [`references/migration-cookbook.md`](references/migration-cookbook.md).
 
 ### Recipe: Emit a signal
