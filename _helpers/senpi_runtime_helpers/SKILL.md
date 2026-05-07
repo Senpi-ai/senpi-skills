@@ -5,9 +5,12 @@ description: >-
 license: MIT
 compatibility: >-
   Python 3.10+. Stdlib only — no third-party deps. Requires senpi-trading-runtime
-  v1.0.95-dev.runtime-phase-2-api.* or newer (the version that ships the senpi-stack
-  response envelope on `/signals`). Loaded from
-  `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
+  >= v1.0.95-dev.runtime-phase-2-api.20260507134852 — the first build that
+  combines the senpi-stack response envelope on `/signals` (commit 6324907)
+  with the openclaw-loadable single-file plugin entry (commit cc05073). Older
+  runtime-phase-2-api builds either lack the new envelope or fail to load on
+  openclaw 2026.2.22 with `SyntaxError: Cannot use 'import.meta' outside a module`.
+  Loaded from `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
 metadata:
   author: senpi
   version: "1.0"
