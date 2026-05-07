@@ -33,6 +33,10 @@ from ._logging import log_event
 
 _MCP_PROTOCOL_VERSION = "2025-03-26"
 _HELPERS_NAME = "senpi_runtime_helpers"
+# Must stay in sync with __version__ in __init__.py — this string is sent as
+# MCP `clientInfo.version`, and the package `__version__` is what `pip show`
+# / log scrapers report. A drift between the two makes incident triage say
+# different things depending on where you look.
 _HELPERS_VERSION = "0.1.0"
 
 
@@ -418,19 +422,77 @@ class SenpiClient:
             with _post_json(self._pool, self._signals_url(), body, {}, timeout) as resp:
                 raw = resp.read()
             duration_ms = int((time.time() - started) * 1000)
+            # --- Body parse: distinguish empty / malformed / non-object ---
+            # Three failure modes that previous code collapsed into one
+            # "missing data.results" message — incident triage needs them
+            # separate so operators can tell "proxy stripped the body" from
+            # "TLS truncation" from "actual version skew".
+            if not raw:
+                raise SenpiClientError(
+                    "signal_post: response body was empty (HTTP 200 with zero bytes); "
+                    "check for a proxy or sidecar that may be stripping the body"
+                )
             try:
-                parsed = json.loads(raw.decode("utf-8")) if raw else {}
-            except json.JSONDecodeError:
-                parsed = {}
-            # The runtime always returns HTTP 200 with a per-item results array;
-            # individual items can have success=false (e.g. INVALID_REQUEST when
-            # an undeclared data field is sent). Surface those rejections so
-            # producers don't silently send into a black hole.
-            results = parsed.get("results") if isinstance(parsed, dict) else None
-            failed = []
-            if isinstance(results, list):
-                failed = [r for r in results if isinstance(r, dict) and r.get("success") is False]
+                parsed = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError as e:
+                raise SenpiClientError(
+                    f"signal_post: response not valid JSON: {e}; "
+                    f"first 200 bytes={raw[:200]!r}"
+                ) from e
+            if not isinstance(parsed, dict):
+                raise SenpiClientError(
+                    f"signal_post: response root is {type(parsed).__name__}, "
+                    f"expected a JSON object; first 200 bytes={raw[:200]!r}"
+                )
+
+            # Senpi-stack response envelope (matches senpi-hyperliquid-mcp):
+            #   2xx success: { "success": true, "data": { "results": [...] } }
+            #   2xx mixed:   per-item entries inside `data.results[]` are either
+            #                { "success": true,  "address", "scanner", "data":  { timestamp, signalCount, contextUpdated } }
+            #                { "success": false, "address", "scanner", "error": { code, message } }
+            #   4xx/5xx:     parsed in the HTTPError except-branch below
+            #                (envelope error surfaced as SenpiClientError).
+            #
+            # Strict on shape: if the runtime ever returns 200 without a parseable
+            # `data.results` array, fail loudly rather than silently treating it
+            # as "all items accepted". This protects producers from sending into
+            # a black hole if a version-skewed runtime returns the legacy shape.
+            envelope_data = parsed.get("data")
+            results = envelope_data.get("results") if isinstance(envelope_data, dict) else None
+            if not isinstance(results, list):
+                # Don't tell the operator a single hypothesis as fact.
+                # Several causes are equally plausible.
+                raise SenpiClientError(
+                    f"signal_post: unexpected envelope shape — expected "
+                    f"{{ success, data: {{ results }} }}; got top-level keys="
+                    f"{sorted(parsed.keys())}. Possible causes: "
+                    f"(a) version skew between this helper and the runtime, "
+                    f"(b) a proxy/middleware mangling the response body, "
+                    f"(c) runtime_host/port pointing at a different service."
+                )
+
+            # Individual items can have success=false (e.g. INVALID_REQUEST when
+            # an undeclared data field is sent). Surface those rejections.
+            failed = [r for r in results if isinstance(r, dict) and r.get("success") is False]
             if failed:
+                first = failed[0]
+                first_err = first.get("error") if isinstance(first.get("error"), dict) else {}
+                first_code = first_err.get("code")
+                # Truncation is intentional on both the log event AND the
+                # exception — protects log-storage cost when a misbehaving
+                # runtime returns multi-KB stack traces in the message field.
+                first_message = str(first_err.get("message", ""))[:200]
+                # Histogram of all failure codes in the batch — preserves
+                # visibility into multi-mode failures that surface only the
+                # FIRST item in the exception. For pangolin (one signal at a
+                # time) this is just `{first_code: 1}`; for any future batch
+                # producer it is the difference between "I have no idea why
+                # the batch failed" and a shaped error report.
+                code_histogram: Dict[str, int] = {}
+                for r in failed:
+                    err = r.get("error") if isinstance(r.get("error"), dict) else {}
+                    code = err.get("code") or "UNKNOWN"
+                    code_histogram[code] = code_histogram.get(code, 0) + 1
                 log_event(
                     "signal_post",
                     batch_size=len(items),
@@ -438,12 +500,14 @@ class SenpiClient:
                     duration_ms=duration_ms,
                     status="rejected",
                     failed_count=len(failed),
-                    first_code=failed[0].get("code"),
-                    first_message=str(failed[0].get("message", ""))[:200],
+                    failed_by_code=code_histogram,
+                    first_code=first_code,
+                    first_message=first_message,
                 )
                 raise SenpiClientError(
                     f"signal_post: {len(failed)}/{len(items)} item(s) rejected; "
-                    f"first: code={failed[0].get('code')} message={failed[0].get('message')}"
+                    f"by_code={code_histogram}; "
+                    f"first: code={first_code} message={first_message}"
                 )
             log_event(
                 "signal_post",
@@ -455,13 +519,43 @@ class SenpiClient:
             return parsed
         except urllib.error.HTTPError as e:
             duration_ms = int((time.time() - started) * 1000)
+            # 4xx/5xx envelope from the runtime — payload is the senpi-stack
+            # error shape `{ success: false, error: { code, message } }`. Read
+            # it best-effort and surface the envelope code/message to the
+            # producer; without this they only see the HTTP status code (e.g.
+            # `HTTPError 400`) and lose the human-readable cause (e.g.
+            # "Exceeded api.maxItemsPerSignalsRequest=10").
+            envelope_code: Optional[str] = None
+            envelope_message: Optional[str] = None
+            try:
+                body_bytes = e.read()
+                body_str = body_bytes.decode("utf-8", errors="replace") if body_bytes else ""
+                if body_str:
+                    env = json.loads(body_str)
+                    err_obj = env.get("error") if isinstance(env, dict) else None
+                    if isinstance(err_obj, dict):
+                        envelope_code = err_obj.get("code")
+                        msg = err_obj.get("message")
+                        if isinstance(msg, str):
+                            envelope_message = msg[:200]
+            except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+                # Body absent / non-JSON / unreadable — fall through to
+                # status-code-only reporting. Best-effort, never the
+                # primary failure mode.
+                pass
             log_event(
                 "signal_post",
                 batch_size=len(items),
                 duration_ms=duration_ms,
                 status="http_error",
-                code=getattr(e, "code", None),
+                http_status=getattr(e, "code", None),
+                envelope_code=envelope_code,
+                envelope_message=envelope_message,
             )
+            if envelope_code is not None:
+                raise SenpiClientError(
+                    f"signal_post: HTTP {e.code} {envelope_code}: {envelope_message}"
+                ) from e
             raise
         except urllib.error.URLError as e:
             duration_ms = int((time.time() - started) * 1000)
