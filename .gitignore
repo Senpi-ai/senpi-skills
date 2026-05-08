@@ -4,9 +4,3 @@ design/*
 venv/
 .venv/
 __pycache__/
-
-# Local-only working notes (kept out of remote):
-PRODUCTION_FIX_PLAN.md
-CODE_REVIEW_wrapped-skills.md
-PANGOLIN_COMPARISON_8H_WINDOW.md
-MERGE_NOTES.md
