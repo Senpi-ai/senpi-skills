@@ -709,13 +709,16 @@ def push_signal(payload):
     The daemon's `_run_main_safely` catches everything and proceeds to
     the next tick — no half-written caller state.
 
-    The producer's `build_signal_payload` returns a Signal-shaped dict:
-      { address, scannerId, asset, direction, score, data: {...}, meta: {...} }
+    The producer's `build_signal_payload` returns a Signal-shaped dict.
     Map to the SignalItem schema:
-      - top-level: address, scanner, asset, direction (routing fields)
+      - top-level: address, scanner, asset, direction, signal_type (routing)
       - data: scanner-config-validated fields only
     `score` stays inside data (Pangolin's composite is an unbounded
     integer; SignalItem.score is bounded 0..1 — different semantics).
+    `signal_type` is passed explicitly per signal so the runtime never
+    relies on the scanner's defaultSignalType fallback (pangolin's
+    runtime.yaml does not declare one). Keeps audit logs and the LLM
+    decision context tagged correctly.
     """
     if not PANGOLIN_WALLET:
         raise RuntimeError("PANGOLIN_WALLET env var not set; cannot push signal")
@@ -724,6 +727,7 @@ def push_signal(payload):
         scanner=SCANNER_NAME,
         asset=payload.get("asset"),
         direction=payload.get("direction"),
+        signal_type=payload.get("signalType"),
         data=payload.get("data"),
     )
 
