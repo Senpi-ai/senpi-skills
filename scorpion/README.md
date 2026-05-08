@@ -1,10 +1,78 @@
-# 🦂 SCORPION v4.0 — Multi-Market Active Trader (v2-native)
+# 🦂 SCORPION v5.0.0 — Multi-Market Active Trader (senpi_runtime_helpers)
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+
+## What changed in v5.0.0
+
+**Plumbing-only migration. NO thesis change.** v4.1.2's scoring tables, gates, MIN_SCORE asymmetry (crypto 11 / XYZ 9), held-asset dedup, post-close cooldown all preserved verbatim.
+
+- `scorpion-producer.py` and `scorpion_config.py` migrate to `senpi_runtime_helpers` (direct HTTPS for MCP, direct HTTP POST to runtime `/signals`, long-lived `producer_daemon`).
+- `runtime.yaml` unchanged from v4.x.
+- Per Rachin's review of Cheetah PR #209: dead fields stripped from payload; `signal_type="SCORPION_TREND_FOLLOW"` passed explicitly.
+- **Bonus security fix:** v4.x read wallet from BANNED generic `STRATEGY_ADDRESS` env var (v2.0.9 contamination rule violation). v5.0.0 reads from per-agent `SCORPION_WALLET` env var, with backward-compat fallback to `STRATEGY_ADDRESS` (emits deprecation warning to stderr). Operator migration: rename env var.
+
+## Install
+
+### Step 1 — Pull the helpers package (one-time per host)
+
+> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch — it has not yet landed on `main`. Pull from that branch until it does.
+
+```bash
+mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
+for f in __init__.py _config.py _logging.py cache.py client.py \
+         daemon.py lock.py parallel.py SKILL.md README.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
+done
+```
+
+Skip if already pulled for another v3+ skill.
+
+### Step 2 — Pull Scorpion v5.0.0
+
+```bash
+mkdir -p /data/workspace/skills/scorpion-tracker/{config,scripts,state,references}
+for f in scripts/scorpion-producer.py scripts/scorpion_config.py \
+         SKILL.md README.md references/skill-attribution.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/scorpion/$f" \
+    -o "/data/workspace/skills/scorpion-tracker/$f"
+done
+```
+
+`runtime.yaml` is unchanged from v4.x — don't touch the existing runtime.
+
+### Step 3 — Required env vars
+
+```bash
+# v5.0.0: per-agent wallet env var (v2.0.9 rule)
+export SCORPION_WALLET=<your-scorpion-wallet>
+unset STRATEGY_ADDRESS                          # banned; v5.0 emits deprecation warning if set
+
+export SENPI_AUTH_TOKEN=...
+export SCORPION_DECISION_MODEL=gemini-3.1-pro-preview
+```
+
+### Step 4 — Stop the v4.x cron, start the v5.0.0 daemon
+
+```bash
+openclaw cron list | grep scorpion
+openclaw cron delete <scorpion-cron-id>
+
+nohup python3 -u /data/workspace/skills/scorpion-tracker/scripts/scorpion-producer.py \
+  > /tmp/scorpion-producer.log 2>&1 &
+```
+
+## Smoke test
+
+```bash
+tail -f /tmp/scorpion-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
+
+Expected: `status=ok` every tick (60s interval). Tick `duration_ms` should drop from ~30-60s (v4.x mcporter) to ~1-3s.
 
 ## Thesis
 
-The only fleet predator that hunts across BOTH crypto and XYZ DEX (commodities / indices). SM concentration + 4H price trend alignment gates the multi-factor score. v4.0 is the second fleet agent built natively on `senpi-trading-runtime` v2 (after Jackal v2) — producer emits signals, runtime LLM gates every entry, risk guardrails enforced declaratively, DSL uses maker-preferred exits.
+The only fleet predator that hunts across BOTH crypto and XYZ DEX (commodities / indices). SM concentration + 4H price trend alignment gates the multi-factor score. Producer emits signals, runtime LLM gates every entry, risk guardrails enforced declaratively, DSL uses maker-preferred exits.
 
 ## Architecture
 

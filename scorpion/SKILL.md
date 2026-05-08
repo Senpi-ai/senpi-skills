@@ -1,27 +1,28 @@
 ---
 name: scorpion-tracker
 description: >-
-  SCORPION v4.0 — Multi-Market Active Trader (v2-runtime-native). The
-  only Senpi predator that hunts across both crypto AND XYZ DEX
-  commodities/indices. v4.0 migrates from full-agency Python scanner
-  to the senpi-trading-runtime v2 architecture: pure producer +
-  external_scanner + LLM-gated OPEN_POSITION + declarative risk
-  guardrails + runtime-managed DSL with FEE_OPTIMIZED_LIMIT exits.
-  Thesis preserved: SM concentration + 4H trend alignment multi-factor
-  score across ~15 crypto + 4 XYZ assets. The maker-preferred exit
-  capability is the single largest P&L improvement — at ~40 fills/day
-  pre-gating, saves ~$20/week in fee drag.
+  SCORPION v5.0.0 — Multi-Market Active Trader, senpi_runtime_helpers
+  migration. Plumbing-only flip from openclaw-CLI subprocess + mcporter
+  subprocess to in-process SenpiClient. Plus security fix: v4.x read
+  wallet from BANNED generic STRATEGY_ADDRESS env var; v5.0.0 uses
+  per-agent SCORPION_WALLET (with backward-compat fallback + deprecation
+  warning). Thesis preserved verbatim from v4.1.2: only Senpi predator
+  hunting across both crypto AND XYZ DEX commodities/indices, SM
+  concentration + 4H trend alignment scoring, asymmetric MIN_SCORE
+  (crypto 11 / XYZ 9), v4.1.1 held-asset dedup, v4.1.2 post-close
+  cooldown.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.0"
+  version: "5.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime@v2
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
 ---
 
-# 🦂 SCORPION v4.0 — Multi-Market Active Trader (v2-native)
+# 🦂 SCORPION v5.0.0 — Multi-Market Active Trader (senpi_runtime_helpers)
 
 The only predator that hunts across BOTH crypto AND XYZ DEX (commodities
 and indices). v4.0 is the second fleet agent on senpi-trading-runtime
