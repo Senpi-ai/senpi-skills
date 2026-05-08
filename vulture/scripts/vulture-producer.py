@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
-# Senpi VULTURE Producer v3.1.1
+# Senpi VULTURE Producer v4.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""VULTURE v3.0.0 Producer — Long-tail momentum signal emitter for v2 runtime.
+"""VULTURE v4.0.0 Producer — senpi_runtime_helpers migration.
+
+v4.0.0 (2026-05-08): plumbing migration. NO thesis change.
+LONG_TAIL_MOMENTUM scoring, v2.4 1h-alignment gate, FP-001 quiet
+hours, conviction-scaled leverage (3x/5x/7x) preserved verbatim
+from v3.1.1.
+
+Original v3.0.0 docstring preserved below for context:
 
 v2.x was a full-agency scanner: scored signals, tracked entries, managed
 asset cooldowns + dynamic slots, called create_position directly. The
@@ -47,13 +54,13 @@ Environment / config resolution:
   VULTURE_WALLET_ADDRESS     — optional override; defaults to config.wallet
   SENPI_MCP_URL              — optional, default https://mcp.prod.senpi.ai/mcp
   OPENCLAW_BIN               — optional, default "openclaw"
-  EXTERNAL_SCANNER_NAME      — optional override (default "vulture_signals")
+  SENPI_AUTH_TOKEN           — REQUIRED. Bearer token for MCP + signal POST.
+  VULTURE_DECISION_MODEL     — bare LLM model name (no provider prefix)
 """
 
-import fcntl
+import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -62,48 +69,23 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import vulture_config as cfg
 
-
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD (fleet-standard fcntl pattern)
-# ═══════════════════════════════════════════════════════════════
-# Cron fires every 60s. If a run takes longer (many candidates clear
-# MIN_SCORE and each needs a push to the runtime), the next tick would
-# start a concurrent run — duplicate signals at the runtime. Skip the
-# tick if a previous run holds the lock.
-
-_LOCK_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "vulture-strategy" / "state"
-_LOCK_DIR.mkdir(parents=True, exist_ok=True)
-_LOCK_PATH = _LOCK_DIR / "producer.lock"
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-def acquire_lock():
-    """Non-blocking exclusive lock. Returns file handle or None if held."""
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
+# Reentrancy guard removed in v4.0.0. producer_daemon owns the per-tick
+# scanner_lock with stale-PID auto-recovery via os.kill(pid, 0). Do NOT
+# add an inner scanner_lock(...) inside main() — fcntl flock is not
+# reentrant; nested call raises BlockingIOError every tick.
 
 
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
+VERSION = "4.0.0"
 
+# Hardcoded — must match runtime.yaml external_scanner.name.
+SCANNER_NAME = "vulture_signals"
 
-VERSION = "3.1.1"
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "vulture_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+# Signal type passed explicitly to push_signal() per Rachin's review
+# of Cheetah PR #209.
+SIGNAL_TYPE = "VULTURE_LONG_TAIL_MOMENTUM"
 
 
 def _resolve_wallet():
@@ -465,71 +447,40 @@ def push_signal(candidate, regime, held_assets):
     if candidate["asset"].upper() in {h.upper() for h in held_assets}:
         return False
 
-    payload = {
-        "asset": candidate["asset"],
-        "direction": candidate["direction"],
-        "score": candidate["score"] / 14.0,  # normalize 0-1 (theoretical max ~14)
-        "signal_type": "VULTURE_LONG_TAIL_MOMENTUM",
-        "data": {
-            "score": candidate["score"],
-            "tier": candidate["tier_label"],
-            "leverage": candidate["leverage"],
-            "reasons": candidate["reasons"],
-            "smPct": candidate["sm_pct"],
-            "smTraders": candidate["sm_traders"],
-            "priceChange4hPct": candidate["p4h"],
-            "priceChange1hPct": candidate["p1h"],
-            "priceChange15mPct": candidate["p15m"],
-            "contribChange15m": candidate["c15m"],
-            "contribChange1h": candidate["c1h"],
-            "contribChange4h": candidate["c4h"],
-            "fundingRegime": candidate["regime"],
-            "persistenceHours": candidate["persistence_hours"],
-            "heldAssets": held_assets,
-        },
+    data_block = {
+        "score": candidate["score"],
+        "tier": candidate["tier_label"],
+        "leverage": candidate["leverage"],
+        "reasons": candidate["reasons"],
+        "smPct": candidate["sm_pct"],
+        "smTraders": candidate["sm_traders"],
+        "priceChange4hPct": candidate["p4h"],
+        "priceChange1hPct": candidate["p1h"],
+        "priceChange15mPct": candidate["p15m"],
+        "contribChange15m": candidate["c15m"],
+        "contribChange1h": candidate["c1h"],
+        "contribChange4h": candidate["c4h"],
+        "fundingRegime": candidate["regime"],
+        "persistenceHours": candidate["persistence_hours"],
+        "heldAssets": held_assets,
     }
 
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", STRATEGY_ADDRESS,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if result.returncode != 0:
-            # v3.1.1: openclaw was exiting non-zero with empty stderr in the
-            # 2026-05-02 → 2026-05-06 dormancy window. Pre-v3.1.1 only
-            # logged stderr, so we couldn't tell whether the error was on
-            # stdout, missing entirely (panic), or a schema rejection.
-            # Now log returncode + stderr + stdout + payload so any future
-            # ingest failure is self-diagnosing from the producer log alone.
-            print(
-                f"INGEST_FAILED {candidate['asset']}: rc={result.returncode} "
-                f"stderr={result.stderr.strip()!r} "
-                f"stdout={result.stdout.strip()!r} "
-                f"payload={json.dumps(payload)}",
-                file=sys.stderr,
-            )
-            return False
-        response = json.loads(result.stdout) if result.stdout.strip() else {}
-        if not response.get("ok", False):
-            # v3.1.1: also include the rejected payload so we can tell
-            # WHICH field tripped the runtime's schema validator.
-            print(
-                f"INGEST_REJECTED {candidate['asset']}: "
-                f"error={response.get('error', {})} "
-                f"payload={json.dumps(payload)}",
-                file=sys.stderr,
-            )
-            return False
-        return True
-    except Exception as e:
-        print(
-            f"INGEST_EXCEPTION {candidate['asset']}: {e!r} "
-            f"payload={json.dumps(payload)}",
-            file=sys.stderr,
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner=SCANNER_NAME,
+            asset=candidate["asset"],
+            direction=candidate["direction"],
+            score=candidate["score"] / 14.0,
+            signal_type=SIGNAL_TYPE,
+            data=data_block,
         )
+        return True
+    except SenpiClientError as e:
+        print(f"INGEST_REJECTED {candidate['asset']}: {e}", file=sys.stderr)
+        return False
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        print(f"INGEST_EXCEPTION {candidate['asset']}: {type(e).__name__}: {e}", file=sys.stderr)
         return False
 
 
@@ -538,123 +489,125 @@ def push_signal(candidate, regime, held_assets):
 # ═══════════════════════════════════════════════════════════════
 
 def main():
+    """Single tick. NO inner scanner_lock — daemon owns it."""
     run_start = time.time()
-    lock = acquire_lock()
-    if lock is None:
+
+    config = cfg.load_config()
+
+    # FP-001: quiet hours gate (apex score bypasses).
+    quiet, current_hour, apex_bypass = in_quiet_hours(config)
+
+    raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+    if not raw:
+        print(json.dumps({"status": "no_markets", "_vulture_producer_version": VERSION}))
+        return
+
+    markets = raw.get("data", raw)
+    if isinstance(markets, dict):
+        markets = markets.get("markets", markets)
+    if isinstance(markets, dict):
+        markets = markets.get("markets", [])
+    if not isinstance(markets, list):
+        print(json.dumps({"status": "bad_shape", "_vulture_producer_version": VERSION}))
+        return
+
+    # Enrich once per run — shared context for all candidates
+    regime = fetch_funding_regime()
+    held_assets = fetch_held_assets()
+
+    # Pre-fetch persistence for tracked assets we have data for
+    # (lazy: only fetch for matched assets, not entire universe).
+    # Skip persistence enrichment on quiet-hours-blocked sub-apex
+    # candidates to reduce MCP load.
+    persistence_map = {}
+
+    # Score all markets; keep only those at/above MIN_SCORE
+    candidates = []
+    for m in markets:
+        if not isinstance(m, dict):
+            continue
+        # Pre-pass: cheap check whether asset is tracked + not banned
+        token_raw = str(m.get("token", "")).upper()
+        if token_raw in BANNED_ASSETS:
+            continue
+        matched = None
+        for tracked in TRACKED_ASSETS:
+            if token_raw == tracked.upper():
+                matched = tracked
+                break
+        if matched is None:
+            continue
+        # Fetch persistence for this asset before scoring
+        if matched not in persistence_map:
+            persistence_map[matched] = fetch_funding_persistence(matched)
+
+        c = score_market(m, regime, persistence_map)
+        if c is not None:
+            candidates.append(c)
+
+    if not candidates:
+        elapsed = time.time() - run_start
         print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
+            "status": "ok",
+            "scanned": len(markets),
+            "candidates": 0,
+            "elapsed_sec": round(elapsed, 2),
+            "regime": regime,
             "_vulture_producer_version": VERSION,
         }))
         return
 
-    try:
-        config = cfg.load_config()
+    # Sort by score descending (highest conviction first)
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+    best_score = candidates[0]["score"]
 
-        # FP-001: quiet hours gate (apex score bypasses).
-        quiet, current_hour, apex_bypass = in_quiet_hours(config)
-
-        raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
-        if not raw:
-            print(json.dumps({"status": "no_markets", "_vulture_producer_version": VERSION}))
-            return
-
-        markets = raw.get("data", raw)
-        if isinstance(markets, dict):
-            markets = markets.get("markets", markets)
-        if isinstance(markets, dict):
-            markets = markets.get("markets", [])
-        if not isinstance(markets, list):
-            print(json.dumps({"status": "bad_shape", "_vulture_producer_version": VERSION}))
-            return
-
-        # Enrich once per run — shared context for all candidates
-        regime = fetch_funding_regime()
-        held_assets = fetch_held_assets()
-
-        # Pre-fetch persistence for tracked assets we have data for
-        # (lazy: only fetch for matched assets, not entire universe).
-        # Skip persistence enrichment on quiet-hours-blocked sub-apex
-        # candidates to reduce MCP load.
-        persistence_map = {}
-
-        # Score all markets; keep only those at/above MIN_SCORE
-        candidates = []
-        for m in markets:
-            if not isinstance(m, dict):
-                continue
-            # Pre-pass: cheap check whether asset is tracked + not banned
-            token_raw = str(m.get("token", "")).upper()
-            if token_raw in BANNED_ASSETS:
-                continue
-            matched = None
-            for tracked in TRACKED_ASSETS:
-                if token_raw == tracked.upper():
-                    matched = tracked
-                    break
-            if matched is None:
-                continue
-            # Fetch persistence for this asset before scoring
-            if matched not in persistence_map:
-                persistence_map[matched] = fetch_funding_persistence(matched)
-
-            c = score_market(m, regime, persistence_map)
-            if c is not None:
-                candidates.append(c)
-
-        if not candidates:
-            elapsed = time.time() - run_start
-            print(json.dumps({
-                "status": "ok",
-                "scanned": len(markets),
-                "candidates": 0,
-                "elapsed_sec": round(elapsed, 2),
-                "regime": regime,
-                "_vulture_producer_version": VERSION,
-            }))
-            return
-
-        # Sort by score descending (highest conviction first)
-        candidates.sort(key=lambda c: c["score"], reverse=True)
-        best_score = candidates[0]["score"]
-
-        # FP-001 quiet hours: block sub-apex during the window
-        if quiet and best_score < apex_bypass:
-            elapsed = time.time() - run_start
-            print(json.dumps({
-                "status": "ok",
-                "scanned": len(markets),
-                "candidates": len(candidates),
-                "signals_pushed": 0,
-                "note": f"QUIET_HOURS hour={current_hour}_UTC best_score={best_score}_below_apex_{apex_bypass}",
-                "elapsed_sec": round(elapsed, 2),
-                "_vulture_producer_version": VERSION,
-            }))
-            return
-
-        # Push qualifying candidates. Runtime's LLM gate + risk guard
-        # rails will decide which (if any) to execute.
-        pushed = 0
-        for c in candidates:
-            if push_signal(c, regime, held_assets):
-                pushed += 1
-
+    # FP-001 quiet hours: block sub-apex during the window
+    if quiet and best_score < apex_bypass:
         elapsed = time.time() - run_start
-        warn = "WARN_OVER_60S" if elapsed > 60 else None
         print(json.dumps({
             "status": "ok",
             "scanned": len(markets),
             "candidates": len(candidates),
-            "signals_pushed": pushed,
-            "regime": regime,
-            "held_assets": held_assets,
+            "signals_pushed": 0,
+            "note": f"QUIET_HOURS hour={current_hour}_UTC best_score={best_score}_below_apex_{apex_bypass}",
             "elapsed_sec": round(elapsed, 2),
-            "warn": warn,
             "_vulture_producer_version": VERSION,
         }))
-    finally:
-        release_lock(lock)
+        return
+
+    # Push qualifying candidates. Runtime's LLM gate + risk guard
+    # rails will decide which (if any) to execute.
+    pushed = 0
+    for c in candidates:
+        if push_signal(c, regime, held_assets):
+            pushed += 1
+
+    elapsed = time.time() - run_start
+    warn = "WARN_OVER_60S" if elapsed > 60 else None
+    print(json.dumps({
+        "status": "ok",
+        "scanned": len(markets),
+        "candidates": len(candidates),
+        "signals_pushed": pushed,
+        "regime": regime,
+        "held_assets": held_assets,
+        "elapsed_sec": round(elapsed, 2),
+        "warn": warn,
+        "_vulture_producer_version": VERSION,
+    }))
 
 
 if __name__ == "__main__":
-    main()
+    # v4.0.0 — long-lived daemon. NOTE: wallet=/scanner= NOT passed
+    # per fleet-fix #214 (host helpers package doesn't accept yet).
+    _wallet_lock_id = (
+        hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
+        if STRATEGY_ADDRESS
+        else "unset"
+    )
+    producer_daemon(
+        fn=main,
+        interval_seconds=60,            # Vulture's v3.x cron was every 60s
+        name=f"vulture-producer-{_wallet_lock_id}",
+        tick_timeout=120,
+    )
