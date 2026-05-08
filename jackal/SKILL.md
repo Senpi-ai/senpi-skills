@@ -1,24 +1,25 @@
 ---
 name: jackal-tracker
 description: >-
-  JACKAL v2.0 — The Smart Stalker (v2-runtime-native rewrite). First
-  fleet agent built on the senpi-trading-runtime v2 architecture: pure
+  JACKAL v3.0.0 — The Smart Stalker (senpi_runtime_helpers migration).
+  Plumbing-only port from v2.0: producer rewritten on
+  `senpi_runtime_helpers` (in-process SenpiClient, no openclaw / mcporter
+  subprocesses). NO thesis change. Architecture is identical to v2: pure
   producer + external_scanner + LLM-gated OPEN_POSITION action +
-  declarative risk guardrails + runtime-managed DSL. Thesis unchanged
-  from v1: observe top-performing Senpi traders, detect new entries by
-  pool members, enrich with consensus + TA + funding context, and let
-  an LLM (operator-selected via `$JACKAL_DECISION_MODEL`) evaluate each
-  candidate before the runtime executes with our own DSL. Separation of concerns: the
-  producer has zero execution authority; the runtime owns entry, risk,
-  and exit.
+  declarative risk guardrails + runtime-managed DSL. Producer observes
+  top-performing Senpi traders, detects new entries by pool members,
+  enriches with consensus + TA + funding context, and lets an LLM
+  (operator-selected via `$JACKAL_DECISION_MODEL`) evaluate each
+  candidate before the runtime executes with our own DSL.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime@v2
+    - senpi_runtime_helpers
 ---
 
 # 🐺 JACKAL v2.0 — The Smart Stalker (v2-native)
@@ -240,6 +241,17 @@ context is too strict.
 ---
 
 ## Changelog
+
+### v3.0.0 (2026-05-08) — senpi_runtime_helpers migration (plumbing-only)
+- Producer rewritten on `senpi_runtime_helpers.SenpiClient` — direct HTTPS
+  to MCP, direct POST to runtime `/signals`. No more openclaw /
+  mcporter subprocesses.
+- `producer_daemon` long-lived loop replaces the openclaw cron entry
+  (60s tick interval, 120s tick timeout).
+- `JACKAL_WALLET` env var (replaces banned generic `STRATEGY_ADDRESS`,
+  with deprecation fallback per v2.0.9 contamination rule).
+- Producer reentrancy guard via fcntl lockfile at `state/producer.lock`.
+- NO thesis change. NO decision-prompt change. NO DSL change.
 
 ### v2.0 (2026-04-23) — V2-RUNTIME-NATIVE REWRITE
 - First fleet agent on senpi-trading-runtime v2
