@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-# Senpi OTTER Producer v1.0
+# Senpi OTTER Producer v2.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""OTTER v1.0 Producer — Open Interest Velocity Hunter (v2-runtime-native).
+"""OTTER v2.0.0 Producer — Open Interest Velocity Hunter (helpers-native).
+
+PLUMBING-ONLY MIGRATION from v1.0. NO thesis change. NO scoring change.
+Producer ports onto senpi_runtime_helpers (in-process SenpiClient + direct
+HTTP POST to runtime /signals + producer_daemon long-lived loop).
 
 Otter is the FIRST fleet agent to use OI velocity (delta-over-time) as
 a primary trading signal. Every other agent that touches OI (Mamba,
@@ -38,23 +42,20 @@ After that, 1h delta is computable. After 48 ticks (4h), 4h
 confirmation also active.
 
 Environment variables:
-  SENPI_API_KEY     — for MCP access
+  SENPI_AUTH_TOKEN  — required for MCP + signal POST (helpers SenpiClient)
   OTTER_WALLET      — Otter wallet (must match runtime YAML's wallet).
                       AGENT-SPECIFIC env var by design — do NOT fall back
                       to a generic STRATEGY_ADDRESS. Per Turbine v2.0.9
-                      contamination fix.
-  SENPI_MCP_URL     — optional, default https://mcp.prod.senpi.ai/mcp
-  OPENCLAW_BIN      — optional, default "openclaw"
+                      contamination fix. (STRATEGY_ADDRESS is honored
+                      with deprecation warning for transition only.)
   EXTERNAL_SCANNER_NAME — optional override (default "otter_signals")
   OTTER_MARGIN_PCT  — optional, default 0.25 (25% of account value)
   OTTER_MIN_OI_DELTA_PCT — optional, default 5.0 (1h OI delta floor)
 """
 
-import fcntl
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -63,11 +64,36 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import otter_config as cfg
 
+_helpers_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
+                    / "skills" / "_helpers")
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+from senpi_runtime_helpers import producer_daemon  # type: ignore  # noqa: E402
 
-# v1.0: Agent-specific wallet env var (Turbine v2.0.9 contamination fix).
-OTTER_WALLET = os.environ.get("OTTER_WALLET", "")
+
+# v2.0.0: Agent-specific wallet env var (Turbine v2.0.9 contamination fix).
+def _resolve_wallet():
+    env_val = (os.environ.get("OTTER_WALLET") or "").strip()
+    if env_val:
+        return env_val
+    legacy = (os.environ.get("STRATEGY_ADDRESS") or "").strip()
+    if legacy:
+        sys.stderr.write(
+            "[otter v2.0.0] DEPRECATION: STRATEGY_ADDRESS env var is BANNED "
+            "by v2.0.9 contamination rule. Set OTTER_WALLET instead. "
+            "Honoring legacy value for this run only.\n"
+        )
+        return legacy
+    try:
+        return (cfg.load_config().get("wallet") or "").strip()
+    except Exception:
+        return ""
+
+
+OTTER_WALLET = _resolve_wallet()
+STRATEGY_ADDRESS = OTTER_WALLET  # alias used by signal payload
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "otter_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+SIGNAL_TYPE = "OTTER_OI_VELOCITY"
 MARGIN_PCT = float(os.environ.get("OTTER_MARGIN_PCT", "0.25"))
 MIN_OI_DELTA_1H_PCT = float(os.environ.get("OTTER_MIN_OI_DELTA_PCT", "5.0"))
 
@@ -84,37 +110,10 @@ def _wallet_state_dir():
 
 
 _STATE_DIR = _wallet_state_dir()
-_LOCK_PATH = _STATE_DIR / "producer.lock"
 _OI_HISTORY_FILE = _STATE_DIR / "oi-history.json"
 _COOLDOWN_FILE = _STATE_DIR / "asset-cooldowns.json"
-
-
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD
-# ═══════════════════════════════════════════════════════════════
-
-def acquire_lock():
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
-
-
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
+_wallet_lock_id = (hashlib.sha256(OTTER_WALLET.lower().encode()).hexdigest()[:8]
+                   if OTTER_WALLET else "unset")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -567,67 +566,48 @@ def build_candidates(instruments, history, sm_map):
 # SIGNAL EMISSION
 # ═══════════════════════════════════════════════════════════════
 
-def build_signal_payload(c, leverage, margin_usd):
-    """All declared scanner fields go in `data`, NOT `meta`. (Turbine v2.0.11.)"""
+def build_signal_data(c, leverage, margin_usd):
+    """v2.0.0: helpers `push_signal()` takes asset/direction/signal_type/score
+    as top-level kwargs. Everything else goes in `data`."""
     return {
-        "address": OTTER_WALLET,
-        "scannerId": SCANNER_NAME,
-        "signalType": "OTTER_OI_VELOCITY",
-        "asset": c["asset"],
-        "direction": c["direction"],
-        "score": float(c["score"]),
-        "timestamp": int(time.time() * 1000),
-        "factors": {},
-        "data": {
-            "score": c["score"],
-            "leverage": leverage,
-            "marginUsd": margin_usd,
-            "oiDelta1hPct": round(c["oi_delta_1h_pct"], 3),
-            "priceDelta1hPct": round(c["price_delta_1h_pct"], 3),
-            "oiUsd": round(c["oi_usd"], 2),
-            "oiDelta4hPct": round(c["oi_delta_4h_pct"], 3) if c["oi_delta_4h_pct"] is not None else 0,
-            "priceDelta4hPct": round(c["price_delta_4h_pct"], 3) if c["price_delta_4h_pct"] is not None else 0,
-            "spreadBps": round(c["spread_bps"], 2) if c["spread_bps"] is not None else 0,
-            "smAligned": bool(c["sm_aligned"]),
-            "smPctOfTopTraders": round(c["sm_pct"], 2),
-            "markPx": round(c["mark_px"], 6),
-            "samplesInHistory": int(c["samples"]),
-            "reasons": " | ".join(c.get("reasons", [])),
-        },
-        "meta": {
-            "_otter_producer_version": "1.0.0",
-        },
+        "score": c["score"],
+        "leverage": leverage,
+        "marginUsd": margin_usd,
+        "oiDelta1hPct": round(c["oi_delta_1h_pct"], 3),
+        "priceDelta1hPct": round(c["price_delta_1h_pct"], 3),
+        "oiUsd": round(c["oi_usd"], 2),
+        "oiDelta4hPct": round(c["oi_delta_4h_pct"], 3) if c["oi_delta_4h_pct"] is not None else 0,
+        "priceDelta4hPct": round(c["price_delta_4h_pct"], 3) if c["price_delta_4h_pct"] is not None else 0,
+        "spreadBps": round(c["spread_bps"], 2) if c["spread_bps"] is not None else 0,
+        "smAligned": bool(c["sm_aligned"]),
+        "smPctOfTopTraders": round(c["sm_pct"], 2),
+        "markPx": round(c["mark_px"], 6),
+        "samplesInHistory": int(c["samples"]),
+        "reasons": " | ".join(c.get("reasons", [])),
+        "_otter_producer_version": "2.0.0",
     }
 
 
-def push_signal(payload):
-    """Push to runtime via openclaw CLI (Turbine v2.0.8 invocation shape)."""
-    if not OTTER_WALLET:
+def push_signal(c, leverage, margin_usd):
+    """v2.0.0: direct POST to runtime /signals via helpers SenpiClient."""
+    if not STRATEGY_ADDRESS:
         cfg.log("OTTER_WALLET env var not set; cannot push signal")
         return False
-
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", OTTER_WALLET,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
+    data_block = build_signal_data(c, leverage, margin_usd)
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if r.returncode != 0:
-            cfg.log(f"ingest failed for {payload['asset']} {payload['direction']}: {r.stderr.strip()}")
-            return False
-        if r.stdout.strip():
-            try:
-                response = json.loads(r.stdout)
-                if isinstance(response, dict) and response.get("ok") is False:
-                    cfg.log(f"ingest rejected for {payload['asset']}: {response.get('error')}")
-                    return False
-            except (json.JSONDecodeError, TypeError):
-                pass
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner=SCANNER_NAME,
+            asset=c["asset"],
+            direction=c["direction"],
+            signal_type=SIGNAL_TYPE,
+            score=float(c["score"]),
+            data=data_block,
+        )
         return True
-    except (subprocess.TimeoutExpired, OSError) as e:
-        cfg.log(f"ingest exception for {payload['asset']}: {e}")
+    except Exception as e:  # noqa: BLE001
+        cfg.log(f"push_signal failed for {c['asset']} {c['direction']}: "
+                f"{type(e).__name__}: {e}")
         return False
 
 
@@ -643,152 +623,130 @@ def main():
         cfg.output({
             "status": "error",
             "error": "OTTER_WALLET env var not set. Set it to the Otter strategy wallet (must match runtime.yaml).",
-            "_otter_producer_version": "1.0.0",
+            "_otter_producer_version": "2.0.0",
         })
         return
 
-    lock = acquire_lock()
-    if lock is None:
-        print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
-            "_otter_producer_version": "1.0.0",
-        }))
-        return
-
-    try:
-        # 1. Read account value for sizing
-        account_value, pos_count = get_account_value()
-        if account_value is None or account_value <= 0:
-            cfg.output({
-                "status": "ok",
-                "note": "cannot read account value; skip tick",
-                "_otter_producer_version": "1.0.0",
-            })
-            return
-
-        # 2. Fetch instrument universe
-        instruments = fetch_instruments()
-        if not instruments:
-            cfg.output({
-                "status": "error",
-                "error": "market_list_instruments fetch failed or empty",
-                "_otter_producer_version": "1.0.0",
-            })
-            return
-
-        # 3. Update OI history
-        history = load_oi_history()
-        history = update_history(history, instruments)
-        save_oi_history(history)
-
-        # 4. Compute deltas + apply quadrant filter + score
-        # Only fetch SM map after we have at least one candidate to save MCP calls.
-        # First pass without SM bonus, then re-score top candidates with SM.
-        # Simpler: just fetch SM map up front (~1 MCP call) since we need it anyway.
-        sm_map = fetch_sm_map()
-        candidates, bootstrapping = build_candidates(instruments, history, sm_map)
-
-        # 5. Filter cooldown + min score
-        eligible = [
-            c for c in candidates
-            if c["score"] >= MIN_SCORE
-            and not is_asset_cooled_down(c["asset"])
-        ]
-
-        # If bootstrapping is dominant, report it
-        total_assets_tracked = len(instruments)
-        if not eligible and bootstrapping > 0:
-            cfg.output({
-                "status": "ok",
-                "note": f"bootstrapping_history ({bootstrapping}/{total_assets_tracked} assets need more samples)",
-                "candidates_total": len(candidates),
-                "samples_per_asset_avg": round(sum(len(s) for s in history.values()) / max(len(history), 1), 1),
-                "_otter_producer_version": "1.0.0",
-            })
-            return
-
-        if not eligible:
-            best = candidates[0] if candidates else None
-            note = "no candidates passed score+cooldown filter"
-            if best:
-                note = f"best {best['asset']} {best['direction']} score={best['score']} (need >= {MIN_SCORE})"
-            cfg.output({
-                "status": "ok",
-                "note": note,
-                "candidates_total": len(candidates),
-                "_otter_producer_version": "1.0.0",
-            })
-            return
-
-        # 6. Spread check on the top candidate (gate before emit)
-        # Conservative: only check the top scorer to limit MCP calls. If
-        # spread fails, try the second-best, etc. Capped at 3 attempts.
-        margin_usd = round(account_value * MARGIN_PCT, 2)
-
-        emitted = None
-        for c in eligible[:3]:
-            spread_bps = fetch_spread_bps(c["asset"])
-            c["spread_bps"] = spread_bps
-            if spread_bps is None or spread_bps > MAX_SPREAD_BPS:
-                c["reasons"].append(f"SKIP_SPREAD {spread_bps}")
-                continue
-            # Spread bonus
-            if spread_bps <= 2:
-                c["score"] += 2
-                c["reasons"].append(f"SPREAD_TIGHT {spread_bps:.1f}bps")
-            else:
-                c["score"] += 1
-                c["reasons"].append(f"SPREAD_OK {spread_bps:.1f}bps")
-            # Re-check MIN_SCORE post-bonus (could only push it higher, but defensive)
-            if c["score"] < MIN_SCORE:
-                continue
-            emitted = c
-            break
-
-        if not emitted:
-            cfg.output({
-                "status": "ok",
-                "note": "all top candidates failed spread gate",
-                "candidates_total": len(candidates),
-                "eligible": len(eligible),
-                "_otter_producer_version": "1.0.0",
-            })
-            return
-
-        # 7. Emit
-        leverage = get_leverage_for_score(emitted["score"])
-        payload = build_signal_payload(emitted, leverage, margin_usd)
-        pushed = 1 if push_signal(payload) else 0
-        if pushed:
-            mark_asset_emitted(emitted["asset"])
-
-        elapsed = time.time() - run_start
-        warn = "WARN_OVER_300S" if elapsed > 300 else None
+    # 1. Read account value for sizing
+    account_value, pos_count = get_account_value()
+    if account_value is None or account_value <= 0:
         cfg.output({
             "status": "ok",
+            "note": "cannot read account value; skip tick",
+            "_otter_producer_version": "2.0.0",
+        })
+        return
+
+    # 2. Fetch instrument universe
+    instruments = fetch_instruments()
+    if not instruments:
+        cfg.output({
+            "status": "error",
+            "error": "market_list_instruments fetch failed or empty",
+            "_otter_producer_version": "2.0.0",
+        })
+        return
+
+    # 3. Update OI history
+    history = load_oi_history()
+    history = update_history(history, instruments)
+    save_oi_history(history)
+
+    # 4. Compute deltas + apply quadrant filter + score
+    sm_map = fetch_sm_map()
+    candidates, bootstrapping = build_candidates(instruments, history, sm_map)
+
+    # 5. Filter cooldown + min score
+    eligible = [
+        c for c in candidates
+        if c["score"] >= MIN_SCORE
+        and not is_asset_cooled_down(c["asset"])
+    ]
+
+    total_assets_tracked = len(instruments)
+    if not eligible and bootstrapping > 0:
+        cfg.output({
+            "status": "ok",
+            "note": f"bootstrapping_history ({bootstrapping}/{total_assets_tracked} assets need more samples)",
+            "candidates_total": len(candidates),
+            "samples_per_asset_avg": round(sum(len(s) for s in history.values()) / max(len(history), 1), 1),
+            "_otter_producer_version": "2.0.0",
+        })
+        return
+
+    if not eligible:
+        best = candidates[0] if candidates else None
+        note = "no candidates passed score+cooldown filter"
+        if best:
+            note = f"best {best['asset']} {best['direction']} score={best['score']} (need >= {MIN_SCORE})"
+        cfg.output({
+            "status": "ok",
+            "note": note,
+            "candidates_total": len(candidates),
+            "_otter_producer_version": "2.0.0",
+        })
+        return
+
+    # 6. Spread check on the top candidate (gate before emit)
+    margin_usd = round(account_value * MARGIN_PCT, 2)
+
+    emitted = None
+    for c in eligible[:3]:
+        spread_bps = fetch_spread_bps(c["asset"])
+        c["spread_bps"] = spread_bps
+        if spread_bps is None or spread_bps > MAX_SPREAD_BPS:
+            c["reasons"].append(f"SKIP_SPREAD {spread_bps}")
+            continue
+        if spread_bps <= 2:
+            c["score"] += 2
+            c["reasons"].append(f"SPREAD_TIGHT {spread_bps:.1f}bps")
+        else:
+            c["score"] += 1
+            c["reasons"].append(f"SPREAD_OK {spread_bps:.1f}bps")
+        if c["score"] < MIN_SCORE:
+            continue
+        emitted = c
+        break
+
+    if not emitted:
+        cfg.output({
+            "status": "ok",
+            "note": "all top candidates failed spread gate",
             "candidates_total": len(candidates),
             "eligible": len(eligible),
-            "signals_pushed": pushed,
-            "emitted_asset": emitted["asset"] if pushed else None,
-            "emitted_score": emitted["score"] if pushed else None,
-            "emitted_leverage": leverage if pushed else None,
-            "account_value": round(account_value, 2),
-            "open_positions": pos_count,
-            "samples_per_asset_avg": round(sum(len(s) for s in history.values()) / max(len(history), 1), 1),
-            "elapsed_sec": round(elapsed, 2),
-            "warn": warn,
-            "_otter_producer_version": "1.0.0",
+            "_otter_producer_version": "2.0.0",
         })
-    finally:
-        release_lock(lock)
+        return
+
+    # 7. Emit
+    leverage = get_leverage_for_score(emitted["score"])
+    pushed = 1 if push_signal(emitted, leverage, margin_usd) else 0
+    if pushed:
+        mark_asset_emitted(emitted["asset"])
+
+    elapsed = time.time() - run_start
+    warn = "WARN_OVER_300S" if elapsed > 300 else None
+    cfg.output({
+        "status": "ok",
+        "candidates_total": len(candidates),
+        "eligible": len(eligible),
+        "signals_pushed": pushed,
+        "emitted_asset": emitted["asset"] if pushed else None,
+        "emitted_score": emitted["score"] if pushed else None,
+        "emitted_leverage": leverage if pushed else None,
+        "account_value": round(account_value, 2),
+        "open_positions": pos_count,
+        "samples_per_asset_avg": round(sum(len(s) for s in history.values()) / max(len(history), 1), 1),
+        "elapsed_sec": round(elapsed, 2),
+        "warn": warn,
+        "_otter_producer_version": "2.0.0",
+    })
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        cfg.log(f"CRITICAL ERROR: {e}")
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        cfg.output({"status": "error", "error": str(e)})
+    producer_daemon(
+        fn=main,
+        interval_seconds=300,
+        name=f"otter-producer-{_wallet_lock_id}",
+        tick_timeout=240,
+    )
