@@ -1,9 +1,45 @@
 #!/usr/bin/env python3
-# Senpi CHEETAH Producer v6.1.0
+# Senpi CHEETAH Producer v7.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""CHEETAH v6.1 Producer — Multi-signal confluence sniper, v2-runtime-native rewrite.
+"""CHEETAH v7.0.0 Producer — senpi_runtime_helpers migration.
+
+v7.0.0 (2026-05-08) — plumbing migration from openclaw-CLI subprocess
++ mcporter subprocess to senpi_runtime_helpers in-process wrapper.
+NO thesis change. Scoring tables, scoring components, leverage tiers,
+margin %, asset cooldowns, post-close cooldown, dedup logic are all
+preserved verbatim from v6.1.0. The runtime itself is now on
+senpi-trading-runtime >= 2.0.0 (runtime-phase-2 build) which speaks
+the new {success,data,error} envelope on /signals + /audit and
+exposes GET /state for daemon liveness probes.
+
+Six-layer plumbing flip (per migration-cookbook):
+  1. MCP calls: cfg.mcporter_call(...) now delegates to
+     senpi_runtime_helpers.SenpiClient.mcp_call() — direct HTTPS,
+     kills the 6-process tree of mcporter cold-start. Existing call
+     sites continue to call cfg.mcporter_call (backward-compat shim
+     in cheetah_config.py).
+  2. Signal emit: subprocess.run(["openclaw","senpi","external-scanner",
+     "ingest", ...]) replaced by cfg._wrapper_client.push_signal(...).
+     Direct HTTP POST to runtime API on 127.0.0.1:8787/signals.
+     CRITICAL: asset and direction are top-level routing fields;
+     score stays inside data (Cheetah's score is unbounded int 0-16,
+     not 0..1 confidence — same Pangolin reference rationale).
+  3. Reentrancy: hand-rolled fcntl flock dropped. producer_daemon
+     owns the lock per tick via scanner_lock(name) — adds stale-PID
+     auto-recovery via os.kill(pid, 0). Do NOT add an inner
+     scanner_lock inside main() — the daemon already wraps it.
+  4. Tick scheduling: openclaw cron + agentTurn replaced by
+     producer_daemon(fn=main, interval_seconds=300, ...). Long-lived
+     Python process, no per-tick LLM cost.
+  5. Per-tick cache + parallel fan-out NOT adopted in v7.0.0 to match
+     Pangolin reference minimum-change pattern. Future opt-in.
+  6. /state alive_check: producer_daemon self-terminates if the
+     runtime for CHEETAH_WALLET is deleted OR the cheetah_signals
+     scanner is renamed. Default behavior — alive_check left unset.
+
+CHEETAH v6.1 thesis preserved unchanged:
 
 v6.1 (2026-05-05) — Phase 2 T0 ladder calibration. No producer code
 changes. Runtime.yaml only: T0 trigger 5→3, T0 lock 35→40, T1 7/55,
@@ -63,16 +99,19 @@ Environment / config resolution:
   Strategy wallet is read from config/cheetah-config.json (canonical
   source). CHEETAH_WALLET env var supported as optional override.
 
-  CHEETAH_WALLET             — optional override; defaults to config.wallet
-  OPENCLAW_BIN               — optional, default "openclaw"
-  EXTERNAL_SCANNER_NAME      — optional override (default "cheetah_signals")
+  CHEETAH_WALLET             — REQUIRED. Strategy wallet (must match runtime.yaml).
+                              Per Turbine v2.0.9 contamination rule, agent-specific
+                              env var only — do NOT fall back to STRATEGY_ADDRESS.
+  SENPI_MCP_URL              — defaults to https://mcp.prod.senpi.ai/mcp
+  SENPI_AUTH_TOKEN           — REQUIRED. Bearer token for MCP + signal push.
+  SENPI_RUNTIME_API_HOST     — defaults to 127.0.0.1
+  SENPI_RUNTIME_API_PORT     — defaults to 8787
+  OPENCLAW_WORKSPACE         — defaults to /data/workspace
 """
 
-import fcntl
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -81,10 +120,13 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cheetah_config as cfg
 
+# senpi_runtime_helpers (loaded via cfg's sys.path shim) — used here only
+# for SenpiClientError type; the wrapper client lives on cfg.
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
-VERSION = "6.1.0"
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "cheetah_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+
+VERSION = "7.0.0"
+SCANNER_NAME = "cheetah_signals"  # must match runtime.yaml external_scanner.name
 
 
 def _resolve_wallet():
@@ -114,7 +156,6 @@ def _wallet_state_dir():
 
 
 _STATE_DIR = _wallet_state_dir()
-_LOCK_PATH = _STATE_DIR / "producer.lock"
 _COOLDOWN_FILE = _STATE_DIR / "asset-cooldowns.json"
 _COUNTER_FILE = _STATE_DIR / "trade-counter.json"
 _LAST_CLOSED_FILE = _STATE_DIR / "last-closed.json"
@@ -123,32 +164,11 @@ _SCAN_HISTORY_FILE = _STATE_DIR / "scan-history.json"
 _QUALITY_CACHE_FILE = _STATE_DIR / "quality-cache.json"
 
 
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD (fcntl, fleet-standard)
-# ═══════════════════════════════════════════════════════════════
-
-def acquire_lock():
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
-
-
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
+# Reentrancy guard removed in v7.0.0. producer_daemon owns the per-tick
+# scanner_lock with stale-PID auto-recovery via os.kill(pid, 0). Do NOT
+# add an inner scanner_lock(...) inside main() — fcntl flock is not
+# reentrant; nested call raises BlockingIOError and the daemon logs
+# tick_status=skipped_locked every tick. See migration-cookbook §Step 5.
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -677,33 +697,39 @@ def build_signal_payload(candidate, leverage, margin_usd, held_assets):
 
 
 def push_signal(payload):
-    """Push a signal payload to the runtime via openclaw CLI."""
+    """Push a signal payload to the runtime via senpi_runtime_helpers.
+
+    Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
+
+    SignalItem field mapping (per references/signal-schema.md and the
+    Pangolin TST 2026-05-05 incident):
+      - top-level routing fields: address, scanner, asset, direction
+      - data block: scanner-config-validated fields only
+      - score STAYS inside data — Cheetah's composite is unbounded int
+        0-16, not 0..1 confidence (different semantics; same Pangolin
+        v2.2 reference rationale).
+
+    Returns True on accepted ingest, False on transport / schema rejection.
+    The daemon's per-tick error handler catches anything unhandled here
+    and continues to the next tick — no half-written caller state.
+    """
     if not CHEETAH_WALLET:
         cfg.log("CHEETAH_WALLET not set; cannot push signal")
         return False
-
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", CHEETAH_WALLET,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if r.returncode != 0:
-            cfg.log(f"ingest failed for {payload['asset']} {payload['direction']}: {r.stderr.strip()}")
-            return False
-        if r.stdout.strip():
-            try:
-                response = json.loads(r.stdout)
-                if isinstance(response, dict) and response.get("ok") is False:
-                    cfg.log(f"ingest rejected for {payload['asset']}: {response.get('error')}")
-                    return False
-            except (json.JSONDecodeError, TypeError):
-                pass
+        cfg._wrapper_client.push_signal(
+            address=CHEETAH_WALLET,
+            scanner=SCANNER_NAME,
+            asset=payload.get("asset"),
+            direction=payload.get("direction"),
+            data=payload.get("data"),
+        )
         return True
-    except (subprocess.TimeoutExpired, OSError) as e:
-        cfg.log(f"ingest exception for {payload['asset']}: {e}")
+    except SenpiClientError as e:
+        cfg.log(f"push_signal rejected for {payload.get('asset')} {payload.get('direction')}: {e}")
+        return False
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        cfg.log(f"push_signal exception for {payload.get('asset')}: {type(e).__name__}: {e}")
         return False
 
 
@@ -714,195 +740,202 @@ def push_signal(payload):
 def main():
     run_start = time.time()
 
+    # Fail loud if wallet not configured (Turbine v2.0.9 contamination rule).
     if not CHEETAH_WALLET:
         cfg.output({
             "status": "error",
-            "error": "CHEETAH_WALLET not set. Configure config/cheetah-config.json wallet field.",
+            "error": "CHEETAH_WALLET not set. Set the env var or populate config/cheetah-config.json wallet field.",
             "_cheetah_producer_version": VERSION,
         })
         return
 
-    lock = acquire_lock()
-    if lock is None:
-        print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
-            "_cheetah_producer_version": VERSION,
-        }))
-        return
+    # NB: no scanner_lock here. producer_daemon owns the per-tick lock.
 
-    try:
-        # ── Account state + held assets ──
-        account_value, pos_count, held_assets = get_account_state()
-        if account_value is None or account_value <= 0:
-            cfg.output({
-                "status": "ok",
-                "note": "cannot read account value; skip tick",
-                "_cheetah_producer_version": VERSION,
-            })
-            return
-
-        # v6.0 close detection: diff held_assets against last tick's held set
-        previously_held = load_previously_held()
-        closed_this_tick = detect_closes(held_assets, previously_held)
-        save_previously_held(held_assets)
-
-        # Max positions guard (Cheetah is 1-slot sniper)
-        if pos_count >= MAX_POSITIONS:
-            cfg.output({
-                "status": "ok",
-                "note": f"riding open position(s): {sorted(list(held_assets))}",
-                "open_positions": pos_count,
-                "_cheetah_producer_version": VERSION,
-            })
-            return
-
-        # ── Fetch SM markets ──
-        markets = fetch_sm_markets()
-        if not markets:
-            cfg.output({
-                "status": "error",
-                "error": "failed to fetch leaderboard_get_markets",
-                "_cheetah_producer_version": VERSION,
-            })
-            return
-
-        # ── Update scan history (for rank-climb scoring) ──
-        history = load_scan_history()
-        history["scans"].append(build_scan_snapshot(markets))
-        save_scan_history(history)
-
-        # ── Quality trader positions (cached) ──
-        quality_positions = fetch_quality_trader_positions()
-
-        # ── Score all markets ──
-        # Filter order: held > post-close-cooldown > emit-cooldown > score.
-        candidates = []
-        all_scored = []
-        skipped_held = 0
-        skipped_post_close = 0
-        post_close_skips = []
-
-        for market in markets:
-            token = market["token"]
-
-            # v6.0 dedup defense layer 1: never emit on held assets
-            if token.upper() in held_assets:
-                skipped_held += 1
-                continue
-
-            # v6.0 post-close cooldown (Pangolin v2.1.2 pattern)
-            if is_in_post_close_cooldown(token):
-                skipped_post_close += 1
-                post_close_skips.append({
-                    "token": token,
-                    "remaining_min": post_close_cooldown_remaining_min(token),
-                })
-                continue
-
-            # Emit cooldown (post-emit, prevents spam re-fires)
-            if is_asset_cooled_down(token):
-                continue
-
-            score, reasons = score_confluence(market, quality_positions, history)
-            if score == 0:
-                continue
-
-            all_scored.append({
-                "token": token,
-                "direction": market["direction"],
-                "score": score,
-            })
-
-            if score >= MIN_SCORE_DEFAULT:
-                # Annotate with extras for telemetry
-                key = f"{token}:{market['direction']}"
-                quality_count = len(quality_positions.get(key, []))
-                rank_climb = get_rank_climb(history, token, market["dex"])
-                candidate = dict(market)
-                candidate["score"] = score
-                candidate["reasons"] = reasons
-                candidate["quality_align"] = quality_count
-                candidate["rank_climb"] = rank_climb
-                candidates.append(candidate)
-
-        if not candidates:
-            top3 = sorted(all_scored, key=lambda s: s["score"], reverse=True)[:3]
-            cfg.output({
-                "status": "ok",
-                "note": f"0 candidates at score >= {MIN_SCORE_DEFAULT} ({len(all_scored)} scored)",
-                "topScored": top3,
-                "skipped_held": skipped_held,
-                "skipped_post_close": skipped_post_close,
-                "post_close_skips": post_close_skips,
-                "closed_this_tick": sorted(list(closed_this_tick)),
-                "held_assets": sorted(list(held_assets)),
-                "_cheetah_producer_version": VERSION,
-            })
-            return
-
-        # ── Pick top candidate, compute sizing + leverage ──
-        candidates.sort(key=lambda c: c["score"], reverse=True)
-        best = candidates[0]
-
-        margin_usd = round(account_value * MARGIN_PCT, 2)
-        requested_leverage = get_leverage_for_score(best["score"])
-        # v5.1.1 leverage clamp preserved
-        leverage = get_safe_leverage(CHEETAH_WALLET, best["token"], requested_leverage)
-
-        # ── Daily counter (best-effort observability; runtime guard_rails
-        #    is the authoritative max_entries_per_day enforcement) ──
-        tc = load_trade_counter()
-
-        # ── Emit signal (only top candidate per tick) ──
-        payload = build_signal_payload(best, leverage, margin_usd, held_assets)
-        pushed = 0
-        if push_signal(payload):
-            pushed += 1
-            mark_asset_emitted(best["token"])
-            tc["entries"] = tc.get("entries", 0) + 1
-            save_trade_counter(tc)
-
-        elapsed = time.time() - run_start
-        warn = "WARN_OVER_120S" if elapsed > 120 else None
+    # ── Account state + held assets ──
+    account_value, pos_count, held_assets = get_account_state()
+    if account_value is None or account_value <= 0:
         cfg.output({
             "status": "ok",
-            "candidates_total": len(candidates),
-            "all_scored": len(all_scored),
+            "note": "cannot read account value; skip tick",
+            "_cheetah_producer_version": VERSION,
+        })
+        return
+
+    # v6.0 close detection: diff held_assets against last tick's held set
+    previously_held = load_previously_held()
+    closed_this_tick = detect_closes(held_assets, previously_held)
+    save_previously_held(held_assets)
+
+    # Max positions guard (Cheetah is 1-slot sniper)
+    if pos_count >= MAX_POSITIONS:
+        cfg.output({
+            "status": "ok",
+            "note": f"riding open position(s): {sorted(list(held_assets))}",
+            "open_positions": pos_count,
+            "_cheetah_producer_version": VERSION,
+        })
+        return
+
+    # ── Fetch SM markets ──
+    markets = fetch_sm_markets()
+    if not markets:
+        cfg.output({
+            "status": "error",
+            "error": "failed to fetch leaderboard_get_markets",
+            "_cheetah_producer_version": VERSION,
+        })
+        return
+
+    # ── Update scan history (for rank-climb scoring) ──
+    history = load_scan_history()
+    history["scans"].append(build_scan_snapshot(markets))
+    save_scan_history(history)
+
+    # ── Quality trader positions (cached) ──
+    quality_positions = fetch_quality_trader_positions()
+
+    # ── Score all markets ──
+    # Filter order: held > post-close-cooldown > emit-cooldown > score.
+    candidates = []
+    all_scored = []
+    skipped_held = 0
+    skipped_post_close = 0
+    post_close_skips = []
+
+    for market in markets:
+        token = market["token"]
+
+        # v6.0 dedup defense layer 1: never emit on held assets
+        if token.upper() in held_assets:
+            skipped_held += 1
+            continue
+
+        # v6.0 post-close cooldown (Pangolin v2.1.2 pattern)
+        if is_in_post_close_cooldown(token):
+            skipped_post_close += 1
+            post_close_skips.append({
+                "token": token,
+                "remaining_min": post_close_cooldown_remaining_min(token),
+            })
+            continue
+
+        # Emit cooldown (post-emit, prevents spam re-fires)
+        if is_asset_cooled_down(token):
+            continue
+
+        score, reasons = score_confluence(market, quality_positions, history)
+        if score == 0:
+            continue
+
+        all_scored.append({
+            "token": token,
+            "direction": market["direction"],
+            "score": score,
+        })
+
+        if score >= MIN_SCORE_DEFAULT:
+            # Annotate with extras for telemetry
+            key = f"{token}:{market['direction']}"
+            quality_count = len(quality_positions.get(key, []))
+            rank_climb = get_rank_climb(history, token, market["dex"])
+            candidate = dict(market)
+            candidate["score"] = score
+            candidate["reasons"] = reasons
+            candidate["quality_align"] = quality_count
+            candidate["rank_climb"] = rank_climb
+            candidates.append(candidate)
+
+    if not candidates:
+        top3 = sorted(all_scored, key=lambda s: s["score"], reverse=True)[:3]
+        cfg.output({
+            "status": "ok",
+            "note": f"0 candidates at score >= {MIN_SCORE_DEFAULT} ({len(all_scored)} scored)",
+            "topScored": top3,
             "skipped_held": skipped_held,
             "skipped_post_close": skipped_post_close,
             "post_close_skips": post_close_skips,
             "closed_this_tick": sorted(list(closed_this_tick)),
             "held_assets": sorted(list(held_assets)),
-            "signals_pushed": pushed,
-            "best_signal": {
-                "asset": best["token"],
-                "direction": best["direction"],
-                "score": best["score"],
-                "leverage": leverage,
-                "marginUsd": margin_usd,
-                "reasons": best["reasons"][:5],
-            } if pushed else None,
-            "account_value": round(account_value, 2),
-            "open_positions": pos_count,
-            "entries_today": tc.get("entries", 0),
-            "elapsed_sec": round(elapsed, 2),
-            "warn": warn,
             "_cheetah_producer_version": VERSION,
         })
-    finally:
-        release_lock(lock)
+        return
+
+    # ── Pick top candidate, compute sizing + leverage ──
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+    best = candidates[0]
+
+    margin_usd = round(account_value * MARGIN_PCT, 2)
+    requested_leverage = get_leverage_for_score(best["score"])
+    # v5.1.1 leverage clamp preserved
+    leverage = get_safe_leverage(CHEETAH_WALLET, best["token"], requested_leverage)
+
+    # ── Daily counter (best-effort observability; runtime guard_rails
+    #    is the authoritative max_entries_per_day enforcement) ──
+    tc = load_trade_counter()
+
+    # ── Emit signal (only top candidate per tick) ──
+    payload = build_signal_payload(best, leverage, margin_usd, held_assets)
+    pushed = 0
+    if push_signal(payload):
+        pushed += 1
+        mark_asset_emitted(best["token"])
+        tc["entries"] = tc.get("entries", 0) + 1
+        save_trade_counter(tc)
+
+    elapsed = time.time() - run_start
+    warn = "WARN_OVER_120S" if elapsed > 120 else None
+    cfg.output({
+        "status": "ok",
+        "candidates_total": len(candidates),
+        "all_scored": len(all_scored),
+        "skipped_held": skipped_held,
+        "skipped_post_close": skipped_post_close,
+        "post_close_skips": post_close_skips,
+        "closed_this_tick": sorted(list(closed_this_tick)),
+        "held_assets": sorted(list(held_assets)),
+        "signals_pushed": pushed,
+        "best_signal": {
+            "asset": best["token"],
+            "direction": best["direction"],
+            "score": best["score"],
+            "leverage": leverage,
+            "marginUsd": margin_usd,
+            "reasons": best["reasons"][:5],
+        } if pushed else None,
+        "account_value": round(account_value, 2),
+        "open_positions": pos_count,
+        "entries_today": tc.get("entries", 0),
+        "elapsed_sec": round(elapsed, 2),
+        "warn": warn,
+        "_cheetah_producer_version": VERSION,
+    })
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        cfg.log(f"CRITICAL ERROR: {e}")
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        cfg.output({
-            "status": "error",
-            "error": str(e),
-            "_cheetah_producer_version": VERSION,
-        })
+    # v7.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn for
+    # this skill — no LLM coupling, no per-tick CLI cold start.
+    # producer_daemon wraps each tick in scanner_lock so overlap is
+    # skipped cleanly, enforces a 6-min wall-clock per-tick via SIGALRM
+    # (longer than the producer's WARN_OVER_120S budget so the warn
+    # fires before the alarm), and drains gracefully on SIGTERM/SIGINT.
+    #
+    # Lock name is per-wallet so multi-wallet hosts (one daemon per
+    # wallet) don't collide on a single global lock file.
+    #
+    # alive_check is left UNSET (default behavior) — producer_daemon
+    # self-terminates if the runtime for CHEETAH_WALLET is deleted OR
+    # the cheetah_signals scanner is dropped/renamed. Do NOT pass
+    # alive_check=None when wallet= is set.
+    _wallet_lock_id = (
+        hashlib.sha256(CHEETAH_WALLET.lower().encode()).hexdigest()[:12]
+        if CHEETAH_WALLET
+        else "unset"
+    )
+    producer_daemon(
+        fn=main,
+        interval_seconds=300,
+        name=f"cheetah-producer-{_wallet_lock_id}",
+        wallet=CHEETAH_WALLET,        # enables default /state alive_check
+        scanner=SCANNER_NAME,         # daemon self-terminates if deleted
+        tick_timeout=360,
+    )
