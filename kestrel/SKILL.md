@@ -1,19 +1,24 @@
 ---
 name: kestrel-strategy
 description: >-
-  KESTREL v2.0 — XYZ Macro Breakout Rider, v2-runtime-native. Detects
-  >=1.5% hourly price breakouts on commodities, indices, and high-volume
-  equities 24/7 on Hyperliquid XYZ DEX. Producer + LLM regime gate +
+  KESTREL v3.0.0 — XYZ Macro Breakout Rider (senpi_runtime_helpers
+  migration). Plumbing-only port from v2.0. NO thesis change. NO
+  scoring change. NO threshold change. Producer ports onto
+  `senpi_runtime_helpers` (in-process SenpiClient + direct HTTP POST
+  to runtime /signals + producer_daemon long-lived loop). Detects
+  >=1.5% hourly price breakouts on commodities, indices, and
+  high-volume equities 24/7 on Hyperliquid XYZ DEX. LLM regime gate +
   FEE_OPTIMIZED_LIMIT entries/exits + held-asset dedup + post-close
   cooldown + chain DB telemetry. Conservative 3-5x leverage.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0.0"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime@v2
+    - senpi_runtime_helpers
 ---
 
 # 🦅 KESTREL v2.0 — XYZ Macro Breakout Rider
