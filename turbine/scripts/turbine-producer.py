@@ -1,52 +1,68 @@
 #!/usr/bin/env python3
-# Senpi TURBINE Producer v3.0.0
+# Senpi TURBINE Producer v3.1.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-# Source: https://github.com/Senpi-ai/senpi-skills
-"""TURBINE v3.0 Producer — two-mode signal emitter.
+# Source: https://github.com/Senpi-ai/skills
+"""TURBINE v3.1 Producer — two-wallet, two-runtime, single daemon.
 
-VOLUME mode (7 slots, 10-min rotation):
-  Volume engine. Funding-fade direction. XYZ-heavy rotation (80/20)
-  for the lower fee floor. FEE_OPTIMIZED_LIMIT entries with
+v3.1 (2026-05-08) — two-wallet rewrite.
+
+The runtime-phase-2 plugin enforces ONE RUNTIME PER WALLET. v3.0
+attempted "two runtimes on one wallet" and got blocked at deploy
+when the second runtime install failed with "A runtime for wallet
+X is already running." v3.1 splits the architecture cleanly:
+
+  Wallet A (volume):  own runtime turbine-volume-tracker
+                      $3,500 funding ($500 × 7 slots)
+                      Funding-fade rotation, 10-min cycle, 80/20 XYZ/main
+
+  Wallet B (hunt):    own runtime turbine-hunt-tracker
+                      $2,400 funding ($1,200 × 2 slots)
+                      HYPE 4H momentum, score >= 10 floor, ratchet exit
+
+  ONE producer daemon reads both wallets and emits to both runtimes.
+  The wallet boundary IS the mode boundary — no more slot-mode
+  tagging needed. audit_query splits per-wallet trivially.
+
+VOLUME mode (Wallet A, 7 slots, 10-min rotation):
+  Volume engine. Funding-fade direction. XYZ-heavy 80/20 for the
+  lower fee floor. FEE_OPTIMIZED_LIMIT entries with
   ensure_execution_as_taker: false. DSL hard_timeout: 10min owns
-  the exit. No Phase 2. Pure breakeven thesis — profit comes from
-  Senpi's builder-fee recycling vs HL maker fee differential.
+  the exit. No Phase 2. Pure breakeven thesis — alpha is Senpi
+  builder-fee recycling vs HL maker fee differential.
 
-HUNT mode (2 slots, HYPE-only momentum):
-  HYPE 4H breakout rider. Score >= 10 floor on multi-axis confluence.
-  5x leverage, $1,250 margin. DSL Phase 2 ratchet enabled with
-  HYPE-tuned ladder. Up to 4h hold. Fills the gap left by Wolverine
-  v3.0 spec. Distinct asset + distinct timescale from VOLUME = clean
-  per-mode P&L attribution.
+HUNT mode (Wallet B, 2 slots, HYPE-only momentum):
+  HYPE 4H breakout rider. Score >= 10 floor on multi-axis
+  confluence. 5x leverage, $1,200 margin. DSL Phase 2 ratchet
+  enabled with HYPE-tuned ladder. Up to 4h hold. Distinct asset
+  + distinct timescale + distinct WALLET from VOLUME = clean P&L
+  attribution at the wallet level.
 
-Architecture: ONE producer + TWO runtimes on the same wallet:
-  - turbine-volume-tracker  — DSL: hard_timeout 10min, no Phase 2
-  - turbine-hunt-tracker    — DSL: hard_timeout 240min, Phase 2 ratchet
-
-v3.0 changes vs v2.0.x:
-  - senpi_runtime_helpers integration (no subprocess for MCP / signals)
-  - Long-lived producer_daemon replaces openclaw cron + agentTurn
-  - 3 → 9 slots (7 volume + 2 hunt). $6k funding requirement.
-  - Cycle 15min → 10min default; auto-fallback to 12min when realized
-    maker fill rate drops below 85%.
-  - Spread gates tightened: main 5→3 bps, XYZ 15→10 bps.
-  - Universe tightened: dropped TSLA + NVDA (wider spreads off-hours).
-  - 70/30 → 80/20 XYZ/main weighting.
-  - Sentinel sunset: hunt slots take over with explicit slot accounting.
-  - STRATEGY_ADDRESS env var REMOVED — only TURBINE_WALLET (per v2.0.9
-    contamination rule). Fail loud when missing.
+If TURBINE_HUNT_WALLET is unset, hunt mode is disabled gracefully
+— producer only emits volume signals. Lets operators run a pure
+volume engine without provisioning a second wallet.
 
 Required env vars:
-  TURBINE_WALLET                   — strategy wallet (must match runtimes)
+  TURBINE_VOLUME_WALLET            — volume strategy wallet (REQUIRED)
+  TURBINE_HUNT_WALLET              — hunt strategy wallet (optional;
+                                      omit to disable hunt mode)
   SENPI_AUTH_TOKEN                 — Bearer token for MCP + signal POST
   TURBINE_VOLUME_DECISION_MODEL    — bare model name for volume LLM gate
   TURBINE_HUNT_DECISION_MODEL      — bare model name for hunt LLM gate
+                                     (only used if hunt wallet set)
 
 Optional env vars (sensible defaults):
   SENPI_MCP_URL                    — default https://mcp.prod.senpi.ai/mcp
   SENPI_RUNTIME_API_HOST           — default 127.0.0.1
   SENPI_RUNTIME_API_PORT           — default 8787
   OPENCLAW_WORKSPACE               — default /data/workspace
+
+Banned env vars (per v2.0.9 contamination rule):
+  STRATEGY_ADDRESS  — generic env var; agent-specific vars only.
+  TURBINE_WALLET    — was v3.0's single-wallet env var; v3.1 splits
+                      it into TURBINE_VOLUME_WALLET + TURBINE_HUNT_WALLET.
+                      If you have TURBINE_WALLET exported from v3.0
+                      testing, unset it — v3.1 ignores it.
 """
 
 import hashlib
@@ -64,57 +80,51 @@ import turbine_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "3.0.0"
+VERSION = "3.1.0"
 
 # Scanner names — must match runtime-volume.yaml + runtime-hunt.yaml
 VOLUME_SCANNER_NAME = "turbine_volume_signals"
 HUNT_SCANNER_NAME = "turbine_hunt_signals"
 
 # Signal types — passed explicitly to push_signal() per Rachin's review
-# of Cheetah v7.0.0 (PR #209). Don't rely on scanner's defaultSignalType
-# fallback — runtime YAMLs here don't declare one. Distinct types per
-# mode also give audit_query a clean filter for per-mode P&L
-# attribution, which was a v3.0 design goal vs v2.0.x's blended numbers.
+# of Cheetah PR #209. The wrapper only forwards declared kwargs;
+# defaultSignalType in scanner config isn't reliable. Distinct types
+# per mode also give audit_query a free filter for per-mode P&L.
 VOLUME_SIGNAL_TYPE = "TURBINE_VOLUME_ROTATION"
 HUNT_SIGNAL_TYPE = "TURBINE_HUNT_HYPE_MOMENTUM"
 
 
 # ═══════════════════════════════════════════════════════════════
-# WALLET RESOLUTION (TURBINE_WALLET only — no STRATEGY_ADDRESS fallback)
+# WALLET RESOLUTION — two wallets, hunt is optional
 # ═══════════════════════════════════════════════════════════════
 
-def _resolve_wallet():
-    env = os.environ.get("TURBINE_WALLET", "").strip()
-    if env:
-        return env
-    return (cfg.load_config().get("wallet") or "").strip()
-
-
-TURBINE_WALLET = _resolve_wallet()
+VOLUME_WALLET, VOLUME_STRATEGY_ID = cfg.get_volume_wallet_and_strategy()
+HUNT_WALLET, HUNT_STRATEGY_ID = cfg.get_hunt_wallet_and_strategy()
+HUNT_ENABLED = bool(HUNT_WALLET)
 
 
 # ═══════════════════════════════════════════════════════════════
-# WALLET-ISOLATED STATE DIR
+# WALLET-ISOLATED STATE DIRS — one per wallet
 # ═══════════════════════════════════════════════════════════════
 
-def _wallet_state_dir():
-    h = (
-        hashlib.sha256(TURBINE_WALLET.lower().encode()).hexdigest()[:12]
-        if TURBINE_WALLET
-        else "unset"
-    )
+def _wallet_state_dir(wallet):
+    h = hashlib.sha256(wallet.lower().encode()).hexdigest()[:12] if wallet else "unset"
     d = cfg.SKILL_DIR / "state" / h
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
-_STATE_DIR = _wallet_state_dir()
-_SLOT_MODE_FILE = _STATE_DIR / "slot-mode.json"
-_PREV_HELD_FILE = _STATE_DIR / "prev-held.json"
-_LAST_CLOSED_FILE = _STATE_DIR / "last-closed.json"
-_CYCLE_STATS_FILE = _STATE_DIR / "cycle-stats.json"
-_HUNT_HISTORY_FILE = _STATE_DIR / "hunt-history.json"
-_ROTATION_INDEX_FILE = _STATE_DIR / "rotation-index.json"
+_VOLUME_STATE_DIR = _wallet_state_dir(VOLUME_WALLET)
+_VOLUME_LAST_CLOSED_FILE = _VOLUME_STATE_DIR / "last-closed.json"
+_VOLUME_PREV_HELD_FILE = _VOLUME_STATE_DIR / "prev-held.json"
+_VOLUME_CYCLE_STATS_FILE = _VOLUME_STATE_DIR / "cycle-stats.json"
+_VOLUME_ROTATION_INDEX_FILE = _VOLUME_STATE_DIR / "rotation-index.json"
+
+if HUNT_ENABLED:
+    _HUNT_STATE_DIR = _wallet_state_dir(HUNT_WALLET)
+    _HUNT_LAST_CLOSED_FILE = _HUNT_STATE_DIR / "last-closed.json"
+    _HUNT_PREV_HELD_FILE = _HUNT_STATE_DIR / "prev-held.json"
+    _HUNT_HISTORY_FILE = _HUNT_STATE_DIR / "hunt-history.json"
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -132,7 +142,7 @@ def _runtime_config():
         "volume_slots": int(slots.get("volume", 7)),
         "hunt_slots": int(slots.get("hunt", 2)),
         "volume_margin": float(margin.get("volume", 500)),
-        "hunt_margin": float(margin.get("hunt", 1250)),
+        "hunt_margin": float(margin.get("hunt", 1200)),
         "volume_leverage": float(leverage.get("volume", 5)),
         "hunt_leverage": float(leverage.get("hunt", 5)),
         "volume_cycle_default_min": float(cycle.get("volumeDefaultMin", 10)),
@@ -145,19 +155,20 @@ def _runtime_config():
         "spread_xyz_bps": float(spread.get("xyzBps", 10)),
         "xyz_weight": float(c.get("xyzWeight", 0.80)),
         "hunt_min_score": int(c.get("huntMinScore", 10)),
-        "min_account_value_for_hunt": float(c.get("minAccountValueForHunt", 5500.0)),
+        # Hunt wallet's own balance floor — pauses hunt emission if
+        # the hunt wallet itself draws down. Wallet boundary means
+        # volume capital is naturally protected; this just protects
+        # the hunt wallet from over-cycling after a bad streak.
+        "min_hunt_wallet_balance": float(c.get("minHuntWalletBalance", 2000.0)),
     }
 
 
 # ═══════════════════════════════════════════════════════════════
-# UNIVERSE (tightened from v2.0.x)
+# UNIVERSE
 # ═══════════════════════════════════════════════════════════════
 
-# Volume universe — only assets with deep books + tight spreads.
 VOLUME_XYZ = ["xyz:BRENTOIL", "xyz:GOLD", "xyz:SPX"]
 VOLUME_MAIN = ["BTC", "ETH", "SOL", "HYPE"]
-
-# Hunt universe — HYPE only.
 HUNT_ASSETS = ["HYPE"]
 
 
@@ -179,54 +190,76 @@ def _load_json(path, default):
         return default
 
 
-def load_slot_mode():
-    data = _load_json(_SLOT_MODE_FILE, {})
-    return data if isinstance(data, dict) else {}
+# Volume state
+def load_volume_prev_held():
+    return set(_load_json(_VOLUME_PREV_HELD_FILE, {"assets": []}).get("assets", []))
 
 
-def save_slot_mode(d):
-    cfg.atomic_write(str(_SLOT_MODE_FILE), d)
+def save_volume_prev_held(held):
+    cfg.atomic_write(str(_VOLUME_PREV_HELD_FILE),
+                     {"assets": sorted(list(held)), "updatedAt": cfg.now_iso()})
 
 
-def load_prev_held():
-    data = _load_json(_PREV_HELD_FILE, {"assets": []})
-    return set(data.get("assets", []))
+def load_volume_last_closed():
+    return _load_json(_VOLUME_LAST_CLOSED_FILE, {})
 
 
-def save_prev_held(held):
-    cfg.atomic_write(str(_PREV_HELD_FILE), {"assets": sorted(list(held)), "updatedAt": cfg.now_iso()})
-
-
-def load_last_closed():
-    return _load_json(_LAST_CLOSED_FILE, {})
-
-
-def save_last_closed(d):
-    cfg.atomic_write(str(_LAST_CLOSED_FILE), d)
+def save_volume_last_closed(d):
+    cfg.atomic_write(str(_VOLUME_LAST_CLOSED_FILE), d)
 
 
 def load_cycle_stats():
-    return _load_json(_CYCLE_STATS_FILE, {"window": []})
+    return _load_json(_VOLUME_CYCLE_STATS_FILE, {"window": []})
 
 
 def save_cycle_stats(d):
-    cfg.atomic_write(str(_CYCLE_STATS_FILE), d)
+    cfg.atomic_write(str(_VOLUME_CYCLE_STATS_FILE), d)
+
+
+def load_rotation_index():
+    return _load_json(_VOLUME_ROTATION_INDEX_FILE, {"index": 0})
+
+
+def save_rotation_index(d):
+    cfg.atomic_write(str(_VOLUME_ROTATION_INDEX_FILE), d)
+
+
+# Hunt state (only initialized if HUNT_ENABLED)
+def load_hunt_prev_held():
+    if not HUNT_ENABLED:
+        return set()
+    return set(_load_json(_HUNT_PREV_HELD_FILE, {"assets": []}).get("assets", []))
+
+
+def save_hunt_prev_held(held):
+    if not HUNT_ENABLED:
+        return
+    cfg.atomic_write(str(_HUNT_PREV_HELD_FILE),
+                     {"assets": sorted(list(held)), "updatedAt": cfg.now_iso()})
+
+
+def load_hunt_last_closed():
+    if not HUNT_ENABLED:
+        return {}
+    return _load_json(_HUNT_LAST_CLOSED_FILE, {})
+
+
+def save_hunt_last_closed(d):
+    if not HUNT_ENABLED:
+        return
+    cfg.atomic_write(str(_HUNT_LAST_CLOSED_FILE), d)
 
 
 def load_hunt_history():
+    if not HUNT_ENABLED:
+        return {"last_emitted_ts": 0, "scores": []}
     return _load_json(_HUNT_HISTORY_FILE, {"last_emitted_ts": 0, "scores": []})
 
 
 def save_hunt_history(d):
+    if not HUNT_ENABLED:
+        return
     cfg.atomic_write(str(_HUNT_HISTORY_FILE), d)
-
-
-def load_rotation_index():
-    return _load_json(_ROTATION_INDEX_FILE, {"index": 0})
-
-
-def save_rotation_index(d):
-    cfg.atomic_write(str(_ROTATION_INDEX_FILE), d)
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -234,7 +267,7 @@ def save_rotation_index(d):
 # ═══════════════════════════════════════════════════════════════
 
 def query_asset_data(asset):
-    """Spread + funding regime + candles for one asset. Returns dict or None."""
+    """Spread + funding regime + candles for one asset."""
     params = {
         "asset": asset,
         "candle_intervals": [],
@@ -303,9 +336,9 @@ def choose_volume_direction(regime, last_direction):
     return "LONG", "alternate_neutral"
 
 
-def pick_volume_asset(rot_idx, xyz_weight, held_set, slot_mode_map, last_closed):
-    """Pick next volume asset. Probabilistic XYZ/main weighting + deterministic
-    rotation index inside each pool. Skips held + post-close cooldown."""
+def pick_volume_asset(rot_idx, xyz_weight, held_set, last_closed):
+    """Pick next volume asset. Probabilistic XYZ/main weighting +
+    deterministic rotation index inside each pool."""
     use_xyz = random.random() < xyz_weight
     pool = VOLUME_XYZ if use_xyz else VOLUME_MAIN
     n = len(pool)
@@ -336,8 +369,8 @@ def pick_volume_asset(rot_idx, xyz_weight, held_set, slot_mode_map, last_closed)
 
 def emit_volume_signal(asset, direction, thesis, ad, slot_index,
                        leverage, margin_usd, current_cycle_min):
-    if not TURBINE_WALLET:
-        cfg.log("TURBINE_WALLET not set; cannot emit volume signal")
+    if not VOLUME_WALLET:
+        cfg.log("TURBINE_VOLUME_WALLET not set; cannot emit volume signal")
         return False
     data_block = {
         "mode": "VOLUME",
@@ -351,13 +384,9 @@ def emit_volume_signal(asset, direction, thesis, ad, slot_index,
         "isXyz": is_xyz(asset),
         "cycleMin": float(current_cycle_min),
     }
-    # signal_type explicit — per Rachin's review of Cheetah PR #209.
-    # The wrapper only forwards declared kwargs; anything else in the
-    # payload dict is dead weight, and the scanner has no
-    # defaultSignalType fallback declared in runtime-volume.yaml.
     try:
         cfg._wrapper_client.push_signal(
-            address=TURBINE_WALLET,
+            address=VOLUME_WALLET,
             scanner=VOLUME_SCANNER_NAME,
             asset=asset,
             direction=direction,
@@ -457,8 +486,8 @@ def score_hype_momentum(ad):
 
 
 def emit_hunt_signal(asset, direction, score, reasons, ad, leverage, margin_usd):
-    if not TURBINE_WALLET:
-        cfg.log("TURBINE_WALLET not set; cannot emit hunt signal")
+    if not HUNT_WALLET:
+        cfg.log("TURBINE_HUNT_WALLET not set; cannot emit hunt signal")
         return False
     data_block = {
         "mode": "HUNT",
@@ -472,7 +501,7 @@ def emit_hunt_signal(asset, direction, score, reasons, ad, leverage, margin_usd)
     }
     try:
         cfg._wrapper_client.push_signal(
-            address=TURBINE_WALLET,
+            address=HUNT_WALLET,
             scanner=HUNT_SCANNER_NAME,
             asset=asset,
             direction=direction,
@@ -486,18 +515,6 @@ def emit_hunt_signal(asset, direction, score, reasons, ad, leverage, margin_usd)
     except Exception as e:  # noqa: BLE001
         cfg.log(f"hunt push_signal exception for {asset} {direction}: {type(e).__name__}: {e}")
         return False
-
-
-# ═══════════════════════════════════════════════════════════════
-# SLOT MODE RECONCILIATION
-# ═══════════════════════════════════════════════════════════════
-
-def reconcile_slot_mode(slot_mode, current_held):
-    return {k: v for k, v in slot_mode.items() if k in current_held}
-
-
-def detect_closes(prev_held, current_held):
-    return prev_held - current_held
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -524,47 +541,68 @@ def main():
     """Single tick. NO inner scanner_lock — daemon owns it."""
     run_start = time.time()
 
-    if not TURBINE_WALLET:
+    if not VOLUME_WALLET:
         cfg.output({
             "status": "error",
-            "error": "TURBINE_WALLET not set. Set the env var or populate config/turbine-config.json wallet field. STRATEGY_ADDRESS is BANNED.",
+            "error": ("TURBINE_VOLUME_WALLET not set. Set the env var or "
+                      "populate config/turbine-config.json volume.wallet field. "
+                      "STRATEGY_ADDRESS and TURBINE_WALLET are BANNED."),
             "_turbine_producer_version": VERSION,
         })
         return
 
     rt = _runtime_config()
 
-    open_positions = cfg.get_open_positions(TURBINE_WALLET)
-    resting_orders = cfg.get_resting_orders(TURBINE_WALLET)
-    account_value = cfg.get_account_value(TURBINE_WALLET)
-    if account_value is None or account_value <= 0:
+    # ── VOLUME WALLET state ──
+    volume_positions = cfg.get_open_positions(VOLUME_WALLET)
+    volume_resting = cfg.get_resting_orders(VOLUME_WALLET)
+    volume_account_value = cfg.get_account_value(VOLUME_WALLET)
+    if volume_account_value is None or volume_account_value <= 0:
         cfg.output({
             "status": "ok",
-            "note": "cannot read account value; skip tick",
+            "note": "cannot read volume wallet account value; skip tick",
             "_turbine_producer_version": VERSION,
         })
         return
 
-    held_keys = {cfg.normalize_coin_key(p["coin"]) for p in open_positions}
-    held_keys.update(cfg.normalize_coin_key(o["coin"]) for o in resting_orders)
+    volume_held_keys = {cfg.normalize_coin_key(p["coin"]) for p in volume_positions}
+    volume_held_keys.update(cfg.normalize_coin_key(o["coin"]) for o in volume_resting)
+    free_volume = max(0, rt["volume_slots"] - len(volume_held_keys))
 
-    slot_mode = load_slot_mode()
-    slot_mode = reconcile_slot_mode(slot_mode, held_keys)
-
-    volume_held = sum(1 for v in slot_mode.values() if v.get("mode") == "VOLUME")
-    hunt_held = sum(1 for v in slot_mode.values() if v.get("mode") == "HUNT")
-    free_volume = max(0, rt["volume_slots"] - volume_held)
-    free_hunt = max(0, rt["hunt_slots"] - hunt_held)
-
-    prev_held = load_prev_held()
-    closed_keys = detect_closes(prev_held, held_keys)
-    if closed_keys:
-        last_closed = load_last_closed()
-        for k in closed_keys:
+    # Detect closes on volume wallet
+    prev_volume = load_volume_prev_held()
+    closed_volume = prev_volume - volume_held_keys
+    if closed_volume:
+        last_closed = load_volume_last_closed()
+        for k in closed_volume:
             last_closed[k] = {"ts": time.time(), "iso": cfg.now_iso()}
-        save_last_closed(last_closed)
-    save_prev_held(held_keys)
-    last_closed = load_last_closed()
+        save_volume_last_closed(last_closed)
+    save_volume_prev_held(volume_held_keys)
+    last_volume_closed = load_volume_last_closed()
+
+    # ── HUNT WALLET state (if enabled) ──
+    hunt_positions = []
+    hunt_resting = []
+    hunt_account_value = 0.0
+    hunt_held_keys = set()
+    free_hunt = 0
+    closed_hunt = set()
+    if HUNT_ENABLED:
+        hunt_positions = cfg.get_open_positions(HUNT_WALLET)
+        hunt_resting = cfg.get_resting_orders(HUNT_WALLET)
+        hunt_account_value = cfg.get_account_value(HUNT_WALLET) or 0.0
+        hunt_held_keys = {cfg.normalize_coin_key(p["coin"]) for p in hunt_positions}
+        hunt_held_keys.update(cfg.normalize_coin_key(o["coin"]) for o in hunt_resting)
+        free_hunt = max(0, rt["hunt_slots"] - len(hunt_held_keys))
+
+        prev_hunt = load_hunt_prev_held()
+        closed_hunt = prev_hunt - hunt_held_keys
+        if closed_hunt:
+            last_closed = load_hunt_last_closed()
+            for k in closed_hunt:
+                last_closed[k] = {"ts": time.time(), "iso": cfg.now_iso()}
+            save_hunt_last_closed(last_closed)
+        save_hunt_prev_held(hunt_held_keys)
 
     # ── VOLUME emission ──
     cycle_stats = load_cycle_stats()
@@ -576,7 +614,7 @@ def main():
     if free_volume > 0:
         for slot_idx in range(free_volume):
             asset, rot_idx = pick_volume_asset(
-                rot_idx, rt["xyz_weight"], held_keys, slot_mode, last_closed
+                rot_idx, rt["xyz_weight"], volume_held_keys, last_volume_closed
             )
             if asset is None:
                 break
@@ -586,32 +624,26 @@ def main():
             max_spread = rt["spread_xyz_bps"] if is_xyz(asset) else rt["spread_main_bps"]
             if ad["spread_bps"] > max_spread:
                 continue
-            coin_key = cfg.normalize_coin_key(asset)
-            last_dir = (slot_mode.get(coin_key, {}) or {}).get("last_direction", "")
-            direction, thesis = choose_volume_direction(ad["funding_regime"], last_dir)
+            direction, thesis = choose_volume_direction(ad["funding_regime"], "")
             if emit_volume_signal(
                 asset, direction, thesis, ad,
                 slot_idx, rt["volume_leverage"], rt["volume_margin"],
                 current_cycle_min,
             ):
                 volume_emitted.append({"asset": asset, "direction": direction, "thesis": thesis})
-                slot_mode[coin_key] = {
-                    "mode": "VOLUME",
-                    "entered_at": cfg.now_iso(),
-                    "last_direction": direction,
-                }
-                held_keys.add(coin_key)
+                # Mark as held for this tick to avoid double-emit
+                volume_held_keys.add(cfg.normalize_coin_key(asset))
 
     save_rotation_index({"index": rot_idx})
 
-    # ── HUNT emission ──
+    # ── HUNT emission (if enabled) ──
     hunt_emitted = []
     hunt_skipped_reason = None
-    if free_hunt > 0:
-        if account_value < rt["min_account_value_for_hunt"]:
+    if HUNT_ENABLED and free_hunt > 0:
+        if hunt_account_value < rt["min_hunt_wallet_balance"]:
             hunt_skipped_reason = (
-                f"account_value {account_value:.2f} < hunt_floor "
-                f"{rt['min_account_value_for_hunt']:.2f}"
+                f"hunt wallet balance {hunt_account_value:.2f} < floor "
+                f"{rt['min_hunt_wallet_balance']:.2f}"
             )
         else:
             hh = load_hunt_history()
@@ -624,8 +656,8 @@ def main():
             else:
                 for asset in HUNT_ASSETS:
                     coin_key = cfg.normalize_coin_key(asset)
-                    if coin_key in held_keys:
-                        hunt_skipped_reason = f"{coin_key} already held"
+                    if coin_key in hunt_held_keys:
+                        hunt_skipped_reason = f"{coin_key} already held on hunt wallet"
                         continue
                     ad = query_asset_data(asset)
                     if ad is None:
@@ -650,34 +682,36 @@ def main():
                             "asset": asset, "direction": direction,
                             "score": score, "reasons": reasons,
                         })
-                        slot_mode[coin_key] = {
-                            "mode": "HUNT",
-                            "entered_at": cfg.now_iso(),
-                            "score": score,
-                            "direction": direction,
-                        }
-                        held_keys.add(coin_key)
+                        hunt_held_keys.add(coin_key)
                         hh["last_emitted_ts"] = time.time()
                 hh["scores"] = hh.get("scores", [])[-50:]
                 save_hunt_history(hh)
 
-    save_slot_mode(slot_mode)
-
     elapsed = time.time() - run_start
     cfg.output({
         "status": "ok",
-        "account_value": round(account_value, 2),
-        "open_positions": len(open_positions),
-        "resting_orders": len(resting_orders),
+        "volume_wallet": VOLUME_WALLET[:10] + "...",
+        "volume_account_value": round(volume_account_value, 2),
+        "volume_positions": len(volume_positions),
+        "volume_resting": len(volume_resting),
+        "hunt_enabled": HUNT_ENABLED,
+        "hunt_wallet": HUNT_WALLET[:10] + "..." if HUNT_ENABLED else None,
+        "hunt_account_value": round(hunt_account_value, 2) if HUNT_ENABLED else None,
+        "hunt_positions": len(hunt_positions),
+        "hunt_resting": len(hunt_resting),
         "slots": {
-            "volume": {"max": rt["volume_slots"], "held": volume_held, "free": free_volume},
-            "hunt":   {"max": rt["hunt_slots"],   "held": hunt_held,   "free": free_hunt},
+            "volume": {"max": rt["volume_slots"], "held": len(volume_held_keys), "free": free_volume},
+            "hunt":   {"max": rt["hunt_slots"] if HUNT_ENABLED else 0,
+                       "held": len(hunt_held_keys), "free": free_hunt},
         },
         "current_cycle_min": current_cycle_min,
         "volume_emitted": volume_emitted,
         "hunt_emitted": hunt_emitted,
         "hunt_skipped_reason": hunt_skipped_reason,
-        "closed_this_tick": sorted(list(closed_keys)),
+        "closed_this_tick": {
+            "volume": sorted(list(closed_volume)),
+            "hunt": sorted(list(closed_hunt)),
+        },
         "elapsed_sec": round(elapsed, 2),
         "_turbine_producer_version": VERSION,
     })
@@ -686,18 +720,30 @@ def main():
 # ═══════════════════════════════════════════════════════════════
 # DAEMON ENTRYPOINT
 # ═══════════════════════════════════════════════════════════════
+#
+# Single daemon manages BOTH wallets. Lock name uses VOLUME_WALLET
+# hash since volume is the operationally-critical mission.
+#
+# alive_check is configured for the volume wallet's runtime — if
+# turbine-volume-tracker is deleted OR the volume scanner is renamed,
+# the daemon self-terminates. Hunt runtime can be deleted independently
+# without affecting the daemon (operator notices via failed
+# push_signal logs and decides to restart manually if needed).
+#
+# Do NOT add an inner scanner_lock(...) inside main() — fcntl flock
+# is not reentrant; nested call raises BlockingIOError every tick.
 
 if __name__ == "__main__":
     _wallet_lock_id = (
-        hashlib.sha256(TURBINE_WALLET.lower().encode()).hexdigest()[:12]
-        if TURBINE_WALLET
+        hashlib.sha256(VOLUME_WALLET.lower().encode()).hexdigest()[:12]
+        if VOLUME_WALLET
         else "unset"
     )
     producer_daemon(
         fn=main,
         interval_seconds=60,
         name=f"turbine-producer-{_wallet_lock_id}",
-        wallet=TURBINE_WALLET,
+        wallet=VOLUME_WALLET,                # volume runtime is alive-check'd
         scanner=VOLUME_SCANNER_NAME,
         tick_timeout=45,
     )

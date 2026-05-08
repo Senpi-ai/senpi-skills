@@ -9,8 +9,8 @@ description: >
   Trading P&L target: pure breakeven.
 
 strategy:
-  wallet: "${TURBINE_WALLET}"
-  budget: 6000
+  wallet: "${TURBINE_VOLUME_WALLET}"
+  budget: 3500
   slots: 7
   margin_per_slot: 500
   trading_risk: aggressive
