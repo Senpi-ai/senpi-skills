@@ -70,6 +70,14 @@ VERSION = "3.0.0"
 VOLUME_SCANNER_NAME = "turbine_volume_signals"
 HUNT_SCANNER_NAME = "turbine_hunt_signals"
 
+# Signal types — passed explicitly to push_signal() per Rachin's review
+# of Cheetah v7.0.0 (PR #209). Don't rely on scanner's defaultSignalType
+# fallback — runtime YAMLs here don't declare one. Distinct types per
+# mode also give audit_query a clean filter for per-mode P&L
+# attribution, which was a v3.0 design goal vs v2.0.x's blended numbers.
+VOLUME_SIGNAL_TYPE = "TURBINE_VOLUME_ROTATION"
+HUNT_SIGNAL_TYPE = "TURBINE_HUNT_HYPE_MOMENTUM"
+
 
 # ═══════════════════════════════════════════════════════════════
 # WALLET RESOLUTION (TURBINE_WALLET only — no STRATEGY_ADDRESS fallback)
@@ -343,12 +351,17 @@ def emit_volume_signal(asset, direction, thesis, ad, slot_index,
         "isXyz": is_xyz(asset),
         "cycleMin": float(current_cycle_min),
     }
+    # signal_type explicit — per Rachin's review of Cheetah PR #209.
+    # The wrapper only forwards declared kwargs; anything else in the
+    # payload dict is dead weight, and the scanner has no
+    # defaultSignalType fallback declared in runtime-volume.yaml.
     try:
         cfg._wrapper_client.push_signal(
             address=TURBINE_WALLET,
             scanner=VOLUME_SCANNER_NAME,
             asset=asset,
             direction=direction,
+            signal_type=VOLUME_SIGNAL_TYPE,
             data=data_block,
         )
         return True
@@ -463,6 +476,7 @@ def emit_hunt_signal(asset, direction, score, reasons, ad, leverage, margin_usd)
             scanner=HUNT_SCANNER_NAME,
             asset=asset,
             direction=direction,
+            signal_type=HUNT_SIGNAL_TYPE,
             data=data_block,
         )
         return True
