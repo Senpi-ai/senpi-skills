@@ -1,10 +1,18 @@
 name: eagle-tracker
-version: 1.0.0
+version: 1.0.1
 description: >
-  Onchain position tracker for BALD EAGLE v3.0 — XYZ Alpha Hunter.
-  Monitors strategy wallet on Hyperliquid for position lifecycle events
-  and wires them into the RatchetStop exit engine.
-  XYZ-tuned wide DSL timings for macro assets.
+  BALD EAGLE v4.1 — XYZ Contrarian (resting-order guard hot-patch).
+  v4.1 (2026-05-05): adds has_resting_orders() with 600s stale-cancel
+  auto-purge. 2026-05-05 audit found a 4-day-old xyz:XYZ100 BUY ALO
+  (oid 406936191678) locking ~$335 of ISOLATED collateral; Bald Eagle
+  was the only v1 agent missing the fleet-standard guard. Now ported
+  from Lemon/Cheetah pattern. Coincides with Erik's XYZ DSL prefix
+  fix deploy 2026-05-05; current open xyz:BRENTOIL position is the
+  ratchet test post-fix.
+
+  v4.0 — CONTRARIAN FLIP (SM Exhaustion Fader on XYZ macro assets).
+  Onchain position tracker. Scanner enters; RatchetStop exits.
+  XYZ-tuned wide DSL timings for macro assets (oil/brent/gold/spx/xyz100).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"

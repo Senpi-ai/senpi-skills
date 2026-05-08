@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Senpi DOG Scanner v2.4
+# Senpi DOG Scanner v2.5
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 """DOG v2.4 — Contrarian Pup (parser fix + DSL loosen for fades).
@@ -267,17 +267,19 @@ def evaluate_assets():
         # Hard gate: minimum SM engagement
         if traders < 30: continue
 
-        # CONTRARIAN EXHAUSTION GATE (v2.2 — widened)
-        # v2.1 shipped with 2.5% gate. Dog-reported data on 2026-04-15 showed
-        # BTC and HYPE were "blowing straight through the 2.5% exhaustion
-        # gates" — 4H moves of 2.5-3% in trending markets aren't exhaustion,
-        # they're continuation candles. Dog fires the fade, the trend
-        # continues, DSL SL fires. Result: 10-trade window, -$53 net,
-        # equity at $782 (approaching the -22% HARD STOP threshold).
-        # v2.2 raises the gate to 4.5% — a meaningful overextension in a
-        # trending market. In ranging markets Dog will still fire but on
-        # more meaningful exhaustion signals.
-        MIN_EXHAUSTION_PCT = 4.5
+        # CONTRARIAN EXHAUSTION GATE
+        # v2.1 (2.5%): too loose — fired on trend-continuation candles,
+        #   -$53 over 10 trades.
+        # v2.2 (4.5%): too strict — fired ZERO times in ~3 weeks across
+        #   BTC/ETH/SOL/HYPE. 4.5% 4h moves on majors are rare events
+        #   (BTC's biggest 4h move in past 44h was +2.27%; majors rarely
+        #   cross 4% in a 4h window).
+        # v2.5 (3.0%): empirical sweet spot. Captures legitimate
+        #   overextension events (~2-4 per week per asset) while still
+        #   rejecting daily 1-2% trend-continuation noise. Combined
+        #   with DEEP_EXHAUSTION_BONUS still triggering at higher levels
+        #   (preserved below), bigger overextensions get +2 score on top.
+        MIN_EXHAUSTION_PCT = 3.0
         if abs(p4h) < MIN_EXHAUSTION_PCT:
             continue  # Not exhausted yet — don't fight a fresh trend
         if (d == "LONG" and p4h < 0) or (d == "SHORT" and p4h > 0):
@@ -533,12 +535,12 @@ def run():
             "execution": {"asset": best["asset"], "direction": best["direction"],
                 "leverage": leverage, "margin": margin,
                 "orderType": "FEE_OPTIMIZED_LIMIT", "ensureExecutionAsTaker": False},
-            "result": result, "_dog_version": "2.4"})
+            "result": result, "_dog_version": "2.5"})
     else:
         cfg.output({"status": "ok", "action": "ENTRY_FAILED",
             "signal": {"asset": best["asset"], "direction": best["direction"],
                 "score": best["score"], "reasons": best["reasons"]},
-            "error": result, "_dog_version": "2.4"})
+            "error": result, "_dog_version": "2.5"})
 
 if __name__ == "__main__":
     try: run()

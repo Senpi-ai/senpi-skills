@@ -4,7 +4,30 @@ name: wolverine-tracker
 # SKILL.md + _wolverine_producer_version. Do not set this to 4.x.x.
 version: 1.0.0
 description: >
-  WOLVERINE v4.1.0 — DSL ratchet T0/T1 patch (fleet-wide).
+  WOLVERINE v4.2.0 — gate calibration fix (2026-05-05). Wolverine
+  was deployed May 2 but produced ZERO trades over 3 days because two
+  gates falsely blocked clean HYPE trends:
+
+    1. mom_4h was grid-based (single 4h candle) instead of trailing
+       window. HYPE multi-day grinds show 0.5-1.5% per 4h candle but
+       cumulative 5-10% over the trend. Single-candle math missed
+       the move. Same bug Kestrel v1.0 had — fixed in Kestrel v1.1
+       with trailing 1H-candle calculation. Same fix applied here.
+
+    2. MIN_4H_STRUCTURE 0.75 (4 of 5 4h candles aligned) was too
+       strict — clean trends with normal pullback structure showed
+       60-65% alignment. Relaxed to 0.65 (3 of 5).
+
+    3. MIN_4H_MAGNITUDE_PCT 1.5% combined with grid-based calc
+       was the killer. Relaxed to 1.0% — combined with trailing
+       window, captures HYPE's typical multi-day cadence.
+
+  Risk: more entries means more potential losers. Worst case: small
+  chop losses (Phase 1 max_loss 20% × 3x leverage = ~$50 per loser).
+  Best case: catch one of HYPE's 10-35% multi-day trends and net
+  +$200-400 (5x apex × +20% peak ROE locked at T2 65% lock).
+
+  v4.1.0 — DSL ratchet T0/T1 patch (fleet-wide).
   v4.0.0 — HYPE Alpha Hunter, v2-runtime-native rewrite.
 
   v3.x was a full-agency scanner with Python-side state. 292 audit

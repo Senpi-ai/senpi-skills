@@ -1,10 +1,23 @@
 name: bison-tracker
-version: 1.0.0
+version: 1.0.1
 description: >
-  Onchain position tracker for BISON v2.0 — conviction holder.
-  Monitors strategy wallet on Hyperliquid for position lifecycle events
-  and wires them into the RatchetStop exit engine.
-  Wide bands for conviction holds. DSL High Water Mode.
+  BISON v2.1 — Conviction Holder (asset whitelist + conviction floor +
+  time-cuts disabled).
+  v2.1 (2026-05-07): scanner ports operator-diagnosed fixes:
+    - Asset whitelist (BTC/ETH/SOL); was top-10-by-volume which let
+      small-caps like ZEC consume the daily slot
+    - minScore 8 → 11; was firing on first mediocre setup post-midnight,
+      now demands real conviction
+  Runtime DSL preset (this file): time-cuts ALL DISABLED per fleet
+  pattern reference_dsl_time_cuts_single_asset.md. v1 DSL fires
+  hard_timeout incorrectly in Phase 2; weak_peak_cut stays as the only
+  time-based cut (self-limiting). Phase 1 max_loss + Phase 2 ratchet
+  ladder own all exits via price action. Phase 2 wide-by-design
+  (T0 trigger 10%/0% lock through T5 100%/85% lock) for conviction
+  breathing room.
+
+  v2.0: Onchain position tracker; conviction holder thesis. Wide bands
+  for conviction holds. DSL High Water Mode via RatchetStop.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -23,20 +36,32 @@ actions:
 
 # RatchetStop configuration (user-facing: DSL)
 # Scanner enters. RatchetStop exits. Scanner must NEVER exit positions.
+#
+# v2.1 (2026-05-07): time-cuts DISABLED per fleet pattern. The original
+# 120-min hard_timeout + 45-min dead_weight_cut were artifacts of the v1
+# scanner architecture before the conviction thesis was crystallized.
+# A "Macro Conviction" thesis cannot tolerate clock-based exits — the
+# whole point is to ride a directional move until it retraces (Phase 2
+# tier breach) or hits the absolute floor (Phase 1 max_loss). v1 DSL
+# also fires hard_timeout in Phase 2 incorrectly per memory
+# reference_dsl_time_cuts_single_asset.md.
+#
+# weak_peak_cut KEPT (self-limiting): if peak ROE never exceeds 3%
+# within 60 min, the position isn't moving in our favor and gets cut.
+# That's a thesis-validity check, not a clock-cut.
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
-    # Time-based exits — conviction holder needs patience
     hard_timeout:
-      enabled: true
+      enabled: false                     # v2.1: DISABLED. Conviction holds run until DSL retrace.
       interval_in_minutes: 120
     weak_peak_cut:
-      enabled: true
+      enabled: true                      # v2.1: KEPT. Self-limiting (only fires if peak ROE never above min_value).
       interval_in_minutes: 60
       min_value: 3.0
     dead_weight_cut:
-      enabled: true
+      enabled: false                     # v2.1: DISABLED. Multi-day thesis tolerates flat windows.
       interval_in_minutes: 45
 
     # Phase 1: Loss protection — wide floors for conviction

@@ -1,54 +1,65 @@
 #!/usr/bin/env python3
-# Senpi WOLVERINE Producer v4.0.0
+# Senpi GRIZZLY Producer v6.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""WOLVERINE v4.0.0 Producer — HYPE alpha signal emitter for v2 runtime.
+"""GRIZZLY v6.0.0 Producer — BTC alpha signal emitter for v2 runtime.
 
-v3.x was a full-agency scanner (load_tc / save_tc / has_resting_orders
-/ Python-side cooldowns / drawdown gate). 292 audit entries on M193170
-since 2026-04-15, mostly schema-validation failures (silent-None bug
-pattern). v4.0 flips to producer + v2 runtime (Polar v4.0 / Vulture
-v3.0 template).
+v5.x was a full-agency scanner: 1073 lines with a 3-mode state machine
+(HUNTING/RIDING/STALKING), Python-side cooldowns + dynamic daily caps,
+reload/scale-in evaluation, and direct create_position calls. The
+state machine drifted across runtime restarts and silent-state-file
+corruption was diagnosable only after the fact.
 
-ARCHITECTURE CHANGE:
-  - Producer (wolverine-producer.py) emits signals via
+v6.0 flips to producer + v2 runtime (Wolverine v4 / Cheetah v6 /
+Vulture v3 template):
+  - Producer (grizzly-producer.py) emits BTC signals via
     `openclaw senpi external-scanner ingest`. NO execution code.
   - Runtime LLM gate is pass-through — producer has applied every
     filter; LLM only catches malformed signals.
   - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-
     loss halt, per-asset cooldown. No Python state to drift / crash.
   - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits.
-  - Trade chain DB emits per-trade telemetry — chain-DB visibility
-    on Wolverine for the first time.
+  - Trade chain DB emits per-trade telemetry — chain DB visibility
+    on Grizzly for the first time.
 
-WHAT'S PRESERVED FROM v3.0.3/v3.0.4:
-  - HYPE single-asset thesis
+WHAT'S PRESERVED FROM v5.8:
+  - Single-asset BTC thesis (Kodiak/Wolverine/Polar family pattern)
   - Six-gate entry validation:
     * GATE 1: 4h trend != NEUTRAL
-    * GATE 2: 4h structural strength ≥ 0.75
+    * GATE 2: 4h structural strength ≥ 0.75 (Kodiak v5.1 fix)
     * GATE 3: 1h matches 4h direction
-    * GATE 4: 15m momentum aligned ≥ MIN_MOM_15M (0.15)
+    * GATE 4: 15m momentum aligned ≥ MIN_MOM_15M (0.05)
     * GATE 5: base-tech floor (strong_15m OR aligned_5m)
-    * GATE 6 (v3.0.3): 4h MAGNITUDE >= 1.5% — rejects dead-flat chop
-      that was killing all 6 Week 5 trades on -0.26% 24h HYPE
+    * GATE 6: v5.5 MACRO V-RECOVERY GATE — block fades within 1.25%
+      of 24h extreme. Diagnosed on 2026-04-23 BTC V-bottom.
   - SM HARD BLOCK if direction opposes
-  - RSI hard gates (74 LONG / 26 SHORT)
+  - RSI hard gates (70 LONG / 30 SHORT) — BTC-tuned
   - Multi-factor scoring (~17 max points)
-  - MIN_SCORE = 9 (config-overridable)
-  - Conviction-tiered leverage: 5x apex (score ≥11), 3x standard (≥9)
-  - DSL preset preserved exactly: time-cuts disabled (v3.0.1/2/4 fixes),
-    Phase 1 max_loss 20% / retrace 8 / 3 breaches, Phase 2 tiers
-    10/15, 20/35, 35/55, 55/70, 80/85
+  - MIN_SCORE = 12 (config-overridable; v5.8 "hit fewer, win bigger")
+  - BTC-specific thresholds: 15m momentum, RSI, move-exhaustion,
+    vol ratio — all preserved verbatim
+  - Conviction-scaled leverage: 10x apex / 10x conviction / 7x default
+
+WHAT'S DROPPED (now runtime-side):
+  - 3-mode state machine (HUNTING/RIDING/STALKING) — runtime tracks
+  - evaluate_reload() — DSL owns position lifecycle, no Python reload
+  - get_dynamic_daily_cap() — risk.guard_rails enforces
+  - has_resting_orders() — runtime tracks open orders
+  - create_position() execution — runtime LLM gate executes
+  - get_safe_leverage() — producer asserts leverage; LLM honors
 
 FLEET PATCHES:
-  - FP-001 quiet hours (00-04 UTC unless apex score 11+)
+  - FP-001 quiet hours (00-04 UTC unless apex score 14+)
   - FP-002 hard rule in SKILL.md (user-conversation Claude sessions
     are read-only — only producer cron + DSL engine are write paths)
+  - FP-003 requireAllConfirmations gate (default true) — every soft
+    confirmation (4TF + SM + Funding + Volume + OI) must fire, not
+    just summed score
 
 Environment / config resolution:
-  Strategy wallet read from config/wolverine-config.json (canonical).
-  WOLVERINE_WALLET_ADDRESS env var supported as optional override.
+  Strategy wallet read from config/grizzly-config.json (canonical).
+  GRIZZLY_WALLET_ADDRESS env var supported as optional override.
 """
 
 import fcntl
@@ -61,14 +72,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import wolverine_config as cfg
+import grizzly_config as cfg
 
 
 # ═══════════════════════════════════════════════════════════════
 # REENTRANCY GUARD
 # ═══════════════════════════════════════════════════════════════
 
-_LOCK_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "wolverine-strategy" / "state"
+_LOCK_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "grizzly-strategy" / "state"
 _LOCK_DIR.mkdir(parents=True, exist_ok=True)
 _LOCK_PATH = _LOCK_DIR / "producer.lock"
 
@@ -97,15 +108,15 @@ def release_lock(lock_file):
         pass
 
 
-VERSION = "4.2.0"
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "wolverine_signals")
+VERSION = "6.0.0"
+SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "grizzly_signals")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 
 
 def _resolve_wallet():
     """Resolve strategy wallet — config.json is the canonical source.
-    Env var WOLVERINE_WALLET_ADDRESS is supported as an optional override."""
-    env_val = (os.environ.get("WOLVERINE_WALLET_ADDRESS") or "").strip()
+    Env var GRIZZLY_WALLET_ADDRESS is supported as an optional override."""
+    env_val = (os.environ.get("GRIZZLY_WALLET_ADDRESS") or "").strip()
     if env_val:
         return env_val
     try:
@@ -118,45 +129,54 @@ STRATEGY_ADDRESS = _resolve_wallet()
 
 
 # ═══════════════════════════════════════════════════════════════
-# CONSTANTS — preserved from v3.0.3 (HYPE-tuned)
+# CONSTANTS — BTC-tuned (preserved verbatim from v5.8)
 # ═══════════════════════════════════════════════════════════════
 
-ASSET = "HYPE"
-MIN_SCORE_DEFAULT = 9             # config-overridable via "minScore"
+ASSET = "BTC"
+MIN_SCORE_DEFAULT = 12          # v5.8: was 10 hardcoded; now config-overridable
+MAX_LEVERAGE = 10               # Fleet-wide ceiling
 
-# Hard gates
-MIN_MOM_15M = 0.15
-MIN_4H_STRUCTURE = 0.65           # v4.2: 0.75 → 0.65. v3.0.3's 0.75
-                                  # required 4 of 5 4h candles aligned —
-                                  # missed multi-day grinds where 1-2
-                                  # pullback candles are normal. 0.65 =
-                                  # 3 of 5 candles, captures clean
-                                  # trends with normal pullback structure.
-MIN_4H_MAGNITUDE_PCT = 1.0        # v4.2: 1.5 → 1.0. Combined with
-                                  # trailing-window calculation below,
-                                  # 1.0% over 4 hours captures HYPE's
-                                  # typical multi-day grind cadence
-                                  # (0.8-1.2% per 4h on cumulative move).
-RSI_MAX_LONG = 72
-RSI_MIN_SHORT = 28
-FUNDING_CROWDED = 0.005
+# BTC-specific momentum thresholds (BTC ~3x slower than SOL)
+MIN_MOM_15M = 0.05              # SOL uses 0.10
+RSI_MAX_LONG = 70               # SOL uses 74 — BTC rarely pushes that extreme
+RSI_MIN_SHORT = 30              # SOL uses 26
+STRONG_4H_PCT = 2.0             # BTC "strong" 4h move (SOL: 4.0)
+MOVE_EXHAUSTION_PCT = 2.5       # SOL: 4.0
+MOVE_TIRING_PCT = 1.5           # SOL: 2.5
+MIN_VOL_RATIO = 1.1             # SOL: 1.2
+FUNDING_EXTREME = 0.0008        # BTC funding lower magnitude than alts
+FUNDING_CROWDED = 0.003
 
-# Move-exhaustion
-STRONG_4H_PCT = 2.5
-MOVE_EXHAUSTION_PCT = 3.5
-MOVE_TIRING_PCT = 2.0
+# v5.3 4h structural strength floor — Kodiak v5.1 ported.
+# Marginal patterns (60% threshold) flip on the next candle close.
+# 75% (4 of 5 candles) rejects bull-rally pullbacks that briefly
+# scored as BEARISH. Live failure 2026-04-23: BTC $70k→$78k run
+# produced 9 of 15 SHORT losses at 60% threshold.
+MIN_4H_STRUCTURE = 0.75
 
-# Conviction-scaled leverage tiers (preserved from v3.x)
+# v5.5 MACRO V-RECOVERY GATE.
+# 4h structural metric is lagging — takes 8-12h for 4h candle structure
+# to break after a reversal. During V-recoveries the 4h gate still says
+# "BEARISH 100%" while price has rallied 1-2% off the 24h low.
+# Live failure 2026-04-23: BTC V-bottomed at $76.4k at ~04:00 UTC,
+# rallied to $77,495 by 10:38 UTC (+1.43% off low). trend_strength_4h
+# was 0.80, fired SHORT. BTC continued to $78,063. Second SHORT at
+# 14:12 UTC had trend_strength_4h = 1.0 and fired again. Both losers.
+# This gate checks distance from 24h extreme using 1h-candle highs/lows.
+# Block SHORTs within 1.25% of 24h low; mirror for LONGs off 24h high.
+MACRO_VRECOVERY_DISTANCE_PCT = 1.25
+
+# Conviction-scaled leverage tiers (v5.8 — apex pushes 10x; BTC has
+# less wick risk than alts so safe to apex-lever)
 LEVERAGE_TIERS = [
-    {"min_score": 11, "leverage": 5, "label": "apex"},
-    {"min_score": 9,  "leverage": 3, "label": "standard"},
+    {"min_score": 14, "leverage": 10, "label": "apex"},
+    {"min_score": 12, "leverage": 10, "label": "conviction"},
 ]
-DEFAULT_LEVERAGE = 3
-MAX_LEVERAGE = 5
+DEFAULT_LEVERAGE = 7
 
 
 # ═══════════════════════════════════════════════════════════════
-# HELPERS
+# HELPERS (identical to Kodiak/Wolverine — shared family math)
 # ═══════════════════════════════════════════════════════════════
 
 def safe_float(v, d=0.0):
@@ -235,16 +255,15 @@ def volume_ratio(candles, lookback=10):
 
 
 def volume_trend(candles, lookback=6):
-    """Simple trend over last N candles — % change avg(latest 3) vs avg(prior 3)."""
-    if len(candles) < lookback:
+    if len(candles) < lookback + 2:
         return 0
-    recent = [candle_volume(c) for c in candles[-3:]]
-    prior = [candle_volume(c) for c in candles[-6:-3]]
-    avg_r = sum(recent) / max(1, len(recent))
-    avg_p = sum(prior) / max(1, len(prior))
-    if avg_p == 0:
+    vols = [candle_volume(c) for c in candles[-(lookback + 2):]]
+    half = lookback // 2
+    recent = sum(vols[-half:]) / half if half > 0 else 1
+    earlier = sum(vols[:half]) / half if half > 0 else 1
+    if earlier == 0:
         return 0
-    return ((avg_r - avg_p) / avg_p) * 100
+    return ((recent - earlier) / earlier) * 100
 
 
 def get_leverage_tier(score):
@@ -255,21 +274,33 @@ def get_leverage_tier(score):
 
 
 # ═══════════════════════════════════════════════════════════════
-# v4.0 fleet patches
+# v5.8 fleet patches
 # ═══════════════════════════════════════════════════════════════
+
+def _config():
+    try:
+        return cfg.load_config() or {}
+    except Exception:
+        return {}
+
 
 def get_min_score():
     try:
-        return int(cfg.load_config().get("minScore", MIN_SCORE_DEFAULT))
+        return int(_config().get("minScore", MIN_SCORE_DEFAULT))
     except (TypeError, ValueError):
         return MIN_SCORE_DEFAULT
 
 
 def in_quiet_hours():
-    qh = (cfg.load_config() or {}).get("quietHours") or {}
-    start = int(qh.get("startUtc", 0))
-    end = int(qh.get("endUtc", 4))
-    apex = int(qh.get("apexBypassScore", 11))
+    """FP-001: skip emission during low-liquidity UTC window.
+    Default 00:00-04:00 UTC. Apex setups (score >= apex_bypass) bypass.
+    Returns (in_quiet: bool, hour: int, apex_bypass: int)."""
+    c = _config()
+    qh = c.get("quietHours") or {}
+    # Support both flat (v5.8) and nested (Wolverine v4) forms
+    start = int(qh.get("startUtc", c.get("quietHoursStartUtc", 0)))
+    end = int(qh.get("endUtc", c.get("quietHoursEndUtc", 4)))
+    apex = int(qh.get("apexBypassScore", c.get("quietHoursApexBypassScore", 14)))
     if start == end:
         return False, -1, apex
     h = datetime.now(timezone.utc).hour
@@ -278,11 +309,34 @@ def in_quiet_hours():
     return (h >= start or h < end), h, apex
 
 
+def all_confirmations_present(thesis):
+    """FP-003: require each soft confirmation to contribute, not just
+    score-summed. Five Kodiak-family confirmations (4TF + SM + Funding
+    + Volume + OI) must all fire. Returns (ok: bool, missing: list)."""
+    reasons = thesis.get("reasons") or []
+    needed = {
+        "4TF_ALIGNED": ("4TF_aligned",),
+        "SM_ALIGNED": ("sm_aligned_",),
+        "FUNDING_OK": ("funding_pays_",),
+        "VOLUME": ("vol_",),
+        "OI_ACCELERATING": ("OI_ACCELERATING_", "OI_rising_", "oi_growing_"),
+    }
+    missing = []
+    for label, prefixes in needed.items():
+        if not any(any(r.startswith(p) for p in prefixes) for r in reasons):
+            missing.append(label)
+    return (not missing), missing
+
+
+def require_all_confirmations_enabled():
+    return bool(_config().get("requireAllConfirmations", True))
+
+
 # ═══════════════════════════════════════════════════════════════
 # DATA FETCH
 # ═══════════════════════════════════════════════════════════════
 
-def get_hype_full_picture():
+def get_btc_full_picture():
     raw = cfg.mcporter_call(
         "market_get_asset_data", asset=ASSET,
         candle_intervals=["5m", "15m", "1h", "4h"],
@@ -294,8 +348,8 @@ def get_hype_full_picture():
     return data if isinstance(data, dict) else None
 
 
-def get_hype_sm_direction():
-    """Return (direction, pct, traders, cc_15m) for HYPE SM signal."""
+def get_btc_sm_direction():
+    """Return (direction, pct, traders, cc_15m) for BTC SM signal."""
     raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
     if not raw:
         return None, 0, 0, 0
@@ -355,7 +409,7 @@ def get_funding_regime():
     return None
 
 
-def get_funding_history_hype():
+def get_funding_history_btc():
     try:
         fh = cfg.mcporter_call("market_get_funding_history", asset=ASSET)
         if fh:
@@ -365,24 +419,6 @@ def get_funding_history_hype():
     except Exception:
         pass
     return None
-
-
-def get_btc_correlation():
-    raw = cfg.mcporter_call(
-        "market_get_asset_data", asset="BTC",
-        candle_intervals=["15m", "1h"],
-        include_funding=False, include_order_book=False,
-    )
-    if not raw:
-        return None, None
-    data = raw.get("data", raw) if isinstance(raw, dict) else None
-    if not isinstance(data, dict):
-        return None, None
-    candles_15m = data.get("candles", {}).get("15m", [])
-    candles_1h = data.get("candles", {}).get("1h", [])
-    mom_15m = price_momentum(candles_15m, 1) if len(candles_15m) >= 2 else None
-    mom_1h = price_momentum(candles_1h, 1) if len(candles_1h) >= 2 else None
-    return mom_15m, mom_1h
 
 
 def fetch_held_assets():
@@ -413,20 +449,20 @@ def fetch_held_assets():
 
 
 # ═══════════════════════════════════════════════════════════════
-# THESIS BUILDER — preserved from v3.0.3 build_hype_thesis
+# THESIS BUILDER — preserved from v5.8 build_btc_thesis
 # ═══════════════════════════════════════════════════════════════
 
-def build_hype_thesis():
-    """Build HYPE entry thesis. Returns thesis dict or {"blocked":True,"reason":...}."""
-    hype_data = get_hype_full_picture()
-    if not hype_data:
+def build_btc_thesis():
+    """Build BTC entry thesis. Returns thesis dict or {"blocked":True,"reason":...}."""
+    btc_data = get_btc_full_picture()
+    if not btc_data:
         return {"blocked": True, "reason": "no_asset_data"}
 
-    candles_5m = hype_data.get("candles", {}).get("5m", [])
-    candles_15m = hype_data.get("candles", {}).get("15m", [])
-    candles_1h = hype_data.get("candles", {}).get("1h", [])
-    candles_4h = hype_data.get("candles", {}).get("4h", [])
-    asset_ctx = hype_data.get("asset_context", hype_data.get("assetContext", {})) or {}
+    candles_5m = btc_data.get("candles", {}).get("5m", [])
+    candles_15m = btc_data.get("candles", {}).get("15m", [])
+    candles_1h = btc_data.get("candles", {}).get("1h", [])
+    candles_4h = btc_data.get("candles", {}).get("4h", [])
+    asset_ctx = btc_data.get("asset_context", btc_data.get("assetContext", {})) or {}
     funding = safe_float(asset_ctx.get("funding", 0))
 
     if len(candles_5m) < 12 or len(candles_15m) < 8 or len(candles_1h) < 8 or len(candles_4h) < 6:
@@ -439,72 +475,79 @@ def build_hype_thesis():
     if trend_4h == "NEUTRAL":
         return {"blocked": True, "reason": "4h_NEUTRAL"}
 
-    # GATE 2: strong 4h structural alignment
+    # GATE 2: strong 4h structural alignment (v5.3 Kodiak v5.1 fix)
     if trend_strength_4h < MIN_4H_STRUCTURE:
         return {"blocked": True, "reason": f"4h_weak_{trend_strength_4h:.0%}"}
 
     direction = "LONG" if trend_4h == "BULLISH" else "SHORT"
 
     # GATE 3: 1h matches 4h
-    trend_1h, _ = trend_structure(candles_1h)
+    trend_1h, trend_strength_1h = trend_structure(candles_1h)
     if trend_1h != trend_4h:
         return {"blocked": True, "reason": f"1h_{trend_1h}_vs_4h_{trend_4h}"}
 
-    # GATE 4: 15m momentum confirms
+    # GATE 4: 15m momentum confirms direction
     mom_5m = price_momentum(candles_5m, 1)
     mom_15m = price_momentum(candles_15m, 1)
     mom_1h = price_momentum(candles_1h, 2)
-
-    # v4.2: mom_4h via TRAILING WINDOW using 1H candles, not grid-based
-    # 4h candle. The grid-based approach (price_momentum(candles_4h, 1))
-    # only sees ONE 4h candle's change — typically 0.5-1.5% on HYPE
-    # multi-day grinds. The trailing window captures cumulative momentum
-    # across the past 4 hours, matching how price actually moved. Same
-    # fix Kestrel got in v1.1 (kestrel-scanner v1.1 trailing-4H comment).
-    if len(candles_1h) >= 5:
-        close_1h_now = candle_close(candles_1h[-1])
-        close_1h_4h_ago = candle_close(candles_1h[-5])
-        if close_1h_4h_ago > 0:
-            mom_4h = ((close_1h_now - close_1h_4h_ago) / close_1h_4h_ago) * 100
-        else:
-            mom_4h = price_momentum(candles_4h, 1)   # fallback to grid-based
-    else:
-        mom_4h = price_momentum(candles_4h, 1)       # not enough 1h candles
+    mom_4h = price_momentum(candles_4h, 1)
 
     if direction == "LONG" and mom_15m < MIN_MOM_15M:
         return {"blocked": True, "reason": f"15m_too_weak_{mom_15m:+.2f}"}
     if direction == "SHORT" and mom_15m > -MIN_MOM_15M:
         return {"blocked": True, "reason": f"15m_too_weak_{mom_15m:+.2f}"}
 
-    # GATE 5: Base-tech floor
+    # GATE 5: Base-tech-score floor (v5.3 Kodiak v5.1 pattern)
     strong_15m = abs(mom_15m) > MIN_MOM_15M * 2
     aligned_5m = (direction == "LONG" and mom_5m > 0) or (direction == "SHORT" and mom_5m < 0)
     if not (strong_15m or aligned_5m):
         return {"blocked": True,
                 "reason": f"base_tech_weak_15m({mom_15m:+.2f})_5m({mom_5m:+.2f})"}
 
-    # GATE 6 (v3.0.3): 4h MAGNITUDE floor — reject dead-flat chop.
-    # v4.2: now uses trailing-window mom_4h above, threshold lowered to 1.0%.
-    if abs(mom_4h) < MIN_4H_MAGNITUDE_PCT:
-        return {"blocked": True, "reason": f"4h_magnitude_too_flat_{mom_4h:+.2f}_min_{MIN_4H_MAGNITUDE_PCT}"}
+    # GATE 6: v5.5 MACRO V-RECOVERY GATE — preserved verbatim
+    # See module docstring for live failure case 2026-04-23.
+    if len(candles_1h) >= 24:
+        highs_1h_24 = [candle_high(c) for c in candles_1h[-24:]]
+        lows_1h_24 = [candle_low(c) for c in candles_1h[-24:]]
+        high_24h = max([h for h in highs_1h_24 if h > 0], default=0)
+        low_24h = min([l for l in lows_1h_24 if l > 0], default=0)
+        if direction == "SHORT" and low_24h > 0:
+            distance_from_low_pct = (price - low_24h) / low_24h * 100
+            if distance_from_low_pct > MACRO_VRECOVERY_DISTANCE_PCT:
+                return {"blocked": True,
+                        "reason": f"V_RECOVERY_BLOCK_SHORT_{distance_from_low_pct:.2f}%_off_low"}
+        if direction == "LONG" and high_24h > 0:
+            distance_from_high_pct = (high_24h - price) / high_24h * 100
+            if distance_from_high_pct > MACRO_VRECOVERY_DISTANCE_PCT:
+                return {"blocked": True,
+                        "reason": f"V_RECOVERY_BLOCK_LONG_{distance_from_high_pct:.2f}%_off_high"}
 
     # SCORING
     score = 0
     reasons = []
 
+    # 4h trend (3 pts — the foundation)
     score += 3
     reasons.append(f"4h_{trend_4h.lower()}_{trend_strength_4h:.0%}")
+
+    # 1h trend agreement (2 pts)
     score += 2
     reasons.append(f"1h_confirms_{mom_1h:+.2f}%")
+
+    # 15m momentum strength (1 pt if strong)
     if strong_15m:
         score += 1
         reasons.append(f"15m_strong_{mom_15m:+.2f}%")
+    else:
+        reasons.append(f"15m_{mom_15m:+.2f}%")
+
+    # 5m alignment (1 pt — all 4 timeframes agree)
     if aligned_5m:
         score += 1
         reasons.append("4TF_aligned")
 
-    # SM positioning — HARD BLOCK if opposes
-    sm_dir, sm_pct, sm_count, sm_cc_15m = get_hype_sm_direction()
+    # SM positioning — HARD BLOCK if opposes (BTC has strongest SM signal)
+    sm_dir, sm_pct, sm_count, sm_cc_15m = get_btc_sm_direction()
     if sm_dir == direction:
         score += 2
         reasons.append(f"sm_aligned_{sm_pct:.0f}%_{sm_count}traders")
@@ -514,7 +557,7 @@ def build_hype_thesis():
     elif sm_dir and sm_dir != "NEUTRAL" and sm_dir != direction:
         return {"blocked": True, "reason": f"sm_opposes_{sm_dir}_vs_setup_{direction}"}
 
-    # SM 15m freshness
+    # 15m velocity freshness
     if sm_cc_15m <= 0:
         score -= 3
         reasons.append(f"15M_STALE_PENALTY ({sm_cc_15m:.2f})")
@@ -552,7 +595,7 @@ def build_hype_thesis():
         reasons.append(f"REGIME_{regime}")
 
     # Funding persistence
-    fh = get_funding_history_hype()
+    fh = get_funding_history_btc()
     persistence_h = None
     if fh:
         ph = fh.get("persistence_hours")
@@ -564,9 +607,9 @@ def build_hype_thesis():
             score += 1
             reasons.append(f"FUNDING_PERSISTENT_{persistence_h:.0f}h")
 
-    # Volume
+    # Volume confirmation
     vol_1h = volume_ratio(candles_1h)
-    if vol_1h >= 1.2:
+    if vol_1h >= MIN_VOL_RATIO:
         score += 1
         reasons.append(f"vol_{vol_1h:.1f}x")
     elif vol_1h < 0.7:
@@ -578,34 +621,33 @@ def build_hype_thesis():
         score += 1
         reasons.append(f"vol_rising_{vt:+.0f}%")
 
-    # OI velocity
-    oi_vel = hype_data.get("oi_velocity") if isinstance(hype_data.get("oi_velocity"), dict) else {}
-    oi_change = None
-    if isinstance(oi_vel, dict):
-        oi_change = oi_vel.get("oi_change_pct_1h")
-        if oi_change is not None:
-            try:
-                oi_change = float(oi_change)
-                if oi_change > 5:
-                    score += 2
-                    reasons.append(f"OI_ACCELERATING_{oi_change:+.1f}%")
-                elif oi_change > 2:
-                    score += 1
-                    reasons.append(f"OI_rising_{oi_change:+.1f}%")
-                elif oi_change < -3:
-                    score -= 1
-                    reasons.append(f"OI_draining_{oi_change:+.1f}%")
-            except (TypeError, ValueError):
-                oi_change = None
+    # OI growth proxy (legacy fallback if OI velocity missing)
+    vol_recent = sum(candle_volume(c) for c in candles_1h[-3:])
+    vol_earlier = sum(candle_volume(c) for c in candles_1h[-6:-3])
+    oi_proxy = ((vol_recent - vol_earlier) / vol_earlier * 100) if vol_earlier > 0 else 0
+    if oi_proxy > 10:
+        score += 1
+        reasons.append(f"oi_growing_{oi_proxy:+.0f}%")
 
-    # BTC correlation
-    btc_mom_15m, btc_mom_1h = get_btc_correlation()
-    if btc_mom_15m is not None and btc_mom_1h is not None:
-        btc_agrees = (direction == "LONG" and btc_mom_15m > 0 and btc_mom_1h > 0) or \
-                     (direction == "SHORT" and btc_mom_15m < 0 and btc_mom_1h < 0)
-        if btc_agrees:
-            score += 1
-            reasons.append(f"btc_confirms_{btc_mom_1h:+.2f}%")
+    # OI velocity (real OI data when available)
+    oi_vel = btc_data.get("oi_velocity", {}) if isinstance(btc_data.get("oi_velocity"), dict) else {}
+    oi_change = None
+    oi_vel_1h = oi_vel.get("1h", {}) if isinstance(oi_vel.get("1h"), dict) else {}
+    oi_vel_change = oi_vel_1h.get("change_pct")
+    if oi_vel_change is not None:
+        try:
+            oi_change = float(oi_vel_change)
+            if oi_change > 5:
+                score += 2
+                reasons.append(f"OI_ACCELERATING_{oi_change:+.1f}%")
+            elif oi_change > 2:
+                score += 1
+                reasons.append(f"OI_rising_{oi_change:+.1f}%")
+            elif oi_change < -3:
+                score -= 1
+                reasons.append(f"OI_draining_{oi_change:+.1f}%")
+        except (TypeError, ValueError):
+            oi_change = None
 
     # RSI hard gates + bonus
     closes_1h = [candle_close(c) for c in candles_1h]
@@ -647,8 +689,6 @@ def build_hype_thesis():
         "regime": regime,
         "persistence_h": persistence_h,
         "oi_change_1h": oi_change,
-        "btc_mom_15m": btc_mom_15m,
-        "btc_mom_1h": btc_mom_1h,
         "vol_1h": vol_1h,
         "mom": {"5m": mom_5m, "15m": mom_15m, "1h": mom_1h, "4h": mom_4h},
         "trend_4h": trend_4h,
@@ -664,12 +704,12 @@ def push_signal(thesis, held_assets):
     if not STRATEGY_ADDRESS:
         print(
             "ERROR: strategy wallet not resolved — set 'wallet' in "
-            "wolverine-config.json (preferred) or WOLVERINE_WALLET_ADDRESS env var",
+            "grizzly-config.json (preferred) or GRIZZLY_WALLET_ADDRESS env var",
             file=sys.stderr,
         )
         return False
 
-    if "HYPE" in {h.upper() for h in held_assets}:
+    if "BTC" in {h.upper() for h in held_assets}:
         return False
 
     leverage, tier_label = get_leverage_tier(thesis["score"])
@@ -678,8 +718,8 @@ def push_signal(thesis, held_assets):
     payload = {
         "asset": ASSET,
         "direction": thesis["direction"],
-        "score": thesis["score"] / 17.0,
-        "signal_type": "WOLVERINE_HYPE_HYBRID",
+        "score": thesis["score"] / 17.0,  # normalize 0-1 (theoretical max ~17)
+        "signal_type": "GRIZZLY_BTC_TREND",
         "data": {
             "score": thesis["score"],
             "tier": tier_label,
@@ -700,8 +740,6 @@ def push_signal(thesis, held_assets):
             "priceChange15m": mom["15m"],
             "priceChange1h": mom["1h"],
             "priceChange4h": mom["4h"],
-            "btcMom15m": thesis.get("btc_mom_15m"),
-            "btcMom1h": thesis.get("btc_mom_1h"),
             "heldAssets": held_assets,
         },
     }
@@ -715,15 +753,31 @@ def push_signal(thesis, held_assets):
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
         if result.returncode != 0:
-            print(f"INGEST_FAILED HYPE: {result.stderr}", file=sys.stderr)
+            # Forensic logging (Vulture v3.1.1 pattern) — capture rc + both
+            # stderr and stdout + payload, so any future ingest failure is
+            # self-diagnosing from the producer log alone.
+            print(
+                f"INGEST_FAILED BTC: rc={result.returncode} "
+                f"stderr={result.stderr.strip()!r} "
+                f"stdout={result.stdout.strip()!r} "
+                f"payload={json.dumps(payload)}",
+                file=sys.stderr,
+            )
             return False
         response = json.loads(result.stdout) if result.stdout.strip() else {}
         if not response.get("ok", False):
-            print(f"INGEST_REJECTED HYPE: {response.get('error', {})}", file=sys.stderr)
+            print(
+                f"INGEST_REJECTED BTC: error={response.get('error', {})} "
+                f"payload={json.dumps(payload)}",
+                file=sys.stderr,
+            )
             return False
         return True
     except Exception as e:
-        print(f"INGEST_EXCEPTION HYPE: {e}", file=sys.stderr)
+        print(
+            f"INGEST_EXCEPTION BTC: {e!r} payload={json.dumps(payload)}",
+            file=sys.stderr,
+        )
         return False
 
 
@@ -738,12 +792,12 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_wolverine_producer_version": VERSION,
+            "_grizzly_producer_version": VERSION,
         }))
         return
 
     try:
-        thesis = build_hype_thesis()
+        thesis = build_btc_thesis()
 
         if thesis.get("blocked"):
             elapsed = time.time() - run_start
@@ -752,7 +806,7 @@ def main():
                 "heartbeat": "NO_REPLY",
                 "note": f"BLOCKED: {thesis['reason']}",
                 "elapsed_sec": round(elapsed, 2),
-                "_wolverine_producer_version": VERSION,
+                "_grizzly_producer_version": VERSION,
             }))
             return
 
@@ -764,7 +818,7 @@ def main():
                 "note": f"score_low {thesis['score']}/{min_score}",
                 "direction": thesis["direction"],
                 "reasons": thesis["reasons"],
-                "_wolverine_producer_version": VERSION,
+                "_grizzly_producer_version": VERSION,
             }))
             return
 
@@ -776,9 +830,23 @@ def main():
                 "heartbeat": "NO_REPLY",
                 "note": f"QUIET_HOURS hour={current_hour}_UTC score={thesis['score']}_below_apex_{apex_bypass}",
                 "direction": thesis["direction"],
-                "_wolverine_producer_version": VERSION,
+                "_grizzly_producer_version": VERSION,
             }))
             return
+
+        # FP-003 require-all-confirmations
+        if require_all_confirmations_enabled():
+            ok, missing = all_confirmations_present(thesis)
+            if not ok:
+                print(json.dumps({
+                    "status": "ok",
+                    "heartbeat": "NO_REPLY",
+                    "note": f"MISSING_CONFIRMATIONS {missing} score={thesis['score']}",
+                    "direction": thesis["direction"],
+                    "reasons": thesis["reasons"],
+                    "_grizzly_producer_version": VERSION,
+                }))
+                return
 
         held_assets = fetch_held_assets()
         pushed = push_signal(thesis, held_assets)
@@ -793,7 +861,7 @@ def main():
             "reasons": thesis["reasons"][:5],
             "held_assets": held_assets,
             "elapsed_sec": round(elapsed, 2),
-            "_wolverine_producer_version": VERSION,
+            "_grizzly_producer_version": VERSION,
         }))
     finally:
         release_lock(lock)

@@ -1,8 +1,27 @@
-# 🦬 Bison v2.0 — Multi-Asset Smart Money Follower
+# 🦬 Bison v2.1 — BTC/ETH/SOL Conviction Holder
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-BISON v2.0 — Conviction Holder (Hardened). Top 10 assets by volume. All signals are score contributors — no hard gates.
+**BTC/ETH/SOL whitelist. Conviction floor (minScore 11). No time-cuts.**
+DSL ratchet ladder owns all exits. One position at a time, conviction-scaled
+margin (25-37%), conservative leverage (operator default 5x).
+
+v2.1 (2026-05-07): three changes from v2.0 to align the agent with its
+"Macro Conviction" thesis instead of the "Midnight Calendar Entry" pattern
+that v2.0 was empirically falling into:
+
+- **Hard asset whitelist** (was top-10 by volume) — removes small-cap
+  volume-spikes from hijacking the daily slot. Only BTC/ETH/SOL by default.
+  Override via `"allowedAssets": [...]` in `bison-config.json`.
+- **minScore 8 → 11** — demands real conviction (5/6 components fire),
+  not first-bar-crossing. Risk: dormant days when no setup hits 11.
+  That's the design intent.
+- **Time-cuts disabled** — `hard_timeout` and `dead_weight_cut` removed
+  from runtime DSL preset. Phase 1 max_loss + Phase 2 ratchet ladder own
+  all exits. weak_peak_cut kept as the only time-based cut (self-limiting).
+
+v2.0 architecture preserved: scanner enters via `create_position` internally
+(Wolverine pattern), RatchetStop exits, no scanner-side thesis re-evaluation.
 
 ## Install
 

@@ -1,6 +1,46 @@
 name: jaguar-tracker
 version: 3.4.0
 description: >
+  Jaguar v3.7 — runtime risk.guard_rails: cap losers, ride winners.
+  v3.4 + v3.5 + v3.6 (operator's held+pending dedup + config-driven
+  startingBudget) opened the floodgates: 7 entries in 90 min on
+  2026-05-06 vs original "1 amazing trade per day" striker thesis.
+  Producer-side dynamic cap was bypassed via STARTING_BUDGET hack.
+  Wrong layer for the fix.
+  v3.7 moves entry-cap policy to the RUNTIME via risk.guard_rails:
+    - max_entries_per_day: 3 (hard cap when day is RED)
+    - bypass_max_entries_per_day_on_profit: true (no cap when GREEN)
+    - daily_loss_limit_pct: 10 (catastrophic intraday halt)
+    - drawdown_halt_pct: 25 (lifetime circuit breaker)
+    - max_consecutive_losses: 3 + cooldown_minutes: 60
+    - per_asset_cooldown_minutes: 120 (matches Jaguar's existing cooldown)
+  Discipline: top 3 by score per day when losing. When winning today,
+  no cap — let the hot hand ride. Producer's get_dynamic_daily_cap
+  becomes redundant defense-in-depth; runtime is the authoritative gate.
+  STARTING_BUDGET hack can be reverted to $1000 (real value) once v3.7
+  is live.
+
+  Jaguar v3.6 — held+pending dedup + config-driven starting_budget
+  (operator hot-patched 2026-05-06). Ports Scorpion v4.1.1 dedup
+  (held_assets ∪ pending_open_orders skip) to fix position-pyramiding
+  bug observed live: NEAR went $25 → $398 margin in 60 seconds via 5
+  "DSL position increased" events on the same signal during partial-fill
+  state. Same Pangolin v2.1 / Scorpion v4.1.0 dedup-bug-class. Also
+  ports Grizzly v5.2 _resolve_starting_budget() pattern — operator can
+  set startingBudget in jaguar-config.json instead of editing scanner.py.
+
+  Jaguar v3.5 — per-asset leverage clamp fix.
+  Live failure 2026-05-06: XMR LONG at score 10 tried 10x; HL rejected
+  with "Max leverage for XMR is 5, got 10." Producer was picking
+  leverage from conviction tier without clamping to per-asset HL max.
+  Other fleet agents (Wolverine, Grizzly, Cheetah) all use the same
+  get_safe_leverage() pattern that queries strategy_get_asset_trading_limits
+  and clamps to min(desired, asset_max, MAX_LEVERAGE). v3.5 ports that
+  pattern to Jaguar. Affected assets: XMR, kBONK, kPEPE-class small
+  caps, and any HIP-3 instrument with HL caps below the fleet 10x
+  ceiling. Without this fix ~5-10% of striker signals silently fail
+  at execute_entry without retry. Other striker logic unchanged.
+
   Jaguar v3.4 — Striker-only (ACTUAL dormancy root cause found).
   v3.3 widened striker gates but live diag revealed CHIP SHORT (score 11)
   and XMR SHORT (score 9) both got valid signals through — only to be
@@ -15,6 +55,29 @@ description: >
 strategy:
   wallet: "${WALLET_ADDRESS}"
   enabled: true
+
+# ── RISK GUARD RAILS (v3.7) ──
+# Authoritative entry-cap layer. Producer's Python get_dynamic_daily_cap
+# becomes redundant defense-in-depth; runtime owns the gate.
+#
+# Policy: cap losers, ride winners.
+#   - When today's PnL > 0 → bypass max_entries_per_day → unlimited entries
+#   - When today's PnL ≤ 0 → enforce max 3/day → top 3 by score, then stop
+#
+# Per-asset cooldown 120min preserves Jaguar's existing same-coin throttle.
+# drawdown_reset_on_day_rollover: false avoids the cross-day-reset leak
+# observed elsewhere in the fleet.
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: true
+    max_consecutive_losses: 3
+    cooldown_minutes: 60
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 120
 
 # ── SCANNERS ──
 scanners:

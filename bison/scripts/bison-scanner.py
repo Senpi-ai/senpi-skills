@@ -1,9 +1,60 @@
 #!/usr/bin/env python3
-# Senpi BISON Scanner v2.0
+# Senpi BISON Scanner v2.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""BISON Scanner v2.0 — Conviction Holder (Hardened for Runtime).
+"""BISON Scanner v2.1 — Conviction Holder (asset whitelist + conviction floor).
+
+v2.1 changes (2026-05-07, operator-diagnosed):
+
+Honest self-assessment from the operator triggered this version:
+  "Bison is currently functioning as a 'Midnight Calendar Entry' bot,
+   not a 'Macro Conviction' bot. Because it fires at the first mediocre
+   setup (Score=8) after the daily counter resets at midnight UTC, it
+   is completely blind to actual high-conviction macro setups that occur
+   during US or EU market hours. The 5/7 win rate is pure luck/drift
+   in a somewhat favorable market, not alpha."
+
+Evidence supporting this read:
+  - 12 entries in 7 days, ALL within 00:01-01:30 UTC window
+  - 6/7 winners on BTC (the home asset), 0/1 win on ZEC (a small-cap
+    that volume-spiked into top-10 on May 4 and consumed the daily slot
+    at -$27)
+  - The maxEntriesPerDay=1 + counter-reset-at-midnight + minScore=8 =
+    "first valid setup wins, regardless of quality"
+
+Three changes target each axis of that failure mode:
+
+1. ASSET WHITELIST (top-impact): replace "top 10 by 24h volume" with
+   hardcoded BTC/ETH/SOL whitelist. Operator-suggested. Removes the
+   ZEC-class "small-cap volume-spikes into universe → consumes daily
+   slot → loses" failure mode. Empirical: 7/9 BTC trades won, 0/1 ZEC
+   won. Stripping alts removes variance without removing wins.
+
+   Override path: operators can set "allowedAssets": ["BTC","ETH","SOL",...]
+   in bison-config.json to customize without code change.
+
+2. MIN_SCORE 8 → 11: raise the conviction bar. Score 8 = bare-minimum
+   4 components fire (4h+1h+1h_mom+sm); Score 11 = 5/6 components
+   fire including momentum strength + funding alignment + volume
+   confirmation. Real conviction, not "first thing that crosses the bar."
+
+   Risk: dormant days when no setup hits 11. That's the design intent
+   for a conviction holder. Skip days without conviction.
+
+3. DSL time-cuts DISABLED in runtime.yaml (handled separately): per
+   fleet pattern reference_dsl_time_cuts_single_asset.md, Kodiak-family
+   conviction holders disable hard_timeout + dead_weight_cut entirely.
+   v1 DSL fires hard_timeout in Phase 2 incorrectly. weak_peak_cut
+   stays as the only time-cut (self-limiting). Phase 1 max_loss + Phase
+   2 ladder own all exits via price action.
+
+NOT changed:
+  - leverage 5x default (operator's choice; works for conviction holds)
+  - maxEntriesPerDay 1 (one bet per day = conviction concentration)
+  - cooldownMinutes 360 (post-loss per-asset cooldown)
+  - DSL Phase 2 tiers (already wide-by-design for conviction breathing)
+  - SM hard block, RSI gates (handled in scoring)
 
 v2.0 changes from fleet audit + hardening pass:
 - ALL hard gates converted to score contributors. Nothing kills a signal
@@ -41,6 +92,15 @@ MIN_LEVERAGE = 7
 XYZ_BANNED = True
 MAX_DAILY_LOSS_PCT = 10
 MAX_POSITIONS = 3
+
+# v2.1 (2026-05-07): asset whitelist. Bison's scoring rubric (4H trend +
+# 1H confirm + SM consensus + funding regime + RSI room) was tuned for
+# liquid majors. Small-caps have noisier 4H structure and less reliable
+# institutional flow. Bison's only meaningful loss in 7 days came from
+# a small-cap (ZEC) that volume-spiked into the top-10 universe and
+# consumed the single daily slot. Whitelist removes that failure class.
+# Override via "allowedAssets" in bison-config.json.
+ALLOWED_ASSETS_DEFAULT = ["BTC", "ETH", "SOL"]
 
 # Bison-specific DSL — wider tiers than Orca for conviction holds
 BISON_DSL_TIERS = [
@@ -139,25 +199,41 @@ def calc_rsi(closes, period=14):
 
 # ─── Data Fetchers ────────────────────────────────────────────
 
-def get_top_assets(n=10):
+def get_top_assets(n=10, allowed_assets=None):
+    """Return assets to evaluate, sorted by 24h notional volume.
+
+    v2.1: filters to ALLOWED_ASSETS_DEFAULT (BTC/ETH/SOL) by default.
+    Operators can override via "allowedAssets" key in bison-config.json
+    to customize the universe (e.g. add HYPE, DOGE, etc.) without code
+    change.
+
+    Pre-v2.1 behavior was "top N by volume across the entire HL universe"
+    which let small-caps that volume-spiked (e.g. ZEC on a high-vol day)
+    crowd into Bison's daily slot and lose."""
     data = cfg.mcporter_call("market_list_instruments")
     if not data or not data.get("success"):
         return []
     instruments = data.get("data", data)
     if isinstance(instruments, dict):
         instruments = instruments.get("instruments", [])
+
+    # v2.1: enforce whitelist (case-insensitive); fall back to default
+    allow_set = {a.upper() for a in (allowed_assets or ALLOWED_ASSETS_DEFAULT)}
+
     assets = []
     for inst in instruments:
         if not isinstance(inst, dict):
             continue
         coin = inst.get("coin") or inst.get("name", "")
+        if not coin or coin.upper() not in allow_set:
+            continue
         # CRITICAL FIX (2026-04-16): volume/price nested in context
         ctx = inst.get("context", {}) if isinstance(inst.get("context"), dict) else {}
         vol = float(ctx.get("dayNtlVlm", ctx.get("volume24h",
                              inst.get("dayNtlVlm", inst.get("volume24h", 0)))) or 0)
         mark_px = float(ctx.get("markPx", ctx.get("midPx",
                                  inst.get("markPx", inst.get("midPx", 0)))) or 0)
-        if coin and vol > 0:
+        if vol > 0:
             assets.append({"coin": coin, "volume": vol, "price": mark_px})
     assets.sort(key=lambda x: x["volume"], reverse=True)
     return assets[:n]
@@ -414,7 +490,7 @@ def build_dsl_state_template(signal):
             "phase2SlOrderType": "MARKET",
             "breachCloseOrderType": "MARKET",
         },
-        "_bison_version": "2.0",
+        "_bison_version": "2.1",
         "_note": "Generated by bison-scanner.py. Do not modify. Do not merge with dsl-profile.json.",
     }
 
@@ -511,9 +587,16 @@ def run():
         return
 
     # Scan top assets for conviction thesis
+    # v2.1: whitelist defaults to BTC/ETH/SOL; operators can override
+    # via "allowedAssets" in config (e.g. add HYPE).
     top_n = config.get("topAssets", 10)
-    candidates = get_top_assets(top_n)
-    min_score = entry_cfg.get("minScore", 8)
+    allowed = config.get("allowedAssets", ALLOWED_ASSETS_DEFAULT)
+    candidates = get_top_assets(top_n, allowed_assets=allowed)
+    # v2.1: minScore raised 8 → 11. Score 8 was the bare minimum (4
+    # components fire); 11 demands 5/6 components fire including
+    # momentum strength + funding alignment + volume confirmation.
+    # Real conviction, not "first thing past the bar after midnight."
+    min_score = entry_cfg.get("minScore", 11)
     signals = []
 
     for asset in candidates:
@@ -585,7 +668,7 @@ def run():
                 "xyzBanned": XYZ_BANNED,
                 "_dslNote": "Use signal.dslState as the DSL state file. Do NOT merge with dsl-profile.json.",
             },
-            "_bison_version": "2.0",
+            "_bison_version": "2.1",
         })
     else:
         cfg.output({
@@ -593,7 +676,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": result,
-            "_bison_version": "2.0",
+            "_bison_version": "2.1",
         })
 
 

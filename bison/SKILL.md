@@ -1,22 +1,35 @@
 ---
 name: bison-strategy
 description: >-
-  BISON v2.0 — Conviction Holder (Hardened). Top 10 assets by volume. All signals
-  are score contributors — no hard gates. Scanner enters via create_position internally
-  (Wolverine pattern). RatchetStop exits. Thesis exit REMOVED.
-  v2.0: every hard gate converted to score contributor, ensureExecutionAsTaker=false,
-  conviction-scaled margin 25-37%.
+  BISON v2.1 — Conviction Holder (asset whitelist + conviction floor +
+  time-cuts disabled). v2.1 (2026-05-07) targets the "Midnight Calendar
+  Entry" failure mode: pre-v2.1 fired on the first mediocre score-8
+  setup post-UTC-midnight regardless of quality. v2.1 ships three
+  changes: (1) hard asset whitelist BTC/ETH/SOL only (was top-10 by
+  volume, which let small-cap volume-spikes hijack the daily slot),
+  (2) minScore raised 8 → 11 (real conviction, not first-bar-crossing),
+  (3) DSL time-cuts disabled in runtime.yaml (Phase 1 + Phase 2 own
+  exits, fleet pattern). v2.0 architecture preserved: scanner enters
+  via create_position internally (Wolverine pattern), RatchetStop exits,
+  thesis re-evaluation removed.
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "2.1"
   platform: senpi
   exchange: hyperliquid
 ---
 
-# BISON v2.0 — Conviction Holder (Hardened)
+# BISON v2.1 — Conviction Holder
 
-Top 10 assets by volume. Multi-signal conviction scoring. RatchetStop exits.
+**Asset whitelist (BTC/ETH/SOL).** **Conviction floor (minScore 11).**
+**No time-cuts** — Phase 1 + Phase 2 ratchet ladder own all exits.
+
+v2.1 targets the failure mode the operator self-diagnosed on
+2026-05-07: *"Bison is currently functioning as a 'Midnight Calendar
+Entry' bot, not a 'Macro Conviction' bot. The 5/7 win rate is pure
+luck/drift in a somewhat favorable market, not alpha."* Three changes
+align the agent with its actual thesis.
 
 ## CRITICAL RULES
 
@@ -30,7 +43,14 @@ The cron command is just: `python3 bison-scanner.py`. No parsing, no execution l
 
 ### RULE 3: All signals are score contributors, not hard gates
 4H trend, 1H trend, 1H momentum, SM direction — all add/subtract points.
-The minScore threshold (8) is the ONLY gate. Nothing kills a signal before scoring.
+The minScore threshold (v2.1: 11; was 8 in v2.0) is the ONLY gate. Nothing kills a signal before scoring.
+
+### RULE 6 (v2.1): Asset whitelist enforced
+Only BTC/ETH/SOL by default (configurable via `allowedAssets` in `bison-config.json`).
+Pre-v2.1 fetched top 10 by 24h notional volume — let small-caps that volume-spiked
+into the universe (e.g. ZEC on May 4) consume the single daily slot. The May 4 ZEC
+LONG was Bison's only meaningful loss in 7 days (-$27.45 / -6.5% ROE). Whitelist
+removes that failure class.
 
 ### RULE 4: MANDATORY — DSL High Water Mode
 Use the tiers and lockMode defined in the scanner's DSL state output.
@@ -40,7 +60,7 @@ Never substitute with standard DSL tiers. Never merge with dsl-profile.json.
 All entries use FEE_OPTIMIZED_LIMIT with ensureExecutionAsTaker: false.
 entryEnsureTaker: true destroyed $500+ in fees across the fleet.
 
-## How BISON v2.0 Trades
+## How BISON v2.1 Trades
 
 ### Entry (all score contributors)
 | Signal | Points | Type |
@@ -111,7 +131,7 @@ On EVERY session, check `config/bootstrap-complete.json`. If missing:
 1. Verify Senpi MCP
 2. Create scanner cron (5 min, isolated)
 3. Write `config/bootstrap-complete.json`
-4. Send: "🦬 BISON v2.0 online. Conviction scoring — no hard gates. RatchetStop manages exits. Silence = no conviction."
+4. Send: "🦬 BISON v2.1 online. BTC/ETH/SOL whitelist + minScore 11 + no time-cuts. RatchetStop manages exits. Silence = no conviction."
 
 ## Notification Policy
 **ONLY alert:** Position OPENED, position CLOSED (RatchetStop), critical error.
@@ -129,7 +149,7 @@ On EVERY session, check `config/bootstrap-complete.json`. If missing:
 ## Files
 | File | Purpose |
 |---|---|
-| `scripts/bison-scanner.py` | v2.0 conviction scorer + internal execution |
+| `scripts/bison-scanner.py` | v2.1 conviction scorer + internal execution + BTC/ETH/SOL whitelist |
 | `scripts/bison_config.py` | Config helper, MCP, state I/O |
 | `config/bison-config.json` | Wallet, strategy ID, configurable params |
 | `runtime.yaml` | Plugin runtime (position tracker + RatchetStop) |

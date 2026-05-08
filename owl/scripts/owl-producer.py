@@ -1,9 +1,26 @@
 #!/usr/bin/env python3
-# Senpi OWL Producer v7.0
+# Senpi OWL Producer v7.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0 — attribution required for derivative works
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""OWL v7.0 Producer — Pure Contrarian Crowding-Unwind (v2-runtime-native).
+"""OWL v7.1 Producer — Pure Contrarian Crowding-Unwind (macro trend gate).
+
+v7.1 (2026-05-06) — MACRO_TREND_GATE.
+v7.0 was bleeding: -$203 lifetime on $187k notional = -0.108% per round
+trip (below maker-fee breakeven). Apr 28 v7.0 deploy didn't change the
+thesis (just architectural). Additional -$63 bleed Apr 28 → May 6.
+
+Adds MACRO_GATE_BTC_4H_PCT = 3.0: block fades when |BTC 4h| > 3%.
+Mean-reversion fails in trending regimes — alts that look "crowded and
+exhausting" during BTC trend moves are usually consolidating before
+continuation. Pattern documented across Wolverine HYPE post-mortem,
+Cobra rotation, Condor v3.0, Lemon v1.3 (same fix shipped same day).
+
+XYZ unban deferred to v7.2 — Owl's score_crowding uses funding extremity
++ SM long_pct calibrated on crypto data; XYZ funding/SM dynamics differ.
+Needs separate calibration pass.
+
+v7.0 — Pure Contrarian Crowding-Unwind (v2-runtime-native).
 
 Owl v6.x was a v1-architecture self-executing scanner that:
   - Polled market_list_instruments + leaderboard_get_markets
@@ -141,7 +158,28 @@ BELOW_THRESHOLD_TOLERANCE = 2         # v5.3: 2 consecutive below-threshold scan
 ASSET_COOLDOWN_MINUTES = 360          # 6h post-loss
 MIN_FUNDING_ANNUALIZED_PCT = 12       # v5.2 (was 20)
 STARTING_BUDGET = 1000.0
-XYZ_BANNED = True
+XYZ_BANNED = True                     # v7.1: kept True for now. Owl's score_crowding
+                                       # uses funding + SM long_pct calibrated on crypto data
+                                       # shape; XYZ funding/SM dynamics are different.
+                                       # Lemon v1.3 lifted XYZ_BANNED but Lemon's thesis
+                                       # is simpler. Revisit Owl XYZ unban as v7.2 with
+                                       # XYZ-specific scoring.
+
+# v7.1 (2026-05-06) — MACRO TREND GATE.
+# Fade thesis (counter-trade crowded positions) structurally fails when
+# macro is trending. Documented across the fleet:
+#   - Wolverine HYPE SHORT post-mortem: -$160 fading a 32% rip
+#   - Cobra: -60% ROI from rotation in trending market
+#   - Condor v3.0 added MACRO_TREND_GATE specifically for this
+#   - Lemon v1.3 (2026-05-06): same fix, same threshold
+# Owl was bleeding -$203 lifetime on $187k notional volume = -0.108%
+# per round trip (below maker-fee breakeven). v7.0 architectural rewrite
+# (Apr 28) didn't change the thesis; -$63 additional bleed Apr 28 → May 6.
+# When BTC's 4h move is large in either direction, alts that look "crowded
+# and exhausting" are usually consolidating before continuation, not
+# actually reversing. Block crypto fades during macro directional moves.
+# 3.0% threshold matches Condor + Lemon precedent.
+MACRO_GATE_BTC_4H_PCT = 3.0
 
 # Conviction-scaled leverage (Polar v2.4 / Bald Eagle v3.0 pattern)
 LEVERAGE_TIERS = [
@@ -338,20 +376,25 @@ def fetch_all_assets():
 # ═══════════════════════════════════════════════════════════════
 
 def fetch_sm_positioning_map():
-    """Returns {coin: (long_pct, trader_count)} for crypto markets.
-    v7.0: fetch ONCE per scan instead of per-asset (Pangolin v2.0 pattern)."""
+    """Returns (sm_map, btc_p4h) where sm_map = {coin: (long_pct, trader_count)}
+    for crypto markets and btc_p4h is BTC's 4h price change percent (used by
+    v7.1 MACRO_TREND_GATE).
+
+    v7.0: fetch ONCE per scan instead of per-asset (Pangolin v2.0 pattern).
+    v7.1: extract BTC 4h price change from same call (no extra MCP cost)."""
     raw = cfg.mcporter_call("leaderboard_get_markets", limit=200)
     if not raw:
-        return {}
+        return {}, 0.0
     sm = raw.get("data", raw) if isinstance(raw, dict) else raw
     if isinstance(sm, dict):
         sm = sm.get("markets", sm.get("leaderboard", sm))
     if isinstance(sm, dict):
         sm = sm.get("markets", [])
     if not isinstance(sm, list):
-        return {}
+        return {}, 0.0
 
     out = {}
+    btc_p4h = 0.0
     for m in sm:
         if not isinstance(m, dict):
             continue
@@ -359,6 +402,10 @@ def fetch_sm_positioning_map():
         dex = str(m.get("dex", "")).lower()
         if not token or dex == "xyz":
             continue
+        # v7.1: capture BTC's 4h move from the same scan (macro gate input)
+        if token == "BTC":
+            btc_p4h = safe_float(m.get("token_price_change_pct_4h",
+                                        m.get("price_change_4h", 0)))
         direction = str(m.get("direction", "")).lower()
         pct = safe_float(m.get("pct_of_top_traders_gain", m.get("longPct", 0)))
         trader_count = int(m.get("trader_count", m.get("traderCount", 0)))
@@ -366,7 +413,7 @@ def fetch_sm_positioning_map():
             out[token] = (pct * 100, trader_count)
         elif direction == "short":
             out[token] = ((1 - pct) * 100, trader_count)
-    return out
+    return out, btc_p4h
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -579,7 +626,7 @@ def build_signal_payload(c, leverage, margin_usd):
             "reasons": " | ".join(c.get("reasons", [])),
         },
         "meta": {
-            "_owl_producer_version": "7.0.0",
+            "_owl_producer_version": "7.1.0",
         },
     }
 
@@ -627,7 +674,7 @@ def main():
         cfg.output({
             "status": "error",
             "error": "OWL_WALLET env var not set. Set it to the Owl strategy wallet (must match runtime.yaml).",
-            "_owl_producer_version": "7.0.0",
+            "_owl_producer_version": "7.1.0",
         })
         return
 
@@ -636,7 +683,7 @@ def main():
         print(json.dumps({
             "status": "skip",
             "reason": "previous run still active — cron reentrancy guard",
-            "_owl_producer_version": "7.0.0",
+            "_owl_producer_version": "7.1.0",
         }))
         return
 
@@ -647,7 +694,7 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": "cannot read account value; skip tick",
-                "_owl_producer_version": "7.0.0",
+                "_owl_producer_version": "7.1.0",
             })
             return
 
@@ -659,7 +706,7 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": f"dynamic cap reached: entries {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",
-                "_owl_producer_version": "7.0.0",
+                "_owl_producer_version": "7.1.0",
             })
             return
 
@@ -669,11 +716,29 @@ def main():
             cfg.output({
                 "status": "ok",
                 "note": "no assets passed OI floor; market_list_instruments may be unavailable",
-                "_owl_producer_version": "7.0.0",
+                "_owl_producer_version": "7.1.0",
             })
             return
 
-        sm_map = fetch_sm_positioning_map()
+        sm_map, btc_p4h = fetch_sm_positioning_map()
+
+        # v7.1 — MACRO TREND GATE. Block fades when BTC's 4h move is
+        # extreme. Mean reversion thesis structurally fails in trending
+        # regimes — alts that look "crowded and exhausting" during macro
+        # trend moves are usually consolidating before continuation.
+        if abs(btc_p4h) > MACRO_GATE_BTC_4H_PCT:
+            cfg.output({
+                "status": "ok",
+                "totalAssets": len(assets),
+                "smCovered": len(sm_map),
+                "note": (
+                    f"MACRO_GATE — BTC 4h {btc_p4h:+.2f}% > "
+                    f"{MACRO_GATE_BTC_4H_PCT}% threshold; fades unsafe in trending regime"
+                ),
+                "btc_p4h": btc_p4h,
+                "_owl_producer_version": "7.1.0",
+            })
+            return
 
         # 4. Score crowding for each asset, update persistence history
         history = load_crowding_history()
@@ -720,7 +785,7 @@ def main():
                 "crowding_above_floor": len(crowding_results),
                 "persisted": 0,
                 "note": "no assets have persisted >=1h above crowding floor",
-                "_owl_producer_version": "7.0.0",
+                "_owl_producer_version": "7.1.0",
             })
             return
 
@@ -777,7 +842,7 @@ def main():
                 "persisted": len(persisted),
                 "candidates": 0,
                 "note": "persisted but no exhaustion confluence",
-                "_owl_producer_version": "7.0.0",
+                "_owl_producer_version": "7.1.0",
             })
             return
 
@@ -812,7 +877,7 @@ def main():
             "entries_today": tc.get("entries", 0),
             "elapsed_sec": round(elapsed, 2),
             "warn": warn,
-            "_owl_producer_version": "7.0.0",
+            "_owl_producer_version": "7.1.0",
         })
     finally:
         release_lock(lock)

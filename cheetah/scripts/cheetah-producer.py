@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
-# Senpi CHEETAH Producer v6.0.0
+# Senpi CHEETAH Producer v6.1.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""CHEETAH v6.0 Producer — Multi-signal confluence sniper, v2-runtime-native rewrite.
+"""CHEETAH v6.1 Producer — Multi-signal confluence sniper, v2-runtime-native rewrite.
 
+v6.1 (2026-05-05) — Phase 2 T0 ladder calibration. No producer code
+changes. Runtime.yaml only: T0 trigger 5→3, T0 lock 35→40, T1 7/55,
+T2 15/70, T3 30/80, T4 50/90. First post-v6.0 trade (ZEC LONG score
+10, SM 22.85%/210t) peaked at +3.05% margin ROE — old T0 at 5%
+never armed; closed via Phase 1 retrace at -4.09% / -$9.68. Same
+Pangolin v2.2 fix. T0 at 3 captures the typical Cheetah small
+winner at 3x leverage.
+
+v6.0 — full v1 → v2 architecture migration:
 v5.x was a v1 full-agency scanner: scored signals, tracked counters,
 called create_position directly, maintained Python-side cooldowns and
 resting-order guards. v6.0 flips to producer + v2 runtime (Polar v4.0
@@ -73,7 +82,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cheetah_config as cfg
 
 
-VERSION = "6.0.0"
+VERSION = "6.1.0"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "cheetah_signals")
 OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 

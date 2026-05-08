@@ -1,9 +1,35 @@
 #!/usr/bin/env python3
-# Senpi CONDOR Scanner v3.1
+# Senpi CONDOR Scanner v3.4
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""CONDOR v3.1 — "One Amazing Trade per Day" (BTC-gate removed).
+"""CONDOR v3.4 — "One Amazing Trade per Day" (gate calibration fix).
+
+## v3.4 change (2026-05-05)
+
+v3.2's gate tightening (MIN_SCORE 11→13, MIN_SM 65%→75%) over-corrected.
+Account flatlined at $1001.28 across 13 days post-deploy (2026-04-22 →
+2026-05-05) — zero trades, zero PnL change, vlm metric stuck at 213k from
+the v3.0/v3.1 era.
+
+The combination "MIN_SCORE=13 AND MIN_SM=75%" required basically every
+scoring lane to fire simultaneously, including the rare 15m_spike
+(c15m>=2.0). Empirically: 0/13 days.
+
+v3.4 splits the difference between v3.0 (too loose, 246 fills / -$202)
+and v3.2 (never fires):
+  - MIN_SCORE 13 → 12 (achievable without 15m_spike rare lane)
+  - MIN_SM_CONSENSUS_PCT 75 → 70 (mid-stage moves now scoreable)
+  - MIN_15M_VELOCITY 0.2 → 0.1 (was silent killer in 3TF gate)
+
+Other gates preserved: MACRO_TREND_GATE (10% counter-trend block,
+Wolverine's lesson), trader_count >= 50, OI >= $1M, 3TF structural
+alignment, MAX_LEVERAGE 10, position sizing tiers.
+
+Expected impact: 1-3 trades per week. If 0 by Sunday, loosen further.
+If 5+ with negative PnL, re-tighten — back to v3.0/v3.2 territory.
+
+## v3.1 change (2026-04-16 — same day as v3.0 ship)
 
 ## v3.1 change (2026-04-16 — same day as v3.0 ship)
 
@@ -65,7 +91,7 @@ SCORING (max ~18 pts):
   - BTC macro confirmation strong: +1
   - Peak session (13-19 UTC or 00-05 UTC): +1
 
-MIN_SCORE: 11 (Kodiak's minimum historical winner score).
+MIN_SCORE: 12 (v3.4 calibration; v3.0/v3.1=11, v3.2=13).
 
 POSITION SIZING (empirical 10x cap):
   Score 11-12: 50% margin, 10x
@@ -103,26 +129,37 @@ STABLECOINS_BANNED = {"USDT", "USDC", "DAI", "USDE", "FDUSD", "TUSD", "BUSD"}
 # 3TF alignment magnitude thresholds
 MIN_4H_MAGNITUDE = 1.0              # 4h price must move >=1% in entry direction
 MIN_1H_MAGNITUDE = 0.3              # 1h confirmation
-MIN_15M_VELOCITY = 0.2              # SM velocity (proxy for 15m alignment)
+# v3.4: 0.2 → 0.1. The 15m velocity gate is part of the 3TF structural
+# hard gate — even with massive 4h+1h alignment, an asset with c15m
+# below this floor gets rejected before scoring. 0.2 was the silent
+# killer for slower-developing trends. Halved to 0.1 to admit
+# slower-cadence apex setups that were structurally being blocked.
+MIN_15M_VELOCITY = 0.1              # SM velocity (proxy for 15m alignment)
 
 # MACRO TREND GATE (Wolverine's addition)
 MACRO_GATE_THRESHOLD_PCT = 10.0     # Don't fight moves >10% opposite direction
 
 # SM gates
-# v3.2: 65 → 75. 65% consensus often means the move is mid-stage with
-# plenty of wrong-siders still fueling the trend — fine for momentum
-# but Condor enters at "apex confluence" so we need higher conviction.
-MIN_SM_CONSENSUS_PCT = 75.0
+# v3.4 (2026-05-05): 75 → 70. v3.2's 75% threshold combined with the
+# v3.2 MIN_SCORE=13 floor produced ZERO trades in 13 days (2026-04-22 →
+# 2026-05-05). Empirical: account flatlined at $1001.28 across the
+# entire window, vlm metric stuck at 213k from the v3.0/v3.1 era. The
+# v3.0/v3.1 setting (65%) was too loose (-$202 / 246 fills); v3.2 (75%)
+# is too tight. 70% splits the difference — mid-stage moves are now
+# scoreable but don't auto-pass.
+MIN_SM_CONSENSUS_PCT = 70.0
 STRONGLY_TILTED_PCT = 80.0
 
 # Scoring
-# v3.2: 11 → 13. At MIN_SCORE=11 Condor was catching setups that had
-# only partial confluence (e.g. 4h_light + 1h_confirms + 15m_building +
-# 3TF_aligned + sm_aligned = exactly 11). 246 fills / -16.4% says those
-# borderline setups are mostly losers. Require Kodiak's winner-median
-# score. 13 is still achievable: 4h_momentum(3) + 1h_strong(2) +
-# 15m_spike(2) + 3TF(3) + sm_convergent(3) = 13.
-MIN_SCORE = 13
+# v3.4 (2026-05-05): 13 → 12. v3.2's MIN_SCORE=13 required 4h_strong(3)
+# + 1h_strong(2) + 15m_spike(2) + 3TF(3) + sm_convergent(3) = 13 — and
+# 15m_spike requires c15m >= 2.0 which is a rare event. Combined with
+# SM 75% gate, no setup cleared in 13 days. v3.4 lowers to 12, which is
+# achievable via 4h_momentum(3) + 1h_confirms(1) + 15m_building(1) +
+# 3TF(3) + SM_CONVERGENT(3) + DEEP_100t(1) = 12. Doesn't require the
+# rare 15m_spike lane. Other gates preserved (MACRO_TREND, OI, traders,
+# 3TF structural alignment).
+MIN_SCORE = 12
 
 # Position management
 MAX_POSITIONS = 1
@@ -540,7 +577,7 @@ def run():
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"RIDING: {coins}. DSL manages exit.",
             "_v2_no_thesis_exit": True,
-            "_condor_version": "3.2",
+            "_condor_version": "3.4",
         })
         return
 
@@ -562,7 +599,7 @@ def run():
         remaining = int((POST_EXIT_COOLDOWN_MINUTES * 60 - seconds_since_last) / 60)
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
                     "note": f"post-exit cooldown ({remaining}min remaining)",
-                    "_condor_version": "3.2"})
+                    "_condor_version": "3.4"})
         return
 
     # Dynamic daily cap
@@ -607,7 +644,7 @@ def run():
         cfg.output({
             "status": "ok", "heartbeat": "NO_REPLY",
             "note": f"SCANNING {len(universe)} assets — no apex trend-continuation setup >= MIN_SCORE={MIN_SCORE}.",
-            "_condor_version": "3.2",
+            "_condor_version": "3.4",
         })
         return
 
@@ -656,7 +693,7 @@ def run():
                 {"coin": c["coin"], "direction": c["direction"], "score": c["score"]}
                 for c in candidates[:5]
             ],
-            "_condor_version": "3.2",
+            "_condor_version": "3.4",
         })
     else:
         cfg.output({
@@ -664,7 +701,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": result,
-            "_condor_version": "3.2",
+            "_condor_version": "3.4",
         })
 
 
