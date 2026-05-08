@@ -1,22 +1,25 @@
-# 🪳 ROACH v1.0 — Striker Only. Stalker Disabled.
+# 🪳 ROACH v2.0 — Striker Only. v2-Runtime-Native. Maker Exits.
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## The Experiment
+## The Strategy
 
-ROACH disables Stalker entirely and only trades STRIKER signals — violent first-jump explosions backed by 1.5x volume. This tests whether Stalker is pure drag (Fox v1.0: 17 Stalker trades, 17.6% win rate, -$91.32) or whether it adds enough winners to justify the chop losses.
+ROACH disables Stalker entirely and only trades STRIKER signals — violent FIRST_JUMP / IMMEDIATE_MOVER explosions backed by 1.5x volume, 1h price alignment, and 4h trend agreement. Confirmed by Fox v1.0 data: 17 Stalker trades, 17.6% win rate, -$91 net; the one Striker (ZEC LONG score 11) was the only profitable explosive entry.
 
-ROACH will be quiet. Days with zero trades are expected and correct. Striker signals require a 10+ rank jump from #25+, volume >= 1.5x, score >= 9 with 4+ reasons. That's rare. The patience IS the edge.
+ROACH will be quiet. Days with zero trades are expected and correct. Striker signals require a 10+ rank jump from #25+, score >= 10 with 4+ reasons, cc_15m >= 0.5, 1h price aligned >= 0.1%, volume >= 1.5x. That's rare. The patience IS the edge.
 
-## What's Different
+## v2.0 architecture
 
-| Setting | Other Variants | ROACH |
+| Layer | v1.x | v2.0 |
 |---|---|---|
-| Stalker mode | Enabled (minScore 7+) | **DISABLED** |
-| Entry modes | Stalker + Striker | **Striker only** |
-| Expected trades/day | 3-6 | **0-3** |
+| Trading loop | Agent runs scanner + calls `create_position` | Producer pushes signals via `external-scanner ingest`; runtime owns execution |
+| Entry gate | Agent decides | LLM pass-through gate (producer already filtered) |
+| Exit | DSL + MARKET orders | DSL + **FEE_OPTIMIZED_LIMIT** (maker-first, 60s, taker fallback) |
+| Risk gates | Agent enforces in scanner code | Declarative `runtime.risk.guard_rails` |
 
-Everything else is identical: DSL tiers, Phase 1 timing, leverage caps, cooldowns, XYZ ban.
+**Why v2 matters:** v1 used MARKET orders for every exit, paying ~3 bp/exit in HL taker fees. v2's maker-first exits target 50-70% recovery on HL exit fees with no thesis change.
+
+See [`SKILL.md`](SKILL.md) for full setup, env vars, and behavior expectations.
 
 ## License
 

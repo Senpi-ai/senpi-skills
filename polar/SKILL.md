@@ -1,26 +1,79 @@
 ---
 name: polar-strategy
 description: >-
-  POLAR v2.4 — ETH Alpha Hunter (sniper recalibration). Single-asset ETH
-  lifecycle scanner with conviction-scaled leverage, move-exhaustion scoring,
-  and same-direction re-entry cooldown. v2.4 recalibration after -31.7% ROE
-  on 381 trades: MIN_SCORE raised 8→10 (Cheetah v5.1 APEX pattern), leverage
-  tiers shifted to 7x at 10-11 / 10x at 12+, cooldown raised 120→240 min,
-  new MIN_SM_ACCEL_PCT=0.3 hard gate on 15m velocity. DSL exit managed by
-  plugin runtime via runtime.yaml.
+  POLAR v4.0.0 — ETH Alpha Hunter, v2-runtime-native rewrite. v3.x was a
+  full-agency scanner (load_tc / has_resting_orders / Python-side cooldowns
+  with the same crash-class bug that bit Vulture v2.x). v4.0 flips to producer
+  + v2 runtime: producer emits ETH signals via external-scanner ingest;
+  runtime LLM gate is pass-through; risk.guard_rails enforces declaratively;
+  DSL uses FEE_OPTIMIZED_LIMIT (saves ~0.020-0.030% per maker-filled exit);
+  trade chain DB emits per-trade telemetry. v3.x scoring + DSL preset
+  preserved exactly (proved correct on 2026-04-23 ETH Short that locked
+  +$71.15 via Phase 2 Tier 1; current live ETH LONG running +$54 unrealized
+  at +5% margin ROE). v3.0.5/v3.0.6 v1-DSL fixes preserved (all time-based
+  cuts disabled — exits 100% price-action via Phase 1 max_loss/retrace +
+  Phase 2 trailing).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.4"
+  version: "4.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐻‍❄️ POLAR v2.4 — ETH Alpha Hunter (sniper recalibration)
+# 🐻‍❄️ POLAR v4.0.0 — ETH Alpha Hunter (v2-runtime-native)
 
 Best gross trader in the fleet. Single asset. Maximum conviction.
+
+**v3 → v4 architectural rewrite.** v3.x was a full-agency scanner that called create_position directly and tracked state in Python. v4.0 flips to the standard senpi-trading-runtime v2 pattern: producer emits signals, runtime owns execution + state.
+
+**What changed structurally:**
+- `polar-producer.py` (NEW) replaces `polar-scanner.py` (DELETED). Pure producer — no execution, no counters, no cooldowns, no resting-order guards.
+- `runtime.yaml` is now v2-runtime-native: external_scanner + LLM-pass-through gate + native risk.guard_rails + DSL preset with FEE_OPTIMIZED_LIMIT.
+- Trade chain DB emits `LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED` for every trade. **Per-trade telemetry is restored.**
+- The `set_cooldown` / `load_tc` Python state crashes that bit Vulture v2.x are structurally impossible in v4.0 (cooldowns are runtime-managed).
+
+**What's preserved from v3.0.6:**
+- ETH single-asset thesis (no multi-asset rotation)
+- Hyperfeed SM gates: pct≥5%, traders≥30, **cc_15m≥0.3** (15m velocity acceleration)
+- Structural gates: 4h trend != NEUTRAL, 4h matches SM direction, 1h matches 4h, 15m momentum aligned, RSI 26-74 band
+- Multi-factor scoring (~17 max points): base-tech (3+2+1+1) + SM concentration (1-3) + SM velocity (1-2) + SM accelerating (1) + trader depth (1) + funding alignment (-1/0/+2) + OI velocity (-1/0/+1/+2) + BTC correlation (1) + RSI room (1) + 4h momentum bonus (1) + move-exhaustion penalty (-1/-2)
+- MIN_SCORE = 14 (config-overridable)
+- Conviction-tiered leverage: 5x standard / 7x conviction / 10x apex
+- DSL preset preserved EXACTLY: time-cuts all disabled, Phase 1 max_loss 25% / retrace 8 / 3 breaches, Phase 2 leverage-aware ladder (8/25, 15/50, 25/65, 35/80, 50/85)
+
+**v3.0.4/3.0.5/3.0.6 v1-DSL fixes preserved:**
+- `dead_weight_cut`: DISABLED (single-asset has no rotation cost)
+- `hard_timeout`: DISABLED (v1 DSL fired this in Phase 2 incorrectly; fixes the 2026-04-23 wrongful-close pattern)
+- `weak_peak_cut`: DISABLED (completes the no-time-based-cuts sweep)
+- All exits now 100% price-action
+
+---
+
+## ⛔ Hard Rules (Fleet Patches)
+
+### RULE FP-002: User-conversation Claude sessions MUST NOT trade
+
+**Hard rule, not a heuristic.** When responding to a user message (Telegram ping, status check, "tell me about your trades", etc.), the Claude Code session MUST NOT call any of:
+
+- `create_position`
+- `close_position`
+- `edit_position`
+- `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
+- `cancel_order`
+- `strategy_close` / `strategy_close_positions`
+
+These tools are reserved for the **producer cron** (polar-producer.py) and the **DSL ratchet engine**. The cron is the only entry path. The DSL is the only exit path. User-conversation sessions are read-only.
+
+If a user asks "should I take this trade?" or "anything close to triggering?", respond by reading current state — DO NOT execute. The producer will fire on its next tick if a real signal is there.
+
+### RULE FP-001: Quiet hours for low-liquidity windows
+
+Producer skips emission during 00:00-04:00 UTC by default. Apex setups (score >= `quietHours.apexBypassScore`, default 17) bypass — high-conviction ETH setups can fire any hour; routine score-14/15 entries wait until 04:00 UTC.
+
+Configurable via `quietHours.{startUtc,endUtc,apexBypassScore}` in `polar-config.json`. Set `startUtc == endUtc` to disable.
 
 ---
 

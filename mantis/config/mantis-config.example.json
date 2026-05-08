@@ -1,0 +1,26 @@
+{
+  "_doc": "Mantis v5.0 Slipstream — operator-facing config overlay. Copy to mantis-config.json and edit. Anything you set here overrides defaults in scripts/mantis_config.py. Anything you omit uses the default.",
+
+  "wallet": "0x...",
+  "strategyId": "...",
+
+  "LEADER_UNIVERSE": ["BTC"],
+
+  "MIN_FOLLOW_RATE": 0.85,
+  "MIN_CONFIDENCE": 0.75,
+  "MIN_GAP_PCT": 1.5,
+  "REQUIRE_SM_ROTATION": true,
+  "MAX_LAG_STDDEV_MINUTES": 90,
+
+  "MAX_LEVERAGE": 8,
+  "MAX_POSITION_NOTIONAL_PCT": 75,
+
+  "HARD_TIMEOUT_LAG_MULTIPLIER": 1.5,
+  "HARD_TIMEOUT_FLOOR_MINUTES": 30,
+  "HARD_TIMEOUT_CEILING_MINUTES": 240,
+  "LEADER_REVERSAL_VETO_PCT": 1.0,
+
+  "MAX_CONCURRENT_POSITIONS": 2,
+  "COOLDOWN_PER_ASSET_MINUTES": 240,
+  "MAX_DAILY_ENTRIES": 6
+}

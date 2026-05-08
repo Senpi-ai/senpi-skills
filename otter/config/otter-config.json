@@ -1,0 +1,43 @@
+{
+  "_doc": "Otter v1.0 — operator-tunable config. Wallet/chatId/decision_model resolved from env vars at runtime install (${WALLET_ADDRESS}, ${TELEGRAM_CHAT_ID}, ${OTTER_DECISION_MODEL}); do NOT hardcode here. Risk gates, leverage caps, and asset cooldowns are enforced by the runtime via runtime.yaml and the producer's hardcoded constants.",
+  "version": "1.0",
+  "leverage": {
+    "default": 5,
+    "tiers": [
+      {"min_score": 13, "leverage": 10, "_note": "max conviction — extreme OI velocity + 4h confirms + price strong + SM aligned"},
+      {"min_score": 11, "leverage": 7,  "_note": "high conviction"},
+      {"min_score": 9,  "leverage": 5,  "_note": "default — minimum viable signal"}
+    ]
+  },
+  "marginPct": {
+    "default": 0.25,
+    "_note": "25% of account value per slot. Override per-deploy via OTTER_MARGIN_PCT env var."
+  },
+  "entry": {
+    "minScore": 9,
+    "minOiDelta1hPct": 5.0,
+    "minPriceAlignPct": 0.5,
+    "minOiUsd": 1000000,
+    "maxSpreadBps": 5,
+    "assetCooldownMinutes": 240,
+    "bannedDexes": ["xyz"],
+    "_note": "These mirror otter-producer.py's hardcoded constants. Producer constants WIN — config is informational/audit only in v2."
+  },
+  "history": {
+    "maxSamplesPerAsset": 60,
+    "samplesFor1h": 12,
+    "samplesFor4h": 48,
+    "_note": "5 min cron cadence × 60 samples = 5h rolling window. First 12 ticks (1h) build baseline before any signals can fire."
+  },
+  "_runtime_owns": {
+    "_doc": "These were v1 concerns. In v2, the runtime owns them via runtime.yaml.guard_rails. DO NOT add gates here.",
+    "maxPositions": "runtime.strategy.slots",
+    "maxEntriesPerDay": "runtime.risk.guard_rails.max_entries_per_day",
+    "maxDailyLossPct": "runtime.risk.guard_rails.daily_loss_limit_pct",
+    "maxDrawdownPct": "runtime.risk.guard_rails.drawdown_halt_pct",
+    "maxConsecutiveLosses": "runtime.risk.guard_rails.max_consecutive_losses",
+    "perAssetCooldown": "runtime.risk.guard_rails.per_asset_cooldown_minutes",
+    "execution.entryOrderType": "runtime.actions.otter_entry.params.order_type (FEE_OPTIMIZED_LIMIT, ensure_execution_as_taker:false — entries cancel-and-skip if maker can't fill)",
+    "execution.exitOrderType": "runtime.exit.order_type (FEE_OPTIMIZED_LIMIT, ensure_execution_as_taker:true — exits use taker fallback as safety floor)"
+  }
+}

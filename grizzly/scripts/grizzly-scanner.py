@@ -1,9 +1,34 @@
 #!/usr/bin/env python3
-# Senpi GRIZZLY Scanner v5.0
+# Senpi GRIZZLY Scanner v5.8.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""GRIZZLY v5.0 — BTC Alpha Hunter with Position Lifecycle.
+"""GRIZZLY v5.8.0 — BTC Alpha Hunter, "hit fewer, win bigger" patch.
+
+v5.7 sample (16 entries / 10 close_position audits / 6 missing closes
+likely venue-side SL hits) showed Grizzly's signal works — Apr 30 BTC
+LONG ran +33.62% peak ROE through Tier 5 lock for +$76.36 / +29.9%
+realized. v5.8 cuts low-conviction tiers and codifies the fleet patches.
+
+v5.8 changes (scanner-only; DSL preset unchanged):
+  - Config-driven MIN_SCORE: default 12 (was 10 hardcoded). Skips
+    cautious/standard tiers; only conviction (12-13) and apex (14+)
+    fire. The Apr 30 winner was apex-class (multi-confirmation BTC trend
+    with funding-pays + OI accelerating + SM aligned + 4TF unified).
+  - FP-001 quiet hours: skip 00:00-04:00 UTC unless setup score >=
+    quietHoursApexBypassScore (default 14 — apex tier). News-driven
+    BTC moves can fire any hour; routine score-12 entries wait for
+    liquidity.
+  - FP-003 candidate: requireAllConfirmations gate (default true). Each
+    of (4TF aligned, SM aligned, funding aligned, volume confirmed,
+    OI accelerating) must contribute, not just summed score.
+  - VERSION constant added; emitted in stdout JSON for ferry/audit
+    correlation.
+  - FP-002 enforcement is in SKILL.md (RULE 7) — Claude Code conversation
+    sessions must NOT call create_position / close_position / edit_position
+    / ratchet_stop_*. Producer cron is the only entry path.
+
+GRIZZLY v5.0 — BTC Alpha Hunter with Position Lifecycle.
 
 v5.0 is a COMPLETE REWRITE. Grizzly is now the BTC variant of the
 Kodiak/Wolverine/Polar single-asset-specialist family. All four agents
@@ -70,11 +95,15 @@ import grizzly_config as cfg
 # CONSTANTS — BTC-tuned (vs Kodiak/SOL)
 # ═══════════════════════════════════════════════════════════════
 
+VERSION = "5.8.0"
 ASSET = "BTC"
 MAX_POSITIONS = 1
 MAX_LEVERAGE = 10          # Fleet-wide: 10x is the empirical ceiling
 MIN_LEVERAGE = 5
-MIN_SCORE = 10             # Family standard — was 8 in v4.x
+MIN_SCORE_DEFAULT = 12     # v5.8: was 10 hardcoded; now config-overridable.
+                           # Score-10/11 entries historically generated dsl_breach
+                           # losses. Score 12+ (conviction tier) maps to the
+                           # +33% peak runner pattern (Apr 30 BTC LONG).
 SAME_DIR_COOLDOWN_MINUTES = 60
 ASSET_COOLDOWN_MINUTES = 60  # Post-exit cooldown on BTC entry
 
@@ -326,6 +355,34 @@ def build_btc_thesis():
     aligned_5m = (direction == "LONG" and mom_5m > 0) or (direction == "SHORT" and mom_5m < 0)
     if not (strong_15m or aligned_5m):
         return None
+
+    # ── v5.5: MACRO V-RECOVERY GATE ───────────────────────────
+    # The 4h structural trend metric is lagging — takes 8-12h for 4h candle
+    # structure to break after a reversal. During V-recoveries the 4h gate
+    # still says "BEARISH lower-highs 100%" while price has already rallied
+    # 1-2% off the 24h low.
+    # Live failure 2026-04-23: BTC V-bottomed at $76.4k at ~04:00 UTC, rallied
+    # to $77,495 by 10:38 UTC (+1.43% off low). Scanner had trend_strength_4h
+    # = 0.80 and confidently fired SHORT. BTC continued to $78,063. Second
+    # SHORT at 14:12 UTC had trend_strength_4h = 1.0 (100% lower highs vs
+    # yesterday's $79.4k peak) and fired again. Both losers.
+    # This gate checks distance from 24h extreme using 1h-candle highs/lows.
+    # If price has bounced > MACRO_VRECOVERY_DISTANCE_PCT from 24h low, block
+    # SHORTs (V-bottom recovery). Mirror for LONGs off the 24h high.
+    MACRO_VRECOVERY_DISTANCE_PCT = 1.25
+    if len(candles_1h) >= 24:
+        highs_1h_24 = [safe_float(c.get("high", c.get("h", 0))) for c in candles_1h[-24:]]
+        lows_1h_24 = [safe_float(c.get("low", c.get("l", 0))) for c in candles_1h[-24:]]
+        high_24h = max([h for h in highs_1h_24 if h > 0], default=0)
+        low_24h = min([l for l in lows_1h_24 if l > 0], default=0)
+        if direction == "SHORT" and low_24h > 0:
+            distance_from_low_pct = (price - low_24h) / low_24h * 100
+            if distance_from_low_pct > MACRO_VRECOVERY_DISTANCE_PCT:
+                return None
+        if direction == "LONG" and high_24h > 0:
+            distance_from_high_pct = (high_24h - price) / high_24h * 100
+            if distance_from_high_pct > MACRO_VRECOVERY_DISTANCE_PCT:
+                return None
 
     # ── SCORING ───────────────────────────────────────────────
     score = 0
@@ -594,6 +651,74 @@ def evaluate_reload(exit_state):
 # Trading Infrastructure
 # ═══════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════
+# v5.8.0 fleet patches
+# ═══════════════════════════════════════════════════════════════
+
+def _config():
+    """Load config dict; returns {} on any failure."""
+    try:
+        return cfg.load_config() or {}
+    except Exception:
+        return {}
+
+
+def get_min_score():
+    """Read minScore from config; fallback to default."""
+    c = _config()
+    try:
+        return int(c.get("minScore", MIN_SCORE_DEFAULT))
+    except (TypeError, ValueError):
+        return MIN_SCORE_DEFAULT
+
+
+def in_quiet_hours():
+    """FP-001: skip emission during low-liquidity UTC window.
+
+    Default 00:00-04:00 UTC. Returns (in_quiet: bool, hour: int, apex_bypass: int).
+    Apex setups (score >= apex_bypass) bypass — high-conviction BTC trends
+    can fire any hour; this only filters routine sub-apex entries.
+    """
+    c = _config()
+    start = int(c.get("quietHoursStartUtc", 0))
+    end = int(c.get("quietHoursEndUtc", 4))
+    apex = int(c.get("quietHoursApexBypassScore", 14))
+    if start == end:
+        return False, -1, apex  # disabled
+    h = datetime.now(timezone.utc).hour
+    if start < end:
+        return (start <= h < end), h, apex
+    # wrap window
+    return (h >= start or h < end), h, apex
+
+
+def all_confirmations_present(thesis):
+    """FP-003: require each soft confirmation to contribute, not just
+    score-summed. Five Kodiak-family confirmations (4TF + SM + Funding
+    + Volume + OI) must all fire. Returns (ok: bool, missing: list).
+    """
+    reasons = thesis.get("reasons") or []
+    needed = {
+        "4TF_ALIGNED": ("4TF_aligned",),
+        "SM_ALIGNED": ("sm_aligned_",),
+        "FUNDING_OK": ("funding_pays_",),  # accept only "pays" — neutral/silent NOT enough
+        "VOLUME": ("vol_",),               # vol_X.Xx (>= MIN_VOL_RATIO bucket)
+        "OI_ACCELERATING": ("OI_ACCELERATING_", "OI_rising_", "oi_growing_"),
+    }
+    missing = []
+    for label, prefixes in needed.items():
+        if not any(any(r.startswith(p) for p in prefixes) for r in reasons):
+            missing.append(label)
+    return (not missing), missing
+
+
+def require_all_confirmations_enabled():
+    return bool(_config().get("requireAllConfirmations", True))
+
+
+# ═══════════════════════════════════════════════════════════════
+
+
 def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     """P&L-aware daily entry cap — hot hand gets more, losers preserve capital."""
     if starting_budget <= 0:
@@ -799,7 +924,7 @@ def run():
                                       "leverage": leverage, "margin": margin,
                                       "orderType": "FEE_OPTIMIZED_LIMIT"},
                         "result": result,
-                        "_grizzly_version": "5.0",
+                        "_grizzly_version": VERSION,
                     })
                 else:
                     # Reload failed — back to HUNTING
@@ -809,7 +934,7 @@ def run():
                         "success": True, "action": "RELOAD_FAILED",
                         "signal": {"asset": ASSET, "direction": direction,
                                    "reasons": reasons},
-                        "error": result, "_grizzly_version": "5.0",
+                        "error": result, "_grizzly_version": VERSION,
                     })
                 return
 
@@ -856,9 +981,36 @@ def run():
         cfg.output({"success": True, "heartbeat": "NO_REPLY", "note": "HUNTING: no BTC thesis"})
         return
 
-    if thesis["score"] < MIN_SCORE:
+    # v5.8: config-driven minScore (default 12; was 10 hardcoded)
+    min_score = get_min_score()
+    if thesis["score"] < min_score:
         cfg.output({"success": True, "heartbeat": "NO_REPLY",
-                    "note": f"HUNTING: BTC {thesis['direction']} score {thesis['score']}<{MIN_SCORE}. {', '.join(thesis['reasons'][:3])}"})
+                    "note": f"HUNTING: BTC {thesis['direction']} score {thesis['score']}<{min_score}. {', '.join(thesis['reasons'][:3])}",
+                    "_grizzly_version": VERSION})
+        return
+
+    # FP-003: pattern completeness — each soft confirmation must contribute,
+    # not just score-summed. The Apr 30 +30% peak winner had all 5 firing.
+    if require_all_confirmations_enabled():
+        ok, missing = all_confirmations_present(thesis)
+        if not ok:
+            cfg.output({
+                "success": True,
+                "heartbeat": "NO_REPLY",
+                "note": f"HUNTING: confirmations_incomplete missing={','.join(missing)} score={thesis['score']}",
+                "_grizzly_version": VERSION,
+            })
+            return
+
+    # FP-001: quiet hours — apex setups (score >= apex_bypass) override.
+    quiet, current_hour, apex_bypass = in_quiet_hours()
+    if quiet and thesis["score"] < apex_bypass:
+        cfg.output({
+            "success": True,
+            "heartbeat": "NO_REPLY",
+            "note": f"HUNTING: quiet_hours_block hour={current_hour}_UTC score={thesis['score']}_below_apex_{apex_bypass}",
+            "_grizzly_version": VERSION,
+        })
         return
 
     # Same-direction cooldown after a win
@@ -899,7 +1051,7 @@ def run():
             },
             "constraints": {"minLeverage": MIN_LEVERAGE, "maxLeverage": MAX_LEVERAGE},
             "result": result,
-            "_grizzly_version": "5.0",
+            "_grizzly_version": VERSION,
         })
     else:
         cfg.output({
@@ -908,7 +1060,7 @@ def run():
             "signal": {"asset": ASSET, "direction": thesis["direction"],
                        "score": thesis["score"], "reasons": thesis["reasons"]},
             "error": result,
-            "_grizzly_version": "5.0",
+            "_grizzly_version": VERSION,
         })
 
 

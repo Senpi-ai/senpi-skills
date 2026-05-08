@@ -1,0 +1,231 @@
+name: turbine-tracker
+# Runtime SCHEMA version must be major=1 per the senpi-trading-runtime plugin.
+# Strategy/skill is "Turbine v2.0" — lives in description + SKILL.md +
+# _turbine_producer_version. Do not set this to 2.x.x.
+version: 1.2.0
+description: >
+  TURBINE v2.0 — Volume generation engine (v2-runtime-native rewrite).
+
+  Mission: generate high notional volume at minimal HL-fee cost. Net to
+  Senpi driven by builder-fee recycling (~3.5 bp/RT round-trip observed
+  on v1 onchain) minus HL maker fees (~1.4 bp/RT on Scorpion tier;
+  lower on XYZ at ~1.2 bp/RT). Trading P&L target: breakeven, small
+  positive lean acceptable.
+
+  v1 (BTC-only, scanner-managed exits, ensureExecutionAsTaker=true)
+  hit ~$1.4M/day volume but drained the wallet from $10K → $0.80 over
+  1,790 trades. Root causes (confirmed from onchain fills 2026-04-24):
+    - Every timeout-unfilled ALO fell through to taker at 4.5 bp
+    - 10x leverage on BTC amplified every adverse tick into realized
+      loss that outran the builder-fee tailwind
+    - Single asset (BTC) + single slot = zero diversification; all
+      drift accrued in one direction
+
+  v2.0 changes:
+    - Multi-asset rotation (XYZ-weighted 70%, HL main 30%) across
+      BTC/ETH/SOL/HYPE + BRENTOIL/GOLD/SPX/TSLA/NVDA. XYZ has lower
+      fee floor (0.006% per side vs 0.015% HL main maker).
+    - 3 parallel slots running 15-min cycles → volume scales without
+      shortening holds
+    - Leverage dropped 10x → 5x (lower per-tick P&L noise)
+    - Funding-regime-aware direction: SHORT LONG_CROWDED / LONG
+      SHORT_CROWDED / alternate on FLAT. Collects small positive
+      funding drift on ~80% of cycles.
+    - DSL-managed exits with FEE_OPTIMIZED_LIMIT + ensure_execution_as_taker: FALSE
+      → unfilled ALOs cancel and retry; never fall to taker. This
+      is the single largest fee improvement over v1.
+    - hard_timeout: 15min owns exit timing (no Phase 2 trailing, no
+      weak_peak, no dead_weight — pure time-based rotation). Price-
+      action cuts fire only at the extreme (max_loss 50%) as safety.
+
+  Initial budget $1,500 (operator-configured). Wallet address is
+  substituted via ${WALLET_ADDRESS} at deploy time — do not hardcode
+  here. The first Turbine v2 deployment on 2026-04-24 used a freshly
+  provisioned wallet after the original v1 wallet was permanently
+  CLOSED and no longer eligible for top-ups.
+  Phase 1 target: maker fill rate >= 90% across entries + exits,
+  measured via executionAsMaker on every fill. If Phase 1 passes,
+  scale slot count + margin per slot before touching asset list or
+  leverage.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  budget: 1500
+  slots: 3
+  margin_per_slot: 500
+  default_leverage: 5
+  trading_risk: conservative
+  enabled: true
+
+# v2.0.10 (2026-04-27): NEUTRALIZED P&L-based halts.
+#
+# Turbine's mission is volume generation, NOT P&L preservation. The
+# economic model: builder fees recycle to Senpi (~30 bp/volume),
+# trading P&L fluctuates around zero (~±1 bp/volume), Senpi-net is
+# positive across normal noise. Halting on a 10% wallet drawdown
+# stops volume generation precisely when nothing is wrong — wallet
+# drawdowns of 10-15% are NORMAL noise on a $1,500 wallet × 5x lev
+# × 3 slot config.
+#
+# Original guard_rails (3% daily / 10% drawdown / 20 consec losses)
+# were copy-pasted from Scorpion-style thesis agents where a loss
+# streak signals "thesis is broken, halt before bigger damage."
+# That logic doesn't apply to Turbine: it has NO thesis to break.
+#
+# Right halt criteria for Turbine are EFFICIENCY-based, not P&L-based:
+#   - Maker fill rate < 80% (architecture broken)
+#   - 24h HL fees > budget cap (real cost ceiling)
+#   - Wallet equity < 50% of starting (catastrophic margin event)
+# None natively supported by v2 guard_rails — must be monitored
+# externally. The P&L gates here are kept only as catastrophe safety
+# nets at extreme thresholds.
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 50             # was 3 — neutralized; only catches catastrophic single-day loss
+    max_entries_per_day: 1000            # never gate on volume
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 200          # was 20 — long loss streaks expected at breakeven
+    cooldown_minutes: 0                  # producer manages rotation pacing
+    drawdown_halt_pct: 50                # was 10 — 10-15% drawdowns are normal noise; only halt on catastrophic 50% drops
+    drawdown_reset_on_day_rollover: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+  - name: turbine_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        thesis: { type: string, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        fundingRegime: { type: string, required: false }
+        fundingAnnualizedPct: { type: number, required: false }
+        spreadBps: { type: number, required: false }
+        slotIndex: { type: number, required: false }
+        isXyz: { type: boolean, required: true }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: turbine_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${TURBINE_DECISION_MODEL}"  # REQUIRED. Pass BARE model name only — NO provider prefix. INVALID: "google/gemini-3.1-pro-preview" (OpenClaw double-prefixes → 500 Unknown model). Start with the fleet-standard model (gemini-3.1-pro-preview as of 2026-04-24) to control variables during Phase 1 validation. Downgrade to Flash Lite / Haiku once Turbine has a clean baseline — this gate is a pass-through rubber-stamp (producer already filters), so cheapest model that reliably returns structured JSON wins long-term. Model downgrade is a separate experiment, not a Phase 1 variable.
+    scanners: [turbine_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false      # v2.0 KEY — NEVER fall through to taker. If ALO doesn't fill in the window, cancel and skip this cycle. One taker exit (4.5 bp) burns hours of maker volume.
+        execution_timeout_seconds: 120        # 2-min ALO window on entries. Market oscillation catches the fill; misses cost only opportunity, not fees.
+    context:
+      - type: signal
+        scanner: turbine_signals
+    decision_prompt: |
+      You are Turbine's pass-through gate. The producer has already
+      applied every filter (spread, funding regime, asset rotation,
+      slot availability). Your job is simply to honor the signal
+      and convert it to an OPEN_POSITION decision.
+
+      SIGNAL:
+      {{signal_turbine_signals}}
+
+      ## RULES
+
+      1. Output execute: true UNLESS one of these hard skips applies:
+         - spreadBps > 5 AND isXyz == false (main DEX spread too wide)
+         - spreadBps > 15 AND isXyz == true (XYZ spread too wide)
+         - marginUsd <= 0 OR leverage <= 0 (malformed signal)
+         - fundingAnnualizedPct absolute value > 100 (extreme regime,
+           skip cycle — funding may reset before our 15min hold ends)
+
+      2. The `asset` field MUST be copied EXACTLY from the signal.
+         If signal says "xyz:BRENTOIL" output exactly "xyz:BRENTOIL",
+         not "BRENTOIL" and not "OIL".
+
+      3. The `direction` MUST match the signal's `direction` field.
+
+      4. Confidence should always be 7 unless a hard skip fires, in
+         which case output execute: false with a reason. Turbine's
+         thesis IS mechanical — no confidence gradation.
+
+      ## OUTPUT FORMAT
+
+      Return JSON with this exact shape. The `leverage` and
+      `marginUsd` fields MUST be copied from the signal's meta —
+      this enforces Turbine's spec sizing instead of letting the
+      runtime fall back to HL's per-asset defaults (which can be
+      10x or higher and break Turbine's risk envelope).
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": 7,
+        "reasoning": "one-liner citing asset + direction + thesis + spreadBps from signal",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal's asset EXACTLY",
+              "direction": "copy signal's direction EXACTLY",
+              "leverage": "copy signal meta.leverage EXACTLY (an integer, typically 5)",
+              "marginUsd": "copy signal meta.marginUsd EXACTLY (a number, typically 500)",
+              "reason": "turbine cycle open"
+            }
+          ]
+        }
+      }
+
+# Exits: DSL-managed. This is Turbine's ONE big win over v1.
+#
+# v1 did exits in the scanner script via close_position() with
+# ensureExecutionAsTaker: true and a 5-min timeout — meaning every
+# exit that didn't maker-fill in 5 min fell through to taker at
+# 4.5 bp. Over 1,790 trades, a material fee leak.
+#
+# v2 delegates exits entirely to DSL. FEE_OPTIMIZED_LIMIT with
+# ensure_execution_as_taker: FALSE means the runtime posts an ALO,
+# waits the window, and cancels if unfilled — it never takes.
+# The position stays open, DSL keeps trying on the next tick, and
+# eventually hard_timeout: 15min forces a final close attempt. If
+# even that can't fill as maker, we accept ONE taker close — that's
+# the structural floor. Still vastly better than v1's every-exit
+# taker fallback.
+#
+# Zero Phase 2 trailing, zero weak_peak, zero dead_weight. Turbine
+# doesn't exit on price action — exits are TIME-based only.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: false            # CORE v2 MECHANIC — cancel rather than take
+    execution_timeout_seconds: 120              # long ALO window; DSL can retry on next interval
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 15                   # primary exit signal — pure rotation cadence
+    weak_peak_cut:
+      enabled: false                            # not applicable; Turbine doesn't chase peaks
+    dead_weight_cut:
+      enabled: false                            # we WANT dead weight for 15 min — it's the rotation cycle
+    phase1:
+      enabled: true
+      max_loss_pct: 50.0                        # effectively off — 50% ROE = 10% price move at 5x. Safety backstop only.
+      retrace_threshold: 50
+      consecutive_breaches_required: 10
+    phase2:
+      enabled: false                            # no trailing — Turbine doesn't care about winners
+      tiers: []                                 # v2 runtime validator requires `tiers` to be present even when phase2.enabled is false. Empty array satisfies the schema without creating trailing behavior.
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"

@@ -1,15 +1,35 @@
 name: mantis-tracker
-version: 1.0.0
+version: 1.5.0
+# Note: skill/strategy is "Mantis v5.0 — Slipstream" but the runtime
+# contract is v1.x to remain compatible with senpi-trading-runtime
+# major version 1. Track the strategy version in description + SKILL.md.
 description: >
-  Striker-only SM explosion scanner. Detects violent rank jumps
-  across 50+ markets. Fast-cycling DSL — quick cuts on losers.
+  MANTIS v5.0 — Slipstream. Cross-asset catchup hunter built on the new
+  market_get_cross_asset_flows MCP tool. When BTC (or another leader)
+  makes a significant 4h move and a correlated alt hasn't responded yet,
+  Mantis strikes the alt before the catchup completes. Trades the
+  statistical lag, not the momentum itself. Hard veto if the leader
+  reverses mid-position (enforced by the scanner, not the runtime).
+  First Predator built around cross-asset flow detection.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
-  slots: 3
-  margin_per_slot: 180
   enabled: true
+
+# ── SCANNERS / ACTIONS (standard fleet pattern) ─────────────────
+# Mantis follows the Wolverine/Polar fleet pattern: the runtime hosts
+# a position_tracker scanner that keeps the DSL exit engine fed.
+# The actual cross-asset flow scanning logic runs as a separate
+# cron-scheduled Python job (scripts/mantis-scanner.py, every 60s)
+# that calls market_get_cross_asset_flows directly via mcporter and
+# emits STRIKE / VETO_CLOSE / NO_ENTRY actions. Cron schedule lives
+# in OpenClaw, not in this YAML.
+#
+# Entry filters, sizing tiers, risk caps, and Mantis-specific exit
+# logic (dynamic hard_timeout + leader-reversal veto) all live in
+# scripts/mantis_config.py and scripts/mantis-scanner.py — the runtime
+# YAML only declares the standard exit DSL preset as the safety net.
 
 scanners:
   - name: position_tracker
@@ -22,34 +42,41 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# Fast-cycling DSL for multi-asset Striker scanner.
-# Striker signals are explosive — they work fast or not at all.
+# ── EXIT (standard DSL — Mantis-specific exits live in scanner code) ──
+# The catchup thesis has TWO Mantis-specific exit conditions enforced
+# by the scanner (not the runtime DSL):
+#   1. Dynamic hard_timeout per trade (avg_lag_minutes × 1.5) — the
+#      scanner computes this and includes it in each STRIKE payload
+#   2. Leader-reversal veto — the scanner re-checks the leader move
+#      every 60s and emits VETO_CLOSE actions when threshold breached
+#
+# The DSL preset below is the standard fleet safety net. The hard_timeout
+# of 240 min is an absolute ceiling — the scanner's dynamic timeout will
+# typically fire much sooner.
+
 exit:
   engine: dsl
   interval_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 30
+      interval_in_minutes: 240
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 15
-      min_value: 3.0
-    dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 10
+      interval_in_minutes: 20
+      min_value: 1.5
     phase1:
       enabled: true
-      max_loss_pct: 20.0
-      retrace_threshold: 3
+      max_loss_pct: 12.0
+      retrace_threshold: 5
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
         - { trigger_pct: 5,  lock_hw_pct: 30 }
-        - { trigger_pct: 10, lock_hw_pct: 50 }
-        - { trigger_pct: 15, lock_hw_pct: 70 }
-        - { trigger_pct: 20, lock_hw_pct: 85 }
+        - { trigger_pct: 10, lock_hw_pct: 60 }
+        - { trigger_pct: 15, lock_hw_pct: 75 }
+        - { trigger_pct: 25, lock_hw_pct: 85 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"

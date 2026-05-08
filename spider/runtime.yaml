@@ -1,277 +1,260 @@
 name: spider-tracker
-version: 2.0.0
+# Top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (must be major=1). The strategy/skill is "Spider v3.0" —
+# that lives in description + SKILL.md + _spider_producer_version.
+# v2.0 incorrectly set version: 2.0.0 here, which the runtime ignored
+# silently (along with all the custom scanner/action types). v3.0 fixes
+# the schema and uses only types the runtime actually implements.
+version: 1.0.0
 description: >
-  SPIDER v2.0 — Agentic portfolio operator. Complete rewrite from v1.0
-  (Elite convergence single-position scanner). The spider builds a web:
-  one anchor point (high-conviction long, max 3x, min 7-day hold) plus
-  3-5 radial threads (funding-driven shorts, risk-parity sized to 40%
-  of anchor notional). Sits patiently. Doesn't chase. The web does the
-  work — vibrations come to it. Long horizon, low turnover, fee-aware,
-  forced-exit-tracking.
+  SPIDER v3.0 — Single-leg patient anchor sniper, v2-runtime-native.
+
+  v2.0 was an elaborate 2-leg portfolio operator (anchor + basket) with
+  custom runtime types (composite_score, portfolio_snapshot,
+  predators_position_aggregator, LLM_PORTFOLIO_DECISION) that
+  THE RUNTIME DID NOT IMPLEMENT. The operator agent was simulating
+  the runtime in cron text prompts; never traded.
+
+  v3.0 redesign trade-off:
+
+    PRESERVE — patience thesis (long horizon, low turnover, fee-aware)
+    PRESERVE — anchor-selection signal logic (arena leaders + SM
+               consensus + funding favorability + relative strength)
+    PRESERVE — 7-day minimum hold per anchor
+    PRESERVE — single high-conviction long position
+    PRESERVE — score-scaled leverage (1x/2x/3x cap)
+
+    DROP    — basket leg (no native portfolio runtime support;
+               revisit when dsl_portfolio ships)
+    DROP    — risk-parity multi-leg sizing
+    DROP    — funding harvest from coordinated shorts
+    DROP    — 7-day paper warmup (gate-paused indefinitely; v3.0 trades
+               immediately)
+    DROP    — pilot protocol staged entry
+    DROP    — fleet concentration overlay (revisit later)
+
+  WHAT v3.0 ENABLES:
+    - Producer (spider-producer.py) emits anchor signals via
+      `openclaw senpi external-scanner ingest`. NO execution code.
+    - Runtime LLM gate (decision_mode: llm) evaluates regime
+      (BTC drawdown, funding regime, vol expansion) and either
+      honors or rejects. Acts as the "agentic" layer the original
+      v2.0 design wanted.
+    - risk.guard_rails ENFORCES daily caps, drawdown halt,
+      consecutive-loss halt, per-asset cooldown.
+    - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits.
+    - 7-day min hold enforced producer-side (no re-emission while
+      held < 7d) plus DSL-side (Phase 1 max_loss is the only early
+      exit; weak_peak / dead_weight time cuts DISABLED for patience).
+    - Trade chain DB emits LIFECYCLE / DECISION / ACTION_RESULT /
+      DSL_CREATED / DSL_CLOSED — telemetry restored.
+
+  Cadence: hourly cron acceptable; producer skips when position open
+  with held_days < 7. Daily 13:00 UTC tick is sufficient for a
+  patience agent — but hourly catches faster regime shifts at no
+  cost (the producer no-ops cleanly when riding).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 2000
+  slots: 1
+  margin_per_slot: 1000        # 100% on single anchor (operator-tunable)
+  trading_risk: moderate
   enabled: true
 
-# ── SCANNERS ─────────────────────────────────────────────────────
-# Spider runs four scanners on a daily cadence. Scanners produce scored
-# candidate slates; the LLM action layer picks composition. Scanners do
-# NOT pick trades.
+risk:
+  data_retention_hours: 168     # 7 days — match min-hold horizon
+  guard_rails:
+    daily_loss_limit_pct: 12    # 12% weekly drawdown cap from v2.0
+    max_entries_per_day: 2      # rare anchor entries; cap at 2/day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 60
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false  # Roach Sat-Sun bleed lesson
+    per_asset_cooldown_minutes: 10080      # 7d (matches min-hold)
 
 scanners:
-  - name: anchor_candidates
-    type: composite_score
-    interval: 24h
-    universe: top_15_volume_perps
-    signal_sources:
-      arena_leaders_7d:
-        weight: 0.40
-        method: top_10_roe_aggregate_long_exposure
-        recency_filter_days: 5
-        conviction_weight: pct_of_account
-        floor_active_traders: 150
-      sm_consensus_7d_delta:
-        weight: 0.30
-      funding_favorability:
-        weight: 0.15
-      relative_strength_30d:
-        weight: 0.15
-    output: ranked_top_5_with_reasons
+  - name: position_tracker
+    type: position_tracker
+    interval: 30s
 
-  - name: basket_candidates
-    type: composite_score
-    interval: 24h
-    universe: top_50_volume_perps
-    exclusions:
-      - current_anchor
-      - correlation_above_0.85_with_anchor
-    signal_sources:
-      funding_descending:
-        weight: 0.40
-      sm_rotation_negative:
-        weight: 0.25
-      relative_weakness_vs_anchor_7d:
-        weight: 0.20
-      squeeze_risk_inverse:
-        weight: 0.15
-    output: ranked_top_10_with_reasons
-
-  - name: portfolio_state
-    type: portfolio_snapshot
-    interval: 4h
-    fields:
-      - legs
-      - days_held_per_leg
-      - pnl_per_leg
-      - funding_accrued_per_leg
-      - fees_paid_per_leg
-      - gross_exposure
-      - net_delta
-      - portfolio_drawdown_from_week_start
-      - fills_in_rolling_7d                  # v2.0 — fleet-learning constraint
-
-  - name: fleet_overlap
-    type: predators_position_aggregator
-    interval: 6h
-    exclude_self: true
-    output: per_asset_long_count_short_count_net_notional_pct
-
-# ── ACTIONS ──────────────────────────────────────────────────────
+  - name: spider_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        reasons: { type: string, required: false }
+        smPct: { type: number, required: true }
+        smTraders: { type: number, required: true }
+        rank: { type: number, required: false }
+        arenaScore: { type: number, required: false }
+        smScore: { type: number, required: false }
+        fundingScore: { type: number, required: false }
+        relstrScore: { type: number, required: false }
+        fundingRate: { type: number, required: false }
+        priceChg30d: { type: number, required: false }
+        priceChg7d: { type: number, required: false }
+        priceChg24h: { type: number, required: false }
+        heldAssets: { type: array, required: false }
 
 actions:
-  - name: portfolio_decide
-    action_type: LLM_PORTFOLIO_DECISION
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: spider_entry
+    action_type: OPEN_POSITION
     decision_mode: llm
-    scanners: [anchor_candidates, basket_candidates, portfolio_state, fleet_overlap]
-    output_schema:
-      decision: enum[HOLD, SWAP_BASKET_MEMBER, RESIZE, FULL_REBALANCE, GO_TO_CASH]
-      anchor: { asset, side, leverage, target_notional }
-      basket: [{ asset, side, leverage, target_notional, weight_method }]
-      conviction: float          # 0.0 - 10.0, agent self-rated
-      rationale: string
-      alternatives_considered: array
-      fill_budget_remaining_7d: int   # v2.0 — agent must report this every cycle
+    decision_model: "${SPIDER_DECISION_MODEL}"  # REQUIRED. BARE model name only — NO provider prefix.
+    scanners: [spider_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: spider_signals
+    decision_prompt: |
+      You are Spider's regime-aware gate. The producer has applied
+      every quantitative filter (top-15 SM universe, hard SM + trader
+      count gates, 4-factor composite scoring with MIN_SCORE 5.5,
+      LONG-only, XYZ banned, held-asset dedup, post-close cooldown,
+      leverage clamped to HL asset max).
 
-# ── COLD START ───────────────────────────────────────────────────
-# Spider does NOT trade until the operator has reviewed 7 days of
-# paper-trading rationale logs AND the anchor signal qualifies for 2
-# consecutive daily scans.
+      Your job is to evaluate REGIME conditions the producer doesn't
+      see, and either honor the signal or veto it. Spider is a
+      7-day-minimum-hold anchor agent — be conservative. Better to
+      miss a setup than ride into a regime collapse.
 
-cold_start:
-  warmup:
-    enabled: true
-    duration_days: 7
-    mode: paper_trade_with_rationale_logging
-    purpose: threshold_calibration_and_operator_review
-    rationale_log_review_required_before_strike: true
+      SIGNAL:
+      {{signal_spider_signals}}
 
-  first_strike:
-    require_warmup_complete: true
-    require_anchor_score: 7.0
-    require_score_persistence_days: 2
-    require_no_catastrophic_regime: true
-    regime_vetoes:
-      - btc_drawdown_48h_pct: 10
-      - funding_regime_breadth: flipping
-      - vol_regime: expansion_spike
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
 
-  pilot_protocol:
-    day_1: { anchor_pct: 0.50, basket_pct: 0.00 }
-    day_2: { anchor_pct: 0.75, basket_pct: 0.25, conditional_on: thesis_confirming }
-    day_3: { anchor_pct: 1.00, basket_pct: 0.40, conditional_on: thesis_confirming }
-    abort_triggers:
-      anchor_drawdown_pct: 5
-      anchor_score_falls_below: 6.5
-    abort_action:
-      close_all: true
-      warmup_reset_days: 3
+      1. The `asset` MUST be copied EXACTLY from the signal's `asset` field.
+      2. The `direction` MUST be LONG (Spider is long-only on anchor).
+      3. The `leverage` MUST be copied from signal.data.leverage (clamped
+         by producer to HL asset max).
+      4. Every claim in `reasoning` MUST cite values from the signal.
 
-# ── RISK ENVELOPE ────────────────────────────────────────────────
+      ## HARD SKIP CONDITIONS (output execute: false)
 
-risk_envelope:
-  anchor:
-    max_leverage: 3
-    min_hold_days: 7
-    max_notional_pct_of_equity: 100
-  basket:
-    max_members: 5
-    min_members: 3
-    max_leverage: 2
-    target_hedge_ratio: 0.40
-    hedge_ratio_tolerance: [0.25, 0.55]
-    min_holding_days_per_member: 3
+      - score < 5.5 (producer floor; defensive only)
+      - direction != "LONG" (producer should never emit non-LONG)
+      - leverage <= 0 OR marginUsd <= 0 (malformed signal)
+      - heldAssets non-empty (already holding an anchor — never add)
+      - reasons string empty (malformed signal)
 
-    # v2.0 — basket member strictness gate (fleet-learning addition)
-    # Bleeders admit weak signals. Each basket member must individually
-    # clear a score floor or it doesn't make the cut. If fewer than 3
-    # candidates clear the floor, run anchor-only (no basket this week).
-    member_min_score: 6.5
-    fallback_when_insufficient_qualifiers: anchor_only_mode
+      ## REGIME VETOES (use general macro knowledge + signal data)
 
-  portfolio:
-    max_gross_exposure_pct: 200
-    max_drawdown_weekly_pct: 12
-    drawdown_action: close_basket_first
-    cash_floor_pct: 10
+      Veto with execute: false if any of these apply:
+        - BTC has dropped >10% in the last 48h (catastrophic regime)
+        - Volatility regime is in expansion-spike mode (markets uniformly
+          breaking, not Spider's setup)
+        - Funding regime is "flipping" — broad funding direction reversal
+          across the alt book (signals about to invalidate)
+        - The signal's asset price is down >15% in 7d AND >20% in 24h
+          (caught a reversal, not a continuation)
 
-  fleet_concentration:
-    enabled: true
-    treatment: leverage_modifier_only
-    rules:
-      - if_same_direction_predator_count_gte: 5
-        cap_leverage_at: 2
-      - if_fleet_notional_pct_in_asset_gt: 30
-        cap_leverage_at: 2
+      Otherwise honor the signal.
 
-# ── v2.0 FLEET-LEARNING CONSTRAINTS ─────────────────────────────
-# Direct response to the Apr 2026 fleet hypothesis:
-#   "Bleeders are over-trading — relying on weak signals and hitting
-#    DSL repeatedly. The way to win big is high conviction + longer
-#    hold times. Most bleeders have positive gross edge eaten by fees."
-# Cheetah/Roach/Roach-B/Scorpion all show this pattern at 400+ fills.
-# Spider must avoid it by construction.
+      ## SPIDER'S THESIS
 
-trade_frequency_constraint:
-  max_fills_per_7d: 12
-  soft_warning_at: 8
-  hard_cap_action: llm_must_justify_each_additional_fill_in_rationale
-  enforcement: behavioral_via_llm_action_layer
-  rationale: >
-    Fleet data: bleeders average 400+ fills with -23% median ROI.
-    Winners (Vulture 72 fills +3.1%, Kodiak 316 fills +5.6%) keep
-    turnover low. Spider's structure targets ~10-20 fills/week max.
+      Spider holds one high-conviction long anchor for at least 7 days.
+      Goal: capture multi-day trend AND positive carry from favorable
+      funding while peers churn in noise. The signal scoring already
+      requires arena alignment + SM consensus + favorable funding +
+      30d relative strength. Your job is to reject only when the
+      MACRO regime makes the bet unwise — not to second-guess the
+      asset selection.
 
-fee_health_monitoring:
-  enabled: true
-  metric: fee_pct_of_gross_pnl
-  ceiling_pct: 25.0
-  rolling_window_weeks: 4
-  ceiling_breach_action: emit_FEE_CEILING_WARNING_event
-  agent_required_to_address_in_next_rationale: true
-  rationale: >
-    Cheetah ate 121% of gross in fees (made $1,317 gross, returned
-    -$283 net). Spider must surface this metric every week and act
-    when it climbs.
+      ## CONFIDENCE SCORING
 
-forced_exit_monitoring:
-  enabled: true
-  taxonomy:
-    agent_controlled:
-      - agent_chosen
-      - thesis_break
-      - funding_flip
-      - weekly_review
-      - min_hold_expiry
-    forced:
-      - safety_stop          # per-leg 25% hard stop fired (BAD)
-      - circuit_breaker      # portfolio drawdown action triggered
-  safety_stop_30d_ceiling: 1
-  ceiling_breach_action: emit_SAFETY_STOP_WARNING_event
-  rationale: >
-    Bleeders hit DSL repeatedly. Spider tracks every leg close with
-    a typed exit_reason; >1 safety_stop in 30d signals the agent has
-    lost control and must justify in next rationale.
+      - 9-10: score >= 8.0 AND arenaScore >= 2 AND fundingScore >= 1.0
+              AND no regime concerns
+      - 7-8: score 6.5-7.9 AND no regime veto
+      - 7: score 5.5-6.4 (entry-level tier, MIN_SCORE floor) AND
+           SM_score >= 2.0 AND no regime concerns. Producer has
+           gated this — be permissive unless regime veto applies.
+      - <7: regime veto applies (output execute: false)
 
-# ── CYCLE ────────────────────────────────────────────────────────
+      Minimum confidence to execute is 7. Be conservative — Spider's
+      edge comes from holding 7+ days, not from frequency.
 
-cycle:
-  daily_decision:
-    enabled: true
-    time_utc: "13:00"
-    skip_thursday_morning_window:
-      enabled: true
-      window_start_utc: "00:00"
-      window_end_utc: "12:00"
-      reason: arena_leaderboard_just_reset_signal_quality_low
+      ## OUTPUT FORMAT
 
-  emergency_check:
-    enabled: true
-    interval_hours: 1
-    triggers:
-      - portfolio_drawdown_circuit
-      - basket_member_funding_flip
-      - catastrophic_regime_event
-
-  weekly_review:
-    enabled: true
-    time_utc: "15:00"
-    day_of_week: sunday
-    actions:
-      - reselect_basket_full
-      - resize_all_legs
-      - write_attribution_record
-      - check_fee_pct_rolling_4w
-      - check_safety_stop_count_rolling_30d
-
-# ── EXIT ─────────────────────────────────────────────────────────
-# Per-leg hard stop is a safety net only. Spider should manage exits
-# via the daily decision loop. The dsl_portfolio engine (runtime
-# addition, not yet shipped) will replace this with portfolio-level
-# exit logic. EVERY leg close writes an EXIT event with typed
-# exit_reason — this is the v2.0 forced-exit monitoring backbone.
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing score breakdown — e.g. 'score 8.4 LONG SOL — arena 2.4 (3 leaders LONG), SM 2.1 (12.4%/85t), funding 1.2 (-0.04%), relstr 0.8 (+12%/30d), regime stable'",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "LONG",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "score N.N SPIDER_ANCHOR ASSET — top reason"
+            }
+          ]
+        }
+      }
 
 exit:
-  engine: dsl_portfolio_pending
-  fallback_per_leg_safety_stop:
-    enabled: true
-    hard_stop_loss_pct: 25
-    note: >
-      Safety net only. Normal exits via decision loop. Every fire
-      writes an EXIT event with exit_reason='safety_stop' and counts
-      against the 30d safety_stop ceiling.
-
-# ── NOTIFICATIONS ────────────────────────────────────────────────
+  engine: dsl
+  interval_seconds: 60
+  # v3.0: maker-preferred exits via FEE_OPTIMIZED_LIMIT.
+  # 7-day-hold anchors with 1-3x leverage have small per-trade fee
+  # impact, but the principle stands — exit costs accrue over many
+  # months of operation.
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  # DSL preset — Spider is patience agent. Time cuts DISABLED (matches
+  # Polar / Wolverine / Pangolin patience-agent pattern). Phase 1
+  # max_loss is the only early-exit path. Phase 2 ladder uses fleet-
+  # standard T0/T1 patch but tier triggers WIDER than active rotation
+  # agents — small price moves on 1-3x leverage shouldn't lock profit
+  # too early on a 7-day-hold thesis.
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 43200          # 30 days — ultimate fail-safe
+    weak_peak_cut:
+      enabled: false                       # patience agent
+      interval_in_minutes: 360
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                       # patience agent
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                   # weekly drawdown cap
+      retrace_threshold: 8
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        # Wider than active agents — Spider holds long, doesn't lock
+        # at small wiggle. T0 trigger only fires on real winners.
+        - { trigger_pct: 10, lock_hw_pct: 35 }
+        - { trigger_pct: 20, lock_hw_pct: 55 }
+        - { trigger_pct: 35, lock_hw_pct: 70 }
+        - { trigger_pct: 60, lock_hw_pct: 85 }
+        - { trigger_pct: 100, lock_hw_pct: 92 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
-  events:
-    - WARMUP_END
-    - STRIKE
-    - ABORT
-    - FULL_REBALANCE
-    - FEE_CEILING_WARNING
-    - SAFETY_STOP_WARNING
-    - FILL_CAP_WARNING
-    - drawdown_circuit_breaker_fired
-    - weekly_attribution
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

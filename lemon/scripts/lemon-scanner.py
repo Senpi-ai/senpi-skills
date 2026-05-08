@@ -1,8 +1,35 @@
 #!/usr/bin/env python3
-# Senpi LEMON Scanner v1.1
+# Senpi LEMON Scanner v1.3
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""LEMON v1.1 — Degen Fader (Fleet Hardened).
+"""LEMON v1.3 — Degen Fader (Macro Gate + XYZ unban).
+
+v1.3 (2026-05-05) — Two changes targeting Lemon's slow-bleed pattern
+(-$246 lifetime / 37% win rate / -$2 per trade avg under v1.2):
+
+1. MACRO_TREND_GATE (crypto only). Block fades when BTC 4h move
+   exceeds 3% in either direction. Mean-reversion thesis structurally
+   fails when macro is trending — alts that look exhausted during
+   BTC trend moves are usually consolidating before continuation, not
+   reversing. Pattern documented across the fleet: Wolverine HYPE
+   SHORT (-$160), Cobra rotation (-60%), Condor v3.0 added the same
+   gate. XYZ assets (oil/gold/spx) bypass — they trade on their own
+   macro, not BTC's.
+
+2. XYZ unban. v1.1's XYZ_BANNED=True was a lazy scaffold default. The
+   fade thesis applies to news-driven XYZ moves (Apr 17 Iranian ship
+   seizure crowd-pile on oil is a textbook fade setup) just as well as
+   to crypto crowd piles. Erik's XYZ DSL prefix fix (deployed
+   2026-05-05) wires exit protection correctly. Tracked XYZ:
+   xyz:BRENTOIL, xyz:CL, xyz:GOLD, xyz:SPX. ISOLATED margin set
+   automatically on XYZ orders per HIP-3 requirement.
+
+v1.2 (2026-04-22) — Leverage + margin normalization. MAX_LEVERAGE
+20→10, MARGIN_PCT 0.50→0.30, MIN_SCORE 8→9, dead_weight_cut 20→45min.
+Eliminated catastrophic blow-ups (-$370/9d under v1.1) but didn't
+fix signal quality (-$43/13d slow drain under v1.2).
+
+v1.1 (2026-04-09) — Fleet hardening:
 
 THESIS: Counter-trade the worst traders on the Hyperfeed. When CHOPPY and
 DEGEN traders are concentrated on one side of an asset, fade them — take
@@ -58,8 +85,16 @@ import lemon_config as cfg
 # HARDCODED CONSTANTS
 # ═══════════════════════════════════════════════════════════════
 
-TRACKED_ASSETS = ["BTC", "ETH", "SOL", "HYPE", "AVAX", "DOGE", "LINK",
+# v1.3 — TRACKED_ASSETS expanded to include XYZ. v1.1's XYZ_BANNED was
+# a lazy default carried from earlier scaffold work; the fade thesis
+# (counter-trade exhausting consensus) applies to oil/brent just as it
+# did to the Apr 17 Iran event. Erik's XYZ DSL prefix fix is live as of
+# 2026-05-05 so exit protection is wired correctly. Per-asset symbols
+# below; XYZ assets carry the "xyz:" prefix per HIP-3 conventions.
+TRACKED_CRYPTO = ["BTC", "ETH", "SOL", "HYPE", "AVAX", "DOGE", "LINK",
                   "XRP", "ADA", "NEAR", "UNI", "AAVE"]
+TRACKED_XYZ = ["BRENTOIL", "CL", "GOLD", "SPX"]
+TRACKED_ASSETS = TRACKED_CRYPTO + TRACKED_XYZ
 MAX_POSITIONS = 1
 MAX_DAILY_ENTRIES = 3
 
@@ -90,7 +125,26 @@ def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
 COOLDOWN_MINUTES = 120
 MARGIN_PCT = 0.30               # v1.2: 0.50 → 0.30 (reduce fade concentration)
 MIN_SCORE = 9                   # v1.2: 8 → 9 (higher bar for fade signals)
-XYZ_BANNED = True
+# v1.3: XYZ no longer banned. Earlier "XYZ_BANNED = True" was a lazy
+# scaffold default — the fade thesis (counter-trade exhausting crowd
+# consensus) applies to news-driven XYZ moves like the Apr 17 Iran-event
+# +57% oil rip just as well as to crypto crowd piles.
+XYZ_BANNED = False
+
+# v1.3 (2026-05-05) — MACRO TREND GATE.
+# Fade thesis (mean reversion against CHOPPY/DEGEN consensus) structurally
+# fails in trending regimes. Documented across the fleet:
+#   - Wolverine HYPE SHORT post-mortem: -$160 fading a 32% rip
+#   - Cobra: -60% ROI from rotation in trending market
+#   - Condor v3.0 added MACRO_TREND_GATE specifically for this
+# v1.2 (10x cap, 30% margin, MIN_SCORE 9) eliminated catastrophic blow-ups
+# but didn't fix the signal: -$246 lifetime / 37% win rate / -$2 per trade
+# average. Win/loss size asymmetric (avg win ~$2 vs avg loss ~$6).
+# When BTC's 4h move is large in either direction, alts that look
+# "exhausted" are usually just consolidating before continuation, not
+# actually reversing. Block fades during macro directional moves.
+# 3.0% threshold matches Condor's MACRO_TREND_GATE precedent.
+MACRO_GATE_BTC_4H_PCT = 3.0
 
 # Conviction-scaled leverage — fleet standard caps at 10x. v1.2 removed
 # 15/20x tiers — empirical fleet ceiling is 10x per Kodiak docstring.
@@ -206,7 +260,15 @@ def fetch_sm_data():
         if token not in TRACKED_ASSETS:
             continue
 
+        # v1.3: build the canonical asset key (XYZ assets carry the
+        # "xyz:" prefix per HIP-3; crypto is the bare token). The map
+        # is still keyed by token for lookup convenience but stores
+        # the dex so the run loop can use the right asset string at
+        # create_position time.
         sm_map[token] = {
+            "asset": f"xyz:{token}" if dex == "xyz" else token,
+            "dex": dex,
+            "is_xyz": dex == "xyz",
             "direction": str(m.get("direction", "")).upper(),
             "pct": safe_float(m.get("pct_of_top_traders_gain", 0)),
             "traders": int(m.get("trader_count", 0)),
@@ -343,8 +405,14 @@ def evaluate_fade(asset, sm):
     if score < MIN_SCORE:
         return None
 
+    # v1.3: use canonical asset string (xyz:BRENTOIL for XYZ, bare token
+    # for crypto) so execute_entry → create_position receives the form
+    # HL expects per HIP-3.
+    canonical = sm.get("asset", asset)
     return {
-        "asset": asset,
+        "asset": canonical,
+        "token": asset,
+        "is_xyz": sm.get("is_xyz", False),
         "direction": fade_direction,
         "score": score,
         "mode": "DEGEN_FADER",
@@ -362,21 +430,29 @@ def evaluate_fade(asset, sm):
 # ═══════════════════════════════════════════════════════════════
 
 def execute_entry(wallet, asset, direction, leverage, margin):
-    """Call create_position directly via mcporter."""
+    """Call create_position directly via mcporter.
+
+    v1.3: XYZ assets require ISOLATED margin per HIP-3; CROSS isn't
+    supported on the XYZ DEX. Detect by "xyz:" prefix.
+    """
+    is_xyz = isinstance(asset, str) and asset.lower().startswith("xyz:")
+    order = {
+        "coin": asset,
+        "direction": direction,
+        "leverage": leverage,
+        "marginAmount": margin,
+        "orderType": "FEE_OPTIMIZED_LIMIT",
+        "feeOptimizedLimitOptions": {
+            "ensureExecutionAsTaker": False,
+            "executionTimeoutSeconds": 30,
+        },
+    }
+    if is_xyz:
+        order["leverageType"] = "ISOLATED"
     result = cfg.mcporter_call(
         "create_position",
         strategyWalletAddress=wallet,
-        orders=[{
-            "coin": asset,
-            "direction": direction,
-            "leverage": leverage,
-            "marginAmount": margin,
-            "orderType": "FEE_OPTIMIZED_LIMIT",
-            "feeOptimizedLimitOptions": {
-                "ensureExecutionAsTaker": False,
-                "executionTimeoutSeconds": 30,
-            },
-        }],
+        orders=[order],
     )
     if result and result.get("success"):
         return True, result
@@ -450,6 +526,24 @@ def run():
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "No SM data"})
         return
 
+    # v1.3 — MACRO TREND GATE (crypto only). Block CRYPTO fades when BTC
+    # is in a strong directional move (>3% on 4h). Mean-reversion thesis
+    # structurally fails when macro is trending — alts that look
+    # "exhausted" during BTC trend moves are usually consolidating before
+    # continuation, not reversing. (Inherits from Wolverine HYPE
+    # post-mortem + Condor v3.0 MACRO_TREND_GATE pattern.)
+    #
+    # XYZ (oil/gold/spx) trades on its own macro, not BTC's — when oil
+    # moves on geopolitical news the BTC regime is irrelevant. XYZ
+    # signals bypass this gate; they're still scored on their own 15m
+    # exhaustion criteria like crypto.
+    btc = sm_map.get("BTC")
+    btc_macro_blocking_crypto = False
+    btc_4h = 0.0
+    if btc:
+        btc_4h = btc.get("price_chg_4h", 0)
+        btc_macro_blocking_crypto = abs(btc_4h) > MACRO_GATE_BTC_4H_PCT
+
     # Evaluate fade signals for all tracked assets
     signals = []
     rejections = {}
@@ -459,12 +553,20 @@ def run():
             rejections[asset] = "no_data"
             continue
 
+        # v1.3: MACRO TREND GATE applies to crypto signals only. XYZ
+        # (oil/gold/spx) trades on its own macro and is exempt.
+        if btc_macro_blocking_crypto and not sm.get("is_xyz"):
+            rejections[asset] = f"macro_gate (BTC 4h {btc_4h:+.2f}%)"
+            continue
+
         if cfg.is_on_cooldown(asset):
             rejections[asset] = "cooldown"
             continue
 
-        # Skip if we already hold this asset
-        if any(p["coin"].upper() == asset for p in positions):
+        # Skip if we already hold this asset (compare against canonical
+        # asset string — XYZ positions show as "xyz:BRENTOIL" etc.)
+        canonical_asset = sm.get("asset", asset)
+        if any(p["coin"].upper() == canonical_asset.upper() or p["coin"].upper() == asset for p in positions):
             rejections[asset] = "holding"
             continue
 
@@ -511,7 +613,7 @@ def run():
                 "ensureExecutionAsTaker": False,
             },
             "result": result,
-            "_lemon_version": "1.1",
+            "_lemon_version": "1.3",
         })
     else:
         cfg.output({
@@ -519,7 +621,7 @@ def run():
             "action": "ENTRY_FAILED",
             "signal": best,
             "error": result,
-            "_lemon_version": "1.1",
+            "_lemon_version": "1.3",
         })
 
 

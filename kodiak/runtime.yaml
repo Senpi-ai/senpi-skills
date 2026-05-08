@@ -1,23 +1,100 @@
 name: kodiak-tracker
-version: 5.1.0
+# Top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (must be major=1). Strategy/skill is "Kodiak v6.0.1" —
+# that lives in description + SKILL.md + _kodiak_producer_version.
+version: 1.6.0
 description: >
-  SOL alpha hunter with position lifecycle. v5.1 adds base-tech-score
-  floor: requires 4h structural strength ≥ 0.75 (was 0.60) and forces
-  at least one 4TF confluence beyond minimum gate passes. Prevents
-  external factors (SM positioning, funding, OI velocity, volume) from
-  being the sole driver of MIN_SCORE on marginal price structure.
-  Scanner-only change. DSL and leverage unchanged from v5.0.
+  KODIAK v6.0.1 — entry-side ensure_execution_as_taker fix (2026-05-04).
+  v6.0 shipped with `ensure_execution_as_taker: false` on the
+  kodiak_entry action, intended as "cancel-and-skip if maker doesn't
+  fill in 60s." Runtime behavior diverges: order rests on book
+  indefinitely, action marked SKIPPED, but order may eventually fill
+  via natural price action — producing realized PnL with broken
+  telemetry. Forces taker fallback after 60s ALO timeout so trades
+  actually execute on the cycle they were intended.
+
+  KODIAK v6.0 — v2-runtime-native rewrite + 5x leverage fix +
+  asymmetry-optimized DSL.
+  Mission unchanged: SOL alpha hunter. Single-asset focus. Hyperfeed
+  primary direction + structural-veto gates from candle data + multi-
+  factor scoring + conviction-tiered leverage. v5.1's base-tech-score
+  floor preserved verbatim.
+
+  v6.0 thesis-side change: drop default leverage 10x → 5x. v5.1 ran
+  10x SOL = -17.8% ROE / -$178 over 26 trades. 10x on single-asset SOL
+  amplified chop into realized losses faster than winners could
+  compound. At 5x, per-trade loss variance halves; same signal
+  selection, half the bleed-rate per losing trade.
+
+  v6.0 architectural changes (v2-runtime-native):
+    - Producer (kodiak-producer.py) emits scored thesis signals via
+      `openclaw senpi external-scanner ingest`. NO execution code.
+    - Runtime LLM (decision_model env var) is a pass-through gate —
+      producer has already applied every filter (4h structure, 1h
+      agree, 15m direction confirms, base-tech-score floor, MIN_SCORE 10).
+    - Maker exits via FEE_OPTIMIZED_LIMIT — v5.4 used MARKET orders.
+    - Risk gates declarative — runtime owns enforcement.
+    - DSL exit: ASYMMETRY-OPTIMIZED. Phase 1 max_loss 15% (was 25)
+      with retrace 5 (was 8) and breaches 2 (was 3) — cut losers
+      FAST and CHEAP. Phase 2 wider first tier 10/20 and extreme top
+      tier 75/88 — RIDE WINNERS HARD.
+    - Time cuts (hard_timeout, weak_peak_cut, dead_weight_cut) all
+      DISABLED. Single-asset patience preserved.
 
 # ── STRATEGY ──
 strategy:
   wallet: "${WALLET_ADDRESS}"
+  budget: 1000
+  slots: 1                                       # single-asset, single position
+  margin_per_slot: 200                           # 20% of $1k starting budget per slot
+  trading_risk: aggressive
+  default_leverage: 5                            # v6.0 KEY FIX — was 10 in v5.1
   enabled: true
+
+# ── RISK GUARDRAILS ──
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_minutes: 1
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 240
 
 # ── SCANNERS ──
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: kodiak_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        smPctOfTopTraders: { type: number, required: false }
+        smTraderCount: { type: number, required: false }
+        smCc15m: { type: number, required: false }
+        smAligned: { type: boolean, required: false }
+        trend4h: { type: string, required: false }
+        trendStrength4h: { type: number, required: false }
+        trend1h: { type: string, required: false }
+        mom15mPct: { type: number, required: false }
+        mom1hPct: { type: number, required: false }
+        mom4hPct: { type: number, required: false }
+        fundingRate: { type: number, required: false }
+        oiTrend: { type: string, required: false }
+        btcMom1hPct: { type: number, required: false }
+        rsi: { type: number, required: false }
+        reasons: { type: string, required: false }
 
 # ── ACTIONS ──
 actions:
@@ -26,46 +103,103 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ── EXIT (DSL) ──
-# Philosophy: DSL Phase 2 trailing stops + weak_peak_cut + dead_weight_cut
-# do all the real exit work. hard_timeout is a 24h safety net that should
-# almost never fire — it only catches positions that somehow escaped every
-# other mechanism. We do NOT use hard_timeout to cap winning trends.
-#
-# Evidence: Kodiak's profitable SOL trades on 2026-04-14 held 19/26/50/228 min.
-# The 228-min SHORT peaked at +21.6% ROE in Phase 2 Tier 3. A 45-min or even
-# 360-min hard_timeout would have killed it well before peak, leaving 10-15%
-# ROE on the table. Phase 2 trailing stops are what should exit winners.
+  - name: kodiak_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${KODIAK_DECISION_MODEL}"
+    scanners: [kodiak_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true       # v6.0.1 fix — was false; forced taker fallback after 60s ALO timeout
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: kodiak_signals
+    decision_prompt: |
+      You are Kodiak's pass-through gate. The producer has already
+      applied every filter (4h trend NEUTRAL block, trend_strength_4h
+      >= 0.75, 1h matches 4h, 15m direction confirms, base-tech-score
+      floor, score >= 10, per-asset 240min cooldown). Your job is
+      simply to honor the signal and convert it to OPEN_POSITION.
+
+      SIGNAL:
+      {{signal_kodiak_signals}}
+
+      ## RULES
+
+      1. Output execute: true UNLESS one of these hard skips applies:
+         - score < 10 (signal failed producer floor — defensive)
+         - leverage <= 0 OR marginUsd <= 0 (malformed signal)
+         - leverage > 7 (defensive — Kodiak v6.0 caps at 7x)
+
+      2. The `asset` field MUST be "SOL". This is a single-asset agent.
+
+      3. The `direction` MUST match the signal's direction.
+
+      4. Confidence 7 unless hard-skip fires (then execute: false).
+
+      ## OUTPUT FORMAT
+
+      Copy `leverage` and `marginUsd` EXACTLY from signal.data — this
+      enforces v6.0's 5/6/7x sizing instead of HL's per-asset default
+      (10x SOL = the v5.1 problem we just fixed).
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": 7,
+        "reasoning": "SOL <direction> score <X> 4h-<trend> SM-<aligned/no>",
+        "payload": {
+          "signals": [
+            {
+              "asset": "SOL",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY (5, 6, or 7)",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY (~20% of account)",
+              "reason": "kodiak v6 sol-thesis"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — asymmetry-optimized + maker recovery) ──
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: true
-      interval_in_minutes: 1440      # 24h safety net — let trends run
+      enabled: false
+      interval_in_minutes: 1440
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 25         # cut if peak ROE never breaks 3% in 25 min
+      enabled: false
+      interval_in_minutes: 25
       min_value: 3.0
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 18         # cut stalled non-movers fast
+      enabled: false
+      interval_in_minutes: 18
     phase1:
       enabled: true
-      max_loss_pct: 25.0
-      retrace_threshold: 8
-      consecutive_breaches_required: 3
+      max_loss_pct: 15.0
+      retrace_threshold: 5
+      consecutive_breaches_required: 2
     phase2:
       enabled: true
       tiers:
-        # Phase 2 tiers — leverage-aware for SOL (fleet audit April 2026)
-        # At 10x on SOL, old Tier 1 created a $0.13 lock — normal SOL wick is $0.42
-        - { trigger_pct: 8,  lock_hw_pct: 25 }
-        - { trigger_pct: 15, lock_hw_pct: 50 }
-        - { trigger_pct: 25, lock_hw_pct: 65 }
-        - { trigger_pct: 35, lock_hw_pct: 80 }
-        - { trigger_pct: 50, lock_hw_pct: 85 }
+        - { trigger_pct: 10, lock_hw_pct: 20 }
+        - { trigger_pct: 18, lock_hw_pct: 40 }
+        - { trigger_pct: 30, lock_hw_pct: 60 }
+        - { trigger_pct: 45, lock_hw_pct: 75 }
+        - { trigger_pct: 75, lock_hw_pct: 88 }
 
 # ── NOTIFICATIONS ──
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

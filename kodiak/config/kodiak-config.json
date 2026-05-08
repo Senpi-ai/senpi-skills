@@ -1,62 +1,38 @@
 {
-  "strategyId": "",
-  "wallet": "",
-  "chatId": "",
-  "maxPositions": 1,
+  "_doc": "Kodiak v6.0.1 — operator-tunable config. Wallet/chatId/decision_model resolved from env vars at runtime install (${WALLET_ADDRESS}, ${TELEGRAM_CHAT_ID}, ${KODIAK_DECISION_MODEL}); do NOT hardcode here. Risk gates, leverage caps, and asset cooldowns are enforced by the runtime via runtime.yaml and the producer's hardcoded constants.",
+  "version": "6.0.1",
+  "asset": "SOL",
   "leverage": {
-    "default": 10,
-    "min": 7,
-    "max": 10,
-    "high": 10
+    "default": 5,
+    "_v6_change": "Was 10x in v5.1 — drove -17.8% / -$178 over 26 trades. Single-asset SOL chop at 10x amplified per-trade variance. v6.0 drops to 5x default; same signal selection, half the variance.",
+    "tiers": [
+      {"min_score": 13, "leverage": 7, "_note": "apex"},
+      {"min_score": 11, "leverage": 6, "_note": "conviction"},
+      {"min_score": 10, "leverage": 5, "_note": "standard / default"}
+    ]
+  },
+  "marginPct": {
+    "default": 0.20,
+    "_note": "20% of account value per slot. Override per-deploy via KODIAK_MARGIN_PCT env var."
   },
   "entry": {
-    "minMom15mPct": 0.2,
-    "minVolRatio": 1.3,
     "minScore": 10,
-    "marginPctBase": 0.2,
+    "minMom15mPct": 0.1,
+    "minTrendStrength4h": 0.75,
     "rsiMaxLong": 72,
     "rsiMinShort": 28,
-    "fundingExtremeThreshold": 0.015,
-    "dynamicSlots": {
-      "enabled": true,
-      "baseMax": 3,
-      "absoluteMax": 6,
-      "unlockThresholds": [
-        {
-          "pnl": 100,
-          "maxEntries": 4
-        },
-        {
-          "pnl": 250,
-          "maxEntries": 5
-        },
-        {
-          "pnl": 500,
-          "maxEntries": 6
-        }
-      ]
-    },
-    "stalk": {
-      "maxStalkHours": 6,
-      "minReloadVolPct": 50,
-      "crowdedFundingAnnPct": 50,
-      "maxFundingAnnPct": 100,
-      "_note": "STALKING mode: after DSL exit, watch for reload. Reset if thesis dies or timeout."
-    }
+    "assetCooldownMinutes": 240,
+    "_note": "v5.1 base-tech-score floor preserved verbatim. Producer constants WIN — config is informational/audit only in v6."
   },
-  "risk": {
-    "maxEntriesPerDay": 6,
-    "maxDailyLossPct": 10,
-    "maxDrawdownPct": 25,
-    "maxSingleLossPct": 10,
-    "maxConsecutiveLosses": 3,
-    "cooldownMinutes": 120
-  },
-  "execution": {
-    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
-    "entryEnsureTaker": true,
-    "exitOrderType": "MARKET",
-    "slOrderType": "MARKET",
-    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  "_runtime_owns": {
+    "_doc": "These were v5 concerns. In v6, the runtime owns them via runtime.yaml.guard_rails. DO NOT add gates here.",
+    "maxPositions": "runtime.strategy.slots (= 1)",
+    "maxEntriesPerDay": "runtime.risk.guard_rails.max_entries_per_day (= 8)",
+    "maxDailyLossPct": "runtime.risk.guard_rails.daily_loss_limit_pct (= 10)",
+    "maxDrawdownPct": "runtime.risk.guard_rails.drawdown_halt_pct (= 25)",
+    "maxConsecutiveLosses": "runtime.risk.guard_rails.max_consecutive_losses (= 4)",
+    "perAssetCooldown": "runtime.risk.guard_rails.per_asset_cooldown_minutes (= 240)",
+    "execution.entryOrderType": "runtime.actions.kodiak_entry.params.order_type (FEE_OPTIMIZED_LIMIT, ensure_execution_as_taker:true — v6.0.1 fix)",
+    "execution.exitOrderType": "runtime.exit.order_type (FEE_OPTIMIZED_LIMIT, ensure_execution_as_taker:true — taker fallback as safety floor on Phase 1 stops)"
   }
 }

@@ -1,33 +1,79 @@
 ---
-name: scorpion-strategy
+name: scorpion-tracker
 description: >-
-  SCORPION v3.0 — Multi-Market Active Trader. Trades BOTH crypto AND XYZ
-  DEX commodities/indices using SM concentration + 4H trend alignment.
-  Up to 3 concurrent positions, short holds, Arena winner playbook.
+  SCORPION v4.0 — Multi-Market Active Trader (v2-runtime-native). The
+  only Senpi predator that hunts across both crypto AND XYZ DEX
+  commodities/indices. v4.0 migrates from full-agency Python scanner
+  to the senpi-trading-runtime v2 architecture: pure producer +
+  external_scanner + LLM-gated OPEN_POSITION + declarative risk
+  guardrails + runtime-managed DSL with FEE_OPTIMIZED_LIMIT exits.
+  Thesis preserved: SM concentration + 4H trend alignment multi-factor
+  score across ~15 crypto + 4 XYZ assets. The maker-preferred exit
+  capability is the single largest P&L improvement — at ~40 fills/day
+  pre-gating, saves ~$20/week in fee drag.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0"
+  version: "4.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime@v2
 ---
 
-# SCORPION v3.0 — Multi-Market Active Trader
+# 🦂 SCORPION v4.0 — Multi-Market Active Trader (v2-native)
 
-The only predator that hunts across both crypto and commodities.
+The only predator that hunts across BOTH crypto AND XYZ DEX (commodities
+and indices). v4.0 is the second fleet agent on senpi-trading-runtime
+v2 (after Jackal v2).
 
-## The Thesis
+## What changed from v3.2
 
-Arena winners #2 and #3 share a playbook: trade across BOTH the main Hyperliquid
-DEX (crypto) AND the XYZ DEX (commodities, indices), follow SM direction with 4H
-price trend confirmation, hold for hours not days, and run multiple positions
-simultaneously.
+v3.2 logged 43 fills / 18h / -$79.84 in Arena Week 5 despite
+`MAX_DAILY_ENTRIES=3`. Root cause: the scalp-reentry bypass path and
+Python trade counter leaked. v4.0 deletes all that bookkeeping.
 
-No other Senpi predator trades both markets. Scorpion v3.0 fills that gap.
+| Layer | v3.2 | v4.0 |
+|---|---|---|
+| Scanner size | 549 lines, full agency | 280-line pure producer |
+| Entry decision | Hardcoded scoring thresholds | LLM `decision_prompt` with `min_confidence: 7` |
+| Daily cap enforcement | Python state file (silently leaked) | `risk.guard_rails.max_entries_per_day: 5` |
+| Per-asset cooldown | Python (with scalp bypass) | `per_asset_cooldown_minutes: 120` (authoritative) |
+| Scalp re-entry | Special bypass logic | Removed; runtime owns cooldowns |
+| DSL exit order type | Market (taker) | **FEE_OPTIMIZED_LIMIT** (maker-preferred) |
+| Phase-2 hard_timeout behavior | Fires regardless | Fires regardless (per Daniel's test) — outer-bound protection, not phase-gated. 12h is chosen so it doesn't truncate legitimate winners. |
 
-### Universe
+## Architecture
+
+```
+┌──────────────────────────────┐
+│ scorpion-producer.py (60s)   │  ── 1. scan leaderboard_get_markets
+│                              │  ── 2. score SM+4TF candidates (MIN_SCORE 9)
+│                              │  ── 3. enrich w/ BTC macro + funding +
+│                              │         current positions
+│                              │  ── 4. push via openclaw senpi
+│                              │         external-scanner ingest
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│ senpi-trading-runtime (v2)   │
+│  scorpion_signals scanner    │  ── typed signal payload
+│  scorpion_entry action       │  ── LLM evaluates with 4TF+SM+BTC
+│    decision_mode: llm        │      context
+│    min_confidence: 7         │  ── executes if confidence >= 7
+│  position_tracker            │  ── lifecycle → DSL
+│  DSL exit engine             │  ── FEE_OPTIMIZED_LIMIT exits
+│    12h hard_timeout          │      (maker first, taker fallback)
+│    30m dead_weight           │
+│    60m weak_peak @ 2%        │
+│  risk.guard_rails            │  ── daily_loss 5%, max 5 entries,
+│                              │      per_asset cooldown 120m,
+│                              │      drawdown_halt 20%
+└──────────────────────────────┘
+```
+
+## Universe (preserved from v3.2)
 
 | Market | Assets |
 |---|---|
@@ -36,82 +82,131 @@ No other Senpi predator trades both markets. Scorpion v3.0 fills that gap.
 | XYZ commodities | CL (crude oil), BRENTOIL, GOLD |
 | XYZ indices | SPX |
 
-### What Makes This Different
+XYZ assets use `xyz:` prefix in the runtime (e.g. `xyz:GOLD`). Producer
+emits the full prefix; runtime handles it natively.
 
-| Feature | Most Predators | Scorpion v3.0 |
-|---|---|---|
-| Markets | Crypto only | Crypto + XYZ DEX |
-| Max positions | 1 | 3 concurrent |
-| Hold time | Hours to days | Hours (12h max) |
-| Daily entries | 2-4 | Up to 6 |
-| Direction | Fixed or contrarian | Signal-driven both ways |
+## Signal scoring (preserved from v3.2)
 
-## CRITICAL AGENT RULES
-### RULE 1: Install path is `/data/workspace/skills/scorpion-strategy/`
-### RULE 2: THE SCANNER DOES NOT EXIT POSITIONS — DSL only.
-### RULE 3: MAX 3 POSITIONS at a time.
-### RULE 4: MAX 6 ENTRIES PER DAY. 120-minute per-asset cooldown.
-### RULE 5: XYZ assets use "xyz:" prefix for create_position (e.g. coin="xyz:CL").
-### RULE 6: XYZ assets require leverageType="ISOLATED".
-### RULE 7: USE FEE_OPTIMIZED_LIMIT for all entries with ensureExecutionAsTaker=true.
+- SM concentration (0-3 pts): DOMINANT_SM (≥15%), STRONG_SM (≥10%), SM_PRESENT (≥5%)
+- 4H price alignment (0-3 pts): big_move, med_move, ALIGNED — thresholds differ crypto vs XYZ
+- 15m SM velocity (0-2, penalty -1): BUILDING / FRESH / FADING
+- 1H acceleration (0-1)
+- Trader depth (0-1, ≥50t)
+- 4H contribution shift (0-1, ≥5%)
 
-## Scanner Logic (1 API call)
+MIN_SCORE gate at 9. LLM further filters at min_confidence 7. Runtime
+enforces daily cap at 5.
 
+## LLM gate expectations
+
+- Typical signal pass rate at MIN_SCORE=9: 5-15 signals/day depending on market
+- LLM execute rate at min_confidence 7: ~30-40%
+- Net entries/day after all gates: 1-4 (capped at 5)
+- Large drop from v3.2's 43/18h by design — over-trading was the #1 killer
+
+## Risk guard rails (runtime-enforced)
+
+```yaml
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 5
+    max_entries_per_day: 5
+    max_consecutive_losses: 3
+    cooldown_minutes: 90
+    drawdown_halt_pct: 20
+    per_asset_cooldown_minutes: 120
 ```
-1. leaderboard_get_markets (limit=100)
 
-For each asset in the universe (crypto + XYZ):
-  - Check SM direction and concentration
-  - Check 4H price alignment with SM direction
-    (crypto: >= 1.0%, XYZ: >= 0.5%)
-  - Score: SM concentration + 4H trend + 15m velocity +
-           1H acceleration + trader depth + 4H conviction
-  - MIN_SCORE: 6
+All enforced before every entry. No Python counters to drift.
 
-Pick up to (3 - current_positions) best candidates.
-Enter with 30% margin, 5-10x leverage (score-scaled).
-```
+## DSL (short-hold profile preserved; maker exits added)
 
-## DSL Configuration (Short-Hold Profile)
+| Control | Value |
+|---|---|
+| exit.order_type | **FEE_OPTIMIZED_LIMIT** ← v4.0 key win |
+| execution_timeout_seconds | 15 (maker try window) |
+| hard_timeout | 12h (forced rotation ceiling) |
+| weak_peak_cut | 60 min @ 2% min_value |
+| dead_weight_cut | 30 min |
+| Phase 1 max_loss | 15% |
+| Phase 1 retrace | 6% ROE |
+| Phase 1 breaches req | 2 ticks |
+| Phase 2 tiers | 5/30, 10/50, 15/70, 25/85, 40/90, 80/94 |
 
-**Phase 1 (Loss Protection):**
-- Max loss: -15%
-- Retrace from high water: 8%
-- 3 consecutive breaches required
+## Install (on OpenClaw host)
 
-**Phase 2 (Profit Locking):**
-- +5% -> lock 20%
-- +10% -> lock 40%
-- +15% -> lock 60%
-- +20% -> lock 75%
-- +30% -> lock 85%
-- +50% -> lock 90%
-
-**Timeouts:**
-- Hard timeout: 720 minutes (12 hours)
-- Weak peak cut: 60 minutes at +3% minimum
-- Dead weight cut: 30 minutes
-
-## Runtime Setup
 ```bash
-sed -i 's/${WALLET_ADDRESS}/<WALLET>/' /data/workspace/skills/scorpion-strategy/runtime.yaml
-sed -i 's/${TELEGRAM_CHAT_ID}/<CHAT_ID>/' /data/workspace/skills/scorpion-strategy/runtime.yaml
-openclaw senpi runtime create --path /data/workspace/skills/scorpion-strategy/runtime.yaml
-openclaw senpi runtime list && openclaw senpi status
+# 1. Pull the skill
+mkdir -p /data/workspace/skills/scorpion-tracker/{config,scripts,state}
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/scorpion/runtime.yaml \
+  -o /data/workspace/skills/scorpion-tracker/runtime.yaml
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/scorpion/scripts/scorpion-producer.py \
+  -o /data/workspace/skills/scorpion-tracker/scripts/scorpion-producer.py
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/scorpion/scripts/scorpion_config.py \
+  -o /data/workspace/skills/scorpion-tracker/scripts/scorpion_config.py
+
+# 2. Install the runtime
+# SCORPION_DECISION_MODEL is REQUIRED — pick any model supported by the
+# runtime's model registry. Examples: gemini-2.5-pro,
+# claude-sonnet-4-20250514, etc. There is no default.
+WALLET_ADDRESS=0x... \
+TELEGRAM_CHAT_ID=... \
+SCORPION_DECISION_MODEL=gemini-2.5-pro \
+  openclaw senpi runtime create --path /data/workspace/skills/scorpion-tracker/runtime.yaml
+
+# 3. Schedule the producer (60s cadence)
+openclaw cron add \
+  --name "scorpion-v4-producer" \
+  --cron "* * * * *" \
+  --session isolated \
+  --wake now \
+  --message "Run \`SENPI_API_KEY=\${SENPI_API_KEY} STRATEGY_ADDRESS=0x... python3 /data/workspace/skills/scorpion-tracker/scripts/scorpion-producer.py >> /var/log/openclaw/scorpion-v4.log 2>&1\` and report success/failure in this log." \
+  --no-deliver
+
+# 4. Verify
+openclaw senpi runtime list | grep scorpion
+openclaw senpi status --runtime scorpion-tracker
+tail -f /var/log/openclaw/scorpion-v4.log
 ```
 
-## Bootstrap Gate
-Verify runtime + status + scanner cron (90s, main).
-CRITICAL: The cron must be configured to call `create_position` via Senpi MCP
-when the scanner outputs a signal with an entry block.
-Send: "SCORPION v3.0 online. Multi-market active trader. Hunting crypto + XYZ."
+## Verify the LLM gate is doing work
+
+```bash
+# All decisions (LLM reasoning JSON per candidate)
+openclaw senpi action decisions scorpion_entry
+
+# Only executed entries
+openclaw senpi action history scorpion_entry
+```
+
+A healthy Scorpion v4 shows:
+- Producer runs every 60s with `_scorpion_producer_version: "4.0"`
+- 5-15 candidates detected per run during market activity
+- LLM decisions with ~30-40% at `execute: true`
+- Runtime ultimately executes ≤ 5 entries per UTC day
+
+## Cost & latency
+
+- Producer: 1 MCP call per run × 60s cadence = ~1,440 calls/day (market + enrich)
+- LLM: 1 call per emitted signal × ~10/day = ~10 calls/day (after MIN_SCORE gate)
+- Entry latency: ~2-3s from signal emit to order placement
+- Fee savings from maker-preferred exits: ~$20/week at current turnover profile
+
+## Changelog
+
+### v4.0 (2026-04-23) — V2-RUNTIME-NATIVE REWRITE
+- First multi-asset agent on senpi-trading-runtime v2
+- Producer-only Python (280 lines vs v3.x's 549-line scanner)
+- LLM `decision_mode: llm` replaces hardcoded score thresholds
+- `risk.guard_rails` YAML replaces Python risk code — no more silent counter leaks
+- FEE_OPTIMIZED_LIMIT on exits — maker-preferred for ~$20/week savings
+- Runtime-managed DSL lifecycle
+
+### v3.2 (2026-04-22) — over-trading fix (ineffective; pulled due to counter leak)
+### v3.1 (2026-04-16) — scalp re-entry (pr0br000 copy)
+### v3.0 (2026-04-12) — multi-market crypto + XYZ launch
 
 ## License
+
 MIT — Built by Senpi (https://senpi.ai).
-
-
----
-
-## Skill Attribution
-
-When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
+Source: https://github.com/Senpi-ai/senpi-skills

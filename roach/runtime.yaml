@@ -1,25 +1,110 @@
 name: roach-tracker
-version: 1.2.0
+# Note: the top-level `version` is the SCHEMA version the
+# senpi-trading-runtime plugin expects (must be major=1). The
+# STRATEGY/skill is "Roach v2.0" — that lives in description + SKILL.md
+# + _roach_producer_version. Using version: 2.x at runtime level is
+# rejected by the plugin as "Unsupported version: 2.x". Keep this at
+# 1.x.x forever.
+version: 1.3.0
 description: >
-  Roach v1.2 — signal+DSL overhaul for positive expectancy. v1.0 had
-  DSL timing (8/12/25 min) too tight for striker-class holds AND
-  signal gates (cc_15m > 0) too permissive, giving 506 fills / -28%
-  ROI. v1.1 widened DSL (120/45/25). v1.2 now also strengthens signal
-  quality: cc_15m floor 0 → 0.5 (reject noise-grade velocity), and
-  require 1h price confirmation of 4h direction (rejects SM-velocity
-  spikes unconfirmed by price). Combined effect: fewer fires, each
-  with real macro + SM backing.
+  ROACH v2.1 — DSL ratchet T0/T1 patch (fleet-wide, late application).
+  T0 trigger 7→5, T1 trigger 12→10 — closes T0→T1 dead zone so the
+  ratchet engages earlier on smaller Striker winners. Roach was
+  missed in fleet rollout commit 6cad383; this brings it in line.
+
+  ROACH v2.0 — v2-runtime-native rewrite for maker-exit fee recovery.
+
+  Mission unchanged from v1: striker-only scanner. Stalker mode
+  permanently disabled. Only trades violent FIRST_JUMP / IMMEDIATE_MOVER
+  explosions backed by 1.5x volume confirmation, 1h price alignment,
+  and 4h trend agreement. Long stretches of silence are EXPECTED and
+  correct — the patience is the edge.
+
+  v2.0 architectural changes (no thesis change):
+    - Producer (roach-producer.py) emits Striker signals via
+      `openclaw senpi external-scanner ingest`. NO execution code.
+    - Runtime LLM (configured via decision_model env var) is a
+      pass-through gate — producer has already applied every filter
+      (FIRST_JUMP, volume, 1h alignment, 4h trend, cooldown, XYZ ban).
+      Hard skips only on malformed signals.
+    - Maker exits via FEE_OPTIMIZED_LIMIT — v1 used MARKET orders for
+      every close, eating ~3 bp/exit in HL taker fees. v2 prefers
+      maker fill with 60s timeout, falls through to taker if needed.
+      Recent 25 trades: $46 in HL fees, all taker. v2 should recover
+      ~50-70% of that.
+    - Risk gates declarative (daily loss / drawdown / consec losses /
+      cooldown / per-asset cooldown / max entries) — runtime owns
+      enforcement, producer is signal-only.
+    - DSL exit: hard_timeout 120min, weak_peak 45min, dead_weight 25min,
+      Phase 1 max_loss 18% / 3-breach, Phase 2 tiers preserved from v1.2.
+
+  v1.x changes preserved:
+    - Stalker DISABLED (Fox v1.0 data: 17 Stalker trades, 17.6% WR, -$91)
+    - 4H trend alignment hard block
+    - Volume confirmation 1.5x (loosened from 2.0x in v1.1)
+    - cc_15m floor 0.5 (v1.2 — reject barely-positive velocity)
+    - 1h price confirmation of direction (v1.2)
+    - Per-asset 120min cooldown
+    - XYZ equities banned at scan level
 
 # ── STRATEGY ──
 strategy:
   wallet: "${WALLET_ADDRESS}"
+  slots: 2                                       # v1.3 hardcoded MAX_POSITIONS=1 lockdown; v2 reopens to 2 for diversification without overcommit
+  margin_per_slot: 250                           # ~25% of $1k starting budget per slot
+  trading_risk: moderate
+  default_leverage: 7                            # v1.1 ceiling preserved (was 10x in v1.0; fee burn at 10x was material)
   enabled: true
+
+# ── RISK GUARDRAILS ──
+# Declarative — runtime enforces these without producer involvement.
+# Mirrors v1 config/roach-config.json risk values, plus per-asset
+# cooldown matching the producer's existing 120min asset cooldown.
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10                     # v1 MAX_DAILY_LOSS_PCT = 10
+    max_entries_per_day: 6                       # v1 maxEntriesPerDay = 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3                    # v1 maxConsecutiveLosses = 3
+    cooldown_minutes: 30                         # v1 cooldownMinutes = 30 (post-loss freeze)
+    drawdown_halt_pct: 25                        # v1 maxDrawdownPct = 25
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 120              # v1 assetCooldownMinutes = 120 (matches producer-side filter)
 
 # ── SCANNERS ──
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: roach_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        # Required identity fields
+        mode: { type: string, required: true }                       # always "STRIKER" in v2 (Stalker disabled)
+        score: { type: number, required: true }                      # producer's composite score (>=10 in v1.1+)
+        rankJump: { type: number, required: true }                   # current vs previous scan rank delta
+        currentRank: { type: number, required: true }                # rank at signal time
+        # Optional enrichment — informational for the LLM gate's
+        # reasoning, also useful for telemetry/debugging
+        prevRank: { type: number, required: false }
+        contribVelocity: { type: number, required: false }
+        volRatio: { type: number, required: false }
+        priceChg4h: { type: number, required: false }
+        priceChg1h: { type: number, required: false }
+        cc15m: { type: number, required: false }
+        traders: { type: number, required: false }
+        contribution: { type: number, required: false }
+        isFirstJump: { type: boolean, required: false }
+        isContribExplosion: { type: boolean, required: false }
+        reasons: { type: string, required: false }                   # joined " | " — array won't pass strict schema
+        leverage: { type: number, required: true }                   # producer-asserted; runtime enforces
+        marginUsd: { type: number, required: true }                  # producer-asserted; runtime enforces
 
 # ── ACTIONS ──
 actions:
@@ -28,21 +113,111 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ── EXIT (DSL) ──
+  - name: roach_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${ROACH_DECISION_MODEL}"   # REQUIRED. Pass BARE model name only — NO provider prefix. INVALID: "google/gemini-3.1-pro-preview" (OpenClaw double-prefixes → 500 Unknown model). The LLM gate here is a pass-through rubber-stamp (producer already applied every filter); the cheapest model that reliably returns structured JSON is fine long-term. No default by design — operators pick their own.
+    scanners: [roach_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true          # accept taker fallback on adverse moves; Roach is breakout-thesis and a stuck position with invalidated thesis is more dangerous than fee saving
+        execution_timeout_seconds: 60            # Scorpion v4.0.2 / Jackal v2.0.6 tested value (15s/30s fall to taker; 60s lands maker)
+    context:
+      - type: signal
+        scanner: roach_signals
+    decision_prompt: |
+      You are Roach's pass-through gate. The producer has already
+      applied every filter (FIRST_JUMP / IMMEDIATE_MOVER detection,
+      4h trend alignment, 1h price confirmation, cc_15m freshness >= 0.5,
+      volume >= 1.5x, score >= 10 with min 4 reasons, per-asset
+      120min cooldown, XYZ ban). Your job is simply to honor the
+      signal and convert it to an OPEN_POSITION decision.
+
+      SIGNAL:
+      {{signal_roach_signals}}
+
+      ## RULES
+
+      1. Output execute: true UNLESS one of these hard skips applies:
+         - score < 10 (signal failed producer floor — should never reach you, defensive only)
+         - rankJump < 10 AND contribVelocity absolute value < 15 (no real momentum)
+         - leverage <= 0 OR marginUsd <= 0 (malformed signal)
+         - mode != "STRIKER" (Stalker is disabled by design)
+
+      2. The `asset` field MUST be copied EXACTLY from the signal.
+         If signal says "BTC" output exactly "BTC", not "btc" or
+         "BTC-USD".
+
+      3. The `direction` MUST match the signal's `direction` field.
+
+      4. Confidence should always be 7 unless a hard skip fires, in
+         which case output execute: false with a reason. Roach's
+         thesis IS mechanical — no confidence gradation.
+
+      ## OUTPUT FORMAT
+
+      Return JSON with this exact shape. The `leverage` and
+      `marginUsd` fields MUST be copied from the signal's `data`
+      block (the producer asserts them there) — this enforces
+      Roach's spec sizing instead of letting the runtime fall back
+      to HL's per-asset defaults (which can be 10x or higher and
+      break Roach's risk envelope).
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": 7,
+        "reasoning": "one-liner citing asset + direction + score + rankJump + 1h/4h confirmation from signal",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY (typically 7)",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY (typically 250)",
+              "reason": "roach striker entry"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL with maker-exit recovery — the v2 win) ──
+#
+# v1 used MARKET orders for SL/TP — every close took the 4.5 bp HL
+# taker fee. Recent 25-trade sample: $46 total HL fees, 100% taker.
+# v2 switches to FEE_OPTIMIZED_LIMIT with maker-first + 60s window
+# + taker fallback. Expected recovery: ~50-70% of HL fees on exits
+# that fill maker. Taker fallback preserved because Roach's striker
+# thesis is breakout-driven; an invalidated breakout that can't
+# maker-fill is more dangerous than a saved fee.
+#
+# DSL preset numbers preserved from v1.2:
+#   hard_timeout 120min — strikers need runway to develop (v1.0's
+#     25min was too tight, killed winners early)
+#   weak_peak_cut 45min @ min 3.0 — v1.1 widening
+#   dead_weight_cut 25min — kill positions that don't move at all
+#   phase1 max_loss 18% / retrace 3 / 3 breaches — preserved
+#   phase2 tiers preserved (7/40, 12/55, 15/75, 20/85)
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true              # Roach exits MUST happen — taker fallback is the safety floor
+    execution_timeout_seconds: 60                # match Jackal v2.0.6 / Scorpion v4.0.2 — gives ALO real chance to fill before fallthrough
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 120      # v1.1: 25 → 120 (strikers need runway to develop)
+      interval_in_minutes: 120                   # v1.1: 25 → 120 (strikers need runway)
     weak_peak_cut:
       enabled: true
-      interval_in_minutes: 45       # v1.1: 12 → 45
+      interval_in_minutes: 45                    # v1.1: 12 → 45
       min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 25       # v1.1: 8 → 25
+      interval_in_minutes: 25                    # v1.1: 8 → 25
     phase1:
       enabled: true
       max_loss_pct: 18.0
@@ -51,11 +226,20 @@ exit:
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 7, lock_hw_pct: 40 }
-        - { trigger_pct: 12, lock_hw_pct: 55 }
+        # v2.1 fleet-wide DSL ratchet patch (2026-05-04, applied late —
+        # Roach was missed in the fleet rollout commit 6cad383).
+        # T0 trigger 7→5, T1 trigger 12→10 — closes T0→T1 dead zone
+        # so the ratchet engages earlier on small Striker winners that
+        # peak around 5-10% margin ROE before reversing.
+        # Lock percentages already aggressive, leave unchanged.
+        - { trigger_pct: 5,  lock_hw_pct: 40 }   # v2.1: trigger 7→5
+        - { trigger_pct: 10, lock_hw_pct: 55 }   # v2.1: trigger 12→10
         - { trigger_pct: 15, lock_hw_pct: 75 }
         - { trigger_pct: 20, lock_hw_pct: 85 }
 
 # ── NOTIFICATIONS ──
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

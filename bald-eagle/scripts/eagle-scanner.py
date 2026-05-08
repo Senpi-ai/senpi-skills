@@ -1,9 +1,30 @@
 #!/usr/bin/env python3
-# Senpi BALD EAGLE Scanner v3.0
+# Senpi BALD EAGLE Scanner v4.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""BALD EAGLE v4.0 — XYZ Contrarian (SM Exhaustion Fader on Macro Assets).
+"""BALD EAGLE v4.1 — XYZ Contrarian (Resting Order Guard).
+
+v4.1 (2026-05-05) — Resting order guard + version sync.
+2026-05-05 audit found Bald Eagle had no has_resting_orders() check
+at all. A 4-day-old xyz:XYZ100 BUY ALO order (oid 406936191678,
+0.0855 @ $27,479) was hanging from 2026-05-02, locking ~$335 of
+ISOLATED collateral on the wallet. Withdrawable was reduced to $3.36
+because of it. Every other v1 agent in the fleet has the stale-order
+auto-cancel pattern; Bald Eagle was missing it.
+
+v4.1 ports the standard pattern from Lemon / Cheetah-pre-v6:
+- has_resting_orders() with STALE_ORDER_MAX_AGE_SEC = 600 (10 min)
+- Queries both default and xyz dex (Bald Eagle is XYZ-only but covers
+  both surfaces defensively)
+- Auto-cancels stale non-reduceOnly orders; preserves reduceOnly
+  (those are DSL exit legs)
+- Wired into run() after position check, before scan
+- Version drift cleaned up: scanner header was v3.0 with v4.0 in
+  docstring and v4.3 inside build_dsl_state. All synced to v4.1.
+- Coincides with Erik's XYZ DSL prefix fix deploy 2026-05-05; the
+  current open xyz:BRENTOIL position is Bald Eagle's first ratchet
+  test post-fix.
 
 v4.0 — DIRECTION FLIP.
 Fleet analysis (April 10, 2026) found Bald Eagle's signal was inverted:
@@ -136,16 +157,93 @@ def get_leverage_for_score(score):
 
 
 # ═══════════════════════════════════════════════════════════════
+# RESTING ORDER GUARD (v4.1 — fleet-standard pattern)
+# ═══════════════════════════════════════════════════════════════
+#
+# 2026-05-05 audit found a 4-day-old resting xyz:XYZ100 BUY ALO order
+# (oid 406936191678) that was locking ~$335 collateral on the wallet.
+# Bald Eagle's scanner had NO has_resting_orders check at all — every
+# other v1 agent in the fleet (Lemon, Cheetah-pre-v6, etc.) has the
+# stale-order auto-cancel pattern. Without it, an entry ALO that never
+# fills hangs indefinitely, blocking withdrawable capital and creating
+# duplicate-entry risk if the scanner doesn't see the resting order.
+#
+# Auto-cancels non-reduceOnly orders older than STALE_ORDER_MAX_AGE_SEC
+# (default 600s / 10 min). Returns True if any FRESH non-reduceOnly
+# order remains; the caller then aborts the scan tick to avoid stacking.
+
+STALE_ORDER_MAX_AGE_SEC = 600
+
+
+def has_resting_orders(wallet):
+    """Check for non-reduceOnly resting orders, auto-cancelling stale.
+
+    Bald Eagle trades XYZ exclusively; query both default and xyz dex
+    to catch all open orders. Reduce-only orders are skipped (those are
+    DSL exit legs)."""
+    import time as _time
+    fresh_seen = False
+    for dex in ("", "xyz"):
+        kwargs = {"strategy_wallet": wallet}
+        if dex:
+            kwargs["dex"] = dex
+        try:
+            data = cfg.mcporter_call("strategy_get_open_orders", **kwargs)
+        except Exception:
+            continue
+        if not data:
+            continue
+        orders = data.get("data", data)
+        if isinstance(orders, dict):
+            orders = orders.get("orders", orders.get("openOrders", []))
+        if not isinstance(orders, list):
+            continue
+        now_ms = _time.time() * 1000
+        max_age_ms = STALE_ORDER_MAX_AGE_SEC * 1000
+        for o in orders:
+            if o.get("reduceOnly", False):
+                continue
+            ts_raw = o.get("timestamp", 0) or 0
+            try:
+                ts = float(ts_raw)
+            except (TypeError, ValueError):
+                ts = 0.0
+            if ts > 0 and (now_ms - ts) > max_age_ms:
+                oid = o.get("oid") or o.get("orderId") or o.get("id")
+                if oid:
+                    cancel_kwargs = {
+                        "strategyWalletAddress": wallet,
+                        "orderId": int(oid),
+                    }
+                    if dex:
+                        cancel_kwargs["dex"] = dex
+                    try:
+                        cfg.mcporter_call("cancel_order", **cancel_kwargs)
+                    except Exception:
+                        pass
+                continue
+            fresh_seen = True
+    return fresh_seen
+
+
+# ═══════════════════════════════════════════════════════════════
 # SPREAD GATE
 # ═══════════════════════════════════════════════════════════════
 
 def check_spread(asset):
-    """Check live order book spread. Returns (spread_pct, bid, ask) or (None, 0, 0)."""
+    """Check live order book spread. Returns (spread_pct, bid, ask) or (None, 0, 0).
+
+    v4.1 (2026-04-24): added dex="xyz" parameter. Without it, market_get_asset_data
+    silently returns None for XYZ orderbook even when asset="xyz:..." prefix is set.
+    Kestrel's XYZ-only scanner had this right; Bald Eagle's was missing the param
+    for all XYZ queries, causing the spread gate to reject 100% of candidates.
+    """
     data = cfg.mcporter_call("market_get_asset_data",
                               asset=f"xyz:{asset}",
                               candle_intervals=[],
                               include_funding=False,
-                              include_order_book=True)
+                              include_order_book=True,
+                              dex="xyz")
     if not data:
         return None, 0, 0
 
@@ -157,14 +255,29 @@ def check_spread(asset):
     if not isinstance(ob, dict):
         return None, 0, 0
 
-    bids = ob.get("bids", ob.get("bid", []))
-    asks = ob.get("asks", ob.get("ask", []))
+    # v4.1 (2026-04-24): corrected field extraction. Live API returns
+    # order_book.levels = [bids_array, asks_array] — NOT order_book.bids
+    # / order_book.asks. Each level is a dict {px, sz, n} — NOT a list
+    # with price at [0]. Prior code silently returned None on every
+    # XYZ query because `bids`/`asks` were empty and `price` key doesn't
+    # exist. Verified against live xyz:BRENTOIL, xyz:GOLD, xyz:CL.
+    levels = ob.get("levels", [])
+    if not isinstance(levels, list) or len(levels) < 2:
+        return None, 0, 0
+    bids, asks = levels[0], levels[1]
 
     if not bids or not asks:
         return None, 0, 0
 
-    best_bid = safe_float(bids[0][0] if isinstance(bids[0], list) else bids[0].get("price", 0))
-    best_ask = safe_float(asks[0][0] if isinstance(asks[0], list) else asks[0].get("price", 0))
+    def _lvl_px(lvl):
+        if isinstance(lvl, dict):
+            return safe_float(lvl.get("px", lvl.get("price", 0)))
+        if isinstance(lvl, list) and lvl:
+            return safe_float(lvl[0])
+        return 0
+
+    best_bid = _lvl_px(bids[0])
+    best_ask = _lvl_px(asks[0])
 
     if best_bid <= 0 or best_ask <= 0:
         return None, 0, 0
@@ -180,12 +293,17 @@ def check_spread(asset):
 # ═══════════════════════════════════════════════════════════════
 
 def fetch_candle_data(asset):
-    """Fetch 1h and 4h candles for technical scoring."""
+    """Fetch 1h and 4h candles for technical scoring.
+
+    v4.1: same dex="xyz" fix as check_spread(). Without it, candle data
+    for XYZ assets silently returns None.
+    """
     data = cfg.mcporter_call("market_get_asset_data",
                               asset=f"xyz:{asset}",
                               candle_intervals=["1h", "4h"],
                               include_funding=True,
-                              include_order_book=False)
+                              include_order_book=False,
+                              dex="xyz")
     if not data or not data.get("success", not data.get("error")):
         return None
     return data.get("data", data)
@@ -473,8 +591,8 @@ def build_dsl_state(signal, leverage):
             "phase2SlOrderType": "MARKET",
             "breachCloseOrderType": "MARKET",
         },
-        "_eagle_version": "3.0",
-        "_note": "Generated by eagle-scanner v3.0. XYZ-tuned wide DSL. Do not merge with dsl-profile.json.",
+        "_eagle_version": "4.1",
+        "_note": "Generated by eagle-scanner v4.1. XYZ-tuned wide DSL. Telemetry-only; runtime.yaml dsl_preset is authoritative.",
     }
 
 
@@ -483,7 +601,16 @@ def build_dsl_state(signal, leverage):
 # ═══════════════════════════════════════════════════════════════
 
 def execute_entry(wallet, signal, margin, leverage):
-    """Call create_position directly from the scanner."""
+    """Call create_position directly from the scanner.
+
+    v4.3 (2026-04-24): inner order `coin` field must use the fully
+    prefixed asset name ("xyz:CL"), not the bare token ("CL"), when
+    the outer call specifies dex="xyz". Prior code computed the
+    prefixed `asset` but then passed the bare `signal["token"]` to
+    the inner order. Agent reported "Invalid coin: CL" rejection
+    from create_position. Using the already-computed `asset` fixes
+    the envelope.
+    """
     asset = f"xyz:{signal['token']}"
     direction = signal["direction"]
 
@@ -491,7 +618,7 @@ def execute_entry(wallet, signal, margin, leverage):
         "create_position",
         strategyWalletAddress=wallet,
         orders=[{
-            "coin": signal["token"],
+            "coin": asset,                     # v4.3: was signal["token"]
             "direction": direction,
             "leverage": leverage,
             "marginAmount": margin,
@@ -531,6 +658,16 @@ def run():
         coins = [p["coin"] for p in positions]
         cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
                      "note": f"RIDING: {coins}. RatchetStop manages exit."})
+        return
+
+    # v4.1: Resting-order guard. Auto-cancels stale (>600s) non-
+    # reduceOnly orders, then aborts the scan if any fresh entry order
+    # is still pending — avoids stacking a second entry on top of an
+    # ALO that hasn't filled yet. (XYZ100 4-day stale order discovered
+    # 2026-05-05 motivated this fix.)
+    if has_resting_orders(wallet):
+        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
+                    "note": "RESTING ORDER pending — skip tick to avoid stacking."})
         return
 
     # Trade counter
@@ -637,7 +774,7 @@ def run():
                 },
                 "dslState": dsl_state,
                 "result": result,
-                "_eagle_version": "4.0",
+                "_eagle_version": "4.3",
             })
             return
         else:
@@ -647,7 +784,7 @@ def run():
                 "signal": {"asset": f"xyz:{token}", "direction": cand["direction"],
                            "score": score, "reasons": reasons},
                 "error": result,
-                "_eagle_version": "3.0",
+                "_eagle_version": "4.3",
             })
             return
 

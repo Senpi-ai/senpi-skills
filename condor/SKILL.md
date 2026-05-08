@@ -13,7 +13,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0"
+  version: "3.4"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -67,12 +67,12 @@ Condor v3.0 enforces both insights as hard gates.
 3. **trader_count >= 50** (signal validity)
 4. **3TF ALIGNMENT** — 4h_price + 1h_price + 15m SM velocity all aligned in entry direction, each clearing magnitude threshold
 5. **MACRO TREND GATE** — if `|4h_move| > 10%` in OPPOSITE direction of entry, BLOCK. No stepping in front of freight trains.
-6. **SM consensus >= 65%** in entry direction
-7. **BTC macro aligned** — alts don't fight strong BTC macro (BTC 4h > 1.5% in opposite direction = block)
+6. **SM consensus >= 70%** in entry direction (v3.4: 65→75→70)
+7. ~~BTC macro aligned~~ — REMOVED as hard gate in v3.1 (HYPE/HIP-3 decoupling); BTC alignment is a +1 scoring bonus only.
 
 ---
 
-## Scoring (max ~18 pts, MIN_SCORE=11)
+## Scoring (max ~18 pts, MIN_SCORE=12 since v3.4)
 
 | Signal | Points |
 |---|---:|
@@ -163,6 +163,24 @@ openclaw senpi runtime list
 ---
 
 ## Changelog
+
+### v3.4 (2026-05-05) — gate calibration fix
+- v3.2 over-tightening produced ZERO trades in 13 days (2026-04-22 → 2026-05-05). Account flatlined at $1001.28; vlm stuck at 213k from v3.0/v3.1 era.
+- Root cause: MIN_SCORE=13 + MIN_SM=75% required every scoring lane including rare 15m_spike (c15m>=2.0) to fire simultaneously.
+- **MIN_SCORE 13 → 12** (achievable without 15m_spike rare lane)
+- **MIN_SM_CONSENSUS_PCT 75 → 70** (mid-stage moves now scoreable)
+- **MIN_15M_VELOCITY 0.2 → 0.1** (silent killer in 3TF structural hard gate)
+- Other gates preserved (MACRO_TREND, trader_count, OI, sizing).
+
+### v3.3 (post-2026-04-22) — disable weak_peak_cut
+- 2h @ 3% ROE was pre-empting apex thesis development; Phase 1 + Phase 2 own exits.
+
+### v3.2 (2026-04-22) — gate tightening (now reverted in v3.4)
+- MIN_SCORE 11 → 13 (over-corrected; reverted to 12 in v3.4)
+- MIN_SM_CONSENSUS_PCT 65 → 75 (over-corrected; reverted to 70 in v3.4)
+
+### v3.1 (2026-04-16) — BTC hard-gate removed
+- BTC macro alignment moved from hard gate to scoring bonus only (HYPE/HIP-3 decoupling).
 
 ### v3.0 (2026-04-16) — COMPLETE REWRITE
 - Thesis flipped: multi-asset thesis picker → single-position trend-continuation apex sniper

@@ -1,511 +1,393 @@
 #!/usr/bin/env python3
-# Senpi MANTIS Scanner v4.1
+# Senpi MANTIS Scanner v5.0 — Slipstream
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""MANTIS v4.1 — Striker-Only SM Explosion Scanner.
+# Source: https://github.com/Senpi-ai/senpi-skills
+"""MANTIS v5.0 — Slipstream.
 
-## v4.1 change — MIN_SCORE raised to cut fee drag
+Cross-asset catchup hunter. Strikes correlated alts that haven't yet
+responded to a leader's move, before the catchup completes. Built
+around the new market_get_cross_asset_flows MCP tool.
 
-Diagnostic probe: gross PnL -$5.21, fees $30.72 (6x fee drag). The signal
-is borderline profitable but fees are eating the edge. Raising MIN_SCORE
-from 9 to 11 cuts trade count ~60% (fewer low-conviction entries while
-preserving the high-conviction tail), eliminating fee drag while keeping
-the strongest Striker signals active.
+Decision flow per scan tick (every 60s):
 
-Also applies the fleet-wide batch-4 leverage safety fix: the emitted
-entry.leverage is clamped via strategy_get_asset_trading_limits so
-downstream executors never request more leverage than Hyperliquid allows.
+  1. Reconcile open positions vs. tracked metadata
+  2. Leader-reversal veto check on each open position
+     - If leader reversed >LEADER_REVERSAL_VETO_PCT from entry, close immediately
+  3. Concurrency check (max 2 open Mantis positions)
+  4. Daily cap check (max 6 entries per UTC day)
+  5. For each leader in LEADER_UNIVERSE:
+       call market_get_cross_asset_flows(leader_asset=leader)
+       collect laggards passing all entry filters
+  6. Sort candidates by confidence desc
+  7. Pick top candidate that is NOT in cooldown
+  8. Determine sizing tier from confidence score
+  9. Determine direction by following leader's move sign
+  10. Compute dynamic hard_timeout = avg_lag_minutes × 1.5 (clamped)
+  11. Open position with create_position + DSL preset + metadata
+  12. Mark cooldown + log STRIKE event
 
-
-Stalker is dead. Orca v1.3 proved it: 58 Stalker trades at 43% win rate,
--$0.73 avg P&L. The "slow accumulation" signal catches chop, not trends.
-
-v4.0 is Striker-only: violent FIRST_JUMP from deep in the leaderboard,
-confirmed by volume explosion. The same logic that Roach and Jaguar run,
-but with Mantis's battle-tested market parser and scan history.
-
-What changed from v3.0:
-- Stalker mode: REMOVED (the experiment is over)
-- Stalker streak gate: REMOVED (no Stalker = no streak)
-- DSL state generation: REMOVED (plugin handles exits)
-- Thesis exit: REMOVED (DSL is sole exit mechanism)
-- All 'dslState' output: REMOVED
-- Position check outputs NO_REPLY (not thesis evaluation)
-
-What stayed:
-- Striker detection (FIRST_JUMP, IMMEDIATE_MOVER, CONTRIB_EXPLOSION)
-- Volume confirmation gate
-- 4H alignment hard gate
-- Scan history for rank jump detection
-- Per-asset cooldown (120 min)
-- Daily entry cap (6/day)
-- XYZ ban, leverage 7x, max 3 positions
-
-Uses: leaderboard_get_markets (single API call per scan)
-Runs every 90 seconds.
+The thesis is statistical: laggards historically catch up within their
+typical lag window with their historical follow_rate. Mantis takes the
+quantified bet AND respects the hard time window.
 """
 
-import json
 import sys
 import os
-from datetime import datetime, timezone
+import time
+from typing import Any, Dict, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mantis_config as cfg
-
-TOP_N = 50
-ERRATIC_REVERSAL_THRESHOLD = 5
+import mantis_state as state
 
 
 # ═══════════════════════════════════════════════════════════════
-# HARDCODED CONSTANTS
+# Helpers
 # ═══════════════════════════════════════════════════════════════
 
-MIN_LEVERAGE = 7
-MAX_LEVERAGE = 7
-DEFAULT_LEVERAGE = 7
-MAX_POSITIONS = 3
-MAX_DAILY_ENTRIES = 6
-
-
-# ═══════════════════════════════════════════════════════════════
-# DYNAMIC DAILY CAP (P&L-aware circuit breaker)
-# ═══════════════════════════════════════════════════════════════
-
-STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
-
-def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
-    """P&L-aware daily entry cap based on drawdown from starting budget.
-
-    Winners get more trades (ride the hot hand).
-    Losers get fewer trades (preserve capital).
-    Catastrophic drawdown triggers HARD STOP (circuit breaker).
-    """
-    if starting_budget <= 0:
-        return 4  # Safe fallback
-    pnl_pct = ((account_value - starting_budget) / starting_budget) * 100
-    if pnl_pct >= 5:       return 12   # Hot hand — up >5%
-    elif pnl_pct >= 0:     return 8    # Small win / breakeven
-    elif pnl_pct >= -5:    return 5    # Careful
-    elif pnl_pct >= -15:   return 3    # Defensive
-    elif pnl_pct >= -25:   return 1    # Preserve — only highest conviction
-    else:                  return 0    # HARD STOP — circuit breaker
-
-COOLDOWN_MINUTES = 120
-XYZ_BANNED = True
-MARGIN_PCT = 0.18
-
-# Striker thresholds
-STRIKER_MIN_SCORE = 11          # v4.1: raised 9 → 11 to cut fee drag (6x gross loss)
-STRIKER_MIN_REASONS = 4
-STRIKER_MIN_RANK_JUMP = 15
-STRIKER_MIN_PREV_RANK = 25
-STRIKER_MIN_VELOCITY_FLOOR = 10
-STRIKER_MIN_VOL_RATIO = 1.5
-
-
-# ═══════════════════════════════════════════════════════════════
-# HELPERS
-# ═══════════════════════════════════════════════════════════════
-
-def safe_float(val, default=0.0):
+def safe_float(v, default=0.0):
     try:
-        return float(val)
+        return float(v)
     except (TypeError, ValueError):
         return default
 
 
-def now_date():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
-
-
-def now_iso():
-    return datetime.now(timezone.utc).isoformat()
-
-
-def check_4h_alignment(direction, price_chg_4h):
-    if direction == "LONG" and price_chg_4h > 0:
-        return True
-    if direction == "SHORT" and price_chg_4h < 0:
-        return True
-    return False
-
-
-def time_of_day_modifier():
-    hour = datetime.now(timezone.utc).hour
-    if 13 <= hour <= 21:
-        return 1, "US_SESSION"
-    return 0, None
-
-
-def is_erratic_history(rank_history, exclude_last=False):
-    ranks = rank_history[:-1] if exclude_last else rank_history
-    ranks = [r for r in ranks if r is not None]
-    if len(ranks) < 3:
+def passes_entry_filters(laggard: Dict[str, Any]) -> bool:
+    """All filters must pass."""
+    follow_rate = safe_float(laggard.get("follow_rate"))
+    if follow_rate < cfg.MIN_FOLLOW_RATE:
         return False
-    reversals = sum(1 for i in range(1, len(ranks) - 1)
-                    if (ranks[i] > ranks[i-1] and ranks[i] > ranks[i+1]) or
-                       (ranks[i] < ranks[i-1] and ranks[i] < ranks[i+1]))
-    return reversals >= ERRATIC_REVERSAL_THRESHOLD
+
+    confidence = safe_float(laggard.get("confidence"))
+    if confidence < cfg.MIN_CONFIDENCE:
+        return False
+
+    gap_pct = safe_float(laggard.get("gap_pct"))
+    if abs(gap_pct) < cfg.MIN_GAP_PCT:
+        return False
+
+    if cfg.REQUIRE_SM_ROTATION and not laggard.get("sm_starting_to_rotate"):
+        return False
+
+    lag_stddev = safe_float(laggard.get("lag_stddev_minutes"))
+    if lag_stddev <= 0 or lag_stddev > cfg.MAX_LAG_STDDEV_MINUTES:
+        return False
+
+    return True
 
 
-def get_market_in_scan(scan, token, dex):
-    for m in scan.get("markets", []):
-        if m["token"] == token and m.get("dex", "") == dex:
-            return m
+def sizing_tier_for(confidence: float) -> Dict[str, Any]:
+    """Pick highest tier the confidence qualifies for."""
+    for tier in cfg.SIZING_TIERS:
+        if confidence >= tier["confidence_min"]:
+            return tier
+    return cfg.SIZING_TIERS[-1]
+
+
+def direction_from_leader_move(leader_move_pct: float) -> str:
+    """Follow the leader: positive move → LONG the laggard, negative → SHORT."""
+    return "LONG" if leader_move_pct >= 0 else "SHORT"
+
+
+def compute_hard_timeout(avg_lag_minutes: float) -> int:
+    """Dynamic hard_timeout = avg_lag_minutes × multiplier, clamped."""
+    minutes = max(1.0, safe_float(avg_lag_minutes, 60.0)) * cfg.HARD_TIMEOUT_LAG_MULTIPLIER
+    minutes = max(cfg.HARD_TIMEOUT_FLOOR_MINUTES, min(cfg.HARD_TIMEOUT_CEILING_MINUTES, minutes))
+    return int(minutes)
+
+
+def leader_reversed(leader_pct_at_entry: float, current_leader_move_pct: float) -> bool:
+    """True if leader has reversed by more than LEADER_REVERSAL_VETO_PCT
+    from its move at entry time. Direction matters: if entry was on a
+    +3% leader move and leader is now at +1.8%, that's a 1.2% reversal
+    against the thesis → veto."""
+    delta = current_leader_move_pct - leader_pct_at_entry
+    # Reversal direction is opposite to the entry direction
+    if leader_pct_at_entry >= 0:
+        return delta < -cfg.LEADER_REVERSAL_VETO_PCT
+    else:
+        return delta > cfg.LEADER_REVERSAL_VETO_PCT
+
+
+def _unwrap_flow_response(result: Any) -> Optional[Dict[str, Any]]:
+    """The MCP tool returns {success: bool, data: {...}}. Unwrap to the
+    inner data dict. Returns None on any unexpected shape."""
+    if not result or not isinstance(result, dict):
+        return None
+    if "data" in result and isinstance(result["data"], dict):
+        return result["data"]
+    # Fallback: tool may have returned the data dict directly
+    if "leader" in result or "laggards" in result:
+        return result
     return None
 
 
-def get_safe_leverage(wallet, asset, requested_leverage):
-    """Query Hyperliquid's max leverage for this asset and clamp.
-
-    Fleet-wide leverage safety fix (batch 4). Mantis emits signal with a
-    suggested leverage but does not itself call create_position — clamp
-    the suggested leverage here so the downstream executor never requests
-    more than the asset's Hyperliquid max.
-    """
-    try:
-        limits = cfg.mcporter_call(
-            "strategy_get_asset_trading_limits",
-            strategy_wallet=wallet,
-            coin=asset,
-        )
-        if limits:
-            data = limits.get("data", limits)
-            if isinstance(data, dict):
-                lev = data.get("leverage", {})
-                if isinstance(lev, dict):
-                    max_lev = int(float(lev.get("value", 20)))
-                    return min(requested_leverage, max_lev)
-                elif isinstance(lev, (int, float)):
-                    return min(requested_leverage, int(lev))
-    except Exception:
-        pass
-    return requested_leverage
-
-
-# ═══════════════════════════════════════════════════════════════
-# FETCH & PARSE
-# ═══════════════════════════════════════════════════════════════
-
-def fetch_markets():
-    try:
-        data = cfg.mcporter_call("leaderboard_get_markets", limit=100)
-        data = data.get("data", data)
-        raw = data.get("markets", data)
-        if isinstance(raw, dict):
-            raw = raw.get("markets", [])
-        return raw
-    except Exception:
+def get_current_leader_move(leader_asset: str) -> Optional[float]:
+    """Re-call the cross-asset flow tool for the leader and read
+    the current 4h move. Cheap because the tool is pre-computed."""
+    raw = cfg.get_cross_asset_flows(leader_asset)
+    data = _unwrap_flow_response(raw)
+    if not data:
         return None
+    leader = data.get("leader") or {}
+    return safe_float(leader.get("move_pct"))
 
 
-def parse_scan(raw_markets):
-    markets = []
-    for i, m in enumerate(raw_markets):
-        if not isinstance(m, dict):
+# ═══════════════════════════════════════════════════════════════
+# Leader-reversal veto pass
+# ═══════════════════════════════════════════════════════════════
+
+def run_leader_reversal_veto(open_positions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """For each open Mantis position with stored metadata, check if the
+    leader has reversed enough to invalidate the catchup thesis.
+    Returns list of veto-close instructions (asset, reason) — execution
+    is delegated to the runtime via the action output."""
+    vetos = []
+    for pos in open_positions:
+        asset = pos.get("coin", "").upper()
+        meta = state.get_position_metadata(asset)
+        if not meta:
             continue
-        token = str(m.get("token", m.get("asset", ""))).upper()
-        dex = m.get("dex", "")
-        if XYZ_BANNED and (dex == "xyz" or token.lower().startswith("xyz:")):
+        leader_asset = meta.get("leader_asset")
+        leader_pct_at_entry = safe_float(meta.get("leader_pct_at_entry"))
+        if not leader_asset:
             continue
-        if not token:
+        current_leader_pct = get_current_leader_move(leader_asset)
+        if current_leader_pct is None:
             continue
+        if leader_reversed(leader_pct_at_entry, current_leader_pct):
+            cfg.log(
+                f"LEADER REVERSAL on {asset}: {leader_asset} "
+                f"entry={leader_pct_at_entry:.2f}% → now={current_leader_pct:.2f}%"
+            )
+            state.append_entry_log(
+                "LEADER_REVERSAL_EXIT",
+                asset=asset,
+                leader_asset=leader_asset,
+                leader_pct_at_entry=leader_pct_at_entry,
+                current_leader_pct=current_leader_pct,
+            )
+            vetos.append({
+                "asset": asset,
+                "side": pos.get("direction"),
+                "size": pos.get("size"),
+                "reason": "leader_reversal_veto",
+                "leader_asset": leader_asset,
+                "leader_pct_at_entry": leader_pct_at_entry,
+                "current_leader_pct": current_leader_pct,
+            })
+    return vetos
 
-        markets.append({
-            "token": token,
-            "dex": dex,
-            "rank": i + 1,
-            "direction": str(m.get("direction", "")).upper(),
-            "contribution": safe_float(m.get("pct_of_top_traders_gain", 0)),
-            "traders": int(m.get("trader_count", 0)),
-            "price_chg_4h": safe_float(m.get("token_price_change_pct_4h", 0)),
-            "price_chg_1h": safe_float(m.get("token_price_change_pct_1h",
-                                       m.get("price_change_1h", 0))),
-            "cc_15m": safe_float(m.get("contribution_pct_change_15m", 0)),
-        })
 
-    return {"markets": markets[:TOP_N], "time": now_iso()}
+# ═══════════════════════════════════════════════════════════════
+# Candidate gathering
+# ═══════════════════════════════════════════════════════════════
 
-
-def check_asset_volume(token, dex):
-    try:
-        data = cfg.mcporter_call("market_get_asset_data",
-                                  asset=token, candle_intervals=["1h"],
-                                  include_funding=False)
+def gather_candidates() -> List[Dict[str, Any]]:
+    candidates = []
+    for leader in cfg.LEADER_UNIVERSE:
+        raw = cfg.get_cross_asset_flows(leader)
+        data = _unwrap_flow_response(raw)
         if not data:
-            return 0, True
-        ad = data.get("data", data)
-        if not isinstance(ad, dict):
-            return 0, True
-        ac = ad.get("asset_context", ad.get("assetContext", {}))
-        if not isinstance(ac, dict):
-            return 0, True
-        vol = safe_float(ac.get("dayNtlVlm", 0))
-        prev = safe_float(ac.get("prevDayNtlVlm", 0))
-        if prev > 0:
-            ratio = vol / prev
-            return ratio, ratio >= STRIKER_MIN_VOL_RATIO
-        return 0, True
-    except Exception:
-        return 0, True
-
-
-# ═══════════════════════════════════════════════════════════════
-# STRIKER SIGNAL DETECTION
-# ═══════════════════════════════════════════════════════════════
-
-def detect_striker_signals(current_scan, history):
-    """Detect violent FIRST_JUMP signals. Identical logic to v3.0 Striker."""
-
-    prev_scans = history.get("scans", [])
-    if not prev_scans:
-        return []
-
-    latest_prev = prev_scans[-1]
-    oldest_available = prev_scans[-min(len(prev_scans), 5)]
-
-    prev_top50_tokens = set()
-    for m in latest_prev.get("markets", []):
-        prev_top50_tokens.add((m["token"], m.get("dex", "")))
-
-    signals = []
-
-    for market in current_scan.get("markets", []):
-        token = market["token"]
-        dex = market.get("dex", "")
-        current_rank = market["rank"]
-        direction = market["direction"]
-        current_contrib = market["contribution"]
-
-        if current_rank <= 10:
+            cfg.log(f"no flow data for leader={leader}")
             continue
-
-        if not check_4h_alignment(direction, market.get("price_chg_4h", 0)):
+        leader_block = data.get("leader") or {}
+        leader_move_pct = safe_float(leader_block.get("move_pct"))
+        laggards = data.get("laggards", []) or []
+        if not laggards:
+            cfg.log(f"empty laggards for leader={leader} (move={leader_move_pct:.2f}%)")
             continue
-
-        prev_market = get_market_in_scan(latest_prev, token, dex)
-        old_market = get_market_in_scan(oldest_available, token, dex)
-
-        if not prev_market:
-            continue
-
-        rank_jump = prev_market["rank"] - current_rank
-
-        is_first_jump = False
-        is_immediate = False
-        is_contrib_explosion = False
-        reasons = []
-
-        if rank_jump >= 10 and prev_market["rank"] >= STRIKER_MIN_PREV_RANK:
-            is_immediate = True
-            reasons.append(f"IMMEDIATE_MOVER +{rank_jump} from #{prev_market['rank']}")
-
-            was_in_prev = (token, dex) in prev_top50_tokens
-            if not was_in_prev or prev_market["rank"] >= 30:
-                is_first_jump = True
-                reasons.append(f"FIRST_JUMP #{prev_market['rank']}->#{current_rank}")
-
-        if prev_market["contribution"] > 0:
-            contrib_ratio = current_contrib / prev_market["contribution"]
-            if contrib_ratio >= 3.0:
-                is_contrib_explosion = True
-                reasons.append(f"CONTRIB_EXPLOSION {contrib_ratio:.1f}x")
-
-        if not is_first_jump and not is_immediate:
-            continue
-
-        if rank_jump < STRIKER_MIN_RANK_JUMP:
-            continue
-
-        contrib_velocity = 0
-        recent_contribs = []
-        for scan in prev_scans[-5:]:
-            m = get_market_in_scan(scan, token, dex)
-            if m:
-                recent_contribs.append(m["contribution"])
-        recent_contribs.append(current_contrib)
-        if len(recent_contribs) >= 2:
-            deltas = [recent_contribs[i + 1] - recent_contribs[i]
-                      for i in range(len(recent_contribs) - 1)]
-            contrib_velocity = sum(deltas) / len(deltas) * 100
-
-        abs_velocity = abs(contrib_velocity)
-
-        if abs_velocity < STRIKER_MIN_VELOCITY_FLOOR:
-            if is_first_jump and contrib_velocity > 0:
-                pass
-            else:
+        for laggard in laggards:
+            if not passes_entry_filters(laggard):
                 continue
-
-        # ── Scoring ──
-        score = 0
-
-        if is_first_jump:
-            score += 3
-        if is_immediate:
-            score += 2
-        if is_contrib_explosion:
-            score += 2
-        if abs_velocity > 10:
-            score += 2
-            reasons.append(f"HIGH_VELOCITY {abs_velocity:.1f}")
-
-        if prev_market["rank"] >= 40:
-            score += 1
-            reasons.append("DEEP_CLIMBER")
-
-        if old_market:
-            total_climb = old_market["rank"] - current_rank
-            if total_climb >= 10:
-                score += 1
-                reasons.append(f"CLIMBING +{total_climb} over scans")
-
-        tod_mod, tod_reason = time_of_day_modifier()
-        score += tod_mod
-        if tod_reason:
-            reasons.append(tod_reason)
-
-        if score < STRIKER_MIN_SCORE or len(reasons) < STRIKER_MIN_REASONS:
-            continue
-
-        # 15m velocity freshness gate — SM must be actively building, not stale
-        cc_15m = safe_float(market.get("cc_15m", 0))
-        if cc_15m <= 0:
-            continue  # SM velocity is flat or fading — signal is stale, don't enter
-
-        vol_ratio, vol_strong = 0, True
-        vol_ratio, vol_strong = check_asset_volume(token, dex)
-        if not vol_strong:
-            continue
-        reasons.append(f"VOL_CONFIRMED {vol_ratio:.1f}x")
-
-        signals.append({
-            "token": token,
-            "dex": dex if dex else None,
-            "direction": direction,
-            "mode": "STRIKER",
-            "score": score,
-            "reasons": reasons,
-            "currentRank": current_rank,
-            "rankJump": rank_jump,
-            "isFirstJump": is_first_jump,
-            "isContribExplosion": is_contrib_explosion,
-            "contribVelocity": round(contrib_velocity, 4),
-            "volRatio": round(vol_ratio, 2),
-            "contribution": round(current_contrib * 100, 3),
-            "traders": market["traders"],
-            "priceChg4h": market.get("price_chg_4h", 0),
-        })
-
-    signals.sort(key=lambda s: s["score"], reverse=True)
-    return signals
+            laggard["_leader_asset"] = leader
+            laggard["_leader_move_pct"] = leader_move_pct
+            candidates.append(laggard)
+    candidates.sort(key=lambda x: safe_float(x.get("confidence")), reverse=True)
+    return candidates
 
 
 # ═══════════════════════════════════════════════════════════════
-# MAIN
+# Strike construction
 # ═══════════════════════════════════════════════════════════════
 
-def run():
+def build_strike(candidate: Dict[str, Any], account_value: float) -> Dict[str, Any]:
+    confidence = safe_float(candidate.get("confidence"))
+    tier = sizing_tier_for(confidence)
+    margin_pct = tier["margin_pct"]
+    leverage = min(tier["leverage"], cfg.MAX_LEVERAGE)
+
+    margin_usd = round(account_value * (margin_pct / 100.0), 2)
+    notional_cap = account_value * (cfg.MAX_POSITION_NOTIONAL_PCT / 100.0)
+    notional_usd = min(margin_usd * leverage, notional_cap)
+
+    direction = direction_from_leader_move(candidate.get("_leader_move_pct", 0))
+    avg_lag = safe_float(candidate.get("avg_lag_minutes"), 60)
+    hard_timeout = compute_hard_timeout(avg_lag)
+
+    return {
+        "asset": candidate.get("asset"),
+        "side": direction,
+        "leverage": leverage,
+        "margin_usd": margin_usd,
+        "notional_usd": round(notional_usd, 2),
+        "hard_timeout_minutes": hard_timeout,
+        "confidence": confidence,
+        "gap_pct": safe_float(candidate.get("gap_pct")),
+        "follow_rate": safe_float(candidate.get("follow_rate")),
+        "avg_lag_minutes": avg_lag,
+        "lag_stddev_minutes": safe_float(candidate.get("lag_stddev_minutes")),
+        "sm_starting_to_rotate": bool(candidate.get("sm_starting_to_rotate")),
+        "leader_asset": candidate.get("_leader_asset"),
+        "leader_move_pct": candidate.get("_leader_move_pct"),
+        "order_type": "FEE_OPTIMIZED_LIMIT",
+    }
+
+
+# ═══════════════════════════════════════════════════════════════
+# Main scan
+# ═══════════════════════════════════════════════════════════════
+
+def main():
+    cfg.log("Mantis v5.0 Slipstream — scan starting")
+
     wallet, strategy_id = cfg.get_wallet_and_strategy()
     if not wallet:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
+        cfg.output({"action": "ERROR", "reason": "no_wallet_configured"})
         return
 
-    # ── Check existing positions (NO thesis exit) ─────────────
-    account_value, positions = cfg.get_positions(wallet)
-    if account_value <= 0:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
+    # 1. Pull current positions
+    account_value, open_positions = cfg.get_positions(wallet)
+    open_assets = [p.get("coin", "").upper() for p in open_positions]
+
+    # 2. Reconcile metadata for closed positions (DSL exits, external closes, etc.)
+    closed = state.reconcile_position_metadata(open_assets)
+    if closed:
+        cfg.log(f"reconciled {len(closed)} closed positions: {closed}")
+
+    # 3. Leader-reversal veto pass — these are signals to the runtime
+    #    to close the position. The runtime will execute close_position.
+    vetos = run_leader_reversal_veto(open_positions)
+    if vetos:
+        cfg.output({
+            "action": "VETO_CLOSE",
+            "positions": vetos,
+            "reason": "leader_reversal_veto",
+        })
+        # After issuing vetos, the runtime will close them; clear metadata
+        for v in vetos:
+            state.clear_position_metadata(v["asset"])
+        # Don't open a new position in the same tick as a veto — wait for next scan
         return
 
-    if len(positions) >= MAX_POSITIONS:
-        coins = [p["coin"] for p in positions]
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                     "note": f"RIDING: {coins}. DSL manages exit.",
-                     "_v2_no_thesis_exit": True})
+    # 4. Concurrency check
+    if len(open_positions) >= cfg.MAX_CONCURRENT_POSITIONS:
+        cfg.output({
+            "action": "NO_ENTRY",
+            "reason": "max_concurrent_positions",
+            "open_count": len(open_positions),
+            "cap": cfg.MAX_CONCURRENT_POSITIONS,
+        })
         return
 
-    # ── Trade counter ─────────────────────────────────────────
-    tc = cfg.load_trade_counter()
-    if tc.get("date") != now_date():
-        tc = {"date": now_date(), "entries": 0}
-    dynamic_cap = get_dynamic_daily_cap(account_value)
-    if tc.get("entries", 0) >= dynamic_cap:
-        pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"Daily cap ({dynamic_cap}) reached. Session PnL: {pnl_pct:+.1f}%. Entries: {tc.get('entries', 0)}/{dynamic_cap}"})
+    # 5. Daily cap check
+    daily_count = state.count_entries_today()
+    if daily_count >= cfg.MAX_DAILY_ENTRIES:
+        cfg.output({
+            "action": "NO_ENTRY",
+            "reason": "daily_cap_reached",
+            "today_count": daily_count,
+            "cap": cfg.MAX_DAILY_ENTRIES,
+        })
+        state.append_entry_log("DAILY_CAP_REACHED", count=daily_count)
         return
 
-    # ── Fetch and scan ────────────────────────────────────────
-    raw_markets = fetch_markets()
-    if raw_markets is None:
-        cfg.output({"status": "error", "error": "failed to fetch markets"})
+    # 6. Gather candidates from cross-asset flow tool
+    candidates = gather_candidates()
+    if not candidates:
+        cfg.output({
+            "action": "NO_ENTRY",
+            "reason": "no_qualifying_laggards",
+            "checked_leaders": cfg.LEADER_UNIVERSE,
+        })
         return
 
-    current_scan = parse_scan(raw_markets)
-    history = cfg.load_scan_history()
+    # 7. Walk candidates by confidence; skip any in cooldown
+    pick = None
+    for c in candidates:
+        asset = (c.get("asset") or "").upper()
+        if not asset:
+            continue
+        if asset in open_assets:
+            continue
+        if state.is_asset_in_cooldown(asset):
+            continue
+        pick = c
+        break
 
-    # Detect Striker signals only (Stalker is dead)
-    signals = detect_striker_signals(current_scan, history)
-
-    # Save history
-    history["scans"].append(current_scan)
-    cfg.save_scan_history(history)
-
-    # Apply cooldowns
-    cooldown_min = COOLDOWN_MINUTES
-    signals = [s for s in signals
-               if not cfg.is_asset_cooled_down(s["token"], cooldown_min)]
-
-    # Filter already-held assets
-    held_coins = {p["coin"].upper() for p in positions}
-    signals = [s for s in signals if s["token"] not in held_coins]
-
-    if not signals:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"No Striker signals. Scanned {len(current_scan['markets'])} markets.",
-                    "scansInHistory": len(history["scans"])})
+    if not pick:
+        cfg.output({
+            "action": "NO_ENTRY",
+            "reason": "all_qualifying_in_cooldown_or_open",
+            "candidates_count": len(candidates),
+        })
         return
 
-    # ── Best signal → entry ───────────────────────────────────
-    best = signals[0]
-    margin = round(account_value * MARGIN_PCT, 2)
-    # Fleet-wide batch-4 leverage safety: clamp emitted leverage to the
-    # asset's Hyperliquid max so downstream executors don't hit
-    # CREATE_INVALID_LEVERAGE.
-    safe_leverage = get_safe_leverage(wallet, best["token"], DEFAULT_LEVERAGE)
+    # 8. Build the strike
+    strike = build_strike(pick, account_value)
 
-    tc["entries"] = tc.get("entries", 0) + 1
-    cfg.save_trade_counter(tc)
+    # 9. Stash position metadata BEFORE emitting the strike, so that even
+    #    if the runtime opens the position and the scanner crashes, the
+    #    metadata is on disk for the next leader-reversal veto pass.
+    state.set_position_metadata(strike["asset"], {
+        "leader_asset": strike["leader_asset"],
+        "leader_pct_at_entry": strike["leader_move_pct"],
+        "expected_lag_minutes": strike["avg_lag_minutes"],
+        "lag_stddev_minutes": strike["lag_stddev_minutes"],
+        "confidence_at_entry": strike["confidence"],
+        "gap_pct_at_entry": strike["gap_pct"],
+        "side": strike["side"],
+        "leverage": strike["leverage"],
+        "hard_timeout_minutes": strike["hard_timeout_minutes"],
+    })
 
+    # 10. Mark cooldown + log
+    state.mark_asset_cooldown(strike["asset"], reason="strike")
+    state.append_entry_log(
+        "STRIKE",
+        asset=strike["asset"],
+        side=strike["side"],
+        leverage=strike["leverage"],
+        margin_usd=strike["margin_usd"],
+        confidence=strike["confidence"],
+        gap_pct=strike["gap_pct"],
+        leader_asset=strike["leader_asset"],
+        leader_move_pct=strike["leader_move_pct"],
+        avg_lag_minutes=strike["avg_lag_minutes"],
+        hard_timeout_minutes=strike["hard_timeout_minutes"],
+    )
+
+    # 11. Emit strike for the runtime to execute via create_position
     cfg.output({
-        "status": "ok",
-        "signal": best,
-        "entry": {
-            "asset": best["token"],
-            "direction": best["direction"],
-            "leverage": safe_leverage,
-            "margin": margin,
-            "orderType": "FEE_OPTIMIZED_LIMIT",
-        },
-        "constraints": {
-            "maxPositions": MAX_POSITIONS,
-            "maxLeverage": MAX_LEVERAGE,
-            "maxDailyEntries": MAX_DAILY_ENTRIES,
-            "cooldownMinutes": COOLDOWN_MINUTES,
-            "xyzBanned": XYZ_BANNED,
-            "_v2_no_thesis_exit": True,
-            "_note": "DSL managed by plugin runtime. Scanner does NOT manage exits.",
-        },
-        "_mantis_version": "4.1",
+        "action": "STRIKE",
+        "trade": strike,
+        "reasoning": (
+            f"{strike['leader_asset']} moved {strike['leader_move_pct']:+.2f}% in 4h. "
+            f"{strike['asset']} typically follows in {strike['avg_lag_minutes']:.0f}±"
+            f"{strike['lag_stddev_minutes']:.0f}min with {strike['follow_rate']:.0%} reliability. "
+            f"Currently {strike['gap_pct']:+.2f}% behind. SM starting to rotate. "
+            f"Confidence {strike['confidence']:.2f}. Sizing tier: {strike['margin_usd']:.0f} margin "
+            f"@ {strike['leverage']}x. Hard timeout: {strike['hard_timeout_minutes']}min "
+            f"(avg lag × {cfg.HARD_TIMEOUT_LAG_MULTIPLIER})."
+        ),
     })
 
 
 if __name__ == "__main__":
     try:
-        run()
+        main()
     except Exception as e:
-        cfg.log(f"CRITICAL ERROR: {e}")
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        cfg.output({"status": "error", "error": str(e)})
+        cfg.log(f"FATAL: {type(e).__name__}: {e}")
+        cfg.output({"action": "ERROR", "error": str(e), "type": type(e).__name__})
+        sys.exit(1)

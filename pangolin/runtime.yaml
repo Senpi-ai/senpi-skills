@@ -1,62 +1,279 @@
 name: pangolin-tracker
-version: 1.5.0
+# Note: top-level `version` is the SCHEMA version the
+# senpi-trading-runtime plugin expects (must be major=1). The
+# STRATEGY/skill is "Pangolin v2.0" — that lives in description + SKILL.md
+# + _pangolin_producer_version. Using version: 2.x at runtime level is
+# rejected by the plugin as "Unsupported version: 2.x". Keep this at
+# 1.x.x forever.
+version: 1.8.0
 description: >
-  PANGOLIN v1.5 — Extreme Funding Rate Fader (parser unblock).
-  v1.4 has been dormant (0 trades) because get_funding_history read
-  data.persistence_hours directly when the MCP actually returns
-  data.data=[{asset, persistence_hours, ...}]. v1.5 fixes the parser
-  to iterate the list and match by asset, and normalizes the
-  funding_trend enum (INTENSIFYING→INCREASING, DECAYING→DECREASING)
-  so the trend bonus actually fires. No scoring changes.
+  PANGOLIN v2.2.0 — DSL T0 ladder calibration (2026-05-04).
+  Chain DB analysis of 6 ACCEPTED trades showed 4/4 ZEREBRO winners
+  peaked at 6.7-9.7% margin ROE — never engaged Phase 2 (T0 was 12%).
+  All exited via dsl_breach giving back to negative ROE; only funding
+  accrual saved them. v2.2 lowers T0 to 8 (catches 8-9.7% peaks),
+  T1 to 16 (closes T0→T1 gap). Same fleet T0 ladder pattern.
 
+  PANGOLIN v2.1.2 — post-close thrash-cycle fix (2026-05-04).
+  Producer-side post-close cooldown 240 min. Workaround for runtime
+  guard_rails.per_asset_cooldown_minutes silent non-enforcement
+  (Senpi backend bug, also affects Scorpion v4.1.0). Diffs held_assets
+  across ticks to detect closes; skips emission for 4h after any
+  close on that asset. Becomes a defense layer once Senpi fixes the
+  runtime gate. Does NOT fix the parallel runtime-swap orphan bug
+  (separate Senpi backend issue — runtime delete+create with open
+  positions leaves them in registry/protection dead zone).
+
+  v2.1.1 — observability: skipped_held + held_assets in output JSON.
+  v2.1.0 — held-asset dedup hot-patch (2026-05-02 P0).
+  Producer + LLM gate hard-skip on already-held positions.
+  Three-layer defense: producer pre-filter / LLM hard-skip / runtime
+  per_asset_cooldown. Mirrors Scorpion v4.1.1 pattern.
+
+  v2.0 — v2-runtime-native rewrite + maker-exit fee recovery.
+
+  Mission unchanged from v1.7: extreme funding rate fader. Enters
+  opposite to elevated funding (>0.015%/8h ≈ 20% annualized) on assets
+  where funding has been extreme for >= 3 hours AND the market regime
+  confirms (or is neutral). Collects funding every 8h while waiting
+  for crowded positions to mean-revert (24-48h thesis horizon).
+
+  v2.0 architectural changes (no thesis change):
+    - Producer (pangolin-producer.py) emits funding-fade signals via
+      `openclaw senpi external-scanner ingest`. NO execution code.
+    - Runtime LLM (configured via decision_model env var) is a
+      pass-through gate — producer has already applied every filter
+      (funding >= threshold, persistence >= 3h, regime confirms,
+      OI >= $1M, asset cooldown, XYZ ban). Hard skips only on
+      malformed signals.
+    - Maker exits via FEE_OPTIMIZED_LIMIT — v1 used MARKET orders
+      for closes, taking ~3 bp/exit. v2 prefers maker fill with 60s
+      timeout, falls through to taker if needed. Per-trade fee
+      saving is small ($0.10-0.20) but architectural alignment matters.
+    - Risk gates declarative (daily loss / drawdown / consec losses /
+      cooldown / per-asset cooldown / max entries) — runtime owns
+      enforcement, producer is signal-only.
+    - DSL exit: hard_timeout 720min, weak_peak DISABLED (funding fade
+      takes 24-48h, time cuts pre-empt thesis), dead_weight 480min
+      (one funding cycle), Phase 1 max_loss 30%/3-breach,
+      Phase 2 ladder 12/50, 20/70, 30/85, 50/92.
+
+  v1.x changes preserved:
+    - Funding regime confirmation gate (v1.4)
+    - Persistence floor 3h (v1.4 — reject fresh spikes)
+    - Funding history MCP parser fix (v1.5 — list keyed by asset)
+    - DSL-thesis alignment (v1.7 — wide phase1, dead_weight at 8h)
+    - SM concentration scoring bonuses
+    - Sticky OI bonus
+    - Price-already-reversing bonus
+    - XYZ banned
+
+# ── STRATEGY ──
 strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
   slots: 2
-  margin_per_slot: 250
+  margin_per_slot: 250                           # 25% of $1k starting budget per slot
+  trading_risk: conservative                     # funding fade is patient — no aggression
+  default_leverage: 3                            # crowded unwinds are violent; 3x default per v1
   enabled: true
 
+# ── RISK GUARDRAILS ──
+# Declarative — runtime enforces. Producer ALSO enforces a dynamic
+# PnL-aware daily cap (v1 carryover: tightens to 1 entry at -25% PnL,
+# expands to 12 at +5% PnL). Runtime ceiling here is the upper bound.
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10                     # v1 implicit via dynamic cap; this is the hard halt
+    max_entries_per_day: 12                      # upper bound of v1's dynamic cap (12 at +5% PnL)
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5                    # funding fade has long loss streaks; widen
+    cooldown_minutes: 0                          # producer manages cooldowns
+    drawdown_halt_pct: 25                        # v1 implicit via dynamic cap going to 0 at -25%
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 240              # v1 COOLDOWN_MINUTES = 240
+
+# ── SCANNERS ──
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
 
+  - name: pangolin_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        # Required identity
+        mode: { type: string, required: true }                       # always "FUNDING_FADE"
+        score: { type: number, required: true }                      # producer composite (>=9 floor)
+        funding: { type: number, required: true }                   # raw funding rate (e.g. 0.0003)
+        annualizedPct: { type: number, required: true }             # annualized funding %
+        persistenceHours: { type: number, required: true }          # how long funding has been extreme
+        leverage: { type: number, required: true }                  # producer-asserted (3 or 5 by score)
+        marginUsd: { type: number, required: true }                 # producer-asserted
+        # Optional enrichment
+        crowdDirection: { type: string, required: false }           # LONG / SHORT
+        regime: { type: string, required: false }                   # LONG_CROWDED / SHORT_CROWDED / NEUTRAL / UNKNOWN
+        regimeConfirms: { type: boolean, required: false }          # regime supports the fade?
+        trend: { type: string, required: false }                    # INCREASING / DECREASING / STABLE
+        smPctOfTopTraders: { type: number, required: false }
+        smTraderCount: { type: number, required: false }
+        smDirection: { type: string, required: false }
+        priceChg4hPct: { type: number, required: false }
+        oiUsd: { type: number, required: false }
+        oiTurnover: { type: number, required: false }
+        reasons: { type: string, required: false }                  # joined " | "
+        heldAssets: { type: array, required: false }                # v2.1: held-asset dedup defense layer 2
+
+# ── ACTIONS ──
 actions:
   - name: position_tracker_action
     action_type: POSITION_TRACKER
     decision_mode: rule
     scanners: [position_tracker]
 
-# Very wide DSL — funding mean-reversion takes hours to days.
-# The edge comes from collecting funding every 8 hours, so patience pays.
-# Dead weight cut catches entries where funding normalizes without price move.
+  - name: pangolin_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${PANGOLIN_DECISION_MODEL}"  # REQUIRED. Pass BARE model name only — NO provider prefix. INVALID: "google/gemini-3.1-pro-preview" (OpenClaw double-prefixes → 500 Unknown model). The LLM gate here is a pass-through rubber-stamp (producer already applied every filter); the cheapest model that reliably returns structured JSON wins. No default by design — operators pick their own.
+    scanners: [pangolin_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false         # v1 ENTRY behavior preserved: cancel-and-skip, don't take. Funding fade isn't urgent — if maker can't fill in 60s, the trade isn't ripe.
+        execution_timeout_seconds: 60            # Jackal v2.0.6 / Roach v2.0 standard
+    context:
+      - type: signal
+        scanner: pangolin_signals
+    decision_prompt: |
+      You are Pangolin's pass-through gate. The producer has already
+      applied every filter (extreme funding >= threshold, persistence
+      >= 3h, regime confirms or neutral, OI >= $1M, per-asset 240min
+      cooldown, XYZ ban, dynamic PnL-aware daily cap). Your job is
+      simply to honor the signal and convert it to an OPEN_POSITION.
+
+      SIGNAL:
+      {{signal_pangolin_signals}}
+
+      ## RULES
+
+      1. Output execute: true UNLESS one of these hard skips applies:
+         - score < 9 (signal failed producer floor — should never reach you, defensive only)
+         - leverage <= 0 OR marginUsd <= 0 (malformed signal)
+         - mode != "FUNDING_FADE" (Pangolin only fades funding)
+         - regime is "LONG_CROWDED" AND direction is "LONG" (or symmetric — fighting crowd, not fading)
+         - regime is "SHORT_CROWDED" AND direction is "SHORT" (same)
+         - persistenceHours < 3 (defensive — producer should never emit this)
+         - **heldAssets contains this signal's asset (any direction)** —
+           v2.1 hard skip. Pangolin must NEVER add to an existing position;
+           the 2026-05-02 incident ballooned MAVIA short from -38k → -79k
+           via repeated emission while DSL_CLOSED telegrams fired phantom
+           closes. Producer should pre-filter, but this is the LLM-side
+           defense layer 2.
+
+      2. The `asset` field MUST be copied EXACTLY from the signal.
+         If signal says "MAVIA" output exactly "MAVIA", not "mavia"
+         or "MAVIA-USD".
+
+      3. The `direction` MUST match the signal's `direction` field
+         (this is the FADE direction, opposite of the crowd).
+
+      4. Confidence should always be 7 unless a hard skip fires, in
+         which case output execute: false with a reason. Pangolin's
+         thesis IS quantitative — no confidence gradation.
+
+      ## OUTPUT FORMAT
+
+      Return JSON with this exact shape. The `leverage` and
+      `marginUsd` fields MUST be copied from the signal's `data`
+      block (the producer asserts them there) — this enforces
+      Pangolin's spec sizing instead of letting the runtime fall
+      back to HL's per-asset defaults.
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": 7,
+        "reasoning": "one-liner citing asset + fade direction + funding annualized% + persistence + regime",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY (typically 3, may be 5 on score >= 13)",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY (typically ~25% of account value)",
+              "reason": "pangolin funding fade"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL with maker-exit recovery — the v2 win) ──
+#
+# v1 used MARKET orders for closes — every exit took ~3 bp HL taker.
+# v2 switches to FEE_OPTIMIZED_LIMIT with maker-first + 60s window
+# + taker fallback. Per-trade saving is small ($0.10-0.20) given
+# Pangolin's small notional sizes, but architectural alignment is
+# the win. Taker fallback preserved because Pangolin's Phase 1
+# max_loss 30% is wide enough that hitting the stop means real
+# trouble — exit MUST happen.
+#
+# DSL preset preserved verbatim from v1.7:
+#   hard_timeout 720min — funding fade takes 24-48h to develop,
+#     12h cap is the absolute fail-safe
+#   weak_peak_cut DISABLED — time cuts pre-empt the thesis
+#   dead_weight_cut 480min — one full funding cycle (8h); cuts
+#     trades that don't get any funding payment
+#   phase1 max_loss 30% / retrace 10 / 3 breaches — 10% price
+#     buffer at 3x for MAVIA-class funding-induced spikes
+#   phase2 tiers 12/50, 20/70, 30/85, 50/92 — first tier at 4%
+#     price move avoids arming on chop; monster unwinds trail at 92%
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true              # exits MUST happen — taker fallback is the safety floor at Phase 1 stop
+    execution_timeout_seconds: 60                # match Jackal v2.0.6 / Scorpion v4.0.2 — gives ALO real chance to fill before fallthrough
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 720
+      interval_in_minutes: 720                   # 12h fail-safe
     weak_peak_cut:
-      enabled: true
+      enabled: false                             # v1.6 disabled — funding fade takes 24-48h
       interval_in_minutes: 180
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 60
+      interval_in_minutes: 480                   # 8h = one full funding cycle
     phase1:
       enabled: true
-      max_loss_pct: 20.0
+      max_loss_pct: 30.0                         # 10% price buffer at 3x
       retrace_threshold: 10
       consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 3,  lock_hw_pct: 15 }
-        - { trigger_pct: 7,  lock_hw_pct: 30 }
-        - { trigger_pct: 12, lock_hw_pct: 50 }
-        - { trigger_pct: 20, lock_hw_pct: 70 }
+        # v2.2 (2026-05-04) — T0 trigger 12→8, T1 trigger 20→16.
+        # Chain analysis of 6 ACCEPTED trades showed 4 of 4 ZEREBRO winners
+        # peaked at 6.7-9.7% margin ROE — never engaged Phase 2 (T0 was 12).
+        # All 4 closed via dsl_breach giving back to negative ROE; only
+        # funding accrual saved them. Lowering T0 to 8% catches the 8-9.7%
+        # peaks. Locks 50% of HW at +8% peak = +4% margin ROE locked vs
+        # current 0% (no lock). T1 16/65 closes T0→T1 dead zone.
+        - { trigger_pct: 8,  lock_hw_pct: 50 }   # ~2.7% price move at 3x
+        - { trigger_pct: 16, lock_hw_pct: 65 }   # tightened gap from 20
         - { trigger_pct: 30, lock_hw_pct: 85 }
+        - { trigger_pct: 50, lock_hw_pct: 92 }   # monster funding unwind trail
 
+# ── NOTIFICATIONS ──
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

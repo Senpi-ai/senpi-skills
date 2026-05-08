@@ -1,10 +1,73 @@
 #!/usr/bin/env python3
-# Senpi JAGUAR Scanner v3.3
+# Senpi JAGUAR Scanner v3.6
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""JAGUAR v3.3 — Striker-Only (dormancy fix #2).
+"""JAGUAR v3.6 — Striker-Only (pyramiding fix + config-driven starting budget).
 
-v3.3 change (2026-04-22) — still dormant after v3.2:
+v3.6 change (2026-05-06, operator-diagnosed) — TWO fixes:
+
+1. PYRAMIDING BUG: live failure 2026-05-06 evening — NEAR went from $25 →
+   $398 margin in 60 seconds via 5 "DSL position increased" events on
+   the same signal during partial-fill state. Same Pangolin v2.1 /
+   Scorpion v4.1.0 dedup-bug-class — the producer was checking
+   held_coins (positions present in clearinghouseState) but NOT
+   pending_coins (resting non-reduceOnly entry orders). When an entry
+   ALO is partially filled, the next scan tick sees the asset NOT yet
+   in held positions and emits the same signal → runtime executes as
+   ADD to existing partial fill rather than skip.
+
+   Fix ports the Scorpion v4.1.1 pattern: get_pending_entry_coins(wallet)
+   queries strategy_get_open_orders, returns set of non-reduceOnly
+   coins. main() unions held_coins ∪ pending_coins before checking
+   duplicate. Same-asset retry blocked until the resting order either
+   fills (becomes held) or cancels (no longer pending).
+
+2. STARTING_BUDGET config-driven: prior versions hardcoded
+   STARTING_BUDGET=1000.0 in this file, which forced operators to edit
+   the producer code to rebase capital after drawdown. Per fleet rule
+   (memory feedback_never_hardcode_wallet_specific.md), wallet-specific
+   values belong in config.json. Ports the Grizzly v5.2
+   _resolve_starting_budget() pattern: read 'startingBudget' from
+   jaguar-config.json, fall back to 1000.0 if absent. Operator can now
+   set "startingBudget": <value> in their local config without modifying
+   code that gets clobbered by the next git pull.
+
+   NOTE: Per v3.7 runtime.yaml risk.guard_rails, the dynamic daily cap
+   below is now redundant defense. Runtime is the authoritative gate
+   when its risk block fires. Producer's get_dynamic_daily_cap stays as
+   fallback for v1-runtime hosts that don't enforce risk.guard_rails.
+
+v3.5 change (2026-05-06) — CREATE_INVALID_LEVERAGE on small-cap perps:
+Live failure: XMR LONG signal at score 10 tried 10x leverage, HL rejected
+with "Max leverage for XMR is 5, got 10." Producer was picking leverage
+from conviction tier without clamping to per-asset HL max. Same fleet
+pattern that other agents (Wolverine, Grizzly, Cheetah, Vulture, etc.)
+use via get_safe_leverage(). Ports the standard pattern: query
+strategy_get_asset_trading_limits per asset, clamp to min(desired,
+asset_max, MAX_LEVERAGE). Asset list affected: XMR (max 5x), kBONK,
+kPEPE-class small caps, and any HIP-3 instrument with caps below the
+fleet 10x ceiling. Without this clamp, ~5-10% of striker signals would
+silently fail at execute_entry without retry.
+
+v3.4 change (2026-04-23) — THE ACTUAL DORMANCY CAUSE:
+After v3.3 widened striker gates, Jaguar still fired 0 trades. Live diag
+revealed CHIP SHORT score 11 and XMR SHORT score 9 were BOTH valid
+signals but 100% rejected by the `vol_ratio < 1.5` gate. Root cause:
+`leaderboard_get_markets` API doesn't emit `vol_ratio` / `volume_ratio` /
+`avg_volume` fields, so `vol_ratio` silently defaulted to 0 → rejected
+every signal.
+
+v3.4 replaces the 1.5x ratio hard gate with:
+  - Absolute liquidity floor via `day_notional_volume` ≥ $3M (fleet standard)
+  - Soft vol_ratio bonus when data IS available (no rejection if missing)
+Preserves the gate's intent (liquidity/participation check) without
+silently zeroing every candidate.
+
+This is the same silent-None family as Pangolin v1.5 and Dog v2.4
+`funding_history` parser bugs. Check scanner output for presence of
+all gated fields in live API responses before trusting a gate.
+
+v3.3 change (2026-04-22) — widened gates (still useful — kept):
 - STRIKER_MIN_RANK_JUMP: 10 → 7
 - STRIKER_MIN_PREV_RANK: 25 → 20
 - STRIKER_MIN_REASONS: 4 → 3
@@ -63,7 +126,24 @@ MAX_DAILY_ENTRIES = 3
 # DYNAMIC DAILY CAP (P&L-aware circuit breaker)
 # ═══════════════════════════════════════════════════════════════
 
-STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
+def _resolve_starting_budget():
+    """v3.6: read startingBudget from jaguar-config.json, fall back to
+    $1000.0. Mirrors Grizzly v5.2 pattern. Lets operators rebase capital
+    baseline (e.g. acknowledge a drawdown and start fresh from current
+    equity) without editing producer code that gets clobbered by next
+    git pull."""
+    try:
+        c = cfg.load_config()
+        v = c.get("startingBudget") if isinstance(c, dict) else None
+        if v is not None:
+            return float(v)
+    except Exception:
+        pass
+    return 1000.0
+
+
+STARTING_BUDGET = _resolve_starting_budget()
+
 
 def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
     """P&L-aware daily entry cap based on drawdown from starting budget.
@@ -134,6 +214,61 @@ def get_leverage_for_score(score):
         if score >= tier["min_score"]:
             return min(tier["leverage"], MAX_LEVERAGE)
     return DEFAULT_LEVERAGE
+
+
+def get_safe_leverage(wallet, coin, desired):
+    """Clamp leverage to the per-asset HL max (PR #194 fleet pattern).
+    Without this, signals on assets with HL max < MAX_LEVERAGE (e.g. XMR
+    capped at 5x) hit CREATE_INVALID_LEVERAGE and the entry fails. Caught
+    live 2026-05-06: XMR LONG signal at score 10 tried 10x, HL rejected
+    because XMR max is 5x. Returns the largest leverage that satisfies
+    BOTH the conviction tier AND the asset's HL ceiling."""
+    try:
+        r = cfg.mcporter_call("strategy_get_asset_trading_limits",
+                              strategy_wallet=wallet, coin=coin)
+        if r:
+            d = r.get("data", r)
+            if isinstance(d, dict):
+                lev = d.get("leverage", {})
+                if isinstance(lev, dict):
+                    max_lev = int(float(lev.get("value", MAX_LEVERAGE)))
+                    return min(desired, max_lev, MAX_LEVERAGE)
+                elif isinstance(lev, (int, float)):
+                    return min(desired, int(lev), MAX_LEVERAGE)
+                # Older schema: maxLeverage / max_leverage flat field
+                if "maxLeverage" in d or "max_leverage" in d:
+                    max_lev = int(d.get("maxLeverage", d.get("max_leverage", MAX_LEVERAGE)))
+                    return min(desired, max_lev, MAX_LEVERAGE)
+    except Exception:
+        pass
+    return min(desired, MAX_LEVERAGE)
+
+
+def get_pending_entry_coins(wallet):
+    """v3.6: return set of coins with non-reduceOnly resting orders
+    (pending entries). Used by the dedup check below to prevent the
+    pyramiding bug — when an entry ALO is partially filled, the asset
+    is NOT yet in held positions but the next scan tick should still
+    skip it because there's a pending entry on the book.
+
+    Pangolin v2.1 / Scorpion v4.1.0 dedup-bug-class fix. Reads
+    strategy_get_open_orders, filters non-reduceOnly orders, returns
+    coin set."""
+    data = cfg.mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data:
+        return set()
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if not isinstance(orders, list):
+        return set()
+    pending = set()
+    for o in orders:
+        if not o.get("reduceOnly", False):
+            coin = (o.get("coin") or "").upper()
+            if coin:
+                pending.add(coin)
+    return pending
 
 
 def has_resting_orders(wallet):
@@ -334,16 +469,38 @@ def detect_striker_signals(current_scan, history):
         if score < MIN_SCORE or len(reasons) < STRIKER_MIN_REASONS:
             continue
 
-        # Volume confirmation
+        # v3.4: Volume confirmation — previously a silent-None killer.
+        # `vol_ratio` / `volume_ratio` / `avg_volume` fields don't exist on
+        # leaderboard_get_markets responses, so vol_ratio was always 0 and
+        # every signal was rejected. Jaguar has been silently dormant
+        # since the baseline scanner was written.
+        #
+        # The intent of the gate is "confirm participation/liquidity." We
+        # already have stronger participation signals (cc_15m > 0 is a
+        # hard gate above, contrib_explosion/velocity score into MIN_SCORE).
+        # So: replace the hard 1.5x-ratio gate with:
+        #   - Absolute liquidity floor via day_notional_volume (if present)
+        #   - Soft ratio bonus when data IS available (no rejection if missing)
+        MIN_DAY_NOTIONAL_VOLUME_USD = 3_000_000  # $3M 24h liquidity floor
+        day_notional = safe_float(
+            market.get("day_notional_volume",
+                market.get("dayNotionalVolume",
+                    market.get("volume_24h_usd", 0)))
+        )
+        if day_notional > 0 and day_notional < MIN_DAY_NOTIONAL_VOLUME_USD:
+            continue  # liquidity too thin
+
+        # Soft vol_ratio bonus — only add reason if data genuinely available
         vol_ratio = safe_float(market.get("vol_ratio", market.get("volume_ratio", 0)))
-        if vol_ratio < STRIKER_MIN_VOLUME_RATIO:
+        if vol_ratio == 0:
             volume = safe_float(market.get("volume", 0))
             avg_volume = safe_float(market.get("avg_volume", market.get("avgVolume", 0)))
             if avg_volume > 0:
                 vol_ratio = volume / avg_volume
-            if vol_ratio < STRIKER_MIN_VOLUME_RATIO:
-                continue
-        reasons.append(f"VOL {vol_ratio:.1f}x")
+        if vol_ratio >= STRIKER_MIN_VOLUME_RATIO:
+            reasons.append(f"VOL {vol_ratio:.1f}x")
+        elif day_notional > 0:
+            reasons.append(f"LIQUID ${day_notional/1e6:.1f}M")
 
         signals.append({
             "token": token,
@@ -566,7 +723,14 @@ def run():
         return
 
     # Filter and select best signal
+    # v3.6: union held_coins with pending_coins. Without pending_coins,
+    # an asset with a partially-filled entry ALO would re-emit on the
+    # next scan and the runtime would treat it as ADD instead of skip,
+    # causing the pyramiding bug observed live 2026-05-06 (NEAR went
+    # $25 → $398 margin in 60s via 5 size-up events on the same signal).
     held_coins = {p["coin"].upper() for p in our_positions}
+    pending_coins = get_pending_entry_coins(wallet)
+    held_coins.update(pending_coins)
 
     for signal in signals:
         token = signal["token"]
@@ -578,7 +742,12 @@ def run():
             continue
 
         # Execute entry directly
-        leverage = get_leverage_for_score(signal["score"])
+        # v3.4: clamp leverage to per-asset HL max. XMR (max 5x), kBONK,
+        # and other small-cap perps have lower ceilings than Jaguar's
+        # 10x conviction tier — without clamp, HL rejects with
+        # CREATE_INVALID_LEVERAGE and the entry fails silently.
+        desired_leverage = get_leverage_for_score(signal["score"])
+        leverage = get_safe_leverage(wallet, token, desired_leverage)
         margin = round(account_value * MARGIN_PCT, 2)
 
         success, result = execute_entry(wallet, token, signal["direction"], leverage, margin)
@@ -612,7 +781,7 @@ def run():
                     "ensureExecutionAsTaker": False,
                 },
                 "result": result,
-                "_jaguar_version": "3.3",
+                "_jaguar_version": "3.6",
             })
         else:
             cfg.output({
@@ -625,7 +794,7 @@ def run():
                     "reasons": signal["reasons"],
                 },
                 "error": result,
-                "_jaguar_version": "3.3",
+                "_jaguar_version": "3.6",
             })
         return
 

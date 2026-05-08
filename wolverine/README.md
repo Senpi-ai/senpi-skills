@@ -1,130 +1,110 @@
-# 🦡 WOLVERINE v2.3 — HYPE Alpha Hunter
+# 🦡 WOLVERINE v4.0.0 — HYPE Alpha Hunter (v2-runtime-native)
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-Single-asset HYPE momentum scanner. Fires on a confluence of Smart Money consensus, multi-window velocity acceleration, and 4H/1H price confirmation. Self-executing. DSL trails the trend. Chop-detection lockout prevents whipsaw losses.
+## What changed in v4.0
 
-## What Wolverine does
+- `wolverine-producer.py` (NEW) replaces `wolverine-scanner.py` (DELETED)
+- v2-runtime-native: external_scanner + LLM-pass-through gate + native `risk.guard_rails`
+- DSL exits via `FEE_OPTIMIZED_LIMIT` (saves ~0.020-0.030% per maker-filled close)
+- Trade chain DB emits per-trade telemetry — chain DB visibility on Wolverine for the first time
+- v3.0.3 six-gate entry validation preserved EXACTLY (incl. the 4h-magnitude fix that rejects dead-flat chop)
+- v3.0.1/2/4 v1-DSL fixes preserved: time-cuts all disabled, exits 100% price-action
 
-- **Scans HYPE** every 3 minutes via Senpi MCP `leaderboard_get_markets`
-- **Scores momentum signals**: SM consensus + 15m/1h velocity + 4H/1H price + volume
-- **Fires entries at score 8+**: conviction-scaled leverage (7x or 10x at score 10+)
-- **Self-executes** via `create_position` with `FEE_OPTIMIZED_LIMIT`
-- **Delegates exits** to the DSL engine via `runtime.yaml` (Phase 1 max-loss + Phase 2 trailing tiers)
-- **Logs every trade** to `state/entry-log.jsonl` (survives session clears)
-- **Locks out HYPE** for 6 hours after 2 consecutive losses within 3 hours (chop protection)
+## Thesis (preserved from v3.x)
 
-## Why v2.3
-
-On 2026-04-14 Wolverine v2.2 took 5 consecutive losing HYPE trades over 3 hours of chop, losing $113. Every entry was a "fresh signal" by the v2.2 criteria but the scanner had no concept of "we just lost N times on this same coin." v2.3 adds:
-
-1. **Chop-detection lockout** — 2 losses in 3h → 6h asset lockout
-2. **Direction-flip hard gate** — refuses LONG → SHORT → LONG whipsaw after a loss
-3. **Persistent entry log** — every trade event written to disk, survives `openclaw sessions clear --current`
-4. **Exit tracking hook** — scanner reconciles its own realized PnL after each position closes
+Single-asset HYPE alpha hunter. Six-gate entry validation: 4h trend structure, 4h structural strength, 1h confirmation, 15m momentum alignment, base-tech floor, **4h magnitude ≥1.5%** (the v3.0.3 fix). Multi-factor scoring (~17 max points), MIN_SCORE 9, conviction-tiered leverage (3x/5x). DSL Phase 2 trailing owns all winner exits.
 
 ## Install
 
 ```bash
 mkdir -p /data/workspace/skills/wolverine-strategy/{config,scripts,state}
 
-# Pull all package files
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/runtime.yaml -o /data/workspace/skills/wolverine-strategy/runtime.yaml
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/SKILL.md -o /data/workspace/skills/wolverine-strategy/SKILL.md
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/config/wolverine-config.json -o /data/workspace/skills/wolverine-strategy/config/wolverine-config.json
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/scripts/wolverine-scanner.py -o /data/workspace/skills/wolverine-strategy/scripts/wolverine-scanner.py
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/scripts/wolverine-producer.py -o /data/workspace/skills/wolverine-strategy/scripts/wolverine-producer.py
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/scripts/wolverine_config.py -o /data/workspace/skills/wolverine-strategy/scripts/wolverine_config.py
 ```
 
 ## Configure
 
-Set your wallet and Telegram chat ID in `runtime.yaml`:
-
-```bash
-sed -i 's/${WALLET_ADDRESS}/<YOUR_STRATEGY_WALLET>/' /data/workspace/skills/wolverine-strategy/runtime.yaml
-sed -i 's/${TELEGRAM_CHAT_ID}/<YOUR_TELEGRAM_CHAT_ID>/' /data/workspace/skills/wolverine-strategy/runtime.yaml
-```
-
-Or set them in `config/wolverine-config.json`:
+**Set wallet, strategyId, chatId in `config/wolverine-config.json`** — canonical source. Producer reads from here on every cron tick.
 
 ```json
 {
   "strategyId": "your-strategy-id",
   "wallet": "0xYourStrategyWallet",
-  "chatId": "your-telegram-chat-id"
+  "chatId": "YourTelegramChatId",
+  "minScore": 9,
+  "quietHours": { "startUtc": 0, "endUtc": 4, "apexBypassScore": 11 }
 }
 ```
 
-## Install the runtime in OpenClaw
+LLM model env var (only at runtime-create time):
+
+```bash
+export WOLVERINE_DECISION_MODEL=gemini-2.5-pro    # bare model name; NO provider prefix
+```
+
+## Install runtime + producer cron
 
 ```bash
 openclaw senpi runtime create --path /data/workspace/skills/wolverine-strategy/runtime.yaml
 openclaw senpi runtime list
 ```
 
-## Verify
+Cron (3-min cadence, no env vars needed — wallet read from config):
 
-Run the scanner once manually:
-
-```bash
-python3 /data/workspace/skills/wolverine-strategy/scripts/wolverine-scanner.py
+```cron
+*/3 * * * * cd /data/workspace/skills/wolverine-strategy && python3 scripts/wolverine-producer.py >> state/producer.log 2>&1
 ```
 
-Expected output: clean exit, JSON contains `"_wolverine_version": "2.3"`. First run usually shows a heartbeat (no signal) — the confluence threshold is intentionally tight.
+## Key parameters
 
-## Run on a recurring schedule
+| Parameter | Value |
+|---|---|
+| Asset | HYPE (single-asset) |
+| Max positions | 1 |
+| Margin per slot | $250 |
+| Leverage | 3x / 5x (score-tiered: 9 / 11+) |
+| MIN_SCORE | 9 |
+| LLM min_confidence | 7 |
+| Per-asset cooldown | 120 min (2h) |
+| Daily entry cap | 4 |
+| Daily loss limit | 10% |
+| Drawdown halt | 25% |
+| Quiet hours | 00:00-04:00 UTC (apex score 11+ bypasses) |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT |
 
-Recommended: detached bash loop (zero LLM wake cost):
+## DSL Phase 2 ladder (preserved from v3.0.4)
 
-```bash
-nohup bash -c 'while true; do python3 /data/workspace/skills/wolverine-strategy/scripts/wolverine-scanner.py >> /tmp/wolverine-loop.log 2>&1; sleep 180; done' > /tmp/wolverine-nohup.log 2>&1 &
+HYPE-tuned. All time-based cuts disabled — exits 100% price-action.
 
-# Confirm running
-ps aux | grep wolverine-scanner | grep -v grep
-tail -5 /tmp/wolverine-loop.log
-```
-
-3-minute cadence. The Python scanner does all work; no LLM is invoked unless an entry fires.
-
-Alternative: configure an OpenClaw cron with `sessionTarget: isolated`. Avoid `sessionTarget: main` — that pattern is a known cost time-bomb that drifts expensive as the main session accumulates context.
-
-## Tail the entry log
-
-After Wolverine fires its first trade:
-
-```bash
-tail -20 /data/workspace/skills/wolverine-strategy/state/entry-log.jsonl | jq
-```
-
-Each line is a structured JSON event (ENTRY, EXIT, CHOP_LOCKOUT, FLIP_BLOCKED) with full metadata: timestamp, score, reasons, leverage, margin, PnL, exit reason. **The log survives session clears** — your trade history is on disk, not in LLM context.
-
-## Key settings
-
-| Setting | Value | Notes |
+| Tier | Trigger (margin ROE) | Lock (% of HW) |
 |---|---|---|
-| Asset | HYPE | Single-asset focus |
-| Max positions | 1 | Concentration |
-| Margin per trade | 50% | High conviction commits high capital |
-| Max leverage | 10x | Fleet cap |
-| Min score | 8 | Tunable in scanner if needed |
-| Per-asset cooldown | 180 min | Default time between HYPE trades |
-| Chop window | 3 hours | Window for counting consecutive losses |
-| Chop max losses | 2 | After 2 losses in window → lockout |
-| Chop lockout | 6 hours | Sit out HYPE after 2 losses |
-| DSL hard timeout | 240 min | Safety net only — Phase 2 trailing handles winners |
+| T0 | +10% | 15% |
+| T1 | +20% | 35% |
+| T2 | +35% | 55% |
+| T3 | +55% | 70% |
+| T4 (apex) | +80% | 85% |
 
-## Troubleshooting
+Phase 1: max_loss 20% / retrace 8% / 3 consecutive breaches.
+**Time-cuts:** `hard_timeout` / `weak_peak_cut` / `dead_weight_cut` all DISABLED (v3.0.1/3.0.2/3.0.4 fixes preserved).
 
-**Scanner exits with `no wallet`:** Set the wallet in `runtime.yaml` or `config/wolverine-config.json` or the `WOLVERINE_WALLET` environment variable.
+## Migrating from v3.x
 
-**Scanner outputs `CHOP_LOCKED`:** Wolverine detected 2 losses on HYPE within 3 hours and is locked out. This is intentional. Will unlock 6 hours after the last loss. Check the unlock timestamp in `state/cooldowns.json`.
+```bash
+cd /data/workspace/skills/wolverine-strategy
+rm -f scripts/wolverine-scanner.py                    # replaced by wolverine-producer.py
+# Pull new files (curl above)
+# Update cron: replace wolverine-scanner.py with wolverine-producer.py
+# Reload runtime: openclaw senpi runtime delete <old>; openclaw senpi runtime create --path runtime.yaml
+```
 
-**Scanner outputs `RESTING ORDER: limit order pending`:** A previous FEE_OPTIMIZED_LIMIT order is still resting on the book. Wolverine auto-cancels orders older than 10 minutes; this message just means a recent order is still active. Wait for it to fill or be cancelled.
-
-**Scanner imports fail:** Make sure both `wolverine-scanner.py` AND `wolverine_config.py` are in the `scripts/` directory. The scanner imports the helper module via `import wolverine_config as cfg`.
-
-**Trade history lost after session clear:** That's exactly what `state/entry-log.jsonl` was added for in v2.3. Tail the log file to recover the trade events.
+State files (`state/trade-counter.json`, `state/cooldowns.json`) are vestigial in v4.0 and can be deleted.
 
 ## License
 
-MIT — Copyright 2026 Senpi (https://senpi.ai).
+MIT — Copyright 2026 Senpi (https://senpi.ai)

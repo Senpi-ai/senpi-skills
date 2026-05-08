@@ -1,6 +1,15 @@
 name: dog-tracker
-version: 2.4.0
+version: 2.5.0
 description: >
+  Dog v2.5 — exhaustion gate calibration (2026-05-05). v2.2's
+  MIN_EXHAUSTION_PCT 4.5 produced ZERO trades in ~3 weeks because
+  4.5% 4h moves on BTC/ETH/SOL/HYPE majors are rare (BTC's biggest
+  4h move in past 44h was only +2.27%). Lowered to 3.0 — captures
+  legitimate overextension while rejecting trend-continuation noise.
+  Sweet spot between v2.1's permissive 2.5% (which lost -$53 on 10
+  trades) and v2.2's never-fires 4.5%. DEEP_EXHAUSTION_BONUS
+  unchanged — bigger moves still get the +2 score boost.
+
   Dog v2.4 — Contrarian Pup (parser fix + DSL loosen). Fixes the same
   funding_history parser bug as Pangolin (MCP returns data.data=[{...}],
   not data.<field>) that silently disabled v2.3's persistence+trend

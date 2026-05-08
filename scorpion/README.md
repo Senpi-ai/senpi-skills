@@ -1,30 +1,61 @@
-# SCORPION v3.0 — Multi-Market Active Trader
+# 🦂 SCORPION v4.0 — Multi-Market Active Trader (v2-native)
 
-**The only predator that hunts across both crypto and commodities.**
+Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-Scorpion trades BOTH the main Hyperliquid DEX (crypto) and the XYZ DEX (commodities/indices) using SM concentration + 4H price trend alignment. Arena winner #2/#3 playbook.
+## Thesis
 
-## Quick Stats
-- **Strategy**: SM trend-following across crypto + XYZ DEX
-- **Universe**: BTC, ETH, SOL, HYPE, ZEC, LIT, GRASS, FARTCOIN, TAO, ONDO, SUI, ARB, WLD, DOGE, AVAX + xyz:CL, xyz:BRENTOIL, xyz:GOLD, xyz:SPX
-- **Margin**: 30% per position (3 x 30% = 90% max exposure)
-- **Leverage**: 5-10x (score-scaled)
-- **Entry threshold**: Score 6+ (SM + trend + velocity + depth)
-- **Max positions**: 3 concurrent
-- **Hard timeout**: 720 minutes (12 hours)
-- **Daily cap**: 6 entries, 120-min per-asset cooldown
-- **Order type**: FEE_OPTIMIZED_LIMIT with ensureExecutionAsTaker
+The only fleet predator that hunts across BOTH crypto and XYZ DEX (commodities / indices). SM concentration + 4H price trend alignment gates the multi-factor score. v4.0 is the second fleet agent built natively on `senpi-trading-runtime` v2 (after Jackal v2) — producer emits signals, runtime LLM gates every entry, risk guardrails enforced declaratively, DSL uses maker-preferred exits.
 
-## What Makes This Different
-No other Senpi predator trades XYZ DEX assets. Scorpion v3.0 trades crude oil, Brent, gold, and SPX alongside crypto — capturing opportunities across uncorrelated markets.
+## Architecture
 
-## XYZ DEX Handling
-- XYZ assets use `xyz:` prefix in create_position calls (e.g., `coin="xyz:CL"`)
-- XYZ assets require `leverageType="ISOLATED"`
-- XYZ price thresholds are lower (commodities move 0.5-3% in 4h vs 1-5% for crypto)
+```
+scorpion-producer.py (60s cron)           senpi-trading-runtime (v2)
+  score all crypto + XYZ markets           scorpion_signals scanner
+  emit candidates at score >= 9       →    scorpion_entry action (LLM-gated)
+  enrich w/ BTC macro + funding +          position_tracker + DSL
+    current positions                      risk.guard_rails
+                                           exit: FEE_OPTIMIZED_LIMIT
+```
 
-## Install
-See [SKILL.md](SKILL.md) for full setup instructions.
+## Why v4.0
+
+v3.2 logged 43 fills / 18h / -$79.84 in Arena Week 5 despite `MAX_DAILY_ENTRIES=3` in code. The scalp-reentry bypass path and in-Python trade counter were silently leaking. v4.0 removes all that bookkeeping:
+
+- **Producer has no execution authority.** No create_position, no trade counters, no cooldown state.
+- **Runtime enforces max_entries_per_day: 5 via `risk.guard_rails`.** No bypass path.
+- **LLM gates every entry.** ~30-40% expected pass rate at min_confidence 7.
+- **DSL uses FEE_OPTIMIZED_LIMIT on exits** (the big v2 win). At ~40 trades/day pre-gating, saves ~$20/week in fee drag.
+
+## Key Settings (v4)
+
+| Setting | Value |
+|---|---|
+| Universe | 15 crypto + 4 XYZ (CL, BRENTOIL, GOLD, SPX) |
+| Entry signal gate | MIN_SCORE ≥ 9 (producer-level) |
+| Entry decision | LLM-gated via `decision_prompt`, min_confidence 7 |
+| Decision model | Required via `$SCORPION_DECISION_MODEL` env var — no default |
+| Max concurrent | 2 slots |
+| Margin per slot | $250 |
+| Max entries/day | 5 (runtime-enforced, no bypass) |
+| Per-asset cooldown | 120 min (runtime-enforced) |
+| Daily loss cap | 5% |
+| Consecutive loss pause | 3 → 90 min cooldown |
+| Drawdown halt | 20% |
+| DSL exit order type | **FEE_OPTIMIZED_LIMIT** (maker-first, taker fallback) |
+| DSL hard_timeout | 12h (time cuts auto-disable in Phase 2 per v2 spec) |
+| DSL Phase 1 max_loss | 15% |
+
+## What's different from v3.2
+
+| | v3.2 | v4.0 |
+|---|---|---|
+| Scanner size | 549 lines | 280-line producer |
+| Entry decision | Hardcoded thresholds | LLM decision prompt |
+| Daily counter | Python state file (leaked to 43/18h) | Runtime `risk.guard_rails` |
+| Scalp re-entry | Special bypass code | Removed; `per_asset_cooldown_minutes` authoritative |
+| DSL exit fees | Taker (market orders) | **Maker-preferred with taker fallback** |
+| Phase-2 time-cut bug | Fires inappropriately | Auto-disabled in Phase 2 by v2 spec |
 
 ## License
-MIT — Built by [Senpi](https://senpi.ai)
+
+MIT — Copyright 2026 Senpi (https://senpi.ai)

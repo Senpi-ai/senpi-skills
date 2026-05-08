@@ -1,8 +1,14 @@
-"""MANTIS Strategy — Shared config, MCP helpers, state I/O.
-Self-contained — does not depend on wolf_config."""
+#!/usr/bin/env python3
+# Senpi MANTIS Config v5.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-# Source: https://github.com/Senpi-ai/senpi-skills
+"""MANTIS v5.0 — Slipstream — Configuration constants + MCP helpers.
+
+Cross-asset catchup hunter. Strikes correlated alts that haven't yet
+responded to a leader's move, before the catchup completes.
+
+Override via config/mantis-config.json or environment variables.
+"""
 
 import json
 import os
@@ -10,7 +16,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import glob
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,13 +23,51 @@ WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "mantis-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "mantis-config.json"
 STATE_DIR = SKILL_DIR / "state"
-HISTORY_FILE = os.path.join(WORKSPACE, "mantis-emerging-history.json")
 COOLDOWN_FILE = STATE_DIR / "asset-cooldowns.json"
+ENTRY_LOG_FILE = STATE_DIR / "entry-log.jsonl"
+POSITION_META_FILE = STATE_DIR / "position-metadata.json"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ─── Atomic Write ────────────────────────────────────────────
+# ─── Leader universe ─────────────────────────────────────────────
+# Only BTC has pre-computed lag data in the v1 cross-asset flow tool.
+# Add ETH/SOL/HYPE as Sarvesh ships their pre-computed coverage.
+LEADER_UNIVERSE = ["BTC"]
+
+
+# ─── Entry filters ───────────────────────────────────────────────
+MIN_FOLLOW_RATE = 0.85
+MIN_CONFIDENCE = 0.75
+MIN_GAP_PCT = 1.5
+REQUIRE_SM_ROTATION = True
+MAX_LAG_STDDEV_MINUTES = 90
+
+
+# ─── Sizing tiers (conviction-scaled off the tool's confidence score) ───
+SIZING_TIERS = [
+    {"confidence_min": 0.92, "margin_pct": 75, "leverage": 8},
+    {"confidence_min": 0.85, "margin_pct": 50, "leverage": 7},
+    {"confidence_min": 0.75, "margin_pct": 25, "leverage": 5},
+]
+MAX_LEVERAGE = 8
+MAX_POSITION_NOTIONAL_PCT = 75
+
+
+# ─── Exit / DSL ──────────────────────────────────────────────────
+HARD_TIMEOUT_LAG_MULTIPLIER = 1.5
+HARD_TIMEOUT_FLOOR_MINUTES = 30
+HARD_TIMEOUT_CEILING_MINUTES = 240
+LEADER_REVERSAL_VETO_PCT = 1.0
+
+
+# ─── Risk controls ───────────────────────────────────────────────
+MAX_CONCURRENT_POSITIONS = 2
+COOLDOWN_PER_ASSET_MINUTES = 240
+MAX_DAILY_ENTRIES = 6
+
+
+# ─── Atomic write ────────────────────────────────────────────────
 
 def atomic_write(path, data):
     """Write JSON atomically via tmp file + os.replace."""
@@ -44,7 +87,7 @@ def atomic_write(path, data):
         raise
 
 
-# ─── Config ──────────────────────────────────────────────────
+# ─── Config overlay ──────────────────────────────────────────────
 
 def load_config():
     if CONFIG_PATH.exists():
@@ -63,120 +106,15 @@ def get_wallet_and_strategy():
     return wallet, strategy_id
 
 
-# ─── State I/O ───────────────────────────────────────────────
-
-def load_state(filename="state.json"):
-    path = STATE_DIR / filename
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-    return {}
+def _apply_config_overlay():
+    """Load config/mantis-config.json and overlay onto module globals."""
+    cfg = load_config()
+    for k, v in cfg.items():
+        if k in globals() and not k.startswith("_"):
+            globals()[k] = v
 
 
-def save_state(data, filename="state.json"):
-    atomic_write(str(STATE_DIR / filename), data)
-
-
-# ─── Trade Counter ───────────────────────────────────────────
-
-def load_trade_counter():
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    path = STATE_DIR / "trade-counter.json"
-    default = {
-        "date": today, "entries": 0, "realizedPnl": 0,
-        "gate": "OPEN", "gateReason": None, "cooldownUntil": None,
-        "lastResults": [],
-        "stalkerResults": [],  # v1.2: track Stalker W/L for streak detection
-    }
-    if path.exists():
-        try:
-            with open(path) as f:
-                tc = json.load(f)
-            if tc.get("date") != today:
-                for k in ["entries", "realizedPnl"]:
-                    tc[k] = 0
-                tc["date"] = today
-                tc["gate"] = "OPEN"
-                tc["gateReason"] = None
-                tc["cooldownUntil"] = None
-                # NOTE: stalkerResults persists across days (streak spans sessions)
-            for k, v in default.items():
-                if k not in tc:
-                    tc[k] = v
-            return tc
-        except (json.JSONDecodeError, IOError):
-            pass
-    return dict(default)
-
-
-def save_trade_counter(tc):
-    tc["updatedAt"] = now_iso()
-    atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
-
-
-def record_stalker_result(tc, is_win):
-    """v1.2: Track Stalker trade results for streak detection.
-    If a win, reset the streak. Keep last 10 results."""
-    results = tc.get("stalkerResults", [])
-    results.append("W" if is_win else "L")
-    tc["stalkerResults"] = results[-10:]
-    save_trade_counter(tc)
-
-
-# ─── Asset Cooldowns ─────────────────────────────────────────
-
-def load_cooldowns():
-    if COOLDOWN_FILE.exists():
-        try:
-            with open(COOLDOWN_FILE) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
-
-
-def save_cooldowns(cooldowns):
-    atomic_write(str(COOLDOWN_FILE), cooldowns)
-
-
-def is_asset_cooled_down(token, cooldown_minutes=120):
-    """Check if an asset is in cooldown after a Phase 1 exit."""
-    cooldowns = load_cooldowns()
-    if token not in cooldowns:
-        return False
-    exit_ts = cooldowns[token].get("exitTimestamp", 0)
-    elapsed_min = (now_ts() - exit_ts) / 60
-    return elapsed_min < cooldown_minutes
-
-
-def set_asset_cooldown(token, reason="phase1_exit"):
-    """Set a cooldown on an asset after Phase 1 exit."""
-    cooldowns = load_cooldowns()
-    cooldowns[token] = {
-        "exitTimestamp": now_ts(),
-        "reason": reason,
-        "setAt": now_iso(),
-    }
-    save_cooldowns(cooldowns)
-
-
-# ─── Scanner History ─────────────────────────────────────────
-
-def load_scan_history():
-    try:
-        with open(HISTORY_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"scans": []}
-
-
-def save_scan_history(history, max_scans=60):
-    if len(history["scans"]) > max_scans:
-        history["scans"] = history["scans"][-max_scans:]
-    atomic_write(HISTORY_FILE, history)
-
-
-# ─── MCP Helpers ─────────────────────────────────────────────
+# ─── MCP helpers ─────────────────────────────────────────────────
 
 def mcporter_call(tool, retries=2, timeout=25, **params):
     """Call a Senpi MCP tool via mcporter."""
@@ -218,6 +156,7 @@ def get_clearinghouse(wallet):
 
 
 def get_positions(wallet):
+    """Returns (account_value, [position_dicts])."""
     ch = get_clearinghouse(wallet)
     if not ch:
         return 0, []
@@ -245,9 +184,21 @@ def get_positions(wallet):
     return account_value, positions
 
 
+def get_cross_asset_flows(leader_asset):
+    """Wrap the new MCP tool. Returns the flow result or None."""
+    return mcporter_call("market_get_cross_asset_flows", leader_asset=leader_asset)
+
+
+# ─── Output / log ────────────────────────────────────────────────
+
 def output(data):
     print(json.dumps(data))
     sys.stdout.flush()
+
+
+def log(msg):
+    print(f"[MANTIS-v5] {msg}", file=sys.stderr)
+    sys.stderr.flush()
 
 
 def now_ts():
@@ -256,3 +207,6 @@ def now_ts():
 
 def now_iso():
     return datetime.now(timezone.utc).isoformat()
+
+
+_apply_config_overlay()

@@ -1,13 +1,13 @@
 {
+  "_comment": "WOLVERINE v4.0.0 config — simplified for v2-runtime-native architecture. Runtime owns position tracking, daily caps, cooldowns, and drawdown gates via runtime.yaml's risk.guard_rails block. DSL tier ladder is in runtime.yaml exit.dsl_preset.phase2.tiers (no longer duplicated here). Producer reads only the few fields below.",
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "startingBudget": 1000,
-  "dslTiers": [
-    { "triggerRoe": 10, "lockRoe": 15 },
-    { "triggerRoe": 20, "lockRoe": 35 },
-    { "triggerRoe": 35, "lockRoe": 55 },
-    { "triggerRoe": 55, "lockRoe": 70 },
-    { "triggerRoe": 80, "lockRoe": 85 }
-  ]
+  "minScore": 9,
+  "quietHours": {
+    "_comment": "FP-001: skip emission during low-liquidity UTC window. Apex setups (score >= apexBypassScore) bypass.",
+    "startUtc": 0,
+    "endUtc": 4,
+    "apexBypassScore": 11
+  }
 }

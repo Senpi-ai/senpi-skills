@@ -1,27 +1,114 @@
 name: polar-tracker
-version: 3.0.2
+# Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
+# plugin. Strategy/skill is "Polar v4.0.0" — lives in description +
+# SKILL.md + _polar_producer_version. Do not set this to 4.x.x.
+version: 1.0.0
 description: >
-  ETH alpha hunter v3.0 — hybrid hyperfeed + structural-veto architecture.
-  Complete rewrite. v2.4 used leaderboard_get_markets alone (no candle
-  confirmation) and produced 32% gross win rate on 81 positions. v3.0 keeps
-  hyperfeed (SM positioning) as primary direction signal but adds structural
-  candle gates as vetos: trend_4h must match SM direction with strength ≥
-  0.75; 1h must match 4h; 15m momentum confirms; RSI gate; base-tech floor
-  requires strong 15m OR 5m alignment. Fixes silent-None OI velocity bug
-  (flat path). MIN_SCORE raised 10 → 14. Conviction-scaled leverage (5x
-  standard, 7x conviction, 10x apex at score ≥ 17). DSL tiers unchanged.
+  POLAR v4.2.0 — MIN_SCORE 14 → 12 calibration restore (2026-05-04).
+  v4.0/v4.1 silently regressed to v3.0's MIN_SCORE 14 floor which
+  was diagnosed as over-strict (v3.0 sample: 16 trades/10 days/-$72).
+  v2.5 ran on MIN_SCORE 12 successfully — restored.
+
+  v4.1.0 — DSL ratchet T0/T1 patch (fleet-wide).
+  v4.0.0 — ETH Alpha Hunter, v2-runtime-native rewrite.
+
+  v3.x was a full-agency scanner: scored signals, tracked counters, called
+  create_position directly, maintained Python-side cooldowns and resting-
+  order guards. v4.0 flips to producer + v2 runtime (Vulture v3.0 /
+  Scorpion v4.x pattern).
+
+  WHAT v4.0 ENABLES:
+    - Producer (polar-producer.py) emits signals via
+      `openclaw senpi external-scanner ingest`. NO execution code.
+    - Runtime LLM gate is pass-through (Roach pattern) — producer has
+      applied every filter; LLM only catches malformed signals.
+    - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-
+      loss halt, per-asset cooldown — no Python state to drift.
+    - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits — saves
+      ~0.020-0.030% per maker-filled close vs v3.x MARKET orders.
+    - Trade chain DB emits LIFECYCLE / DECISION_EXECUTED / ACTION_RESULT
+      / DSL_CREATED / DSL_CLOSED for every trade — telemetry restored.
+
+  WHAT'S PRESERVED FROM v3.0.6:
+    - ETH single-asset thesis
+    - Hyperfeed SM gates: pct≥5%, traders≥30, cc_15m≥0.3 acceleration
+    - Structural gates: 4h trend != NEUTRAL, matches SM direction, 1h
+      matches 4h, 15m momentum aligned, RSI 26-74 band
+    - Multi-factor scoring (~17 max points, MIN_SCORE 12) — v4.2
+      restored from v4.0/v4.1's accidental 14 (over-strict per v3.0
+      "16 trades / 10 days / -$72" lesson)
+    - Conviction-tiered leverage: 5x standard / 7x conviction / 10x apex
+    - DSL preset preserved exactly (proved correct on 2026-04-23 ETH
+      Short that locked +$71.15 via Phase 2 Tier 1; the time-cuts that
+      caused the wrongful close are STILL disabled in v4.0)
+
+  v3.0.5/v3.0.6 v1-DSL FIXES PRESERVED:
+    - hard_timeout: DISABLED (v3.0.5 fix — v1 DSL fired this in Phase 2
+      incorrectly; per v2 spec it's Phase-1-only)
+    - weak_peak_cut: DISABLED (v3.0.6 — completes "no time-based cuts
+      on single-asset patience agents" architectural sweep)
+    - dead_weight_cut: DISABLED (v3.0.4 — single-asset has no rotation
+      opportunity cost)
+    - All exits now 100% price-action (Phase 1 max_loss + retrace +
+      Phase 2 trailing)
+
+  FLEET PATCHES:
+    - FP-001 quiet hours (00-04 UTC unless apex score 17+)
+    - FP-002 hard rule in SKILL.md (user-conversation Claude sessions
+      are read-only — only producer cron + DSL engine are write paths)
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 1000
   slots: 1
   margin_per_slot: 500
+  trading_risk: moderate
   enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 4
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 60
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 240   # 4h — preserves v3.x sniper cadence
 
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: polar_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        tier: { type: string, required: true }
+        leverage: { type: number, required: true }
+        reasons: { type: array, required: true }
+        smPct: { type: number, required: true }
+        smTraders: { type: number, required: true }
+        smCc15m: { type: number, required: false }
+        smCc1h: { type: number, required: false }
+        smCc4h: { type: number, required: false }
+        trend4h: { type: string, required: true }
+        trendStrength4h: { type: number, required: false }
+        rsi: { type: number, required: false }
+        funding: { type: number, required: false }
+        oiChange1h: { type: number, required: false }
+        priceChange5m: { type: number, required: false }
+        priceChange15m: { type: number, required: false }
+        priceChange1h: { type: number, required: false }
+        priceChange4h: { type: number, required: false }
+        btcMom15m: { type: number, required: false }
+        btcMom1h: { type: number, required: false }
+        heldAssets: { type: array, required: false }
 
 actions:
   - name: position_tracker_action
@@ -29,20 +116,115 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
+  - name: polar_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${POLAR_DECISION_MODEL}"  # REQUIRED. BARE model name only — NO provider prefix.
+    scanners: [polar_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: polar_signals
+    decision_prompt: |
+      You are Polar's pass-through gate. The producer has already
+      applied EVERY filter (Hyperfeed SM gates, 4h structural trend,
+      1h structural confirmation, 15m momentum alignment, RSI band,
+      base-tech floor, multi-factor scoring with MIN_SCORE 12).
+      Your job is to honor the signal unless something is structurally
+      broken.
+
+      SIGNAL:
+      {{signal_polar_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. The `asset` MUST be "ETH" (Polar is single-asset).
+      2. The `direction` MUST match the signal's `direction` field exactly.
+      3. The `leverage` MUST be copied from signal.data.leverage (5x / 7x / 10x
+         by conviction tier).
+      4. Every claim in `reasoning` MUST cite values from the signal —
+         score, smPct, trend4h, rsi, etc. Do not fabricate.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 12 (producer floor; defensive only)
+      - leverage <= 0 OR signal data missing (malformed)
+      - heldAssets already contains "ETH" (duplicate position)
+      - reasons array empty (malformed signal)
+
+      ## POLAR'S THESIS
+
+      ETH alpha hunter — hybrid hyperfeed (SM concentration) + structural
+      veto (4h/1h trend confirmation) + momentum alignment. Single-asset
+      patience agent: trades few, holds longer. v3.x scoring +
+      Phase 2 trailing DSL preserved exactly in v4.0.
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 17 (apex tier, 10x leverage) AND SM_DOMINANT
+        AND 4h trend strong AND no MOVE_EXHAUSTION
+      - 7-8: score >= 14 (conviction tier, 7x leverage) AND SM_STRONG+
+        AND 1h confirms AND OI rising/accelerating
+      - 7: score 12-13 (standard tier, 5x leverage) — producer has
+        gated this. Honor it unless a hard-skip applies.
+      - <7: producer floor not cleared — should never reach you.
+
+      Minimum confidence to execute is 7. Polar's single-asset patience
+      thesis is calibrated for high-quality trades, not high frequency.
+      Be permissive unless something is structurally broken.
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values — e.g. 'score 16 LONG ETH, 4h_bullish_83%, SM_STRONG 12.4% / 87 traders, OI_rising +3.2%, RSI 58'",
+        "payload": {
+          "signals": [
+            {
+              "asset": "ETH",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "reason": "score N POLAR_ETH DIR — top reason"
+            }
+          ]
+        }
+      }
+
 exit:
   engine: dsl
   interval_seconds: 30
+  # v4.0: maker-preferred exits via FEE_OPTIMIZED_LIMIT.
+  # HL taker is 0.045%, maker is 0.015% — saves ~0.020-0.030% per
+  # maker-filled close. Single-asset patience agent with multi-day
+  # holds: fee savings compound less per trade than Vulture, but
+  # Phase 2 trailing exits at +30%+ ROE = significant fees on each.
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  # DSL preset preserved EXACTLY from v3.0.6 — no time-based cuts;
+  # 100% price-action exits (Phase 1 max_loss/retrace + Phase 2
+  # trailing). v3.0.5 disabled hard_timeout after the 2026-04-23
+  # wrongful-close incident; v3.0.6 disabled weak_peak_cut to
+  # complete the time-cuts sweep.
   dsl_preset:
     hard_timeout:
-      enabled: true
+      enabled: false                 # v3.0.5: DISABLED. v1 DSL fires in Phase 2 incorrectly.
       interval_in_minutes: 480
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 60
+      enabled: false                 # v3.0.6: DISABLED. No time-based cuts on patience agent.
+      interval_in_minutes: 120
       min_value: 2.0
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 30
+      enabled: false                 # v3.0.4: DISABLED. Single-asset has no rotation cost.
+      interval_in_minutes: 90
     phase1:
       enabled: true
       max_loss_pct: 25.0
@@ -51,13 +233,19 @@ exit:
     phase2:
       enabled: true
       tiers:
-        # Phase 2 tiers — leverage-aware for ETH (fleet audit April 2026)
-        # At 20x, old Tier 1 (5%/30%) created a $1.19 lock — normal ETH wick is $5-8
-        - { trigger_pct: 8,  lock_hw_pct: 25 }
-        - { trigger_pct: 15, lock_hw_pct: 50 }
+        # v4.1.0 fleet-wide DSL ratchet patch (2026-05-02):
+        # T0 lock 25→35, T1 trigger 15→12 — closes T0→T1 dead zone
+        # that was leaking ~50%+ of mid-range winners. Triggered by
+        # Polar ETH long sitting at +12.5% margin ROE locking only 3%
+        # (=$33 of $138 unrealized). New ladder locks $80+ at same state.
+        - { trigger_pct: 8,  lock_hw_pct: 35 }
+        - { trigger_pct: 12, lock_hw_pct: 50 }
         - { trigger_pct: 25, lock_hw_pct: 65 }
         - { trigger_pct: 35, lock_hw_pct: 80 }
         - { trigger_pct: 50, lock_hw_pct: 85 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

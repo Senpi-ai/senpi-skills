@@ -1,191 +1,244 @@
 ---
 name: owl-strategy
 description: >-
-  OWL v6.1 — Pure contrarian (universe expansion). One scanner, one thesis: the crowd
-  is wrong. Monitors crowding across ALL assets with OI > $3M (v6.1 — was top 30 only
-  in v6.0). When crowding persists 1+ hour AND exhaustion signals fire (volume declining,
-  price stalling, RSI divergence), enters AGAINST the crowd to ride the liquidation
-  unwind. v6.1 removes the top-30 OI truncation that was blinding Owl to mid-cap extreme-
-  funding setups — per Owl's own diagnosis, the most violent unwinds happen on assets
-  ranked 30-60 in OI (ZEC/MON/LIT hit >1000% annualized at probe time). v6.0 fleet-fix:
-  minPersistHours reduced 4→1 and entry.minScore reduced 14→12. DSL Phase 2 locks first
-  leg at 5% ROE (Lemon-pattern learning).
+  OWL v7.0 — Pure contrarian crowding-unwind hunter (v2-runtime-native rewrite).
+  Wait for the crowd to overcommit. Wait for them to exhaust. Then eat their
+  liquidations. Producer pushes signals to the runtime; runtime LLM gates them,
+  executes via FEE_OPTIMIZED_LIMIT (maker-first), and manages DSL exits
+  autonomously. Conviction-scaled leverage (7/8/10 by score) per the fleet-
+  winning Polar v2.4 / Bald Eagle v3.0 pattern. Entry direction is OPPOSITE
+  of crowd direction — Owl is the only Senpi agent that fades crowding.
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "6.1"
+  version: "7.0"
   platform: senpi
   exchange: hyperliquid
+  requires:
+    - senpi-trading-runtime
 ---
 
-# OWL v6.1 — Pure Contrarian (universe expansion)
+# 🦉 OWL v7.0 — Pure Contrarian. v2-Runtime-Native. Maker Exits.
 
 Wait for the crowd to overcommit. Wait for them to exhaust. Then eat their liquidations.
 
-**One scanner. One thesis.** Every other skill in the zoo enters WITH momentum, WITH the trend, WITH smart money. OWL is the only skill that enters AGAINST the crowd. The edge: crowded trades unwind violently and predictably.
+**One thesis: the crowd is wrong.** Every other skill in the fleet enters WITH momentum, WITH the trend, WITH smart money. OWL is the only skill that enters AGAINST the crowd. The edge: crowded trades unwind violently and predictably.
 
-**v5 is a complete rebuild.** v1-v4 had 3 scanners (contrarian + momentum + correlation). The momentum and correlation scanners caused the agent to enter WITH the crowd while thinking it was contrarian. v5 has one scanner that does one thing: find crowded assets that are exhausting.
+---
 
-## v5.3 — the 30-day-drought fix
+## What changed in v7.0
 
-Owl v5.2 took zero trades between 2026-03-15 and 2026-04-14 despite running continuously. Two root causes, both fixed in v5.3:
+**Architecture (not thesis):**
 
-**1. Self-executing scanner (the main bug).** The v5.2 scanner emitted a signal JSON via `cfg.output()` and assumed an external "action layer" would read it and call `create_position`. Owl has no runtime.yaml action layer wired up, so signals died at stdout. Even perfect signals never became trades. v5.3 calls `create_position` directly via mcporter, matching the Wolverine/Phoenix self-executing pattern. When a score ≥ `minScore` (14) candidate is found, the scanner executes the entry order itself — no external action layer required.
-
-**2. Persistence tolerance.** The v5.2 `check_persistence`/`clear_persistence` pair cleared the 4-hour persistence timer on *any* single scan that fell below `minCrowdingScore`. At 15-minute cadence, a single noisy scan reset the clock to zero. Over 30 days, no coin ever accumulated 4 uninterrupted hours of high crowding. v5.3 adds a `mark_below_threshold` tolerance counter — persistence is only cleared after 2 consecutive below-threshold scans (30 min at 15-min cadence). A single noisy dip no longer destroys the 4h window.
-
-**Fleet-standard guardrails layered on top:**
-- **Drawdown circuit breaker.** Below -5% PnL from starting budget, the effective entry cap is hard-clamped (defensive). Below -25%, HARD STOP (circuit breaker). Preserves capital in drawdowns while still allowing Owl's `dynamicSlots` earning-forward logic to unlock more entries when winning.
-- **Auto-cancel stale resting orders.** `has_resting_orders()` cancels any non-reduceOnly maker order older than 10 minutes so the scanner is never locked out indefinitely by a FEE_OPTIMIZED_LIMIT order that didn't fill (fleet-standard pattern from PR #177).
-- **runtime.yaml added.** Owl now follows the standard Predators deployment pattern with a `position_tracker` scanner + DSL High Water exit engine preset.
-
-**v5.2 fixes (preserved in v5.3):**
-- Funding floor lowered from 20% → 12% so the five-factor scoring model actually runs. Assets below the funding floor score 0 on funding but continue through SM/OI checks instead of early-returning. `minCrowdingScore` of 8 remains the real quality gate.
-- Observability logging: every scan cycle logs the top 3 crowding scores and active persistence timers to stderr (internal log only, not notifications). Lets us answer "is OWL seeing anything?" without changing config or asking the agent.
-
-## MANDATORY: DSL High Water Mode
-
-**OWL MUST use DSL High Water Mode. This is not optional. Do not substitute standard DSL tiers.**
-
-Spec: https://github.com/Senpi-ai/senpi-skills/blob/main/dsl-dynamic-stop-loss/dsl-high-water-spec%201.0.md
-
-When creating DSL state files for any OWL position, you MUST include:
-
-```json
-{
-  "lockMode": "pct_of_high_water",
-  "phase2TriggerRoe": 10,
-  "tiers": [
-    {"triggerPct": 10, "lockHwPct": 20, "consecutiveBreachesRequired": 3},
-    {"triggerPct": 20, "lockHwPct": 40, "consecutiveBreachesRequired": 3},
-    {"triggerPct": 35, "lockHwPct": 60, "consecutiveBreachesRequired": 2},
-    {"triggerPct": 50, "lockHwPct": 75, "consecutiveBreachesRequired": 1},
-    {"triggerPct": 75, "lockHwPct": 85, "consecutiveBreachesRequired": 1}
-  ]
-}
-```
-
-**FALLBACK:** Use `tiersLegacyFallback` from config until engine supports `pct_of_high_water`.
-
-## How OWL v5 Works
-
-### The Three Phases (all must pass before entry)
-
-**Phase 1 — CROWDING (score ≥ 8)**
-Scan top 30 assets every 15 minutes. Score how one-sided each asset's positioning is:
-
-| Signal | Max Points |
-|---|---|
-| Funding extremity (annualized rate) | 4 |
-| SM concentration (leaderboard tilt) | 4 |
-| OI concentration (USD-weighted) | 2 |
-| SM confirms funding direction | 1 |
-
-Most assets score 0-3 (not crowded). Only assets scoring 8+ advance.
-
-**Phase 2 — PERSISTENCE (4+ hours)**
-Crowding must persist for at least 4 hours. A brief funding spike that resolves in 30 minutes is noise. True crowding builds over hours — funding stays extreme, OI keeps growing, SM stays tilted. The longer the crowding persists, the more violent the eventual unwind.
-
-**Phase 3 — EXHAUSTION (score ≥ 5)**
-The crowd is positioned, and they've been positioned for hours. Now: are they exhausting? Four signals:
-
-| Signal | Points | What It Means |
+| Layer | v6.x | v7.0 |
 |---|---|---|
-| Volume declining (recent vs 6h avg) | 3 | Conviction leaving — nobody new is entering |
-| Price stalling (crowd long but price flat) | 3 | The trade stopped working — crowd is trapped |
-| Volume spike without follow-through | 2 | Capitulation wick — someone tried to push, failed |
-| 4h RSI divergence | 2 | Momentum dying despite positioning |
+| Trading loop | Self-executing scanner calls `create_position` directly | Producer pushes signals via `external-scanner ingest`; runtime owns execution |
+| Entry gate | Scanner decides + executes | LLM pass-through gate (producer already filtered) |
+| Entry order | FEE_OPTIMIZED_LIMIT (already maker-first) | Same — `ensure_execution_as_taker: false` preserved |
+| Exit order | DSL + MARKET (taker) | DSL + **FEE_OPTIMIZED_LIMIT** (maker-first, 60s, taker fallback as safety floor) |
+| Risk gates | Scanner-side dynamicSlots + drawdown circuit breaker | Declarative `runtime.risk.guard_rails` + producer dynamic cap (defense in depth) |
+| State | `state/state.json` shared | `state/<wallet-hash>/` isolated (multi-wallet safe) |
+| Wallet env var | `OWL_WALLET` | `OWL_WALLET` (preserved — already correct) |
 
-### Entry
+**Why v7.0:** v6.x already had wide DSL and good entry filters. The v7 win is on EXITS — v6 used MARKET orders, paying ~3 bp HL taker on every close. v7's `FEE_OPTIMIZED_LIMIT` with 60s maker window + taker fallback recovers ~50% of HL exit fees. Plus declarative risk gates, wallet isolation, fail-loud guards, and the cleaner v2 architecture.
 
-Total score (crowding + exhaustion) must be ≥ 14. Entry direction is OPPOSITE to the crowd. If the crowd is long, OWL goes short. If the crowd is short, OWL goes long.
+**Thesis preserved verbatim from v6.2:**
+- Crowding score: funding extremity (0-4) + SM tilt (0-3, +1 if confirms funding) + OI concentration (0-2). Floor 6.
+- Persistence: 1+ hour above floor, with 2-tick tolerance for noise (v5.3)
+- Exhaustion score: volume declining + price stalling + volume spike no follow-through + RSI divergence. ≥ 2 distinct signals, score ≥ 5.
+- Combined score ≥ 12 to fire
+- 6h post-loss per-asset cooldown
+- Universe: ALL crypto perps with OI > $3M (v6.1 expansion, no top-30 truncation)
+- XYZ banned (different unwind dynamics)
 
-This means OWL enters 1-2 times per day at most. Often zero. That's by design.
-
-### Hold
-
-Every 15-minute scan re-evaluates held positions FIRST. The position holds as long as the crowd doesn't come back.
-
-### Re-Crowding Exit (unique to OWL)
-
-If the crowd rebuilds in their original direction (re-crowding score ≥ 6), the unwind thesis is dead and the position exits immediately. This is OWL's equivalent of SCORPION's "sting" — an instant, thesis-based exit that overrides DSL.
-
-## DSL: Widest in the Zoo
-
-Contrarian entries retrace hard before working. The crowd doesn't unwind smoothly — they fight back first. OWL needs the widest DSL bands of any skill.
-
-| Setting | Value | Compare to FOX |
-|---|---|---|
-| Phase 1 floor | 4% notional (~40% ROE at 10x) | FOX: 1.5% |
-| Phase 2 trigger | +10% ROE | FOX: +7% |
-| T1 lock | 20% of HW | FOX: 40% |
-| 85% trail at | +75% ROE | FOX: +20% |
-| Stagnation TP | 15% ROE, 120min | FOX: 10%, 45min |
-| Time exits | All disabled | FOX: 30min hard |
-
-The tradeoff: OWL loses bigger on losers (-35 to -40% ROE) but catches crowding unwinds that produce 50-200%+ ROE when the cascade hits.
-
-## Risk Management
-
-| Rule | Value | Notes |
-|---|---|---|
-| Max positions | 2 | Rare, concentrated bets |
-| Max entries/day | 2 base, up to 4 on profitable days | |
-| Phase 1 floor | 4% notional | Widest in the zoo |
-| G5 per-position cap | 10% of account | Wider than most — contrarian needs room |
-| Drawdown halt | 25% from peak | |
-| Max consecutive losses | 2 → 180 min cooldown | Long cooldown — if the contrarian thesis failed twice, something changed |
-| Re-crowding exit | Immediate | If the crowd comes back, thesis is dead |
-| Loss cooldown per asset | 6 hours | Don't re-enter same contrarian trade too soon |
-
-## Cron Architecture
-
-| Cron | Interval | Session | Purpose |
-|---|---|---|---|
-| Scanner | 15 min | isolated | Crowding scan + exhaustion detection + re-crowding check |
-| DSL v5 | 3 min | isolated | High Water Mode trailing stops |
-
-**15-minute scanner interval is intentional.** Crowding builds over hours, not minutes. Scanning every 3 minutes would waste tokens on data that hasn't changed. The DSL cron still runs every 3 minutes for trailing stop protection.
-
-## Notification Policy
-
-**ONLY alert:** Position OPENED (asset, direction, crowding score, exhaustion signals, how long crowded), position CLOSED (DSL or re-crowding exit with reason), risk guardian triggered, critical error.
-**NEVER alert:** Scanner found no crowding, scanner found crowding but no exhaustion, persistence tracking updates, DSL routine check, any reasoning.
-All crons isolated. `NO_REPLY` for idle cycles.
-
-## Bootstrap Gate
-
-Check `config/bootstrap-complete.json` every session. If missing:
-1. Verify Senpi MCP
-2. Create scanner cron (15 min, isolated) and DSL cron (3 min, isolated)
-3. Write `config/bootstrap-complete.json`
-4. Send: "🦉 OWL v5 is online. Pure contrarian. Scanning for crowded exhaustion. Silence = no opportunity."
-
-## Expected Behavior
-
-| Metric | Expected |
-|---|---|
-| Trades/day | 0-2 (crowding unwinds are rare) |
-| Avg hold time | 4-24 hours |
-| Win rate | ~45-55% (wider stops, contrarian timing is hard) |
-| Avg winner | 40-150%+ ROE (crowding unwinds are violent) |
-| Avg loser | -25 to -40% ROE (wide floors, structural invalidation) |
-| Fee drag/day | $2-8 (very few trades, all maker entries) |
-| Profit factor | Target 1.3-2.0 (big winners compensate for wider losers) |
+---
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `scripts/owl-scanner.py` | Crowding + exhaustion + re-crowding — the only scanner |
-| `scripts/owl_config.py` | Shared config, MCP helpers |
-| `config/owl-config.json` | All variables with DSL High Water tiers + legacy fallback |
+| `runtime.yaml` | v2 runtime spec (scanners, actions, exit DSL, guard_rails) |
+| `scripts/owl-producer.py` | Cron-driven producer — emits contrarian signals to runtime |
+| `scripts/owl_config.py` | Shared MCP helper + atomic state I/O |
+| `config/owl-config.json` | Operator-tunable defaults (informational; producer constants WIN) |
+
+---
+
+## Producer behavior
+
+Runs every 15 minutes via cron (preserved cadence from v6). On each tick:
+
+1. **Reentrancy guard:** acquires `state/<wallet-hash>/producer.lock`. fcntl LOCK_EX | LOCK_NB.
+2. **Read account value** via `strategy_get_clearinghouse_state` for sizing + dynamic cap.
+3. **Apply dynamic daily cap** (defense-in-depth alongside runtime guard_rails).
+4. **Fetch universe**: `market_list_instruments` (~80-100 crypto perps with OI > $3M).
+5. **Fetch SM positioning map** (one MCP call shared across all assets — v7.0 optimization vs v6.x per-asset call).
+6. **Score crowding per asset** + update persistence history.
+7. **Filter to persisted candidates** (≥ 1h above crowding floor).
+8. **Detect exhaustion** for persisted candidates only (saves MCP calls).
+9. **Filter combined score ≥ 12** + per-asset cooldown.
+10. **Emit top contrarian candidate** with conviction-scaled leverage (7/8/10 by score).
+11. **Persist crowding history + cooldown state** under `state/<wallet-hash>/`.
+
+NO execution code. NO position-tracking. NO DSL state. The runtime owns all of that.
+
+**Direction is OPPOSITE of crowd direction.** This is the entire edge — Owl is the only fleet agent that fades crowding.
+
+---
+
+## Entry flow
+
+```
+Producer cron (15 min)
+  ↓ Crowding score >= 6, persisted >= 1h
+  ↓ Exhaustion score >= 5 with >= 2 signals
+  ↓ Combined score >= 12
+  ↓ external-scanner ingest --scanner owl_signals
+Runtime
+  ↓ Schema-validates fields against runtime.yaml
+  ↓ LLM gate (decision_model = ${OWL_DECISION_MODEL})
+  ↓ Pass-through unless malformed; rejects if direction == crowdDirection
+  ↓ OPEN_POSITION via FEE_OPTIMIZED_LIMIT (maker-only, 60s, NO taker fallback)
+DSL (runtime-managed, exits via maker-first)
+  ↓ Phase 1 max_loss 35% / 3-breach (wide for contrarian retrace)
+  ↓ Phase 2 6-tier ladder starting at 5% trigger (Lemon-pattern first leg)
+  ↓ hard_timeout 480m, weak_peak 120m@2%, dead_weight 30m
+  ↓ Exit via FEE_OPTIMIZED_LIMIT (maker-first, 60s, taker fallback)
+```
+
+---
+
+## Required env vars
+
+The runtime YAML uses these substitutions:
+
+| Var | Purpose |
+|---|---|
+| `${WALLET_ADDRESS}` | Strategy wallet address |
+| `${TELEGRAM_CHAT_ID}` | Telegram chat ID for notifications |
+| `${OWL_DECISION_MODEL}` | Bare model name for LLM gate. NO provider prefix. |
+
+The producer reads:
+
+| Var | Purpose | Default |
+|---|---|---|
+| `OWL_WALLET` | Wallet (must match runtime YAML's wallet). **Agent-specific by design — do NOT use generic `STRATEGY_ADDRESS`.** Per Turbine v2.0.9 contamination fix. | — (required; producer fails loud) |
+| `OPENCLAW_BIN` | CLI binary name | `openclaw` |
+| `EXTERNAL_SCANNER_NAME` | Scanner ID | `owl_signals` |
+| `OWL_MARGIN_PCT` | Fraction of account value per slot | `0.25` |
+| `OWL_MIN_OI_USD` | Override OI floor | `3000000` |
+
+---
+
+## Producer install (on OpenClaw host)
+
+Source path: `owl/`. Install destination: `/data/workspace/skills/owl-strategy/`.
+
+```bash
+# 1. Pull the skill files (source: senpi-skills/main/owl/)
+mkdir -p /data/workspace/skills/owl-strategy/{scripts,config}
+
+for f in runtime.yaml scripts/owl-producer.py scripts/owl_config.py config/owl-config.json; do
+  curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/owl/$f \
+    -o /data/workspace/skills/owl-strategy/$f
+done
+
+# Remove the v6.x scanner if it's still there from a prior install
+rm -f /data/workspace/skills/owl-strategy/scripts/owl-scanner.py
+
+# 2. Install the runtime
+WALLET_ADDRESS=0x... \
+TELEGRAM_CHAT_ID=... \
+OWL_DECISION_MODEL=gemini-3.1-pro-preview \
+  openclaw senpi runtime create --path /data/workspace/skills/owl-strategy/runtime.yaml
+
+# 3. Schedule the producer (15 min cadence — preserve v6 cadence)
+# OWL_WALLET (NOT generic STRATEGY_ADDRESS) is required by the producer.
+# RECOMMENDED: cron-as-Claude-turn with NO_REPLY filter (silence-is-correct pattern).
+openclaw cron add \
+  --name "owl-v7-producer" \
+  --cron "*/15 * * * *" \
+  --session isolated \
+  --wake now \
+  --message $'export OWL_WALLET=0x... && python3 /data/workspace/skills/owl-strategy/scripts/owl-producer.py\n\nCRITICAL INSTRUCTION: If the output shows "status": "ok" AND ("signals_pushed": 0 OR "signals_pushed" is absent), you MUST reply EXACTLY with NO_REPLY to remain silent. Only report on errors, crashes, or signals_pushed >= 1.' \
+  --no-deliver
+
+# 4. Verify
+openclaw senpi runtime list                          # expect: owl-tracker v1.7.0
+openclaw senpi status --runtime owl-tracker
+openclaw cron list --json                            # find the cron id
+openclaw cron runs --id <cron-id> --limit 5
+
+# Inspect producer state:
+ls -la /data/workspace/skills/owl-strategy/state/<wallet-hash>/
+# Expect: producer.lock + crowding-history.json + (after first emit) asset-cooldowns.json,
+# trade-counter.json with mtime in last few minutes.
+```
+
+---
+
+## Risk envelope (declarative, runtime-enforced)
+
+| Setting | Value |
+|---|---|
+| Slots | 2 |
+| Margin per slot | 25% of account value (default ~$250 on $1k) |
+| Default leverage | 8x (conviction tiers: 7x at 12-13, 8x at 14-15, 10x at 16+) |
+| Daily loss halt | 10% |
+| Drawdown halt | 25% (also producer-side circuit breaker) |
+| Max entries per day | 4 (runtime ceiling); producer dynamic cap by PnL |
+| Max consecutive losses | 4 |
+| Per-asset cooldown | 360 min (6h post-loss) |
+| Asset universe | All crypto perps with OI > $3M (XYZ banned) |
+
+**Dynamic daily cap (producer-side, v6 carryover):**
+
+| Account state | Max entries / day |
+|---|---|
+| PnL < -25% | 0 (HARD STOP — runtime also halts) |
+| PnL < -15% | 1 |
+| PnL < -5% | 2 |
+| Day realized PnL < +$150 | 2 (base) |
+| Day realized PnL ≥ +$150 | 3 |
+| Day realized PnL ≥ +$400 | 4 |
+
+---
+
+## Expected behavior
+
+| Metric | Expected |
+|---|---|
+| Crowded assets per scan | 5-15 above floor |
+| Persisted ≥ 1h | 1-3 typically |
+| Exhaustion confluence | 0-1 per scan |
+| Trades per day | 0-2 |
+| Avg hold | 1-8h |
+| Win rate target | 60-70% (contrarian unwinds, when timed right, are reliable) |
+
+**Silence is correct.** Owl waits for both the crowd state AND the exhaustion trigger. Most days, one or both is missing. Don't improvise.
+
+---
+
+## What was removed in v7.0
+
+Removed (responsibilities moved to runtime):
+- `owl-scanner.py` (replaced by `owl-producer.py`)
+- `create_position` calls (runtime owns execution)
+- `cancel_order` for stale resting orders (runtime cancels on FEE_OPTIMIZED_LIMIT timeout)
+- Drawdown circuit breaker in scanner code (runtime guard_rails owns it)
+- Trade counter / record_trade_result (runtime tracks lifecycle)
+
+Permanently disabled (decided in v6.x):
+- Top-30 OI truncation (v6.1 universe expansion)
+- 4-hour persistence requirement (v6.0 lowered to 1h)
+- 14 minScore (v6.0 lowered to 12)
+
+---
 
 ## License
 
 Apache-2.0 — Built by Senpi (https://senpi.ai). Attribution required for derivative works.
 Source: https://github.com/Senpi-ai/senpi-skills
-
 
 ---
 

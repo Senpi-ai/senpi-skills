@@ -1,0 +1,11 @@
+{
+  "_comment": "Turbine v2.0 example config. Copy to turbine-config.json and fill in real values, or pass via env vars (STRATEGY_ADDRESS/TURBINE_WALLET, STRATEGY_ID/TURBINE_STRATEGY_ID, TELEGRAM_CHAT_ID). Keep the committed file as example-only.",
+  "wallet": "",
+  "strategyId": "",
+  "chatId": "",
+  "maxSlots": 3,
+  "marginPerSlotUsd": 500,
+  "leverage": 5,
+  "maxSpreadBpsMain": 5,
+  "maxSpreadBpsXyz": 15
+}

@@ -1,31 +1,83 @@
 ---
 name: vulture-strategy
 description: >-
-  VULTURE v2.0 — Long-Tail Momentum Rider. COMPLETE REWRITE from v1.0's
-  contrarian SM-exhaustion fader thesis (which produced 0 trades in 14+ days).
-  Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL, AIXBT, ARB,
-  ASTER, ZEC, LIT, TAO, POLYX, LDO, APT, DYDX, ONDO, SUI, etc.) that no
-  other Senpi predator covers. Follows SM direction when confluence is strong
-  (heavy flow + aligned 4h trend + 15m velocity accelerating). Hold winners
-  for days via 7-day hard_timeout, cut losers fast via 60-min dead_weight_cut.
-  Built from the #1 Arena winner's 3-week playbook (38.6% win rate, 6.15x
-  profit factor). Signal-driven direction, NOT long-only bias. 5-7x leverage
-  (small caps can't handle 20x).
+  VULTURE v3.0.0 — Long-Tail Momentum Rider, v2-runtime-native rewrite.
+  v2.x was a full-agency scanner (cfg.set_cooldown silent crash blew out
+  telemetry on 27 trades). v3.0 flips to producer + v2 runtime: producer
+  emits LONG_TAIL_MOMENTUM signals via external-scanner ingest; runtime
+  LLM gate is pass-through; risk.guard_rails enforces declaratively;
+  DSL uses FEE_OPTIMIZED_LIMIT (saves ~0.020-0.030% per maker-filled
+  exit); trade chain DB emits per-trade telemetry. v2.4 fixes preserved
+  (1h-alignment gate, FP-001 quiet hours, FP-002 hard rule). v2.3 DSL
+  preset preserved (proved correct on the +$117 ZEC LONG; T0 lock fired
+  venue stop at $347.17). Universe: 25+ small/mid-cap Hyperliquid perps
+  (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, POLYX, LDO,
+  APT, DYDX, ONDO, SUI, etc.) that no other Senpi predator covers.
+  Built from the #1 Arena winner's 3-week playbook (38.6% win rate,
+  6.15x profit factor).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🦅 VULTURE v2.0 — Long-Tail Momentum Rider
+# 🦅 VULTURE v3.0.0 — Long-Tail Momentum Rider (v2-runtime-native)
 
-**COMPLETE REWRITE from v1.0.** v1.0 was a contrarian SM-exhaustion fader on 4 majors (BTC/ETH/SOL/HYPE) gated at MIN_4H_MOVE_PCT=3.0 — the combination was mathematically unreachable and produced 0 trades in 14+ days.
+**v2 → v3 architectural rewrite.** v2.x was a full-agency scanner that called create_position directly and tracked state in Python. v3.0 flips to the standard senpi-trading-runtime v2 pattern: producer emits signals, runtime owns execution + state.
 
-v2.0 is a totally different agent. Designed from the #1 Arena winner's playbook (3-week reigning Arena champion, 102 trades, 38.6% win rate, **6.15x profit factor**, ~80% of profit from 6 trades out of 102, hold times 24h to 8 days).
+**What changed structurally:**
+- `vulture-producer.py` (NEW) replaces `vulture-scanner.py` (DELETED). Pure producer — no execution, no counters, no cooldowns, no dynamic-slot bookkeeping.
+- `runtime.yaml` is now v2-runtime-native: external_scanner + LLM-pass-through gate + native risk.guard_rails + DSL preset with FEE_OPTIMIZED_LIMIT.
+- Trade chain DB now emits LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED for every trade. **Per-trade telemetry is restored.**
+- The cfg.set_cooldown silent crash is structurally impossible in v3.0 (cooldowns are runtime-managed, not Python-managed).
+
+**What's preserved from v2.4:**
+- Asset universe (25+ small/mid-cap Hyperliquid perps)
+- LONG_TAIL_MOMENTUM scoring (SM concentration tier + 4h momentum + 15m velocity + 1h acceleration + 4h continuation + trader depth + regime alignment + persistence)
+- Hard gates: SM ≥3% / 15 traders, 4h aligned ≥1%, **1h aligned ≥0.1% (the v2.4 fix)**, 15m velocity ≥0.3
+- Conviction-scaled leverage (3x cautious / 5x conviction / 7x apex)
+- DSL Phase 2 ladder (15/20, 30/60, 40/75, 75/75, 100/85, 150/92) — proved correct on the live ZEC trade
+- 90-min dead_weight_cut, 180-min weak_peak_cut, 7-day hard_timeout
+- 38% WR target with 6.15x profit factor
+
+**What this enables:**
+- Per-trade scoring telemetry (was lost in v2.x's silent crashes)
+- Maker-exit fee recovery (~$10-15/week at current cadence)
+- Declarative risk gates (no Python state to drift)
+- The senpi-trade-analysis skill can now drill Vulture trades the same way it drills Scorpion / Roach / RoachB
+
+---
+
+## ⛔ Hard Rules (Fleet Patches)
+
+### RULE FP-002: User-conversation Claude sessions MUST NOT trade
+
+**Hard rule, not a heuristic.** When responding to a user message (Telegram ping, status check, "tell me about your trades", etc.), the Claude Code session MUST NOT call any of:
+
+- `create_position`
+- `close_position`
+- `edit_position`
+- `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
+- `cancel_order`
+- `strategy_close` / `strategy_close_positions`
+
+These tools are reserved for the **producer cron** (vulture-producer.py) and the **DSL ratchet engine**. The cron is the only entry path. The DSL is the only exit path. User-conversation sessions are read-only.
+
+If a user asks "should I take this trade?" or "anything close to triggering?", respond by reading current state — DO NOT execute. The producer will fire on its next tick if a real signal is there.
+
+### RULE FP-001: Quiet hours for low-liquidity windows
+
+Producer skips emission during 00:00-04:00 UTC by default. Apex setups (best signal score >= `quietHours.apexBypassScore`, default 12) bypass — high-conviction small-cap momentum can fire any hour; routine sub-apex entries wait until 04:00 UTC.
+
+Configurable via `quietHours.startUtc`, `quietHours.endUtc`, `quietHours.apexBypassScore` in `vulture-config.json`. Set `startUtc == endUtc` to disable.
+
+Rationale: fleet-wide pattern of midnight-UTC pile-ins after daily-cap reset. For Vulture specifically, small-cap order books are thinnest in this window and entry slippage compounds.
+
+---
 
 ---
 
@@ -161,7 +213,7 @@ Both agents are "fleet alpha extractors" but via **opposite** philosophies:
 
 ---
 
-## Runtime Setup
+## Runtime Setup (v3.0 — v2-runtime-native)
 
 **Step 1:** Install package files:
 ```bash
@@ -170,9 +222,25 @@ mkdir -p /data/workspace/skills/vulture-strategy/{config,scripts,state}
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/runtime.yaml -o /data/workspace/skills/vulture-strategy/runtime.yaml
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/SKILL.md -o /data/workspace/skills/vulture-strategy/SKILL.md
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/config/vulture-config.json -o /data/workspace/skills/vulture-strategy/config/vulture-config.json
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scripts/vulture-scanner.py -o /data/workspace/skills/vulture-strategy/scripts/vulture-scanner.py
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scripts/vulture-producer.py -o /data/workspace/skills/vulture-strategy/scripts/vulture-producer.py
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scripts/vulture_config.py -o /data/workspace/skills/vulture-strategy/scripts/vulture_config.py
 ```
+
+**Step 2:** Set wallet, strategyId, chatId in `config/vulture-config.json` (this is the canonical source — producer reads from here on every cron tick; runtime reads at startup).
+
+**Step 3:** Set the LLM model env var at runtime-create time only:
+- `VULTURE_DECISION_MODEL` — LLM model BARE name (no provider prefix). E.g. `gemini-2.5-pro` or `claude-sonnet-4-20250514`. INVALID: `google/gemini-2.5-pro` (OpenClaw double-prefixes → 500 Unknown model). This env var is resolved ONCE into runtime.yaml's `${VULTURE_DECISION_MODEL}` placeholder when openclaw creates the runtime — it doesn't need to be set in the cron environment.
+
+**Step 4:** Install runtime via `openclaw senpi runtime create --path /data/workspace/skills/vulture-strategy/runtime.yaml`. Verify with `openclaw senpi runtime list` — `vulture-tracker` must appear ACTIVE.
+
+**Step 5:** Add cron (3-min cadence — wallet is read from config.json, no env vars needed):
+```cron
+*/3 * * * * cd /data/workspace/skills/vulture-strategy && python3 scripts/vulture-producer.py >> state/producer.log 2>&1
+```
+
+**Step 6 (legacy cleanup if migrating from v2.x):** Remove old vulture-scanner.py cron entry. Delete `state/trade-counter.json`, `state/cooldowns.json` — runtime owns this state now.
+
+
 
 **Step 2:** Set strategy wallet and telegram chat:
 ```bash

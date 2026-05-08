@@ -1,10 +1,15 @@
 name: raptor-strategy
-version: 3.0.0
+version: 3.3.0
 description: >
-  RAPTOR v3.0 — Hot Streak Follower. Finds ELITE/RELIABLE traders currently
-  on a 4-hour hot streak via leaderboard_get_top + discovery_get_top_traders,
-  identifies their strongest position by delta PnL, confirms SM alignment,
-  and follows them in. Self-executing. 2 positions max, dynamic daily cap.
+  RAPTOR v3.3 — Hot Streak Follower (entry-price discipline tightened).
+  v3.2 introduced whale-entry-price gate at 20% threshold. Raptor
+  self-diagnosed 2026-04-23: the gate was still too loose. Scanner was
+  re-firing on whales already deep in profit, taking all downside risk
+  with none of their PnL cushion. v3.3 tightens
+  MAX_PRICE_RUN_PCT_FROM_WHALE_ENTRY from 20% to 5% — 4x tighter, still
+  leaves room for "whale in early profit" piggyback. Raptor's proposed
+  1-2% would likely zero the scanner; 5% is the first tightening with
+  room for further per data. Scanner-only change. DSL unchanged.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"

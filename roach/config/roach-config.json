@@ -1,53 +1,42 @@
 {
-  "strategyId": "",
-  "wallet": "",
-  "chatId": "",
-  "maxPositions": 3,
-  "leverage": {"default": 10, "min": 7, "max": 10},
+  "_doc": "Roach v2 — operator-tunable config. Wallet/strategyId/chatId resolved from runtime YAML env vars; do NOT hardcode here. Producer reads only the entry/striker thresholds (informational fallback if scanner.py is run standalone). Risk gates, leverage caps, and asset cooldowns are enforced by the runtime via runtime.yaml and the producer's hardcoded constants.",
+  "version": "2.0",
+  "leverage": {
+    "default": 7,
+    "min": 5,
+    "max": 7,
+    "_note": "Default 7x. Override per-deploy via ROACH_LEVERAGE env var. v1.1 capped at 7 (10x fee burn was material on 506 fills)."
+  },
+  "marginUsd": {
+    "default": 250,
+    "_note": "Default $250/slot. Override per-deploy via ROACH_MARGIN_USD env var. Designed for ~$1k starting budget × 2 slots × 25% margin."
+  },
   "entry": {
     "assetCooldownMinutes": 120,
-    "stalker": {
-      "minConsecutiveScans": 3,
-      "minTotalClimb": 8,
-      "minScore": 7,
-      "requireVolumeBuilding": true,
-      "_v1.2": "minScore raised from 6 to 7, minTotalClimb from 5 to 8 based on Fox data"
-    },
     "striker": {
-      "minScore": 9,
+      "minScore": 10,
       "minReasons": 4,
       "minRankJump": 15,
       "minVelocityOverride": 15,
-      "minVelocityFloor": 10,
+      "minVelocityFloor": 15,
       "requireVolumeConfirmation": true,
-      "minVolRatio": 1.5
+      "minVolRatio": 1.5,
+      "minCc15m": 0.5,
+      "minPrice1hAlignPct": 0.1,
+      "_note": "These mirror roach-producer.py's hardcoded constants. Producer constants WIN — config is informational/audit only in v2."
     },
-    "marginPctBase": 0.25,
     "bannedPrefixes": ["xyz:"],
-    "dynamicSlots": {
-      "enabled": true,
-      "baseMax": 3,
-      "absoluteMax": 6,
-      "unlockThresholds": [
-        {"pnl": 100, "maxEntries": 4},
-        {"pnl": 250, "maxEntries": 5},
-        {"pnl": 500, "maxEntries": 6}
-      ]
-    }
+    "_stalker_disabled": "Stalker permanently removed from v2. Fox v1.0 data: 17 Stalker trades, 17.6% WR, -$91.32 net. The one Striker (ZEC LONG score 11) was the only profitable explosive entry. Roach is the experimental confirmation that fewer + higher quality beats more + mixed."
   },
-  "risk": {
-    "maxEntriesPerDay": 6,
-    "maxDailyLossPct": 10,
-    "maxDrawdownPct": 25,
-    "maxSingleLossPct": 10,
-    "maxConsecutiveLosses": 3,
-    "cooldownMinutes": 30,
-    "_note": "maxDailyLossPct MUST be 10. Vixen drifted to 25% and bled 2.5x more per bad day."
-  },
-  "execution": {
-    "entryOrderType": "FEE_OPTIMIZED_LIMIT",
-    "exitOrderType": "MARKET",
-    "slOrderType": "MARKET",
-    "takeProfitOrderType": "FEE_OPTIMIZED_LIMIT"
+  "_runtime_owns": {
+    "_doc": "These were v1 concerns. In v2, the runtime owns them via runtime.yaml.guard_rails. DO NOT add gates here.",
+    "maxPositions": "runtime.strategy.slots",
+    "maxEntriesPerDay": "runtime.risk.guard_rails.max_entries_per_day",
+    "maxDailyLossPct": "runtime.risk.guard_rails.daily_loss_limit_pct",
+    "maxDrawdownPct": "runtime.risk.guard_rails.drawdown_halt_pct",
+    "maxConsecutiveLosses": "runtime.risk.guard_rails.max_consecutive_losses",
+    "perAssetCooldown": "runtime.risk.guard_rails.per_asset_cooldown_minutes",
+    "execution.entryOrderType": "runtime.actions.roach_entry.params.order_type (FEE_OPTIMIZED_LIMIT)",
+    "execution.exitOrderType": "runtime.exit.order_type (FEE_OPTIMIZED_LIMIT — v2 maker-exit recovery)"
   }
 }

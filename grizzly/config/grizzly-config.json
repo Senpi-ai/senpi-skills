@@ -2,5 +2,10 @@
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "startingBudget": 1000
+  "startingBudget": 1000,
+  "minScore": 12,
+  "requireAllConfirmations": true,
+  "quietHoursStartUtc": 0,
+  "quietHoursEndUtc": 4,
+  "quietHoursApexBypassScore": 14
 }

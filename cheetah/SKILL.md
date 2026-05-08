@@ -1,213 +1,131 @@
 ---
 name: cheetah-strategy
 description: >-
-  CHEETAH v5.1.1 APEX — Multi-signal confluence sniper with leverage safety.
-  Purpose-built to win the Senpi Arena by taking ~5 high-conviction trades
-  per week at 80% margin and score-scaled leverage. v5.1.1 adds
-  get_safe_leverage() (clamps requested leverage to the asset's Hyperliquid
-  max via strategy_get_asset_trading_limits) and inner-order success
-  validation (rejects phantom ENTRY logs when the outer envelope lies).
+  CHEETAH v6.0 — Multi-signal confluence sniper, v2-runtime-native rewrite.
+  Refuses to trade unless ALL major signals align: SM consensus, velocity,
+  acceleration, dual price confirmation, volume spike, quality-trader
+  alignment, rank climb. Score 10/15 floor with score-scaled leverage
+  (3x/5x/7x/8x). Producer + runtime LLM gate + FEE_OPTIMIZED_LIMIT
+  entries AND exits + held-asset dedup + post-close cooldown.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "5.1.1-APEX"
+  version: "6.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐆 CHEETAH v5.1.1 APEX — The Arena Sniper
+# 🐆 CHEETAH v6.0 — Multi-Signal Confluence Sniper
 
-## v5.1.1 changelog (fleet-fix batch 4)
+**SM commits. Quality traders commit. Price confirms. Volume commits. All at once. Cheetah pounces once. The runtime DSL ratchets to lock the win.**
 
-- **Leverage safety fix.** v5.1 fired MON LONG at 7x but MON's Hyperliquid
-  max is 5x. Order rejected with CREATE_INVALID_LEVERAGE — but the MCP
-  wrapper returned outer success=true, so the scanner logged a phantom
-  ENTRY. v5.1.1 adds `get_safe_leverage()` which queries
-  `strategy_get_asset_trading_limits` and clamps requested leverage to the
-  asset's Hyperliquid max before submission.
-- **Inner-order success validation.** After `create_position` returns,
-  inspect `data.orders[0].success` and surface `INNER_FAILURE` when the
-  per-order status is false even if the outer envelope claims success.
-  Prevents phantom ENTRY logs from corrupting the daily counter.
+## v6.0 thesis (preserved from v5.x)
 
+Refuse to trade unless ALL major signals align simultaneously:
 
-
-**SM commits. Quality traders commit. Price confirms. Volume commits. All at once. Cheetah pounces once.**
-
-## Why v5.0 is a complete rewrite
-
-Cheetah iterated through four theses, all on HYPE, all on Wolverine's turf:
-
-| Version | Thesis | Result |
+| Component | Signal | Pts |
 |---|---|---|
-| v2.0 | HYPE SM consensus momentum | +7.6% (top of fleet briefly) |
-| v2.1 | HYPE momentum (hardened) | 33% win rate, -$175 gross |
-| v3.0 | HYPE contrarian SM fade | 40% win rate, -$39 in 20h |
-| v4.0 | HYPE funding rate extremes | -35% drawdown → HARD STOP |
+| SM consensus | pct_of_top_traders ≥ 10%, traders ≥ 25 | +4 (hard gate) |
+| Velocity | 15m contrib ≥ 1.0 OR 1h contrib ≥ 3.0 | +2 (hard gate) |
+| Accelerating | 15m > 1h > 0 (SM building) | +2 |
+| Dual price | 4h move ≥ 2% AND 1h aligned same direction | +2 |
+| Volume | current ≥ 2x 6h avg | +1 |
+| Quality trader | ≥ 1 ELITE/RELIABLE positioned same direction | +3 |
+| Rank climb | ≥ 5 positions in last 2 scans, top 15 | +1 |
 
-**The pattern:** Cheetah kept fighting for Wolverine's HYPE territory. Fleet analysis showed Wolverine (HYPE momentum), Pangolin (funding fader), and Owl (crowding fader) already cover every HYPE thesis Cheetah was trying. Cheetah was redundant.
+**Max score: 15. v6.0 floor: 10.** Universe is the top 100 SM leaderboard (`leaderboard_get_markets`), refreshed every cron tick. XYZ permanently banned.
 
-v5.0 does something no predator in the fleet does: it **refuses to trade** unless every major signal aligns simultaneously. MIN_SCORE is 14 out of 15 — the highest gate in the fleet by a wide margin.
+Score-scaled leverage:
 
-## Arena thesis
-
-The Senpi Arena ranks by **ROE %**, not absolute PnL, with a **$25k weekly volume minimum**. Looking at the current week's leaderboard top 5:
-
-- #1 pr0br000: **67% ROE, 19 trades** — sniper pattern (high conviction, low frequency)
-- #2 0xschelling: 34% ROE, 57 trades
-- #3 dih: 30% ROE, 191 trades — scalper pattern (high frequency, tiny per-trade)
-- #4 ysr: 21% ROE, 133 trades
-- #5 Magi300a: 17% ROE, 190 trades
-
-**Two winning shapes exist.** The scalper path is fee-drag death for a fleet agent — our fleet is 37 red / 2 green precisely because Hyperliquid fees eat high-frequency strategies. The sniper path (pr0br000) works because each trade has maximum edge, and 19 trades × ~3.5% ROE per trade = 67% ROE total.
-
-**APEX is purpose-built to replicate the sniper shape.**
-
-## Signal pipeline
-
-Every scan iterates through all non-XYZ assets from `leaderboard_get_markets(limit=100)` and scores each one. An entry fires only when score ≥ 14 AND all hard gates pass.
-
-### Hard gates (any failure = reject)
-
-1. **SM consensus** — `pct_of_top_traders_gain` ≥ 10% AND `trader_count` ≥ 25
-2. **Velocity gate** — `contribution_pct_change_15m` ≥ 1.0 OR `contribution_pct_change_1h` ≥ 3.0
-3. **Not currently held** — APEX has no existing position on this coin
-4. **Not in cooldown** — the asset passed the per-asset cooldown window
-5. **Not XYZ DEX** — XYZ equities/indices banned
-
-### Scoring (max = 15, threshold = 14)
-
-| Signal | Points |
+| Score | Leverage |
 |---|---|
-| SM_STRONG (pct ≥10%, traders ≥25) | **4** |
-| Velocity gate passed (one of 15m/1h above minimum) | **2** |
-| Accelerating (15m > 1h > 0, inflow building) | **2** |
-| Dual price confirmation (4h ≥2% + 1h agrees) | **2** |
-| Volume spike (≥2× 6h average) | **1** |
-| Quality trader alignment (≥1 ELITE/RELIABLE in same direction) | **3** |
-| Rank climbed ≥5 positions in last 2 scans | **1** |
+| 10 | 3x |
+| 11 | 5x |
+| 12-13 | 7x |
+| 14-15 | 8x |
 
-**Score = 14** requires all signals except either the rank climb OR dropping one of the velocity subcomponents. **Score = 15** requires everything. Partial signal stacks (score ≤13) never fire.
+Leverage is clamped to each asset's Hyperliquid max via `strategy_get_asset_trading_limits` (preserves v5.1.1 leverage safety fix).
 
-## Position sizing
+## v6.0 architectural changes
 
-| Parameter | Value | Rationale |
+### v1 scanner → v2 producer
+- v5.x: `cheetah-scanner.py` scored signals, called `create_position` directly, maintained Python-side cooldowns/counters/resting-order guards
+- v6.0: `cheetah-producer.py` emits signals via `external-scanner ingest`. Runtime LLM gate (decision_mode: llm) is pass-through. Risk gates declarative in `runtime.yaml`.
+
+### MIN_SCORE 11 → 10
+v5.2 tightened MIN_SCORE 10 → 11. Result: 8 consecutive days of zero trades. Pre-tightening (v5.0/v5.1 at MIN_SCORE 10) produced **+$182 net across 11 trades** with 60%+ win rate. v6.0 restores the trade flow.
+
+### FEE_OPTIMIZED_LIMIT on EXITS too
+v5.x used MARKET (taker) closes. v6.0's DSL fires `FEE_OPTIMIZED_LIMIT` on every exit — maker-first, 60s ALO timeout, taker fallback. HL maker is 0.015% vs taker 0.045% = 0.020-0.030% saved per close.
+
+### Held-asset dedup (3-layer defense)
+1. Producer pre-filter: `held_assets` from clearinghouse, drops candidates already held
+2. LLM gate hard skip: `heldAssets` array in signal payload, LLM rejects if asset is held
+3. Runtime `per_asset_cooldown_minutes: 240` (known to silently not-enforce; layer 1+2 are the real defense)
+
+### Post-close cooldown (Pangolin v2.1.2 pattern)
+Diff `held_assets` across ticks. When asset disappears from held set, record close timestamp. Producer skips emission for 240 min after any close. Backstops the runtime cooldown bug.
+
+### Reentrancy lockfile
+fcntl-based lock at `state/<wallet-hash>/producer.lock`. Prevents two cron runs racing.
+
+## DSL preset (v6.0 — fleet-standard T0/T1 ladder)
+
+| Phase | Component | Setting |
 |---|---|---|
-| Starting budget | **$648** | Cheetah's current equity post-drawdown (not rebased to $1000) |
-| Margin % per trade | **80%** | Maximum conviction commits maximum capital |
-| Max leverage | **10x** | Fleet cap per H12 audit hypothesis |
-| Max positions | **1** | Concentration, no parallel bets |
-| Max daily entries | **5** (from dynamic cap) | Matches Arena $25k/week volume floor |
-| Notional per trade | **~$5,184** | 80% × $648 × 10x |
-| Target weekly volume | **~$25,920** | 5 trades × $5,184 = clears $25k Arena floor |
+| Phase 1 | max_loss_pct | 15% |
+| Phase 1 | retrace_threshold | 6 |
+| Phase 1 | consecutive_breaches | 3 |
+| Phase 2 T0 | trigger 5% / lock 35% | (fleet-standard, closes T0→T1 dead zone) |
+| Phase 2 T1 | trigger 10% / lock 50% | |
+| Phase 2 T2 | trigger 20% / lock 65% | |
+| Phase 2 T3 | trigger 35% / lock 80% | |
+| Phase 2 T4 | trigger 50% / lock 90% | (apex) |
+| hard_timeout | 720 min (12h) | enabled |
+| weak_peak_cut | 90 min, min 3.0 | enabled |
+| dead_weight_cut | 60 min | enabled |
 
-### Leverage tiers
+Time cuts kept: Cheetah is multi-asset rotation, NOT single-asset patience. Idle positions have opportunity cost.
 
-- Score 14: **8x leverage**
-- Score 15: **10x leverage** (perfect setup)
+## Risk gates (`runtime.yaml` `risk.guard_rails`)
 
-### Dynamic daily cap (rebased to $648)
+| Gate | Setting |
+|---|---|
+| daily_loss_limit_pct | 25% |
+| max_entries_per_day | 8 |
+| max_consecutive_losses | 3 |
+| cooldown_minutes (post-loss) | 30 |
+| drawdown_halt_pct | 25% |
+| **drawdown_reset_on_day_rollover** | **false** (Roach Sat-Sun bleed lesson) |
+| per_asset_cooldown_minutes | 240 (4h) |
 
-```python
-if pnl_pct >= 5:     return 8   # Hot hand — more shots
-elif pnl_pct >= 0:   return 5   # Target rate for Arena volume floor
-elif pnl_pct >= -5:  return 3   # Careful
-elif pnl_pct >= -15: return 2   # Defensive
-elif pnl_pct >= -25: return 1   # Preserve
-else:                return 0   # HARD STOP
-```
+## Operator install
 
-Starting at 0% PnL baseline = 5 entries/day cap = matches target weekly volume.
+See [README.md](README.md) for fresh-install + migration commands from v5.2.
 
-## DSL configuration (aggressive ratcheting)
+## Fleet patches incorporated
 
-Designed for the Arena's ROE% optimization:
+- ✓ **Held-asset dedup** (3-layer; v2.1 Pangolin pattern)
+- ✓ **Post-close cooldown** (v2.1.2 Pangolin pattern; runtime cooldown backstop)
+- ✓ **Fleet-standard T0/T1 ladder** (commit 6cad383 pattern)
+- ✓ **Reentrancy lockfile** (fcntl)
+- ✓ **Wallet-from-config** (no hardcoding; senpi-skills is public)
+- ✓ **drawdown_reset_on_day_rollover: false** (Roach lesson)
+- ✗ **FP-001 quiet hours** — deferred until fleet telemetry can validate the time-of-day P&L correlation
 
-| Parameter | Value | vs. Fleet standard |
-|---|---|---|
-| `max_loss_pct` | **5.0** | Fleet = 15-25 (APEX much tighter) |
-| `retrace_threshold` | 5 | Fleet = 8 (tighter) |
-| `hard_timeout` | 360 min | Fleet = 240-480 (standard) |
-| `weak_peak_cut` | 35 min / 3% min | Fleet = 60 / 2 (faster cut if stalled) |
-| `dead_weight_cut` | 25 min | Fleet = 30-45 (faster) |
-| Phase 2 Tier 1 | +6% → 30% HW lock | Fleet = +8% → 25% (earlier, wider lock) |
-| Phase 2 Tier 2 | +12% → 55% HW lock | Fleet = +15% → 50% (tighter) |
-| Phase 2 Tier 5 | +60% → 92% HW lock | Fleet = +50% → 85% (let monsters run, protect 92% of peak) |
+## Hard rule for user-conversation Claude sessions
 
-**The 5% max loss is the single most important setting.** A 5% ROE loss is survivable in a 7-day Arena window; a 20% loss ends your week.
+User-conversation Claude sessions MUST NOT call any of:
+`create_position`, `close_position`, `edit_position`,
+`ratchet_stop_add`, `ratchet_stop_edit`, `ratchet_stop_delete`,
+`cancel_order`, `strategy_close`, `strategy_close_positions`.
 
-## Fleet-standard guardrails (all present)
+These tools are reserved for the **producer cron** (entry path) and the **DSL ratchet engine** (exit path). User-conversation sessions are **read-only**.
 
-- **Self-executing** — scanner calls `create_position` via mcporter directly (Wolverine pattern)
-- **Dynamic P&L-aware daily cap** (rebased to $648, fleet PR #176 pattern)
-- **Auto-cancel stale resting orders** — non-reduceOnly orders older than 10 min get cancelled (fleet PR #177 pattern)
-- **Persistent entry log** — `state/entry-log.jsonl` records every ENTRY/EXIT event, survives `openclaw sessions clear --current` (Wolverine v2.3 pattern)
-- **Per-asset cooldown** — 240 min standard, 120 min extended after a loss
-- **Stale-date bug fix** — load_trade_counter checks date on every call (fleet PR #177)
-
-## Runtime Setup
-
-```bash
-# Set wallet and chat ID
-sed -i 's/${WALLET_ADDRESS}/<WALLET>/' /data/workspace/skills/cheetah-strategy/runtime.yaml
-sed -i 's/${TELEGRAM_CHAT_ID}/<CHAT_ID>/' /data/workspace/skills/cheetah-strategy/runtime.yaml
-
-# Install runtime
-openclaw senpi runtime create --path /data/workspace/skills/cheetah-strategy/runtime.yaml
-openclaw senpi runtime list && openclaw senpi status
-
-# Pull latest scanner via curl
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/cheetah/scripts/cheetah-scanner.py -o /data/workspace/skills/cheetah-strategy/scripts/cheetah-scanner.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/cheetah/scripts/cheetah_config.py -o /data/workspace/skills/cheetah-strategy/scripts/cheetah_config.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/cheetah/config/cheetah-config.json -o /data/workspace/skills/cheetah-strategy/config/cheetah-config.json
-
-# Verify with a manual run
-python3 /data/workspace/skills/cheetah-strategy/scripts/cheetah-scanner.py
-```
-
-Expected first-run output: no exceptions, `_cheetah_version: "5.1.1-APEX"` in the JSON, and either `note: "no score >= 14 candidates"` (most common) or a rare `action: "ENTRY"` if a confluence setup exists right now.
-
-## Cron configuration
-
-**Use the Turbine pattern** — detached bash loop, zero LLM wake:
-
-```bash
-nohup bash -c 'while true; do python3 /data/workspace/skills/cheetah-strategy/scripts/cheetah-scanner.py >> /tmp/cheetah-loop.log 2>&1; sleep 180; done' > /tmp/cheetah-nohup.log 2>&1 &
-```
-
-3-minute cadence. Zero LLM wake cost. Scanner decides everything in Python.
-
-## Arena week expectations
-
-| Scenario | Probability | Winners | Losers | Net ROE | Arena outcome |
-|---|---|---|---|---|---|
-| Disaster | ~15% | 0 | 5 × -5% | -25% | HARD STOP triggers |
-| Bad | ~20% | 1 × +15% | 4 × -4% | -1% | outside money |
-| Modest | ~30% | 2 × +15% | 3 × -4% | +18% | ~#4-5 ($448-672 prize) |
-| Good | ~25% | 3 × +18% | 2 × -4% | +46% | ~#2-3 ($1,000-1,400) |
-| Great | ~10% | 3 × +25% | 2 × -4% | +67% | **#1 ($2,240)** |
-
-**Expected value of week 1 prize: ~$530.** That's the cost-weighted average across outcomes. The sniper design means APEX either wins significantly or wins nothing — it does not grind out mediocre returns.
-
-## Why this will work as one of the 10 consistent winners
-
-APEX isn't just an Arena one-shot. The thesis is a permanent edge:
-
-1. **Low trade frequency = low fee drag.** The fleet's biggest hidden cost (7.6-8.4 bps fee/vol) barely affects APEX at 5 trades/week.
-2. **Hyperfeed data refreshes every 15 min** — the 3-min scan cadence catches the early window of any genuine confluence setup.
-3. **Confluence setups don't get arbitraged away** — markets always have rare moments when everything aligns, and those moments always pay.
-4. **Tight -5% floor is self-correcting.** Bad calibration means APEX simply doesn't trade — it won't bleed like over-eager agents. We get a clean signal if the score thresholds need tuning.
-5. **Letting 99% of signals pass is the feature, not a bug.** Selectivity IS the edge.
+If the user asks a question that implies action ("anything close to triggering?"), respond by reading the current state — DO NOT execute. The producer cron will handle real signals on its next tick.
 
 ## License
 
-MIT — Built by Senpi (https://senpi.ai).
-
-
----
-
-## Skill Attribution
-
-When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
+MIT — Copyright 2026 Senpi (https://senpi.ai)
