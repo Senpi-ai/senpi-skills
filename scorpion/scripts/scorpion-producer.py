@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Senpi SCORPION Producer v4.1.2
+# Senpi SCORPION Producer v5.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
@@ -97,18 +97,31 @@ The runtime handles everything else:
 NO execution code. NO trade counters. NO cooldown state. NO scalp
 re-entry logic. The runtime owns all of that.
 
+v5.0.0 (2026-05-08) plumbing migration: senpi_runtime_helpers in-process
+wrapper replaces openclaw-CLI subprocess + mcporter subprocess.
+Also fixes a v2.0.9 contamination-rule violation: SCORPION wallet was
+read from the BANNED generic STRATEGY_ADDRESS env var. Now reads from
+per-agent SCORPION_WALLET env var (with backward-compat fallback to
+STRATEGY_ADDRESS for one cycle, with deprecation warning).
+
 Environment:
-  SENPI_API_KEY     — MCP access
-  STRATEGY_ADDRESS  — Scorpion wallet (must match runtime YAML)
+  SCORPION_WALLET   — Scorpion wallet (REQUIRED; per-agent per v2.0.9 rule)
+  SENPI_AUTH_TOKEN  — Bearer token for MCP + signal POST (REQUIRED)
+  SCORPION_DECISION_MODEL — bare LLM model name (no provider prefix)
   SENPI_MCP_URL     — optional, default https://mcp.prod.senpi.ai/mcp
-  OPENCLAW_BIN      — optional, default "openclaw"
-  EXTERNAL_SCANNER_NAME — optional override (default "scorpion_signals")
+  SENPI_RUNTIME_API_HOST — optional, default 127.0.0.1
+  SENPI_RUNTIME_API_PORT — optional, default 8787
+  OPENCLAW_WORKSPACE — optional, default /data/workspace
+
+  STRATEGY_ADDRESS is BANNED (v2.0.9 contamination rule). If set,
+  v5.0.0 emits a deprecation warning and uses it as fallback if
+  SCORPION_WALLET is not set. Operators should migrate to
+  SCORPION_WALLET ASAP.
 """
 
-import fcntl
+import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -117,59 +130,57 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import scorpion_config as cfg
 
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD (v4.0.1 — inherited from Jackal's Daniel-review fix)
-# ═══════════════════════════════════════════════════════════════
-# Cron fires every 60s. If a run takes longer (can happen when many
-# candidates clear MIN_SCORE=9 and each needs a push to the runtime),
-# the next tick would start a concurrent run. We don't share state
-# between runs the way Jackal does, but concurrent `openclaw senpi
-# external-scanner ingest` calls could pile up at the runtime. Skip
-# the tick if a previous run holds the lock.
+
+# Reentrancy guard removed in v5.0.0. producer_daemon owns the
+# per-tick scanner_lock with stale-PID auto-recovery via os.kill(pid, 0).
+# Do NOT add an inner scanner_lock(...) inside main() — fcntl flock is
+# not reentrant; nested call raises BlockingIOError every tick.
 
 _LOCK_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "scorpion-tracker" / "state"
 _LOCK_DIR.mkdir(parents=True, exist_ok=True)
-_LOCK_PATH = _LOCK_DIR / "producer.lock"
 
 # v4.1.2 — post-close cooldown state (Cheetah v6.0 pattern).
 # Backstop for the runtime per_asset_cooldown_minutes silent-enforcement
 # bug. Producer diffs held_assets between ticks; anything that
 # disappeared from current_held vs previously_held just closed.
-# Records timestamp into _LAST_CLOSED_FILE and blocks emission for
-# POST_CLOSE_COOLDOWN_MINUTES on that asset.
 _LAST_CLOSED_FILE = _LOCK_DIR / "last_closed.json"
 _PREV_HELD_FILE = _LOCK_DIR / "previously_held.json"
 
 
-def acquire_lock():
-    """Non-blocking exclusive lock. Returns file handle or None if held."""
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
+VERSION = "5.0.0"
+
+# Hardcoded — must match runtime.yaml external_scanner.name.
+SCANNER_NAME = "scorpion_signals"
+
+# Signal type passed explicitly to push_signal() per Rachin's review
+# of Cheetah PR #209.
+SIGNAL_TYPE = "SCORPION_TREND_FOLLOW"
 
 
-def release_lock(lock_file):
-    if lock_file is None:
-        return
+def _resolve_wallet():
+    """Resolve Scorpion wallet — per-agent SCORPION_WALLET env var,
+    with backward-compat fallback to STRATEGY_ADDRESS (BANNED, emits
+    deprecation warning) and then to scorpion-config.json."""
+    env_val = (os.environ.get("SCORPION_WALLET") or "").strip()
+    if env_val:
+        return env_val
+    legacy = (os.environ.get("STRATEGY_ADDRESS") or "").strip()
+    if legacy:
+        sys.stderr.write(
+            "[scorpion v5.0.0] DEPRECATION: STRATEGY_ADDRESS env var is BANNED "
+            "per Turbine v2.0.9 contamination rule. Falling back to it for "
+            "compatibility. Migrate to SCORPION_WALLET ASAP.\n"
+        )
+        return legacy
     try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        return (cfg.load_config().get("wallet") or "").strip()
     except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
+        return ""
 
 
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "scorpion_signals")
-STRATEGY_ADDRESS = os.environ.get("STRATEGY_ADDRESS", "")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+STRATEGY_ADDRESS = _resolve_wallet()
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -568,54 +579,54 @@ def compute_xyz_peer_momentum(candidates):
 # ═══════════════════════════════════════════════════════════════
 
 def push_signal(candidate, btc_macro, funding_regime, held_assets, xyz_peer_count=0):
+    """Push a signal payload to the runtime via senpi_runtime_helpers.
+
+    Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
+    asset/direction/signal_type at top-level kwargs (Rachin's PR #209).
+    Score normalized 0..1 for SignalItem.score (Scorpion's composite
+    0-20 scaled), with raw int score in `data` for telemetry.
+    """
     if not STRATEGY_ADDRESS:
-        print("ERROR: STRATEGY_ADDRESS env var not set", file=sys.stderr)
+        print("ERROR: SCORPION_WALLET env var not set (or banned STRATEGY_ADDRESS fallback also empty)", file=sys.stderr)
         return False
 
     macro_ctx = build_macro_context(candidate, btc_macro)
-    payload = {
-        "asset": candidate["asset"],
-        "direction": candidate["direction"],
-        "score": candidate["score"] / 20.0,  # normalize 0-1 (theoretical max ~13)
-        "signal_type": "SCORPION_TREND_FOLLOW",
-        "data": {
-            "score": candidate["score"],
-            "isXyz": candidate["is_xyz"],
-            "reasons": candidate["reasons"],
-            "smPct": candidate["sm_pct"],
-            "smTraders": candidate["sm_traders"],
-            "priceChange4hPct": candidate["p4h"],
-            "priceChange1hPct": candidate["p1h"],
-            "contribChange15m": candidate["cc_15m"],
-            "contribChange1h": candidate["cc_1h"],
-            "contribChange4h": candidate["cc_4h"],
-            "btcMacroDirection": macro_ctx["direction"],
-            "btcMacro24hPct": macro_ctx["pct"],
-            "fundingRegime": funding_regime or "UNKNOWN",
-            "heldAssets": held_assets,
-            "recentEntryCountThisAsset": recent_entry_count(candidate["asset"], held_assets),
-            "xyzPeerMomentum": xyz_peer_count,
-        },
+
+    data_block = {
+        "score": candidate["score"],
+        "isXyz": candidate["is_xyz"],
+        "reasons": candidate["reasons"],
+        "smPct": candidate["sm_pct"],
+        "smTraders": candidate["sm_traders"],
+        "priceChange4hPct": candidate["p4h"],
+        "priceChange1hPct": candidate["p1h"],
+        "contribChange15m": candidate["cc_15m"],
+        "contribChange1h": candidate["cc_1h"],
+        "contribChange4h": candidate["cc_4h"],
+        "btcMacroDirection": macro_ctx["direction"],
+        "btcMacro24hPct": macro_ctx["pct"],
+        "fundingRegime": funding_regime or "UNKNOWN",
+        "heldAssets": held_assets,
+        "recentEntryCountThisAsset": recent_entry_count(candidate["asset"], held_assets),
+        "xyzPeerMomentum": xyz_peer_count,
     }
 
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", STRATEGY_ADDRESS,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if result.returncode != 0:
-            print(f"INGEST_FAILED {candidate['asset']}: {result.stderr}", file=sys.stderr)
-            return False
-        response = json.loads(result.stdout) if result.stdout.strip() else {}
-        if not response.get("ok", False):
-            print(f"INGEST_REJECTED {candidate['asset']}: {response.get('error', {})}", file=sys.stderr)
-            return False
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner=SCANNER_NAME,
+            asset=candidate["asset"],
+            direction=candidate["direction"],
+            score=candidate["score"] / 20.0,
+            signal_type=SIGNAL_TYPE,
+            data=data_block,
+        )
         return True
-    except Exception as e:
-        print(f"INGEST_EXCEPTION {candidate['asset']}: {e}", file=sys.stderr)
+    except SenpiClientError as e:
+        print(f"INGEST_REJECTED {candidate['asset']}: {e}", file=sys.stderr)
+        return False
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        print(f"INGEST_EXCEPTION {candidate['asset']}: {type(e).__name__}: {e}", file=sys.stderr)
         return False
 
 
@@ -624,138 +635,144 @@ def push_signal(candidate, btc_macro, funding_regime, held_assets, xyz_peer_coun
 # ═══════════════════════════════════════════════════════════════
 
 def main():
+    """Single tick. NO inner scanner_lock — daemon owns it."""
     run_start = time.time()
-    lock = acquire_lock()
-    if lock is None:
-        print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
-            "_scorpion_producer_version": "4.1.2",
-        }))
+
+    raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+    if not raw:
+        print(json.dumps({"status": "no_markets", "_scorpion_producer_version": VERSION}))
         return
 
-    try:
-        raw = cfg.mcporter_call("leaderboard_get_markets", limit=100)
-        if not raw:
-            print(json.dumps({"status": "no_markets", "_scorpion_producer_version": "4.1.2"}))
-            return
+    markets = raw.get("data", raw)
+    if isinstance(markets, dict):
+        markets = markets.get("markets", markets)
+    if isinstance(markets, dict):
+        markets = markets.get("markets", [])
+    if not isinstance(markets, list):
+        print(json.dumps({"status": "bad_shape", "_scorpion_producer_version": VERSION}))
+        return
 
-        markets = raw.get("data", raw)
-        if isinstance(markets, dict):
-            markets = markets.get("markets", markets)
-        if isinstance(markets, dict):
-            markets = markets.get("markets", [])
-        if not isinstance(markets, list):
-            print(json.dumps({"status": "bad_shape", "_scorpion_producer_version": "4.1.2"}))
-            return
+    # Score all markets; keep only those at/above MIN_SCORE
+    candidates = []
+    for m in markets:
+        if not isinstance(m, dict):
+            continue
+        c = score_market(m)
+        if c is not None:
+            candidates.append(c)
 
-        # Score all markets; keep only those at/above MIN_SCORE
-        candidates = []
-        for m in markets:
-            if not isinstance(m, dict):
-                continue
-            c = score_market(m)
-            if c is not None:
-                candidates.append(c)
-
-        if not candidates:
-            elapsed = time.time() - run_start
-            print(json.dumps({
-                "status": "ok",
-                "scanned": len(markets),
-                "candidates": 0,
-                "elapsed_sec": round(elapsed, 2),
-                "_scorpion_producer_version": "4.1.2",
-            }))
-            return
-
-        # Enrich once per run (shared context for all candidates)
-        btc_macro = fetch_btc_macro()
-        funding_regime = fetch_funding_regime()
-        held_assets = fetch_held_assets()
-
-        # v4.1.2: detect-closes via held-set diff (Cheetah v6.0 pattern).
-        # Anything that disappeared from current_held vs previously_held
-        # closed since the last scan tick → record timestamp for
-        # post-close cooldown enforcement below. Persist current held
-        # set for the next tick's diff.
-        current_held_set = {h.upper() for h in held_assets}
-        previously_held_set = load_previously_held()
-        closed_this_tick = detect_closes(current_held_set, previously_held_set)
-        save_previously_held(current_held_set)
-
-        # v4.1.1: PRIMARY held-asset dedup fix. Skip emission entirely
-        # if the candidate's asset is already in held_assets. This is
-        # the strongest layer of the three-layer fix — a candidate that
-        # never reaches the LLM can't possibly trigger a duplicate add.
-        held_norm = {h.upper() for h in held_assets}
-
-        def _asset_already_held(candidate):
-            asset = candidate["asset"]
-            if asset.upper() in held_norm:
-                return True
-            # XYZ-prefixed: also check token portion (e.g. xyz:BRENTOIL → BRENTOIL)
-            if ":" in asset:
-                token = asset.split(":", 1)[1].upper()
-                if token in held_norm:
-                    return True
-            return False
-
-        def _asset_in_post_close_cooldown(candidate):
-            """v4.1.2: backstop for the runtime per_asset_cooldown silent
-            enforcement bug. Block emission if asset closed within the
-            POST_CLOSE_COOLDOWN_MINUTES window."""
-            asset = candidate["asset"]
-            check = asset.upper()
-            if ":" in asset:
-                check = asset.split(":", 1)[1].upper()
-            return is_in_post_close_cooldown(check)
-
-        # Push all qualifying candidates. Runtime's LLM gate + risk guard
-        # rails will decide which (if any) to execute.
-        candidates.sort(key=lambda c: c["score"], reverse=True)
-        xyz_peer_map = compute_xyz_peer_momentum(candidates)
-        pushed = 0
-        skipped_held = 0
-        skipped_post_close = 0
-        post_close_skips = []
-        for c in candidates:
-            if _asset_already_held(c):
-                skipped_held += 1
-                continue
-            if _asset_in_post_close_cooldown(c):
-                skipped_post_close += 1
-                check = c["token"].upper() if ":" not in c["asset"] else c["asset"].split(":", 1)[1].upper()
-                post_close_skips.append({
-                    "asset": c["asset"],
-                    "remaining_min": post_close_cooldown_remaining_min(check),
-                })
-                continue
-            peer_count = xyz_peer_map.get((c["token"], c["direction"]), 0) if c["is_xyz"] else 0
-            if push_signal(c, btc_macro, funding_regime, held_assets, peer_count):
-                pushed += 1
-
+    if not candidates:
         elapsed = time.time() - run_start
-        warn = "WARN_OVER_60S" if elapsed > 60 else None
         print(json.dumps({
             "status": "ok",
             "scanned": len(markets),
-            "candidates": len(candidates),
-            "signals_pushed": pushed,
-            "skipped_held_assets": skipped_held,
-            "skipped_post_close": skipped_post_close,
-            "post_close_skips": post_close_skips,
-            "closed_this_tick": sorted(list(closed_this_tick)),
-            "btc_macro": btc_macro,
-            "funding_regime": funding_regime,
-            "held_assets": held_assets,
+            "candidates": 0,
             "elapsed_sec": round(elapsed, 2),
-            "warn": warn,
-            "_scorpion_producer_version": "4.1.2",
+            "_scorpion_producer_version": VERSION,
         }))
-    finally:
-        release_lock(lock)
+        return
+
+    # Enrich once per run (shared context for all candidates)
+    btc_macro = fetch_btc_macro()
+    funding_regime = fetch_funding_regime()
+    held_assets = fetch_held_assets()
+
+    # v4.1.2: detect-closes via held-set diff (Cheetah v6.0 pattern).
+    # Anything that disappeared from current_held vs previously_held
+    # closed since the last scan tick → record timestamp for
+    # post-close cooldown enforcement below. Persist current held
+    # set for the next tick's diff.
+    current_held_set = {h.upper() for h in held_assets}
+    previously_held_set = load_previously_held()
+    closed_this_tick = detect_closes(current_held_set, previously_held_set)
+    save_previously_held(current_held_set)
+
+    # v4.1.1: PRIMARY held-asset dedup fix. Skip emission entirely
+    # if the candidate's asset is already in held_assets. This is
+    # the strongest layer of the three-layer fix — a candidate that
+    # never reaches the LLM can't possibly trigger a duplicate add.
+    held_norm = {h.upper() for h in held_assets}
+
+    def _asset_already_held(candidate):
+        asset = candidate["asset"]
+        if asset.upper() in held_norm:
+            return True
+        # XYZ-prefixed: also check token portion (e.g. xyz:BRENTOIL → BRENTOIL)
+        if ":" in asset:
+            token = asset.split(":", 1)[1].upper()
+            if token in held_norm:
+                return True
+        return False
+
+    def _asset_in_post_close_cooldown(candidate):
+        """v4.1.2: backstop for the runtime per_asset_cooldown silent
+        enforcement bug. Block emission if asset closed within the
+        POST_CLOSE_COOLDOWN_MINUTES window."""
+        asset = candidate["asset"]
+        check = asset.upper()
+        if ":" in asset:
+            check = asset.split(":", 1)[1].upper()
+        return is_in_post_close_cooldown(check)
+
+    # Push all qualifying candidates. Runtime's LLM gate + risk guard
+    # rails will decide which (if any) to execute.
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+    xyz_peer_map = compute_xyz_peer_momentum(candidates)
+    pushed = 0
+    skipped_held = 0
+    skipped_post_close = 0
+    post_close_skips = []
+    for c in candidates:
+        if _asset_already_held(c):
+            skipped_held += 1
+            continue
+        if _asset_in_post_close_cooldown(c):
+            skipped_post_close += 1
+            check = c["token"].upper() if ":" not in c["asset"] else c["asset"].split(":", 1)[1].upper()
+            post_close_skips.append({
+                "asset": c["asset"],
+                "remaining_min": post_close_cooldown_remaining_min(check),
+            })
+            continue
+        peer_count = xyz_peer_map.get((c["token"], c["direction"]), 0) if c["is_xyz"] else 0
+        if push_signal(c, btc_macro, funding_regime, held_assets, peer_count):
+            pushed += 1
+
+    elapsed = time.time() - run_start
+    warn = "WARN_OVER_60S" if elapsed > 60 else None
+    print(json.dumps({
+        "status": "ok",
+        "scanned": len(markets),
+        "candidates": len(candidates),
+        "signals_pushed": pushed,
+        "skipped_held_assets": skipped_held,
+        "skipped_post_close": skipped_post_close,
+        "post_close_skips": post_close_skips,
+        "closed_this_tick": sorted(list(closed_this_tick)),
+        "btc_macro": btc_macro,
+        "funding_regime": funding_regime,
+        "held_assets": held_assets,
+        "elapsed_sec": round(elapsed, 2),
+        "warn": warn,
+        "_scorpion_producer_version": VERSION,
+    }))
 
 
 if __name__ == "__main__":
-    main()
+    # v5.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
+    # producer_daemon owns the per-tick scanner_lock with stale-PID
+    # auto-recovery.
+    #
+    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
+    # doesn't accept yet — see fleet-fix commit 4f0c15e).
+    _wallet_lock_id = (
+        hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
+        if STRATEGY_ADDRESS
+        else "unset"
+    )
+    producer_daemon(
+        fn=main,
+        interval_seconds=60,           # Scorpion's v4.x cron was every 60s
+        name=f"scorpion-producer-{_wallet_lock_id}",
+        tick_timeout=120,
+    )
