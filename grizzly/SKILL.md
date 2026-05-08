@@ -1,35 +1,30 @@
 ---
 name: grizzly-strategy
 description: >-
-  GRIZZLY v6.0.0 — BTC Alpha Hunter, v2-runtime-native rewrite.
-  v5.x was a 1073-line full-agency Python scanner with a 3-mode state
-  machine and direct create_position calls. The Apr 30 BTC LONG ran
-  +33% peak ROE through Tier 5 cleanly for +$76.36 / +29.9% realized —
-  proves the scoring works. v6.0 flips to producer + v2 runtime
-  (Wolverine v4 / Cheetah v6 / Vulture v3 template): producer emits
-  signals via openclaw external-scanner ingest, runtime LLM gate is
-  pass-through, risk.guard_rails enforces daily caps + drawdown halt
-  + cooldowns, DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits, and
-  trade chain DB telemetry comes online for the first time. ALL gates
-  and scoring preserved verbatim from v5.8: six entry gates (4h trend
-  != NEUTRAL, 4h structural strength ≥ 0.75, 1h matches 4h, 15m
-  momentum aligned, base-tech floor, v5.5 macro V-recovery gate),
-  SM hard block, RSI hard gates (70/30), MIN_SCORE 12, BTC-tuned
-  thresholds, conviction-scaled leverage (10x apex/conviction), DSL
-  preset (time-cuts disabled, Phase 2 v5.9 ratchet ladder T0/T1
-  patch). Trades WITH SM consensus and trend, NOT contrarian.
-  Family member alongside Kodiak (SOL), Wolverine (HYPE), Polar (ETH).
+  GRIZZLY v7.0.0 — BTC alpha hunter, senpi_runtime_helpers migration.
+  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
+  to in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
+  runtime /signals, long-lived producer_daemon). Thesis preserved
+  verbatim from v6.0.0: BTC single-asset trend hunter, six-gate entry
+  validation including v5.5 macro V-recovery gate (block fades within
+  1.25% of 24h extreme), RSI hard gates (70/30 — BTC-tuned),
+  multi-factor scoring (~17 max), conviction-scaled leverage (7x
+  default / 10x conviction / 10x apex), MIN_SCORE 12, FP-001 quiet
+  hours, FP-003 requireAllConfirmations gate. Trades WITH SM consensus
+  and trend, NOT contrarian. Family member alongside Kodiak (SOL),
+  Wolverine (HYPE), Polar (ETH).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "6.0.0"
+  version: "7.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
 ---
 
-# 🐻 GRIZZLY v6.0.0 — BTC Alpha Hunter
+# 🐻 GRIZZLY v7.0.0 — BTC Alpha Hunter (senpi_runtime_helpers)
 
 Trend-continuation on BTC, v2-runtime-native. Same Kodiak-family
 architecture as Wolverine / Polar / Kodiak. Producer emits signals,
@@ -338,6 +333,10 @@ openclaw cron add \
 ### v3.2 — trend-follower (pre-contrarian)
 
 ---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
 
 ## License
 
