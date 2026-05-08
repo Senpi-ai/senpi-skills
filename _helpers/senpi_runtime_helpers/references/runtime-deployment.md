@@ -21,7 +21,7 @@ This step gives you a service ID, a project ID, and an environment ID — keep t
 
 ```bash
 # Pin the runtime + skills to the verified-working pair
-SENPI_RUNTIME_NPM_SPEC=@senpi/runtime@1.0.95-dev.runtime-phase-2-api.20260507134852
+SENPI_RUNTIME_NPM_SPEC=@senpi/runtime@2.0.0-dev.runtime-phase-2.20260508074726
 SENPI_SKILLS_BRANCH=helper-mcp-envelope-aligned
 
 # OpenClaw service config (defaults from the template; override only if needed)
@@ -76,7 +76,7 @@ That's it. First tick should land within ~5 minutes; you'll see `daemon_tick_fin
 
 ## Pin rationale
 
-The two pins above (`SENPI_RUNTIME_NPM_SPEC` + `SENPI_SKILLS_BRANCH`) are a matched pair. The `runtime-phase-2-api.20260507134852` build ships the `/signals` + `/audit` envelope shape that `helper-mcp-envelope-aligned` parses for. Mixing pins from different shapes will produce silent envelope-parse failures or `INVALID_REQUEST` rejections.
+The two pins above (`SENPI_RUNTIME_NPM_SPEC` + `SENPI_SKILLS_BRANCH`) are a matched pair. The `2.0.0-dev.runtime-phase-2.20260508074726` build is the first 2.0 dev tag with the senpi-stack `/signals` + `/audit` envelope and the `/state` endpoint that `helper-mcp-envelope-aligned`'s daemon needs for scanner-level liveness. Pinning a 1.x runtime would produce silent envelope-parse failures and missing `/state` 404s; pinning a 2.x runtime against the older `wrapped-skills` branch (which doesn't expect the new envelope) goes the other way. Keep both halves on 2.x.
 
 ## Useful diagnostic one-liners
 

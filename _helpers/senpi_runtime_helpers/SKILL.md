@@ -13,16 +13,16 @@ description: >-
   fork-storm, runtime-2 producer migration.
 license: MIT
 compatibility: >-
-  Python 3.10+. Stdlib only — no third-party deps. Requires the
-  senpi-trading-runtime build that ships (a) the senpi-stack response envelope
-  on /signals and /audit (success / data / error), AND (b) GET /state for
-  scanner-level liveness probes. The wrapper does not parse the legacy
-  { results: [...] } envelope and the daemon's default alive_check requires
-  /state to detect runtime-delete and scanner-rename. The matching
-  runtime-phase-2-api dev pin is recorded in
-  references/runtime-deployment.md and bumped each time both halves
-  republish together. After the runtime ships its release line, follow the
-  release version. Loaded from `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
+  Python 3.10+. Stdlib only — no third-party deps. Requires
+  senpi-trading-runtime >= 2.0.0 — the major version that ships (a) the
+  senpi-stack response envelope on /signals and /audit (success / data /
+  error), AND (b) GET /state for scanner-level liveness probes. The wrapper
+  does not parse the legacy { results: [...] } envelope from 1.x, and the
+  daemon's default alive_check requires /state to detect runtime-delete and
+  scanner-rename — both are 2.0 features. The current dev tag pin
+  (2.0.0-dev.runtime-phase-2.<TIMESTAMP> until GA) is recorded in
+  references/runtime-deployment.md. Loaded from
+  `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
 metadata:
   author: senpi
   version: "1.0"
@@ -314,7 +314,7 @@ graceful shutdown.
 |---|---|---|
 | `signal_post: response body was empty` | Proxy/sidecar stripped the body | Check container network, `SENPI_RUNTIME_API_HOST/PORT` |
 | `signal_post: response not valid JSON` | Mid-stream truncation (TLS, broken proxy) | Network instability; retry on next tick. Inspect first 200 bytes in error message |
-| `signal_post: unexpected envelope shape` | Helper version expects `{success, data, error}`; runtime returned the legacy `{results: …}` | Bump runtime to ≥ `runtime-phase-2-api.*` (the helper requires the new envelope) |
+| `signal_post: unexpected envelope shape` | Helper version expects `{success, data, error}`; runtime returned the legacy `{results: …}` | Bump runtime to `>= 2.0.0` (the legacy envelope shipped only in 1.x) |
 | `signal_post: N/M item(s) rejected; first: code=INVALID_REQUEST …` | Per-item schema violation. **Most common: `asset`/`direction` inside `data`** | Move `asset`/`direction` to top level. Verify `data` keys match `runtime.yaml` `config.fields` |
 | `signal_post: N/M item(s) rejected; first: code=NOT_FOUND` | No runtime is registered for the wallet, or the scanner name doesn't exist in `runtime.yaml` | Verify the runtime is installed for the wallet (`openclaw senpi runtime list`); verify `scanner` matches `runtime.yaml` |
 | `signal_post: HTTP 400 INVALID_REQUEST: Exceeded api.maxItemsPerSignalsRequest=10` | Batch larger than runtime cap | Split the batch (default cap is 10) |
