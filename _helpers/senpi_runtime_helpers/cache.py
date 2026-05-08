@@ -159,9 +159,16 @@ def cached_mcp_call(
     try:
         value = client.mcp_call(tool, timeout=timeout, **arguments)
     except BaseException:
+        # Atomically remove our pending registration AND wake waiters under
+        # the same lock. If the wake happened outside the lock, a waiter
+        # could observe `pending` cleared but not yet signaled, race back to
+        # the entry-check, and (depending on what the prior entry held) take
+        # an inconsistent path. Setting the event under the lock means any
+        # thread that re-acquires `cache.lock` sees a coherent post-failure
+        # state (no pending, no fresh entry from this owner).
         with cache.lock:
             cache.pending.pop(key, None)
-        pending.set()
+            pending.set()
         raise
     miss_duration_ms = int((time.time() - miss_started) * 1000)
 
@@ -173,7 +180,12 @@ def cached_mcp_call(
             cache.evictions += 1
         cache.misses += 1
         cache.pending.pop(key, None)
-    pending.set()
+        # Signal waiters BEFORE releasing cache.lock. A waiter that wakes
+        # and re-acquires the lock now observes the freshly-published entry
+        # (or, on the exception path above, the cleared pending registry) —
+        # never the in-between state where the entry hasn't been published
+        # yet but the event has fired.
+        pending.set()
 
     log_event(
         "cache_miss",
