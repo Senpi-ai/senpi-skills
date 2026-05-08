@@ -1,105 +1,239 @@
-# Turbine v2.0 — Volume Generation Engine (Runtime v2-native)
+---
+name: turbine-strategy
+description: >-
+  TURBINE v3.0 — two-mode signal emitter. One producer + two runtimes
+  on a single wallet. VOLUME (7 slots × 10-min funding-fade rotation,
+  XYZ-weighted 80/20) is a builder-fee-recycling volume engine on
+  Hyperliquid: pure breakeven trading P&L target, alpha is the net
+  spread between Senpi's builder-fee recycling (~3.5 bps RT) and HL
+  maker fees (~1.2-1.4 bps RT main, ~0.6 bps XYZ). HUNT (2 slots ×
+  HYPE 4H momentum, ratchet exit) rides directional moves with
+  score-gated entries (>=10 floor on multi-axis confluence). Single
+  long-lived producer_daemon + senpi_runtime_helpers in-process
+  wrapper (no mcporter / openclaw subprocess). Sentinel sunset —
+  hunt slots take over with explicit slot accounting.
+license: MIT
+metadata:
+  author: jason-goldberg
+  version: "3.0.0"
+  platform: senpi
+  exchange: hyperliquid
+  requires:
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
+---
 
-**PRIVATE — Internal use only. Not for public distribution.**
+# 🌪️ TURBINE v3.0 — Volume Engine + HYPE Hunt
+
+**The bot prints volume. Senpi prints rebates. Hunt slots scoop alpha when HYPE breaks.**
 
 ## Mission
 
-Generate high HL perpetuals volume at minimum HL-fee cost. Net to Senpi driven by builder-fee recycling. Trading P&L target: **breakeven**, small positive lean acceptable.
+Hit **$5M/day in notional volume on Hyperliquid at <$100 net cost per $1M** while running 2 additional slots that take directional HYPE 4H momentum trades for upside.
 
-## Economics (target regime)
-
-| Metric | Target | Notes |
+| Metric | v2.0.x baseline | v3.0 target |
 |---|---|---|
-| Daily volume | $1.4M (Phase 1) → $3M+ (Phase 2) | Phase 1 validates maker mechanics; Phase 2 scales after success |
-| HL fees (all-maker) | ~$170/day @ $1.4M · ~$360/day @ $3M | At XYZ-weighted ~1.2 bp round-trip on XYZ, 2.88 bp on HL main |
-| Builder fees (to Senpi) | ~$490/day @ $1.4M · ~$1,050/day @ $3M | ~3.5 bp round-trip observed in v1 onchain |
-| Net to Senpi | +$320/day → +$690/day | Before trading P&L |
-| Trading P&L target | ±$50/day (breakeven) | Funding-fade lean provides small positive drift |
+| Daily volume | ~$2-3M | $5M |
+| Net cost per $1M volume | $200 | <$100 |
+| Total slots | 3 (volume only) | 9 (7 volume + 2 hunt) |
+| Volume cycle | 15 min | 10 min (auto-fallback to 12 min) |
+| Funding | $1,500 | $6,000 |
 
-## How v2 differs from v1
+## Architecture
 
-| Layer | v1 | v2 |
+**Single producer, two runtimes, one wallet.**
+
+```
+                 turbine-producer.py (long-lived daemon)
+                       │
+            ┌──────────┴──────────┐
+            │                     │
+   turbine_volume_signals    turbine_hunt_signals
+            │                     │
+   turbine-volume-tracker    turbine-hunt-tracker
+   (runtime-volume.yaml)    (runtime-hunt.yaml)
+            │                     │
+            └──────────┬──────────┘
+                       │
+                  Strategy wallet
+```
+
+The producer manages slot accounting (which positions are VOLUME vs HUNT), enforces post-close cooldowns, and emits to the appropriate scanner. Each runtime's DSL only manages positions it opened.
+
+## VOLUME mode — the volume engine
+
+### Universe (tightened from v2.0.x)
+
+| Pool | Assets | Weight |
 |---|---|---|
-| Architecture | Scanner-driven state machine; manual `create_position` + `close_position` | v2 runtime plugin; producer emits signals, runtime owns lifecycle |
-| Exits | Scanner calls `close_position` with `ensureExecutionAsTaker: true`, 5-min timeout → frequently falls through to taker | DSL engine with `ensure_execution_as_taker: false`; ALOs cancel rather than take |
-| Entry | Single asset (BTC) | Rotation across 9 assets, XYZ-weighted 70/30 |
-| Leverage | 10x | 5x (lower per-tick P&L noise on a $1,500 budget) |
-| Slots | 1 | 3 parallel |
-| Direction | Alternating LONG/SHORT | Funding-regime-aware: SHORT LONG_CROWDED / LONG SHORT_CROWDED / alternate on FLAT |
-| Cycle time | 90s–15 min (variable; spec diverged from reality) | Runtime-enforced `hard_timeout: 15 min` |
+| XYZ (deeper books, lower fee floor) | xyz:BRENTOIL, xyz:GOLD, xyz:SPX | **80%** |
+| Main | BTC, ETH, SOL, HYPE | 20% |
 
-The single most important v2 change: **`ensure_execution_as_taker: false` on both entry AND exit.** v1 was bleeding fees on every timeout-fallthrough; v2 refuses to take.
+Dropped from v2.0.x: xyz:TSLA, xyz:NVDA — wider spreads off-hours; maker fill rate is the constraint, not asset diversity.
 
-## How it works
+### Direction — funding fade (preserved from v2.0.x)
 
-Each cron tick (60s):
+```
+LONG_CROWDED  → SHORT (collect funding)
+SHORT_CROWDED → LONG  (collect funding)
+NEUTRAL/FLAT  → alternate vs last_direction for this asset
+```
 
-1. Producer acquires reentrancy lock (fcntl)
-2. Queries strategy wallet's open positions via MCP
-3. For each empty slot (up to `max_slots`):
-   - Advances rotation index, picks next asset from weighted list
-   - Queries spread + funding regime
-   - Skips if spread > threshold (main 5 bps, XYZ 15 bps)
-   - Chooses direction (funding-fade if crowded, alternate on flat)
-   - Emits signal via `openclaw senpi external-scanner ingest`
-4. Runtime's LLM gate passes signal through (hard-skip only on malformed data)
-5. Runtime opens position with `FEE_OPTIMIZED_LIMIT`, 120s ALO, `ensure_execution_as_taker: false`
-6. Runtime's DSL engine manages the position lifecycle
-7. After 15 min (`hard_timeout`), DSL closes with `FEE_OPTIMIZED_LIMIT`, 120s ALO, never-taker
-8. Producer picks up the empty slot on the next tick
+### Spread gates (tightened)
 
-## Safety controls
+| DEX | v2.0.x | v3.0 |
+|---|---|---|
+| main | 5 bps | **3 bps** |
+| xyz | 15 bps | **10 bps** |
 
-- **`ensure_execution_as_taker: false`** — hard floor on fee leakage. Unfilled ALOs cancel rather than fall through to taker. Exception: after `hard_timeout` if even the final maker attempt fails, one taker close is accepted (structural floor, not default path).
-- **Runtime `daily_loss_limit_pct: 3`** — 3% = $45 on $1,500. Halts strategy if cumulative realized losses exceed.
-- **Runtime `drawdown_halt_pct: 10`** — 10% = $150 drawdown halt. Full-stop for the Phase 1 test; investigate and resume if legit.
-- **Spread gate** — don't emit if book too wide (main > 5 bps, XYZ > 15 bps).
-- **Held-asset skip** — producer never emits a signal for an asset already held.
+### Cycle length — 10 min default with auto-fallback
 
-## Files
+```
+10 min default
+  ↓
+If realized maker fill rate (last 20 entries) < 85%:
+  ↓
+Fall back to 12 min until rate recovers
+```
 
-| File | Purpose |
+State tracked in `state/<wallet-hash>/cycle-stats.json`. Operator overrides via `cycle.*` keys in `turbine-config.json`.
+
+### Volume cost math (target)
+
+```
+Theoretical (perfect maker on both legs):
+  +3.5 bps  builder fee recycling (RT)
+  −1.4 bps  HL main maker RT          → +2.1 bps net
+  −0.6 bps  HL XYZ maker RT           → +2.9 bps net
+
+Weighted (80% XYZ / 20% main): +2.7 bps net positive theoretical
+```
+
+Real-world cost includes spread crossings, taker fallthrough, and funding paid during 10-min holds. v3.0 targets **<$100/$1M actual** via tighter spread gates + 80/20 XYZ + maker-only ALO.
+
+### Volume DSL preset (`runtime-volume.yaml`)
+
+| Component | Setting | Rationale |
+|---|---|---|
+| `hard_timeout` | 10 min | Drives rotation cadence |
+| `weak_peak_cut` | DISABLED | Time = volume; no early cuts |
+| `dead_weight_cut` | DISABLED | Same reason |
+| `phase1.max_loss_pct` | 50% | Catastrophic backstop only (50% margin ROE = 10% price at 5x) |
+| `phase2` | DISABLED | Volume rotation doesn't chase peak ROE |
+| Entry + exit order type | FEE_OPTIMIZED_LIMIT | Maker-only |
+| `ensure_execution_as_taker` | **false** | The strategy IS maker fills — taker fallback would invert the alpha |
+
+## HUNT mode — HYPE 4H momentum
+
+### Why HYPE only
+
+- Wolverine v3.0 was specced for HYPE but never shipped — fills the gap
+- HYPE is a clean trend asset, not covered by any other live fleet agent
+- Distinct asset from VOLUME mode = unambiguous P&L attribution
+- 4-hour timescale distinct from VOLUME's 10-min = no thesis collision
+
+### Scoring (max ~15, floor 10)
+
+| Component | Points | Trigger |
+|---|---|---|
+| 4H trend structure | +4 | 3+ HH/HL closes vs prior 4 candles |
+| 4H price move | +3 | ≥2% in trend direction |
+| 1H momentum aligned | +2 | 1H direction matches 4H direction |
+| Volume rising | +2 | Latest 4H ≥ 1.5× prior 5-candle average |
+| Funding regime | +2 | NEUTRAL or against direction (fade-bonus); **−1 fighting crowd** |
+| Spread depth | +2 | ≤3 bps |
+
+Floor 10/15 means 4-5 components must fire — meaningful conviction, not first-bar-crossing.
+
+### Hunt DSL preset (`runtime-hunt.yaml`)
+
+| Component | Setting |
 |---|---|
-| `runtime.yaml` | v2 runtime config. DSL, risk guardrails, external_scanner, LLM pass-through gate |
-| `scripts/turbine-producer.py` | Cron producer. Picks asset, queries regime, emits signal |
-| `scripts/turbine_config.py` | MCP helpers, config loader, session state I/O |
-| `config/turbine-config.example.json` | Deployment template (copy to `turbine-config.json`, fill in live values) |
+| `hard_timeout` | 4 h (240 min) |
+| `weak_peak_cut` | 90 min @ peak < 3% |
+| `dead_weight_cut` | 120 min |
+| `phase1.max_loss_pct` | 30% (6% price move at 5x) |
+| `phase2 tiers` | 5/0, 10/35, 20/55, 35/75, 50/85 |
 
-## Deployment environment
+### Hunt safety floor
 
-Required:
-- `STRATEGY_ADDRESS` or `TURBINE_WALLET` — Turbine wallet address
-- `STRATEGY_ID` or `TURBINE_STRATEGY_ID` — strategy id
-- `WALLET_ADDRESS` — same wallet (for runtime.yaml substitution)
-- `TURBINE_DECISION_MODEL` — LLM for the pass-through gate. Use cheapest available (e.g. `gemini-2.5-flash`, `claude-haiku-4-5-20251001`). This is a pass-through, not a thesis evaluator.
-- `TELEGRAM_CHAT_ID` — notification channel
+- Per-asset cooldown: 60 min post-exit (producer mirrors runtime gate)
+- Account-equity floor: hunt slots blocked when account_value < $5,500 (preserves volume capital)
+- Daily entry cap: 6 (runtime guard rail)
 
-Optional:
-- `TURBINE_MAX_SLOTS` (default 3)
-- `TURBINE_MARGIN_USD` (default 500)
-- `TURBINE_LEVERAGE` (default 5)
-- `TURBINE_MAX_SPREAD_MAIN` (default 5 bps)
-- `TURBINE_MAX_SPREAD_XYZ` (default 15 bps)
+## Risk gates summary
 
-## Cron
+| Gate | VOLUME runtime | HUNT runtime |
+|---|---|---|
+| `daily_loss_limit_pct` | 50% | 25% |
+| `max_entries_per_day` | 1500 | 6 |
+| `max_consecutive_losses` | 30 | 3 |
+| `drawdown_halt_pct` | 50% | 25% |
+| `drawdown_reset_on_day_rollover` | true | **false** (Roach lesson) |
+| `per_asset_cooldown_minutes` | 0 | 60 |
 
+## Operator config (turbine-config.json)
+
+```json
+{
+  "wallet": "0x...",
+  "strategyId": "...",
+  "chatId": "...",
+  "slots":    { "volume": 7, "hunt": 2 },
+  "margin":   { "volume": 500, "hunt": 1250 },
+  "leverage": { "volume": 5, "hunt": 5 },
+  "cycle":    {
+    "volumeDefaultMin": 10,
+    "volumeFallbackMin": 12,
+    "fillRateFallbackThreshold": 0.85,
+    "huntMin": 240,
+    "huntCooldownMin": 60
+  },
+  "spread":   { "mainBps": 3, "xyzBps": 10 },
+  "xyzWeight": 0.80,
+  "huntMinScore": 10,
+  "minAccountValueForHunt": 5500.0
+}
 ```
-* * * * * /usr/bin/env python3 /path/to/turbine/scripts/turbine-producer.py >> /path/to/state/producer.log 2>&1
-```
 
-Every 60 seconds. Reentrancy-guarded so a long-running tick can't overlap the next one.
+## Required env vars
 
-## Phase 1 pass/fail criteria
+| Var | Purpose |
+|---|---|
+| `TURBINE_WALLET` | Strategy wallet (must match BOTH runtime YAMLs). **STRATEGY_ADDRESS is BANNED** per v2.0.9 contamination rule. |
+| `SENPI_AUTH_TOKEN` | Bearer token for MCP + signal POST. |
+| `TURBINE_VOLUME_DECISION_MODEL` | Bare LLM model name (no provider prefix) for volume gate. |
+| `TURBINE_HUNT_DECISION_MODEL` | Bare LLM model name for hunt gate. (Can be same as volume.) |
 
-**Pass** = over 24h of running:
-- Maker fill rate ≥ 90% on both entries and exits (check `executionAsMaker` per fill)
-- Trading P&L within ±$50/day
-- At least 200 round-trip cycles completed
-- No daily-loss-halt or drawdown-halt trips
+## Hard rule for user-conversation Claude sessions
 
-**Fail** (any of):
-- Maker fill rate < 80% (DSL engine isn't honoring `ensure_execution_as_taker: false`, or timeout too short)
-- Trading P&L outside ±$150/day (strategy exposed to drift we didn't model)
-- Producer cron failures (e.g. concurrent runs, lock contention, MCP timeouts > 10% of ticks)
+User-conversation Claude sessions MUST NOT call `create_position`, `close_position`, `edit_position`, `ratchet_stop_*`, `cancel_order`, `strategy_close*`. These tools are reserved for the **producer daemon** and the **DSL ratchet engine**. User-conversation sessions are read-only.
 
-If Phase 1 passes, Phase 2 is: scale slot count and/or margin, expand asset list, measure scaling efficiency. If it fails, we diagnose root cause before scaling.
+## Fleet patches incorporated
+
+- ✓ **senpi_runtime_helpers** (in-process MCP + signal POST)
+- ✓ **producer_daemon scanner_lock** (PID-aliveness auto-recovery)
+- ✓ **TURBINE_WALLET only** (no STRATEGY_ADDRESS fallback per v2.0.9 rule)
+- ✓ **Wallet-from-config** (no hardcoding; senpi-skills is public)
+- ✓ **drawdown_reset_on_day_rollover: false** on hunt runtime (Roach lesson)
+- ✓ **Slot-mode tracker** in `state/<wallet-hash>/slot-mode.json` — explicit per-position mode tagging
+- ✓ **Auto-fallback cycle length** based on rolling maker fill rate
+- ✓ **Account-equity hunt floor** ($5,500 default — preserves volume capital after drawdown)
+
+## Sentinel sunset
+
+Sentinel previously ran on the same Turbine wallet, allocating $200 per slot for "convergence-based momentum trades using leftover margin." The blended-PnL problem made it impossible to attribute performance. v3.0's HUNT mode replaces it with explicit slot accounting and clean per-mode telemetry via `audit_query`.
+
+Sentinel should be paused or retired before Turbine v3.0 deploys.
+
+## Operator install
+
+See [README.md](README.md) for fresh-install + sunset-sequence commands.
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
+
+## License
+
+MIT — Copyright 2026 Senpi (https://senpi.ai)

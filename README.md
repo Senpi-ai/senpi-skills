@@ -201,56 +201,92 @@ This places a maker order first (~0.02% fee), falls back to taker (~0.05% fee) i
 
 ---
 
-## Skill Categories
+## The Fleet
 
-### Single-Asset Lifecycle Hunters
-Patient agents that track one asset through HUNT→RIDE→STALK→RELOAD phases. Wait for extreme SM conviction before entering. Widest DSL settings.
+Every agent is named in the format **`Codename — What it trades / What it does`**. Tags show the runtime version each agent runs on.
 
-| Skill | Asset | Description |
-|---|---|---|
-| 🐻‍❄️ [Polar](./polar) | ETH | Three-mode lifecycle. The patience benchmark. |
-| 🐻 [Grizzly v3.0](./grizzly) | BTC | BTC lifecycle hunter with hardened scoring. |
-| 🐻 [Grizzly Horribilis](./grizzly) | BTC | Aggressive BTC variant. Higher leverage on conviction. |
-| 🐻 [Kodiak](./kodiak) | SOL | SOL lifecycle hunter. |
-| 🦡 [Wolverine v2.0](./wolverine) | HYPE | HYPE hunter. Entry-only scanner, 7x leverage. |
-| 🐆 [Cheetah](./cheetah) | HYPE | HYPE SM scanner with daily trade cap. |
+> `[Runtime 2.0]` — uses the v2 declarative runtime (phase2 tiers, fee-optimized exits, fcntl reentrancy guard, env-driven decision model)
+> `[Runtime 1.0]` — uses the original Python scanner + cron model
 
-### Multi-Asset SM Scanners
-Scan across BTC/ETH/SOL/HYPE for the highest SM conviction at any moment. Conviction-scaled margin allocation.
+### Runtime 2.0 native agents
 
-| Skill | Description |
+Built v2-runtime-native from the start, or rewritten to be.
+
+| Agent | Asset | Status | Thesis |
+|---|---|---|---|
+| **Grizzly — BTC Hunter** `[Runtime 2.0]` | BTC | Live | v2-runtime-native BTC alpha hunter. v6 rewrite of legacy 1073-line full-agency Python scanner. |
+| **Kodiak — ETH Hunter** `[Runtime 2.0]` | ETH | Live | ETH single-asset lifecycle hunter. v6 entry-side maker-first execution. |
+| **Polar — SOL Hunter** `[Runtime 2.0]` | SOL | Live | SOL single-asset lifecycle hunter. v4 MIN_SCORE calibration. |
+| **Wolverine — HYPE Hunter** `[Runtime 2.0]` | HYPE | Live | HYPE single-asset hunter. v4 gate calibration. |
+| **Spider — Patient Anchor Sniper** `[Runtime 2.0]` | Multi | Live | v3 single-leg patient anchor (rewrite of v2's 2-leg portfolio operator). |
+| **Turbine — Volume Generation Engine** `[Runtime 2.0]` | Multi | Live | High-notional volume at minimal HL-fee cost. |
+| **Otter — OI Velocity Hunter** `[Runtime 2.0]` | Multi | Live | Trades fresh leveraged positioning detected via Open Interest velocity. |
+| **Cheetah — Multi-Asset Velocity Hunter** `[Runtime 2.0]` | Multi | Live | Velocity scanner with structured ai_reasoning telemetry. |
+| **Jackal — Smart-Money Quality Scanner** `[Runtime 2.0]` | Multi | Live | v2 quality-score formula with maker-exit timeout. |
+| **Scorpion — Multi-Asset Maker-Exit Predator** `[Runtime 2.0]` | Multi | Live | v4 with post-close cooldown backstop. |
+| **Pangolin — Long-Tail Momentum Scanner** `[Runtime 2.0]` | Multi | Live | v2 DSL T0 ladder calibration for long-tail winners. |
+| **Cobra — Arena Sprint Predator** `[Runtime 2.0]` | Single | Live | Trades the #1 SM-dominant asset with maximum conviction. |
+| **Owl — Pure Contrarian + Macro Gate** `[Runtime 2.0]` | Multi | Live | v7 contrarian unwind with macro trend gate. |
+| **Roach — Striker Pyramider** `[Runtime 2.0]` | Multi | Live | v2 DSL ratchet T0/T1 patch for early Striker engagement. |
+| **Vulture — Arena-Winner Template Clone** `[Runtime 2.0]` | Multi | Live | Architecture cloned from pr0br000 (Arena weeks 1-3 winner). |
+| **Kestrel — XYZ Macro Breakout Rider** `[Runtime 2.0]` | XYZ | Live | v2-runtime-native XYZ macro breakout rider. |
+| **Sentinel — Quality-Trader Convergence Scanner** `[Runtime 2.0]` | Multi | Live | v2.2 finds assets where multiple ELITE/RELIABLE traders converge. |
+| **Mamba — Range-Bound + Regime Protection** `[Runtime 2.0]` | Multi | Live | v2 range scanner with BTC regime filter. |
+| **Viper — Range-Bound Liquidity Sniper** `[Runtime 2.0]` | Multi | Live | v2.2 with DSL loosened for winners. |
+| **Dog — Multi-Asset Exhaustion Fader** `[Runtime 2.0]` | Multi | Live | v2.5 exhaustion gate calibration. |
+| **Grizzly Horribilis — BTC Contrarian Sniper** `[Runtime 2.0]` | BTC | Live | v2.1 sniper recalibration. Fades exhausted SM consensus moves. |
+
+### Runtime 1.0 agents
+
+Legacy Python scanner + cron architecture. Migration to Runtime 2.0 in flight.
+
+| Agent | Asset | Status | Thesis |
+|---|---|---|---|
+| **Dire — BRENTOIL XYZ Specialist** `[Runtime 1.0]` | XYZ | Live | First non-crypto Kodiak-family port. v1.7 fleet-wide DSL T0/T1 patch. |
+| **Mantis — Cross-Asset Catchup Hunter** `[Runtime 1.0]` | Multi | Live | v5 Slipstream — uses `market_get_cross_asset_flows` for laggard alts after BTC moves. |
+| **Bison — Conviction Holder** `[Runtime 1.0]` | Multi | Live | v2.1 asset whitelist + conviction floor + time-cuts disabled. |
+| **Lemon — Degen Fader** `[Runtime 1.0]` | Multi | Live | v1.3 degen fader with macro gate + XYZ unban. |
+| **Python — Patient Multi-Asset Scanner** `[Runtime 1.0]` | Multi | Live | v1.2 disable weak_peak_cut completes patience thesis fix. |
+| **Condor — High-Conviction Momentum Hunter** `[Runtime 1.0]` | Multi | Live | v3.4 gate calibration. v3.2's tightening over-corrected; v3.4 restores signal. |
+| **Hydra — Squeeze Detector** `[Runtime 1.0]` | Multi | Live | Funding extreme + SM against crowd + price starting to move. |
+| **Komodo — Momentum Event Consensus** `[Runtime 1.0]` | Multi | Live | Momentum event detection with SM consensus. |
+| **Orca — Gen-2 Striker (FIRST_JUMP)** `[Runtime 1.0]` | Multi | Live | FIRST_JUMP detection enhanced with momentum event quality confirmation. |
+| **Vixen — Multi-Asset Trend Scanner** `[Runtime 1.0]` | Multi | Live | Standard trend scanner. |
+| **Rhino — Momentum Pyramider** `[Runtime 1.0]` | Multi | Live | Scales into winners — patient DSL, wide phase 2. |
+| **Barracuda — Funding Decay Collector** `[Runtime 1.0]` | Multi | Live | Funding collector holds for hours while collecting 8h payments. |
+| **Shark — Position Tracker + Liquidation Cascade Scanner** `[Runtime 1.0]` | Multi | Live | Liquidation cascade + SM conviction scanner. |
+| **Phoenix — Contribution Velocity Scanner** `[Runtime 1.0]` ⚠ | Multi | Live | v3.0 contribution velocity scanner. *Note: `version: 3.0.0` in runtime.yaml is the agent semver mislabeled in the schema field — see Engineering notes.* |
+| **Raptor — Hot Streak Follower** `[Runtime 1.0]` ⚠ | Multi | Live | v3.3 entry-price discipline tightened. *Same `version:` field issue as Phoenix.* |
+| **Jaguar — Hot-Streak Striker** `[Runtime 1.0]` ⚠ | Multi | Live | v3.7 runtime risk.guard_rails: cap losers, ride winners. *Same `version:` field issue as Phoenix.* |
+| **Bald Eagle — XYZ Alpha Hunter** `[Runtime 1.0]` | XYZ | In-flight edits | All 54 XYZ assets. Spread gate >0.1%. *Currently being modified — README not refreshed in this audit.* |
+
+### Utilities, scanners, and infra
+
+Non-trading-agent components used by the fleet.
+
+| Component | Purpose |
 |---|---|
-| 🦅 [Condor v2.0](./condor) | Multi-asset conviction-scaled margin (25/35/45%). |
-| 🐋 [Orca v2.0](./orca) | Canonical scanner template. Stalker + Striker dual-mode. |
-| 🔥 [Phoenix v2.0](./phoenix) | Contribution velocity scanner. SM profit velocity diverging from price. |
-| 🐆 [Jaguar v2.0](./jaguar) | Striker-only multi-asset. No Stalker, no pyramiding. |
+| `senpi-trading-runtime/` | The runtime plugin itself. Position tracker + DSL exit engine. |
+| `dsl-dynamic-stop-loss/` | DSL plugin — Phase 1/Phase 2 trailing exit logic shared by every agent. |
+| `opportunity-scanner/` | Standalone scanner skill. |
+| `emerging-movers/` | Skill for detecting emerging momentum across the leaderboard. |
+| `fee-optimizer/` | Maker-exit fee optimization helper skill. |
+| `whale-index/` | Whale-tracking index helper. |
+| `wolf-howl/`, `wolf-strategy/`, `tiger-strategy/` | Reference strategy snippets. |
+| `shared/` | Shared infra (`hyperfeed_scoring.py`). |
+| `_analysis/` | Internal fleet-analysis docs (experiment registry, fleet dossiers, hypotheses). |
+| `workspace/` | Agent template scaffold (AGENTS, BOOTSTRAP, IDENTITY, MEMORY, SOUL, TOOLS). |
+| `senpi-onboard/`, `senpi-getting-started-guide/`, `senpi-entrypoint/`, `autonomous-trading/` | Onboarding and reference skills. |
 
-### Arena-Optimized Agents
-Built specifically to win weekly Arena competitions. Higher conviction, concentrated margin.
+### Skipped / legacy
 
-| Skill | Description |
-|---|---|
-| 🐍 [Cobra v1.1](./cobra) | Arena Sprint Predator. Trades the #1 SM dominant asset with $400 margin, 10x leverage. |
-| 🦂 [Scorpion v2.0](./scorpion-v2) | Altcoin Swarm Hunter. Detects coordinated altcoin risk-off events (5+ alts at SM >2%), trades the best target. |
+- `croc/`, `panther/`, `ghost-fox-strategy/`, `hawk/` — legacy or external. Not refreshed in this audit.
 
-### Intelligence Agents
-Use advanced Hyperfeed signals — momentum events, trader quality tags (TCS/TRP), contribution velocity, inverted pipelines.
+### Engineering notes from this audit
 
-| Skill | Description |
-|---|---|
-| 🦅 [Raptor v2.0](./raptor) | Tier 2 momentum events + TCS/TRP quality tags. |
-| 🛡️ [Sentinel](./sentinel) | Inverted pipeline: rising assets → verify quality traders. Most selective scanner. |
-| 🍋 [Lemon](./lemon) | Degen Fader. Counter-trades CHOPPY/DEGEN traders at 10x+ leverage bleeding -10%+ ROE. |
-| 🦅 [Bald Eagle v2.0](./bald-eagle) | XYZ Alpha Hunter. All 54 XYZ assets (commodities, indices, equities). Spread gate >0.1%. |
-
-### Specialized
-
-| Skill | Description |
-|---|---|
-| 🦬 [Bison v1.2](./bison) | Conviction trend holder. Requires 4H/1H agreement. |
-| 🐟 [Barracuda](./barracuda) | Funding decay collector. Building local funding history (230 assets, 11K+ snapshots). |
-| 🦉 [Owl](./owl) | Contrarian crowding-unwind. |
-| 🦈 [Mako](./mako-strategy) | Volume generation engine. Single Python process, no LLM in execution path. |
+- **`version:` field convention is inconsistent across the fleet.** Per the runtime spec, `version:` in runtime.yaml is the *plugin schema major version* (currently `1` only), not the agent semver. Many agents use it for the agent semver (`1.5.0`, `2.0.0`, etc.) and three (`jaguar`, `phoenix`, `raptor`) use `3.x` which would fail validation under a strict schema check. They run because the runtime is permissive. Worth aligning convention or fixing the validator.
+- **Runtime classification in this README is by feature markers** (`phase2.tiers`, `${AGENT_DECISION_MODEL}`, `FEE_OPTIMIZED_LIMIT`, fcntl reentrancy guard), not by the `version:` field — because the field is unreliable.
+- **bald-eagle/** has uncommitted in-flight edits and was not refreshed in this audit.
 
 ---
 
