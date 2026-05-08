@@ -703,11 +703,15 @@ def push_signal(payload):
 
     SignalItem field mapping (per references/signal-schema.md and the
     Pangolin TST 2026-05-05 incident):
-      - top-level routing fields: address, scanner, asset, direction
+      - top-level routing fields: address, scanner, asset, direction, signal_type
       - data block: scanner-config-validated fields only
       - score STAYS inside data — Cheetah's composite is unbounded int
         0-16, not 0..1 confidence (different semantics; same Pangolin
         v2.2 reference rationale).
+      - signal_type passed explicitly per signal so the runtime never
+        relies on the scanner's defaultSignalType fallback (cheetah's
+        runtime.yaml does not declare one). Keeps audit logs and the
+        LLM decision context tagged correctly.
 
     Returns True on accepted ingest, False on transport / schema rejection.
     The daemon's per-tick error handler catches anything unhandled here
@@ -722,6 +726,7 @@ def push_signal(payload):
             scanner=SCANNER_NAME,
             asset=payload.get("asset"),
             direction=payload.get("direction"),
+            signal_type=payload.get("signalType"),
             data=payload.get("data"),
         )
         return True
