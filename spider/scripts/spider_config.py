@@ -1,26 +1,19 @@
-"""SPIDER v3.0 — Shared MCP helpers + config loader.
+"""SPIDER v4.0.0 — Shared MCP helpers + config loader.
 
-v3.0 producer responsibilities:
-  - Fetch top-15 SM leaderboard markets via MCP
-  - Score each candidate on 4 components (arena alignment, SM strength,
-    funding favorability, relative strength)
-  - Apply hold-time gate (don't emit while holding < 7 days)
-  - Push qualifying signals via `openclaw senpi external-scanner ingest`
-    (runtime owns execution + DSL + risk + counters)
+Plumbing-only migration from v3.0.2. Routes MCP calls + signal POSTs
+through `senpi_runtime_helpers.SenpiClient` (in-process, direct HTTPS).
+No mcporter / openclaw subprocesses.
 
 This module is the MCP call helper + config loader. All state
 (position tracking, post-close cooldown, anchor history) lives in
 state/<wallet-hash>/ JSON files.
-
-v2.0's elaborate spider_rationale_log + simulated runtime is GONE —
-chain DB telemetry replaces it.
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 
+import functools
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -30,6 +23,33 @@ from pathlib import Path
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "spider-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "spider-config.json"
+
+
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+_helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
+
+
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Spider's MCP calls and signal "
+            "POST both require it."
+        )
+    client = SenpiClient()
+    log_event("spider_wrapper_enabled", helpers_path=_helpers_path)
+    return client
+
+
+class _WrapperClientProxy:
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
 
 
 # ─── Atomic Write ────────────────────────────────────────────
@@ -67,36 +87,17 @@ def load_config():
 # ─── MCP Helper ──────────────────────────────────────────────
 
 def mcporter_call(tool, retries=2, timeout=30, **params):
-    """Call a Senpi MCP tool via mcporter. Returns parsed JSON or None on failure."""
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
+    """v4.0.0: routes through SenpiClient.mcp_call() — direct HTTPS, no
+    mcporter subprocess. Returns the unwrapped JSON document on
+    success, or None if the wrapper raised."""
+    try:
+        return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(
+            f"[senpi_helpers] spider_mcp_call_failed tool={tool} "
+            f"err={type(e).__name__}: {e}\n"
+        )
+        return None
 
 
 def output(data):
@@ -105,7 +106,7 @@ def output(data):
 
 
 def log(msg):
-    print(f"[SPIDER-v3] {msg}", file=sys.stderr)
+    print(f"[SPIDER-v4] {msg}", file=sys.stderr)
 
 
 def now_ts():
