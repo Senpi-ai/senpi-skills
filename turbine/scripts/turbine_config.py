@@ -1,21 +1,25 @@
-"""TURBINE v2 — Shared MCP helpers + config loader + session state.
+"""TURBINE v3.0 — Shared config + state I/O + helpers wrapper.
 
-v2 producer is lean compared to v1:
-  - Pick next asset from rotation list with XYZ-weighted round-robin
-  - Query funding regime + spread
-  - Choose direction (funding-fade if crowded, else alternate)
-  - Emit signals for empty slots, one per tick
-  - Push signals via `openclaw senpi external-scanner ingest`
+v3.0 (2026-05-08) — full rewrite. Volume-engine + HYPE-momentum hunt.
+Helpers-based (matches Pangolin v2.2 / Cheetah v7.0.0 patterns):
+  - SenpiClient via lazy proxy (auth-validated on first use)
+  - mcporter_call() shim for backward-compat call sites in producer
+  - _wrapper_client exposed for direct push_signal access
 
-The v2 runtime owns everything else: position tracking, DSL-managed
-exits, risk guardrails, per-asset cooldowns, daily loss halts.
+Per-wallet state under SKILL_DIR/state/<wallet-hash>/:
+  - slot-mode.json    — {coin: "VOLUME"|"HUNT", entered_at, slot_id}
+  - last-closed.json  — close timestamps (post-close cooldown)
+  - prev-held.json    — previous-tick held set (close detection)
+  - cycle-stats.json  — rolling fill-rate window (auto-fallback gate)
+  - hunt-history.json — HYPE 4H breakout score history
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
+# Source: https://github.com/Senpi-ai/senpi-skills
 
+import functools
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -23,293 +27,205 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
-SKILL_DIR = Path(WORKSPACE) / "skills" / "turbine-tracker"
+SKILL_DIR = Path(WORKSPACE) / "skills" / "turbine-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "turbine-config.json"
+STATE_DIR = SKILL_DIR / "state"
 
-# v2.0.6 (2026-04-25): per-wallet state isolation.
-#
-# When the Turbine agent runs multiple wallets concurrently from the same
-# install (e.g. splitting $1,380 into 3 × $460 strategy wallets), every
-# producer invocation must write to its OWN producer.lock and
-# session-state.json. Without isolation:
-#   - All N producers share one fcntl lock → only 1 of N wallets runs per
-#     cron tick (the others skip with "prior run holds lock")
-#   - All N producers share one rotation_index → they all hit the same
-#     asset on each tick, defeating multi-wallet parallelism
-#
-# Per-wallet state dir is derived from a short hash of the wallet address,
-# auto-isolating without operator config. Single-wallet deploys still
-# work — the wallet env var is read at module load.
-def _state_dir_for_wallet(wallet_address):
-    """Return the per-wallet state directory. Hash wallet to 8 chars
-    for path stability across restarts."""
-    if not wallet_address:
-        return SKILL_DIR / "state"
-    short = wallet_address.lower().replace("0x", "")[:8]
-    return SKILL_DIR / "state" / f"wallet_{short}"
-
-
-# Resolve at module load. v2.0.9 (2026-04-25): READ ONLY TURBINE_WALLET.
-# Previous code fell back to STRATEGY_ADDRESS, which is a generic env var
-# often set by other agents/strategies on shared machines. That fallback
-# was a contamination vector — if TURBINE_WALLET wasn't set, Turbine would
-# silently pick up another strategy's wallet and emit signals there.
-# Falls back to legacy "state/" if no wallet is set yet (e.g. setup phase).
-_RUNTIME_WALLET = os.environ.get("TURBINE_WALLET", "")
-STATE_DIR = _state_dir_for_wallet(_RUNTIME_WALLET)
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ─── Config loader ────────────────────────────────────────────
-
-def load_config():
-    if CONFIG_PATH.exists():
-        try:
-            with open(CONFIG_PATH) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+_helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
 
 
-def get_wallet_and_strategy():
-    """Wallet + strategy id are required to emit signals. Env > config.
-
-    v2.0.9 (2026-04-25): removed STRATEGY_ADDRESS / STRATEGY_ID fallbacks.
-    Those generic env vars are often set by sibling agents on shared
-    machines (Sentinel, Mantis, Jackal, etc.). Falling back to them
-    silently pointed Turbine at the wrong wallet. If TURBINE_WALLET is
-    unset, return empty so the producer logs "no wallet configured" and
-    refuses to emit — fail loud instead of fail silent.
-    """
-    w = os.environ.get("TURBINE_WALLET", "")
-    s = os.environ.get("TURBINE_STRATEGY_ID", "")
-    if not w or not s:
-        c = load_config()
-        w = w or c.get("wallet", "")
-        s = s or c.get("strategyId", "")
-    return w, s
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Turbine's MCP calls and signal "
+            "POST both require it. Set it on the runtime host before "
+            "starting the producer daemon."
+        )
+    client = SenpiClient()
+    log_event("turbine_wrapper_enabled", helpers_path=_helpers_path)
+    return client
 
 
-# ─── Session state ────────────────────────────────────────────
+class _WrapperClientProxy:
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
+
+
+# ─── Atomic write ─────────────────────────────────────────
 
 def atomic_write(path, data):
     path = str(path)
-    d = os.path.dirname(path) or "."
-    os.makedirs(d, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+    dir_name = os.path.dirname(path) or "."
+    os.makedirs(dir_name, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=2, default=str)
-        os.replace(tmp, path)
+        os.replace(tmp_path, path)
     except BaseException:
         try:
-            os.unlink(tmp)
+            os.unlink(tmp_path)
         except OSError:
             pass
         raise
 
 
-def load_session_state():
-    """Rotation state. Persists across cron ticks, resets at UTC day boundary."""
-    today = now_date()
-    p = STATE_DIR / "session-state.json"
-    default = {
-        "date": today,
-        "rotation_index": 0,
-        "last_direction_by_asset": {},   # asset → "LONG" | "SHORT" for flat-funding alternation
-        "cycles_opened_today": 0,
-        "signals_emitted_today": 0,
-    }
-    if p.exists():
-        try:
-            with open(p) as f:
-                ss = json.load(f)
-            if ss.get("date") != today:
-                return dict(default)
-            for k, v in default.items():
-                if k not in ss:
-                    ss[k] = v
-            return ss
-        except (json.JSONDecodeError, IOError):
-            pass
-    return dict(default)
+# ─── Config ───────────────────────────────────────────────
+
+def load_config():
+    if CONFIG_PATH.exists():
+        with open(CONFIG_PATH) as f:
+            return json.load(f)
+    return {}
 
 
-def save_session_state(ss):
-    ss["updated_at"] = now_iso()
-    atomic_write(str(STATE_DIR / "session-state.json"), ss)
+def get_wallet_and_strategy():
+    """Resolve wallet + strategyId from env (preferred) → config (fallback).
+    TURBINE_WALLET only — STRATEGY_ADDRESS is BANNED per v2.0.9 contamination
+    rule."""
+    wallet = os.environ.get("TURBINE_WALLET", "").strip()
+    strategy_id = os.environ.get("TURBINE_STRATEGY_ID", "").strip()
+    if not wallet or not strategy_id:
+        c = load_config()
+        wallet = wallet or (c.get("wallet") or "").strip()
+        strategy_id = strategy_id or (c.get("strategyId") or "").strip()
+    return wallet, strategy_id
 
 
-# ─── MCP helper ───────────────────────────────────────────────
+# ─── MCP wrapper shim ─────────────────────────────────────
 
-def mcporter_call(tool, retries=2, timeout=30, **params):
-    """Call a Senpi MCP tool via mcporter. Returns parsed JSON or None on failure."""
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
+def mcporter_call(tool, timeout=20, retries=2, **params):
+    """Call a Senpi MCP tool via the senpi_runtime_helpers wrapper.
+
+    v3.0: routes through SenpiClient.mcp_call() — direct HTTPS, no
+    mcporter subprocess. Returns the unwrapped JSON document on
+    success, or None if the wrapper raised.
+    """
+    try:
+        return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(
+            f"[senpi_helpers] turbine_mcp_call_failed tool={tool} "
+            f"err={type(e).__name__}: {e}\n"
+        )
+        return None
+
+
+# ─── Account state helpers ────────────────────────────────
+
+def safe_float(v, d=0.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return d
+
+
+def normalize_coin_key(coin):
+    """Map 'xyz:GOLD' and 'GOLD' to the same canonical key."""
+    if not coin:
+        return ""
+    return coin.split(":")[-1].upper()
 
 
 def get_open_positions(wallet):
-    """Return list of currently open positions across main + xyz DEXes.
-    Each entry: {coin, direction, size, margin, entryPrice, upnl}.
-    """
+    """List of dicts with coin, direction, szi, size, margin, entry/markPrice,
+    leverage, upnl. Both main + xyz dexes."""
     if not wallet:
         return []
-    # v2.0.3: tight timeout. Clearinghouse reads should be sub-second in
-    # the happy case; 8s×2 retries bounds hang propagation to ~16s max.
-    ch = mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet, timeout=8, retries=2)
+    ch = mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
     if not ch or not isinstance(ch, dict):
         return []
     data = ch.get("data", ch)
-    positions = []
+    out = []
     for section in ("main", "xyz"):
         s = data.get(section, {})
         if not isinstance(s, dict):
             continue
-        for ap in s.get("assetPositions", []):
+        for ap in s.get("assetPositions", []) or []:
             pos = ap.get("position", ap)
-            szi = safe_float(pos.get("szi"))
+            szi = safe_float(pos.get("szi", 0))
             if szi == 0:
                 continue
-            positions.append({
+            out.append({
                 "coin": pos.get("coin", ""),
-                "direction": "LONG" if szi > 0 else "SHORT",
-                "size": abs(szi),
-                "margin": safe_float(pos.get("marginUsed")),
-                "entryPrice": safe_float(pos.get("entryPx")),
-                "upnl": safe_float(pos.get("unrealizedPnl")),
                 "dex": section,
+                "direction": "LONG" if szi > 0 else "SHORT",
+                "szi": szi,
+                "size": abs(szi),
+                "margin": safe_float(pos.get("marginUsed", 0)),
+                "entryPrice": safe_float(pos.get("entryPx", 0)),
+                "markPrice": safe_float(pos.get("markPx", 0)),
+                "leverage": safe_float(
+                    pos.get("leverage", {}).get("value", 5)
+                    if isinstance(pos.get("leverage"), dict)
+                    else pos.get("leverage", 5)
+                ),
+                "upnl": safe_float(pos.get("unrealizedPnl", 0)),
             })
-    return positions
+    return out
+
+
+def get_account_value(wallet):
+    if not wallet:
+        return 0.0
+    ch = mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+    if not ch or not isinstance(ch, dict):
+        return 0.0
+    data = ch.get("data", ch)
+    total = 0.0
+    for section in ("main", "xyz"):
+        s = data.get(section, {})
+        if not isinstance(s, dict):
+            continue
+        ms = s.get("marginSummary", {})
+        total += safe_float(ms.get("accountValue", 0))
+    return total
 
 
 def get_resting_orders(wallet):
-    """Return list of resting open orders across main + xyz DEXes.
-
-    v2.0.4 (2026-04-25): added to fix the ghost-trade bug. With
-    ensure_execution_as_taker: false on entry, ALO orders rest on
-    the book for up to 120s before filling. During that window they
-    don't appear in get_open_positions(). Producer would see the
-    slot as empty and emit an opposing-direction signal for the
-    SAME asset on the next tick (alternation logic). When market
-    crossed both ALOs, one would fill (open) and the other fill
-    (close) in the same second → ghost trades with 0-second hold
-    time. Five such trades observed on 2026-04-24, all on xyz:GOLD
-    and xyz:TSLA where ALO rest times are longest.
-
-    Including resting orders in held_assets prevents the producer
-    from re-emitting on the same asset during the ALO window.
-
-    Returns: [{coin, direction, dex, size, limit_price}, ...]
-    """
+    """Open (resting / ALO) non-reduceOnly orders. Reduce-only orders
+    are DSL exit legs — not slot occupiers."""
     if not wallet:
         return []
-
-    orders = []
-    for dex in ("", "xyz"):
-        resp = mcporter_call(
-            "strategy_get_open_orders",
-            strategy_wallet=wallet,
-            dex=dex,
-            timeout=8,
-            retries=2,
-        )
-        if not resp or not isinstance(resp, dict):
+    data = mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
+    if not data:
+        return []
+    orders = data.get("data", data)
+    if isinstance(orders, dict):
+        orders = orders.get("orders", orders.get("openOrders", []))
+    if not isinstance(orders, list):
+        return []
+    out = []
+    for o in orders:
+        if not isinstance(o, dict):
             continue
-
-        # Response shape — orders may be at .data.orders, .orders, or top-level array
-        payload = resp.get("data", resp)
-        if isinstance(payload, list):
-            order_list = payload
-        elif isinstance(payload, dict):
-            order_list = payload.get("orders", payload.get("openOrders", []))
-        else:
-            order_list = []
-
-        for o in order_list:
-            if not isinstance(o, dict):
-                continue
-            coin = o.get("coin") or o.get("asset") or ""
-            if not coin:
-                continue
-            # v2.0.7 (2026-04-25): exclude reduceOnly orders. DSL attaches
-            # stop-loss / take-profit as reduceOnly orders to protect existing
-            # positions — those are NOT entry signals in flight, they're
-            # post-fill protection. Counting them as held_assets caused the
-            # producer to think slots were occupied when they were just
-            # protected by SL. Bug found by Turbine agent on 2026-04-25
-            # after observing slots stuck "full" with 1 position + 2 SL orders.
-            if (
-                o.get("reduceOnly")
-                or o.get("reduce_only")
-                or o.get("isReduceOnly")
-                or o.get("is_reduce_only")
-            ):
-                continue
-            # HL convention: positive size = buy/long, negative = sell/short
-            sz = safe_float(o.get("size", o.get("sz")))
-            side = o.get("side")  # may be 'B' (buy) / 'A' (ask/sell) on HL
-            if side == "B" or sz > 0:
-                direction = "LONG"
-            elif side == "A" or sz < 0:
-                direction = "SHORT"
-            else:
-                direction = "UNKNOWN"
-            orders.append({
-                "coin": coin,
-                "direction": direction,
-                "dex": dex if dex else "main",
-                "size": abs(sz),
-                "limit_price": safe_float(o.get("limitPx", o.get("price"))),
-            })
-
-    return orders
+        if o.get("reduceOnly"):
+            continue
+        coin = o.get("coin") or o.get("asset", "")
+        if not coin:
+            continue
+        side = (o.get("side") or "").upper()
+        out.append({
+            "coin": coin,
+            "direction": "LONG" if side in ("B", "BUY") else "SHORT",
+            "limit_price": safe_float(o.get("limitPx") or o.get("price")),
+            "oid": o.get("oid"),
+        })
+    return out
 
 
-def normalize_coin_key(coin):
-    """Strip 'xyz:' prefix and uppercase. Used to compare across rotation
-    list, open positions, and resting orders consistently.
-    'xyz:GOLD' → 'GOLD'. 'BTC' → 'BTC'. None → ''.
-
-    v2.0.4: previously held_assets used p['coin'].upper() which preserved
-    the xyz prefix ('XYZ:GOLD'), but rotation comparisons stripped via
-    split(':')[-1] ('GOLD'). The mismatch meant even genuinely-open XYZ
-    positions weren't blocking re-emission on that asset. Now both sides
-    normalize through this helper.
-    """
-    if not coin:
-        return ""
-    return str(coin).split(":")[-1].upper()
-
-
-# ─── Output / logging / time ──────────────────────────────────
+# ─── Output / log ─────────────────────────────────────────
 
 def output(data):
     print(json.dumps(data, default=str))
@@ -317,14 +233,7 @@ def output(data):
 
 
 def log(msg):
-    print(f"[TURBINE-v2] {msg}", file=sys.stderr)
-
-
-def safe_float(v, d=0.0):
-    try:
-        return float(v) if v is not None else d
-    except (TypeError, ValueError):
-        return d
+    print(f"[TURBINE-v3] {msg}", file=sys.stderr)
 
 
 def now_ts():

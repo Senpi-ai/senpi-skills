@@ -1,0 +1,38 @@
+{
+  "wallet": "",
+  "strategyId": "",
+  "chatId": "",
+
+  "slots": {
+    "volume": 7,
+    "hunt": 2
+  },
+
+  "margin": {
+    "volume": 500,
+    "hunt": 1250
+  },
+
+  "leverage": {
+    "volume": 5,
+    "hunt": 5
+  },
+
+  "cycle": {
+    "volumeDefaultMin": 10,
+    "volumeFallbackMin": 12,
+    "fillRateFallbackThreshold": 0.85,
+    "fillRateWindowSize": 20,
+    "huntMin": 240,
+    "huntCooldownMin": 60
+  },
+
+  "spread": {
+    "mainBps": 3,
+    "xyzBps": 10
+  },
+
+  "xyzWeight": 0.80,
+  "huntMinScore": 10,
+  "minAccountValueForHunt": 5500.0
+}
