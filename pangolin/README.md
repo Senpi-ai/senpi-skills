@@ -1,6 +1,62 @@
-# 🦔 PANGOLIN v2.0 — Funding Rate Fader. v2-Runtime-Native. Maker Exits.
+# 🦔 PANGOLIN v3.0.0 — Funding Rate Fader. senpi_runtime_helpers.
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+
+**Plumbing-only migration from v2.2.0. NO thesis change.** Pangolin is the canonical reference implementation — its producer was the first to ship the helpers wrapper pattern on `helper-mcp-envelope-aligned`. v3.0.0 ports that to main with fleet-fix #214 (no `wallet=`/`scanner=` daemon kwargs) applied.
+
+## Install
+
+### Step 1 — Pull the helpers package (one-time per host)
+
+> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch. Pull from there.
+
+```bash
+mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
+for f in __init__.py _config.py _logging.py cache.py client.py \
+         daemon.py lock.py parallel.py SKILL.md README.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
+done
+```
+
+### Step 2 — Pull Pangolin v3.0.0
+
+```bash
+mkdir -p /data/workspace/skills/pangolin-strategy/{config,scripts,state,references}
+for f in scripts/pangolin-producer.py scripts/pangolin_config.py \
+         runtime.yaml SKILL.md README.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/pangolin/$f" \
+    -o "/data/workspace/skills/pangolin-strategy/$f"
+done
+```
+
+### Step 3 — Required env vars
+
+```bash
+export PANGOLIN_WALLET=<your-pangolin-wallet>
+export SENPI_AUTH_TOKEN=...
+export PANGOLIN_DECISION_MODEL=gemini-3.1-pro-preview
+```
+
+### Step 4 — Stop v2.x cron, start v3.0.0 daemon
+
+```bash
+openclaw cron list | grep pangolin
+openclaw cron delete <pangolin-cron-id>
+
+nohup python3 -u /data/workspace/skills/pangolin-strategy/scripts/pangolin-producer.py \
+  > /tmp/pangolin-producer.log 2>&1 &
+```
+
+## Smoke test
+
+```bash
+tail -f /tmp/pangolin-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
+
+Expected: `status=ok` every tick (300s interval — Pangolin's longer cadence reflects the 24-48h funding-fade thesis horizon).
+
+---
 
 ## Thesis
 
