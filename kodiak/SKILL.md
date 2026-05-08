@@ -1,23 +1,28 @@
 ---
 name: kodiak-strategy
 description: >-
-  KODIAK v2.0 — SOL alpha hunter with position lifecycle. Thesis exit removed.
-  DSL manages all exits. Leverage capped at 7x. Retrace widened to 0.08.
-  v1.1.1's SOL SHORT ran 13 hours unprotected due to missing wallet fields —
-  v2.0 prevents this.
-  DSL exit managed by plugin runtime via runtime.yaml.
+  KODIAK v7.0.0 — SOL alpha hunter, senpi_runtime_helpers migration.
+  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
+  to in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
+  runtime /signals, long-lived producer_daemon). Thesis preserved
+  verbatim from v6.0.1: SOL alpha hunter, single-asset focus, v5.1
+  base-tech-score floor with multi-factor scoring (SM consensus,
+  trend structure, momentum, funding, OI, BTC correlation, RSI),
+  conviction-tiered leverage (5x default, 6x conviction at score 11+,
+  7x apex at score 13+), 240-min asset cooldown.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "7.0.0"
   platform: senpi
   exchange: hyperliquid
   base_skill: grizzly-v2.0
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
 ---
 
-# 🐻 KODIAK v2.0 — SOL Alpha Hunter
+# 🐻 KODIAK v7.0.0 — SOL Alpha Hunter
 
 One asset. Every signal. Scanner enters. DSL exits.
 
