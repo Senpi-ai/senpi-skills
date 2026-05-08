@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Senpi JACKAL Producer v2.0
+# Senpi JACKAL Producer v3.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""JACKAL v2.0 Producer — Smart-Stalker signal emitter for v2 runtime.
+"""JACKAL v3.0.0 Producer — Smart-Stalker signal emitter for v2 runtime.
 
 Jackal v1.1 (the scanner) ran as a full-agency Python scanner that:
   - Maintained a two-tier pool (watchlist + active)
@@ -25,17 +25,20 @@ context, push a signal payload to the runtime via
 NO execution code. NO DSL code. NO risk gates. The runtime owns all of that.
 
 Environment variables (standard v2 producer):
-  SENPI_API_KEY     — for MCP access
-  STRATEGY_ADDRESS  — Jackal v2 wallet (must match runtime YAML)
+  JACKAL_WALLET     — Jackal wallet (REQUIRED; per-agent per v2.0.9 rule)
+  SENPI_AUTH_TOKEN  — Bearer token for MCP + signal POST (REQUIRED)
+  JACKAL_DECISION_MODEL — bare LLM model name
   SENPI_MCP_URL     — optional, default https://mcp.prod.senpi.ai/mcp
-  OPENCLAW_BIN      — optional, default "openclaw"
-  EXTERNAL_SCANNER_NAME — optional override (default "jackal_signals")
+  SENPI_RUNTIME_API_HOST/PORT — optional, default 127.0.0.1:8787
+  OPENCLAW_WORKSPACE — optional, default /data/workspace
+
+  STRATEGY_ADDRESS is BANNED (v2.0.9 contamination rule). v3.0.0 emits
+  a deprecation warning and falls back to it if JACKAL_WALLET unset.
 """
 
-import fcntl
+import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -45,50 +48,45 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import jackal_config as cfg
 import jackal_state as state
 
-
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD (v2.0.3 — Daniel's review)
-# ═══════════════════════════════════════════════════════════════
-# Cron fires every 60s. If a run takes longer (MCP latency × candidate
-# count can push past 60s when many new entries appear), the next tick
-# would start a second concurrent run. That races on last-seen.json —
-# run B reads the pre-run-A state, re-detects the SAME entries, and
-# pushes duplicate signals to the runtime.
-# fcntl.LOCK_EX | LOCK_NB is non-blocking: if another run holds the
-# lock, acquire_lock() returns None and we skip this tick cleanly.
-# fcntl locks auto-release when the process dies, so crashes self-heal.
-
-_LOCK_PATH = state.STATE_DIR / "producer.lock"
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-def acquire_lock():
-    """Non-blocking exclusive lock. Returns file handle or None if held."""
+# Reentrancy guard removed in v3.0.0. producer_daemon owns the per-tick
+# scanner_lock with stale-PID auto-recovery.
+
+
+VERSION = "3.0.0"
+
+# Hardcoded — must match runtime.yaml external_scanner.name.
+SCANNER_NAME = "jackal_signals"
+
+# Signal type passed explicitly per Rachin's PR #209 review.
+# (Preserved from v2.x payload — don't change without coordinating
+# with audit_query consumers that filter on this value.)
+SIGNAL_TYPE = "JACKAL_COPY_ENTRY"
+
+
+def _resolve_wallet():
+    """Resolve Jackal wallet — per-agent JACKAL_WALLET (v2.0.9 rule).
+    Backward-compat fallback to STRATEGY_ADDRESS with deprecation warning."""
+    env_val = (os.environ.get("JACKAL_WALLET") or "").strip()
+    if env_val:
+        return env_val
+    legacy = (os.environ.get("STRATEGY_ADDRESS") or "").strip()
+    if legacy:
+        sys.stderr.write(
+            "[jackal v3.0.0] DEPRECATION: STRATEGY_ADDRESS env var is BANNED "
+            "per Turbine v2.0.9 contamination rule. Falling back to it for "
+            "compatibility. Migrate to JACKAL_WALLET ASAP.\n"
+        )
+        return legacy
     try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
-
-
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        return (cfg.load_config().get("wallet") or "").strip()
     except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
+        return ""
 
 
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "jackal_signals")
-STRATEGY_ADDRESS = os.environ.get("STRATEGY_ADDRESS", "")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+STRATEGY_ADDRESS = _resolve_wallet()
 
 # ═══════════════════════════════════════════════════════════════
 # POOL CONFIG
@@ -478,40 +476,37 @@ def fetch_btc_macro():
 # ═══════════════════════════════════════════════════════════════
 
 def push_signal(payload):
-    """Push a signal payload to the runtime via CLI."""
+    """Push a signal via senpi_runtime_helpers wrapper (direct HTTP POST)."""
     if not STRATEGY_ADDRESS:
-        print("ERROR: STRATEGY_ADDRESS env var not set; cannot push signal", file=sys.stderr)
+        print("ERROR: JACKAL_WALLET env var not set; cannot push signal", file=sys.stderr)
         return False
-
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", STRATEGY_ADDRESS,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if result.returncode != 0:
-            print(f"INGEST_FAILED: {result.stderr}", file=sys.stderr)
-            return False
-        response = json.loads(result.stdout) if result.stdout.strip() else {}
-        if not response.get("ok", False):
-            print(f"INGEST_REJECTED: {response.get('error', {})}", file=sys.stderr)
-            return False
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner=SCANNER_NAME,
+            asset=payload.get("asset"),
+            direction=payload.get("direction"),
+            score=payload.get("score"),       # Jackal's quality_score / 100 = 0..1 confidence
+            signal_type=SIGNAL_TYPE,
+            data=payload.get("data"),
+        )
         return True
-    except Exception as e:
-        print(f"INGEST_EXCEPTION: {e}", file=sys.stderr)
+    except SenpiClientError as e:
+        print(f"INGEST_REJECTED: {e}", file=sys.stderr)
+        return False
+    except Exception as e:  # noqa: BLE001
+        print(f"INGEST_EXCEPTION: {type(e).__name__}: {e}", file=sys.stderr)
         return False
 
 
 def build_signal_payload(candidate, ta, btc_macro):
-    """Build the payload matching runtime.yaml's jackal_signals.config.fields schema."""
+    """Build the payload. push_signal extracts asset/direction/score/data
+    as kwargs; signal_type is the SIGNAL_TYPE constant (Rachin's PR #209)."""
     trader = candidate["trader"]
     return {
         "asset": candidate["coin"],
         "direction": candidate["direction"],
-        "score": trader.get("quality_score", 0) / 100.0,  # normalized 0-1
-        "signal_type": "JACKAL_COPY_ENTRY",
+        "score": trader.get("quality_score", 0) / 100.0,  # 0..1 confidence
         "data": {
             "sourceTraderAddress": trader["address"],
             "sourceTraderUserId": trader.get("user_id") or "",
@@ -543,86 +538,88 @@ def build_signal_payload(candidate, ta, btc_macro):
 # ═══════════════════════════════════════════════════════════════
 
 def main():
+    """Single tick. NO inner scanner_lock — daemon owns it."""
     run_start = time.time()
-    lock = acquire_lock()
-    if lock is None:
-        print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
-            "_jackal_producer_version": "2.0.6",
-        }))
+
+    force_refresh = os.environ.get("REFRESH_POOL", "").lower() in ("1", "true", "yes")
+    pool = refresh_pool(force=force_refresh)
+    if not pool:
+        print(json.dumps({"status": "no_pool", "reason": "pool refresh returned empty"}))
         return
 
-    try:
-        force_refresh = os.environ.get("REFRESH_POOL", "").lower() in ("1", "true", "yes")
-        pool = refresh_pool(force=force_refresh)
-        if not pool:
-            print(json.dumps({"status": "no_pool", "reason": "pool refresh returned empty"}))
-            return
+    current_positions = fetch_pool_positions(pool)
+    last_seen = state.load_last_seen()
 
-        current_positions = fetch_pool_positions(pool)
-        last_seen = state.load_last_seen()
+    # v2.0.4: CRITICAL — baseline-seed guard.
+    # If last_seen is empty (first run ever, or state file deleted),
+    # DO NOT treat every current pool-member position as "new." That
+    # would emit signals for all existing positions → LLM approves
+    # a few → unintended entries on startup. Observed live 2026-04-23:
+    # Jackal v2.0.3 opened 2 positions (ETH SHORT + SOL SHORT)
+    # immediately on first install before the baseline settled.
+    # On empty baseline, emit 0 signals, just save the baseline. The
+    # NEXT run has a populated baseline and can safely detect diffs.
+    if not last_seen:
+        candidates = []
+    else:
+        candidates = detect_new_entries(pool, current_positions, last_seen)
+        candidates = enrich_with_consensus(candidates, current_positions)
 
-        # v2.0.4: CRITICAL — baseline-seed guard.
-        # If last_seen is empty (first run ever, or state file deleted),
-        # DO NOT treat every current pool-member position as "new." That
-        # would emit signals for all existing positions → LLM approves
-        # a few → unintended entries on startup. Observed live 2026-04-23:
-        # Jackal v2.0.3 opened 2 positions (ETH SHORT + SOL SHORT)
-        # immediately on first install before the baseline settled.
-        # On empty baseline, emit 0 signals, just save the baseline. The
-        # NEXT run has a populated baseline and can safely detect diffs.
-        if not last_seen:
-            candidates = []
-        else:
-            candidates = detect_new_entries(pool, current_positions, last_seen)
-            candidates = enrich_with_consensus(candidates, current_positions)
+    # Always persist current positions as new baseline — regardless of whether
+    # we emitted signals. If we don't, dropped signals resurface forever.
+    state.save_last_seen({addr: pos for addr, pos in current_positions.items()})
 
-        # Always persist current positions as new baseline — regardless of whether
-        # we emitted signals. If we don't, dropped signals resurface forever.
-        state.save_last_seen({addr: pos for addr, pos in current_positions.items()})
-
-        if not candidates:
-            elapsed = time.time() - run_start
-            print(json.dumps({
-                "status": "ok",
-                "pool_size": len(pool),
-                "candidates": 0,
-                "elapsed_sec": round(elapsed, 2),
-                "_jackal_producer_version": "2.0.6",
-            }))
-            return
-
-        # v2.0.3: fetch BTC macro + funding regime ONCE per run (shared
-        # across all candidates). Previously market_get_funding_regime
-        # was called per-candidate inside enrich_with_ta — 1 MCP call
-        # per candidate × N candidates = wasted MCP budget.
-        btc_macro = fetch_btc_macro()
-        funding_regime = fetch_funding_regime()
-
-        pushed = 0
-        for c in candidates:
-            ta = enrich_with_ta(c, funding_regime)
-            payload = build_signal_payload(c, ta, btc_macro)
-            if push_signal(payload):
-                pushed += 1
-
+    if not candidates:
         elapsed = time.time() - run_start
-        warn = "WARN_OVER_60S" if elapsed > 60 else None
         print(json.dumps({
             "status": "ok",
             "pool_size": len(pool),
-            "candidates_detected": len(candidates),
-            "signals_pushed": pushed,
-            "btc_macro": btc_macro,
-            "funding_regime": funding_regime,
+            "candidates": 0,
             "elapsed_sec": round(elapsed, 2),
-            "warn": warn,
-            "_jackal_producer_version": "2.0.6",
+            "_jackal_producer_version": VERSION,
         }))
-    finally:
-        release_lock(lock)
+        return
+
+    # v2.0.3: fetch BTC macro + funding regime ONCE per run (shared
+    # across all candidates). Previously market_get_funding_regime
+    # was called per-candidate inside enrich_with_ta — 1 MCP call
+    # per candidate × N candidates = wasted MCP budget.
+    btc_macro = fetch_btc_macro()
+    funding_regime = fetch_funding_regime()
+
+    pushed = 0
+    for c in candidates:
+        ta = enrich_with_ta(c, funding_regime)
+        payload = build_signal_payload(c, ta, btc_macro)
+        if push_signal(payload):
+            pushed += 1
+
+    elapsed = time.time() - run_start
+    warn = "WARN_OVER_60S" if elapsed > 60 else None
+    print(json.dumps({
+        "status": "ok",
+        "pool_size": len(pool),
+        "candidates_detected": len(candidates),
+        "signals_pushed": pushed,
+        "btc_macro": btc_macro,
+        "funding_regime": funding_regime,
+        "elapsed_sec": round(elapsed, 2),
+        "warn": warn,
+        "_jackal_producer_version": VERSION,
+    }))
 
 
 if __name__ == "__main__":
-    main()
+    # v3.0.0 — long-lived daemon. NOTE: wallet=/scanner= NOT passed
+    # per fleet-fix #214.
+    _wallet_lock_id = (
+        hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
+        if STRATEGY_ADDRESS
+        else "unset"
+    )
+    producer_daemon(
+        fn=main,
+        interval_seconds=60,
+        name=f"jackal-producer-{_wallet_lock_id}",
+        tick_timeout=120,
+    )
