@@ -1,23 +1,28 @@
 ---
 name: cheetah-strategy
 description: >-
-  CHEETAH v6.0 — Multi-signal confluence sniper, v2-runtime-native rewrite.
-  Refuses to trade unless ALL major signals align: SM consensus, velocity,
-  acceleration, dual price confirmation, volume spike, quality-trader
-  alignment, rank climb. Score 10/15 floor with score-scaled leverage
-  (3x/5x/7x/8x). Producer + runtime LLM gate + FEE_OPTIMIZED_LIMIT
-  entries AND exits + held-asset dedup + post-close cooldown.
+  CHEETAH v7.0.0 — Multi-signal confluence sniper, senpi_runtime_helpers
+  migration. Plumbing-only flip from openclaw-CLI subprocess + mcporter
+  subprocess to in-process SenpiClient (direct HTTPS for MCP, direct
+  HTTP POST to runtime /signals, long-lived producer_daemon). Thesis
+  preserved verbatim from v6.1: refuses to trade unless ALL major
+  signals align — SM consensus, velocity, acceleration, dual price
+  confirmation, volume spike, quality-trader alignment, rank climb.
+  Score 10/15 floor, score-scaled leverage (3x/5x/7x/8x),
+  FEE_OPTIMIZED_LIMIT entries AND exits, held-asset dedup, post-close
+  cooldown.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "6.0.0"
+  version: "7.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
 ---
 
-# 🐆 CHEETAH v6.0 — Multi-Signal Confluence Sniper
+# 🐆 CHEETAH v7.0.0 — Multi-Signal Confluence Sniper
 
 **SM commits. Quality traders commit. Price confirms. Volume commits. All at once. Cheetah pounces once. The runtime DSL ratchets to lock the win.**
 
@@ -110,9 +115,10 @@ See [README.md](README.md) for fresh-install + migration commands from v5.2.
 - ✓ **Held-asset dedup** (3-layer; v2.1 Pangolin pattern)
 - ✓ **Post-close cooldown** (v2.1.2 Pangolin pattern; runtime cooldown backstop)
 - ✓ **Fleet-standard T0/T1 ladder** (commit 6cad383 pattern)
-- ✓ **Reentrancy lockfile** (fcntl)
+- ✓ **Reentrancy guard** (v7.0.0: producer_daemon scanner_lock with stale-PID auto-recovery; replaces hand-rolled fcntl)
 - ✓ **Wallet-from-config** (no hardcoding; senpi-skills is public)
 - ✓ **drawdown_reset_on_day_rollover: false** (Roach lesson)
+- ✓ **senpi_runtime_helpers** (v7.0.0: in-process MCP + signal POST; replaces mcporter + openclaw-CLI subprocess)
 - ✗ **FP-001 quiet hours** — deferred until fleet telemetry can validate the time-of-day P&L correlation
 
 ## Hard rule for user-conversation Claude sessions
@@ -125,6 +131,10 @@ User-conversation Claude sessions MUST NOT call any of:
 These tools are reserved for the **producer cron** (entry path) and the **DSL ratchet engine** (exit path). User-conversation sessions are **read-only**.
 
 If the user asks a question that implies action ("anything close to triggering?"), respond by reading the current state — DO NOT execute. The producer cron will handle real signals on its next tick.
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
 
 ## License
 
