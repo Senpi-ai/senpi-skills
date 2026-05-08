@@ -1,56 +1,70 @@
-# 🌪️ Turbine v3.1 — Volume Engine + HYPE Hunt (two wallets)
+# 🌪️ Turbine v3.2 — Volume Rotation + Runners (two wallets)
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**ONE producer daemon manages TWO Senpi strategy wallets, each with its own runtime.** This is required because the runtime-phase-2 plugin enforces one runtime per wallet — v3.0's "two runtimes on one wallet" architecture got blocked at deploy and was rewritten as v3.1.
+**Run the volume play. Let winners run.**
 
-The wallet boundary IS the mode boundary. Volume wallet runs the rotation engine; hunt wallet rides HYPE 4H momentum. Single producer reads both, emits to both. `audit_query` filters per-wallet for clean P&L attribution.
+ONE producer daemon manages TWO Senpi strategy wallets. Both wallets receive the SAME volume-rotation alpha (same scoring, same asset universe, same funding-fade direction). The DSL preset on each wallet picks the exit profile:
 
-## What changed in v3.1 (from v3.0)
+- **Volume wallet** ($4,000): hard_timeout 10min, no Phase 2 — pure rotation cadence.
+- **Runners wallet** ($1,900): hard_timeout 240min (4h cap), Phase 2 ratchet enabled — let winners run.
 
-- **Two strategy wallets** instead of one — runtime-phase-2 plugin enforces one runtime per wallet
-- **Funding split** — Volume wallet $3,500 (7 × $500) + Hunt wallet $2,400 (2 × $1,200) = $5,900 total
-- **Env var schema** — `TURBINE_VOLUME_WALLET` + `TURBINE_HUNT_WALLET` (split from v3.0's single `TURBINE_WALLET`)
-- **Config schema** — `volume.{wallet,strategyId}` + `hunt.{wallet,strategyId}` (was flat `wallet`/`strategyId`)
-- **Slot-mode tracker dropped** — wallet boundary makes it redundant
-- **Hunt is optional** — leave `TURBINE_HUNT_WALLET` unset to run a pure volume engine
+Most positions on either wallet exit at small loss/win. ~5% of entries land on a real directional move and ratchet to apex on the runners wallet — that asymmetry is the alpha v3.0/v3.1 was leaving on the table by force-cutting at 10 min.
+
+## v3.2 vs v3.1 (the redesign)
+
+v3.1's "hunt mode" was a HYPE-only momentum specialist — wrong abstraction. With HYPE-only and 4h holds, hunt fired ~1-3 times per day, leaving the second wallet idle ~90% of the time and contributing zero volume. v3.2 fixes this by giving the runners wallet the SAME volume rotation as the volume wallet, just with a patient DSL profile.
+
+| | v3.1 hunt | v3.2 runners |
+|---|---|---|
+| Asset universe | HYPE only | Same as volume (BTC/ETH/SOL/HYPE + xyz:BRENTOIL/GOLD/SPX) |
+| Scoring | HYPE 4H breakout, score >= 10 floor | Volume rotation (same as volume wallet) |
+| Trigger frequency | 1-3 entries/day | Constant rotation (same as volume) |
+| Idle time | ~90% | <5% |
+| Volume contribution | Negligible | Meaningful (smaller scale than volume wallet but always working) |
+| DSL profile | Same as v3.2 | Same as v3.2 (4h cap, Phase 2 ratchet) |
 
 ## Mission targets
 
-| Metric | v2.0.x | v3.1 |
+| Metric | v2.0.x | v3.2 |
 |---|---|---|
-| Daily volume | ~$2-3M | $5M |
+| Daily volume | ~$2-3M | $5M+ |
 | Net cost per $1M volume | $200 | <$100 |
-| Total slots | 3 | 9 (7 vol + 2 hunt) |
+| Total slots | 3 | 9 (7 vol + 2 runners) |
 | Volume cycle | 15 min | 10 min |
-| Total funding | $1,500 | **$5,900** ($3,500 vol + $2,400 hunt) |
+| Total funding | $1,500 | **$5,900** ($4,000 vol + $1,900 runners) |
 
-See [SKILL.md](SKILL.md) for the full thesis, scoring tables, DSL presets, and risk-gate breakdown.
+See [SKILL.md](SKILL.md) for the full architecture, scoring, DSL presets, and risk-gate breakdown.
 
 ---
 
-## Sunset sequence (BEFORE deploying v3.1)
+## Sunset sequence (BEFORE deploying v3.2)
 
-If Turbine v2.0.x or Sentinel are still running on the legacy wallet, stop them first.
+If Turbine v2.0.x or Sentinel are still running, stop them first.
 
 ```bash
-# 1. Confirm what's running
 openclaw cron list | grep -E "turbine|sentinel"
 openclaw senpi runtime list | grep -E "turbine|sentinel"
 
-# 2. Stop legacy producers/scanners
+# Stop legacy crons
 openclaw cron delete <turbine-v2-cron-id>
 openclaw cron delete <sentinel-cron-id>     # if exists
 
-# 3. Wait for or close any open positions on the legacy wallet
+# Wait for or close any open positions on the legacy wallet
 mcp__senpi-prod__strategy_get_clearinghouse_state \
   --strategy_wallet <legacy-wallet>
 
-# 4. Delete the legacy runtime(s)
+# Delete the legacy runtime(s)
 openclaw senpi runtime delete <turbine-tracker-id>
 openclaw senpi runtime delete <sentinel-tracker-id>     # if exists
+```
 
-# 5. Withdraw funds (or leave; v3.1 uses TWO new wallets)
+If you tried to deploy v3.0 or v3.1 partially, also clean up:
+
+```bash
+# v3.0/v3.1 left a partial volume runtime?
+openclaw senpi runtime delete turbine-volume-tracker-XXXX
+openclaw senpi runtime delete turbine-hunt-tracker-XXXX     # if exists
 ```
 
 ---
@@ -61,10 +75,10 @@ Create TWO new Senpi strategy wallets:
 
 | Wallet | Purpose | Funding |
 |---|---|---|
-| `<volume-wallet>` | Volume engine runtime | $3,500 USDC on HL perps |
-| `<hunt-wallet>` | HYPE momentum runtime | $2,400 USDC on HL perps |
+| `<volume-wallet>` | Volume rotation (fast DSL) | **$4,000** USDC on HL perps |
+| `<runners-wallet>` | Volume rotation (patient DSL) | **$1,900** USDC on HL perps |
 
-If you want a pure volume engine without hunt mode, provision only the volume wallet and leave hunt unset.
+**Total: $5,900.** If you want a pure volume engine without runners, provision only the volume wallet and leave runners unset.
 
 ---
 
@@ -83,12 +97,12 @@ done
 
 Skip if already pulled for Cheetah v7.0.0 or another v3 skill.
 
-### Step 2 — Pull Turbine v3.1
+### Step 2 — Pull Turbine v3.2
 
 ```bash
 mkdir -p /data/workspace/skills/turbine-strategy/{config,scripts,state,references}
 
-for f in runtime-volume.yaml runtime-hunt.yaml SKILL.md README.md; do
+for f in runtime-volume.yaml runtime-runners.yaml SKILL.md README.md; do
   curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/turbine/$f" \
     -o "/data/workspace/skills/turbine-strategy/$f"
 done
@@ -100,6 +114,9 @@ for f in turbine-producer.py turbine_config.py; do
 done
 curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/turbine/references/skill-attribution.md" \
   -o "/data/workspace/skills/turbine-strategy/references/skill-attribution.md"
+
+# Remove legacy v3.1 hunt yaml if it's still on disk:
+rm -f /data/workspace/skills/turbine-strategy/runtime-hunt.yaml
 ```
 
 ### Step 3 — Configure
@@ -112,59 +129,60 @@ Edit `config/turbine-config.json`:
     "wallet": "0xVolumeWallet...",
     "strategyId": "volume-strategy-id"
   },
-  "hunt": {
-    "wallet": "0xHuntWallet...",
-    "strategyId": "hunt-strategy-id"
+  "runners": {
+    "wallet": "0xRunnersWallet...",
+    "strategyId": "runners-strategy-id"
   },
   "chatId": "your-telegram-chat-id"
 }
 ```
 
-Leave the other defaults (`slots`, `margin`, `cycle`, `spread`, etc.) alone unless instructed.
+Leave the other defaults (`slots`, `margin`, `cycle`, `spread`, `xyzWeight`) alone unless instructed.
 
 ### Step 4 — Required env vars
 
 ```bash
 export TURBINE_VOLUME_WALLET=0xVolumeWallet
-export TURBINE_HUNT_WALLET=0xHuntWallet                # omit to disable hunt
+export TURBINE_RUNNERS_WALLET=0xRunnersWallet           # omit to disable runners
 export SENPI_AUTH_TOKEN=...
 export TURBINE_VOLUME_DECISION_MODEL=gemini-3.1-pro-preview
-export TURBINE_HUNT_DECISION_MODEL=gemini-3.1-pro-preview
-
-# OpenClaw runtime substitution
+export TURBINE_RUNNERS_DECISION_MODEL=gemini-3.1-pro-preview
 export TELEGRAM_CHAT_ID=<your-chat-id>
-```
 
-❌ Do NOT set `STRATEGY_ADDRESS` (banned per v2.0.9) or `TURBINE_WALLET` (legacy v3.0 var; v3.1 ignores it).
+# Unset banned legacy vars
+unset STRATEGY_ADDRESS
+unset TURBINE_WALLET
+unset TURBINE_HUNT_WALLET
+unset TURBINE_HUNT_STRATEGY_ID
+unset TURBINE_HUNT_DECISION_MODEL
+```
 
 ### Step 5 — Fund both wallets
 
 | Wallet | Amount |
 |---|---|
-| Volume | $3,500 USDC on HL perps |
-| Hunt | $2,400 USDC on HL perps |
+| Volume | **$4,000** USDC on HL perps |
+| Runners | **$1,900** USDC on HL perps |
 
 ### Step 6 — Install BOTH runtimes
 
-Each runtime points to its own wallet via `${TURBINE_VOLUME_WALLET}` / `${TURBINE_HUNT_WALLET}`:
-
 ```bash
-# Volume runtime
+# Volume runtime (attaches to volume wallet)
 openclaw senpi runtime create \
   --path /data/workspace/skills/turbine-strategy/runtime-volume.yaml
 
-# Hunt runtime (skip if running pure volume engine)
+# Runners runtime (attaches to runners wallet — different wallet)
 openclaw senpi runtime create \
-  --path /data/workspace/skills/turbine-strategy/runtime-hunt.yaml
+  --path /data/workspace/skills/turbine-strategy/runtime-runners.yaml
 
 openclaw senpi runtime list   # confirm both ACTIVE
 ```
 
-Each runtime attaches to its OWN wallet, so the runtime-phase-2 "one runtime per wallet" rule is satisfied.
+If you see `runtime for wallet X already running` on the second install, both YAMLs are pointing to the same wallet — confirm `${TURBINE_VOLUME_WALLET}` ≠ `${TURBINE_RUNNERS_WALLET}` and rerun env exports.
 
 ### Step 7 — Start the producer daemon
 
-The v3.1 producer is a long-lived daemon. **Do NOT add an openclaw cron entry.**
+The v3.2 producer is a long-lived daemon. **Do NOT add an openclaw cron entry.**
 
 ```bash
 # Option A — supervised by tini:
@@ -192,33 +210,45 @@ Every line should show `status=ok`.
 | `error` | `fn` raised |
 | `timeout` | `fn` took > 45s |
 
-`daemon_self_terminated_no_runtime` is normal when the volume runtime is deleted (the daemon's alive_check tracks the volume runtime; hunt can be deleted independently without stopping the daemon).
+`daemon_self_terminated_no_runtime` is normal when the volume runtime is deleted.
 
 ## Verify both wallets are firing
 
 ```bash
 tail -50 /tmp/turbine-producer.log | grep -v '"event"' | jq '
-  .volume_wallet, .volume_account_value, .slots,
-  .hunt_enabled, .hunt_wallet, .hunt_account_value,
-  .volume_emitted, .hunt_emitted, .current_cycle_min'
+  .volume.wallet, .volume.account_value, .volume.slots_held, .volume.slots_effective,
+  .runners.wallet, .runners.account_value, .runners.slots_held, .runners.slots_effective,
+  .current_cycle_min'
 ```
 
 Expected first 5 minutes:
-- `volume_account_value` ≈ $3,500
-- `hunt_account_value` ≈ $2,400 (or `null` if hunt disabled)
-- `slots.volume.held` climbing toward 7
-- `slots.hunt.held` typically 0 (HYPE 4H breakouts are rare)
-- `volume_emitted` populating with funding-fade signals
-- `hunt_emitted` typically empty
+- `volume.account_value` ≈ $4,000
+- `volume.slots_held` climbing toward 7
+- `volume.slots_effective` = 7 (auto-downsize hasn't kicked in yet)
+- `runners.account_value` ≈ $1,900
+- `runners.slots_held` climbing toward 2
+- `runners.slots_effective` = 2
 - `current_cycle_min == 10`
+
+## Operating the volume wallet bleed
+
+The volume wallet bleeds at the cost-of-volume rate. At mission target ($100/$1M × $5M/day = ~$500/day), the wallet drops below the 7-slot threshold ($3,500) within ~24 hours. The producer auto-downsizes gracefully:
+
+| `volume.account_value` | `volume.slots_effective` |
+|---|---|
+| ≥ $3,500 | 7 |
+| $3,000-$3,499 | 6 |
+| $2,500-$2,999 | 5 |
+| $2,000-$2,499 | 4 |
+
+Top up the volume wallet daily-to-weekly to keep 7 slots active. Senpi-side rebates flow separately — they don't refund into the wallet.
 
 ## What NOT to do
 
 - ❌ **Do NOT** add an openclaw cron — the daemon supervises itself
-- ❌ **Do NOT** set `STRATEGY_ADDRESS` or `TURBINE_WALLET` env vars — both banned
+- ❌ **Do NOT** set `STRATEGY_ADDRESS`, `TURBINE_WALLET`, or `TURBINE_HUNT_WALLET` env vars — all banned
 - ❌ **Do NOT** point both runtimes at the same wallet — runtime-phase-2 will reject the second install
-- ❌ **Do NOT** run Sentinel concurrently — hunt mode supersedes it
-- ❌ **Do NOT** lower `huntMinScore` below 10 — admits noise
+- ❌ **Do NOT** run Sentinel concurrently — runners mode supersedes it
 - ❌ **Do NOT** delete a runtime while positions are open — orphan-position bug
 
 ## Troubleshooting
@@ -226,11 +256,10 @@ Expected first 5 minutes:
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Producer exits with `TURBINE_VOLUME_WALLET not set` | Env var missing | Export `TURBINE_VOLUME_WALLET` (NOT `TURBINE_WALLET`) |
-| Hunt slots never fire | `TURBINE_HUNT_WALLET` not set OR score floor 10 is selective | Check daemon's per-tick `hunt_enabled` field; check `hunt_skipped_reason` |
-| `volume push_signal rejected ... NOT_FOUND` | Volume runtime not registered to the volume wallet | `openclaw senpi runtime list`; confirm `external_scanner.name: turbine_volume_signals` matches producer |
-| `runtime for wallet X already running` on install | Volume + hunt runtime YAMLs both pointing at the same wallet | Confirm `${TURBINE_VOLUME_WALLET}` ≠ `${TURBINE_HUNT_WALLET}`; rerun env exports |
+| Volume wallet's `slots_effective` drops over time | Cost-of-volume bleed (expected) | Top up volume wallet |
+| `push_signal rejected ... NOT_FOUND` | Runtime not registered to that wallet | `openclaw senpi runtime list`; confirm scanner names match |
+| `runtime for wallet X already running` on install | Both YAMLs pointing at same wallet | Confirm volume + runners env vars are different |
 | Volume slots never fill past 3-4 | Spread gates too tight, fill rate low | Check `current_cycle_min`; check per-asset spread distribution |
-| Account drops below `minHuntWalletBalance` | Hunt wallet ate a drawdown | Hunt auto-pauses; volume continues. Top up hunt wallet OR lower `minHuntWalletBalance`. |
 
 ## License
 

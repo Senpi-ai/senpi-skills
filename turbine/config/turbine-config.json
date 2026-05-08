@@ -4,7 +4,7 @@
     "strategyId": ""
   },
 
-  "hunt": {
+  "runners": {
     "wallet": "",
     "strategyId": ""
   },
@@ -13,26 +13,24 @@
 
   "slots": {
     "volume": 7,
-    "hunt": 2
+    "runners": 2
   },
 
   "margin": {
     "volume": 500,
-    "hunt": 1200
+    "runners": 950
   },
 
   "leverage": {
     "volume": 5,
-    "hunt": 5
+    "runners": 5
   },
 
   "cycle": {
     "volumeDefaultMin": 10,
     "volumeFallbackMin": 12,
     "fillRateFallbackThreshold": 0.85,
-    "fillRateWindowSize": 20,
-    "huntMin": 240,
-    "huntCooldownMin": 60
+    "fillRateWindowSize": 20
   },
 
   "spread": {
@@ -40,7 +38,5 @@
     "xyzBps": 10
   },
 
-  "xyzWeight": 0.80,
-  "huntMinScore": 10,
-  "minHuntWalletBalance": 2000.0
+  "xyzWeight": 0.80
 }
