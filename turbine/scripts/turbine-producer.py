@@ -576,11 +576,18 @@ if __name__ == "__main__":
         if VOLUME_WALLET
         else "unset"
     )
+    # NOTE: senpi_runtime_helpers.daemon.producer_daemon installed on the
+    # runtime host (Erik's build) does NOT yet accept wallet=/scanner=
+    # kwargs even though the helper-mcp-envelope-aligned branch's source
+    # signature documents them. Caught live on Turbine v3.2 deploy
+    # 2026-05-08: TypeError: unexpected keyword argument 'wallet'.
+    # When the host helpers package is upgraded, add back:
+    #   wallet=VOLUME_WALLET,
+    #   scanner=VOLUME_SCANNER_NAME,
+    # which enables /state alive_check on the volume runtime.
     producer_daemon(
         fn=main,
         interval_seconds=60,
         name=f"turbine-producer-{_wallet_lock_id}",
-        wallet=VOLUME_WALLET,
-        scanner=VOLUME_SCANNER_NAME,
         tick_timeout=45,
     )

@@ -944,11 +944,18 @@ if __name__ == "__main__":
         if CHEETAH_WALLET
         else "unset"
     )
+    # NOTE: senpi_runtime_helpers.daemon.producer_daemon installed on the
+    # runtime host (Erik's build) does NOT yet accept wallet=/scanner=
+    # kwargs even though the helper-mcp-envelope-aligned branch's source
+    # signature documents them. Caught live on Turbine v3.2 deploy
+    # 2026-05-08: TypeError: unexpected keyword argument 'wallet'.
+    # When the host helpers package is upgraded, add back:
+    #   wallet=CHEETAH_WALLET,
+    #   scanner=SCANNER_NAME,
+    # which enables /state alive_check (auto-terminate on runtime delete).
     producer_daemon(
         fn=main,
         interval_seconds=300,
         name=f"cheetah-producer-{_wallet_lock_id}",
-        wallet=CHEETAH_WALLET,        # enables default /state alive_check
-        scanner=SCANNER_NAME,         # daemon self-terminates if deleted
         tick_timeout=360,
     )
