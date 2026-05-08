@@ -1,29 +1,27 @@
 ---
 name: polar-strategy
 description: >-
-  POLAR v4.0.0 — ETH Alpha Hunter, v2-runtime-native rewrite. v3.x was a
-  full-agency scanner (load_tc / has_resting_orders / Python-side cooldowns
-  with the same crash-class bug that bit Vulture v2.x). v4.0 flips to producer
-  + v2 runtime: producer emits ETH signals via external-scanner ingest;
-  runtime LLM gate is pass-through; risk.guard_rails enforces declaratively;
-  DSL uses FEE_OPTIMIZED_LIMIT (saves ~0.020-0.030% per maker-filled exit);
-  trade chain DB emits per-trade telemetry. v3.x scoring + DSL preset
-  preserved exactly (proved correct on 2026-04-23 ETH Short that locked
-  +$71.15 via Phase 2 Tier 1; current live ETH LONG running +$54 unrealized
-  at +5% margin ROE). v3.0.5/v3.0.6 v1-DSL fixes preserved (all time-based
-  cuts disabled — exits 100% price-action via Phase 1 max_loss/retrace +
-  Phase 2 trailing).
+  POLAR v5.0.0 — ETH alpha hunter, senpi_runtime_helpers migration.
+  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
+  to in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
+  runtime /signals, long-lived producer_daemon). Thesis preserved
+  verbatim from v4.2.0: ETH single-asset hybrid, hyperfeed SM gates
+  (pct≥5%, traders≥30, cc_15m≥0.3), structural gates (4h trend,
+  1h-4h alignment, 15m momentum, RSI), multi-factor scoring (~17 max),
+  conviction-tiered leverage (5x standard / 7x conviction / 10x apex),
+  MIN_SCORE 12, FP-001 quiet hours (00-04 UTC unless apex score 17+).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.0.0"
+  version: "5.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
 ---
 
-# 🐻‍❄️ POLAR v4.0.0 — ETH Alpha Hunter (v2-runtime-native)
+# 🐻‍❄️ POLAR v5.0.0 — ETH Alpha Hunter (senpi_runtime_helpers)
 
 Best gross trader in the fleet. Single asset. Maximum conviction.
 
