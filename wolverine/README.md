@@ -1,31 +1,80 @@
-# 🦡 WOLVERINE v4.0.0 — HYPE Alpha Hunter (v2-runtime-native)
+# 🦡 WOLVERINE v5.0.0 — HYPE Alpha Hunter (senpi_runtime_helpers)
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## What changed in v4.0
+## What changed in v5.0.0
 
-- `wolverine-producer.py` (NEW) replaces `wolverine-scanner.py` (DELETED)
-- v2-runtime-native: external_scanner + LLM-pass-through gate + native `risk.guard_rails`
-- DSL exits via `FEE_OPTIMIZED_LIMIT` (saves ~0.020-0.030% per maker-filled close)
-- Trade chain DB emits per-trade telemetry — chain DB visibility on Wolverine for the first time
-- v3.0.3 six-gate entry validation preserved EXACTLY (incl. the 4h-magnitude fix that rejects dead-flat chop)
-- v3.0.1/2/4 v1-DSL fixes preserved: time-cuts all disabled, exits 100% price-action
+**Plumbing-only migration. NO thesis change.** v4.2.0's six-gate validation, scoring, leverage tiers, MIN_SCORE 9, quiet hours, DSL preset are all preserved verbatim.
 
-## Thesis (preserved from v3.x)
+- `wolverine-producer.py` and `wolverine_config.py` migrate to `senpi_runtime_helpers`:
+  - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST) instead of `openclaw senpi external-scanner ingest` subprocess
+  - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
+  - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
+- Requires `senpi-trading-runtime >= 2.0.0`.
+- `runtime.yaml` unchanged. `external_scanner.name: wolverine_signals` matches the producer's `client.push_signal(scanner=...)`.
+- Per Rachin's review of Cheetah PR #209: dead fields stripped from payload; `signal_type="WOLVERINE_HYPE_HYBRID"` passed explicitly.
 
-Single-asset HYPE alpha hunter. Six-gate entry validation: 4h trend structure, 4h structural strength, 1h confirmation, 15m momentum alignment, base-tech floor, **4h magnitude ≥1.5%** (the v3.0.3 fix). Multi-factor scoring (~17 max points), MIN_SCORE 9, conviction-tiered leverage (3x/5x). DSL Phase 2 trailing owns all winner exits.
+## Thesis (preserved from v4.2.0)
+
+Single-asset HYPE alpha hunter. Six-gate entry validation: 4h trend structure, 4h structural strength ≥0.65, 1h-4h alignment, 15m momentum ≥0.15, base-tech floor, **4h magnitude ≥1.0%**. Multi-factor scoring (~17 max points), MIN_SCORE 9, conviction-tiered leverage (3x standard / 5x apex), FP-001 quiet hours. DSL Phase 2 trailing owns all winner exits.
 
 ## Install
 
-```bash
-mkdir -p /data/workspace/skills/wolverine-strategy/{config,scripts,state}
+### Step 1 — Pull the helpers package (one-time per host)
 
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/runtime.yaml -o /data/workspace/skills/wolverine-strategy/runtime.yaml
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/SKILL.md -o /data/workspace/skills/wolverine-strategy/SKILL.md
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/config/wolverine-config.json -o /data/workspace/skills/wolverine-strategy/config/wolverine-config.json
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/scripts/wolverine-producer.py -o /data/workspace/skills/wolverine-strategy/scripts/wolverine-producer.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/scripts/wolverine_config.py -o /data/workspace/skills/wolverine-strategy/scripts/wolverine_config.py
+> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch — it has not yet landed on `main`. Pull from that branch until it does. Every other file in this skill is on `main` as normal.
+
+```bash
+mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
+for f in __init__.py _config.py _logging.py cache.py client.py \
+         daemon.py lock.py parallel.py SKILL.md README.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
+done
 ```
+
+Skip if already pulled for Cheetah / Turbine / Kodiak / Polar / another v3 skill.
+
+### Step 2 — Pull Wolverine v5.0.0
+
+```bash
+mkdir -p /data/workspace/skills/wolverine-strategy/{config,scripts,state,references}
+for f in scripts/wolverine-producer.py scripts/wolverine_config.py \
+         SKILL.md README.md references/skill-attribution.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/$f" \
+    -o "/data/workspace/skills/wolverine-strategy/$f"
+done
+```
+
+`runtime.yaml` is unchanged from v4.x — don't touch the existing runtime.
+
+### Step 3 — Required env vars
+
+```bash
+export WOLVERINE_WALLET_ADDRESS=<your-wolverine-wallet>
+export SENPI_AUTH_TOKEN=...
+export WOLVERINE_DECISION_MODEL=gemini-3.1-pro-preview
+```
+
+### Step 4 — Stop the v4.x cron, start the v5.0.0 daemon
+
+```bash
+openclaw cron list | grep wolverine
+openclaw cron delete <wolverine-cron-id>
+
+# Start daemon (long-lived, no cron)
+nohup python3 -u /data/workspace/skills/wolverine-strategy/scripts/wolverine-producer.py \
+  > /tmp/wolverine-producer.log 2>&1 &
+```
+
+## Smoke test
+
+```bash
+tail -f /tmp/wolverine-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
+
+Expected: `status=ok` every tick (180s interval). Tick `duration_ms` should drop from ~30-60s (v4.x mcporter) to ~1-3s.
 
 ## Configure
 
