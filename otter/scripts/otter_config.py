@@ -1,21 +1,12 @@
-"""OTTER v1.0 — Shared MCP helper + atomic state I/O + output helpers.
+"""OTTER v2.0.0 — Shared MCP helper + atomic state I/O + output helpers.
 
-v1.0 producer responsibilities (v2-runtime-native, no v1 to migrate):
-  - Fetch market data via MCP (market_list_instruments,
-    leaderboard_get_markets, market_get_asset_data,
-    strategy_get_clearinghouse_state)
-  - Maintain rolling per-asset OI history under
-    SKILL_DIR/state/<wallet-hash>/oi-history.json
-  - Push signals via `openclaw senpi external-scanner ingest`
-    (runtime owns execution)
-
-Runtime handles: position tracking, DSL exits, risk guardrails,
-trade counting, asset cooldowns. All of that state lives in the
-runtime's state dir, not here.
+Plumbing-only migration from v1.0. Routes MCP calls + signal POSTs
+through `senpi_runtime_helpers.SenpiClient` (in-process, direct HTTPS).
+No mcporter / openclaw subprocesses.
 
 This module provides:
   - load_config()    — read config/otter-config.json
-  - mcporter_call()  — Senpi MCP call helper
+  - mcporter_call()  — wrapper now delegating to SenpiClient.mcp_call()
   - atomic_write()   — atomic temp+rename write for JSON state files
   - output() / log() / now_iso() — output helpers
 
@@ -26,9 +17,9 @@ otter-producer.py for the wallet hashing.
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
 
+import functools
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -38,6 +29,33 @@ from pathlib import Path
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "otter-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "otter-config.json"
+
+
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+_helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
+
+
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Otter's MCP calls and signal "
+            "POST both require it."
+        )
+    client = SenpiClient()
+    log_event("otter_wrapper_enabled", helpers_path=_helpers_path)
+    return client
+
+
+class _WrapperClientProxy:
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
 
 
 # ─── Config ──────────────────────────────────────────────────
@@ -75,36 +93,17 @@ def atomic_write(path, data):
 # ─── MCP Helper ──────────────────────────────────────────────
 
 def mcporter_call(tool, retries=2, timeout=25, **params):
-    """Call a Senpi MCP tool via mcporter. Returns parsed JSON or None on failure."""
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
+    """v2.0.0: routes through SenpiClient.mcp_call() — direct HTTPS, no
+    mcporter subprocess. Returns the unwrapped JSON document on
+    success, or None if the wrapper raised."""
+    try:
+        return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(
+            f"[senpi_helpers] otter_mcp_call_failed tool={tool} "
+            f"err={type(e).__name__}: {e}\n"
+        )
+        return None
 
 
 # ─── Output helpers ──────────────────────────────────────────
@@ -115,7 +114,7 @@ def output(data):
 
 
 def log(msg):
-    print(f"[OTTER-v1] {msg}", file=sys.stderr)
+    print(f"[OTTER-v2] {msg}", file=sys.stderr)
 
 
 def now_ts():
