@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Senpi ROACH Producer v2.0
+# Senpi ROACH Producer v3.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""ROACH v2.0 Producer — Striker-only signal emitter for v2 runtime.
+"""ROACH v3.0.0 Producer — Striker-only signal emitter for v2 runtime.
 
 Roach v1.x ran as a full-agency Python scanner that:
   - Fetched market concentration + scan history
@@ -51,13 +51,13 @@ Environment variables (standard v2 producer):
   EXTERNAL_SCANNER_NAME — optional override (default "roach_signals")
   ROACH_LEVERAGE    — optional override of default 7
   ROACH_MARGIN_USD  — optional override of default 250
+  SENPI_AUTH_TOKEN  — REQUIRED. Bearer token for MCP + signal POST.
+  ROACH_DECISION_MODEL — bare LLM model name (no provider prefix)
 """
 
-import fcntl
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -66,24 +66,22 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import roach_config as cfg
 
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD
-# ═══════════════════════════════════════════════════════════════
-# Cron fires every 90s. If a run takes longer (MCP latency on
-# market_get_asset_data per candidate × N candidates), the next tick
-# would start a second concurrent run. Two runs racing on
-# scan-history.json would corrupt rank-jump detection.
-# fcntl.LOCK_EX | LOCK_NB is non-blocking: if another run holds the
-# lock, acquire_lock() returns None and we skip this tick cleanly.
-# fcntl locks auto-release when the process dies, so crashes self-heal.
 
-# v2.0.0: Agent-specific wallet env var. NO fallback to STRATEGY_ADDRESS
-# (contamination risk per Turbine v2.0.9 fix — see feedback_mcp_auth_is_fleet_wide.md).
-# Read case-preserved for CLI calls; lowercased separately for stable state-dir hashing.
+# Reentrancy guard removed in v3.0.0. producer_daemon owns the per-tick
+# scanner_lock with stale-PID auto-recovery. Do NOT add an inner
+# scanner_lock(...) inside main().
+
+# v2.0.0: Agent-specific wallet env var. NO fallback to STRATEGY_ADDRESS.
 ROACH_WALLET = os.environ.get("ROACH_WALLET", "")
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "roach_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+
+# Hardcoded — must match runtime.yaml external_scanner.name.
+SCANNER_NAME = "roach_signals"
+
+# Signal type passed explicitly to push_signal() per Rachin's review
+# of Cheetah PR #209.
+SIGNAL_TYPE = "ROACH_STRIKER"
 
 # Leverage + margin — operator-tunable, runtime defaults match runtime.yaml
 DEFAULT_LEVERAGE = int(os.environ.get("ROACH_LEVERAGE", "7"))
@@ -107,35 +105,9 @@ def _wallet_state_dir():
 
 
 _STATE_DIR = _wallet_state_dir()
-_LOCK_PATH = _STATE_DIR / "producer.lock"
 _HISTORY_FILE = _STATE_DIR / "scan-history.json"
 _COOLDOWN_FILE = _STATE_DIR / "asset-cooldowns.json"
 _EMITTED_FILE = _STATE_DIR / "last-emitted.json"
-
-
-def acquire_lock():
-    """Non-blocking exclusive lock. Returns file handle or None if held."""
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
-
-
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -508,17 +480,10 @@ def detect_striker_signals(current_scan, history):
 # ═══════════════════════════════════════════════════════════════
 
 def build_signal_payload(s):
-    """Build the payload matching runtime.yaml's roach_signals.config.fields schema.
-    All declared scanner fields go in `data`, NOT `meta`. (Turbine v2.0.11 lesson.)"""
+    """v3.0.0: returns only fields push_signal() forwards (asset, direction, data)."""
     return {
-        "address": ROACH_WALLET,
-        "scannerId": SCANNER_NAME,
-        "signalType": "ROACH_STRIKER",
         "asset": s["asset"],
         "direction": s["direction"],
-        "score": float(s["score"]),
-        "timestamp": int(time.time() * 1000),
-        "factors": {},
         "data": {
             "mode": s["mode"],
             "score": s["score"],
@@ -538,40 +503,29 @@ def build_signal_payload(s):
             "leverage": DEFAULT_LEVERAGE,
             "marginUsd": DEFAULT_MARGIN_USD,
         },
-        "meta": {
-            "_roach_producer_version": "2.1.0",
-        },
     }
 
 
 def push_signal(payload):
-    """Push a signal payload to the runtime via CLI."""
+    """Push a signal via senpi_runtime_helpers wrapper (direct HTTP POST)."""
     if not ROACH_WALLET:
         cfg.log("ROACH_WALLET env var not set; cannot push signal")
         return False
-
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", ROACH_WALLET,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if r.returncode != 0:
-            cfg.log(f"ingest failed for {payload['asset']} {payload['direction']}: {r.stderr.strip()}")
-            return False
-        if r.stdout.strip():
-            try:
-                response = json.loads(r.stdout)
-                if isinstance(response, dict) and response.get("ok") is False:
-                    cfg.log(f"ingest rejected for {payload['asset']} {payload['direction']}: {response.get('error')}")
-                    return False
-            except (json.JSONDecodeError, TypeError):
-                pass
+        cfg._wrapper_client.push_signal(
+            address=ROACH_WALLET,
+            scanner=SCANNER_NAME,
+            asset=payload.get("asset"),
+            direction=payload.get("direction"),
+            signal_type=SIGNAL_TYPE,
+            data=payload.get("data"),
+        )
         return True
-    except (subprocess.TimeoutExpired, OSError) as e:
-        cfg.log(f"ingest exception for {payload['asset']}: {e}")
+    except SenpiClientError as e:
+        cfg.log(f"push_signal rejected for {payload.get('asset')} {payload.get('direction')}: {e}")
+        return False
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        cfg.log(f"push_signal exception for {payload.get('asset')}: {type(e).__name__}: {e}")
         return False
 
 
@@ -589,84 +543,84 @@ def main():
         cfg.output({
             "status": "error",
             "error": "ROACH_WALLET env var not set. Set it to the Roach strategy wallet (must match runtime.yaml).",
-            "_roach_producer_version": "2.1.0",
+            "_roach_producer_version": "3.0.0",
         })
         return
 
-    lock = acquire_lock()
-    if lock is None:
-        print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
-            "_roach_producer_version": "2.1.0",
-        }))
+    # Fetch & parse current scan
+    raw = fetch_markets()
+    if raw is None:
+        cfg.output({
+            "status": "error",
+            "error": "failed to fetch markets",
+            "_roach_producer_version": "3.0.0",
+        })
         return
 
-    try:
-        # Fetch & parse current scan
-        raw = fetch_markets()
-        if raw is None:
-            cfg.output({
-                "status": "error",
-                "error": "failed to fetch markets",
-                "_roach_producer_version": "2.1.0",
-            })
-            return
+    current_scan = parse_scan(raw)
 
-        current_scan = parse_scan(raw)
+    # Load history (rank-jump detection requires it)
+    history = load_scan_history()
 
-        # Load history (rank-jump detection requires it)
-        history = load_scan_history()
+    # Detect striker signals
+    striker_signals = detect_striker_signals(current_scan, history)
 
-        # Detect striker signals
-        striker_signals = detect_striker_signals(current_scan, history)
+    # Persist scan history (always, even if no signals)
+    history["scans"].append(current_scan)
+    save_scan_history(history)
 
-        # Persist scan history (always, even if no signals)
-        history["scans"].append(current_scan)
-        save_scan_history(history)
+    # Apply per-asset cooldown (defense-in-depth alongside runtime guard)
+    striker_signals = [s for s in striker_signals
+                       if not is_asset_cooled_down(s["token"])]
 
-        # Apply per-asset cooldown (defense-in-depth alongside runtime guard)
-        striker_signals = [s for s in striker_signals
-                           if not is_asset_cooled_down(s["token"])]
+    # Sort highest score first
+    striker_signals.sort(key=lambda s: s["score"], reverse=True)
 
-        # Sort highest score first
-        striker_signals.sort(key=lambda s: s["score"], reverse=True)
-
-        if not striker_signals:
-            elapsed = time.time() - run_start
-            cfg.output({
-                "status": "ok",
-                "totalMarkets": len(current_scan["markets"]),
-                "scansInHistory": len(history["scans"]),
-                "candidates": 0,
-                "elapsed_sec": round(elapsed, 2),
-                "_roach_producer_version": "2.1.0",
-            })
-            return
-
-        # Emit signals
-        pushed = 0
-        for s in striker_signals:
-            payload = build_signal_payload(s)
-            if push_signal(payload):
-                pushed += 1
-                mark_asset_emitted(s["token"])
-
+    if not striker_signals:
         elapsed = time.time() - run_start
-        warn = "WARN_OVER_90S" if elapsed > 90 else None
         cfg.output({
             "status": "ok",
             "totalMarkets": len(current_scan["markets"]),
             "scansInHistory": len(history["scans"]),
-            "candidates_detected": len(striker_signals),
-            "signals_pushed": pushed,
+            "candidates": 0,
             "elapsed_sec": round(elapsed, 2),
-            "warn": warn,
-            "_roach_producer_version": "2.1.0",
+            "_roach_producer_version": "3.0.0",
         })
-    finally:
-        release_lock(lock)
+        return
+
+    # Emit signals
+    pushed = 0
+    for s in striker_signals:
+        payload = build_signal_payload(s)
+        if push_signal(payload):
+            pushed += 1
+            mark_asset_emitted(s["token"])
+
+    elapsed = time.time() - run_start
+    warn = "WARN_OVER_90S" if elapsed > 90 else None
+    cfg.output({
+        "status": "ok",
+        "totalMarkets": len(current_scan["markets"]),
+        "scansInHistory": len(history["scans"]),
+        "candidates_detected": len(striker_signals),
+        "signals_pushed": pushed,
+        "elapsed_sec": round(elapsed, 2),
+        "warn": warn,
+        "_roach_producer_version": "3.0.0",
+    })
 
 
 if __name__ == "__main__":
-    main()
+    # v3.0.0 — long-lived daemon. NOTE: wallet=/scanner= NOT passed
+    # per fleet-fix #214 (host helpers package doesn't accept yet).
+    _wallet_lock_id = (
+        hashlib.sha256(ROACH_WALLET.lower().encode()).hexdigest()[:12]
+        if ROACH_WALLET
+        else "unset"
+    )
+    producer_daemon(
+        fn=main,
+        interval_seconds=90,           # Roach's v2.x cron was every 90s
+        name=f"roach-producer-{_wallet_lock_id}",
+        tick_timeout=180,
+    )
