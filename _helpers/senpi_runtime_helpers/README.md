@@ -31,7 +31,7 @@ MCP-call latency drops from ~2.5 s to ~280 ms. Full background:
 | [`parallel.py`](parallel.py) | `parallel`: concurrency-bounded fan-out. Calls beyond cap queue, never reject. |
 | [`cache.py`](cache.py) | `tick_cache`: per-tick TTL+LRU memoization with thundering-herd coalescing. |
 | [`_logging.py`](_logging.py) | Structured `[senpi_helpers]` JSON event logger to stderr. |
-| [`tests/`](tests/) | Stdlib `unittest` — 51 tests, no credentials needed. |
+| [`tests/`](tests/) | Stdlib `unittest` — 54 tests, no credentials needed. |
 | [`references/`](references/) | Long-form deep-dive docs (migration cookbook, architecture, signal schema). |
 
 ## Quick start
