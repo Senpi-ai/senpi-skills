@@ -1,21 +1,22 @@
 ---
 name: turbine-strategy
 description: >-
-  TURBINE v3.0 — two-mode signal emitter. One producer + two runtimes
-  on a single wallet. VOLUME (7 slots × 10-min funding-fade rotation,
-  XYZ-weighted 80/20) is a builder-fee-recycling volume engine on
-  Hyperliquid: pure breakeven trading P&L target, alpha is the net
-  spread between Senpi's builder-fee recycling (~3.5 bps RT) and HL
-  maker fees (~1.2-1.4 bps RT main, ~0.6 bps XYZ). HUNT (2 slots ×
-  HYPE 4H momentum, ratchet exit) rides directional moves with
-  score-gated entries (>=10 floor on multi-axis confluence). Single
-  long-lived producer_daemon + senpi_runtime_helpers in-process
-  wrapper (no mcporter / openclaw subprocess). Sentinel sunset —
-  hunt slots take over with explicit slot accounting.
+  TURBINE v3.1 — two-wallet, two-runtime, single-producer architecture.
+  ONE producer daemon manages BOTH wallets. The wallet boundary IS the
+  mode boundary, which gives clean per-mode P&L attribution at the
+  account level (no slot-mode tagging needed). VOLUME wallet (7 slots
+  × 10-min funding-fade rotation, XYZ-weighted 80/20) is a builder-fee-
+  recycling volume engine — pure breakeven trading P&L target, alpha
+  is the spread between Senpi's builder-fee recycling (~3.5 bps RT)
+  and HL maker fees (~1.2-1.4 bps RT main, ~0.6 bps XYZ). HUNT wallet
+  (2 slots × HYPE 4H momentum, ratchet exit) rides directional moves
+  with score-gated entries (>=10 floor on multi-axis confluence).
+  Hunt is optional — leave TURBINE_HUNT_WALLET unset to run a pure
+  volume engine. Sentinel sunset.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0.0"
+  version: "3.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -23,44 +24,60 @@ metadata:
     - senpi-runtime-helpers
 ---
 
-# 🌪️ TURBINE v3.0 — Volume Engine + HYPE Hunt
+# 🌪️ TURBINE v3.1 — Volume Engine + HYPE Hunt (two wallets)
 
-**The bot prints volume. Senpi prints rebates. Hunt slots scoop alpha when HYPE breaks.**
+**The bot prints volume. Senpi prints rebates. Hunt slots scoop alpha when HYPE breaks. Two wallets keep the books clean.**
+
+## Why two wallets
+
+The runtime-phase-2 plugin enforces **one runtime per wallet**. v3.0 attempted to attach `turbine-volume-tracker` AND `turbine-hunt-tracker` to a single wallet and got blocked at deploy. v3.1 splits cleanly:
+
+| Wallet | Runtime | Funding | Slots |
+|---|---|---|---|
+| Volume | `turbine-volume-tracker` | $3,500 | 7 × $500 |
+| Hunt | `turbine-hunt-tracker` | $2,400 | 2 × $1,200 |
+| **Total** | | **$5,900** | 9 |
+
+The wallet boundary is the mode boundary. `audit_query` filters per-wallet without needing a `signalType` join. HL margin is wallet-isolated, so volume side can't bleed into hunt and vice-versa — that's a feature, not a bug.
 
 ## Mission
 
-Hit **$5M/day in notional volume on Hyperliquid at <$100 net cost per $1M** while running 2 additional slots that take directional HYPE 4H momentum trades for upside.
+Hit **$5M/day in notional volume on Hyperliquid at <$100 net cost per $1M** while running 2 dedicated slots that take directional HYPE 4H momentum trades for upside.
 
-| Metric | v2.0.x baseline | v3.0 target |
+| Metric | v2.0.x baseline | v3.1 target |
 |---|---|---|
 | Daily volume | ~$2-3M | $5M |
 | Net cost per $1M volume | $200 | <$100 |
-| Total slots | 3 (volume only) | 9 (7 volume + 2 hunt) |
+| Total slots | 3 | 9 (7 vol + 2 hunt) |
 | Volume cycle | 15 min | 10 min (auto-fallback to 12 min) |
-| Funding | $1,500 | $6,000 |
+| Total funding | $1,500 | $5,900 |
 
 ## Architecture
 
-**Single producer, two runtimes, one wallet.**
-
 ```
-                 turbine-producer.py (long-lived daemon)
-                       │
-            ┌──────────┴──────────┐
-            │                     │
-   turbine_volume_signals    turbine_hunt_signals
-            │                     │
-   turbine-volume-tracker    turbine-hunt-tracker
-   (runtime-volume.yaml)    (runtime-hunt.yaml)
-            │                     │
-            └──────────┬──────────┘
-                       │
-                  Strategy wallet
+              turbine-producer.py (long-lived daemon)
+                     │
+            ┌────────┴────────┐
+            │                 │
+     reads volume       reads hunt
+       wallet            wallet
+            │                 │
+            ▼                 ▼
+     emits to:         emits to:
+   turbine_volume     turbine_hunt
+     _signals          _signals
+            │                 │
+   turbine-volume-     turbine-hunt-
+        tracker           tracker
+            │                 │
+            ▼                 ▼
+      VOLUME WALLET     HUNT WALLET
+      ($3,500)          ($2,400)
 ```
 
-The producer manages slot accounting (which positions are VOLUME vs HUNT), enforces post-close cooldowns, and emits to the appropriate scanner. Each runtime's DSL only manages positions it opened.
+ONE producer, TWO `cfg.get_*_wallet_and_strategy()` calls per tick, TWO independent slot accountings. Each wallet has its own runtime; each runtime's DSL only manages its own positions.
 
-## VOLUME mode — the volume engine
+## VOLUME mode
 
 ### Universe (tightened from v2.0.x)
 
@@ -81,7 +98,7 @@ NEUTRAL/FLAT  → alternate vs last_direction for this asset
 
 ### Spread gates (tightened)
 
-| DEX | v2.0.x | v3.0 |
+| DEX | v2.0.x | v3.1 |
 |---|---|---|
 | main | 5 bps | **3 bps** |
 | xyz | 15 bps | **10 bps** |
@@ -96,9 +113,9 @@ If realized maker fill rate (last 20 entries) < 85%:
 Fall back to 12 min until rate recovers
 ```
 
-State tracked in `state/<wallet-hash>/cycle-stats.json`. Operator overrides via `cycle.*` keys in `turbine-config.json`.
+State tracked in `state/<volume-wallet-hash>/cycle-stats.json`. Operator overrides via `cycle.*` keys in `turbine-config.json`.
 
-### Volume cost math (target)
+### Volume cost math
 
 ```
 Theoretical (perfect maker on both legs):
@@ -109,7 +126,7 @@ Theoretical (perfect maker on both legs):
 Weighted (80% XYZ / 20% main): +2.7 bps net positive theoretical
 ```
 
-Real-world cost includes spread crossings, taker fallthrough, and funding paid during 10-min holds. v3.0 targets **<$100/$1M actual** via tighter spread gates + 80/20 XYZ + maker-only ALO.
+Real-world cost includes spread crossings, taker fallthrough, and funding paid during 10-min holds. v3.1 targets **<$100/$1M actual** via tighter spread gates + 80/20 XYZ + maker-only ALO.
 
 ### Volume DSL preset (`runtime-volume.yaml`)
 
@@ -123,7 +140,7 @@ Real-world cost includes spread crossings, taker fallthrough, and funding paid d
 | Entry + exit order type | FEE_OPTIMIZED_LIMIT | Maker-only |
 | `ensure_execution_as_taker` | **false** | The strategy IS maker fills — taker fallback would invert the alpha |
 
-## HUNT mode — HYPE 4H momentum
+## HUNT mode
 
 ### Why HYPE only
 
@@ -155,11 +172,21 @@ Floor 10/15 means 4-5 components must fire — meaningful conviction, not first-
 | `phase1.max_loss_pct` | 30% (6% price move at 5x) |
 | `phase2 tiers` | 5/0, 10/35, 20/55, 35/75, 50/85 |
 
-### Hunt safety floor
+### Hunt safety
 
-- Per-asset cooldown: 60 min post-exit (producer mirrors runtime gate)
-- Account-equity floor: hunt slots blocked when account_value < $5,500 (preserves volume capital)
-- Daily entry cap: 6 (runtime guard rail)
+- **Per-asset cooldown:** 60 min post-exit (producer mirrors runtime gate)
+- **Hunt wallet balance floor:** $2,000 default. Producer skips hunt emission if hunt wallet's own balance falls below this. Volume capital is naturally protected by the wallet boundary — no need for the cross-mode equity floor v3.0 had.
+- **Daily entry cap:** 6 (runtime guard rail)
+
+## Hunt is optional
+
+If `TURBINE_HUNT_WALLET` is unset, hunt mode is disabled gracefully:
+
+- Producer only queries volume wallet
+- Producer only emits volume signals
+- Operator runs a pure volume engine with $5,900 in one wallet (or whatever they fund volume with)
+
+This is the simplest deploy path for operators who only want the volume engine.
 
 ## Risk gates summary
 
@@ -176,11 +203,17 @@ Floor 10/15 means 4-5 components must fire — meaningful conviction, not first-
 
 ```json
 {
-  "wallet": "0x...",
-  "strategyId": "...",
+  "volume": {
+    "wallet": "0xVolumeWallet...",
+    "strategyId": "volume-strategy-id"
+  },
+  "hunt": {
+    "wallet": "0xHuntWallet...",
+    "strategyId": "hunt-strategy-id"
+  },
   "chatId": "...",
   "slots":    { "volume": 7, "hunt": 2 },
-  "margin":   { "volume": 500, "hunt": 1250 },
+  "margin":   { "volume": 500, "hunt": 1200 },
   "leverage": { "volume": 5, "hunt": 5 },
   "cycle":    {
     "volumeDefaultMin": 10,
@@ -192,18 +225,23 @@ Floor 10/15 means 4-5 components must fire — meaningful conviction, not first-
   "spread":   { "mainBps": 3, "xyzBps": 10 },
   "xyzWeight": 0.80,
   "huntMinScore": 10,
-  "minAccountValueForHunt": 5500.0
+  "minHuntWalletBalance": 2000.0
 }
 ```
+
+To run pure volume engine (no hunt), leave `hunt.wallet` and `hunt.strategyId` empty strings, and don't export `TURBINE_HUNT_WALLET`.
 
 ## Required env vars
 
 | Var | Purpose |
 |---|---|
-| `TURBINE_WALLET` | Strategy wallet (must match BOTH runtime YAMLs). **STRATEGY_ADDRESS is BANNED** per v2.0.9 contamination rule. |
+| `TURBINE_VOLUME_WALLET` | Volume strategy wallet (REQUIRED). |
+| `TURBINE_HUNT_WALLET` | Hunt strategy wallet (optional; omit to disable hunt mode). |
 | `SENPI_AUTH_TOKEN` | Bearer token for MCP + signal POST. |
 | `TURBINE_VOLUME_DECISION_MODEL` | Bare LLM model name (no provider prefix) for volume gate. |
-| `TURBINE_HUNT_DECISION_MODEL` | Bare LLM model name for hunt gate. (Can be same as volume.) |
+| `TURBINE_HUNT_DECISION_MODEL` | Bare LLM model name for hunt gate. (Only used if hunt wallet set.) |
+
+**`STRATEGY_ADDRESS` and `TURBINE_WALLET` are BANNED.** STRATEGY_ADDRESS per the v2.0.9 contamination rule (a generic env var is a fleet-wide vector). TURBINE_WALLET was v3.0's single-wallet env var; v3.1 splits it explicitly. If you have either set from older testing, unset.
 
 ## Hard rule for user-conversation Claude sessions
 
@@ -213,18 +251,19 @@ User-conversation Claude sessions MUST NOT call `create_position`, `close_positi
 
 - ✓ **senpi_runtime_helpers** (in-process MCP + signal POST)
 - ✓ **producer_daemon scanner_lock** (PID-aliveness auto-recovery)
-- ✓ **TURBINE_WALLET only** (no STRATEGY_ADDRESS fallback per v2.0.9 rule)
+- ✓ **Per-wallet env vars** (TURBINE_VOLUME_WALLET / TURBINE_HUNT_WALLET; STRATEGY_ADDRESS + TURBINE_WALLET BANNED per v2.0.9 rule)
 - ✓ **Wallet-from-config** (no hardcoding; senpi-skills is public)
 - ✓ **drawdown_reset_on_day_rollover: false** on hunt runtime (Roach lesson)
-- ✓ **Slot-mode tracker** in `state/<wallet-hash>/slot-mode.json` — explicit per-position mode tagging
-- ✓ **Auto-fallback cycle length** based on rolling maker fill rate
-- ✓ **Account-equity hunt floor** ($5,500 default — preserves volume capital after drawdown)
+- ✓ **Wallet-isolated state dirs** (`state/<wallet-hash>/...` per wallet)
+- ✓ **Auto-fallback cycle length** based on rolling maker fill rate (volume side)
+- ✓ **Hunt wallet balance floor** (pauses hunt emission if hunt wallet draws down)
+- ✓ **`signal_type=` passed explicitly** per Rachin's review of Cheetah PR #209
 
 ## Sentinel sunset
 
-Sentinel previously ran on the same Turbine wallet, allocating $200 per slot for "convergence-based momentum trades using leftover margin." The blended-PnL problem made it impossible to attribute performance. v3.0's HUNT mode replaces it with explicit slot accounting and clean per-mode telemetry via `audit_query`.
+Sentinel previously co-ran on the legacy Turbine wallet, allocating $200 per slot for "convergence-based momentum trades using leftover margin." The blended-PnL problem made attribution impossible. v3.1's HUNT mode with its own wallet replaces it cleanly.
 
-Sentinel should be paused or retired before Turbine v3.0 deploys.
+Sentinel should be paused or retired before Turbine v3.1 deploys.
 
 ## Operator install
 

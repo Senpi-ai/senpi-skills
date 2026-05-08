@@ -1,6 +1,14 @@
 {
-  "wallet": "",
-  "strategyId": "",
+  "volume": {
+    "wallet": "",
+    "strategyId": ""
+  },
+
+  "hunt": {
+    "wallet": "",
+    "strategyId": ""
+  },
+
   "chatId": "",
 
   "slots": {
@@ -10,7 +18,7 @@
 
   "margin": {
     "volume": 500,
-    "hunt": 1250
+    "hunt": 1200
   },
 
   "leverage": {
@@ -34,5 +42,5 @@
 
   "xyzWeight": 0.80,
   "huntMinScore": 10,
-  "minAccountValueForHunt": 5500.0
+  "minHuntWalletBalance": 2000.0
 }

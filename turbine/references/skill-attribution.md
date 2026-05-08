@@ -4,7 +4,7 @@ When calling `strategy_create` or `strategy_create_custom_strategy`, always incl
 
 ```json
 "skill_name": "turbine",
-"skill_version": "3.0.0"
+"skill_version": "3.1.0"
 ```
 
 Required for attribution and tracking. Example:
@@ -16,7 +16,7 @@ Required for attribution and tracking. Example:
     "initialBudget": 6000,
     "positions": [],
     "skill_name": "turbine",
-    "skill_version": "3.0.0"
+    "skill_version": "3.1.0"
   }
 }
 ```

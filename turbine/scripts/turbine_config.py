@@ -1,17 +1,28 @@
-"""TURBINE v3.0 — Shared config + state I/O + helpers wrapper.
+"""TURBINE v3.1 — Shared config + state I/O + helpers wrapper.
 
-v3.0 (2026-05-08) — full rewrite. Volume-engine + HYPE-momentum hunt.
-Helpers-based (matches Pangolin v2.2 / Cheetah v7.0.0 patterns):
+v3.1 (2026-05-08) — two-wallet rewrite. The runtime-phase-2 plugin
+enforces one runtime per wallet, so v3.0's "two runtimes on one
+wallet" architecture won't deploy. v3.1 splits into TWO Senpi
+strategy wallets — each with its own runtime — managed by ONE
+producer daemon. The wallet boundary is the mode boundary, which
+ends up cleaner than v3.0's slot-mode tagging.
+
+  Wallet A (volume): own runtime turbine-volume-tracker, $3,500
+                     ($500 × 7 slots), funding-fade rotation.
+  Wallet B (hunt):   own runtime turbine-hunt-tracker,   $2,400
+                     ($1,200 × 2 slots), HYPE 4H momentum.
+
+Helpers-based (matches Cheetah v7.0.0 / Pangolin v2.2 patterns):
   - SenpiClient via lazy proxy (auth-validated on first use)
-  - mcporter_call() shim for backward-compat call sites in producer
+  - mcporter_call() shim for backward-compat call sites
   - _wrapper_client exposed for direct push_signal access
 
-Per-wallet state under SKILL_DIR/state/<wallet-hash>/:
-  - slot-mode.json    — {coin: "VOLUME"|"HUNT", entered_at, slot_id}
+Per-wallet state lives under SKILL_DIR/state/<wallet-hash>/:
   - last-closed.json  — close timestamps (post-close cooldown)
   - prev-held.json    — previous-tick held set (close detection)
-  - cycle-stats.json  — rolling fill-rate window (auto-fallback gate)
-  - hunt-history.json — HYPE 4H breakout score history
+  - cycle-stats.json  — rolling fill-rate window (volume only)
+  - hunt-history.json — HYPE 4H breakout score history (hunt only)
+  - rotation-index.json — volume rotation pointer
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
@@ -90,17 +101,37 @@ def load_config():
     return {}
 
 
-def get_wallet_and_strategy():
-    """Resolve wallet + strategyId from env (preferred) → config (fallback).
-    TURBINE_WALLET only — STRATEGY_ADDRESS is BANNED per v2.0.9 contamination
-    rule."""
-    wallet = os.environ.get("TURBINE_WALLET", "").strip()
-    strategy_id = os.environ.get("TURBINE_STRATEGY_ID", "").strip()
+def get_volume_wallet_and_strategy():
+    """Resolve VOLUME wallet + strategyId. Env (TURBINE_VOLUME_WALLET /
+    TURBINE_VOLUME_STRATEGY_ID) preferred → config.volume.{wallet,strategyId}
+    fallback. STRATEGY_ADDRESS is BANNED per v2.0.9 contamination rule."""
+    wallet = os.environ.get("TURBINE_VOLUME_WALLET", "").strip()
+    strategy_id = os.environ.get("TURBINE_VOLUME_STRATEGY_ID", "").strip()
     if not wallet or not strategy_id:
-        c = load_config()
+        c = load_config().get("volume", {}) or {}
         wallet = wallet or (c.get("wallet") or "").strip()
         strategy_id = strategy_id or (c.get("strategyId") or "").strip()
     return wallet, strategy_id
+
+
+def get_hunt_wallet_and_strategy():
+    """Resolve HUNT wallet + strategyId. Env (TURBINE_HUNT_WALLET /
+    TURBINE_HUNT_STRATEGY_ID) preferred → config.hunt.{wallet,strategyId}
+    fallback. Empty wallet means hunt mode is disabled — producer
+    only emits volume signals (graceful degradation)."""
+    wallet = os.environ.get("TURBINE_HUNT_WALLET", "").strip()
+    strategy_id = os.environ.get("TURBINE_HUNT_STRATEGY_ID", "").strip()
+    if not wallet or not strategy_id:
+        c = load_config().get("hunt", {}) or {}
+        wallet = wallet or (c.get("wallet") or "").strip()
+        strategy_id = strategy_id or (c.get("strategyId") or "").strip()
+    return wallet, strategy_id
+
+
+def get_wallet_and_strategy():
+    """Backward-compat shim: returns the volume wallet. Existing call
+    sites that ask for "the" wallet are operating on volume mode."""
+    return get_volume_wallet_and_strategy()
 
 
 # ─── MCP wrapper shim ─────────────────────────────────────

@@ -12,10 +12,10 @@ description: >
   explicit slot accounting in the producer.
 
 strategy:
-  wallet: "${TURBINE_WALLET}"
-  budget: 6000
+  wallet: "${TURBINE_HUNT_WALLET}"
+  budget: 2400
   slots: 2
-  margin_per_slot: 1250
+  margin_per_slot: 1200
   trading_risk: balanced
   default_leverage: 5
   enabled: true
