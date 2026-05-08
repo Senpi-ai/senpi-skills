@@ -1,9 +1,36 @@
 #!/usr/bin/env python3
-# Senpi GRIZZLY Producer v6.0.0
+# Senpi GRIZZLY Producer v7.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""GRIZZLY v6.0.0 Producer — BTC alpha signal emitter for v2 runtime.
+"""GRIZZLY v7.0.0 Producer — senpi_runtime_helpers migration.
+
+v7.0.0 (2026-05-08) — plumbing migration. NO thesis change. BTC
+single-asset alpha hunter, six-gate entry validation, v5.5 macro
+V-recovery gate, RSI hard gates, multi-factor scoring (~17 max),
+conviction-scaled leverage (7x default / 10x conviction / 10x apex),
+MIN_SCORE 12, FP-001 quiet hours, FP-003 requireAllConfirmations
+gate — all preserved verbatim from v6.0.0.
+
+Six-layer plumbing flip per migration-cookbook (matches Cheetah
+v7.0.0 / Kodiak v7.0.0 / Polar v5.0.0 / Wolverine v5.0.0 patterns):
+  1. MCP calls — cfg.mcporter_call() shim now routes through
+     SenpiClient.mcp_call() (direct HTTPS).
+  2. Signal emit — subprocess.run(["openclaw","senpi","external-scanner",
+     "ingest"...]) replaced by cfg._wrapper_client.push_signal(...).
+     Per Rachin's PR #209 review: signal_type passed as explicit
+     kwarg ("GRIZZLY_BTC_TREND"), no dead fields in payload.
+  3. Reentrancy — hand-rolled fcntl flock dropped. producer_daemon
+     owns per-tick scanner_lock.
+  4. Tick scheduling — openclaw cron + agentTurn replaced by
+     producer_daemon (long-lived process; zero per-tick LLM cost).
+  5. Per-tick cache + parallel fan-out NOT adopted.
+  6. /state alive_check — wallet=/scanner= NOT passed per fleet-fix
+     #214 (host helpers package doesn't accept yet).
+
+v6.0.0 thesis preserved unchanged.
+
+Original v6.0.0 docstring (preserved for context):
 
 v5.x was a full-agency scanner: 1073 lines with a 3-mode state machine
 (HUNTING/RIDING/STALKING), Python-side cooldowns + dynamic daily caps,
@@ -62,10 +89,9 @@ Environment / config resolution:
   GRIZZLY_WALLET_ADDRESS env var supported as optional override.
 """
 
-import fcntl
+import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -74,43 +100,23 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import grizzly_config as cfg
 
-
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD
-# ═══════════════════════════════════════════════════════════════
-
-_LOCK_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "grizzly-strategy" / "state"
-_LOCK_DIR.mkdir(parents=True, exist_ok=True)
-_LOCK_PATH = _LOCK_DIR / "producer.lock"
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-def acquire_lock():
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
+VERSION = "7.0.0"
+
+# Hardcoded — must match runtime.yaml external_scanner.name.
+SCANNER_NAME = "grizzly_signals"
+
+# Signal type passed explicitly to push_signal() per Rachin's review
+# of Cheetah PR #209.
+SIGNAL_TYPE = "GRIZZLY_BTC_TREND"
 
 
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
-
-
-VERSION = "6.0.0"
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "grizzly_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+# Reentrancy guard removed in v7.0.0. producer_daemon owns the
+# per-tick scanner_lock with stale-PID auto-recovery via os.kill(pid, 0).
+# Do NOT add an inner scanner_lock(...) inside main() — fcntl flock
+# is not reentrant; nested call raises BlockingIOError every tick.
 
 
 def _resolve_wallet():
@@ -701,6 +707,13 @@ def build_btc_thesis():
 # ═══════════════════════════════════════════════════════════════
 
 def push_signal(thesis, held_assets):
+    """Push a signal payload to the runtime via senpi_runtime_helpers.
+
+    Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
+    asset/direction/signal_type at top-level kwargs (Rachin's PR #209
+    review). Score normalized 0..1 for SignalItem.score (Grizzly's
+    composite 0-17 scaled), with raw int score in `data` for telemetry.
+    """
     if not STRATEGY_ADDRESS:
         print(
             "ERROR: strategy wallet not resolved — set 'wallet' in "
@@ -715,69 +728,45 @@ def push_signal(thesis, held_assets):
     leverage, tier_label = get_leverage_tier(thesis["score"])
     mom = thesis["mom"]
 
-    payload = {
-        "asset": ASSET,
-        "direction": thesis["direction"],
-        "score": thesis["score"] / 17.0,  # normalize 0-1 (theoretical max ~17)
-        "signal_type": "GRIZZLY_BTC_TREND",
-        "data": {
-            "score": thesis["score"],
-            "tier": tier_label,
-            "leverage": leverage,
-            "reasons": thesis["reasons"],
-            "smPct": thesis["sm_pct"],
-            "smTraders": thesis["sm_traders"],
-            "smCc15m": thesis["sm_cc_15m"],
-            "trend4h": thesis["trend_4h"],
-            "trendStrength4h": thesis["trend_strength_4h"],
-            "rsi": thesis["rsi"],
-            "funding": thesis["funding"],
-            "fundingRegime": thesis.get("regime"),
-            "fundingPersistenceHours": thesis.get("persistence_h"),
-            "oiChange1h": thesis.get("oi_change_1h"),
-            "vol1h": thesis.get("vol_1h"),
-            "priceChange5m": mom["5m"],
-            "priceChange15m": mom["15m"],
-            "priceChange1h": mom["1h"],
-            "priceChange4h": mom["4h"],
-            "heldAssets": held_assets,
-        },
+    data_block = {
+        "score": thesis["score"],
+        "tier": tier_label,
+        "leverage": leverage,
+        "reasons": thesis["reasons"],
+        "smPct": thesis["sm_pct"],
+        "smTraders": thesis["sm_traders"],
+        "smCc15m": thesis["sm_cc_15m"],
+        "trend4h": thesis["trend_4h"],
+        "trendStrength4h": thesis["trend_strength_4h"],
+        "rsi": thesis["rsi"],
+        "funding": thesis["funding"],
+        "fundingRegime": thesis.get("regime"),
+        "fundingPersistenceHours": thesis.get("persistence_h"),
+        "oiChange1h": thesis.get("oi_change_1h"),
+        "vol1h": thesis.get("vol_1h"),
+        "priceChange5m": mom["5m"],
+        "priceChange15m": mom["15m"],
+        "priceChange1h": mom["1h"],
+        "priceChange4h": mom["4h"],
+        "heldAssets": held_assets,
     }
 
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", STRATEGY_ADDRESS,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if result.returncode != 0:
-            # Forensic logging (Vulture v3.1.1 pattern) — capture rc + both
-            # stderr and stdout + payload, so any future ingest failure is
-            # self-diagnosing from the producer log alone.
-            print(
-                f"INGEST_FAILED BTC: rc={result.returncode} "
-                f"stderr={result.stderr.strip()!r} "
-                f"stdout={result.stdout.strip()!r} "
-                f"payload={json.dumps(payload)}",
-                file=sys.stderr,
-            )
-            return False
-        response = json.loads(result.stdout) if result.stdout.strip() else {}
-        if not response.get("ok", False):
-            print(
-                f"INGEST_REJECTED BTC: error={response.get('error', {})} "
-                f"payload={json.dumps(payload)}",
-                file=sys.stderr,
-            )
-            return False
-        return True
-    except Exception as e:
-        print(
-            f"INGEST_EXCEPTION BTC: {e!r} payload={json.dumps(payload)}",
-            file=sys.stderr,
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner=SCANNER_NAME,
+            asset=ASSET,
+            direction=thesis["direction"],
+            score=thesis["score"] / 17.0,   # 0..1 confidence (Grizzly composite normalized)
+            signal_type=SIGNAL_TYPE,
+            data=data_block,
         )
+        return True
+    except SenpiClientError as e:
+        print(f"INGEST_REJECTED BTC {thesis['direction']}: {e}", file=sys.stderr)
+        return False
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        print(f"INGEST_EXCEPTION BTC {thesis['direction']}: {type(e).__name__}: {e}", file=sys.stderr)
         return False
 
 
@@ -786,86 +775,96 @@ def push_signal(thesis, held_assets):
 # ═══════════════════════════════════════════════════════════════
 
 def main():
+    """Single tick. NO inner scanner_lock — daemon owns it."""
     run_start = time.time()
-    lock = acquire_lock()
-    if lock is None:
+
+    thesis = build_btc_thesis()
+
+    if thesis.get("blocked"):
+        elapsed = time.time() - run_start
         print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
+            "status": "ok",
+            "heartbeat": "NO_REPLY",
+            "note": f"BLOCKED: {thesis['reason']}",
+            "elapsed_sec": round(elapsed, 2),
             "_grizzly_producer_version": VERSION,
         }))
         return
 
-    try:
-        thesis = build_btc_thesis()
+    min_score = get_min_score()
+    if thesis["score"] < min_score:
+        print(json.dumps({
+            "status": "ok",
+            "heartbeat": "NO_REPLY",
+            "note": f"score_low {thesis['score']}/{min_score}",
+            "direction": thesis["direction"],
+            "reasons": thesis["reasons"],
+            "_grizzly_producer_version": VERSION,
+        }))
+        return
 
-        if thesis.get("blocked"):
-            elapsed = time.time() - run_start
+    # FP-001 quiet hours
+    quiet, current_hour, apex_bypass = in_quiet_hours()
+    if quiet and thesis["score"] < apex_bypass:
+        print(json.dumps({
+            "status": "ok",
+            "heartbeat": "NO_REPLY",
+            "note": f"QUIET_HOURS hour={current_hour}_UTC score={thesis['score']}_below_apex_{apex_bypass}",
+            "direction": thesis["direction"],
+            "_grizzly_producer_version": VERSION,
+        }))
+        return
+
+    # FP-003 require-all-confirmations
+    if require_all_confirmations_enabled():
+        ok, missing = all_confirmations_present(thesis)
+        if not ok:
             print(json.dumps({
                 "status": "ok",
                 "heartbeat": "NO_REPLY",
-                "note": f"BLOCKED: {thesis['reason']}",
-                "elapsed_sec": round(elapsed, 2),
-                "_grizzly_producer_version": VERSION,
-            }))
-            return
-
-        min_score = get_min_score()
-        if thesis["score"] < min_score:
-            print(json.dumps({
-                "status": "ok",
-                "heartbeat": "NO_REPLY",
-                "note": f"score_low {thesis['score']}/{min_score}",
+                "note": f"MISSING_CONFIRMATIONS {missing} score={thesis['score']}",
                 "direction": thesis["direction"],
                 "reasons": thesis["reasons"],
                 "_grizzly_producer_version": VERSION,
             }))
             return
 
-        # FP-001 quiet hours
-        quiet, current_hour, apex_bypass = in_quiet_hours()
-        if quiet and thesis["score"] < apex_bypass:
-            print(json.dumps({
-                "status": "ok",
-                "heartbeat": "NO_REPLY",
-                "note": f"QUIET_HOURS hour={current_hour}_UTC score={thesis['score']}_below_apex_{apex_bypass}",
-                "direction": thesis["direction"],
-                "_grizzly_producer_version": VERSION,
-            }))
-            return
+    held_assets = fetch_held_assets()
+    pushed = push_signal(thesis, held_assets)
 
-        # FP-003 require-all-confirmations
-        if require_all_confirmations_enabled():
-            ok, missing = all_confirmations_present(thesis)
-            if not ok:
-                print(json.dumps({
-                    "status": "ok",
-                    "heartbeat": "NO_REPLY",
-                    "note": f"MISSING_CONFIRMATIONS {missing} score={thesis['score']}",
-                    "direction": thesis["direction"],
-                    "reasons": thesis["reasons"],
-                    "_grizzly_producer_version": VERSION,
-                }))
-                return
-
-        held_assets = fetch_held_assets()
-        pushed = push_signal(thesis, held_assets)
-
-        elapsed = time.time() - run_start
-        print(json.dumps({
-            "status": "ok",
-            "action": "PUSHED" if pushed else "PUSH_FAILED",
-            "direction": thesis["direction"],
-            "score": thesis["score"],
-            "tier": get_leverage_tier(thesis["score"])[1],
-            "reasons": thesis["reasons"][:5],
-            "held_assets": held_assets,
-            "elapsed_sec": round(elapsed, 2),
-            "_grizzly_producer_version": VERSION,
-        }))
-    finally:
-        release_lock(lock)
+    elapsed = time.time() - run_start
+    print(json.dumps({
+        "status": "ok",
+        "action": "PUSHED" if pushed else "PUSH_FAILED",
+        "direction": thesis["direction"],
+        "score": thesis["score"],
+        "tier": get_leverage_tier(thesis["score"])[1],
+        "reasons": thesis["reasons"][:5],
+        "held_assets": held_assets,
+        "elapsed_sec": round(elapsed, 2),
+        "_grizzly_producer_version": VERSION,
+    }))
 
 
 if __name__ == "__main__":
-    main()
+    # v7.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
+    # producer_daemon owns the per-tick scanner_lock with stale-PID
+    # auto-recovery.
+    #
+    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
+    # doesn't accept yet — see fleet-fix commit 4f0c15e). When Erik
+    # upgrades the host helpers, restore:
+    #   wallet=STRATEGY_ADDRESS,
+    #   scanner=SCANNER_NAME,
+    # to enable /state alive_check (auto-terminate on runtime delete).
+    _wallet_lock_id = (
+        hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
+        if STRATEGY_ADDRESS
+        else "unset"
+    )
+    producer_daemon(
+        fn=main,
+        interval_seconds=180,           # Grizzly's v6.x cron was every 3 min
+        name=f"grizzly-producer-{_wallet_lock_id}",
+        tick_timeout=240,
+    )
