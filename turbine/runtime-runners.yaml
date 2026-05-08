@@ -1,0 +1,184 @@
+name: turbine-runners-tracker
+# Top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (must be major=1). Skill version "Turbine v3.2" lives
+# in description + SKILL.md + _turbine_producer_version. Keep this 1.x.x.
+version: 1.0.0
+description: >
+  TURBINE v3.2 — RUNNERS runtime (volume rotation with patient DSL exits).
+
+  One of TWO runtimes Turbine v3.2 attaches across two strategy wallets
+  (sibling: turbine-volume-tracker on the volume wallet). Each runtime
+  attaches to its OWN wallet — runtime-phase-2 enforces one runtime per
+  wallet, so v3.0's "two runtimes on one wallet" architecture is
+  prevented at deploy.
+
+  Mission: receive the SAME volume-rotation signals as the volume
+  wallet, but exit them with a patient DSL profile. Most positions
+  exit early via Phase 1 max_loss or weak_peak_cut (just like volume
+  wallet). The ~5% of entries that land on a real directional move
+  ratchet through T0/T1/T2/T3/T4 instead of being force-cut at
+  10-min hard_timeout. Captures the "let winners run" alpha that
+  pure volume rotation gives up.
+
+  v3.1 → v3.2 deltas:
+    - "hunt" → "runners" (semantic rename; HYPE-only specialty dropped)
+    - Scanner schema simplified: same fields as turbine_volume_signals
+    - LLM gate prompt rewritten: same volume rotation rules as volume
+
+# ── STRATEGY ──
+strategy:
+  wallet: "${TURBINE_RUNNERS_WALLET}"
+  budget: 1900
+  slots: 2
+  margin_per_slot: 950
+  trading_risk: balanced
+  default_leverage: 5
+  enabled: true
+
+# ── RISK GUARDRAILS ──
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 25
+    max_entries_per_day: 50
+    bypass_max_entries_per_day_on_profit: true
+    max_consecutive_losses: 6
+    cooldown_minutes: 5
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 10
+
+# ── SCANNERS ──
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+  - name: turbine_runners_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        thesis: { type: string, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        slotIndex: { type: number, required: false }
+        spreadBps: { type: number, required: false }
+        fundingRegime: { type: string, required: false }
+        fundingAnnualizedPct: { type: number, required: false }
+        cycleMin: { type: number, required: false }
+        isXyz: { type: boolean, required: false }
+
+# ── ACTIONS ──
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: turbine_runners_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${TURBINE_RUNNERS_DECISION_MODEL}"
+    scanners: [turbine_runners_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false
+        execution_timeout_seconds: 180
+    context:
+      - type: signal
+        scanner: turbine_runners_signals
+    decision_prompt: |
+      You are Turbine RUNNERS' pass-through gate. The producer applied
+      every filter (funding regime, spread gate, held-asset dedup,
+      post-close cooldown, slot accounting). Honor the signal and
+      convert to OPEN_POSITION.
+
+      SIGNAL:
+      {{signal_turbine_runners_signals}}
+
+      Output execute: true UNLESS:
+        - leverage <= 0 OR marginUsd <= 0 (malformed signal)
+        - thesis not in {funding_fade_long, funding_fade_short, alternate_neutral}
+
+      asset/direction copied EXACTLY from signal. Confidence always 7.
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": 7,
+        "reasoning": "asset + direction + thesis + spreadBps",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "turbine runners (volume rotation, patient DSL)"
+            }
+          ]
+        }
+      }
+
+# ── EXIT ══
+# RUNNERS exit: same volume rotation signals as the volume wallet,
+# but the DSL profile gives winners breathing room.
+#
+#   Phase 2 ratchet:
+#     T0 +5%  / lock 0   — confirms working, no lock yet
+#     T1 +10% / lock 35% — first lock; covers ~2% price move at 5x
+#     T2 +20% / lock 55%
+#     T3 +35% / lock 75%
+#     T4 +50% / lock 85% — apex; 10% price move at 5x
+#
+#   Time cuts kept (NOT a single-asset patience agent — runners is
+#   multi-asset rotation, idle positions have opportunity cost):
+#     hard_timeout 240min (4h absolute cap; rarely hit)
+#     weak_peak_cut 90min @ 3% min — if peak ROE never above 3%
+#                                    in 90min, thesis isn't working
+#     dead_weight_cut 120min — flat for 2h = thesis not unfolding
+#
+#   Phase 1 max_loss 30% — 6% adverse price move at 5x = catastrophic
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 240
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 90
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 120
+    phase1:
+      enabled: true
+      max_loss_pct: 30.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 3
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 0  }
+        - { trigger_pct: 10, lock_hw_pct: 35 }
+        - { trigger_pct: 20, lock_hw_pct: 55 }
+        - { trigger_pct: 35, lock_hw_pct: 75 }
+        - { trigger_pct: 50, lock_hw_pct: 85 }
+
+# ── NOTIFICATIONS ──
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

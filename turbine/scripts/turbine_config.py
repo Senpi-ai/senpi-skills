@@ -1,16 +1,46 @@
-"""TURBINE v3.1 — Shared config + state I/O + helpers wrapper.
+"""TURBINE v3.2 — Shared config + state I/O + helpers wrapper.
 
-v3.1 (2026-05-08) — two-wallet rewrite. The runtime-phase-2 plugin
-enforces one runtime per wallet, so v3.0's "two runtimes on one
-wallet" architecture won't deploy. v3.1 splits into TWO Senpi
-strategy wallets — each with its own runtime — managed by ONE
-producer daemon. The wallet boundary is the mode boundary, which
-ends up cleaner than v3.0's slot-mode tagging.
+v3.2 (2026-05-08) — RUNNERS redesign.
 
-  Wallet A (volume): own runtime turbine-volume-tracker, $3,500
-                     ($500 × 7 slots), funding-fade rotation.
-  Wallet B (hunt):   own runtime turbine-hunt-tracker,   $2,400
-                     ($1,200 × 2 slots), HYPE 4H momentum.
+v3.1's "hunt mode = HYPE-only momentum specialist" was the wrong
+abstraction: ~$2,400 idle 90% of the time, no volume contribution
+from the second wallet. The correct framing (clarified by Jason):
+"run the volume play, but allow winners to run longer."
+
+v3.2 keeps the two-wallet split (runtime-phase-2 still enforces
+one runtime per wallet) but rewires it: BOTH wallets run the same
+volume rotation alpha. The wallet boundary just selects DSL
+behavior:
+
+  Wallet A (volume):  own runtime turbine-volume-tracker
+                      $4,000 funded ($500 × 7 slots + $500 buffer)
+                      DSL: hard_timeout 10min, no Phase 2.
+                      Pure rotation.
+
+  Wallet B (runners): own runtime turbine-runners-tracker
+                      $1,900 funded ($950 × 2 slots)
+                      DSL: hard_timeout 240min (4h cap),
+                      Phase 2 ratchet enabled.
+                      SAME entries as volume; lets winners ride.
+
+Both wallets receive the same volume-rotation signals from the
+producer (same scoring, same asset universe, same funding-fade
+direction). Most positions on either wallet exit at small loss/win.
+The runners wallet's value: ~5% of entries land on a real
+directional move that the 10-min hard_timeout would force-cut on
+volume; runners' Phase 2 ratchet lets those ride to +20-50% margin
+ROE before retrace.
+
+v3.1 → v3.2 deltas:
+  - "hunt" → "runners" everywhere (semantic rename)
+  - HYPE-only specialty → general volume rotation on runners wallet
+  - hunt_min_score / huntCooldownMin / minHuntWalletBalance dropped
+  - Runners get the same scoring path as volume
+
+Helpers-based (matches Cheetah v7.0.0 / Pangolin v2.2 patterns):
+  - SenpiClient via lazy proxy (auth-validated on first use)
+  - mcporter_call() shim for backward-compat call sites
+  - _wrapper_client exposed for direct push_signal access
 
 Helpers-based (matches Cheetah v7.0.0 / Pangolin v2.2 patterns):
   - SenpiClient via lazy proxy (auth-validated on first use)
@@ -114,18 +144,26 @@ def get_volume_wallet_and_strategy():
     return wallet, strategy_id
 
 
-def get_hunt_wallet_and_strategy():
-    """Resolve HUNT wallet + strategyId. Env (TURBINE_HUNT_WALLET /
-    TURBINE_HUNT_STRATEGY_ID) preferred → config.hunt.{wallet,strategyId}
-    fallback. Empty wallet means hunt mode is disabled — producer
-    only emits volume signals (graceful degradation)."""
-    wallet = os.environ.get("TURBINE_HUNT_WALLET", "").strip()
-    strategy_id = os.environ.get("TURBINE_HUNT_STRATEGY_ID", "").strip()
+def get_runners_wallet_and_strategy():
+    """Resolve RUNNERS wallet + strategyId. Env (TURBINE_RUNNERS_WALLET /
+    TURBINE_RUNNERS_STRATEGY_ID) preferred → config.runners.{wallet,strategyId}
+    fallback. Empty wallet means runners mode is disabled — producer
+    only emits volume signals on the volume wallet (graceful degradation
+    for operators who only want pure volume engine)."""
+    wallet = os.environ.get("TURBINE_RUNNERS_WALLET", "").strip()
+    strategy_id = os.environ.get("TURBINE_RUNNERS_STRATEGY_ID", "").strip()
     if not wallet or not strategy_id:
-        c = load_config().get("hunt", {}) or {}
+        c = load_config().get("runners", {}) or {}
         wallet = wallet or (c.get("wallet") or "").strip()
         strategy_id = strategy_id or (c.get("strategyId") or "").strip()
     return wallet, strategy_id
+
+
+# Legacy alias for v3.1 callers — to be removed once all callers updated.
+def get_hunt_wallet_and_strategy():
+    """DEPRECATED: use get_runners_wallet_and_strategy(). Kept temporarily
+    for any v3.1 lingering references."""
+    return get_runners_wallet_and_strategy()
 
 
 def get_wallet_and_strategy():
