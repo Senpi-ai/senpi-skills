@@ -124,6 +124,84 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(s["misses"], 1)
         self.assertGreaterEqual(s["coalesced"], 7)  # 8 callers, 1 owner, >=7 waiters
 
+    def test_waiter_does_not_return_stale_when_owner_raises(self) -> None:
+        """Coalesce + owner exception must not silently serve stale data.
+
+        Scenario: cache holds an expired entry from an earlier tick. A burst
+        of N callers miss; the first becomes owner, the rest wait. The owner
+        raises mid-flight. Without the fix, waiters wake up, see the stale
+        entry still in cache.store (the owner's exception cleared `pending`
+        but not the prior `cache.store[key]`), and return it — silently
+        violating the TTL contract. With the fix, waiters re-check TTL and
+        fall through to issue their own MCP call.
+        """
+        import threading
+
+        client = _FakeClient()
+        # Warm the cache with a short TTL, then expire it.
+        cached_mcp_call(client, "x", ttl=0.01, limit=10)
+        time.sleep(0.05)
+        # cache.store still holds the (now stale) entry until next refresh.
+        self.assertEqual(client.calls, 1)
+
+        # Replace mcp_call with one that:
+        #   - the OWNER (first caller after the wait) raises
+        #   - subsequent callers (waiters that fall through) return a new value
+        owner_arrived = threading.Event()
+        release_owner = threading.Event()
+        call_log: list = []
+
+        def mcp_call_with_owner_raise(tool, timeout=None, **arguments):
+            call_log.append(threading.current_thread().name)
+            # First call (owner) blocks until release, then raises.
+            if len(call_log) == 1:
+                owner_arrived.set()
+                release_owner.wait(2.0)
+                raise RuntimeError("simulated owner failure")
+            # Subsequent calls (waiters that fell through) succeed.
+            return {"tool": tool, "args": arguments, "fresh": True}
+
+        client.mcp_call = mcp_call_with_owner_raise
+
+        # Spin owner + 3 waiters concurrently. All miss because the entry
+        # is past TTL.
+        results: list = [None] * 4
+        errors: list = [None] * 4
+        threads = []
+
+        def worker(i):
+            try:
+                results[i] = cached_mcp_call(client, "x", ttl=0.01, limit=10)
+            except Exception as e:
+                errors[i] = e
+
+        # Start the owner first; let it register as the in-flight owner.
+        owner_thread = threading.Thread(target=worker, args=(0,), name="owner")
+        owner_thread.start()
+        owner_arrived.wait(2.0)
+        # Now launch waiters; they will register as coalesced waiters.
+        for i in range(1, 4):
+            t = threading.Thread(target=worker, args=(i,), name=f"waiter-{i}")
+            threads.append(t)
+            t.start()
+        # Brief settle to ensure waiters are blocked on pending.wait().
+        time.sleep(0.05)
+        release_owner.set()
+        owner_thread.join(timeout=3.0)
+        for t in threads:
+            t.join(timeout=3.0)
+
+        # Owner raised — its result slot has the exception.
+        self.assertIsInstance(errors[0], RuntimeError)
+        # Waiters re-checked TTL on wake and fell through to fresh calls.
+        for i in range(1, 4):
+            self.assertIsNone(errors[i], f"waiter-{i} unexpectedly raised")
+            self.assertIsNotNone(results[i], f"waiter-{i} returned None")
+            self.assertTrue(
+                results[i].get("fresh") is True,
+                f"waiter-{i} returned stale data: {results[i]!r}",
+            )
+
     def test_lru_eviction_when_cap_exceeded(self) -> None:
         from senpi_runtime_helpers import _config as cfg
         original = cfg.TICK_CACHE_MAX_ENTRIES

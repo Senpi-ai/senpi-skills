@@ -145,11 +145,16 @@ def cached_mcp_call(
             # last writer wins for the cache entry.
             value = client.mcp_call(tool, timeout=timeout, **arguments)
             return value
+        # Owner has signaled. Re-check the cache under lock and re-validate
+        # TTL — the original L116 freshness check applies to the coalesced
+        # path too. If the owner raised, no fresh entry was published; the
+        # remaining entry (if any) is the prior expired one we tried to
+        # refresh, and returning it would silently violate TTL. Issue our
+        # own call instead.
         with cache.lock:
             entry = cache.store.get(key)
-        if entry is not None:
-            return entry.value
-        # Owner finished but didn't publish (e.g. raised). Issue our own.
+            if entry is not None and time.time() - entry.ts <= ttl_value:
+                return entry.value
         return client.mcp_call(tool, timeout=timeout, **arguments)
 
     # Owner path. Issue the MCP call without holding the cache lock so
