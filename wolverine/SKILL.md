@@ -1,29 +1,28 @@
 ---
 name: wolverine-strategy
 description: >-
-  WOLVERINE v4.0.0 — HYPE Alpha Hunter, v2-runtime-native rewrite. v3.x was
-  a full-agency scanner with Python-side state (load_tc / has_resting_orders
-  / Python cooldowns) — same crash-class bug pattern that bit Vulture v2.x.
-  292 audit entries on M193170 since Apr 15, mostly schema-validation
-  failures. v4.0 flips to producer + v2 runtime: producer emits HYPE
-  signals via external-scanner ingest; runtime LLM gate is pass-through;
-  risk.guard_rails enforces declaratively; DSL uses FEE_OPTIMIZED_LIMIT;
-  trade chain DB emits per-trade telemetry. v3.0.3 six-gate entry
-  validation preserved (incl. the v3.0.3 4h-magnitude fix that rejects
-  dead-flat chop). v3.0.1/2/4 v1-DSL fixes preserved (all time-based cuts
-  disabled — exits 100% price-action via Phase 1 max_loss/retrace +
-  Phase 2 trailing).
+  WOLVERINE v5.0.0 — HYPE alpha hunter, senpi_runtime_helpers migration.
+  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
+  to in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
+  runtime /signals, long-lived producer_daemon). Thesis preserved
+  verbatim from v4.2.0: HYPE single-asset hybrid, six-gate entry
+  validation (4h trend, 4h strength ≥0.65, 1h-4h alignment, 15m
+  momentum ≥0.15, base-tech floor, 4h magnitude ≥1.0%), SM hard-block
+  on opposing direction, RSI hard gates (74/26), multi-factor scoring
+  (~17 max), conviction-tiered leverage (3x standard / 5x apex),
+  MIN_SCORE 9, FP-001 quiet hours.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.0.0"
+  version: "5.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
 ---
 
-# 🦡 WOLVERINE v4.0.0 — HYPE Alpha Hunter (v2-runtime-native)
+# 🦡 WOLVERINE v5.0.0 — HYPE Alpha Hunter (senpi_runtime_helpers)
 
 **v3 → v4 architectural rewrite.** v3.x was a full-agency scanner. v4.0 flips to the standard senpi-trading-runtime v2 pattern: producer emits signals, runtime owns execution + state.
 
