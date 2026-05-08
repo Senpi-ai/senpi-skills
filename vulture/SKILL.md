@@ -1,31 +1,28 @@
 ---
 name: vulture-strategy
 description: >-
-  VULTURE v3.0.0 — Long-Tail Momentum Rider, v2-runtime-native rewrite.
-  v2.x was a full-agency scanner (cfg.set_cooldown silent crash blew out
-  telemetry on 27 trades). v3.0 flips to producer + v2 runtime: producer
-  emits LONG_TAIL_MOMENTUM signals via external-scanner ingest; runtime
-  LLM gate is pass-through; risk.guard_rails enforces declaratively;
-  DSL uses FEE_OPTIMIZED_LIMIT (saves ~0.020-0.030% per maker-filled
-  exit); trade chain DB emits per-trade telemetry. v2.4 fixes preserved
-  (1h-alignment gate, FP-001 quiet hours, FP-002 hard rule). v2.3 DSL
-  preset preserved (proved correct on the +$117 ZEC LONG; T0 lock fired
-  venue stop at $347.17). Universe: 25+ small/mid-cap Hyperliquid perps
-  (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, POLYX, LDO,
-  APT, DYDX, ONDO, SUI, etc.) that no other Senpi predator covers.
-  Built from the #1 Arena winner's 3-week playbook (38.6% win rate,
-  6.15x profit factor).
+  VULTURE v4.0.0 — Long-Tail Momentum Rider, senpi_runtime_helpers
+  migration. Plumbing-only flip from openclaw-CLI subprocess +
+  mcporter subprocess to in-process SenpiClient. Thesis preserved
+  verbatim from v3.1.1: 25+ small/mid-cap Hyperliquid perps (HEMI,
+  WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, POLYX, LDO, APT,
+  DYDX, ONDO, SUI, etc.) that no other Senpi predator covers,
+  LONG_TAIL_MOMENTUM scoring, v2.4 1h-alignment gate, FP-001 quiet
+  hours, conviction-scaled leverage (3x cautious / 5x conviction /
+  7x apex). Built from #1 Arena winner's 3-week playbook (38.6%
+  win rate, 6.15x profit factor).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0.0"
+  version: "4.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
 ---
 
-# 🦅 VULTURE v3.0.0 — Long-Tail Momentum Rider (v2-runtime-native)
+# 🦅 VULTURE v4.0.0 — Long-Tail Momentum Rider (senpi_runtime_helpers)
 
 **v2 → v3 architectural rewrite.** v2.x was a full-agency scanner that called create_position directly and tracked state in Python. v3.0 flips to the standard senpi-trading-runtime v2 pattern: producer emits signals, runtime owns execution + state.
 

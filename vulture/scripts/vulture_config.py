@@ -1,23 +1,16 @@
-"""VULTURE v3.0.0 — Shared MCP helpers + config loader.
+"""VULTURE v4.0.0 — Shared config + MCP shim + helpers wrapper.
 
-v3.0 producer responsibilities are narrower than v2.x:
-  - Fetch market universe via MCP (leaderboard_get_markets)
-  - Apply scoring + hard gates
-  - Push signals via `openclaw senpi external-scanner ingest`
-    (runtime owns execution + DSL + risk + counters)
-
-This module is just the MCP call helper + config loader. All state
-(position tracking, trade counters, cooldowns, dynamic slots) lives
-in the runtime, not here. v2.x's set_cooldown / load_trade_counter /
-save_state functions are GONE — they were the source of the
-cfg.set_cooldown silent crash that blew out 27 trades' telemetry.
+v4.0.0: senpi_runtime_helpers migration. mcporter_call now routes
+through SenpiClient.mcp_call() (direct HTTPS) instead of mcporter
+subprocess. _wrapper_client is exposed for the producer's signal
+push (cfg._wrapper_client.push_signal(...)).
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 
+import functools
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -26,6 +19,34 @@ from pathlib import Path
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "vulture-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "vulture-config.json"
+
+
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+_helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
+
+
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Vulture's MCP calls and signal "
+            "POST both require it. Set it on the runtime host before "
+            "starting the producer daemon."
+        )
+    client = SenpiClient()
+    log_event("vulture_wrapper_enabled", helpers_path=_helpers_path)
+    return client
+
+
+class _WrapperClientProxy:
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
 
 
 # ─── Config ──────────────────────────────────────────────────
@@ -43,36 +64,17 @@ def load_config():
 # ─── MCP Helper ──────────────────────────────────────────────
 
 def mcporter_call(tool, retries=2, timeout=30, **params):
-    """Call a Senpi MCP tool via mcporter. Returns parsed JSON or None on failure."""
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
+    """v4.0.0: routes through SenpiClient.mcp_call() — direct HTTPS, no
+    mcporter subprocess. Returns the unwrapped JSON document on
+    success, or None if the wrapper raised."""
+    try:
+        return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(
+            f"[senpi_helpers] vulture_mcp_call_failed tool={tool} "
+            f"err={type(e).__name__}: {e}\n"
+        )
+        return None
 
 
 def output(data):
