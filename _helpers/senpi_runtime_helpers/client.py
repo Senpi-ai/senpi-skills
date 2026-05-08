@@ -426,20 +426,25 @@ class SenpiClient:
             self._pool.reset(scheme, host, port)
             raise SenpiClientError(f"state probe transport error: {e}") from e
 
-        try:
-            raw = resp.read()
-        finally:
-            if resp.getheader("Connection", "").lower() == "close":
-                self._pool.reset(scheme, host, port)
+        # Use HTTPResponse as a context manager so its socket-bookkeeping
+        # `close()` runs on every exit path (success, non-200 raise, JSON decode
+        # raise). Without `with`, leaving via raise leaves the keep-alive socket
+        # to GC — under boot + every 5-minute alive_check, that adds up.
+        with resp:
+            try:
+                raw = resp.read()
+            finally:
+                if resp.getheader("Connection", "").lower() == "close":
+                    self._pool.reset(scheme, host, port)
 
-        if resp.status != 200:
-            raise SenpiClientError(
-                f"state probe HTTP {resp.status}: {raw[:200]!r}"
-            )
-        try:
-            parsed = json.loads(raw.decode("utf-8"))
-        except (json.JSONDecodeError, UnicodeDecodeError) as e:
-            raise SenpiClientError(f"state probe response not valid JSON: {e}") from e
+            if resp.status != 200:
+                raise SenpiClientError(
+                    f"state probe HTTP {resp.status}: {raw[:200]!r}"
+                )
+            try:
+                parsed = json.loads(raw.decode("utf-8"))
+            except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                raise SenpiClientError(f"state probe response not valid JSON: {e}") from e
 
         # Senpi-stack envelope:
         #   { "success": true, "data": { "runtimes": [RuntimeSystemState, ...] } }

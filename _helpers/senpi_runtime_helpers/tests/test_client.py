@@ -500,6 +500,40 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(SenpiClientError):
             c.is_scanner_registered("0xrt1ABCDEF", "")
 
+    def test_fetch_state_closes_response_on_success(self) -> None:
+        """`_fetch_state` must run the HTTPResponse through a context manager so
+        its socket bookkeeping (HTTPResponse.close()) fires on every exit path.
+        Without the `with resp:` wrapper, repeated state probes leaked
+        keep-alive sockets — boot probe + every 5-min alive_check on a
+        long-running daemon.
+        """
+        from unittest.mock import MagicMock
+
+        c = self._client_for_state()
+        # Drive a successful probe through the real mock server, but spy on
+        # `resp.close()` by wrapping `getresponse` to capture the response and
+        # patch its close method.
+        original_get = c._pool.get
+        captured = {}
+
+        def spy_pool_get(scheme, host, port, timeout):
+            conn = original_get(scheme, host, port, timeout)
+            real_getresponse = conn.getresponse
+
+            def wrapped_getresponse(*a, **kw):
+                resp = real_getresponse(*a, **kw)
+                resp.close = MagicMock(side_effect=resp.close)  # spy
+                captured["resp"] = resp
+                return resp
+
+            conn.getresponse = wrapped_getresponse
+            return conn
+
+        c._pool.get = spy_pool_get
+        c.is_runtime_registered("0xrt1ABCDEF")
+        self.assertIn("resp", captured)
+        captured["resp"].close.assert_called()
+
     def test_pool_propagates_timeout_to_live_socket(self) -> None:
         """Per-call timeout overrides must reach the live socket on reused
         connections. Setting `conn.timeout` alone is a no-op after connect
