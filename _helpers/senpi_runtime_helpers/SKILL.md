@@ -94,6 +94,71 @@ client.push_signal(
 
 ---
 
+## ⚠️ The other footgun — `push_signal()` is not the CLI subprocess
+
+The legacy producer pattern was:
+
+```python
+# legacy
+payload = {"address": W, "scannerId": S, "signalType": "X", ..., "data": {...}, "meta": {...}}
+subprocess.run(["openclaw", "senpi", "external-scanner", "ingest", ..., "--payload", json.dumps(payload)])
+```
+
+The CLI dumped the **entire dict** through to the runtime, so producers built fat
+payloads with `address`, `scannerId`, `signalType`, `score`, `timestamp`,
+`factors`, `meta` etc. — all of those reached the runtime.
+
+`push_signal()` does **not** work that way. It extracts only the kwargs you pass:
+
+```python
+client.push_signal(
+    address=..., scanner=..., asset=..., direction=...,
+    score=..., signal_type=..., data=...,
+)
+```
+
+Anything else in your payload dict is **dead weight** — built and discarded.
+Worse, the wire schema is `additionalProperties: false`, so unknown top-level
+fields would be **rejected with INVALID_REQUEST** if you tried to send them.
+
+**Server-set fields — never send these:**
+- `timestamp` — runtime sets from `now()`
+- `factors` — runtime sets to `{}`
+
+**Sourced from your producer constants — don't duplicate inside the dict:**
+- `address` — passed as kwarg from your `WALLET` constant
+- `scanner` — passed as kwarg from your `SCANNER_NAME` constant
+
+If you want a `build_signal_payload()` helper, only put the fields the call
+site actually extracts:
+
+```python
+# RIGHT — every key is consumed by push_signal
+def build_signal_payload(c):
+    return {
+        "asset": c["token"],
+        "direction": c["direction"],
+        "signal_type": "MY_SIGNAL_TYPE",
+        "data": {…},
+    }
+
+def push_signal(payload):
+    client.push_signal(
+        address=WALLET, scanner=SCANNER_NAME,
+        asset=payload.get("asset"),
+        direction=payload.get("direction"),
+        signal_type=payload.get("signal_type"),
+        data=payload.get("data"),
+    )
+```
+
+**Always pass `signal_type=` explicitly.** It looks optional in the API surface
+but the fallback is `defaultSignalType` from the scanner's `runtime.yaml` — most
+skills don't declare one, leaving signals with empty type tags in audit logs and
+the LLM decision context. Per-signal explicitness is the safer practice.
+
+---
+
 ## Decision tree — pick your starting point
 
 | What you need to do | Jump to |
@@ -220,7 +285,8 @@ client.push_signal(
     asset="BTC",                 # uppercase Hyperliquid ticker
     direction="LONG",            # "LONG" | "SHORT" — strict
     score=0.85,                  # 0..1 — top-level confidence
-    signal_type="MOMENTUM",      # optional override; falls back to defaultSignalType
+    signal_type="MOMENTUM",      # ALWAYS pass explicitly; do not rely on
+                                  # the scanner's defaultSignalType fallback
     data={                        # validated against scanner config.fields
         "rsi": 75,
         "funding_bps": 18,

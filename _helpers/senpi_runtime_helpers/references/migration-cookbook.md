@@ -119,6 +119,7 @@ def push_signal(payload):
         asset=payload.get("asset"),
         direction=payload.get("direction"),
         score=payload.get("score"),
+        signal_type=payload.get("signal_type"),
         data=payload.get("data") or {},
     )
 ```
@@ -126,6 +127,21 @@ def push_signal(payload):
 **Critical reminder** (from the Pangolin tick-2 incident, 2026-05-05):
 keep `asset` and `direction` **out** of `data`. They are top-level routing
 fields. See [`signal-schema.md`](signal-schema.md).
+
+**Mental-model shift from the CLI era:** the legacy
+`subprocess.run([..., "--payload", json.dumps(payload)])` dumped the entire
+dict to the runtime. The wrapper does NOT — it only sends the kwargs you pass.
+If your legacy `build_signal_payload(...)` returns a fat dict with `address`,
+`scannerId`, `signalType`, `score` (top-level), `timestamp`, `factors`,
+`meta` — those are now **dead weight**. `timestamp` and `factors` are set by
+the runtime; `address` / `scanner` are sourced from your producer constants;
+the rest must be passed as explicit kwargs to `push_signal()` or they don't
+reach the wire. Trim the dict to only what `push_signal()` extracts.
+
+**Always pass `signal_type=` explicitly.** It looks optional but the fallback
+is the scanner's `defaultSignalType` from `runtime.yaml`, which most skills
+do not declare. Without an explicit `signal_type=`, signals reach the LLM
+decision context and audit logs with empty type tags.
 
 For batch emission in a single round-trip, use `_wrapper_client.push_signals([…])`.
 
