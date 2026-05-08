@@ -388,7 +388,7 @@ graceful shutdown.
 | `MCP error: …` from `mcp_call` | MCP server reported a tool-side error | Check tool name + arguments against `senpi-hyperliquid-mcp` schema |
 | `urllib.error.URLError` from `mcp_call` | Network / connect / TLS failure | Verify `SENPI_MCP_URL`, `SENPI_AUTH_TOKEN`. Retry transient errors at next tick |
 | `socket.timeout` from `mcp_call` or `signal_post` | Wall-clock timeout exceeded | Override per-call: `client.mcp_call(tool, timeout=60.0, …)` |
-| `lock_stale_recovered` (info, not error) | Previous holder crashed; lock auto-recovered | No action; this is the intended self-healing behaviour |
+| `lock_recovered_after_crash` (info, not error) | Previous holder crashed; lock auto-recovered | No action; this is the intended self-healing behaviour |
 
 ---
 

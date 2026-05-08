@@ -126,7 +126,7 @@ the lock file remains, and the next instance blocks forever waiting for a
 lock holder that no longer exists. `scanner_lock` writes its PID + a
 heartbeat timestamp into the lock file; the next caller checks whether the
 prior PID is still alive (via `os.kill(pid, 0)`). If not, it logs
-`lock_stale_recovered` and proceeds.
+`lock_recovered_after_crash` and proceeds.
 
 This eliminates the failure mode where one crashed tick permanently bricks
 the producer until manual intervention.
