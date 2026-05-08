@@ -657,18 +657,29 @@ def score_confluence(market, quality_positions, history):
 # ═══════════════════════════════════════════════════════════════
 
 def build_signal_payload(candidate, leverage, margin_usd, held_assets):
-    """Build the payload matching runtime.yaml's cheetah_signals.config.fields schema.
-    All declared scanner fields go in `data`, NOT `meta`."""
+    """Build the payload that `push_signal()` consumes.
+
+    Returned keys are exactly what `push_signal()` extracts and forwards
+    to the wrapper. The runtime's POST /signals schema declares
+    `additionalProperties: false`, so any other top-level fields would
+    be silently dropped or rejected — and `address`/`scanner` are sourced
+    from module-level constants in `push_signal()`, not from this dict.
+
+    Server-side fields (not sent by the producer):
+      - `address` — passed to push_signal from CHEETAH_WALLET
+      - `scanner` — passed to push_signal from SCANNER_NAME
+      - `timestamp` — set by the runtime receiver
+      - `factors` — set by the runtime receiver to {}
+
+    All scanner-config-validated fields go in `data`. The composite
+    `score` lives there too — it is an unbounded int 0-16, not the
+    schema's 0..1 confidence.
+    """
     held_list = sorted(list(held_assets)) if held_assets else []
     return {
-        "address": CHEETAH_WALLET,
-        "scannerId": SCANNER_NAME,
         "signalType": "CHEETAH_CONFLUENCE",
         "asset": candidate["token"],
         "direction": candidate["direction"],
-        "score": float(candidate["score"]),
-        "timestamp": int(time.time() * 1000),
-        "factors": {},
         "data": {
             "score": candidate["score"],
             "leverage": leverage,
@@ -689,9 +700,6 @@ def build_signal_payload(candidate, leverage, margin_usd, held_assets):
             "qualityAlign": int(candidate.get("quality_align", 0)),
             "rankClimb": int(candidate.get("rank_climb", 0)),
             "heldAssets": held_list,
-        },
-        "meta": {
-            "_cheetah_producer_version": VERSION,
         },
     }
 
