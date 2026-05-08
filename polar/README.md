@@ -23,11 +23,13 @@ ETH single-asset hybrid hunter. Hyperfeed Smart Money gates (pct≥5%, traders�
 
 ### Step 1 — Pull the helpers package (one-time per host)
 
+> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch — it has not yet landed on `main`. Pull from that branch until it does. Every other file in this skill is on `main` as normal.
+
 ```bash
 mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
 for f in __init__.py _config.py _logging.py cache.py client.py \
          daemon.py lock.py parallel.py SKILL.md README.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/_helpers/senpi_runtime_helpers/$f" \
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
     -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
 done
 ```
