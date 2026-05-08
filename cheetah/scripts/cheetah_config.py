@@ -1,15 +1,19 @@
-"""CHEETAH APEX Strategy — Shared config, MCP helpers, state I/O.
+"""CHEETAH — Shared config, MCP helpers, state I/O.
 
-v5.0 APEX rewrite. Previous versions of this file were a mantis
-copy-paste with broken MANTIS_WALLET env var references.
+v7.0.0: senpi_runtime_helpers migration. mcporter_call now routes
+through SenpiClient.mcp_call() (direct HTTPS) instead of mcporter
+subprocess. _wrapper_client is exposed for the producer's signal
+push (cfg._wrapper_client.push_signal(...)). All other helpers
+(atomic_write, load_config, get_wallet_and_strategy, get_positions,
+output, log, now_*) preserved verbatim.
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
 
+import functools
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -22,6 +26,49 @@ CONFIG_PATH = SKILL_DIR / "config" / "cheetah-config.json"
 STATE_DIR = SKILL_DIR / "state"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+# The wrapper is mounted via sys.path at module load, but SenpiClient
+# construction is DEFERRED until first attribute access. Two reasons:
+#   1. Importing cheetah_config from a test, REPL, or sibling helper
+#      shouldn't instantiate a network client or write to stderr.
+#   2. SENPI_AUTH_TOKEN is validated explicitly on first use — a
+#      missing token raises loudly here instead of silently producing
+#      a 401 on the first MCP call.
+# Pattern ported verbatim from pangolin/scripts/pangolin_config.py.
+
+_helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
+
+
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    """Lazy SenpiClient accessor with explicit auth validation."""
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Cheetah's MCP calls and signal "
+            "POST both require it. Set it on the runtime host (e.g. as a "
+            "Railway service variable) before starting the producer."
+        )
+    client = SenpiClient()
+    log_event("cheetah_wrapper_enabled", helpers_path=_helpers_path)
+    return client
+
+
+class _WrapperClientProxy:
+    """Module-level attribute that defers SenpiClient construction until
+    first attribute access. Preserves the legacy `cfg._wrapper_client.<x>`
+    call shape used by the producer without forcing eager instantiation
+    at import time."""
+
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
 
 
 # ─── Atomic Write ────────────────────────────────────────────
@@ -83,36 +130,26 @@ def save_state(data, filename="state.json"):
 # ─── MCP Helpers ─────────────────────────────────────────────
 
 def mcporter_call(tool, retries=2, timeout=30, **params):
-    """Call a Senpi MCP tool via mcporter. Array syntax, no shell=True."""
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
+    """Call a Senpi MCP tool via the senpi_runtime_helpers wrapper.
+
+    v7.0.0: routes through SenpiClient.mcp_call() — direct HTTPS, no
+    mcporter subprocess. Returns the unwrapped JSON document on
+    success, or None if the wrapper raised a transport / protocol
+    error. The producer's pre-existing `if not r:` early returns
+    continue to handle the no-data case gracefully.
+
+    `retries` is preserved as a parameter for backward compatibility
+    with existing call sites but is not implemented here — a transient
+    failure is recovered by the daemon's next tick (5 minutes).
+    """
+    try:
+        return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        sys.stderr.write(
+            f"[senpi_helpers] cheetah_mcp_call_failed tool={tool} "
+            f"err={type(e).__name__}: {e}\n"
+        )
+        return None
 
 
 def get_positions(wallet=None):
