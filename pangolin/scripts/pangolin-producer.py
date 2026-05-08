@@ -654,21 +654,33 @@ def scan_funding_extremes():
 # ═══════════════════════════════════════════════════════════════
 
 def build_signal_payload(c, leverage, margin_usd, held_assets=None):
-    """Build the payload matching runtime.yaml's pangolin_signals.config.fields schema.
-    All declared scanner fields go in `data`, NOT `meta`. (Turbine v2.0.11 lesson.)
+    """Build the payload that `push_signal()` consumes.
+
+    Returned keys are exactly what `push_signal()` extracts and forwards
+    to the wrapper. The runtime's POST /signals schema declares
+    `additionalProperties: false`, so any other top-level fields would
+    be silently dropped or rejected — and `address`/`scanner` are sourced
+    from module-level constants in `push_signal()`, not from this dict.
+
+    Server-side fields (not sent by the producer):
+      - `address` — passed to push_signal from PANGOLIN_WALLET
+      - `scanner` — passed to push_signal from SCANNER_NAME
+      - `timestamp` — set by the runtime receiver
+      - `factors` — set by the runtime receiver to {}
+
+    All declared scanner fields go in `data` (Turbine v2.0.11 lesson —
+    do NOT use a `meta` block). The composite `score` lives there too —
+    Pangolin's composite is an unbounded integer; SignalItem.score is
+    bounded 0..1, different semantics.
 
     v1.5: heldAssets list pushed to LLM gate so it can hard-skip
-    duplicates as defense layer 2 (producer dedup is layer 1)."""
+    duplicates as defense layer 2 (producer dedup is layer 1).
+    """
     held_list = sorted(list(held_assets)) if held_assets else []
     return {
-        "address": PANGOLIN_WALLET,
-        "scannerId": SCANNER_NAME,
         "signalType": "PANGOLIN_FUNDING_FADE",
         "asset": c["token"],
         "direction": c["fade_direction"],
-        "score": float(c["score"]),
-        "timestamp": int(time.time() * 1000),
-        "factors": {},
         "data": {
             "mode": "FUNDING_FADE",
             "score": c["score"],
@@ -689,9 +701,6 @@ def build_signal_payload(c, leverage, margin_usd, held_assets=None):
             "oiTurnover": round(c.get("oi_turnover", 0), 3),
             "reasons": " | ".join(c.get("reasons", [])),
             "heldAssets": held_list,    # v1.5: dedup defense layer 2 (LLM gate)
-        },
-        "meta": {
-            "_pangolin_producer_version": "2.2.0",
         },
     }
 
