@@ -441,7 +441,7 @@ cd _helpers/senpi_runtime_helpers
 python3 -m unittest discover -s tests -v
 ```
 
-35 tests cover client (HTTP + envelope parsing), lock (PID-aliveness recovery),
+51 tests cover client (HTTP + envelope parsing), lock (PID-aliveness recovery),
 cache (TTL + LRU + thundering-herd coalescing), parallel (concurrency cap),
 daemon (tick lifecycle + signal handling).
 
