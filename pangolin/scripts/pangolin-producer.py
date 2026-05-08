@@ -102,16 +102,13 @@ Environment variables:
                       sets STRATEGY_ADDRESS, the other inherits it and
                       silently emits to the wrong wallet.
   SENPI_MCP_URL     — optional, default https://mcp.prod.senpi.ai/mcp
-  OPENCLAW_BIN      — optional, default "openclaw"
   EXTERNAL_SCANNER_NAME — optional override (default "pangolin_signals")
   PANGOLIN_MARGIN_PCT — optional, default 0.25 (25% of account value)
 """
 
-import fcntl
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -123,10 +120,8 @@ import pangolin_config as cfg
 
 # v2.0.0: Agent-specific wallet env var. NO fallback to STRATEGY_ADDRESS
 # (contamination risk per Turbine v2.0.9 fix — see feedback_mcp_auth_is_fleet_wide.md).
-# Read case-preserved for CLI calls; lowercased separately for stable state-dir hashing.
 PANGOLIN_WALLET = os.environ.get("PANGOLIN_WALLET", "")
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "pangolin_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 MARGIN_PCT = float(os.environ.get("PANGOLIN_MARGIN_PCT", "0.25"))
 
 
@@ -142,7 +137,6 @@ def _wallet_state_dir():
 
 
 _STATE_DIR = _wallet_state_dir()
-_LOCK_PATH = _STATE_DIR / "producer.lock"
 _COOLDOWN_FILE = _STATE_DIR / "asset-cooldowns.json"
 _COUNTER_FILE = _STATE_DIR / "trade-counter.json"
 # v2.1.2: post-close cooldown (workaround for runtime
@@ -154,34 +148,13 @@ _PREV_HELD_FILE = _STATE_DIR / "previously-held.json"
 # ═══════════════════════════════════════════════════════════════
 # REENTRANCY GUARD
 # ═══════════════════════════════════════════════════════════════
-# Cron fires every 5 min. If a run takes longer (MCP latency on
-# market_get_funding_history is one call per candidate), the next
-# tick would start a second concurrent run. Two runs racing on
-# state files would cause duplicate signal emission for the same
-# candidate (different cooldown windows might both pass).
-
-def acquire_lock():
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
-
-
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
+# Reentrancy is enforced by `producer_daemon` via
+# `senpi_runtime_helpers.scanner_lock(name=f"pangolin-producer-{wallet_hash}")`
+# wrapping each tick. If a tick exceeds the daemon's `interval_seconds`,
+# the next firing fails to acquire `scanner_lock` and the daemon records
+# `tick_status="skipped_locked"`. The legacy in-script `acquire_lock` /
+# `release_lock` helpers (and the `fcntl` import) were removed when the
+# daemon took over scheduling — `_LOCK_PATH` is unused now too.
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -197,7 +170,7 @@ POST_CLOSE_COOLDOWN_MINUTES = 240     # v2.1.2 — post-CLOSE cooldown.
                                       # which is silently not enforcing in v2 runtime
                                       # (also broken on Scorpion v4.1.0). Producer-side
                                       # backstop until Senpi fixes the runtime gate.
-STARTING_BUDGET = 1000.0              # for dynamic-cap PnL math
+STARTING_BUDGET = 160.0               # rebased for $160 test wallet (was 1000.0)
 XYZ_BANNED = True                     # never trade equities
 
 # Leverage tiers — preserved from v1.4
@@ -681,21 +654,33 @@ def scan_funding_extremes():
 # ═══════════════════════════════════════════════════════════════
 
 def build_signal_payload(c, leverage, margin_usd, held_assets=None):
-    """Build the payload matching runtime.yaml's pangolin_signals.config.fields schema.
-    All declared scanner fields go in `data`, NOT `meta`. (Turbine v2.0.11 lesson.)
+    """Build the payload that `push_signal()` consumes.
+
+    Returned keys are exactly what `push_signal()` extracts and forwards
+    to the wrapper. The runtime's POST /signals schema declares
+    `additionalProperties: false`, so any other top-level fields would
+    be silently dropped or rejected — and `address`/`scanner` are sourced
+    from module-level constants in `push_signal()`, not from this dict.
+
+    Server-side fields (not sent by the producer):
+      - `address` — passed to push_signal from PANGOLIN_WALLET
+      - `scanner` — passed to push_signal from SCANNER_NAME
+      - `timestamp` — set by the runtime receiver
+      - `factors` — set by the runtime receiver to {}
+
+    All declared scanner fields go in `data` (Turbine v2.0.11 lesson —
+    do NOT use a `meta` block). The composite `score` lives there too —
+    Pangolin's composite is an unbounded integer; SignalItem.score is
+    bounded 0..1, different semantics.
 
     v1.5: heldAssets list pushed to LLM gate so it can hard-skip
-    duplicates as defense layer 2 (producer dedup is layer 1)."""
+    duplicates as defense layer 2 (producer dedup is layer 1).
+    """
     held_list = sorted(list(held_assets)) if held_assets else []
     return {
-        "address": PANGOLIN_WALLET,
-        "scannerId": SCANNER_NAME,
         "signalType": "PANGOLIN_FUNDING_FADE",
         "asset": c["token"],
         "direction": c["fade_direction"],
-        "score": float(c["score"]),
-        "timestamp": int(time.time() * 1000),
-        "factors": {},
         "data": {
             "mode": "FUNDING_FADE",
             "score": c["score"],
@@ -717,41 +702,43 @@ def build_signal_payload(c, leverage, margin_usd, held_assets=None):
             "reasons": " | ".join(c.get("reasons", [])),
             "heldAssets": held_list,    # v1.5: dedup defense layer 2 (LLM gate)
         },
-        "meta": {
-            "_pangolin_producer_version": "2.2.0",
-        },
     }
 
 
 def push_signal(payload):
-    """Push a signal payload to the runtime via openclaw CLI."""
-    if not PANGOLIN_WALLET:
-        cfg.log("PANGOLIN_WALLET env var not set; cannot push signal")
-        return False
+    """Push a signal payload to the runtime via the wrapper.
 
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", PANGOLIN_WALLET,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if r.returncode != 0:
-            cfg.log(f"ingest failed for {payload['asset']} {payload['direction']}: {r.stderr.strip()}")
-            return False
-        if r.stdout.strip():
-            try:
-                response = json.loads(r.stdout)
-                if isinstance(response, dict) and response.get("ok") is False:
-                    cfg.log(f"ingest rejected for {payload['asset']} {payload['direction']}: {response.get('error')}")
-                    return False
-            except (json.JSONDecodeError, TypeError):
-                pass
-        return True
-    except (subprocess.TimeoutExpired, OSError) as e:
-        cfg.log(f"ingest exception for {payload['asset']}: {e}")
-        return False
+    Direct HTTP POST to the runtime API on 127.0.0.1; no subprocess.
+
+    Returns None on success. Raises:
+      - RuntimeError if PANGOLIN_WALLET is not set (wrapper would 400 anyway)
+      - SenpiClientError on schema-rejection (e.g. runtime declined the
+        item with success=false)
+      - urllib.error.URLError / HTTPError on transport failure
+    The daemon's `_run_main_safely` catches everything and proceeds to
+    the next tick — no half-written caller state.
+
+    The producer's `build_signal_payload` returns a Signal-shaped dict.
+    Map to the SignalItem schema:
+      - top-level: address, scanner, asset, direction, signal_type (routing)
+      - data: scanner-config-validated fields only
+    `score` stays inside data (Pangolin's composite is an unbounded
+    integer; SignalItem.score is bounded 0..1 — different semantics).
+    `signal_type` is passed explicitly per signal so the runtime never
+    relies on the scanner's defaultSignalType fallback (pangolin's
+    runtime.yaml does not declare one). Keeps audit logs and the LLM
+    decision context tagged correctly.
+    """
+    if not PANGOLIN_WALLET:
+        raise RuntimeError("PANGOLIN_WALLET env var not set; cannot push signal")
+    cfg._wrapper_client.push_signal(
+        address=PANGOLIN_WALLET,
+        scanner=SCANNER_NAME,
+        asset=payload.get("asset"),
+        direction=payload.get("direction"),
+        signal_type=payload.get("signalType"),
+        data=payload.get("data"),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -770,159 +757,181 @@ def main():
         })
         return
 
-    lock = acquire_lock()
-    if lock is None:
-        print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
-            "_pangolin_producer_version": "2.2.0",
-        }))
-        return
+    # Reentrancy is enforced by producer_daemon via scanner_lock — see
+    # the REENTRANCY GUARD comment block. Single-call form below.
+    # (Previously this body was wrapped in try/finally to release the
+    # legacy fcntl lock — both the try wrapper and the lock are gone.)
 
-    try:
-        # Read account value for dynamic-cap math + sizing
-        # v1.5: also pull held assets for emission-side dedup.
-        account_value, pos_count, held_assets = get_account_value()
-        if account_value is None or account_value <= 0:
-            cfg.output({
-                "status": "ok",
-                "note": "cannot read account value; skip tick",
-                "_pangolin_producer_version": "2.2.0",
-            })
-            return
-
-        # v2.1.2: detect close events by diffing held_assets against
-        # last tick's held set. Anything that disappeared just closed.
-        # Record close timestamp into last-closed.json so the next
-        # candidate filter can apply post-close cooldown.
-        previously_held = load_previously_held()
-        closed_this_tick = detect_closes(held_assets, previously_held)
-        save_previously_held(held_assets)
-
-        # Producer-side dynamic daily cap (v1 carryover; runtime ceiling at 12)
-        tc = load_trade_counter()
-        dyn_cap = get_dynamic_daily_cap(account_value)
-        if tc.get("entries", 0) >= dyn_cap:
-            pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
-            cfg.output({
-                "status": "ok",
-                "note": f"dynamic cap reached: entries {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",
-                "_pangolin_producer_version": "2.2.0",
-            })
-            return
-
-        # Scan funding extremes
-        candidates, regime = scan_funding_extremes()
-        if not candidates:
-            cfg.output({
-                "status": "ok",
-                "note": f"no candidates passed gates (regime={regime})",
-                "_pangolin_producer_version": "2.2.0",
-            })
-            return
-
-        # v1.5: held-asset dedup is the FIRST filter. Producer must
-        # never emit a duplicate signal on an already-held position;
-        # this was the runaway-emission bug that ballooned MAVIA
-        # short from -38k → -79k size in 24h on 2026-05-02.
-        def _asset_already_held(token):
-            if not held_assets:
-                return False
-            t = str(token).upper()
-            if t in held_assets:
-                return True
-            # Tolerate "VENUE:TOKEN" or namespaced variants (defensive)
-            if ":" in t and t.split(":", 1)[1] in held_assets:
-                return True
-            return False
-
-        # v2.1.2: filter order — held > post-close-cooldown > emit-cooldown > score.
-        # Held first (cheapest, prevents pyramiding); post-close blocks
-        # the thrash-cycle bug (asset just closed, runtime per-asset
-        # cooldown isn't enforcing); emit-cooldown is the v1 emission
-        # debounce; min score is last.
-        eligible = []
-        skipped_held = 0
-        skipped_post_close = 0
-        post_close_skips = []   # observability detail per skipped token
-        for c in candidates:
-            if c["score"] < MIN_SCORE:
-                continue
-            if _asset_already_held(c["token"]):
-                skipped_held += 1
-                continue
-            if is_in_post_close_cooldown(c["token"]):
-                skipped_post_close += 1
-                post_close_skips.append({
-                    "token": c["token"],
-                    "remaining_min": post_close_cooldown_remaining_min(c["token"]),
-                })
-                continue
-            if is_asset_cooled_down(c["token"]):
-                continue
-            eligible.append(c)
-
-        if not eligible:
-            best = candidates[0]
-            cfg.output({
-                "status": "ok",
-                "note": f"no candidates passed filters. best={best['token']} score={best['score']} regime={regime}",
-                "skipped_held": skipped_held,
-                "skipped_post_close": skipped_post_close,
-                "post_close_skips": post_close_skips,
-                "closed_this_tick": sorted(list(closed_this_tick)),
-                "held_assets": sorted(list(held_assets)),
-                "_pangolin_producer_version": "2.2.0",
-            })
-            return
-
-        # Compute sizing (25% of account value)
-        margin_usd = round(account_value * MARGIN_PCT, 2)
-
-        # Emit signals (cap at remaining slots × dyn cap)
-        # Conservative: emit only the TOP candidate per tick (v1 behavior).
-        # The runtime's slot logic + per-asset cooldown handles parallelism.
-        pushed = 0
-        for c in eligible[:1]:    # only top candidate per tick
-            leverage = get_leverage_for_score(c["score"])
-            payload = build_signal_payload(c, leverage, margin_usd, held_assets)
-            if push_signal(payload):
-                pushed += 1
-                mark_asset_emitted(c["token"])
-                # Increment trade counter only on successful emit
-                tc["entries"] = tc.get("entries", 0) + 1
-                save_trade_counter(tc)
-
-        elapsed = time.time() - run_start
-        warn = "WARN_OVER_300S" if elapsed > 300 else None
+    # Read account value for dynamic-cap math + sizing
+    # v1.5: also pull held assets for emission-side dedup.
+    account_value, pos_count, held_assets = get_account_value()
+    if account_value is None or account_value <= 0:
         cfg.output({
             "status": "ok",
-            "regime": regime,
-            "candidates_total": len(candidates),
-            "eligible": len(eligible),
+            "note": "cannot read account value; skip tick",
+            "_pangolin_producer_version": "2.2.0",
+        })
+        return
+
+    # v2.1.2: detect close events by diffing held_assets against
+    # last tick's held set. Anything that disappeared just closed.
+    # Record close timestamp into last-closed.json so the next
+    # candidate filter can apply post-close cooldown.
+    previously_held = load_previously_held()
+    closed_this_tick = detect_closes(held_assets, previously_held)
+    save_previously_held(held_assets)
+
+    # Producer-side dynamic daily cap (v1 carryover; runtime ceiling at 12)
+    tc = load_trade_counter()
+    dyn_cap = get_dynamic_daily_cap(account_value)
+    if tc.get("entries", 0) >= dyn_cap:
+        pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
+        cfg.output({
+            "status": "ok",
+            "note": f"dynamic cap reached: entries {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",
+            "_pangolin_producer_version": "2.2.0",
+        })
+        return
+
+    # Scan funding extremes
+    candidates, regime = scan_funding_extremes()
+    if not candidates:
+        cfg.output({
+            "status": "ok",
+            "note": f"no candidates passed gates (regime={regime})",
+            "_pangolin_producer_version": "2.2.0",
+        })
+        return
+
+    # v1.5: held-asset dedup is the FIRST filter. Producer must
+    # never emit a duplicate signal on an already-held position;
+    # this was the runaway-emission bug that ballooned MAVIA
+    # short from -38k → -79k size in 24h on 2026-05-02.
+    def _asset_already_held(token):
+        if not held_assets:
+            return False
+        t = str(token).upper()
+        if t in held_assets:
+            return True
+        # Tolerate "VENUE:TOKEN" or namespaced variants (defensive)
+        if ":" in t and t.split(":", 1)[1] in held_assets:
+            return True
+        return False
+
+    # v2.1.2: filter order — held > post-close-cooldown > emit-cooldown > score.
+    # Held first (cheapest, prevents pyramiding); post-close blocks
+    # the thrash-cycle bug (asset just closed, runtime per-asset
+    # cooldown isn't enforcing); emit-cooldown is the v1 emission
+    # debounce; min score is last.
+    eligible = []
+    skipped_held = 0
+    skipped_post_close = 0
+    post_close_skips = []   # observability detail per skipped token
+    for c in candidates:
+        if c["score"] < MIN_SCORE:
+            continue
+        if _asset_already_held(c["token"]):
+            skipped_held += 1
+            continue
+        if is_in_post_close_cooldown(c["token"]):
+            skipped_post_close += 1
+            post_close_skips.append({
+                "token": c["token"],
+                "remaining_min": post_close_cooldown_remaining_min(c["token"]),
+            })
+            continue
+        if is_asset_cooled_down(c["token"]):
+            continue
+        eligible.append(c)
+
+    if not eligible:
+        best = candidates[0]
+        cfg.output({
+            "status": "ok",
+            "note": f"no candidates passed filters. best={best['token']} score={best['score']} regime={regime}",
             "skipped_held": skipped_held,
             "skipped_post_close": skipped_post_close,
             "post_close_skips": post_close_skips,
             "closed_this_tick": sorted(list(closed_this_tick)),
             "held_assets": sorted(list(held_assets)),
-            "signals_pushed": pushed,
-            "account_value": round(account_value, 2),
-            "open_positions": pos_count,
-            "dynamic_cap": dyn_cap,
-            "entries_today": tc.get("entries", 0),
-            "elapsed_sec": round(elapsed, 2),
-            "warn": warn,
             "_pangolin_producer_version": "2.2.0",
         })
-    finally:
-        release_lock(lock)
+        return
+
+    # Compute sizing (25% of account value)
+    margin_usd = round(account_value * MARGIN_PCT, 2)
+
+    # Emit signals (cap at remaining slots × dyn cap)
+    # Conservative: emit only the TOP candidate per tick (v1 behavior).
+    # The runtime's slot logic + per-asset cooldown handles parallelism.
+    pushed = 0
+    for c in eligible[:1]:    # only top candidate per tick
+        leverage = get_leverage_for_score(c["score"])
+        payload = build_signal_payload(c, leverage, margin_usd, held_assets)
+        # push_signal raises on failure (caught by daemon._run_main_safely
+        # at the tick boundary), so reaching the next line means the runtime
+        # accepted the signal. State mutations stay atomic per signal.
+        push_signal(payload)
+        pushed += 1
+        mark_asset_emitted(c["token"])
+        tc["entries"] = tc.get("entries", 0) + 1
+        save_trade_counter(tc)
+
+    elapsed = time.time() - run_start
+    warn = "WARN_OVER_300S" if elapsed > 300 else None
+    cfg.output({
+        "status": "ok",
+        "regime": regime,
+        "candidates_total": len(candidates),
+        "eligible": len(eligible),
+        "skipped_held": skipped_held,
+        "skipped_post_close": skipped_post_close,
+        "post_close_skips": post_close_skips,
+        "closed_this_tick": sorted(list(closed_this_tick)),
+        "held_assets": sorted(list(held_assets)),
+        "signals_pushed": pushed,
+        "account_value": round(account_value, 2),
+        "open_positions": pos_count,
+        "dynamic_cap": dyn_cap,
+        "entries_today": tc.get("entries", 0),
+        "elapsed_sec": round(elapsed, 2),
+        "warn": warn,
+        "_pangolin_producer_version": "2.2.0",
+    })
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        cfg.log(f"CRITICAL ERROR: {e}")
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        cfg.output({"status": "error", "error": str(e)})
+    # Long-lived daemon: fires `main()` every 5 min. Replaces openclaw
+    # cron + per-tick agentTurn for this skill — no LLM coupling, no CLI
+    # cold start. producer_daemon wraps each tick in scanner_lock so
+    # overlap is skipped cleanly, enforces a 6-min wall-clock per-tick
+    # via SIGALRM (longer than the producer's WARN_OVER_300S budget so
+    # the warn fires before the alarm), and drains gracefully on
+    # SIGTERM/SIGINT.
+    #
+    # Lock name is per-wallet so multi-wallet hosts (one daemon per
+    # wallet) don't collide on a single global lock file.
+    from senpi_runtime_helpers import producer_daemon
+    _wallet_lock_id = (
+        hashlib.sha256(PANGOLIN_WALLET.lower().encode()).hexdigest()[:12]
+        if PANGOLIN_WALLET
+        else "unset"
+    )
+    # Pass `fn=main` directly. producer_daemon's per-tick error handler
+    # catches exceptions, logs `daemon_tick_finished status=error` with the
+    # error text, and continues to the next tick — the wrapper observability
+    # path. A local `_run_main_safely` shim that swallowed exceptions before
+    # the daemon saw them would mask failures as `status=ok` (caught by
+    # bugbot on PR #208).
+    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
+    # doesn't accept yet — see fleet-fix commit 4f0c15e). When Erik
+    # upgrades the host helpers, restore:
+    #   wallet=PANGOLIN_WALLET,
+    #   scanner="pangolin_signals",
+    # to enable /state alive_check.
+    producer_daemon(
+        fn=main,
+        interval_seconds=300,
+        name=f"pangolin-producer-{_wallet_lock_id}",
+        tick_timeout=360,
+    )

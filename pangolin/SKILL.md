@@ -1,26 +1,29 @@
 ---
 name: pangolin-strategy
 description: >-
-  PANGOLIN v2.0 — Extreme Funding Rate Fader with v2-runtime-native
-  architecture + maker-exit fee recovery. Enters opposite to elevated
-  funding rates (>0.015%/8h ≈ 20% annualized) on assets where funding
-  has been extreme for 3+ hours and the market regime confirms (or is
-  neutral). Producer pushes funding-fade signals to the runtime;
-  runtime LLM gates them, executes via FEE_OPTIMIZED_LIMIT, and
-  manages DSL exits autonomously. Conservative 3-5x leverage, very
-  wide DSL (12h hard timeout). Collects funding every 8 hours while
-  waiting for crowded positions to mean-revert (24-48h thesis horizon).
+  PANGOLIN v3.0.0 — Extreme Funding Rate Fader, senpi_runtime_helpers
+  migration. Plumbing-only flip from openclaw-CLI subprocess + mcporter
+  subprocess to in-process SenpiClient. Pangolin is the canonical
+  reference implementation — its producer was the first to ship the
+  helpers wrapper pattern on the helper-mcp-envelope-aligned branch;
+  v3.0.0 ports that to main. Thesis preserved verbatim from v2.2.0:
+  funding-fade entries opposite to elevated funding rates (>0.015%/8h
+  ≈ 20% annualized), persistence ≥3h, regime confirms or neutral.
+  Conservative 3-5x leverage, wide DSL (12h hard_timeout). Collects
+  funding every 8h while crowded positions mean-revert (24-48h thesis).
+  Phase 2 v2.2 ratchet ladder T0 8/50, T1 16/65, T2 30/85, T3 50/92.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
 ---
 
-# 🦔 PANGOLIN v2.0 — Funding Rate Fader. v2-Runtime-Native. Maker Exits.
+# 🦔 PANGOLIN v3.0.0 — Funding Rate Fader. senpi_runtime_helpers.
 
 An entirely new strategy archetype for the Predators fleet. No other agent trades on funding rate signals.
 

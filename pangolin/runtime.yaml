@@ -89,7 +89,7 @@ risk:
     max_entries_per_day: 12                      # upper bound of v1's dynamic cap (12 at +5% PnL)
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 5                    # funding fade has long loss streaks; widen
-    cooldown_minutes: 0                          # producer manages cooldowns
+    cooldown_minutes: 1                          # min allowed by runtime 2.x schema; producer manages real cooldowns
     drawdown_halt_pct: 25                        # v1 implicit via dynamic cap going to 0 at -25%
     drawdown_reset_on_day_rollover: true
     per_asset_cooldown_minutes: 240              # v1 COOLDOWN_MINUTES = 240
@@ -108,6 +108,13 @@ scanners:
     config:
       fields:
         # Required identity
+        # NOTE: `asset` and `direction` are TOP-LEVEL SignalItem fields
+        # (per runtime-api/routes/signals.schema.ts), used by the runtime
+        # to build the canonical Signal. Producers pass them at the top
+        # level via wrapper.push_signal(asset=..., direction=...). They
+        # MUST NOT appear inside `data` — declaring them here would cause
+        # the runtime to store two copies (signal.asset and signal.meta.asset)
+        # which downstream consumers read inconsistently.
         mode: { type: string, required: true }                       # always "FUNDING_FADE"
         score: { type: number, required: true }                      # producer composite (>=9 floor)
         funding: { type: number, required: true }                   # raw funding rate (e.g. 0.0003)
