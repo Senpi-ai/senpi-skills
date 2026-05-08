@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-# Senpi SPIDER Producer v3.0.0
+# Senpi SPIDER Producer v4.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SPIDER v3.0.2 Producer — Single-leg patient anchor sniper, v2-runtime-native.
+"""SPIDER v4.0.0 Producer — Single-leg patient anchor sniper.
+
+PLUMBING-ONLY MIGRATION from v3.0.2. NO thesis change. NO scoring change.
+NO threshold change. Producer ports onto senpi_runtime_helpers (in-process
+SenpiClient + direct HTTP POST to runtime /signals + producer_daemon
+long-lived loop replacing the openclaw cron entry).
 
 v3.0.2 (2026-05-04 — calibration relax):
   Diagnostic of first 3 hourly scans showed arena=0.0 in every scan
@@ -75,11 +80,9 @@ Environment / config resolution:
   EXTERNAL_SCANNER_NAME      — optional override (default "spider_signals")
 """
 
-import fcntl
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -88,21 +91,36 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spider_config as cfg
 
+_helpers_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
+                    / "skills" / "_helpers")
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+from senpi_runtime_helpers import producer_daemon  # type: ignore  # noqa: E402
 
-VERSION = "3.0.2"
+
+VERSION = "4.0.0"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "spider_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+SIGNAL_TYPE = "SPIDER_ANCHOR"
 
 
 def _resolve_wallet():
-    env_wallet = os.environ.get("SPIDER_WALLET", "").strip()
+    env_wallet = (os.environ.get("SPIDER_WALLET") or "").strip()
     if env_wallet:
         return env_wallet
+    legacy = (os.environ.get("STRATEGY_ADDRESS") or "").strip()
+    if legacy:
+        sys.stderr.write(
+            "[spider v4.0.0] DEPRECATION: STRATEGY_ADDRESS env var is BANNED "
+            "by v2.0.9 contamination rule. Set SPIDER_WALLET instead. "
+            "Honoring legacy value for this run only.\n"
+        )
+        return legacy
     config = cfg.load_config()
     return (config.get("wallet") or "").strip()
 
 
 SPIDER_WALLET = _resolve_wallet()
+STRATEGY_ADDRESS = SPIDER_WALLET  # alias used by signal payload
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -120,39 +138,12 @@ def _wallet_state_dir():
 
 
 _STATE_DIR = _wallet_state_dir()
-_LOCK_PATH = _STATE_DIR / "producer.lock"
 _LAST_CLOSED_FILE = _STATE_DIR / "last-closed.json"
 _PREV_HELD_FILE = _STATE_DIR / "previously-held.json"
 _ANCHOR_HISTORY_FILE = _STATE_DIR / "anchor-history.json"
 _COOLDOWN_FILE = _STATE_DIR / "asset-cooldowns.json"
-
-
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD
-# ═══════════════════════════════════════════════════════════════
-
-def acquire_lock():
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
-
-
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
+_wallet_lock_id = (hashlib.sha256(SPIDER_WALLET.lower().encode()).hexdigest()[:8]
+                   if SPIDER_WALLET else "unset")
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -677,68 +668,51 @@ def score_anchor(market, arena_long_exposure):
 # SIGNAL EMISSION
 # ═══════════════════════════════════════════════════════════════
 
-def build_signal_payload(candidate, leverage, margin_usd, held_assets, breakdown):
+def build_signal_data(candidate, leverage, margin_usd, held_assets, breakdown):
+    """v4.0.0: helpers `push_signal()` takes asset/direction/signal_type/score
+    as top-level kwargs. Everything else goes in `data`."""
     held_list = sorted(list(held_assets)) if held_assets else []
     return {
-        "address": SPIDER_WALLET,
-        "scannerId": SCANNER_NAME,
-        "signalType": "SPIDER_ANCHOR",
-        "asset": candidate["token"],
-        "direction": "LONG",
-        "score": float(candidate["score"]),
-        "timestamp": int(time.time() * 1000),
-        "factors": {},
-        "data": {
-            "score": candidate["score"],
-            "leverage": leverage,
-            "marginUsd": margin_usd,
-            "reasons": " | ".join(candidate["reasons"]),
-            "smPct": float(candidate["pct"]),
-            "smTraders": int(candidate["traders"]),
-            "rank": int(candidate["rank"]),
-            "arenaScore": breakdown.get("arena", 0),
-            "smScore": breakdown.get("sm", 0),
-            "fundingScore": breakdown.get("funding", 0),
-            "relstrScore": breakdown.get("relstr", 0),
-            "fundingRate": float(candidate["funding_rate"]),
-            "priceChg30d": float(candidate["price_chg_30d"]),
-            "priceChg7d": float(candidate["price_chg_7d"]),
-            "priceChg24h": float(candidate["price_chg_24h"]),
-            "heldAssets": held_list,
-        },
-        "meta": {
-            "_spider_producer_version": VERSION,
-        },
+        "score": candidate["score"],
+        "leverage": leverage,
+        "marginUsd": margin_usd,
+        "reasons": " | ".join(candidate["reasons"]),
+        "smPct": float(candidate["pct"]),
+        "smTraders": int(candidate["traders"]),
+        "rank": int(candidate["rank"]),
+        "arenaScore": breakdown.get("arena", 0),
+        "smScore": breakdown.get("sm", 0),
+        "fundingScore": breakdown.get("funding", 0),
+        "relstrScore": breakdown.get("relstr", 0),
+        "fundingRate": float(candidate["funding_rate"]),
+        "priceChg30d": float(candidate["price_chg_30d"]),
+        "priceChg7d": float(candidate["price_chg_7d"]),
+        "priceChg24h": float(candidate["price_chg_24h"]),
+        "heldAssets": held_list,
+        "_spider_producer_version": VERSION,
     }
 
 
-def push_signal(payload):
-    if not SPIDER_WALLET:
+def push_signal(candidate, leverage, margin_usd, held_assets, breakdown):
+    """v4.0.0: direct POST to runtime /signals via helpers SenpiClient."""
+    if not STRATEGY_ADDRESS:
         cfg.log("SPIDER_WALLET not set; cannot push signal")
         return False
-
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", SPIDER_WALLET,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
+    data_block = build_signal_data(candidate, leverage, margin_usd, held_assets, breakdown)
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if r.returncode != 0:
-            cfg.log(f"ingest failed for {payload['asset']}: {r.stderr.strip()}")
-            return False
-        if r.stdout.strip():
-            try:
-                response = json.loads(r.stdout)
-                if isinstance(response, dict) and response.get("ok") is False:
-                    cfg.log(f"ingest rejected for {payload['asset']}: {response.get('error')}")
-                    return False
-            except (json.JSONDecodeError, TypeError):
-                pass
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner=SCANNER_NAME,
+            asset=candidate["token"],
+            direction="LONG",
+            signal_type=SIGNAL_TYPE,
+            score=float(candidate["score"]),
+            data=data_block,
+        )
         return True
-    except (subprocess.TimeoutExpired, OSError) as e:
-        cfg.log(f"ingest exception for {payload['asset']}: {e}")
+    except Exception as e:  # noqa: BLE001
+        cfg.log(f"push_signal failed for {candidate['token']}: "
+                f"{type(e).__name__}: {e}")
         return False
 
 
@@ -757,186 +731,166 @@ def main():
         })
         return
 
-    lock = acquire_lock()
-    if lock is None:
-        print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
-            "_spider_producer_version": VERSION,
-        }))
-        return
-
-    try:
-        # ── Account + held assets + oldest open position age ──
-        account_value, pos_count, held_assets, oldest_age_sec = get_account_state()
-        if account_value is None or account_value <= 0:
-            cfg.output({
-                "status": "ok",
-                "note": "cannot read account value; skip tick",
-                "_spider_producer_version": VERSION,
-            })
-            return
-
-        # ── Detect closes vs last tick ──
-        previously_held = load_previously_held()
-        closed_this_tick = detect_closes(held_assets, previously_held)
-        save_previously_held(held_assets)
-
-        # ── Fallback hold-time check via anchor-history.json ──
-        fallback_age_sec = get_oldest_anchor_age_seconds(held_assets)
-        effective_age_sec = oldest_age_sec or fallback_age_sec
-
-        # ── Single-leg max positions guard + 7-day min-hold gate ──
-        if pos_count >= MAX_POSITIONS:
-            held_days = (effective_age_sec / 86400.0) if effective_age_sec else None
-            if held_days is not None and held_days < MIN_HOLD_DAYS:
-                cfg.output({
-                    "status": "ok",
-                    "note": f"riding anchor day {held_days:.1f}/{MIN_HOLD_DAYS} min hold",
-                    "held_assets": sorted(list(held_assets)),
-                    "_spider_producer_version": VERSION,
-                })
-                return
-            # Past min-hold — agent could rotate. v3.0 MVP: still don't emit
-            # while position open. DSL Phase 1 / Phase 2 owns exits.
-            cfg.output({
-                "status": "ok",
-                "note": (f"riding anchor (past min hold {held_days:.1f}d)"
-                         if held_days is not None
-                         else "riding anchor (hold-time unknown, conservative skip)"),
-                "held_assets": sorted(list(held_assets)),
-                "_spider_producer_version": VERSION,
-            })
-            return
-
-        # ── Fetch top-15 SM markets (LONG-only, XYZ banned) ──
-        markets = fetch_sm_markets()
-        if not markets:
-            cfg.output({
-                "status": "ok",
-                "note": "no LONG markets returned by leaderboard_get_markets",
-                "_spider_producer_version": VERSION,
-            })
-            return
-
-        # ── Fetch arena top-10 long exposure ──
-        arena_long_exposure = fetch_arena_long_exposure()
-
-        # ── Score candidates ──
-        candidates = []
-        all_scored = []
-        skipped_held = 0
-        skipped_post_close = 0
-        post_close_skips = []
-
-        for market in markets:
-            token = market["token"]
-
-            if token.upper() in held_assets:
-                skipped_held += 1
-                continue
-
-            if is_in_post_close_cooldown(token):
-                skipped_post_close += 1
-                post_close_skips.append({
-                    "token": token,
-                    "remaining_min": post_close_cooldown_remaining_min(token),
-                })
-                continue
-
-            if is_asset_cooled_down(token):
-                continue
-
-            score, reasons, breakdown = score_anchor(market, arena_long_exposure)
-            if score == 0:
-                continue
-
-            all_scored.append({
-                "token": token,
-                "score": round(score, 2),
-                "breakdown": breakdown,
-            })
-
-            if score >= MIN_SCORE_DEFAULT:
-                candidate = dict(market)
-                candidate["score"] = score
-                candidate["reasons"] = reasons
-                candidate["breakdown"] = breakdown
-                candidates.append(candidate)
-
-        if not candidates:
-            top3 = sorted(all_scored, key=lambda s: s["score"], reverse=True)[:3]
-            cfg.output({
-                "status": "ok",
-                "note": f"0 anchor candidates at score >= {MIN_SCORE_DEFAULT} ({len(all_scored)} scored)",
-                "topScored": top3,
-                "skipped_held": skipped_held,
-                "skipped_post_close": skipped_post_close,
-                "post_close_skips": post_close_skips,
-                "closed_this_tick": sorted(list(closed_this_tick)),
-                "held_assets": sorted(list(held_assets)),
-                "_spider_producer_version": VERSION,
-            })
-            return
-
-        # ── Pick highest-scoring anchor candidate ──
-        candidates.sort(key=lambda c: c["score"], reverse=True)
-        best = candidates[0]
-
-        margin_usd = round(account_value * MARGIN_PCT, 2)
-        requested_leverage = get_anchor_leverage_for_score(best["score"])
-        leverage = get_safe_leverage(SPIDER_WALLET, best["token"], requested_leverage)
-
-        # ── Emit signal ──
-        payload = build_signal_payload(
-            best, leverage, margin_usd, held_assets, best["breakdown"],
-        )
-        pushed = 0
-        if push_signal(payload):
-            pushed += 1
-            mark_asset_emitted(best["token"])
-            record_anchor_open(best["token"], best["score"])
-
-        elapsed = time.time() - run_start
-        warn = "WARN_OVER_120S" if elapsed > 120 else None
+    # ── Account + held assets + oldest open position age ──
+    account_value, pos_count, held_assets, oldest_age_sec = get_account_state()
+    if account_value is None or account_value <= 0:
         cfg.output({
             "status": "ok",
-            "candidates_total": len(candidates),
-            "all_scored": len(all_scored),
+            "note": "cannot read account value; skip tick",
+            "_spider_producer_version": VERSION,
+        })
+        return
+
+    # ── Detect closes vs last tick ──
+    previously_held = load_previously_held()
+    closed_this_tick = detect_closes(held_assets, previously_held)
+    save_previously_held(held_assets)
+
+    # ── Fallback hold-time check via anchor-history.json ──
+    fallback_age_sec = get_oldest_anchor_age_seconds(held_assets)
+    effective_age_sec = oldest_age_sec or fallback_age_sec
+
+    # ── Single-leg max positions guard + 7-day min-hold gate ──
+    if pos_count >= MAX_POSITIONS:
+        held_days = (effective_age_sec / 86400.0) if effective_age_sec else None
+        if held_days is not None and held_days < MIN_HOLD_DAYS:
+            cfg.output({
+                "status": "ok",
+                "note": f"riding anchor day {held_days:.1f}/{MIN_HOLD_DAYS} min hold",
+                "held_assets": sorted(list(held_assets)),
+                "_spider_producer_version": VERSION,
+            })
+            return
+        # Past min-hold — agent could rotate. v3.0 MVP: still don't emit
+        # while position open. DSL Phase 1 / Phase 2 owns exits.
+        cfg.output({
+            "status": "ok",
+            "note": (f"riding anchor (past min hold {held_days:.1f}d)"
+                     if held_days is not None
+                     else "riding anchor (hold-time unknown, conservative skip)"),
+            "held_assets": sorted(list(held_assets)),
+            "_spider_producer_version": VERSION,
+        })
+        return
+
+    # ── Fetch top-15 SM markets (LONG-only, XYZ banned) ──
+    markets = fetch_sm_markets()
+    if not markets:
+        cfg.output({
+            "status": "ok",
+            "note": "no LONG markets returned by leaderboard_get_markets",
+            "_spider_producer_version": VERSION,
+        })
+        return
+
+    # ── Fetch arena top-10 long exposure ──
+    arena_long_exposure = fetch_arena_long_exposure()
+
+    # ── Score candidates ──
+    candidates = []
+    all_scored = []
+    skipped_held = 0
+    skipped_post_close = 0
+    post_close_skips = []
+
+    for market in markets:
+        token = market["token"]
+
+        if token.upper() in held_assets:
+            skipped_held += 1
+            continue
+
+        if is_in_post_close_cooldown(token):
+            skipped_post_close += 1
+            post_close_skips.append({
+                "token": token,
+                "remaining_min": post_close_cooldown_remaining_min(token),
+            })
+            continue
+
+        if is_asset_cooled_down(token):
+            continue
+
+        score, reasons, breakdown = score_anchor(market, arena_long_exposure)
+        if score == 0:
+            continue
+
+        all_scored.append({
+            "token": token,
+            "score": round(score, 2),
+            "breakdown": breakdown,
+        })
+
+        if score >= MIN_SCORE_DEFAULT:
+            candidate = dict(market)
+            candidate["score"] = score
+            candidate["reasons"] = reasons
+            candidate["breakdown"] = breakdown
+            candidates.append(candidate)
+
+    if not candidates:
+        top3 = sorted(all_scored, key=lambda s: s["score"], reverse=True)[:3]
+        cfg.output({
+            "status": "ok",
+            "note": f"0 anchor candidates at score >= {MIN_SCORE_DEFAULT} ({len(all_scored)} scored)",
+            "topScored": top3,
             "skipped_held": skipped_held,
             "skipped_post_close": skipped_post_close,
             "post_close_skips": post_close_skips,
             "closed_this_tick": sorted(list(closed_this_tick)),
             "held_assets": sorted(list(held_assets)),
-            "signals_pushed": pushed,
-            "best_signal": {
-                "asset": best["token"],
-                "direction": "LONG",
-                "score": round(best["score"], 2),
-                "leverage": leverage,
-                "marginUsd": margin_usd,
-                "breakdown": best["breakdown"],
-                "reasons": best["reasons"][:6],
-            } if pushed else None,
-            "account_value": round(account_value, 2),
-            "open_positions": pos_count,
-            "elapsed_sec": round(elapsed, 2),
-            "warn": warn,
             "_spider_producer_version": VERSION,
         })
-    finally:
-        release_lock(lock)
+        return
+
+    # ── Pick highest-scoring anchor candidate ──
+    candidates.sort(key=lambda c: c["score"], reverse=True)
+    best = candidates[0]
+
+    margin_usd = round(account_value * MARGIN_PCT, 2)
+    requested_leverage = get_anchor_leverage_for_score(best["score"])
+    leverage = get_safe_leverage(SPIDER_WALLET, best["token"], requested_leverage)
+
+    # ── Emit signal ──
+    pushed = 0
+    if push_signal(best, leverage, margin_usd, held_assets, best["breakdown"]):
+        pushed += 1
+        mark_asset_emitted(best["token"])
+        record_anchor_open(best["token"], best["score"])
+
+    elapsed = time.time() - run_start
+    warn = "WARN_OVER_120S" if elapsed > 120 else None
+    cfg.output({
+        "status": "ok",
+        "candidates_total": len(candidates),
+        "all_scored": len(all_scored),
+        "skipped_held": skipped_held,
+        "skipped_post_close": skipped_post_close,
+        "post_close_skips": post_close_skips,
+        "closed_this_tick": sorted(list(closed_this_tick)),
+        "held_assets": sorted(list(held_assets)),
+        "signals_pushed": pushed,
+        "best_signal": {
+            "asset": best["token"],
+            "direction": "LONG",
+            "score": round(best["score"], 2),
+            "leverage": leverage,
+            "marginUsd": margin_usd,
+            "breakdown": best["breakdown"],
+            "reasons": best["reasons"][:6],
+        } if pushed else None,
+        "account_value": round(account_value, 2),
+        "open_positions": pos_count,
+        "elapsed_sec": round(elapsed, 2),
+        "warn": warn,
+        "_spider_producer_version": VERSION,
+    })
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        cfg.log(f"CRITICAL ERROR: {e}")
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        cfg.output({
-            "status": "error",
-            "error": str(e),
-            "_spider_producer_version": VERSION,
-        })
+    producer_daemon(
+        fn=main,
+        interval_seconds=3600,
+        name=f"spider-producer-{_wallet_lock_id}",
+        tick_timeout=240,
+    )
