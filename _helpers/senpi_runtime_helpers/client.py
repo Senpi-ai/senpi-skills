@@ -85,8 +85,16 @@ class _ConnectionPool:
             conn = cls(host, port, timeout=timeout)
             conns[key] = conn
         else:
-            # Update timeout for next request without recreating the connection.
+            # `conn.timeout` is only consulted by http.client during connect().
+            # On a reused connection the socket was created with the original
+            # timeout; mutating the attribute now is a silent no-op. To make
+            # per-call timeout overrides actually take effect, push the new
+            # timeout down to the live socket's deadline. `conn.sock` is None
+            # before connect — that path is fine because the next request()
+            # will trigger connect() and pick up the updated `conn.timeout`.
             conn.timeout = timeout
+            if conn.sock is not None:
+                conn.sock.settimeout(timeout)
         return conn
 
     def reset(self, scheme: str, host: str, port: int) -> None:

@@ -500,6 +500,38 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(SenpiClientError):
             c.is_scanner_registered("0xrt1ABCDEF", "")
 
+    def test_pool_propagates_timeout_to_live_socket(self) -> None:
+        """Per-call timeout overrides must reach the live socket on reused
+        connections. Setting `conn.timeout` alone is a no-op after connect
+        (http.client only consults `conn.timeout` during connect()) — the
+        pool must also call `conn.sock.settimeout()` so subsequent requests
+        on the same connection honor the new deadline. Bugbot caught this
+        as a silent no-op on PR #208.
+        """
+        from unittest.mock import MagicMock
+        from senpi_runtime_helpers.client import _ConnectionPool
+
+        pool = _ConnectionPool()
+
+        # First get: brand-new conn. No socket yet → pool only sets
+        # conn.timeout. The next connect() picks it up.
+        conn = pool.get("http", "127.0.0.1", 18787, 10.0)
+        self.assertIsNone(conn.sock)
+        self.assertEqual(conn.timeout, 10.0)
+
+        # Simulate a connected socket so the reused-connection branch runs.
+        # MagicMock lets us assert that .settimeout(NEW) was called.
+        conn.sock = MagicMock()
+
+        # Second get with a different timeout. The fix must propagate the
+        # new value to the live socket via settimeout() — without it, the
+        # socket keeps its original deadline and per-call overrides are
+        # silently ignored.
+        same_conn = pool.get("http", "127.0.0.1", 18787, 2.5)
+        self.assertIs(same_conn, conn)
+        self.assertEqual(conn.timeout, 2.5)
+        conn.sock.settimeout.assert_called_once_with(2.5)
+
 
 if __name__ == "__main__":
     unittest.main()
