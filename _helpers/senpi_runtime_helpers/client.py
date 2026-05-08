@@ -507,9 +507,9 @@ class SenpiClient:
             return False
         components = rt.get("components") if isinstance(rt, dict) else None
         scanners_block = components.get("scanners") if isinstance(components, dict) else None
-        # ScannerSystemState shape (per
-        # senpi-trading-runtime/src/health/types.ts ScannerSystemState
-        # extends ComponentSystemState<{totalRegistered, totalEnabled, scanners}>):
+        # ScannerSystemState shape (per `src/health/types.ts` in the
+        # `senpi-trading-runtime` repo — ScannerSystemState extends
+        # ComponentSystemState<{totalRegistered, totalEnabled, scanners}>):
         #
         #   { component: "scanners", health, updatedAt, state: {
         #       totalRegistered, totalEnabled, scanners: [...]
@@ -735,9 +735,8 @@ class SenpiClient:
     ) -> Dict[str, Any]:
         """Push one signal — convenience wrapping a one-element batch.
 
-        Field semantics (per
-        senpi-trading-runtime/src/runtime-api/routes/signals.schema.ts and
-        external-scanner-receiver.ts):
+        Field semantics (per `src/runtime-api/routes/signals.schema.ts` and
+        `external-scanner-receiver.ts` in the `senpi-trading-runtime` repo):
 
         Routing fields (top-level on SignalItem):
         - `address` (required): wallet address — runtime routes by lowercased copy.

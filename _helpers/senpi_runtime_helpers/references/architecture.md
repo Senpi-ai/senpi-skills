@@ -19,7 +19,7 @@ openclaw cron (every N min) → agentTurn (full LLM inference)
 
 ## Failure modes that triggered the rewrite
 
-From `senpi-trading-runtime/docs/runtime-v2-fixes/runtime-2-performance-findings.md`:
+From `docs/runtime-v2-fixes/runtime-2-performance-findings.md` in the `senpi-trading-runtime` repo:
 
 - **Per-call CLI cold start** — 5–8 s to bootstrap Node + register the
   openclaw plugin every time a signal was emitted.
@@ -72,8 +72,8 @@ producer_daemon (long-running Python process)
 | Gateway plugin re-registrations (3.5 days) | 605 | ~0 |
 | OOM crashes during overlapping ticks | recurring | none observed |
 
-Full pre/post comparison methodology:
-`senpi-trading-runtime/docs/runtime-v2-fixes/wrapper-plan.md`.
+Full pre/post comparison methodology: see
+`docs/runtime-v2-fixes/wrapper-plan.md` in the `senpi-trading-runtime` repo.
 
 ## Why MCP goes direct, not through the gateway
 
@@ -98,8 +98,8 @@ wrapper parses both success and error envelopes from this shape.
 If a producer needs to reach the runtime from outside the container (for
 debugging via Postman, etc.), the runtime's `api.host` config can be flipped
 to `0.0.0.0` and a docker-compose port mapping added — see
-`senpi-trading-runtime/docs/runtime-docs/runtime-api.md` § "Postman testing
-recipe."
+`docs/runtime-docs/runtime-api.md` § "Postman testing recipe" in the
+`senpi-trading-runtime` repo.
 
 ## Why a daemon, not openclaw cron
 

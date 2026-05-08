@@ -7,9 +7,8 @@ Full description of the `SignalItem` shape consumed by
 For usage recipes, read [`../SKILL.md`](../SKILL.md). This doc is the
 authoritative field reference.
 
-Source of truth on the runtime side:
-[`senpi-trading-runtime/src/runtime-api/routes/signals.schema.ts`](../../../../senpi-trading-runtime/src/runtime-api/routes/signals.schema.ts)
-and `external-scanner-receiver.ts`.
+Source of truth on the runtime side: in the `senpi-trading-runtime` repo,
+`src/runtime-api/routes/signals.schema.ts` and `external-scanner-receiver.ts`.
 
 ---
 
