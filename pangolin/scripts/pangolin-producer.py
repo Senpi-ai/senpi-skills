@@ -887,18 +887,6 @@ def main():
     })
 
 
-def _run_main_safely():
-    """One tick of the producer. Catches exceptions so the daemon loop
-    can keep running across transient failures."""
-    try:
-        main()
-    except Exception as e:  # noqa: BLE001
-        cfg.log(f"CRITICAL ERROR: {e}")
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        cfg.output({"status": "error", "error": str(e)})
-
-
 if __name__ == "__main__":
     # Long-lived daemon: fires `main()` every 5 min. Replaces openclaw
     # cron + per-tick agentTurn for this skill — no LLM coupling, no CLI
@@ -916,8 +904,14 @@ if __name__ == "__main__":
         if PANGOLIN_WALLET
         else "unset"
     )
+    # Pass `fn=main` directly. producer_daemon's per-tick error handler
+    # catches exceptions, logs `daemon_tick_finished status=error` with the
+    # error text, and continues to the next tick — the wrapper observability
+    # path. A local `_run_main_safely` shim that swallowed exceptions before
+    # the daemon saw them would mask failures as `status=ok` (caught by
+    # bugbot on PR #208).
     producer_daemon(
-        fn=_run_main_safely,
+        fn=main,
         interval_seconds=300,
         name=f"pangolin-producer-{_wallet_lock_id}",
         wallet=PANGOLIN_WALLET,        # enables default alive_check — daemon
