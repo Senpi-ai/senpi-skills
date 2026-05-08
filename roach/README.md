@@ -1,6 +1,66 @@
-# 🪳 ROACH v2.0 — Striker Only. v2-Runtime-Native. Maker Exits.
+# 🪳 ROACH v3.0.0 — Striker Only. senpi_runtime_helpers.
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+
+**Plumbing-only migration from v2.1.0. NO thesis change.** Producer flips to in-process `SenpiClient` (direct HTTPS for MCP, direct HTTP POST to runtime `/signals`). `producer_daemon` replaces openclaw cron.
+
+## Install
+
+### Step 1 — Pull the helpers package (one-time per host)
+
+> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch. Pull from there.
+
+```bash
+mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
+for f in __init__.py _config.py _logging.py cache.py client.py \
+         daemon.py lock.py parallel.py SKILL.md README.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
+done
+```
+
+### Step 2 — Pull Roach v3.0.0
+
+```bash
+mkdir -p /data/workspace/skills/roach-strategy/{config,scripts,state,references}
+for f in scripts/roach-producer.py scripts/roach_config.py \
+         SKILL.md README.md references/skill-attribution.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/roach/$f" \
+    -o "/data/workspace/skills/roach-strategy/$f"
+done
+```
+
+`runtime.yaml` unchanged from v2.x.
+
+### Step 3 — Required env vars
+
+```bash
+export ROACH_WALLET=<your-roach-wallet>          # NOT STRATEGY_ADDRESS
+export SENPI_AUTH_TOKEN=...
+export ROACH_DECISION_MODEL=gemini-3.1-pro-preview
+```
+
+For **Roach-B** (variant): use the same skill files but set `ROACH_WALLET=<roach-b-wallet>` on that agent's host.
+
+### Step 4 — Stop v2.x cron, start v3.0.0 daemon
+
+```bash
+openclaw cron list | grep roach
+openclaw cron delete <roach-cron-id>
+
+nohup python3 -u /data/workspace/skills/roach-strategy/scripts/roach-producer.py \
+  > /tmp/roach-producer.log 2>&1 &
+```
+
+## Smoke test
+
+```bash
+tail -f /tmp/roach-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
+
+Expected: `status=ok` every tick (90s interval). Roach is intentionally quiet — heartbeat ticks dominate; Striker fires are rare and that's the design.
+
+---
 
 ## The Strategy
 
