@@ -197,6 +197,55 @@ class DaemonTests(unittest.TestCase):
         self.assertIn("wallet", str(ctx.exception).lower())
         self.assertIn("alive_check=None", str(ctx.exception))
 
+    def test_tick_timeout_does_not_count_lock_acquire_release(self) -> None:
+        """SIGALRM must scope only fn() — not scanner_lock acquire/release.
+
+        Regression: in the original layout `_arm_tick_alarm` ran BEFORE
+        entering `scanner_lock`, so a slow lock acquire ate the tick-timeout
+        budget and could even fire the alarm mid-flock. This test simulates a
+        slow lock by patching `scanner_lock` to sleep on entry; with the fix,
+        a fast `fn()` body must complete without a `_TickTimeout` even when
+        lock entry takes longer than `tick_timeout`.
+        """
+        if not hasattr(__import__("signal"), "SIGALRM"):
+            self.skipTest("SIGALRM unsupported on this platform")
+        import contextlib
+        from senpi_runtime_helpers import daemon as daemon_mod
+
+        slow_lock_entries = {"n": 0}
+
+        @contextlib.contextmanager
+        def slow_lock(name, lock_dir=None):
+            slow_lock_entries["n"] += 1
+            time.sleep(0.10)  # simulate slow flock + metadata write
+            yield
+
+        original = daemon_mod.scanner_lock
+        daemon_mod.scanner_lock = slow_lock
+        try:
+            calls = {"n": 0}
+
+            def fn() -> None:
+                calls["n"] += 1  # cheap; well under tick_timeout
+
+            ticks = producer_daemon(
+                fn=fn,
+                interval_seconds=0.02,
+                name="test_lock_outside_alarm",
+                tick_timeout=0.05,  # smaller than the slow lock entry (0.10s)
+                max_ticks=2,
+                install_signal_handlers=False,
+                alive_check=None,
+            )
+        finally:
+            daemon_mod.scanner_lock = original
+
+        # If SIGALRM was bracketing the lock, both ticks would have raised
+        # _TickTimeout before fn() ever ran. With the fix, fn() runs cleanly.
+        self.assertEqual(ticks, 2)
+        self.assertEqual(calls["n"], 2)
+        self.assertEqual(slow_lock_entries["n"], 2)
+
     def test_alive_check_cadence_computed_from_interval(self) -> None:
         """alive_check_interval_seconds determines tick-multiple cadence."""
         probes = {"n": 0}

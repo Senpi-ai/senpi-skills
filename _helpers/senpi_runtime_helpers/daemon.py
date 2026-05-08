@@ -259,12 +259,20 @@ def producer_daemon(
             tick_started_at = time.time()
             log_event("daemon_tick_started", name=name, tick=tick_count)
 
-            armed = _arm_tick_alarm(tick_timeout)
             tick_status = "ok"
             tick_err: Optional[str] = None
             try:
+                # Scope SIGALRM to fn() ONLY — not the lock acquire/release
+                # ceremony (open + flock + ftruncate + write + fsync on enter,
+                # flock LOCK_UN + close on exit). The timeout is meant to
+                # bound producer work, not lock plumbing.
                 with scanner_lock(name, lock_dir=lock_dir):
-                    fn()
+                    armed = _arm_tick_alarm(tick_timeout)
+                    try:
+                        fn()
+                    finally:
+                        if armed:
+                            _disarm_tick_alarm()
             except _TickTimeout as e:
                 tick_status = "timeout"
                 tick_err = str(e)
@@ -274,9 +282,6 @@ def producer_daemon(
             except Exception as e:  # noqa: BLE001 — log and keep looping
                 tick_status = "error"
                 tick_err = f"{type(e).__name__}: {e}"
-            finally:
-                if armed:
-                    _disarm_tick_alarm()
 
             duration_ms = int((time.time() - tick_started_at) * 1000)
             log_event(
