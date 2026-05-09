@@ -14,7 +14,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.2.1"
+  version: "3.2.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -25,6 +25,14 @@ metadata:
 # 🌪️ TURBINE v3.2 — Volume Rotation + Runners
 
 **Run the volume play. Let winners run.**
+
+## What changed in v3.2.2 vs v3.2.1 (patch — 2026-05-09)
+
+**Dex-aware slot keys.** `normalize_coin_key()` previously stripped the `xyz:` prefix from coin names, collapsing main and xyz versions of the same symbol into one held_keys entry. When a main position and an xyz resting order on the same symbol both existed (or vice versa), the producer undercounted slots → over-emitted signals → runtime rejected the surplus on margin. v3.2.2 preserves the prefix: `main:HYPE` and `xyz:HYPE` are now distinct keys.
+
+Symptom in v3.2.1 (verified from operator's tick logs): `slots_held = 4` while `positions + resting = 5` on ticks where main and xyz versions of the same coin coexisted. Producer over-emitted by 1 on those ticks.
+
+NO change to maker/taker placement. NO change to fee economics. NO change to YAMLs. One-time minor regression: 90s post-close cooldown skipped for the first 1-2 cycles after upgrade as `last_closed` repopulates with new-format keys. Trivial impact.
 
 ## What changed in v3.2.1 vs v3.2.0 (patch — 2026-05-09)
 

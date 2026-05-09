@@ -201,10 +201,26 @@ def safe_float(v, d=0.0):
 
 
 def normalize_coin_key(coin):
-    """Map 'xyz:GOLD' and 'GOLD' to the same canonical key."""
+    """Canonicalize a coin string for use in held_keys sets.
+
+    v3.2.2 (2026-05-09): preserve the xyz: prefix so that main:HYPE and
+    xyz:HYPE are distinct slot occupiers. Previously this function
+    stripped the prefix, which caused held_keys to collapse a main
+    position and an xyz resting order on the same coin into one entry,
+    undercounting slots. Producer would then over-emit signals which
+    the runtime rejected when actual margin couldn't accommodate them.
+
+    Hyperliquid's coin field is already canonical (HYPE / xyz:HYPE), so
+    we only need to lowercase the prefix and uppercase the symbol for
+    deterministic comparison across feeds.
+    """
     if not coin:
         return ""
-    return coin.split(":")[-1].upper()
+    s = coin.strip()
+    if ":" in s:
+        prefix, _, symbol = s.partition(":")
+        return f"{prefix.lower()}:{symbol.upper()}"
+    return s.upper()
 
 
 def get_open_positions(wallet):

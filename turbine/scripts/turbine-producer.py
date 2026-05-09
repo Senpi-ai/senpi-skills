@@ -67,7 +67,7 @@ import turbine_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "3.2.1"
+VERSION = "3.2.2"
 
 # Scanner names — must match runtime YAMLs
 VOLUME_SCANNER_NAME = "turbine_volume_signals"
