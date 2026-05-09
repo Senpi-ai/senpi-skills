@@ -264,7 +264,19 @@ def get_account_value(wallet):
 
 def get_resting_orders(wallet):
     """Open (resting / ALO) non-reduceOnly orders. Reduce-only orders
-    are DSL exit legs — not slot occupiers."""
+    are DSL exit legs — not slot occupiers.
+
+    Each entry includes:
+      - coin, direction, limit_price, oid (legacy fields)
+      - timestamp_ms — HL order placement time (epoch ms)
+      - age_seconds — wall-clock age vs now()
+      - is_trigger — true for stop-limit orders (we never count those)
+
+    `age_seconds` lets the caller distinguish freshly-placed maker orders
+    (the runtime is still working them) from orphaned ALOs left behind
+    by previous runtime instances after a swap/restart. The producer's
+    stale-order hygiene sweep uses this field.
+    """
     if not wallet:
         return []
     data = mcporter_call("strategy_get_open_orders", strategy_wallet=wallet)
@@ -275,23 +287,99 @@ def get_resting_orders(wallet):
         orders = orders.get("orders", orders.get("openOrders", []))
     if not isinstance(orders, list):
         return []
+    now_ms = time.time() * 1000.0
     out = []
     for o in orders:
         if not isinstance(o, dict):
             continue
         if o.get("reduceOnly"):
             continue
+        if o.get("isTrigger"):
+            # Stop-limit / take-profit triggers are exit-only; never count
+            # as slot occupiers and never sweep.
+            continue
         coin = o.get("coin") or o.get("asset", "")
         if not coin:
             continue
         side = (o.get("side") or "").upper()
+        ts_ms = safe_float(o.get("timestamp", 0))
+        age_sec = max(0.0, (now_ms - ts_ms) / 1000.0) if ts_ms > 0 else None
         out.append({
             "coin": coin,
             "direction": "LONG" if side in ("B", "BUY") else "SHORT",
             "limit_price": safe_float(o.get("limitPx") or o.get("price")),
             "oid": o.get("oid"),
+            "timestamp_ms": ts_ms if ts_ms > 0 else None,
+            "age_seconds": age_sec,
         })
     return out
+
+
+def cancel_order(wallet, order_id, coin=None, reason=None):
+    """Cancel a single resting order via the cancel_order MCP. Returns
+    True on success (or wasAlreadyCancelled), False on failure. Uses
+    the same SenpiClient session as every other MCP call.
+
+    Idempotent: HL returns success with wasAlreadyCancelled=true when
+    the order is already filled/cancelled — we treat both as success.
+    """
+    if not wallet or not order_id:
+        return False
+    params = {"strategyWalletAddress": wallet, "orderId": int(order_id)}
+    if coin:
+        params["coin"] = coin
+    if reason:
+        params["reason"] = reason
+    res = mcporter_call("cancel_order", **params)
+    if not res:
+        return False
+    if isinstance(res, dict):
+        if res.get("success") is False:
+            return False
+    return True
+
+
+def sweep_stale_resting_orders(wallet, resting_orders, max_age_seconds,
+                                label="wallet"):
+    """Cancel non-reduceOnly resting orders older than `max_age_seconds`.
+
+    These are orphans left behind by previous runtime instances (each
+    runtime swap / restart leaves resting ALOs the new runtime doesn't
+    own). The active runtime's own FEE_OPTIMIZED_LIMIT timeout is
+    180s — anything still resting well past that is by definition
+    abandoned. The producer's `held_keys` set treats every non-reduce-only
+    resting order as a slot occupier (v2.0.4 ghost-trade fix), so
+    orphans starve real-slot fills until cleared.
+
+    Returns list of {oid, coin, age_seconds, status} for telemetry.
+    Maker-vs-taker order placement is unchanged — cancellation is free.
+    """
+    swept = []
+    if not wallet or not resting_orders:
+        return swept
+    for o in resting_orders:
+        age = o.get("age_seconds")
+        if age is None or age < max_age_seconds:
+            continue
+        oid = o.get("oid")
+        if not oid:
+            continue
+        coin = o.get("coin")
+        ok = cancel_order(
+            wallet=wallet,
+            order_id=oid,
+            coin=coin,
+            reason=f"turbine_producer_stale_sweep label={label} age={int(age)}s",
+        )
+        swept.append({
+            "oid": oid,
+            "coin": coin,
+            "age_seconds": int(age),
+            "status": "cancelled" if ok else "cancel_failed",
+        })
+        log(f"stale_sweep {label} oid={oid} coin={coin} "
+            f"age={int(age)}s status={'ok' if ok else 'fail'}")
+    return swept
 
 
 # ─── Output / log ─────────────────────────────────────────
