@@ -67,7 +67,7 @@ import turbine_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "3.2.0"
+VERSION = "3.2.1"
 
 # Scanner names — must match runtime YAMLs
 VOLUME_SCANNER_NAME = "turbine_volume_signals"
@@ -139,6 +139,25 @@ def _runtime_config():
         "spread_xyz_bps": float(spread.get("xyzBps", 10)),
         "xyz_weight": float(c.get("xyzWeight", 0.80)),
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# STALE-ORDER HYGIENE
+# ═══════════════════════════════════════════════════════════════
+# Each runtime restart / swap (helpers migration, runtime-phase-2
+# rollover, daemon redeploy) leaves resting ALO orders that the new
+# runtime instance does not own. The runtime's own
+# `execution_timeout_seconds` (180s on FEE_OPTIMIZED_LIMIT) cancels
+# the orders it placed — anything still resting well past that is
+# by definition abandoned. The producer's `held_keys` set treats
+# every non-reduceOnly resting order as a slot occupier (v2.0.4
+# ghost-trade fix), so orphans starve real fills until cleared.
+#
+# We sweep BEFORE computing held_keys so the fresh slot count
+# reflects only live positions + actively-managed resting orders.
+# Maker-vs-taker placement is unchanged — cancellation has no fee
+# impact; HL only charges on fills.
+STALE_ORDER_MAX_AGE_SECONDS = 300
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -437,6 +456,17 @@ def main():
         })
         return
 
+    # Sweep orphaned ALOs (left behind by previous runtime swaps) BEFORE
+    # computing held_keys. Anything still resting > STALE_ORDER_MAX_AGE_SECONDS
+    # (5 min) past the runtime's own 180s execution_timeout has been
+    # abandoned — clear it so the slot is honestly counted as free.
+    volume_swept = cfg.sweep_stale_resting_orders(
+        VOLUME_WALLET, volume_resting, STALE_ORDER_MAX_AGE_SECONDS, label="volume",
+    )
+    if volume_swept:
+        # Refetch so held_keys doesn't double-count just-cancelled orders.
+        volume_resting = cfg.get_resting_orders(VOLUME_WALLET)
+
     volume_held_keys = {cfg.normalize_coin_key(p["coin"]) for p in volume_positions}
     volume_held_keys.update(cfg.normalize_coin_key(o["coin"]) for o in volume_resting)
 
@@ -463,10 +493,20 @@ def main():
     free_runners = 0
     closed_runners = set()
     last_runners_closed = {}
+    runners_swept = []
     if RUNNERS_ENABLED:
         runners_positions = cfg.get_open_positions(RUNNERS_WALLET)
         runners_resting = cfg.get_resting_orders(RUNNERS_WALLET)
         runners_account_value = cfg.get_account_value(RUNNERS_WALLET) or 0.0
+
+        # Same orphan sweep as volume wallet — see comment above.
+        runners_swept = cfg.sweep_stale_resting_orders(
+            RUNNERS_WALLET, runners_resting, STALE_ORDER_MAX_AGE_SECONDS,
+            label="runners",
+        )
+        if runners_swept:
+            runners_resting = cfg.get_resting_orders(RUNNERS_WALLET)
+
         runners_held_keys = {cfg.normalize_coin_key(p["coin"]) for p in runners_positions}
         runners_held_keys.update(cfg.normalize_coin_key(o["coin"]) for o in runners_resting)
 
@@ -533,6 +573,7 @@ def main():
             "account_value": round(volume_account_value, 2),
             "open_positions": len(volume_positions),
             "resting_orders": len(volume_resting),
+            "stale_swept": volume_swept,
             "slots_max": rt["volume_slots"],
             "slots_effective": eff_volume,
             "slots_held": len(volume_held_keys),
@@ -545,6 +586,7 @@ def main():
             "account_value": round(runners_account_value, 2),
             "open_positions": len(runners_positions),
             "resting_orders": len(runners_resting),
+            "stale_swept": runners_swept,
             "slots_max": rt["runners_slots"],
             "slots_effective": eff_runners,
             "slots_held": len(runners_held_keys),
