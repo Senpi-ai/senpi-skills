@@ -25,9 +25,11 @@ _WARN_THROTTLE_SECONDS = 5.0
 
 
 class _WarnGate:
-    """Throttles parallel_queue_warn events so a single tick with N >> cap
-    calls doesn't flood logs. Read+write of the last-emitted timestamp is
-    serialized."""
+    """Throttles parallel_queue_warn events across calls so a producer tick
+    that fires several parallel() invocations doesn't flood logs. The gate
+    must be module-scoped — a per-call instance would always start with
+    `_last_emitted=0.0` and let the very next call through unconditionally.
+    Read+write of the last-emitted timestamp is serialized."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -40,6 +42,10 @@ class _WarnGate:
                 return False
             self._last_emitted = now
             return True
+
+
+# Module-scoped so the throttle window persists across parallel() calls.
+_WARN_GATE = _WarnGate()
 
 
 def parallel(
@@ -76,10 +82,9 @@ def parallel(
     cap = max(1, cap)
     warn_threshold = warn_queue_depth if warn_queue_depth is not None else cfg.QUEUE_WARN_DEPTH
 
-    warn_gate = _WarnGate()
     submitted_count = len(calls)
 
-    if submitted_count >= warn_threshold and warn_gate.should_emit():
+    if submitted_count >= warn_threshold and _WARN_GATE.should_emit():
         log_event(
             "parallel_queue_warn",
             queue_depth=submitted_count,

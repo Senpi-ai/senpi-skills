@@ -102,6 +102,48 @@ class ParallelTests(unittest.TestCase):
         self.assertTrue(ok)  # success — the function returned normally
         self.assertIsInstance(value, ValueError)
 
+    def test_queue_warn_throttled_across_calls(self) -> None:
+        """The parallel_queue_warn event must be throttled across multiple
+        parallel() calls — a producer tick can fire several invocations in
+        a row, and we don't want one warning per invocation. The gate is
+        module-scoped so the _last_emitted timestamp persists between calls.
+        """
+        # __init__.py rebinds `senpi_runtime_helpers.parallel` attribute to
+        # the function, so `import ... as` returns the function not the
+        # module. Pull the module out of sys.modules directly.
+        import sys
+        parmod = sys.modules["senpi_runtime_helpers.parallel"]
+        from senpi_runtime_helpers import _logging as logmod
+
+        # Reset the throttle gate so prior tests don't influence the window.
+        parmod._WARN_GATE._last_emitted = 0.0
+
+        events = []
+        original = logmod.log_event
+
+        def capture(event, **fields):
+            events.append((event, fields))
+            return original(event, **fields)
+
+        logmod.log_event = capture
+        parmod.log_event = capture
+        try:
+            # Three calls in quick succession, each well over warn_queue_depth.
+            for _ in range(3):
+                parallel(
+                    [(lambda: 1) for _ in range(10)],
+                    max_concurrent=2,
+                    warn_queue_depth=5,
+                )
+        finally:
+            logmod.log_event = original
+            parmod.log_event = original
+
+        warns = [e for e in events if e[0] == "parallel_queue_warn"]
+        # Exactly one warn fired across the 3 invocations — the throttle held
+        # the next two back. Without the module-scoped gate, all 3 would warn.
+        self.assertEqual(len(warns), 1, f"expected 1 warn, got {len(warns)}: {warns!r}")
+
     def test_baseexception_in_main_thread_does_not_block_on_workers(self) -> None:
         """If a BaseException (like producer_daemon's _TickTimeout via SIGALRM)
         is raised in the main thread mid-fan-out, parallel() must NOT block
