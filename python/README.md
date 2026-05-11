@@ -1,35 +1,50 @@
-# 🐍 PYTHON v1.0 — The Patience Hunter
+# Python — Patient Multi-Asset Scanner
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.2.0
 
 ## Thesis
 
-The fleet's first multi-day hold agent. While every other Senpi predator rotates in hours, Python waits days. Derived from pr0br000's Arena Week 2-3 pattern (+221% in 27 days, 36% win rate, 3.14:1 win/loss ratio).
+PYTHON v1.2 — disable weak_peak_cut (completes patience thesis fix).
 
-## Key Settings
+See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
 
-| Setting | Value |
-|---|---|
-| Universe | Top 50 HL perps by 24h volume (crypto only) |
-| Min OI | $1M |
-| Min trader_count | 30 |
-| Min score | 8 |
-| Max positions | 2 concurrent |
-| Leverage cap | 7x (hard) |
-| Margin | 25% / 30% / 40% by score tier |
-| Daily cap | 3 entries (dynamic) |
-| Per-asset cooldown | 12h |
-| DSL | Patient profile (96h timeout) |
+## Scoring components
 
-## Core differences vs other predators
+Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
 
-- **Multi-day holds** (up to 96h) — every other agent rotates <24h
-- **Low leverage** (3x base, 7x apex) — other agents hit 10x
-- **Wide universe, low gate** — MIN_SCORE=8 vs Condor's 11
-- **LONG-biased** — pr0br000's top 5 winners were all LONG
-- **Loose early DSL locks** — +5% only locks 15% (lets winners breathe)
-- **Tight late DSL locks** — +200% locks 94% (captures monster trails)
+## Entry / Exit
 
-## License
+- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
+- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
+- **Time cuts:** See `dsl:` config in runtime.yaml.
 
-MIT — Copyright 2026 Senpi (https://senpi.ai)
+## Fleet rules applied
+
+- Standard fleet drawdown gate.
+- Fee budget tracking via shared infra.
+- Producer reentrancy guard via fcntl lockfile (Runtime 2.0 only).
+
+## Configuration
+
+Operator-specific values configured at deploy time.
+
+## Recent version notes
+
+```
+PYTHON v1.2 — disable weak_peak_cut (completes patience thesis fix).
+v1.1 loosened Phase 1 retrace 10→30 and extended time cuts after
+Python's self-diagnostic showed trades averaging <4h despite a 2-4
+day thesis target. v1.2 removes weak_peak_cut entirely — a
+multi-day patience thesis cannot tolerate ANY time-based cut. A
+position peaking at 2% ROE on day 1 of a 3-day thesis can still
+develop into a monster over day 3. Phase 1 retrace (30%) + max_loss
+(20%) + Phase 2 tiers own all exits. dead_weight_cut + hard_timeout
+(96h) preserved — 96h matches thesis target as an outer bound.
+Scanner unchanged. v1.1 retrace/dead_weight loosening preserved.
+```
+
+## Related
+
+- Top-level repo README: `../README.md`
+- Runtime spec: `../senpi-trading-runtime/`
+- DSL plugin: `../dsl-dynamic-stop-loss/`

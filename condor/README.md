@@ -1,41 +1,54 @@
-# 🦅 CONDOR v3.0 — One Amazing Trade per Day
+# Condor — High-Conviction Momentum Hunter
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.3.4
 
 ## Thesis
 
-**Pure trend continuation, never counter-trend.** Scans top 50 Hyperliquid assets by 24h notional volume for apex setups: 4h + 1h + 15m + SM direction all aligned + macro trend gate + BTC macro aligned. Goes big on apex confluence (50-80% margin, 10x leverage) and holds ONE TRADE per day while DSL manages exits.
+CONDOR v3.4 — gate calibration fix (2026-05-05). v3.2's tightening
 
-Built from Kodiak's top 3 lifetime winners (+$133 / +$87 / +$78 on SOL) + Wolverine's HYPE SHORT post-mortem (-$160 loss stepping in front of a 32% uptrend).
+See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
 
-## Key Settings
+## Scoring components
 
-| Setting | Value |
-|---|---|
-| Universe | Top 50 HL perps by 24h volume (crypto only) |
-| Min OI | $1M |
-| Min trader_count | 50 |
-| Min SM consensus | 65% |
-| **3TF alignment** | **HARD GATE** (4h + 1h + 15m) |
-| **Macro trend gate** | **HARD GATE** (no counter-trend >10%) |
-| BTC macro alignment | HARD GATE (alts) |
-| Min score | 11 |
-| Max positions | 1 (one amazing trade) |
-| Leverage cap | 10x (hard) |
-| Margin | 50% / 70% / 80% by score tier |
-| Daily cap | 1 entry per 24h |
-| Post-exit cooldown | 120 min |
-| DSL | Mid-beta profile (Kodiak-calibrated) |
+Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
 
-## Key changes from v2.0
+## Entry / Exit
 
-- **Universe:** 4 majors → top 50 by volume
-- **Thesis:** multi-asset picker → single apex sniper
-- **Added hard gates:** 3TF alignment, macro trend, BTC macro
-- **Discipline:** 1 trade per day (was 3)
-- **Leverage:** empirical 10x cap (was 7x)
-- **DSL:** calibrated from Kodiak's SOL win exit tiers
+- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
+- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
+- **Time cuts:** See `dsl:` config in runtime.yaml.
 
-## License
+## Fleet rules applied
 
-MIT — Copyright 2026 Senpi (https://senpi.ai)
+- Standard fleet drawdown gate.
+- Fee budget tracking via shared infra.
+- Producer reentrancy guard via fcntl lockfile (Runtime 2.0 only).
+
+## Configuration
+
+Operator-specific values configured at deploy time.
+
+## Recent version notes
+
+```
+CONDOR v3.4 — gate calibration fix (2026-05-05). v3.2's tightening
+(MIN_SCORE 11→13, MIN_SM 65%→75%) over-corrected. Account flatlined
+at $1001.28 across 13 days post-deploy (2026-04-22 → 2026-05-05) —
+zero trades, zero PnL change, vlm metric stuck at 213k from the
+v3.0/v3.1 era. The gate combination required basically every scoring
+lane to fire simultaneously, including the rare 15m_spike (c15m>=2.0).
+v3.4 splits the difference: MIN_SCORE 13→12 (achievable without
+rare 15m_spike lane), MIN_SM 75→70 (mid-stage moves now scoreable),
+MIN_15M_VELOCITY 0.2→0.1 (was silent killer in 3TF structural gate).
+Other gates preserved: MACRO_TREND_GATE 10% (Wolverine's lesson),
+trader_count >= 50, OI >= $1M, MAX_LEVERAGE 10, position sizing
+tiers, DSL preset (v3.3 weak_peak_cut disabled). Architecture
+unchanged (still v1 full-agency); v4.0 producer migration on the
+queue pending v3.4 calibration validation.
+```
+
+## Related
+
+- Top-level repo README: `../README.md`
+- Runtime spec: `../senpi-trading-runtime/`
+- DSL plugin: `../dsl-dynamic-stop-loss/`

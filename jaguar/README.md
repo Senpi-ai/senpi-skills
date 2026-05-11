@@ -1,100 +1,58 @@
-# 🐆 Jaguar v3.0 — Striker — Violent SM Rank Explosions
+# Jaguar — Hot-Streak Striker
 
-Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 3.4.0
 
-JAGUAR v3.0 — Striker-Only. Stalker and Hunter removed. Pyramiding removed.
+## Thesis
 
-## Install
+Jaguar v3.7 — runtime risk.guard_rails: cap losers, ride winners.
 
-```bash
-mkdir -p /data/workspace/skills/jaguar-strategy/{config,scripts,state}
+See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
 
-# Pull all package files from the senpi-skills main branch
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/runtime.yaml -o /data/workspace/skills/jaguar-strategy/runtime.yaml
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/SKILL.md -o /data/workspace/skills/jaguar-strategy/SKILL.md
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/config/jaguar-config.json -o /data/workspace/skills/jaguar-strategy/config/jaguar-config.json
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/scripts/jaguar-scanner.py -o /data/workspace/skills/jaguar-strategy/scripts/jaguar-scanner.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/scripts/jaguar_config.py -o /data/workspace/skills/jaguar-strategy/scripts/jaguar_config.py
-```
+## Scoring components
 
-## Configure
+Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
 
-Set your wallet address and Telegram chat ID in `runtime.yaml`:
+## Entry / Exit
 
-```bash
-sed -i 's/${WALLET_ADDRESS}/<YOUR_STRATEGY_WALLET>/' /data/workspace/skills/jaguar-strategy/runtime.yaml
-sed -i 's/${TELEGRAM_CHAT_ID}/<YOUR_TELEGRAM_CHAT_ID>/' /data/workspace/skills/jaguar-strategy/runtime.yaml
-```
+- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
+- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
+- **Time cuts:** See `dsl:` config in runtime.yaml.
 
-Or set them in `config/jaguar-config.json` directly:
+## Fleet rules applied
 
-```json
-{
-  "strategyId": "your-strategy-id",
-  "wallet": "0xYourStrategyWallet",
-  "chatId": "your-telegram-chat-id"
-}
-```
+- Standard fleet drawdown gate.
+- Fee budget tracking via shared infra.
+- Producer reentrancy guard via fcntl lockfile (Runtime 2.0 only).
 
-## Install the runtime in OpenClaw
+## Configuration
 
-```bash
-openclaw senpi runtime create --path /data/workspace/skills/jaguar-strategy/runtime.yaml
-openclaw senpi runtime list
-```
+Operator-specific values configured at deploy time.
 
-## Verify
-
-Run the scanner once manually:
-
-```bash
-python3 /data/workspace/skills/jaguar-strategy/scripts/jaguar-scanner.py
-```
-
-Expected: clean exit, JSON output. Most likely first run shows a heartbeat (no signal) — the scanner is intentionally selective.
-
-## Run on a recurring schedule
-
-Recommended: detached bash loop (zero LLM wake cost, matches Turbine pattern):
-
-```bash
-nohup bash -c 'while true; do python3 /data/workspace/skills/jaguar-strategy/scripts/jaguar-scanner.py >> /tmp/jaguar-loop.log 2>&1; sleep 180; done' > /tmp/jaguar-nohup.log 2>&1 &
-
-# Confirm running
-ps aux | grep jaguar-scanner | grep -v grep
-tail -5 /tmp/jaguar-loop.log
-```
-
-3-minute cadence. The Python scanner does all work; no LLM is invoked unless an entry fires.
-
-Alternative: configure an OpenClaw cron with `sessionTarget: isolated`. **Avoid `sessionTarget: main`** — that pattern is a known cost time-bomb that drifts expensive as the main session accumulates context.
-
-## What's in this package
+## Recent version notes
 
 ```
-jaguar/
-├── README.md                       # This file (user-facing)
-├── SKILL.md                        # LLM-facing thesis + agent rules
-├── runtime.yaml                    # OpenClaw runtime config + DSL preset
-├── config/
-│   └── jaguar-config.json      # Wallet, strategy ID, chat ID
-└── scripts/
-    ├── jaguar-scanner.py       # Main scanner
-    └── jaguar_config.py     # Helper module (atomic write, MCP, state I/O)
+Jaguar v3.7 — runtime risk.guard_rails: cap losers, ride winners.
+v3.4 + v3.5 + v3.6 (operator's held+pending dedup + config-driven
+startingBudget) opened the floodgates: 7 entries in 90 min on
+2026-05-06 vs original "1 amazing trade per day" striker thesis.
+Producer-side dynamic cap was bypassed via STARTING_BUDGET hack.
+Wrong layer for the fix.
+v3.7 moves entry-cap policy to the RUNTIME via risk.guard_rails:
+  - max_entries_per_day: 3 (hard cap when day is RED)
+  - bypass_max_entries_per_day_on_profit: true (no cap when GREEN)
+  - daily_loss_limit_pct: 10 (catastrophic intraday halt)
+  - drawdown_halt_pct: 25 (lifetime circuit breaker)
+  - max_consecutive_losses: 3 + cooldown_minutes: 60
+  - per_asset_cooldown_minutes: 120 (matches Jaguar's existing cooldown)
+Discipline: top 3 by score per day when losing. When winning today,
+no cap — let the hot hand ride. Producer's get_dynamic_daily_cap
+becomes redundant defense-in-depth; runtime is the authoritative gate.
+STARTING_BUDGET hack can be reverted to $1000 (real value) once v3.7
+is live.
 ```
 
-For full thesis details, scoring tables, DSL configuration, and operational notes, see [SKILL.md](./SKILL.md).
+## Related
 
-## Troubleshooting
-
-**Scanner exits with `no wallet`:** Set the wallet in `runtime.yaml`, in `config/jaguar-config.json`, or via the appropriate environment variable.
-
-**Scanner imports fail:** Make sure both the scanner and `jaguar_config.py` helper module are in the `scripts/` directory. The scanner imports the helper via `import jaguar_config as cfg`.
-
-**Scanner hasn't fired in hours:** This agent is intentionally selective. Check the scanner output for `note: "no <type> signal"` to confirm it's running and just not finding setups. Forcing the scanner to fire on weak signals is a known way to lose money — see fleet audit notes in SKILL.md.
-
-**Trade history lost after session clear:** Newer agents in the fleet write to `state/entry-log.jsonl` which survives session clears. If this agent doesn't yet have that pattern, the trade history lives only in scanner stdout logs (`/tmp/jaguar-loop.log`).
-
-## License
-
-MIT — Copyright 2026 Senpi (https://senpi.ai).
+- Top-level repo README: `../README.md`
+- Runtime spec: `../senpi-trading-runtime/`
+- DSL plugin: `../dsl-dynamic-stop-loss/`
