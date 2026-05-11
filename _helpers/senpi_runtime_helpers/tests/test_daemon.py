@@ -197,6 +197,26 @@ class DaemonTests(unittest.TestCase):
         self.assertIn("wallet", str(ctx.exception).lower())
         self.assertIn("alive_check=None", str(ctx.exception))
 
+    def test_empty_or_malformed_wallet_raises(self) -> None:
+        """An empty string or non-0x wallet must fail fast — otherwise the
+        default alive_check raises inside _fetch_state on every probe, which
+        _alive() swallows as "still alive", and the daemon ticks forever."""
+        def fn() -> None:
+            pass
+
+        for bad_wallet in ("", "abcdef", "0X123", 123):  # 0X != 0x; ints are not strings
+            with self.assertRaises(ValueError) as ctx:
+                producer_daemon(
+                    fn=fn,
+                    wallet=bad_wallet,
+                    interval_seconds=0.02,
+                    name="test_bad_wallet",
+                    tick_timeout=1.0,
+                    max_ticks=1,
+                    install_signal_handlers=False,
+                )
+            self.assertIn("0x-prefixed", str(ctx.exception))
+
     def test_tick_timeout_does_not_count_lock_acquire_release(self) -> None:
         """SIGALRM must scope only fn() — not scanner_lock acquire/release.
 

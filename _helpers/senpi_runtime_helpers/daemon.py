@@ -163,7 +163,8 @@ def producer_daemon(
 
     Raises:
         ValueError: if `interval_seconds` <= 0, `tick_timeout` <= 0, OR if the
-            default alive_check was requested but no `wallet` was provided.
+            default alive_check was requested but `wallet` is not a
+            0x-prefixed string.
     """
     if interval_seconds <= 0:
         raise ValueError("interval_seconds must be > 0")
@@ -176,12 +177,17 @@ def producer_daemon(
     # wallet; uses scanner when provided); explicit None → opt out;
     # callable → use as-is.
     if alive_check is _DEFAULT_ALIVE_CHECK:
-        if wallet is None:
+        # Reject None, "", and anything not 0x-prefixed up front. An empty
+        # string (env var unset) would otherwise pass the None check and then
+        # raise SenpiClientError inside _fetch_state on every probe — _alive()
+        # treats exceptions as "still alive", so the daemon would run useless
+        # ticks indefinitely instead of failing fast.
+        if not isinstance(wallet, str) or not wallet.startswith("0x"):
             raise ValueError(
-                "producer_daemon requires `wallet=...` for the default runtime "
-                "liveness check. Pass `wallet=<your strategy wallet>` to enable "
-                "auto-self-termination on runtime delete, or `alive_check=None` "
-                "to opt out."
+                "producer_daemon requires `wallet=...` as a 0x-prefixed string "
+                "for the default runtime liveness check. Pass "
+                "`wallet=<your strategy wallet>` to enable auto-self-termination "
+                "on runtime delete, or `alive_check=None` to opt out."
             )
         # Local import keeps daemon importable in environments without a full
         # SenpiClient stack (tests, simulators).
