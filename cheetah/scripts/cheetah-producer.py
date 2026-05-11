@@ -125,7 +125,7 @@ import cheetah_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "7.0.0"
+VERSION = "7.1.0"
 SCANNER_NAME = "cheetah_signals"  # must match runtime.yaml external_scanner.name
 
 
@@ -197,9 +197,27 @@ DEFAULT_LEVERAGE = 5
 MARGIN_PCT = 0.30                     # v5.2 — 30% per slot, survivable
 
 # Quality trader pool config
-QT_POOL_SIZE = 8
-QT_TIMEFRAME = "WEEKLY"
-QT_CONSISTENCY = ["ELITE", "RELIABLE"]
+#
+# v7.1.0 (2026-05-11): WIDENED. The v5.2-era filter
+# (WEEKLY + ELITE/RELIABLE + open_position_filter=True, limit=8)
+# returned ZERO traders in the post-migration regime, leaving
+# positions_map empty for the entire helpers-migration era. Without
+# the +3 QUALITY_TRADER bonus, candidate scores cap at 8 (needs 4-of-4
+# secondary confluence to reach the MIN_SCORE=10 floor), which only
+# fires in strong trending regimes — not the BTC/ETH consolidation
+# we've been in since 5/8. Filter changes (verified live:
+# WEEKLY+ELITE/RELIABLE+open_position → 0 traders returned):
+#   - TIMEFRAME WEEKLY → MONTHLY (broader history, more labels accumulate)
+#   - CONSISTENCY ELITE/RELIABLE → ELITE/RELIABLE/STREAKY
+#   - POOL_SIZE 8 → 25 (wider sample lets per-asset overlap surface)
+#   - drop open_position_filter (was True): trader pool stays
+#     stable across regimes where elite traders go briefly flat;
+#     per-trader leaderboard_get_trader_positions still determines
+#     whether each contributes to positions_map.
+# Scoring components, weights, and MIN_SCORE unchanged.
+QT_POOL_SIZE = 25
+QT_TIMEFRAME = "MONTHLY"
+QT_CONSISTENCY = ["ELITE", "RELIABLE", "STREAKY"]
 QT_CACHE_MINUTES = 15
 
 # Score component thresholds (preserved from v5.2)
@@ -519,7 +537,11 @@ def fetch_quality_trader_positions():
         time_frame=QT_TIMEFRAME,
         sort_by="PROFIT_AND_LOSS_UNREALIZED",
         consistency=QT_CONSISTENCY,
-        open_position_filter=True,
+        # v7.1.0: open_position_filter removed — pool stayed empty when
+        # the platform's WEEKLY classification combined with currently-flat
+        # elite traders produced 0 results. The per-trader positions fetch
+        # below already filters out flat traders implicitly (empty positions
+        # array contributes nothing to positions_map).
         limit=QT_POOL_SIZE,
     )
     if not raw:
@@ -571,6 +593,18 @@ def fetch_quality_trader_positions():
                     direction = "LONG"
             key = f"{asset}:{direction}"
             positions_map.setdefault(key, []).append(addr)
+
+    # v7.1.0 telemetry: surface the trader-pool shape so cache-empty
+    # regressions are visible in the tick log without log archaeology.
+    # If pool size is < QT_POOL_SIZE / 2 OR positions_map is empty, log
+    # a warning event the operator can grep for.
+    if len(addresses) < max(2, QT_POOL_SIZE // 2) or not positions_map:
+        cfg.log(
+            f"QT_POOL_WARN traders={len(addresses)} (configured {QT_POOL_SIZE}), "
+            f"positions_map_size={len(positions_map)}, "
+            f"filter=time_frame={QT_TIMEFRAME} consistency={QT_CONSISTENCY}. "
+            f"+3 QUALITY_TRADER bonus may not fire reliably this tick."
+        )
 
     try:
         cfg.atomic_write(str(_QUALITY_CACHE_FILE), {"ts": time.time(), "positions_map": positions_map})

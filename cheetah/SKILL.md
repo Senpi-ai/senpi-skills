@@ -14,7 +14,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "7.0.0"
+  version: "7.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -22,9 +22,23 @@ metadata:
     - senpi-runtime-helpers
 ---
 
-# 🐆 CHEETAH v7.0.0 — Multi-Signal Confluence Sniper
+# 🐆 CHEETAH v7.1.0 — Multi-Signal Confluence Sniper
 
 **SM commits. Quality traders commit. Price confirms. Volume commits. All at once. Cheetah pounces once. The runtime DSL ratchets to lock the win.**
+
+## v7.1.0 (2026-05-11) — quality-trader filter widened (patch)
+
+Post-migration diagnostic on the live wallet revealed `quality-cache.json` was always empty (`positions_map = {}`). Root cause: `discovery_get_top_traders(time_frame=WEEKLY, consistency=[ELITE,RELIABLE], open_position_filter=True, limit=8)` returned **zero traders** under the current platform regime. With no quality-trader pool, the +3 `QUALITY_TRADER` scoring bonus never fires; candidates cap at score 8 (needs 4-of-4 secondary confluence to reach the MIN_SCORE=10 floor without that bonus), and that 4-of-4 only hits in strong-trending regimes.
+
+Filter changes (live-verified):
+- `time_frame: WEEKLY → MONTHLY` — broader history, more traders accumulate ELITE/RELIABLE labels
+- `consistency: [ELITE, RELIABLE] → [ELITE, RELIABLE, STREAKY]` — slight loosen at the lower end
+- `limit: 8 → 25` — wider pool surfaces more per-asset overlap
+- `open_position_filter` dropped — the per-trader `leaderboard_get_trader_positions` fetch already filters flat traders implicitly via empty position arrays
+
+NO change to scoring components, weights, MIN_SCORE, leverage tiers, margin, cooldowns, or DSL. Same thesis, wider input.
+
+Telemetry: producer now emits a `QT_POOL_WARN` log line whenever the trader pool is unhealthily small (< QT_POOL_SIZE / 2) or positions_map ends up empty. Future regressions surface in one grep instead of post-hoc archaeology.
 
 ## v6.0 thesis (preserved from v5.x)
 
