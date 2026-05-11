@@ -317,14 +317,26 @@ def fetch_quality_hot_traders(limit=20, min_delta_usd=500_000):
 
 
 def fetch_trader_positions(trader_address):
-    """Get per-market delta PnL breakdown for a single trader."""
+    """Get per-market delta PnL breakdown for a single trader.
+
+    v3.4: leaderboard_get_trader_positions actually returns
+      { data: { positions: { trader_id, rank, positions: [...] } } }
+    — the per-trader positions array is nested one level deeper than the
+    schema guide documents. v3.3 `_extract_list` walked `data.positions`
+    expecting a list, got a dict, fell through silently. Now try the
+    nested path first, then fall back to the documented flat shape.
+    Same bug pattern caught + fixed in Cheetah v7.1.1 and Spider v4.0.1.
+    """
     raw = cfg.mcporter_call("leaderboard_get_trader_positions", trader_id=trader_address)
     if not raw:
         return []
-    # Try common nested paths
+    # Try common nested paths — nested-dict shape first since it's the
+    # actual production response shape.
     positions = _extract_list(
         raw,
-        ("data", "positions"),
+        ("data", "positions", "positions"),  # nested-dict shape (actual prod)
+        ("data", "top_positions", "positions"),
+        ("data", "positions"),  # flat list shape (schema guide)
         ("data", "top_positions"),
         ("positions",),
         ("top_positions",),

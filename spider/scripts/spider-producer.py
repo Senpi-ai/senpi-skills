@@ -98,7 +98,7 @@ if _helpers_path not in sys.path:
 from senpi_runtime_helpers import producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "4.0.0"
+VERSION = "4.0.1"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "spider_signals")
 SIGNAL_TYPE = "SPIDER_ANCHOR"
 
@@ -557,6 +557,7 @@ def fetch_arena_long_exposure():
     # Step 3: for each user, fetch positions across their strategies.
     # Track per-user asset-direction sets to dedupe (one count per user).
     long_count = {}
+    shape_warned = False
     for uid in user_ids:
         wallets = user_to_wallets.get(uid, [])
         if not wallets:
@@ -568,11 +569,37 @@ def fetch_arena_long_exposure():
             )
             if not positions_data:
                 continue
+            # v4.0.1: leaderboard_get_trader_positions actually returns
+            #   { data: { positions: { trader_id, rank, positions: [...] } } }
+            # — the per-trader positions array is nested one level deeper
+            # than the schema guide documents. Pre-v4.0.1 parser expected
+            # a list at `data.positions`, got a dict, silently skipped every
+            # trader → arena_long_exposure empty → W_ARENA component (4pts)
+            # never fired → Spider candidates capped below MIN_SCORE.
+            # Same bug pattern caught and fixed in Cheetah v7.1.1.
             positions = []
             if isinstance(positions_data, dict):
                 d = positions_data.get("data", positions_data)
                 if isinstance(d, dict):
-                    positions = d.get("positions", d.get("top_positions", []))
+                    raw_positions = d.get("positions", d.get("top_positions", []))
+                    if isinstance(raw_positions, list):
+                        positions = raw_positions
+                    elif isinstance(raw_positions, dict):
+                        nested = raw_positions.get("positions", [])
+                        if isinstance(nested, list):
+                            positions = nested
+                        elif not shape_warned:
+                            cfg.log(
+                                f"POSITIONS_SHAPE_WARN nested non-list for {wallet[:10]}: "
+                                f"keys={list(raw_positions.keys())[:8]}"
+                            )
+                            shape_warned = True
+                    elif not shape_warned:
+                        cfg.log(
+                            f"POSITIONS_SHAPE_WARN unexpected type "
+                            f"{type(raw_positions).__name__} for {wallet[:10]}"
+                        )
+                        shape_warned = True
                 elif isinstance(d, list):
                     positions = d
             if not isinstance(positions, list):
