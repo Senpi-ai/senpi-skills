@@ -104,7 +104,12 @@ def cached_mcp_call(
     cache = _client_cache(client)
     key = _make_key(tool, arguments)
     if key is None:
-        cache.skipped += 1
+        # Match the locking discipline used for every other counter on this
+        # object (hits, misses, evictions, coalesced). The GIL makes a bare
+        # `+= 1` benign in CPython today, but consistency matters under
+        # parallel(...) workers and against future free-threaded builds.
+        with cache.lock:
+            cache.skipped += 1
         log_event("cache_skipped", tool=tool, reason="non_jsonable_args")
         return client.mcp_call(tool, timeout=timeout, **arguments)
 

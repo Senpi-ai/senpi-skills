@@ -217,6 +217,20 @@ class CacheTests(unittest.TestCase):
         finally:
             cfg.TICK_CACHE_MAX_ENTRIES = original
 
+    def test_skipped_counter_increments_for_non_jsonable_args(self) -> None:
+        """Non-JSON args bypass the cache; the `skipped` counter must still
+        increment so operators can see how often this happens. Counter
+        updates use cache.lock — same discipline as hits/misses/evictions —
+        so the path stays correct under parallel(...) workers."""
+        client = _FakeClient()
+        # `object()` is not JSON-serializable, so _make_key returns None and
+        # the call falls through to the skipped branch.
+        cached_mcp_call(client, "x", payload=object())
+        cached_mcp_call(client, "x", payload=object())
+        s = cache_summary(client)
+        self.assertEqual(s["skipped"], 2)
+        self.assertEqual(client.calls, 2)  # both went through to mcp_call
+
     def test_senpi_client_init_attaches_cache_eagerly(self) -> None:
         """SenpiClient.__init__ must attach a _Cache instance directly.
 
