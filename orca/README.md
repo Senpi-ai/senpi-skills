@@ -1,6 +1,6 @@
 # Orca — Gen-2 Striker (FIRST_JUMP)
 
-**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 1.0.0
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.0.0
 
 ## Thesis
 

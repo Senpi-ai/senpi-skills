@@ -1,6 +1,6 @@
 # Mantis — Cross-Asset Catchup Hunter
 
-**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 1.5.0
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.5.0
 
 ## Thesis
 

@@ -1,6 +1,6 @@
 # Grizzly Horribilis — BTC Contrarian Sniper
 
-**Runtime:** 2.0  ·  **Asset:** BTC  ·  **Status:** Live  ·  **Version:** 2.1.0
+**Runtime:** 1.0  ·  **Asset:** BTC  ·  **Version:** 2.1.0
 
 ## Thesis
 

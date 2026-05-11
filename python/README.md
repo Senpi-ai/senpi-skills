@@ -1,6 +1,6 @@
 # Python — Patient Multi-Asset Scanner
 
-**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 1.2.0
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.2.0
 
 ## Thesis
 

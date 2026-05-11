@@ -1,6 +1,6 @@
 # Bison — Conviction Holder
 
-**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 1.0.1
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.0.1
 
 ## Thesis
 

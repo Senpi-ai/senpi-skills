@@ -1,6 +1,6 @@
 # Phoenix — Contribution Velocity Scanner
 
-**Runtime:** 1.0 (schema mislabeled — agent semver in version field; flag)  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 3.0.0
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 3.0.0
 
 ## Thesis
 

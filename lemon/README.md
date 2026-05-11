@@ -1,6 +1,6 @@
 # Lemon — Degen Fader
 
-**Runtime:** 1.0  ·  **Asset:** XYZ markets  ·  **Status:** Live  ·  **Version:** 1.3.0
+**Runtime:** 1.0  ·  **Asset:** XYZ markets  ·  **Version:** 1.3.0
 
 ## Thesis
 

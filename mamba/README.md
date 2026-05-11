@@ -1,6 +1,6 @@
 # Mamba — Range-Bound + Regime Protection
 
-**Runtime:** 2.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 2.0.0
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 2.0.0
 
 ## Thesis
 

@@ -1,6 +1,6 @@
 # Dire — BRENTOIL XYZ Specialist
 
-**Runtime:** 1.0  ·  **Asset:** BRENTOIL (XYZ)  ·  **Status:** Live  ·  **Version:** 1.5.0
+**Runtime:** 1.0  ·  **Asset:** BRENTOIL (XYZ)  ·  **Version:** 1.5.0
 
 ## Thesis
 

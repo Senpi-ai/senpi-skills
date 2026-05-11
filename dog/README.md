@@ -1,6 +1,6 @@
 # Dog — Multi-Asset Exhaustion Fader
 
-**Runtime:** 2.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 2.5.0
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 2.5.0
 
 ## Thesis
 

@@ -1,6 +1,6 @@
 # Sentinel — Quality-Trader Convergence Scanner
 
-**Runtime:** 2.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 2.2.0
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 2.2.0
 
 ## Thesis
 

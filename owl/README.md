@@ -1,6 +1,6 @@
 # Owl — Pure Contrarian + Macro Gate
 
-**Runtime:** 2.0 (capable)  ·  **Asset:** XYZ markets  ·  **Status:** Live  ·  **Version:** 1.7.1
+**Runtime:** 1.0  ·  **Asset:** XYZ markets  ·  **Version:** 1.7.1
 
 ## Thesis
 

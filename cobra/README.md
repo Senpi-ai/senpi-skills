@@ -1,6 +1,6 @@
 # Cobra — Arena Sprint Predator
 
-**Runtime:** 2.0 (capable)  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 1.0.0
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.0.0
 
 ## Thesis
 

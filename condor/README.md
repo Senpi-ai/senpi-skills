@@ -1,6 +1,6 @@
 # Condor — High-Conviction Momentum Hunter
 
-**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 1.3.4
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.3.4
 
 ## Thesis
 
