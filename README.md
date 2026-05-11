@@ -16,58 +16,94 @@ Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or bu
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                       SENPI PLATFORM                          │
-│  Hyperfeed data layer · Top-trader scoring · 65+ MCP tools    │
-└────────────────────────────────┬─────────────────────────────┘
-                                 │
-┌────────────────────────────────▼─────────────────────────────┐
-│                     CAPABILITIES (this repo)                  │
-│                                                                │
-│   senpi-trading-runtime ─────  Plugin runtime (v1.0 / v2.0)    │
-│       │                        Position tracker, scanner       │
-│       │                        ingest, LLM decision gate,      │
-│       │                        risk guard-rails                │
-│       │                                                         │
-│   dsl-dynamic-stop-loss ─────  DSL exit engine                 │
-│                                Phase 1 (max-loss + retrace) +  │
-│                                Phase 2 (ratcheting trailing)   │
-│                                                                 │
-│   senpi_runtime_helpers ─────  In-process SenpiClient (v2 only)│
-│       (helper branch)          producer_daemon, fcntl lock,    │
-│                                fee-aware order placement       │
-│                                                                 │
-│   fee-optimizer       ───────  When to ALO vs MARKET           │
-│   shared              ───────  Hyperfeed scoring primitives    │
-│   opportunity-scanner ───────  4-stage funnel: 500 perps → top │
-│   emerging-movers     ───────  SM market-rank acceleration     │
-│   whale-index         ───────  Top-trader notional aggregator  │
-│                                                                 │
-│   senpi-entrypoint, senpi-onboard, senpi-getting-started-guide │
-│                                Onboarding + setup flows        │
-└────────────────────────────────┬─────────────────────────────┘
-                                 │
-┌────────────────────────────────▼─────────────────────────────┐
-│              TRADING STRATEGY SKILLS (this repo)              │
-│                                                                │
-│   ~40 self-contained skills, one per directory                 │
-│   Each: producer/scanner script + runtime.yaml + SKILL.md      │
-│                                                                 │
-│   Bucketed below by trading thesis, not asset class.           │
-└────────────────────────────────┬─────────────────────────────┘
-                                 │
-                  ┌──────────────┴──────────────┐
-                  │      Strategy wallet(s)      │
-                  │ Isolated capital, on-chain   │
-                  │ Each skill = its own wallet  │
-                  └──────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                            SENPI PLATFORM                                 │
+│   Hyperfeed data layer  ·  Top-trader scoring  ·  Hyperliquid execution   │
+└──────────────────────────────────┬───────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────▼───────────────────────────────────────┐
+│                        SENPI MCP — 68 tools, 13 categories                │
+│                                                                            │
+│   Discovery (5)            Hyperfeed (6)        Strategy lifecycle (12)   │
+│   Strategy state (4)       Position (4)         Execution (4)             │
+│   Market data (6)          Ratchet Stop (6)     Arena (5)                 │
+│   Audit (3)                Account (2)          Treasury (2)              │
+│   User & rewards (7)       Documentation (2)                              │
+│                                                                            │
+│   Full table further down ↓                                                │
+└──────────────────────────────────┬───────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────▼───────────────────────────────────────┐
+│                        CAPABILITIES (this repo)                           │
+│                                                                            │
+│   senpi-trading-runtime  ─── Plugin runtime (v1.0 / v2.0)                 │
+│                              Consumes: Strategy state, Position,           │
+│                              Execution, Audit MCP categories               │
+│                                                                            │
+│   dsl-dynamic-stop-loss  ─── DSL exit engine                              │
+│                              Phase 1 (max-loss + retrace) +                │
+│                              Phase 2 (ratcheting trailing)                 │
+│                              Consumes: Strategy state, Position MCP        │
+│                                                                            │
+│   senpi_runtime_helpers  ─── In-process SenpiClient (Runtime 2.0 only)    │
+│      (helper branch)         producer_daemon · fcntl lock                  │
+│                              Wraps: ALL MCP categories via SenpiClient     │
+│                                                                            │
+│   fee-optimizer          ─── When to ALO vs MARKET                         │
+│   shared                 ─── Hyperfeed scoring primitives                  │
+│   opportunity-scanner    ─── 4-stage funnel: 500 perps → top               │
+│   emerging-movers        ─── SM market-rank acceleration                   │
+│   whale-index            ─── Top-trader notional aggregator                │
+│                              Consume: Discovery, Hyperfeed, Market data    │
+│                                                                            │
+│   senpi-entrypoint, senpi-onboard, senpi-getting-started-guide             │
+│                              Onboarding + setup flows                      │
+│                              Consume: User & rewards, Account, Docs        │
+└──────────────────────────────────┬───────────────────────────────────────┘
+                                   │
+┌──────────────────────────────────▼───────────────────────────────────────┐
+│                  TRADING STRATEGY SKILLS (this repo)                      │
+│                                                                            │
+│   ~40 self-contained skills, one per directory                             │
+│   Each: producer/scanner script + runtime.yaml + SKILL.md                  │
+│                                                                            │
+│   Bucketed below by trading thesis, not asset class.                       │
+│   Skills consume MCP via the runtime + helpers; never call MCP directly.   │
+└──────────────────────────────────┬───────────────────────────────────────┘
+                                   │
+                   ┌───────────────┴───────────────┐
+                   │      Strategy wallet(s)        │
+                   │ Isolated capital, on-chain     │
+                   │ Each skill = its own wallet    │
+                   └────────────────────────────────┘
 ```
+
+The data flow is **upward-from-Hyperliquid, gated-downward-through-MCP**: market state and on-chain positions are read via MCP, capabilities turn those reads into actions (signals, decisions, exits), and the runtime pushes back through MCP to execute on Hyperliquid. Strategy skills produce signals; they do **not** call MCP directly — all MCP traffic goes through the runtime or the helpers package.
 
 ---
 
 # Capabilities
 
 The infrastructure every trading skill plugs into. None of these are strategies — they're the substrate.
+
+## At a glance
+
+Every capability is a thin layer over a specific slice of the Senpi MCP surface. The table below maps each capability to the MCP categories it depends on and the most-used tools within those categories.
+
+| Capability | MCP categories used | Key tools touched |
+|---|---|---|
+| `senpi-trading-runtime` | Strategy state · Position · Execution · Audit · Ratchet Stop | `strategy_get_clearinghouse_state`, `create_position`, `edit_position`, `close_position`, `cancel_order`, `execution_get_open_position_details`, `audit_query`, `ratchet_stop_*` |
+| `dsl-dynamic-stop-loss` | Strategy state · Position · Ratchet Stop | `strategy_get_clearinghouse_state`, `ratchet_stop_add`, `ratchet_stop_edit`, `ratchet_stop_events`, `close_position` |
+| `senpi_runtime_helpers` | ALL — the in-process client wraps every MCP tool | `mcp_call(tool, **params)` — generic dispatch over the full 68-tool surface |
+| `fee-optimizer` | Market data · Position | `market_get_asset_data`, `create_position` (FEE_OPTIMIZED_LIMIT params) |
+| `shared` (`hyperfeed_scoring`) | Hyperfeed · Discovery | `leaderboard_get_top`, `leaderboard_get_trader`, `discovery_get_top_traders` |
+| `opportunity-scanner` | Hyperfeed · Discovery · Market data | `leaderboard_get_markets`, `discovery_get_top_traders`, `market_get_asset_data`, `market_get_funding_regime` |
+| `emerging-movers` | Hyperfeed | `leaderboard_get_markets`, `leaderboard_get_momentum_events` |
+| `whale-index` | Hyperfeed · Discovery | `leaderboard_get_top`, `leaderboard_get_trader_positions`, `discovery_get_trader_state` |
+| `autonomous-trading` | Strategy lifecycle · Position · Account | `strategy_create_custom_strategy`, `strategy_top_up`, `account_get_portfolio`, `create_position`, `close_position` |
+| `senpi-entrypoint`, `senpi-onboard`, `senpi-getting-started-guide` | User & rewards · Account · Strategy lifecycle · Documentation | `user_get_me`, `account_get_portfolio`, `strategy_create`, `list_senpi_guides`, `read_senpi_guide` |
+
+Detail on each capability follows. The full tool surface is enumerated in the **Senpi MCP — Tool Reference** section below.
 
 ## `senpi-trading-runtime/` — Plugin Runtime
 
