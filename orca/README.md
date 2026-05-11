@@ -1,37 +1,43 @@
-# 🐋 ORCA v3.0 — Gen-1 Vanilla Striker
+# Orca — Gen-2 Striker (FIRST_JUMP)
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 1.0.0
 
 ## Thesis
 
-Pure FIRST_JUMP explosion detection on `leaderboard_get_markets`. Detect violent rank jumps (rank ≥ 25 → ≥ 15-position jump), confirm with volume spike (≥ 1.5x day vs previous day), require 4H price alignment with SM direction. Single API call, minimum latency.
+Gen-2 Striker — FIRST_JUMP detection enhanced with momentum event
 
-## v3.0 Changelog (fleet-fix batch 4)
+See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
 
-Reverted Gen-2 quality confirmation per Orca's own self-diagnosis: "Gen-2 confirmation adds latency and buys local tops after the move." Back to vanilla Gen-1.
+## Scoring components
 
-- Removed `leaderboard_get_momentum_events` API call
-- Removed TCS ELITE/RELIABLE gate and ELITE_BONUS score booster
-- Removed `contribution_pct_change_4h` acceleration booster
-- Single API call per scan (down from 2)
-- Leverage clamping applied to emitted entry (fleet-wide batch-4 safety fix)
+Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
 
-## v1.x Post-Mortem
+## Entry / Exit
 
-- v1.1: 1,204 fills, -19.3% ROE. Stalker + Striker dual mode. Stalker churned at 43% win rate.
-- v1.3: 336 fills, -14.8% ROE. Stalker experiment confirmed: 58 Stalker trades lost, 1 Striker trade won.
-- v2.0: Gen-2 quality confirmation added latency, bought local tops. Reverted in v3.0.
+- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
+- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
+- **Time cuts:** See `dsl:` config in runtime.yaml.
 
-## Key Settings
+## Fleet rules applied
 
-| Setting | Value |
-|---|---|
-| Leverage | 7x |
-| Max positions | 3 |
-| Min score | 9 |
-| API calls | 1 per scan (markets only) |
-| DSL | Fast-cycling (30m timeout, 15m weak peak) |
+- Standard fleet drawdown gate.
+- Fee budget tracking via shared infra.
+- Producer reentrancy guard via fcntl lockfile (Runtime 2.0 only).
 
-## License
+## Configuration
 
-MIT — Copyright 2026 Senpi (https://senpi.ai)
+Operator-specific values configured at deploy time.
+
+## Recent version notes
+
+```
+Gen-2 Striker — FIRST_JUMP detection enhanced with momentum event
+quality confirmation. Only enters when quality traders (ELITE/RELIABLE)
+are driving the move. Fast-cycling DSL.
+```
+
+## Related
+
+- Top-level repo README: `../README.md`
+- Runtime spec: `../senpi-trading-runtime/`
+- DSL plugin: `../dsl-dynamic-stop-loss/`
