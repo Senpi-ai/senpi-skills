@@ -1,29 +1,45 @@
-# 🛡️ SENTINEL v2.2 — Quality Trader Convergence Scanner
+# Sentinel — Quality-Trader Convergence Scanner
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+**Runtime:** 2.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 2.2.0
 
 ## Thesis
 
-Inverted pipeline: start with QUALITY TRADERS (ELITE/RELIABLE TCS), find where they converge. When 5+ historically-profitable traders independently arrive at the same trade, that's informed consensus — not coincidence. Cross-confirmed with SM leaderboard concentration.
+Quality trader convergence scanner v2.2. Finds assets where multiple
 
-## v2.2 Changelog (fleet-fix batch 4)
+See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
 
-At -21.44% drawdown with daily cap = 1, the 45% win rate confirmed the signal is valid. DSL was bleeding value via slow cuts on 17/23 losers. Widening Phase 2 and resetting the budget baseline.
+## Scoring components
 
-- Phase 2 tiers widened to Sentinel's own rec: `[15/35, 30/60, 50/75, 75/85, 100/92]`
-- `STARTING_BUDGET` 1000 → 786.60 (current equity, unblocks pnl-aware cap)
+Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
 
-## Key Settings
+## Entry / Exit
 
-| Setting | Value |
-|---|---|
-| Leverage | 7x |
-| Max positions | 2 |
-| Min score | 7 |
-| Min convergence | 5 weighted traders |
-| API calls | 2 per scan |
-| DSL | Lifecycle hunter (240m timeout, wider Phase 2 tiers) |
+- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
+- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
+- **Time cuts:** See `dsl:` config in runtime.yaml.
 
-## License
+## Fleet rules applied
 
-MIT — Copyright 2026 Senpi (https://senpi.ai)
+- Standard fleet drawdown gate.
+- Fee budget tracking via shared infra.
+- Producer reentrancy guard via fcntl lockfile (Runtime 2.0 only).
+
+## Configuration
+
+Operator-specific values configured at deploy time.
+
+## Recent version notes
+
+```
+Quality trader convergence scanner v2.2. Finds assets where multiple
+ELITE/RELIABLE traders converge. v2.2 widens Phase 2 tiers
+([5,10,15] → [15,30,50,75,100]) per Sentinel's own rec; 45% WR
+confirms the signal is valid, DSL was bleeding value via slow cuts
+on 17/23 losers.
+```
+
+## Related
+
+- Top-level repo README: `../README.md`
+- Runtime spec: `../senpi-trading-runtime/`
+- DSL plugin: `../dsl-dynamic-stop-loss/`
