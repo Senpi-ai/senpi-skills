@@ -217,6 +217,20 @@ class CacheTests(unittest.TestCase):
         finally:
             cfg.TICK_CACHE_MAX_ENTRIES = original
 
+    def test_senpi_client_init_attaches_cache_eagerly(self) -> None:
+        """SenpiClient.__init__ must attach a _Cache instance directly.
+
+        If __init__ leaves `_cache` as a plain dict, cache.py's lazy attach
+        path has a check-then-act race: two threads can each create a fresh
+        _Cache, the second setattr orphans the first, and thundering-herd
+        coalescing breaks for the orphaned cache. Eager init closes that
+        window."""
+        from senpi_runtime_helpers.cache import _Cache
+        from senpi_runtime_helpers.client import SenpiClient
+
+        client = SenpiClient(mcp_url="http://localhost:1/", auth_token="t")
+        self.assertIsInstance(client._cache, _Cache)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -30,16 +30,16 @@ _CLIENT_CACHE_ATTR = "_cache"
 
 
 def _client_cache(client: Any) -> "_Cache":
-    """Lazily attach a `_Cache` instance to the client. Idempotent + thread-safe
-    via the GIL on the attribute write — the first racy initialization stays
-    consistent because `_Cache.__init__` allocates everything before the
-    attribute is bound."""
+    """Return the `_Cache` attached to `client`. SenpiClient eager-inits it in
+    __init__, so the hot path is a single getattr. The lazy-init fallback below
+    exists only for non-standard clients (e.g. mocks) — it is NOT race-safe
+    against concurrent first-touch by multiple threads on the same client,
+    which is acceptable because every supported caller goes through
+    SenpiClient.__init__."""
     cache = getattr(client, _CLIENT_CACHE_ATTR, None)
     if isinstance(cache, _Cache):
         return cache
     new_cache = _Cache()
-    # If client._cache was previously set to a plain dict (legacy SenpiClient
-    # __init__ path before the upgrade), replace it with the typed cache.
     setattr(client, _CLIENT_CACHE_ATTR, new_cache)
     return new_cache
 

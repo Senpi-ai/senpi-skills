@@ -29,6 +29,7 @@ from urllib.parse import urlsplit
 
 from . import _config as cfg
 from ._logging import log_event
+from .cache import _Cache
 
 
 _MCP_PROTOCOL_VERSION = "2025-03-26"
@@ -232,8 +233,9 @@ class SenpiClient:
         self._session = _MCPSession()
         # Per-process per-client cache (used by cache.py); making the cache
         # instance-scoped removes the cross-client key-namespace leak that
-        # the previous module-level _store had.
-        self._cache: Dict[str, Any] = {}
+        # the previous module-level _store had. Init eagerly so cache.py's
+        # lazy attach path never races on the dict-to-_Cache transition.
+        self._cache: _Cache = _Cache()
         # Serializes initialize / notifications/initialized handshake so
         # parallel callers don't issue duplicate init POSTs.
         self._init_lock = threading.Lock()
