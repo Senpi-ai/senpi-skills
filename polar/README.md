@@ -21,6 +21,38 @@ ETH single-asset hybrid hunter. Hyperfeed Smart Money gates (pct≥5%, traders�
 
 ## Install
 
+### Step 0 — Register the runtime plugin in `openclaw.json` (one-time per host)
+
+The senpi-trading-runtime plugin won't bind its API port (`127.0.0.1:8787`) unless `plugins.entries.runtime` is present in `/data/.openclaw/openclaw.json`. Without that block the plugin logs `No plugin config found — skipping registration` and the producer daemon's `signal_post` calls fail with `[Errno 111] Connection refused`. Confirm or add:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "runtime": {
+        "enabled": true,
+        "config": {
+          "stateDir": "/data/.openclaw/senpi-state",
+          "apiKey": "<your SENPI_AUTH_TOKEN>",
+          "autoUpdate": { "enabled": false }
+        }
+      }
+    }
+  }
+}
+```
+
+Restart the gateway after editing so the plugin re-registers:
+
+```bash
+openclaw gateway restart
+sleep 10
+curl -s -m 5 http://127.0.0.1:8787/state | head -c 200
+# Expected: a JSON response with "success":true,"data":{"runtimes":[...]}
+```
+
+If `curl` returns Connection refused, the plugin still isn't registered — check `openclaw plugin list` shows the runtime entry as loaded and re-verify the JSON.
+
 ### Step 1 — Pull the helpers package (one-time per host)
 
 > **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch — it has not yet landed on `main`. Pull from that branch until it does. Every other file in this skill is on `main` as normal.
