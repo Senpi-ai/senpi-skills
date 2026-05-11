@@ -24,6 +24,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
@@ -109,6 +110,7 @@ class _ConnectionPool:
                 pass
 
 
+@contextmanager
 def _post_json(
     pool: "_ConnectionPool",
     url: str,
@@ -116,12 +118,19 @@ def _post_json(
     headers: Dict[str, str],
     timeout: float,
 ):
-    """POST a JSON body and return the open `http.client.HTTPResponse`.
+    """Context manager: POST a JSON body and yield the open
+    `http.client.HTTPResponse`.
 
-    Reuses a per-thread keep-alive connection from `pool`. On any
-    transport error the connection is closed (so the next call gets a
-    fresh one) and a `urllib.error.URLError` / `HTTPError` is raised to
-    keep the existing exception-handling shape intact.
+    Reuses a per-thread keep-alive connection from `pool`. On any transport
+    error the connection is closed (so the next call gets a fresh one) and a
+    `urllib.error.URLError` / `HTTPError` is raised to keep the existing
+    exception-handling shape intact.
+
+    On every exit path — success, error, or exception inside the `with` block
+    — `Connection: close` from the server triggers `pool.reset()`. Otherwise
+    the pool would retain a connection whose remote end is already closed,
+    causing the next call through that thread's pool to fail with a transport
+    error before the pool self-heals.
     """
     parts = urlsplit(url)
     scheme = parts.scheme
@@ -158,7 +167,20 @@ def _post_json(
             url, resp.status, resp.reason, dict(resp.getheaders()), io.BytesIO(body_bytes)
         )
 
-    return resp
+    try:
+        yield resp
+    finally:
+        # Mirror the error-path cleanup on the success path too. Without this,
+        # `Connection: close` on a 2xx leaves a server-closed socket in the
+        # pool and the next call through that thread fails before pool reset.
+        try:
+            if resp.getheader("Connection", "").lower() == "close":
+                pool.reset(scheme, host, port)
+        finally:
+            try:
+                resp.close()
+            except Exception:
+                pass
 
 
 def _read_response_body(resp) -> Dict[str, Any]:

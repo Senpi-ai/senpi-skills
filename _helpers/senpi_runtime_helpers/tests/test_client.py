@@ -126,8 +126,15 @@ class _Handler(BaseHTTPRequestHandler):
         if method == "tools/call":
             tool = msg.get("params", {}).get("name", "")
             args = msg.get("params", {}).get("arguments", {})
+            # Connection-close injection: when the client sends
+            # `X-Mock-Conn-Close: 1`, the server replies with
+            # `Connection: close` on a 200. Used to verify that _post_json
+            # resets the pool on the success path too, not only on errors.
+            conn_close = self.headers.get("X-Mock-Conn-Close", "") == "1"
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
+            if conn_close:
+                self.send_header("Connection", "close")
             self.end_headers()
             inner = {"tool": tool, "echoed_args": args, "ok": True}
             envelope = {
@@ -565,6 +572,56 @@ class ClientTests(unittest.TestCase):
         self.assertIs(same_conn, conn)
         self.assertEqual(conn.timeout, 2.5)
         conn.sock.settimeout.assert_called_once_with(2.5)
+
+    def test_post_json_resets_pool_on_connection_close_after_success(self) -> None:
+        """A 2xx response with `Connection: close` must trigger pool.reset.
+
+        Before the fix, _post_json only handled `Connection: close` on the
+        error path (status >= 400). On a successful response the pool kept
+        the connection — but the remote end was already closed — so the next
+        call through that thread's pool would fail with a transport error
+        before the pool self-healed. This test asserts the success-path
+        cleanup runs."""
+        from senpi_runtime_helpers import client as client_mod
+
+        client = SenpiClient(
+            mcp_url=f"http://127.0.0.1:{self.port}",
+            auth_token="test-token",
+        )
+
+        # Make mcp_call inject the X-Mock-Conn-Close trigger header so the
+        # server replies with `Connection: close` on the 200 tools/call.
+        original = client_mod._post_json
+
+        def with_conn_close_header(pool, url, body, headers, timeout):
+            headers = dict(headers)
+            headers["X-Mock-Conn-Close"] = "1"
+            return original(pool, url, body, headers, timeout)
+
+        client_mod._post_json = with_conn_close_header
+        # Count reset() calls without stubbing them out — let the real reset
+        # still run so the pool is genuinely cleaned.
+        reset_calls = []
+        real_reset = client._pool.reset
+
+        def counting_reset(scheme, host, port):
+            reset_calls.append((scheme, host, port))
+            return real_reset(scheme, host, port)
+
+        client._pool.reset = counting_reset
+        try:
+            client.mcp_call("any_tool", k=1)
+        finally:
+            client_mod._post_json = original
+
+        # initialize + notifications/initialized + tools/call each receive
+        # Connection: close from the mock, so reset fires three times.
+        self.assertGreaterEqual(len(reset_calls), 1)
+        # All resets target the mock server's host:port.
+        for scheme, host, port in reset_calls:
+            self.assertEqual(scheme, "http")
+            self.assertEqual(host, "127.0.0.1")
+            self.assertEqual(port, self.port)
 
 
 if __name__ == "__main__":
