@@ -14,7 +14,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "7.1.0"
+  version: "7.1.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -25,6 +25,24 @@ metadata:
 # 🐆 CHEETAH v7.1.0 — Multi-Signal Confluence Sniper
 
 **SM commits. Quality traders commit. Price confirms. Volume commits. All at once. Cheetah pounces once. The runtime DSL ratchets to lock the win.**
+
+## v7.1.1 (2026-05-11) — positions parser fix (patch)
+
+Live verification of v7.1.0 found `positions_map` was STILL empty even though the widened filter returned the full 25-trader pool. Root cause: `leaderboard_get_trader_positions` actually returns
+
+```
+{ "data": { "positions": { "trader_id": ..., "rank": ..., "positions": [...] } } }
+```
+
+— the per-trader positions array is nested one level deeper than the schema guide documents. The v7.0/v7.1 parser looked at `data.positions` expecting a list, got a dict, hit `if not isinstance(positions, list): continue` and silently skipped every trader.
+
+v7.1.1 parser handles BOTH shapes:
+- list-direct (matches schema guide)
+- nested-dict `{trader_id, rank, positions: [...]}` (actual prod response)
+
+Plus a `POSITIONS_SHAPE_WARN` log line for any future schema drift.
+
+NO change to scoring components, MIN_SCORE, leverage tiers, margin, cooldowns, or DSL. Same thesis. Now the +3 QUALITY_TRADER bonus can actually fire when the per-asset overlap exists.
 
 ## v7.1.0 (2026-05-11) — quality-trader filter widened (patch)
 

@@ -125,7 +125,7 @@ import cheetah_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "7.1.0"
+VERSION = "7.1.1"
 SCANNER_NAME = "cheetah_signals"  # must match runtime.yaml external_scanner.name
 
 
@@ -563,15 +563,45 @@ def fetch_quality_trader_positions():
                 addresses.append(addr)
 
     positions_map = {}
+    shape_warned = False  # log unexpected response shapes once per refresh
     for addr in addresses:
         data = cfg.mcporter_call("leaderboard_get_trader_positions", trader_id=addr)
         if not data:
             continue
+        # v7.1.1: leaderboard_get_trader_positions actually returns
+        #   { data: { positions: { trader_id, rank, positions: [...] } } }
+        # — the per-trader positions array is nested one level deeper than the
+        # schema guide documents. v7.0/v7.1 parser looked at `data.positions`
+        # expecting a list, got a dict, hit `if not isinstance(positions, list):
+        # continue` and silently skipped every trader → positions_map empty
+        # → +3 QUALITY_TRADER bonus never fires → Cheetah scores cap at 8.
+        # Handle BOTH shapes (list-direct AND nested-dict) so we're resilient
+        # to future schema changes either direction.
         positions = []
         if isinstance(data, dict):
             d = data.get("data", data)
             if isinstance(d, dict):
-                positions = d.get("positions", d.get("top_positions", []))
+                raw_positions = d.get("positions", d.get("top_positions", []))
+                if isinstance(raw_positions, list):
+                    # Old shape (matches the schema guide): direct list
+                    positions = raw_positions
+                elif isinstance(raw_positions, dict):
+                    # Actual shape on prod: { trader_id, rank, positions: [...] }
+                    nested = raw_positions.get("positions", [])
+                    if isinstance(nested, list):
+                        positions = nested
+                    elif not shape_warned:
+                        cfg.log(
+                            f"POSITIONS_SHAPE_WARN unexpected nested dict for {addr[:10]}: "
+                            f"keys={list(raw_positions.keys())[:8]}; treating as empty."
+                        )
+                        shape_warned = True
+                elif not shape_warned:
+                    cfg.log(
+                        f"POSITIONS_SHAPE_WARN unexpected type {type(raw_positions).__name__} "
+                        f"for {addr[:10]}: treating as empty."
+                    )
+                    shape_warned = True
             elif isinstance(d, list):
                 positions = d
         if not isinstance(positions, list):
