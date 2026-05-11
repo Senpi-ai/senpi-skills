@@ -1,53 +1,42 @@
-# 🐍 MAMBA v2.0 — Range-Bound High Water + Regime Protection
+# Mamba — Range-Bound + Regime Protection
 
-Part of the [Senpi Trading Skills Zoo](https://github.com/Senpi-ai/senpi-skills).
+**Runtime:** 2.0  ·  **Asset:** Multi-asset  ·  **Status:** Live  ·  **Version:** 2.0.0
 
-## What MAMBA Does
+## Thesis
 
-MAMBA detects range-bound conditions on Hyperliquid (tight Bollinger Bands, low ATR, RSI at extremes, declining volume) and enters at support/resistance boundaries. DSL High Water Mode trails the position — capturing both the range bounce and any breakout that escapes the range.
+MAMBA v2.0 — Range-Bound + Regime Protection. Range scanner with BTC regime filter.
 
-v2.0 adds three protective gates that would have turned v1.0's -$313 loss into an estimated +$30-60 profit.
+See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
 
-## v2.0 Changes
+## Scoring components
 
-| Fix | What it prevents |
-|---|---|
-| **BTC regime gate** | No longs in bearish macro, no shorts in bullish. Killed 14 losing trades in v1.0. |
-| **4-hour per-asset cooldown** | No re-entering an asset after a loss for 4 hours. GOLD was entered 5x in v1.0. |
-| **10x leverage hard cap** | No more 15x desperation bets. BTC/XRP 15x shorts lost -$126 in v1.0. |
-| **XYZ equities banned** | GOLD, PAXG, NVDA, BRENTOIL accounted for -$80+ in v1.0. |
+Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
 
-## Quick Start
+## Entry / Exit
 
-1. Deploy `config/mamba-config.json` to your Senpi agent
-2. Deploy `scripts/mamba-scanner.py` and `scripts/mamba_config.py`
-3. Create scanner cron (5 min, isolated) and DSL cron (3 min, isolated)
+- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
+- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
+- **Time cuts:** See `dsl:` config in runtime.yaml.
 
-## Directory Structure
+## Fleet rules applied
+
+- Standard fleet drawdown gate.
+- Fee budget tracking via shared infra.
+- Producer reentrancy guard via fcntl lockfile (Runtime 2.0 only).
+
+## Configuration
+
+Operator-specific values configured at deploy time.
+
+## Recent version notes
 
 ```
-mamba-v2.0/
-├── README.md
-├── SKILL.md
-├── config/
-│   └── mamba-config.json
-└── scripts/
-    ├── mamba-scanner.py
-    └── mamba_config.py
+MAMBA v2.0 — Range-Bound + Regime Protection. Range scanner with BTC regime filter.
+See SKILL.md for full thesis, scoring, and operational notes.
 ```
 
-## v1.0 vs v2.0
+## Related
 
-| | v1.0 | v2.0 |
-|---|---|---|
-| Trades/day | ~12 | 4-6 |
-| Win rate | 24% | Target 45-55% |
-| BTC regime gate | None | Hard block |
-| Per-asset cooldown | None | 4 hours after loss |
-| Leverage | Uncapped (went to 15x) | Hard cap 10x |
-| XYZ equities | Allowed | Banned |
-| Net result | -$313 (-31.4%) | Tracking fresh |
-
-## License
-
-MIT — see root repo LICENSE.
+- Top-level repo README: `../README.md`
+- Runtime spec: `../senpi-trading-runtime/`
+- DSL plugin: `../dsl-dynamic-stop-loss/`
