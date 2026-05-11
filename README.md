@@ -9,7 +9,7 @@ The repo is two things stacked on top of each other:
 
 Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or build a new one from scratch using the capabilities below.
 
-**Platform:** [senpi.ai](https://senpi.ai) · **Live fleet tracker:** [strategies.senpi.ai](https://strategies.senpi.ai) · **Arena competition:** [senpi.ai/arena](https://senpi.ai/arena)
+**Platform:** [senpi.ai](https://senpi.ai) · **Predators:** [strategies.senpi.ai](https://strategies.senpi.ai) · **Agent Arena competition:** [senpi.ai/arena](https://senpi.ai/arena)
 
 ---
 
