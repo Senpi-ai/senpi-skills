@@ -620,7 +620,7 @@ if __name__ == "__main__":
     )
     # NOTE: senpi_runtime_helpers.daemon.producer_daemon installed on the
     # runtime host (Erik's build) does NOT yet accept wallet=/scanner=
-    # kwargs even though the helper-mcp-envelope-aligned branch's source
+    # kwargs even though the helpers package's source
     # signature documents them. Caught live on Turbine v3.2 deploy
     # 2026-05-08: TypeError: unexpected keyword argument 'wallet'.
     # When the host helpers package is upgraded, add back:

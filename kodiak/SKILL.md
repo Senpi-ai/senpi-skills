@@ -18,8 +18,8 @@ metadata:
   exchange: hyperliquid
   base_skill: grizzly-v2.0
   requires:
-    - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
+    - senpi-trading-runtime>=1.0.98
+    - senpi_runtime_helpers
 ---
 
 # 🐻 KODIAK v7.0.0 — SOL Alpha Hunter

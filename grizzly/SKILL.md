@@ -20,8 +20,8 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
+    - senpi-trading-runtime>=1.0.98
+    - senpi_runtime_helpers
 ---
 
 # 🐻 GRIZZLY v7.0.0 — BTC Alpha Hunter (senpi_runtime_helpers)
@@ -260,7 +260,7 @@ get audited.
 
 ## Install
 
-**Prerequisite:** plugin must be on `runtime-phase-2` build. Verify with
+**Prerequisite:** plugin must be `@senpi/runtime` >= 1.0.98. Verify with
 `openclaw senpi external-scanner ingest --help` — should show `--address`
 flag. If not, see README install steps.
 

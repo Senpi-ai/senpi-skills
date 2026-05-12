@@ -5,7 +5,7 @@ description: >-
   migration. Plumbing-only flip from openclaw-CLI subprocess + mcporter
   subprocess to in-process SenpiClient. Pangolin is the canonical
   reference implementation — its producer was the first to ship the
-  helpers wrapper pattern on the helper-mcp-envelope-aligned branch;
+  helpers wrapper pattern (now landed on main);
   v3.0.0 ports that to main. Thesis preserved verbatim from v2.2.0:
   funding-fade entries opposite to elevated funding rates (>0.015%/8h
   ≈ 20% annualized), persistence ≥3h, regime confirms or neutral.
@@ -19,8 +19,8 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
+    - senpi-trading-runtime>=1.0.98
+    - senpi_runtime_helpers
 ---
 
 # 🦔 PANGOLIN v3.0.0 — Funding Rate Fader. senpi_runtime_helpers.

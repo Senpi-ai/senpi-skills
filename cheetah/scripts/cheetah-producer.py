@@ -10,7 +10,7 @@ v7.0.0 (2026-05-08) — plumbing migration from openclaw-CLI subprocess
 NO thesis change. Scoring tables, scoring components, leverage tiers,
 margin %, asset cooldowns, post-close cooldown, dedup logic are all
 preserved verbatim from v6.1.0. The runtime itself is now on
-senpi-trading-runtime >= 2.0.0 (runtime-phase-2 build) which speaks
+senpi-trading-runtime >= 1.0.98, which speaks
 the new {success,data,error} envelope on /signals + /audit and
 exposes GET /state for daemon liveness probes.
 
@@ -1010,7 +1010,7 @@ if __name__ == "__main__":
     )
     # NOTE: senpi_runtime_helpers.daemon.producer_daemon installed on the
     # runtime host (Erik's build) does NOT yet accept wallet=/scanner=
-    # kwargs even though the helper-mcp-envelope-aligned branch's source
+    # kwargs even though the helpers package's source
     # signature documents them. Caught live on Turbine v3.2 deploy
     # 2026-05-08: TypeError: unexpected keyword argument 'wallet'.
     # When the host helpers package is upgraded, add back:

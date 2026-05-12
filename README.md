@@ -456,7 +456,7 @@ senpi-skills/
 ├── senpi-trading-runtime/          ╮
 ├── dsl-dynamic-stop-loss/          │
 ├── _helpers/senpi_runtime_helpers/ │ Capabilities (see top of this README)
-│   (on helper-mcp-envelope-aligned)│
+│   
 ├── fee-optimizer/                  │
 ├── shared/                         │
 ├── opportunity-scanner/            │

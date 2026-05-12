@@ -8,7 +8,7 @@ description: >
 
   One of TWO runtimes Turbine v3.2 attaches across two strategy wallets
   (sibling: turbine-volume-tracker on the volume wallet). Each runtime
-  attaches to its OWN wallet — runtime-phase-2 enforces one runtime per
+  attaches to its OWN wallet — the senpi-trading-runtime plugin enforces one runtime per
   wallet, so v3.0's "two runtimes on one wallet" architecture is
   prevented at deploy.
 

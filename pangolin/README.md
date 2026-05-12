@@ -2,7 +2,7 @@
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v2.2.0. NO thesis change.** Pangolin is the canonical reference implementation — its producer was the first to ship the helpers wrapper pattern on `helper-mcp-envelope-aligned`. v3.0.0 ports that to main with fleet-fix #214 (no `wallet=`/`scanner=` daemon kwargs) applied.
+**Plumbing-only migration from v2.2.0. NO thesis change.** Pangolin is the canonical reference implementation — its producer is the helpers wrapper pattern other helpers-native skills copy. v3.0.0 applied fleet-fix #214 (no `wallet=`/`scanner=` daemon kwargs).
 
 ## Install
 
@@ -40,13 +40,11 @@ If `curl` returns Connection refused, the plugin still isn't registered — chec
 
 ### Step 1 — Pull the helpers package (one-time per host)
 
-> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch. Pull from there.
-
 ```bash
 mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
 for f in __init__.py _config.py _logging.py cache.py client.py \
          daemon.py lock.py parallel.py SKILL.md README.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/_helpers/senpi_runtime_helpers/$f" \
     -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
 done
 ```
