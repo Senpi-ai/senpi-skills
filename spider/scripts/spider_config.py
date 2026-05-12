@@ -26,9 +26,9 @@ CONFIG_PATH = SKILL_DIR / "config" / "spider-config.json"
 
 
 # ─── senpi_runtime_helpers (lazy + auth-validated) ───
-_helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
-if _helpers_path not in sys.path:
-    sys.path.insert(0, _helpers_path)
+_sdk_path = str(Path(WORKSPACE) / "skills" / "senpi-trading-runtime")
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
 from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
 
 
@@ -40,7 +40,7 @@ def _get_wrapper_client() -> SenpiClient:
             "POST both require it."
         )
     client = SenpiClient()
-    log_event("spider_wrapper_enabled", helpers_path=_helpers_path)
+    log_event("spider_wrapper_enabled", sdk_path=_sdk_path)
     return client
 
 
