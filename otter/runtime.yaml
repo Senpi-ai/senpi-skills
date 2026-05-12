@@ -33,7 +33,7 @@ description: >
   Architecture (v2-native from day 1, no v1 to migrate from):
     - Producer (otter-producer.py) maintains rolling 5h OI history
       per asset and emits velocity-detected signals via
-      `openclaw senpi external-scanner ingest`. NO execution code.
+      `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
     - Runtime LLM (decision_model env var) is a pass-through gate —
       producer has already applied every filter (1h OI Δ >= 5%,
       price aligned >= 0.5%, 4h not net unwinding, OI USD >= $1M,

@@ -22,7 +22,7 @@ description: >
 
   v2.0 architectural changes (no thesis change):
     - Producer (roach-producer.py) emits Striker signals via
-      `openclaw senpi external-scanner ingest`. NO execution code.
+      `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
     - Runtime LLM (configured via decision_model env var) is a
       pass-through gate — producer has already applied every filter
       (FIRST_JUMP, volume, 1h alignment, 4h trend, cooldown, XYZ ban).

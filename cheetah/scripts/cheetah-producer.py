@@ -57,7 +57,7 @@ resting-order guards. v6.0 flips to producer + v2 runtime (Polar v4.0
 
 ARCHITECTURE CHANGE:
   - Producer (cheetah-producer.py) emits signals via
-    `openclaw senpi external-scanner ingest`. NO execution code.
+    `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
   - Runtime LLM gate (decision_mode: llm) is pass-through (Roach
     pattern) — producer has applied every filter; LLM only catches
     malformed signals.

@@ -23,7 +23,7 @@ description: >
 
   WHAT v6.0 ENABLES:
     - Producer (cheetah-producer.py) emits signals via
-      `openclaw senpi external-scanner ingest`. NO execution code.
+      `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
     - Runtime LLM gate is pass-through (Roach pattern) — producer has
       applied every filter; LLM only catches malformed signals.
     - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-

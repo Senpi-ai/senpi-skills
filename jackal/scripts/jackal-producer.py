@@ -20,7 +20,7 @@ v2.0 splits that into two parts:
 The producer's single responsibility: fetch the active trader pool,
 detect new entries, enrich with consensus + TA + funding regime
 context, push a signal payload to the runtime via
-`openclaw senpi external-scanner ingest`.
+`SenpiClient.push_signal()` (direct HTTP POST).
 
 NO execution code. NO DSL code. NO risk gates. The runtime owns all of that.
 

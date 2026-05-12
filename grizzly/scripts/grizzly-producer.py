@@ -41,7 +41,7 @@ corruption was diagnosable only after the fact.
 v6.0 flips to producer + v2 runtime (Wolverine v4 / Cheetah v6 /
 Vulture v3 template):
   - Producer (grizzly-producer.py) emits BTC signals via
-    `openclaw senpi external-scanner ingest`. NO execution code.
+    `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
   - Runtime LLM gate is pass-through — producer has applied every
     filter; LLM only catches malformed signals.
   - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-

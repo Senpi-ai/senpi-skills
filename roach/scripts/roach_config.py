@@ -2,7 +2,7 @@
 
 v2 producer responsibilities are narrower than v1:
   - Fetch market concentration via MCP (leaderboard_get_markets, market_get_asset_data)
-  - Push signals via `openclaw senpi external-scanner ingest` (runtime owns execution)
+  - Push signals via `SenpiClient.push_signal()` direct HTTP POST (runtime owns execution)
 
 Runtime handles: position tracking, DSL exits, risk guardrails, trade counting,
 asset cooldowns. All of that state lives in the runtime's state dir, not here.

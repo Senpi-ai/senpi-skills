@@ -17,7 +17,7 @@ Pangolin v2.1 pattern).
 
 WHAT v2.0 ENABLES:
   - Producer (kestrel-producer.py) emits signals via
-    `openclaw senpi external-scanner ingest`. NO execution code.
+    `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
   - Runtime LLM gate is regime-aware — applies macro vetoes
     (BTC drawdown propagating to risk-off equities, vol expansion
     spikes, weekend-only assets during low-liquidity windows)

@@ -10,7 +10,7 @@ Single-asset BTC trend-following scanner. Trades **WITH** smart money consensus 
 
 - `grizzly-producer.py` and `grizzly_config.py` migrate to `senpi_runtime_helpers`:
   - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
-  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST) instead of `openclaw senpi external-scanner ingest` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
   - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
 - Requires `senpi-trading-runtime >= 2.0.0`.
@@ -19,7 +19,7 @@ Single-asset BTC trend-following scanner. Trades **WITH** smart money consensus 
 
 ## What Grizzly does
 
-- **Producer** (`grizzly-producer.py`) emits BTC entry signals via `openclaw senpi external-scanner ingest`. NO execution code in Python.
+- **Producer** (`grizzly-producer.py`) emits BTC entry signals via `SenpiClient.push_signal()` (direct HTTP POST). NO execution code in Python.
 - **Runtime LLM gate** (configured per `runtime.yaml`) is pass-through — producer has applied every filter; LLM only catches malformed signals and converts to `OPEN_POSITION`.
 - **risk.guard_rails** enforces daily caps, drawdown halt, consecutive-loss halt, per-asset cooldown — declarative in `runtime.yaml`, no Python state to drift.
 - **DSL** uses `FEE_OPTIMIZED_LIMIT` (maker-first, 60s taker fallback) on entries AND exits. Saves ~0.020-0.030% per maker-filled close.
@@ -206,23 +206,24 @@ openclaw senpi runtime create --path /data/workspace/skills/grizzly-strategy/run
 openclaw senpi runtime list
 ```
 
-## Schedule the producer cron
+## Launch the producer daemon
 
 ```bash
-openclaw cron add \
-  --name senpi-producer-grizzly_signals-<wallet-suffix> \
-  --interval 3m \
-  --message "python3 /data/workspace/skills/grizzly-strategy/scripts/grizzly-producer.py"
+SENPI_AUTH_TOKEN=<your-token> \
+GRIZZLY_WALLET=0x... \
+  nohup python3 -u /data/workspace/skills/grizzly-strategy/scripts/grizzly-producer.py \
+  > /tmp/grizzly-producer.log 2>&1 &
 ```
 
-`<wallet-suffix>` = last 4 hex chars of your strategy wallet, lowercased.
+The daemon stays alive across ticks (3 min interval). `senpi-helpers list` / `senpi-helpers health grizzly-<wallet-suffix>` manage it from then on; `<wallet-suffix>` is the first 8 hex chars after `0x` of your strategy wallet (matches the daemon's `LOCK_NAME`).
 
 ## Verify liveness
 
 ```bash
 openclaw senpi runtime list                 # status: running
 openclaw senpi state --runtime <id>         # both scanners have non-zero runCount
-openclaw cron list                          # producer cron registered
+senpi-helpers list                          # producer daemon registered with recent LAST_TICK
+senpi-helpers health grizzly-<wallet-suffix>  # exit 0 = healthy
 ```
 
 First producer scan should print JSON with `_grizzly_producer_version: "6.0.0"`.
@@ -242,7 +243,7 @@ First producer scan should print JSON with `_grizzly_producer_version: "6.0.0"`.
 
 ## Troubleshooting
 
-**Producer fires but `INGEST_FAILED` in stderr:** Check the rc / stderr / stdout / payload now logged on every failure (Vulture v3.1.1 forensic-logging pattern). Most common cause is the host being on stable v1.0.97 instead of phase-2 — verify with `openclaw senpi external-scanner ingest --help`.
+**Producer fires but `INGEST_FAILED` in stderr:** Check the rc / stderr / stdout / payload now logged on every failure (Vulture v3.1.1 forensic-logging pattern). Most common cause is the host being on stable v1.0.97 instead of phase-2 — verify the runtime API responds at 127.0.0.1:8787 with `curl -s http://127.0.0.1:8787/health`.
 
 **Heartbeats constantly with `BLOCKED:` reasons:** Normal in chop. Grizzly fires 1-3 trades per day on average. Macro V-recovery gate especially blocks fresh reversals.
 

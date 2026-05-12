@@ -10,7 +10,7 @@ SOL-only alpha hunter. Single-asset focus. Multi-factor scoring (SM consensus + 
 
 - `kodiak-producer.py` and `kodiak_config.py` migrate to `senpi_runtime_helpers`:
   - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
-  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST) instead of `openclaw senpi external-scanner ingest` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
   - Reentrancy lock owned by `producer_daemon.scanner_lock` (PID-aliveness auto-recovery) instead of hand-rolled `fcntl`
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
 - Requires `senpi-trading-runtime >= 2.0.0` (the runtime-phase-2 build).

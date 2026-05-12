@@ -8,7 +8,7 @@ Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 - `polar-producer.py` and `polar_config.py` migrate to `senpi_runtime_helpers`:
   - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
-  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST) instead of `openclaw senpi external-scanner ingest` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
   - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
 - Requires `senpi-trading-runtime >= 2.0.0`.

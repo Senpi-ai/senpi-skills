@@ -18,7 +18,7 @@ v2.0 splits that into two parts:
      and manages DSL exits autonomously.
 
 The producer's single responsibility: detect Striker signals and push
-them to the runtime via `openclaw senpi external-scanner ingest`.
+them to the runtime via `SenpiClient.push_signal()` (direct HTTP POST).
 
 NO execution code. NO DSL code. NO daily/loss/cooldown gates beyond
 the per-asset cooldown that gates the SAME asset re-entering. Daily-

@@ -6,8 +6,7 @@ v2 producer responsibilities are narrower than v1:
     market_get_funding_history, strategy_get_clearinghouse_state)
   - Push signals via direct HTTP POST to the runtime API on 127.0.0.1
     through `senpi_runtime_helpers.SenpiClient.push_signal` (no
-    `openclaw senpi external-scanner ingest` subprocess; no CLI cold
-    start). The runtime owns execution.
+    subprocess; no CLI cold start). The runtime owns execution.
 
 Runtime handles: position tracking, DSL exits, risk guardrails,
 trade counting, asset cooldowns. All of that state lives in the

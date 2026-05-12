@@ -37,7 +37,7 @@ description: >
 
   WHAT v4.0 ENABLES:
     - Producer (wolverine-producer.py) emits HYPE signals via
-      `openclaw senpi external-scanner ingest`. NO execution code.
+      `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
     - Runtime LLM gate is pass-through — producer applies all gates.
     - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-
       loss halt, per-asset cooldown. No Python state to drift.
