@@ -124,7 +124,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-Skip if already pulled for Cheetah v7.0.0 or another v3 skill.
+Skip if the senpi-trading-runtime skill is already installed on this host.
 
 ### Step 2 — Pull Turbine v3.2
 

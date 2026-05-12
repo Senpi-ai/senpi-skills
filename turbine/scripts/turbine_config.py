@@ -37,7 +37,7 @@ v3.1 → v3.2 deltas:
   - hunt_min_score / huntCooldownMin / minHuntWalletBalance dropped
   - Runners get the same scoring path as volume
 
-Helpers-based (matches Cheetah v7.0.0 / Pangolin v2.2 patterns):
+Helpers-native plumbing:
   - SenpiClient via lazy proxy (auth-validated on first use)
   - mcporter_call() shim for backward-compat call sites
   - _wrapper_client exposed for direct push_signal access

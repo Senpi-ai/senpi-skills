@@ -14,11 +14,12 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.2.3"
+  version: "3.2.2"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
 # 🌪️ TURBINE v3.2 — Volume Rotation + Runners
@@ -68,7 +69,7 @@ The same rotation alpha goes to both wallets. The runners wallet's DSL gives pos
 
 ## Why two wallets at all
 
-The the senpi-trading-runtime plugin enforces **one runtime per wallet**. v3.0 attempted to attach two runtimes to a single wallet and got blocked at deploy. v3.1 split into two wallets but rebuilt them with the wrong thesis (HYPE specialist). v3.2 keeps the two-wallet split and rewires both to the right thesis (same volume rotation, different DSL).
+The senpi-trading-runtime plugin enforces **one runtime per wallet**. v3.0 attempted to attach two runtimes to a single wallet and got blocked at deploy. v3.1 split into two wallets but rebuilt them with the wrong thesis (HYPE specialist). v3.2 keeps the two-wallet split and rewires both to the right thesis (same volume rotation, different DSL).
 
 ## Mission
 
@@ -231,7 +232,7 @@ User-conversation Claude sessions MUST NOT call `create_position`, `close_positi
 - ✓ **Wallet-isolated state dirs** (`state/<wallet-hash>/...` per wallet)
 - ✓ **Auto-fallback cycle length** based on rolling maker fill rate
 - ✓ **Auto-downsize on tight margin** — both wallets (graceful slot reduction as wallet bleeds)
-- ✓ **`signal_type=` passed explicitly** per Rachin's review of Cheetah PR #209
+- ✓ **`signal_type=` passed explicitly** to `push_signal()` (avoids relying on the runtime YAML's `defaultSignalType` fallback)
 
 ## Sentinel sunset
 

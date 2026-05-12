@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Senpi TURBINE Producer v3.2.0
+# Senpi TURBINE Producer v3.2.2
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
@@ -73,9 +73,10 @@ VERSION = "3.2.2"
 VOLUME_SCANNER_NAME = "turbine_volume_signals"
 RUNNERS_SCANNER_NAME = "turbine_runners_signals"
 
-# Signal types — explicit kwarg to push_signal() (Rachin's review of
-# Cheetah PR #209). Same scoring path on both wallets, but distinct
-# signal_type tags so audit_query splits the two wallets cleanly.
+# Signal types — explicit kwarg to push_signal(). Same scoring path on
+# both wallets, but distinct signal_type tags so audit_query splits the
+# two wallets cleanly. Explicit signal_type avoids relying on the
+# runtime YAML's defaultSignalType fallback.
 VOLUME_SIGNAL_TYPE = "TURBINE_VOLUME_FAST_ROTATION"
 RUNNERS_SIGNAL_TYPE = "TURBINE_VOLUME_PATIENT_ROTATION"
 
