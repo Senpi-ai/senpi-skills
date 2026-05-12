@@ -13,7 +13,7 @@ Jackal v1.1 (the scanner) ran as a full-agency Python scanner that:
 
 v2.0 splits that into two parts:
   1. This producer (runs on cron, 60s): emits candidate signals only
-  2. Runtime (senpi-trading-runtime v2): receives signals via
+  2. Runtime (senpi-trading-runtime): receives signals via
      external_scanner ingest, gates through LLM decision_prompt,
      executes, and manages DSL autonomously.
 

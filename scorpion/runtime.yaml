@@ -77,7 +77,7 @@ description: >
   requiring an engine change (reprice-ladder), not a config fix.
 
   SCORPION v4.0 — Multi-Market Active Trader (v2-runtime-native rewrite).
-  First multi-asset agent on senpi-trading-runtime v2. Replaces v3.2
+  First multi-asset agent on senpi-trading-runtime. Replaces v3.2
   which logged 43 fills / 18h / -$79.84 in Arena Week 5 despite
   MAX_DAILY_ENTRIES=3 — the scalp re-entry bypass logic and in-Python
   trade counter were silently leaking. v4.0 removes all that

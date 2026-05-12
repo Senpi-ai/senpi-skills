@@ -8,13 +8,13 @@ description: >-
 
   Triggers: producer authoring, scanner authoring, mcporter, mcporter_call,
   external-scanner ingest, push_signal, SenpiClientError, scanner_lock,
-  tick_cache, parallel MCP, producer_daemon, runtime-2 migration.
+  tick_cache, parallel MCP, producer_daemon, helpers-native migration.
 license: MIT
 compatibility: >-
-  Python 3.10+. Stdlib only. Requires senpi-trading-runtime >= 1.0.98
-  (uses the 2.0 senpi-stack `{success, data, error}` envelope on /signals
-  and GET /state for liveness — neither shipped in the 1.x line). Loaded
-  from `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
+  Python 3.10+. Stdlib only. Requires senpi-trading-runtime >= 1.1.0
+  (uses the senpi-stack `{success, data, error}` envelope on /signals
+  and GET /state for liveness). Loaded from
+  `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
 metadata:
   author: senpi
   version: "1.0"
@@ -285,7 +285,7 @@ restarts.
 |---|---|---|
 | `signal_post: response body was empty` | Proxy/sidecar stripped body | Check container network, `SENPI_RUNTIME_API_HOST/PORT` |
 | `signal_post: response not valid JSON` | Mid-stream truncation | Network instability; retry on next tick |
-| `signal_post: unexpected envelope shape` | Runtime is on the legacy 1.x envelope | Bump runtime to `>= 2.0.0` |
+| `signal_post: unexpected envelope shape` | Runtime is on the legacy 1.0.x envelope | Bump runtime to `>= 1.1.0` |
 | `signal_post: … code=INVALID_REQUEST` | Per-item schema violation. Most common: `asset`/`direction` inside `data` | Move to top-level kwargs; verify `data` keys against `runtime.yaml` `config.fields` |
 | `signal_post: … code=NOT_FOUND` | No runtime for wallet, or scanner name unknown | Verify runtime install (`openclaw senpi runtime list`); confirm `scanner` matches `runtime.yaml` |
 | `signal_post: HTTP 400 … Exceeded api.maxItemsPerSignalsRequest=10` | Batch too large | Split batch (default cap 10) |

@@ -18,7 +18,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.0.98
+    - senpi-trading-runtime>=1.1.0
     - senpi_runtime_helpers
 ---
 

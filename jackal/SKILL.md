@@ -254,7 +254,7 @@ context is too strict.
 - NO thesis change. NO decision-prompt change. NO DSL change.
 
 ### v2.0 (2026-04-23) — V2-RUNTIME-NATIVE REWRITE
-- First fleet agent on senpi-trading-runtime v2
+- First fleet agent on senpi-trading-runtime
 - Producer-only Python (400 lines vs v1's 760 line scanner)
 - LLM `decision_mode: llm` replaces hardcoded score thresholds
 - `risk.guard_rails` YAML replaces Python risk code

@@ -20,7 +20,7 @@ with directional conviction. Otter rides for 1-3 hours.
 
 Architecture (v2-native, matches Roach v2 / Pangolin v2 / Jackal v2):
   1. This producer (cron, 5min): emits flow-detected signals only.
-  2. Runtime (senpi-trading-runtime v2): receives signals via
+  2. Runtime (senpi-trading-runtime): receives signals via
      external_scanner ingest, LLM-gates them (pass-through), executes
      with FEE_OPTIMIZED_LIMIT (entries: maker-only; exits: maker-first
      + taker fallback), and manages DSL exits autonomously.

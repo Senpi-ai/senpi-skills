@@ -32,7 +32,7 @@ Owl v6.x was a v1-architecture self-executing scanner that:
 
 v7.0 splits that into two parts:
   1. This producer (cron, 15min): emits contrarian signals only.
-  2. Runtime (senpi-trading-runtime v2): receives signals via
+  2. Runtime (senpi-trading-runtime): receives signals via
      external_scanner ingest, LLM-gates them (pass-through), executes
      with FEE_OPTIMIZED_LIMIT (entries: maker-only; exits: maker-first
      + taker fallback as safety), and manages DSL exits autonomously.

@@ -18,13 +18,13 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.0.98
+    - senpi-trading-runtime>=1.1.0
     - senpi_runtime_helpers
 ---
 
 # 🦅 VULTURE v4.0.0 — Long-Tail Momentum Rider (senpi_runtime_helpers)
 
-**v2 → v3 architectural rewrite.** v2.x was a full-agency scanner that called create_position directly and tracked state in Python. v3.0 flips to the standard senpi-trading-runtime v2 pattern: producer emits signals, runtime owns execution + state.
+**v2 → v3 architectural rewrite.** v2.x was a full-agency scanner that called create_position directly and tracked state in Python. v3.0 flips to the standard senpi-trading-runtime pattern: producer emits signals, runtime owns execution + state.
 
 **What changed structurally:**
 - `vulture-producer.py` (NEW) replaces `vulture-scanner.py` (DELETED). Pure producer — no execution, no counters, no cooldowns, no dynamic-slot bookkeeping.

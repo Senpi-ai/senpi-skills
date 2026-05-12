@@ -36,7 +36,7 @@ Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or bu
 ┌──────────────────────────────────▼───────────────────────────────────────┐
 │                        CAPABILITIES (this repo)                           │
 │                                                                            │
-│   senpi-trading-runtime  ─── @senpi/runtime plugin (>= v1.0.98)           │
+│   senpi-trading-runtime  ─── @senpi/runtime plugin (>= v1.1.0)            │
 │                              Consumes: Strategy state, Position,           │
 │                              Execution, Audit MCP categories               │
 │                                                                            │
@@ -108,9 +108,9 @@ Detail on each capability follows. The full tool surface is enumerated in the **
 
 ## `senpi-trading-runtime/` — Plugin Runtime
 
-The OpenClaw plugin (`@senpi/runtime`, currently published as `1.0.98+`) that owns the trading loop. Auto-upgrades on operator hosts via standard OpenClaw plugin install.
+The OpenClaw plugin (`@senpi/runtime`, currently published as `1.1.0`) that owns the trading loop. Auto-upgrades on operator hosts via standard OpenClaw plugin install.
 
-> Internally the architecture is sometimes called "runtime 2.0" because it's a major rewrite from the legacy Python DSL cron model — in-process producer daemon, direct HTTPS to MCP, declarative `risk.guard_rails`, native FEE_OPTIMIZED_LIMIT entries + exits, trade-chain DB telemetry, GET `/state` for daemon liveness. The npm version stays in the `1.0.x` series so existing operator hosts auto-upgrade without manual major-version opt-in.
+> The current generation of the runtime is a major rewrite from the legacy Python DSL cron model — in-process producer daemon, direct HTTPS to MCP, declarative `risk.guard_rails`, native FEE_OPTIMIZED_LIMIT entries + exits, trade-chain DB telemetry, GET `/state` for daemon liveness.
 
 Two skill architecture patterns exist; a skill targets one via its `runtime.yaml`:
 
@@ -502,7 +502,7 @@ Each strategy directory contains:
 
 1. Deploy an [OpenClaw](https://openclaw.ai) agent and configure Senpi MCP access.
 2. Pick a strategy skill from the buckets above. Read its `README.md`.
-3. Install the `@senpi/runtime` plugin (>= 1.0.98) per standard `openclaw plugin install`. Helpers-native skills additionally need the `_helpers/senpi_runtime_helpers/` package pulled from `main` into `${OPENCLAW_WORKSPACE}/skills/_helpers/`.
+3. Install the `@senpi/runtime` plugin (>= 1.1.0) per standard `openclaw plugin install`. Helpers-native skills additionally need the `_helpers/senpi_runtime_helpers/` package pulled from `main` into `${OPENCLAW_WORKSPACE}/skills/_helpers/`.
 4. Pull the skill's scripts + `runtime.yaml` from main into your host workspace.
 5. Set the required env vars (`<SKILL>_WALLET`, `SENPI_AUTH_TOKEN`, and optionally a `<SKILL>_DECISION_MODEL` for LLM-gated actions).
 6. Start the producer per the skill's README — helpers-native skills launch a long-lived `producer_daemon` (manage via `senpi-helpers` CLI); legacy skills run via openclaw cron.
@@ -517,7 +517,7 @@ Each strategy directory contains:
 
 Each skill is self-contained. To build a new one:
 
-1. Start from a runtime-2 skill (`kodiak/`, `cheetah/`, or `roach/`) as a template.
+1. Start from a helpers-native skill (`kodiak/`, `cheetah/`, or `roach/`) as a template.
 2. Replace the producer's signal-generation logic with your thesis.
 3. Tune `runtime.yaml` — universe, score thresholds, DSL config, risk guard-rails.
 4. Document in `SKILL.md` (frontmatter) and `README.md` (operator-facing).

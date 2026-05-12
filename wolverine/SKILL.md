@@ -18,13 +18,13 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.0.98
+    - senpi-trading-runtime>=1.1.0
     - senpi_runtime_helpers
 ---
 
 # 🦡 WOLVERINE v5.0.0 — HYPE Alpha Hunter (senpi_runtime_helpers)
 
-**v3 → v4 architectural rewrite.** v3.x was a full-agency scanner. v4.0 flips to the standard senpi-trading-runtime v2 pattern: producer emits signals, runtime owns execution + state.
+**v3 → v4 architectural rewrite.** v3.x was a full-agency scanner. v4.0 flips to the standard senpi-trading-runtime pattern: producer emits signals, runtime owns execution + state.
 
 **What changed structurally:**
 - `wolverine-producer.py` (NEW) replaces `wolverine-scanner.py` (DELETED)

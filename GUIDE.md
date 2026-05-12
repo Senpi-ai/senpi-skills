@@ -214,7 +214,7 @@ if __name__ == "__main__":
                     wallet=wallet, scanner="<skill>_signals")
 ```
 
-**What the wrapper gives you** (full breakdown: `docs/runtime-v2-fixes/runtime-2-performance-findings.md` in the `senpi-trading-runtime` repo):
+**What the wrapper gives you** (full breakdown in the `senpi-trading-runtime` repo's performance-findings docs):
 
 - A persistent HTTPS keep-alive client to MCP — ~280 ms per call. The legacy `mcporter` subprocess spawned a 6-process tree (gateway → sh → python → mcporter → npm → mcp-remote) at 2.5–5 s and 250–300 MB transient RSS per call.
 - Direct POST to the runtime's `/signals` endpoint via `push_signal(...)`. The legacy `openclaw senpi external-scanner ingest` cold-started the openclaw CLI at 5–8 s per emit.

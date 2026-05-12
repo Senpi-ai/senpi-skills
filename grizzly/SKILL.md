@@ -20,7 +20,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.0.98
+    - senpi-trading-runtime>=1.1.0
     - senpi_runtime_helpers
 ---
 
@@ -260,7 +260,7 @@ get audited.
 
 ## Install
 
-**Prerequisite:** plugin must be `@senpi/runtime` >= 1.0.98. Verify with
+**Prerequisite:** plugin must be `@senpi/runtime` >= 1.1.0. Verify with
 `openclaw senpi external-scanner ingest --help` — should show `--address`
 flag. If not, see README install steps.
 

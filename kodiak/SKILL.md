@@ -18,7 +18,7 @@ metadata:
   exchange: hyperliquid
   base_skill: grizzly-v2.0
   requires:
-    - senpi-trading-runtime>=1.0.98
+    - senpi-trading-runtime>=1.1.0
     - senpi_runtime_helpers
 ---
 

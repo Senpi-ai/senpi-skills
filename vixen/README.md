@@ -22,7 +22,7 @@ Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the p
 
 - Standard fleet drawdown gate.
 - Fee budget tracking via shared infra.
-- Producer reentrancy guard via fcntl lockfile (Runtime 2.0 only).
+- Producer reentrancy guard via fcntl lockfile.
 
 ## Configuration
 

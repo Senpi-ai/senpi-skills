@@ -16,7 +16,7 @@ metadata:
   exchange: hyperliquid
   config_source: striker-only-experiment
   requires:
-    - senpi-trading-runtime>=1.0.98
+    - senpi-trading-runtime>=1.1.0
     - senpi_runtime_helpers
 ---
 

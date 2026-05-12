@@ -18,7 +18,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.0.98
+    - senpi-trading-runtime>=1.1.0
     - senpi_runtime_helpers
 ---
 
@@ -36,7 +36,7 @@ NO change to maker/taker placement. NO change to fee economics. NO change to YAM
 
 ## What changed in v3.2.1 vs v3.2.0 (patch — 2026-05-09)
 
-**Stale-order hygiene.** The producer now sweeps non-reduce-only ALO orders older than 300s before computing `held_keys`. Each runtime swap (helpers migration, runtime-phase-2 redeploy, daemon restart) leaves resting maker orders behind that the new runtime instance does not own; the producer's ghost-trade fix (v2.0.4) correctly counts those orphans as slot occupiers, which means orphans can starve real fills until cleared. The runtime's own `execution_timeout_seconds: 180` cancels orders it placed — anything still resting well past that is by definition abandoned.
+**Stale-order hygiene.** The producer now sweeps non-reduce-only ALO orders older than 300s before computing `held_keys`. Each runtime swap (helpers migration, runtime redeploy, daemon restart) leaves resting maker orders behind that the new runtime instance does not own; the producer's ghost-trade fix (v2.0.4) correctly counts those orphans as slot occupiers, which means orphans can starve real fills until cleared. The runtime's own `execution_timeout_seconds: 180` cancels orders it placed — anything still resting well past that is by definition abandoned.
 
 NO change to maker/taker placement. NO change to fee economics. NO change to YAMLs. Cancellation is free; HL only charges on fills. Symptom in v3.2.0: volume wallet showed `slots_held = 6/7` while `clearinghouse` only reported 4 actual positions, throttling emissions to 1 signal/tick instead of 3-4.
 

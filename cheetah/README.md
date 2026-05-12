@@ -11,7 +11,7 @@ Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
   - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST) instead of `openclaw senpi external-scanner ingest` subprocess
   - Reentrancy lock owned by `producer_daemon.scanner_lock` (PID-aliveness auto-recovery) instead of hand-rolled `fcntl`
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn` (per-tick LLM cost)
-- Requires `senpi-trading-runtime >= 1.0.98` .
+- Requires `senpi-trading-runtime >= 1.1.0` .
 - `runtime.yaml` unchanged. `external_scanner.name: cheetah_signals` matches the producer's `client.push_signal(scanner=...)`.
 
 ## What changed in v6.x (preserved)
@@ -211,10 +211,10 @@ cd /data/workspace/skills/cheetah-strategy
 
 # 2. Pull the new producer + config files (Step 2 above curl block).
 
-# 3. Bump the runtime plugin to >= 2.0.0 if not already on it:
+# 3. Bump the runtime plugin to >= 1.1.0 if not already on it:
 cat /data/.openclaw/extensions/runtime/package.json | grep version
 # Minimum required version:
-#   1.0.98
+#   1.1.0
 
 # 4. Stop the old producer cron (the v7.0.0 producer is a daemon now):
 openclaw cron list | grep cheetah
