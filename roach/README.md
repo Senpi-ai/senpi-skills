@@ -99,7 +99,7 @@ ROACH will be quiet. Days with zero trades are expected and correct. Striker sig
 
 | Layer | v1.x | v2.0 |
 |---|---|---|
-| Trading loop | Agent runs scanner + calls `create_position` | Producer pushes signals via `external-scanner ingest`; runtime owns execution |
+| Trading loop | Agent runs scanner + calls `create_position` | Producer pushes signals via `SenpiClient.push_signal()` direct HTTP POST; runtime owns execution |
 | Entry gate | Agent decides | LLM pass-through gate (producer already filtered) |
 | Exit | DSL + MARKET orders | DSL + **FEE_OPTIMIZED_LIMIT** (maker-first, 60s, taker fallback) |
 | Risk gates | Agent enforces in scanner code | Declarative `runtime.risk.guard_rails` |

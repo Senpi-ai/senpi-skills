@@ -3,19 +3,20 @@
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""ROACH v3.0.0 Producer — Striker-only signal emitter for v2 runtime.
+"""ROACH v3.0.0 Producer — Striker-only signal emitter, helpers-native.
 
 Roach v1.x ran as a full-agency Python scanner that:
   - Fetched market concentration + scan history
   - Detected Striker signals (FIRST_JUMP / IMMEDIATE_MOVER + volume)
   - Returned them as JSON for the agent to act on via create_position
 
-v2.0 splits that into two parts:
-  1. This producer (cron, 90s): emits candidate signals only.
-  2. Runtime (senpi-trading-runtime): receives signals via
-     external_scanner ingest, LLM-gates them (pass-through), executes
-     with FEE_OPTIMIZED_LIMIT (maker-first + 60s + taker fallback),
-     and manages DSL exits autonomously.
+v3.0 splits that into two parts:
+  1. This producer (long-lived daemon, 90s tick): emits candidate
+     signals via client.push_signal() direct HTTP POST.
+  2. Runtime (senpi-trading-runtime): receives signals at /signals,
+     LLM-gates them (pass-through), executes with FEE_OPTIMIZED_LIMIT
+     (maker-first + 60s + taker fallback), and manages DSL exits
+     autonomously.
 
 The producer's single responsibility: detect Striker signals and push
 them to the runtime via `SenpiClient.push_signal()` (direct HTTP POST).
@@ -36,9 +37,9 @@ Striker detection logic preserved verbatim from v1.2 scanner:
   - XYZ banned at scan level
   - Per-asset 120min cooldown
 
-Environment variables (standard v2 producer):
+Environment variables:
   SENPI_API_KEY     — for MCP access
-  ROACH_WALLET      — Roach v2 wallet (must match runtime YAML's wallet).
+  ROACH_WALLET      — Roach strategy wallet (must match runtime YAML's wallet).
                       AGENT-SPECIFIC env var by design — do NOT fall back
                       to a generic STRATEGY_ADDRESS. Per Turbine v2.0.9
                       contamination fix: a shared env var is a fleet-wide

@@ -1,8 +1,13 @@
-"""ROACH v2 — Shared MCP helpers + config loader + atomic state I/O.
+"""ROACH v3.0.0 — Shared MCP helpers + config loader + atomic state I/O.
 
-v2 producer responsibilities are narrower than v1:
+v3 producer responsibilities are narrower than v1:
   - Fetch market concentration via MCP (leaderboard_get_markets, market_get_asset_data)
   - Push signals via `SenpiClient.push_signal()` direct HTTP POST (runtime owns execution)
+
+v3.0.0 plumbing flip from v2.x: mcporter subprocess → SenpiClient.mcp_call()
+in-process HTTPS. Bash cron + sleep loop → producer_daemon long-lived process.
+SDK probe points at the senpi-trading-runtime skill's bundled
+senpi_runtime_helpers package (~/.openclaw/skills/senpi-trading-runtime/).
 
 Runtime handles: position tracking, DSL exits, risk guardrails, trade counting,
 asset cooldowns. All of that state lives in the runtime's state dir, not here.
@@ -128,7 +133,7 @@ def output(data):
 
 
 def log(msg):
-    print(f"[ROACH-v2] {msg}", file=sys.stderr)
+    print(f"[ROACH-v3] {msg}", file=sys.stderr)
 
 
 def now_ts():

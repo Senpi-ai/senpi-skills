@@ -16,7 +16,8 @@ metadata:
   exchange: hyperliquid
   config_source: striker-only-experiment
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
 # 🪳 ROACH v3.0.0 — Striker Only. senpi_runtime_helpers.
@@ -47,7 +48,7 @@ Cockroaches survive anything. ROACH survives by not trading when there's no expl
 
 | File | Purpose |
 |---|---|
-| `runtime.yaml` | v2 runtime spec (scanners, actions, exit DSL, guard_rails) |
+| `runtime.yaml` | senpi-trading-runtime spec (scanners, actions, exit DSL, guard_rails) |
 | `scripts/roach-producer.py` | Cron-driven producer — emits Striker signals to runtime |
 | `scripts/roach_config.py` | Shared MCP helper + atomic state I/O |
 | `config/roach-config.json` | Operator-tunable defaults (informational; producer constants WIN) |
@@ -56,7 +57,7 @@ Cockroaches survive anything. ROACH survives by not trading when there's no expl
 
 ## Producer behavior
 
-Runs every 90s via cron. On each tick:
+Runs every 90s as a long-lived daemon (via `producer_daemon`; scanner_lock with stale-PID auto-recovery is owned by the daemon). On each tick:
 
 1. **Reentrancy guard:** acquires `state/<wallet-hash>/producer.lock`. If a prior run hasn't released it (cron faster than MCP latency), this run skips cleanly.
 2. **Fetch markets:** `leaderboard_get_markets` (top 50, XYZ filtered out at parse time).
@@ -113,55 +114,24 @@ The producer reads:
 
 ## Producer install (on OpenClaw host)
 
-Source path in the senpi-skills repo: `roach/`. Install destination on the
-OpenClaw host: `/data/workspace/skills/roach-strategy/`. The two names
-differ — repo uses `roach`, install dir uses the SKILL.md `name` field
-(`roach-strategy`).
+Source path in the senpi-skills repo: `roach/`. Install destination on the OpenClaw host: `/data/workspace/skills/roach-strategy/`. The two names differ — repo uses `roach`, install dir uses the SKILL.md `name` field (`roach-strategy`).
+
+Full operator-facing install runbook lives in [`README.md`](README.md) — five-step flow (openclaw.json plugin registration → install senpi-trading-runtime skill → pull Roach files → env vars → recreate runtime + launch daemon → smoke test).
+
+After install, manage the daemon via the `senpi-helpers` CLI:
 
 ```bash
-# 1. Pull the skill files (source: senpi-skills/main/roach/)
-mkdir -p /data/workspace/skills/roach-strategy/scripts
-mkdir -p /data/workspace/skills/roach-strategy/config
+senpi-helpers list                                  # daemons visible with recent LAST_TICK
+senpi-helpers health roach-<wallet-suffix>          # exit 0 = healthy
+senpi-helpers stats roach-<wallet-suffix> --hours 1 # signals posted + error histogram
+senpi-helpers restart roach-<wallet-suffix>         # stop + re-exec from boot.json
+```
 
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/roach/runtime.yaml \
-  -o /data/workspace/skills/roach-strategy/runtime.yaml
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/roach/scripts/roach-producer.py \
-  -o /data/workspace/skills/roach-strategy/scripts/roach-producer.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/roach/scripts/roach_config.py \
-  -o /data/workspace/skills/roach-strategy/scripts/roach_config.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/roach/config/roach-config.json \
-  -o /data/workspace/skills/roach-strategy/config/roach-config.json
+Inspect producer state (per-wallet scan history):
 
-# Remove the v1 scanner if it's still there from a prior install
-rm -f /data/workspace/skills/roach-strategy/scripts/roach-scanner.py
-
-# 2. Install the runtime
-# ROACH_DECISION_MODEL is REQUIRED — pick any model supported by the runtime's
-# model registry. Examples: gemini-3.1-pro-preview, claude-sonnet-4-20250514.
-# Pass BARE model name only — NO provider prefix (OpenClaw double-prefixes).
-WALLET_ADDRESS=0x... \
-TELEGRAM_CHAT_ID=... \
-ROACH_DECISION_MODEL=gemini-3.1-pro-preview \
-  openclaw senpi runtime create --path /data/workspace/skills/roach-strategy/runtime.yaml
-
-# 3. Launch the producer daemon (90s tick).
-# ROACH_WALLET (NOT generic STRATEGY_ADDRESS) is required by the producer.
-# Producer fails loud at startup if not set — misconfig is visible immediately.
-SENPI_AUTH_TOKEN=<your-token> \
-ROACH_WALLET=0x... \
-  nohup python3 -u /data/workspace/skills/roach-strategy/scripts/roach-producer.py \
-  > /tmp/roach-producer.log 2>&1 &
-
-# 4. Verify
-openclaw senpi runtime list                            # expect: roach-tracker running
-openclaw senpi status --runtime roach-tracker
-senpi-helpers list                                     # daemon visible with recent LAST_TICK
-senpi-helpers health roach-<wallet-suffix>             # exit 0 = healthy
-senpi-helpers stats roach-<wallet-suffix> --hours 1    # signals posted + error histogram
-
-# Inspect producer state (per-wallet scan history):
+```bash
 ls -la /data/workspace/skills/roach-strategy/state/<wallet-hash>/
-# Expect: producer.lock + scan-history.json with mtime in last few minutes.
+# Expect: scan-history.json with mtime in last few minutes.
 # A fresh scan-history.json (mtime < 5 min) confirms the daemon is ticking.
 ```
 
