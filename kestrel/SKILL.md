@@ -34,7 +34,7 @@ v1.1 was a v1 full-agency Python scanner that:
 v2.0 fixes all three:
 
 ### Architecture: v2 producer + LLM gate + DSL
-- `kestrel-producer.py` emits scored breakout signals via `external-scanner ingest`. NO execution code.
+- `kestrel-producer.py` emits scored breakout signals via `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
 - Runtime LLM gate is regime-aware — applies macro vetoes (BTC drawdown propagating to risk-off equities, vol expansion spikes) the producer can't see.
 - `risk.guard_rails` declarative — runtime owns daily caps, drawdown halt, cooldowns.
 - Trade chain DB emits LIFECYCLE / DECISION_EXECUTED / ACTION_RESULT / DSL_CREATED / DSL_CLOSED — first time Kestrel has telemetry.
