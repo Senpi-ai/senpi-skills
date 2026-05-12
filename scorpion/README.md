@@ -104,7 +104,7 @@ The only fleet predator that hunts across BOTH crypto and XYZ DEX (commodities /
 ## Architecture
 
 ```
-scorpion-producer.py (60s cron)           senpi-trading-runtime (v2)
+scorpion-producer.py (60s daemon)         senpi-trading-runtime
   score all crypto + XYZ markets           scorpion_signals scanner
   emit candidates at score >= 9       →    scorpion_entry action (LLM-gated)
   enrich w/ BTC macro + funding +          position_tracker + DSL

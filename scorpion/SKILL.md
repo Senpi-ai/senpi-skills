@@ -57,7 +57,7 @@ Python trade counter leaked. v4.0 deletes all that bookkeeping.
                │
                ▼
 ┌──────────────────────────────┐
-│ senpi-trading-runtime (v2)   │
+│ senpi-trading-runtime        │
 │  scorpion_signals scanner    │  ── typed signal payload
 │  scorpion_entry action       │  ── LLM evaluates with 4TF+SM+BTC
 │    decision_mode: llm        │      context

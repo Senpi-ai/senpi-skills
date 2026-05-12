@@ -3,7 +3,7 @@
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SCORPION v4.1.2 Producer — Multi-market signal emitter for v2 runtime.
+"""SCORPION v5.0.0 Producer — Multi-market signal emitter, senpi_runtime_helpers migration.
 
 v4.1.2 (2026-05-05) — post-close cooldown backstop (Cheetah v6.0 pattern):
   Live evidence 2026-05-05 ZEC sequence (4 round trips in ~2.5h):
@@ -92,7 +92,7 @@ The runtime handles everything else:
   - LLM gate (decision_mode: llm) filters each signal
   - risk.guard_rails enforces max_entries_per_day, per_asset_cooldown,
     drawdown_halt — no Python counters that can drift
-  - DSL manages exits (maker-preferred on v2)
+  - DSL manages exits (maker-preferred)
 
 NO execution code. NO trade counters. NO cooldown state. NO scalp
 re-entry logic. The runtime owns all of that.

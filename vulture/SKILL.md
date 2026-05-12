@@ -27,7 +27,7 @@ metadata:
 
 **What changed structurally:**
 - `vulture-producer.py` (NEW) replaces `vulture-scanner.py` (DELETED). Pure producer — no execution, no counters, no cooldowns, no dynamic-slot bookkeeping.
-- `runtime.yaml` is now v2-runtime-native: external_scanner + LLM-pass-through gate + native risk.guard_rails + DSL preset with FEE_OPTIMIZED_LIMIT.
+- `runtime.yaml` is now runtime-native: external_scanner + LLM-pass-through gate + native risk.guard_rails + DSL preset with FEE_OPTIMIZED_LIMIT.
 - Trade chain DB now emits LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED for every trade. **Per-trade telemetry is restored.**
 - The cfg.set_cooldown silent crash is structurally impossible in v3.0 (cooldowns are runtime-managed, not Python-managed).
 
@@ -209,7 +209,7 @@ Both agents are "fleet alpha extractors" but via **opposite** philosophies:
 
 ---
 
-## Runtime Setup (v3.0 — v2-runtime-native)
+## Runtime Setup (v3.0 — runtime-native)
 
 **Step 1:** Install package files:
 ```bash
@@ -222,10 +222,10 @@ curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scr
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scripts/vulture_config.py -o /data/workspace/skills/vulture-strategy/scripts/vulture_config.py
 ```
 
-**Step 2:** Set wallet, strategyId, chatId in `config/vulture-config.json` (this is the canonical source — producer reads from here on every cron tick; runtime reads at startup).
+**Step 2:** Set wallet, strategyId, chatId in `config/vulture-config.json` (this is the canonical source — producer reads from here on every tick; runtime reads at startup).
 
 **Step 3:** Set the LLM model env var at runtime-create time only:
-- `VULTURE_DECISION_MODEL` — LLM model BARE name (no provider prefix). E.g. `gemini-2.5-pro` or `claude-sonnet-4-20250514`. INVALID: `google/gemini-2.5-pro` (OpenClaw double-prefixes → 500 Unknown model). This env var is resolved ONCE into runtime.yaml's `${VULTURE_DECISION_MODEL}` placeholder when openclaw creates the runtime — it doesn't need to be set in the cron environment.
+- `VULTURE_DECISION_MODEL` — LLM model BARE name (no provider prefix). E.g. `gemini-2.5-pro` or `claude-sonnet-4-20250514`. INVALID: `google/gemini-2.5-pro` (OpenClaw double-prefixes → 500 Unknown model). This env var is resolved ONCE into runtime.yaml's `${VULTURE_DECISION_MODEL}` placeholder when openclaw creates the runtime — it doesn't need to be set in the daemon's launch environment.
 
 **Step 4:** Install runtime via `openclaw senpi runtime create --path /data/workspace/skills/vulture-strategy/runtime.yaml`. Verify with `openclaw senpi runtime list` — `vulture-tracker` must appear ACTIVE.
 

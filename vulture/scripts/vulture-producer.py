@@ -45,8 +45,8 @@ v2.4 architectural fixes preserved:
 Environment / config resolution:
   Strategy wallet is read from config/vulture-config.json (the canonical
   source). VULTURE_WALLET_ADDRESS env var is supported as an optional
-  override but is NOT required for routine cron runs — operators just
-  set "wallet" in vulture-config.json and the cron command stays
+  override but is NOT required for routine daemon runs — operators just
+  set "wallet" in vulture-config.json and the launch command stays
   wallet-agnostic. This complies with the fleet rule against hardcoding
   wallet-specific values outside config files.
 
@@ -91,10 +91,10 @@ SIGNAL_TYPE = "VULTURE_LONG_TAIL_MOMENTUM"
 def _resolve_wallet():
     """Resolve strategy wallet — config.json is the canonical source.
     Env var VULTURE_WALLET_ADDRESS is supported as an optional override
-    (useful for CI/testing) but is NOT required for routine cron runs.
-    This avoids forcing operators to inline wallet addresses in crontab,
-    which violates the fleet rule against hardcoding wallet-specific
-    values outside config files."""
+    (useful for CI/testing) but is NOT required for routine daemon runs.
+    This avoids forcing operators to inline wallet addresses in launch
+    commands, which violates the fleet rule against hardcoding
+    wallet-specific values outside config files."""
     env_val = (os.environ.get("VULTURE_WALLET_ADDRESS") or "").strip()
     if env_val:
         return env_val
