@@ -21,6 +21,7 @@ import time
 from contextlib import suppress
 from typing import Any, Callable, Optional
 
+from . import state as _state
 from ._logging import log_event
 from .lock import scanner_lock
 
@@ -109,6 +110,7 @@ def producer_daemon(
     install_signal_handlers: bool = True,
     alive_check: Any = _DEFAULT_ALIVE_CHECK,
     alive_check_interval_seconds: float = _DEFAULT_ALIVE_CHECK_INTERVAL_SECONDS,
+    state_dir: Optional[str] = None,
 ) -> int:
     """Run `fn` every `interval_seconds` until SIGTERM / SIGINT, returning tick count.
 
@@ -157,6 +159,11 @@ def producer_daemon(
             run it: `n = max(1, round(alive_check_interval_seconds / interval_seconds))`.
             Default 300 s. For 300-s ticks → every tick; 60-s ticks → every 5
             ticks; 90-s ticks → every 3 ticks. Ignored if alive_check resolves to None.
+        state_dir: where the daemon writes `pid.json` / `boot.json` /
+            `heartbeat.json` for the `senpi-helpers` CLI. Defaults to the
+            `SENPI_HELPERS_STATE_DIR` env var, falling back to
+            `/data/.openclaw/senpi-helpers/`. State writes are tolerant —
+            failures are logged but never raised.
 
     Returns:
         Total number of ticks attempted (succeeded + failed + skipped).
@@ -225,6 +232,23 @@ def producer_daemon(
         alive_check_every_n_ticks=alive_check_every_n if alive_check is not None else None,
     )
 
+    # Self-describing state files for the senpi-helpers CLI. Written ONCE on
+    # boot — heartbeat.json is rewritten after every tick below; pid.json is
+    # cleared in the outer finally on clean exit. Lazy import of __version__
+    # avoids a circular dep (this module is imported by __init__.py).
+    from . import __version__ as _helpers_version
+    _state.write_pid(
+        name,
+        wallet=wallet,
+        scanner=scanner,
+        interval_seconds=interval_seconds,
+        tick_timeout=tick_timeout,
+        log_path=_state.detect_log_path(),
+        version=_helpers_version,
+        state_dir=state_dir,
+    )
+    _state.write_boot(name, state_dir=state_dir)
+
     # Boot probe — fail fast if the runtime isn't there to consume our work.
     # Treats only an explicit False as terminal; transient errors from the
     # probe (network blip, etc.) are not enough to kill the daemon at boot.
@@ -235,9 +259,13 @@ def producer_daemon(
             phase="boot",
             reason="alive_check returned False before tick 1",
         )
+        # Clear pid.json — the daemon never ran a tick; the CLI should
+        # see this as "not running" rather than "running but stale".
+        _state.clear_pid(name, state_dir=state_dir)
         return 0
 
     tick_count = 0
+    error_count = 0
     start_loop = time.time()
 
     try:
@@ -266,6 +294,7 @@ def producer_daemon(
             log_event("daemon_tick_started", name=name, tick=tick_count)
 
             tick_status = "ok"
+            tick_code: Optional[str] = None
             tick_err: Optional[str] = None
             try:
                 # Scope SIGALRM to fn() ONLY — not the lock acquire/release
@@ -281,13 +310,22 @@ def producer_daemon(
                             _disarm_tick_alarm()
             except _TickTimeout as e:
                 tick_status = "timeout"
+                tick_code = "TICK_TIMEOUT"
                 tick_err = str(e)
             except BlockingIOError:
                 # scanner_lock raised — another live process holds the lock.
                 tick_status = "skipped_locked"
+                tick_code = "LOCK_BUSY"
             except Exception as e:  # noqa: BLE001 — log and keep looping
                 tick_status = "error"
+                # Bare exception type name as the code — keeps the `errors_by_code`
+                # histogram in `senpi-helpers stats` readable. The full
+                # exception message remains in `error` for debugging.
+                tick_code = type(e).__name__
                 tick_err = f"{type(e).__name__}: {e}"
+
+            if tick_status != "ok":
+                error_count += 1
 
             duration_ms = int((time.time() - tick_started_at) * 1000)
             log_event(
@@ -296,7 +334,23 @@ def producer_daemon(
                 tick=tick_count,
                 status=tick_status,
                 duration_ms=duration_ms,
+                **({"code": tick_code} if tick_code else {}),
                 **({"error": tick_err} if tick_err else {}),
+            )
+
+            # Update heartbeat.json after every tick — `senpi-helpers health`
+            # reads this to surface "is the daemon actually ticking?" without
+            # parsing logs. Tolerant writes; never raises.
+            _state.write_heartbeat(
+                name,
+                tick=tick_count,
+                status=tick_status,
+                code=tick_code,
+                duration_ms=duration_ms,
+                error=tick_err,
+                tick_count=tick_count,
+                error_count=error_count,
+                state_dir=state_dir,
             )
 
             if max_ticks is not None and tick_count >= max_ticks:
@@ -320,5 +374,9 @@ def producer_daemon(
             tick_count=tick_count,
             uptime_seconds=int(time.time() - start_loop),
         )
+        # Clean exit — drop pid.json so `senpi-helpers health` reads as
+        # "not running" rather than "stale pid; check liveness". Survives
+        # any state-dir failure silently.
+        _state.clear_pid(name, state_dir=state_dir)
 
     return tick_count
