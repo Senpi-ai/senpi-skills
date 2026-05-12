@@ -397,5 +397,3 @@ both pick it up.
 - [`../SKILL.md`](../SKILL.md) — producer-side wrapper usage and migration.
 - [`runtime-deployment.md`](runtime-deployment.md) — how the daemon gets
   launched in the first place.
-- [`architecture.md`](architecture.md) — why a daemon at all; performance
-  numbers from the legacy stack.

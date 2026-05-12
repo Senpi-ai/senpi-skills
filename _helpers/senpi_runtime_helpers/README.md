@@ -13,12 +13,11 @@ a per-tick TTL cache.
 
 ## Why it exists
 
-Per-call `mcporter` spawns a 6-process tree (250–300 MB transient RSS, 2.5–5 s
-per call). Per-call `openclaw senpi external-scanner ingest` cold-starts a
-Node CLI (5–8 s per call). The wrapper replaces both with a persistent HTTPS
-connection. Producer tick wall-clock drops from minutes to ~4 seconds; per
-MCP-call latency drops from ~2.5 s to ~280 ms. Full background:
-[`references/architecture.md`](references/architecture.md).
+The legacy producer pattern spawned a fresh subprocess per MCP call and per
+signal emit; under concurrent load that fanned out into hundreds of short-lived
+processes per tick. The wrapper replaces both subprocess paths with a single
+persistent HTTPS client and a long-running daemon, so producers stop paying a
+cold-start cost on every tick.
 
 ## What's in this package
 
@@ -36,7 +35,7 @@ MCP-call latency drops from ~2.5 s to ~280 ms. Full background:
 | [`cli.py`](cli.py) + [`../senpi-helpers`](../senpi-helpers) | `senpi-helpers` operator CLI — list / health / stats / stop / restart. |
 | [`_logging.py`](_logging.py) | Structured `[senpi_helpers]` JSON event logger to stderr. |
 | [`tests/`](tests/) | Stdlib `unittest` — 190 tests, no credentials needed. |
-| [`references/`](references/) | Long-form deep-dive docs (migration cookbook, architecture, signal schema, CLI reference). |
+| [`references/`](references/) | Long-form deep-dive docs (migration cookbook, signal schema, runtime deployment, CLI reference). |
 
 ## Quick start
 

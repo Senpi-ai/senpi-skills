@@ -487,7 +487,6 @@ hourly bucket aggregator), cli (every subcommand).
 ## See also
 
 - [`references/migration-cookbook.md`](references/migration-cookbook.md) — long-form migration with before/after snippets.
-- [`references/architecture.md`](references/architecture.md) — why this exists, performance numbers, incident background.
 - [`references/signal-schema.md`](references/signal-schema.md) — full `SignalItem` shape, validation rules, `data` block conventions.
 - [`references/cli-reference.md`](references/cli-reference.md) — full `senpi-helpers` operator CLI reference (every subcommand, exit codes, JSON envelopes, recipes).
 - [`pangolin/scripts/pangolin-producer.py`](../../pangolin/scripts/pangolin-producer.py) — reference wrapper-based producer.
