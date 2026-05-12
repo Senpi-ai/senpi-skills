@@ -11,7 +11,7 @@ Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
   - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST) instead of `openclaw senpi external-scanner ingest` subprocess
   - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
-- Requires `senpi-trading-runtime >= 2.0.0`.
+- Requires `senpi-trading-runtime >= 1.0.98`.
 - `runtime.yaml` unchanged. `external_scanner.name: polar_signals` matches the producer's `client.push_signal(scanner=...)`.
 - Per Rachin's review of Cheetah PR #209: dead fields stripped from payload; `signal_type="POLAR_ETH_HYBRID"` passed explicitly.
 

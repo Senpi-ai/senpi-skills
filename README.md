@@ -36,7 +36,7 @@ Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or bu
 ┌──────────────────────────────────▼───────────────────────────────────────┐
 │                        CAPABILITIES (this repo)                           │
 │                                                                            │
-│   senpi-trading-runtime  ─── Plugin runtime (v1.0 / v2.0)                 │
+│   senpi-trading-runtime  ─── @senpi/runtime plugin (>= v1.0.98)           │
 │                              Consumes: Strategy state, Position,           │
 │                              Execution, Audit MCP categories               │
 │                                                                            │
@@ -45,9 +45,10 @@ Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or bu
 │                              Phase 2 (ratcheting trailing)                 │
 │                              Consumes: Strategy state, Position MCP        │
 │                                                                            │
-│   senpi_runtime_helpers  ─── In-process SenpiClient (Runtime 2.0 only)    │
-│      (helper branch)         producer_daemon · fcntl lock                  │
+│   senpi_runtime_helpers  ─── In-process SenpiClient + producer_daemon     │
+│                              (helpers-native skills only)                  │
 │                              Wraps: ALL MCP categories via SenpiClient     │
+│                              CLI: senpi-helpers list / health / restart    │
 │                                                                            │
 │   fee-optimizer          ─── When to ALO vs MARKET                         │
 │   shared                 ─── Hyperfeed scoring primitives                  │
@@ -107,14 +108,16 @@ Detail on each capability follows. The full tool surface is enumerated in the **
 
 ## `senpi-trading-runtime/` — Plugin Runtime
 
-The OpenClaw plugin that owns the trading loop. Replaces the legacy Python cron + state file system.
+The OpenClaw plugin (`@senpi/runtime`, currently published as `1.0.98+`) that owns the trading loop. Auto-upgrades on operator hosts via standard OpenClaw plugin install.
 
-Two major versions exist; a skill targets one of them via its `runtime.yaml`:
+> Internally the architecture is sometimes called "runtime 2.0" because it's a major rewrite from the legacy Python DSL cron model — in-process producer daemon, direct HTTPS to MCP, declarative `risk.guard_rails`, native FEE_OPTIMIZED_LIMIT entries + exits, trade-chain DB telemetry, GET `/state` for daemon liveness. The npm version stays in the `1.0.x` series so existing operator hosts auto-upgrade without manual major-version opt-in.
 
-- **Runtime 1.0** — Python DSL cron, fcntl-locked producer scripts, openclaw subprocess for MCP calls. Most skills in this repo run on 1.0.
-- **Runtime 2.0** — In-process producer daemon, direct HTTPS to MCP, declarative `risk.guard_rails`, native FEE_OPTIMIZED_LIMIT entries + exits, trade-chain DB telemetry. New skills target 2.0 by default.
+Two skill architecture patterns exist; a skill targets one via its `runtime.yaml`:
 
-Runtime version is determined by which plugin is loaded on the operator's host, not by which features the YAML declares.
+- **Legacy producer** — Python producer/scanner runs via openclaw cron, calls MCP through `mcporter` subprocess, emits signals via `openclaw senpi external-scanner ingest` CLI. Older skills (Bison, Jaguar, Owl, Dog, Lemon, Python, Dire, Condor, Raptor, Orca, Mantis, plus Hawk and the killed Cobra/Phoenix) still run this way.
+- **Helpers-native** — In-process producer daemon using `senpi_runtime_helpers.SenpiClient` (direct HTTPS to MCP, direct POST to runtime `/signals`, long-lived `producer_daemon` loop, scanner_lock reentrancy guard). Operated via the `senpi-helpers` CLI (list / health / stats / stop / restart). 14 skills are on this pattern: Cheetah, Kodiak, Polar, Wolverine, Grizzly, Scorpion, Vulture, Roach, Roach-B, Pangolin, Jackal, Otter, Spider, Kestrel, Turbine.
+
+Both patterns run on the same plugin version. The difference is purely how the producer talks to the plugin.
 
 ## `dsl-dynamic-stop-loss/` — DSL Exit Engine
 
@@ -126,15 +129,28 @@ Two-phase exit logic with no Python state files:
 
 Used by every active trading skill in the repo.
 
-## `_helpers/senpi_runtime_helpers/` — In-process Client (Runtime 2.0 only)
+## `_helpers/senpi_runtime_helpers/` — In-process Client (helpers-native skills)
 
-> Currently lives on the `helper-mcp-envelope-aligned` branch; pulling URLs in skill READMEs reflect that. Will land on main with the runtime 2.0 stable release.
-
-A small Python package every Runtime 2.0 skill imports:
+A small Python package every helpers-native skill imports. Ships on `main` alongside the strategy skills; one shared install per host at `${OPENCLAW_WORKSPACE}/skills/_helpers/`.
 
 - `SenpiClient` — direct HTTPS to MCP (no `mcporter` / `openclaw` subprocess shell-out) and direct POST to runtime `/signals`.
-- `producer_daemon(fn, interval_seconds, name, tick_timeout)` — long-lived loop with built-in fcntl reentrancy guard, structured tick telemetry, signal-handled graceful shutdown.
-- `log_event` / `cache` / `parallel` — shared logging schema, simple TTL cache, parallel MCP fan-out.
+- `producer_daemon(fn, interval_seconds, name, tick_timeout)` — long-lived loop with built-in `scanner_lock` reentrancy guard, structured tick telemetry, self-describing state files (`pid.json` / `boot.json` / `heartbeat.json`), signal-handled graceful shutdown.
+- `tick_cache` / `parallel` — coalescing TTL cache and bounded parallel MCP fan-out for producers that touch many assets per tick.
+- `log_event` / `cli` — structured logging schema, plus the `senpi-helpers` CLI operators use for daemon lifecycle.
+
+### `senpi-helpers` CLI
+
+Operator-facing wrapper at `_helpers/senpi-helpers`. Bypasses the openclaw gateway for daemon ops — reads/writes the daemon's own state files directly.
+
+```
+senpi-helpers list                 — all daemons on host
+senpi-helpers health <name>        — pid + heartbeat status
+senpi-helpers stats <name>         — log-parsed counters (mcp_calls, signals_posted, ticks, errors)
+senpi-helpers stop <name>          — SIGTERM + poll + SIGKILL escalation
+senpi-helpers restart <name>       — re-exec from saved boot.json
+```
+
+See [`_helpers/senpi_runtime_helpers/references/cli-reference.md`](_helpers/senpi_runtime_helpers/references/cli-reference.md) for the full reference.
 
 ## `fee-optimizer/` — Order-type Decision Skill
 
@@ -326,104 +342,104 @@ Each row links to the skill's own README and notes the runtime version it target
 
 Patient, single-asset specialists. One ticker per skill, deep wall of confluence required before entry, DSL Phase 2 set to ride winners.
 
-| Skill | Asset | Runtime | One-liner |
+| Skill | Asset | Pattern | One-liner |
 |---|---|---|---|
-| [kodiak](kodiak/) | SOL | 2.0 | SOL alpha hunter — base technical score + trend strength gates |
-| [grizzly](grizzly/) | BTC | 2.0 | BTC alpha hunter — Kodiak template, BTC-specific tuning |
-| [polar](polar/) | ETH | 2.0 | ETH alpha hunter — hybrid hyperfeed + structural veto |
-| [wolverine](wolverine/) | HYPE | 2.0 | HYPE alpha hunter — Kodiak template ported to native HYPE |
+| [kodiak](kodiak/) | SOL | helpers-native | SOL alpha hunter — base technical score + trend strength gates |
+| [grizzly](grizzly/) | BTC | helpers-native | BTC alpha hunter — Kodiak template, BTC-specific tuning |
+| [polar](polar/) | ETH | helpers-native | ETH alpha hunter — hybrid hyperfeed + structural veto |
+| [wolverine](wolverine/) | HYPE | helpers-native | HYPE alpha hunter — Kodiak template ported to native HYPE |
 
 ## XYZ-market specialists
 
 Trade Hyperliquid's HIP-3 `xyz:*` perps — equities, commodities, indices, metals. 24/7 markets, different spread / funding profile than crypto.
 
-| Skill | Universe | Runtime | One-liner |
+| Skill | Universe | Pattern | One-liner |
 |---|---|---|---|
-| [bald-eagle](bald-eagle/) | XYZ macro | 1.0 | Wide DSL timings tuned for macro-asset rhythm |
-| [kestrel](kestrel/) | XYZ macro | 2.0 | Macro breakout rider on commodities/indices/equities |
-| [dire](dire/) | xyz:BRENTOIL | 1.0 | BRENTOIL specialist — news-driven oil momentum |
+| [bald-eagle](bald-eagle/) | XYZ macro | legacy | Wide DSL timings tuned for macro-asset rhythm |
+| [kestrel](kestrel/) | XYZ macro | helpers-native | Macro breakout rider on commodities/indices/equities |
+| [dire](dire/) | xyz:BRENTOIL | legacy | BRENTOIL specialist — news-driven oil momentum |
 
 ## Multi-signal confluence
 
 Combine multiple independent signals (SM concentration, trend, funding, structure) and only enter when several agree.
 
-| Skill | Runtime | One-liner |
+| Skill | Pattern | One-liner |
 |---|---|---|
-| [cheetah](cheetah/) | 2.0 | Multi-signal confluence sniper — strict gate, lower frequency, higher quality |
-| [condor](condor/) | 1.0 | "One amazing trade per day" — high-conviction momentum |
-| [sentinel](sentinel/) | 1.0 | Quality-trader convergence scanner |
-| [hawk](hawk/) | 1.0 | Multi-asset momentum bot |
+| [cheetah](cheetah/) | helpers-native | Multi-signal confluence sniper — strict gate, lower frequency, higher quality |
+| [condor](condor/) | legacy | "One amazing trade per day" — high-conviction momentum |
+| [sentinel](sentinel/) | legacy | Quality-trader convergence scanner |
+| [hawk](hawk/) | legacy | Multi-asset momentum bot |
 
 ## Smart-Money signal followers
 
 Watch the top-trader cohort and either mirror or stalk their positions with our own DSL + risk overlay.
 
-| Skill | Runtime | One-liner |
+| Skill | Pattern | One-liner |
 |---|---|---|
-| [jackal](jackal/) | 2.0 | Smart Stalker — LLM-gated mirror of top-trader entries |
-| [spider](spider/) | 2.0 | Patient anchor — single long-side position, 7+ day hold |
-| [vulture](vulture/) | 2.0 | Long-tail momentum rider — pre-arms Phase 2 tier-2 trailing |
+| [jackal](jackal/) | helpers-native | Smart Stalker — LLM-gated mirror of top-trader entries |
+| [spider](spider/) | helpers-native | Patient anchor — single long-side position, 7+ day hold |
+| [vulture](vulture/) | helpers-native | Long-tail momentum rider — pre-arms Phase 2 tier-2 trailing |
 
 ## Contrarian / faders
 
 Bet against crowded positioning. Funding extremes, exhaustion, late-cycle SM crowding.
 
-| Skill | Runtime | One-liner |
+| Skill | Pattern | One-liner |
 |---|---|---|
-| [pangolin](pangolin/) | 2.0 | Funding rate fader — strikes against extreme funding |
-| [owl](owl/) | 1.0 | Pure contrarian — crowding-unwind plays |
-| [Grizzly-Horribilis](Grizzly-Horribilis/) | 1.0 | BTC contrarian sniper |
-| [bison](bison/) | 1.0 | Conviction holder — wide bands, ratchet trailing |
-| [lemon](lemon/) | 1.0 | Degen fader — counter-trade CHOPPY traders at peaks |
-| [dog](dog/) | 1.0 | Multi-asset SM-exhaustion fader |
+| [pangolin](pangolin/) | helpers-native | Funding rate fader — strikes against extreme funding |
+| [owl](owl/) | legacy | Pure contrarian — crowding-unwind plays |
+| [Grizzly-Horribilis](Grizzly-Horribilis/) | legacy | BTC contrarian sniper |
+| [bison](bison/) | legacy | Conviction holder — wide bands, ratchet trailing |
+| [lemon](lemon/) | legacy | Degen fader — counter-trade CHOPPY traders at peaks |
+| [dog](dog/) | legacy | Multi-asset SM-exhaustion fader |
 
 ## Striker / rank-jump
 
 Enter on rank acceleration or trend ignition. High frequency, tight DSL, fast exits.
 
-| Skill | Runtime | One-liner |
+| Skill | Pattern | One-liner |
 |---|---|---|
-| [roach](roach/) | 2.0 | Striker-only — Stalker disabled, position discipline |
-| roach-b (variant) | 2.0 | Striker-only variant B — A/B partner to Roach |
-| [jaguar](jaguar/) | 1.0 | Hot-streak striker — rank-jump scanner |
-| [raptor](raptor/) | 1.0 | Hot streak follower |
-| [orca](orca/) | 1.0 | Gen-2 striker with FIRST_JUMP detection |
-| [cobra](cobra/) | 1.0 | Arena sprint predator — single-asset, concentrated margin |
+| [roach](roach/) | helpers-native | Striker-only — Stalker disabled, position discipline |
+| roach-b (variant) | helpers-native | Striker-only variant B — A/B partner to Roach |
+| [jaguar](jaguar/) | legacy | Hot-streak striker — rank-jump scanner |
+| [raptor](raptor/) | legacy | Hot streak follower |
+| [orca](orca/) | legacy | Gen-2 striker with FIRST_JUMP detection |
+| [cobra](cobra/) | legacy | Arena sprint predator — single-asset, concentrated margin |
 
 ## Macro / regime-aware
 
 Cross-asset, regime detection, range-bound liquidity capture. Don't require a single primary signal.
 
-| Skill | Runtime | One-liner |
+| Skill | Pattern | One-liner |
 |---|---|---|
-| [mantis](mantis/) | 1.0 | Cross-asset catchup hunter — BTC lead → correlated alts |
-| [mamba](mamba/) | 1.0 | Range-bound + regime protection |
-| [viper](viper/) | 1.0 | Range-bound liquidity sniper |
-| [komodo](komodo/) | 1.0 | Momentum event consensus |
+| [mantis](mantis/) | legacy | Cross-asset catchup hunter — BTC lead → correlated alts |
+| [mamba](mamba/) | legacy | Range-bound + regime protection |
+| [viper](viper/) | legacy | Range-bound liquidity sniper |
+| [komodo](komodo/) | legacy | Momentum event consensus |
 
 ## Velocity / pattern detection
 
 Detect emerging acceleration before consensus solidifies.
 
-| Skill | Runtime | One-liner |
+| Skill | Pattern | One-liner |
 |---|---|---|
-| [phoenix](phoenix/) | 1.0 | Contribution velocity scanner — SM profit accel vs price |
-| [hydra](hydra/) | 1.0 | Squeeze detector |
-| [vixen](vixen/) | 1.0 | Multi-asset trend scanner |
-| [shark](shark/) | 1.0 | Position tracker + liquidation cascade scanner |
-| [rhino](rhino/) | 1.0 | Momentum pyramider |
-| [barracuda](barracuda/) | 1.0 | Funding decay collector |
+| [phoenix](phoenix/) | legacy | Contribution velocity scanner — SM profit accel vs price |
+| [hydra](hydra/) | legacy | Squeeze detector |
+| [vixen](vixen/) | legacy | Multi-asset trend scanner |
+| [shark](shark/) | legacy | Position tracker + liquidation cascade scanner |
+| [rhino](rhino/) | legacy | Momentum pyramider |
+| [barracuda](barracuda/) | legacy | Funding decay collector |
 
 ## Specialized missions
 
 Unique theses that don't fit the buckets above.
 
-| Skill | Runtime | One-liner |
+| Skill | Pattern | One-liner |
 |---|---|---|
-| [turbine](turbine/) | 2.0 | Volume-rotation engine — builder-fee farming on maker-only rotation across two strategy wallets |
-| [otter](otter/) | 2.0 | Open Interest velocity hunter — 1h OI delta with price confirmation |
-| [python](python/) | 1.0 | Patient multi-asset scanner — multi-day hold |
-| [scorpion](scorpion/) | 2.0 | Multi-market active trader — both crypto AND XYZ commodities |
+| [turbine](turbine/) | helpers-native | Volume-rotation engine — builder-fee farming on maker-only rotation across two strategy wallets |
+| [otter](otter/) | helpers-native | Open Interest velocity hunter — 1h OI delta with price confirmation |
+| [python](python/) | legacy | Patient multi-asset scanner — multi-day hold |
+| [scorpion](scorpion/) | helpers-native | Multi-market active trader — both crypto AND XYZ commodities |
 
 ---
 
@@ -433,7 +449,7 @@ Unique theses that don't fit the buckets above.
 senpi-skills/
 ├── README.md                       ← this file
 ├── CLAUDE.md                       ← repo conventions for Claude agents
-├── DSL-MIGRATION-PLAYBOOK.md       ← Runtime 1 → 2 migration notes
+├── DSL-MIGRATION-PLAYBOOK.md       ← Legacy → helpers-native migration notes
 ├── GUIDE.md                        ← general dev guide
 ├── catalog.json                    ← skill registry
 │
@@ -486,10 +502,10 @@ Each strategy directory contains:
 
 1. Deploy an [OpenClaw](https://openclaw.ai) agent and configure Senpi MCP access.
 2. Pick a strategy skill from the buckets above. Read its `README.md`.
-3. Install the Runtime 1.0 or 2.0 plugin per the skill's requirement. Runtime 2.0 skills additionally need the `senpi_runtime_helpers` package pulled from the `helper-mcp-envelope-aligned` branch.
+3. Install the `@senpi/runtime` plugin (>= 1.0.98) per standard `openclaw plugin install`. Helpers-native skills additionally need the `_helpers/senpi_runtime_helpers/` package pulled from `main` into `${OPENCLAW_WORKSPACE}/skills/_helpers/`.
 4. Pull the skill's scripts + `runtime.yaml` from main into your host workspace.
 5. Set the required env vars (`<SKILL>_WALLET`, `SENPI_AUTH_TOKEN`, and optionally a `<SKILL>_DECISION_MODEL` for LLM-gated actions).
-6. Start the producer daemon (Runtime 2.0) or the openclaw cron (Runtime 1.0) per the skill's README.
+6. Start the producer per the skill's README — helpers-native skills launch a long-lived `producer_daemon` (manage via `senpi-helpers` CLI); legacy skills run via openclaw cron.
 
 ## Requirements
 

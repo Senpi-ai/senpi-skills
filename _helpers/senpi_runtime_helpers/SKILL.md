@@ -11,7 +11,7 @@ description: >-
   tick_cache, parallel MCP, producer_daemon, runtime-2 migration.
 license: MIT
 compatibility: >-
-  Python 3.10+. Stdlib only. Requires senpi-trading-runtime >= 2.0.0
+  Python 3.10+. Stdlib only. Requires senpi-trading-runtime >= 1.0.98
   (uses the 2.0 senpi-stack `{success, data, error}` envelope on /signals
   and GET /state for liveness — neither shipped in the 1.x line). Loaded
   from `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
