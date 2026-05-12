@@ -440,9 +440,10 @@ state files each daemon writes — `pid.json`, `boot.json`, `heartbeat.json`
 under `$SENPI_HELPERS_STATE_DIR` (default `/data/.openclaw/senpi-helpers/`).
 
 ```bash
-# Both forms work; pick one:
-/data/workspace/skills/_helpers/senpi-helpers <subcommand> [args]
-python3 -m senpi_runtime_helpers.cli       <subcommand> [args]
+# Both forms work; pick one. OPENCLAW_WORKSPACE defaults to /data/workspace
+# on the standard Railway template but the install path is configurable.
+${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/senpi-helpers <subcommand> [args]
+python3 -m senpi_runtime_helpers.cli                                 <subcommand> [args]
 ```
 
 Subcommands:
