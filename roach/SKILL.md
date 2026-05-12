@@ -17,7 +17,6 @@ metadata:
   config_source: striker-only-experiment
   requires:
     - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
 ---
 
 # 🪳 ROACH v3.0.0 — Striker Only. senpi_runtime_helpers.

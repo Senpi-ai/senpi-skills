@@ -2,7 +2,7 @@
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v2.2.0. NO thesis change.** Pangolin is the canonical reference implementation — its producer was the first to ship the helpers wrapper pattern on `helper-mcp-envelope-aligned`. v3.0.0 ports that to main with fleet-fix #214 (no `wallet=`/`scanner=` daemon kwargs) applied.
+**Plumbing-only migration from v2.2.0. NO thesis change.** Pangolin is the canonical reference producer for the `senpi_runtime_helpers` SDK wrapper pattern. v3.0.0 is on `main` with fleet-fix #214 (no `wallet=`/`scanner=` daemon kwargs) applied.
 
 ## Install
 

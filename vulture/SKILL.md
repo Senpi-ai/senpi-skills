@@ -19,7 +19,6 @@ metadata:
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
 ---
 
 # 🦅 VULTURE v4.0.0 — Long-Tail Momentum Rider (senpi_runtime_helpers)

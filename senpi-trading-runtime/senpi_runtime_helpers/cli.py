@@ -153,7 +153,7 @@ def _print_list_table(rows: List[Dict[str, Any]], state_dir_resolved: str) -> No
     if not rows:
         print(f"No daemons registered (looked in: {state_dir_resolved}).")
         print("Start one by running its producer script — the daemon writes its")
-        print("state files on boot. See: senpi_runtime_helpers/SKILL.md.")
+        print("state files on boot. See: senpi-trading-runtime/SKILL.md.")
         return
 
     cols = ("NAME", "PID", "RUNNING", "WALLET", "SCANNER", "TICKS", "ERRORS", "LAST_TICK")

@@ -203,7 +203,7 @@ Time cuts: hard_timeout 720min, weak_peak_cut 90min @ 3.0, dead_weight_cut 60min
 ```bash
 cd /data/workspace/skills/cheetah-strategy
 
-# 1. Pull the helpers package (one-time per host) — Step 1 above.
+# 1. Install the senpi-trading-runtime skill (one-time per host) — Step 1 above.
 
 # 2. Pull the new producer + config files (Step 2 above curl block).
 

@@ -20,7 +20,6 @@ metadata:
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime@v2
-    - senpi_runtime_helpers
 ---
 
 # 🦦 OTTER v1.0 — Open Interest Velocity Hunter

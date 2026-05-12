@@ -19,7 +19,6 @@ metadata:
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
 ---
 
 # 🐆 CHEETAH v7.1.0 — Multi-Signal Confluence Sniper

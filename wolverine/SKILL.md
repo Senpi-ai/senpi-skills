@@ -19,7 +19,6 @@ metadata:
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
 ---
 
 # 🦡 WOLVERINE v5.0.0 — HYPE Alpha Hunter (senpi_runtime_helpers)

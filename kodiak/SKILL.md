@@ -19,7 +19,6 @@ metadata:
   base_skill: grizzly-v2.0
   requires:
     - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
 ---
 
 # 🐻 KODIAK v7.0.0 — SOL Alpha Hunter

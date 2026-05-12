@@ -19,7 +19,6 @@ metadata:
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
 ---
 
 # 🌪️ TURBINE v3.2 — Volume Rotation + Runners

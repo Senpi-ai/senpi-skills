@@ -19,7 +19,6 @@ metadata:
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime@v2
-    - senpi_runtime_helpers
 ---
 
 # 🐺 JACKAL v2.0 — The Smart Stalker (v2-native)

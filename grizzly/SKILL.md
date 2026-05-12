@@ -21,7 +21,6 @@ metadata:
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
 ---
 
 # 🐻 GRIZZLY v7.0.0 — BTC Alpha Hunter (senpi_runtime_helpers)
