@@ -93,7 +93,7 @@ When funding rates are elevated (>0.015%/8h ≈ 20% annualized), the crowd is pa
 
 | Layer | v1.x | v2.0 |
 |---|---|---|
-| Trading loop | Agent runs scanner + calls `create_position` | Producer pushes signals via `external-scanner ingest`; runtime owns execution |
+| Trading loop | Agent runs scanner + calls `create_position` | Producer pushes signals via `SenpiClient.push_signal()` direct HTTP POST; runtime owns execution |
 | Entry gate | Agent decides | LLM pass-through gate (producer already filtered) |
 | Entry order | FEE_OPTIMIZED_LIMIT, taker fallback OFF | Same — `ensure_execution_as_taker: false` preserved (v1 patience) |
 | Exit order | DSL + MARKET orders | DSL + **FEE_OPTIMIZED_LIMIT** (maker-first, 60s, taker fallback) |
