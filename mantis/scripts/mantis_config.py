@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
-# Senpi MANTIS Config v5.0
+# Senpi MANTIS Config v6.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""MANTIS v5.0 — Slipstream — Configuration constants + MCP helpers.
+"""MANTIS v6.0.0 — Slipstream — Configuration constants + helpers wrapper.
 
-Cross-asset catchup hunter. Strikes correlated alts that haven't yet
-responded to a leader's move, before the catchup completes.
+v6.0.0: senpi_runtime_helpers migration. mcporter_call replaced by
+SenpiClient.mcp_call() (direct HTTPS). _wrapper_client is exposed
+for the producer's signal push + direct close_position calls (the
+leader-reversal veto, which is producer-authoritative).
 
-Override via config/mantis-config.json or environment variables.
+Override numeric thresholds via config/mantis-config.json or env vars.
 """
 
+import functools
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -23,11 +25,49 @@ WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "mantis-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "mantis-config.json"
 STATE_DIR = SKILL_DIR / "state"
-COOLDOWN_FILE = STATE_DIR / "asset-cooldowns.json"
 ENTRY_LOG_FILE = STATE_DIR / "entry-log.jsonl"
 POSITION_META_FILE = STATE_DIR / "position-metadata.json"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+# senpi_runtime_helpers ships inside the senpi-trading-runtime skill.
+# Global skills install under ~/.openclaw/skills/ on standard hosts
+# (e.g. /data/.openclaw/skills/ on Railway). Some setups install user
+# skills under ${OPENCLAW_WORKSPACE}/skills/. Probe both in order.
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
+)
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
+
+
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Mantis's MCP calls and signal "
+            "POST both require it. Set it on the runtime host before "
+            "starting the producer daemon."
+        )
+    client = SenpiClient()
+    log_event("mantis_wrapper_enabled", sdk_path=_sdk_path)
+    return client
+
+
+class _WrapperClientProxy:
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
 
 
 # ─── Leader universe ─────────────────────────────────────────────
@@ -61,7 +101,9 @@ HARD_TIMEOUT_CEILING_MINUTES = 240
 LEADER_REVERSAL_VETO_PCT = 1.0
 
 
-# ─── Risk controls ───────────────────────────────────────────────
+# ─── Risk controls (informational mirror of runtime.yaml guard_rails) ───
+# Authoritative values now live in runtime.yaml risk.guard_rails block.
+# These constants stay for legacy doc reference + producer-side defense.
 MAX_CONCURRENT_POSITIONS = 2
 COOLDOWN_PER_ASSET_MINUTES = 240
 MAX_DAILY_ENTRIES = 6
@@ -97,62 +139,54 @@ def load_config():
 
 
 def get_wallet_and_strategy():
-    wallet = os.environ.get("MANTIS_WALLET", "")
-    strategy_id = os.environ.get("MANTIS_STRATEGY_ID", "")
+    """Resolve (wallet, strategyId) — env var first, config.json second.
+
+    Env var resolution for wallet:
+      1. MANTIS_WALLET — fleet-standard <SKILL>_WALLET name (v2.0.9 rule)
+      2. cfg.load_config()["wallet"] — canonical source on disk
+    """
+    wallet = os.environ.get("MANTIS_WALLET", "").strip()
+    strategy_id = os.environ.get("MANTIS_STRATEGY_ID", "").strip()
     if not wallet or not strategy_id:
         config = load_config()
-        wallet = wallet or config.get("wallet", "")
-        strategy_id = strategy_id or config.get("strategyId", "")
+        wallet = wallet or config.get("wallet", "").strip()
+        strategy_id = strategy_id or config.get("strategyId", "").strip()
     return wallet, strategy_id
 
 
 def _apply_config_overlay():
     """Load config/mantis-config.json and overlay onto module globals."""
-    cfg = load_config()
-    for k, v in cfg.items():
+    cfg_dict = load_config()
+    for k, v in cfg_dict.items():
         if k in globals() and not k.startswith("_"):
             globals()[k] = v
 
 
 # ─── MCP helpers ─────────────────────────────────────────────────
 
-def mcporter_call(tool, retries=2, timeout=25, **params):
-    """Call a Senpi MCP tool via mcporter."""
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
+def mcp_call(tool, **params):
+    """Call a Senpi MCP tool via in-process SenpiClient.mcp_call().
+
+    Replaces v5.0 mcporter subprocess. ~10-50× faster (~280ms vs
+    2.5-5s cold start). Same call signature so legacy call sites
+    keep working.
+    """
+    try:
+        return _wrapper_client.mcp_call(tool, **params)
+    except Exception as e:  # noqa: BLE001
+        log_event("mantis_mcp_call_failed", tool=tool, error=str(e))
+        return None
+
+
+# Backward-compat alias — keeps any legacy `cfg.mcporter_call(...)` call
+# sites working even though the underlying transport is in-process now.
+mcporter_call = mcp_call
 
 
 def get_clearinghouse(wallet):
     if not wallet:
         return None
-    return mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+    return mcp_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
 
 
 def get_positions(wallet):
@@ -185,8 +219,8 @@ def get_positions(wallet):
 
 
 def get_cross_asset_flows(leader_asset):
-    """Wrap the new MCP tool. Returns the flow result or None."""
-    return mcporter_call("market_get_cross_asset_flows", leader_asset=leader_asset)
+    """Wrap the cross-asset flow MCP tool. Returns the flow result or None."""
+    return mcp_call("market_get_cross_asset_flows", leader_asset=leader_asset)
 
 
 # ─── Output / log ────────────────────────────────────────────────
@@ -197,7 +231,7 @@ def output(data):
 
 
 def log(msg):
-    print(f"[MANTIS-v5] {msg}", file=sys.stderr)
+    print(f"[MANTIS-v6] {msg}", file=sys.stderr)
     sys.stderr.flush()
 
 
