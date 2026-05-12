@@ -33,7 +33,7 @@ An entirely new strategy archetype for the Predators fleet. No other agent trade
 
 | Layer | v1.x | v2.0 |
 |---|---|---|
-| Trading loop | Agent runs scanner, agent calls `create_position` | Producer pushes signals via `external-scanner ingest`; runtime owns execution |
+| Trading loop | Agent runs scanner, agent calls `create_position` | Producer pushes signals via `SenpiClient.push_signal()`; runtime owns execution |
 | Entry gate | Agent decides | LLM pass-through gate (producer already filtered) |
 | Entry order | FEE_OPTIMIZED_LIMIT, taker fallback OFF | Same — `ensure_execution_as_taker: false` preserved (v1 patience) |
 | Exit order | DSL + MARKET (taker) | DSL + **FEE_OPTIMIZED_LIMIT** (maker-first, 60s, taker fallback as safety floor) |
@@ -74,7 +74,7 @@ Runs every 5 minutes via cron. On each tick:
 4. **Fetch markets:** `market_list_instruments` + `leaderboard_get_markets` + `market_get_funding_regime` (one call each).
 5. **Detect funding extremes:** for each candidate, fetch `market_get_funding_history` (one call per candidate) for persistence + trend.
 6. **Apply hard gates:** funding >= threshold, persistence >= 3h, regime confirms or neutral, OI >= $1M, score >= 9, asset not in cooldown.
-7. **Emit top candidate** via `openclaw senpi external-scanner ingest`.
+7. **Emit top candidate** via `client.push_signal()` (direct HTTP POST to the runtime API).
 8. **Persist cooldown + counter state** under `state/<wallet-hash>/`.
 
 NO execution code. NO position-tracking. NO DSL state. The runtime owns all of that.
@@ -84,9 +84,9 @@ NO execution code. NO position-tracking. NO DSL state. The runtime owns all of t
 ## Entry flow
 
 ```
-Producer cron (5 min)
+Producer daemon (5 min tick)
   ↓ funding-fade candidate detected (score >= 9)
-  ↓ external-scanner ingest --scanner pangolin_signals
+  ↓ client.push_signal(scanner="pangolin_signals", ...)
 Runtime
   ↓ Schema-validates fields against runtime.yaml
   ↓ LLM gate (decision_model = ${PANGOLIN_DECISION_MODEL})
@@ -152,44 +152,26 @@ TELEGRAM_CHAT_ID=... \
 PANGOLIN_DECISION_MODEL=gemini-3.1-pro-preview \
   openclaw senpi runtime create --path /data/workspace/skills/pangolin-strategy/runtime.yaml
 
-# 3. Schedule the producer (5 min cadence — funding doesn't change that fast)
+# 3. Launch the producer daemon (5-min tick — funding doesn't change that fast).
 # PANGOLIN_WALLET (NOT generic STRATEGY_ADDRESS) is required by the producer.
 # Producer fails loud at startup if not set — misconfig is visible immediately.
-#
-# RECOMMENDED PATTERN: cron-as-Claude-turn with NO_REPLY filter.
-# Each cron tick spins up an isolated session, runs the producer, and
-# replies to TG ONLY if there's a non-zero event (signal pushed, error,
-# unexpected state). On the silence-is-correct ticks (most of them for
-# Pangolin — funding extremes are rare), the agent stays quiet — zero
-# TG noise, zero log file growth. Cron run records are still accessible
-# via `openclaw cron runs --id <id>`.
-openclaw cron add \
-  --name "pangolin-v2-producer" \
-  --cron "*/5 * * * *" \
-  --session isolated \
-  --wake now \
-  --message $'export PANGOLIN_WALLET=0x... && python3 /data/workspace/skills/pangolin-strategy/scripts/pangolin-producer.py\n\nCRITICAL INSTRUCTION: If the output shows "signals_pushed": 0 (or just "candidates" with no push) and "status": "ok", you MUST reply EXACTLY with NO_REPLY to remain silent. Only report to the user if there is an error, a crash, or if signals are actually pushed.' \
-  --no-deliver
-
-# Alternative pattern: shell-redirect (cheaper, no Claude tokens per tick,
-# but generates a log file that needs rotation). Use this if you prefer
-# to grep raw producer JSON output:
-#
-#   --message "Run \`SENPI_API_KEY=<KEY> PANGOLIN_WALLET=0x... python3 /data/workspace/skills/pangolin-strategy/scripts/pangolin-producer.py >> /var/log/openclaw/pangolin-v2.log 2>&1\` and report success/failure in this log."
+SENPI_AUTH_TOKEN=<your-token> \
+PANGOLIN_WALLET=0x... \
+  nohup python3 -u /data/workspace/skills/pangolin-strategy/scripts/pangolin-producer.py \
+  > /tmp/pangolin-producer.log 2>&1 &
 
 # 4. Verify
-openclaw senpi runtime list                        # expect: pangolin-tracker v1.8.0
+openclaw senpi runtime list                              # expect: pangolin-tracker running
 openclaw senpi status --runtime pangolin-tracker
+senpi-helpers list                                       # daemon visible with recent LAST_TICK
+senpi-helpers health pangolin-<wallet-suffix>            # exit 0 = healthy
+senpi-helpers stats pangolin-<wallet-suffix> --hours 1   # signals posted + error histogram
 
-# Cron-as-Claude-turn pattern — verify via OpenClaw's structured run log:
-openclaw cron list --json                          # find the cron id
-openclaw cron runs --id <cron-id> --limit 5        # last 5 tick records (ts, status, durationMs, nextRunAtMs)
-
-# Inspect producer state (this is the same regardless of cron pattern):
+# Inspect producer state (per-wallet cooldown / counter):
 ls -la /data/workspace/skills/pangolin-strategy/state/<wallet-hash>/
 # Expect: producer.lock + asset-cooldowns.json + trade-counter.json with
 # mtime in last few minutes. A fresh trade-counter.json (after first emit)
-# or producer.lock mtime confirms the cron is firing.
+# or producer.lock mtime confirms the daemon is ticking.
 ```
 
 ---
