@@ -270,10 +270,6 @@ Mechanical replacements — apply in order:
 - Per-MCP-call `duration_ms` lands in 250–500 ms typical (was 2.5–5 s under mcporter).
 - Gateway log: plugin re-registrations drop to ~0/hour (was 605 in 3.5 days under legacy stack).
 
-Long-form migration steps with before/after snippets — including the cron-cleanup
-and lock-name conventions for multi-wallet hosts —
-[`references/migration-cookbook.md`](references/migration-cookbook.md).
-
 ### Recipe: Emit a signal
 
 ```python
@@ -484,7 +480,6 @@ hourly bucket aggregator), cli (every subcommand).
 
 ## See also
 
-- [`references/migration-cookbook.md`](references/migration-cookbook.md) — long-form migration with before/after snippets.
 - [`references/signal-schema.md`](references/signal-schema.md) — full `SignalItem` shape, validation rules, `data` block conventions.
 - [`references/cli-reference.md`](references/cli-reference.md) — full `senpi-helpers` operator CLI reference (every subcommand, exit codes, JSON envelopes, recipes).
 - [`pangolin/scripts/pangolin-producer.py`](../../pangolin/scripts/pangolin-producer.py) — reference wrapper-based producer.
