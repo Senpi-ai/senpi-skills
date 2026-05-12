@@ -273,6 +273,60 @@ class RelaunchDaemonTests(unittest.TestCase):
         self.assertEqual(result["outcome"], manage.RELAUNCH_SPAWN_FAILED)
         self.assertIn("simulated spawn failure", result["error"])
 
+    def test_relaunch_unexpected_exception_subclass_does_not_escape(self) -> None:
+        """Function contract: every failure encoded in result dict.
+
+        A TypeError (or any other non-OSError/ValueError) from popen_factory
+        must NOT propagate out — `cmd_restart` doesn't wrap in try/except and
+        would crash the CLI. Bugbot review #3226591637 caught the original
+        narrower `except (OSError, ValueError)` letting these through.
+        """
+        def typeerror_factory(*_a, **_kw):
+            raise TypeError("unexpected kwarg")
+        result = manage.relaunch_daemon(
+            argv=[self.script], cwd=None, log_path=self.log,
+            popen_factory=typeerror_factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_SPAWN_FAILED)
+        self.assertIn("unexpected kwarg", result["error"])
+
+    def test_relaunch_log_fd_closed_exactly_once_on_spawn_failure(self) -> None:
+        """The previous layout closed log_fd in BOTH the except branch and the
+        finally — a double-close that Python tolerates but signals broken
+        control flow. With the single-close-in-finally fix, the file is
+        closed exactly once even when spawn fails.
+        """
+        import builtins
+        close_calls = {"n": 0}
+        real_open = builtins.open
+
+        class _CountingFile:
+            def __init__(self, real):
+                self._real = real
+            def __getattr__(self, name):
+                return getattr(self._real, name)
+            def close(self):
+                close_calls["n"] += 1
+                self._real.close()
+
+        def counting_open(*args, **kwargs):
+            return _CountingFile(real_open(*args, **kwargs))
+
+        builtins.open = counting_open
+        try:
+            def angry_factory(*_a, **_kw):
+                raise OSError("boom")
+            manage.relaunch_daemon(
+                argv=[self.script], cwd=None, log_path=self.log,
+                popen_factory=angry_factory,
+            )
+        finally:
+            builtins.open = real_open
+        self.assertEqual(
+            close_calls["n"], 1,
+            f"log_fd.close() ran {close_calls['n']} times; expected exactly 1",
+        )
+
     def test_relaunch_inherits_env_when_none_passed(self) -> None:
         factory, captured = self._make_fake_popen()
         os.environ["TEST_RELAUNCH_INHERIT_MARKER"] = "yes"

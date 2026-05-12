@@ -219,6 +219,8 @@ def relaunch_daemon(
         return {"outcome": RELAUNCH_LOG_OPEN_FAILED, "pid": None,
                 "error": f"cannot open {log_path}: {e}"}
 
+    proc = None
+    spawn_error: Optional[str] = None
     try:
         proc = popen_factory(
             argv,
@@ -230,18 +232,22 @@ def relaunch_daemon(
             start_new_session=True,
             close_fds=True,
         )
-    except (OSError, ValueError) as e:
-        try:
-            log_fd.close()
-        except OSError:
-            pass
-        return {"outcome": RELAUNCH_SPAWN_FAILED, "pid": None,
-                "error": f"Popen failed: {e}"}
+    except Exception as e:  # noqa: BLE001 — function contract: every failure
+        # mode encoded in the result dict, so a stray TypeError from a
+        # bad-args caller (or any other exception subclass we didn't list)
+        # must NOT escape and crash `cmd_restart`. Broader catch over
+        # (OSError, ValueError) closes that gap.
+        spawn_error = f"Popen failed: {e}"
     finally:
-        # Popen dup'd the fd into the child; we can close our reference.
+        # Popen dup'd the fd into the child; close our reference exactly
+        # once. Single close site means the error path doesn't have to
+        # remember to close before returning — `finally` handles all paths
+        # (success, spawn failure, unexpected exception subclass).
         try:
             log_fd.close()
         except OSError:
             pass
 
+    if spawn_error is not None:
+        return {"outcome": RELAUNCH_SPAWN_FAILED, "pid": None, "error": spawn_error}
     return {"outcome": RELAUNCH_OK, "pid": proc.pid, "error": None}
