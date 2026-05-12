@@ -24,6 +24,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from . import manage as _manage
 from . import state as _state
 from . import stats as _stats
 
@@ -461,6 +462,71 @@ def cmd_stats(args: argparse.Namespace) -> int:
     return STATS_OK
 
 
+# ─── Subcommand: stop ───────────────────────────────────────────────────────
+
+STOP_OK = 0
+STOP_FAILED = 1
+STOP_NOT_FOUND = 2
+
+
+def _print_stop_summary(name: str, pid: int, result: Dict[str, Any]) -> None:
+    """Human-readable stop result."""
+    outcome = result["outcome"]
+    elapsed = result["elapsed_seconds"]
+    if outcome == _manage.STOP_ALREADY_DEAD:
+        print(f"{name}: already stopped (pid {pid} not alive).")
+    elif outcome == _manage.STOP_TERM_OK:
+        print(f"{name}: stopped cleanly via SIGTERM (pid {pid}, {elapsed:.1f}s).")
+    elif outcome == _manage.STOP_KILL_OK:
+        print(f"{name}: SIGTERM timed out — escalated to SIGKILL (pid {pid}, {elapsed:.1f}s).")
+    elif outcome == _manage.STOP_PERMISSION_DENIED:
+        print(f"{name}: permission denied signalling pid {pid} ({result.get('error')}).")
+    elif outcome == _manage.STOP_KILL_FAILED:
+        print(f"{name}: pid {pid} still alive after SIGKILL — kernel-level issue.")
+        print(f"  ({result.get('error')})")
+    elif outcome == _manage.STOP_INVALID_PID:
+        print(f"{name}: cannot stop — {result.get('error')}.")
+    else:
+        print(f"{name}: unexpected outcome '{outcome}'.")
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    name = _resolve_name(args)
+    if name is None:
+        return STOP_NOT_FOUND
+
+    pid_data = _state.read_pid(name, state_dir=args.state_dir)
+    if pid_data is None:
+        sys.stderr.write(
+            f"senpi-helpers: no pid.json for '{name}'. "
+            f"Daemon may have exited cleanly already, or never started.\n"
+        )
+        return STOP_NOT_FOUND
+
+    pid = pid_data.get("pid")
+    if not isinstance(pid, int) or pid <= 0:
+        sys.stderr.write(
+            f"senpi-helpers: pid.json for '{name}' has invalid pid: {pid!r}.\n"
+        )
+        return STOP_NOT_FOUND
+
+    result = _manage.stop_pid(pid, timeout_seconds=args.timeout)
+
+    # SIGKILL'd daemons can't run their own clear_pid, so the CLI cleans up.
+    # On clean SIGTERM the daemon's finally-block already cleared the file;
+    # our call is then a no-op (clear_pid is idempotent on FileNotFoundError).
+    if result["outcome"] in (_manage.STOP_KILL_OK, _manage.STOP_ALREADY_DEAD):
+        _state.clear_pid(name, state_dir=args.state_dir)
+
+    if args.json:
+        payload = {"name": name, "pid": pid, **result}
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        _print_stop_summary(name, pid, result)
+
+    return STOP_OK if _manage.stop_outcome_was_success(result["outcome"]) else STOP_FAILED
+
+
 def cmd_health(args: argparse.Namespace) -> int:
     name = _resolve_name(args)
     if name is None:
@@ -569,6 +635,32 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     stats_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
     stats_p.set_defaults(func=cmd_stats)
+
+    # stop
+    stop_p = sub.add_parser(
+        "stop",
+        help="Stop a running daemon (SIGTERM, escalate to SIGKILL on timeout).",
+        description=(
+            "Send SIGTERM to the daemon's pid and poll for exit. If the "
+            "daemon does not exit within --timeout seconds, escalate to "
+            "SIGKILL. After SIGKILL the CLI clears pid.json (which the "
+            "kill-9'd daemon can no longer do itself)."
+        ),
+    )
+    stop_p.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Daemon name. Optional on single-daemon hosts.",
+    )
+    stop_p.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        help="Seconds to wait for SIGTERM before escalating (default: 30).",
+    )
+    stop_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
+    stop_p.set_defaults(func=cmd_stop)
 
     return parser
 

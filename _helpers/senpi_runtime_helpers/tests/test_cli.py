@@ -458,6 +458,83 @@ class StatsSubcommandTests(CliFixtures):
         self.assertIn("Cache hits", out)
 
 
+class StopSubcommandTests(CliFixtures):
+    def _seed_pid(self, name: str, pid: int) -> None:
+        d = os.path.join(self.tmp, name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 1, "name": name, "pid": pid,
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": "0x" + "a" * 40, "scanner": "s",
+                "interval_seconds": 300.0, "tick_timeout": 60.0,
+                "log_path": None, "version": "0.1.0",
+            }, f)
+
+    def test_stop_dead_pid_returns_already_dead_clears_pid_json(self) -> None:
+        # Seed pid.json with a definitely-dead pid.
+        self._seed_pid("svc", 2147483646)
+        pid_path = os.path.join(self.tmp, "svc", "pid.json")
+        self.assertTrue(os.path.exists(pid_path))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["stop", "svc", "--json"])
+        self.assertEqual(rc, 0)
+        doc = json.loads(buf.getvalue())
+        self.assertEqual(doc["outcome"], "already_dead")
+        # CLI should have cleaned up pid.json.
+        self.assertFalse(os.path.exists(pid_path))
+
+    def test_stop_missing_pid_returns_not_found(self) -> None:
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["stop", "ghost"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 2)
+        self.assertIn("no pid.json", err.lower())
+
+    def test_stop_invalid_pid_in_pidfile_returns_not_found(self) -> None:
+        d = os.path.join(self.tmp, "bogus")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 1, "name": "bogus", "pid": "not-an-int",
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": "0x" + "a" * 40, "scanner": "s",
+                "interval_seconds": 300.0, "tick_timeout": 60.0,
+                "log_path": None, "version": "0.1.0",
+            }, f)
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["stop", "bogus"])
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 2)
+
+    def test_stop_human_output_includes_outcome(self) -> None:
+        self._seed_pid("svc", 2147483646)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.main(["stop", "svc"])
+        self.assertIn("already stopped", buf.getvalue().lower())
+
+    def test_stop_passes_timeout_through(self) -> None:
+        """--timeout argument is forwarded to manage.stop_pid via args.timeout.
+
+        Sanity check: argparse accepts the value and the subcommand runs.
+        Actual escalation timing is tested in test_manage.py.
+        """
+        self._seed_pid("svc", 2147483646)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["stop", "svc", "--timeout", "5"])
+        self.assertEqual(rc, 0)
+
+
 class HealthComputationTests(unittest.TestCase):
     """Pure-function tests for the health-state rules."""
 
