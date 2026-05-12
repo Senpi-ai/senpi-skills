@@ -356,6 +356,108 @@ class HealthSubcommandTests(CliFixtures):
         self.assertIn("yes", out)
 
 
+class StatsSubcommandTests(CliFixtures):
+    """End-to-end: seed pid.json with a log_path, write some events, run stats."""
+
+    def _seed_with_log(self, name: str, log_path: str) -> None:
+        d = os.path.join(self.tmp, name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 1, "name": name, "pid": os.getpid(),
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": "0x" + "a" * 40, "scanner": "s",
+                "interval_seconds": 300.0, "tick_timeout": 60.0,
+                "log_path": log_path, "version": "0.1.0",
+            }, f)
+
+    def _make_log_file(self, lines):
+        path = os.path.join(self.tmp, "events.log")
+        with open(path, "w") as f:
+            for line in lines:
+                f.write(line + "\n")
+        return path
+
+    def test_stats_json_envelope_shape(self) -> None:
+        log_path = self._make_log_file([
+            '[senpi_helpers] {"event": "mcp_call", "iso": "2026-05-12T09:00:00.000Z", "status": "ok"}',
+        ])
+        self._seed_with_log("svc", log_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["stats", "svc", "--hours", "24", "--json"])
+        self.assertEqual(rc, 0)
+        doc = json.loads(buf.getvalue())
+        # Documented top-level envelope keys.
+        for k in ("name", "log_path", "window_hours", "total_events_counted",
+                  "earliest_event_iso", "log_size_bytes", "totals", "buckets"):
+            self.assertIn(k, doc)
+        self.assertEqual(doc["name"], "svc")
+        self.assertEqual(doc["window_hours"], 24)
+
+    def test_stats_missing_log_path_returns_no_log_exit(self) -> None:
+        # Seed pid.json WITHOUT log_path.
+        d = os.path.join(self.tmp, "no-log-path")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 1, "name": "no-log-path", "pid": os.getpid(),
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": "0x" + "a" * 40, "scanner": "s",
+                "interval_seconds": 300.0, "tick_timeout": 60.0,
+                "log_path": None, "version": "0.1.0",
+            }, f)
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["stats", "no-log-path"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)  # STATS_NO_LOG
+        self.assertIn("log path", err.lower())
+        self.assertIn("SENPI_HELPERS_LOG_PATH", err)
+
+    def test_stats_missing_log_file_returns_no_log_exit(self) -> None:
+        self._seed_with_log("svc", "/no/such/file.log")
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["stats", "svc"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)  # STATS_NO_LOG
+        self.assertIn("not found", err.lower())
+
+    def test_stats_missing_pid_returns_not_found(self) -> None:
+        # Daemon dir doesn't exist at all.
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["stats", "ghost"])
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 2)  # STATS_NOT_FOUND
+
+    def test_stats_human_output_includes_totals_section(self) -> None:
+        log_path = self._make_log_file([
+            '[senpi_helpers] {"event": "mcp_call", "iso": "2026-05-12T09:00:00.000Z", "status": "ok"}',
+            '[senpi_helpers] {"event": "cache_hit", "iso": "2026-05-12T09:00:00.000Z", "tool": "x"}',
+        ])
+        self._seed_with_log("svc", log_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["stats", "svc", "--hours", "168"])
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertIn("svc", out)
+        self.assertIn("last 168 hours", out)
+        self.assertIn("Totals", out)
+        self.assertIn("MCP calls", out)
+        self.assertIn("Cache hits", out)
+
+
 class HealthComputationTests(unittest.TestCase):
     """Pure-function tests for the health-state rules."""
 

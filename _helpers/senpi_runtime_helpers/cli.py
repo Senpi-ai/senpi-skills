@@ -25,6 +25,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from . import state as _state
+from . import stats as _stats
 
 
 # ─── Helpers shared across subcommands ──────────────────────────────────────
@@ -333,6 +334,133 @@ def _print_health_summary(payload: Dict[str, Any]) -> None:
         print(f"last error:     {err[:200]}{'…' if len(err) > 200 else ''}")
 
 
+# ─── Subcommand: stats ──────────────────────────────────────────────────────
+
+STATS_OK = 0
+STATS_NO_LOG = 1
+STATS_NOT_FOUND = 2
+
+
+def _print_stats_summary(payload: Dict[str, Any], name: str) -> None:
+    """Operator-readable totals + hourly bucket table.
+
+    Format:
+      Header: name, window, log path, events parsed
+      Totals: MCP / Signals / Cache / Ticks
+      Errors by code (if any)
+      Hourly buckets (oldest first), one row per UTC hour
+    """
+    totals = payload["totals"]
+    window = payload["window_hours"]
+    print(f"{name} — last {window} hour{'s' if window != 1 else ''}")
+    print(f"log: {payload['log_path']}")
+    earliest = payload.get("earliest_event_iso") or "-"
+    size = payload.get("log_size_bytes")
+    size_str = f"{size:,} bytes" if isinstance(size, int) else "-"
+    print(f"events parsed: {payload['total_events_counted']}  "
+          f"(earliest: {earliest}, log size: {size_str})")
+    print()
+
+    print("Totals")
+    print(f"  MCP calls         {totals['mcp_calls_ok']:>6} ok  "
+          f"{totals['mcp_calls_failed']:>6} failed")
+    print(f"  Signals posted    {totals['signals_posted_ok']:>6} ok  "
+          f"{totals['signals_posted_failed']:>6} failed")
+    print(f"  Cache hits        {totals['cache_hits']:>6}")
+    t = totals["ticks_by_status"]
+    print(f"  Ticks             {t.get('ok', 0):>6} ok  "
+          f"{t.get('error', 0):>6} error  "
+          f"{t.get('timeout', 0):>6} timeout  "
+          f"{t.get('skipped_locked', 0):>6} skipped")
+    print()
+
+    # Errors by code — only show if non-empty.
+    any_errors = (
+        totals["mcp_errors_by_code"]
+        or totals["signals_errors_by_code"]
+        or totals["ticks_errors_by_code"]
+    )
+    if any_errors:
+        print(f"Errors by code (last {window}h)")
+        for source, codes in (
+            ("mcp_call", totals["mcp_errors_by_code"]),
+            ("signal_post", totals["signals_errors_by_code"]),
+            ("tick", totals["ticks_errors_by_code"]),
+        ):
+            for code in sorted(codes.keys()):
+                print(f"  {source:<12}  {code:<24}  {codes[code]}")
+        print()
+
+    # Hourly breakdown — oldest first; matches how operators scroll through.
+    buckets = payload["buckets"]
+    if not buckets:
+        return
+    print(f"Hourly breakdown ({len(buckets)} buckets, oldest first)")
+    print(f"  {'HOUR (UTC)':<22}  {'MCP':>5}  {'SIG':>5}  {'CACHE':>5}  "
+          f"{'T_OK':>5}  {'T_ERR':>6}  {'T_TO':>5}  {'T_SKIP':>6}")
+    for b in buckets:
+        ts = b["hour_start_iso"][:16].replace("T", " ")
+        t = b["ticks_by_status"]
+        print(f"  {ts:<22}  "
+              f"{b['mcp_calls_ok']:>5}  "
+              f"{b['signals_posted_ok']:>5}  "
+              f"{b['cache_hits']:>5}  "
+              f"{t.get('ok', 0):>5}  "
+              f"{t.get('error', 0):>6}  "
+              f"{t.get('timeout', 0):>5}  "
+              f"{t.get('skipped_locked', 0):>6}")
+
+
+def cmd_stats(args: argparse.Namespace) -> int:
+    name = _resolve_name(args)
+    if name is None:
+        return STATS_NOT_FOUND
+
+    pid_data = _state.read_pid(name, state_dir=args.state_dir)
+    if pid_data is None:
+        sys.stderr.write(
+            f"senpi-helpers: no pid.json for '{name}' — the daemon "
+            f"may have exited cleanly. Stats reads the log path recorded "
+            f"there. Try `senpi-helpers list` to see registered daemons.\n"
+        )
+        return STATS_NOT_FOUND
+
+    log_path = pid_data.get("log_path")
+    if not log_path:
+        sys.stderr.write(
+            f"senpi-helpers: daemon '{name}' did not record a log path. "
+            f"Stats parses from the daemon's stderr log file; without a "
+            f"redirect, no log exists to parse.\n"
+            f"Fix by starting the daemon with stderr redirected — e.g. "
+            f"`nohup python3 -u <producer>.py > /tmp/{name}.log 2>&1 &` — "
+            f"or set SENPI_HELPERS_LOG_PATH=/path/to/log before launch.\n"
+        )
+        return STATS_NO_LOG
+
+    try:
+        payload = _stats.aggregate_log_file(log_path, window_hours=args.hours)
+    except FileNotFoundError:
+        sys.stderr.write(
+            f"senpi-helpers: log file not found at {log_path}.\n"
+            f"The daemon's pid.json points here; the file may have been "
+            f"rotated away or deleted.\n"
+        )
+        return STATS_NO_LOG
+    except OSError as e:
+        sys.stderr.write(f"senpi-helpers: cannot read {log_path}: {e}\n")
+        return STATS_NO_LOG
+
+    # Attach the daemon name so the human renderer can title the output and
+    # JSON consumers can correlate without a second lookup.
+    payload["name"] = name
+
+    if args.json:
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        _print_stats_summary(payload, name)
+    return STATS_OK
+
+
 def cmd_health(args: argparse.Namespace) -> int:
     name = _resolve_name(args)
     if name is None:
@@ -415,6 +543,32 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     health_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
     health_p.set_defaults(func=cmd_health)
+
+    # stats
+    stats_p = sub.add_parser(
+        "stats",
+        help="Aggregate log events into hourly buckets.",
+        description=(
+            "Parse the daemon's stderr log file and aggregate "
+            "[senpi_helpers] events into wall-clock UTC hourly buckets. "
+            "Reports MCP call volume, signal posts, cache hits, tick "
+            "outcomes, and error histograms by code. Default window: 72 hours."
+        ),
+    )
+    stats_p.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Daemon name (subdir under state dir). Optional on single-daemon hosts.",
+    )
+    stats_p.add_argument(
+        "--hours",
+        type=int,
+        default=72,
+        help="Window in hours (default: 72 = 3 days).",
+    )
+    stats_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
+    stats_p.set_defaults(func=cmd_stats)
 
     return parser
 
