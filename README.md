@@ -128,7 +128,7 @@ Used by every active trading skill in the repo.
 
 ## `senpi_runtime_helpers` — Python Producer SDK (ships with `senpi-trading-runtime`)
 
-The Python SDK every Runtime 2.0 producer imports. Ships inside the `senpi-trading-runtime` skill (`senpi-trading-runtime/senpi_runtime_helpers/`) — installing the runtime skill installs the SDK.
+The Python SDK every helpers-native producer imports. Ships inside the `senpi-trading-runtime` skill (`senpi-trading-runtime/senpi_runtime_helpers/`) — installing the runtime skill installs the SDK.
 
 - `SenpiClient` — direct HTTPS to MCP (no `mcporter` / `openclaw` subprocess shell-out) and direct POST to runtime `/signals`.
 - `producer_daemon(fn, interval_seconds, name, tick_timeout)` — long-lived loop with built-in fcntl reentrancy guard, structured tick telemetry, signal-handled graceful shutdown.
