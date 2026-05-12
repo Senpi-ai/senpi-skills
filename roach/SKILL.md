@@ -31,7 +31,7 @@ Cockroaches survive anything. ROACH survives by not trading when there's no expl
 
 | Layer | v1.x | v2.0 |
 |---|---|---|
-| Trading loop | Agent runs scanner, agent calls `create_position` | Producer pushes signals via `external-scanner ingest`; runtime owns execution |
+| Trading loop | Agent runs scanner, agent calls `create_position` | Producer pushes signals via `SenpiClient.push_signal()`; runtime owns execution |
 | Entry gate | Agent decides | LLM pass-through gate (producer already filtered) |
 | Exit | DSL via runtime.yaml (good) | Same DSL preset, but with **FEE_OPTIMIZED_LIMIT** order type — maker-first with 60s window, taker fallback |
 | Risk gates | Agent enforces in scanner code | Declarative via `runtime.risk.guard_rails` |
@@ -62,7 +62,7 @@ Runs every 90s via cron. On each tick:
 2. **Fetch markets:** `leaderboard_get_markets` (top 50, XYZ filtered out at parse time).
 3. **Detect striker signals:** rank jumps, contribVelocity, contribution explosions vs scan history.
 4. **Apply hard gates:** 4h trend aligned, cc_15m >= 0.5, 1h price aligned >= 0.1%, volume >= 1.5x, score >= 10, 4+ reasons, asset not in 120min cooldown.
-5. **Emit signals** via `openclaw senpi external-scanner ingest`.
+5. **Emit signals** via `client.push_signal()` (direct HTTP POST to the runtime API).
 6. **Persist scan history + cooldown state** under `state/<wallet-hash>/`.
 
 NO execution code. NO position-tracking. NO DSL state. The runtime owns all of that.
@@ -72,9 +72,9 @@ NO execution code. NO position-tracking. NO DSL state. The runtime owns all of t
 ## Entry flow
 
 ```
-Producer cron (90s)
+Producer daemon (90s tick)
   ↓ Striker signal detected
-  ↓ external-scanner ingest --scanner roach_signals
+  ↓ client.push_signal(scanner="roach_signals", ...)
 Runtime
   ↓ Schema-validates fields against runtime.yaml
   ↓ LLM gate (decision_model = ${ROACH_DECISION_MODEL})
@@ -144,47 +144,25 @@ TELEGRAM_CHAT_ID=... \
 ROACH_DECISION_MODEL=gemini-3.1-pro-preview \
   openclaw senpi runtime create --path /data/workspace/skills/roach-strategy/runtime.yaml
 
-# 3. Schedule the producer (~90s cadence)
+# 3. Launch the producer daemon (90s tick).
 # ROACH_WALLET (NOT generic STRATEGY_ADDRESS) is required by the producer.
 # Producer fails loud at startup if not set — misconfig is visible immediately.
-#
-# RECOMMENDED PATTERN: cron-as-Claude-turn with NO_REPLY filter.
-# Each cron tick spins up an isolated session, runs the producer, and
-# replies to TG ONLY if there's a non-zero event (signal pushed, error,
-# unexpected state). On the silence-is-correct ticks (most of them for
-# Roach), the agent stays quiet — zero TG noise, zero log file growth.
-# Cron run records are still accessible via `openclaw cron runs --id <id>`.
-openclaw cron add \
-  --name "roach-v2-producer" \
-  --cron "*/2 * * * *" \
-  --session isolated \
-  --wake now \
-  --message $'export ROACH_WALLET=0x... && python3 /data/workspace/skills/roach-strategy/scripts/roach-producer.py\n\nCRITICAL INSTRUCTION: If the output shows \'candidates\': 0 and \'status\': \'ok\', you MUST reply EXACTLY with NO_REPLY to remain silent. Only report to the user if there is an error, a crash, or if signals are actually pushed.' \
-  --no-deliver
-
-# Note: openclaw cron resolution is 1 minute. The producer is designed for
-# 90s cadence; */2 (every 2 min) is the closest cron-supported approximation.
-# Some installs run faster via the underlying scheduler (~90s observed).
-# The fcntl reentrancy guard handles any overlap safely.
-
-# Alternative pattern: shell-redirect (cheaper, no Claude tokens per tick,
-# but generates a log file that needs rotation). Use this if you prefer
-# to grep raw producer JSON output:
-#
-#   --message "Run \`SENPI_API_KEY=<KEY> ROACH_WALLET=0x... python3 /data/workspace/skills/roach-strategy/scripts/roach-producer.py >> /var/log/openclaw/roach-v2.log 2>&1\` and report success/failure in this log."
+SENPI_AUTH_TOKEN=<your-token> \
+ROACH_WALLET=0x... \
+  nohup python3 -u /data/workspace/skills/roach-strategy/scripts/roach-producer.py \
+  > /tmp/roach-producer.log 2>&1 &
 
 # 4. Verify
-openclaw senpi runtime list                        # expect: roach-tracker v1.3.0
+openclaw senpi runtime list                            # expect: roach-tracker running
 openclaw senpi status --runtime roach-tracker
+senpi-helpers list                                     # daemon visible with recent LAST_TICK
+senpi-helpers health roach-<wallet-suffix>             # exit 0 = healthy
+senpi-helpers stats roach-<wallet-suffix> --hours 1    # signals posted + error histogram
 
-# Cron-as-Claude-turn pattern — verify via OpenClaw's structured run log:
-openclaw cron list --json                          # find the cron id
-openclaw cron runs --id <cron-id> --limit 5        # last 5 tick records (ts, status, durationMs, nextRunAtMs)
-
-# Inspect producer state (this is the same regardless of cron pattern):
+# Inspect producer state (per-wallet scan history):
 ls -la /data/workspace/skills/roach-strategy/state/<wallet-hash>/
 # Expect: producer.lock + scan-history.json with mtime in last few minutes.
-# A fresh scan-history.json (mtime < 5 min) confirms the cron is firing.
+# A fresh scan-history.json (mtime < 5 min) confirms the daemon is ticking.
 ```
 
 ---
