@@ -216,7 +216,7 @@ Leverage auto-clamped to BTC's Hyperliquid max via `strategy_get_asset_trading_l
 ## Lifecycle (v6.0 — runtime-owned)
 
 ```
-producer.py  → [all gates pass, score >= MIN_SCORE] → external-scanner ingest
+producer.py  → [all gates pass, score >= MIN_SCORE] → client.push_signal()
 runtime LLM  → [pass-through gate, min_confidence 7] → OPEN_POSITION
 runtime DSL  → [tracks position, ratchets through Phase 2 ladder] → exit
 runtime risk → [enforces daily caps + drawdown halt + cooldowns] → block next entry
@@ -259,9 +259,10 @@ get audited.
 
 ## Install
 
-**Prerequisite:** plugin must be on `runtime-phase-2` build. Verify with
-`openclaw senpi external-scanner ingest --help` — should show `--address`
-flag. If not, see README install steps.
+**Prerequisite:** plugin must be on `runtime-phase-2` build. The
+senpi-trading-runtime skill must also be installed on this host — it
+ships the Python Producer SDK (`senpi_runtime_helpers`) that this
+producer imports. See README install steps.
 
 ```bash
 mkdir -p /data/workspace/skills/grizzly-strategy/{config,scripts,state}
@@ -280,19 +281,22 @@ optional `minScore` / `quietHours*` overrides. Runtime resolves
 `${WALLET_ADDRESS}`, `${TELEGRAM_CHAT_ID}`, `${GRIZZLY_DECISION_MODEL}`
 from environment.
 
-## Install runtime + register producer cron
+## Install runtime + launch producer daemon
 
 ```bash
 openclaw senpi runtime create --path /data/workspace/skills/grizzly-strategy/runtime.yaml
 openclaw senpi runtime list
 
-openclaw cron add \
-  --name senpi-producer-grizzly_signals-<wallet-suffix> \
-  --interval 3m \
-  --message "python3 /data/workspace/skills/grizzly-strategy/scripts/grizzly-producer.py"
+SENPI_AUTH_TOKEN=<your-token> \
+GRIZZLY_WALLET=0x... \
+  nohup python3 -u /data/workspace/skills/grizzly-strategy/scripts/grizzly-producer.py \
+  > /tmp/grizzly-producer.log 2>&1 &
+
+senpi-helpers list                                       # daemon visible with recent LAST_TICK
+senpi-helpers health grizzly-<wallet-suffix>             # exit 0 = healthy
 ```
 
-`<wallet-suffix>` = last 4 hex chars of strategy wallet, lowercased.
+`<wallet-suffix>` = first 8 hex chars after `0x` of the strategy wallet (matches the daemon's `LOCK_NAME`).
 
 ---
 
@@ -300,7 +304,7 @@ openclaw cron add \
 
 ### v6.0.0 (2026-05-06) — v2-RUNTIME-NATIVE REWRITE
 - **Architecture:** v1 full-agency Python scanner (1073 lines) → v2 producer + LLM gate + native risk + DSL maker exits
-- **Producer:** `grizzly-producer.py` emits via `openclaw senpi external-scanner ingest`. NO execution code.
+- **Producer:** `grizzly-producer.py` emits via `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
 - **LLM gate:** pass-through (min_confidence 7); honors producer signals unless structurally broken
 - **risk.guard_rails:** declarative daily caps / drawdown halt / consecutive losses / per-asset cooldown — replaces Python `get_dynamic_daily_cap`, `set_cooldown`, etc.
 - **DSL:** `FEE_OPTIMIZED_LIMIT` on entries AND exits (~0.020-0.030% fee recovery per maker close)
