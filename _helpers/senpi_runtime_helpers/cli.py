@@ -250,7 +250,9 @@ def _compute_health(
         and last_tick_age > 2 * interval_seconds
     ):
         return _HEALTH_STALE
-    if last_tick_status != "ok":
+    # `skipped_locked` means a prior tick was still running when the next
+    # one fired — normal overlap, not a failure. Daemon is still healthy.
+    if last_tick_status not in ("ok", "skipped_locked"):
         return _HEALTH_LAST_FAILED
     return _HEALTH_HEALTHY
 

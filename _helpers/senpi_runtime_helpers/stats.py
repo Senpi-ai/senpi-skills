@@ -154,7 +154,11 @@ def _accumulate_tick(bucket: Dict[str, Any], event: Dict[str, Any]) -> None:
     if status not in bucket["ticks_by_status"]:
         bucket["ticks_by_status"][status] = 0
     bucket["ticks_by_status"][status] += 1
-    if status != "ok":
+    # `skipped_locked` is normal overlap (prior tick still running OR
+    # multi-daemon contention) — not an error. Counting it here would
+    # surface false `LOCK_BUSY` entries in `errors_by_code` and confuse
+    # the operator into thinking the daemon is failing.
+    if status not in ("ok", "skipped_locked"):
         code = event.get("code") or event.get("status") or "UNKNOWN"
         _bump(bucket["ticks_errors_by_code"], str(code))
 

@@ -755,6 +755,25 @@ class HealthComputationTests(unittest.TestCase):
             "last_tick_failed",
         )
 
+    def test_last_status_skipped_locked_is_healthy(self) -> None:
+        """skipped_locked = normal overlap, NOT a failure."""
+        self.assertEqual(
+            cli._compute_health(
+                running=True, last_tick_age=10,
+                last_tick_status="skipped_locked", interval_seconds=60,
+            ),
+            "healthy",
+        )
+
+    def test_last_status_timeout_is_last_tick_failed(self) -> None:
+        self.assertEqual(
+            cli._compute_health(
+                running=True, last_tick_age=10,
+                last_tick_status="timeout", interval_seconds=60,
+            ),
+            "last_tick_failed",
+        )
+
     def test_no_interval_skips_stale_check(self) -> None:
         # Interval unknown → can't say "stale". Healthy if status ok.
         self.assertEqual(

@@ -324,7 +324,13 @@ def producer_daemon(
                 tick_code = type(e).__name__
                 tick_err = f"{type(e).__name__}: {e}"
 
-            if tick_status != "ok":
+            # `skipped_locked` is NOT an error — it just means a prior tick
+            # overran its interval (or, on multi-daemon hosts, another live
+            # daemon holds the lock). The daemon is still healthy; counting
+            # it would inflate error_count and trip false `last_tick_failed`
+            # health states. Only `timeout` and `error` (raised exception)
+            # count toward error_count.
+            if tick_status not in ("ok", "skipped_locked"):
                 error_count += 1
 
             duration_ms = int((time.time() - tick_started_at) * 1000)

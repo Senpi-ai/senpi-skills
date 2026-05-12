@@ -190,6 +190,22 @@ class AggregateEventsTests(unittest.TestCase):
         buckets, total, _ = self._agg(events)
         self.assertEqual(total, 1)
 
+    def test_skipped_locked_does_not_count_as_error(self) -> None:
+        """skipped_locked → in `ticks_by_status` only; NOT in `ticks_errors_by_code`."""
+        events = [
+            _event("daemon_tick_finished", iso="2026-05-12T09:00:00.000Z",
+                   status="skipped_locked", code="LOCK_BUSY"),
+            _event("daemon_tick_finished", iso="2026-05-12T09:00:00.000Z",
+                   status="skipped_locked", code="LOCK_BUSY"),
+        ]
+        buckets, _, _ = self._agg(events)
+        b = next(b for b in buckets if b["hour_start_iso"] == "2026-05-12T09:00:00Z")
+        # Counted in by-status (it IS a real outcome — operators want to see it).
+        self.assertEqual(b["ticks_by_status"]["skipped_locked"], 2)
+        # NOT counted in errors-by-code — would surface false LOCK_BUSY
+        # entries to operators monitoring the error histogram.
+        self.assertEqual(b["ticks_errors_by_code"], {})
+
     def test_missing_code_collapses_to_unknown(self) -> None:
         # Tick error with no code field — must surface as UNKNOWN, not crash.
         events = [

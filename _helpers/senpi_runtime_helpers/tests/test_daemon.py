@@ -342,6 +342,59 @@ class DaemonTests(unittest.TestCase):
         self.assertEqual(hb["tick_count"], 3)
         self.assertEqual(hb["error_count"], 1)
 
+    def test_skipped_locked_ticks_do_not_increment_error_count(self) -> None:
+        """A `skipped_locked` tick is normal overlap, not a failure.
+
+        Two daemons with the same `name` share a lock file. We spin up a
+        slow-ticking outer daemon (holds the lock for the duration of fn()),
+        then spawn an inner daemon with the same name — its tick should be
+        skipped_locked, but error_count must stay 0.
+        """
+        # Use threading instead of a second producer_daemon because we
+        # only need a lock holder, not a full daemon. The thread holds
+        # scanner_lock for ~200ms while we run a daemon that tries to
+        # acquire the same lock.
+        import threading
+        from senpi_runtime_helpers.lock import scanner_lock
+
+        lock_taken = threading.Event()
+        release = threading.Event()
+
+        def hold_lock():
+            with scanner_lock("test_skipped_no_error_count"):
+                lock_taken.set()
+                release.wait(2.0)
+
+        holder = threading.Thread(target=hold_lock, daemon=True)
+        holder.start()
+        self.assertTrue(lock_taken.wait(2.0), "lock holder failed to start")
+
+        try:
+            producer_daemon(
+                fn=lambda: None,
+                interval_seconds=0.02,
+                name="test_skipped_no_error_count",
+                tick_timeout=1.0,
+                max_ticks=2,
+                install_signal_handlers=False,
+                alive_check=None,
+            )
+        finally:
+            release.set()
+            holder.join(timeout=2)
+
+        hb = _state.read_heartbeat(
+            "test_skipped_no_error_count", state_dir=self._state_tmp,
+        )
+        self.assertEqual(hb["last_tick_status"], "skipped_locked")
+        # The critical assertion: skipped_locked must NOT inflate error_count.
+        self.assertEqual(
+            hb["error_count"], 0,
+            "skipped_locked is normal overlap, not an error; error_count "
+            "must stay 0",
+        )
+        self.assertEqual(hb["tick_count"], 2)
+
     def test_heartbeat_error_code_is_exception_type_name(self) -> None:
         """Non-ok ticks must record the exception type name as the code."""
         def fn() -> None:
