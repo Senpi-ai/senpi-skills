@@ -125,7 +125,7 @@ import cheetah_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "7.1.1"
+VERSION = "7.1.2"
 SCANNER_NAME = "cheetah_signals"  # must match runtime.yaml external_scanner.name
 
 

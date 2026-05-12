@@ -157,7 +157,14 @@ Without a producer, the `external_momentum` scanner stays silent. Build the prod
 import os, sys
 from pathlib import Path
 
-_sdk_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime")
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
+)
 if _sdk_path not in sys.path:
     sys.path.insert(0, _sdk_path)
 
@@ -206,7 +213,7 @@ if __name__ == "__main__":
 | `SENPI_AUTH_TOKEN` | **yes** | Senpi MCP bearer token used by `SenpiClient` |
 | `STRATEGY_WALLET_ADDRESS` | **yes** | Must match the wallet in your strategy YAML |
 | `SENPI_MCP_URL` | no | MCP server URL (default: `https://mcp.prod.senpi.ai/mcp`) |
-| `OPENCLAW_WORKSPACE` | no | Workspace root (default `/data/workspace`); the SDK lives at `${OPENCLAW_WORKSPACE}/skills/senpi-trading-runtime/` |
+| `OPENCLAW_WORKSPACE` | no | Workspace root (default `/data/workspace`); the SDK import shim probes `~/.openclaw/skills/senpi-trading-runtime/` first and falls back to `${OPENCLAW_WORKSPACE}/skills/senpi-trading-runtime/` |
 
 ### Momentum-specific tuning variables (read by the script above)
 

@@ -300,15 +300,24 @@ client.push_signal(
 
 ### Import shim
 
-The package ships inside this skill. Producers add the skill directory to `sys.path`, then import normally:
+The package ships inside this skill. Where this skill lives on disk depends on the host:
+
+- Global install (`skills add … --skill senpi-trading-runtime -g`) lands the runtime skill under `~/.openclaw/skills/` — e.g. `/data/.openclaw/skills/senpi-trading-runtime/` on Railway.
+- Some setups put user skills under `${OPENCLAW_WORKSPACE}/skills/` instead.
+
+Probe both, then add whichever holds the package to `sys.path`:
 
 ```python
 import os, sys
 from pathlib import Path
 
-_sdk_path = str(
-    Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
-    / "skills" / "senpi-trading-runtime"
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
 )
 if _sdk_path not in sys.path:
     sys.path.insert(0, _sdk_path)
@@ -328,7 +337,14 @@ from senpi_runtime_helpers import (
 import os, sys
 from pathlib import Path
 
-_sdk_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime")
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
+)
 if _sdk_path not in sys.path:
     sys.path.insert(0, _sdk_path)
 
@@ -408,7 +424,7 @@ Full per-item error codes and validation rules: [`references/signal-schema.md`](
 Bundled with the SDK. Reads `pid.json` / `boot.json` / `heartbeat.json` under `$SENPI_HELPERS_STATE_DIR`; sends signals to control running daemons.
 
 ```bash
-${OPENCLAW_WORKSPACE:-/data/workspace}/skills/senpi-trading-runtime/senpi-helpers <subcommand>
+~/.openclaw/skills/senpi-trading-runtime/senpi-helpers <subcommand>
 ```
 
 | Subcommand | Purpose |

@@ -30,7 +30,18 @@ CONFIG_PATH = SKILL_DIR / "config" / "kodiak-config.json"
 # on first use — missing token raises a loud RuntimeError instead of
 # silently 401-ing on the first MCP call.
 
-_sdk_path = str(Path(WORKSPACE) / "skills" / "senpi-trading-runtime")
+# senpi_runtime_helpers ships inside the senpi-trading-runtime skill.
+# Global skills install under ~/.openclaw/skills/ on standard hosts
+# (e.g. /data/.openclaw/skills/ on Railway). Some setups install user
+# skills under ${OPENCLAW_WORKSPACE}/skills/. Probe both in order.
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
+)
 if _sdk_path not in sys.path:
     sys.path.insert(0, _sdk_path)
 from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402

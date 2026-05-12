@@ -191,7 +191,14 @@ New producer/scanner skills should be built on `senpi_runtime_helpers` — the s
 import os, sys
 from pathlib import Path
 
-_sdk_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime")
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
+)
 if _sdk_path not in sys.path:
     sys.path.insert(0, _sdk_path)
 

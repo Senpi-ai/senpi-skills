@@ -15,10 +15,10 @@ is the **operator** reference.
 Invoke the wrapper script:
 
 ```bash
-${OPENCLAW_WORKSPACE:-/data/workspace}/skills/senpi-trading-runtime/senpi-helpers <subcommand> [args]
+~/.openclaw/skills/senpi-trading-runtime/senpi-helpers <subcommand> [args]
 ```
 
-The wrapper lives at `${OPENCLAW_WORKSPACE}/skills/senpi-trading-runtime/senpi-helpers`
+The wrapper lives at `~/.openclaw/skills/senpi-trading-runtime/senpi-helpers` (e.g. `/data/.openclaw/skills/senpi-trading-runtime/senpi-helpers` on Railway).
 and is marked executable. `OPENCLAW_WORKSPACE` defaults to `/data/workspace`
 on Railway boxes from the standard template; the wrapper finds the
 `senpi_runtime_helpers` package via its own sibling directory.
@@ -26,7 +26,7 @@ on Railway boxes from the standard template; the wrapper finds the
 Alias it for convenience:
 
 ```bash
-alias senpi-helpers=${OPENCLAW_WORKSPACE:-/data/workspace}/skills/senpi-trading-runtime/senpi-helpers
+alias senpi-helpers=~/.openclaw/skills/senpi-trading-runtime/senpi-helpers
 ```
 
 ## Global options

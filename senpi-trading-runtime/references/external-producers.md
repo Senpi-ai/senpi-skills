@@ -35,7 +35,7 @@ After installation via `npx skills add … --skill <skill-name>`, they land at:
 ${OPENCLAW_WORKSPACE:-/data/workspace}/skills/<skill-name>/scripts/
 ```
 
-The Python Producer SDK ships inside the `senpi-trading-runtime` skill at `${OPENCLAW_WORKSPACE}/skills/senpi-trading-runtime/senpi_runtime_helpers/`. Producers' import shim adds that directory to `sys.path` — see the [import shim](../SKILL.md#import-shim) in SKILL.md.
+The Python Producer SDK ships inside the `senpi-trading-runtime` skill. On global-install hosts it lives at `~/.openclaw/skills/senpi-trading-runtime/senpi_runtime_helpers/` (e.g. `/data/.openclaw/skills/senpi-trading-runtime/senpi_runtime_helpers/` on Railway); some setups put user skills under `${OPENCLAW_WORKSPACE}/skills/`. Producers' import shim probes both — see the [import shim](../SKILL.md#import-shim) in SKILL.md.
 
 ---
 
