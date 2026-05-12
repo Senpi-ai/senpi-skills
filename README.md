@@ -4,7 +4,7 @@ Every file in this repo is a self-contained, plug-and-play **skill** for an auto
 
 The repo is two things stacked on top of each other:
 
-1. **Capabilities** — the runtime, the exit engine, the helpers package, the onboarding flow. Reusable infrastructure that every trading strategy plugs into.
+1. **Capabilities** — the runtime (which bundles the Python Producer SDK), the exit engine, the onboarding flow. Reusable infrastructure that every trading strategy plugs into.
 2. **Trading Strategy Skills** — individual scanner + producer + runtime configs that embody a specific market thesis. Each skill is a directory you can pull, deploy, and run on its own funded wallet.
 
 Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or build a new one from scratch using the capabilities below.
@@ -45,9 +45,9 @@ Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or bu
 │                              Phase 2 (ratcheting trailing)                 │
 │                              Consumes: Strategy state, Position MCP        │
 │                                                                            │
-│   senpi_runtime_helpers  ─── In-process SenpiClient (Runtime 2.0 only)    │
-│      (helper branch)         producer_daemon · fcntl lock                  │
-│                              Wraps: ALL MCP categories via SenpiClient     │
+│                              (Python Producer SDK — senpi_runtime_helpers │
+│                              — ships inside this skill: SenpiClient,       │
+│                              producer_daemon, fcntl lock)                  │
 │                                                                            │
 │   fee-optimizer          ─── When to ALO vs MARKET                         │
 │   shared                 ─── Hyperfeed scoring primitives                  │
@@ -78,7 +78,7 @@ Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or bu
                    └────────────────────────────────┘
 ```
 
-The data flow is **upward-from-Hyperliquid, gated-downward-through-MCP**: market state and on-chain positions are read via MCP, capabilities turn those reads into actions (signals, decisions, exits), and the runtime pushes back through MCP to execute on Hyperliquid. Strategy skills produce signals; they do **not** call MCP directly — all MCP traffic goes through the runtime or the helpers package.
+The data flow is **upward-from-Hyperliquid, gated-downward-through-MCP**: market state and on-chain positions are read via MCP, capabilities turn those reads into actions (signals, decisions, exits), and the runtime pushes back through MCP to execute on Hyperliquid. Strategy skills produce signals; they do **not** call MCP directly — all MCP traffic goes through the runtime or its bundled Python SDK.
 
 ---
 
@@ -94,7 +94,7 @@ Every capability is a thin layer over a specific slice of the Senpi MCP surface.
 |---|---|---|
 | `senpi-trading-runtime` | Strategy state · Position · Execution · Audit · Ratchet Stop | `strategy_get_clearinghouse_state`, `create_position`, `edit_position`, `close_position`, `cancel_order`, `execution_get_open_position_details`, `audit_query`, `ratchet_stop_*` |
 | `dsl-dynamic-stop-loss` | Strategy state · Position · Ratchet Stop | `strategy_get_clearinghouse_state`, `ratchet_stop_add`, `ratchet_stop_edit`, `ratchet_stop_events`, `close_position` |
-| `senpi_runtime_helpers` | ALL — the in-process client wraps every MCP tool | `mcp_call(tool, **params)` — generic dispatch over the full 68-tool surface |
+| `senpi_runtime_helpers` (ships with `senpi-trading-runtime`) | ALL — the in-process client wraps every MCP tool | `mcp_call(tool, **params)` — generic dispatch over the full 68-tool surface |
 | `fee-optimizer` | Market data · Position | `market_get_asset_data`, `create_position` (FEE_OPTIMIZED_LIMIT params) |
 | `shared` (`hyperfeed_scoring`) | Hyperfeed · Discovery | `leaderboard_get_top`, `leaderboard_get_trader`, `discovery_get_top_traders` |
 | `opportunity-scanner` | Hyperfeed · Discovery · Market data | `leaderboard_get_markets`, `discovery_get_top_traders`, `market_get_asset_data`, `market_get_funding_regime` |
@@ -126,15 +126,14 @@ Two-phase exit logic with no Python state files:
 
 Used by every active trading skill in the repo.
 
-## `_helpers/senpi_runtime_helpers/` — In-process Client (Runtime 2.0 only)
+## `senpi_runtime_helpers` — Python Producer SDK (ships with `senpi-trading-runtime`)
 
-> Currently lives on the `helper-mcp-envelope-aligned` branch; pulling URLs in skill READMEs reflect that. Will land on main with the runtime 2.0 stable release.
-
-A small Python package every Runtime 2.0 skill imports:
+The Python SDK every Runtime 2.0 producer imports. Ships inside the `senpi-trading-runtime` skill (`senpi-trading-runtime/senpi_runtime_helpers/`) — installing the runtime skill installs the SDK.
 
 - `SenpiClient` — direct HTTPS to MCP (no `mcporter` / `openclaw` subprocess shell-out) and direct POST to runtime `/signals`.
 - `producer_daemon(fn, interval_seconds, name, tick_timeout)` — long-lived loop with built-in fcntl reentrancy guard, structured tick telemetry, signal-handled graceful shutdown.
 - `log_event` / `cache` / `parallel` — shared logging schema, simple TTL cache, parallel MCP fan-out.
+- `senpi-helpers` operator CLI — list / health / stats / stop / restart for producer daemons.
 
 ## `fee-optimizer/` — Order-type Decision Skill
 
@@ -438,10 +437,9 @@ senpi-skills/
 ├── catalog.json                    ← skill registry
 │
 ├── senpi-trading-runtime/          ╮
+│   └── senpi_runtime_helpers/      │ ← Python Producer SDK bundled with runtime
 ├── dsl-dynamic-stop-loss/          │
-├── _helpers/senpi_runtime_helpers/ │ Capabilities (see top of this README)
-│   (on helper-mcp-envelope-aligned)│
-├── fee-optimizer/                  │
+├── fee-optimizer/                  │ Capabilities (see top of this README)
 ├── shared/                         │
 ├── opportunity-scanner/            │
 ├── emerging-movers/                │
@@ -486,7 +484,7 @@ Each strategy directory contains:
 
 1. Deploy an [OpenClaw](https://openclaw.ai) agent and configure Senpi MCP access.
 2. Pick a strategy skill from the buckets above. Read its `README.md`.
-3. Install the Runtime 1.0 or 2.0 plugin per the skill's requirement. Runtime 2.0 skills additionally need the `senpi_runtime_helpers` package pulled from the `helper-mcp-envelope-aligned` branch.
+3. Install the Runtime 1.0 or 2.0 plugin per the skill's requirement. Runtime 2.0 skills additionally need the `senpi-trading-runtime` skill installed (`npx skills add … --skill senpi-trading-runtime -g -y`) — it ships the Python Producer SDK (`senpi_runtime_helpers`) the producer imports.
 4. Pull the skill's scripts + `runtime.yaml` from main into your host workspace.
 5. Set the required env vars (`<SKILL>_WALLET`, `SENPI_AUTH_TOKEN`, and optionally a `<SKILL>_DECISION_MODEL` for LLM-gated actions).
 6. Start the producer daemon (Runtime 2.0) or the openclaw cron (Runtime 1.0) per the skill's README.

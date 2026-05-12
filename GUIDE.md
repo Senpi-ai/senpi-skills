@@ -183,17 +183,17 @@ Crons run in one of two session types:
 
 ## 3. Using Senpi MCP
 
-### 3.0 Use the wrapper — `senpi_runtime_helpers`
+### 3.0 Use the Python Producer SDK — `senpi_runtime_helpers`
 
-New producer/scanner skills should be built on `senpi_runtime_helpers` — the stdlib-only Python wrapper at `_helpers/senpi_runtime_helpers/`. It has its own `SKILL.md` with the full reference; the snippet below is the minimum to start.
+New producer/scanner skills should be built on `senpi_runtime_helpers` — the stdlib-only Python SDK that ships inside the `senpi-trading-runtime` skill. The full reference (rules, recipes, env vars, error tables, operator CLI) lives in `senpi-trading-runtime/SKILL.md`; the snippet below is the minimum to start.
 
 ```python
 import os, sys
 from pathlib import Path
 
-_helpers_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "_helpers")
-if _helpers_path not in sys.path:
-    sys.path.insert(0, _helpers_path)
+_sdk_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime")
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
 
 from senpi_runtime_helpers import SenpiClient, scanner_lock, tick_cache, producer_daemon
 
