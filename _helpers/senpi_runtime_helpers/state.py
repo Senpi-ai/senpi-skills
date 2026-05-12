@@ -38,9 +38,9 @@ from ._logging import log_event
 _DEFAULT_STATE_DIR = "/data/.openclaw/senpi-helpers"
 
 # Env-var prefixes / suffixes that the boot snapshot should capture. Skill
-# names (PANGOLIN, KODIAK, ...) are the per-skill convention from
-# `runtime-deployment.md` § "Per-skill env-var matrix". Auth tokens are
-# always excluded — see `_SENSITIVE_KEYS`.
+# names (PANGOLIN, KODIAK, ...) follow the per-skill convention each skill
+# documents in its own SKILL.md / launch recipe. Auth tokens are always
+# excluded — see `_SENSITIVE_KEYS`.
 _BOOT_ENV_PREFIXES = (
     "SENPI_HELPERS_",
     "PANGOLIN_",
@@ -117,7 +117,7 @@ def detect_log_path() -> Optional[str]:
       1. `SENPI_HELPERS_LOG_PATH` env var (operator-set explicit override).
       2. `/proc/self/fd/2` symlink target — works on Linux when the daemon
          was started with `nohup python3 -u … > /tmp/foo.log 2>&1 &`
-         (the canonical recipe in `runtime-deployment.md`).
+         (the canonical redirect-to-file launch form).
 
     Returns None when stderr is not redirected to a regular file (e.g.
     interactive terminal, pipe, socket, deleted-file fd). The

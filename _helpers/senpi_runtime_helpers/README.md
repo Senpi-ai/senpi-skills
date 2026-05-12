@@ -35,7 +35,7 @@ cold-start cost on every tick.
 | [`cli.py`](cli.py) + [`../senpi-helpers`](../senpi-helpers) | `senpi-helpers` operator CLI — list / health / stats / stop / restart. |
 | [`_logging.py`](_logging.py) | Structured `[senpi_helpers]` JSON event logger to stderr. |
 | [`tests/`](tests/) | Stdlib `unittest` — 190 tests, no credentials needed. |
-| [`references/`](references/) | Long-form deep-dive docs (migration cookbook, signal schema, runtime deployment, CLI reference). |
+| [`references/`](references/) | Long-form deep-dive docs (migration cookbook, signal schema, CLI reference). |
 
 ## Quick start
 

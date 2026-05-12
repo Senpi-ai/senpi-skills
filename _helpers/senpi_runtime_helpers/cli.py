@@ -562,9 +562,10 @@ def cmd_restart(args: argparse.Namespace) -> int:
             f"senpi-helpers: cannot restart '{name}': boot.json is missing.\n"
             f"This daemon has never started successfully under the helper, "
             f"so there's no record of how to launch it. Start it manually "
-            f"using your skill's launch recipe (see "
-            f"runtime-deployment.md § \"Restarting the producer daemon\"); "
-            f"`restart` will work next time.\n"
+            f"using your skill's launch recipe (typically "
+            f"`nohup python3 -u <producer>.py > /tmp/{name}.log 2>&1 &` "
+            f"with the skill's required env vars); `restart` will work "
+            f"next time.\n"
         )
         return RESTART_NOT_FOUND
 

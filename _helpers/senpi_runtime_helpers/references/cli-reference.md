@@ -255,9 +255,11 @@ senpi-helpers restart [<name>] [--timeout 30] [--json]
 
 What `restart` does, in order:
 
-1. Read `boot.json` for `<name>`. Missing → friendly error pointing at
-   `runtime-deployment.md`; `restart` cannot launch cold (it has no record
-   of which script / env / cwd to use). Exit 2.
+1. Read `boot.json` for `<name>`. Missing → friendly error explaining the
+   daemon was never started under the helper, so `restart` has no record of
+   which script / env / cwd to use; operator must start manually first
+   (typical `nohup python3 -u <producer>.py …` form with the skill's
+   required env vars). Exit 2.
 2. Verify `script_path` still exists on disk. Moved/deleted → friendly
    error asking operator to start manually so a fresh boot.json is written
    next time. Exit 1.
@@ -395,5 +397,3 @@ both pick it up.
 ## See also
 
 - [`../SKILL.md`](../SKILL.md) — producer-side wrapper usage and migration.
-- [`runtime-deployment.md`](runtime-deployment.md) — how the daemon gets
-  launched in the first place.

@@ -19,9 +19,7 @@ compatibility: >-
   error), AND (b) GET /state for scanner-level liveness probes. The wrapper
   does not parse the legacy { results: [...] } envelope from 1.x, and the
   daemon's default alive_check requires /state to detect runtime-delete and
-  scanner-rename — both are 2.0 features. The current dev tag pin
-  (2.0.0-dev.runtime-phase-2.<TIMESTAMP> until GA) is recorded in
-  references/runtime-deployment.md. Loaded from
+  scanner-rename — both are 2.0 features. Loaded from
   `${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/`.
 metadata:
   author: senpi
@@ -45,7 +43,7 @@ skill.
 - **Producer** — Python script in a Senpi skill (e.g. `<skill>/scripts/<skill>-producer.py`) that runs on a schedule, calls MCP for market data, evaluates a trading thesis, and pushes signals to a `senpi-trading-runtime` instance.
 - **Scanner / external_scanner** — the runtime-side declaration (in `runtime.yaml`) that names a producer's signal stream and validates the `data` block against `config.fields`. The producer's `client.push_signal(scanner=…)` must match this name.
 - **Runtime** — `senpi-trading-runtime`, the OpenClaw plugin that consumes producer signals at `POST /signals` (on `127.0.0.1:8787`), routes them through the LLM gauntlet + risk gates, opens positions, and runs the DSL exit engine.
-- **Daemon** — `producer_daemon(...)` from this wrapper. A long-lived Python process that fires `run_one_tick()` on a fixed interval. Replaces openclaw cron + agentTurn (which paid for a full LLM inference per tick to dispatch a Python script). **Restart recipe:** after any container restart, the daemon must be relaunched manually (`nohup python3 -u <skill>-producer.py …`). See [`references/runtime-deployment.md` → "Restarting the producer daemon after a container restart"](references/runtime-deployment.md#restarting-the-producer-daemon-after-a-container-restart) for the per-skill env-var matrix, the wallet-discovery recipe (`installed_runtimes.json`), and an idempotent `/tmp/start-producer.sh`. **Do not use `openclaw cron add senpi-producer-…`** — that's the legacy fork-storm path the daemon was written to replace.
+- **Daemon** — `producer_daemon(...)` from this wrapper. A long-lived Python process that fires `run_one_tick()` on a fixed interval. Replaces openclaw cron + agentTurn (which paid for a full LLM inference per tick to dispatch a Python script). **Restart recipe:** after any container restart, the daemon must be relaunched manually (`nohup python3 -u <skill>-producer.py …`). Follow your skill's launch convention for the wallet / decision-model env vars; once started, the wrapper records argv + cwd in `boot.json` so `senpi-helpers restart` handles subsequent restarts. **Do not use `openclaw cron add senpi-producer-…`** — that's the legacy fork-storm path the daemon was written to replace.
 
 ---
 
@@ -460,9 +458,9 @@ operator documentation including exit codes, JSON envelope shapes, and
 recipes.
 
 `start` is **not** a subcommand — the first launch of a daemon happens via
-the skill's regular launch recipe (`runtime-deployment.md` §
-"Restarting the producer daemon"). The CLI takes over on the next
-`restart`.
+the skill's regular launch recipe (`nohup python3 -u <producer>.py …`
+with the skill's required env vars). The CLI takes over on the next
+`restart` (it records argv + cwd in `boot.json` on first boot).
 
 ---
 
