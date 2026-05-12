@@ -51,8 +51,8 @@ Python trade counter leaked. v4.0 deletes all that bookkeeping.
 │                              │  ── 2. score SM+4TF candidates (MIN_SCORE 9)
 │                              │  ── 3. enrich w/ BTC macro + funding +
 │                              │         current positions
-│                              │  ── 4. push via openclaw senpi
-│                              │         external-scanner ingest
+│                              │  ── 4. push via SenpiClient.push_signal
+│                              │         (direct HTTP POST)
 └──────────────┬───────────────┘
                │
                ▼

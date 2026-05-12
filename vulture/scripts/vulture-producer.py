@@ -21,7 +21,7 @@ v3.0 flips to pure producer (Scorpion v4.x / Roach v2.x pattern):
   - Apply LONG_TAIL_MOMENTUM scoring (preserved from v2.4 — same hard
     gates, same scoring tiers, same conviction-scaled leverage)
   - Enrich with funding regime + held-positions context
-  - Push qualifying signals via `openclaw senpi external-scanner ingest`
+  - Push qualifying signals via `SenpiClient.push_signal()`
 
 The runtime handles everything else:
   - LLM gate (decision_mode: llm) is pass-through (Roach pattern) —

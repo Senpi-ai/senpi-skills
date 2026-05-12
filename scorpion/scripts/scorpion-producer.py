@@ -86,7 +86,7 @@ v4.0 flips to pure producer:
   - Scan crypto + XYZ markets via leaderboard_get_markets
   - Apply the multi-factor score gate (MIN_SCORE >= 9)
   - Enrich with BTC macro + funding regime + current-position context
-  - Push to the runtime via `openclaw senpi external-scanner ingest`
+  - Push to the runtime via `SenpiClient.push_signal()`
 
 The runtime handles everything else:
   - LLM gate (decision_mode: llm) filters each signal
