@@ -72,10 +72,10 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kestrel_config as cfg
 
-_helpers_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
-                    / "skills" / "_helpers")
-if _helpers_path not in sys.path:
-    sys.path.insert(0, _helpers_path)
+_sdk_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
+                    / "skills" / "senpi-trading-runtime")
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
 from senpi_runtime_helpers import producer_daemon  # type: ignore  # noqa: E402
 
 
