@@ -432,6 +432,40 @@ to compare pre/post-migration.
 
 ---
 
+## Operator CLI: `senpi-helpers`
+
+A daemon is long-lived; ops needs visibility and control. `senpi-helpers`
+is a standalone CLI (no openclaw coupling) that reads the self-describing
+state files each daemon writes — `pid.json`, `boot.json`, `heartbeat.json`
+under `$SENPI_HELPERS_STATE_DIR` (default `/data/.openclaw/senpi-helpers/`).
+
+```bash
+# Both forms work; pick one:
+/data/workspace/skills/_helpers/senpi-helpers <subcommand> [args]
+python3 -m senpi_runtime_helpers.cli       <subcommand> [args]
+```
+
+Subcommands:
+
+| Subcommand | Purpose |
+|------------|---------|
+| `list`     | All daemons known to this host. |
+| `health`   | One daemon's health summary; non-zero exit on degraded. |
+| `stats`    | Hourly UTC bucket aggregation from the daemon's log file (default 72h). |
+| `stop`     | SIGTERM, poll, escalate to SIGKILL on timeout. |
+| `restart`  | Stop then re-exec from `boot.json` (current env, original log path). |
+
+See [`references/cli-reference.md`](references/cli-reference.md) for full
+operator documentation including exit codes, JSON envelope shapes, and
+recipes.
+
+`start` is **not** a subcommand — the first launch of a daemon happens via
+the skill's regular launch recipe (`runtime-deployment.md` §
+"Restarting the producer daemon"). The CLI takes over on the next
+`restart`.
+
+---
+
 ## Tests
 
 Stdlib `unittest` — no credentials needed.
@@ -441,9 +475,12 @@ cd _helpers/senpi_runtime_helpers
 python3 -m unittest discover -s tests -v
 ```
 
-54 tests cover client (HTTP + envelope parsing), lock (PID-aliveness recovery),
-cache (TTL + LRU + thundering-herd coalescing), parallel (concurrency cap),
-daemon (tick lifecycle + signal handling).
+190 tests cover client (HTTP + envelope parsing), lock (PID-aliveness
+recovery), cache (TTL + LRU + thundering-herd coalescing), parallel
+(concurrency cap), daemon (tick lifecycle + signal handling + state-file
+writes), state (round-trip + tolerant writes + sensitive-env scrubbing),
+manage (SIGTERM/SIGKILL escalation + relaunch), stats (log parser +
+hourly bucket aggregator), cli (every subcommand).
 
 ---
 
@@ -452,5 +489,6 @@ daemon (tick lifecycle + signal handling).
 - [`references/migration-cookbook.md`](references/migration-cookbook.md) — long-form migration with before/after snippets.
 - [`references/architecture.md`](references/architecture.md) — why this exists, performance numbers, incident background.
 - [`references/signal-schema.md`](references/signal-schema.md) — full `SignalItem` shape, validation rules, `data` block conventions.
+- [`references/cli-reference.md`](references/cli-reference.md) — full `senpi-helpers` operator CLI reference (every subcommand, exit codes, JSON envelopes, recipes).
 - [`pangolin/scripts/pangolin-producer.py`](../../pangolin/scripts/pangolin-producer.py) — reference wrapper-based producer.
 - [`senpi-trading-runtime/SKILL.md`](../../senpi-trading-runtime/SKILL.md) — the runtime that consumes signals from this helper.

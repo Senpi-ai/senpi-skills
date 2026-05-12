@@ -30,9 +30,13 @@ MCP-call latency drops from ~2.5 s to ~280 ms. Full background:
 | [`lock.py`](lock.py) | `scanner_lock`: liveness-aware fcntl lock; recovers stale locks from crashed prior holders. |
 | [`parallel.py`](parallel.py) | `parallel`: concurrency-bounded fan-out. Calls beyond cap queue, never reject. |
 | [`cache.py`](cache.py) | `tick_cache`: per-tick TTL+LRU memoization with thundering-herd coalescing. |
+| [`state.py`](state.py) | Daemon self-describing state files (`pid.json` / `boot.json` / `heartbeat.json`) used by the operator CLI. |
+| [`stats.py`](stats.py) | Log-parsing hourly bucket aggregator for `senpi-helpers stats`. |
+| [`manage.py`](manage.py) | Process-control primitives (`stop_pid`, `relaunch_daemon`) used by `senpi-helpers stop` / `restart`. |
+| [`cli.py`](cli.py) + [`../senpi-helpers`](../senpi-helpers) | `senpi-helpers` operator CLI — list / health / stats / stop / restart. |
 | [`_logging.py`](_logging.py) | Structured `[senpi_helpers]` JSON event logger to stderr. |
-| [`tests/`](tests/) | Stdlib `unittest` — 54 tests, no credentials needed. |
-| [`references/`](references/) | Long-form deep-dive docs (migration cookbook, architecture, signal schema). |
+| [`tests/`](tests/) | Stdlib `unittest` — 190 tests, no credentials needed. |
+| [`references/`](references/) | Long-form deep-dive docs (migration cookbook, architecture, signal schema, CLI reference). |
 
 ## Quick start
 
