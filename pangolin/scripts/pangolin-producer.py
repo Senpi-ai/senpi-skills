@@ -35,7 +35,7 @@ v2.1.2 (2026-05-04 — "post-close thrash-cycle fix"):
     - New filter: is_in_post_close_cooldown(token) — skips emission
       for POST_CLOSE_COOLDOWN_MINUTES (240) after a close.
     - State files: state/<wallet-hash>/last-closed.json,
-      previously-held.json — atomic_write, persistent across cron runs.
+      previously-held.json — atomic_write, persistent across daemon ticks.
     - Output JSON now includes skipped_post_close, post_close_skips
       with remaining_min, and closed_this_tick — operators can verify
       the guard is firing without source-reading.
@@ -73,7 +73,7 @@ Pangolin v1.x ran as a full-agency Python scanner that:
   - Called create_position directly with FEE_OPTIMIZED_LIMIT entries
 
 v2.0 splits that into two parts:
-  1. This producer (cron, 5min): emits candidate signals only.
+  1. This producer (long-lived daemon, 5min tick): emits candidate signals only.
   2. Runtime (senpi-trading-runtime): receives signals via
      external_scanner ingest, LLM-gates them (pass-through),
      executes with FEE_OPTIMIZED_LIMIT (maker-first, 60s, no taker
@@ -101,7 +101,7 @@ Funding-fade detection logic preserved verbatim from v1.5:
 
 Environment variables:
   SENPI_API_KEY     — for MCP access
-  PANGOLIN_WALLET   — Pangolin v2 wallet (must match runtime YAML's wallet).
+  PANGOLIN_WALLET   — Pangolin strategy wallet (must match runtime YAML's wallet).
                       AGENT-SPECIFIC env var by design — do NOT fall back
                       to a generic STRATEGY_ADDRESS. Per Turbine v2.0.9
                       contamination fix: a shared env var is a fleet-wide
@@ -177,9 +177,9 @@ MIN_PERSISTENCE_HOURS = 3             # v1.4: hard gate against fresh spikes
 ASSET_COOLDOWN_MINUTES = 240          # v1 — 4h. Post-EMIT cooldown.
 POST_CLOSE_COOLDOWN_MINUTES = 240     # v2.1.2 — post-CLOSE cooldown.
                                       # Mirrors runtime.guard_rails.per_asset_cooldown_minutes
-                                      # which is silently not enforcing in v2 runtime
-                                      # (also broken on Scorpion v4.1.0). Producer-side
-                                      # backstop until Senpi fixes the runtime gate.
+                                      # which is silently not enforcing in the runtime.
+                                      # Producer-side backstop until the runtime gate
+                                      # is fixed.
 STARTING_BUDGET = 1000.0
 XYZ_BANNED = True                     # never trade equities
 
@@ -285,9 +285,9 @@ def save_trade_counter(tc):
 # POST_CLOSE_COOLDOWN_MINUTES from that timestamp.
 #
 # Workaround for runtime guard_rails.per_asset_cooldown_minutes
-# silently not enforcing in v2 runtime. Caused 7 ZEREBRO thrash
+# silently not enforcing in the runtime. Caused 7 ZEREBRO thrash
 # reopens between 2026-05-03 03:55 and 2026-05-04 00:19 (incident).
-# Once Senpi fixes the runtime gate, this becomes a defense layer
+# Once the runtime gate is fixed, this becomes a defense layer
 # instead of the primary control.
 
 def load_last_closed():

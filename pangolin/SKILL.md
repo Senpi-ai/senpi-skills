@@ -14,11 +14,12 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0.1"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
 # 🦔 PANGOLIN v3.0.0 — Funding Rate Fader. senpi_runtime_helpers.
@@ -57,8 +58,8 @@ An entirely new strategy archetype for the Predators fleet. No other agent trade
 
 | File | Purpose |
 |---|---|
-| `runtime.yaml` | v2 runtime spec (scanners, actions, exit DSL, guard_rails) |
-| `scripts/pangolin-producer.py` | Cron-driven producer — emits funding-fade signals to runtime |
+| `runtime.yaml` | senpi-trading-runtime spec (scanners, actions, exit DSL, guard_rails) |
+| `scripts/pangolin-producer.py` | Daemon-driven producer — emits funding-fade signals to runtime |
 | `scripts/pangolin_config.py` | Shared MCP helper + atomic state I/O |
 | `config/pangolin-config.json` | Operator-tunable defaults (informational; producer constants WIN) |
 
@@ -66,9 +67,9 @@ An entirely new strategy archetype for the Predators fleet. No other agent trade
 
 ## Producer behavior
 
-Runs every 5 minutes via cron. On each tick:
+Runs every 5 minutes as a long-lived daemon (via `producer_daemon`). On each tick:
 
-1. **Reentrancy guard:** acquires `state/<wallet-hash>/producer.lock`. If a prior run hasn't released it (cron faster than MCP latency), this run skips cleanly.
+1. **Reentrancy guard:** `producer_daemon` owns a per-tick `scanner_lock` with stale-PID auto-recovery via `os.kill(pid, 0)`. Overlapping ticks skip cleanly without leaving stale lock files.
 2. **Read account value** via `strategy_get_clearinghouse_state` for dynamic-cap math + sizing.
 3. **Apply dynamic daily cap** (v1 carryover): 12 entries at +5% PnL → 0 entries at -25% PnL.
 4. **Fetch markets:** `market_list_instruments` + `leaderboard_get_markets` + `market_get_funding_regime` (one call each).
