@@ -25,8 +25,9 @@ v7.0.0 / Kodiak v7.0.0 / Polar v5.0.0 / Wolverine v5.0.0 patterns):
   4. Tick scheduling — openclaw cron + agentTurn replaced by
      producer_daemon (long-lived process; zero per-tick LLM cost).
   5. Per-tick cache + parallel fan-out NOT adopted.
-  6. /state alive_check — wallet=/scanner= NOT passed per fleet-fix
-     #214 (host helpers package doesn't accept yet).
+  6. /state alive_check — wallet=/scanner= passed; daemon
+     self-terminates when the runtime is deleted or the scanner
+     is renamed.
 
 v6.0.0 thesis preserved unchanged.
 
@@ -850,13 +851,6 @@ if __name__ == "__main__":
     # v7.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
     # producer_daemon owns the per-tick scanner_lock with stale-PID
     # auto-recovery.
-    #
-    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
-    # doesn't accept yet — see fleet-fix commit 4f0c15e). When Erik
-    # upgrades the host helpers, restore:
-    #   wallet=STRATEGY_ADDRESS,
-    #   scanner=SCANNER_NAME,
-    # to enable /state alive_check (auto-terminate on runtime delete).
     _wallet_lock_id = (
         hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
         if STRATEGY_ADDRESS

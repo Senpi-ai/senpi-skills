@@ -598,8 +598,8 @@ def main():
 
 
 if __name__ == "__main__":
-    # v4.0.0 — long-lived daemon. NOTE: wallet=/scanner= NOT passed
-    # per fleet-fix #214 (host helpers package doesn't accept yet).
+    # v4.0.0 — long-lived daemon. producer_daemon owns the per-tick
+    # scanner_lock with stale-PID auto-recovery.
     _wallet_lock_id = (
         hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
         if STRATEGY_ADDRESS

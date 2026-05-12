@@ -762,9 +762,6 @@ if __name__ == "__main__":
     # v5.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
     # producer_daemon owns the per-tick scanner_lock with stale-PID
     # auto-recovery.
-    #
-    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
-    # doesn't accept yet — see fleet-fix commit 4f0c15e).
     _wallet_lock_id = (
         hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
         if STRATEGY_ADDRESS
