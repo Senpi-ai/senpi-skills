@@ -15,18 +15,18 @@ is the **operator** reference.
 Invoke the wrapper script:
 
 ```bash
-${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/senpi-helpers <subcommand> [args]
+${OPENCLAW_WORKSPACE:-/data/workspace}/skills/senpi-trading-runtime/senpi-helpers <subcommand> [args]
 ```
 
-The wrapper lives at `${OPENCLAW_WORKSPACE}/skills/_helpers/senpi-helpers`
+The wrapper lives at `${OPENCLAW_WORKSPACE}/skills/senpi-trading-runtime/senpi-helpers`
 and is marked executable. `OPENCLAW_WORKSPACE` defaults to `/data/workspace`
-on Railway boxes from the standard template; the skill can be installed
-under any path — the wrapper finds the package via its own directory.
+on Railway boxes from the standard template; the wrapper finds the
+`senpi_runtime_helpers` package via its own sibling directory.
 
 Alias it for convenience:
 
 ```bash
-alias senpi-helpers=${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/senpi-helpers
+alias senpi-helpers=${OPENCLAW_WORKSPACE:-/data/workspace}/skills/senpi-trading-runtime/senpi-helpers
 ```
 
 ## Global options
