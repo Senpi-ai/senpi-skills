@@ -60,6 +60,30 @@ _SENSITIVE_KEYS = frozenset({
 })
 
 
+def pid_alive(pid: Optional[int]) -> bool:
+    """Cheap liveness check via signal(0). Canonical implementation shared by
+    `lock.py`, `cli.py`, and `manage.py` — they all need to ask the same
+    question ("is this pid alive?") and previously each kept a private copy.
+
+    Treats EPERM as "alive" (process exists, but we lack permission to
+    signal it — that case is non-zero on shared-host setups where the
+    daemon runs under a different uid). Returns False on None / 0 /
+    negative / non-int inputs so callers don't have to type-guard before
+    passing the pid from `pid.json` (which can be None on schema drift).
+    """
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+
+
 def _now_iso() -> str:
     """UTC ISO-8601 with millisecond precision, matching `_logging.py`."""
     now = time.time()

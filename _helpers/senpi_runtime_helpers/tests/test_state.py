@@ -266,6 +266,40 @@ class EnvSnapshotTests(unittest.TestCase):
         self.assertNotIn("SHELL", env)
 
 
+class PidAliveTests(unittest.TestCase):
+    """`state.pid_alive` is the canonical PID-liveness check — verify the
+    same identity is shared by every consumer module (lock / cli / manage)
+    so the bug-fix-once invariant holds.
+
+    Functional behavior is covered by test_manage.IsPidAliveTests; here we
+    only check the cross-module aliasing.
+    """
+
+    def test_returns_true_for_current_process(self) -> None:
+        self.assertTrue(st.pid_alive(os.getpid()))
+
+    def test_returns_false_for_unrealistic_pid(self) -> None:
+        self.assertFalse(st.pid_alive(2147483646))
+
+    def test_returns_false_for_invalid_inputs(self) -> None:
+        self.assertFalse(st.pid_alive(None))
+        self.assertFalse(st.pid_alive(0))
+        self.assertFalse(st.pid_alive(-1))
+        self.assertFalse(st.pid_alive("not an int"))  # type: ignore[arg-type]
+
+    def test_lock_module_imports_canonical_implementation(self) -> None:
+        from senpi_runtime_helpers import lock
+        self.assertIs(lock._process_alive, st.pid_alive)
+
+    def test_manage_module_imports_canonical_implementation(self) -> None:
+        from senpi_runtime_helpers import manage
+        self.assertIs(manage.is_pid_alive, st.pid_alive)
+
+    def test_cli_module_imports_canonical_implementation(self) -> None:
+        from senpi_runtime_helpers import cli
+        self.assertIs(cli._is_pid_alive, st.pid_alive)
+
+
 class LogPathDetectionTests(unittest.TestCase):
     def setUp(self) -> None:
         self._prev = os.environ.get("SENPI_HELPERS_LOG_PATH")

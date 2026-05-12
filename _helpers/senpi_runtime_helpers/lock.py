@@ -15,7 +15,6 @@ new inode and let two callers flock different inodes for the same path.
 # Licensed under MIT
 
 import contextlib
-import errno
 import fcntl
 import json
 import os
@@ -25,22 +24,7 @@ from typing import Iterator, Optional
 
 from . import _config as cfg
 from ._logging import log_event
-
-
-def _process_alive(pid: int) -> bool:
-    """Cheap liveness check via signal(0). Returns True if process exists and we have permission to signal it."""
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # Process exists but we can't signal it. Still alive.
-        return True
-    except OSError as e:
-        return e.errno != errno.ESRCH
+from .state import pid_alive as _process_alive  # canonical PID-liveness check
 
 
 def _lock_path(name: str, lock_dir: Optional[str]) -> Path:

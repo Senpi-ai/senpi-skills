@@ -33,23 +33,9 @@ from . import stats as _stats
 # ─── Helpers shared across subcommands ──────────────────────────────────────
 
 
-def _is_pid_alive(pid: Optional[int]) -> bool:
-    """Cheap liveness check via signal(0). Mirrors `lock.py._process_alive`.
-
-    Treats EPERM as "alive" — the process exists, we just can't signal it.
-    Returns False on None / 0 / negative / type-mismatch.
-    """
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
+# Canonical PID-liveness check lives in `state.py` — re-aliased locally so
+# existing call sites keep their idiomatic name without an extra import alias.
+_is_pid_alive = _state.pid_alive
 
 
 def _parse_iso(s: Optional[str]) -> Optional[datetime]:

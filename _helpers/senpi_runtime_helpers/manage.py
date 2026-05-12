@@ -27,6 +27,8 @@ import subprocess
 import time
 from typing import Any, Callable, Dict, List, Optional
 
+from .state import pid_alive as is_pid_alive  # canonical PID-liveness check
+
 
 # How long to wait after SIGKILL before declaring the process is unkillable.
 # The kernel reaps immediately but kill() returns before the post-reap state
@@ -43,22 +45,6 @@ STOP_KILL_OK = "stopped_via_sigkill"
 STOP_KILL_FAILED = "still_alive_after_sigkill"
 STOP_PERMISSION_DENIED = "permission_denied"
 STOP_INVALID_PID = "invalid_pid"
-
-
-def is_pid_alive(pid: Optional[int]) -> bool:
-    """Cheap liveness check via signal(0). Mirrors `lock.py._process_alive` and
-    `cli._is_pid_alive` — duplicated here so this module has no `cli` dep."""
-    if not isinstance(pid, int) or pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    except OSError:
-        return False
 
 
 def stop_pid(
