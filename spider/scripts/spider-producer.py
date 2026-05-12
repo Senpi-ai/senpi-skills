@@ -919,5 +919,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=3600,
         name=f"spider-producer-{_wallet_lock_id}",
+        wallet=SPIDER_WALLET,
+        scanner=SCANNER_NAME,
         tick_timeout=240,
     )

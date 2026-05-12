@@ -774,5 +774,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=60,           # Scorpion's v4.x cron was every 60s
         name=f"scorpion-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
         tick_timeout=120,
     )

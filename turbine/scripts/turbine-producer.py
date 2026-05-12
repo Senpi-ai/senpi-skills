@@ -618,18 +618,11 @@ if __name__ == "__main__":
         if VOLUME_WALLET
         else "unset"
     )
-    # NOTE: wallet=/scanner= are intentionally omitted. Passing them
-    # would enable /state alive_check (daemon self-terminates if the
-    # runtime is deleted or the scanner is renamed), but a prior
-    # runtime-host build hit a kwarg signature mismatch and disabled
-    # them. Keep disabled until re-validated on the in-tree SDK.
-    # When the host helpers package is upgraded, add back:
-    #   wallet=VOLUME_WALLET,
-    #   scanner=VOLUME_SCANNER_NAME,
-    # which enables /state alive_check on the volume runtime.
     producer_daemon(
         fn=main,
         interval_seconds=60,
         name=f"turbine-producer-{_wallet_lock_id}",
+        wallet=VOLUME_WALLET,
+        scanner=VOLUME_SCANNER_NAME,
         tick_timeout=45,
     )

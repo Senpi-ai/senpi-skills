@@ -751,5 +751,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=300,
         name=f"kestrel-producer-{_wallet_lock_id}",
+        wallet=KESTREL_WALLET,
+        scanner=SCANNER_NAME,
         tick_timeout=240,
     )

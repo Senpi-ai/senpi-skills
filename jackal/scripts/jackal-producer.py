@@ -621,5 +621,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=60,
         name=f"jackal-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
         tick_timeout=120,
     )

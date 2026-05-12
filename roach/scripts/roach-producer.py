@@ -622,5 +622,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=90,           # Roach's v2.x cron was every 90s
         name=f"roach-producer-{_wallet_lock_id}",
+        wallet=ROACH_WALLET,
+        scanner=SCANNER_NAME,
         tick_timeout=180,
     )

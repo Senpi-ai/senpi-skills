@@ -706,18 +706,11 @@ if __name__ == "__main__":
         if KODIAK_WALLET
         else "unset"
     )
-    # NOTE: wallet=/scanner= are intentionally omitted. Passing them
-    # would enable /state alive_check (daemon self-terminates if the
-    # runtime is deleted or the scanner is renamed), but a prior
-    # runtime-host build hit a kwarg signature mismatch and disabled
-    # them. Keep disabled until re-validated on the in-tree SDK.
-    # When the host helpers package is upgraded, add back:
-    #   wallet=KODIAK_WALLET,
-    #   scanner=SCANNER_NAME,
-    # which enables /state alive_check.
     producer_daemon(
         fn=main,
         interval_seconds=180,           # Kodiak's v6.x cron was every 3 min
         name=f"kodiak-producer-{_wallet_lock_id}",
+        wallet=KODIAK_WALLET,
+        scanner=SCANNER_NAME,
         tick_timeout=240,               # producer's WARN_OVER_180S budget + headroom
     )

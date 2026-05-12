@@ -696,5 +696,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=180,           # Polar's v4.x cron was every 3 min
         name=f"polar-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
         tick_timeout=240,
     )

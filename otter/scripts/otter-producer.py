@@ -748,5 +748,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=300,
         name=f"otter-producer-{_wallet_lock_id}",
+        wallet=OTTER_WALLET,
+        scanner=SCANNER_NAME,
         tick_timeout=240,
     )

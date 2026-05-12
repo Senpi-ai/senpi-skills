@@ -866,5 +866,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=180,           # Grizzly's v6.x cron was every 3 min
         name=f"grizzly-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
         tick_timeout=240,
     )

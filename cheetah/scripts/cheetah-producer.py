@@ -1008,18 +1008,11 @@ if __name__ == "__main__":
         if CHEETAH_WALLET
         else "unset"
     )
-    # NOTE: wallet=/scanner= are intentionally omitted. Passing them
-    # would enable /state alive_check (daemon self-terminates if the
-    # runtime is deleted or the scanner is renamed), but a prior
-    # runtime-host build hit a kwarg signature mismatch and disabled
-    # them. Keep disabled until re-validated on the in-tree SDK.
-    # When the host helpers package is upgraded, add back:
-    #   wallet=CHEETAH_WALLET,
-    #   scanner=SCANNER_NAME,
-    # which enables /state alive_check (auto-terminate on runtime delete).
     producer_daemon(
         fn=main,
         interval_seconds=300,
         name=f"cheetah-producer-{_wallet_lock_id}",
+        wallet=CHEETAH_WALLET,
+        scanner=SCANNER_NAME,
         tick_timeout=360,
     )

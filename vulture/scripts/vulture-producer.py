@@ -609,5 +609,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=60,            # Vulture's v3.x cron was every 60s
         name=f"vulture-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
         tick_timeout=120,
     )
