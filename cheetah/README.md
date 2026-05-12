@@ -21,7 +21,7 @@ Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 - Trade chain DB emits per-trade telemetry
 - **MIN_SCORE 10** (v5.2's 11 produced 8 days dormant; restored to 10)
 - Held-asset dedup (3-layer)
-- Post-close cooldown (Pangolin v2.1.2 pattern; backstops runtime per_asset_cooldown)
+- Post-close cooldown (producer-side backstop for the runtime `per_asset_cooldown` known-silent-bug)
 - All v5.2 scoring + leverage tiers + leverage-safety clamp preserved EXACTLY
 
 ## Thesis (preserved from v5.x)
@@ -220,7 +220,7 @@ openclaw cron delete <cheetah-cron-id>
 
 # 6. runtime.yaml unchanged — no need to drop+recreate the runtime.
 #    If you DO recreate it, do so only when there are no open positions
-#    (orphan-position bug: v2 runtime swap can leave baseline positions
+#    (orphan-position bug: runtime swap can leave baseline positions
 #    without DSL coverage).
 ```
 

@@ -18,7 +18,8 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
 # 🐆 CHEETAH v7.1.0 — Multi-Signal Confluence Sniper
@@ -71,7 +72,7 @@ Refuse to trade unless ALL major signals align simultaneously:
 | Quality trader | ≥ 1 ELITE/RELIABLE positioned same direction | +3 |
 | Rank climb | ≥ 5 positions in last 2 scans, top 15 | +1 |
 
-**Max score: 15. v6.0 floor: 10.** Universe is the top 100 SM leaderboard (`leaderboard_get_markets`), refreshed every cron tick. XYZ permanently banned.
+**Max score: 15. v6.0 floor: 10.** Universe is the top 100 SM leaderboard (`leaderboard_get_markets`), refreshed every producer tick. XYZ permanently banned.
 
 Score-scaled leverage:
 
@@ -101,11 +102,11 @@ v5.x used MARKET (taker) closes. v6.0's DSL fires `FEE_OPTIMIZED_LIMIT` on every
 2. LLM gate hard skip: `heldAssets` array in signal payload, LLM rejects if asset is held
 3. Runtime `per_asset_cooldown_minutes: 240` (known to silently not-enforce; layer 1+2 are the real defense)
 
-### Post-close cooldown (Pangolin v2.1.2 pattern)
+### Post-close cooldown (producer-side backstop)
 Diff `held_assets` across ticks. When asset disappears from held set, record close timestamp. Producer skips emission for 240 min after any close. Backstops the runtime cooldown bug.
 
-### Reentrancy lockfile
-fcntl-based lock at `state/<wallet-hash>/producer.lock`. Prevents two cron runs racing.
+### Reentrancy guard
+`producer_daemon` owns a per-tick `scanner_lock` with stale-PID auto-recovery — replaces v6.x's hand-rolled fcntl lockfile. Prevents two ticks racing.
 
 ## DSL preset (v6.0 — fleet-standard T0/T1 ladder)
 
@@ -143,9 +144,9 @@ See [README.md](README.md) for fresh-install + migration commands from v5.2.
 
 ## Fleet patches incorporated
 
-- ✓ **Held-asset dedup** (3-layer; v2.1 Pangolin pattern)
-- ✓ **Post-close cooldown** (v2.1.2 Pangolin pattern; runtime cooldown backstop)
-- ✓ **Fleet-standard T0/T1 ladder** (commit 6cad383 pattern)
+- ✓ **Held-asset dedup** (3-layer: producer pre-filter, LLM gate, runtime per_asset_cooldown)
+- ✓ **Post-close cooldown** (producer-side backstop for the runtime cooldown silent-enforcement bug)
+- ✓ **Fleet-standard T0/T1 ladder**
 - ✓ **Reentrancy guard** (v7.0.0: producer_daemon scanner_lock with stale-PID auto-recovery; replaces hand-rolled fcntl)
 - ✓ **Wallet-from-config** (no hardcoding; senpi-skills is public)
 - ✓ **drawdown_reset_on_day_rollover: false** (Roach lesson)
@@ -159,9 +160,9 @@ User-conversation Claude sessions MUST NOT call any of:
 `ratchet_stop_add`, `ratchet_stop_edit`, `ratchet_stop_delete`,
 `cancel_order`, `strategy_close`, `strategy_close_positions`.
 
-These tools are reserved for the **producer cron** (entry path) and the **DSL ratchet engine** (exit path). User-conversation sessions are **read-only**.
+These tools are reserved for the **producer daemon** (entry path) and the **DSL ratchet engine** (exit path). User-conversation sessions are **read-only**.
 
-If the user asks a question that implies action ("anything close to triggering?"), respond by reading the current state — DO NOT execute. The producer cron will handle real signals on its next tick.
+If the user asks a question that implies action ("anything close to triggering?"), respond by reading the current state — DO NOT execute. The producer daemon will handle real signals on its next tick.
 
 ## Skill Attribution
 

@@ -25,7 +25,9 @@ Six-layer plumbing flip (per migration-cookbook):
      Direct HTTP POST to runtime API on 127.0.0.1:8787/signals.
      CRITICAL: asset and direction are top-level routing fields;
      score stays inside data (Cheetah's score is unbounded int 0-16,
-     not 0..1 confidence — same Pangolin reference rationale).
+     not 0..1 confidence — different semantics than the standard
+     wire-format `score` field, so left in data to preserve the
+     unbounded integer).
   3. Reentrancy: hand-rolled fcntl flock dropped. producer_daemon
      owns the lock per tick via scanner_lock(name) — adds stale-PID
      auto-recovery via os.kill(pid, 0). Do NOT add an inner
@@ -33,8 +35,8 @@ Six-layer plumbing flip (per migration-cookbook):
   4. Tick scheduling: openclaw cron + agentTurn replaced by
      producer_daemon(fn=main, interval_seconds=300, ...). Long-lived
      Python process, no per-tick LLM cost.
-  5. Per-tick cache + parallel fan-out NOT adopted in v7.0.0 to match
-     Pangolin reference minimum-change pattern. Future opt-in.
+  5. Per-tick cache + parallel fan-out NOT adopted in v7.0.0 (kept
+     the minimum-change migration shape; future opt-in).
   6. /state alive_check: producer_daemon self-terminates if the
      runtime for CHEETAH_WALLET is deleted OR the cheetah_signals
      scanner is renamed. Default behavior — alive_check left unset.
@@ -45,22 +47,19 @@ v6.1 (2026-05-05) — Phase 2 T0 ladder calibration. No producer code
 changes. Runtime.yaml only: T0 trigger 5→3, T0 lock 35→40, T1 7/55,
 T2 15/70, T3 30/80, T4 50/90. First post-v6.0 trade (ZEC LONG score
 10, SM 22.85%/210t) peaked at +3.05% margin ROE — old T0 at 5%
-never armed; closed via Phase 1 retrace at -4.09% / -$9.68. Same
-Pangolin v2.2 fix. T0 at 3 captures the typical Cheetah small
-winner at 3x leverage.
+never armed; closed via Phase 1 retrace at -4.09% / -$9.68. T0 at
+3 captures the typical Cheetah small winner at 3x leverage.
 
-v6.0 — full v1 → v2 architecture migration:
-v5.x was a v1 full-agency scanner: scored signals, tracked counters,
+v6.0 — full architecture migration to producer + runtime pattern:
+v5.x was a full-agency scanner: scored signals, tracked counters,
 called create_position directly, maintained Python-side cooldowns and
-resting-order guards. v6.0 flips to producer + v2 runtime (Polar v4.0
-/ Pangolin v2.1 / Vulture v3.0 pattern).
+resting-order guards. v6.0 flips to producer + senpi-trading-runtime.
 
 ARCHITECTURE CHANGE:
   - Producer (cheetah-producer.py) emits signals via
     `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
-  - Runtime LLM gate (decision_mode: llm) is pass-through (Roach
-    pattern) — producer has applied every filter; LLM only catches
-    malformed signals.
+  - Runtime LLM gate (decision_mode: llm) is pass-through — producer
+    has applied every filter; LLM only catches malformed signals.
   - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-
     loss halt, per-asset cooldown (no Python state to drift / crash).
   - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits — saves
@@ -90,7 +89,7 @@ v6.0 CHANGES vs v5.2:
   - Architecture v1 → v2 (producer + runtime, not full-agency scanner)
   - FEE_OPTIMIZED_LIMIT on EXITS too (v5.2 only used it on entries)
   - Held-asset dedup (3-layer: producer + LLM gate + runtime cooldown)
-  - Post-close cooldown (Pangolin v2.1.2 pattern; backstop for runtime
+  - Post-close cooldown (producer-side backstop for the runtime
     per_asset_cooldown silent enforcement bug)
   - Reentrancy lockfile (fcntl)
   - Wallet from config/cheetah-config.json (canonical source)
@@ -177,8 +176,8 @@ _QUALITY_CACHE_FILE = _STATE_DIR / "quality-cache.json"
 
 MIN_SCORE_DEFAULT = 10                # v6.0 — restored from v5.2's 11
 ASSET_COOLDOWN_MINUTES = 240          # v5.2 carryover, post-emit
-POST_CLOSE_COOLDOWN_MINUTES = 240     # v6.0 — Pangolin v2.1.2 pattern;
-                                      # backstop for runtime per_asset_
+POST_CLOSE_COOLDOWN_MINUTES = 240     # v6.0 — producer-side backstop
+                                      # for the runtime per_asset_
                                       # cooldown_minutes silent non-
                                       # enforcement bug.
 MAX_POSITIONS = 1                     # v5.x carryover — sniper, not scalper
@@ -326,7 +325,7 @@ def save_trade_counter(tc):
 
 
 # ═══════════════════════════════════════════════════════════════
-# v6.0 POST-CLOSE COOLDOWN (Pangolin v2.1.2 pattern)
+# v6.0 POST-CLOSE COOLDOWN (producer-side runtime-cooldown backstop)
 # ═══════════════════════════════════════════════════════════════
 
 def load_last_closed():
@@ -773,13 +772,12 @@ def push_signal(payload):
 
     Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
 
-    SignalItem field mapping (per references/signal-schema.md and the
-    Pangolin TST 2026-05-05 incident):
+    SignalItem field mapping (per references/signal-schema.md):
       - top-level routing fields: address, scanner, asset, direction, signal_type
       - data block: scanner-config-validated fields only
       - score STAYS inside data — Cheetah's composite is unbounded int
-        0-16, not 0..1 confidence (different semantics; same Pangolin
-        v2.2 reference rationale).
+        0-16, not 0..1 confidence (different semantics than the
+        standard wire-format score field).
       - signal_type passed explicitly per signal so the runtime never
         relies on the scanner's defaultSignalType fallback (cheetah's
         runtime.yaml does not declare one). Keeps audit logs and the
@@ -887,7 +885,7 @@ def main():
             skipped_held += 1
             continue
 
-        # v6.0 post-close cooldown (Pangolin v2.1.2 pattern)
+        # v6.0 post-close cooldown (producer-side runtime-cooldown backstop)
         if is_in_post_close_cooldown(token):
             skipped_post_close += 1
             post_close_skips.append({
