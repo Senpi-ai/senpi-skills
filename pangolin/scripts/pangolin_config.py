@@ -43,10 +43,10 @@ CONFIG_PATH = SKILL_DIR / "config" / "pangolin-config.json"
 
 
 # ─── senpi_runtime_helpers (lazy + auth-validated) ───
-# `wrapped-skills` ships the helpers package alongside the skill so the
-# wrapper is always available. Import is sys.path-mounted at module load,
-# but the SenpiClient construction is deferred to first use via
-# `_get_wrapper_client()`. Two reasons for lazy:
+# The senpi_runtime_helpers package ships inside the senpi-trading-runtime
+# skill, so the SDK is always available once the runtime skill is installed.
+# Import is sys.path-mounted at module load, but the SenpiClient construction
+# is deferred to first use via `_get_wrapper_client()`. Two reasons for lazy:
 #   1. Importing pangolin_config (e.g. from a test, REPL, or a sibling
 #      module that wants `now_iso()`) shouldn't instantiate a network
 #      client or write to stderr.
@@ -54,9 +54,9 @@ CONFIG_PATH = SKILL_DIR / "config" / "pangolin-config.json"
 #      token raises loudly here instead of silently producing a 401 on
 #      the first MCP call.
 
-_helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
-if _helpers_path not in sys.path:
-    sys.path.insert(0, _helpers_path)
+_sdk_path = str(Path(WORKSPACE) / "skills" / "senpi-trading-runtime")
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
 from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore
 
 
@@ -70,7 +70,7 @@ def _get_wrapper_client() -> SenpiClient:
             "Railway service variable) before starting the producer."
         )
     client = SenpiClient()
-    log_event("pangolin_wrapper_enabled", helpers_path=_helpers_path)
+    log_event("pangolin_wrapper_enabled", sdk_path=_sdk_path)
     return client
 
 
