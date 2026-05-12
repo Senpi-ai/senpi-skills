@@ -12,22 +12,16 @@ is the **operator** reference.
 
 ## Invocation
 
-Both forms are equivalent:
+Invoke the wrapper script:
 
 ```bash
-# Direct wrapper script (recommended for operators)
 ${OPENCLAW_WORKSPACE:-/data/workspace}/skills/_helpers/senpi-helpers <subcommand> [args]
-
-# Via the Python package (works anywhere senpi_runtime_helpers is importable)
-python3 -m senpi_runtime_helpers.cli <subcommand> [args]
 ```
 
-The wrapper script lives at `${OPENCLAW_WORKSPACE}/skills/_helpers/senpi-helpers`
-and is marked executable. `OPENCLAW_WORKSPACE` defaults to `/data/workspace` on
-Railway boxes provisioned from the standard template, but the skill can be
-installed under any path — the wrapper finds the package via its own directory
-regardless. The `python3 -m senpi_runtime_helpers.cli` form is install-path
-agnostic; use it from any cwd as long as the package is importable.
+The wrapper lives at `${OPENCLAW_WORKSPACE}/skills/_helpers/senpi-helpers`
+and is marked executable. `OPENCLAW_WORKSPACE` defaults to `/data/workspace`
+on Railway boxes from the standard template; the skill can be installed
+under any path — the wrapper finds the package via its own directory.
 
 Alias it for convenience:
 

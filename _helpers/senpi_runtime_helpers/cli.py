@@ -1,8 +1,7 @@
 """senpi-helpers CLI — operator interface for senpi_runtime_helpers daemons.
 
-Invocation paths (both work the same):
-    /data/workspace/skills/_helpers/senpi-helpers <subcommand> [args]
-    python3 -m senpi_runtime_helpers.cli <subcommand> [args]
+Invocation:
+    ${OPENCLAW_WORKSPACE}/skills/_helpers/senpi-helpers <subcommand> [args]
 
 The CLI is a thin reader + signaler over the self-describing state files
 written by `producer_daemon` (`pid.json`, `boot.json`, `heartbeat.json`
