@@ -198,11 +198,23 @@ def run_leader_reversal_veto(wallet: str, open_positions: List[Dict[str, Any]]) 
             current_leader_pct=current_leader_pct,
         )
 
+        # v6.0 fee policy: veto close uses FEE_OPTIMIZED_LIMIT with
+        # taker fallback. The veto is "thesis died, get out" — but
+        # ensureExecutionAsTaker gives execution certainty (30s ALO
+        # then falls to taker). Worst case fee = MARKET would be; best
+        # case saves 0.030% per close. Half the DSL exit timeout (30s
+        # vs 60s) because vetos are slightly more time-sensitive than
+        # retrace-based DSL exits.
         try:
             cfg.mcp_call(
                 "close_position",
                 strategyWalletAddress=wallet,
                 asset=asset,
+                orderType="FEE_OPTIMIZED_LIMIT",
+                feeOptimizedLimitOptions={
+                    "ensureExecutionAsTaker": True,
+                    "executionTimeoutSeconds": 30,
+                },
             )
             closed += 1
             state.clear_position_metadata(asset)

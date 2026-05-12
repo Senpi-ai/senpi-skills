@@ -83,7 +83,7 @@ Match the leader: positive leader 4h move → LONG the laggard, negative → SHO
 
 ## Exit logic — three layers in priority order
 
-1. **Leader-reversal veto** (producer-side, v6.0 wired correctly) — every 60s tick, Mantis checks the current 4h leader move vs. the leader's move at entry. If the leader has reversed by >1.0% from entry, Mantis calls `close_position` directly. The thesis was the leader's move; if it dies, the trade dies.
+1. **Leader-reversal veto** (producer-side, v6.0 wired correctly) — every 60s tick, Mantis checks the current 4h leader move vs. the leader's move at entry. If the leader has reversed by >1.0% from entry, Mantis calls `close_position` directly with `orderType: FEE_OPTIMIZED_LIMIT` + `ensureExecutionAsTaker: true`, 30s ALO timeout. The thesis was the leader's move; if it dies, the trade dies — but maker-first with a guaranteed taker fallback saves 0.030% per maker-filled close. Half the DSL exit timeout (30s vs 60s) because vetos are slightly more time-sensitive than retrace-based DSL exits.
 
 2. **Dynamic hard timeout** (producer-side, via signal data) — `avg_lag_minutes × 1.5`, clamped to [30, 240] minutes, passed in signal `data.hardTimeoutMinutes`. If the alt hasn't caught up within that window, the catchup probably isn't happening — DSL `hard_timeout: 240` ceiling backstops.
 
