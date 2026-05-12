@@ -11,7 +11,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0.0"
+  version: "3.0.1"
   platform: senpi
   exchange: hyperliquid
   config_source: striker-only-experiment
