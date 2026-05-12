@@ -9,10 +9,10 @@ Thin wrapper that:
   2. Dispatches to `senpi_runtime_helpers.cli.main()`.
 
 Run from anywhere:
-    /data/workspace/skills/senpi-trading-runtime/senpi-helpers list
+    ~/.openclaw/skills/senpi-trading-runtime/senpi-helpers list
 
 Or alias it:
-    alias senpi-helpers=/data/workspace/skills/senpi-trading-runtime/senpi-helpers
+    alias senpi-helpers=~/.openclaw/skills/senpi-trading-runtime/senpi-helpers
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT

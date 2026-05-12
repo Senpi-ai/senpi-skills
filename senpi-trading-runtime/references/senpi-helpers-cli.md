@@ -18,10 +18,7 @@ Invoke the wrapper script:
 ~/.openclaw/skills/senpi-trading-runtime/senpi-helpers <subcommand> [args]
 ```
 
-The wrapper lives at `~/.openclaw/skills/senpi-trading-runtime/senpi-helpers` (e.g. `/data/.openclaw/skills/senpi-trading-runtime/senpi-helpers` on Railway).
-and is marked executable. `OPENCLAW_WORKSPACE` defaults to `/data/workspace`
-on Railway boxes from the standard template; the wrapper finds the
-`senpi_runtime_helpers` package via its own sibling directory.
+The wrapper lives at `~/.openclaw/skills/senpi-trading-runtime/senpi-helpers` (e.g. `/data/.openclaw/skills/senpi-trading-runtime/senpi-helpers` on Railway hosts) and is marked executable. The wrapper finds the `senpi_runtime_helpers` package via its own sibling directory.
 
 Alias it for convenience:
 
@@ -297,7 +294,7 @@ Every daemon writes (and the CLI reads) three files under
 
 ```
 <state_dir>/
-├── pangolin-tracker-6e92/
+├── my-producer-6e92/
 │   ├── pid.json         # pid, start_time_iso, wallet, scanner, interval,
 │   │                    # tick_timeout, log_path, version. REMOVED on clean exit.
 │   ├── boot.json        # argv, script_path, cwd, env_snapshot.
@@ -335,7 +332,7 @@ Look for `RUNNING=yes` and a recent `LAST_TICK`.
 ### "Are the signals reaching the runtime?"
 
 ```bash
-senpi-helpers stats pangolin-tracker-6e92 --hours 1
+senpi-helpers stats my-producer-6e92 --hours 1
 ```
 
 Check `Totals → Signals posted`. Failures broken down by code.
@@ -343,16 +340,16 @@ Check `Totals → Signals posted`. Failures broken down by code.
 ### "What's going wrong?"
 
 ```bash
-senpi-helpers health pangolin-tracker-6e92
+senpi-helpers health my-producer-6e92
 ```
 
 If `health` is `last_tick_failed` or `stale_ticks`, follow up with
-`senpi-helpers stats pangolin-tracker-6e92 --hours 1` for error histograms.
+`senpi-helpers stats my-producer-6e92 --hours 1` for error histograms.
 
 ### "I changed an env var; the daemon needs a fresh start."
 
 ```bash
-senpi-helpers restart pangolin-tracker-6e92
+senpi-helpers restart my-producer-6e92
 ```
 
 `restart` inherits the CLI's current env, so the new env var lands.
@@ -360,7 +357,7 @@ senpi-helpers restart pangolin-tracker-6e92
 ### "Stop the daemon — I need to debug."
 
 ```bash
-senpi-helpers stop pangolin-tracker-6e92
+senpi-helpers stop my-producer-6e92
 ```
 
 Clean SIGTERM. The daemon clears its own pid.json on exit; the next
@@ -369,7 +366,7 @@ Clean SIGTERM. The daemon clears its own pid.json on exit; the next
 ### "It's wedged. Hard-stop it."
 
 ```bash
-senpi-helpers stop pangolin-tracker-6e92 --timeout 5
+senpi-helpers stop my-producer-6e92 --timeout 5
 ```
 
 Short timeout = quick escalation to SIGKILL. After SIGKILL the CLI
@@ -385,8 +382,8 @@ under supervisord, systemd, or another supervisor that doesn't redirect
 stderr to a file, set the path explicitly:
 
 ```bash
-SENPI_HELPERS_LOG_PATH=/var/log/pangolin.log \
-  python3 -u /data/workspace/senpi-skills-src/pangolin/scripts/pangolin-producer.py &
+SENPI_HELPERS_LOG_PATH=/var/log/<skill>-producer.log \
+  python3 -u ${OPENCLAW_WORKSPACE}/skills/<skill-name>/scripts/<skill-name>-producer.py &
 ```
 
 The daemon records this in `pid.json.log_path`; `stats` and `restart`

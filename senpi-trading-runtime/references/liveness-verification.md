@@ -112,14 +112,14 @@ Each daemon writes a `pid.json` and `heartbeat.json` under `${SENPI_HELPERS_STAT
 {
   "daemons": [
     {
-      "name": "pangolin-a919c1e2",
+      "name": "my-producer-a919c1e2",
       "wallet": "0xa919c1e2…",
-      "scanner": "pangolin_signals",
+      "scanner": "my_signals",
       "running": true,
       "interval_seconds": 300,
       "last_tick_iso": "2026-05-12T15:31:00Z",
       "last_tick_status": "ok",
-      "log_path": "/tmp/pangolin-producer.log"
+      "log_path": "/tmp/my-producer.log"
     },
     …
   ]
