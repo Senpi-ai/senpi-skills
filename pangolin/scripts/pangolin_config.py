@@ -78,10 +78,29 @@ class _WrapperClientProxy:
     """Module-level attribute that defers SenpiClient construction until first
     attribute access. Preserves the legacy `cfg._wrapper_client.mcp_call(...)`
     call shape used by the producer + scanner without forcing eager
-    instantiation at import time."""
+    instantiation at import time.
+
+    All three of `__getattr__`, `__setattr__`, `__delattr__` are forwarders —
+    the proxy holds NO state of its own. `__getattr__` alone is not enough:
+    `__setattr__` is always called on assignment (it's not a fallback like
+    `__getattr__`), so without delegation a stray `cfg._wrapper_client.X = Y`
+    would land on the proxy's `__dict__` and a subsequent `cfg._wrapper_client.X`
+    would find it via normal lookup, bypassing `__getattr__` entirely — i.e. a
+    disconnected attribute that is invisible to the real `SenpiClient`. The
+    canonical example is `cache.py`'s `setattr(client, "_cache", new_cache)`
+    fallback path. SenpiClient now eager-inits `_cache` so that exact path is
+    unreachable today, but the same hazard exists for any future caller that
+    writes to the proxy. Delegate both ways to close it permanently.
+    """
 
     def __getattr__(self, name: str):
         return getattr(_get_wrapper_client(), name)
+
+    def __setattr__(self, name: str, value) -> None:
+        setattr(_get_wrapper_client(), name, value)
+
+    def __delattr__(self, name: str) -> None:
+        delattr(_get_wrapper_client(), name)
 
 
 _wrapper_client = _WrapperClientProxy()
