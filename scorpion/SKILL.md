@@ -154,19 +154,18 @@ TELEGRAM_CHAT_ID=... \
 SCORPION_DECISION_MODEL=gemini-2.5-pro \
   openclaw senpi runtime create --path /data/workspace/skills/scorpion-tracker/runtime.yaml
 
-# 3. Schedule the producer (60s cadence)
-openclaw cron add \
-  --name "scorpion-v4-producer" \
-  --cron "* * * * *" \
-  --session isolated \
-  --wake now \
-  --message "Run \`SENPI_API_KEY=\${SENPI_API_KEY} STRATEGY_ADDRESS=0x... python3 /data/workspace/skills/scorpion-tracker/scripts/scorpion-producer.py >> /var/log/openclaw/scorpion-v4.log 2>&1\` and report success/failure in this log." \
-  --no-deliver
+# 3. Launch the producer daemon (60s tick).
+SENPI_AUTH_TOKEN=<your-token> \
+SCORPION_WALLET=0x... \
+  nohup python3 -u /data/workspace/skills/scorpion-tracker/scripts/scorpion-producer.py \
+  > /tmp/scorpion-producer.log 2>&1 &
 
 # 4. Verify
 openclaw senpi runtime list | grep scorpion
 openclaw senpi status --runtime scorpion-tracker
-tail -f /var/log/openclaw/scorpion-v4.log
+senpi-helpers list                                          # daemon visible with recent LAST_TICK
+senpi-helpers health scorpion-<wallet-suffix>               # exit 0 = healthy
+senpi-helpers stats scorpion-<wallet-suffix> --hours 1      # signals posted + error histogram
 ```
 
 ## Verify the LLM gate is doing work
