@@ -1,25 +1,26 @@
 ---
 name: roach-strategy
 description: >-
-  ROACH v2.0 — Striker-only scanner with v2-runtime-native architecture +
-  maker-exit fee recovery. Stalker permanently disabled. Only trades violent
-  FIRST_JUMP / IMMEDIATE_MOVER explosions backed by 1.5x volume, 1h price
-  alignment, and 4h trend agreement. Producer emits signals to the runtime;
-  runtime LLM gates them, executes via FEE_OPTIMIZED_LIMIT (maker-first),
-  and manages DSL exits autonomously. Long stretches of silence are
-  EXPECTED and correct — the patience is the edge.
+  ROACH v3.0.0 — Striker-only scanner, senpi_runtime_helpers migration.
+  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
+  to in-process SenpiClient. Thesis preserved verbatim from v2.1.0:
+  Stalker permanently disabled, only trades violent FIRST_JUMP /
+  IMMEDIATE_MOVER explosions backed by 1.5x volume, 1h price alignment,
+  4h trend agreement. Long stretches of silence are EXPECTED — the
+  patience is the edge.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
   config_source: striker-only-experiment
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
 ---
 
-# 🪳 ROACH v2.0 — Striker Only. v2-Runtime-Native. Maker Exits.
+# 🪳 ROACH v3.0.0 — Striker Only. senpi_runtime_helpers.
 
 Cockroaches survive anything. ROACH survives by not trading when there's no explosion.
 

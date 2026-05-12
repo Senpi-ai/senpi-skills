@@ -1,24 +1,43 @@
-# 🐉 HYDRA v2.0 — Squeeze Detector
+# Hydra — Squeeze Detector
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.0.0
 
 ## Thesis
 
-Finds crowded trades about to unwind. Funding extreme + SM positioned against the crowd + price starting to move = squeeze. Goes opposite to the funding crowd. Only liquid assets ($20M+ daily volume).
+Squeeze detector — finds crowded trades about to unwind. Funding extreme + SM against crowd + price starting to move.
 
-v1.0 had 20% win rate trading illiquid garbage on minimum conviction. v2.0: clean 2-source scanner (funding + SM divergence), $20M volume gate, direction-agnostic.
+See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
 
-## Key Settings
+## Scoring components
 
-| Setting | Value |
-|---|---|
-| Leverage | 7x |
-| Max positions | 2 |
-| Min score | 7 |
-| Min daily volume | $20M |
-| DSL hard timeout | 180 min |
-| Phase 2 tiers | 6 tiers: 5%/25% → 50%/90% |
+Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
 
-## License
+## Entry / Exit
 
-MIT — Copyright 2026 Senpi (https://senpi.ai)
+- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
+- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
+- **Time cuts:** See `dsl:` config in runtime.yaml.
+
+## Fleet rules applied
+
+- Standard fleet drawdown gate.
+- Fee budget tracking via shared infra.
+- Producer reentrancy guard via fcntl lockfile (Runtime 2.0 only).
+
+## Configuration
+
+Operator-specific values configured at deploy time.
+
+## Recent version notes
+
+```
+Squeeze detector — finds crowded trades about to unwind.
+Funding extreme + SM against crowd + price starting to move.
+Squeezes cascade over hours. Wide timeouts, no time-based cuts.
+```
+
+## Related
+
+- Top-level repo README: `../README.md`
+- Runtime spec: `../senpi-trading-runtime/`
+- DSL plugin: `../dsl-dynamic-stop-loss/`

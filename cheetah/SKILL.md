@@ -1,25 +1,62 @@
 ---
 name: cheetah-strategy
 description: >-
-  CHEETAH v6.0 — Multi-signal confluence sniper, v2-runtime-native rewrite.
-  Refuses to trade unless ALL major signals align: SM consensus, velocity,
-  acceleration, dual price confirmation, volume spike, quality-trader
-  alignment, rank climb. Score 10/15 floor with score-scaled leverage
-  (3x/5x/7x/8x). Producer + runtime LLM gate + FEE_OPTIMIZED_LIMIT
-  entries AND exits + held-asset dedup + post-close cooldown.
+  CHEETAH v7.0.0 — Multi-signal confluence sniper, senpi_runtime_helpers
+  migration. Plumbing-only flip from openclaw-CLI subprocess + mcporter
+  subprocess to in-process SenpiClient (direct HTTPS for MCP, direct
+  HTTP POST to runtime /signals, long-lived producer_daemon). Thesis
+  preserved verbatim from v6.1: refuses to trade unless ALL major
+  signals align — SM consensus, velocity, acceleration, dual price
+  confirmation, volume spike, quality-trader alignment, rank climb.
+  Score 10/15 floor, score-scaled leverage (3x/5x/7x/8x),
+  FEE_OPTIMIZED_LIMIT entries AND exits, held-asset dedup, post-close
+  cooldown.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "6.0.0"
+  version: "7.1.1"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=2.0.0
+    - senpi-runtime-helpers
 ---
 
-# 🐆 CHEETAH v6.0 — Multi-Signal Confluence Sniper
+# 🐆 CHEETAH v7.1.0 — Multi-Signal Confluence Sniper
 
 **SM commits. Quality traders commit. Price confirms. Volume commits. All at once. Cheetah pounces once. The runtime DSL ratchets to lock the win.**
+
+## v7.1.1 (2026-05-11) — positions parser fix (patch)
+
+Live verification of v7.1.0 found `positions_map` was STILL empty even though the widened filter returned the full 25-trader pool. Root cause: `leaderboard_get_trader_positions` actually returns
+
+```
+{ "data": { "positions": { "trader_id": ..., "rank": ..., "positions": [...] } } }
+```
+
+— the per-trader positions array is nested one level deeper than the schema guide documents. The v7.0/v7.1 parser looked at `data.positions` expecting a list, got a dict, hit `if not isinstance(positions, list): continue` and silently skipped every trader.
+
+v7.1.1 parser handles BOTH shapes:
+- list-direct (matches schema guide)
+- nested-dict `{trader_id, rank, positions: [...]}` (actual prod response)
+
+Plus a `POSITIONS_SHAPE_WARN` log line for any future schema drift.
+
+NO change to scoring components, MIN_SCORE, leverage tiers, margin, cooldowns, or DSL. Same thesis. Now the +3 QUALITY_TRADER bonus can actually fire when the per-asset overlap exists.
+
+## v7.1.0 (2026-05-11) — quality-trader filter widened (patch)
+
+Post-migration diagnostic on the live wallet revealed `quality-cache.json` was always empty (`positions_map = {}`). Root cause: `discovery_get_top_traders(time_frame=WEEKLY, consistency=[ELITE,RELIABLE], open_position_filter=True, limit=8)` returned **zero traders** under the current platform regime. With no quality-trader pool, the +3 `QUALITY_TRADER` scoring bonus never fires; candidates cap at score 8 (needs 4-of-4 secondary confluence to reach the MIN_SCORE=10 floor without that bonus), and that 4-of-4 only hits in strong-trending regimes.
+
+Filter changes (live-verified):
+- `time_frame: WEEKLY → MONTHLY` — broader history, more traders accumulate ELITE/RELIABLE labels
+- `consistency: [ELITE, RELIABLE] → [ELITE, RELIABLE, STREAKY]` — slight loosen at the lower end
+- `limit: 8 → 25` — wider pool surfaces more per-asset overlap
+- `open_position_filter` dropped — the per-trader `leaderboard_get_trader_positions` fetch already filters flat traders implicitly via empty position arrays
+
+NO change to scoring components, weights, MIN_SCORE, leverage tiers, margin, cooldowns, or DSL. Same thesis, wider input.
+
+Telemetry: producer now emits a `QT_POOL_WARN` log line whenever the trader pool is unhealthily small (< QT_POOL_SIZE / 2) or positions_map ends up empty. Future regressions surface in one grep instead of post-hoc archaeology.
 
 ## v6.0 thesis (preserved from v5.x)
 
@@ -110,9 +147,10 @@ See [README.md](README.md) for fresh-install + migration commands from v5.2.
 - ✓ **Held-asset dedup** (3-layer; v2.1 Pangolin pattern)
 - ✓ **Post-close cooldown** (v2.1.2 Pangolin pattern; runtime cooldown backstop)
 - ✓ **Fleet-standard T0/T1 ladder** (commit 6cad383 pattern)
-- ✓ **Reentrancy lockfile** (fcntl)
+- ✓ **Reentrancy guard** (v7.0.0: producer_daemon scanner_lock with stale-PID auto-recovery; replaces hand-rolled fcntl)
 - ✓ **Wallet-from-config** (no hardcoding; senpi-skills is public)
 - ✓ **drawdown_reset_on_day_rollover: false** (Roach lesson)
+- ✓ **senpi_runtime_helpers** (v7.0.0: in-process MCP + signal POST; replaces mcporter + openclaw-CLI subprocess)
 - ✗ **FP-001 quiet hours** — deferred until fleet telemetry can validate the time-of-day P&L correlation
 
 ## Hard rule for user-conversation Claude sessions
@@ -125,6 +163,10 @@ User-conversation Claude sessions MUST NOT call any of:
 These tools are reserved for the **producer cron** (entry path) and the **DSL ratchet engine** (exit path). User-conversation sessions are **read-only**.
 
 If the user asks a question that implies action ("anything close to triggering?"), respond by reading the current state — DO NOT execute. The producer cron will handle real signals on its next tick.
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
 
 ## License
 

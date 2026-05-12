@@ -1,31 +1,43 @@
-# 🐍 COBRA v1.0 — Arena Sprint Predator
+# Cobra — Arena Sprint Predator
 
-**SM dominates. Cobra strikes. One asset. Maximum conviction.**
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.0.0
 
-Cobra is built for one purpose: win Arena weekly competitions.
+## Thesis
 
-## Quick Stats
-- **Strategy**: Trade the #1 SM dominant asset with concentrated margin
-- **Margin**: $400 per trade (40% of $1K budget)
-- **Leverage**: 10x majors, 5x others  
-- **Entry threshold**: Score 5/8 (lower = catches moves earlier)
-- **Max positions**: 1 at a time
-- **Timeout**: 60 minutes (fast cycling)
-- **Daily cap**: 4 entries, 60-min cooldown
+COBRA v1.1 — Arena Sprint Predator. Trades the #1 SM dominant asset
 
-## How It Works
-1. Every 90 seconds, checks which asset has the highest SM concentration
-2. If SM dominance is >10% and score reaches 5+, enters with full conviction
-3. DSL manages the position with fast-cycling profit locks
-4. Exits within 60 minutes, ready to re-enter
+See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
 
-## Performance Target
-- 3-4 winning trades per week at 5%+ move each
-- At 10x leverage on $400 margin: 5% move = $200 profit = 20% ROE
-- Weekly target: +30-60% ROE
+## Scoring components
 
-## Install
-See [SKILL.md](SKILL.md) for full setup instructions.
+Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
 
-## License
-MIT — Built by [Senpi](https://senpi.ai)
+## Entry / Exit
+
+- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
+- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
+- **Time cuts:** See `dsl:` config in runtime.yaml.
+
+## Fleet rules applied
+
+- Standard fleet drawdown gate.
+- Fee budget tracking via shared infra.
+- Producer reentrancy guard via fcntl lockfile (Runtime 2.0 only).
+
+## Configuration
+
+Operator-specific values configured at deploy time.
+
+## Recent version notes
+
+```
+COBRA v1.1 — Arena Sprint Predator. Trades the #1 SM dominant asset
+with maximum conviction. Wide DSL to let positions breathe,
+fewer trades with bigger impact.
+```
+
+## Related
+
+- Top-level repo README: `../README.md`
+- Runtime spec: `../senpi-trading-runtime/`
+- DSL plugin: `../dsl-dynamic-stop-loss/`

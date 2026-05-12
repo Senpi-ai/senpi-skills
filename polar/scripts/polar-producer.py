@@ -1,64 +1,43 @@
 #!/usr/bin/env python3
-# Senpi POLAR Producer v4.0.0
+# Senpi POLAR Producer v5.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""POLAR v4.0.0 Producer — ETH alpha signal emitter for v2 runtime.
+"""POLAR v5.0.0 Producer — senpi_runtime_helpers migration.
 
-v3.x was a full-agency scanner that called create_position directly,
-maintained Python-side trade counters, cooldowns, and resting-order
-guards. v4.0 flips to producer + v2 runtime (Vulture v3.0 / Scorpion
-v4.x pattern).
+v5.0.0 (2026-05-08) — plumbing migration from openclaw-CLI subprocess
++ mcporter subprocess to senpi_runtime_helpers in-process wrapper.
+NO thesis change. ETH single-asset hybrid, hyperfeed SM gates,
+structural gates, multi-factor scoring (~17 max), conviction-tiered
+leverage (5x/7x/10x), MIN_SCORE 12, FP-001 quiet hours — all
+preserved verbatim from v4.2.0.
 
-ARCHITECTURE CHANGE:
-  - Producer (polar-producer.py) emits signals via
-    `openclaw senpi external-scanner ingest`. NO execution code.
-  - Runtime LLM gate (decision_mode: llm) is pass-through (Roach
-    pattern) — producer has applied every filter; LLM only catches
-    malformed signals.
-  - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-
-    loss halt, per-asset cooldown (no Python state to drift / crash).
-  - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits — saves
-    ~0.020-0.030% per maker-filled close vs v3.x MARKET orders.
-  - Trade chain DB emits LIFECYCLE / DECISION_EXECUTED / ACTION_RESULT
-    / DSL_CREATED / DSL_CLOSED for every trade — telemetry restored.
+Six-layer plumbing flip per migration-cookbook (matches Cheetah v7.0.0
+/ Kodiak v7.0.0 / Pangolin v2.2 patterns):
+  1. MCP calls — cfg.mcporter_call() shim now routes through
+     SenpiClient.mcp_call() (direct HTTPS).
+  2. Signal emit — subprocess.run(["openclaw","senpi","external-scanner",
+     "ingest"...]) replaced by cfg._wrapper_client.push_signal(...).
+     Direct HTTP POST to runtime API on 127.0.0.1:8787/signals.
+     Per Rachin's review of Cheetah PR #209: signal_type passed as
+     explicit kwarg ("POLAR_ETH_HYBRID"), no dead fields in payload.
+  3. Reentrancy — hand-rolled fcntl flock dropped. producer_daemon
+     owns per-tick scanner_lock with stale-PID auto-recovery.
+  4. Tick scheduling — openclaw cron + agentTurn replaced by
+     producer_daemon (long-lived process; zero per-tick LLM cost).
+  5. Per-tick cache + parallel fan-out NOT adopted (matches Pangolin
+     reference minimum-change pattern).
+  6. /state alive_check — wallet=/scanner= kwargs NOT passed to
+     producer_daemon per fleet-fix commit 4f0c15e (host helpers
+     package doesn't accept those kwargs yet). Restoration path
+     documented at the bottom of the file.
 
-WHAT'S PRESERVED FROM v3.0.6:
-  - ETH single-asset thesis
-  - Hyperfeed SM gates (pct≥5%, traders≥30, cc_15m≥0.3 acceleration)
-  - Structural gates (4h trend != NEUTRAL, 4h trend matches SM
-    direction, 1h matches 4h, 15m momentum aligned, RSI not extreme)
-  - Multi-factor scoring (~17 max points across base-tech, SM
-    concentration, SM velocity, SM accelerating, trader depth,
-    funding, OI velocity, BTC correlation, RSI room, 4h momentum,
-    move-exhaustion penalty)
-  - MIN_SCORE = 12 (default; config-overridable). v4.2 restored from
-    v4.0/v4.1's 14 (which silently regressed v3.0's over-strict floor).
-  - Conviction-tiered leverage (5x standard / 7x conviction / 10x apex)
-  - DSL preset: time-cuts disabled, Phase 1 max_loss 25% / retrace 8 /
-    3 breaches, Phase 2 leverage-aware ladder
-
-FLEET PATCHES:
-  - FP-001 quiet hours (00-04 UTC unless apex score 17+)
-  - FP-002 hard rule in SKILL.md (user-conversation Claude sessions
-    are read-only — only producer cron + DSL engine are write paths)
-
-Environment / config resolution:
-  Strategy wallet is read from config/polar-config.json (canonical
-  source). POLAR_WALLET_ADDRESS env var supported as optional
-  override but NOT required for routine cron runs.
-
-  SENPI_API_KEY              — MCP access (required)
-  POLAR_WALLET_ADDRESS       — optional override; defaults to config.wallet
-  SENPI_MCP_URL              — optional, default https://mcp.prod.senpi.ai/mcp
-  OPENCLAW_BIN               — optional, default "openclaw"
-  EXTERNAL_SCANNER_NAME      — optional override (default "polar_signals")
+v4.2.0 thesis preserved unchanged.
 """
 
-import fcntl
+import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -67,43 +46,25 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import polar_config as cfg
 
-
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD (fleet-standard fcntl pattern)
-# ═══════════════════════════════════════════════════════════════
-
-_LOCK_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "polar-strategy" / "state"
-_LOCK_DIR.mkdir(parents=True, exist_ok=True)
-_LOCK_PATH = _LOCK_DIR / "producer.lock"
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-def acquire_lock():
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
+VERSION = "5.0.0"
+
+# Hardcoded — must match runtime.yaml external_scanner.name. Removing
+# the env var override eliminates a source of mismatch.
+SCANNER_NAME = "polar_signals"
+
+# Signal type passed explicitly to push_signal() per Rachin's review
+# of Cheetah PR #209. Don't rely on scanner's defaultSignalType
+# fallback — runtime YAMLs commonly don't declare one.
+SIGNAL_TYPE = "POLAR_ETH_HYBRID"
 
 
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
-
-
-VERSION = "4.2.0"
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "polar_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+# Reentrancy guard removed in v5.0.0. producer_daemon owns the
+# per-tick scanner_lock with stale-PID auto-recovery via os.kill(pid, 0).
+# Do NOT add an inner scanner_lock(...) inside main() — fcntl flock
+# is not reentrant; nested call raises BlockingIOError every tick.
 
 
 def _resolve_wallet():
@@ -582,6 +543,14 @@ def build_eth_thesis():
 # ═══════════════════════════════════════════════════════════════
 
 def push_signal(thesis, held_assets):
+    """Push a signal payload to the runtime via senpi_runtime_helpers.
+
+    Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
+    asset/direction/signal_type at top-level kwargs (Rachin's PR #209
+    review). Score normalized 0..1 for SignalItem.score (Polar's
+    composite score 0-20 scaled), with raw int score also inside
+    `data` for telemetry.
+    """
     if not STRATEGY_ADDRESS:
         print(
             "ERROR: strategy wallet not resolved — set 'wallet' in "
@@ -598,54 +567,46 @@ def push_signal(thesis, held_assets):
     sm = thesis["sm"]
     mom = thesis["mom"]
 
-    payload = {
-        "asset": ASSET,
-        "direction": thesis["direction"],
-        "score": thesis["score"] / 20.0,  # normalize 0-1 (theoretical max ~20)
-        "signal_type": "POLAR_ETH_HYBRID",
-        "data": {
-            "score": thesis["score"],
-            "tier": tier_label,
-            "leverage": leverage,
-            "reasons": thesis["reasons"],
-            "smPct": sm["pct"],
-            "smTraders": sm["traders"],
-            "smCc15m": sm["cc_15m"],
-            "smCc1h": sm["cc_1h"],
-            "smCc4h": sm["cc_4h"],
-            "trend4h": thesis["trend_4h"],
-            "trendStrength4h": thesis["trend_strength_4h"],
-            "rsi": thesis["rsi"],
-            "funding": thesis["funding"],
-            "oiChange1h": thesis.get("oi_change_1h"),
-            "priceChange5m": mom["5m"],
-            "priceChange15m": mom["15m"],
-            "priceChange1h": mom["1h"],
-            "priceChange4h": mom["4h"],
-            "btcMom15m": thesis.get("btc_mom_15m"),
-            "btcMom1h": thesis.get("btc_mom_1h"),
-            "heldAssets": held_assets,
-        },
+    data_block = {
+        "score": thesis["score"],
+        "tier": tier_label,
+        "leverage": leverage,
+        "reasons": thesis["reasons"],
+        "smPct": sm["pct"],
+        "smTraders": sm["traders"],
+        "smCc15m": sm["cc_15m"],
+        "smCc1h": sm["cc_1h"],
+        "smCc4h": sm["cc_4h"],
+        "trend4h": thesis["trend_4h"],
+        "trendStrength4h": thesis["trend_strength_4h"],
+        "rsi": thesis["rsi"],
+        "funding": thesis["funding"],
+        "oiChange1h": thesis.get("oi_change_1h"),
+        "priceChange5m": mom["5m"],
+        "priceChange15m": mom["15m"],
+        "priceChange1h": mom["1h"],
+        "priceChange4h": mom["4h"],
+        "btcMom15m": thesis.get("btc_mom_15m"),
+        "btcMom1h": thesis.get("btc_mom_1h"),
+        "heldAssets": held_assets,
     }
 
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", STRATEGY_ADDRESS,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if result.returncode != 0:
-            print(f"INGEST_FAILED ETH: {result.stderr}", file=sys.stderr)
-            return False
-        response = json.loads(result.stdout) if result.stdout.strip() else {}
-        if not response.get("ok", False):
-            print(f"INGEST_REJECTED ETH: {response.get('error', {})}", file=sys.stderr)
-            return False
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner=SCANNER_NAME,
+            asset=ASSET,
+            direction=thesis["direction"],
+            score=thesis["score"] / 20.0,   # 0..1 confidence (Polar composite normalized)
+            signal_type=SIGNAL_TYPE,
+            data=data_block,
+        )
         return True
-    except Exception as e:
-        print(f"INGEST_EXCEPTION ETH: {e}", file=sys.stderr)
+    except SenpiClientError as e:
+        print(f"INGEST_REJECTED ETH {thesis['direction']}: {e}", file=sys.stderr)
+        return False
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        print(f"INGEST_EXCEPTION ETH {thesis['direction']}: {type(e).__name__}: {e}", file=sys.stderr)
         return False
 
 
@@ -654,76 +615,86 @@ def push_signal(thesis, held_assets):
 # ═══════════════════════════════════════════════════════════════
 
 def main():
+    """Single tick. NO inner scanner_lock — daemon owns it."""
     run_start = time.time()
-    lock = acquire_lock()
-    if lock is None:
+
+    # Build thesis
+    thesis = build_eth_thesis()
+
+    if thesis.get("blocked"):
+        elapsed = time.time() - run_start
         print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
+            "status": "ok",
+            "heartbeat": "NO_REPLY",
+            "note": f"BLOCKED: {thesis['reason']}",
+            "elapsed_sec": round(elapsed, 2),
             "_polar_producer_version": VERSION,
         }))
         return
 
-    try:
-        # Build thesis
-        thesis = build_eth_thesis()
-
-        if thesis.get("blocked"):
-            elapsed = time.time() - run_start
-            print(json.dumps({
-                "status": "ok",
-                "heartbeat": "NO_REPLY",
-                "note": f"BLOCKED: {thesis['reason']}",
-                "elapsed_sec": round(elapsed, 2),
-                "_polar_producer_version": VERSION,
-            }))
-            return
-
-        # MIN_SCORE check
-        min_score = get_min_score()
-        if thesis["score"] < min_score:
-            print(json.dumps({
-                "status": "ok",
-                "heartbeat": "NO_REPLY",
-                "note": f"score_low {thesis['score']}/{min_score}",
-                "direction": thesis["direction"],
-                "reasons": thesis["reasons"],
-                "_polar_producer_version": VERSION,
-            }))
-            return
-
-        # FP-001 quiet hours (apex-score override)
-        quiet, current_hour, apex_bypass = in_quiet_hours()
-        if quiet and thesis["score"] < apex_bypass:
-            print(json.dumps({
-                "status": "ok",
-                "heartbeat": "NO_REPLY",
-                "note": f"QUIET_HOURS hour={current_hour}_UTC score={thesis['score']}_below_apex_{apex_bypass}",
-                "direction": thesis["direction"],
-                "_polar_producer_version": VERSION,
-            }))
-            return
-
-        # Check held positions — runtime would reject duplicate ETH anyway
-        held_assets = fetch_held_assets()
-
-        pushed = push_signal(thesis, held_assets)
-
-        elapsed = time.time() - run_start
+    # MIN_SCORE check
+    min_score = get_min_score()
+    if thesis["score"] < min_score:
         print(json.dumps({
             "status": "ok",
-            "action": "PUSHED" if pushed else "PUSH_FAILED",
+            "heartbeat": "NO_REPLY",
+            "note": f"score_low {thesis['score']}/{min_score}",
             "direction": thesis["direction"],
-            "score": thesis["score"],
-            "tier": get_leverage_tier(thesis["score"])[1],
-            "reasons": thesis["reasons"][:5],
-            "held_assets": held_assets,
-            "elapsed_sec": round(elapsed, 2),
+            "reasons": thesis["reasons"],
             "_polar_producer_version": VERSION,
         }))
-    finally:
-        release_lock(lock)
+        return
+
+    # FP-001 quiet hours (apex-score override)
+    quiet, current_hour, apex_bypass = in_quiet_hours()
+    if quiet and thesis["score"] < apex_bypass:
+        print(json.dumps({
+            "status": "ok",
+            "heartbeat": "NO_REPLY",
+            "note": f"QUIET_HOURS hour={current_hour}_UTC score={thesis['score']}_below_apex_{apex_bypass}",
+            "direction": thesis["direction"],
+            "_polar_producer_version": VERSION,
+        }))
+        return
+
+    # Check held positions — runtime would reject duplicate ETH anyway
+    held_assets = fetch_held_assets()
+
+    pushed = push_signal(thesis, held_assets)
+
+    elapsed = time.time() - run_start
+    print(json.dumps({
+        "status": "ok",
+        "action": "PUSHED" if pushed else "PUSH_FAILED",
+        "direction": thesis["direction"],
+        "score": thesis["score"],
+        "tier": get_leverage_tier(thesis["score"])[1],
+        "reasons": thesis["reasons"][:5],
+        "held_assets": held_assets,
+        "elapsed_sec": round(elapsed, 2),
+        "_polar_producer_version": VERSION,
+    }))
 
 
 if __name__ == "__main__":
-    main()
+    # v5.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
+    # producer_daemon owns the per-tick scanner_lock with stale-PID
+    # auto-recovery.
+    #
+    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
+    # doesn't accept yet — see fleet-fix commit 4f0c15e). When Erik
+    # upgrades the host helpers, restore:
+    #   wallet=STRATEGY_ADDRESS,
+    #   scanner=SCANNER_NAME,
+    # to enable /state alive_check (auto-terminate on runtime delete).
+    _wallet_lock_id = (
+        hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
+        if STRATEGY_ADDRESS
+        else "unset"
+    )
+    producer_daemon(
+        fn=main,
+        interval_seconds=180,           # Polar's v4.x cron was every 3 min
+        name=f"polar-producer-{_wallet_lock_id}",
+        tick_timeout=240,
+    )

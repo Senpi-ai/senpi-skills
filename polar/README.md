@@ -1,31 +1,112 @@
-# 🐻‍❄️ POLAR v4.0.0 — ETH Alpha Hunter (v2-runtime-native)
+# 🐻‍❄️ POLAR v5.0.0 — ETH Alpha Hunter (senpi_runtime_helpers)
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## What changed in v4.0
+## What changed in v5.0.0
 
-- `polar-producer.py` (NEW) replaces `polar-scanner.py` (DELETED)
-- v2-runtime-native: external_scanner + LLM-pass-through gate + native `risk.guard_rails`
-- DSL exits via `FEE_OPTIMIZED_LIMIT` (saves ~0.020-0.030% per maker-filled close)
-- Trade chain DB emits `LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED` for every trade — per-trade telemetry restored
-- v3.x scoring + DSL preset preserved EXACTLY (proved correct on 2026-04-23 ETH Short locking +$71.15 via Phase 2; current live ETH LONG running +$54 unrealized at +5% margin ROE)
-- The Python-state-crash class of bug from v3.x (`load_tc` / `set_cooldown` / `has_resting_orders`) is structurally impossible in v4.0 (state owned by runtime)
+**Plumbing-only migration. NO thesis change.** v4.2.0's scoring tables, leverage tiers, MIN_SCORE 12, quiet hours, DSL preset are all preserved verbatim.
 
-## Thesis (preserved from v3.x)
+- `polar-producer.py` and `polar_config.py` migrate to `senpi_runtime_helpers`:
+  - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST) instead of `openclaw senpi external-scanner ingest` subprocess
+  - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
+  - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
+- Requires `senpi-trading-runtime >= 2.0.0`.
+- `runtime.yaml` unchanged. `external_scanner.name: polar_signals` matches the producer's `client.push_signal(scanner=...)`.
+- Per Rachin's review of Cheetah PR #209: dead fields stripped from payload; `signal_type="POLAR_ETH_HYBRID"` passed explicitly.
 
-Single-asset ETH lifecycle hunter. Scores ETH using Hyperfeed Smart Money concentration, multi-timeframe trend structure, candle-based confirmation, and funding/OI/BTC-correlation context. Enters on high conviction (MIN_SCORE 14, scoring max ~17), lets DSL manage all exits via Phase 2 trailing.
+## Thesis (preserved from v4.2.0)
+
+ETH single-asset hybrid hunter. Hyperfeed Smart Money gates (pct≥5%, traders≥30, cc_15m≥0.3 acceleration), structural gates (4h trend != NEUTRAL, 4h-1h-15m alignment, RSI not extreme), multi-factor scoring (~17 max), conviction-tiered leverage (5x/7x/10x), MIN_SCORE 12 floor, FP-001 quiet hours (00-04 UTC unless apex score 17+).
 
 ## Install
 
-```bash
-mkdir -p /data/workspace/skills/polar-strategy/{config,scripts,state}
+### Step 0 — Register the runtime plugin in `openclaw.json` (one-time per host)
 
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/polar/runtime.yaml -o /data/workspace/skills/polar-strategy/runtime.yaml
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/polar/SKILL.md -o /data/workspace/skills/polar-strategy/SKILL.md
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/polar/config/polar-config.json -o /data/workspace/skills/polar-strategy/config/polar-config.json
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/polar/scripts/polar-producer.py -o /data/workspace/skills/polar-strategy/scripts/polar-producer.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/polar/scripts/polar_config.py -o /data/workspace/skills/polar-strategy/scripts/polar_config.py
+The senpi-trading-runtime plugin won't bind its API port (`127.0.0.1:8787`) unless `plugins.entries.runtime` is present in `/data/.openclaw/openclaw.json`. Without that block the plugin logs `No plugin config found — skipping registration` and the producer daemon's `signal_post` calls fail with `[Errno 111] Connection refused`. Confirm or add:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "runtime": {
+        "enabled": true,
+        "config": {
+          "stateDir": "/data/.openclaw/senpi-state",
+          "apiKey": "<your SENPI_AUTH_TOKEN>",
+          "autoUpdate": { "enabled": false }
+        }
+      }
+    }
+  }
+}
 ```
+
+Restart the gateway after editing so the plugin re-registers:
+
+```bash
+openclaw gateway restart
+sleep 10
+curl -s -m 5 http://127.0.0.1:8787/state | head -c 200
+# Expected: a JSON response with "success":true,"data":{"runtimes":[...]}
+```
+
+If `curl` returns Connection refused, the plugin still isn't registered — check `openclaw plugin list` shows the runtime entry as loaded and re-verify the JSON.
+
+### Step 1 — Pull the helpers package (one-time per host)
+
+> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch — it has not yet landed on `main`. Pull from that branch until it does. Every other file in this skill is on `main` as normal.
+
+```bash
+mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
+for f in __init__.py _config.py _logging.py cache.py client.py \
+         daemon.py lock.py parallel.py SKILL.md README.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
+done
+```
+
+Skip if already pulled for Cheetah / Turbine / Kodiak / another v3 skill.
+
+### Step 2 — Pull Polar v5.0.0
+
+```bash
+mkdir -p /data/workspace/skills/polar-strategy/{config,scripts,state,references}
+for f in scripts/polar-producer.py scripts/polar_config.py \
+         SKILL.md README.md references/skill-attribution.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/polar/$f" \
+    -o "/data/workspace/skills/polar-strategy/$f"
+done
+```
+
+`runtime.yaml` is unchanged from v4.x — don't touch the existing runtime.
+
+### Step 3 — Required env vars
+
+```bash
+export POLAR_WALLET_ADDRESS=<your-polar-wallet>   # NOT STRATEGY_ADDRESS
+export SENPI_AUTH_TOKEN=...
+export POLAR_DECISION_MODEL=gemini-3.1-pro-preview
+```
+
+### Step 4 — Stop the v4.x cron, start the v5.0.0 daemon
+
+```bash
+openclaw cron list | grep polar
+openclaw cron delete <polar-cron-id>
+
+# Start daemon (long-lived, no cron)
+nohup python3 -u /data/workspace/skills/polar-strategy/scripts/polar-producer.py \
+  > /tmp/polar-producer.log 2>&1 &
+```
+
+## Smoke test
+
+```bash
+tail -f /tmp/polar-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
+
+Expected: `status=ok` every tick (180s interval).
 
 ## Configure
 

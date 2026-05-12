@@ -1,60 +1,40 @@
 #!/usr/bin/env python3
-# Senpi WOLVERINE Producer v4.0.0
+# Senpi WOLVERINE Producer v5.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""WOLVERINE v4.0.0 Producer — HYPE alpha signal emitter for v2 runtime.
+"""WOLVERINE v5.0.0 Producer — senpi_runtime_helpers migration.
 
-v3.x was a full-agency scanner (load_tc / save_tc / has_resting_orders
-/ Python-side cooldowns / drawdown gate). 292 audit entries on M193170
-since 2026-04-15, mostly schema-validation failures (silent-None bug
-pattern). v4.0 flips to producer + v2 runtime (Polar v4.0 / Vulture
-v3.0 template).
+v5.0.0 (2026-05-08) — plumbing migration. NO thesis change. HYPE
+single-asset hybrid, six-gate entry validation, SM hard-block on
+opposing direction, RSI hard gates (74/26), multi-factor scoring
+(~17 max), conviction-tiered leverage (3x standard / 5x apex),
+MIN_SCORE 9, FP-001 quiet hours — all preserved verbatim from v4.2.0.
 
-ARCHITECTURE CHANGE:
-  - Producer (wolverine-producer.py) emits signals via
-    `openclaw senpi external-scanner ingest`. NO execution code.
-  - Runtime LLM gate is pass-through — producer has applied every
-    filter; LLM only catches malformed signals.
-  - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-
-    loss halt, per-asset cooldown. No Python state to drift / crash.
-  - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits.
-  - Trade chain DB emits per-trade telemetry — chain-DB visibility
-    on Wolverine for the first time.
+Six-layer plumbing flip per migration-cookbook (matches Cheetah v7.0.0
+/ Kodiak v7.0.0 / Polar v5.0.0 patterns):
+  1. MCP calls — cfg.mcporter_call() shim now routes through
+     SenpiClient.mcp_call() (direct HTTPS).
+  2. Signal emit — subprocess.run(["openclaw","senpi","external-scanner",
+     "ingest"...]) replaced by cfg._wrapper_client.push_signal(...).
+     Per Rachin's PR #209 review: signal_type passed as explicit
+     kwarg ("WOLVERINE_HYPE_HYBRID"), no dead fields in payload.
+  3. Reentrancy — hand-rolled fcntl flock dropped. producer_daemon
+     owns per-tick scanner_lock with stale-PID auto-recovery.
+  4. Tick scheduling — openclaw cron + agentTurn replaced by
+     producer_daemon (long-lived process; zero per-tick LLM cost).
+  5. Per-tick cache + parallel fan-out NOT adopted (matches Pangolin
+     reference minimum-change pattern).
+  6. /state alive_check — wallet=/scanner= kwargs NOT passed to
+     producer_daemon per fleet-fix commit 4f0c15e (host helpers
+     package doesn't accept those kwargs yet).
 
-WHAT'S PRESERVED FROM v3.0.3/v3.0.4:
-  - HYPE single-asset thesis
-  - Six-gate entry validation:
-    * GATE 1: 4h trend != NEUTRAL
-    * GATE 2: 4h structural strength ≥ 0.75
-    * GATE 3: 1h matches 4h direction
-    * GATE 4: 15m momentum aligned ≥ MIN_MOM_15M (0.15)
-    * GATE 5: base-tech floor (strong_15m OR aligned_5m)
-    * GATE 6 (v3.0.3): 4h MAGNITUDE >= 1.5% — rejects dead-flat chop
-      that was killing all 6 Week 5 trades on -0.26% 24h HYPE
-  - SM HARD BLOCK if direction opposes
-  - RSI hard gates (74 LONG / 26 SHORT)
-  - Multi-factor scoring (~17 max points)
-  - MIN_SCORE = 9 (config-overridable)
-  - Conviction-tiered leverage: 5x apex (score ≥11), 3x standard (≥9)
-  - DSL preset preserved exactly: time-cuts disabled (v3.0.1/2/4 fixes),
-    Phase 1 max_loss 20% / retrace 8 / 3 breaches, Phase 2 tiers
-    10/15, 20/35, 35/55, 55/70, 80/85
-
-FLEET PATCHES:
-  - FP-001 quiet hours (00-04 UTC unless apex score 11+)
-  - FP-002 hard rule in SKILL.md (user-conversation Claude sessions
-    are read-only — only producer cron + DSL engine are write paths)
-
-Environment / config resolution:
-  Strategy wallet read from config/wolverine-config.json (canonical).
-  WOLVERINE_WALLET_ADDRESS env var supported as optional override.
+v4.2.0 thesis preserved unchanged.
 """
 
-import fcntl
+import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -63,43 +43,23 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import wolverine_config as cfg
 
-
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD
-# ═══════════════════════════════════════════════════════════════
-
-_LOCK_DIR = Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "wolverine-strategy" / "state"
-_LOCK_DIR.mkdir(parents=True, exist_ok=True)
-_LOCK_PATH = _LOCK_DIR / "producer.lock"
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-def acquire_lock():
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
+VERSION = "5.0.0"
+
+# Hardcoded — must match runtime.yaml external_scanner.name.
+SCANNER_NAME = "wolverine_signals"
+
+# Signal type passed explicitly to push_signal() per Rachin's review
+# of Cheetah PR #209.
+SIGNAL_TYPE = "WOLVERINE_HYPE_HYBRID"
 
 
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
-
-
-VERSION = "4.2.0"
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "wolverine_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+# Reentrancy guard removed in v5.0.0. producer_daemon owns the
+# per-tick scanner_lock with stale-PID auto-recovery. Do NOT add an
+# inner scanner_lock(...) inside main() — fcntl flock is not
+# reentrant; nested call raises BlockingIOError every tick.
 
 
 def _resolve_wallet():
@@ -661,6 +621,14 @@ def build_hype_thesis():
 # ═══════════════════════════════════════════════════════════════
 
 def push_signal(thesis, held_assets):
+    """Push a signal payload to the runtime via senpi_runtime_helpers.
+
+    Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
+    asset/direction/signal_type at top-level kwargs (Rachin's PR #209
+    review). Score normalized 0..1 for SignalItem.score (Wolverine's
+    composite score 0-17 scaled), with raw int score in `data` for
+    telemetry.
+    """
     if not STRATEGY_ADDRESS:
         print(
             "ERROR: strategy wallet not resolved — set 'wallet' in "
@@ -675,55 +643,47 @@ def push_signal(thesis, held_assets):
     leverage, tier_label = get_leverage_tier(thesis["score"])
     mom = thesis["mom"]
 
-    payload = {
-        "asset": ASSET,
-        "direction": thesis["direction"],
-        "score": thesis["score"] / 17.0,
-        "signal_type": "WOLVERINE_HYPE_HYBRID",
-        "data": {
-            "score": thesis["score"],
-            "tier": tier_label,
-            "leverage": leverage,
-            "reasons": thesis["reasons"],
-            "smPct": thesis["sm_pct"],
-            "smTraders": thesis["sm_traders"],
-            "smCc15m": thesis["sm_cc_15m"],
-            "trend4h": thesis["trend_4h"],
-            "trendStrength4h": thesis["trend_strength_4h"],
-            "rsi": thesis["rsi"],
-            "funding": thesis["funding"],
-            "fundingRegime": thesis.get("regime"),
-            "fundingPersistenceHours": thesis.get("persistence_h"),
-            "oiChange1h": thesis.get("oi_change_1h"),
-            "vol1h": thesis.get("vol_1h"),
-            "priceChange5m": mom["5m"],
-            "priceChange15m": mom["15m"],
-            "priceChange1h": mom["1h"],
-            "priceChange4h": mom["4h"],
-            "btcMom15m": thesis.get("btc_mom_15m"),
-            "btcMom1h": thesis.get("btc_mom_1h"),
-            "heldAssets": held_assets,
-        },
+    data_block = {
+        "score": thesis["score"],
+        "tier": tier_label,
+        "leverage": leverage,
+        "reasons": thesis["reasons"],
+        "smPct": thesis["sm_pct"],
+        "smTraders": thesis["sm_traders"],
+        "smCc15m": thesis["sm_cc_15m"],
+        "trend4h": thesis["trend_4h"],
+        "trendStrength4h": thesis["trend_strength_4h"],
+        "rsi": thesis["rsi"],
+        "funding": thesis["funding"],
+        "fundingRegime": thesis.get("regime"),
+        "fundingPersistenceHours": thesis.get("persistence_h"),
+        "oiChange1h": thesis.get("oi_change_1h"),
+        "vol1h": thesis.get("vol_1h"),
+        "priceChange5m": mom["5m"],
+        "priceChange15m": mom["15m"],
+        "priceChange1h": mom["1h"],
+        "priceChange4h": mom["4h"],
+        "btcMom15m": thesis.get("btc_mom_15m"),
+        "btcMom1h": thesis.get("btc_mom_1h"),
+        "heldAssets": held_assets,
     }
 
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", STRATEGY_ADDRESS,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if result.returncode != 0:
-            print(f"INGEST_FAILED HYPE: {result.stderr}", file=sys.stderr)
-            return False
-        response = json.loads(result.stdout) if result.stdout.strip() else {}
-        if not response.get("ok", False):
-            print(f"INGEST_REJECTED HYPE: {response.get('error', {})}", file=sys.stderr)
-            return False
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner=SCANNER_NAME,
+            asset=ASSET,
+            direction=thesis["direction"],
+            score=thesis["score"] / 17.0,   # 0..1 confidence (Wolverine composite normalized)
+            signal_type=SIGNAL_TYPE,
+            data=data_block,
+        )
         return True
-    except Exception as e:
-        print(f"INGEST_EXCEPTION HYPE: {e}", file=sys.stderr)
+    except SenpiClientError as e:
+        print(f"INGEST_REJECTED HYPE {thesis['direction']}: {e}", file=sys.stderr)
+        return False
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        print(f"INGEST_EXCEPTION HYPE {thesis['direction']}: {type(e).__name__}: {e}", file=sys.stderr)
         return False
 
 
@@ -732,72 +692,82 @@ def push_signal(thesis, held_assets):
 # ═══════════════════════════════════════════════════════════════
 
 def main():
+    """Single tick. NO inner scanner_lock — daemon owns it."""
     run_start = time.time()
-    lock = acquire_lock()
-    if lock is None:
+
+    thesis = build_hype_thesis()
+
+    if thesis.get("blocked"):
+        elapsed = time.time() - run_start
         print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
+            "status": "ok",
+            "heartbeat": "NO_REPLY",
+            "note": f"BLOCKED: {thesis['reason']}",
+            "elapsed_sec": round(elapsed, 2),
             "_wolverine_producer_version": VERSION,
         }))
         return
 
-    try:
-        thesis = build_hype_thesis()
-
-        if thesis.get("blocked"):
-            elapsed = time.time() - run_start
-            print(json.dumps({
-                "status": "ok",
-                "heartbeat": "NO_REPLY",
-                "note": f"BLOCKED: {thesis['reason']}",
-                "elapsed_sec": round(elapsed, 2),
-                "_wolverine_producer_version": VERSION,
-            }))
-            return
-
-        min_score = get_min_score()
-        if thesis["score"] < min_score:
-            print(json.dumps({
-                "status": "ok",
-                "heartbeat": "NO_REPLY",
-                "note": f"score_low {thesis['score']}/{min_score}",
-                "direction": thesis["direction"],
-                "reasons": thesis["reasons"],
-                "_wolverine_producer_version": VERSION,
-            }))
-            return
-
-        # FP-001 quiet hours
-        quiet, current_hour, apex_bypass = in_quiet_hours()
-        if quiet and thesis["score"] < apex_bypass:
-            print(json.dumps({
-                "status": "ok",
-                "heartbeat": "NO_REPLY",
-                "note": f"QUIET_HOURS hour={current_hour}_UTC score={thesis['score']}_below_apex_{apex_bypass}",
-                "direction": thesis["direction"],
-                "_wolverine_producer_version": VERSION,
-            }))
-            return
-
-        held_assets = fetch_held_assets()
-        pushed = push_signal(thesis, held_assets)
-
-        elapsed = time.time() - run_start
+    min_score = get_min_score()
+    if thesis["score"] < min_score:
         print(json.dumps({
             "status": "ok",
-            "action": "PUSHED" if pushed else "PUSH_FAILED",
+            "heartbeat": "NO_REPLY",
+            "note": f"score_low {thesis['score']}/{min_score}",
             "direction": thesis["direction"],
-            "score": thesis["score"],
-            "tier": get_leverage_tier(thesis["score"])[1],
-            "reasons": thesis["reasons"][:5],
-            "held_assets": held_assets,
-            "elapsed_sec": round(elapsed, 2),
+            "reasons": thesis["reasons"],
             "_wolverine_producer_version": VERSION,
         }))
-    finally:
-        release_lock(lock)
+        return
+
+    # FP-001 quiet hours
+    quiet, current_hour, apex_bypass = in_quiet_hours()
+    if quiet and thesis["score"] < apex_bypass:
+        print(json.dumps({
+            "status": "ok",
+            "heartbeat": "NO_REPLY",
+            "note": f"QUIET_HOURS hour={current_hour}_UTC score={thesis['score']}_below_apex_{apex_bypass}",
+            "direction": thesis["direction"],
+            "_wolverine_producer_version": VERSION,
+        }))
+        return
+
+    held_assets = fetch_held_assets()
+    pushed = push_signal(thesis, held_assets)
+
+    elapsed = time.time() - run_start
+    print(json.dumps({
+        "status": "ok",
+        "action": "PUSHED" if pushed else "PUSH_FAILED",
+        "direction": thesis["direction"],
+        "score": thesis["score"],
+        "tier": get_leverage_tier(thesis["score"])[1],
+        "reasons": thesis["reasons"][:5],
+        "held_assets": held_assets,
+        "elapsed_sec": round(elapsed, 2),
+        "_wolverine_producer_version": VERSION,
+    }))
 
 
 if __name__ == "__main__":
-    main()
+    # v5.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
+    # producer_daemon owns the per-tick scanner_lock with stale-PID
+    # auto-recovery.
+    #
+    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
+    # doesn't accept yet — see fleet-fix commit 4f0c15e). When Erik
+    # upgrades the host helpers, restore:
+    #   wallet=STRATEGY_ADDRESS,
+    #   scanner=SCANNER_NAME,
+    # to enable /state alive_check (auto-terminate on runtime delete).
+    _wallet_lock_id = (
+        hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
+        if STRATEGY_ADDRESS
+        else "unset"
+    )
+    producer_daemon(
+        fn=main,
+        interval_seconds=180,           # Wolverine's v4.x cron was every 3 min
+        name=f"wolverine-producer-{_wallet_lock_id}",
+        tick_timeout=240,
+    )

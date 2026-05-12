@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-# Senpi PANGOLIN Producer v2.0
+# Senpi PANGOLIN Producer v3.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""PANGOLIN v2.2.0 Producer — Funding-fade signal emitter for v2 runtime.
+"""PANGOLIN v3.0.0 Producer — Funding-fade signal emitter, helpers-native.
+
+v3.0.0 (2026-05-08) — `senpi_runtime_helpers` migration. Plumbing-only
+port from v2.2.0. NO thesis change. Producer flips from openclaw CLI /
+mcporter subprocess to in-process SenpiClient (direct HTTPS for MCP,
+direct HTTP POST to runtime /signals, long-lived producer_daemon).
+v2.2.0 history preserved below.
+
+v2.2.0 (2026-05-04 — "DSL T0 ladder calibration"):
 
 v2.2.0 (2026-05-04 — "DSL T0 ladder calibration"):
   Chain DB analysis of 6 ACCEPTED trades showed 4 of 4 ZEREBRO winners
@@ -117,6 +125,8 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pangolin_config as cfg
 
+
+VERSION = "3.0.0"  # single source of truth; matches SKILL.md frontmatter
 
 # v2.0.0: Agent-specific wallet env var. NO fallback to STRATEGY_ADDRESS
 # (contamination risk per Turbine v2.0.9 fix — see feedback_mcp_auth_is_fleet_wide.md).
@@ -753,7 +763,7 @@ def main():
         cfg.output({
             "status": "error",
             "error": "PANGOLIN_WALLET env var not set. Set it to the Pangolin strategy wallet (must match runtime.yaml).",
-            "_pangolin_producer_version": "2.2.0",
+            "_pangolin_producer_version": VERSION,
         })
         return
 
@@ -769,7 +779,7 @@ def main():
         cfg.output({
             "status": "ok",
             "note": "cannot read account value; skip tick",
-            "_pangolin_producer_version": "2.2.0",
+            "_pangolin_producer_version": VERSION,
         })
         return
 
@@ -789,7 +799,7 @@ def main():
         cfg.output({
             "status": "ok",
             "note": f"dynamic cap reached: entries {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",
-            "_pangolin_producer_version": "2.2.0",
+            "_pangolin_producer_version": VERSION,
         })
         return
 
@@ -799,7 +809,7 @@ def main():
         cfg.output({
             "status": "ok",
             "note": f"no candidates passed gates (regime={regime})",
-            "_pangolin_producer_version": "2.2.0",
+            "_pangolin_producer_version": VERSION,
         })
         return
 
@@ -854,7 +864,7 @@ def main():
             "post_close_skips": post_close_skips,
             "closed_this_tick": sorted(list(closed_this_tick)),
             "held_assets": sorted(list(held_assets)),
-            "_pangolin_producer_version": "2.2.0",
+            "_pangolin_producer_version": VERSION,
         })
         return
 
@@ -896,7 +906,7 @@ def main():
         "entries_today": tc.get("entries", 0),
         "elapsed_sec": round(elapsed, 2),
         "warn": warn,
-        "_pangolin_producer_version": "2.2.0",
+        "_pangolin_producer_version": VERSION,
     })
 
 

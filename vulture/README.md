@@ -1,10 +1,102 @@
-# 🦅 Vulture v3.0.0 — Long-Tail Momentum Rider (v2-runtime-native)
+# 🦅 Vulture v4.0.0 — Long-Tail Momentum Rider (senpi_runtime_helpers)
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**v3.0.0 is a v2-runtime-native rewrite.** Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, etc.) that no other Senpi predator covers. Producer emits LONG_TAIL_MOMENTUM signals via `external-scanner ingest`; runtime owns execution, DSL, risk gates, and trade-chain telemetry. Hold winners for days (7-day hard_timeout), cut losers fast (90-min dead_weight_cut). Built from the #1 Arena winner's 3-week playbook (38.6% win rate, 6.15x profit factor).
+**Plumbing-only migration from v3.1.1. NO thesis change.** v3.x scoring + universe + DSL preset preserved verbatim. Producer flips to in-process `SenpiClient`, daemon replaces cron.
 
-## What changed in v3.0
+## Install
+
+### Step 0 — Register the runtime plugin in `openclaw.json` (one-time per host)
+
+The senpi-trading-runtime plugin won't bind its API port (`127.0.0.1:8787`) unless `plugins.entries.runtime` is present in `/data/.openclaw/openclaw.json`. Without that block the plugin logs `No plugin config found — skipping registration` and the producer daemon's `signal_post` calls fail with `[Errno 111] Connection refused`. Confirm or add:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "runtime": {
+        "enabled": true,
+        "config": {
+          "stateDir": "/data/.openclaw/senpi-state",
+          "apiKey": "<your SENPI_AUTH_TOKEN>",
+          "autoUpdate": { "enabled": false }
+        }
+      }
+    }
+  }
+}
+```
+
+Restart the gateway after editing so the plugin re-registers:
+
+```bash
+openclaw gateway restart
+sleep 10
+curl -s -m 5 http://127.0.0.1:8787/state | head -c 200
+# Expected: a JSON response with "success":true,"data":{"runtimes":[...]}
+```
+
+If `curl` returns Connection refused, the plugin still isn't registered — check `openclaw plugin list` shows the runtime entry as loaded and re-verify the JSON.
+
+### Step 1 — Pull the helpers package (one-time per host)
+
+> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch. Pull from there.
+
+```bash
+mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
+for f in __init__.py _config.py _logging.py cache.py client.py \
+         daemon.py lock.py parallel.py SKILL.md README.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
+done
+```
+
+### Step 2 — Pull Vulture v4.0.0
+
+```bash
+mkdir -p /data/workspace/skills/vulture-strategy/{config,scripts,state,references}
+for f in scripts/vulture-producer.py scripts/vulture_config.py \
+         SKILL.md README.md references/skill-attribution.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/$f" \
+    -o "/data/workspace/skills/vulture-strategy/$f"
+done
+```
+
+`runtime.yaml` unchanged from v3.x.
+
+### Step 3 — Required env vars
+
+```bash
+export VULTURE_WALLET_ADDRESS=<your-vulture-wallet>
+export SENPI_AUTH_TOKEN=...
+export VULTURE_DECISION_MODEL=gemini-3.1-pro-preview
+```
+
+### Step 4 — Stop v3.x cron, start v4.0.0 daemon
+
+```bash
+openclaw cron list | grep vulture
+openclaw cron delete <vulture-cron-id>
+
+nohup python3 -u /data/workspace/skills/vulture-strategy/scripts/vulture-producer.py \
+  > /tmp/vulture-producer.log 2>&1 &
+```
+
+## Smoke test
+
+```bash
+tail -f /tmp/vulture-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
+
+Expected: `status=ok` every tick (60s interval).
+
+---
+
+## Thesis (preserved from v3.x)
+
+Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, etc.) that no other Senpi predator covers. Hold winners for days, cut losers fast. Built from the #1 Arena winner's 3-week playbook (38.6% win rate, 6.15x profit factor).
+
+## What changed in v3.0 (preserved)
 
 - `vulture-producer.py` (NEW) replaces `vulture-scanner.py` (DELETED)
 - v2-runtime-native: external_scanner + LLM-pass-through gate + native `risk.guard_rails`

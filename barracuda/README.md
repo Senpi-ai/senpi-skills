@@ -1,37 +1,42 @@
-# 🐟 BARRACUDA v1.0.1 — Funding Decay Collector
+# Barracuda — Funding Decay Collector
 
-Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.0.1.0
 
-## What BARRACUDA Does
+## Thesis
 
-Finds assets where extreme funding has persisted for 6+ hours, confirmed by SM alignment from Hyperfeed and 4H trend structure. Enters to collect funding while riding the trend. Double edge: price appreciation + funding income.
+BARRACUDA v1.0.1 — Funding Decay Collector. Funding collector holds for hours while collecting 8h payments.
 
-Fixes Croc's -42.7% failure by requiring SM and trend confirmation before entering any funding trade.
+See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
 
-## Six Gates
+## Scoring components
 
-1. Extreme funding (30%+ annualized)
-2. Persistent 6+ hours (not a spike)
-3. SM aligned (Hyperfeed)
-4. 4H trend confirms
-5. RSI safe
-6. Leverage >= 5x
+Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
 
-## Quick Start
+## Entry / Exit
 
-1. Deploy config and scripts
-2. Create scanner cron (15 min, isolated) and DSL cron (3 min, isolated)
-3. Fund with $1,000
+- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
+- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
+- **Time cuts:** See `dsl:` config in runtime.yaml.
 
-## License
+## Fleet rules applied
 
-MIT — see root repo LICENSE.
+- Standard fleet drawdown gate.
+- Fee budget tracking via shared infra.
+- Producer reentrancy guard via fcntl lockfile (Runtime 2.0 only).
 
-## Changelog
+## Configuration
 
-### v1.0.1
-- Fixed DSL field names: `phase1MaxMinutes` (was `hardTimeoutMinutes`), `deadWeightCutMin` (was `deadWeightCutMinutes`)
-- `highWaterPrice` initialized as `null` (was `0`) — lets dsl-v5.py set from actual entry price on first tick
-- Removed static `absoluteFloor` price values — dsl-v5.py now calculates dynamically from `absoluteFloorRoe`
-- Standalone config helper (no Tiger dependencies), all noise gates enforced
-- Requires dsl-v5.py with Patch 1 (dynamic absoluteFloorRoe calculator) and Patch 2 (highWaterPrice null handling)
+Operator-specific values configured at deploy time.
+
+## Recent version notes
+
+```
+BARRACUDA v1.0.1 — Funding Decay Collector. Funding collector holds for hours while collecting 8h payments.
+See SKILL.md for full thesis, scoring, and operational notes.
+```
+
+## Related
+
+- Top-level repo README: `../README.md`
+- Runtime spec: `../senpi-trading-runtime/`
+- DSL plugin: `../dsl-dynamic-stop-loss/`

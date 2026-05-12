@@ -1,15 +1,19 @@
-"""GRIZZLY Strategy — Shared config, MCP helpers, state I/O.
+"""GRIZZLY v7.0.0 — Shared config + MCP shim + helpers wrapper.
 
-Fleet-standard helper module imported by grizzly-scanner.py.
-Added to repo to make grizzly installable (was missing from main).
+v7.0.0: senpi_runtime_helpers migration. mcporter_call now routes
+through SenpiClient.mcp_call() (direct HTTPS) instead of mcporter
+subprocess. _wrapper_client is exposed for the producer's signal
+push (cfg._wrapper_client.push_signal(...)). All other helpers
+(atomic_write, load_config, get_wallet_and_strategy, get_positions,
+trade-counter I/O, output/log) preserved verbatim.
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
 
+import functools
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -22,6 +26,38 @@ CONFIG_PATH = SKILL_DIR / "config" / "grizzly-config.json"
 STATE_DIR = SKILL_DIR / "state"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+# Pattern ported verbatim from cheetah/polar/wolverine/kodiak_config.py:
+# mount the helpers package at module load, defer SenpiClient
+# construction until first attribute access.
+
+_helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
+if _helpers_path not in sys.path:
+    sys.path.insert(0, _helpers_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
+
+
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Grizzly's MCP calls and signal "
+            "POST both require it. Set it on the runtime host before "
+            "starting the producer daemon."
+        )
+    client = SenpiClient()
+    log_event("grizzly_wrapper_enabled", helpers_path=_helpers_path)
+    return client
+
+
+class _WrapperClientProxy:
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
 
 
 def atomic_write(path, data):
@@ -139,35 +175,22 @@ def set_asset_cooldown(asset, cooldown_minutes=180):
 
 
 def mcporter_call(tool, retries=2, timeout=30, **params):
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
+    """Call a Senpi MCP tool via the senpi_runtime_helpers wrapper.
+
+    v7.0.0: routes through SenpiClient.mcp_call() — direct HTTPS, no
+    mcporter subprocess. Returns the unwrapped JSON document on
+    success, or None if the wrapper raised. `retries` parameter
+    preserved for call-site compat but not implemented — daemon
+    recovers transient failures on the next tick.
+    """
+    try:
+        return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        sys.stderr.write(
+            f"[senpi_helpers] grizzly_mcp_call_failed tool={tool} "
+            f"err={type(e).__name__}: {e}\n"
+        )
+        return None
 
 
 def get_positions(wallet=None):

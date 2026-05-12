@@ -3,8 +3,8 @@
 When calling `strategy_create` or `strategy_create_custom_strategy`, always include:
 
 ```json
-"skill_name": "vulture",
-"skill_version": "4.0.0"
+"skill_name": "grizzly",
+"skill_version": "7.0.0"
 ```
 
 This is required for attribution and tracking. Example:
@@ -15,8 +15,8 @@ This is required for attribution and tracking. Example:
   "args": {
     "initialBudget": 500,
     "positions": [],
-    "skill_name": "vulture",
-    "skill_version": "4.0.0"
+    "skill_name": "grizzly",
+    "skill_version": "7.0.0"
   }
 }
 ```

@@ -1,30 +1,41 @@
 #!/usr/bin/env python3
-# Senpi KODIAK Producer v6.0.1
+# Senpi KODIAK Producer v7.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-# Source: https://github.com/Senpi-ai/skills
-"""KODIAK v6.0.1 Producer — SOL Alpha Hunter (v2-runtime-native + 5x lev fix).
+# Source: https://github.com/Senpi-ai/senpi-skills
+"""KODIAK v7.0.0 Producer — senpi_runtime_helpers migration.
 
-v6.0.1 (2026-05-04 hot-patch — runtime.yaml only):
-  Entry-side ensure_execution_as_taker false → true. v6.0 shipped
-  with the value as `false` intending "cancel-and-skip" semantics,
-  but runtime behavior diverged: order rests on book indefinitely,
-  action marked SKIPPED but order eventually fills via natural
-  price action, producing realized PnL with broken telemetry.
-  Forces taker fallback after 60s ALO timeout. Producer code
-  unchanged from v6.0.0.
+v7.0.0 (2026-05-08) — plumbing migration. NO thesis change. SOL
+alpha hunter logic, v5.1 base-tech-score floor, multi-factor scoring,
+5x leverage default — all preserved verbatim from v6.0.1.
 
-v6.0 — full v1 → v2 architecture migration. SOL alpha hunter.
-Single-asset focus. v5.1 base-tech-score floor + multi-factor
-scoring preserved. Leverage default dropped 10x → 5x (v5.1's 10x
-on SOL chop = -17.8% ROE / -$178 over 26 trades).
+Six-layer plumbing flip per migration-cookbook (matches Cheetah v7.0.0
+/ Pangolin v2.2 patterns):
+  1. MCP calls — cfg.mcporter_call() shim now routes through
+     SenpiClient.mcp_call() (direct HTTPS, no mcporter subprocess).
+     Existing call sites unchanged.
+  2. Signal emit — subprocess.run(["openclaw","senpi","external-scanner",
+     "ingest"...]) replaced by cfg._wrapper_client.push_signal(...).
+     Direct HTTP POST to runtime API on 127.0.0.1:8787/signals.
+     CRITICAL: asset/direction/signal_type at top-level kwargs (Rachin's
+     review on Cheetah PR #209 — dead fields in payload dict are NOT
+     forwarded to the wire).
+  3. Reentrancy — hand-rolled fcntl flock dropped. producer_daemon
+     owns per-tick scanner_lock with stale-PID auto-recovery.
+  4. Tick scheduling — openclaw cron + agentTurn replaced by
+     producer_daemon (long-lived process; zero per-tick LLM cost).
+  5. Per-tick cache + parallel fan-out NOT adopted (matches Pangolin
+     reference minimum-change pattern).
+  6. /state alive_check — daemon self-terminates if runtime deleted
+     or scanner renamed.
+
+v6.0.1 thesis preserved unchanged (SOL alpha hunter, single-asset focus,
+v5.1 base-tech-score floor, leverage default 5x).
 """
 
-import fcntl
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -33,13 +44,24 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import kodiak_config as cfg
 
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
-VERSION = "6.0.0"   # producer code unchanged in v6.0.1 (runtime.yaml only)
+
+VERSION = "7.0.0"
+
+# Hardcoded — must match runtime.yaml external_scanner.name. Removing the
+# env var override eliminates a source of mismatch (Cheetah v7.0.0 pattern).
+SCANNER_NAME = "kodiak_signals"
+
+# Signal type passed explicitly to push_signal() per Rachin's review of
+# Cheetah PR #209. Don't rely on scanner's defaultSignalType fallback —
+# many runtime YAMLs (including Kodiak's) don't declare one.
+SIGNAL_TYPE = "KODIAK_SOL_THESIS"
 
 # v6.0: Agent-specific wallet env var. NO fallback to STRATEGY_ADDRESS
+# (banned per Turbine v2.0.9 contamination rule — a generic env var is
+# a fleet-wide vector if a sibling agent on the same host sets it).
 KODIAK_WALLET = os.environ.get("KODIAK_WALLET", "")
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "kodiak_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
 MARGIN_PCT = float(os.environ.get("KODIAK_MARGIN_PCT", "0.20"))
 
 ASSET = "SOL"
@@ -60,36 +82,13 @@ def _wallet_state_dir():
 
 
 _STATE_DIR = _wallet_state_dir()
-_LOCK_PATH = _STATE_DIR / "producer.lock"
 _COOLDOWN_FILE = _STATE_DIR / "asset-cooldowns.json"
 
 
-# ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD
-# ═══════════════════════════════════════════════════════════════
-
-def acquire_lock():
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
-
-
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
+# Reentrancy guard removed in v7.0.0. producer_daemon owns the per-tick
+# scanner_lock with stale-PID auto-recovery via os.kill(pid, 0). Do NOT
+# add an inner scanner_lock(...) inside main() — fcntl flock is not
+# reentrant; nested call raises BlockingIOError.
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -540,17 +539,23 @@ def build_sol_thesis():
 # ═══════════════════════════════════════════════════════════════
 
 def build_signal_payload(thesis, leverage, margin_usd):
-    """All declared scanner fields go in `data`, NOT `meta`. (Turbine v2.0.11.)"""
+    """v7.0.0: returns only the fields push_signal() actually forwards.
+
+    Per Rachin's review of Cheetah PR #209: the wrapper-era push_signal()
+    only passes declared kwargs (address, scanner, asset, direction,
+    score, signal_type, data) to the wire. Everything else in a payload
+    dict is dead weight at best, schema-rejected at worst. Strip them.
+
+    asset / direction → top-level kwargs on push_signal() (routing)
+    Everything else → goes inside `data` block (validated against
+                       runtime.yaml external_scanner.config.fields).
+    score stays inside data — Kodiak's composite is unbounded int 0-20,
+    not 0..1 confidence (matches Cheetah/Pangolin reference rationale).
+    """
     sm = thesis.get("sm", {}) or {}
     return {
-        "address": KODIAK_WALLET,
-        "scannerId": SCANNER_NAME,
-        "signalType": "KODIAK_SOL_THESIS",
         "asset": thesis["asset"],
         "direction": thesis["direction"],
-        "score": float(thesis["score"]),
-        "timestamp": int(time.time() * 1000),
-        "factors": {},
         "data": {
             "score": thesis["score"],
             "leverage": leverage,
@@ -571,39 +576,35 @@ def build_signal_payload(thesis, leverage, margin_usd):
             "rsi": thesis["rsi"],
             "reasons": " | ".join(thesis.get("reasons", [])),
         },
-        "meta": {
-            "_kodiak_producer_version": VERSION,
-        },
     }
 
 
 def push_signal(payload):
+    """Push a signal payload to the runtime via senpi_runtime_helpers.
+
+    Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
+    asset/direction/signal_type at top-level kwargs; data block carries
+    scanner-config-validated fields only. Returns True on accepted
+    ingest, False on transport / schema rejection.
+    """
     if not KODIAK_WALLET:
         cfg.log("KODIAK_WALLET env var not set; cannot push signal")
         return False
-
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", KODIAK_WALLET,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if r.returncode != 0:
-            cfg.log(f"ingest failed for {payload['asset']} {payload['direction']}: {r.stderr.strip()}")
-            return False
-        if r.stdout.strip():
-            try:
-                response = json.loads(r.stdout)
-                if isinstance(response, dict) and response.get("ok") is False:
-                    cfg.log(f"ingest rejected: {response.get('error')}")
-                    return False
-            except (json.JSONDecodeError, TypeError):
-                pass
+        cfg._wrapper_client.push_signal(
+            address=KODIAK_WALLET,
+            scanner=SCANNER_NAME,
+            asset=payload.get("asset"),
+            direction=payload.get("direction"),
+            signal_type=SIGNAL_TYPE,
+            data=payload.get("data"),
+        )
         return True
-    except (subprocess.TimeoutExpired, OSError) as e:
-        cfg.log(f"ingest exception for {payload['asset']}: {e}")
+    except SenpiClientError as e:
+        cfg.log(f"push_signal rejected for {payload.get('asset')} {payload.get('direction')}: {e}")
+        return False
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        cfg.log(f"push_signal exception for {payload.get('asset')}: {type(e).__name__}: {e}")
         return False
 
 
@@ -617,98 +618,106 @@ def main():
     if not KODIAK_WALLET:
         cfg.output({
             "status": "error",
-            "error": "KODIAK_WALLET env var not set. Set it to the Kodiak strategy wallet (must match runtime.yaml).",
+            "error": "KODIAK_WALLET env var not set. Set it to the Kodiak strategy wallet (must match runtime.yaml). STRATEGY_ADDRESS is BANNED.",
             "_kodiak_producer_version": VERSION,
         })
         return
 
-    lock = acquire_lock()
-    if lock is None:
-        print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
-            "_kodiak_producer_version": VERSION,
-        }))
-        return
+    # NB: no scanner_lock here. producer_daemon owns the per-tick lock.
 
-    try:
-        # 1. Read account value for sizing
-        account_value, pos_count = get_account_value()
-        if account_value is None or account_value <= 0:
-            cfg.output({
-                "status": "ok",
-                "note": "cannot read account value; skip tick",
-                "_kodiak_producer_version": VERSION,
-            })
-            return
-
-        # 2. Per-asset cooldown (defense-in-depth alongside runtime guard)
-        if is_asset_cooled_down(ASSET):
-            cfg.output({
-                "status": "ok",
-                "note": f"{ASSET} in 240min cooldown",
-                "_kodiak_producer_version": VERSION,
-            })
-            return
-
-        # 3. Build thesis (v5.1 logic preserved)
-        thesis = build_sol_thesis()
-
-        if thesis.get("blocked"):
-            cfg.output({
-                "status": "ok",
-                "note": f"thesis_blocked: {thesis['reason']}",
-                "_kodiak_producer_version": VERSION,
-            })
-            return
-
-        # 4. MIN_SCORE gate
-        if thesis["score"] < MIN_SCORE:
-            cfg.output({
-                "status": "ok",
-                "note": f"score_below_min: {thesis['score']} < {MIN_SCORE}",
-                "thesis_direction": thesis["direction"],
-                "reasons_preview": thesis["reasons"][:3],
-                "_kodiak_producer_version": VERSION,
-            })
-            return
-
-        # 5. Compute sizing + leverage
-        leverage, lev_label = get_leverage_for_score(thesis["score"])
-        margin_usd = round(account_value * MARGIN_PCT, 2)
-
-        # 6. Emit
-        payload = build_signal_payload(thesis, leverage, margin_usd)
-        pushed = 1 if push_signal(payload) else 0
-        if pushed:
-            mark_asset_emitted(ASSET)
-
-        elapsed = time.time() - run_start
-        warn = "WARN_OVER_180S" if elapsed > 180 else None
+    # 1. Read account value for sizing
+    account_value, pos_count = get_account_value()
+    if account_value is None or account_value <= 0:
         cfg.output({
             "status": "ok",
-            "asset": ASSET,
-            "direction": thesis["direction"],
-            "score": thesis["score"],
-            "leverage": leverage,
-            "lev_label": lev_label,
-            "margin_usd": margin_usd,
-            "signals_pushed": pushed,
-            "account_value": round(account_value, 2),
-            "open_positions": pos_count,
-            "elapsed_sec": round(elapsed, 2),
-            "warn": warn,
+            "note": "cannot read account value; skip tick",
             "_kodiak_producer_version": VERSION,
         })
-    finally:
-        release_lock(lock)
+        return
+
+    # 2. Per-asset cooldown (defense-in-depth alongside runtime guard)
+    if is_asset_cooled_down(ASSET):
+        cfg.output({
+            "status": "ok",
+            "note": f"{ASSET} in 240min cooldown",
+            "_kodiak_producer_version": VERSION,
+        })
+        return
+
+    # 3. Build thesis (v5.1 logic preserved)
+    thesis = build_sol_thesis()
+
+    if thesis.get("blocked"):
+        cfg.output({
+            "status": "ok",
+            "note": f"thesis_blocked: {thesis['reason']}",
+            "_kodiak_producer_version": VERSION,
+        })
+        return
+
+    # 4. MIN_SCORE gate
+    if thesis["score"] < MIN_SCORE:
+        cfg.output({
+            "status": "ok",
+            "note": f"score_below_min: {thesis['score']} < {MIN_SCORE}",
+            "thesis_direction": thesis["direction"],
+            "reasons_preview": thesis["reasons"][:3],
+            "_kodiak_producer_version": VERSION,
+        })
+        return
+
+    # 5. Compute sizing + leverage
+    leverage, lev_label = get_leverage_for_score(thesis["score"])
+    margin_usd = round(account_value * MARGIN_PCT, 2)
+
+    # 6. Emit
+    payload = build_signal_payload(thesis, leverage, margin_usd)
+    pushed = 1 if push_signal(payload) else 0
+    if pushed:
+        mark_asset_emitted(ASSET)
+
+    elapsed = time.time() - run_start
+    warn = "WARN_OVER_180S" if elapsed > 180 else None
+    cfg.output({
+        "status": "ok",
+        "asset": ASSET,
+        "direction": thesis["direction"],
+        "score": thesis["score"],
+        "leverage": leverage,
+        "lev_label": lev_label,
+        "margin_usd": margin_usd,
+        "signals_pushed": pushed,
+        "account_value": round(account_value, 2),
+        "open_positions": pos_count,
+        "elapsed_sec": round(elapsed, 2),
+        "warn": warn,
+        "_kodiak_producer_version": VERSION,
+    })
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        cfg.log(f"CRITICAL ERROR: {e}")
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        cfg.output({"status": "error", "error": str(e)})
+    # v7.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
+    # producer_daemon owns the per-tick scanner_lock with stale-PID
+    # auto-recovery. alive_check left UNSET (default) — daemon
+    # self-terminates if the runtime for KODIAK_WALLET is deleted OR
+    # the kodiak_signals scanner is renamed.
+    _wallet_lock_id = (
+        hashlib.sha256(KODIAK_WALLET.lower().encode()).hexdigest()[:12]
+        if KODIAK_WALLET
+        else "unset"
+    )
+    # NOTE: senpi_runtime_helpers.daemon.producer_daemon installed on the
+    # runtime host (Erik's build) does NOT yet accept wallet=/scanner=
+    # kwargs even though the helper-mcp-envelope-aligned branch's source
+    # signature documents them. Caught live on Turbine v3.2 deploy
+    # 2026-05-08: TypeError: unexpected keyword argument 'wallet'.
+    # When the host helpers package is upgraded, add back:
+    #   wallet=KODIAK_WALLET,
+    #   scanner=SCANNER_NAME,
+    # which enables /state alive_check.
+    producer_daemon(
+        fn=main,
+        interval_seconds=180,           # Kodiak's v6.x cron was every 3 min
+        name=f"kodiak-producer-{_wallet_lock_id}",
+        tick_timeout=240,               # producer's WARN_OVER_180S budget + headroom
+    )

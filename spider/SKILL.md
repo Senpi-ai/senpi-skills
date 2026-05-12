@@ -1,21 +1,24 @@
 ---
 name: spider-strategy
 description: >-
-  SPIDER v3.0 — Single-leg patient anchor sniper. Holds one
-  high-conviction long for 7+ days. Scored on arena leader alignment +
-  SM consensus + funding favorability + 30d relative strength. LLM
-  regime-aware gate vetoes during BTC catastrophe / vol expansion /
-  funding flipping. v2-runtime-native. Trade-off vs v2.0 design:
-  drops basket leg (no portfolio runtime support) to gain actually
-  trading.
+  SPIDER v4.0.0 — Single-leg patient anchor sniper
+  (senpi_runtime_helpers migration). Plumbing-only port from v3.0.2.
+  NO thesis change. NO scoring change. NO threshold change. Producer
+  ports onto `senpi_runtime_helpers` (in-process SenpiClient + direct
+  HTTP POST to runtime /signals + producer_daemon long-lived loop).
+  Holds one high-conviction long for 7+ days. Scored on arena leader
+  alignment + SM consensus + funding favorability + 30d relative
+  strength. LLM regime-aware gate vetoes during BTC catastrophe / vol
+  expansion / funding flipping.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0.0"
+  version: "4.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime@v2
+    - senpi_runtime_helpers
 ---
 
 # 🕷️ SPIDER v3.0 — Patient Anchor Sniper

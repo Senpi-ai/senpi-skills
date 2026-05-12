@@ -1,8 +1,21 @@
-# 🐻 GRIZZLY v6.0.0 — BTC Alpha Hunter (v2-runtime-native)
+# 🐻 GRIZZLY v7.0.0 — BTC Alpha Hunter (senpi_runtime_helpers)
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 Single-asset BTC trend-following scanner. Trades **WITH** smart money consensus when BTC's multi-timeframe momentum aligns. Same Kodiak-family pattern as Wolverine (HYPE), Polar (ETH), and Kodiak (SOL) — tuned for BTC's slower cadence.
+
+## What changed in v7.0.0
+
+**Plumbing-only migration. NO thesis change.** v6.0.0's six-gate validation, scoring, leverage tiers, MIN_SCORE 12, FP-001 quiet hours, FP-003 requireAllConfirmations gate are all preserved verbatim.
+
+- `grizzly-producer.py` and `grizzly_config.py` migrate to `senpi_runtime_helpers`:
+  - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST) instead of `openclaw senpi external-scanner ingest` subprocess
+  - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
+  - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
+- Requires `senpi-trading-runtime >= 2.0.0`.
+- `runtime.yaml` unchanged from v6.x.
+- Per Rachin's review of Cheetah PR #209: dead fields stripped from payload; `signal_type="GRIZZLY_BTC_TREND"` passed explicitly.
 
 ## What Grizzly does
 
@@ -84,35 +97,94 @@ Time-cuts ALL DISABLED — single-asset family pattern. Phase 1 + Phase 2 own al
 - **FP-002 hard rule** — user-conversation Claude sessions are read-only. Only the producer cron and DSL engine are write paths.
 - **FP-003 require-all-confirmations** — every soft confirmation (4TF + SM + Funding + Volume + OI) must fire, not just summed score.
 
-## Install (operator path)
+## Install
 
-**Prerequisite — verify your plugin is on `runtime-phase-2`:**
+### Step 0 — Register the runtime plugin in `openclaw.json` (one-time per host)
 
-```bash
-openclaw senpi external-scanner ingest --help
+The senpi-trading-runtime plugin won't bind its API port (`127.0.0.1:8787`) unless `plugins.entries.runtime` is present in `/data/.openclaw/openclaw.json`. Without that block the plugin logs `No plugin config found — skipping registration` and the producer daemon's `signal_post` calls fail with `[Errno 111] Connection refused`. Confirm or add:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "runtime": {
+        "enabled": true,
+        "config": {
+          "stateDir": "/data/.openclaw/senpi-state",
+          "apiKey": "<your SENPI_AUTH_TOKEN>",
+          "autoUpdate": { "enabled": false }
+        }
+      }
+    }
+  }
+}
 ```
 
-Should show `--address`, `--scanner`, `--payload` flags. If not, you're on stable v1.0.97 which lacks v2 architecture. Install the phase-2 build first:
+Restart the gateway after editing so the plugin re-registers:
 
 ```bash
-cd /tmp && rm -rf senpi-trading-runtime
-git clone -b runtime-phase-2 https://github.com/Senpi-ai/senpi-trading-runtime.git
-cd senpi-trading-runtime && npm run build
-openclaw plugins uninstall runtime
-openclaw plugins install ./
+openclaw gateway restart
+sleep 10
+curl -s -m 5 http://127.0.0.1:8787/state | head -c 200
+# Expected: a JSON response with "success":true,"data":{"runtimes":[...]}
 ```
 
-**Then install the skill:**
+If `curl` returns Connection refused, the plugin still isn't registered — check `openclaw plugin list` shows the runtime entry as loaded and re-verify the JSON.
+
+### Step 1 — Pull the helpers package (one-time per host)
+
+> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch — it has not yet landed on `main`. Pull from that branch until it does. Every other file in this skill is on `main` as normal.
 
 ```bash
-mkdir -p /data/workspace/skills/grizzly-strategy/{config,scripts,state}
-
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/runtime.yaml -o /data/workspace/skills/grizzly-strategy/runtime.yaml
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/SKILL.md -o /data/workspace/skills/grizzly-strategy/SKILL.md
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/config/grizzly-config.json -o /data/workspace/skills/grizzly-strategy/config/grizzly-config.json
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/scripts/grizzly-producer.py -o /data/workspace/skills/grizzly-strategy/scripts/grizzly-producer.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/scripts/grizzly_config.py -o /data/workspace/skills/grizzly-strategy/scripts/grizzly_config.py
+mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
+for f in __init__.py _config.py _logging.py cache.py client.py \
+         daemon.py lock.py parallel.py SKILL.md README.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
+done
 ```
+
+Skip if already pulled for Cheetah / Turbine / Kodiak / Polar / Wolverine / another v3 skill.
+
+### Step 2 — Pull Grizzly v7.0.0
+
+```bash
+mkdir -p /data/workspace/skills/grizzly-strategy/{config,scripts,state,references}
+for f in scripts/grizzly-producer.py scripts/grizzly_config.py \
+         SKILL.md README.md references/skill-attribution.md; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/$f" \
+    -o "/data/workspace/skills/grizzly-strategy/$f"
+done
+```
+
+`runtime.yaml` is unchanged from v6.x — don't touch the existing runtime.
+
+### Step 3 — Required env vars
+
+```bash
+export GRIZZLY_WALLET_ADDRESS=<your-grizzly-wallet>
+export SENPI_AUTH_TOKEN=...
+export GRIZZLY_DECISION_MODEL=gemini-3.1-pro-preview
+```
+
+### Step 4 — Stop the v6.x cron, start the v7.0.0 daemon
+
+```bash
+openclaw cron list | grep grizzly
+openclaw cron delete <grizzly-cron-id>
+
+# Start daemon (long-lived, no cron)
+nohup python3 -u /data/workspace/skills/grizzly-strategy/scripts/grizzly-producer.py \
+  > /tmp/grizzly-producer.log 2>&1 &
+```
+
+## Smoke test
+
+```bash
+tail -f /tmp/grizzly-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
+
+Expected: `status=ok` every tick (180s interval). Tick `duration_ms` should drop from ~30-60s (v6.x mcporter) to ~1-3s.
 
 ## Configure
 
