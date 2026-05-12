@@ -118,13 +118,11 @@ If `curl` returns Connection refused, the plugin still isn't registered — chec
 
 ### Step 1 — Pull the helpers package (one-time per host)
 
-> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch — it has not yet landed on `main`. Pull from that branch until it does. Every other file in this skill is on `main` as normal.
-
 ```bash
 mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
 for f in __init__.py _config.py _logging.py cache.py client.py \
          daemon.py lock.py parallel.py SKILL.md README.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/_helpers/senpi_runtime_helpers/$f" \
     -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
 done
 ```
@@ -281,7 +279,7 @@ Top up the volume wallet daily-to-weekly to keep 7 slots active. Senpi-side reba
 
 - ❌ **Do NOT** add an openclaw cron — the daemon supervises itself
 - ❌ **Do NOT** set `STRATEGY_ADDRESS`, `TURBINE_WALLET`, or `TURBINE_HUNT_WALLET` env vars — all banned
-- ❌ **Do NOT** point both runtimes at the same wallet — runtime-phase-2 will reject the second install
+- ❌ **Do NOT** point both runtimes at the same wallet — the senpi-trading-runtime plugin rejects a second install on the same wallet
 - ❌ **Do NOT** run Sentinel concurrently — runners mode supersedes it
 - ❌ **Do NOT** delete a runtime while positions are open — orphan-position bug
 

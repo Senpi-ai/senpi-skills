@@ -17,8 +17,8 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
+    - senpi-trading-runtime>=1.0.98
+    - senpi_runtime_helpers
 ---
 
 # 🐻‍❄️ POLAR v5.0.0 — ETH Alpha Hunter (senpi_runtime_helpers)

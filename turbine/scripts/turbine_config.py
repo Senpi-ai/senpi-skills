@@ -7,7 +7,7 @@ abstraction: ~$2,400 idle 90% of the time, no volume contribution
 from the second wallet. The correct framing (clarified by Jason):
 "run the volume play, but allow winners to run longer."
 
-v3.2 keeps the two-wallet split (runtime-phase-2 still enforces
+v3.2 keeps the two-wallet split (the senpi-trading-runtime plugin enforces
 one runtime per wallet) but rewires it: BOTH wallets run the same
 volume rotation alpha. The wallet boundary just selects DSL
 behavior:
@@ -36,11 +36,6 @@ v3.1 → v3.2 deltas:
   - HYPE-only specialty → general volume rotation on runners wallet
   - hunt_min_score / huntCooldownMin / minHuntWalletBalance dropped
   - Runners get the same scoring path as volume
-
-Helpers-based (matches Cheetah v7.0.0 / Pangolin v2.2 patterns):
-  - SenpiClient via lazy proxy (auth-validated on first use)
-  - mcporter_call() shim for backward-compat call sites
-  - _wrapper_client exposed for direct push_signal access
 
 Helpers-based (matches Cheetah v7.0.0 / Pangolin v2.2 patterns):
   - SenpiClient via lazy proxy (auth-validated on first use)

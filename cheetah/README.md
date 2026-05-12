@@ -64,14 +64,12 @@ If `curl` returns Connection refused, the plugin still isn't registered — chec
 
 ### Step 1 — Pull the helpers package (one-time per host, shared across all skills)
 
-> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch — it has not yet landed on `main`. Pull from that branch until it does. Every other file (this skill's SKILL.md, README.md, scripts, runtime YAMLs) is on `main` as normal.
-
 ```bash
 mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers/references
 mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers/tests
 
 for f in __init__.py _config.py _logging.py cache.py client.py daemon.py lock.py parallel.py SKILL.md README.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/_helpers/senpi_runtime_helpers/$f" \
     -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
 done
 ```
@@ -215,7 +213,7 @@ cd /data/workspace/skills/cheetah-strategy
 
 # 3. Bump the runtime plugin to >= 2.0.0 if not already on it:
 cat /data/.openclaw/extensions/runtime/package.json | grep version
-# Latest dev tag at the time of v7.0.0:
+# Minimum required version:
 #   1.0.98
 
 # 4. Stop the old producer cron (the v7.0.0 producer is a daemon now):

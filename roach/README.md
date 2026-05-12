@@ -40,13 +40,11 @@ If `curl` returns Connection refused, the plugin still isn't registered — chec
 
 ### Step 1 — Pull the helpers package (one-time per host)
 
-> **Note:** The `_helpers/senpi_runtime_helpers/` package is currently only on the `helper-mcp-envelope-aligned` branch. Pull from there.
-
 ```bash
 mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
 for f in __init__.py _config.py _logging.py cache.py client.py \
          daemon.py lock.py parallel.py SKILL.md README.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/helper-mcp-envelope-aligned/_helpers/senpi_runtime_helpers/$f" \
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/_helpers/senpi_runtime_helpers/$f" \
     -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
 done
 ```

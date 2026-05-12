@@ -18,8 +18,8 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=2.0.0
-    - senpi-runtime-helpers
+    - senpi-trading-runtime>=1.0.98
+    - senpi_runtime_helpers
 ---
 
 # 🌪️ TURBINE v3.2 — Volume Rotation + Runners
@@ -69,7 +69,7 @@ The same rotation alpha goes to both wallets. The runners wallet's DSL gives pos
 
 ## Why two wallets at all
 
-The runtime-phase-2 plugin enforces **one runtime per wallet**. v3.0 attempted to attach two runtimes to a single wallet and got blocked at deploy. v3.1 split into two wallets but rebuilt them with the wrong thesis (HYPE specialist). v3.2 keeps the two-wallet split and rewires both to the right thesis (same volume rotation, different DSL).
+The senpi-trading-runtime plugin enforces **one runtime per wallet**. v3.0 attempted to attach two runtimes to a single wallet and got blocked at deploy. v3.1 split into two wallets but rebuilt them with the wrong thesis (HYPE specialist). v3.2 keeps the two-wallet split and rewires both to the right thesis (same volume rotation, different DSL).
 
 ## Mission
 
