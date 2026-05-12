@@ -1,67 +1,37 @@
 #!/usr/bin/env python3
-# Senpi MANTIS State v5.0
+# Senpi MANTIS State v6.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""MANTIS v5.0 — State management.
+"""MANTIS v6.0.0 — State management.
 
-Persistent state lives at ${STATE_DIR}/. Survives session clears.
-Three state surfaces:
-  - asset-cooldowns.json   — per-asset cooldown timestamps (re-entry prevention)
-  - entry-log.jsonl        — append-only log of every Mantis decision
-  - position-metadata.json — per-position metadata for leader-reversal tracking
-                             (leader_asset, leader_pct_at_entry, expected_lag, etc.)
+v6.0.0 migration: dropped asset-cooldowns.json + daily-entry counting
+(both now handled by runtime.yaml risk.guard_rails). What remains is
+producer-authoritative metadata that the runtime CANNOT model:
+
+  - position-metadata.json — per-position {leader_asset, leader_pct_at_entry,
+    expected_lag_minutes, ...}. REQUIRED for the leader-reversal veto pass.
+    The runtime has no way to express "close this position if a separate
+    asset's 4h move reverses by 1% from its value at entry time."
+  - entry-log.jsonl — append-only log of every Mantis decision
+    (STRIKE, NO_ENTRY, LEADER_REVERSAL_EXIT, POSITION_CLOSED_DETECTED).
+    Pure observability — never read for decision-gating in v6.
 """
 
 import json
-import os
 import time
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import mantis_config as cfg
 
 
-# ─── Asset cooldowns ─────────────────────────────────────────────
-
-def load_cooldowns() -> Dict[str, Any]:
-    if cfg.COOLDOWN_FILE.exists():
-        try:
-            with open(cfg.COOLDOWN_FILE) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
-
-
-def save_cooldowns(cooldowns: Dict[str, Any]):
-    cfg.atomic_write(str(cfg.COOLDOWN_FILE), cooldowns)
-
-
-def is_asset_in_cooldown(asset: str, cooldown_minutes: int = None) -> bool:
-    if cooldown_minutes is None:
-        cooldown_minutes = cfg.COOLDOWN_PER_ASSET_MINUTES
-    cooldowns = load_cooldowns()
-    if asset not in cooldowns:
-        return False
-    last_ts = cooldowns[asset].get("ts", 0)
-    elapsed_min = (time.time() - last_ts) / 60
-    return elapsed_min < cooldown_minutes
-
-
-def mark_asset_cooldown(asset: str, reason: str = "entry"):
-    cooldowns = load_cooldowns()
-    cooldowns[asset] = {
-        "ts": time.time(),
-        "iso": cfg.now_iso(),
-        "reason": reason,
-    }
-    save_cooldowns(cooldowns)
-
-
-# ─── Entry log (append-only) ─────────────────────────────────────
+# ─── Entry log (append-only) — observability only ───────────────
 
 def append_entry_log(event_type: str, **kwargs) -> Dict[str, Any]:
-    """Append a structured JSONL line. Survives session clears."""
+    """Append a structured JSONL line. Survives session clears.
+
+    v6.0.0: this log is OBSERVABILITY ONLY. Daily-entry counting is
+    handled by runtime.yaml risk.guard_rails.max_entries_per_day.
+    """
     record = {
         "ts": time.time(),
         "iso": cfg.now_iso(),
@@ -91,20 +61,6 @@ def read_entry_log(limit: int = 200) -> List[Dict[str, Any]]:
         except json.JSONDecodeError:
             continue
     return out
-
-
-def count_entries_today() -> int:
-    """Count STRIKE events from current UTC day."""
-    cutoff = time.time() - 86400
-    records = read_entry_log(limit=500)
-    n = 0
-    for r in records:
-        if r.get("event") != "STRIKE":
-            continue
-        if r.get("ts", 0) < cutoff:
-            continue
-        n += 1
-    return n
 
 
 # ─── Position metadata (per-trade tracking for leader-reversal veto) ───
@@ -148,7 +104,7 @@ def clear_position_metadata(asset: str):
 
 def reconcile_position_metadata(open_position_assets: List[str]):
     """Remove metadata for assets no longer in the open position list.
-    Catches positions that closed via DSL or external action."""
+    Catches positions that closed via DSL, veto, or external action."""
     meta = load_position_metadata()
     open_set = {a.upper() for a in open_position_assets}
     closed = [a for a in list(meta.keys()) if a not in open_set]
@@ -159,7 +115,7 @@ def reconcile_position_metadata(open_position_assets: List[str]):
             "POSITION_CLOSED_DETECTED",
             asset=a,
             metadata=meta[a],
-            note="position no longer in clearinghouse — closed via DSL or external action",
+            note="position no longer in clearinghouse — closed via DSL, veto, or external action",
         )
         del meta[a]
     save_position_metadata(meta)
