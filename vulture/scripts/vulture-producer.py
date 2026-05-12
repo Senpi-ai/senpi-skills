@@ -44,14 +44,15 @@ v2.4 architectural fixes preserved:
 
 Environment / config resolution:
   Strategy wallet is read from config/vulture-config.json (the canonical
-  source). VULTURE_WALLET_ADDRESS env var is supported as an optional
-  override but is NOT required for routine daemon runs — operators just
-  set "wallet" in vulture-config.json and the launch command stays
-  wallet-agnostic. This complies with the fleet rule against hardcoding
-  wallet-specific values outside config files.
+  source). VULTURE_WALLET (or backward-compat VULTURE_WALLET_ADDRESS) env
+  var is supported as an optional override but is NOT required for routine
+  daemon runs — operators just set "wallet" in vulture-config.json and
+  the launch command stays wallet-agnostic. This complies with the fleet
+  rule against hardcoding wallet-specific values outside config files.
 
   SENPI_API_KEY              — MCP access (required)
-  VULTURE_WALLET_ADDRESS     — optional override; defaults to config.wallet
+  VULTURE_WALLET             — canonical per-agent wallet env var (v2.0.9 rule)
+  VULTURE_WALLET_ADDRESS     — backward-compat alias; both resolve the same way
   SENPI_MCP_URL              — optional, default https://mcp.prod.senpi.ai/mcp
   OPENCLAW_BIN               — optional, default "openclaw"
   SENPI_AUTH_TOKEN           — REQUIRED. Bearer token for MCP + signal POST.
@@ -90,14 +91,19 @@ SIGNAL_TYPE = "VULTURE_LONG_TAIL_MOMENTUM"
 
 def _resolve_wallet():
     """Resolve strategy wallet — config.json is the canonical source.
-    Env var VULTURE_WALLET_ADDRESS is supported as an optional override
-    (useful for CI/testing) but is NOT required for routine daemon runs.
-    This avoids forcing operators to inline wallet addresses in launch
-    commands, which violates the fleet rule against hardcoding
-    wallet-specific values outside config files."""
-    env_val = (os.environ.get("VULTURE_WALLET_ADDRESS") or "").strip()
-    if env_val:
-        return env_val
+
+    Env var resolution order (first non-empty wins):
+      1. VULTURE_WALLET            — fleet-standard <SKILL>_WALLET name (v2.0.9 rule)
+      2. VULTURE_WALLET_ADDRESS    — backward-compat for pre-rename operators
+      3. cfg.load_config()["wallet"] — canonical source on disk
+
+    Env vars are optional for routine daemon runs; setting "wallet" in
+    vulture-config.json is sufficient. The env var path stays useful
+    for CI/testing and operator overrides without editing config."""
+    for var in ("VULTURE_WALLET", "VULTURE_WALLET_ADDRESS"):
+        env_val = (os.environ.get(var) or "").strip()
+        if env_val:
+            return env_val
     try:
         return (cfg.load_config().get("wallet") or "").strip()
     except Exception:
