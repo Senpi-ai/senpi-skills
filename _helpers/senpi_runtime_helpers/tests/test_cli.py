@@ -535,6 +535,178 @@ class StopSubcommandTests(CliFixtures):
         self.assertEqual(rc, 0)
 
 
+class RestartSubcommandTests(CliFixtures):
+    """Restart requires boot.json + an existing script_path. The actual
+    subprocess.Popen is mocked via cli._manage monkeypatching so the test
+    doesn't spawn real daemons."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Create a real on-disk script — cmd_restart checks os.path.exists.
+        import tempfile
+        fd, self.script = tempfile.mkstemp(suffix=".py", prefix="restart-fake-")
+        os.write(fd, b"# placeholder daemon\n")
+        os.close(fd)
+        # Capture relaunch calls; replace with a callable that does nothing
+        # except record args and return a fake success result.
+        from senpi_runtime_helpers import cli as cli_mod
+        self._cli = cli_mod
+        self._orig_relaunch = self._cli._manage.relaunch_daemon
+        self._relaunch_calls = []
+
+        def fake_relaunch(**kwargs):
+            self._relaunch_calls.append(kwargs)
+            return {
+                "outcome": self._cli._manage.RELAUNCH_OK,
+                "pid": 4242,
+                "error": None,
+            }
+        self._cli._manage.relaunch_daemon = fake_relaunch
+
+    def tearDown(self) -> None:
+        self._cli._manage.relaunch_daemon = self._orig_relaunch
+        try:
+            os.unlink(self.script)
+        except OSError:
+            pass
+        super().tearDown()
+
+    def _seed_full(self, name: str, *, pid=None, include_log=True) -> None:
+        """Write pid.json + boot.json so restart has both files."""
+        d = os.path.join(self.tmp, name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 1, "name": name,
+                "pid": pid if pid is not None else 2147483646,
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": "0x" + "a" * 40, "scanner": "s",
+                "interval_seconds": 300.0, "tick_timeout": 60.0,
+                "log_path": f"/tmp/{name}.log" if include_log else None,
+                "version": "0.1.0",
+            }, f)
+        with open(os.path.join(d, "boot.json"), "w") as f:
+            json.dump({
+                "schema": 1, "name": name,
+                "argv": [self.script, "--flag"],
+                "script_path": self.script,
+                "cwd": "/tmp",
+                "env_snapshot": {},
+                "captured_at_iso": "2026-05-12T08:00:00.000Z",
+            }, f)
+
+    def test_restart_success_with_dead_daemon_skips_stop(self) -> None:
+        self._seed_full("svc")  # dead pid in pid.json
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["restart", "svc", "--json"])
+        self.assertEqual(rc, 0)
+        doc = json.loads(buf.getvalue())
+        self.assertEqual(doc["outcome"], "restarted")
+        self.assertEqual(doc["new_pid"], 4242)
+        self.assertIsNone(doc["stop_result"])  # no stop needed
+        self.assertEqual(len(self._relaunch_calls), 1)
+        self.assertEqual(self._relaunch_calls[0]["argv"], [self.script, "--flag"])
+        self.assertEqual(self._relaunch_calls[0]["cwd"], "/tmp")
+
+    def test_restart_missing_boot_fails_with_actionable_message(self) -> None:
+        # Pid.json only — no boot.json.
+        d = os.path.join(self.tmp, "no-boot")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 1, "name": "no-boot", "pid": 99999999,
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": "0x" + "a" * 40, "scanner": "s",
+                "interval_seconds": 300.0, "tick_timeout": 60.0,
+                "log_path": "/tmp/no-boot.log", "version": "0.1.0",
+            }, f)
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["restart", "no-boot"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 2)
+        self.assertIn("boot.json is missing", err)
+        self.assertIn("manually", err)
+        # Relaunch was NOT called.
+        self.assertEqual(len(self._relaunch_calls), 0)
+
+    def test_restart_missing_script_path_fails(self) -> None:
+        d = os.path.join(self.tmp, "moved-script")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 1, "name": "moved-script", "pid": 99999999,
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": "0x" + "a" * 40, "scanner": "s",
+                "interval_seconds": 300.0, "tick_timeout": 60.0,
+                "log_path": "/tmp/moved-script.log", "version": "0.1.0",
+            }, f)
+        with open(os.path.join(d, "boot.json"), "w") as f:
+            json.dump({
+                "schema": 1, "name": "moved-script",
+                "argv": ["/no/such/script.py"],
+                "script_path": "/no/such/script.py",
+                "cwd": "/tmp", "env_snapshot": {},
+                "captured_at_iso": "2026-05-12T08:00:00.000Z",
+            }, f)
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["restart", "moved-script"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)
+        self.assertIn("no longer exists", err)
+        self.assertEqual(len(self._relaunch_calls), 0)
+
+    def test_restart_no_log_path_fails(self) -> None:
+        self._seed_full("no-log", include_log=False)
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["restart", "no-log"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)
+        self.assertIn("log path", err.lower())
+        self.assertEqual(len(self._relaunch_calls), 0)
+
+    def test_restart_relaunch_failure_surfaces(self) -> None:
+        self._seed_full("svc")
+        def angry_relaunch(**kwargs):
+            return {
+                "outcome": self._cli._manage.RELAUNCH_SPAWN_FAILED,
+                "pid": None,
+                "error": "simulated spawn failure",
+            }
+        self._cli._manage.relaunch_daemon = angry_relaunch
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["restart", "svc"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)
+        self.assertIn("relaunch failed", err.lower())
+        self.assertIn("simulated spawn failure", err)
+
+    def test_restart_no_daemon_record_returns_not_found(self) -> None:
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["restart", "ghost"])
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 2)
+
+
 class HealthComputationTests(unittest.TestCase):
     """Pure-function tests for the health-state rules."""
 

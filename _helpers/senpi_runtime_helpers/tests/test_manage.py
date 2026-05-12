@@ -182,6 +182,123 @@ class StopPidValidationTests(unittest.TestCase):
         self.assertFalse(r["sigterm_sent"])
 
 
+class RelaunchDaemonTests(unittest.TestCase):
+    """relaunch_daemon — uses an injectable Popen factory so tests don't
+    actually spawn long-running daemons."""
+
+    def setUp(self) -> None:
+        # Real script path on disk — relaunch_daemon checks existence.
+        import tempfile
+        fd, self.script = tempfile.mkstemp(suffix=".py", prefix="fake-script-")
+        os.write(fd, b"# fake daemon\n")
+        os.close(fd)
+        fd2, self.log = tempfile.mkstemp(suffix=".log", prefix="fake-log-")
+        os.close(fd2)
+
+    def tearDown(self) -> None:
+        for path in (self.script, self.log):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+    def _make_fake_popen(self, fake_pid: int = 12345):
+        captured = {}
+        class FakeProc:
+            pid = fake_pid
+        def factory(argv, **kwargs):
+            captured["argv"] = argv
+            captured["kwargs"] = kwargs
+            return FakeProc()
+        return factory, captured
+
+    def test_relaunch_success_returns_pid(self) -> None:
+        factory, captured = self._make_fake_popen(fake_pid=4242)
+        result = manage.relaunch_daemon(
+            argv=[self.script, "--flag"],
+            cwd="/tmp",
+            log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_OK)
+        self.assertEqual(result["pid"], 4242)
+        self.assertEqual(captured["argv"], [self.script, "--flag"])
+        # Detach must be on.
+        self.assertTrue(captured["kwargs"].get("start_new_session"))
+        # stdin must be muted.
+        self.assertEqual(captured["kwargs"]["stdin"], subprocess.DEVNULL)
+
+    def test_relaunch_passes_log_fd_for_both_stdout_and_stderr(self) -> None:
+        factory, captured = self._make_fake_popen()
+        manage.relaunch_daemon(
+            argv=[self.script], cwd=None, log_path=self.log,
+            popen_factory=factory,
+        )
+        # Same fd for stdout and stderr — both point at the log.
+        self.assertEqual(captured["kwargs"]["stdout"], captured["kwargs"]["stderr"])
+
+    def test_relaunch_missing_script_fails_loudly(self) -> None:
+        factory, _ = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=["/no/such/script.py"], cwd=None, log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_SCRIPT_MISSING)
+        self.assertIn("not found", result["error"])
+
+    def test_relaunch_empty_argv_fails(self) -> None:
+        factory, _ = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=[], cwd=None, log_path=self.log, popen_factory=factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_SPAWN_FAILED)
+        self.assertIn("argv", result["error"])
+
+    def test_relaunch_unwritable_log_fails(self) -> None:
+        factory, _ = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=[self.script], cwd=None,
+            log_path="/no/such/dir/file.log",
+            popen_factory=factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_LOG_OPEN_FAILED)
+
+    def test_relaunch_popen_exception_surfaced(self) -> None:
+        def angry_factory(*_a, **_kw):
+            raise OSError("simulated spawn failure")
+        result = manage.relaunch_daemon(
+            argv=[self.script], cwd=None, log_path=self.log,
+            popen_factory=angry_factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_SPAWN_FAILED)
+        self.assertIn("simulated spawn failure", result["error"])
+
+    def test_relaunch_inherits_env_when_none_passed(self) -> None:
+        factory, captured = self._make_fake_popen()
+        os.environ["TEST_RELAUNCH_INHERIT_MARKER"] = "yes"
+        try:
+            manage.relaunch_daemon(
+                argv=[self.script], cwd=None, log_path=self.log,
+                popen_factory=factory,
+            )
+            self.assertEqual(
+                captured["kwargs"]["env"].get("TEST_RELAUNCH_INHERIT_MARKER"),
+                "yes",
+                "relaunch must inherit current process env when env=None",
+            )
+        finally:
+            os.environ.pop("TEST_RELAUNCH_INHERIT_MARKER", None)
+
+    def test_relaunch_uses_explicit_env_when_passed(self) -> None:
+        factory, captured = self._make_fake_popen()
+        custom_env = {"FOO": "bar"}
+        manage.relaunch_daemon(
+            argv=[self.script], cwd=None, log_path=self.log,
+            env=custom_env, popen_factory=factory,
+        )
+        self.assertEqual(captured["kwargs"]["env"], custom_env)
+
+
 class StopOutcomeSuccessTests(unittest.TestCase):
     def test_already_dead_is_success(self) -> None:
         self.assertTrue(manage.stop_outcome_was_success(manage.STOP_ALREADY_DEAD))

@@ -23,8 +23,9 @@ Design:
 
 import os
 import signal
+import subprocess
 import time
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 
 # How long to wait after SIGKILL before declaring the process is unkillable.
@@ -173,3 +174,88 @@ def stop_outcome_was_success(outcome: str) -> bool:
     outcomes are PERMISSION_DENIED, INVALID_PID, and KILL_FAILED.
     """
     return outcome in (STOP_ALREADY_DEAD, STOP_TERM_OK, STOP_KILL_OK)
+
+
+# ─── Relaunch (the back half of `restart`) ──────────────────────────────────
+
+
+# Relaunch outcome codes. Stable strings for JSON consumers.
+RELAUNCH_OK = "relaunched"
+RELAUNCH_SCRIPT_MISSING = "script_missing"
+RELAUNCH_LOG_OPEN_FAILED = "log_open_failed"
+RELAUNCH_SPAWN_FAILED = "spawn_failed"
+
+
+def relaunch_daemon(
+    *,
+    argv: List[str],
+    cwd: Optional[str],
+    log_path: str,
+    env: Optional[Dict[str, str]] = None,
+    popen_factory: Callable[..., Any] = subprocess.Popen,
+) -> Dict[str, Any]:
+    """Re-exec a daemon as a detached process. Used by `restart`.
+
+    Args:
+        argv: the daemon's argv (recorded in boot.json). argv[0] is the
+            script path; the script must still exist on disk.
+        cwd: working directory for the new process (recorded in boot.json).
+            None falls back to the current process's CWD.
+        log_path: path to the daemon's stderr log file. Opened in append
+            mode and used for BOTH stdout and stderr of the new process,
+            so the new daemon's events land in the same file the previous
+            one did — `senpi-helpers stats` continues to work without
+            re-detection.
+        env: environment for the new process. None = inherit caller's
+            env (the canonical path for `restart`, so wallet / auth /
+            decision-model changes since the daemon was started take
+            effect). Tests pass an explicit dict.
+        popen_factory: dependency-injected Popen for testability.
+
+    Detached via `start_new_session=True` (POSIX setsid) so the new
+    process survives the CLI's exit. `stdin=DEVNULL` to prevent the
+    daemon from blocking on a closed parent stdin.
+
+    Returns a result dict with outcome, pid, error.
+    """
+    if not argv:
+        return {"outcome": RELAUNCH_SPAWN_FAILED, "pid": None,
+                "error": "argv is empty"}
+    if not os.path.exists(argv[0]):
+        return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
+                "error": f"script not found: {argv[0]}"}
+
+    try:
+        # Open log file BEFORE spawning so an unwritable log path surfaces
+        # before we've half-launched a daemon with no place to send output.
+        log_fd = open(log_path, "a")
+    except OSError as e:
+        return {"outcome": RELAUNCH_LOG_OPEN_FAILED, "pid": None,
+                "error": f"cannot open {log_path}: {e}"}
+
+    try:
+        proc = popen_factory(
+            argv,
+            cwd=cwd or None,
+            env=env if env is not None else os.environ.copy(),
+            stdout=log_fd,
+            stderr=log_fd,
+            stdin=subprocess.DEVNULL,
+            start_new_session=True,
+            close_fds=True,
+        )
+    except (OSError, ValueError) as e:
+        try:
+            log_fd.close()
+        except OSError:
+            pass
+        return {"outcome": RELAUNCH_SPAWN_FAILED, "pid": None,
+                "error": f"Popen failed: {e}"}
+    finally:
+        # Popen dup'd the fd into the child; we can close our reference.
+        try:
+            log_fd.close()
+        except OSError:
+            pass
+
+    return {"outcome": RELAUNCH_OK, "pid": proc.pid, "error": None}

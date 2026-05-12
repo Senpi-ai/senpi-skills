@@ -21,6 +21,7 @@ import argparse
 import json
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -527,6 +528,174 @@ def cmd_stop(args: argparse.Namespace) -> int:
     return STOP_OK if _manage.stop_outcome_was_success(result["outcome"]) else STOP_FAILED
 
 
+# ─── Subcommand: restart ────────────────────────────────────────────────────
+
+RESTART_OK = 0
+RESTART_FAILED = 1
+RESTART_NOT_FOUND = 2
+
+# How long to wait for the new daemon to write its pid.json before declaring
+# the relaunch a partial failure. The daemon writes pid.json near the top of
+# `producer_daemon` (right after argument validation and the daemon_started
+# log), so 3 s is generous on healthy hardware.
+_RELAUNCH_CONFIRM_TIMEOUT = 3.0
+_RELAUNCH_CONFIRM_INTERVAL = 0.1
+
+
+def _wait_for_new_pid_json(
+    name: str,
+    *,
+    state_dir: Optional[str],
+    expected_pid: int,
+    timeout: float,
+) -> Optional[Dict[str, Any]]:
+    """Poll for a fresh pid.json whose pid matches `expected_pid`.
+
+    Returns the new pid.json data dict, or None on timeout. Used by
+    `restart` to confirm the new daemon got far enough into its boot
+    sequence to write its state file.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        data = _state.read_pid(name, state_dir=state_dir)
+        if data is not None and data.get("pid") == expected_pid:
+            return data
+        time.sleep(_RELAUNCH_CONFIRM_INTERVAL)
+    return None
+
+
+def cmd_restart(args: argparse.Namespace) -> int:
+    name = _resolve_name(args)
+    if name is None:
+        return RESTART_NOT_FOUND
+
+    boot_data = _state.read_boot(name, state_dir=args.state_dir)
+    if boot_data is None:
+        sys.stderr.write(
+            f"senpi-helpers: cannot restart '{name}': boot.json is missing.\n"
+            f"This daemon has never started successfully under the helper, "
+            f"so there's no record of how to launch it. Start it manually "
+            f"using your skill's launch recipe (see "
+            f"runtime-deployment.md § \"Restarting the producer daemon\"); "
+            f"`restart` will work next time.\n"
+        )
+        return RESTART_NOT_FOUND
+
+    script_path = boot_data.get("script_path")
+    argv = boot_data.get("argv") or []
+    cwd = boot_data.get("cwd")
+
+    if not script_path or not os.path.exists(script_path):
+        sys.stderr.write(
+            f"senpi-helpers: cannot restart '{name}': script_path "
+            f"'{script_path}' no longer exists on disk.\n"
+            f"The skill may have moved or been removed. Start manually "
+            f"from the current location; the new boot.json will fix "
+            f"future restarts.\n"
+        )
+        return RESTART_FAILED
+
+    # If the daemon is running, stop it first (clean SIGTERM + escalation).
+    pid_data = _state.read_pid(name, state_dir=args.state_dir)
+    pid = pid_data.get("pid") if pid_data else None
+    stop_result: Optional[Dict[str, Any]] = None
+    if isinstance(pid, int) and _manage.is_pid_alive(pid):
+        stop_result = _manage.stop_pid(pid, timeout_seconds=args.timeout)
+        if not _manage.stop_outcome_was_success(stop_result["outcome"]):
+            sys.stderr.write(
+                f"senpi-helpers: cannot restart '{name}': stop failed "
+                f"({stop_result['outcome']} — {stop_result.get('error')})\n"
+            )
+            if args.json:
+                print(json.dumps({
+                    "name": name, "outcome": "stop_failed",
+                    "stop_result": stop_result,
+                }, indent=2, default=str))
+            return RESTART_FAILED
+        # SIGKILL'd daemons can't clean up pid.json themselves.
+        if stop_result["outcome"] == _manage.STOP_KILL_OK:
+            _state.clear_pid(name, state_dir=args.state_dir)
+
+    # Restart needs a log path so the new daemon's stderr is captured
+    # somewhere the operator can find it. Pull from old pid.json
+    # (preferred) or boot.json env_snapshot's SENPI_HELPERS_LOG_PATH
+    # (operator-set explicit). If neither is available, fail loudly.
+    log_path = (pid_data or {}).get("log_path")
+    if not log_path:
+        env_snapshot = boot_data.get("env_snapshot") or {}
+        log_path = env_snapshot.get("SENPI_HELPERS_LOG_PATH")
+    if not log_path:
+        sys.stderr.write(
+            f"senpi-helpers: cannot restart '{name}': no log path recorded.\n"
+            f"`restart` needs to know where to send the new daemon's stderr. "
+            f"Start manually with `nohup python3 -u {script_path} > "
+            f"/tmp/{name}.log 2>&1 &` so the next pid.json captures the path.\n"
+        )
+        return RESTART_FAILED
+
+    relaunch_result = _manage.relaunch_daemon(
+        argv=argv,
+        cwd=cwd,
+        log_path=log_path,
+    )
+
+    if relaunch_result["outcome"] != _manage.RELAUNCH_OK:
+        sys.stderr.write(
+            f"senpi-helpers: relaunch failed: {relaunch_result['outcome']} "
+            f"({relaunch_result.get('error')})\n"
+        )
+        if args.json:
+            print(json.dumps({
+                "name": name, "outcome": relaunch_result["outcome"],
+                "stop_result": stop_result, "relaunch_result": relaunch_result,
+            }, indent=2, default=str))
+        return RESTART_FAILED
+
+    new_pid = relaunch_result["pid"]
+
+    # Confirm the new daemon actually wrote its pid.json. If not, the script
+    # may have crashed before writing — but the Popen succeeded, so it's
+    # only a soft warning. The operator can verify with `senpi-helpers list`.
+    confirmed = _wait_for_new_pid_json(
+        name,
+        state_dir=args.state_dir,
+        expected_pid=new_pid,
+        timeout=_RELAUNCH_CONFIRM_TIMEOUT,
+    )
+
+    payload = {
+        "name": name,
+        "outcome": "restarted",
+        "new_pid": new_pid,
+        "old_pid": pid if pid_data else None,
+        "stop_result": stop_result,
+        "relaunch_result": relaunch_result,
+        "pid_json_confirmed": confirmed is not None,
+        "log_path": log_path,
+    }
+
+    if args.json:
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        if pid_data:
+            print(f"{name}: stopped old daemon (pid {pid}) and relaunched.")
+        else:
+            print(f"{name}: no running daemon found; relaunched cold.")
+        print(f"  new pid:        {new_pid}")
+        print(f"  log path:       {log_path}")
+        print(f"  script:         {script_path}")
+        if confirmed is not None:
+            print("  pid.json:       confirmed (new daemon is ticking)")
+        else:
+            print(f"  pid.json:       not seen within {_RELAUNCH_CONFIRM_TIMEOUT}s")
+            print(
+                f"  → verify with `senpi-helpers health {name}` "
+                f"and check the log."
+            )
+
+    return RESTART_OK
+
+
 def cmd_health(args: argparse.Namespace) -> int:
     name = _resolve_name(args)
     if name is None:
@@ -661,6 +830,33 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     stop_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
     stop_p.set_defaults(func=cmd_stop)
+
+    # restart
+    restart_p = sub.add_parser(
+        "restart",
+        help="Stop a daemon and re-exec it from boot.json.",
+        description=(
+            "Stop the daemon (SIGTERM/SIGKILL via the same path as `stop`) "
+            "and re-launch it from the argv + cwd recorded in boot.json. "
+            "The new process inherits the CLI's current env (so wallet / "
+            "auth / decision-model changes since the daemon was started "
+            "take effect). Logs continue going to the original log_path."
+        ),
+    )
+    restart_p.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Daemon name. Optional on single-daemon hosts.",
+    )
+    restart_p.add_argument(
+        "--timeout",
+        type=float,
+        default=30.0,
+        help="Seconds to wait for SIGTERM before escalating during stop (default: 30).",
+    )
+    restart_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
+    restart_p.set_defaults(func=cmd_restart)
 
     return parser
 
