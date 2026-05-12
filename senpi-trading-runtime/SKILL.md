@@ -15,6 +15,10 @@ On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Mo
 
 ## Core Concepts
 
+**Producer-side companion skill:** when wiring up an `external_scanner` (a Python producer that pushes signals into this runtime), build it on the **`senpi-runtime-helpers`** wrapper at [`_helpers/senpi_runtime_helpers/SKILL.md`](../_helpers/senpi_runtime_helpers/SKILL.md). It wraps the `/signals` endpoint, the SignalItem schema, the per-tick lock, and the daemon scheduler in one stdlib-only Python package — the canonical client for the contract this runtime exposes. Starting from [`pangolin/scripts/pangolin-producer.py`](../pangolin/scripts/pangolin-producer.py) is the fastest path; that's the reference wrapper-based producer in this repo.
+
+`SignalItem` shape (per `runtime-api/routes/signals.schema.ts`): top-level `address`, `scanner`, `asset`, `direction`, `score` (0..1), `signal_type`. The per-scanner `data` block is validated against the `config.fields` declared on the `external_scanner`. **Keep `asset` and `direction` out of `data`** — they're top-level routing fields. Putting them in `data` makes the runtime store two copies (`signal.asset` vs `signal.meta.asset`) and downstream consumers read inconsistently; that's the failure mode that triggered `INVALID_REQUEST` rejections in the Pangolin tick-2 incident on 2026-05-05.
+
 **Flow:** Position Tracker scanner → detects position changes → DSL exit engine manages trailing stops
 
 1. **Position Tracker** (`position_tracker` scanner) polls the wallet on-chain, detecting opens, closes, increases, decreases, and flips.
@@ -442,3 +446,4 @@ For full DSL mechanics (retrace math, breach logic, close reasons, events): [DSL
 - [Strategy Examples](references/strategy-examples.md) — Position-tracker runtimes with different DSL tuning profiles
 - [External Producers](references/external-producers.md) — How to schedule, deploy, and build external-scanner producers (includes the canonical cron naming convention)
 - [Liveness Verification](references/liveness-verification.md) — Field-level decision tree and cron ↔ runtime reconciliation for confirming the runtime is actually operating, not just registered
+- [`senpi_runtime_helpers` (companion skill)](../_helpers/senpi_runtime_helpers/SKILL.md) — Stdlib-only Python wrapper for producers feeding this runtime: persistent MCP client, `/signals` POST, scanner_lock, parallel fan-out, tick cache, producer_daemon. Mandatory for new producers.
