@@ -29,6 +29,16 @@ On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Mo
 
 **Wallet uniqueness:** Only one running runtime per wallet address is allowed. Installing a second runtime for the same wallet is rejected. Delete the existing runtime first, then install the new one.
 
+## Capabilities at a glance
+
+- **On-chain position tracker + DSL trailing stop-loss** — two-phase trailing exits with optional time-based cuts; protects positions opened manually or by any tool on Hyperliquid. See [DSL Exit Engine](#dsl-exit-engine--key-concepts).
+- **External-scanner push ingest** — runtime exposes `POST /signals`; any out-of-process producer can push signals. Non-Python producers implement the wire format directly. See [Signal Schema](references/signal-schema.md).
+- **Python Producer SDK** — bundled with this skill; daemon-based; auto-self-terminates when the runtime is deleted or the scanner is renamed. See [Python Producer SDK](#python-producer-sdk).
+- **LLM-gated actions** (`decision_mode: llm`, optional pass-through) — let an LLM evaluate each signal against current account + market state before opening. See [Runtime YAML](#runtime-yaml).
+- **Declarative risk guard rails** — daily loss cap, max entries per day, drawdown halt, consecutive-losses cooldown, per-asset cooldown. All in YAML, runtime-enforced. See [Strategy YAML Reference](references/yaml-schema.md).
+- **Maker-first execution** (`FEE_OPTIMIZED_LIMIT` entries + exits) — fee-optimized limit orders with optional taker fallback for assured fills.
+- **Operator visibility** — `senpi-helpers` CLI (list / health / stats / stop / restart) for producer daemons; HTTP `/state` and `/health` endpoints for external monitors. See [`senpi-helpers` CLI](references/senpi-helpers-cli.md).
+
 ## Deploy Checklist
 
 Follow these steps in order for any strategy. Step 5 only applies when the YAML declares an `external_scanner`.
