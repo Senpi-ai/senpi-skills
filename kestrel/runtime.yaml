@@ -13,7 +13,7 @@ description: >
 
   WHAT v2.0 ENABLES:
     - Producer (kestrel-producer.py) emits signals via
-      `openclaw senpi external-scanner ingest`. NO execution code.
+      `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
     - Runtime LLM gate is regime-aware — applies macro vetoes
       (BTC drawdown propagating to risk-off equities, vol expansion
       spikes) that the producer can't see.

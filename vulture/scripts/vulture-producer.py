@@ -21,7 +21,7 @@ v3.0 flips to pure producer (Scorpion v4.x / Roach v2.x pattern):
   - Apply LONG_TAIL_MOMENTUM scoring (preserved from v2.4 — same hard
     gates, same scoring tiers, same conviction-scaled leverage)
   - Enrich with funding regime + held-positions context
-  - Push qualifying signals via `openclaw senpi external-scanner ingest`
+  - Push qualifying signals via `SenpiClient.push_signal()`
 
 The runtime handles everything else:
   - LLM gate (decision_mode: llm) is pass-through (Roach pattern) —
@@ -598,8 +598,8 @@ def main():
 
 
 if __name__ == "__main__":
-    # v4.0.0 — long-lived daemon. NOTE: wallet=/scanner= NOT passed
-    # per fleet-fix #214 (host helpers package doesn't accept yet).
+    # v4.0.0 — long-lived daemon. producer_daemon owns the per-tick
+    # scanner_lock with stale-PID auto-recovery.
     _wallet_lock_id = (
         hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
         if STRATEGY_ADDRESS
@@ -609,5 +609,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=60,            # Vulture's v3.x cron was every 60s
         name=f"vulture-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
         tick_timeout=120,
     )

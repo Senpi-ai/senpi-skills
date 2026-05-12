@@ -519,7 +519,7 @@ class SenpiClient:
 
         Stricter than `is_runtime_registered`: catches the case where a runtime
         exists for the wallet but the producer's specific external_scanner
-        (e.g. `pangolin_signals`) was renamed, dropped, or replaced when the
+        (e.g. `my_signals`) was renamed, dropped, or replaced when the
         runtime was reinstalled. Walks `components.scanners.scanners[]` and
         looks for a matching `scannerId` (the runtime-side identifier — same
         value as the producer's `client.push_signal(scanner=...)` argument).
@@ -667,8 +667,8 @@ class SenpiClient:
                 first_message = str(first_err.get("message", ""))[:200]
                 # Histogram of all failure codes in the batch — preserves
                 # visibility into multi-mode failures that surface only the
-                # FIRST item in the exception. For pangolin (one signal at a
-                # time) this is just `{first_code: 1}`; for any future batch
+                # FIRST item in the exception. For single-signal producers
+                # this is just `{first_code: 1}`; for any future batch
                 # producer it is the difference between "I have no idea why
                 # the batch failed" and a shaped error report.
                 code_histogram: Dict[str, int] = {}

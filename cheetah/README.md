@@ -8,10 +8,10 @@ Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 - `cheetah-producer.py` and `cheetah_config.py` migrate to `senpi_runtime_helpers`:
   - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
-  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST) instead of `openclaw senpi external-scanner ingest` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
   - Reentrancy lock owned by `producer_daemon.scanner_lock` (PID-aliveness auto-recovery) instead of hand-rolled `fcntl`
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn` (per-tick LLM cost)
-- Requires `senpi-trading-runtime >= 1.1.0` .
+- Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host; provides the `{success,data,error}` envelope and `GET /state` for daemon liveness probes).
 - `runtime.yaml` unchanged. `external_scanner.name: cheetah_signals` matches the producer's `client.push_signal(scanner=...)`.
 
 ## What changed in v6.x (preserved)
@@ -62,16 +62,12 @@ curl -s -m 5 http://127.0.0.1:8787/state | head -c 200
 
 If `curl` returns Connection refused, the plugin still isn't registered — check `openclaw plugin list` shows the runtime entry as loaded and re-verify the JSON.
 
-### Step 1 — Pull the helpers package (one-time per host, shared across all skills)
+### Step 1 — Install the senpi-trading-runtime skill (one-time per host)
+
+The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading-runtime skill. Install it once per host:
 
 ```bash
-mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers/references
-mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers/tests
-
-for f in __init__.py _config.py _logging.py cache.py client.py daemon.py lock.py parallel.py SKILL.md README.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/_helpers/senpi_runtime_helpers/$f" \
-    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
-done
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
 ### Step 2 — Pull the Cheetah skill
@@ -207,7 +203,7 @@ Time cuts: hard_timeout 720min, weak_peak_cut 90min @ 3.0, dead_weight_cut 60min
 ```bash
 cd /data/workspace/skills/cheetah-strategy
 
-# 1. Pull the helpers package (one-time per host) — Step 1 above.
+# 1. Install the senpi-trading-runtime skill (one-time per host) — Step 1 above.
 
 # 2. Pull the new producer + config files (Step 2 above curl block).
 

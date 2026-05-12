@@ -13,19 +13,18 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "5.0.0"
+  version: "5.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.1.0
-    - senpi_runtime_helpers
+    - senpi-trading-runtime
 ---
 
 # 🐻‍❄️ POLAR v5.0.0 — ETH Alpha Hunter (senpi_runtime_helpers)
 
 Best gross trader in the fleet. Single asset. Maximum conviction.
 
-**v3 → v4 architectural rewrite.** v3.x was a full-agency scanner that called create_position directly and tracked state in Python. v4.0 flips to the standard senpi-trading-runtime pattern: producer emits signals, runtime owns execution + state.
+**v3 → v4 architectural rewrite.** v3.x was a full-agency scanner that called create_position directly and tracked state in Python. v4.0 flips to the standard senpi-trading-runtime plugin pattern: producer emits signals, runtime owns execution + state.
 
 **What changed structurally:**
 - `polar-producer.py` (NEW) replaces `polar-scanner.py` (DELETED). Pure producer — no execution, no counters, no cooldowns, no resting-order guards.

@@ -13,12 +13,11 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.0.1"
+  version: "4.0.2"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime@v2
-    - senpi_runtime_helpers
+    - senpi-trading-runtime
 ---
 
 # 🕷️ SPIDER v3.0 — Patient Anchor Sniper

@@ -18,7 +18,7 @@ v2.0 splits that into two parts:
      and manages DSL exits autonomously.
 
 The producer's single responsibility: detect Striker signals and push
-them to the runtime via `openclaw senpi external-scanner ingest`.
+them to the runtime via `SenpiClient.push_signal()` (direct HTTP POST).
 
 NO execution code. NO DSL code. NO daily/loss/cooldown gates beyond
 the per-asset cooldown that gates the SAME asset re-entering. Daily-
@@ -611,8 +611,8 @@ def main():
 
 
 if __name__ == "__main__":
-    # v3.0.0 — long-lived daemon. NOTE: wallet=/scanner= NOT passed
-    # per fleet-fix #214 (host helpers package doesn't accept yet).
+    # v3.0.0 — long-lived daemon. producer_daemon owns the per-tick
+    # scanner_lock with stale-PID auto-recovery.
     _wallet_lock_id = (
         hashlib.sha256(ROACH_WALLET.lower().encode()).hexdigest()[:12]
         if ROACH_WALLET
@@ -622,5 +622,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=90,           # Roach's v2.x cron was every 90s
         name=f"roach-producer-{_wallet_lock_id}",
+        wallet=ROACH_WALLET,
+        scanner=SCANNER_NAME,
         tick_timeout=180,
     )

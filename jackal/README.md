@@ -38,15 +38,12 @@ curl -s -m 5 http://127.0.0.1:8787/state | head -c 200
 
 If `curl` returns Connection refused, the plugin still isn't registered — check `openclaw plugin list` shows the runtime entry as loaded and re-verify the JSON.
 
-### Step 1 — Pull the helpers package (one-time per host)
+### Step 1 — Install the senpi-trading-runtime skill (one-time per host)
+
+The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading-runtime skill. Install it once per host:
 
 ```bash
-mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
-for f in __init__.py _config.py _logging.py cache.py client.py \
-         daemon.py lock.py parallel.py SKILL.md README.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/_helpers/senpi_runtime_helpers/$f" \
-    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
-done
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
 ### Step 2 — Pull Jackal v3.0.0

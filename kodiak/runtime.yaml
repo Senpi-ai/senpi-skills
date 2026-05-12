@@ -28,7 +28,7 @@ description: >
 
   v6.0 architectural changes (v2-runtime-native):
     - Producer (kodiak-producer.py) emits scored thesis signals via
-      `openclaw senpi external-scanner ingest`. NO execution code.
+      `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
     - Runtime LLM (decision_model env var) is a pass-through gate —
       producer has already applied every filter (4h structure, 1h
       agree, 15m direction confirms, base-tech-score floor, MIN_SCORE 10).

@@ -124,7 +124,7 @@ def producer_daemon(
             When the default alive_check is used (the common path), this is the
             wallet the daemon probes the runtime API for. Pass the same address
             you'd pass to `client.push_signal(address=...)`.
-        scanner: external_scanner name (e.g. "pangolin_signals"). Optional.
+        scanner: external_scanner name (e.g. "my_signals"). Optional.
             When provided alongside `wallet`, the default alive_check is the
             stricter `is_scanner_registered(wallet, scanner)` — the daemon
             self-terminates not just when the runtime is deleted, but also

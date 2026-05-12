@@ -2,7 +2,7 @@
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v2.2.0. NO thesis change.** Pangolin is the canonical reference implementation — its producer is the helpers wrapper pattern other helpers-native skills copy. v3.0.0 applied fleet-fix #214 (no `wallet=`/`scanner=` daemon kwargs).
+**Plumbing-only migration from v2.2.0. NO thesis change.** Pangolin is the canonical reference producer for the `senpi_runtime_helpers` SDK wrapper pattern. v3.0.0 is on `main` with fleet-fix #214 (no `wallet=`/`scanner=` daemon kwargs) applied.
 
 ## Install
 
@@ -38,15 +38,12 @@ curl -s -m 5 http://127.0.0.1:8787/state | head -c 200
 
 If `curl` returns Connection refused, the plugin still isn't registered — check `openclaw plugin list` shows the runtime entry as loaded and re-verify the JSON.
 
-### Step 1 — Pull the helpers package (one-time per host)
+### Step 1 — Install the senpi-trading-runtime skill (one-time per host)
+
+The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading-runtime skill. Install it once per host:
 
 ```bash
-mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
-for f in __init__.py _config.py _logging.py cache.py client.py \
-         daemon.py lock.py parallel.py SKILL.md README.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/_helpers/senpi_runtime_helpers/$f" \
-    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
-done
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
 ### Step 2 — Pull Pangolin v3.0.0

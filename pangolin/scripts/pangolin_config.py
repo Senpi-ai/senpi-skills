@@ -6,8 +6,7 @@ v2 producer responsibilities are narrower than v1:
     market_get_funding_history, strategy_get_clearinghouse_state)
   - Push signals via direct HTTP POST to the runtime API on 127.0.0.1
     through `senpi_runtime_helpers.SenpiClient.push_signal` (no
-    `openclaw senpi external-scanner ingest` subprocess; no CLI cold
-    start). The runtime owns execution.
+    subprocess; no CLI cold start). The runtime owns execution.
 
 Runtime handles: position tracking, DSL exits, risk guardrails,
 trade counting, asset cooldowns. All of that state lives in the
@@ -43,10 +42,10 @@ CONFIG_PATH = SKILL_DIR / "config" / "pangolin-config.json"
 
 
 # ─── senpi_runtime_helpers (lazy + auth-validated) ───
-# `wrapped-skills` ships the helpers package alongside the skill so the
-# wrapper is always available. Import is sys.path-mounted at module load,
-# but the SenpiClient construction is deferred to first use via
-# `_get_wrapper_client()`. Two reasons for lazy:
+# The senpi_runtime_helpers package ships inside the senpi-trading-runtime
+# skill, so the SDK is always available once the runtime skill is installed.
+# Import is sys.path-mounted at module load, but the SenpiClient construction
+# is deferred to first use via `_get_wrapper_client()`. Two reasons for lazy:
 #   1. Importing pangolin_config (e.g. from a test, REPL, or a sibling
 #      module that wants `now_iso()`) shouldn't instantiate a network
 #      client or write to stderr.
@@ -54,9 +53,20 @@ CONFIG_PATH = SKILL_DIR / "config" / "pangolin-config.json"
 #      token raises loudly here instead of silently producing a 401 on
 #      the first MCP call.
 
-_helpers_path = str(Path(WORKSPACE) / "skills" / "_helpers")
-if _helpers_path not in sys.path:
-    sys.path.insert(0, _helpers_path)
+# senpi_runtime_helpers ships inside the senpi-trading-runtime skill.
+# Global skills install under ~/.openclaw/skills/ on standard hosts
+# (e.g. /data/.openclaw/skills/ on Railway). Some setups install user
+# skills under ${OPENCLAW_WORKSPACE}/skills/. Probe both in order.
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
+)
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
 from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore
 
 
@@ -70,7 +80,7 @@ def _get_wrapper_client() -> SenpiClient:
             "Railway service variable) before starting the producer."
         )
     client = SenpiClient()
-    log_event("pangolin_wrapper_enabled", helpers_path=_helpers_path)
+    log_event("pangolin_wrapper_enabled", sdk_path=_sdk_path)
     return client
 
 

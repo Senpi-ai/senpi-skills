@@ -706,18 +706,11 @@ if __name__ == "__main__":
         if KODIAK_WALLET
         else "unset"
     )
-    # NOTE: senpi_runtime_helpers.daemon.producer_daemon installed on the
-    # runtime host (Erik's build) does NOT yet accept wallet=/scanner=
-    # kwargs even though the helpers package's source
-    # signature documents them. Caught live on Turbine v3.2 deploy
-    # 2026-05-08: TypeError: unexpected keyword argument 'wallet'.
-    # When the host helpers package is upgraded, add back:
-    #   wallet=KODIAK_WALLET,
-    #   scanner=SCANNER_NAME,
-    # which enables /state alive_check.
     producer_daemon(
         fn=main,
         interval_seconds=180,           # Kodiak's v6.x cron was every 3 min
         name=f"kodiak-producer-{_wallet_lock_id}",
+        wallet=KODIAK_WALLET,
+        scanner=SCANNER_NAME,
         tick_timeout=240,               # producer's WARN_OVER_180S budget + headroom
     )

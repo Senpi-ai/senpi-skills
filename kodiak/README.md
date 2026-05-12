@@ -10,10 +10,10 @@ SOL-only alpha hunter. Single-asset focus. Multi-factor scoring (SM consensus + 
 
 - `kodiak-producer.py` and `kodiak_config.py` migrate to `senpi_runtime_helpers`:
   - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
-  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST) instead of `openclaw senpi external-scanner ingest` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
   - Reentrancy lock owned by `producer_daemon.scanner_lock` (PID-aliveness auto-recovery) instead of hand-rolled `fcntl`
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
-- Requires `senpi-trading-runtime >= 1.1.0` .
+- Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
 - `runtime.yaml` unchanged. `external_scanner.name: kodiak_signals` matches the producer's `client.push_signal(scanner=...)`.
 - Per Rachin's review of Cheetah PR #209: dead fields stripped from `build_signal_payload`; `signal_type="KODIAK_SOL_THESIS"` passed explicitly.
 
@@ -72,15 +72,12 @@ curl -s -m 5 http://127.0.0.1:8787/state | head -c 200
 
 If `curl` returns Connection refused, the plugin still isn't registered — check `openclaw plugin list` shows the runtime entry as loaded and re-verify the JSON.
 
-### Step 1 — Pull the helpers package (one-time per host)
+### Step 1 — Install the senpi-trading-runtime skill (one-time per host)
+
+The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading-runtime skill. Install it once per host:
 
 ```bash
-mkdir -p /data/workspace/skills/_helpers/senpi_runtime_helpers
-for f in __init__.py _config.py _logging.py cache.py client.py \
-         daemon.py lock.py parallel.py SKILL.md README.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/_helpers/senpi_runtime_helpers/$f" \
-    -o "/data/workspace/skills/_helpers/senpi_runtime_helpers/$f"
-done
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
 Skip if already pulled for Cheetah v7.0.0 / Turbine v3.2 / another v3 skill.

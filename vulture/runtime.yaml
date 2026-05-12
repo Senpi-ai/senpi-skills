@@ -24,7 +24,7 @@ description: >
 
   v3.0 flips to producer + v2 runtime (Scorpion v4.x / Roach v2.x pattern):
     - Producer (vulture-producer.py) emits LONG_TAIL_MOMENTUM signals via
-      `openclaw senpi external-scanner ingest`. NO execution code. NO
+      `SenpiClient.push_signal()` (direct HTTP POST). NO execution code. NO
       counters. NO cooldowns. NO dynamic-slot bookkeeping.
     - LLM gate is pass-through (Roach pattern) — producer has applied
       every filter (SM/4h/1h/15m hard gates, 1h-alignment fix, regime

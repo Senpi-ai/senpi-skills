@@ -25,9 +25,9 @@ Six-layer plumbing flip per migration-cookbook (matches Cheetah v7.0.0
      producer_daemon (long-lived process; zero per-tick LLM cost).
   5. Per-tick cache + parallel fan-out NOT adopted (matches Pangolin
      reference minimum-change pattern).
-  6. /state alive_check — wallet=/scanner= kwargs NOT passed to
-     producer_daemon per fleet-fix commit 4f0c15e (host helpers
-     package doesn't accept those kwargs yet).
+  6. /state alive_check — wallet=/scanner= kwargs passed to
+     producer_daemon; daemon self-terminates when the runtime is
+     deleted or the scanner is renamed.
 
 v4.2.0 thesis preserved unchanged.
 """
@@ -753,13 +753,6 @@ if __name__ == "__main__":
     # v5.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
     # producer_daemon owns the per-tick scanner_lock with stale-PID
     # auto-recovery.
-    #
-    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
-    # doesn't accept yet — see fleet-fix commit 4f0c15e). When Erik
-    # upgrades the host helpers, restore:
-    #   wallet=STRATEGY_ADDRESS,
-    #   scanner=SCANNER_NAME,
-    # to enable /state alive_check (auto-terminate on runtime delete).
     _wallet_lock_id = (
         hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
         if STRATEGY_ADDRESS
@@ -769,5 +762,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=180,           # Wolverine's v4.x cron was every 3 min
         name=f"wolverine-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
         tick_timeout=240,
     )

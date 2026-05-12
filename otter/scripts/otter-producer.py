@@ -64,10 +64,20 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import otter_config as cfg
 
-_helpers_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace"))
-                    / "skills" / "_helpers")
-if _helpers_path not in sys.path:
-    sys.path.insert(0, _helpers_path)
+# senpi_runtime_helpers ships inside the senpi-trading-runtime skill.
+# Global skills install under ~/.openclaw/skills/ on standard hosts
+# (e.g. /data/.openclaw/skills/ on Railway). Some setups install user
+# skills under ${OPENCLAW_WORKSPACE}/skills/. Probe both in order.
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
+)
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
 from senpi_runtime_helpers import producer_daemon  # type: ignore  # noqa: E402
 
 
@@ -748,5 +758,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=300,
         name=f"otter-producer-{_wallet_lock_id}",
+        wallet=OTTER_WALLET,
+        scanner=SCANNER_NAME,
         tick_timeout=240,
     )

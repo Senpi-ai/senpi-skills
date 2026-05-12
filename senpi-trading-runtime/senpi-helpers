@@ -2,16 +2,17 @@
 """senpi-helpers — operator CLI for senpi_runtime_helpers daemons.
 
 Thin wrapper that:
-  1. Adds the helpers directory to sys.path so `senpi_runtime_helpers` can be
-     imported (the package ships inside `<workspace>/skills/_helpers/`,
-     which is not on the default Python path).
+  1. Adds the directory holding this script to sys.path so
+     `senpi_runtime_helpers` can be imported (the package ships inside
+     the senpi-trading-runtime skill directory, which is not on the
+     default Python path).
   2. Dispatches to `senpi_runtime_helpers.cli.main()`.
 
 Run from anywhere:
-    /data/workspace/skills/_helpers/senpi-helpers list
+    ~/.openclaw/skills/senpi-trading-runtime/senpi-helpers list
 
 Or alias it:
-    alias senpi-helpers=/data/workspace/skills/_helpers/senpi-helpers
+    alias senpi-helpers=~/.openclaw/skills/senpi-trading-runtime/senpi-helpers
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
@@ -23,9 +24,9 @@ import sys
 def _bootstrap_sys_path() -> None:
     """Insert the directory holding this script into sys.path.
 
-    This script lives at `<helpers_root>/senpi-helpers`. The package
-    `senpi_runtime_helpers` is at `<helpers_root>/senpi_runtime_helpers/`.
-    Adding `<helpers_root>` to sys.path makes the package importable.
+    This script lives at `<skill_dir>/senpi-helpers`. The package
+    `senpi_runtime_helpers` is at `<skill_dir>/senpi_runtime_helpers/`.
+    Adding `<skill_dir>` to sys.path makes the package importable.
     """
     here = os.path.dirname(os.path.realpath(__file__))
     if here not in sys.path:
@@ -35,8 +36,8 @@ def _bootstrap_sys_path() -> None:
 def _run() -> int:
     _bootstrap_sys_path()
     # Imported only after sys.path is set up. Keeps the import error path
-    # (missing helpers package) inside the function instead of at module
-    # load, so a clearer error can be surfaced.
+    # (missing senpi_runtime_helpers package) inside the function instead
+    # of at module load, so a clearer error can be surfaced.
     try:
         from senpi_runtime_helpers.cli import main
     except ImportError as e:

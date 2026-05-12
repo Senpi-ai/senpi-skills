@@ -14,12 +14,11 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "7.1.1"
+  version: "7.1.2"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.1.0
-    - senpi_runtime_helpers
+    - senpi-trading-runtime
 ---
 
 # 🐆 CHEETAH v7.1.0 — Multi-Signal Confluence Sniper
@@ -89,7 +88,7 @@ Leverage is clamped to each asset's Hyperliquid max via `strategy_get_asset_trad
 
 ### v1 scanner → v2 producer
 - v5.x: `cheetah-scanner.py` scored signals, called `create_position` directly, maintained Python-side cooldowns/counters/resting-order guards
-- v6.0: `cheetah-producer.py` emits signals via `external-scanner ingest`. Runtime LLM gate (decision_mode: llm) is pass-through. Risk gates declarative in `runtime.yaml`.
+- v6.0: `cheetah-producer.py` emits signals via `SenpiClient.push_signal()` (direct HTTP POST). Runtime LLM gate (decision_mode: llm) is pass-through. Risk gates declarative in `runtime.yaml`.
 
 ### MIN_SCORE 11 → 10
 v5.2 tightened MIN_SCORE 10 → 11. Result: 8 consecutive days of zero trades. Pre-tightening (v5.0/v5.1 at MIN_SCORE 10) produced **+$182 net across 11 trades** with 60%+ win rate. v6.0 restores the trade flow.

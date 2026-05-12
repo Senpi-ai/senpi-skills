@@ -15,12 +15,11 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0.0"
+  version: "2.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime@v2
-    - senpi_runtime_helpers
+    - senpi-trading-runtime
 ---
 
 # 🦦 OTTER v1.0 — Open Interest Velocity Hunter
@@ -109,7 +108,7 @@ Runs every 5 minutes via cron. On each tick:
 8. **MIN_SCORE 9** to fire.
 9. **Per-asset 240min cooldown** (defense-in-depth alongside runtime).
 10. **Conviction-scaled leverage:** 5x at 9-10, 7x at 11-12, 10x at 13+.
-11. **Emit top candidate** via `openclaw senpi external-scanner ingest`.
+11. **Emit top candidate** via `client.push_signal()` (direct HTTP POST to the runtime API).
 
 NO execution code. NO position-tracking. NO DSL state. The runtime owns all of that.
 
@@ -126,11 +125,11 @@ This is normal and expected. New deployments need 1h to warm up; alert agents th
 ## Entry flow
 
 ```
-Producer cron (5 min)
+Producer daemon (5 min tick)
   ↓ Update rolling OI history (60 samples × ~60 assets = ~5h × 60 = 300 cells)
   ↓ Detect 1h OI Δ >= 5% with price aligned (TOP quadrant)
   ↓ Score >= 9 (multi-factor confluence)
-  ↓ external-scanner ingest --scanner otter_signals
+  ↓ client.push_signal(scanner="otter_signals", ...)
 Runtime
   ↓ Schema-validates fields against runtime.yaml
   ↓ LLM gate (decision_model = ${OTTER_DECISION_MODEL})
@@ -187,24 +186,21 @@ TELEGRAM_CHAT_ID=... \
 OTTER_DECISION_MODEL=gemini-3.1-pro-preview \
   openclaw senpi runtime create --path /data/workspace/skills/otter-strategy/runtime.yaml
 
-# 3. Schedule the producer (5 min cadence)
+# 3. Launch the producer daemon (5 min tick).
 # OTTER_WALLET (NOT generic STRATEGY_ADDRESS) is required by the producer.
-# RECOMMENDED: cron-as-Claude-turn with NO_REPLY filter (silence-is-correct pattern).
-openclaw cron add \
-  --name "otter-v1-producer" \
-  --cron "*/5 * * * *" \
-  --session isolated \
-  --wake now \
-  --message $'export OTTER_WALLET=0x... && python3 /data/workspace/skills/otter-strategy/scripts/otter-producer.py\n\nCRITICAL INSTRUCTION: If the output shows "status": "ok" AND ("signals_pushed": 0 OR "signals_pushed" is absent), you MUST reply EXACTLY with NO_REPLY to remain silent. Only report on errors, crashes, or signals_pushed >= 1.' \
-  --no-deliver
+SENPI_AUTH_TOKEN=<your-token> \
+OTTER_WALLET=0x... \
+  nohup python3 -u /data/workspace/skills/otter-strategy/scripts/otter-producer.py \
+  > /tmp/otter-producer.log 2>&1 &
 
 # Note: first 12 ticks (1 hour) will report "bootstrapping_history" — by design.
 
 # 4. Verify
-openclaw senpi runtime list                          # expect: otter-tracker v1.0.0
+openclaw senpi runtime list                              # expect: otter-tracker running
 openclaw senpi status --runtime otter-tracker
-openclaw cron list --json                            # find the cron id
-openclaw cron runs --id <cron-id> --limit 5
+senpi-helpers list                                       # daemon visible with recent LAST_TICK
+senpi-helpers health otter-<wallet-suffix>               # exit 0 = healthy
+senpi-helpers stats otter-<wallet-suffix> --hours 1      # signals posted + error histogram
 
 # Inspect producer state:
 ls -la /data/workspace/skills/otter-strategy/state/<wallet-hash>/

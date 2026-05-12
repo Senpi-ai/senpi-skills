@@ -10,7 +10,7 @@ v7.0.0 (2026-05-08) — plumbing migration from openclaw-CLI subprocess
 NO thesis change. Scoring tables, scoring components, leverage tiers,
 margin %, asset cooldowns, post-close cooldown, dedup logic are all
 preserved verbatim from v6.1.0. The runtime itself is now on
-senpi-trading-runtime >= 1.1.0, which speaks
+senpi-trading-runtime >= 1.1.0 which speaks
 the new {success,data,error} envelope on /signals + /audit and
 exposes GET /state for daemon liveness probes.
 
@@ -57,7 +57,7 @@ resting-order guards. v6.0 flips to producer + v2 runtime (Polar v4.0
 
 ARCHITECTURE CHANGE:
   - Producer (cheetah-producer.py) emits signals via
-    `openclaw senpi external-scanner ingest`. NO execution code.
+    `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
   - Runtime LLM gate (decision_mode: llm) is pass-through (Roach
     pattern) — producer has applied every filter; LLM only catches
     malformed signals.
@@ -125,7 +125,7 @@ import cheetah_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "7.1.1"
+VERSION = "7.1.2"
 SCANNER_NAME = "cheetah_signals"  # must match runtime.yaml external_scanner.name
 
 
@@ -1008,18 +1008,11 @@ if __name__ == "__main__":
         if CHEETAH_WALLET
         else "unset"
     )
-    # NOTE: senpi_runtime_helpers.daemon.producer_daemon installed on the
-    # runtime host (Erik's build) does NOT yet accept wallet=/scanner=
-    # kwargs even though the helpers package's source
-    # signature documents them. Caught live on Turbine v3.2 deploy
-    # 2026-05-08: TypeError: unexpected keyword argument 'wallet'.
-    # When the host helpers package is upgraded, add back:
-    #   wallet=CHEETAH_WALLET,
-    #   scanner=SCANNER_NAME,
-    # which enables /state alive_check (auto-terminate on runtime delete).
     producer_daemon(
         fn=main,
         interval_seconds=300,
         name=f"cheetah-producer-{_wallet_lock_id}",
+        wallet=CHEETAH_WALLET,
+        scanner=SCANNER_NAME,
         tick_timeout=360,
     )

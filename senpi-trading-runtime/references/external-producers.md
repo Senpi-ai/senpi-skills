@@ -1,8 +1,8 @@
 # External Scanner Producers
 
-External scanners are push-driven — the runtime does not poll them. A **producer** is an out-of-process script that computes signals or context and pushes them into a running runtime via the `openclaw senpi external-scanner ingest` CLI command.
+External scanners are push-driven — the runtime does not poll them. A **producer** is an out-of-process script that computes signals or context and pushes them into a running runtime via `POST /signals`.
 
-This file documents the generic producer operations pattern: how producers work, where shipped producers live, which environment variables they share, and how to schedule them with `openclaw cron`. For a complete end-to-end strategy that uses the shipped momentum producer, see [momentum-guarded-strategy.md](momentum-guarded-strategy.md).
+Producers are authored against the Python Producer SDK (`senpi_runtime_helpers`) bundled with this skill. See [Python Producer SDK](../SKILL.md#python-producer-sdk) in the main SKILL.md for the import shim, rules, new-producer skeleton, batch + parallel recipes, error table, and operator CLI. This file is the operations-level reference: how producers work end-to-end, the env vars they share, and how to launch / persist them.
 
 ---
 
@@ -10,179 +10,75 @@ This file documents the generic producer operations pattern: how producers work,
 
 1. The producer process loads its own data (via MCP, REST, SDK, etc.).
 2. It computes signals or context.
-3. It calls `openclaw senpi external-scanner ingest` to push a JSON payload into the runtime.
+3. It calls `client.push_signal(...)` (or `client.push_signals([...])` for batches) — direct HTTP POST to the runtime API on `127.0.0.1:8787`.
 4. The runtime's `external_scanner` routes the payload to `SignalStore` / `SharedArtifactStore` and emits `scanner:run:complete`.
 5. Actions subscribed to that scanner are triggered identically to built-in scanner runs.
 
-### Ingest CLI
-
-```bash
-# Single signal
-openclaw senpi external-scanner ingest \
-  --address 0xYourWallet \
-  --scanner external_momentum \
-  --payload '{"asset":"ETH","direction":"LONG","score":0.85,"data":{...}}'
-
-# Batch of signals
-openclaw senpi external-scanner ingest \
-  --address 0xYourWallet \
-  --scanner external_momentum \
-  --payload '{"signals":[{"asset":"ETH",...},{"asset":"SOL",...}]}'
-
-# Context-only (no signal)
-openclaw senpi external-scanner ingest \
-  --address 0xYourWallet \
-  --scanner custom_regime \
-  --payload '{"data":{"regime":"RISK_ON","confidence":0.91}}'
-```
-
-Use `--payload-path <file>` to read a JSON payload from a file instead of passing it inline. The CLI emits pure JSON on stdout (`{"ok":true,...}` on success, `{"ok":false,"error":{...}}` on failure), which makes it safe to parse from any scripting language.
+The producer is wrapped in `producer_daemon(...)` — a long-running scheduler that calls `run_one_tick` on an interval, handles SIGTERM gracefully, writes self-describing state files (`pid.json` / `boot.json` / `heartbeat.json`), and optionally self-terminates when the runtime or scanner is gone.
 
 ---
 
-## Where producer scripts live
+## Producer file layout
 
-Built-in producers ship with the plugin:
+Producers follow a two-file convention per strategy skill:
 
-| Environment | Producer path prefix |
-|-------------|----------------------|
-| Local development (after `npm run build`) | `<project-root>/dist/scanners/external/` |
-| Railway OpenClaw host template | `/data/.openclaw/extensions/runtime/dist/scanners/external/` |
+```
+<skill-name>/scripts/<skill-name>-producer.py   # entry point: imports SDK, runs producer_daemon
+<skill-name>/scripts/<skill-name>_config.py     # SDK import shim + MCP helpers + per-skill state I/O
+```
 
-Each built-in producer shipped with the senpi plugin lives in its own subdirectory, e.g.:
-- `dist/scanners/external/momentum/producer.mjs`
+After the strategy skill is installed via `npx skills add … --skill <skill-name>`, the producer scripts live at `${OPENCLAW_WORKSPACE}/skills/<skill-name>/scripts/`.
 
-Stability note: from the built-in external scanner shipped with the senpi plugin, only momentum producer is production ready.
-
-Custom producers can live anywhere — the only requirement is that the scheduler can execute them and the `openclaw` CLI is reachable on `PATH`.
+The Python Producer SDK itself ships inside the `senpi-trading-runtime` skill at `~/.openclaw/skills/senpi-trading-runtime/senpi_runtime_helpers/`. The shim in `<skill-name>_config.py` probes that location (and falls back to `${OPENCLAW_WORKSPACE}/skills/senpi-trading-runtime/`); the producer never has to know which install path the host uses.
 
 ---
 
 ## Common environment variables
 
-Most MCP-backed producers (including the shipped ones) use:
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `<SKILL>_WALLET` | yes | Strategy wallet address for this producer (e.g. `PANGOLIN_WALLET`) |
+| `SENPI_AUTH_TOKEN` | yes | Senpi MCP bearer token used by `SenpiClient` |
+| `OPENCLAW_WORKSPACE` | no | Workspace root for skills (default `/data/workspace`); used by the SDK import shim's fallback path |
+| `SENPI_MCP_URL` | no | MCP endpoint (default `https://mcp.prod.senpi.ai/mcp`) |
+| `SENPI_RUNTIME_API_HOST` | no | Runtime signals host (default `127.0.0.1`) |
+| `SENPI_RUNTIME_API_PORT` | no | Runtime signals port (default `8787`) |
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SENPI_API_KEY` | yes | Senpi API key for MCP access |
-| `SENPI_MCP_URL` | no | MCP server URL (default: `https://mcp.prod.senpi.ai/mcp`) |
-| `STRATEGY_ADDRESS` | yes | Strategy wallet address of the running runtime |
-| `EXTERNAL_SCANNER_NAME` | no | Overrides the configured `external_scanner` name the producer targets |
-| `OPENCLAW_BIN` | no | Path to the `openclaw` CLI (default: `openclaw` on `PATH`) |
-
-Individual producers may add their own scanner-specific env vars on top of these — see the producer source or its accompanying docs.
+The full SDK-tuning env table (timeouts, concurrency caps, tick cache, daemon state dir) is in [SKILL.md → Environment Variables](../SKILL.md#environment-variables). Strategy-specific tuning vars live in the strategy skill's own SKILL.md / README.
 
 ---
 
-## Scheduling with `openclaw cron`
+## Launching a producer
 
-The OpenClaw parent CLI ships a cron scheduler that works well for producers. The template:
+First launch on a host is manual; the daemon records argv + cwd into `boot.json` so subsequent restarts are handled by `senpi-helpers restart`.
 
 ```bash
-openclaw cron add \
-  --name "senpi-producer-<scanner-name>-<wallet-suffix>" \
-  --cron "<cron-expression>" \
-  --session isolated \
-  --wake now \
-  --message "Run \`<ENV_VARS> node <PATH-TO-PRODUCER>/producer.mjs >> <PATH-TO-LOG>/senpi-producer-<scanner-name>-<wallet-suffix>.log 2>&1\` and report success/failure in this log." \
-  --no-deliver
+SENPI_AUTH_TOKEN=<token> <SKILL>_WALLET=0x... \
+  nohup python3 -u ${OPENCLAW_WORKSPACE}/skills/<skill-name>/scripts/<skill-name>-producer.py \
+  > /tmp/<skill-name>-producer.log 2>&1 &
 ```
 
-| Flag | Purpose |
-|------|---------|
-| `--name` | Canonical producer name — see naming convention below. Used by reconciliation to join cron entries against running runtimes. |
-| `--cron` | Standard cron expression (e.g. `*/5 * * * *` for every 5 minutes) |
-| `--session isolated` | Run in an isolated session (no conversation state leaks) |
-| `--wake now` | Schedule starts immediately |
-| `--no-deliver` | Run headless (no agent delivery) |
-| `--message` | Shell command to execute, wrapped in backticks; redirect stdout+stderr to a log file you can tail |
+Confirm the daemon registered itself:
 
-### Required cron job naming convention
-
-The `--name` MUST follow this exact shape:
-
-```
-senpi-producer-<scanner-name>-<wallet-suffix>
+```bash
+senpi-helpers list                 # all daemons on this host
+senpi-helpers health <daemon-name> # health summary; non-zero exit if degraded
 ```
 
-- `<scanner-name>` is the `name:` of the external scanner block in the strategy YAML (e.g. `external_momentum`).
-- `<wallet-suffix>` is the **last 4 hex characters** of the strategy wallet, lowercased (no `0x` prefix on the suffix). For wallet `0xAbC123dEf4567890aBc123def4567890ABc12345` the suffix is `2345`.
+After a container restart, relaunch from the recorded boot.json:
 
-Example:
-
-```
-senpi-producer-external_momentum-2345
+```bash
+senpi-helpers restart <daemon-name>
 ```
 
-This naming is not cosmetic — it is the join key for cron ↔ runtime reconciliation. The agent uses the cron name to detect orphan producers (a cron exists with no matching running runtime) and orphan consumers (a runtime declares an external scanner but no producer cron is firing for it). The freeform `--message` field cannot be parsed reliably, so the name carries the contract.
-
-**Collision caveat.** 4 hex characters give ~65k uniqueness, so suffix collisions between two strategy wallets on the same host are unlikely below ~30 wallets but possible. Reconciliation reports any suffix that matches more than one running runtime as **ambiguous** rather than auto-resolving — see [liveness-verification.md](liveness-verification.md#reconciliation-algorithm). If the host outgrows this scheme, lengthen the suffix.
-
-If you must use a different scheduler (systemd timer, launchd, Kubernetes CronJob, etc.) the only contract is "exec the producer command on an interval." Reconciliation against `openclaw cron list` will not see those jobs, so document them out-of-band and verify liveness from the data side (see [liveness-verification.md](liveness-verification.md)) — `runCount > 0` and a recent `lastRunFinishedAt` on the external scanner is the canonical proof of life regardless of where the schedule lives.
+The daemon name is the per-skill `LOCK_NAME` used in the producer (typically `<skill>-<wallet-suffix>` — the first 8 hex characters after `0x` of the strategy wallet, e.g. `<skill>-a919c1e2`).
 
 ---
 
-## Building a custom producer
+## Custom producers
 
-A producer must:
+To write a new producer, start from the [New producer skeleton](../SKILL.md#new-producer-skeleton) in SKILL.md.
 
-1. **Gather or compute the data** you want ingested.
-2. **Format a payload** that matches the `external_scanner`'s `config.fields` declared in the strategy YAML.
-3. **Shell out** to `openclaw senpi external-scanner ingest --address <wallet> --scanner <name> --payload '<json>'`.
-4. **Validate the CLI response** against the rules below — the CLI always returns JSON on stdout, so the same checks work in any language.
+For the wire format consumed by `POST /signals` (used internally by `client.push_signal(...)`), see [Signal Schema](signal-schema.md) — the routing fields (`address`, `scanner`, `asset`, `direction`, `score`, `signal_type`) versus the validated `data` block, response envelope, per-item error codes.
 
-### Batch item shape (wire format)
-
-The runtime accepts either a single signal payload or `{ "signals": [ ... ] }` for batches. Each batch item has this shape:
-
-```json
-{
-  "asset": "ETH",
-  "direction": "LONG",
-  "score": 0.85,
-  "signal_type": "momentum_breakout",
-  "data": {
-    "sourceScannerId": "...",
-    "sourceSignalType": "...",
-    "sourceTimestamp": 1714200000,
-    "sourceFactors": { "...": "..." },
-    "sourceMeta": { "...": "..." }
-  }
-}
-```
-
-- `asset`, `direction`, `score`, `signal_type` are top-level routing fields the runtime uses directly.
-- Everything else the producer wants to preserve goes under `data` — by convention with the `source*` prefix so downstream consumers can reconstruct producer-side context. The fields you put under `data` must satisfy the scanner's `config.fields` schema in the strategy YAML.
-
-A producer that keeps a richer in-process signal object (`scannerId` / `factors` / `meta` / `timestamp`) should normalize to the shape above before shipping — preserve the rich fields under `data.source*` rather than dropping them.
-
-### CLI response contract
-
-On success:
-
-```json
-{ "ok": true, "result": { "accepted": true, "signalCount": <N>, "...": "..." } }
-```
-
-On failure:
-
-```json
-{ "ok": false, "error": { "code": "...", "message": "..." } }
-```
-
-A producer must treat the ingest as failed (and log + exit non-zero so the scheduler can retry / alert) when **any** of these are true:
-
-- The stdout is not valid JSON.
-- `response.ok !== true`.
-- `response.result.accepted !== true`.
-- `response.result.signalCount !== <number of signals you sent>` — a count mismatch means part of your batch was dropped silently.
-
-These four checks are the load-bearing contract — silently treating a partial-acceptance response as success is the most common producer bug.
-
-### Node producers
-
-Node producers shipped with this plugin share an internal ingest helper (CLI shell-out + normalization + response validation in one call) so they never drift on the contract above. If you are writing a Node producer inside this repo, follow the existing producers' pattern. If you are writing one outside the repo, implement the four response-validation checks yourself against the JSON shape documented above — the contract, not the helper, is what's stable.
-
-### Non-Node producers
-
-Match the CLI payload shape directly and parse the JSON stdout. The four response checks above apply identically.
+Non-Python producers (curl, Node.js, Go) implement the wire format from [Signal Schema](signal-schema.md) directly. The Python SDK is the canonical client, but the HTTP contract is stable.

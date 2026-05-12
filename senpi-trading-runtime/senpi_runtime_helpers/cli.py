@@ -1,16 +1,17 @@
 """senpi-helpers CLI — operator interface for senpi_runtime_helpers daemons.
 
 Invocation:
-    ${OPENCLAW_WORKSPACE}/skills/_helpers/senpi-helpers <subcommand> [args]
+    ${OPENCLAW_WORKSPACE}/skills/senpi-trading-runtime/senpi-helpers <subcommand> [args]
 
 The CLI is a thin reader + signaler over the self-describing state files
 written by `producer_daemon` (`pid.json`, `boot.json`, `heartbeat.json`
 under `${SENPI_HELPERS_STATE_DIR}/<name>/`). No coupling to the openclaw
-gateway: the helper was built to bypass it, the CLI follows suit.
+gateway: the SDK was built to bypass it, the CLI follows suit.
 
 Subcommands ship incrementally — this module is structured so each new
 subcommand is one self-contained function + one `subparsers.add_parser`
-entry. See `references/cli-reference.md` for full operator documentation.
+entry. See `senpi-trading-runtime/references/senpi-helpers-cli.md` for
+full operator documentation.
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
@@ -152,7 +153,7 @@ def _print_list_table(rows: List[Dict[str, Any]], state_dir_resolved: str) -> No
     if not rows:
         print(f"No daemons registered (looked in: {state_dir_resolved}).")
         print("Start one by running its producer script — the daemon writes its")
-        print("state files on boot. See: senpi_runtime_helpers/SKILL.md.")
+        print("state files on boot. See: senpi-trading-runtime/SKILL.md.")
         return
 
     cols = ("NAME", "PID", "RUNNING", "WALLET", "SCANNER", "TICKS", "ERRORS", "LAST_TICK")

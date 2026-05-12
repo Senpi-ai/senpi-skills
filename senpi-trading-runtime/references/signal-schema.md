@@ -45,7 +45,7 @@ in `runtime.yaml`.
 
 ```yaml
 external_scanners:
-  - name: pangolin_signals
+  - name: my_signals
     config:
       fields:
         funding_bps:        { type: number,  required: true }
@@ -59,7 +59,7 @@ external_scanners:
 ```python
 client.push_signal(
     address=WALLET,
-    scanner="pangolin_signals",
+    scanner="my_signals",
     asset="MAVIA",                   # routing — top level
     direction="SHORT",                # routing — top level
     score=0.42,                       # top-level confidence (0..1)
@@ -186,7 +186,7 @@ batch are ingested even when the helper raises on partial failure. If you
 need per-item outcome (e.g. update producer-side state per accepted signal),
 either:
 
-- Push one at a time (the pangolin pattern), or
+- Push one at a time (per-signal commit), or
 - Catch `SenpiClientError` and inspect the message — it includes
   `failed_count` and a `failed_by_code` histogram.
 

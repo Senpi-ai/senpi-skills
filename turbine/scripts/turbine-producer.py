@@ -12,9 +12,8 @@ v3.1's hunt-mode-as-HYPE-specialist was the wrong abstraction:
 wallet. The correct framing: "run the volume play, but allow winners
 to run longer."
 
-v3.2 keeps the two-wallet split (the senpi-trading-runtime plugin
-enforces one runtime per wallet) and rewires both wallets to receive
-the SAME volume-rotation
+v3.2 keeps the two-wallet split (the senpi-trading-runtime plugin enforces one runtime
+per wallet) and rewires both wallets to receive the SAME volume-rotation
 alpha. The wallet boundary selects DSL behavior:
 
   VOLUME WALLET  ($4,000, 7 slots × $500):
@@ -145,8 +144,8 @@ def _runtime_config():
 # ═══════════════════════════════════════════════════════════════
 # STALE-ORDER HYGIENE
 # ═══════════════════════════════════════════════════════════════
-# Each runtime restart / swap (helpers migration, runtime rollover,
-# daemon redeploy) leaves resting ALO orders that the new
+# Each runtime restart / swap (helpers migration, runtime plugin
+# rollover, daemon redeploy) leaves resting ALO orders that the new
 # runtime instance does not own. The runtime's own
 # `execution_timeout_seconds` (180s on FEE_OPTIMIZED_LIMIT) cancels
 # the orders it placed — anything still resting well past that is
@@ -619,18 +618,11 @@ if __name__ == "__main__":
         if VOLUME_WALLET
         else "unset"
     )
-    # NOTE: senpi_runtime_helpers.daemon.producer_daemon installed on the
-    # runtime host (Erik's build) does NOT yet accept wallet=/scanner=
-    # kwargs even though the helpers package's source
-    # signature documents them. Caught live on Turbine v3.2 deploy
-    # 2026-05-08: TypeError: unexpected keyword argument 'wallet'.
-    # When the host helpers package is upgraded, add back:
-    #   wallet=VOLUME_WALLET,
-    #   scanner=VOLUME_SCANNER_NAME,
-    # which enables /state alive_check on the volume runtime.
     producer_daemon(
         fn=main,
         interval_seconds=60,
         name=f"turbine-producer-{_wallet_lock_id}",
+        wallet=VOLUME_WALLET,
+        scanner=VOLUME_SCANNER_NAME,
         tick_timeout=45,
     )

@@ -86,7 +86,7 @@ v4.0 flips to pure producer:
   - Scan crypto + XYZ markets via leaderboard_get_markets
   - Apply the multi-factor score gate (MIN_SCORE >= 9)
   - Enrich with BTC macro + funding regime + current-position context
-  - Push to the runtime via `openclaw senpi external-scanner ingest`
+  - Push to the runtime via `SenpiClient.push_signal()`
 
 The runtime handles everything else:
   - LLM gate (decision_mode: llm) filters each signal
@@ -762,9 +762,6 @@ if __name__ == "__main__":
     # v5.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
     # producer_daemon owns the per-tick scanner_lock with stale-PID
     # auto-recovery.
-    #
-    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
-    # doesn't accept yet — see fleet-fix commit 4f0c15e).
     _wallet_lock_id = (
         hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
         if STRATEGY_ADDRESS
@@ -774,5 +771,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=60,           # Scorpion's v4.x cron was every 60s
         name=f"scorpion-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
         tick_timeout=120,
     )

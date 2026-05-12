@@ -13,13 +13,12 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "7.0.0"
+  version: "7.0.1"
   platform: senpi
   exchange: hyperliquid
   base_skill: grizzly-v2.0
   requires:
-    - senpi-trading-runtime>=1.1.0
-    - senpi_runtime_helpers
+    - senpi-trading-runtime
 ---
 
 # 🐻 KODIAK v7.0.0 — SOL Alpha Hunter
@@ -200,7 +199,7 @@ openclaw senpi runtime list
 ## Bootstrap Gate
 
 On EVERY session start, check `config/bootstrap-complete.json`. If missing:
-1. Read the senpi-trading-runtime skill: `cat /data/workspace/skills/senpi-trading-runtime/SKILL.md` — this provides all CLI commands for runtime management and DSL position inspection.
+1. Read the `senpi-trading-runtime` skill — it provides all CLI commands for runtime management and DSL position inspection.
 2. Verify Senpi MCP
 3. Set wallet in runtime.yaml: `sed -i 's/${WALLET_ADDRESS}/ACTUAL_ADDRESS/' /data/workspace/skills/kodiak-strategy/runtime.yaml`
 4. Set Telegram in runtime.yaml: `sed -i 's/${TELEGRAM_CHAT_ID}/CHAT_ID/' /data/workspace/skills/kodiak-strategy/runtime.yaml`

@@ -1,10 +1,10 @@
 ---
 name: senpi-trading-runtime
-description: "Configure, deploy, and manage runtimes in the Senpi Trading Runtime OpenClaw plugin for automated on-chain position tracking with DSL trailing stop-loss protection. Use when a user needs to create or modify runtime YAML files, configure DSL (Dynamic Stop-Loss) exit engine parameters (phases, tiers, time-based cuts), set up the position_tracker scanner to monitor a wallet's positions on Hyperliquid, install/list/delete runtimes via CLI, inspect DSL-tracked positions, or check runtime health and system state. Triggers on mentions of senpi, trading runtime, DSL exit, stop-loss tiers, position tracker, trailing stop, openclaw senpi, dsl_preset, strategy YAML configuration, runtime status, runtime health, system state, or scanner health."
+description: "The Senpi Trading Runtime OpenClaw plugin runs automated trading strategies on Hyperliquid end-to-end: external producers push signals over POST /signals, rule-based or LLM-gated actions decide whether to open positions, declarative risk guard rails enforce daily caps and drawdown halts, FEE_OPTIMIZED_LIMIT orders execute maker-first with optional taker fallback, the position_tracker scanner detects on-chain position changes (including positions opened manually or by other tools), and the DSL exit engine applies two-phase trailing stop-loss protection. A bundled stdlib-only Python Producer SDK (senpi_runtime_helpers — SenpiClient, producer_daemon, scanner_lock, tick_cache, parallel) is the canonical way to author push producers; a senpi-helpers operator CLI manages running daemons. Use when a user needs to create/install/list/delete runtime YAMLs, configure DSL phases/tiers/time-cuts, set up an external_scanner with an LLM decision gate, declare risk guard_rails, inspect DSL-tracked positions, check runtime + daemon health, or write a Python producer that ingests external signals. Triggers on mentions of senpi, trading runtime, DSL exit, stop-loss tiers, position tracker, trailing stop, openclaw senpi, dsl_preset, decision_mode llm, risk guard_rails, FEE_OPTIMIZED_LIMIT, strategy YAML configuration, runtime status, runtime health, system state, scanner health, external_scanner producer, push_signal, signal POST, scanner_lock, tick_cache, producer_daemon, senpi_runtime_helpers, or senpi-helpers CLI."
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.0"
+  version: "2.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -15,19 +15,30 @@ On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Mo
 
 ## Core Concepts
 
-**Producer-side companion skill:** when wiring up an `external_scanner` (a Python producer that pushes signals into this runtime), build it on the **`senpi-runtime-helpers`** wrapper at [`_helpers/senpi_runtime_helpers/SKILL.md`](../_helpers/senpi_runtime_helpers/SKILL.md). It wraps the `/signals` endpoint, the SignalItem schema, the per-tick lock, and the daemon scheduler in one stdlib-only Python package — the canonical client for the contract this runtime exposes. Starting from [`pangolin/scripts/pangolin-producer.py`](../pangolin/scripts/pangolin-producer.py) is the fastest path; that's the reference wrapper-based producer in this repo.
+**Python Producer SDK ships with this skill** at `senpi_runtime_helpers/`. When wiring up an `external_scanner` (a Python producer that pushes signals into this runtime), build it on this SDK — it wraps the `/signals` endpoint, the `SignalItem` schema, the per-tick lock, and the long-running daemon scheduler in one stdlib-only Python package. Recipes and rules: see [Python Producer SDK](#python-producer-sdk) below.
 
-`SignalItem` shape (per `runtime-api/routes/signals.schema.ts`): top-level `address`, `scanner`, `asset`, `direction`, `score` (0..1), `signal_type`. The per-scanner `data` block is validated against the `config.fields` declared on the `external_scanner`. **Keep `asset` and `direction` out of `data`** — they're top-level routing fields. Putting them in `data` makes the runtime store two copies (`signal.asset` vs `signal.meta.asset`) and downstream consumers read inconsistently; that's the failure mode that triggered `INVALID_REQUEST` rejections in the Pangolin tick-2 incident on 2026-05-05.
+`SignalItem` shape (per `runtime-api/routes/signals.schema.ts`): top-level `address`, `scanner`, `asset`, `direction`, `score` (0..1), `signal_type`. The per-scanner `data` block is validated against the `config.fields` declared on the `external_scanner`. **Keep `asset` and `direction` out of `data`** — they're top-level routing fields. Putting them in `data` makes the runtime store two copies (`signal.asset` vs `signal.meta.asset`) and downstream consumers read inconsistently; the runtime rejects this with `INVALID_REQUEST`.
 
-**Flow:** Position Tracker scanner → detects position changes → DSL exit engine manages trailing stops
+**Flow:**
 
-1. **Position Tracker** (`position_tracker` scanner) polls the wallet on-chain, detecting opens, closes, increases, decreases, and flips.
-2. **DSL exit engine** monitors tracked positions on a timer, computing trailing stop-loss floors across two phases.
-3. **Strategy** = a wallet address. The wallet address is the strategy identifier everywhere.
+- **Self-tracking** (no external scanner): position_tracker scanner detects on-chain position changes → DSL exit engine manages trailing stops. Protects positions opened manually or by any tool on Hyperliquid.
+- **Signal-driven** (with external_scanner): external producer pushes signals via `POST /signals` → action decides (rule-based or LLM-gated) → opens position → position_tracker picks it up → DSL manages exits.
+
+In both flows, **strategy = wallet address**. The wallet address is the strategy identifier everywhere.
 
 **Key insight:** The position tracker enables DSL protection for ALL positions of a strategy address — including those opened manually on the exchange or by other tools.
 
 **Wallet uniqueness:** Only one running runtime per wallet address is allowed. Installing a second runtime for the same wallet is rejected. Delete the existing runtime first, then install the new one.
+
+## Capabilities at a glance
+
+- **On-chain position tracker + DSL trailing stop-loss** — two-phase trailing exits with optional time-based cuts; protects positions opened manually or by any tool on Hyperliquid. See [DSL Exit Engine](#dsl-exit-engine--key-concepts).
+- **External-scanner push ingest** — runtime exposes `POST /signals`; any out-of-process producer can push signals. Non-Python producers implement the wire format directly. See [Signal Schema](references/signal-schema.md).
+- **Python Producer SDK** — bundled with this skill; daemon-based; auto-self-terminates when the runtime is deleted or the scanner is renamed. See [Python Producer SDK](#python-producer-sdk).
+- **LLM-gated actions** (`decision_mode: llm`, optional pass-through) — let an LLM evaluate each signal against current account + market state before opening. See [Runtime YAML](#runtime-yaml).
+- **Declarative risk guard rails** — daily loss cap, max entries per day, drawdown halt, consecutive-losses cooldown, per-asset cooldown. All in YAML, runtime-enforced. See [Strategy YAML Reference](references/yaml-schema.md).
+- **Maker-first execution** (`FEE_OPTIMIZED_LIMIT` entries + exits) — fee-optimized limit orders with optional taker fallback for assured fills.
+- **Operator visibility** — `senpi-helpers` CLI (list / health / stats / stop / restart) for producer daemons; HTTP `/state` and `/health` endpoints for external monitors. See [`senpi-helpers` CLI](references/senpi-helpers-cli.md).
 
 ## Deploy Checklist
 
@@ -50,7 +61,7 @@ If those succeed, **you can exec here** — run the deployment commands yourself
 - `$SENPI_AUTH_TOKEN` environment variable
 - `openclaw.json` at `plugins.entries.runtime.config.apiKey`
 
-Pass the key through env vars in the command you run (e.g. inside the cron `--message`). Do not echo it into chat or log files.
+Pass the key through env vars on the producer daemon's launch command (e.g. `SENPI_AUTH_TOKEN=… nohup python3 -u <producer>.py …`). Do not echo it into chat or log files.
 
 ### 2. Validate the strategy wallet
 
@@ -81,9 +92,9 @@ openclaw senpi runtime create --path ./<name>.yaml
 
 ### 5. Wire producers (only if the YAML declares an `external_scanner`)
 
-External scanners are push-driven — without a producer, the scanner stays silent. Schedule the producer with `openclaw cron add` (or any scheduler that can exec on an interval). Producer paths, common env vars, and the cron template are in [`references/external-producers.md`](references/external-producers.md); strategy-specific env vars (e.g. momentum's `TIMEFRAME`, `MIN_MOVE_PCT`) are in the strategy's own reference.
+External scanners are push-driven — without a producer, the scanner stays silent. Build the producer using the Python Producer SDK (`senpi_runtime_helpers`) bundled with this skill and launch it as a long-running daemon via `producer_daemon`. See [Python Producer SDK](#python-producer-sdk) below for rules, the import shim, and a new-producer skeleton. Strategy-specific env vars are documented in the consuming strategy skill.
 
-**The cron job `--name` is a contract, not a label.** It must follow `senpi-producer-<scanner-name>-<wallet-suffix>`, where `<wallet-suffix>` is the last 4 hex characters of the strategy wallet, lowercased (e.g. `senpi-producer-external_momentum-2345`). The liveness verification step uses this name to reconcile producers against running runtimes — names that don't match are treated as unclassified. See [external-producers.md](references/external-producers.md#required-cron-job-naming-convention).
+After first launch, the daemon is managed with the bundled `senpi-helpers` operator CLI (`list` / `health` / `stats` / `stop` / `restart`).
 
 ### 6. Verify the strategy is live
 
@@ -93,7 +104,7 @@ At minimum, confirm all three self-questions pass:
 
 1. Runtime is `running` in `runtime list`.
 2. Every scanner in the YAML has executed at least once and recently (`state.components.scanners.state.scanners[].lastRunFinishedAt`).
-3. If the YAML declares an `external_scanner`: a producer cron exists with the canonical name `senpi-producer-<scanner>-<wallet-suffix>` (last 4 hex of wallet, lowercased), and the scanner's `runCount > 0`.
+3. If the YAML declares an `external_scanner`: the producer daemon is running with a recent successful tick (`senpi-helpers health <name>` → `healthy`), and the scanner's `runCount > 0`.
 
 Quick commands:
 
@@ -102,8 +113,8 @@ openclaw senpi runtime list                # runtime shows status: running
 openclaw senpi state --json                # field-level liveness data — walk per the reference
 openclaw senpi status                      # health summary (do not rely on this alone for external scanners)
 openclaw senpi dsl positions               # positions under DSL tracking (once opened)
-openclaw cron list --json                  # cron entries — for reconciliation against external scanners
-tail -f <path-to-producer-log>             # if step 5 applied
+senpi-helpers list                         # producer daemons running on this host
+senpi-helpers health <daemon-name>         # one daemon's health; non-zero exit if degraded
 openclaw senpi action history <action>     # LLM/rule decisions, if the strategy has actions
 ```
 
@@ -235,43 +246,6 @@ openclaw senpi guide schema       # Full YAML schema
 openclaw senpi guide version      # Plugin version and changelog URL
 ```
 
-### External scanner ingest
-
-Use this flow when a scanner's data comes from another system and should be
-pushed into the runtime instead of polled on an interval. Declare the scanner
-in YAML, then push payloads via the CLI.
-
-```yaml
-scanners:
-  - name: custom_regime
-    type: external_scanner
-    outputs:
-      signals: false
-      context: true
-    retention: last_only
-    config:
-      fields:
-        regime: { type: string, required: true }
-        confidence: { type: number, required: true }
-```
-
-```bash
-openclaw senpi external-scanner ingest \
-  --address 0xYourStrategyWallet \
-  --scanner custom_regime \
-  --payload '{"data":{"regime":"RISK_ON","confidence":0.91}}'
-```
-
-The CLI accepts `--payload <json>` inline or `--payload-path <file>` for a JSON file. Payloads may be a single-signal shape (`asset`, `direction`, `score`, `signal_type`, `data`) or a batch (`{"signals":[...]}`). For context-only scanners, just send a `data` blob.
-
-Use namespaced prompt/context keys only:
-
-- `{{signal_custom_regime}}` for ingested signal arrays
-- `{{context_custom_regime}}` for retained external context
-- flat aliases like `{{custom_regime}}` are not supported
-
-For producer operations (scheduling with `openclaw cron`, shipped producers, custom producer guidance), see [External Producers](references/external-producers.md). For a complete strategy wired end-to-end with the shipped momentum producer, see [Momentum-Guarded Strategy](references/momentum-guarded-strategy.md).
-
 ### Diagnostic action commands
 
 Use these when a trade didn't fire as expected, to audit decision-engine runs and execution history.
@@ -308,6 +282,41 @@ Two independent mechanisms exist by design; they deliver different event classes
 
 Typical setup: set both to the same chat id. They are not redundant — they cover different event classes, so setting only one leaves a class unnotified.
 
+## Python Producer SDK
+
+The runtime ships with `senpi_runtime_helpers`, a stdlib-only Python SDK for writing external-scanner producers. It is the canonical client for the runtime's `/signals` endpoint and replaces the legacy `mcporter` subprocess and `openclaw senpi external-scanner ingest` CLI patterns. **Do not use `openclaw cron add senpi-producer-…`** — that is the legacy fork-storm path the daemon was written to replace.
+
+### Rules — read before writing a producer
+
+**`asset` and `direction` are top-level, never inside `data`.** The wire schema is `additionalProperties: false`. Routing fields live at the top level; scanner-specific fields go in `data` (validated against the scanner's `config.fields`).
+
+```python
+# RIGHT
+client.push_signal(
+    address=wallet, scanner="my_signals",
+    asset="BTC", direction="LONG",
+    score=0.85,
+    signal_type="MOMENTUM",
+    data={"rsi": 75},
+)
+
+# WRONG — runtime rejects with INVALID_REQUEST
+client.push_signal(
+    address=wallet, scanner="my_signals",
+    data={"asset": "BTC", "direction": "LONG"},
+)
+```
+
+**Pass `signal_type=` explicitly on every emission.** The fallback is the scanner's `defaultSignalType` from `runtime.yaml`; most skills don't declare one, so omission lands empty type tags in audit logs and LLM decision context.
+
+### Depth lives in references
+
+- [`references/python-producer-sdk.md`](references/python-producer-sdk.md) — import shim, full new-producer skeleton, batch + parallel recipes, error → fix table, operator CLI subcommands, logging format, SDK-tuning env vars.
+- [`references/signal-schema.md`](references/signal-schema.md) — `SignalItem` wire format consumed by `POST /signals`: routing fields vs. `data`, validation, per-item error codes, batch semantics.
+- [`references/senpi-helpers-cli.md`](references/senpi-helpers-cli.md) — operator CLI deep dive: subcommand reference, exit codes, JSON envelopes.
+
+JSON-line logs go to **stderr** prefixed `[senpi_helpers]`. Stdout stays clean.
+
 ## Liveness Verification
 
 `openclaw senpi runtime list: running` reports process status, not functional liveness. A runtime can be `running` while every component inside it is silent — scanners not ticking, DSL not evaluating positions, external scanners declared but no producer pushing data, actions wired but never invoked. **Never declare the runtime live based on `runtime list` alone.**
@@ -320,7 +329,7 @@ Before claiming the runtime is operating, the agent must be able to answer **yes
 
 1. **Is the target runtime in `runtime list` with `status: running`?**
 2. **For every scanner declared in the YAML, has it executed at least once and recently?** Walk `state.components.scanners.state.scanners[]` — for interval scanners check `lastRunFinishedAt` is within `2 × intervalSeconds`; for external scanners check `runCount > 0` and `lastRunFinishedAt` is within (producer cadence + buffer).
-3. **For every external scanner in a running runtime, does a paired producer cron exist? And vice versa?** Reconcile `openclaw cron list --json` (filtered to names matching `senpi-producer-<scanner>-<wallet-suffix>`, where `<wallet-suffix>` is the last 4 hex of the wallet, lowercased) against running runtimes' external scanners from `state`. Report orphans on either side, and treat suffix collisions as ambiguous matches rather than guessing.
+3. **For every external scanner in a running runtime, is the paired producer daemon registered on this host and healthy? And vice versa?** Reconcile `senpi-helpers list --json` (each entry's `wallet` + `scanner` fields) against running runtimes' external scanners from `state`. Report orphans on either side. Confirm health with `senpi-helpers health <daemon-name>` — exit code 0 means `healthy`; anything else is degraded.
 
 DSL counters (`tickSuccessCount`, `lastTickFinishedAt`) are intentionally not in this checklist — they prove the runtime's internal tick loop moved, not that the protective path actually works (price providers, MCP, exchange connectivity are outside the runtime's visibility). Use `openclaw senpi dsl inspect <ASSET>` for per-position triage instead.
 
@@ -332,14 +341,14 @@ DSL counters (`tickSuccessCount`, `lastTickFinishedAt`) are intentionally not in
 
 ### Decision tree and reconciliation
 
-For the per-component field rules (interval scanner, external scanner, action) and the cron ↔ runtime reconciliation algorithm, see [`references/liveness-verification.md`](references/liveness-verification.md). It is the authoritative source on which fields prove operation versus silence.
+For the per-component field rules (interval scanner, external scanner, action) and the daemon ↔ runtime reconciliation algorithm, see [`references/liveness-verification.md`](references/liveness-verification.md). It is the authoritative source on which fields prove operation versus silence.
 
 ### Reporting back to the user
 
 When liveness verification fails, surface the specific failing field and the remediation — never a generic "looks fine" or "still starting up." Examples:
 
 - "Position tracker scanner is registered but `runCount === 0` and `lastRunFinishedAt` is null — the scheduler hasn't picked it up. `lastError`: `<message>`. Recommend recreating the runtime."
-- "External scanner `external_momentum` has `runCount === 0`. No cron job named `senpi-producer-external_momentum-<suffix>` (where `<suffix>` is the last 4 hex of the strategy wallet) exists — the producer was never scheduled. Run Deploy Checklist Step 5."
+- "External scanner `external_momentum` has `runCount === 0`. No daemon for `(wallet=0x…, scanner=external_momentum)` appears in `senpi-helpers list` — the producer was never launched. Run Deploy Checklist Step 5."
 
 ## Runtime YAML
 
@@ -436,14 +445,23 @@ For full DSL mechanics (retrace math, breach logic, close reasons, events): [DSL
 | `SENPI_API_KEY` | For live MCP | Senpi MCP authentication. |
 | `TELEGRAM_CHAT_ID` | No | Telegram chat ID for notifications. |
 | `DSL_STATE_DIR` | No | Override DSL state file directory. |
+| `OPENCLAW_WORKSPACE` | No | Workspace root for skills (default `/data/workspace`). Used by the Python Producer SDK import shim. |
+| `SENPI_AUTH_TOKEN` | For Python producers | MCP bearer token used by `SenpiClient`. |
+| `SENPI_MCP_URL` | No | MCP endpoint (default `https://mcp.prod.senpi.ai/mcp`). |
+| `SENPI_RUNTIME_API_HOST` | No | Runtime signals host (default `127.0.0.1`). |
+| `SENPI_RUNTIME_API_PORT` | No | Runtime signals port (default `8787`). |
+
+SDK-tuning env vars (`SENPI_HELPERS_STATE_DIR`, `_MCP_TIMEOUT`, `_SIGNAL_TIMEOUT`, `_MAX_CONCURRENT`, `_TICK_CACHE_TTL`) are documented in [`references/python-producer-sdk.md`](references/python-producer-sdk.md). Defaults work for every host shipped today; tune only when you have a measured reason.
 
 ## References
 
-- [Momentum-Guarded Strategy](references/momentum-guarded-strategy.md) — End-to-end quick-start strategy exercising external scanners, LLM decisions, risk gates, and DSL exits — with producer cron setup
+- [Momentum-Guarded Strategy](references/momentum-guarded-strategy.md) — End-to-end quick-start strategy exercising external scanners, LLM decisions, risk gates, and DSL exits
 - [Runtime Concepts](references/runtime-concepts.md) — Conceptual explanation of scanners, actions, DSL phases, and what every field controls in trading terms
 - [Strategy YAML Reference](references/yaml-schema.md) — Schema reference: top-level sections, building blocks, template variables, wiring rules, validation errors
 - [DSL Configuration Reference](references/dsl-configuration.md) — DSL exit engine: phases, tiers, time cuts, tuning guidance, close reasons, events
 - [Strategy Examples](references/strategy-examples.md) — Position-tracker runtimes with different DSL tuning profiles
-- [External Producers](references/external-producers.md) — How to schedule, deploy, and build external-scanner producers (includes the canonical cron naming convention)
-- [Liveness Verification](references/liveness-verification.md) — Field-level decision tree and cron ↔ runtime reconciliation for confirming the runtime is actually operating, not just registered
-- [`senpi_runtime_helpers` (companion skill)](../_helpers/senpi_runtime_helpers/SKILL.md) — Stdlib-only Python wrapper for producers feeding this runtime: persistent MCP client, `/signals` POST, scanner_lock, parallel fan-out, tick cache, producer_daemon. Mandatory for new producers.
+- [External Producers](references/external-producers.md) — Operations-level reference: how producers work end-to-end, common env vars, launch + restart
+- [Python Producer SDK](references/python-producer-sdk.md) — Full SDK depth: import shim, new-producer skeleton, batch + parallel recipes, error → fix table, operator CLI, SDK-tuning env vars
+- [Liveness Verification](references/liveness-verification.md) — Field-level decision tree and daemon ↔ runtime reconciliation for confirming the runtime is actually operating, not just registered
+- [Signal Schema](references/signal-schema.md) — `SignalItem` wire format consumed by `POST /signals`: routing fields vs. `data`, validation, per-item error codes, batch semantics
+- [`senpi-helpers` CLI](references/senpi-helpers-cli.md) — Operator CLI for producer daemons: list / health / stats / stop / restart with exit codes and JSON envelopes

@@ -135,7 +135,7 @@ openclaw senpi runtime list
 
 Bootstrap Gate (insert as first step):
 ```
-1. Read the senpi-trading-runtime skill: `cat /data/workspace/skills/senpi-trading-runtime/SKILL.md`
+1. Read the `senpi-trading-runtime` skill.
 ```
 
 Agent rule update:

@@ -20,7 +20,7 @@ v2.0 splits that into two parts:
 The producer's single responsibility: fetch the active trader pool,
 detect new entries, enrich with consensus + TA + funding regime
 context, push a signal payload to the runtime via
-`openclaw senpi external-scanner ingest`.
+`SenpiClient.push_signal()` (direct HTTP POST).
 
 NO execution code. NO DSL code. NO risk gates. The runtime owns all of that.
 
@@ -610,8 +610,8 @@ def main():
 
 
 if __name__ == "__main__":
-    # v3.0.0 — long-lived daemon. NOTE: wallet=/scanner= NOT passed
-    # per fleet-fix #214.
+    # v3.0.0 — long-lived daemon. producer_daemon owns the per-tick
+    # scanner_lock with stale-PID auto-recovery.
     _wallet_lock_id = (
         hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
         if STRATEGY_ADDRESS
@@ -621,5 +621,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=60,
         name=f"jackal-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
         tick_timeout=120,
     )

@@ -14,12 +14,11 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "5.0.0"
+  version: "5.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.1.0
-    - senpi_runtime_helpers
+    - senpi-trading-runtime
 ---
 
 # 🦂 SCORPION v5.0.0 — Multi-Market Active Trader (senpi_runtime_helpers)
@@ -52,8 +51,8 @@ Python trade counter leaked. v4.0 deletes all that bookkeeping.
 │                              │  ── 2. score SM+4TF candidates (MIN_SCORE 9)
 │                              │  ── 3. enrich w/ BTC macro + funding +
 │                              │         current positions
-│                              │  ── 4. push via openclaw senpi
-│                              │         external-scanner ingest
+│                              │  ── 4. push via SenpiClient.push_signal
+│                              │         (direct HTTP POST)
 └──────────────┬───────────────┘
                │
                ▼
@@ -155,19 +154,18 @@ TELEGRAM_CHAT_ID=... \
 SCORPION_DECISION_MODEL=gemini-2.5-pro \
   openclaw senpi runtime create --path /data/workspace/skills/scorpion-tracker/runtime.yaml
 
-# 3. Schedule the producer (60s cadence)
-openclaw cron add \
-  --name "scorpion-v4-producer" \
-  --cron "* * * * *" \
-  --session isolated \
-  --wake now \
-  --message "Run \`SENPI_API_KEY=\${SENPI_API_KEY} STRATEGY_ADDRESS=0x... python3 /data/workspace/skills/scorpion-tracker/scripts/scorpion-producer.py >> /var/log/openclaw/scorpion-v4.log 2>&1\` and report success/failure in this log." \
-  --no-deliver
+# 3. Launch the producer daemon (60s tick).
+SENPI_AUTH_TOKEN=<your-token> \
+SCORPION_WALLET=0x... \
+  nohup python3 -u /data/workspace/skills/scorpion-tracker/scripts/scorpion-producer.py \
+  > /tmp/scorpion-producer.log 2>&1 &
 
 # 4. Verify
 openclaw senpi runtime list | grep scorpion
 openclaw senpi status --runtime scorpion-tracker
-tail -f /var/log/openclaw/scorpion-v4.log
+senpi-helpers list                                          # daemon visible with recent LAST_TICK
+senpi-helpers health scorpion-<wallet-suffix>               # exit 0 = healthy
+senpi-helpers stats scorpion-<wallet-suffix> --hours 1      # signals posted + error histogram
 ```
 
 ## Verify the LLM gate is doing work
@@ -196,7 +194,7 @@ A healthy Scorpion v4 shows:
 ## Changelog
 
 ### v4.0 (2026-04-23) — V2-RUNTIME-NATIVE REWRITE
-- First multi-asset agent on senpi-trading-runtime
+- First multi-asset agent on the senpi-trading-runtime plugin
 - Producer-only Python (280 lines vs v3.x's 549-line scanner)
 - LLM `decision_mode: llm` replaces hardcoded score thresholds
 - `risk.guard_rails` YAML replaces Python risk code — no more silent counter leaks

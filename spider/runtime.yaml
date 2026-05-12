@@ -35,7 +35,7 @@ description: >
 
   WHAT v3.0 ENABLES:
     - Producer (spider-producer.py) emits anchor signals via
-      `openclaw senpi external-scanner ingest`. NO execution code.
+      `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
     - Runtime LLM gate (decision_mode: llm) evaluates regime
       (BTC drawdown, funding regime, vol expansion) and either
       honors or rejects. Acts as the "agentic" layer the original

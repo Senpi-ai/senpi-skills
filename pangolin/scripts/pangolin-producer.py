@@ -82,7 +82,7 @@ v2.0 splits that into two parts:
      taker fallback as safety floor).
 
 The producer's single responsibility: detect funding-fade candidates
-and push them to the runtime via `openclaw senpi external-scanner ingest`.
+and push them to the runtime via `client.push_signal()` (direct HTTP POST).
 
 NO execution code. NO DSL code. NO position-tracking. Daily-loss /
 drawdown / max-positions / consec-loss are all enforced by the

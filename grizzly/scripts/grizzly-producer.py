@@ -25,8 +25,9 @@ v7.0.0 / Kodiak v7.0.0 / Polar v5.0.0 / Wolverine v5.0.0 patterns):
   4. Tick scheduling — openclaw cron + agentTurn replaced by
      producer_daemon (long-lived process; zero per-tick LLM cost).
   5. Per-tick cache + parallel fan-out NOT adopted.
-  6. /state alive_check — wallet=/scanner= NOT passed per fleet-fix
-     #214 (host helpers package doesn't accept yet).
+  6. /state alive_check — wallet=/scanner= passed; daemon
+     self-terminates when the runtime is deleted or the scanner
+     is renamed.
 
 v6.0.0 thesis preserved unchanged.
 
@@ -41,7 +42,7 @@ corruption was diagnosable only after the fact.
 v6.0 flips to producer + v2 runtime (Wolverine v4 / Cheetah v6 /
 Vulture v3 template):
   - Producer (grizzly-producer.py) emits BTC signals via
-    `openclaw senpi external-scanner ingest`. NO execution code.
+    `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
   - Runtime LLM gate is pass-through — producer has applied every
     filter; LLM only catches malformed signals.
   - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-
@@ -850,13 +851,6 @@ if __name__ == "__main__":
     # v7.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
     # producer_daemon owns the per-tick scanner_lock with stale-PID
     # auto-recovery.
-    #
-    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
-    # doesn't accept yet — see fleet-fix commit 4f0c15e). When Erik
-    # upgrades the host helpers, restore:
-    #   wallet=STRATEGY_ADDRESS,
-    #   scanner=SCANNER_NAME,
-    # to enable /state alive_check (auto-terminate on runtime delete).
     _wallet_lock_id = (
         hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
         if STRATEGY_ADDRESS
@@ -866,5 +860,7 @@ if __name__ == "__main__":
         fn=main,
         interval_seconds=180,           # Grizzly's v6.x cron was every 3 min
         name=f"grizzly-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
         tick_timeout=240,
     )
