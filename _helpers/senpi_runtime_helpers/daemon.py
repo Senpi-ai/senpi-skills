@@ -1,0 +1,388 @@
+"""producer_daemon — long-lived scheduler that fires a producer on a fixed interval.
+
+Replaces `openclaw cron add` + `agentTurn` (LLM per tick) with a plain Python
+loop that calls the producer's `run()` directly. No LLM, no node subprocess
+forest, no fork-storm risk under overlap.
+
+Each tick is wrapped in `scanner_lock(name)` so:
+- A previous tick that took longer than the interval is still running →
+  next tick is skipped cleanly.
+- A previous tick that crashed → next tick recovers via stale-lock detection.
+
+Per-tick wall-clock timeout via SIGALRM (UNIX). SIGTERM / SIGINT trigger a
+graceful drain (current tick finishes, then loop exits).
+"""
+# Copyright 2026 Senpi (https://senpi.ai)
+# Licensed under MIT
+
+import signal
+import threading
+import time
+from contextlib import suppress
+from typing import Any, Callable, Optional
+
+from . import state as _state
+from ._logging import log_event
+from .lock import scanner_lock
+
+
+_DEFAULT_TICK_TIMEOUT = 60.0
+_DEFAULT_ALIVE_CHECK_INTERVAL_SECONDS = 300.0  # 5 min — runtime delete-detection cadence
+
+# Sentinel: lets us distinguish "caller did not specify alive_check"
+# (→ build the default check from wallet) from "caller passed None"
+# (→ opt out of the check entirely). Plain `None` would conflate the two.
+_DEFAULT_ALIVE_CHECK = object()
+
+
+class _TickTimeout(BaseException):
+    """Raised internally when a single tick exceeds its wall-clock budget."""
+
+
+def _install_shutdown_handlers(stop_event: threading.Event) -> None:
+    def handler(signum: int, _frame: object) -> None:
+        if not stop_event.is_set():
+            log_event("daemon_signal", signum=signum, action="graceful_shutdown_requested")
+            stop_event.set()
+
+    with suppress(ValueError):  # only installable on the main thread
+        signal.signal(signal.SIGTERM, handler)
+        signal.signal(signal.SIGINT, handler)
+
+
+def _arm_tick_alarm(seconds: float) -> bool:
+    """Install SIGALRM to enforce per-tick wall-clock budget. Returns True if armed."""
+    if not hasattr(signal, "SIGALRM"):
+        return False
+
+    def alarm_handler(_signum: int, _frame: object) -> None:
+        raise _TickTimeout(f"tick exceeded {seconds:g}s")
+
+    try:
+        signal.signal(signal.SIGALRM, alarm_handler)
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+        return True
+    except (ValueError, OSError):
+        return False
+
+
+def _disarm_tick_alarm() -> None:
+    if hasattr(signal, "SIGALRM"):
+        with suppress(ValueError, OSError):
+            signal.setitimer(signal.ITIMER_REAL, 0)
+
+
+def _interruptible_sleep(seconds: float, stop_event: threading.Event) -> bool:
+    """Sleep up to `seconds`, but return early (False) if stop_event fires."""
+    return not stop_event.wait(seconds)
+
+
+def _alive(check: Callable[[], bool], name: str, phase: str) -> bool:
+    """Run an alive_check, returning True (keep going) on any error.
+
+    Only an explicit False return from a successful invocation is terminal.
+    Network errors / transient failures are logged and treated as "still
+    alive" — we don't want a flaky probe (e.g. transient /state outage)
+    to kill the daemon.
+    """
+    try:
+        return bool(check())
+    except Exception as e:  # noqa: BLE001 — daemon must not crash on probe failure
+        log_event(
+            "daemon_alive_check_error",
+            name=name,
+            phase=phase,
+            error=f"{type(e).__name__}: {e}"[:200],
+            note="treated as alive; transient errors do not terminate",
+        )
+        return True
+
+
+def producer_daemon(
+    fn: Callable[[], None],
+    interval_seconds: float,
+    name: str,
+    wallet: Optional[str] = None,
+    scanner: Optional[str] = None,
+    tick_timeout: Optional[float] = None,
+    lock_dir: Optional[str] = None,
+    max_ticks: Optional[int] = None,
+    install_signal_handlers: bool = True,
+    alive_check: Any = _DEFAULT_ALIVE_CHECK,
+    alive_check_interval_seconds: float = _DEFAULT_ALIVE_CHECK_INTERVAL_SECONDS,
+    state_dir: Optional[str] = None,
+) -> int:
+    """Run `fn` every `interval_seconds` until SIGTERM / SIGINT, returning tick count.
+
+    Args:
+        fn: zero-arg callable. One tick = one call to `fn`.
+        interval_seconds: seconds between tick *starts* (not between end and next start).
+            If a tick takes longer than the interval, the next tick fires immediately
+            after the current one finishes (scanner_lock prevents overlap).
+        name: identifier used by `scanner_lock` and log fields.
+        wallet: strategy wallet address. **Required unless `alive_check=None`.**
+            When the default alive_check is used (the common path), this is the
+            wallet the daemon probes the runtime API for. Pass the same address
+            you'd pass to `client.push_signal(address=...)`.
+        scanner: external_scanner name (e.g. "pangolin_signals"). Optional.
+            When provided alongside `wallet`, the default alive_check is the
+            stricter `is_scanner_registered(wallet, scanner)` — the daemon
+            self-terminates not just when the runtime is deleted, but also
+            when the runtime is recreated with the producer's scanner
+            renamed / dropped / replaced. When omitted, the default check is
+            the looser wallet-only `is_runtime_registered(wallet)`.
+            Pass the same name you'd pass to `client.push_signal(scanner=...)`.
+        tick_timeout: per-tick wall-clock budget in seconds. Default 60s.
+            On UNIX, enforced via SIGALRM (raises `_TickTimeout` to abort the call).
+            On platforms without SIGALRM, this is best-effort (logged only).
+        lock_dir: where the scanner_lock file lives. Defaults to env or /tmp.
+        max_ticks: cap on number of ticks (mostly for tests). None = unbounded.
+        install_signal_handlers: whether to wire SIGTERM/SIGINT for graceful shutdown.
+            False is useful in tests where the test runner installs its own.
+        alive_check: how to decide if the daemon should keep running.
+            - **Omitted (default)**: build the canonical check from `wallet`
+              (and `scanner` if provided) — probe `senpi-trading-runtime`'s
+              `/state` endpoint and verify the wallet (and scanner) is still
+              registered. Most producers want this.
+            - **`None`**: opt out. Daemon will run forever (until SIGTERM /
+              SIGINT) regardless of runtime registration. Use only for tests,
+              standalone simulation, or producers that don't push signals.
+            - **A callable**: zero-arg, returns True (keep going) / False
+              (terminate). Custom predicates (e.g. multi-wallet daemons,
+              alternate health endpoints).
+            The boot probe runs once before tick 1; periodic probes run
+            between ticks at the cadence below. Network / transient errors
+            are swallowed and treated as "still alive" — only an explicit
+            False from a successful probe terminates the daemon.
+        alive_check_interval_seconds: target cadence for the alive_check between
+            ticks. Daemon computes the nearest integer Nth tick at which to
+            run it: `n = max(1, round(alive_check_interval_seconds / interval_seconds))`.
+            Default 300 s. For 300-s ticks → every tick; 60-s ticks → every 5
+            ticks; 90-s ticks → every 3 ticks. Ignored if alive_check resolves to None.
+        state_dir: where the daemon writes `pid.json` / `boot.json` /
+            `heartbeat.json` for the `senpi-helpers` CLI. Defaults to the
+            `SENPI_HELPERS_STATE_DIR` env var, falling back to
+            `/data/.openclaw/senpi-helpers/`. State writes are tolerant —
+            failures are logged but never raised.
+
+    Returns:
+        Total number of ticks attempted (succeeded + failed + skipped).
+
+    Raises:
+        ValueError: if `interval_seconds` <= 0, `tick_timeout` <= 0, OR if the
+            default alive_check was requested but `wallet` is not a
+            0x-prefixed string.
+    """
+    if interval_seconds <= 0:
+        raise ValueError("interval_seconds must be > 0")
+    if tick_timeout is None:
+        tick_timeout = _DEFAULT_TICK_TIMEOUT
+    if tick_timeout <= 0:
+        raise ValueError("tick_timeout must be > 0 if provided")
+
+    # Resolve the alive_check sentinel: omitted → default check (requires
+    # wallet; uses scanner when provided); explicit None → opt out;
+    # callable → use as-is.
+    if alive_check is _DEFAULT_ALIVE_CHECK:
+        # Reject None, "", and anything not 0x-prefixed up front. An empty
+        # string (env var unset) would otherwise pass the None check and then
+        # raise SenpiClientError inside _fetch_state on every probe — _alive()
+        # treats exceptions as "still alive", so the daemon would run useless
+        # ticks indefinitely instead of failing fast.
+        if not isinstance(wallet, str) or not wallet.startswith("0x"):
+            raise ValueError(
+                "producer_daemon requires `wallet=...` as a 0x-prefixed string "
+                "for the default runtime liveness check. Pass "
+                "`wallet=<your strategy wallet>` to enable auto-self-termination "
+                "on runtime delete, or `alive_check=None` to opt out."
+            )
+        # Local import keeps daemon importable in environments without a full
+        # SenpiClient stack (tests, simulators).
+        from .client import SenpiClient
+        _client = SenpiClient()
+        _wallet = wallet      # capture for closure to avoid late binding
+        _scanner = scanner
+        if _scanner is not None:
+            # Strict check — wallet AND scanner. Recommended for all
+            # producers because it catches both runtime-delete AND
+            # runtime-recreate-with-different-scanner-config.
+            alive_check = lambda: _client.is_scanner_registered(_wallet, _scanner)
+        else:
+            # Looser fallback — wallet-only. Catches runtime-delete only.
+            alive_check = lambda: _client.is_runtime_registered(_wallet)
+    # alive_check is now either None (opt-out) or a callable.
+
+    stop_event = threading.Event()
+    if install_signal_handlers:
+        _install_shutdown_handlers(stop_event)
+
+    alive_check_every_n = (
+        max(1, round(alive_check_interval_seconds / interval_seconds))
+        if alive_check is not None
+        else 0
+    )
+
+    log_event(
+        "daemon_started",
+        name=name,
+        interval_seconds=interval_seconds,
+        tick_timeout=tick_timeout,
+        max_ticks=max_ticks,
+        alive_check_enabled=alive_check is not None,
+        alive_check_every_n_ticks=alive_check_every_n if alive_check is not None else None,
+    )
+
+    # Self-describing state files for the senpi-helpers CLI. Written ONCE on
+    # boot — heartbeat.json is rewritten after every tick below; pid.json is
+    # cleared in the outer finally on clean exit. Lazy import of __version__
+    # avoids a circular dep (this module is imported by __init__.py).
+    from . import __version__ as _helpers_version
+    _state.write_pid(
+        name,
+        wallet=wallet,
+        scanner=scanner,
+        interval_seconds=interval_seconds,
+        tick_timeout=tick_timeout,
+        log_path=_state.detect_log_path(),
+        version=_helpers_version,
+        state_dir=state_dir,
+    )
+    _state.write_boot(name, state_dir=state_dir)
+
+    # Boot probe — fail fast if the runtime isn't there to consume our work.
+    # Treats only an explicit False as terminal; transient errors from the
+    # probe (network blip, etc.) are not enough to kill the daemon at boot.
+    if alive_check is not None and not _alive(alive_check, name, phase="boot"):
+        log_event(
+            "daemon_aborted_no_runtime",
+            name=name,
+            phase="boot",
+            reason="alive_check returned False before tick 1",
+        )
+        # Clear pid.json — the daemon never ran a tick; the CLI should
+        # see this as "not running" rather than "running but stale".
+        _state.clear_pid(name, state_dir=state_dir)
+        return 0
+
+    tick_count = 0
+    error_count = 0
+    start_loop = time.time()
+
+    try:
+        while not stop_event.is_set():
+            # Periodic alive probe between ticks. tick_count is the count of
+            # FINISHED ticks at this point — so the modulo is taken against a
+            # post-completion counter. tick_count > 0 skips the boundary right
+            # after the boot probe (we already probed at boot).
+            if (
+                alive_check is not None
+                and tick_count > 0
+                and tick_count % alive_check_every_n == 0
+                and not _alive(alive_check, name, phase="periodic")
+            ):
+                log_event(
+                    "daemon_self_terminated_no_runtime",
+                    name=name,
+                    phase="periodic",
+                    after_tick=tick_count,
+                    reason="alive_check returned False between ticks",
+                )
+                break
+
+            tick_count += 1
+            tick_started_at = time.time()
+            log_event("daemon_tick_started", name=name, tick=tick_count)
+
+            tick_status = "ok"
+            tick_code: Optional[str] = None
+            tick_err: Optional[str] = None
+            try:
+                # Scope SIGALRM to fn() ONLY — not the lock acquire/release
+                # ceremony (open + flock + ftruncate + write + fsync on enter,
+                # flock LOCK_UN + close on exit). The timeout is meant to
+                # bound producer work, not lock plumbing.
+                with scanner_lock(name, lock_dir=lock_dir):
+                    armed = _arm_tick_alarm(tick_timeout)
+                    try:
+                        fn()
+                    finally:
+                        if armed:
+                            _disarm_tick_alarm()
+            except _TickTimeout as e:
+                tick_status = "timeout"
+                tick_code = "TICK_TIMEOUT"
+                tick_err = str(e)
+            except BlockingIOError:
+                # scanner_lock raised — another live process holds the lock.
+                tick_status = "skipped_locked"
+                tick_code = "LOCK_BUSY"
+            except Exception as e:  # noqa: BLE001 — log and keep looping
+                tick_status = "error"
+                # Bare exception type name as the code — keeps the `errors_by_code`
+                # histogram in `senpi-helpers stats` readable. The full
+                # exception message remains in `error` for debugging.
+                tick_code = type(e).__name__
+                tick_err = f"{type(e).__name__}: {e}"
+
+            # `skipped_locked` is NOT an error — it just means a prior tick
+            # overran its interval (or, on multi-daemon hosts, another live
+            # daemon holds the lock). The daemon is still healthy; counting
+            # it would inflate error_count and trip false `last_tick_failed`
+            # health states. Only `timeout` and `error` (raised exception)
+            # count toward error_count.
+            if tick_status not in ("ok", "skipped_locked"):
+                error_count += 1
+
+            duration_ms = int((time.time() - tick_started_at) * 1000)
+            log_event(
+                "daemon_tick_finished",
+                name=name,
+                tick=tick_count,
+                status=tick_status,
+                duration_ms=duration_ms,
+                **({"code": tick_code} if tick_code else {}),
+                **({"error": tick_err} if tick_err else {}),
+            )
+
+            # Update heartbeat.json after every tick — `senpi-helpers health`
+            # reads this to surface "is the daemon actually ticking?" without
+            # parsing logs. Tolerant writes; never raises.
+            _state.write_heartbeat(
+                name,
+                tick=tick_count,
+                status=tick_status,
+                code=tick_code,
+                duration_ms=duration_ms,
+                error=tick_err,
+                tick_count=tick_count,
+                error_count=error_count,
+                state_dir=state_dir,
+            )
+
+            if max_ticks is not None and tick_count >= max_ticks:
+                break
+
+            # Schedule the next tick `interval_seconds` after THIS tick's
+            # start. If a tick overran (tick_duration > interval), the next
+            # tick fires immediately (sleep_for=0) — a single-overrun shifts
+            # the schedule, no further accumulation. If you need true
+            # non-drifting cron-like cadence aligned to a fixed boundary,
+            # target `start_loop + n * interval_seconds` instead.
+            elapsed = time.time() - tick_started_at
+            sleep_for = max(0.0, interval_seconds - elapsed)
+            if sleep_for > 0:
+                _interruptible_sleep(sleep_for, stop_event)
+
+    finally:
+        log_event(
+            "daemon_stopping",
+            name=name,
+            tick_count=tick_count,
+            uptime_seconds=int(time.time() - start_loop),
+        )
+        # Clean exit — drop pid.json so `senpi-helpers health` reads as
+        # "not running" rather than "stale pid; check liveness". Survives
+        # any state-dir failure silently.
+        _state.clear_pid(name, state_dir=state_dir)
+
+    return tick_count

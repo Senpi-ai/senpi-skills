@@ -1,18 +1,20 @@
 # Runtime Concepts — How the Senpi Trading Runtime Works
 
-This document explains the conceptual behavior of every major component in `runtime.yaml`: what the position tracker scanner and action do at runtime, how the DSL exit engine makes exit decisions, and what each DSL field controls in trading terms.
+This document explains the conceptual behavior of every major component in a runtime YAML: what the position tracker scanner and action do at runtime, how the DSL exit engine makes exit decisions, and what each DSL field controls in trading terms.
+
+For field-level schema details see [yaml-schema.md](yaml-schema.md). For the full DSL configuration reference see [dsl-configuration.md](dsl-configuration.md).
 
 ---
 
 ## Top-Level Fields
 
-These fields sit at the root of every `runtime.yaml` and identify the skill to the runtime.
+These fields sit at the root of every runtime YAML and identify the runtime to the system.
 
 | Field | Description |
 |---|---|
-| `name` | Unique identifier for this skill/tracker. Used by the runtime to reference and manage the running instance. Should be a short, descriptive slug. |
-| `version` | Runtime schema version. Fixed at `1.0.0` — every skill must use this value. Tells the runtime which configuration format and feature set to expect. |
-| `description` | Human-readable summary of the skill's strategy and tuning philosophy. Informational only — not used by the runtime engine. |
+| `name` | Unique identifier for this runtime. Used by the plugin to reference and manage the running instance. Should be a short, descriptive slug. |
+| `version` | Runtime schema version. Informational. |
+| `description` | Human-readable summary of the runtime's strategy and tuning philosophy. Informational only — not used by the runtime engine. |
 
 ### `strategy`
 
@@ -20,8 +22,10 @@ The core configuration block that defines the trading context:
 
 | Field | Description |
 |---|---|
-| `wallet` | The on-chain wallet address holding positions and executing trades. Keep this as `${WALLET_ADDRESS}`; the skill resolves and auto-fills it at link time by validating an existing strategy wallet (`strategy_list`) or creating a new strategy wallet (`strategy_create_custom_strategy`) and then linking that strategy wallet to the runtime. This is the actual trading wallet the runtime monitors and acts on. |
-| `enabled` | Boolean flag to activate or pause the skill. When `false`, the runtime loads the config but takes no action. |
+| `wallet` | The on-chain wallet address holding positions and executing trades. Use `${WALLET_ADDRESS}` so the wallet is supplied from the environment at link time. This is the actual trading wallet the runtime monitors and acts on — it must already exist (wallet creation happens outside the runtime via Senpi MCP). |
+| `enabled` | Boolean flag to activate or pause the runtime. When `false`, the runtime loads the config but takes no action. |
+
+Other `strategy` fields (`slots`, `margin_per_slot`, `margin_pct`, `trading_risk`, `default_leverage`) shape sizing and risk — see [yaml-schema.md](yaml-schema.md#define-your-strategy) for the full field table.
 
 ---
 
@@ -116,11 +120,11 @@ Phase 1 maintains two floors simultaneously and uses the stricter one (for a LON
 
 **Exit mechanisms — two independent paths:**
 
-1. **Exchange SL at the absolute floor** — The runtime places a stop-loss order on the exchange at the `max_loss_pct` price level. If price hits that level directly (e.g., a fast wick that skips the runtime's polling interval), the exchange executes the SL and closes the position with reason `EXCHANGE_SL_HIT`. This is the hard backstop.
+1. **Exchange SL at the absolute floor** — The runtime places a stop-loss order on the exchange at the `max_loss_pct` price level. If price hits that level directly (e.g., a fast wick that skips the runtime's polling interval), the exchange executes the SL and closes the position with reason `exchange_sl_hit`. This is the hard backstop.
 
 2. **Runtime breach counting** — Each tick, if the current price is at or below (LONG) / at or above (SHORT) the effective floor (the stricter of the absolute and retrace floors):
    - Breach counter increments.
-   - Once counter reaches `consecutive_breaches_required` → runtime closes the position with reason `DSL_BREACH`.
+   - Once counter reaches `consecutive_breaches_required` → runtime closes the position with reason `dsl_breach`.
    - If any tick recovers above the floor → counter resets to 0.
 
 The exchange SL and the runtime breach counter are complementary: the SL guarantees the absolute floor even if the runtime misses a fast move, while breach counting handles slower retracements that the runtime observes tick by tick.
@@ -148,7 +152,7 @@ The floor **only moves up** (ratchets). When price makes a new high-water the fl
 
 **Exit mechanism — exchange SL only:**
 
-In Phase 2, all exits happen on the exchange. The runtime places and continuously updates a stop-loss order on the exchange at the current floor price. When price hits the floor, the exchange executes the SL and closes the position with reason `EXCHANGE_SL_HIT`. The runtime itself does not count breaches or trigger the close — it only manages the SL order placement and ratcheting.
+In Phase 2, all exits happen on the exchange. The runtime places and continuously updates a stop-loss order on the exchange at the current floor price. When price hits the floor, the exchange executes the SL and closes the position with reason `exchange_sl_hit`. The runtime itself does not count breaches or trigger the close — it only manages the SL order placement and ratcheting.
 
 **Example:**
 
@@ -169,7 +173,7 @@ Tier 2: trigger_pct=20, lock_hw_pct=70 activates
   floor_roe = 22 × 0.70 = 15.4%
   floor_price = $101.54  → exchange SL updated to $101.54
 
-Price falls to $101.54 → exchange SL executes → close, reason: EXCHANGE_SL_HIT
+Price falls to $101.54 → exchange SL executes → close, reason: exchange_sl_hit
 ```
 
 **Key difference from Phase 1:** Phase 1 uses runtime breach counting (with configurable tolerance via `consecutive_breaches_required`). Phase 2 is entirely exchange-driven — the runtime's role is only to keep the SL order updated as the floor ratchets up.
@@ -204,15 +208,17 @@ The breach counter resets on any tick where price is above the floor.
 
 ### Time-Based Exit Conditions
 
-These run every tick alongside the phase logic and can trigger exits independently of breach counting.
+These run every tick alongside the phase logic and can trigger exits independently of breach counting. They evaluate in **both Phase 1 and Phase 2** — they are outer-bound protections, not Phase-1-only patience knobs. The only exception is `hard_timeout`, which skips the exact tick a position crosses into Phase 2 so a boundary hit cannot lose to the clock before the tier advance runs.
+
+`weak_peak_cut` is a special case: it evaluates in both phases by code, but its guard `peakROE < min_value` becomes unsatisfiable in Phase 2 whenever `min_value` is set below the first tier's `trigger_pct` (entering Phase 2 implies `peakROE ≥ trigger_pct`). In that common configuration it is *effectively* Phase-1-only. Set `min_value` above the first tier if you want it to remain active in Phase 2.
 
 ---
 
 #### `hard_timeout`
 
-> "If the position is still in Phase 1 after N minutes, close it."
+> "Close any position that has been open for at least N minutes."
 
-Prevents tying up capital in a position that never developed enough profit to trigger a tier. Once Phase 2 is entered, `hard_timeout` is disabled — the position is profitable, so let it run.
+An outer-bound protection against capital being tied up indefinitely. Fires in both phases — even a profitable Phase 2 position will be closed once it crosses the timeout. Tune the interval high enough to give your strategy room (e.g. 6–72h), not as a Phase 1 patience knob.
 
 **Field:** `interval_in_minutes` — time from position open. Must be > 0.
 
@@ -222,9 +228,9 @@ Prevents tying up capital in a position that never developed enough profit to tr
 
 > "If the position has been in negative ROE continuously for N minutes, close it."
 
-Catches entries that turned immediately unprofitable and never recovered. The timer starts when ROE goes to zero or below and resets every time ROE goes positive again.
+Catches entries that turned immediately unprofitable and never recovered. The internal timer (`deadWeightCutStartedAt`) **resets every tick while `currentROE > 0`**, and the cut fires when elapsed time since that timer ≥ `interval_in_minutes` **and** `currentROE ≤ 0` on the current tick. In plain terms: the timer starts (or restarts) when ROE dips to zero or below, and any positive-ROE tick resets it.
 
-**Field:** `interval_in_minutes` — duration of continuous negative ROE before exit. Must be > 0.
+**Field:** `interval_in_minutes` — duration of continuous non-positive ROE before exit. Must be > 0.
 
 ---
 
@@ -234,14 +240,13 @@ Catches entries that turned immediately unprofitable and never recovered. The ti
 
 Catches a specific scenario: the trade worked a little (price moved in your favor) but not enough to trigger a tier, and now it's fading. Without this cut, you could sit in a position that peaked at +1% and is now at +0.2% indefinitely.
 
-The timer starts when ROE first goes positive. Exit condition (all must be true):
+Exit condition (all must be true after `interval_in_minutes` elapsed):
 - `peakROE < min_value` — position never crossed the minimum profit threshold
 - `currentROE < peakROE` — it's retreating from that weak peak
-- Elapsed time ≥ `interval_in_minutes`
 
 **Fields:**
 - `interval_in_minutes` — how long to wait before cutting. Must be > 0.
-- `min_value` — minimum ROE% the position must have reached to be considered "made real profit". If the peak exceeds this, the position enters Phase 2 via a tier and `weak_peak_cut` no longer applies. Must be > 0.
+- `min_value` — minimum ROE% the position must have reached to be considered "made real profit". The cut evaluates in both phases, but if `min_value` sits below the first tier's `trigger_pct` it cannot fire in Phase 2 (peak ROE will already exceed `min_value` by the time the tier triggered). Must be > 0.
 
 ---
 
@@ -250,7 +255,7 @@ The timer starts when ROE first goes positive. Exit condition (all must be true)
 | | `weak_peak_cut` | `dead_weight_cut` |
 |---|---|---|
 | Trigger ROE | Position was profitable but peak < `min_value` | Position is at or below zero |
-| Timer reset | When ROE goes positive | When ROE goes positive |
+| Timer reset | On tick with ROE above peak threshold | On any tick with `currentROE > 0` |
 | Scenario | "Trade worked a little but faded" | "Trade went negative and stayed there" |
 | Purpose | Exit slow faders before they erase profit | Exit soured entries before they deepen losses |
 
@@ -260,13 +265,17 @@ The timer starts when ROE first goes positive. Exit condition (all must be true)
 
 | Reason | Cause |
 |---|---|
-| `DSL_BREACH` | Consecutive breach count reached threshold (Phase 1 or 2) |
-| `HARD_TIMEOUT` | Position stayed in Phase 1 past `hard_timeout.interval_in_minutes` |
-| `WEAK_PEAK_CUT` | Position peaked below `min_value` and then declined |
-| `DEAD_WEIGHT_CUT` | Position stayed in negative ROE past `dead_weight_cut.interval_in_minutes` |
-| `EXCHANGE_SL_HIT` | Exchange stop-loss triggered (Phase 2 floor hit externally) |
-| `MANUAL` | Position closed manually on the exchange |
-| `FLIPPED` | Position direction reversed (detected by position tracker) |
+| `dsl_breach` | Consecutive breach count reached threshold (Phase 1 only) |
+| `hard_timeout` | Position open longer than `hard_timeout.interval_in_minutes` (fires in both phases) |
+| `weak_peak_cut` | Position peaked below `min_value` and then declined (fires in both phases; practically Phase 1 only when `min_value` < first tier `trigger_pct`) |
+| `dead_weight_cut` | Position stayed in non-positive ROE past `dead_weight_cut.interval_in_minutes` (fires in both phases) |
+| `exchange_sl_hit` | Exchange stop-loss triggered (Phase 2 floor hit externally, or Phase 1 absolute floor) |
+| `manual_close` | Position closed by user or action |
+| `closed_externally` | Position closed outside the runtime (e.g., exchange UI) |
+| `flipped` | Position direction reversed (detected by position tracker) |
+| `position_increased` / `position_decreased` | Position size changed (size-change event) |
+
+See [dsl-configuration.md](dsl-configuration.md#close-reasons) for the complete close-reason table.
 
 ---
 
@@ -300,7 +309,7 @@ DSL tick evaluates SOL
             → lock_hw_pct=75 → floor_roe=20×0.75=15% → floor_price=$152.25
 
   Tick 18: price=$155.00 → ROE=+3.3% → exchange SL at $152.25 executes
-            → CLOSE, reason: EXCHANGE_SL_HIT
+            → CLOSE, reason: exchange_sl_hit
        ↓
 Telegram notification sent
 ```
@@ -317,6 +326,6 @@ Telegram notification sent
 | `trigger_pct` (tier) | ROE% that must be reached to activate this tier and enter Phase 2. Tiers must be in ascending order. |
 | `lock_hw_pct` (tier) | What % of peak high-water ROE to protect as the Phase 2 trailing floor. Higher = tighter stop. |
 | `hard_timeout` | Maximum minutes to remain in Phase 1 before giving up on an undeveloped position. |
-| `dead_weight_cut` | Maximum minutes to stay in negative ROE before cutting the loss. |
+| `dead_weight_cut` | Maximum minutes to stay in non-positive ROE before cutting the loss. |
 | `weak_peak_cut` | Exits fading positions whose peak never exceeded `min_value` ROE, after `interval_in_minutes`. |
 | `interval_seconds` | How often the DSL evaluates all open positions. Must be 5–3600. |

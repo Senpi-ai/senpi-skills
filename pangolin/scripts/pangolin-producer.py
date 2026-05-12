@@ -180,7 +180,7 @@ POST_CLOSE_COOLDOWN_MINUTES = 240     # v2.1.2 — post-CLOSE cooldown.
                                       # which is silently not enforcing in v2 runtime
                                       # (also broken on Scorpion v4.1.0). Producer-side
                                       # backstop until Senpi fixes the runtime gate.
-STARTING_BUDGET = 160.0               # rebased for $160 test wallet (was 1000.0)
+STARTING_BUDGET = 1000.0
 XYZ_BANNED = True                     # never trade equities
 
 # Leverage tiers — preserved from v1.4
@@ -933,15 +933,11 @@ if __name__ == "__main__":
     # path. A local `_run_main_safely` shim that swallowed exceptions before
     # the daemon saw them would mask failures as `status=ok` (caught by
     # bugbot on PR #208).
-    # NOTE: wallet=/scanner= kwargs NOT passed (host helpers package
-    # doesn't accept yet — see fleet-fix commit 4f0c15e). When Erik
-    # upgrades the host helpers, restore:
-    #   wallet=PANGOLIN_WALLET,
-    #   scanner="pangolin_signals",
-    # to enable /state alive_check.
     producer_daemon(
         fn=main,
         interval_seconds=300,
         name=f"pangolin-producer-{_wallet_lock_id}",
-        tick_timeout=360,
+        wallet=PANGOLIN_WALLET,        # enables default alive_check — daemon
+        scanner="pangolin_signals",    # self-terminates if the runtime is deleted
+        tick_timeout=360,              # OR if the scanner is dropped/renamed
     )

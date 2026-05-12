@@ -1,6 +1,6 @@
-# Strategy YAML examples
+# Strategy Runtime Examples
 
-Ready-to-use YAML examples for the position tracker with different DSL tuning profiles.
+Ready-to-use YAML runtimes for the position tracker with different DSL tuning profiles.
 
 ---
 
@@ -25,14 +25,12 @@ description: >
   Monitors wallet positions on Hyperliquid and applies
   automated exit management.
 
-strategies:
-  main:
-    wallet: "${WALLET_ADDRESS}"
-    budget: 500
-    slots: 2
-    margin_per_slot: 200
-    trading_risk: conservative
-    enabled: true
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  slots: 2
+  margin_pct: 15
+  trading_risk: conservative
+  enabled: true
 
 scanners:
   - name: position_tracker
@@ -48,6 +46,10 @@ actions:
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 15
   dsl_preset:
     hard_timeout:
       enabled: true
@@ -87,14 +89,12 @@ name: conservative-tracker
 version: 1.0.0
 description: Wide stops, long time windows for swing trading.
 
-strategies:
-  main:
-    wallet: "${WALLET_ADDRESS}"
-    budget: 1000
-    slots: 3
-    margin_per_slot: 300
-    trading_risk: conservative
-    enabled: true
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  slots: 3
+  margin_per_slot: 300
+  trading_risk: conservative
+  enabled: true
 
 scanners:
   - name: position_tracker
@@ -110,6 +110,10 @@ actions:
 exit:
   engine: dsl
   interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
   dsl_preset:
     hard_timeout:
       enabled: true
@@ -157,14 +161,12 @@ name: aggressive-tracker
 version: 1.0.0
 description: Tight stops, fast cuts for active trading.
 
-strategies:
-  main:
-    wallet: "${WALLET_ADDRESS}"
-    budget: 500
-    slots: 4
-    margin_per_slot: 100
-    trading_risk: aggressive
-    enabled: true
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  slots: 4
+  margin_per_slot: 100
+  trading_risk: aggressive
+  enabled: true
 
 scanners:
   - name: position_tracker
@@ -180,6 +182,10 @@ actions:
 exit:
   engine: dsl
   interval_seconds: 15
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 10
   dsl_preset:
     hard_timeout:
       enabled: true
@@ -227,14 +233,12 @@ name: profit-tracker
 version: 1.0.0
 description: Many tiers for granular profit locking on runners.
 
-strategies:
-  main:
-    wallet: "${WALLET_ADDRESS}"
-    budget: 800
-    slots: 2
-    margin_per_slot: 350
-    trading_risk: moderate
-    enabled: true
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  slots: 2
+  margin_pct: 20
+  trading_risk: moderate
+  enabled: true
 
 scanners:
   - name: position_tracker
@@ -250,6 +254,10 @@ actions:
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 20
   dsl_preset:
     weak_peak_cut:
       enabled: true

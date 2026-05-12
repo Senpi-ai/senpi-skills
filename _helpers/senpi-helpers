@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+"""senpi-helpers — operator CLI for senpi_runtime_helpers daemons.
+
+Thin wrapper that:
+  1. Adds the helpers directory to sys.path so `senpi_runtime_helpers` can be
+     imported (the package ships inside `<workspace>/skills/_helpers/`,
+     which is not on the default Python path).
+  2. Dispatches to `senpi_runtime_helpers.cli.main()`.
+
+Run from anywhere:
+    /data/workspace/skills/_helpers/senpi-helpers list
+
+Or alias it:
+    alias senpi-helpers=/data/workspace/skills/_helpers/senpi-helpers
+"""
+# Copyright 2026 Senpi (https://senpi.ai)
+# Licensed under MIT
+
+import os
+import sys
+
+
+def _bootstrap_sys_path() -> None:
+    """Insert the directory holding this script into sys.path.
+
+    This script lives at `<helpers_root>/senpi-helpers`. The package
+    `senpi_runtime_helpers` is at `<helpers_root>/senpi_runtime_helpers/`.
+    Adding `<helpers_root>` to sys.path makes the package importable.
+    """
+    here = os.path.dirname(os.path.realpath(__file__))
+    if here not in sys.path:
+        sys.path.insert(0, here)
+
+
+def _run() -> int:
+    _bootstrap_sys_path()
+    # Imported only after sys.path is set up. Keeps the import error path
+    # (missing helpers package) inside the function instead of at module
+    # load, so a clearer error can be surfaced.
+    try:
+        from senpi_runtime_helpers.cli import main
+    except ImportError as e:
+        sys.stderr.write(
+            f"senpi-helpers: cannot import senpi_runtime_helpers ({e}).\n"
+            f"Looked in: {os.path.dirname(os.path.realpath(__file__))}\n"
+            f"This wrapper must live alongside the senpi_runtime_helpers/ "
+            f"package directory.\n"
+        )
+        return 2
+    return main(sys.argv[1:])
+
+
+if __name__ == "__main__":
+    sys.exit(_run())
