@@ -148,65 +148,97 @@ exit:
         - { trigger_pct: 20, lock_hw_pct: 85 }
 ```
 
-## 3. Set up the momentum producer
+## 3. Build a momentum producer with the Python SDK
 
-Without a producer, the `external_momentum` scanner stays silent. The shipped producer analyzes candles via the Senpi MCP server and pushes `MOMENTUM_BREAKOUT` signals into the runtime using `openclaw senpi external-scanner ingest`.
+Without a producer, the `external_momentum` scanner stays silent. Build the producer on the [Python Producer SDK](../SKILL.md#python-producer-sdk) bundled with this skill. A minimal momentum producer:
+
+```python
+# scripts/momentum-producer.py
+import os, sys
+from pathlib import Path
+
+_sdk_path = str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime")
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
+
+from senpi_runtime_helpers import SenpiClient, scanner_lock, tick_cache, producer_daemon
+
+WALLET = os.environ["STRATEGY_WALLET_ADDRESS"]
+SCANNER_NAME = "external_momentum"
+LOCK_NAME = f"momentum-{WALLET[2:10]}"
+
+TIMEFRAME = os.environ.get("TIMEFRAME", "1h")
+MIN_MOVE_PCT = float(os.environ.get("MIN_MOVE_PCT", "1.5"))
+MIN_DAY_VOLUME = float(os.environ.get("MIN_DAY_VOLUME", "1000000"))
+MIN_SIGNAL_SCORE = float(os.environ.get("MIN_SIGNAL_SCORE", "0.2"))
+
+client = SenpiClient()
+mcp = tick_cache(client)
+
+def run_one_tick():
+    with scanner_lock(LOCK_NAME):
+        markets = mcp("leaderboard_get_markets", limit=100)
+        # ... your candle / momentum gating using mcp("market_get_asset_data", ...) ...
+        for candidate in qualifying_candidates:
+            client.push_signal(
+                address=WALLET, scanner=SCANNER_NAME,
+                asset=candidate["asset"],
+                direction=candidate["direction"],          # "LONG" or "SHORT"
+                score=candidate["score"],                  # 0..1
+                signal_type="MOMENTUM_BREAKOUT",
+                data={"move_pct": candidate["move_pct"], "timeframe": TIMEFRAME},
+            )
+
+if __name__ == "__main__":
+    producer_daemon(
+        fn=run_one_tick,
+        interval_seconds=300,
+        name=LOCK_NAME,
+        wallet=WALLET,
+        scanner=SCANNER_NAME,
+    )
+```
 
 ### Required environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SENPI_API_KEY` | **yes** | Senpi API key for MCP access |
-| `STRATEGY_ADDRESS` | **yes** | Must match the wallet in your strategy YAML |
+| `SENPI_AUTH_TOKEN` | **yes** | Senpi MCP bearer token used by `SenpiClient` |
+| `STRATEGY_WALLET_ADDRESS` | **yes** | Must match the wallet in your strategy YAML |
 | `SENPI_MCP_URL` | no | MCP server URL (default: `https://mcp.prod.senpi.ai/mcp`) |
+| `OPENCLAW_WORKSPACE` | no | Workspace root (default `/data/workspace`); the SDK lives at `${OPENCLAW_WORKSPACE}/skills/senpi-trading-runtime/` |
 
-### Momentum-specific tuning variables
+### Momentum-specific tuning variables (read by the script above)
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `TIMEFRAME` | `1h` | Candle timeframe to analyze |
 | `MIN_MOVE_PCT` | `1.5` | Minimum % move to trigger a signal |
 | `MIN_DAY_VOLUME` | `1000000` | Minimum daily notional volume |
-| `MIN_LEVERAGE` | `5` | Minimum available leverage |
-| `MAX_CANDIDATES` | `20` | Max instruments evaluated per run |
 | `MIN_SIGNAL_SCORE` | `0.2` | Minimum score threshold to push |
 
-### Producer path
-
-| Environment | Path |
-|-------------|------|
-| Local (after `npm run build`) | `<project-root>/dist/scanners/external/momentum/producer.mjs` |
-| Railway OpenClaw host template | `/data/.openclaw/extensions/runtime/dist/scanners/external/momentum/producer.mjs` |
-
-## 4. Schedule the producer
-
-Run the producer every 5 minutes via `openclaw cron add`:
+## 4. Launch the producer daemon
 
 ```bash
-openclaw cron add \
-  --name "external-momentum-guarded" \
-  --cron "*/5 * * * *" \
-  --session isolated \
-  --wake now \
-  --message "Run \`SENPI_API_KEY=<YOUR-SENPI-API-KEY> STRATEGY_ADDRESS=<YOUR-STRATEGY-WALLET-ADDRESS> node <PATH-TO-PRODUCER>/producer.mjs >> <PATH-TO-LOG>/external_momentum_guarded.log 2>&1\` and report success/failure in this log." \
-  --no-deliver
+SENPI_AUTH_TOKEN=<your-token> \
+STRATEGY_WALLET_ADDRESS=0x... \
+TIMEFRAME=1h MIN_MOVE_PCT=1.5 \
+  nohup python3 -u ./scripts/momentum-producer.py \
+  > /tmp/momentum-producer.log 2>&1 &
 ```
 
-Substitute:
-- `<YOUR-SENPI-API-KEY>` — your Senpi API key
-- `<YOUR-STRATEGY-WALLET-ADDRESS>` — the wallet address from your strategy YAML
-- `<PATH-TO-PRODUCER>` — the producer path from the table above
-- `<PATH-TO-LOG>` — a directory you can tail (e.g. `/tmp` or `/var/log/openclaw`)
+The daemon stays alive across ticks. `senpi-helpers list` / `senpi-helpers health momentum-<wallet-suffix>` manage it from then on.
 
 ## 5. Verify the strategy is live
 
 ```bash
 openclaw senpi runtime list                        # Runtime should show status: running
 openclaw senpi status                              # Lightweight health check
+senpi-helpers list                                  # Producer daemon visible with recent LAST_TICK
+senpi-helpers health momentum-<wallet-suffix>      # Exit 0 = healthy
 openclaw senpi action history momentum_entry      # See LLM decisions as they arrive
 openclaw senpi action decisions momentum_entry    # Inspect the LLM reasoning JSON
 openclaw senpi dsl positions                       # Positions the DSL is tracking
-tail -f <PATH-TO-LOG>/external_momentum_guarded.log   # Producer output
 ```
 
-If `action history` shows no rows after several producer runs, check the producer log for errors or confirm the scanner `name` in your YAML matches the name the producer pushes to (`external_momentum` by default; override with the `EXTERNAL_SCANNER_NAME` env var).
+If `action history` shows no rows after several producer ticks, check `senpi-helpers stats momentum-<wallet-suffix> --hours 1` for error histograms or tail the producer log. Confirm the scanner `name` in your YAML matches what the producer pushes to (`external_momentum` here).
