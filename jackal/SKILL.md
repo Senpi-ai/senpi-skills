@@ -85,14 +85,14 @@ decisions are auditable via `openclaw senpi action decisions`.
 
 ```
 ┌──────────────────────────────┐
-│ jackal-producer.py (60s cron)│  ── 1. refresh pool daily via discovery_get_top_traders
+│ jackal-producer.py (60s tick)│  ── 1. refresh pool daily via discovery_get_top_traders
 │                              │  ── 2. diff positions against last-seen
 │                              │  ── 3. enrich with consensus + TA + funding + BTC macro
 │                              │  ── 4. push signal via
-│                              │         openclaw senpi external-scanner ingest
+│                              │         client.push_signal() (direct HTTP POST)
 └──────────────┬───────────────┘
                │
-               ▼ ingest CLI
+               ▼ POST /signals
 ┌──────────────────────────────┐
 │ senpi-trading-runtime (v2)   │
 │  jackal_signals scanner      │  ── receives typed signal payload
@@ -184,19 +184,18 @@ TELEGRAM_CHAT_ID=... \
 JACKAL_DECISION_MODEL=gemini-2.5-pro \
   openclaw senpi runtime create --path /data/workspace/skills/jackal-tracker/runtime.yaml
 
-# 3. Schedule the producer
-openclaw cron add \
-  --name "jackal-v2-producer" \
-  --cron "* * * * *" \
-  --session isolated \
-  --wake now \
-  --message "Run \`SENPI_API_KEY=<KEY> STRATEGY_ADDRESS=0x... python3 /data/workspace/skills/jackal-tracker/scripts/jackal-producer.py >> /var/log/openclaw/jackal-v2.log 2>&1\` and report success/failure in this log." \
-  --no-deliver
+# 3. Launch the producer daemon (60s tick).
+SENPI_AUTH_TOKEN=<your-token> \
+JACKAL_WALLET=0x... \
+  nohup python3 -u /data/workspace/skills/jackal-tracker/scripts/jackal-producer.py \
+  > /tmp/jackal-producer.log 2>&1 &
 
 # 4. Verify
 openclaw senpi runtime list
 openclaw senpi status --runtime jackal-tracker
-tail -f /var/log/openclaw/jackal-v2.log
+senpi-helpers list                                       # daemon visible with recent LAST_TICK
+senpi-helpers health jackal-<wallet-suffix>              # exit 0 = healthy
+senpi-helpers stats jackal-<wallet-suffix> --hours 1     # signals posted + error histogram
 ```
 
 ## Verify the LLM gate is doing work
@@ -245,7 +244,7 @@ context is too strict.
 - Producer rewritten on `senpi_runtime_helpers.SenpiClient` — direct HTTPS
   to MCP, direct POST to runtime `/signals`. No more openclaw /
   mcporter subprocesses.
-- `producer_daemon` long-lived loop replaces the openclaw cron entry
+- `producer_daemon` long-lived loop manages the producer process
   (60s tick interval, 120s tick timeout).
 - `JACKAL_WALLET` env var (replaces banned generic `STRATEGY_ADDRESS`,
   with deprecation fallback per v2.0.9 contamination rule).
