@@ -180,7 +180,7 @@ POST_CLOSE_COOLDOWN_MINUTES = 240     # v2.1.2 — post-CLOSE cooldown.
                                       # which is silently not enforcing in v2 runtime
                                       # (also broken on Scorpion v4.1.0). Producer-side
                                       # backstop until Senpi fixes the runtime gate.
-STARTING_BUDGET = 160.0               # rebased for $160 test wallet (was 1000.0)
+STARTING_BUDGET = 1000.0
 XYZ_BANNED = True                     # never trade equities
 
 # Leverage tiers — preserved from v1.4
