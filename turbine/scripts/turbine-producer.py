@@ -12,7 +12,7 @@ v3.1's hunt-mode-as-HYPE-specialist was the wrong abstraction:
 wallet. The correct framing: "run the volume play, but allow winners
 to run longer."
 
-v3.2 keeps the two-wallet split (runtime-phase-2 enforces one runtime
+v3.2 keeps the two-wallet split (the senpi-trading-runtime plugin enforces one runtime
 per wallet) and rewires both wallets to receive the SAME volume-rotation
 alpha. The wallet boundary selects DSL behavior:
 
@@ -144,7 +144,7 @@ def _runtime_config():
 # ═══════════════════════════════════════════════════════════════
 # STALE-ORDER HYGIENE
 # ═══════════════════════════════════════════════════════════════
-# Each runtime restart / swap (helpers migration, runtime-phase-2
+# Each runtime restart / swap (helpers migration, runtime plugin
 # rollover, daemon redeploy) leaves resting ALO orders that the new
 # runtime instance does not own. The runtime's own
 # `execution_timeout_seconds` (180s on FEE_OPTIMIZED_LIMIT) cancels

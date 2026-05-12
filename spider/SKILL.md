@@ -17,7 +17,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime@v2
+    - senpi-trading-runtime>=1.1.0
 ---
 
 # 🕷️ SPIDER v3.0 — Patient Anchor Sniper

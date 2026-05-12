@@ -21,7 +21,7 @@ description: >
   Scorpion v4.0.2 maker-exit fix.
 
   JACKAL v2.0 — The Smart Stalker (v2-runtime-native rewrite).
-  First fleet agent built on the senpi-trading-runtime v2 architecture:
+  First fleet agent built on the senpi-trading-runtime architecture:
   pure producer + external_scanner + LLM-gated OPEN_POSITION action +
   declarative risk guardrails + runtime-managed DSL.
 
@@ -211,7 +211,7 @@ exit:
   # Wide Phase 1 (22% max_loss), loose early Phase 2 locks (preserve
   # the gold-signal case: newly-promoted source + 2+ existing consensus).
   # Hard timeout 72h lets multi-day holds breathe. No dead_weight_cut
-  # (v1 had it; runtime v2 disables time cuts once Phase 2 reached
+  # (v1 had it; runtime disables time cuts once Phase 2 reached
   # automatically — preserving the patience philosophy).
   dsl_preset:
     hard_timeout:

@@ -18,7 +18,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=2.0.0
+    - senpi-trading-runtime>=1.1.0
 ---
 
 # 🦂 SCORPION v5.0.0 — Multi-Market Active Trader (senpi_runtime_helpers)
@@ -194,7 +194,7 @@ A healthy Scorpion v4 shows:
 ## Changelog
 
 ### v4.0 (2026-04-23) — V2-RUNTIME-NATIVE REWRITE
-- First multi-asset agent on senpi-trading-runtime v2
+- First multi-asset agent on the senpi-trading-runtime plugin
 - Producer-only Python (280 lines vs v3.x's 549-line scanner)
 - LLM `decision_mode: llm` replaces hardcoded score thresholds
 - `risk.guard_rails` YAML replaces Python risk code — no more silent counter leaks

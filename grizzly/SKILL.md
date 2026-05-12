@@ -20,7 +20,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=2.0.0
+    - senpi-trading-runtime>=1.1.0
 ---
 
 # 🐻 GRIZZLY v7.0.0 — BTC Alpha Hunter (senpi_runtime_helpers)
@@ -259,7 +259,7 @@ get audited.
 
 ## Install
 
-**Prerequisite:** plugin must be on `runtime-phase-2` build. The
+**Prerequisite:** plugin must be the published `@senpi/runtime` >= 1.1.0. The
 senpi-trading-runtime skill must also be installed on this host — it
 ships the Python Producer SDK (`senpi_runtime_helpers`) that this
 producer imports. See README install steps.

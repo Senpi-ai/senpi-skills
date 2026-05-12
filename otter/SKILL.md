@@ -19,7 +19,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime@v2
+    - senpi-trading-runtime>=1.1.0
 ---
 
 # 🦦 OTTER v1.0 — Open Interest Velocity Hunter

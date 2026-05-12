@@ -276,7 +276,7 @@ Top up the volume wallet daily-to-weekly to keep 7 slots active. Senpi-side reba
 
 - ❌ **Do NOT** add an openclaw cron — the daemon supervises itself
 - ❌ **Do NOT** set `STRATEGY_ADDRESS`, `TURBINE_WALLET`, or `TURBINE_HUNT_WALLET` env vars — all banned
-- ❌ **Do NOT** point both runtimes at the same wallet — runtime-phase-2 will reject the second install
+- ❌ **Do NOT** point both runtimes at the same wallet — the senpi-trading-runtime plugin will reject the second install
 - ❌ **Do NOT** run Sentinel concurrently — runners mode supersedes it
 - ❌ **Do NOT** delete a runtime while positions are open — orphan-position bug
 

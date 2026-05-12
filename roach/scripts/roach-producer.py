@@ -12,7 +12,7 @@ Roach v1.x ran as a full-agency Python scanner that:
 
 v2.0 splits that into two parts:
   1. This producer (cron, 90s): emits candidate signals only.
-  2. Runtime (senpi-trading-runtime v2): receives signals via
+  2. Runtime (senpi-trading-runtime): receives signals via
      external_scanner ingest, LLM-gates them (pass-through), executes
      with FEE_OPTIMIZED_LIMIT (maker-first + 60s + taker fallback),
      and manages DSL exits autonomously.

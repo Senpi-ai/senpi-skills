@@ -10,7 +10,7 @@ v7.0.0 (2026-05-08) — plumbing migration from openclaw-CLI subprocess
 NO thesis change. Scoring tables, scoring components, leverage tiers,
 margin %, asset cooldowns, post-close cooldown, dedup logic are all
 preserved verbatim from v6.1.0. The runtime itself is now on
-senpi-trading-runtime >= 2.0.0 (runtime-phase-2 build) which speaks
+senpi-trading-runtime >= 1.1.0 which speaks
 the new {success,data,error} envelope on /signals + /audit and
 exposes GET /state for daemon liveness probes.
 

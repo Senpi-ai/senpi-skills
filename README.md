@@ -36,7 +36,7 @@ Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or bu
 ┌──────────────────────────────────▼───────────────────────────────────────┐
 │                        CAPABILITIES (this repo)                           │
 │                                                                            │
-│   senpi-trading-runtime  ─── Plugin runtime (v1.0 / v2.0)                 │
+│   senpi-trading-runtime  ─── Plugin runtime + Python Producer SDK                 │
 │                              Consumes: Strategy state, Position,           │
 │                              Execution, Audit MCP categories               │
 │                                                                            │
@@ -112,7 +112,7 @@ The OpenClaw plugin that owns the trading loop. Replaces the legacy Python cron 
 Two major versions exist; a skill targets one of them via its `runtime.yaml`:
 
 - **Runtime 1.0** — Python DSL cron, fcntl-locked producer scripts, openclaw subprocess for MCP calls. Most skills in this repo run on 1.0.
-- **Runtime 2.0** — In-process producer daemon, direct HTTPS to MCP, declarative `risk.guard_rails`, native FEE_OPTIMIZED_LIMIT entries + exits, trade-chain DB telemetry. New skills target 2.0 by default.
+- **senpi-trading-runtime** — In-process producer daemon, direct HTTPS to MCP, declarative `risk.guard_rails`, native FEE_OPTIMIZED_LIMIT entries + exits, trade-chain DB telemetry. New skills target 2.0 by default.
 
 Runtime version is determined by which plugin is loaded on the operator's host, not by which features the YAML declares.
 
@@ -484,10 +484,10 @@ Each strategy directory contains:
 
 1. Deploy an [OpenClaw](https://openclaw.ai) agent and configure Senpi MCP access.
 2. Pick a strategy skill from the buckets above. Read its `README.md`.
-3. Install the Runtime 1.0 or 2.0 plugin per the skill's requirement. Runtime 2.0 skills additionally need the `senpi-trading-runtime` skill installed (`npx skills add … --skill senpi-trading-runtime -g -y`) — it ships the Python Producer SDK (`senpi_runtime_helpers`) the producer imports.
+3. Install the senpi-trading-runtime plugin per the skill's requirement. Producer-based skills additionally need the `senpi-trading-runtime` skill installed (`npx skills add … --skill senpi-trading-runtime -g -y`) — it ships the Python Producer SDK (`senpi_runtime_helpers`) the producer imports.
 4. Pull the skill's scripts + `runtime.yaml` from main into your host workspace.
 5. Set the required env vars (`<SKILL>_WALLET`, `SENPI_AUTH_TOKEN`, and optionally a `<SKILL>_DECISION_MODEL` for LLM-gated actions).
-6. Start the producer daemon (Runtime 2.0) or the openclaw cron (Runtime 1.0) per the skill's README.
+6. Start the producer daemon per the skill's README.
 
 ## Requirements
 
@@ -499,7 +499,7 @@ Each strategy directory contains:
 
 Each skill is self-contained. To build a new one:
 
-1. Start from a runtime-2 skill (`kodiak/`, `cheetah/`, or `roach/`) as a template.
+1. Start from a producer-based skill (`kodiak/`, `cheetah/`, or `roach/`) as a template.
 2. Replace the producer's signal-generation logic with your thesis.
 3. Tune `runtime.yaml` — universe, score thresholds, DSL config, risk guard-rails.
 4. Document in `SKILL.md` (frontmatter) and `README.md` (operator-facing).
