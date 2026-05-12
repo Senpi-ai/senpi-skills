@@ -17,7 +17,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.1.0
+    - senpi-trading-runtime
 ---
 
 # 🦅 KESTREL v2.0 — XYZ Macro Breakout Rider

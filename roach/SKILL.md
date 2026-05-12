@@ -16,7 +16,7 @@ metadata:
   exchange: hyperliquid
   config_source: striker-only-experiment
   requires:
-    - senpi-trading-runtime>=1.1.0
+    - senpi-trading-runtime
 ---
 
 # 🪳 ROACH v3.0.0 — Striker Only. senpi_runtime_helpers.

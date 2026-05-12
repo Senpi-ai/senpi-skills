@@ -18,7 +18,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.1.0
+    - senpi-trading-runtime
 ---
 
 # 🦔 PANGOLIN v3.0.0 — Funding Rate Fader. senpi_runtime_helpers.

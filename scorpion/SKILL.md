@@ -18,7 +18,7 @@ metadata:
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime>=1.1.0
+    - senpi-trading-runtime
 ---
 
 # 🦂 SCORPION v5.0.0 — Multi-Market Active Trader (senpi_runtime_helpers)

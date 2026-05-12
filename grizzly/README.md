@@ -13,7 +13,7 @@ Single-asset BTC trend-following scanner. Trades **WITH** smart money consensus 
   - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
   - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
-- Requires `senpi-trading-runtime >= 1.1.0`.
+- Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
 - `runtime.yaml` unchanged from v6.x.
 - Per Rachin's review of Cheetah PR #209: dead fields stripped from payload; `signal_type="GRIZZLY_BTC_TREND"` passed explicitly.
 
