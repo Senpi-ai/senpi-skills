@@ -1,220 +1,147 @@
 ---
 name: dog-strategy
 description: >-
-  DOG v2.0 — The Contrarian Pup (SM Exhaustion Fader). Multi-asset
-  contrarian scanner targeting BTC, ETH, SOL, HYPE. Trades AGAINST
-  Smart Money consensus when the move is exhausted. Wide DSL lets
-  reversals develop. v2.0 is a complete direction flip from v1.0
-  after fleet audit found the original momentum-following thesis was
-  systematically entering after exhausted moves.
+  DOG v3.0.0 — Contrarian Pup (SM Exhaustion Fader), senpi_runtime_helpers
+  migration. Plumbing-only flip from openclaw-CLI subprocess + mcporter
+  subprocess + Python state to in-process SenpiClient (direct HTTPS for
+  MCP, direct HTTP POST to runtime /signals, long-lived producer_daemon).
+  Thesis preserved verbatim from v2.5: multi-asset (BTC/ETH/SOL/HYPE)
+  contrarian fader, 3.0% exhaustion gate, regime hard-gate, 15m freshness
+  gate, MIN_SCORE 8, conservative leverage (7x base, 10x at score 12+),
+  wide DSL for reversal development.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "2.0"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
-# 🐕 DOG v2.0 — The Contrarian Pup
+# 🐕 DOG v3.0.0 — The Contrarian Pup
 
 Smart Money goes one way. Dog goes the other. The crowd is already in — let them eat the unwind.
 
----
+## v3.0.0 (2026-05-12) — plumbing-only migration
 
-## Why v2.0 is a complete rewrite
+NO thesis change. v2.5 scoring tables, contrarian flip, exhaustion gate, regime confirmation, persistence bonus, hard gates all preserved verbatim. Six-layer plumbing flip:
 
-Dog v1.0 was "The Loyal Consistent Performer" — a multi-asset SM consensus FOLLOWER. The fleet audit on 2026-04-10 found the v1.0 signal was perfectly inverted. Real performance was -$61 gross; if you'd flipped every trade, it would have been +$61. HYPE alone caused -$91 of the -$105 net loss. The SM consensus scanner was systematically entering AFTER exhausted moves — buying tops and selling bottoms.
+1. **MCP calls**: `cfg.mcporter_call(...)` → `senpi_runtime_helpers.SenpiClient.mcp_call()` — direct HTTPS, kills mcporter subprocess cold-start (~280 ms vs 2.5–5 s per call).
+2. **Signal emit**: `create_position` call site removed; producer emits via `cfg._wrapper_client.push_signal(...)` to runtime `/signals`. Runtime opens the position via the LLM-gated `dog_entry` action.
+3. **Reentrancy**: hand-rolled fcntl lockfile dropped. `producer_daemon` owns the per-tick `scanner_lock` with stale-PID auto-recovery.
+4. **Tick scheduling**: bash `while true; sleep 180` loop replaced by `producer_daemon(fn=main, interval_seconds=180, ...)`. Long-lived Python process, no per-tick cold-start cost.
+5. **Risk gates**: Python `MAX_DAILY_ENTRIES`, `COOLDOWN_MINUTES`, dynamic daily cap circuit breaker → declarative `risk.guard_rails` block in runtime.yaml. No state files to crash.
+6. **Exit fee**: DSL exits switched from MARKET (taker, 0.045%) to FEE_OPTIMIZED_LIMIT (maker-first, 0.015%, 60 s ALO timeout, taker fallback). Saves ~0.020-0.030% per maker-filled close.
 
-**v2.0 flips the thesis.** Instead of chasing SM consensus, fade it. When SM consensus is overwhelmingly strong AND the move is already extended (4h price > 2-3% in the SM direction), trade the OPPOSITE direction. The crowd has already committed; the unwind is the alpha.
+## Why the contrarian thesis works (preserved from v2.0)
 
-### Key changes from v1.0
+Hyperliquid is dominated by leverage traders chasing momentum. When a coin moves 3%+ in 4 hours and SM consensus piles in 15%+, the crowd is already maximum exposed. The unwind happens for two reasons:
 
-| Aspect | v1.0 | v2.0 |
-|---|---|---|
-| Direction | Trade WITH SM consensus | Trade OPPOSITE to SM consensus |
-| Move-exhaustion | -3 penalty (don't chase) | +1-2 BONUS (bigger move = better fade) |
-| Early-move bonus | +1 (jump in early) | Removed (early moves have nothing to fade) |
-| Leverage | 10x flat | 7x base, 10x at score 12+ |
-| Min score | 10 (very tight) | 8 (contrarian signals fire more often) |
-| DSL hold | 120 min hard timeout | 360 min hard timeout (reversals take time) |
-| Phase 2 tier 1 | 3% ROE / 50% lock (quick scalp) | 5% ROE / 20% lock (let it develop) |
+1. **Funding pressure** — extreme positioning generates extreme funding rates, forcing the late entrants to capitulate.
+2. **Mean reversion** — overextended moves draw counter-trend liquidity from contrarian traders.
 
-## What it does
+Dog's edge is being on the unwind side BEFORE the capitulation accelerates. The wide DSL (`hard_timeout: 6h`, Phase 2 tiers starting at +5%/20% lock) lets real reversals develop without premature cuts.
 
-Dog scans BTC, ETH, SOL, HYPE every 3 minutes via `leaderboard_get_markets`. For each asset:
+## What Dog does each tick (3-minute cadence)
 
-1. **Identify SM dominant direction** — which side has the heaviest top-trader concentration
-2. **Verify the move is exhausted** — 4H price moved > 2-3% in the SM direction (mean reversion setup)
-3. **Verify the unwind hasn't started** — if 15m velocity is collapsing, the fade may already be in progress (still good)
-4. **Score the contrarian setup** — concentration, exhaustion, velocity, funding alignment
-5. **Fire the FADE** — open OPPOSITE direction at 7x or 10x leverage with FEE_OPTIMIZED_LIMIT
-6. **Hand off to DSL** — wide DSL lets the reversal develop over hours
+1. Pull `leaderboard_get_markets` (top 100 by SM activity)
+2. For each of BTC, ETH, SOL, HYPE: identify SM dominant direction
+3. **Hard gate**: 4H price moved ≥ 3.0% in the SM direction (exhaustion required)
+4. Fetch funding regime + per-asset funding_history for context
+5. Score the contrarian setup (SM concentration + exhaustion + 15m freshness + regime confirmation + persistence)
+6. **Contrarian flip**: emit the OPPOSITE direction
+7. Push signals at `score ≥ 8` via `push_signal()` to runtime `/signals`
+8. Runtime LLM gate evaluates → opens via FEE_OPTIMIZED_LIMIT if confident
+9. DSL takes over: trailing exits with maker-first close
 
-## Why the contrarian thesis works
-
-Hyperliquid is dominated by leverage traders chasing momentum. When a coin moves 3% in 4 hours and SM consensus piles in 15%+, the crowd is already maximum exposed. The unwind happens for two reasons:
-
-1. **Funding pressure** — extreme positioning generates extreme funding rates, forcing the late entrants to capitulate
-2. **Mean reversion** — overextended moves draw counter-trend liquidity from contrarian traders
-
-Dog's edge is being on the unwind side BEFORE the capitulation accelerates. The `weak_peak_cut` and `dead_weight_cut` mechanisms protect against premature fades that don't reverse, and the wide Phase 2 tiers let real unwinds compound.
-
-## Scoring
+## Scoring (preserved from v2.5)
 
 | Signal | Points |
 |---|---|
-| SM concentration ≥ 20% (DEEP_CROWD) | 4 |
-| SM concentration 15-20% (HEAVY_CROWD) | 3 |
-| SM concentration 10-15% (MODERATE_CROWD) | 2 |
-| Trader count ≥ 100 | 1 |
-| Move exhaustion (4H ≥ 3% in SM direction) | 2 |
-| Move exhaustion (4H ≥ 2% in SM direction) | 1 |
-| 15m velocity COLLAPSING (< -1.0) | 3 |
-| 15m velocity FADING (-1.0 to -0.3) | 2 |
-| 15m velocity COOLING (-0.3 to 0) | 1 |
-| 1h velocity decelerating | 1 |
-| 1H price reversing toward fade direction | 1 |
-| 4h SM contribution weakening | 1 |
+| SM concentration ≥ 15% (DOMINANT) | 3 |
+| SM concentration 10-15% (STRONG) | 2 |
+| SM concentration 5-10% (ALIGNED) | 1 |
+| Trader count ≥ 100 (DEEP_CONSENSUS) | 1 |
+| 4H price aligned with SM ≥ 2% (STRONG_4H) | 2 |
+| 4H price aligned with SM 0.5-2% (4H_CONFIRMS) | 1 |
+| Deep exhaustion (|4H| ≥ 4.0%) — contrarian BONUS | 2 |
+| Moderate exhaustion (|4H| ≥ 2.5%) — contrarian BONUS | 1 |
+| 1H momentum confirms SM | 1 |
+| 15m velocity strong spike (cc_15m > 2.0) | 3 |
+| 15m velocity spike (cc_15m > 0.5) | 2 |
+| 15m velocity building (cc_15m > 0.1) | 1 |
+| 1h SM contribution accelerating | 1 |
 | Funding pays the fade direction | 1 |
-| US session bonus | 1 |
+| Regime confirms fade (LONG_CROWDED for SHORT, etc.) | 2 |
+| Mature crowding (persistence ≥ 12h) | 2 |
+| Stable crowding (persistence ≥ 6h) | 1 |
+| Crowding unwinding (DECREASING trend) | 1 |
+| Crowding still building (INCREASING) | -1 |
+| 4H opposing SM direction (penalty) | -1 |
+| US session bonus (13:00-21:00 UTC) | 1 |
 
-**Min score: 8.** Leverage tiers: 7x base, 10x at score 12+.
+**Min score: 8** (producer-level floor). **Max leverage: 10x.**
 
-### Hard gates
+### Hard gates (any single failure → SKIP)
 
-- **SM minimums**: pct ≥ 3%, traders ≥ 20
-- **15m velocity must be ≤ 0.1**: if SM is still actively building, the move isn't exhausting yet — skip
+- **SM minimums**: trader_count ≥ 30
+- **4H exhaustion**: |priceChange4hPct| ≥ 3.0% AND aligned with SM direction
+- **15m freshness**: contribChange15m > 0 (SM must still be building, not unwinding)
+- **Regime hard-gate**: skip if `regime_confirms_fade(direction)` returns False (e.g. SHORT signal but regime is SHORT_CROWDED — Dog would be fighting, not fading)
 - **XYZ DEX banned**: contrarian thesis is for crypto majors only
-- **No duplicate positions**: max 1 position at a time
-- **Cooldown**: 120 min after any trade on the same asset
+- **Held-asset dedup**: producer skips emission if asset already held (defense in depth; runtime per_asset_cooldown is the authoritative gate)
 
-## Key settings
+## Leverage tiers
 
-| Setting | Value | Why |
+| Score | Leverage |
+|---|---|
+| ≥ 12 | 10x |
+| 8-11 | 7x |
+
+Asset caps applied (BTC 40x, ETH 25x, SOL 20x, HYPE 10x); clamped at MAX_LEVERAGE=10.
+
+## Risk gates (`runtime.yaml` `risk.guard_rails`)
+
+| Gate | Setting | Replaces |
 |---|---|---|
-| Assets | BTC, ETH, SOL, HYPE | Liquid majors only |
-| Max positions | 1 | Concentration |
-| Margin per trade | 30% | Smaller bets, survive drawdowns |
-| Leverage | 7x base, 10x at score 12+ | Conservative — contrarian needs room |
-| Min score | 8 | Tunable in scanner constants |
-| Per-asset cooldown | 120 min | Patience between trades |
-| Max daily entries | 3 | Quality over quantity |
+| max_entries_per_day | 3 | v2.5 `MAX_DAILY_ENTRIES` |
+| per_asset_cooldown_minutes | 120 | v2.5 `COOLDOWN_MINUTES=180` + `SAME_DIR_COOLDOWN=90` |
+| daily_loss_limit_pct | 15 | v2.5 dynamic cap's -15% defensive level |
+| max_consecutive_losses | 3 | v2.5 (implicit; not enforced) |
+| cooldown_minutes (post-loss) | 60 | new (fleet-standard backstop) |
+| drawdown_halt_pct | 25 | v2.5 dynamic cap's -25% HARD STOP |
+| drawdown_reset_on_day_rollover | false | fleet-standard (Roach lesson) |
 
-## DSL configuration (wide, patient)
+v2.5's dynamic daily cap had intermediate tiers (12/8/5/3/1 entries based on session P&L). v3.0 drops the intermediate tiers in favor of static `max_entries_per_day=3` + `drawdown_halt_pct=25`. The conservative ceiling and hard-stop are preserved; the "ride the hot hand" tier (12 entries when up 5%+) is sacrificed for state-file-free reliability.
 
-| Phase | Setting | Value | Why |
+## DSL preset (wide, patient — preserved from v2.5)
+
+| Phase | Component | Setting | Why |
 |---|---|---|---|
-| 1 | max_loss_pct | 15% | Tighter than fleet 25% — contrarian losses should be small |
-| 1 | retrace_threshold | 8 | Standard |
-| 1 | consecutive_breaches_required | 3 | Standard |
-| Time cuts | hard_timeout | 360 min | Reversals take time to develop |
-| Time cuts | weak_peak_cut | 90 min, min 2.0% | Cut if peak ROE never breaks 2% in 90 min |
-| Time cuts | dead_weight_cut | 30 min | Cut early stallers |
-| 2 | Tier 1 | +5% / 20% lock | Don't bank too early — let it run |
-| 2 | Tier 2 | +10% / 40% lock | |
-| 2 | Tier 3 | +15% / 60% lock | |
-| 2 | Tier 4 | +20% / 75% lock | |
-| 2 | Tier 5 | +30% / 85% lock | |
+| Phase 1 | max_loss_pct | 15% | Tighter than fleet 25% — contrarian losses should be small |
+| Phase 1 | retrace_threshold | 8 | Standard |
+| Phase 1 | consecutive_breaches_required | 3 | Standard (patient) |
+| Time cuts | hard_timeout | 360 min (6h) | Reversals take time |
+| Time cuts | weak_peak_cut | 90 min, min_value 2.0 | Cut if peak ROE < 2% in 90 min |
+| Time cuts | dead_weight_cut | 60 min | v2.4 loosened from 30 → 60 (let fades develop) |
+| Phase 2 | T0 | +5% / 20% lock | Don't bank too early |
+| Phase 2 | T1 | +10% / 40% lock | |
+| Phase 2 | T2 | +15% / 60% lock | |
+| Phase 2 | T3 | +20% / 75% lock | |
+| Phase 2 | T4 | +30% / 85% lock | apex |
 
-## Fleet-standard guardrails
+## Hard rule for user-conversation Claude sessions
 
-- Self-executing via `create_position` (no external action layer needed)
-- Dynamic P&L-aware daily cap (PR #176)
-- `has_resting_orders()` auto-cancels stale maker orders >10 min (PR #177)
-- Stale-date bug fix in `load_trade_counter()` (PR #177)
-- Conviction-scaled leverage capped at 10x (fleet H12 audit)
-- Contrarian exhaustion gate (PR #175) — requires the 4H move to be >2.5% before fading
+User-conversation Claude sessions MUST NOT call any of:
+`create_position`, `close_position`, `edit_position`,
+`ratchet_stop_add`, `ratchet_stop_edit`, `ratchet_stop_delete`,
+`cancel_order`, `strategy_close`, `strategy_close_positions`.
 
-## ⛔ Critical agent rules
+These tools are reserved for the **producer daemon → runtime action path** (entry) and the **DSL ratchet engine** (exit). User-conversation sessions are **read-only**.
 
-1. **Install path** is `/data/workspace/skills/dog-strategy/`
-2. **THE SCANNER DOES NOT EXIT POSITIONS** — DSL handles all exits
-3. **MAX 1 POSITION AT A TIME**
-4. **MAX 3 ENTRIES PER DAY** (dynamic cap may lower this on drawdown)
-5. **120-minute cooldown** between entries on the same asset
-6. **MIN_SCORE 8** — never lower
-7. **10x leverage max** — never increase
-8. **30% margin per trade** — never increase
-9. **Never modify the contrarian direction logic** without testing
-10. **Verify runtime on every session start**
-
-## Setup
-
-### Install path
-
-The skill must live at `/data/workspace/skills/dog-strategy/`. Package contents:
-
-```
-dog/
-├── README.md                 # User-facing summary
-├── SKILL.md                  # This file (LLM-facing)
-├── runtime.yaml              # OpenClaw runtime + DSL preset (wide for contrarian)
-├── config/
-│   └── dog-config.json       # Wallet, strategy ID, chat ID
-└── scripts/
-    ├── dog-scanner.py        # Main contrarian scanner (v2.0)
-    └── dog_config.py         # Helper module
-```
-
-### Pull from GitHub
-
-```bash
-mkdir -p /data/workspace/skills/dog-strategy/{config,scripts,state}
-
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dog/runtime.yaml \
-  -o /data/workspace/skills/dog-strategy/runtime.yaml
-
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dog/SKILL.md \
-  -o /data/workspace/skills/dog-strategy/SKILL.md
-
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dog/config/dog-config.json \
-  -o /data/workspace/skills/dog-strategy/config/dog-config.json
-
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dog/scripts/dog-scanner.py \
-  -o /data/workspace/skills/dog-strategy/scripts/dog-scanner.py
-
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dog/scripts/dog_config.py \
-  -o /data/workspace/skills/dog-strategy/scripts/dog_config.py
-```
-
-### Set wallet and chat ID
-
-```bash
-sed -i 's/${WALLET_ADDRESS}/<YOUR_STRATEGY_WALLET>/' /data/workspace/skills/dog-strategy/runtime.yaml
-sed -i 's/${TELEGRAM_CHAT_ID}/<YOUR_TELEGRAM_CHAT_ID>/' /data/workspace/skills/dog-strategy/runtime.yaml
-```
-
-Or set them in `config/dog-config.json`. The scanner also supports environment variables: `DOG_WALLET` and `DOG_STRATEGY_ID`.
-
-### Install runtime
-
-```bash
-openclaw senpi runtime create --path /data/workspace/skills/dog-strategy/runtime.yaml
-openclaw senpi runtime list && openclaw senpi status
-```
-
-### Verify with a manual scan
-
-```bash
-python3 /data/workspace/skills/dog-strategy/scripts/dog-scanner.py
-```
-
-Expected: clean exit, JSON output. Most likely first run shows a heartbeat (no fade signal) — contrarian setups are intentionally selective.
-
-### Run on a recurring schedule
-
-Recommended: detached bash loop (zero LLM wake cost):
-
-```bash
-nohup bash -c 'while true; do python3 /data/workspace/skills/dog-strategy/scripts/dog-scanner.py >> /tmp/dog-loop.log 2>&1; sleep 180; done' > /tmp/dog-nohup.log 2>&1 &
-
-ps aux | grep dog-scanner | grep -v grep
-tail -5 /tmp/dog-loop.log
-```
-
-3-minute cadence. The Python scanner does all work; no LLM is invoked.
+If the user asks an action-implying question ("anything close to triggering?"), respond by reading the current state — DO NOT execute. The producer daemon will handle real signals on its next tick.
 
 ## Best for
 
@@ -225,10 +152,14 @@ tail -5 /tmp/dog-loop.log
 
 ## Not for
 
-- Momentum followers (use Wolverine, Phoenix, or Condor)
+- Momentum followers
 - High-frequency scalping (Dog targets 2-3 trades per day max)
-- Single-asset specialists (use Wolverine for HYPE, Polar for ETH, Kodiak for SOL)
+- Single-asset specialists
 - Anyone who wants the scanner to make exit decisions (DSL handles all exits)
+
+## Operator install
+
+See [README.md](README.md) for fresh-install + migration commands from v2.5.
 
 ## License
 
