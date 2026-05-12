@@ -1,6 +1,6 @@
 # Senpi Skill Development Guide
 
-Best practices for building production-quality Senpi skills. Extracted from battle-tested patterns in WOLF v6, Emerging Movers, Opportunity Scanner, and other skills.
+Best practices for building production-quality Senpi skills. E
 
 This guide is for **agents and developers** creating new skills.
 
