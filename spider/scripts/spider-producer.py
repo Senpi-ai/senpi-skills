@@ -59,16 +59,16 @@ v3.0 redesign trade-off:
   DROP    — 7-day paper-trade warmup (gate-paused indefinitely).
   DROP    — pilot protocol (50/75/100% staged entry).
 
-What v3.0 ACTUALLY DOES every cron tick:
+What v3.0+ ACTUALLY DOES every producer tick:
   - Reads top-15 SM leaderboard markets via MCP
   - Scores each on 4-factor composite (arena, SM, funding, relstr)
   - Skips any held assets + post-close cooldowns + non-LONG candidates
   - Applies fleet-concentration leverage cap if applicable
-  - Emits TOP candidate scoring >= 7.0 via external-scanner ingest
+  - Emits TOP candidate scoring >= 7.0 via client.push_signal()
   - Runtime LLM gate evaluates regime (BTC drawdown, vol expansion,
     funding regime flipping) and either honors or rejects
 
-Cadence: hourly cron OK; agent's own logic skips when position open.
+Cadence: hourly tick OK; producer skips when position open.
 The 7-day min-hold is enforced producer-side (skip emission) AND
 DSL-side (Phase 1 max_loss is the only early exit).
 
@@ -189,7 +189,7 @@ W_FUNDING = 0.15      # funding favorability for longs (low/negative = good)
 W_RELSTR = 0.15       # 30d relative strength
 
 # Score component thresholds
-SM_MIN_PCT = 8.0      # less strict than Cheetah's 10% — Spider scores by quality
+SM_MIN_PCT = 8.0      # quality-scored rather than gated tightly — Spider tolerates lower SM consensus than tighter scoring agents
 SM_MIN_TRADERS = 30
 ARENA_MIN_ACTIVE_TRADERS = 150
 
@@ -216,7 +216,7 @@ def get_anchor_leverage_for_score(score):
 
 
 def get_safe_leverage(wallet, asset, requested_leverage):
-    """Clamp to Hyperliquid asset max — Cheetah's leverage safety pattern."""
+    """Clamp to Hyperliquid asset max via strategy_get_asset_trading_limits."""
     try:
         limits = cfg.mcporter_call(
             "strategy_get_asset_trading_limits",
@@ -586,7 +586,7 @@ def fetch_arena_long_exposure():
             # a list at `data.positions`, got a dict, silently skipped every
             # trader → arena_long_exposure empty → W_ARENA component (4pts)
             # never fired → Spider candidates capped below MIN_SCORE.
-            # Same bug pattern caught and fixed in Cheetah v7.1.1.
+            # (Same nested-dict bug pattern seen elsewhere in the fleet.)
             positions = []
             if isinstance(positions_data, dict):
                 d = positions_data.get("data", positions_data)

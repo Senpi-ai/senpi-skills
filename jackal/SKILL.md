@@ -14,11 +14,12 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0.1"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
 # 🐺 JACKAL v2.0 — The Smart Stalker (v2-native)
@@ -26,9 +27,10 @@ metadata:
 The jackal watches bigger predators hunt. v2 splits the hunt into two
 processes that can't step on each other:
 
-- **The producer** runs on a cron, builds the trader pool, detects new
-  entries, enriches with context, and pushes candidate signals. Nothing
-  else. No execution, no DSL, no risk code.
+- **The producer** runs as a long-lived daemon (`producer_daemon`),
+  builds the trader pool, detects new entries, enriches with context,
+  and pushes candidate signals. Nothing else. No execution, no DSL,
+  no risk code.
 - **The runtime** receives signals, gates each through an LLM decision
   prompt with `min_confidence: 7`. The model is required at deploy
   time via the `$JACKAL_DECISION_MODEL` env var (no default by design
@@ -156,7 +158,7 @@ Jackal's v1 patience profile survives:
 |---|---|---|
 | hard_timeout | 72h | 72h |
 | weak_peak_cut | 8h @ 3% | 4h @ 3% (tightened — v1 was too forgiving on fade) |
-| dead_weight_cut | 4h | **disabled** (v2 runtime auto-disables once Phase 2 reached; single-decision thesis doesn't benefit from time-based loss cuts) |
+| dead_weight_cut | 4h | **disabled** (runtime auto-disables once Phase 2 reached; single-decision thesis doesn't benefit from time-based loss cuts) |
 | Phase 1 max_loss | 22% | 22% |
 | Phase 2 tiers | 6 tiers | 6 tiers (same ladder) |
 

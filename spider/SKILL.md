@@ -13,11 +13,12 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.0.2"
+  version: "4.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
 # 🕷️ SPIDER v3.0 — Patient Anchor Sniper
@@ -139,8 +140,8 @@ See [README.md](README.md) for fresh-install + migration commands from v2.0.
 
 ## Fleet patches incorporated
 
-- ✓ **Held-asset dedup** (3-layer; Pangolin v2.1 pattern)
-- ✓ **Post-close cooldown** (7d, matches min-hold; Pangolin v2.1.2 pattern)
+- ✓ **Held-asset dedup** (3-layer: producer pre-filter, LLM gate, runtime per_asset_cooldown)
+- ✓ **Post-close cooldown** (7d, matches min-hold; producer-side runtime-cooldown backstop)
 - ✓ **Reentrancy lockfile** (fcntl)
 - ✓ **Wallet-from-config** (no hardcoding)
 - ✓ **drawdown_reset_on_day_rollover: false** (Roach lesson)
@@ -154,9 +155,9 @@ User-conversation Claude sessions MUST NOT call any of:
 `ratchet_stop_add`, `ratchet_stop_edit`, `ratchet_stop_delete`,
 `cancel_order`, `strategy_close`, `strategy_close_positions`.
 
-These tools are reserved for the **producer cron** (entry path) and
+These tools are reserved for the **producer daemon** (entry path) and
 the **DSL ratchet engine** (exit path). User-conversation sessions
-are **read-only**. The producer cron will handle real signals on its next tick.
+are **read-only**. The producer daemon will handle real signals on its next tick.
 
 ## License
 

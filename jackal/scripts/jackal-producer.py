@@ -3,7 +3,7 @@
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""JACKAL v3.0.0 Producer — Smart-Stalker signal emitter for v2 runtime.
+"""JACKAL v3.0.0 Producer — Smart-Stalker signal emitter, helpers-native.
 
 Jackal v1.1 (the scanner) ran as a full-agency Python scanner that:
   - Maintained a two-tier pool (watchlist + active)
@@ -11,11 +11,12 @@ Jackal v1.1 (the scanner) ran as a full-agency Python scanner that:
   - Scored them via its own heuristics
   - Called create_position + ratchet_stop_add directly
 
-v2.0 splits that into two parts:
-  1. This producer (runs on cron, 60s): emits candidate signals only
-  2. Runtime (senpi-trading-runtime): receives signals via
-     external_scanner ingest, gates through LLM decision_prompt,
-     executes, and manages DSL autonomously.
+v2.0+ splits that into two parts:
+  1. This producer (long-lived daemon, 60s tick): emits candidate
+     signals via client.push_signal() direct HTTP POST.
+  2. Runtime (senpi-trading-runtime): receives signals at /signals,
+     gates through LLM decision_prompt, executes, and manages DSL
+     autonomously.
 
 The producer's single responsibility: fetch the active trader pool,
 detect new entries, enrich with consensus + TA + funding regime
@@ -60,7 +61,9 @@ VERSION = "3.0.0"
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "jackal_signals"
 
-# Signal type passed explicitly per Rachin's PR #209 review.
+# Signal type passed explicitly to push_signal(). Don't rely on the
+# scanner's defaultSignalType fallback — runtime YAMLs commonly don't
+# declare one, and missing tags break audit-log filtering.
 # (Preserved from v2.x payload — don't change without coordinating
 # with audit_query consumers that filter on this value.)
 SIGNAL_TYPE = "JACKAL_COPY_ENTRY"
@@ -93,8 +96,8 @@ STRATEGY_ADDRESS = _resolve_wallet()
 # ═══════════════════════════════════════════════════════════════
 
 # Smaller, sharper pool than v1. Top-ROI monthly with win-rate + age
-# filters. Pool refreshes daily (run cron once at 00:00 UTC with
-# REFRESH_POOL=true env var, or it rebuilds on first run of the day).
+# filters. Pool refreshes daily (the producer rebuilds it on first
+# tick of each UTC day; REFRESH_POOL=true env var forces a rebuild).
 POOL_SIZE = 25
 POOL_MIN_WIN_RATE = 0.50
 POOL_MIN_TRADER_AGE_DAYS = 14
@@ -380,8 +383,8 @@ def enrich_with_ta(candidate, funding_regime):
 
     Takes pre-fetched funding_regime as arg — do NOT call
     market_get_funding_regime here; it's a global per-run state and
-    calling it per-candidate wastes 1 MCP call × N candidates per cron
-    tick (Daniel's review, 2026-04-23).
+    calling it per-candidate wastes 1 MCP call × N candidates per
+    producer tick.
     """
     coin = candidate["coin"]
     out = {
@@ -501,7 +504,8 @@ def push_signal(payload):
 
 def build_signal_payload(candidate, ta, btc_macro):
     """Build the payload. push_signal extracts asset/direction/score/data
-    as kwargs; signal_type is the SIGNAL_TYPE constant (Rachin's PR #209)."""
+    as kwargs; signal_type is the SIGNAL_TYPE constant (passed explicitly
+    to avoid the runtime YAML's defaultSignalType fallback)."""
     trader = candidate["trader"]
     return {
         "asset": candidate["coin"],

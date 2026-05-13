@@ -65,7 +65,7 @@ export SENPI_AUTH_TOKEN=...
 export SPIDER_DECISION_MODEL=gemini-2.5-pro    # or any model the runtime supports
 ```
 
-### Step 4 — Stop v3.x cron, start v4.0.0 daemon
+### Step 4 — Stop v2.x cron (if present), start v4.0.x daemon
 
 ```bash
 openclaw cron list | grep spider
