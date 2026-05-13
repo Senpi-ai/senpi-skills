@@ -290,4 +290,3 @@ These are hard requirements — if you violate them, the YAML will fail to load:
 | "max_loss_pct is required" | Phase1 enabled without max_loss_pct | Add `max_loss_pct` to phase1 or preset root |
 | "exit / DSL preset validation failed" | Invalid DSL preset structure | Check tier sort order and required fields |
 | "Unsupported version" | Major version not in `SUPPORTED_RUNTIME_VERSIONS` | Use `version: 1` or omit the field |
-| "'strategies' (plural) is no longer supported" | Using the deprecated plural key | Change to `strategy:` (singular) with a single wallet |
