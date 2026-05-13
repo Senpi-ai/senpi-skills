@@ -170,6 +170,17 @@ Pass the **bare** model name to `decision_model`. The runtime forwards it to the
 
 The DSL exit engine monitors your open positions and closes them based on configurable rules.
 
+**Top-level `exit` fields:**
+
+| Field | What it does | Default |
+|-------|-------------|---------|
+| `engine` | Exit engine identifier; typically `dsl` | — |
+| `interval_seconds` | DSL polling interval (integer, 5–3600) | `30` |
+| `order_type` | Order type for DSL-initiated closes: `MARKET` or `FEE_OPTIMIZED_LIMIT` | `MARKET` |
+| `fee_optimized_limit_options.ensure_execution_as_taker` | Ensure fill as taker if limit times out | — |
+| `fee_optimized_limit_options.execution_timeout_seconds` | Limit-order timeout (integer, 1–300) | — |
+| `dsl_preset` | DSL exit profile (see below) | — |
+
 **Time-based cuts** close positions that aren't performing:
 - `hard_timeout`: Close after N minutes no matter what
 - `weak_peak_cut`: Close if peak ROE% never reaches `min_value` after N minutes
