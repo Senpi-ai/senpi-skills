@@ -160,7 +160,7 @@ Actions decide what to do with signals. For LLM-driven entries:
 |-------|-------------|
 | `name` | Action identifier (required) |
 | `action_type` | Registered action type (required): `OPEN_POSITION`, `CLOSE_POSITION`, or `POSITION_TRACKER` |
-| `decision_mode` | `llm` (AI decides), `rule` (automatic), or `no_decision` (disabled) |
+| `decision_mode` | `llm` (AI decides), `rule` (automatic), or `none` (disabled) |
 | `decision_model` | Which LLM model to use. **Bare model name only — no provider prefix.** See [Model name format](#model-name-format). |
 | `scanners` | Which scanner(s) trigger this action |
 | `min_confidence` | Minimum LLM confidence (1-10) to execute the trade |
