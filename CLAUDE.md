@@ -101,9 +101,9 @@ A new skill is not complete until both files above exist with the correct `skill
 
 This mistake recurs. If you see `@senpi/` (no `-ai`) in any doc, `runtime.yaml` comment, producer docstring, or error-message string on `main`, treat it as a bug and fix it. Grep every diff that touches `@senpi/` — if there's no `-ai` after `@senpi`, it's the wrong package for `main`.
 
-### Before you write `@senpi/runtime` (no `-ai`), ask the user
+### Before you write `@senpi/runtime` (no `-ai`), ask the user — on every branch
 
-If you (the AI) are about to commit `@senpi/runtime` anywhere — producer, doc, `runtime.yaml`, comment, anywhere — **stop and ask first**. Use plain language:
+If you (the AI) are about to commit `@senpi/runtime` anywhere on **any** branch — producer, doc, `runtime.yaml`, comment, anywhere — **stop and ask first**. The rule applies regardless of which branch you're on, because the AI can't reliably tell whether the current branch will land on `main` later. Use plain language:
 
 > "I'm about to write `@senpi/runtime` (no `-ai`). Two packages exist:
 >
