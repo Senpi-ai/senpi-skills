@@ -90,3 +90,18 @@ When creating a strategy, include `skill_name` and `skill_version` in the call. 
 ### Creating a new skill
 
 A new skill is not complete until both files above exist with the correct `skill_name` (matching the directory name) and `skill_version` (matching the SKILL.md frontmatter `version` field).
+
+---
+
+## Runtime npm package — `@senpi-ai/runtime` (NOT `@senpi/runtime`)
+
+**Always** reference the Senpi runtime plugin as **`@senpi-ai/runtime`** in any doc, script, config example, or error message. The name without `-ai` (`@senpi/runtime`) is a separate dev/internal package — its `latest` is a pre-release dev build and no stable `1.x.x` version is published. Operators copying `npm install @senpi/runtime@1.1.0` from your docs will hit a 404.
+
+| | name | what it is | `latest` |
+|---|---|---|---|
+| ✅ use this | `@senpi-ai/runtime` | production, 27 stable versions | `1.1.0` |
+| ❌ never | `@senpi/runtime` | dev / internal, all `-dev.*` | `1.1.0-dev.runtime-phase-2.*` |
+
+Source-of-truth: `senpi-trading-runtime/package.json` declares `name: "@senpi-ai/runtime"`. Check that field if in doubt.
+
+The wrong name is easy to type by reflex (every other Senpi npm scope is `@senpi-ai/...`, but muscle memory often shortens it). Grep every diff that touches `@senpi/` — if there's no `-ai`, it's wrong.
