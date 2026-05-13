@@ -19,6 +19,9 @@ Install a YAML file with `openclaw senpi runtime create --path /path/to/your.yam
 | `exit` | no | DSL exit engine config. See [Configure Exit Management](#configure-exit-management). |
 | `risk` | no | Guard-rail gates. See [Configure Risk Protection](#configure-risk-protection). |
 | `notifications` | no | Telegram notifications. See [Set Up Notifications](#set-up-notifications). |
+| `health` | no | Health-check configuration (passthrough record). |
+| `hooks` | no | Lifecycle hooks (array; passthrough). |
+| `advanced` | no | Advanced runtime options (passthrough record). |
 
 ---
 
