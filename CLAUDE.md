@@ -105,11 +105,16 @@ This mistake recurs. If you see `@senpi/` (no `-ai`) in any doc, `runtime.yaml` 
 
 If you (the AI) are about to commit `@senpi/runtime` anywhere on **any** branch — producer, doc, `runtime.yaml`, comment, anywhere — **stop and ask first**. The rule applies regardless of which branch you're on, because the AI can't reliably tell whether the current branch will land on `main` later. Use plain language:
 
-> "I'm about to write `@senpi/runtime` (no `-ai`). Two packages exist:
+> "I'm about to write `@senpi/runtime` (no `-ai`). Before I do, please confirm which package you mean.
 >
-> - **`@senpi-ai/runtime`** — the package your end users install. Default for anything shipping to `main`. If users will read or run this file, this is the answer.
-> - **`@senpi/runtime`** — internal package, used to test runtime-plugin changes on Railway boxes ourselves. Only correct if this work is on a feature branch validating a runtime build, NOT for anything users install.
+> - **`@senpi-ai/runtime`** — the package your end users install on their Railway / OpenClaw hosts. Use this for anything that may land on `main`.
+>   - **If you pick this when you actually wanted the internal one**: nothing breaks. The file just won't reference your in-flight test build.
+>
+> - **`@senpi/runtime`** — internal package; we use it to test runtime-plugin changes on Railway boxes ourselves. Only correct on a feature branch validating a runtime build, never on anything users install.
+>   - **If you pick this when users will install this skill**: their `npm install @senpi/runtime@1.1.0` returns **404**. Their OpenClaw host won't boot. Their trading agent goes offline until someone tells them the right package name.
+>
+> Default if you're not sure: **`@senpi-ai/runtime`**.
 >
 > Which one do you want?"
 
-When unsure, default to **`@senpi-ai/runtime`**. A working user install beats a clever test reference.
+The consequences are asymmetric. The wrong `@senpi-ai/runtime` pick is recoverable on a single feature branch. The wrong `@senpi/runtime` pick on `main` blocks every user from installing the skill. When in doubt, default to **`@senpi-ai/runtime`**.
