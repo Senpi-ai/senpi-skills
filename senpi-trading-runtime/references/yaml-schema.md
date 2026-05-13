@@ -11,7 +11,7 @@ Install a YAML file with `openclaw senpi runtime create --path /path/to/your.yam
 | Key | Required | Purpose |
 |-----|----------|---------|
 | `name` | yes | Runtime name (human-readable identifier). |
-| `version` | no | Runtime version string. |
+| `version` | no | Runtime version (integer or string). The major version must be supported by the runtime (currently `[1]`). |
 | `description` | no | Free-form description. |
 | `strategy` | yes | Wallet, slots, risk profile, leverage — see [Define Your Strategy](#define-your-strategy). |
 | `scanners` | conditional | At least one scanner is required when any action depends on one. See [Connect Your Signal Source](#connect-your-signal-source). |
@@ -19,6 +19,9 @@ Install a YAML file with `openclaw senpi runtime create --path /path/to/your.yam
 | `exit` | no | DSL exit engine config. See [Configure Exit Management](#configure-exit-management). |
 | `risk` | no | Guard-rail gates. See [Configure Risk Protection](#configure-risk-protection). |
 | `notifications` | no | Telegram notifications. See [Set Up Notifications](#set-up-notifications). |
+| `health` | no | Health-check configuration (passthrough record). |
+| `hooks` | no | Lifecycle hooks (array; passthrough). |
+| `advanced` | no | Advanced runtime options (passthrough record). |
 
 ---
 
@@ -33,9 +36,10 @@ The `strategy` block tells the runtime which wallet to trade and how much capita
 | `wallet` | Your wallet address (use `${WALLET_ADDRESS}` to keep it in env) | **yes** |
 | `slots` | Max concurrent positions | no |
 | `margin_per_slot` | Fixed USD margin per position | no |
-| `margin_pct` | Margin as % of account (1-100) | no |
+| `margin_pct` | Margin as % of account (positive, max 100) | no |
 | `trading_risk` | Risk profile: `conservative`, `moderate`, or `aggressive` | no |
 | `default_leverage` | Leverage multiplier | no |
+| `leverage_multipliers` | Per-risk-level leverage overrides: `{ conservative?, moderate?, aggressive? }` | no |
 | `enabled` | Set to `false` to pause without uninstalling | no |
 
 ### Set Up Notifications
@@ -53,10 +57,12 @@ notifications:
 | `dsl_lifecycle` | Notify on DSL position open/close | `true` |
 | `dsl_notify_sl_updates` | Notify on stop-loss level changes | `false` |
 | `action_lifecycle` | Notify on action execution (open/close) | `true` |
+| `gateway_url` | Override the OpenClaw gateway URL for delivery | `http://127.0.0.1:18789` |
+| `gateway_token` | Override the OpenClaw gateway auth token | `process.env.OPENCLAW_GATEWAY_TOKEN` |
 
 > **Field name caveat:** The `notifications` block currently accepts unknown keys without erroring, so a typo like `action_lifecycle_notifications` is silently ignored and the default takes effect. Use the exact key shown above.
 
-**Requirement:** The `OPENCLAW_GATEWAY_TOKEN` environment variable must be set for Telegram delivery.
+**Requirement:** Telegram delivery needs an OpenClaw gateway token — either `OPENCLAW_GATEWAY_TOKEN` in the runtime's environment, or `gateway_token` in this block.
 
 ### Configure Risk Protection
 
@@ -139,17 +145,41 @@ Actions decide what to do with signals. For LLM-driven entries:
 
 | Field | What it does |
 |-------|-------------|
-| `decision_mode` | `llm` (AI decides), `rule` (automatic), or `no_decision` (disabled) |
-| `decision_model` | Which LLM model to use (e.g. `claude-sonnet-4-20250514`) |
+| `name` | Action identifier (required) |
+| `action_type` | Registered action type (required): `OPEN_POSITION`, `CLOSE_POSITION`, or `POSITION_TRACKER` |
+| `decision_mode` | `llm` (AI decides), `rule` (automatic), or `none` (disabled) |
+| `decision_model` | Which LLM model to use. **Bare model name only — no provider prefix.** See [Model name format](#model-name-format). |
 | `scanners` | Which scanner(s) trigger this action |
 | `min_confidence` | Minimum LLM confidence (1-10) to execute the trade |
 | `params.order_type` | `MARKET` or `FEE_OPTIMIZED_LIMIT` |
 | `context` | What data to inject into the prompt |
 | `decision_prompt` | The prompt template with `{{placeholders}}` |
 
+#### Model name format
+
+Pass the **bare** model name to `decision_model`. The runtime forwards it to the OpenClaw `llm-task` gateway, which adds its own provider prefix when routing. Passing a prefixed name causes a double-prefix and the gateway responds with `500 Unknown model`.
+
+| | Example |
+|---|---|
+| Valid | `gemini-2.5-pro`, `claude-sonnet-4-20250514`, `gemini-3.1-pro-preview` |
+| Invalid | `google/gemini-2.5-pro`, `anthropic/claude-sonnet-4-20250514` |
+
+**Provider selection is not configured here.** The runtime auto-detects the backend at boot: if `ANTHROPIC_API_KEY` is set in the runtime's environment, it uses the Anthropic SDK directly; otherwise it routes through the OpenClaw gateway (which requires `OPENCLAW_GATEWAY_TOKEN`). The bare-name rule applies to the gateway path — the default in production.
+
 ### Configure Exit Management
 
 The DSL exit engine monitors your open positions and closes them based on configurable rules.
+
+**Top-level `exit` fields:**
+
+| Field | What it does | Default |
+|-------|-------------|---------|
+| `engine` | Exit engine identifier; typically `dsl` | — |
+| `interval_seconds` | DSL polling interval (integer, 5–3600) | `30` |
+| `order_type` | Order type for DSL-initiated closes: `MARKET` or `FEE_OPTIMIZED_LIMIT` | `MARKET` |
+| `fee_optimized_limit_options.ensure_execution_as_taker` | Ensure fill as taker if limit times out | — |
+| `fee_optimized_limit_options.execution_timeout_seconds` | Limit-order timeout (integer, 1–300) | — |
+| `dsl_preset` | DSL exit profile (see below) | — |
 
 **Time-based cuts** close positions that aren't performing:
 - `hard_timeout`: Close after N minutes no matter what
@@ -238,9 +268,12 @@ These are hard requirements — if you violate them, the YAML will fail to load:
 | "when using actions that depend on scanners, you must also add a non-empty 'scanners:' block" | OPEN_POSITION action but no scanners | Add a `scanners:` block with at least one scanner |
 | "Duplicate scanner name(s)" | Two scanners have the same name | Rename one of them |
 | "external_scanner does not allow interval" | You set `interval` on an external scanner | Remove the `interval` field |
+| "external_scanner does not support depends_on" | You set `depends_on` on an external scanner | Remove `depends_on`; declare it on the consuming scanner instead |
+| "external_scanner must enable at least one of outputs.signals or outputs.context" | Both outputs are `false` (or `outputs` is missing) | Set at least one of `outputs.signals` / `outputs.context` to `true` |
 | "external_scanner requires a non-empty config.fields map" | Missing field definitions | Add `config: { fields: { ... } }` |
 | "DSL requires at least one position-tracker scanner" | Exit management without position tracking | Add a `position_tracker` scanner |
 | "DSL requires a POSITION_TRACKER action" | Exit management without tracker action | Add a `POSITION_TRACKER` action |
 | "Action decision_prompt references names with no matching context entry or param" | `{{placeholder}}` doesn't match any context entry | Check that your context entries match your placeholders |
 | "max_loss_pct is required" | Phase1 enabled without max_loss_pct | Add `max_loss_pct` to phase1 or preset root |
 | "exit / DSL preset validation failed" | Invalid DSL preset structure | Check tier sort order and required fields |
+| "Unsupported version" | Major version not in `SUPPORTED_RUNTIME_VERSIONS` | Use `version: 1` or omit the field |
