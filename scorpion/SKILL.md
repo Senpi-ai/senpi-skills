@@ -147,11 +147,12 @@ curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/scorpion/sc
 
 # 2. Install the runtime
 # SCORPION_DECISION_MODEL is REQUIRED — pick any model supported by the
-# runtime's model registry. Examples: gemini-2.5-pro,
-# claude-sonnet-4-20250514, etc. There is no default.
+# runtime's model registry. Use the BARE model name (NO provider prefix
+# like "google/..." or "anthropic/..." — OpenClaw double-prefixes those
+# and rejects them as 500 Unknown model). There is no default by design.
 WALLET_ADDRESS=0x... \
 TELEGRAM_CHAT_ID=... \
-SCORPION_DECISION_MODEL=gemini-2.5-pro \
+SCORPION_DECISION_MODEL=<your-preferred-model> \
   openclaw senpi runtime create --path /data/workspace/skills/scorpion-tracker/runtime.yaml
 
 # 3. Launch the producer daemon (60s tick).

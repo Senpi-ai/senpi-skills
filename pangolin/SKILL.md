@@ -110,7 +110,7 @@ The runtime YAML uses these substitutions:
 |---|---|
 | `${WALLET_ADDRESS}` | Strategy wallet address |
 | `${TELEGRAM_CHAT_ID}` | Telegram chat ID for notifications |
-| `${PANGOLIN_DECISION_MODEL}` | Bare model name for LLM gate (e.g. `gemini-3.1-pro-preview`, `claude-sonnet-4-20250514`). NO provider prefix — OpenClaw double-prefixes and rejects. |
+| `${PANGOLIN_DECISION_MODEL}` | Bare model name for LLM gate. NO provider prefix (e.g. `google/...`, `anthropic/...`, `openai/...`) — OpenClaw double-prefixes and rejects with 500 Unknown model. Pick any model your OpenClaw host's runtime registry supports. |
 
 The producer reads:
 
@@ -146,11 +146,12 @@ rm -f /data/workspace/skills/pangolin-strategy/scripts/pangolin-scanner.py
 
 # 2. Install the runtime
 # PANGOLIN_DECISION_MODEL is REQUIRED — pick any model supported by the runtime's
-# model registry. Examples: gemini-3.1-pro-preview, claude-sonnet-4-20250514.
-# Pass BARE model name only — NO provider prefix (OpenClaw double-prefixes).
+# model registry. Use the BARE model name (NO provider prefix like "google/..."
+# or "anthropic/..." — OpenClaw double-prefixes those and rejects them as 500
+# Unknown model). There is no default by design.
 WALLET_ADDRESS=0x... \
 TELEGRAM_CHAT_ID=... \
-PANGOLIN_DECISION_MODEL=gemini-3.1-pro-preview \
+PANGOLIN_DECISION_MODEL=<your-preferred-model> \
   openclaw senpi runtime create --path /data/workspace/skills/pangolin-strategy/runtime.yaml
 
 # 3. Launch the producer daemon (5-min tick — funding doesn't change that fast).

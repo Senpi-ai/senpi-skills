@@ -103,7 +103,7 @@ actions:
   - name: dog_entry
     action_type: OPEN_POSITION
     decision_mode: llm
-    decision_model: "${DOG_DECISION_MODEL}"   # REQUIRED. Pass BARE model name only — NO provider prefix. Valid: "gemini-2.5-pro", "claude-sonnet-4-20250514". INVALID: "google/gemini-2.5-pro" (OpenClaw double-prefixes → 500 Unknown model). No default by design.
+    decision_model: "${DOG_DECISION_MODEL}"   # REQUIRED. Bare model name only — NO provider prefix. INVALID: "<provider>/<model>" (e.g. "google/...", "anthropic/...", "openai/...") — OpenClaw double-prefixes → 500 Unknown model. The LLM gate is a pass-through rubber-stamp (producer already applied every filter); any reliable structured-JSON model works. No default by design — operators pick their own.
     scanners: [dog_signals]
     min_confidence: 7
     params:

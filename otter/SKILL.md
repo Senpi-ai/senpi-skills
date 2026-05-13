@@ -183,7 +183,7 @@ done
 # 2. Install the runtime
 WALLET_ADDRESS=0x... \
 TELEGRAM_CHAT_ID=... \
-OTTER_DECISION_MODEL=gemini-3.1-pro-preview \
+OTTER_DECISION_MODEL=<your-preferred-model> \
   openclaw senpi runtime create --path /data/workspace/skills/otter-strategy/runtime.yaml
 
 # 3. Launch the producer daemon (5 min tick).

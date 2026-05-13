@@ -98,7 +98,7 @@ The runtime YAML uses these substitutions:
 |---|---|
 | `${WALLET_ADDRESS}` | Strategy wallet address |
 | `${TELEGRAM_CHAT_ID}` | Telegram chat ID for notifications |
-| `${ROACH_DECISION_MODEL}` | Bare model name for LLM gate (e.g. `gemini-3.1-pro-preview`, `claude-sonnet-4-20250514`). NO provider prefix — OpenClaw double-prefixes and rejects. |
+| `${ROACH_DECISION_MODEL}` | Bare model name for LLM gate. NO provider prefix (e.g. `google/...`, `anthropic/...`, `openai/...`) — OpenClaw double-prefixes and rejects with 500 Unknown model. Pick any model your OpenClaw host's runtime registry supports. |
 
 The producer reads:
 

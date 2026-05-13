@@ -116,7 +116,7 @@ actions:
   - name: roach_entry
     action_type: OPEN_POSITION
     decision_mode: llm
-    decision_model: "${ROACH_DECISION_MODEL}"   # REQUIRED. Pass BARE model name only — NO provider prefix. INVALID: "google/gemini-3.1-pro-preview" (OpenClaw double-prefixes → 500 Unknown model). The LLM gate here is a pass-through rubber-stamp (producer already applied every filter); the cheapest model that reliably returns structured JSON is fine long-term. No default by design — operators pick their own.
+    decision_model: "${ROACH_DECISION_MODEL}"   # REQUIRED. Pass BARE model name only — NO provider prefix. INVALID: "<provider>/<model>" (e.g. "google/...", "anthropic/...", "openai/...") (OpenClaw double-prefixes → 500 Unknown model). The LLM gate here is a pass-through rubber-stamp (producer already applied every filter); the cheapest model that reliably returns structured JSON is fine long-term. No default by design — operators pick their own.
     scanners: [roach_signals]
     min_confidence: 7
     params:

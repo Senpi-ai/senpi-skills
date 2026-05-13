@@ -225,7 +225,7 @@ curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/vulture/scr
 **Step 2:** Set wallet, strategyId, chatId in `config/vulture-config.json` (this is the canonical source — producer reads from here on every tick; runtime reads at startup).
 
 **Step 3:** Set the LLM model env var at runtime-create time only:
-- `VULTURE_DECISION_MODEL` — LLM model BARE name (no provider prefix). E.g. `gemini-2.5-pro` or `claude-sonnet-4-20250514`. INVALID: `google/gemini-2.5-pro` (OpenClaw double-prefixes → 500 Unknown model). This env var is resolved ONCE into runtime.yaml's `${VULTURE_DECISION_MODEL}` placeholder when openclaw creates the runtime — it doesn't need to be set in the daemon's launch environment.
+- `VULTURE_DECISION_MODEL` — LLM model BARE name only. INVALID: `<provider>/<model>` like `google/...`, `anthropic/...`, `openai/...` (OpenClaw double-prefixes → 500 Unknown model). Pick any model your OpenClaw host's runtime registry supports. This env var is resolved ONCE into runtime.yaml's `${VULTURE_DECISION_MODEL}` placeholder when openclaw creates the runtime — it doesn't need to be set in the daemon's launch environment.
 
 **Step 4:** Install runtime via `openclaw senpi runtime create --path /data/workspace/skills/vulture-strategy/runtime.yaml`. Verify with `openclaw senpi runtime list` — `vulture-tracker` must appear ACTIVE.
 
