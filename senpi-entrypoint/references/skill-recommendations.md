@@ -1,51 +1,42 @@
 # Skill Recommendations
 
-When the user asks "what skills should I install?" or "what should I use for [goal]?",
-fetch the current catalog:
+When the user asks "what skills should I install?" or "what should I use for [goal]?", fetch the live strategy catalog from the senpi-agent-tracker MCP (see `references/post-onboarding.md` → "Show me the strategies" for the canonical call) and match their goal to the table below.
 
-```bash
-CATALOG=$(curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json)
-```
-
-Then match their goal to the table below.
+Do NOT hardcode strategy names in this file. The active fleet changes; the table below is goal-to-pattern mapping, not goal-to-specific-strategy.
 
 ## Goal → Skill Mapping
 
-| User goal | Recommended skill | Min budget |
+| User goal | What to install | Notes |
 |---|---|---|
-| Best default — proven, works with any balance | FOX (`fox-strategy`) | $500 |
-| Trade range-bound markets / support & resistance | Viper (`viper`) | $500 |
-| Copy whale wallets automatically | Scorpion (`scorpion-strategy`) | $500 |
-| Leaderboard momentum — follow smart money early | Wolf (`wolf-strategy`) | $500 |
-| Funding rate arbitrage | Croc (`croc-strategy`) | $500 |
-| Triple-signal convergence (price + volume + new money) | Cobra (`cobra-strategy`) | $500 |
-| BTC only, maximum conviction, high leverage | Grizzly (`grizzly-strategy`) | $2,000 |
-| HYPE only, fastest asset | Cheetah (`cheetah-strategy`) | $1,000 |
-| 5 parallel scanners across 230 assets | Tiger (`tiger-strategy`) | $2,000 |
-| Contrarian — fade crowded trades at exhaustion | Owl (`owl-strategy`) | $1,000 |
-| Smart money consensus + liquidation front-running | Shark (`shark`) | $1,000 |
-| Multi-market scanner, single strongest signal | Hawk (`hawk-strategy`) | $1,000 |
-| FOX with higher conviction filters | Feral Fox (`feral-fox`) | $500 |
-| Feral Fox + infinite trailing stop | Ghost Fox (`ghost-fox`) | $500 |
-| Wolf in sniper mode, maker fees | Dire Wolf (`dire-wolf`) | $1,000 |
-| Viper + infinite trailing | Mamba (`mamba`) | $500 |
+| Build a new autonomous strategy from scratch | `senpi-trading-runtime` | The canonical runtime + DSL + Producer SDK. Use this when the user wants to author their own thesis rather than deploy an existing one. See `senpi-trading-runtime/SKILL.md` for the full build flow. |
+| Deploy a proven autonomous trading strategy | Top strategy from live leaderboard (sorted by ROE) | Fetch with `get_leaderboard` MCP call and recommend the top result whose `min_budget` ≤ the user's balance. |
+| Mirror a specific top trader (copy-trading) | `senpi-getting-started-guide` | Walks the user through `discovery_get_top_traders` + `strategy_create` to mirror one trader. The simplest first-trade path. |
+| Run multiple strategies in parallel | Top N strategies from live leaderboard | One strategy per wallet, isolated capital. Slot count by budget; see Budget Guidance below. |
 
 ## Budget Guidance
 
-| Balance | Recommended |
+Always fetch the live leaderboard via `get_leaderboard` and filter by each strategy's `min_budget` field. Recommend based on the user's balance:
+
+| Balance | Recommendation |
 |---|---|
-| < $500 | No catalog skill has min_budget below $500. Recommend funding to at least $500, then FOX or Viper. |
-| $500–$2,000 | FOX, Viper, Cobra, Scorpion, Wolf, Croc, Owl, Cheetah, Hawk, Shark, Dire Wolf |
-| $2,000–$5,000 | Any skill in the catalog |
-| > $5,000 | Grizzly, Bison, Tiger, or multi-skill deployment |
+| < $500 | Recommend funding to at least $500 before deploying any catalog strategy. Most active strategies have `min_budget` ≥ $500. |
+| $500 – $2,000 | Any active strategy with `min_budget` ≤ balance. Lead with the current #1 by ROE. |
+| $2,000 – $5,000 | Full catalog available. Lead with the current #1 by ROE. Multiple strategies in parallel become viable at this range. |
+| > $5,000 | Full catalog + multi-strategy deployment. Consider 2–3 strategies with different theses for diversification. |
 
 ## Presenting a Recommendation
 
-For each recommended skill, include:
-- Skill name + one-sentence description
-- Minimum budget
+For each recommended strategy, include:
+- Strategy name + one-line description (from `list_strategies` MCP)
+- Minimum budget (from leaderboard `min_budget` field)
+- Current ROE (from leaderboard `roe` field)
 - Install command: `npx skills add https://github.com/Senpi-ai/senpi-skills --skill <name> -g -y`
+
+For the "Build a new strategy" path:
+- Point them at `senpi-trading-runtime`'s SKILL.md as the build playbook
+- Mention `senpi-trading-runtime/references/producer-patterns.md` as the catalog of scanner archetypes they can choose from
+- Note: building a strategy requires Python familiarity and an LLM-decision-gate concept; not a 5-min path
 
 ## When Goal Is Unclear
 
-Ask one question: **"Are you looking to follow smart money, trade a specific asset, or have the agent scan everything autonomously?"** — then map their answer to the table above.
+Ask one question: **"Are you looking to deploy an existing strategy that's already running, mirror a specific trader you've identified, or build your own from scratch?"** — then map their answer to the table above.

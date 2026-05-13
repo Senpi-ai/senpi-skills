@@ -169,20 +169,29 @@ If the guide skill is not yet available, suggest these first actions instead:
 
 ## Step 4: Expand (User-Driven)
 
-Install additional trading skills on demand based on user interest:
+Install additional skills on demand based on user interest. Two paths:
+
+### To DEPLOY an existing strategy
+
+Install the strategy skill directly:
 
 ```bash
-npx skills add https://github.com/Senpi-ai/senpi-skills --skill <skill-name> -g -y
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill <strategy-name> -g -y
 ```
 
-Example:
+Look up the available strategy names from the live `list_strategies` MCP call (see post-onboarding.md → "Show me the strategies") — do NOT hardcode names here.
+
+### To BUILD a new autonomous strategy from scratch
+
+Install the runtime + Producer SDK skill — that's the canonical building block for every autonomous trading strategy in the fleet:
 
 ```bash
-npx skills add https://github.com/Senpi-ai/senpi-skills --skill wolf-strategy -g -y
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-Onboarding is complete. The agent is now equipped with Senpi's trading
-toolkit and can install more skills as needed.
+Then walk the user through the build flow documented in `senpi-trading-runtime/SKILL.md` (runtime.yaml + producer.py + LLM decision gate + DSL exit preset). See `senpi-trading-runtime/references/producer-patterns.md` for the catalog of scanner archetypes the user can choose from.
+
+Onboarding is complete. The agent is now equipped with Senpi's trading toolkit and can install more skills as needed.
 
 ---
 

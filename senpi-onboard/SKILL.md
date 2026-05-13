@@ -369,7 +369,7 @@ Display a confirmation message that includes ALL of the following:
 3. **Referral link** -- `https://senpi.ai/skill.md?ref=<USER_REFERRAL_CODE>`
 4. **Credentials backup location** -- `~/.config/senpi/credentials.json`
 5. **Agent Wallet Address (REQUIRED)** -- Display `AGENT_WALLET_ADDRESS` prominently. Instruct user to fund it with USDC on a supported chain (Hyperliquid, Base, Arbitrum, Optimism, Polygon, or Ethereum). Without funds, the agent cannot trade.
-6. **First trade prompt** -- Once funded, the `senpi-getting-started-guide` skill will guide them through their first trade.
+6. **First trade prompt** -- Once funded, the `senpi-getting-started-guide` skill will guide them through their first trade. For users who want to author their own autonomous strategy (rather than walk through the first-trade mirror tutorial), point them at the `senpi-trading-runtime` skill — Senpi's canonical runtime + DSL + Producer SDK.
 7. **Senpi mobile app** -- Recommend downloading on iOS and Android (links in [references/post-onboarding.md](references/post-onboarding.md)).
 8. **Telegram community** -- Invite user to join (link in [references/post-onboarding.md](references/post-onboarding.md)).
 9. **Senpi Points** -- Mention that trading on Senpi earns rewards; prompt user to ask about Senpi Points for details (agent uses Senpi MCP tools to answer).
