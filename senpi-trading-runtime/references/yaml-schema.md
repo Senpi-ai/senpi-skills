@@ -115,22 +115,9 @@ Scanners detect trading opportunities. For an external momentum strategy, you ne
 
 Rules for external scanners:
 - Do NOT set `interval` (it's push-driven, not polled)
-- Do NOT set `depends_on` (push-driven scanners do not consume upstream artifacts)
 - Must enable at least one of `outputs.signals` or `outputs.context`
 - Must define `config.fields` with at least one field
 - Each field needs a `type`: `string`, `number`, `boolean`, `object`, or `array`
-
-**Registered scanner types:** `position_tracker`, `external_scanner`, `momentum`, `emerging_movers`, `oi_tracker`, `prescreener`, `liquidation_watchdog`, `market_regime`, `sm_flip`, `opportunity`.
-
-**Other scanner fields (apply to all types):**
-
-| Field | What it does |
-|-------|-------------|
-| `depends_on` | Array of upstream scanner dependencies (`scanner`, `required`, `max_age`, `on_missing`, `on_stale`) |
-| `blocked_assets` | List of asset tickers to exclude from this scanner |
-| `retention` | `last_only` or `rolling_window` |
-| `retention_max_runs` | Integer; max retained runs when using `rolling_window` |
-| `advanced` | Passthrough record for advanced scanner options |
 
 ### Define How Trades Are Entered
 
@@ -281,7 +268,6 @@ These are hard requirements — if you violate them, the YAML will fail to load:
 | "when using actions that depend on scanners, you must also add a non-empty 'scanners:' block" | OPEN_POSITION action but no scanners | Add a `scanners:` block with at least one scanner |
 | "Duplicate scanner name(s)" | Two scanners have the same name | Rename one of them |
 | "external_scanner does not allow interval" | You set `interval` on an external scanner | Remove the `interval` field |
-| "external_scanner does not support depends_on" | You set `depends_on` on an external scanner | Remove `depends_on`; declare it on the consuming scanner instead |
 | "external_scanner must enable at least one of outputs.signals or outputs.context" | Both outputs are `false` (or `outputs` is missing) | Set at least one of `outputs.signals` / `outputs.context` to `true` |
 | "external_scanner requires a non-empty config.fields map" | Missing field definitions | Add `config: { fields: { ... } }` |
 | "DSL requires at least one position-tracker scanner" | Exit management without position tracking | Add a `position_tracker` scanner |
