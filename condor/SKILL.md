@@ -1,14 +1,10 @@
 ---
 name: condor-strategy
 description: >-
-  CONDOR v4.0.0 — One Amazing Trade per Day, senpi_runtime_helpers
-  migration. Plumbing-only flip from openclaw cron + mcporter
-  subprocess to in-process SenpiClient (direct HTTPS for MCP, direct
-  HTTP POST to runtime /signals, long-lived producer_daemon). Thesis
-  preserved verbatim from v3.4: top 50 HL assets, 3TF alignment hard
-  gate + MACRO_TREND_GATE + SM consensus >=70%, MIN_SCORE 12,
-  score-scaled sizing (50%/70%/80%), 10x leverage cap, 6-tier DSL
-  ladder from Kodiak SOL empirical wins.
+  One amazing trade per day. Hunts the highest-conviction trend
+  continuation across the top 50 HL assets — 3-timeframe alignment,
+  ≥70% SM concentration, clean macro tape, MIN_SCORE 12 floor. Most
+  days, Condor stays flat.
 license: MIT
 metadata:
   author: jason-goldberg

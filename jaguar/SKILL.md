@@ -1,16 +1,11 @@
 ---
 name: jaguar-strategy
 description: >-
-  JAGUAR v4.0.0 — Striker (rank-jump detector), senpi_runtime_helpers
-  migration. Plumbing-only flip from openclaw-CLI subprocess +
-  mcporter subprocess + cron-driven self-executing scanner to
-  in-process SenpiClient + long-lived producer_daemon + helpers-native
-  push_signal. Thesis preserved verbatim from v3.7: violent
-  FIRST_JUMP signals, rank-jump ≥ 10, MIN_SCORE 9, conviction-scaled
-  leverage (10x apex / 7x conviction), 15m velocity hard gate, $3M
-  day-notional liquidity floor, XYZ ban, one-amazing-trade-per-day
-  discipline. Risk policy: max 3 entries/day when day is RED,
-  unlimited when GREEN (cap losers, ride winners).
+  Rank-jump explosion hunter. Fires when an asset rockets 10+ ranks
+  toward the top of the Smart Money leaderboard (from rank 20+ to
+  rank 11+) with active velocity build and 4h price agreement.
+  Asymmetric discipline by P&L state — capped at 3 entries on RED days,
+  unlimited on GREEN.
 license: MIT
 metadata:
   author: jason-goldberg

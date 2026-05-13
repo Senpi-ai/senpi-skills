@@ -1,17 +1,11 @@
 ---
 name: otter-strategy
 description: >-
-  OTTER v2.0.0 — Open Interest Velocity Hunter (senpi_runtime_helpers
-  migration). Plumbing-only port from v1.0. NO thesis change. NO scoring
-  change. Producer ports onto `senpi_runtime_helpers` (in-process
-  SenpiClient + direct HTTP POST to runtime /signals + producer_daemon
-  long-lived loop). Trades the rate of change of OI on Hyperliquid
-  perps — when 1h OI delta is >= 5% AND price moves in the same
-  direction by >= 0.5%, that's fresh leveraged positioning with
-  directional conviction (TOP-LEFT or TOP-RIGHT quadrant of the
-  OI/price matrix). Otter follows the flow for 1-3 hours then exits.
-  Conviction-scaled leverage (5/7/10 by score) per the fleet-winning
-  pattern.
+  Open Interest velocity hunter. The only Senpi agent that tracks OI
+  delta over time, not just OI snapshots. Fires when 1h OI grows ≥5%
+  AND price moves ≥0.5% in the same direction — fresh leveraged
+  capital deployed with directional conviction. Rides the flow 1-3
+  hours.
 license: MIT
 metadata:
   author: jason-goldberg

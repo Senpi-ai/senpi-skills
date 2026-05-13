@@ -1,14 +1,10 @@
 ---
 name: dog-strategy
 description: >-
-  DOG v3.0.0 — Contrarian Pup (SM Exhaustion Fader), senpi_runtime_helpers
-  migration. Plumbing-only flip from openclaw-CLI subprocess + mcporter
-  subprocess + Python state to in-process SenpiClient (direct HTTPS for
-  MCP, direct HTTP POST to runtime /signals, long-lived producer_daemon).
-  Thesis preserved verbatim from v2.5: multi-asset (BTC/ETH/SOL/HYPE)
-  contrarian fader, 3.0% exhaustion gate, regime hard-gate, 15m freshness
-  gate, MIN_SCORE 8, conservative leverage (7x base, 10x at score 12+),
-  wide DSL for reversal development.
+  Multi-asset SM-exhaustion fader. Scans BTC/ETH/SOL/HYPE every 3
+  minutes, identifies the dominant top-trader side, fires OPPOSITE
+  when the 4h move is stretched (≥3%) AND SM is still building.
+  Catches the window before the crowded trade pukes.
 license: MIT
 metadata:
   author: jason-goldberg

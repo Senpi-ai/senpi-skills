@@ -1,15 +1,10 @@
 ---
 name: mantis-strategy
 description: >-
-  MANTIS v6.0.0 — Slipstream (Cross-Asset Catchup Hunter),
-  senpi_runtime_helpers migration. Plumbing-only flip from
-  openclaw cron + mcporter subprocess + in-Python state to
-  in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST
-  to runtime /signals, long-lived producer_daemon). Thesis preserved
-  verbatim from v5.0: when BTC (or another leader) makes a significant
-  4h move and a correlated alt hasn't responded yet, Mantis strikes
-  the alt before the catchup completes. Confidence-tier sizing
-  preserved. Leader-reversal veto NOW WORKS (v5.0 was silent no-op).
+  Cross-asset lag detector. When BTC makes a significant 4h move and a
+  correlated alt hasn't responded yet, Mantis strikes the alt before
+  the catchup completes. Trades the statistical lag, not the momentum
+  itself. Hard veto if BTC reverses mid-position.
 license: MIT
 metadata:
   author: jason-goldberg

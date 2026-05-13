@@ -1,12 +1,10 @@
 ---
 name: bald-eagle-strategy
 description: >-
-  BALD EAGLE v5.0 — XYZ Contrarian Fader (senpi_runtime_helpers). Counter-
-  trades SM consensus on 6 high-liquidity XYZ macro assets (CL, BRENTOIL,
-  GOLD, SILVER, SP500, XYZ100) when SM concentration is high AND the 4h
-  move is exhausting. Plumbing-only migration from v4.1: producer pushes
-  signals via SenpiClient.push_signal, runtime owns execution + daily caps
-  + cooldowns + drawdown halt + DSL exits. Thesis preserved verbatim.
+  XYZ contrarian fader. Plays the XYZ DEX exclusively — counter-trades
+  SM consensus on 6 high-liquidity macro assets (CL, BRENTOIL, GOLD,
+  SILVER, SP500, XYZ100) when the move is exhausting. Wide DSL gives
+  macro reversals time to develop.
 license: MIT
 metadata:
   author: jason-goldberg

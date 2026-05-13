@@ -1,15 +1,10 @@
 ---
 name: polar-strategy
 description: >-
-  POLAR v5.0.0 — ETH alpha hunter, senpi_runtime_helpers migration.
-  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
-  to in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
-  runtime /signals, long-lived producer_daemon). Thesis preserved
-  verbatim from v4.2.0: ETH single-asset hybrid, hyperfeed SM gates
-  (pct≥5%, traders≥30, cc_15m≥0.3), structural gates (4h trend,
-  1h-4h alignment, 15m momentum, RSI), multi-factor scoring (~17 max),
-  conviction-tiered leverage (5x standard / 7x conviction / 10x apex),
-  MIN_SCORE 12, FP-001 quiet hours (00-04 UTC unless apex score 17+).
+  Single-asset ETH alpha hunter. Combines Hyperfeed Smart Money
+  acceleration with multi-timeframe structural alignment — SM gates
+  fire candidates, structural gates veto them. The ETH variant of the
+  Kodiak family.
 license: MIT
 metadata:
   author: jason-goldberg

@@ -1,15 +1,10 @@
 ---
 name: spider-strategy
 description: >-
-  SPIDER v4.0.0 — Single-leg patient anchor sniper
-  (senpi_runtime_helpers migration). Plumbing-only port from v3.0.2.
-  NO thesis change. NO scoring change. NO threshold change. Producer
-  ports onto `senpi_runtime_helpers` (in-process SenpiClient + direct
-  HTTP POST to runtime /signals + producer_daemon long-lived loop).
-  Holds one high-conviction long for 7+ days. Scored on arena leader
-  alignment + SM consensus + funding favorability + 30d relative
-  strength. LLM regime-aware gate vetoes during BTC catastrophe / vol
-  expansion / funding flipping.
+  Patient anchor. Holds ONE high-conviction long for 7+ days while the
+  rest of the fleet churns. Edge comes from arena-leader alignment,
+  positive carry, 30-day relative strength, and fee-aware execution.
+  Patience is the edge.
 license: MIT
 metadata:
   author: jason-goldberg

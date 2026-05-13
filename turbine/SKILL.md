@@ -1,16 +1,11 @@
 ---
 name: turbine-strategy
 description: >-
-  TURBINE v3.2 — Volume rotation on TWO wallets, ONE producer daemon.
-  Both wallets receive the same volume-rotation alpha (same scoring,
-  same asset universe, same funding-fade direction selection). The
-  wallet boundary just selects DSL behavior: VOLUME wallet's runtime
-  has hard_timeout 10min and no Phase 2 (pure rotation cadence);
-  RUNNERS wallet's runtime has hard_timeout 240min and Phase 2 ratchet
-  enabled (let winners run). Most positions exit at small loss/win
-  on either wallet; ~5% land on a real directional move and ratchet
-  to apex on the runners wallet — that asymmetry is the alpha v3.0/v3.1
-  was leaving on the table by force-cutting at 10 min.
+  Volume engine plus runners. ONE producer feeds TWO strategy wallets
+  with the same volume-rotation alpha but different DSL exit profiles
+  — the volume wallet farms maker-only rotation cadence for builder-
+  fee recycling, the runners wallet rides the rare directional move
+  to apex.
 license: MIT
 metadata:
   author: jason-goldberg

@@ -1,16 +1,10 @@
 ---
 name: scorpion-tracker
 description: >-
-  SCORPION v5.0.0 — Multi-Market Active Trader, senpi_runtime_helpers
-  migration. Plumbing-only flip from openclaw-CLI subprocess + mcporter
-  subprocess to in-process SenpiClient. Plus security fix: v4.x read
-  wallet from BANNED generic STRATEGY_ADDRESS env var; v5.0.0 uses
-  per-agent SCORPION_WALLET (with backward-compat fallback + deprecation
-  warning). Thesis preserved verbatim from v4.1.2: only Senpi predator
-  hunting across both crypto AND XYZ DEX commodities/indices, SM
-  concentration + 4H trend alignment scoring, asymmetric MIN_SCORE
-  (crypto 11 / XYZ 9), v4.1.1 held-asset dedup, v4.1.2 post-close
-  cooldown.
+  The only fleet predator that hunts across BOTH crypto and XYZ DEX.
+  Asymmetric MIN_SCORE thresholds (crypto 11 / XYZ 9) reflect that
+  XYZ flow is slower and crowd-heavy. Breadth via 15 crypto perps
+  plus 4 XYZ macro assets under one scorer.
 license: MIT
 metadata:
   author: jason-goldberg

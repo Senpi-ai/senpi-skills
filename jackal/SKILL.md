@@ -1,16 +1,10 @@
 ---
 name: jackal-tracker
 description: >-
-  JACKAL v3.0.0 — The Smart Stalker (senpi_runtime_helpers migration).
-  Plumbing-only port from v2.0: producer rewritten on
-  `senpi_runtime_helpers` (in-process SenpiClient, no openclaw / mcporter
-  subprocesses). NO thesis change. Architecture is identical to v2: pure
-  producer + external_scanner + LLM-gated OPEN_POSITION action +
-  declarative risk guardrails + runtime-managed DSL. Producer observes
-  top-performing Senpi traders, detects new entries by pool members,
-  enriches with consensus + TA + funding context, and lets an LLM
-  (operator-selected via `$JACKAL_DECISION_MODEL`) evaluate each
-  candidate before the runtime executes with our own DSL.
+  Smart-money stalker. Watches the top 25 Senpi perp traders, detects
+  new entries within 10 minutes of fill, and gates each candidate
+  through an LLM second-opinion (consensus + TA + funding + freshness)
+  before committing. Not a passive copy-trader — the gate is the edge.
 license: MIT
 metadata:
   author: jason-goldberg

@@ -1,13 +1,10 @@
 ---
 name: bison-strategy
 description: >-
-  BISON v3.0.0 — Conviction Holder, senpi_runtime_helpers migration.
-  Plumbing-only flip from openclaw cron + mcporter subprocess to
-  in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
-  runtime /signals, long-lived producer_daemon). Thesis preserved
-  verbatim from v2.1: BTC/ETH/SOL asset whitelist, MIN_SCORE 11,
-  conviction-scaled margin (25%/31%/37%), wide DSL with time-cuts
-  DISABLED. Fewer trades, longer holds, bigger moves.
+  Conviction holder on a tight BTC/ETH/SOL whitelist. Fewer trades,
+  longer holds, bigger moves. Demands a high score from 5+ independent
+  components — won't fire on weak setups in small-caps where rotation
+  agents grind fees.
 license: Apache-2.0
 metadata:
   author: jason-goldberg

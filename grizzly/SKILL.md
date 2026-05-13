@@ -1,18 +1,10 @@
 ---
 name: grizzly-strategy
 description: >-
-  GRIZZLY v7.0.0 — BTC alpha hunter, senpi_runtime_helpers migration.
-  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
-  to in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
-  runtime /signals, long-lived producer_daemon). Thesis preserved
-  verbatim from v6.0.0: BTC single-asset trend hunter, six-gate entry
-  validation including v5.5 macro V-recovery gate (block fades within
-  1.25% of 24h extreme), RSI hard gates (70/30 — BTC-tuned),
-  multi-factor scoring (~17 max), conviction-scaled leverage (7x
-  default / 10x conviction / 10x apex), MIN_SCORE 12, FP-001 quiet
-  hours, FP-003 requireAllConfirmations gate. Trades WITH SM consensus
-  and trend, NOT contrarian. Family member alongside Kodiak (SOL),
-  Wolverine (HYPE), Polar (ETH).
+  Single-asset BTC alpha hunter. Trades WITH smart money consensus when
+  BTC's 4h/1h/15m/5m momentum is unified in one direction. Six-gate
+  entry validation including a macro V-recovery gate. Not a contrarian
+  — SM-opposes is a hard block.
 license: MIT
 metadata:
   author: jason-goldberg

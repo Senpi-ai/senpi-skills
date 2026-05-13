@@ -1,14 +1,10 @@
 ---
 name: owl-strategy
 description: >-
-  OWL v8.0 — Pure contrarian crowding-unwind hunter (senpi_runtime_helpers).
-  Wait for the crowd to overcommit. Wait for them to exhaust. Then eat their
-  liquidations. Producer pushes signals to the runtime via direct HTTP POST;
-  runtime LLM gates them (pass-through), executes via FEE_OPTIMIZED_LIMIT
-  (maker-first), and manages DSL exits autonomously. Conviction-scaled
-  leverage (7/8/10 by score) per the fleet Polar v2.4 / Bald Eagle v3.0
-  pattern. Entry direction is OPPOSITE of crowd direction — Owl is the
-  only Senpi agent that fades crowding.
+  Pure contrarian. Waits for crowding to persist 1+ hour AND exhaustion
+  signals (volume decline, price stall, RSI divergence) to fire — then
+  fades the crowd at the unwind. The only Senpi agent that times
+  mean-reversion off both crowding and exhaustion together.
 license: Apache-2.0
 metadata:
   author: jason-goldberg

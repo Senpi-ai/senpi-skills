@@ -1,16 +1,9 @@
 ---
 name: wolverine-strategy
 description: >-
-  WOLVERINE v5.0.0 — HYPE alpha hunter, senpi_runtime_helpers migration.
-  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
-  to in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
-  runtime /signals, long-lived producer_daemon). Thesis preserved
-  verbatim from v4.2.0: HYPE single-asset hybrid, six-gate entry
-  validation (4h trend, 4h strength ≥0.65, 1h-4h alignment, 15m
-  momentum ≥0.15, base-tech floor, 4h magnitude ≥1.0%), SM hard-block
-  on opposing direction, RSI hard gates (74/26), multi-factor scoring
-  (~17 max), conviction-tiered leverage (3x standard / 5x apex),
-  MIN_SCORE 9, FP-001 quiet hours.
+  Single-asset HYPE alpha hunter. Trades multi-timeframe trend
+  alignment on Hyperliquid's native token — six-gate entry validation
+  tuned for HYPE's faster cadence and thinner overnight liquidity.
 license: MIT
 metadata:
   author: jason-goldberg

@@ -1,16 +1,10 @@
 ---
 name: vulture-strategy
 description: >-
-  VULTURE v4.0.0 — Long-Tail Momentum Rider, senpi_runtime_helpers
-  migration. Plumbing-only flip from openclaw-CLI subprocess +
-  mcporter subprocess to in-process SenpiClient. Thesis preserved
-  verbatim from v3.1.1: 25+ small/mid-cap Hyperliquid perps (HEMI,
-  WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, POLYX, LDO, APT,
-  DYDX, ONDO, SUI, etc.) that no other Senpi predator covers,
-  LONG_TAIL_MOMENTUM scoring, v2.4 1h-alignment gate, FP-001 quiet
-  hours, conviction-scaled leverage (3x cautious / 5x conviction /
-  7x apex). Built from #1 Arena winner's 3-week playbook (38.6%
-  win rate, 6.15x profit factor).
+  Long-tail momentum rider. Hunts 25+ small/mid-cap Hyperliquid perps
+  no other Senpi agent covers — holds winners for days, cuts losers
+  fast. Score-scaled leverage (3/5/7x), 7-day hard timeout, apex
+  ratchet locks 85% of peak ROE.
 license: MIT
 metadata:
   author: jason-goldberg

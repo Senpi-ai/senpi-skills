@@ -1,16 +1,10 @@
 ---
 name: pangolin-strategy
 description: >-
-  PANGOLIN v3.0.0 — Extreme Funding Rate Fader, senpi_runtime_helpers
-  migration. Plumbing-only flip from openclaw-CLI subprocess + mcporter
-  subprocess to in-process SenpiClient. Pangolin is the canonical
-  reference producer for the senpi_runtime_helpers SDK wrapper pattern.
-  Thesis preserved verbatim from v2.2.0:
-  funding-fade entries opposite to elevated funding rates (>0.015%/8h
-  ≈ 20% annualized), persistence ≥3h, regime confirms or neutral.
-  Conservative 3-5x leverage, wide DSL (12h hard_timeout). Collects
-  funding every 8h while crowded positions mean-revert (24-48h thesis).
-  Phase 2 v2.2 ratchet ladder T0 8/50, T1 16/65, T2 30/85, T3 50/92.
+  Funding-rate fader. Counter-positions when funding stays extreme
+  (>0.015%/8h ≈ 20% annualized) for 3+ hours — collects 8h funding
+  payments while waiting for crowded sides to capitulate. Wide DSL
+  for the 24-48h horizon.
 license: MIT
 metadata:
   author: jason-goldberg

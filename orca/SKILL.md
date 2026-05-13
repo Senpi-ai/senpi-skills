@@ -1,12 +1,10 @@
 ---
 name: orca-strategy
 description: >-
-  ORCA v4.0.0 — Gen-1 Vanilla Striker, senpi_runtime_helpers migration.
-  Plumbing-only flip from openclaw cron + mcporter subprocess to
-  in-process SenpiClient + long-lived producer_daemon. Thesis preserved
-  verbatim from v3.0: pure FIRST_JUMP detection + base Striker scoring
-  + volume confirmation. DSL exit managed by plugin runtime via
-  runtime.yaml.
+  The fleet's reference baseline. Pure FIRST_JUMP detection on the
+  Hyperliquid leaderboard — universe-wide, minimal MCP fan-out, no
+  scoring novelty, no per-asset specialization. If a more exotic
+  strategy can't beat Orca, the exotic isn't earning its complexity.
 license: MIT
 metadata:
   author: jason-goldberg

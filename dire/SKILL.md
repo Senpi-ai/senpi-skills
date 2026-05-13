@@ -1,18 +1,10 @@
 ---
 name: dire-strategy
 description: >-
-  DIRE v2.0.0 — BRENTOIL XYZ specialist, helpers-native rewrite (2026-05-12).
-  Plumbing-only migration from v1.7.0: producer + v2 runtime
-  (Wolverine v5 / Grizzly v6 / Polar / Kodiak template). NO thesis change.
-  The scanner becomes a producer that emits signals via
-  SenpiClient.push_signal(); the v2 runtime owns execution, DSL exits, and
-  risk guard rails. v1.7.0 thesis preserved verbatim: 4TF alignment hard
-  gate, SM HARD BLOCK via mark/oracle premium proxy, OI velocity scoring,
-  volume spike scoring, price cleanliness check, MIN_SCORE 11, ALL FIVE
-  soft confirmations required (FP-003), FP-001 quiet hours (00-04 UTC
-  unless apex 12+), conviction-scaled sizing (3x / 5x / 7x / 10x by score),
-  DSL preset with v1.7 T0/T1 patch (T0 5%/35% lock, T1 8%/50%). First
-  Kodiak-family port to a non-crypto asset.
+  BRENTOIL XYZ specialist. The first non-crypto port of the Kodiak
+  family — adapts the six-gate alpha-hunter pattern to oil's
+  geopolitical-news-driven cadence. Tighter drawdown halt (15%) than
+  crypto siblings to account for oil's harsher tail risk.
 license: MIT
 metadata:
   author: jason-goldberg

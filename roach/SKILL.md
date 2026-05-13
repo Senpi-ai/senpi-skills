@@ -1,12 +1,9 @@
 ---
 name: roach-strategy
 description: >-
-  ROACH v3.0.0 — Striker-only scanner, senpi_runtime_helpers migration.
-  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
-  to in-process SenpiClient. Thesis preserved verbatim from v2.1.0:
-  Stalker permanently disabled, only trades violent FIRST_JUMP /
-  IMMEDIATE_MOVER explosions backed by 1.5x volume, 1h price alignment,
-  4h trend agreement. Long stretches of silence are EXPECTED — the
+  Striker-only — Stalker disabled. Fires solely on violent FIRST_JUMP
+  / IMMEDIATE_MOVER explosions backed by 1.5x volume, 1h price
+  alignment, and 4h trend agreement. Days of silence are expected; the
   patience is the edge.
 license: MIT
 metadata:

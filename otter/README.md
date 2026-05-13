@@ -1,8 +1,14 @@
-# 🦦 OTTER v2.0.0 — Open Interest Velocity Hunter. senpi_runtime_helpers.
+# 🦦 OTTER — Open Interest Velocity Hunter
+
+Hunts fresh perp positions building — 1h Open Interest growth confirmed by directional price action. The only Senpi agent that tracks OI velocity over time, not just snapshots.
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v1.0. NO thesis change. NO scoring change.** Producer ports onto `senpi_runtime_helpers` (in-process `SenpiClient`, no openclaw / mcporter subprocesses). Long-lived `producer_daemon` replaces the openclaw cron entry.
+## Thesis
+
+Open Interest is the total notional of open perpetual contracts. Spot trading doesn't generate OI — only fresh perp positions do. So OI growth = real new leveraged capital deployed. When 1h OI delta is >= 5% AND price moves in the same direction by >= 0.5%, that's the **TOP-LEFT (LONGS entering)** or **TOP-RIGHT (SHORTS entering)** quadrant of the OI/price matrix — fresh institutional flow with directional conviction. Otter rides that flow for 1-3 hours then exits via DSL hard timeout.
+
+The fleet uses OI as a **snapshot filter** (size threshold). **Otter is the only agent to track OI delta over time** — a uniquely perp-native signal that no other Senpi agent computes.
 
 ## Install
 
@@ -84,14 +90,6 @@ tail -f /tmp/otter-producer.log | jq -c 'select(.event=="daemon_tick_finished")'
 Expected: `status=ok` every tick (300s interval — Otter's longer cadence reflects 5min OI sampling cadence).
 
 ---
-
-## Thesis
-
-Open Interest is the total notional of open perpetual contracts. Spot trading doesn't generate OI — only fresh perp positions do. So OI growth = real new leveraged capital deployed. When 1h OI delta is >= 5% AND price moves in the same direction by >= 0.5%, that's the **TOP-LEFT (LONGS entering)** or **TOP-RIGHT (SHORTS entering)** quadrant of the OI/price matrix — fresh institutional flow with directional conviction. Otter rides that flow for 1-3 hours then exits via DSL hard timeout.
-
-## What's novel
-
-The fleet uses OI as a **snapshot filter** (size threshold). **Otter is the only agent to track OI delta over time** — a uniquely perp-native signal that no other Senpi agent computes.
 
 ## v2 architecture
 

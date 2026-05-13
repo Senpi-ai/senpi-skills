@@ -1,16 +1,11 @@
 ---
 name: cheetah-strategy
 description: >-
-  CHEETAH v7.0.0 — Multi-signal confluence sniper, senpi_runtime_helpers
-  migration. Plumbing-only flip from openclaw-CLI subprocess + mcporter
-  subprocess to in-process SenpiClient (direct HTTPS for MCP, direct
-  HTTP POST to runtime /signals, long-lived producer_daemon). Thesis
-  preserved verbatim from v6.1: refuses to trade unless ALL major
-  signals align — SM consensus, velocity, acceleration, dual price
-  confirmation, volume spike, quality-trader alignment, rank climb.
-  Score 10/15 floor, score-scaled leverage (3x/5x/7x/8x),
-  FEE_OPTIMIZED_LIMIT entries AND exits, held-asset dedup, post-close
-  cooldown.
+  Multi-signal confluence sniper. Scores 7 independent signals — SM
+  consensus + velocity + acceleration + dual price confirmation +
+  volume spike + quality-trader alignment + rank climb — and only
+  fires when the confluence is strong (MIN_SCORE 10 / max 15). Patience
+  is the edge.
 license: MIT
 metadata:
   author: jason-goldberg

@@ -1,12 +1,11 @@
 ---
 name: python-strategy
 description: >-
-  PYTHON v2.0.0 — The Patience Hunter, senpi_runtime_helpers migration.
-  Multi-day hold agent (96h target). Scans top 50 HL assets every 10 min,
-  holds up to 2 concurrent positions for 2-4 days, low leverage (3-7x),
-  LONG-biased. Plumbing-only flip from openclaw cron + mcporter to
-  in-process SenpiClient + producer_daemon. Thesis preserved verbatim
-  from v1.2.
+  Patience hunter. Multi-day LONG-biased trend holds on the top 50 HL
+  assets — target 96-hour hold, 36% win rate paired to a 3.14:1
+  win/loss ratio. Wide DSL Phase 1 retrace breathes through
+  intra-trend pullbacks; weak-peak cut disabled so winners only close
+  on price action.
 license: MIT
 metadata:
   author: jason-goldberg

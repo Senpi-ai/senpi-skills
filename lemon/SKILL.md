@@ -1,12 +1,10 @@
 ---
 name: lemon-strategy
 description: >-
-  LEMON v2.0.0 — Degen Fader, senpi_runtime_helpers migration. Counter-
-  trades CHOPPY/DEGEN consensus on 12 crypto majors + 4 XYZ assets when
-  SM is exhausting. MACRO_TREND_GATE (crypto only, blocks fades when
-  |BTC 4h| > 3%). Plumbing-only flip from openclaw cron + mcporter to
-  in-process SenpiClient + long-lived producer_daemon. Thesis preserved
-  verbatim from v1.3.
+  Degen fader. Counter-trades CHOPPY/DEGEN consensus on 12 crypto
+  majors plus 4 XYZ macro assets when 15m velocity is exhausting.
+  MACRO_TREND_GATE blocks crypto fades during BTC trends; decorrelated
+  XYZ assets keep firing.
 license: MIT
 metadata:
   author: jason-goldberg

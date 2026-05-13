@@ -1,15 +1,11 @@
 ---
 name: kodiak-strategy
 description: >-
-  KODIAK v7.0.0 — SOL alpha hunter, senpi_runtime_helpers migration.
-  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
-  to in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
-  runtime /signals, long-lived producer_daemon). Thesis preserved
-  verbatim from v6.0.1: SOL alpha hunter, single-asset focus, v5.1
-  base-tech-score floor with multi-factor scoring (SM consensus,
-  trend structure, momentum, funding, OI, BTC correlation, RSI),
-  conviction-tiered leverage (5x default, 6x conviction at score 11+,
-  7x apex at score 13+), 240-min asset cooldown.
+  Single-asset SOL alpha hunter. Multi-factor scoring across SM
+  consensus, multi-timeframe trend structure, momentum, funding, OI,
+  BTC correlation, and RSI — only fires when confluence is unambiguous.
+  The founding template of the Kodiak family (Grizzly/Polar/Wolverine/
+  Dire are all tuned forks).
 license: MIT
 metadata:
   author: jason-goldberg

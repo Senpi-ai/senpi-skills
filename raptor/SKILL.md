@@ -1,12 +1,11 @@
 ---
 name: raptor-strategy
 description: >-
-  RAPTOR v4.0.0 — Hot Streak Follower, senpi_runtime_helpers migration.
-  Finds ELITE/RELIABLE quality traders currently winning weekly, identifies
-  their strongest position, confirms SM alignment, applies whale
-  entry-price discipline (5% threshold — skip if asset has already run in
-  whale's favor post-entry). Plumbing-only migration from v3.4; thesis
-  preserved verbatim including v3.4 nested-positions parser fix.
+  Hot-streak follower. Finds ELITE/RELIABLE traders winning weekly,
+  picks their strongest open position, confirms SM alignment, and
+  applies whale entry-price discipline (skip if asset has already run
+  >5% in their favor). Rides hot streaks without bag-holding for
+  mid-exit whales.
 license: MIT
 metadata:
   author: jason-goldberg
