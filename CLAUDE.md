@@ -100,3 +100,16 @@ A new skill is not complete until both files above exist with the correct `skill
 `@senpi/runtime` (no `-ai`) is a **separately-published internal package for runtime-side dev testing on Railway boxes**. It only ships `-dev.*` pre-releases — there is no stable `1.x.x`. Feature branches doing runtime-plugin validation may legitimately pin it; **anything on `main` must not**. Operators running `npm install @senpi/runtime@1.1.0` from a skill on `main` hit a 404 — the user's box stays broken until someone tells them which package they actually wanted.
 
 This mistake recurs. If you see `@senpi/` (no `-ai`) in any doc, `runtime.yaml` comment, producer docstring, or error-message string on `main`, treat it as a bug and fix it. Grep every diff that touches `@senpi/` — if there's no `-ai` after `@senpi`, it's the wrong package for `main`.
+
+### Before you write `@senpi/runtime` (no `-ai`), ask the user
+
+If you (the AI) are about to commit `@senpi/runtime` anywhere — producer, doc, `runtime.yaml`, comment, anywhere — **stop and ask first**. Use plain language:
+
+> "I'm about to write `@senpi/runtime` (no `-ai`). Two packages exist:
+>
+> - **`@senpi-ai/runtime`** — the package your end users install. Default for anything shipping to `main`. If users will read or run this file, this is the answer.
+> - **`@senpi/runtime`** — internal package, used to test runtime-plugin changes on Railway boxes ourselves. Only correct if this work is on a feature branch validating a runtime build, NOT for anything users install.
+>
+> Which one do you want?"
+
+When unsure, default to **`@senpi-ai/runtime`**. A working user install beats a clever test reference.
