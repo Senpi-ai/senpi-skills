@@ -1,8 +1,62 @@
-# 🦅 Vulture v4.0.0 — Long-Tail Momentum Rider (senpi_runtime_helpers)
+# 🦅 Vulture — Long-Tail Momentum Rider
+
+Trader-follower / hot-streak rider that holds winners for days across 25+ small/mid-cap Hyperliquid perps no other Senpi predator covers.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v3.1.1. NO thesis change.** v3.x scoring + universe + DSL preset preserved verbatim. Producer flips to in-process `SenpiClient`, daemon replaces cron.
+## Thesis
+
+Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, etc.) that no other Senpi predator covers. Hold winners for days, cut losers fast. Built from the #1 Arena winner's 3-week playbook (38.6% win rate, 6.15x profit factor).
+
+The long-tail edge is twofold: most predators cluster on majors + a tight altcoin set, leaving the broader long-tail uncovered; and the hot-streak shape — measured across funding, recent trader history, and on-chain momentum — persists longer in low-attention names than in BTC/ETH/SOL. Vulture rides those streaks with score-scaled leverage (3x/5x/7x), wide DSL (7-day hard timeout), and an apex ladder that locks 85% of peak ROE on monster winners.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Asset universe | 25 small/mid-cap perps (see SKILL.md) |
+| Banned | BTC, ETH, SOL, all XYZ |
+| Tick interval | 60-180s |
+| MIN_SCORE (producer) | 7 |
+| LLM min_confidence | 7 |
+| Max positions | 2 concurrent |
+| Margin per slot | $400 |
+| Leverage tiers | 3x / 5x / 7x (score-scaled) |
+| Max entries per day | 6 |
+| Per-asset cooldown | 240 min (4h) |
+| Daily loss limit | 10% |
+| Drawdown halt | 25% |
+| Quiet hours | 00:00-04:00 UTC (apex score 11+ bypasses) |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT |
+| hard_timeout | 7 days |
+| weak_peak_cut | 180 min |
+| dead_weight_cut | 90 min |
+
+## Scanner pattern
+
+This strategy uses the **trader-follower / hot-streak** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP calls: `market_get_funding_history` plus trader-history / momentum enrichment.
+
+## DSL Phase 2 ladder
+
+Preserved from v2.3 (proved correct on the live ZEC trade), with one v3.0.1 adjustment: v2.x's T5 (`trigger_pct: 150`) was dropped because the runtime validator rejects `trigger_pct > 100`. Apex protection now ends at T4 (100% / 85% lock); monster-winner scenarios (peak >> 100% margin ROE) still get the same 85% × peak lock at T4.
+
+| Tier | Trigger (margin ROE) | Lock (% of HW) |
+|---|---|---|
+| T0 | +15% | 20% |
+| T1 | +30% | 60% |
+| T2 | +40% | 75% (v2.3 pre-arm) |
+| T3 | +75% | 75% |
+| T4 (apex) | +100% | 85% |
+
+## Files
+
+| File | Purpose |
+|---|---|
+| runtime.yaml | Runtime spec (unchanged from v3.x) |
+| scripts/vulture-producer.py | Long-lived producer daemon |
+| scripts/vulture_config.py | SDK probe + SenpiClient wrapper |
+| config/vulture-config.json | Operator-tunable defaults |
 
 ## Install
 
@@ -46,7 +100,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-### Step 2 — Pull Vulture v4.0.0
+### Step 2 — Pull Vulture
 
 ```bash
 mkdir -p /data/workspace/skills/vulture-strategy/{config,scripts,state,references}
@@ -67,7 +121,7 @@ export SENPI_AUTH_TOKEN=...
 export VULTURE_DECISION_MODEL=<your-preferred-model>
 ```
 
-### Step 4 — Stop v3.x cron, start v4.0.0 daemon
+### Step 4 — Stop any prior cron, start the daemon
 
 ```bash
 openclaw cron list | grep vulture
@@ -76,29 +130,6 @@ openclaw cron delete <vulture-cron-id>
 nohup python3 -u /data/workspace/skills/vulture-strategy/scripts/vulture-producer.py \
   > /tmp/vulture-producer.log 2>&1 &
 ```
-
-## Smoke test
-
-```bash
-tail -f /tmp/vulture-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
-```
-
-Expected: `status=ok` every tick (60s interval).
-
----
-
-## Thesis (preserved from v3.x)
-
-Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTER, ZEC, LIT, TAO, etc.) that no other Senpi predator covers. Hold winners for days, cut losers fast. Built from the #1 Arena winner's 3-week playbook (38.6% win rate, 6.15x profit factor).
-
-## What changed in v3.0 (preserved through v4.0)
-
-- `vulture-producer.py` (NEW) replaces `vulture-scanner.py` (DELETED)
-- runtime-native: external_scanner + LLM-pass-through gate + native `risk.guard_rails`
-- DSL exits via `FEE_OPTIMIZED_LIMIT` (saves ~0.020-0.030% per maker-filled close)
-- Trade chain DB emits `LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED` for every trade — per-trade telemetry restored
-- Scoring + DSL preset preserved exactly from v2.4 (proved correct on the live ZEC LONG +$117 unrealized; T0 lock fired venue stop at $347.17)
-- The `cfg.set_cooldown` silent-crash class of bug from v2.x is structurally impossible in v3.0+ (state owned by runtime, not Python)
 
 ## Configure
 
@@ -121,39 +152,28 @@ export VULTURE_DECISION_MODEL=<your-preferred-model>    # bare model name; NO pr
 
 Optional: tune `quietHours.{startUtc,endUtc,apexBypassScore}` in config.json to override the default 00:00-04:00 UTC defer window.
 
-## Key parameters
+## Verification
 
-| Parameter | Value |
-|---|---|
-| Universe | 25 small/mid-cap perps (see SKILL.md) |
-| Banned | BTC, ETH, SOL, all XYZ |
-| Max positions | 2 concurrent |
-| Margin per slot | $400 |
-| Leverage | 3x / 5x / 7x (score-scaled) |
-| Entry order type | FEE_OPTIMIZED_LIMIT |
-| Exit order type | FEE_OPTIMIZED_LIMIT |
-| hard_timeout | 7 days |
-| weak_peak_cut | 180 min |
-| dead_weight_cut | 90 min |
-| MIN_SCORE (producer) | 7 |
-| LLM min_confidence | 7 |
-| Per-asset cooldown | 240 min (4h) |
-| Daily entry cap | 6 |
-| Daily loss limit | 10% |
-| Drawdown halt | 25% |
-| Quiet hours | 00:00-04:00 UTC (apex score 11+ bypasses) |
+```bash
+tail -f /tmp/vulture-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
 
-## DSL Phase 2 ladder
+Expected: `status=ok` every tick (60s interval).
 
-Preserved from v2.3 (proved correct on the live ZEC trade), with one v3.0.1 adjustment: v2.x's T5 (`trigger_pct: 150`) was dropped because the runtime validator rejects `trigger_pct > 100`. Apex protection now ends at T4 (100% / 85% lock); monster-winner scenarios (peak >> 100% margin ROE) still get the same 85% × peak lock at T4.
+## Changelog
 
-| Tier | Trigger (margin ROE) | Lock (% of HW) |
-|---|---|---|
-| T0 | +15% | 20% |
-| T1 | +30% | 60% |
-| T2 | +40% | 75% (v2.3 pre-arm) |
-| T3 | +75% | 75% |
-| T4 (apex) | +100% | 85% |
+### v4.0.0 — senpi_runtime_helpers migration
+
+**Plumbing-only migration from v3.1.1. NO thesis change.** v3.x scoring + universe + DSL preset preserved verbatim. Producer flips to in-process `SenpiClient`, daemon replaces cron.
+
+### v3.0 — runtime-native (preserved through v4.0)
+
+- `vulture-producer.py` (NEW) replaces `vulture-scanner.py` (DELETED)
+- runtime-native: external_scanner + LLM-pass-through gate + native `risk.guard_rails`
+- DSL exits via `FEE_OPTIMIZED_LIMIT` (saves ~0.020-0.030% per maker-filled close)
+- Trade chain DB emits `LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED` for every trade — per-trade telemetry restored
+- Scoring + DSL preset preserved exactly from v2.4 (proved correct on the live ZEC LONG +$117 unrealized; T0 lock fired venue stop at $347.17)
+- The `cfg.set_cooldown` silent-crash class of bug from v2.x is structurally impossible in v3.0+ (state owned by runtime, not Python)
 
 ## License
 

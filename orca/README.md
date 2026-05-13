@@ -1,8 +1,40 @@
-# 🐋 Orca v4.0.0 — Gen-1 Vanilla Striker (senpi_runtime_helpers)
+# 🐋 Orca — Gen-1 Vanilla Striker
+
+The fleet's reference universe trend-follower: rank-jump detection on the HL leaderboard, single MCP call per scan, plugin-runtime exits.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v3.0. NO thesis change.** v3.0 Gen-1 vanilla Striker logic (FIRST_JUMP + base scoring + volume confirmation) preserved verbatim. Scanner flips to in-process `SenpiClient`; daemon replaces openclaw cron. Runtime now owns execution, daily caps, cooldowns, and FEE_OPTIMIZED_LIMIT exits.
+## Thesis
+
+Orca hunts the cleanest pattern in trend-following crypto perps: an asset that has just broken into the top of the volume leaderboard and is being confirmed by velocity and volume in the same window. The "FIRST_JUMP" trigger fires when an asset moves from rank #25+ to a much higher slot — rank jump ≥ 15 — and scores ≥ 9 with 4+ supporting reasons, the 4h trend is aligned, 15m velocity is positive, and volume is ≥ 1.5x baseline.
+
+It is deliberately the Gen-1 vanilla Striker — no scoring novelty, no DSL exotica, no per-asset specialization. Universe-wide via `leaderboard_get_markets`, one API call per scan, scanning every 90 seconds. The runtime plugin owns daily caps, cooldowns, position tracking, and FEE_OPTIMIZED_LIMIT exits. Orca exists as the fleet's reference baseline: if a more exotic strategy can't beat it, the exotic isn't earning its complexity.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Asset universe | Top-N HL leaderboard (universe-wide via `leaderboard_get_markets`) |
+| Tick interval | 90 s |
+| Trigger | FIRST_JUMP from rank #25+, rank jump ≥ 15 |
+| MIN_SCORE | 9 (with 4+ supporting reasons) |
+| Trend / velocity gates | 4h trend aligned, 15m velocity > 0 |
+| Volume gate | ≥ 1.5x baseline |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT (DSL-managed by runtime) |
+
+## Scanner pattern
+
+This strategy uses the **universe rank-jump / Striker** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `leaderboard_get_markets`.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `runtime.yaml` | Runtime spec (scanner + action + DSL) |
+| `scripts/orca-producer.py` | Long-lived daemon (90 s tick) |
+| `scripts/orca_config.py` | SDK probe + `SenpiClient` wrapper |
+| `config/orca-config.json` | Operator-tunable defaults |
 
 ## Install
 
@@ -34,7 +66,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-ru
 which senpi-helpers   # should return a path
 ```
 
-### Step 2 — Pull Orca v4.0.0
+### Step 2 — Pull Orca
 
 ```bash
 mkdir -p /data/workspace/skills/orca-strategy/{config,scripts,state}
@@ -75,19 +107,19 @@ nohup python3 -u /data/workspace/skills/orca-strategy/scripts/orca-producer.py \
   > /tmp/orca-producer.log 2>&1 &
 ```
 
-**If the daemon boots with `daemon_aborted_no_runtime: alive_check returned False`**, the runtime wasn't installed — re-register: `openclaw senpi runtime create --path /data/workspace/skills/orca-strategy/runtime.yaml`.
+If the daemon boots with `daemon_aborted_no_runtime: alive_check returned False`, the runtime wasn't installed — re-register: `openclaw senpi runtime create --path /data/workspace/skills/orca-strategy/runtime.yaml`.
 
-## Smoke test
+## Verification
 
 ```bash
 tail -f /tmp/orca-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
 ```
 
-Expect `status=ok` every 90s.
+Expect `status=ok` every 90 s.
 
-## Thesis (preserved from v3.0)
+## Changelog
 
-Vanilla Striker — FIRST_JUMP from #25+ with rank jump ≥ 15, score ≥ 9 with 4+ reasons, 4h trend aligned, 15m velocity > 0, volume ≥ 1.5x. Single API call per scan (`leaderboard_get_markets`). DSL exit managed by plugin runtime.
+- **v4.0.0** — Plumbing-only migration from v3.0 (NO thesis change). Scanner flips to in-process `SenpiClient`; daemon replaces openclaw cron. Runtime now owns execution, daily caps, cooldowns, and FEE_OPTIMIZED_LIMIT exits. v3.0 Gen-1 vanilla Striker logic (FIRST_JUMP + base scoring + volume confirmation) preserved verbatim.
 
 ## License
 

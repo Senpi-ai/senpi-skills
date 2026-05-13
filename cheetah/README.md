@@ -1,32 +1,60 @@
-# 🐆 CHEETAH v7.0.0 — Multi-Signal Confluence Sniper (senpi_runtime_helpers)
+# 🐆 CHEETAH — Multi-Signal Confluence Sniper
+
+Patient trader-follower that refuses to enter unless every confluence signal agrees.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## What changed in v7.0.0
-
-**Plumbing-only migration. NO thesis change.** v6.1's scoring tables, leverage tiers, dedup logic, post-close cooldown, runtime DSL preset are all preserved verbatim.
-
-- `cheetah-producer.py` and `cheetah_config.py` migrate to `senpi_runtime_helpers`:
-  - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
-  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
-  - Reentrancy lock owned by `producer_daemon.scanner_lock` (PID-aliveness auto-recovery) instead of hand-rolled `fcntl`
-  - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn` (per-tick LLM cost)
-- Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host; provides the `{success,data,error}` envelope and `GET /state` for daemon liveness probes).
-- `runtime.yaml` unchanged. `external_scanner.name: cheetah_signals` matches the producer's `client.push_signal(scanner=...)`.
-
-## What changed in v6.x (preserved)
-
-- v2-runtime-native: external_scanner + LLM-pass-through gate + native `risk.guard_rails`
-- DSL exits via `FEE_OPTIMIZED_LIMIT` (saves ~0.020-0.030% per maker-filled close)
-- Trade chain DB emits per-trade telemetry
-- **MIN_SCORE 10** (v5.2's 11 produced 8 days dormant; restored to 10)
-- Held-asset dedup (3-layer)
-- Post-close cooldown (producer-side backstop for the runtime `per_asset_cooldown` known-silent-bug)
-- All v5.2 scoring + leverage tiers + leverage-safety clamp preserved EXACTLY
-
-## Thesis (preserved from v5.x)
+## Thesis
 
 Multi-signal confluence sniper. Refuses to trade unless ALL major signals align: SM consensus + velocity + acceleration + dual price confirmation + volume spike + quality-trader alignment + rank climb. Score 10/15 floor. Top-100 SM leaderboard universe. XYZ banned. Patience is the edge.
+
+While most rotation-style agents take any setup that crosses a single threshold, Cheetah waits for the full stack of confirmations to line up on the same asset at the same time. The producer scores the top-100 SM leaderboard each tick, and the runtime LLM gate provides a second-pass veto before any position is opened.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Asset universe | Top 100 SM leaderboard (XYZ banned) |
+| Tick interval | 20 min (1200s) |
+| MIN_SCORE | 10 (down from v5.2's 11) |
+| LLM min_confidence | 7 |
+| Max positions | 1 |
+| Margin per slot | $250 (30% of starting budget) |
+| Leverage tiers | 3x / 5x / 7x / 8x (score-tiered) |
+| Max entries per day | 8 |
+| Per-asset cooldown | 240 min (4h) |
+| Post-close cooldown | 240 min (producer-side backstop) |
+| Daily loss limit | 25% |
+| Drawdown halt | 25% |
+| drawdown_reset_on_day_rollover | false |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT |
+
+## DSL Phase 2 ladder (fleet-standard T0/T1)
+
+| Tier | Trigger (margin ROE) | Lock (% of HW) |
+|---|---|---|
+| T0 | +5% | 35% |
+| T1 | +10% | 50% |
+| T2 | +20% | 65% |
+| T3 | +35% | 80% |
+| T4 (apex) | +50% | 90% |
+
+Phase 1: max_loss 15% / retrace 6 / 3 consecutive breaches.
+Time cuts: hard_timeout 720min, weak_peak_cut 90min @ 3.0, dead_weight_cut 60min — all ENABLED (multi-asset rotation has opportunity cost).
+
+## Scanner pattern
+
+This strategy uses the **trader-follower / hot-streak** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP calls: `discovery_get_top_traders`, `leaderboard_get_markets`, `leaderboard_get_trader_positions`.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| runtime.yaml | Runtime spec |
+| scripts/cheetah-producer.py | Long-lived daemon |
+| scripts/cheetah_config.py | SDK probe + SenpiClient wrapper |
+| config/cheetah-config.json | Operator-tunable defaults |
 
 ## Install
 
@@ -129,7 +157,7 @@ openclaw senpi runtime list   # confirm status: ACTIVE
 
 ## Run the producer (long-lived daemon — replaces cron)
 
-The v7.0.0 producer is a long-lived daemon. **Do NOT add an openclaw cron entry** — that would spawn duplicate daemons. If you're upgrading from v6.x, delete the existing cheetah-producer cron first:
+The producer is a long-lived daemon. **Do NOT add an openclaw cron entry** — that would spawn duplicate daemons. If you're upgrading from a cron-era version, delete the existing cheetah-producer cron first:
 
 ```bash
 openclaw cron list | grep cheetah
@@ -147,7 +175,7 @@ nohup python3 -u /data/workspace/skills/cheetah-strategy/scripts/cheetah-produce
   > /tmp/cheetah-producer.log 2>&1 &
 ```
 
-## Smoke test after deploy
+## Verification
 
 Watch the daemon log for one minute:
 
@@ -166,39 +194,33 @@ Expected: every line shows `status=ok`.
 
 `daemon_self_terminated_no_runtime` is normal when the runtime is deleted.
 
-## Key parameters
+State files (`state/entry-log.jsonl`, `state/scan-history.json`, `state/quality-cache.json`, `state/cooldowns.json`, `state/trade-counter.json`) live under `state/<wallet-hash>/` — wallet-isolated.
 
-| Parameter | Value |
-|---|---|
-| Universe | Top 100 SM leaderboard (XYZ banned) |
-| Max positions | 1 |
-| Margin per slot | $250 (30% of starting budget) |
-| Leverage | 3x / 5x / 7x / 8x (score-tiered) |
-| **MIN_SCORE** | **10** (down from v5.2's 11) |
-| LLM min_confidence | 7 |
-| Per-asset cooldown | 240 min (4h) |
-| Post-close cooldown | 240 min (producer-side backstop) |
-| Daily entry cap | 8 |
-| Daily loss limit | 25% |
-| Drawdown halt | 25% |
-| drawdown_reset_on_day_rollover | false |
-| Entry order type | FEE_OPTIMIZED_LIMIT |
-| Exit order type | FEE_OPTIMIZED_LIMIT |
+## Changelog
 
-## DSL Phase 2 ladder (v6.0 — fleet-standard T0/T1)
+### v7.0.0 — Plumbing-only migration (no thesis change)
 
-| Tier | Trigger (margin ROE) | Lock (% of HW) |
-|---|---|---|
-| T0 | +5% | 35% |
-| T1 | +10% | 50% |
-| T2 | +20% | 65% |
-| T3 | +35% | 80% |
-| T4 (apex) | +50% | 90% |
+v6.1's scoring tables, leverage tiers, dedup logic, post-close cooldown, runtime DSL preset all preserved verbatim.
 
-Phase 1: max_loss 15% / retrace 6 / 3 consecutive breaches.
-Time cuts: hard_timeout 720min, weak_peak_cut 90min @ 3.0, dead_weight_cut 60min — all ENABLED (multi-asset rotation has opportunity cost).
+- `cheetah-producer.py` and `cheetah_config.py` migrate to `senpi_runtime_helpers`:
+  - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
+  - Reentrancy lock owned by `producer_daemon.scanner_lock` (PID-aliveness auto-recovery) instead of hand-rolled `fcntl`
+  - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn` (per-tick LLM cost)
+- Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host; provides the `{success,data,error}` envelope and `GET /state` for daemon liveness probes).
+- `runtime.yaml` unchanged. `external_scanner.name: cheetah_signals` matches the producer's `client.push_signal(scanner=...)`.
 
-## Migrating from v6.x
+### v6.x (preserved)
+
+- v2-runtime-native: external_scanner + LLM-pass-through gate + native `risk.guard_rails`
+- DSL exits via `FEE_OPTIMIZED_LIMIT` (saves ~0.020-0.030% per maker-filled close)
+- Trade chain DB emits per-trade telemetry
+- **MIN_SCORE 10** (v5.2's 11 produced 8 days dormant; restored to 10)
+- Held-asset dedup (3-layer)
+- Post-close cooldown (producer-side backstop for the runtime `per_asset_cooldown` known-silent-bug)
+- All v5.2 scoring + leverage tiers + leverage-safety clamp preserved EXACTLY
+
+### Migrating from v6.x
 
 ```bash
 cd /data/workspace/skills/cheetah-strategy
@@ -223,8 +245,6 @@ openclaw cron delete <cheetah-cron-id>
 #    (orphan-position bug: runtime swap can leave baseline positions
 #    without DSL coverage).
 ```
-
-State files (`state/entry-log.jsonl`, `state/scan-history.json`, `state/quality-cache.json`, `state/cooldowns.json`, `state/trade-counter.json`) live under `state/<wallet-hash>/` — wallet-isolated. Migration from v6.x preserves these files.
 
 ## License
 

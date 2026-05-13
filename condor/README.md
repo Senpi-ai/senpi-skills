@@ -1,8 +1,44 @@
-# 🦅 Condor v4.0.0 — One Amazing Trade per Day (senpi_runtime_helpers)
+# 🦅 Condor — One Amazing Trade per Day
+
+Top-50 HL trend continuation that fires at most one apex-confluence entry per day.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v3.4. NO thesis change.** v3.4 scoring tables, hard gates (3TF alignment, MACRO_TREND_GATE, SM consensus 70%), score-scaled sizing (50%/70%/80% margin), 10x leverage cap, and 6-tier DSL ladder (Kodiak SOL empirical) all preserved verbatim. Scanner flips to in-process `SenpiClient`; daemon replaces openclaw cron. Runtime now owns execution, daily caps, cooldowns, and FEE_OPTIMIZED_LIMIT exits.
+## Thesis
+
+Condor hunts the highest-conviction trend continuation across the top 50 Hyperliquid assets and fires at most one trade per day. The edge is apex confluence: 3 timeframes aligned (4h + 1h + 15m velocity all same direction with magnitude floors), heavy smart-money concentration (SM consensus ≥ 70%), and a clean macro tape (no |4h move| > 10% in the opposite direction). Score-scaled sizing means only the best setups get full margin.
+
+Unlike multi-position scanners that grind fees with mediocre signals, Condor's hard gates and MIN_SCORE 12 floor mean most days it stays flat. XYZ and stablecoins are banned; OI ≥ $1M and trader_count ≥ 50 are required. One trade, sized to conviction, then done.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Asset universe | Top 50 HL assets by 24h notional volume |
+| Tick interval | 180s (3 min) |
+| MIN_SCORE | 12 (producer); 7 LLM min_confidence |
+| Leverage tiers | 10x (auto-clamped to asset max) |
+| Margin tiers | 50% (score 11-12) / 70% (13-14) / 80% (15+ APEX) |
+| Max positions | 1 |
+| Max entries per day | 1 |
+| Per-asset cooldown | 120 min |
+| Daily loss limit | 15% |
+| Drawdown halt | 25% |
+| Entry order type | FEE_OPTIMIZED_LIMIT (ensureExecutionAsTaker: false) |
+| Exit order type | FEE_OPTIMIZED_LIMIT (ensureExecutionAsTaker: true) |
+
+## Scanner pattern
+
+This strategy uses the **Universe trend-follower** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `leaderboard_get_markets`, polled every 180s.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `runtime.yaml` | Runtime spec (scanners, actions, DSL preset, `risk.guard_rails`) |
+| `scripts/condor-producer.py` | Long-lived daemon; emits signals via `push_signal` |
+| `scripts/condor_config.py` | SDK probe + `SenpiClient` wrapper |
+| `config/condor-config.json` | Operator-tunable defaults (wallet, strategyId, chatId) |
 
 ## Install
 
@@ -44,7 +80,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-### Step 2 — Pull Condor v4.0.0
+### Step 2 — Pull Condor
 
 ```bash
 mkdir -p /data/workspace/skills/condor-strategy/{config,scripts,state,references}
@@ -83,7 +119,7 @@ export CONDOR_DECISION_MODEL=<your-preferred-model>           # bare model name;
 
 ### Step 5 — Recreate the runtime + start the daemon
 
-If you have a v3.x runtime installed, delete it first — v4.0 introduces new scanner/action blocks that require a fresh runtime create.
+If you have an older runtime installed, delete it first — new scanner/action blocks require a fresh runtime create.
 
 ```bash
 openclaw senpi runtime list | grep condor
@@ -93,7 +129,7 @@ openclaw senpi runtime create --path /data/workspace/skills/condor-strategy/runt
 openclaw senpi runtime list
 ```
 
-If you were running the v3.x cron, stop it before launching the v4.0 daemon:
+If you were running a v3.x cron, stop it before launching the daemon:
 
 ```bash
 openclaw cron list | grep condor
@@ -105,25 +141,21 @@ nohup python3 -u /data/workspace/skills/condor-strategy/scripts/condor-producer.
 
 After first launch, manage the daemon via the `senpi-helpers` CLI: `senpi-helpers list`, `senpi-helpers health <name>`, `senpi-helpers restart <name>`.
 
-## Smoke test
+## Verification
 
 ```bash
+ps aux | grep condor-producer
+senpi-helpers list
 tail -f /tmp/condor-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
 ```
 
 Expected: `status=ok` every 3 minutes (180s tick).
 
----
+## Changelog
 
-## Thesis (preserved from v3.4)
+### v4.0.0 — helpers-native plumbing migration
 
-Top 50 HL assets. Pure trend continuation. Apex confluence only. One trade a day.
-
-Hard gates: XYZ + stablecoins banned, OI ≥ $1M, trader_count ≥ 50, 3TF alignment (4h + 1h + 15m velocity all in same direction with magnitude floors), MACRO_TREND_GATE (block if |4h_move| > 10% opposite direction), SM consensus ≥ 70%.
-
-Scoring: 4h magnitude + 1h confirmation + 15m velocity + 3TF bonus + SM tier + trader depth + funding + BTC macro + peak session. MIN_SCORE 12.
-
-## What changed in v4.0 vs v3.4
+Plumbing-only migration from v3.4. NO thesis change. v3.4 scoring tables, hard gates (3TF alignment, MACRO_TREND_GATE, SM consensus 70%), score-scaled sizing (50%/70%/80% margin), 10x leverage cap, and 6-tier DSL ladder (Kodiak SOL empirical) all preserved verbatim. Scanner flips to in-process `SenpiClient`; daemon replaces openclaw cron. Runtime now owns execution, daily caps, cooldowns, and FEE_OPTIMIZED_LIMIT exits.
 
 | Layer | v3.4 | v4.0 |
 |---|---|---|
@@ -136,24 +168,6 @@ Scoring: 4h magnitude + 1h confirmation + 15m velocity + 3TF bonus + SM tier + t
 | Exit fee | MARKET (taker, 0.045%) | FEE_OPTIMIZED_LIMIT (maker-first, 0.015%) |
 
 NO change to hard gates, scoring components, MIN_SCORE, sizing tiers, leverage cap, or DSL preset.
-
-## Key parameters
-
-| Parameter | Value |
-|---|---|
-| Universe | Top 50 HL assets by 24h notional volume |
-| Max positions | 1 |
-| Tick interval | 180s (3 min) |
-| MIN_SCORE (producer) | 12 |
-| LLM min_confidence | 7 |
-| Margin tiers | 50% (score 11-12) / 70% (13-14) / 80% (15+ APEX) |
-| Leverage | 10x (auto-clamped to asset max) |
-| Entry order type | FEE_OPTIMIZED_LIMIT (ensureExecutionAsTaker: false) |
-| Exit order type | FEE_OPTIMIZED_LIMIT (ensureExecutionAsTaker: true) |
-| Per-asset cooldown | 120 min |
-| Daily entry cap | 1 |
-| Daily loss limit | 15% |
-| Drawdown halt | 25% |
 
 ## License
 

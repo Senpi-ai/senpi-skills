@@ -1,44 +1,54 @@
-# 🌪️ Turbine v3.2 — Volume Rotation + Runners (two wallets)
+# 🌪️ Turbine — Volume Engine + Runners
+
+Run the volume play. Let winners run.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Run the volume play. Let winners run.**
+## Thesis
 
-ONE producer daemon manages TWO Senpi strategy wallets. Both wallets receive the SAME volume-rotation alpha (same scoring, same asset universe, same funding-fade direction). The DSL preset on each wallet picks the exit profile:
+Turbine is the fleet's volume-engine / market-making specialist. ONE producer daemon manages TWO Senpi strategy wallets that both receive the SAME volume-rotation alpha — same scoring, same asset universe, same funding-fade direction — but each wallet runs a different DSL exit profile, so the same signal stream gets two different patience levels:
 
-- **Volume wallet** ($4,000): hard_timeout 10min, no Phase 2 — pure rotation cadence.
-- **Runners wallet** ($1,900): hard_timeout 240min (4h cap), Phase 2 ratchet enabled — let winners run.
+- **Volume wallet** ($4,000): hard_timeout 10 min, no Phase 2 — pure rotation cadence, the cheapest possible way to print $5M+/day of taker volume into HL.
+- **Runners wallet** ($1,900): hard_timeout 240 min (4h cap), Phase 2 ratchet enabled — let winners run.
 
-Most positions on either wallet exit at small loss/win. ~5% of entries land on a real directional move and ratchet to apex on the runners wallet — that asymmetry is the alpha v3.0/v3.1 was leaving on the table by force-cutting at 10 min.
+Most positions on either wallet exit at small loss/win. ~5% of entries land on a real directional move and ratchet to apex on the runners wallet — that asymmetry is the alpha earlier versions were leaving on the table by force-cutting at 10 min. The economic mission is volume-cost minimization: builder-fee recycling means net wallet bleed ≈ mission cost rate (<$100/$1M target), and the volume wallet is designed to be topped up daily as it auto-downsizes.
 
-## v3.2 vs v3.1 (the redesign)
+## Key parameters
 
-v3.1's "hunt mode" was a HYPE-only momentum specialist — wrong abstraction. With HYPE-only and 4h holds, hunt fired ~1-3 times per day, leaving the second wallet idle ~90% of the time and contributing zero volume. v3.2 fixes this by giving the runners wallet the SAME volume rotation as the volume wallet, just with a patient DSL profile.
-
-| | v3.1 hunt | v3.2 runners |
-|---|---|---|
-| Asset universe | HYPE only | Same as volume (BTC/ETH/SOL/HYPE + xyz:BRENTOIL/GOLD/SPX) |
-| Scoring | HYPE 4H breakout, score >= 10 floor | Volume rotation (same as volume wallet) |
-| Trigger frequency | 1-3 entries/day | Constant rotation (same as volume) |
-| Idle time | ~90% | <5% |
-| Volume contribution | Negligible | Meaningful (smaller scale than volume wallet but always working) |
-| DSL profile | Same as v3.2 | Same as v3.2 (4h cap, Phase 2 ratchet) |
-
-## Mission targets
-
-| Metric | v2.0.x | v3.2 |
-|---|---|---|
-| Daily volume | ~$2-3M | $5M+ |
-| Net cost per $1M volume | $200 | <$100 |
-| Total slots | 3 | 9 (7 vol + 2 runners) |
-| Volume cycle | 15 min | 10 min |
-| Total funding | $1,500 | **$5,900** ($4,000 vol + $1,900 runners) |
+| Parameter | Value |
+|---|---|
+| Asset universe | BTC / ETH / SOL / HYPE + xyz:BRENTOIL / GOLD / SPX |
+| Tick interval | Continuous (long-lived daemon; volume cycle 10 min) |
+| Slots | 9 total (7 volume + 2 runners) |
+| Volume wallet funding | $4,000 |
+| Runners wallet funding | $1,900 |
+| Volume DSL | hard_timeout 10 min, no Phase 2 |
+| Runners DSL | hard_timeout 240 min (4h), Phase 2 ratchet enabled |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT |
+| Daily volume target | $5M+ |
+| Net cost target | <$100 per $1M volume |
 
 See [SKILL.md](SKILL.md) for the full architecture, scoring, DSL presets, and risk-gate breakdown.
 
+## Scanner pattern
+
+This strategy uses the **volume-rotation / market-maker** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP calls: high-frequency `cancel_order` + `create_position` driven by funding-fade scoring across the volume universe.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `runtime-volume.yaml` | Volume-wallet runtime spec |
+| `runtime-runners.yaml` | Runners-wallet runtime spec |
+| `scripts/turbine-producer.py` | Long-lived daemon (manages both wallets) |
+| `scripts/turbine_config.py` | SDK probe + `SenpiClient` wrapper |
+| `config/turbine-config.json` | Operator-tunable defaults (wallets, slots, margin, cycle, spread, xyzWeight) |
+| `references/skill-attribution.md` | Attribution / provenance notes |
+
 ---
 
-## Sunset sequence (BEFORE deploying v3.2)
+## Sunset sequence (BEFORE deploying)
 
 If Turbine v2.0.x or Sentinel are still running, stop them first.
 
@@ -126,7 +136,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-ru
 
 Skip if the senpi-trading-runtime skill is already installed on this host.
 
-### Step 2 — Pull Turbine v3.2
+### Step 2 — Pull Turbine
 
 ```bash
 mkdir -p /data/workspace/skills/turbine-strategy/{config,scripts,state,references}
@@ -211,7 +221,7 @@ If you see `runtime for wallet X already running` on the second install, both YA
 
 ### Step 7 — Start the producer daemon
 
-The v3.2 producer is a long-lived daemon. **Do NOT add an openclaw cron entry.**
+The producer is a long-lived daemon. **Do NOT add an openclaw cron entry.**
 
 ```bash
 # Option A — supervised by tini:
@@ -224,7 +234,7 @@ nohup python3 -u /data/workspace/skills/turbine-strategy/scripts/turbine-produce
 
 ---
 
-## Smoke test after deploy
+## Verification
 
 ```bash
 tail -f /tmp/turbine-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -5
@@ -241,7 +251,7 @@ Every line should show `status=ok`.
 
 `daemon_self_terminated_no_runtime` is normal when the volume runtime is deleted.
 
-## Verify both wallets are firing
+### Verify both wallets are firing
 
 ```bash
 tail -50 /tmp/turbine-producer.log | grep -v '"event"' | jq '
@@ -274,11 +284,11 @@ Top up the volume wallet daily-to-weekly to keep 7 slots active. Senpi-side reba
 
 ## What NOT to do
 
-- ❌ **Do NOT** add an openclaw cron — the daemon supervises itself
-- ❌ **Do NOT** set `STRATEGY_ADDRESS`, `TURBINE_WALLET`, or `TURBINE_HUNT_WALLET` env vars — all banned
-- ❌ **Do NOT** point both runtimes at the same wallet — the senpi-trading-runtime plugin will reject the second install
-- ❌ **Do NOT** run Sentinel concurrently — runners mode supersedes it
-- ❌ **Do NOT** delete a runtime while positions are open — orphan-position bug
+- **Do NOT** add an openclaw cron — the daemon supervises itself
+- **Do NOT** set `STRATEGY_ADDRESS`, `TURBINE_WALLET`, or `TURBINE_HUNT_WALLET` env vars — all banned
+- **Do NOT** point both runtimes at the same wallet — the senpi-trading-runtime plugin will reject the second install
+- **Do NOT** run Sentinel concurrently — runners mode supersedes it
+- **Do NOT** delete a runtime while positions are open — orphan-position bug
 
 ## Troubleshooting
 
@@ -289,6 +299,13 @@ Top up the volume wallet daily-to-weekly to keep 7 slots active. Senpi-side reba
 | `push_signal rejected ... NOT_FOUND` | Runtime not registered to that wallet | `openclaw senpi runtime list`; confirm scanner names match |
 | `runtime for wallet X already running` on install | Both YAMLs pointing at same wallet | Confirm volume + runners env vars are different |
 | Volume slots never fill past 3-4 | Spread gates too tight, fill rate low | Check `current_cycle_min`; check per-asset spread distribution |
+
+## Changelog
+
+- **v3.2** — Runners wallet redesigned: gets the SAME volume-rotation alpha as the volume wallet, just with a patient DSL profile (4h cap, Phase 2 ratchet). Replaces v3.1's HYPE-only hunt specialist, which fired only 1-3 times/day and left the second wallet idle ~90% of the time. Mission targets bumped: $5M+/day volume, <$100 per $1M cost, 9 total slots (7 volume + 2 runners), 10-min volume cycle, $5,900 total funding.
+- **v3.1** — Added "hunt" mode on a second wallet (HYPE-only 4H breakout, score ≥ 10). Deprecated in v3.2.
+- **v3.0** — Two-wallet architecture introduced.
+- **v2.0.x** — Single-wallet volume engine; ~$2-3M/day, $200 per $1M cost.
 
 ## License
 

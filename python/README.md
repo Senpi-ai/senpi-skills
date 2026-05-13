@@ -1,8 +1,44 @@
-# 🐍 Python v2.0.0 — The Patience Hunter (senpi_runtime_helpers)
+# 🐍 Python — The Patience Hunter
+
+Multi-day LONG-biased trend holds on top-50 HL assets.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v1.2. NO thesis change.** v1.2 multi-day hold thesis, 4h+1h+1d scoring, MACRO_TREND_GATE, MIN_SCORE 8, LONG bias, 3-7x leverage, conviction-tier margin (25/30/40%), 96h hard_timeout with weak_peak_cut DISABLED all preserved verbatim.
+## Thesis
+
+Python holds for days, not minutes. Target hold is 96h on the top 50 HL assets, with a 36% win rate paired to a 3.14:1 win/loss ratio — most trades are small losses, occasional multi-day winners do all the work. LONG-biased and 3-7x leverage, conviction-tier margin (25/30/40%). MACRO_TREND_GATE blocks counter-trend setups so we don't fight the regime.
+
+The edge is patience. Wide DSL Phase 1 retrace (30%) lets winners breathe through normal intra-trend pullbacks. `weak_peak_cut` is explicitly DISABLED — patience holds cannot tolerate clock-based cuts; the whole edge dies if the runtime trims mid-thesis. The 96h hard_timeout is the only time-based exit.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Asset universe | Top 50 HL assets |
+| Tick interval | 600s (10 min) |
+| MIN_SCORE | 8 |
+| Leverage tiers | 3-7x (conviction-scaled) |
+| Margin tiers | 25% / 30% / 40% (conviction) |
+| Direction bias | LONG |
+| Macro gate | MACRO_TREND_GATE blocks counter-trend |
+| `hard_timeout` | 96h |
+| `weak_peak_cut` | DISABLED (patience holds incompatible with clock-based cuts) |
+| DSL Phase 1 retrace | 30% (wide) |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT |
+
+## Scanner pattern
+
+This strategy uses the **Universe trend-follower** scanner pattern (Patience Hunter variant — slow tick, multi-day hold) — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `leaderboard_get_markets`, polled every 600s.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `runtime.yaml` | Runtime spec (scanners, actions, DSL preset, `risk.guard_rails`) |
+| `scripts/python-producer.py` | Long-lived daemon; emits signals via `push_signal` |
+| `scripts/python_config.py` | SDK probe + `SenpiClient` wrapper |
+| `config/python-config.json` | Operator-tunable defaults (wallet, strategyId, chatId) |
 
 ## Install
 
@@ -34,7 +70,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-ru
 which senpi-helpers
 ```
 
-### Step 2 — Pull Python v2.0.0
+### Step 2 — Pull Python
 
 ```bash
 mkdir -p /data/workspace/skills/python-strategy/{config,scripts,state}
@@ -73,17 +109,21 @@ nohup python3 -u /data/workspace/skills/python-strategy/scripts/python-producer.
 
 If `daemon_aborted_no_runtime: alive_check returned False`, re-register the runtime.
 
-## Smoke test
+## Verification
 
 ```bash
+ps aux | grep python-producer
+senpi-helpers list
 tail -f /tmp/python-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
 ```
 
 Expect `status=ok` every 10 min (600s).
 
-## Thesis (preserved from v1.2)
+## Changelog
 
-Multi-day hold (96h target) on top 50 HL assets. 36% target win rate with 3.14:1 win/loss ratio — most trades small losses, occasional multi-day winners do the work. LONG-biased, 3-7x leverage. MACRO_TREND_GATE blocks counter-trend setups. DSL preserves wide retrace (Phase 1 30%) + 96h hard_timeout; weak_peak_cut disabled because patience holds cannot tolerate clock-based cuts.
+### v2.0.0 — helpers-native plumbing migration
+
+Plumbing-only migration from v1.2. NO thesis change. v1.2 multi-day hold thesis, 4h+1h+1d scoring, MACRO_TREND_GATE, MIN_SCORE 8, LONG bias, 3-7x leverage, conviction-tier margin (25/30/40%), 96h `hard_timeout` with `weak_peak_cut` DISABLED all preserved verbatim.
 
 ## License
 

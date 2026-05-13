@@ -1,8 +1,56 @@
-# 🦎 Mantis v6.0.0 — Slipstream (senpi_runtime_helpers)
+# 🦎 Mantis — Slipstream
+
+Cross-asset lag detector that strikes the laggard alt when the leader has already moved.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v5.0. NO thesis change.** v5.0 entry filters, confidence-tier sizing, dynamic hard_timeout, and leader-reversal veto logic preserved verbatim. Scanner flips to in-process `SenpiClient`; daemon replaces the v5.0 openclaw cron. Leader-reversal veto **now actually closes positions** (v5.0 was a silent no-op).
+## Thesis
+
+Cross-asset catchup hunter. When BTC (or another leader) makes a significant 4h move and a correlated alt hasn't responded yet, Mantis strikes the alt before the catchup completes. Trades the statistical lag, not the momentum itself. Hard veto if the leader reverses mid-position.
+
+Unlike rotation-style scanners that rank assets in isolation, Mantis evaluates assets relative to their lagged correlation with BTC. The edge is in the gap between what the leader has already done and what the alt has not yet priced in — and in cutting fast if the leader reverses before the alt completes the move.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Asset universe | Correlated alts (whitelist of BTC followers) |
+| Leader universe | BTC (only one with pre-computed lag data) |
+| Tick interval | 60s |
+| Min follow_rate | 0.85 |
+| Min confidence | 0.75 |
+| Min gap | 1.5% (abs) |
+| Max lag stddev | 90 min |
+| Max positions | 2 |
+| Confidence tiers | 0.92 → 75%/8x · 0.85 → 50%/7x · 0.75 → 25%/5x |
+| Max leverage | 8x |
+| Hard timeout (dynamic) | `avg_lag × 1.5`, clamped [30, 240] min |
+| Leader-reversal threshold | 1.0% |
+| Daily entry cap | 6 |
+| Per-asset cooldown | 240 min |
+| Daily loss limit | 10% |
+| Drawdown halt | 20% |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT |
+
+## Scanner pattern
+
+This strategy uses the **cross-asset lag detector** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `market_get_cross_asset_flows`.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| runtime.yaml | Runtime spec |
+| scripts/mantis-producer.py | Long-lived daemon |
+| scripts/mantis_config.py | SDK probe + SenpiClient wrapper |
+| scripts/mantis_state.py | Per-position metadata (leader pct at entry) |
+| config/mantis-config.json | Operator-tunable defaults |
+
+## State files retained
+
+- `state/position-metadata.json` — per-position `leader_pct_at_entry` (required for veto). The runtime cannot express "close if a separate asset's price reverses by X%."
+- `state/entry-log.jsonl` — observability only (daily-cap counting is owned by runtime guard_rails).
 
 ## Install
 
@@ -44,7 +92,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-### Step 2 — Pull Mantis v6.0.0
+### Step 2 — Pull Mantis
 
 ```bash
 mkdir -p /data/workspace/skills/mantis-strategy/{config,scripts,state,references}
@@ -85,7 +133,7 @@ export MANTIS_DECISION_MODEL=<your-preferred-model>            # bare model name
 
 ### Step 5 — Recreate the runtime + start the daemon
 
-If you have a v5.0 runtime installed, delete it first — v6.0 introduces new scanner/action blocks that require a fresh runtime create.
+If you have an older runtime installed, delete it first when the new version introduces new scanner/action blocks that require a fresh runtime create.
 
 ```bash
 openclaw senpi runtime list | grep mantis
@@ -95,7 +143,7 @@ openclaw senpi runtime create --path /data/workspace/skills/mantis-strategy/runt
 openclaw senpi runtime list
 ```
 
-If you were running the v5.0 cron, stop it before launching the v6.0 daemon:
+If you were running a cron-era producer, stop it before launching the daemon:
 
 ```bash
 openclaw cron list | grep mantis
@@ -107,7 +155,7 @@ nohup python3 -u /data/workspace/skills/mantis-strategy/scripts/mantis-producer.
 
 After first launch, manage the daemon via the `senpi-helpers` CLI: `senpi-helpers list`, `senpi-helpers health <name>`, `senpi-helpers restart <name>`.
 
-## Smoke test
+## Verification
 
 ```bash
 tail -f /tmp/mantis-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
@@ -115,13 +163,11 @@ tail -f /tmp/mantis-producer.log | jq -c 'select(.event=="daemon_tick_finished")
 
 Expected: `status=ok` every tick (60s interval).
 
----
+## Changelog
 
-## Thesis (preserved from v5.0)
+### v6.0.0 — Plumbing-only migration from v5.0 (no thesis change)
 
-Cross-asset catchup hunter. When BTC (or another leader) makes a significant 4h move and a correlated alt hasn't responded yet, Mantis strikes the alt before the catchup completes. Trades the statistical lag, not the momentum itself. Hard veto if the leader reverses mid-position.
-
-## What changed in v6.0 vs v5.0
+v5.0 entry filters, confidence-tier sizing, dynamic hard_timeout, and leader-reversal veto logic preserved verbatim. Scanner flips to in-process `SenpiClient`; daemon replaces the v5.0 openclaw cron. Leader-reversal veto **now actually closes positions** (v5.0 was a silent no-op).
 
 | Layer | v5.0 | v6.0 |
 |---|---|---|
@@ -136,31 +182,6 @@ Cross-asset catchup hunter. When BTC (or another leader) makes a significant 4h 
 | Telemetry | scanner stdout JSON only | runtime audit_query + DSL events + entry-log.jsonl |
 
 NO change to entry filters (`follow_rate >= 0.85`, `confidence >= 0.75`, `|gap| >= 1.5%`, SM rotation, `lag_stddev <= 90`), sizing tiers, dynamic hard_timeout, leader-reversal threshold, or DSL preset.
-
-## Key parameters
-
-| Parameter | Value |
-|---|---|
-| Leader universe | BTC (only one with pre-computed lag data) |
-| Max positions | 2 |
-| Tick interval | 60s |
-| Min follow_rate | 0.85 |
-| Min confidence | 0.75 |
-| Min gap | 1.5% (abs) |
-| Max lag stddev | 90 min |
-| Confidence tiers | 0.92 → 75%/8x · 0.85 → 50%/7x · 0.75 → 25%/5x |
-| Max leverage | 8x |
-| Hard timeout (dynamic) | `avg_lag × 1.5`, clamped [30, 240] min |
-| Leader-reversal threshold | 1.0% |
-| Daily entry cap | 6 |
-| Per-asset cooldown | 240 min |
-| Daily loss limit | 10% |
-| Drawdown halt | 20% |
-
-## State files retained in v6.0
-
-- `state/position-metadata.json` — per-position `leader_pct_at_entry` (required for veto). The runtime cannot express "close if a separate asset's price reverses by X%."
-- `state/entry-log.jsonl` — observability only (no longer used for daily-cap counting; runtime guard_rails enforce that).
 
 ## License
 

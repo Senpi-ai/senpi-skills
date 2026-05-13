@@ -1,8 +1,40 @@
-# 🍋 Lemon v2.0.0 — Degen Fader (senpi_runtime_helpers)
+# 🍋 Lemon — Degen Fader
+
+Counter-trades exhausting consensus on 12 crypto majors and 4 XYZ assets.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v1.3. NO thesis change.** v1.3 fade scoring, MACRO_TREND_GATE (crypto only, |BTC 4h| > 3% blocks), XYZ unban, leverage tiers (5x/7x/10x), MIN_SCORE 9 all preserved verbatim. Scanner flips to in-process `SenpiClient`; daemon replaces openclaw cron. Runtime owns execution, daily caps, cooldowns, FEE_OPTIMIZED_LIMIT exits.
+## Thesis
+
+Lemon counter-trades CHOPPY/DEGEN consensus on 12 crypto majors plus 4 XYZ assets (BRENTOIL, CL, GOLD, SPX) — but only when the move is visibly exhausting (15m velocity ≤ 0.1). The edge is the regime filter: in trending tape, fading the consensus loses; in chop and degen-grind tape, the consensus is the wrong side. MACRO_TREND_GATE blocks crypto fades when |BTC 4h| > 3% because the fade thesis fails in trending regimes.
+
+XYZ assets get to fire even when BTC is trending — they're decorrelated. Wide DSL gives the reversal time to mean-revert without getting shaken out by intratrend noise.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Asset universe | 12 crypto majors + 4 XYZ (BRENTOIL, CL, GOLD, SPX) |
+| Tick interval | 300s (5 min) |
+| MIN_SCORE | 9 |
+| Leverage tiers | 5x / 7x / 10x |
+| Macro gate | MACRO_TREND_GATE on crypto only (\|BTC 4h\| > 3% blocks) |
+| 15m velocity gate | ≤ 0.1 (exhaustion) |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT |
+
+## Scanner pattern
+
+This strategy uses the **Universe trend-follower** scanner pattern (Degen Fader variant) — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `leaderboard_get_markets`, polled every 300s.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `runtime.yaml` | Runtime spec (scanners, actions, DSL preset, `risk.guard_rails`) |
+| `scripts/lemon-producer.py` | Long-lived daemon; emits signals via `push_signal` |
+| `scripts/lemon_config.py` | SDK probe + `SenpiClient` wrapper |
+| `config/lemon-config.json` | Operator-tunable defaults (wallet, strategyId, chatId) |
 
 ## Install
 
@@ -34,7 +66,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-ru
 which senpi-helpers
 ```
 
-### Step 2 — Pull Lemon v2.0.0
+### Step 2 — Pull Lemon
 
 ```bash
 mkdir -p /data/workspace/skills/lemon-strategy/{config,scripts,state}
@@ -75,17 +107,21 @@ nohup python3 -u /data/workspace/skills/lemon-strategy/scripts/lemon-producer.py
 
 If the daemon boots with `daemon_aborted_no_runtime: alive_check returned False`, the runtime wasn't installed — re-register it via the create command above.
 
-## Smoke test
+## Verification
 
 ```bash
+ps aux | grep lemon-producer
+senpi-helpers list
 tail -f /tmp/lemon-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
 ```
 
 Expect `status=ok` every 5 min (300s).
 
-## Thesis (preserved from v1.3)
+## Changelog
 
-Counter-trade CHOPPY/DEGEN consensus on 12 crypto majors + 4 XYZ assets (BRENTOIL, CL, GOLD, SPX) when the move is exhausting (15m velocity ≤ 0.1). MACRO_TREND_GATE blocks crypto fades when |BTC 4h| > 3% — fade thesis fails in trending regimes. Wide DSL gives reversals time to mean-revert.
+### v2.0.0 — helpers-native plumbing migration
+
+Plumbing-only migration from v1.3. NO thesis change. v1.3 fade scoring, MACRO_TREND_GATE (crypto only, |BTC 4h| > 3% blocks), XYZ unban, leverage tiers (5x/7x/10x), MIN_SCORE 9 all preserved verbatim. Scanner flips to in-process `SenpiClient`; daemon replaces openclaw cron. Runtime owns execution, daily caps, cooldowns, FEE_OPTIMIZED_LIMIT exits.
 
 ## License
 

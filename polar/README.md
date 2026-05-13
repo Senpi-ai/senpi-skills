@@ -1,23 +1,61 @@
-# 🐻‍❄️ POLAR v5.0.0 — ETH Alpha Hunter (senpi_runtime_helpers)
+# 🐻‍❄️ POLAR — ETH Alpha Hunter
+
+Single-asset alpha hunter for ETH. Combines Hyperfeed Smart Money acceleration with multi-timeframe structural alignment for high-conviction directional entries.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## What changed in v5.0.0
+## Thesis
 
-**Plumbing-only migration. NO thesis change.** v4.2.0's scoring tables, leverage tiers, MIN_SCORE 12, quiet hours, DSL preset are all preserved verbatim.
+Polar hunts ETH directional moves where Smart Money is actively accelerating and structure agrees across 4h / 1h / 15m. Entry requires Hyperfeed SM gates (pct ≥ 5%, traders ≥ 30, cc_15m ≥ 0.3 acceleration), structural gates (4h trend != NEUTRAL, full 4h-1h-15m alignment, RSI not extreme), and a multi-factor score ≥ 12. Leverage is conviction-tiered (5x / 7x / 10x at scores 14 / 15 / 17+) so size scales with confluence.
 
-- `polar-producer.py` and `polar_config.py` migrate to `senpi_runtime_helpers`:
-  - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
-  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
-  - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
-  - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
-- Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
-- `runtime.yaml` unchanged. `external_scanner.name: polar_signals` matches the producer's `client.push_signal(scanner=...)`.
-- Dead fields stripped from signal payload; `signal_type="POLAR_ETH_HYBRID"` passed explicitly to `push_signal()` so audit logs + LLM decision context stay correctly tagged (avoids relying on the runtime YAML's `defaultSignalType` fallback).
+Polar is the ETH member of the Kodiak family — same architecture as Wolverine (HYPE), Grizzly (BTC), Kodiak (SOL), Dire (BRENTOIL). FP-001 quiet hours block sub-apex entries from 00:00-04:00 UTC, with apex score 17+ bypassing. Exits are owned by the DSL Phase 2 ladder; all time-based cuts are disabled so winners only close on price action.
 
-## Thesis (preserved from v4.2.0)
+## Key parameters
 
-ETH single-asset hybrid hunter. Hyperfeed Smart Money gates (pct≥5%, traders≥30, cc_15m≥0.3 acceleration), structural gates (4h trend != NEUTRAL, 4h-1h-15m alignment, RSI not extreme), multi-factor scoring (~17 max), conviction-tiered leverage (5x/7x/10x), MIN_SCORE 12 floor, FP-001 quiet hours (00-04 UTC unless apex score 17+).
+| Parameter | Value |
+|---|---|
+| Asset universe | ETH (single-asset) |
+| Tick interval | 180s |
+| MIN_SCORE | 14 |
+| Leverage tiers | 5x / 7x / 10x (score-tiered: 14 / 15 / 17+) |
+| Max entries per day | 4 |
+| Per-asset cooldown | 240 min (4h) |
+| Daily loss limit | 10% |
+| Drawdown halt | 25% |
+| Quiet hours | 00:00-04:00 UTC (apex score 17+ bypasses) |
+| LLM min_confidence | 7 |
+| Margin per slot | $500 |
+| Max positions | 1 |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT |
+
+### DSL Phase 2 ladder
+
+ETH-tuned, leverage-aware. All time-based cuts disabled — exits 100% price-action.
+
+| Tier | Trigger (margin ROE) | Lock (% of HW) |
+|---|---|---|
+| T0 | +8% | 25% |
+| T1 | +15% | 50% |
+| T2 | +25% | 65% |
+| T3 | +35% | 80% |
+| T4 (apex) | +50% | 85% |
+
+Phase 1: max_loss 25% / retrace 8% / 3 consecutive breaches.
+**Time-cuts:** `hard_timeout` / `weak_peak_cut` / `dead_weight_cut` all DISABLED.
+
+## Scanner pattern
+
+This strategy uses the **Single-asset alpha hunter (Kodiak family)** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `market_get_asset_data` for ETH.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `runtime.yaml` | Runtime spec (external_scanner, risk guard rails, DSL) |
+| `scripts/polar-producer.py` | Long-lived daemon emitting ETH entry signals |
+| `scripts/polar_config.py` | SDK probe + SenpiClient wrapper |
+| `config/polar-config.json` | Operator-tunable defaults (wallet, minScore, quiet hours) |
 
 ## Install
 
@@ -63,7 +101,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-ru
 
 Skip if the senpi-trading-runtime skill is already installed on this host.
 
-### Step 2 — Pull Polar v5.0.0
+### Step 2 — Pull Polar
 
 ```bash
 mkdir -p /data/workspace/skills/polar-strategy/{config,scripts,state,references}
@@ -74,8 +112,6 @@ for f in scripts/polar-producer.py scripts/polar_config.py \
 done
 ```
 
-`runtime.yaml` is unchanged from v4.x — don't touch the existing runtime.
-
 ### Step 3 — Required env vars
 
 ```bash
@@ -84,9 +120,10 @@ export SENPI_AUTH_TOKEN=...
 export POLAR_DECISION_MODEL=<your-preferred-model>
 ```
 
-### Step 4 — Stop the v4.x cron, start the v5.0.0 daemon
+### Step 4 — Start the daemon
 
 ```bash
+# Stop any prior cron
 openclaw cron list | grep polar
 openclaw cron delete <polar-cron-id>
 
@@ -94,14 +131,6 @@ openclaw cron delete <polar-cron-id>
 nohup python3 -u /data/workspace/skills/polar-strategy/scripts/polar-producer.py \
   > /tmp/polar-producer.log 2>&1 &
 ```
-
-## Smoke test
-
-```bash
-tail -f /tmp/polar-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
-```
-
-Expected: `status=ok` every tick (180s interval).
 
 ## Configure
 
@@ -123,38 +152,28 @@ Set the LLM decision model env var at runtime-create time only:
 export POLAR_DECISION_MODEL=<your-preferred-model>    # bare model name; NO provider prefix
 ```
 
-## Key parameters
+## Verification
 
-| Parameter | Value |
-|---|---|
-| Asset | ETH (single-asset) |
-| Max positions | 1 |
-| Margin per slot | $500 |
-| Leverage | 5x / 7x / 10x (score-tiered: 14 / 15 / 17+) |
-| MIN_SCORE | 14 |
-| LLM min_confidence | 7 |
-| Per-asset cooldown | 240 min (4h) |
-| Daily entry cap | 4 |
-| Daily loss limit | 10% |
-| Drawdown halt | 25% |
-| Quiet hours | 00:00-04:00 UTC (apex score 17+ bypasses) |
-| Entry order type | FEE_OPTIMIZED_LIMIT |
-| Exit order type | FEE_OPTIMIZED_LIMIT |
+```bash
+tail -f /tmp/polar-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
 
-## DSL Phase 2 ladder (preserved from v3.x)
+Expected: `status=ok` every tick (180s interval).
 
-ETH-tuned, leverage-aware. All time-based cuts disabled — exits are 100% price-action.
+## Changelog
 
-| Tier | Trigger (margin ROE) | Lock (% of HW) |
-|---|---|---|
-| T0 | +8% | 25% |
-| T1 | +15% | 50% |
-| T2 | +25% | 65% |
-| T3 | +35% | 80% |
-| T4 (apex) | +50% | 85% |
+### v5.0.0 — `senpi_runtime_helpers` migration
 
-Phase 1: max_loss 25% / retrace 8% / 3 consecutive breaches.
-**Time-cuts:** `hard_timeout` / `weak_peak_cut` / `dead_weight_cut` all DISABLED (v3.0.4/3.0.5/3.0.6 fixes preserved — v1 DSL fired hard_timeout in Phase 2 incorrectly per spec).
+Plumbing-only migration. NO thesis change. v4.2.0's scoring tables, leverage tiers, MIN_SCORE 12, quiet hours, DSL preset all preserved verbatim.
+
+- `polar-producer.py` and `polar_config.py` migrate to `senpi_runtime_helpers`:
+  - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
+  - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
+  - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
+- Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
+- `runtime.yaml` unchanged. `external_scanner.name: polar_signals` matches the producer's `client.push_signal(scanner=...)`.
+- Dead fields stripped from signal payload; `signal_type="POLAR_ETH_HYBRID"` passed explicitly to `push_signal()` so audit logs + LLM decision context stay correctly tagged (avoids relying on the runtime YAML's `defaultSignalType` fallback).
 
 ## License
 

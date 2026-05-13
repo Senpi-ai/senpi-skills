@@ -1,8 +1,42 @@
-# 🪳 ROACH v3.0.0 — Striker Only. senpi_runtime_helpers.
+# 🪳 ROACH — Striker Only
+
+Rank-jump explosion hunter that fires only on extreme upside breakouts.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v2.1.0. NO thesis change.** Producer flips to in-process `SenpiClient` (direct HTTPS for MCP, direct HTTP POST to runtime `/signals`). `producer_daemon` replaces openclaw cron.
+## Thesis
+
+ROACH disables Stalker entirely and only trades STRIKER signals — violent FIRST_JUMP / IMMEDIATE_MOVER explosions backed by 1.5x volume, 1h price alignment, and 4h trend agreement. The thesis is that slow-build rank entries lose money in expectation (Fox v1.0 logged 17 Stalker trades at 17.6% win rate, -$91 net), while the rare explosive breakout is the only profitable shape in the leaderboard-momentum family.
+
+ROACH will be quiet. Days with zero trades are expected and correct. Striker signals require a 10+ rank jump from #25+, score ≥ 10 with 4+ reasons, cc_15m ≥ 0.5, 1h price aligned ≥ 0.1%, volume ≥ 1.5x. That's rare. The patience IS the edge — Roach is the only fleet predator that explicitly chooses to skip the slow-build setups other rank-momentum strategies pursue.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Asset universe | All Hyperliquid perps (top-N rank changes) |
+| Tick interval | 90s |
+| MIN_SCORE | 10 (4+ reasons required) |
+| Leverage tiers | Score-scaled (see SKILL.md) |
+| Max entries per day | Runtime-enforced |
+| Per-asset cooldown | Runtime-enforced |
+| Daily loss limit | Runtime `risk.guard_rails` |
+| Drawdown halt | Runtime `risk.guard_rails` |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT (maker-first 60s, taker fallback) |
+
+## Scanner pattern
+
+This strategy uses the **rank-jump / leaderboard-momentum** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `leaderboard_get_markets`.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| runtime.yaml | Runtime spec (unchanged from v2.x) |
+| scripts/roach-producer.py | Long-lived producer daemon |
+| scripts/roach_config.py | SDK probe + SenpiClient wrapper |
+| config/roach-config.json | Operator-tunable defaults |
 
 ## Install
 
@@ -46,7 +80,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-### Step 2 — Pull Roach v3.0.0
+### Step 2 — Pull Roach
 
 ```bash
 mkdir -p /data/workspace/skills/roach-strategy/{config,scripts,state,references}
@@ -56,8 +90,6 @@ for f in scripts/roach-producer.py scripts/roach_config.py \
     -o "/data/workspace/skills/roach-strategy/$f"
 done
 ```
-
-`runtime.yaml` unchanged from v2.x.
 
 ### Step 3 — Required env vars
 
@@ -69,7 +101,7 @@ export ROACH_DECISION_MODEL=<your-preferred-model>
 
 For **Roach-B** (variant): use the same skill files but set `ROACH_WALLET=<roach-b-wallet>` on that agent's host.
 
-### Step 4 — Stop v2.x cron, start v3.0.0 daemon
+### Step 4 — Stop any prior cron, start the daemon
 
 ```bash
 openclaw cron list | grep roach
@@ -79,7 +111,7 @@ nohup python3 -u /data/workspace/skills/roach-strategy/scripts/roach-producer.py
   > /tmp/roach-producer.log 2>&1 &
 ```
 
-## Smoke test
+## Verification
 
 ```bash
 tail -f /tmp/roach-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
@@ -87,15 +119,13 @@ tail -f /tmp/roach-producer.log | jq -c 'select(.event=="daemon_tick_finished")'
 
 Expected: `status=ok` every tick (90s interval). Roach is intentionally quiet — heartbeat ticks dominate; Striker fires are rare and that's the design.
 
----
+## Changelog
 
-## The Strategy
+### v3.0.0 — senpi_runtime_helpers migration
 
-ROACH disables Stalker entirely and only trades STRIKER signals — violent FIRST_JUMP / IMMEDIATE_MOVER explosions backed by 1.5x volume, 1h price alignment, and 4h trend agreement. Confirmed by Fox v1.0 data: 17 Stalker trades, 17.6% win rate, -$91 net; the one Striker (ZEC LONG score 11) was the only profitable explosive entry.
+Plumbing-only migration from v2.1.0. NO thesis change. Producer flips to in-process `SenpiClient` (direct HTTPS for MCP, direct HTTP POST to runtime `/signals`). `producer_daemon` replaces openclaw cron.
 
-ROACH will be quiet. Days with zero trades are expected and correct. Striker signals require a 10+ rank jump from #25+, score >= 10 with 4+ reasons, cc_15m >= 0.5, 1h price aligned >= 0.1%, volume >= 1.5x. That's rare. The patience IS the edge.
-
-## v2.0 architecture
+### v2.0 architecture (preserved)
 
 | Layer | v1.x | v2.0 |
 |---|---|---|
@@ -104,7 +134,7 @@ ROACH will be quiet. Days with zero trades are expected and correct. Striker sig
 | Exit | DSL + MARKET orders | DSL + **FEE_OPTIMIZED_LIMIT** (maker-first, 60s, taker fallback) |
 | Risk gates | Agent enforces in scanner code | Declarative `runtime.risk.guard_rails` |
 
-**Why v2 matters:** v1 used MARKET orders for every exit, paying ~3 bp/exit in HL taker fees. v2's maker-first exits target 50-70% recovery on HL exit fees with no thesis change.
+**Why v2 mattered:** v1 used MARKET orders for every exit, paying ~3 bp/exit in HL taker fees. v2's maker-first exits target 50-70% recovery on HL exit fees with no thesis change.
 
 See [`SKILL.md`](SKILL.md) for full setup, env vars, and behavior expectations.
 
