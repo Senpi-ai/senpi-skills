@@ -1,62 +1,56 @@
 name: owl-tracker
-# Note: top-level `version` is the SCHEMA version the
+# Note: top-level `version` is the PLUGIN schema version the
 # senpi-trading-runtime plugin expects (must be major=1). The
-# STRATEGY/skill is "Owl v7.1" — that lives in description, SKILL.md,
-# and _owl_producer_version. Using version: 7.x at runtime level is
-# rejected by the plugin as "Unsupported version: 7.x". Keep this at
-# 1.x.x forever.
-version: 1.7.1
+# STRATEGY/skill is "Owl v8.0.0" — that lives in description,
+# SKILL.md, and _owl_producer_version. Using version: 8.x at the
+# runtime level is rejected by the plugin as "Unsupported version".
+# Keep this at 1.x.x forever.
+version: 1.8.0
 description: >
-  OWL v7.1 — Pure Contrarian + macro trend gate (2026-05-06).
-  v7.0 architectural rewrite (Apr 28) didn't change the thesis — same
-  contrarian unwind logic from v6.2. Empirically lost -$63 additional
-  Apr 28 → May 6 (lifetime -$203 / $187k notional / -0.108% per round
-  trip; below maker-fee breakeven). Same disease as Lemon: fade thesis
-  fails in trending regimes. v7.1 ports the fleet macro_trend_gate
-  pattern: block crypto fades when |BTC 4h move| > 3%. Inherits from
-  Wolverine HYPE post-mortem, Cobra rotation, Condor v3.0, Lemon v1.3
-  (same fix shipped same day). XYZ unban deferred to v7.2 — Owl's
-  scoring uses funding + SM long_pct calibrated on crypto data shape;
-  XYZ needs its own calibration pass. Producer fetches BTC 4h move from
-  same leaderboard_get_markets call (no extra MCP cost).
+  OWL v8.0.0 — Pure Contrarian Crowding-Unwind Hunter, helpers-native
+  (2026-05-12). Plumbing-only migration on @senpi/runtime 1.1.0. NO
+  thesis change from v7.1. Same six-layer flip the rest of the fleet
+  is doing: mcporter subprocess → SenpiClient.mcp_call() direct HTTPS,
+  external-scanner ingest CLI → SenpiClient.push_signal() direct POST,
+  hand-rolled fcntl flock → producer_daemon scanner_lock, openclaw
+  cron + agentTurn → long-lived producer_daemon process. 15-minute
+  cadence preserved. signal_type passed explicitly
+  ("OWL_CONTRARIAN_FADE") to avoid relying on defaultSignalType.
 
-  OWL v7.0 — Pure Contrarian (v2-runtime-native rewrite).
+  v7.1 thesis preserved verbatim:
+    - Counter-trade crowded crypto perps. Wait for crowding to
+      persist 1+ hour AND exhaustion signals fire (volume declining,
+      price stalling, RSI divergence). Crowded trades unwind
+      violently; Owl's edge is timing the unwind by waiting for both
+      the crowd state AND the exhaustion trigger.
+    - minCrowdingScore 6, minPersistHours 1, minExhaustionSignals 2,
+      minExhaustionScore 5, minCombinedScore 12.
+    - MACRO_TREND_GATE: block crypto fades when |BTC 4h| > 3%.
+      Mean-reversion fails in trending regimes. Producer fetches BTC
+      4h move from same leaderboard_get_markets call (no extra MCP).
+    - XYZ_BANNED: Owl's scoring uses funding + SM long_pct calibrated
+      on crypto data shape; XYZ funding/SM dynamics are different.
+      Unban deferred until XYZ-specific scoring exists.
+    - 6h post-loss per-asset cooldown.
+    - Dynamic daily cap by PnL (2 base, 3 at +$150, 4 at +$400; cut
+      to 2/1/0 below -5/-15/-25%).
 
-  Mission: enter AGAINST the crowd when crowding persists 1+ hour AND
-  exhaustion signals fire (volume declining, price stalling, RSI
-  divergence). Crowded trades unwind violently; Owl's edge is timing
-  the unwind by waiting for both the crowd state AND the exhaustion
-  trigger.
-
-  v7.0 architectural changes (no thesis change from v6.2):
-    - Producer (owl-producer.py) emits contrarian-fade signals via
-      `openclaw senpi external-scanner ingest`. NO execution code.
-    - Runtime LLM (configured via decision_model env var) is a
-      pass-through gate — producer has already applied every filter
-      (crowding score >= 6 with persistence >= 1h, exhaustion score
-      >= 5 with >= 2 distinct signals, combined score >= 12, asset
-      cooldown, post-loss cooldown, dynamic daily cap based on PnL).
-    - Maker entries via FEE_OPTIMIZED_LIMIT with ensure_execution_as_taker=false:
-      contrarian unwinds aren't urgent at the moment of detection
-      (they take hours to develop). If maker can't fill in 60s, skip.
-    - Maker exits via FEE_OPTIMIZED_LIMIT with ensure_execution_as_taker=true:
-      taker fallback as safety floor — contrarian entries retrace
-      hard before working, so when DSL fires Phase 1 stops the exit
-      MUST happen.
+  Architecture (preserved from v7.0):
+    - Producer (owl-producer.py) emits contrarian-fade signals.
+      NO execution code.
+    - Runtime LLM (decision_model env var) is a pass-through gate —
+      producer has already applied every filter.
+    - Maker entries via FEE_OPTIMIZED_LIMIT with
+      ensure_execution_as_taker=false: contrarian unwinds aren't
+      urgent at detection time. If maker can't fill in 60s, skip.
+    - Maker exits via FEE_OPTIMIZED_LIMIT with
+      ensure_execution_as_taker=true: taker fallback as safety floor.
     - Risk gates declarative — runtime.guard_rails owns enforcement,
       producer is signal-only.
     - DSL exit preserved verbatim from v6.2: hard_timeout 480min,
       weak_peak_cut 120min @ 2.0, dead_weight_cut 30min, Phase 1
-      max_loss 35% / 3-breach (wide tolerance for retrace), Phase 2
-      6-tier ladder starting at 5% trigger (Lemon-pattern first leg
-      capture).
-
-  v6.x changes preserved:
-    - v6.0: minPersistHours 4 → 1, entry.minScore 14 → 12
-    - v6.0: Phase 2 first tier 10% → 5% trigger (Lemon-pattern)
-    - v6.0: dead_weight_cut 45 → 30 min
-    - v6.1: universe expansion — ALL assets with OI > $3M (was top 30)
-    - v6.2: minCrowdingScore 8 → 6 (persistence-gate unblocking)
+      max_loss 35% / single-breach (wide tolerance for retrace),
+      Phase 2 6-tier ladder starting at 5% trigger.
 
 # ── STRATEGY ──
 strategy:

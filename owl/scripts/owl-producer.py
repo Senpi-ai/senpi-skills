@@ -1,84 +1,62 @@
 #!/usr/bin/env python3
-# Senpi OWL Producer v7.1
+# Senpi OWL Producer v8.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0 — attribution required for derivative works
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""OWL v7.1 Producer — Pure Contrarian Crowding-Unwind (macro trend gate).
+"""OWL v8.0.0 Producer — Pure Contrarian Crowding-Unwind, helpers-native.
 
-v7.1 (2026-05-06) — MACRO_TREND_GATE.
-v7.0 was bleeding: -$203 lifetime on $187k notional = -0.108% per round
-trip (below maker-fee breakeven). Apr 28 v7.0 deploy didn't change the
-thesis (just architectural). Additional -$63 bleed Apr 28 → May 6.
+v8.0.0 (2026-05-12) — plumbing migration. NO thesis change.
+All v7.1 thesis preserved: counter-trade crowded crypto perps with
+1h+ persistence + exhaustion confluence, MACRO_TREND_GATE (|BTC 4h|
+> 3% blocks fades), conviction-scaled leverage (7/8/10 by score),
+MARGIN_PCT 0.25, MIN_COMBINED_SCORE 12, XYZ banned, 6h post-loss
+asset cooldown, dynamic daily cap by PnL.
 
-Adds MACRO_GATE_BTC_4H_PCT = 3.0: block fades when |BTC 4h| > 3%.
-Mean-reversion fails in trending regimes — alts that look "crowded and
-exhausting" during BTC trend moves are usually consolidating before
-continuation. Pattern documented across Wolverine HYPE post-mortem,
-Cobra rotation, Condor v3.0, Lemon v1.3 (same fix shipped same day).
+Six-layer plumbing flip (same pattern as Wolverine/Lemon/Cheetah
+v3.0+ migrations on @senpi/runtime 1.1.0):
+  1. MCP calls — cfg.mcporter_call() shim routes through
+     SenpiClient.mcp_call() (direct HTTPS, no mcporter subprocess).
+  2. Signal emit — subprocess.run(["openclaw","senpi",
+     "external-scanner","ingest"...]) replaced by
+     cfg._wrapper_client.push_signal(...). signal_type passed as
+     explicit kwarg ("OWL_CONTRARIAN_FADE") to avoid relying on the
+     runtime YAML's defaultSignalType fallback.
+  3. Reentrancy — hand-rolled fcntl flock dropped. producer_daemon
+     owns per-tick scanner_lock with stale-PID auto-recovery.
+  4. Tick scheduling — openclaw cron + agentTurn replaced by
+     producer_daemon (long-lived process; zero per-tick LLM cost).
+     15-minute cadence preserved.
+  5. /state alive_check — wallet=/scanner= kwargs passed to
+     producer_daemon; daemon self-terminates when the runtime is
+     deleted or the scanner is renamed.
+  6. State files unchanged — crowding-history.json,
+     asset-cooldowns.json, trade-counter.json under
+     state/<wallet-hash>/.
 
-XYZ unban deferred to v7.2 — Owl's score_crowding uses funding extremity
-+ SM long_pct calibrated on crypto data; XYZ funding/SM dynamics differ.
-Needs separate calibration pass.
-
-v7.0 — Pure Contrarian Crowding-Unwind (v2-runtime-native).
-
-Owl v6.x was a v1-architecture self-executing scanner that:
-  - Polled market_list_instruments + leaderboard_get_markets
-  - Per-asset: scored crowding (funding extremity + SM tilt + OI concentration)
-  - Maintained persistence timers in state file (1h+ required to fire)
-  - Detected exhaustion (volume declining, price stalling, RSI divergence)
-  - Called create_position directly for entries opposite to the crowd
-  - Used MARKET orders for DSL exits
-
-v7.0 splits that into two parts:
-  1. This producer (cron, 15min): emits contrarian signals only.
-  2. Runtime (senpi-trading-runtime): receives signals via
-     external_scanner ingest, LLM-gates them (pass-through), executes
-     with FEE_OPTIMIZED_LIMIT (entries: maker-only; exits: maker-first
-     + taker fallback as safety), and manages DSL exits autonomously.
-
-The producer's responsibility:
-  1. Maintain per-asset crowding history (state/<wallet-hash>/crowding-history.json)
-     with persistence timers + peak score + below-threshold tolerance counter
-  2. Score crowding per asset (funding extremity + SM tilt + OI concentration)
-  3. Score exhaustion per asset (volume decline + price stall + RSI divergence)
-  4. Apply persistence gate (>= 1h above minCrowdingScore)
-  5. Apply combined score gate (>= 12)
-  6. Apply per-asset cooldown + dynamic daily cap
-  7. Push top contrarian candidate per tick to runtime via openclaw CLI
-
-NO execution code. NO DSL code. NO position-tracking. Daily-loss /
-drawdown / max-positions / consec-loss enforced by runtime guard_rails.
-
-Entry direction is OPPOSITE of crowd direction (this is the whole edge —
-crowded trades unwind violently; we trade the unwind).
-
-Crowding/exhaustion logic preserved verbatim from v6.2:
-  - minCrowdingScore: 6 (was 8 in v6.1; lowered v6.2 to unblock persistence)
-  - minPersistHours: 1 (was 4 in v5.x; lowered v6.0)
-  - minExhaustionSignals: 2 distinct, score >= 5
-  - entry.minScore: 12 (combined crowding + exhaustion)
-  - persistence tolerance: 2 consecutive below-threshold scans before clear
-    (v5.3 — prevents single-noise-tick reset)
+v7.1 thesis preserved unchanged:
+  - minCrowdingScore 6, minPersistHours 1, minExhaustionSignals 2,
+    minExhaustionScore 5, minCombinedScore 12
+  - belowThresholdTolerance 2 (v5.3 noise-tick guard)
+  - assetCooldownMinutes 360 (6h post-loss)
+  - minFundingAnnualizedPct 12 (v5.2)
+  - macroGateBtc4hPct 3.0 (v7.1)
+  - XYZ_BANNED = True (Owl's scoring uses funding + SM long_pct
+    calibrated on crypto data shape; XYZ unban deferred)
 
 Environment variables:
-  SENPI_API_KEY     — for MCP access
+  SENPI_AUTH_TOKEN  — for MCP + signal POST (required)
   OWL_WALLET        — Owl wallet (must match runtime YAML's wallet).
-                      AGENT-SPECIFIC env var by design — do NOT fall back
-                      to a generic STRATEGY_ADDRESS. Per Turbine v2.0.9
-                      contamination fix.
-  SENPI_MCP_URL     — optional, default https://mcp.prod.senpi.ai/mcp
-  OPENCLAW_BIN      — optional, default "openclaw"
-  EXTERNAL_SCANNER_NAME — optional override (default "owl_signals")
+                      Agent-specific by design — do NOT fall back to a
+                      generic STRATEGY_ADDRESS. Per Turbine v2.0.9
+                      contamination fix. Also falls back to
+                      config.wallet.
   OWL_MARGIN_PCT    — optional, default 0.25 (25% of account value)
   OWL_MIN_OI_USD    — optional, default 3000000 ($3M liquidity floor)
 """
 
-import fcntl
 import hashlib
 import json
 import os
-import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -87,19 +65,44 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import owl_config as cfg
 
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
-# v7.0: Agent-specific wallet env var (Turbine v2.0.9 contamination fix).
-OWL_WALLET = os.environ.get("OWL_WALLET", "")
-SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "owl_signals")
-OPENCLAW_BIN = os.environ.get("OPENCLAW_BIN", "openclaw")
+
+VERSION = "8.0.0"
+# Hardcoded — must match runtime.yaml external_scanner.name.
+SCANNER_NAME = "owl_signals"
+# Signal type passed explicitly to push_signal(). Don't rely on the
+# scanner's defaultSignalType fallback.
+SIGNAL_TYPE = "OWL_CONTRARIAN_FADE"
+
+
+# ═══════════════════════════════════════════════════════════════
+# WALLET RESOLUTION (env var > config.wallet)
+# ═══════════════════════════════════════════════════════════════
+
+def _resolve_wallet():
+    """Resolve Owl strategy wallet. OWL_WALLET env var first, then
+    config.json wallet. Agent-specific env var by design — do NOT
+    use a generic STRATEGY_ADDRESS. Per Turbine v2.0.9 contamination
+    fix."""
+    env_val = (os.environ.get("OWL_WALLET") or "").strip()
+    if env_val:
+        return env_val
+    try:
+        return (cfg.load_config().get("wallet") or "").strip()
+    except Exception:
+        return ""
+
+
+STRATEGY_ADDRESS = _resolve_wallet()
 MARGIN_PCT = float(os.environ.get("OWL_MARGIN_PCT", "0.25"))
 MIN_OI_USD = float(os.environ.get("OWL_MIN_OI_USD", "3000000"))
 
 
 # Wallet-isolated state dir.
 def _wallet_state_dir():
-    if OWL_WALLET:
-        h = hashlib.sha256(OWL_WALLET.lower().encode()).hexdigest()[:12]
+    if STRATEGY_ADDRESS:
+        h = hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
     else:
         h = "unset"
     d = cfg.SKILL_DIR / "state" / h
@@ -108,46 +111,13 @@ def _wallet_state_dir():
 
 
 _STATE_DIR = _wallet_state_dir()
-_LOCK_PATH = _STATE_DIR / "producer.lock"
 _CROWDING_FILE = _STATE_DIR / "crowding-history.json"
 _COOLDOWN_FILE = _STATE_DIR / "asset-cooldowns.json"
 _COUNTER_FILE = _STATE_DIR / "trade-counter.json"
 
 
 # ═══════════════════════════════════════════════════════════════
-# REENTRANCY GUARD
-# ═══════════════════════════════════════════════════════════════
-# Cron fires every 15 min. Owl makes 1× market_list_instruments +
-# 1× leaderboard_get_markets + N× market_get_asset_data (per
-# qualifying asset). At ~10-20 qualifying assets and 25s per call
-# this can run multiple minutes. Reentrancy guard handles overlap.
-
-def acquire_lock():
-    try:
-        f = open(_LOCK_PATH, "w")
-        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        f.write(f"{os.getpid()} {int(time.time())}\n")
-        f.flush()
-        return f
-    except (IOError, OSError, BlockingIOError):
-        return None
-
-
-def release_lock(lock_file):
-    if lock_file is None:
-        return
-    try:
-        fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-    except Exception:
-        pass
-    try:
-        lock_file.close()
-    except Exception:
-        pass
-
-
-# ═══════════════════════════════════════════════════════════════
-# HARDCODED CONSTANTS (fleet-tuned, preserved from v6.2)
+# HARDCODED CONSTANTS (fleet-tuned, preserved verbatim from v7.1)
 # ═══════════════════════════════════════════════════════════════
 MIN_CROWDING_SCORE = 6                # v6.2: lowered 8→6 to unblock persistence
 MIN_PERSIST_HOURS = 1                 # v6.0: lowered 4→1
@@ -158,27 +128,16 @@ BELOW_THRESHOLD_TOLERANCE = 2         # v5.3: 2 consecutive below-threshold scan
 ASSET_COOLDOWN_MINUTES = 360          # 6h post-loss
 MIN_FUNDING_ANNUALIZED_PCT = 12       # v5.2 (was 20)
 STARTING_BUDGET = 1000.0
-XYZ_BANNED = True                     # v7.1: kept True for now. Owl's score_crowding
-                                       # uses funding + SM long_pct calibrated on crypto data
-                                       # shape; XYZ funding/SM dynamics are different.
-                                       # Lemon v1.3 lifted XYZ_BANNED but Lemon's thesis
-                                       # is simpler. Revisit Owl XYZ unban as v7.2 with
-                                       # XYZ-specific scoring.
+XYZ_BANNED = True                     # Owl's score_crowding uses funding + SM long_pct
+                                       # calibrated on crypto data shape; XYZ funding/SM
+                                       # dynamics are different. Lemon v1.3 lifted
+                                       # XYZ_BANNED but Lemon's thesis is simpler. Revisit
+                                       # Owl XYZ unban with XYZ-specific scoring.
 
-# v7.1 (2026-05-06) — MACRO TREND GATE.
-# Fade thesis (counter-trade crowded positions) structurally fails when
-# macro is trending. Documented across the fleet:
-#   - Wolverine HYPE SHORT post-mortem: -$160 fading a 32% rip
-#   - Cobra: -60% ROI from rotation in trending market
-#   - Condor v3.0 added MACRO_TREND_GATE specifically for this
-#   - Lemon v1.3 (2026-05-06): same fix, same threshold
-# Owl was bleeding -$203 lifetime on $187k notional volume = -0.108%
-# per round trip (below maker-fee breakeven). v7.0 architectural rewrite
-# (Apr 28) didn't change the thesis; -$63 additional bleed Apr 28 → May 6.
-# When BTC's 4h move is large in either direction, alts that look "crowded
-# and exhausting" are usually consolidating before continuation, not
-# actually reversing. Block crypto fades during macro directional moves.
-# 3.0% threshold matches Condor + Lemon precedent.
+# v7.1 — MACRO TREND GATE preserved. Fade thesis (counter-trade crowded
+# positions) structurally fails when macro is trending. Block crypto
+# fades when |BTC 4h move| > 3%. 3.0% threshold matches Condor + Lemon
+# precedent.
 MACRO_GATE_BTC_4H_PCT = 3.0
 
 # Conviction-scaled leverage (Polar v2.4 / Bald Eagle v3.0 pattern)
@@ -301,10 +260,10 @@ def save_trade_counter(tc):
 # ═══════════════════════════════════════════════════════════════
 
 def get_account_value():
-    if not OWL_WALLET:
+    if not STRATEGY_ADDRESS:
         return None, None
     ch = cfg.mcporter_call("strategy_get_clearinghouse_state",
-                            strategy_wallet=OWL_WALLET)
+                            strategy_wallet=STRATEGY_ADDRESS)
     if not ch:
         return None, None
     data = ch.get("data", ch) if isinstance(ch, dict) else {}
@@ -321,6 +280,34 @@ def get_account_value():
             if safe_float(pos.get("szi", 0)) != 0:
                 pos_count += 1
     return total_value, pos_count
+
+
+def fetch_held_assets():
+    """Return list of currently-held asset symbols (any direction)."""
+    if not STRATEGY_ADDRESS:
+        return []
+    try:
+        ch = cfg.mcporter_call("strategy_get_clearinghouse_state",
+                                strategy_wallet=STRATEGY_ADDRESS)
+        if not ch:
+            return []
+        data = ch.get("data", ch) if isinstance(ch, dict) else {}
+        held = []
+        for section in ("main", "xyz"):
+            s = data.get(section, {}) if isinstance(data, dict) else {}
+            if not isinstance(s, dict):
+                continue
+            for ap in s.get("assetPositions", []) or []:
+                pos = ap.get("position", ap) if isinstance(ap, dict) else {}
+                szi = safe_float(pos.get("szi", 0))
+                if szi == 0:
+                    continue
+                coin = pos.get("coin", "")
+                if coin:
+                    held.append(coin)
+        return held
+    except Exception:
+        return []
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -378,7 +365,7 @@ def fetch_all_assets():
 def fetch_sm_positioning_map():
     """Returns (sm_map, btc_p4h) where sm_map = {coin: (long_pct, trader_count)}
     for crypto markets and btc_p4h is BTC's 4h price change percent (used by
-    v7.1 MACRO_TREND_GATE).
+    MACRO_TREND_GATE).
 
     v7.0: fetch ONCE per scan instead of per-asset (Pangolin v2.0 pattern).
     v7.1: extract BTC 4h price change from same call (no extra MCP cost)."""
@@ -593,72 +580,66 @@ def clear_persistence(history, coin):
 
 
 # ═══════════════════════════════════════════════════════════════
-# SIGNAL EMISSION
+# SIGNAL EMISSION (helpers-native)
 # ═══════════════════════════════════════════════════════════════
 
-def build_signal_payload(c, leverage, margin_usd):
-    """All declared scanner fields go in `data`, NOT `meta`. (Turbine v2.0.11.)"""
-    return {
-        "address": OWL_WALLET,
-        "scannerId": SCANNER_NAME,
-        "signalType": "OWL_CONTRARIAN_UNWIND",
-        "asset": c["asset"],
-        "direction": c["fade_direction"],
-        "score": float(c["combined_score"]),
-        "timestamp": int(time.time() * 1000),
-        "factors": {},
-        "data": {
-            "score": c["combined_score"],
-            "leverage": leverage,
-            "marginUsd": margin_usd,
-            "crowdDirection": c["crowd_direction"],
-            "crowdingScore": c["crowding_score"],
-            "exhaustionScore": c["exhaustion_score"],
-            "persistenceHours": round(c["persistence_hours"], 2),
-            "fundingAnnualizedPct": round(c["funding_ann"], 2),
-            "smTilt": round(c["sm_tilt"], 2),
-            "smLongPct": round(c["sm_long_pct"], 2),
-            "oiUsd": round(c["oi_usd"], 2),
-            "priceChg4hPct": round(c["price_chg_4h"], 3),
-            "rsi4h": round(c["rsi"], 1) if c.get("rsi") is not None else 0,
-            "peakCrowdingScore": c["peak_crowding_score"],
-            "exhaustionSignals": " | ".join(c.get("exhaustion_signals", [])),
-            "reasons": " | ".join(c.get("reasons", [])),
-        },
-        "meta": {
-            "_owl_producer_version": "7.1.0",
-        },
-    }
+def push_signal(c, leverage, margin_usd, held_assets):
+    """Push a contrarian-fade signal via senpi_runtime_helpers.
 
-
-def push_signal(payload):
-    """Push to runtime via openclaw CLI (Turbine v2.0.8 invocation shape)."""
-    if not OWL_WALLET:
-        cfg.log("OWL_WALLET env var not set; cannot push signal")
+    Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
+    asset/direction/signal_type at top-level kwargs per the
+    SignalItem wire schema. Score normalized 0..1 for SignalItem.score
+    (Owl combined score scaled), with full telemetry in `data`.
+    """
+    if not STRATEGY_ADDRESS:
+        print(
+            "ERROR: strategy wallet not resolved — set OWL_WALLET env var "
+            "or 'wallet' in owl-config.json",
+            file=sys.stderr,
+        )
         return False
 
-    cmd = [
-        OPENCLAW_BIN, "senpi", "external-scanner", "ingest",
-        "--address", OWL_WALLET,
-        "--scanner", SCANNER_NAME,
-        "--payload", json.dumps(payload),
-    ]
+    if c["asset"].upper() in {h.upper() for h in held_assets}:
+        return False
+
+    data_block = {
+        "score": c["combined_score"],
+        "leverage": leverage,
+        "marginUsd": margin_usd,
+        "crowdDirection": c["crowd_direction"],
+        "crowdingScore": c["crowding_score"],
+        "exhaustionScore": c["exhaustion_score"],
+        "persistenceHours": round(c["persistence_hours"], 2),
+        "fundingAnnualizedPct": round(c["funding_ann"], 2),
+        "smTilt": round(c["sm_tilt"], 2),
+        "smLongPct": round(c["sm_long_pct"], 2),
+        "oiUsd": round(c["oi_usd"], 2),
+        "priceChg4hPct": round(c["price_chg_4h"], 3),
+        "rsi4h": round(c["rsi"], 1) if c.get("rsi") is not None else 0,
+        "peakCrowdingScore": c["peak_crowding_score"],
+        "exhaustionSignals": " | ".join(c.get("exhaustion_signals", [])),
+        "reasons": " | ".join(c.get("reasons", [])),
+        "heldAssets": held_assets,
+    }
+
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-        if r.returncode != 0:
-            cfg.log(f"ingest failed for {payload['asset']} {payload['direction']}: {r.stderr.strip()}")
-            return False
-        if r.stdout.strip():
-            try:
-                response = json.loads(r.stdout)
-                if isinstance(response, dict) and response.get("ok") is False:
-                    cfg.log(f"ingest rejected for {payload['asset']}: {response.get('error')}")
-                    return False
-            except (json.JSONDecodeError, TypeError):
-                pass
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner=SCANNER_NAME,
+            asset=c["asset"],
+            direction=c["fade_direction"],
+            # Combined score floor 12, max ~24 (crowding 10 + exhaustion 10
+            # + slack). Normalize on 20 for headroom; cap at 1.0.
+            score=min(c["combined_score"] / 20.0, 1.0),
+            signal_type=SIGNAL_TYPE,
+            data=data_block,
+        )
         return True
-    except (subprocess.TimeoutExpired, OSError) as e:
-        cfg.log(f"ingest exception for {payload['asset']}: {e}")
+    except SenpiClientError as e:
+        print(f"INGEST_REJECTED {c['asset']} {c['fade_direction']}: {e}", file=sys.stderr)
+        return False
+    except Exception as e:  # noqa: BLE001 — transport / protocol surface
+        print(f"INGEST_EXCEPTION {c['asset']} {c['fade_direction']}: {type(e).__name__}: {e}", file=sys.stderr)
         return False
 
 
@@ -667,227 +648,244 @@ def push_signal(payload):
 # ═══════════════════════════════════════════════════════════════
 
 def main():
+    """Single tick. NO inner lock — producer_daemon owns scanner_lock."""
     run_start = time.time()
 
     # Fail loud if wallet not configured (Turbine v2.0.9 pattern).
-    if not OWL_WALLET:
+    if not STRATEGY_ADDRESS:
         cfg.output({
             "status": "error",
-            "error": "OWL_WALLET env var not set. Set it to the Owl strategy wallet (must match runtime.yaml).",
-            "_owl_producer_version": "7.1.0",
+            "error": "OWL_WALLET env var not set and config.wallet empty. Set OWL_WALLET to the Owl strategy wallet (must match runtime.yaml).",
+            "_owl_producer_version": VERSION,
         })
         return
 
-    lock = acquire_lock()
-    if lock is None:
-        print(json.dumps({
-            "status": "skip",
-            "reason": "previous run still active — cron reentrancy guard",
-            "_owl_producer_version": "7.1.0",
-        }))
+    # 1. Read account value for sizing + dynamic cap
+    account_value, pos_count = get_account_value()
+    if account_value is None or account_value <= 0:
+        cfg.output({
+            "status": "ok",
+            "note": "cannot read account value; skip tick",
+            "_owl_producer_version": VERSION,
+        })
         return
 
-    try:
-        # 1. Read account value for sizing + dynamic cap
-        account_value, pos_count = get_account_value()
-        if account_value is None or account_value <= 0:
-            cfg.output({
-                "status": "ok",
-                "note": "cannot read account value; skip tick",
-                "_owl_producer_version": "7.1.0",
-            })
-            return
+    # 2. Producer-side dynamic daily cap (defense-in-depth alongside runtime)
+    tc = load_trade_counter()
+    dyn_cap = get_dynamic_daily_cap(account_value, tc.get("realizedPnl", 0))
+    if tc.get("entries", 0) >= dyn_cap:
+        pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
+        cfg.output({
+            "status": "ok",
+            "note": f"dynamic cap reached: entries {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",
+            "_owl_producer_version": VERSION,
+        })
+        return
 
-        # 2. Producer-side dynamic daily cap (defense-in-depth alongside runtime)
-        tc = load_trade_counter()
-        dyn_cap = get_dynamic_daily_cap(account_value, tc.get("realizedPnl", 0))
-        if tc.get("entries", 0) >= dyn_cap:
-            pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
-            cfg.output({
-                "status": "ok",
-                "note": f"dynamic cap reached: entries {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",
-                "_owl_producer_version": "7.1.0",
-            })
-            return
+    # 3. Fetch universe + SM positioning map (one call each)
+    assets = fetch_all_assets()
+    if not assets:
+        cfg.output({
+            "status": "ok",
+            "note": "no assets passed OI floor; market_list_instruments may be unavailable",
+            "_owl_producer_version": VERSION,
+        })
+        return
 
-        # 3. Fetch universe + SM positioning map (one call each)
-        assets = fetch_all_assets()
-        if not assets:
-            cfg.output({
-                "status": "ok",
-                "note": "no assets passed OI floor; market_list_instruments may be unavailable",
-                "_owl_producer_version": "7.1.0",
-            })
-            return
+    sm_map, btc_p4h = fetch_sm_positioning_map()
 
-        sm_map, btc_p4h = fetch_sm_positioning_map()
+    # v7.1 — MACRO TREND GATE. Block fades when BTC's 4h move is
+    # extreme. Mean reversion thesis structurally fails in trending
+    # regimes — alts that look "crowded and exhausting" during macro
+    # trend moves are usually consolidating before continuation.
+    if abs(btc_p4h) > MACRO_GATE_BTC_4H_PCT:
+        cfg.output({
+            "status": "ok",
+            "totalAssets": len(assets),
+            "smCovered": len(sm_map),
+            "note": (
+                f"MACRO_GATE — BTC 4h {btc_p4h:+.2f}% > "
+                f"{MACRO_GATE_BTC_4H_PCT}% threshold; fades unsafe in trending regime"
+            ),
+            "btc_p4h": btc_p4h,
+            "_owl_producer_version": VERSION,
+        })
+        return
 
-        # v7.1 — MACRO TREND GATE. Block fades when BTC's 4h move is
-        # extreme. Mean reversion thesis structurally fails in trending
-        # regimes — alts that look "crowded and exhausting" during macro
-        # trend moves are usually consolidating before continuation.
-        if abs(btc_p4h) > MACRO_GATE_BTC_4H_PCT:
-            cfg.output({
-                "status": "ok",
-                "totalAssets": len(assets),
-                "smCovered": len(sm_map),
-                "note": (
-                    f"MACRO_GATE — BTC 4h {btc_p4h:+.2f}% > "
-                    f"{MACRO_GATE_BTC_4H_PCT}% threshold; fades unsafe in trending regime"
-                ),
-                "btc_p4h": btc_p4h,
-                "_owl_producer_version": "7.1.0",
-            })
-            return
+    # 4. Score crowding for each asset, update persistence history
+    history = load_crowding_history()
+    crowding_results = []
 
-        # 4. Score crowding for each asset, update persistence history
-        history = load_crowding_history()
-        crowding_results = []
+    for asset in assets:
+        coin = asset["coin"]
+        sm_long_pct, sm_count = sm_map.get(coin, (50, 0))
+        crowd_score, crowd_direction, details = score_crowding(
+            asset, sm_long_pct, sm_count
+        )
 
-        for asset in assets:
-            coin = asset["coin"]
-            sm_long_pct, sm_count = sm_map.get(coin, (50, 0))
-            crowd_score, crowd_direction, details = score_crowding(
-                asset, sm_long_pct, sm_count
-            )
-
-            if crowd_score >= MIN_CROWDING_SCORE and crowd_direction:
-                # Above threshold — start/continue persistence timer
-                persisted, hours, peak = check_persistence(history, coin, crowd_score)
-                crowding_results.append({
-                    "asset": coin,
-                    "crowd_score": crowd_score,
-                    "crowd_direction": crowd_direction,
-                    "details": details,
-                    "asset_data": asset,
-                    "sm_long_pct": sm_long_pct,
-                    "sm_tilt": abs(sm_long_pct - 50),
-                    "persisted": persisted,
-                    "hours": hours,
-                    "peak_score": peak,
-                })
-            else:
-                # Below threshold — mark and possibly clear
-                if mark_below_threshold(history, coin):
-                    clear_persistence(history, coin)
-
-        # Persist history immediately (always, regardless of signal emission)
-        save_crowding_history(history)
-
-        # 5. Filter to persisted candidates only
-        persisted = [c for c in crowding_results if c["persisted"]]
-
-        if not persisted:
-            cfg.output({
-                "status": "ok",
-                "totalAssets": len(assets),
-                "smCovered": len(sm_map),
-                "crowding_above_floor": len(crowding_results),
-                "persisted": 0,
-                "note": "no assets have persisted >=1h above crowding floor",
-                "_owl_producer_version": "7.1.0",
-            })
-            return
-
-        # 6. Detect exhaustion only for persisted candidates (saves MCP calls)
-        candidates = []
-        for c in persisted:
-            asset = c["asset_data"]
-            coin = c["asset"]
-            crowd_dir = c["crowd_direction"]
-
-            ex_score, ex_signals, p4h, rsi = detect_exhaustion(coin, crowd_dir)
-            if ex_score < MIN_EXHAUSTION_SCORE or len(ex_signals) < MIN_EXHAUSTION_SIGNALS:
-                continue
-
-            combined = c["crowd_score"] + ex_score
-            if combined < MIN_COMBINED_SCORE:
-                continue
-
-            # Per-asset cooldown check (defense-in-depth)
-            if is_asset_cooled_down(coin):
-                continue
-
-            funding = asset["funding"]
-            funding_ann = abs(funding) * 8760
-            fade_direction = "SHORT" if crowd_dir == "LONG" else "LONG"
-
-            reasons = list(c["details"]) + ex_signals + [f"persistence_{c['hours']:.1f}h"]
-
-            candidates.append({
+        if crowd_score >= MIN_CROWDING_SCORE and crowd_direction:
+            # Above threshold — start/continue persistence timer
+            persisted, hours, peak = check_persistence(history, coin, crowd_score)
+            crowding_results.append({
                 "asset": coin,
-                "crowd_direction": crowd_dir,
-                "fade_direction": fade_direction,
-                "crowding_score": c["crowd_score"],
-                "exhaustion_score": ex_score,
-                "combined_score": combined,
-                "persistence_hours": c["hours"],
-                "peak_crowding_score": c["peak_score"],
-                "funding_ann": funding_ann,
-                "sm_long_pct": c["sm_long_pct"],
-                "sm_tilt": c["sm_tilt"],
-                "oi_usd": asset["oi_usd"],
-                "price_chg_4h": p4h,
-                "rsi": rsi,
-                "exhaustion_signals": ex_signals,
-                "reasons": reasons,
+                "crowd_score": crowd_score,
+                "crowd_direction": crowd_direction,
+                "details": details,
+                "asset_data": asset,
+                "sm_long_pct": sm_long_pct,
+                "sm_tilt": abs(sm_long_pct - 50),
+                "persisted": persisted,
+                "hours": hours,
+                "peak_score": peak,
             })
+        else:
+            # Below threshold — mark and possibly clear
+            if mark_below_threshold(history, coin):
+                clear_persistence(history, coin)
 
-        candidates.sort(key=lambda c: c["combined_score"], reverse=True)
+    # Persist history immediately (always, regardless of signal emission)
+    save_crowding_history(history)
 
-        if not candidates:
-            cfg.output({
-                "status": "ok",
-                "totalAssets": len(assets),
-                "persisted": len(persisted),
-                "candidates": 0,
-                "note": "persisted but no exhaustion confluence",
-                "_owl_producer_version": "7.1.0",
-            })
-            return
+    # 5. Filter to persisted candidates only
+    persisted = [c for c in crowding_results if c["persisted"]]
 
-        # 7. Compute sizing + emit top candidate (conservative, like Pangolin)
-        margin_usd = round(account_value * MARGIN_PCT, 2)
-        pushed = 0
-        for c in candidates[:1]:
-            leverage = get_leverage_for_score(c["combined_score"])
-            payload = build_signal_payload(c, leverage, margin_usd)
-            if push_signal(payload):
-                pushed += 1
-                mark_asset_emitted(c["asset"])
-                tc["entries"] = tc.get("entries", 0) + 1
-                save_trade_counter(tc)
-
+    if not persisted:
         elapsed = time.time() - run_start
-        warn = "WARN_OVER_900S" if elapsed > 900 else None  # 15min cron
         cfg.output({
             "status": "ok",
             "totalAssets": len(assets),
             "smCovered": len(sm_map),
             "crowding_above_floor": len(crowding_results),
-            "persisted": len(persisted),
-            "candidates": len(candidates),
-            "signals_pushed": pushed,
-            "emitted_asset": candidates[0]["asset"] if pushed else None,
-            "emitted_score": candidates[0]["combined_score"] if pushed else None,
-            "emitted_leverage": get_leverage_for_score(candidates[0]["combined_score"]) if pushed else None,
-            "account_value": round(account_value, 2),
-            "open_positions": pos_count,
-            "dynamic_cap": dyn_cap,
-            "entries_today": tc.get("entries", 0),
+            "persisted": 0,
+            "scanned": len(assets),
+            "candidates": 0,
+            "signals_pushed": 0,
+            "min_score": MIN_COMBINED_SCORE,
+            "note": "no assets have persisted >=1h above crowding floor",
             "elapsed_sec": round(elapsed, 2),
-            "warn": warn,
-            "_owl_producer_version": "7.1.0",
+            "_owl_producer_version": VERSION,
         })
-    finally:
-        release_lock(lock)
+        return
+
+    # 6. Detect exhaustion only for persisted candidates (saves MCP calls)
+    candidates = []
+    for c in persisted:
+        asset = c["asset_data"]
+        coin = c["asset"]
+        crowd_dir = c["crowd_direction"]
+
+        ex_score, ex_signals, p4h, rsi = detect_exhaustion(coin, crowd_dir)
+        if ex_score < MIN_EXHAUSTION_SCORE or len(ex_signals) < MIN_EXHAUSTION_SIGNALS:
+            continue
+
+        combined = c["crowd_score"] + ex_score
+        if combined < MIN_COMBINED_SCORE:
+            continue
+
+        # Per-asset cooldown check (defense-in-depth)
+        if is_asset_cooled_down(coin):
+            continue
+
+        funding = asset["funding"]
+        funding_ann = abs(funding) * 8760
+        fade_direction = "SHORT" if crowd_dir == "LONG" else "LONG"
+
+        reasons = list(c["details"]) + ex_signals + [f"persistence_{c['hours']:.1f}h"]
+
+        candidates.append({
+            "asset": coin,
+            "crowd_direction": crowd_dir,
+            "fade_direction": fade_direction,
+            "crowding_score": c["crowd_score"],
+            "exhaustion_score": ex_score,
+            "combined_score": combined,
+            "persistence_hours": c["hours"],
+            "peak_crowding_score": c["peak_score"],
+            "funding_ann": funding_ann,
+            "sm_long_pct": c["sm_long_pct"],
+            "sm_tilt": c["sm_tilt"],
+            "oi_usd": asset["oi_usd"],
+            "price_chg_4h": p4h,
+            "rsi": rsi,
+            "exhaustion_signals": ex_signals,
+            "reasons": reasons,
+        })
+
+    candidates.sort(key=lambda c: c["combined_score"], reverse=True)
+
+    if not candidates:
+        elapsed = time.time() - run_start
+        cfg.output({
+            "status": "ok",
+            "totalAssets": len(assets),
+            "persisted": len(persisted),
+            "scanned": len(assets),
+            "candidates": 0,
+            "signals_pushed": 0,
+            "min_score": MIN_COMBINED_SCORE,
+            "note": "persisted but no exhaustion confluence",
+            "elapsed_sec": round(elapsed, 2),
+            "_owl_producer_version": VERSION,
+        })
+        return
+
+    # 7. Compute sizing + emit top candidate
+    held_assets = fetch_held_assets()
+    margin_usd = round(account_value * MARGIN_PCT, 2)
+
+    pushed = 0
+    emitted_asset = None
+    emitted_score = None
+    emitted_leverage = None
+    for c in candidates[:1]:
+        leverage = get_leverage_for_score(c["combined_score"])
+        if push_signal(c, leverage, margin_usd, held_assets):
+            pushed += 1
+            emitted_asset = c["asset"]
+            emitted_score = c["combined_score"]
+            emitted_leverage = leverage
+            mark_asset_emitted(c["asset"])
+            tc["entries"] = tc.get("entries", 0) + 1
+            save_trade_counter(tc)
+
+    elapsed = time.time() - run_start
+    cfg.output({
+        "status": "ok",
+        "scanned": len(assets),
+        "candidates": len(candidates),
+        "signals_pushed": pushed,
+        "min_score": MIN_COMBINED_SCORE,
+        "totalAssets": len(assets),
+        "smCovered": len(sm_map),
+        "crowding_above_floor": len(crowding_results),
+        "persisted": len(persisted),
+        "emitted_asset": emitted_asset,
+        "emitted_score": emitted_score,
+        "emitted_leverage": emitted_leverage,
+        "account_value": round(account_value, 2),
+        "open_positions": pos_count,
+        "dynamic_cap": dyn_cap,
+        "entries_today": tc.get("entries", 0),
+        "btc_p4h": btc_p4h,
+        "elapsed_sec": round(elapsed, 2),
+        "_owl_producer_version": VERSION,
+    })
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except Exception as e:
-        cfg.log(f"CRITICAL ERROR: {e}")
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        cfg.output({"status": "error", "error": str(e)})
+    # v8.0.0 — long-lived daemon. Replaces openclaw cron + agentTurn.
+    # producer_daemon owns the per-tick scanner_lock with stale-PID
+    # auto-recovery. 15-minute cadence preserved from v6/v7.
+    _wallet_lock_id = (
+        hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
+        if STRATEGY_ADDRESS
+        else "unset"
+    )
+    producer_daemon(
+        fn=main,
+        interval_seconds=900,                  # 15min — preserved v6/v7 cadence
+        name=f"owl-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
+        tick_timeout=600,                      # Owl can do many MCP calls per tick
+    )
