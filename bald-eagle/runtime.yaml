@@ -1,27 +1,59 @@
 name: eagle-tracker
-version: 1.0.1
+version: 1.0.0
 description: >
-  BALD EAGLE v4.1 — XYZ Contrarian (resting-order guard hot-patch).
-  v4.1 (2026-05-05): adds has_resting_orders() with 600s stale-cancel
-  auto-purge. 2026-05-05 audit found a 4-day-old xyz:XYZ100 BUY ALO
-  (oid 406936191678) locking ~$335 of ISOLATED collateral; Bald Eagle
-  was the only v1 agent missing the fleet-standard guard. Now ported
-  from Lemon/Cheetah pattern. Coincides with Erik's XYZ DSL prefix
-  fix deploy 2026-05-05; current open xyz:BRENTOIL position is the
-  ratchet test post-fix.
-
-  v4.0 — CONTRARIAN FLIP (SM Exhaustion Fader on XYZ macro assets).
-  Onchain position tracker. Scanner enters; RatchetStop exits.
-  XYZ-tuned wide DSL timings for macro assets (oil/brent/gold/spx/xyz100).
+  BALD EAGLE v5.0.0 — XYZ Contrarian Fader, helpers-native rewrite.
+  Plumbing-only migration from v4.1. NO thesis change. Counter-trade SM
+  consensus on 6 high-liquidity XYZ macro assets (CL, BRENTOIL, GOLD,
+  SILVER, SP500, XYZ100) when SM is overcrowded + 4h move is exhausting.
+  Conviction-scaled leverage (5x/7x by score; XYZ caps lower than crypto).
+  Wide DSL gives macro reversals hours, not minutes, to develop.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
+  slots: 2
+  margin_per_slot: 250
+  trading_risk: moderate
   enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 4
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 120
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 360
 
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: eagle_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        smDirection: { type: string, required: false }
+        fadeDirection: { type: string, required: false }
+        smPct: { type: number, required: false }
+        smTraders: { type: number, required: false }
+        priceChg4hPct: { type: number, required: false }
+        priceChg1hPct: { type: number, required: false }
+        contribChg1hPct: { type: number, required: false }
+        contribChg4hPct: { type: number, required: false }
+        fundingAnnualizedPct: { type: number, required: false }
+        spreadPct: { type: number, required: false }
+        reasons: { type: array, required: false }
+        heldAssets: { type: array, required: false }
 
 actions:
   - name: position_tracker_action
@@ -29,15 +61,81 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# RatchetStop configuration (user-facing: DSL)
-# Scanner enters. RatchetStop exits. Scanner must NEVER exit positions.
-# XYZ assets are macro-driven — need hours to play out, not minutes.
+  - name: eagle_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${EAGLE_DECISION_MODEL}"
+    scanners: [eagle_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: eagle_signals
+    decision_prompt: |
+      You are Bald Eagle's pass-through gate. The producer has applied
+      every filter (XYZ-only universe, MIN_SCORE 8, SM concentration +
+      trader-depth, contribution velocity, 4h move-exhaustion, 1h
+      momentum, 4h trend structure, volume trend, funding alignment,
+      spread <0.1%). The signal's `direction` is the FADE direction
+      (opposite of SM consensus).
+
+      SIGNAL:
+      {{signal_eagle_signals}}
+
+      ## STRICT OUTPUT RULES
+
+      1. `asset` MUST be copied EXACTLY from signal.asset (always has
+         "xyz:" prefix).
+      2. `direction` MUST match signal.direction (the FADE direction —
+         opposite of signal.data.smDirection).
+      3. `leverage` from signal.data.leverage exactly (5 or 7).
+      4. `marginUsd` from signal.data.marginUsd exactly.
+
+      ## HARD SKIPS
+
+      - score < 8 (contrarian threshold)
+      - leverage <= 0 OR marginUsd <= 0
+      - heldAssets contains this asset
+
+      Minimum confidence to execute is 7. Honor unless structurally broken.
+      Contrarian fades on macro assets often wait — entries can be MAKER.
+
+      ## OUTPUT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing score + smPct + priceChg4hPct + contrib velocity",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "EAGLE_FADE ASSET DIR"
+            }
+          ]
+        }
+      }
+
+# RatchetStop / DSL exit — XYZ-tuned wide timings preserved verbatim
+# from v4.1. Oil/commodities move slowly (1-3% 4h vs crypto 3-5%).
+# Exits use FEE_OPTIMIZED_LIMIT taker (60s) — exits need to fill.
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
   dsl_preset:
-    # Time-based exits — XYZ-tuned wide timings
-    # Oil/commodities move slowly — 45min kills every trade
+    # Time-based exits — wide for macro assets
     hard_timeout:
       enabled: true
       interval_in_minutes: 480
@@ -56,12 +154,11 @@ exit:
       retrace_threshold: 12
       consecutive_breaches_required: 1
 
-    # Phase 2: RatchetStop profit trailing
-    # Wide early for macro consolidation, tight late to protect
+    # Phase 2: RatchetStop ladder — preserved verbatim from v4.1
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 5, lock_hw_pct: 0 }
+        - { trigger_pct: 5,  lock_hw_pct: 0  }
         - { trigger_pct: 10, lock_hw_pct: 20 }
         - { trigger_pct: 20, lock_hw_pct: 35 }
         - { trigger_pct: 30, lock_hw_pct: 50 }
@@ -70,3 +167,6 @@ exit:
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
