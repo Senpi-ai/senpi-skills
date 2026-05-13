@@ -1,6 +1,6 @@
 # Producer Patterns — Scanner Archetypes Catalog
 
-The active fleet of trading agents on Senpi implements roughly a dozen distinct producer/scanner archetypes. This doc catalogs them so you can pick a starting pattern when building your own strategy, and points at a working living example for each.
+The active fleet of trading agents on Senpi implements roughly a dozen distinct producer/scanner archetypes. This doc catalogs them so you can pick a starting pattern when building your own strategy.
 
 Every active fleet agent's producer is built on the `senpi_runtime_helpers` SDK (`SenpiClient`, `producer_daemon`, `push_signal`). What differs between agents is **which MCP tools they call**, **how they score signals**, and **what scoring archetype they implement**. Pick the archetype that matches the kind of market regime you want to hunt, then copy the structure from the named example agent.
 
@@ -8,18 +8,47 @@ Every active fleet agent's producer is built on the `senpi_runtime_helpers` SDK 
 
 ## How to use this catalog
 
-### Picking a starting pattern
+You typically won't have the example agent's repo cloned locally when you're building your own strategy. Each pattern below includes:
 
-1. **Identify what kind of signal you want to detect.** Are you scanning a universe of assets, hunting one asset deeply, following specific traders, fading crowded positions, or detecting laggards across asset relationships? Match your goal to the archetype below.
-2. **Open the example agent's producer file** at `<example-agent>/scripts/<agent>-producer.py`. That's a working, audit-verified implementation of the pattern.
+1. **An inline code snippet** showing the producer-signature MCP call(s) and the `push_signal` pattern. This is enough to copy-paste into your own producer.
+2. **Direct GitHub URLs** to the example agent's three working files — fetch each with `curl` or `WebFetch`. Every agent on `main` has the same three-file layout:
+
+```bash
+# 1. The producer script (long-lived daemon, scoring loop, push_signal calls)
+curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<example-agent>/scripts/<agent>-producer.py
+
+# 2. The config/wrapper module (SDK probe + lazy SenpiClient + mcporter_call shim — required by every producer)
+curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<example-agent>/scripts/<agent>_config.py
+
+# 3. The runtime YAML (LLM decision gate, DSL preset, risk.guard_rails)
+curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<example-agent>/runtime.yaml
+```
+
+Every active fleet agent is on the `main` branch — no other branch matters.
+
+### About `cfg.mcporter_call(...)` and `cfg._wrapper_client.push_signal(...)` in the snippets below
+
+The snippets show calls like `cfg.mcporter_call("market_get_asset_data", ...)` and `cfg._wrapper_client.push_signal(...)`. Here's what they mean:
+
+- `cfg` is the shared config module imported at the top of every producer: `import <agent>_config as cfg`. The file is `scripts/<agent>_config.py` (fetch URL #2 above).
+- `cfg.mcporter_call(tool, **kwargs)` is a thin wrapper around `senpi_runtime_helpers.SenpiClient.mcp_call()` that adds retry + timeout + JSON unwrap. Use it for all MCP reads.
+- `cfg._wrapper_client` is the lazy-initialized `SenpiClient` instance exposed as a proxy — call `cfg._wrapper_client.push_signal(...)` to emit signals to the runtime, and `cfg._wrapper_client.mcp_call(tool, ...)` for any MCP call you want raw (no retry wrapper).
+- The leading underscore on `_wrapper_client` is a convention, not "private — don't touch." Every active fleet producer uses it.
+
+If you copy any fleet agent's `_config.py` verbatim into your new strategy directory, all of this works without changes — you just rename the agent string.
+
+### Building your own strategy from a pattern
+
+1. **Pick an archetype below** that matches your market thesis.
+2. **Fetch the example agent's producer + runtime.yaml** via the URLs in that pattern's section.
 3. **Copy the structure**, then swap the parts that are strategy-specific:
-   - The MCP calls that pull market data (keep the same archetype-defining ones)
-   - The scoring logic (your thesis)
-   - The thresholds (your conviction tiers)
-   - The asset universe (one asset / whitelist / top-N / XYZ)
-   - The tick interval (`producer_daemon(interval_seconds=N, ...)`)
-4. **Match the example's `runtime.yaml` structure** for the LLM decision gate, DSL preset, and risk.guard_rails. Tune values, don't rewrite the structure.
-5. **Verify on-chain** after launch by audit-querying the producer-signature MCP call(s) listed in this doc — that's the easiest way to confirm your producer is firing.
+   - Keep the archetype-defining MCP calls (those are what make the pattern work)
+   - Replace the scoring logic with your thesis
+   - Tune the thresholds for your conviction tiers
+   - Adjust the asset universe (one asset / whitelist / top-N / XYZ)
+   - Tune the tick interval (`producer_daemon(interval_seconds=N, ...)`)
+4. **Adjust the `runtime.yaml`** to match: LLM decision_prompt, DSL preset, risk.guard_rails.
+5. **Verify on-chain** after launch by audit-querying the producer-signature MCP call from this doc.
 
 ### What you don't need to write yourself
 
@@ -40,15 +69,45 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 ### 1. Universe trend-follower
 
-**Thesis:** Scan top-N HL assets each tick, score on SM consensus + multi-TF alignment, fire entries when conviction tier is hit. Hunts coordinated risk-on / risk-off moves across crypto majors.
+**Thesis:** Scan top-N HL assets each tick, score on SM consensus + multi-timeframe alignment, fire entries when conviction tier is hit. Hunts coordinated risk-on / risk-off moves across crypto majors.
+
+**Distinctive MCP signature:**
+
+```python
+# Pull the SM-ranked universe once per tick
+markets = cfg.mcporter_call("leaderboard_get_markets", limit=50)
+
+# For each candidate, pull multi-TF candles
+for asset in candidates:
+    ad = cfg.mcporter_call(
+        "market_get_asset_data",
+        asset=asset,
+        candle_intervals=["15m", "1h", "4h"],
+        include_funding=True,
+    )
+    # ... score ...
+
+# Push the strongest signal
+cfg._wrapper_client.push_signal(
+    address=STRATEGY_ADDRESS,
+    scanner="<agent>_signals",
+    asset=best_asset,
+    direction=best_direction,
+    score=normalized_score,
+    signal_type="<AGENT>_UNIVERSE_TREND",
+    data={"leverage": leverage, "marginUsd": margin, "score": raw_score, "reasons": reasons},
+)
+```
 
 | | |
 |---|---|
-| Primary MCP tools | `leaderboard_get_markets` (universe pull), `market_get_asset_data` (per-candidate scoring) |
 | Producer-signature for fleet audit | `leaderboard_get_markets` every tick |
 | Typical tick interval | 180s (3 min) |
 | Typical risk envelope | top 50 HL assets, `max_entries_per_day` 1–3, conviction-tier leverage |
-| Example agent | Condor — see `condor/scripts/condor-producer.py` |
+| Example agent | **Condor** |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/scripts/condor-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/scripts/condor_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/runtime.yaml |
 
 **When to use this pattern:** You want broad market coverage and entries when multiple confirmations align across timeframes. Best for trend-continuation theses.
 
@@ -58,13 +117,50 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 **Thesis:** One asset, six-gate entry validation, tight scoring, conviction-tiered leverage. Hunts the specific behavior of a single asset (BTC, ETH, SOL, HYPE) with thresholds tuned to that asset's volatility and liquidity.
 
+**Distinctive MCP signature:**
+
+```python
+ASSET = "HYPE"  # or "BTC" / "ETH" / "SOL" — pick one and only one
+
+# One call per tick — pulls all candles + funding for this asset
+ad = cfg.mcporter_call(
+    "market_get_asset_data",
+    asset=ASSET,
+    candle_intervals=["5m", "15m", "1h", "4h"],
+    include_funding=True,
+    include_order_book=False,
+)
+
+# Six-gate validation (preserve verbatim from example agent)
+# Score, then emit if all gates pass
+cfg._wrapper_client.push_signal(
+    address=STRATEGY_ADDRESS,
+    scanner="<agent>_signals",
+    asset=ASSET,
+    direction=direction,
+    score=normalized_score,
+    signal_type="<AGENT>_ALPHA_HUNT",
+    data={"leverage": leverage_tier, "marginUsd": margin, "score": raw, "reasons": gates_passed},
+)
+```
+
 | | |
 |---|---|
-| Primary MCP tools | `market_get_asset_data` for the target asset (called once per tick with multi-timeframe candles) |
-| Producer-signature for fleet audit | `market_get_asset_data` every tick |
+| Producer-signature for fleet audit | `market_get_asset_data` every tick (single asset) |
 | Typical tick interval | 180s (3 min) |
 | Typical risk envelope | single asset, `slots: 1`, `max_entries_per_day` 1–3, leverage 7x–10x |
-| Example agent | Wolverine (HYPE) — see `wolverine/scripts/wolverine-producer.py`. Also Polar (ETH), Grizzly (BTC), Kodiak (SOL) — all share the same family pattern. |
+| Six-gate validation | The Kodiak-family scoring core is a six-gate filter that EVERY producer in this family preserves verbatim: (1) 4h trend != NEUTRAL, (2) 4h structural strength ≥ threshold, (3) 1h matches 4h, (4) 15m momentum aligned, (5) base-tech floor, (6) macro V-recovery gate. The exact thresholds vary per asset. **Fetch the example producer for your target asset** — those gates are the archetype, not optional. |
+
+**Example agents — one per asset.** Pick the one whose asset matches yours and fetch all three URLs:
+
+| Asset | Agent | producer.py | _config.py | runtime.yaml |
+|---|---|---|---|---|
+| **HYPE** | Wolverine | [wolverine-producer.py](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/scripts/wolverine-producer.py) | [wolverine_config.py](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/scripts/wolverine_config.py) | [runtime.yaml](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/wolverine/runtime.yaml) |
+| **BTC** | Grizzly | [grizzly-producer.py](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/scripts/grizzly-producer.py) | [grizzly_config.py](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/scripts/grizzly_config.py) | [runtime.yaml](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/grizzly/runtime.yaml) |
+| **ETH** | Polar | [polar-producer.py](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/polar/scripts/polar-producer.py) | [polar_config.py](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/polar/scripts/polar_config.py) | [runtime.yaml](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/polar/runtime.yaml) |
+| **SOL** | Kodiak | [kodiak-producer.py](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/kodiak/scripts/kodiak-producer.py) | [kodiak_config.py](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/kodiak/scripts/kodiak_config.py) | [runtime.yaml](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/kodiak/runtime.yaml) |
+
+If your target asset is one of these four, use that example directly. If your target asset is something else (e.g. a different crypto major not in this family), pick the closest behavioral match — typically BTC (Grizzly) for slow assets or HYPE (Wolverine) for fast volatile ones.
 
 **When to use this pattern:** You have a thesis specific to one asset and want to tune scoring + DSL preset for that asset's behavior.
 
@@ -74,13 +170,39 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 **Thesis:** Same as Kodiak family but on a non-crypto asset (oil, metals, indices) on Hyperliquid's XYZ DEX. Slower cadence + wider DSL preset because XYZ assets move differently from crypto.
 
+**Distinctive MCP signature:**
+
+```python
+# Use XYZ-prefixed asset string
+ASSET = "xyz:BRENTOIL"  # or xyz:GOLD / xyz:SILVER / xyz:SP500 / xyz:XYZ100 / xyz:CL
+
+ad = cfg.mcporter_call(
+    "market_get_asset_data",
+    asset=ASSET,
+    candle_intervals=["15m", "1h", "4h"],
+    include_funding=True,
+)
+
+cfg._wrapper_client.push_signal(
+    address=STRATEGY_ADDRESS,
+    scanner="<agent>_signals",
+    asset=ASSET,  # asset string must keep the xyz: prefix
+    direction=direction,
+    score=normalized_score,
+    signal_type="<AGENT>_XYZ_SPECIALIST",
+    data={"leverage": leverage, "marginUsd": margin},
+)
+```
+
 | | |
 |---|---|
-| Primary MCP tools | `market_get_asset_data` with `asset="xyz:BRENTOIL"` (or similar XYZ-prefixed asset) |
-| Producer-signature for fleet audit | `market_get_asset_data` every tick |
+| Producer-signature for fleet audit | `market_get_asset_data` every tick (single XYZ asset) |
 | Typical tick interval | 180s |
 | Typical risk envelope | single XYZ asset, tighter `drawdown_halt_pct` (tail risk on commodities), wider DSL phase1 |
-| Example agent | Dire (BRENTOIL) — see `dire/scripts/dire-producer.py` |
+| Example agent | **Dire** (BRENTOIL) |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dire/scripts/dire-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dire/scripts/dire_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/dire/runtime.yaml |
 
 **When to use this pattern:** You want to trade oil, gold, silver, equities indices, etc. via Hyperliquid XYZ. Inherits Kodiak family structure but with XYZ-tuned DSL and risk.
 
@@ -90,13 +212,44 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 **Thesis:** Iterate over a strict whitelist of crypto majors (e.g. BTC/ETH/SOL), score each asset, fire on the best-scoring one. Tighter universe than universe trend-followers — more discipline, less noise.
 
+**Distinctive MCP signature:**
+
+```python
+WHITELIST = ["BTC", "ETH", "SOL"]  # strict subset — pick 3-6 majors
+
+best_candidate = None
+for asset in WHITELIST:
+    ad = cfg.mcporter_call(
+        "market_get_asset_data",
+        asset=asset,
+        candle_intervals=["15m", "1h", "4h"],
+        include_funding=True,
+    )
+    score, reasons = score_asset(ad)
+    if score >= MIN_SCORE and (best_candidate is None or score > best_candidate["score"]):
+        best_candidate = {"asset": asset, "score": score, ...}
+
+if best_candidate:
+    cfg._wrapper_client.push_signal(
+        address=STRATEGY_ADDRESS,
+        scanner="<agent>_signals",
+        asset=best_candidate["asset"],
+        direction=best_candidate["direction"],
+        score=best_candidate["score"],
+        signal_type="<AGENT>_WHITELIST",
+        data={"leverage": leverage, "marginUsd": margin},
+    )
+```
+
 | | |
 |---|---|
-| Primary MCP tools | `market_get_asset_data` looped over each whitelisted asset |
 | Producer-signature for fleet audit | `market_get_asset_data` (multiple calls per tick — one per whitelisted asset) |
 | Typical tick interval | 300s (5 min) |
 | Typical risk envelope | 3–6 whitelisted assets, conviction-tier leverage, `max_entries_per_day` 1–3 |
-| Example agent | Bison (BTC/ETH/SOL) — see `bison/scripts/bison-producer.py` |
+| Example agent | **Bison** (BTC/ETH/SOL) |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/bison/scripts/bison-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/bison/scripts/bison_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/bison/runtime.yaml |
 
 **When to use this pattern:** You believe most crypto noise comes from low-cap alts and want to restrict to majors only. Or your thesis is specific to a small known set of assets.
 
@@ -106,13 +259,50 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 **Thesis:** Pull ELITE/RELIABLE traders winning recently, identify their strongest current position, follow it. Hunts coat-tail alpha from quality traders.
 
+**Distinctive MCP signature:**
+
+```python
+# Refresh trader pool once per 24h (cache on disk)
+if cache_stale_or_empty():
+    pool = cfg.mcporter_call(
+        "discovery_get_top_traders",
+        time_frame="MONTHLY",
+        sort_by="RETURN_ON_INVESTMENT",
+        limit=60,
+    )
+
+# Per tick: pull live state of every cached trader
+trader_addresses = [t["wallet"] for t in pool]
+states = cfg.mcporter_call("discovery_get_trader_state", trader_addresses=trader_addresses)
+
+# Find whoever has the highest-conviction current position
+# Apply SM-alignment + entry-discipline + per-trader dedupe gates
+cfg._wrapper_client.push_signal(
+    address=STRATEGY_ADDRESS,
+    scanner="<agent>_signals",
+    asset=best_position["asset"],
+    direction=best_position["direction"],  # whale's direction
+    score=normalized_score,
+    signal_type="<AGENT>_HOT_STREAK",
+    data={
+        "leverage": leverage,
+        "marginUsd": margin,
+        "traderId": best_position["wallet"],
+        "tcs": best_position["tcs"],
+        "concentration": best_position["concentration"],
+    },
+)
+```
+
 | | |
 |---|---|
-| Primary MCP tools | `discovery_get_top_traders` (cached for 24h), `discovery_get_trader_state` (every tick), `leaderboard_get_markets` (SM confirmation) |
 | Producer-signature for fleet audit | `discovery_get_trader_state` every tick (the cached `discovery_get_top_traders` fires only on cache miss) |
 | Typical tick interval | 60–180s |
 | Typical risk envelope | conviction-tier leverage based on trader quality + position size, whale entry-discipline gate, per-trader event dedupe |
-| Example agent | Raptor — see `raptor/scripts/raptor-producer.py` |
+| Example agent | **Raptor** |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/raptor/scripts/raptor-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/raptor/scripts/raptor_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/raptor/runtime.yaml |
 
 **When to use this pattern:** You believe selecting alpha-generating traders and copying them produces better risk-adjusted returns than pure technical scanning.
 
@@ -122,13 +312,50 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 **Thesis:** Detect when an asset jumps the SM-leaderboard ranks aggressively (10+ positions in one tick from #25+). Catches first-jump events before they become crowded top-3 plays. "One amazing trade per day" cadence.
 
+**Distinctive MCP signature:**
+
+```python
+# Pull current ranks
+markets = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+
+# Compare to previous tick (state file: rank-history.json)
+prev_ranks = load_rank_history()
+current_ranks = {m["asset"]: m["rank"] for m in markets}
+
+jumpers = []
+for asset, current_rank in current_ranks.items():
+    prev_rank = prev_ranks.get(asset)
+    if prev_rank is None or prev_rank < 25:
+        continue  # only track jumps from quiet ranks
+    jump = prev_rank - current_rank
+    if jump >= 10:
+        jumpers.append({"asset": asset, "jump": jump, "current_rank": current_rank})
+
+# Pick the highest-quality jumper (quality gates: $3M+ day notional, trader_count >= 50)
+if jumpers:
+    best = pick_best_jumper(jumpers)
+    cfg._wrapper_client.push_signal(
+        address=STRATEGY_ADDRESS,
+        scanner="<agent>_signals",
+        asset=best["asset"],
+        direction=best["direction"],
+        score=normalized_score,
+        signal_type="<AGENT>_STRIKER",
+        data={"leverage": leverage, "marginUsd": margin, "rankJump": best["jump"]},
+    )
+
+save_rank_history(current_ranks)
+```
+
 | | |
 |---|---|
-| Primary MCP tools | `leaderboard_get_markets` + delta tracking (rank-history in producer state) |
 | Producer-signature for fleet audit | `leaderboard_get_markets` every tick |
 | Typical tick interval | 180s |
 | Typical risk envelope | top 50 HL assets with $3M+ day notional, `max_entries_per_day` 1, conviction-tier leverage |
-| Example agent | Jaguar — see `jaguar/scripts/jaguar-producer.py` |
+| Example agent | **Jaguar** |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/scripts/jaguar-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/scripts/jaguar_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/runtime.yaml |
 
 **When to use this pattern:** You want to catch the inflection point when SM interest starts spiking on a previously-quiet asset. Fewer trades per day, higher conviction per trade.
 
@@ -138,13 +365,39 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 **Thesis:** Detect when funding has been persistently extreme for hours (crowded one direction), then fade the crowd at exhaustion. Combines funding extremity + SM positioning + cooldowns.
 
+**Distinctive MCP signature:**
+
+```python
+# Pull universe + funding regime
+markets = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+regime = cfg.mcporter_call("market_get_funding_regime")
+
+# For each candidate, check funding history (persistence over hours)
+for asset in candidates:
+    funding_hist = cfg.mcporter_call("market_get_funding_history", asset=asset)
+    if funding_persistently_extreme(funding_hist) and exhaustion_signals_fire(asset):
+        # Fade the crowd (signal direction is OPPOSITE of funding direction)
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner="<agent>_signals",
+            asset=asset,
+            direction=fade_direction,
+            score=normalized_score,
+            signal_type="<AGENT>_FUNDING_FADE",
+            data={"leverage": leverage, "marginUsd": margin, "fundingAnn": fr_annualized},
+        )
+        break  # one trade per tick max
+```
+
 | | |
 |---|---|
-| Primary MCP tools | `market_get_funding_regime`, `market_get_funding_history` (per asset), `leaderboard_get_markets` (SM context), `market_list_instruments` (universe) |
 | Producer-signature for fleet audit | `market_get_funding_regime` every tick |
 | Typical tick interval | 300s (5 min — funding doesn't change that fast) |
-| Typical risk envelope | crypto perps with OI > $3M, FP-001 quiet hours, post-loss asset cooldowns |
-| Example agent | Pangolin — see `pangolin/scripts/pangolin-producer.py` |
+| Typical risk envelope | crypto perps with OI > $3M, quiet hours (00–04 UTC), post-loss asset cooldowns |
+| Example agent | **Pangolin** |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/pangolin/scripts/pangolin-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/pangolin/scripts/pangolin_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/pangolin/runtime.yaml |
 
 **When to use this pattern:** You believe persistent funding extremity is a leading indicator of forced unwinds, and you want to position opposite the crowd at exhaustion.
 
@@ -154,13 +407,41 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 **Thesis:** Wait for the crowd to overcommit (high funding + lopsided SM + concentrated OI) AND exhaustion signals to fire (volume decline + price stall + RSI divergence). Enter opposite to the crowd.
 
+**Distinctive MCP signature:**
+
+```python
+# Pull universe + SM positioning map (shared across all candidates)
+instruments = cfg.mcporter_call("market_list_instruments")
+sm_map = cfg.mcporter_call("leaderboard_get_markets", limit=200)
+
+# Score crowding per asset (funding extremity + SM tilt + OI concentration)
+# Score persistence: must stay crowded for 1+ hour before considering exhaustion
+# When persistence + exhaustion both fire, emit opposite to crowd direction
+for asset, crowding_score in scored:
+    if crowding_persisted(asset, hours=1) and combined_score(asset) >= MIN_SCORE:
+        exhaustion = detect_exhaustion(asset)  # vol decline + price stall + RSI divergence
+        if exhaustion["score"] >= MIN_EXHAUSTION:
+            cfg._wrapper_client.push_signal(
+                address=STRATEGY_ADDRESS,
+                scanner="<agent>_signals",
+                asset=asset,
+                direction=opposite_of_crowd(asset),
+                score=normalized_score,
+                signal_type="<AGENT>_CONTRARIAN_UNWIND",
+                data={"leverage": leverage, "marginUsd": margin, "crowdDir": crowd_dir},
+            )
+            break
+```
+
 | | |
 |---|---|
-| Primary MCP tools | `leaderboard_get_markets` (SM map, BTC macro), `market_get_asset_data` (per-asset exhaustion detection), `market_list_instruments` (universe) |
 | Producer-signature for fleet audit | `leaderboard_get_markets` every tick |
 | Typical tick interval | 900s (15 min — contrarian setups develop slowly) |
-| Typical risk envelope | all crypto perps with OI > $3M, 6h post-loss per-asset cooldown, MACRO_TREND_GATE blocks fades during trending macro |
-| Example agent | Owl — see `owl/scripts/owl-producer.py` |
+| Typical risk envelope | all crypto perps with OI > $3M, 6h post-loss per-asset cooldown, macro-trend gate blocks fades during trending macro |
+| Example agent | **Owl** |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/owl/scripts/owl-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/owl/scripts/owl_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/owl/runtime.yaml |
 
 **When to use this pattern:** You believe crowded trades reliably unwind and you have a way to time the unwind (not just detect the crowding). The hard part is exhaustion timing, not crowding detection.
 
@@ -170,13 +451,36 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 **Thesis:** When BTC moves > 2% in 4h, certain alts lag behind and catch up shortly after. Detect the lag and position for the catch-up.
 
+**Distinctive MCP signature:**
+
+```python
+# Specialized MCP — pulls laggard alts with follow-rate when BTC moves
+flows = cfg.mcporter_call("market_get_cross_asset_flows")
+
+# flows contains laggards with follow_rate >= 0.8 when |BTC 4h| > 2%
+# If BTC hasn't moved enough, response is empty — patient producer, silence is correct
+if flows.get("laggards"):
+    best = flows["laggards"][0]  # already sorted by follow_rate
+    cfg._wrapper_client.push_signal(
+        address=STRATEGY_ADDRESS,
+        scanner="<agent>_signals",
+        asset=best["asset"],
+        direction=best["direction"],  # same direction as BTC's move
+        score=normalize(best["follow_rate"]),
+        signal_type="<AGENT>_LAG_CATCH",
+        data={"leverage": leverage, "marginUsd": margin, "followRate": best["follow_rate"]},
+    )
+```
+
 | | |
 |---|---|
-| Primary MCP tools | `market_get_cross_asset_flows` (BTC-anchored lag detection, returns laggards with `follow_rate ≥ 0.8`) |
 | Producer-signature for fleet audit | `market_get_cross_asset_flows` every tick |
 | Typical tick interval | 60s (lag detection wants fresh BTC moves) |
 | Typical risk envelope | filtered laggards only, fires only when BTC's 4h move exceeds threshold (often silent) |
-| Example agent | Mantis — see `mantis/scripts/mantis-producer.py` |
+| Example agent | **Mantis** |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/mantis/scripts/mantis-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/mantis/scripts/mantis_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/mantis/runtime.yaml |
 
 **When to use this pattern:** You believe BTC leads the alt market and want to systematically capture the lag. Most ticks are silent (BTC hasn't moved enough); the producer fires only when the macro condition is met.
 
@@ -186,29 +490,70 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 **Thesis:** Multiple XYZ macro assets (CL, BRENTOIL, GOLD, SILVER, SP500, XYZ100), contrarian direction flip when SM has overconcentrated, spread + freshness gates. Slower XYZ-tuned DSL.
 
+**Distinctive MCP signature:**
+
+```python
+XYZ_WHITELIST = ["CL", "BRENTOIL", "GOLD", "SILVER", "SP500", "XYZ100"]
+
+# Pre-tick safety: cancel any stale resting orders (v4.1 hot-patch from example agent)
+open_orders = cfg.mcporter_call(
+    "strategy_get_open_orders",
+    strategy_wallet=STRATEGY_ADDRESS,
+)
+for order in open_orders:
+    if (time.time() - order["timestamp"]) > 600:  # 10-min stale-cancel
+        cfg._wrapper_client.mcp_call(
+            "cancel_order",
+            strategy_wallet=STRATEGY_ADDRESS,
+            order_id=order["id"],
+        )
+
+# Universe scan
+sm_map = cfg.mcporter_call("leaderboard_get_markets", limit=200)
+for asset_name in XYZ_WHITELIST:
+    asset = f"xyz:{asset_name}"
+    ad = cfg.mcporter_call("market_get_asset_data", asset=asset, candle_intervals=["1h", "4h"])
+    if contrarian_setup(ad, sm_map.get(asset_name)) and spread_ok(ad):
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner="<agent>_signals",
+            asset=asset,
+            direction=fade_direction,  # OPPOSITE of SM
+            score=normalized_score,
+            signal_type="<AGENT>_XYZ_CONTRARIAN",
+            data={"leverage": leverage, "marginUsd": margin},
+        )
+        break
+```
+
 | | |
 |---|---|
-| Primary MCP tools | `leaderboard_get_markets`, `market_get_asset_data` (per XYZ asset), `strategy_get_open_orders` (resting-order stale-cancel guard) |
-| Producer-signature for fleet audit | `leaderboard_get_markets` every tick |
+| Producer-signature for fleet audit | `leaderboard_get_markets` every tick (plus periodic `market_get_asset_data` per whitelisted asset) |
 | Typical tick interval | 300s (5 min) |
-| Typical risk envelope | 6 XYZ macro assets, conviction-tier leverage, has_resting_orders 600s stale-cancel auto-purge |
-| Example agent | Bald Eagle — see `bald-eagle/scripts/eagle-producer.py` |
+| Typical risk envelope | 6 XYZ macro assets, conviction-tier leverage, 600s stale-cancel auto-purge |
+| Example agent | **Bald Eagle** |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/bald-eagle/scripts/eagle-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/bald-eagle/scripts/eagle_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/bald-eagle/runtime.yaml |
 
 **When to use this pattern:** You want to trade XYZ commodities/indices with a contrarian thesis (faders, not trend-followers). The XYZ-specific stale-order guard is important because XYZ ALOs can rest for days if not actively managed.
 
 ---
 
-### 11. Volume engine / market-making
+### 11. Volume engine / market-making (specialized)
 
-**Thesis:** Specialized — runs a two-wallet pair (one volume + one runner) that recycles builder fees and accumulates volume credits. Not a directional trading thesis.
+**Thesis:** Not a directional trading thesis — runs a two-wallet pair (one volume + one runner) that recycles builder fees and accumulates volume credits.
+
+This pattern is more involved than the others (continuous high-frequency `cancel_order` + `create_position` cycle, two-wallet coordination). Recommend reading the example agent's full source rather than working from an inline snippet.
 
 | | |
 |---|---|
-| Primary MCP tools | Specialized (continuous order placement / cancellation) |
 | Producer-signature for fleet audit | High-frequency `cancel_order` + `create_position` patterns |
 | Typical tick interval | Continuous |
 | Typical risk envelope | Two-wallet pair with daily top-ups; net wallet bleed = builder-fee-recycling cost rate |
-| Example agent | Turbine — see `turbine/` (specialized; not a fit for standard archetype templates) |
+| Example agent | **Turbine** |
+| Example skill directory listing | https://github.com/Senpi-ai/senpi-skills/tree/main/turbine/scripts |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/turbine/runtime.yaml |
 
 **When to use this pattern:** You're not trading direction — you're recycling builder fees against a known volume target. This is a niche use case; most builders should pick one of patterns 1–10.
 
@@ -249,7 +594,7 @@ If your thesis doesn't fit any of these patterns: it's probably either (a) a hyb
 
 ## Common ingredients (regardless of pattern)
 
-Every pattern above shares these common producer ingredients:
+Every pattern above shares these common producer ingredients. Copy them verbatim from any example agent's `<agent>_config.py` and `<agent>-producer.py` (URLs in each pattern's section above):
 
 - **SDK probe** at the top of `<agent>_config.py` — locates `senpi_runtime_helpers` in the standard install paths.
 - **Lazy `SenpiClient` wrapper** — instantiates on first MCP call, validates `SENPI_AUTH_TOKEN`.
@@ -264,17 +609,17 @@ When you're copying a pattern as a starting template, keep all of these — they
 
 ## Fleet auditor reference
 
-When verifying that a producer is firing on-chain (not silent), audit_query the producer-signature MCP call from the table above for the agent's `senpiUserId`. If the call appears at the configured tick interval, the producer is alive. If runtime-side calls (`strategy_get_clearinghouse_state` every 10s + `market_get_prices` every 30s) appear but the producer-signature calls don't, the daemon is dead or the runtime registration is broken — see `senpi-trading-runtime/references/liveness-verification.md` for the full diagnostic flow.
+When verifying that a producer is firing on-chain (not silent), audit_query the producer-signature MCP call from the table above for the agent's `senpiUserId`. If the call appears at the configured tick interval, the producer is alive. If runtime-side calls (`strategy_get_clearinghouse_state` every 10s + `market_get_prices` every 30s) appear but the producer-signature calls don't, the daemon is dead or the runtime registration is broken — see [`liveness-verification.md`](liveness-verification.md) for the full diagnostic flow.
 
 ---
 
 ## Where this catalog lives in the broader docs
 
 - `senpi-trading-runtime/SKILL.md` — start here for the runtime + Producer SDK overview
-- `senpi-trading-runtime/references/yaml-schema.md` — full `runtime.yaml` field reference
-- `senpi-trading-runtime/references/python-producer-sdk.md` — full Producer SDK reference
-- `senpi-trading-runtime/references/strategy-examples.md` — runtime.yaml templates by strategy type
+- [`yaml-schema.md`](yaml-schema.md) — full `runtime.yaml` field reference
+- [`python-producer-sdk.md`](python-producer-sdk.md) — full Producer SDK reference
+- [`strategy-examples.md`](strategy-examples.md) — runtime.yaml templates by strategy type
 - **This file** — scanner archetype catalog (you are here)
-- `senpi-trading-runtime/references/liveness-verification.md` — how to confirm your producer is firing on-chain
+- [`liveness-verification.md`](liveness-verification.md) — how to confirm your producer is firing on-chain
 
-Pick a pattern from this catalog, copy the example agent's producer + runtime.yaml as your starting template, tune the scoring and thresholds for your thesis, deploy with `openclaw senpi runtime create` + `nohup python3 ... &`. That's the canonical build path.
+Pick a pattern from this catalog, fetch the example agent's producer + runtime.yaml from the GitHub URLs in that pattern's section, tune the scoring and thresholds for your thesis, deploy with `openclaw senpi runtime create` + `nohup python3 ... &`. That's the canonical build path.
