@@ -1,6 +1,7 @@
 {
-  "wallet": "",
   "strategyId": "",
+  "wallet": "",
+  "chatId": "",
   "asset": "xyz:BRENTOIL",
   "startingBudget": 1000,
   "minScore": 11,

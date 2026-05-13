@@ -1,96 +1,233 @@
 name: dire-tracker
-# Runtime SCHEMA stays at 1.5.0 — DSL preset unchanged in v1.6.
-# Strategy/skill version is v1.6.0 (see scanner VERSION + SKILL.md metadata).
-version: 1.5.0
+# Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
+# plugin. Strategy/skill is "Dire v2.0.0" — lives in description +
+# SKILL.md + _dire_producer_version. Do not set this to 2.x.x.
+version: 1.7.0
 description: >
-  Dire v1.7.0 — fleet-wide DSL ratchet T0/T1 patch (2026-05-02).
-  T0 lock 25→35, T1 trigger 10→8 — closes T0→T1 dead zone for oil reversals.
-  v1.6.0 base — "hit fewer, win bigger" patch (scanner-only changes; DSL
-  preset unchanged). v1.0 sample (16 entries / 11 closes / -$140 realized)
-  showed signal works (Apr 29 +57% peak runner) but score 9-10 floor let
-  through low-conviction entries that closed at protective exits. v1.6
-  raises minScore 9 → 11 AND requires all 5 soft confirmations (Volume +
-  OI velocity + SM premium + Price cleanliness in addition to 4TF/SM hard
-  gates). Adds FP-001 quiet hours (skip 00-04 UTC unless apex 12+) and
-  FP-002 hard rule in SKILL.md (Claude Code conversation sessions must
-  NOT call trading MCP tools — only producer cron may enter). Ratchet-
-  engine state-sync bug observed Apr 29-May 1 is upstream Senpi backend
-  (separate Erik ferry); v1.5 DSL architecture remains correct.
+  DIRE v2.0.0 — BRENTOIL XYZ specialist, v2-runtime-native rewrite
+  (helpers-native, 2026-05-12).
 
-  Dire v1.4 — disable hard_timeout (complete time-cuts removal on
-  single-asset BRENTOIL). Pairs with v1.3's dead_weight_cut disable.
-  v1 DSL fires hard_timeout in Phase 2 incorrectly (per v2 spec it's
-  Phase-1-only) — observed on Polar v3.0.4 overnight 2026-04-23.
-  Dire shares the same v1 DSL bug. Oil news-driven breakouts can run
-  for days; 24h ceiling was arbitrary. Phase 1 (20% max_loss) + Phase
-  2 tiers (aggressive oil lock ladder) own all exits. Scanner unchanged.
+  v1.x was a self-executing scanner with Python-side state (drawdown
+  gate, daily-cap counter, 7-day peak, consecutive-loss tracking) and
+  direct create_position / ratchet_stop_add calls via mcporter
+  subprocess. v2.0 flips to producer + v2 runtime (Wolverine v5 /
+  Grizzly v6 / Polar / Kodiak template):
 
-# ── STRATEGY ──
+    - Producer (dire-producer.py) emits BRENTOIL signals via
+      `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
+    - Runtime LLM gate is pass-through — producer applies every filter
+      (4TF / SM / OI / volume / cleanliness / minScore / FP-001 / FP-003).
+    - risk.guard_rails ENFORCES daily caps, drawdown halt, consecutive-
+      loss halt, per-asset cooldown — no Python state to drift.
+    - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits.
+    - Trade chain DB emits per-trade telemetry — chain visibility on Dire
+      for the first time.
+
+  WHAT'S PRESERVED FROM v1.7.0 (verbatim):
+    - Single-asset BRENTOIL thesis (Kodiak/Wolverine/Polar family pattern,
+      first non-crypto XYZ port)
+    - 4TF alignment hard gate (5m / 15m / 1h / 4h all same direction)
+    - SM HARD BLOCK via markPx vs oraclePx premium proxy
+    - SM conviction scoring (tiered premium magnitude)
+    - OI velocity flat-path extraction + scoring
+    - Volume spike scoring (15m / 1h ratio, tiered at 2.5x / 5x)
+    - Price cleanliness check (no adverse 5m wicks > 1.5% in last 30 min)
+    - MIN_SCORE 11 (v1.6 "hit fewer, win bigger" floor)
+    - FP-001 quiet hours (00-04 UTC unless apex score 12+)
+    - FP-003 require-all-confirmations gate (Volume + OI + SM + Clean
+      must all fire at ≥ +1, not just summed score)
+    - Conviction-scaled sizing: 3x cautious / 5x standard / 7x conviction
+      / 10x apex by score (9 / 10 / 11 / 12+)
+    - DSL preset preserved verbatim with v1.7 T0/T1 patch:
+      T0 5%/35% lock, T1 8%/50% lock, T2 20%/70%, T3 35%/80%, T4 50%/90%.
+      Phase 1 max_loss 20% / retrace 8 / 1 breach.
+      Time-cuts ALL DISABLED (single-asset family pattern).
+
+  XYZ-SPECIFIC ADAPTATIONS PRESERVED:
+    - asset = xyz:BRENTOIL (prefix mandatory for HIP-3 DEX)
+    - SM via mark/oracle premium proxy (crypto SM tracker not applicable)
+    - 24/7 trading (oil XYZ trades weekends — DO NOT gate market hours)
+
 strategy:
   wallet: "${WALLET_ADDRESS}"
+  slots: 1
+  margin_per_slot: 250
+  trading_risk: moderate
   enabled: true
 
-# ── SCANNERS ──
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 2                  # v1.x dailyEntryCap preserved
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 60
+    drawdown_halt_pct: 15                   # v1.x drawdownGatePct preserved (oil tail risk)
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 120         # BRENTOIL re-entry cooldown
+
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
 
-# ── ACTIONS ──
+  - name: dire_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        # Required identity
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        # Optional context
+        tier: { type: string, required: false }
+        reasons: { type: array, required: false }
+        # Structural
+        trend4h: { type: string, required: false }
+        trend1h: { type: string, required: false }
+        trend15m: { type: string, required: false }
+        trend5m: { type: string, required: false }
+        # SM / OI
+        smPremiumAbsPct: { type: number, required: false }
+        smDetail: { type: string, required: false }
+        oiChange1h: { type: number, required: false }
+        # Price
+        markPx: { type: number, required: false }
+        priceChange5m: { type: number, required: false }
+        priceChange15m: { type: number, required: false }
+        priceChange1h: { type: number, required: false }
+        priceChange4h: { type: number, required: false }
+        # Account
+        accountValue: { type: number, required: false }
+        heldAssets: { type: array, required: false }
+
 actions:
   - name: position_tracker_action
     action_type: POSITION_TRACKER
     decision_mode: rule
     scanners: [position_tracker]
 
-# ── EXIT (DSL) ──
+  - name: dire_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${DIRE_DECISION_MODEL}"   # REQUIRED. BARE model name only — NO provider prefix.
+    scanners: [dire_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false       # entries: maker-first (xyz spreads narrower than crypto perps)
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: dire_signals
+    decision_prompt: |
+      You are Dire's pass-through gate. The producer has already
+      applied EVERY gate (4TF alignment across 5m/15m/1h/4h, SM
+      HARD BLOCK on premium direction, SM conviction tier, OI
+      velocity scoring, volume spike scoring, price cleanliness
+      check, MIN_SCORE 11, FP-001 quiet hours, FP-003 require-all-
+      confirmations). Your job is to honor the signal unless
+      something is structurally broken.
+
+      SIGNAL:
+      {{signal_dire_signals}}
+
+      ## STRICT OUTPUT RULES
+
+      1. The `asset` MUST be "xyz:BRENTOIL" (Dire is single-asset,
+         XYZ prefix mandatory for HIP-3 DEX).
+      2. The `direction` MUST match signal.direction exactly.
+      3. The `leverage` MUST be copied from signal.data.leverage
+         (3x cautious / 5x standard / 7x conviction / 10x apex).
+      4. Every claim in `reasoning` MUST cite values from the signal.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 11 (producer floor; defensive)
+      - leverage <= 0 OR signal data missing
+      - heldAssets contains "BRENTOIL" or "xyz:BRENTOIL" (duplicate)
+      - reasons array empty
+      - direction not in [LONG, SHORT]
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 12 (apex tier, 10x leverage) AND all soft
+        confirmations firing
+      - 7-8: score >= 11 (conviction tier, 7x leverage) — producer
+        has gated this. Honor it unless a hard-skip applies.
+      - <7: producer floor not cleared.
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values",
+        "payload": {
+          "signals": [
+            {
+              "asset": "xyz:BRENTOIL",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "reason": "score N DIRE_BRENTOIL DIR — top reason"
+            }
+          ]
+        }
+      }
+
+# ─── EXIT (DSL) — preserved verbatim from v1.7.0 ──────────────
 # Philosophy: Oil reverses hard on news overshoot (Apr 17: $108 → $89 in 4h).
-# Aggressive early-tier lock (T0 at +5% ROE locks 25% of HW) protects against
-# V-reversals. Later tiers (T2 at +20%, T3 at +35%, T4 at +50%) capture
-# parabolic extensions during sustained geopolitical trends.
+# Aggressive early-tier lock (T0 at +5% ROE / 35% HW) protects against
+# V-reversals. Later tiers capture parabolic extensions during sustained
+# geopolitical trends.
 #
-# Tuning rationale:
-# - T0 +5%/25% HW: catches the first meaningful directional commit. Oil can
-#   run 2-5% on news and reverse fully within 30 min if the news was
-#   misinterpreted. Locking at 25% of HW means a +5% move locks ~1.25% ROE.
-# - T1 +10%/50% HW: breakout confirmed. Half the high water locked.
-# - T2 +20%/70%: momentum extension. Aggressive lock — oil rarely gives back
-#   from +20% ROE without a clear reversal signal.
-# - T3 +35%/80%: late-stage parabolic protection.
-# - T4 +50%/90%: blowoff-top lock. Oil very rarely sustains +50% ROE on perp.
+# Time cuts ALL DISABLED (single-asset family pattern; per memory
+# reference_dsl_time_cuts_single_asset.md). Phase 1 + Phase 2 own
+# all exits via price action.
 #
-# hard_timeout kept at 24h as safety net — do not use for capping winners.
+# v1.7 fleet-wide T0/T1 patch (2026-05-02):
+#   T0 lock 25→35, T1 trigger 10→8 — closes T0→T1 dead zone for oil
+#   reversals. T2+ unchanged.
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true               # exits: maker-first, taker-fallback as safety floor on Phase 1 stops
+    execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
-      enabled: false                 # v1.4: DISABLED. v1 DSL fires this in Phase 2 incorrectly. Phase 1 + Phase 2 own all exits.
+      enabled: false                              # v1.4: DISABLED. v1 DSL fires this in Phase 2 incorrectly.
       interval_in_minutes: 1440
     weak_peak_cut:
-      enabled: false                  # v1.5: DISABLED. Time cuts removed on all single-asset agents. Aggressive Phase 2 T0 (+5%/25% HW) catches oil reversals via price action, not clock.
+      enabled: false                              # v1.5: DISABLED. Single-asset family pattern.
       interval_in_minutes: 20
       min_value: 2.5
     dead_weight_cut:
-      enabled: false                  # v1.3: DISABLED. Single-asset agent has no rotation opportunity cost.
+      enabled: false                              # v1.3: DISABLED. Single-asset agent has no rotation opportunity cost.
       interval_in_minutes: 15
     phase1:
       enabled: true
-      max_loss_pct: 20.0              # tighter than Kodiak's 25% — oil tail risk
+      max_loss_pct: 20.0                          # tighter than Kodiak's 25% — oil tail risk
       retrace_threshold: 8
       consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
-        # v1.7 fleet-wide DSL ratchet patch (2026-05-02):
-        # T0 lock 25→35, T1 trigger 10→8 — closes T0→T1 dead zone.
-        # Oil reversal protection further hardened.
-        - { trigger_pct: 5,  lock_hw_pct: 35 }   # v1.7: lock 25→35
-        - { trigger_pct: 8,  lock_hw_pct: 50 }   # v1.7: trigger 10→8
+        - { trigger_pct: 5,  lock_hw_pct: 35 }    # v1.7: lock 25→35 (T0/T1 dead zone fix)
+        - { trigger_pct: 8,  lock_hw_pct: 50 }    # v1.7: trigger 10→8
         - { trigger_pct: 20, lock_hw_pct: 70 }
         - { trigger_pct: 35, lock_hw_pct: 80 }
         - { trigger_pct: 50, lock_hw_pct: 90 }
 
-# ── NOTIFICATIONS ──
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
