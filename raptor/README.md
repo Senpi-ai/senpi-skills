@@ -1,8 +1,41 @@
-# 🦖 Raptor v4.0.0 — Hot Streak Follower (senpi_runtime_helpers)
+# 🦖 Raptor — Hot Streak Follower
+
+Follows weekly-winning ELITE/RELIABLE traders into their strongest current position.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v3.4. NO thesis change.** v3.4 quality-first pipeline (ELITE/RELIABLE weekly winners → strongest position → SM alignment), whale entry-discipline 5% threshold, nested-positions parser, MIN_SCORE 6, conviction-tier leverage all preserved verbatim.
+## Thesis
+
+Raptor identifies ELITE/RELIABLE traders who are currently winning weekly, picks their strongest position by `|delta_pnl|`, and confirms SM alignment plus 4h/1h price agreement before firing. The edge is quality-first: instead of scanning markets and asking "which asset is interesting?", Raptor scans traders and asks "which whales are hot right now, and what are they actually in?"
+
+Whale entry-discipline is the critical defense: if the asset has already run >5% in the whale's favor from their entry, Raptor skips — we'd be buying their top. Bonus +1/+2 points if we'd actually get a better fill than the whale. The goal is riding hot streaks, not bag-holding for whales mid-exit.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Asset universe | Whatever the followed whales currently hold |
+| Trader filter | ELITE / RELIABLE tier, weekly winners |
+| Position selection | Whale's strongest by `|delta_pnl|` |
+| Tick interval | 60-180s |
+| MIN_SCORE | 6 |
+| Whale entry-discipline threshold | 5% (skip if asset has run >5% in whale's favor from their entry) |
+| Leverage tiers | Conviction-tier (score-scaled) |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT |
+
+## Scanner pattern
+
+This strategy uses the **Trader-follower / hot-streak** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `discovery_get_trader_state`, polled every 60-180s.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `runtime.yaml` | Runtime spec (scanners, actions, DSL preset, `risk.guard_rails`) |
+| `scripts/raptor-producer.py` | Long-lived daemon; emits signals via `push_signal` |
+| `scripts/raptor_config.py` | SDK probe + `SenpiClient` wrapper |
+| `config/raptor-config.json` | Operator-tunable defaults (wallet, strategyId, chatId) |
 
 ## Install
 
@@ -34,7 +67,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-ru
 which senpi-helpers
 ```
 
-### Step 2 — Pull Raptor v4.0.0
+### Step 2 — Pull Raptor
 
 ```bash
 mkdir -p /data/workspace/skills/raptor-strategy/{config,scripts,state}
@@ -73,17 +106,21 @@ nohup python3 -u /data/workspace/skills/raptor-strategy/scripts/raptor-producer.
 
 If `daemon_aborted_no_runtime: alive_check returned False`, re-register the runtime.
 
-## Smoke test
+## Verification
 
 ```bash
+ps aux | grep raptor-producer
+senpi-helpers list
 tail -f /tmp/raptor-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
 ```
 
 Expect `status=ok` every 3 min.
 
-## Thesis (preserved from v3.4)
+## Changelog
 
-Find ELITE/RELIABLE traders currently winning weekly. Pick their strongest position by |delta_pnl|. Confirm SM alignment + 4h/1h price agreement. **Apply whale entry-discipline (5% threshold)** — if the asset has already run >5% in the whale's favor from their entry, skip; we'd be buying their top. Bonus +1/+2 points if we'd get a better fill than the whale.
+### v4.0.0 — helpers-native plumbing migration
+
+Plumbing-only migration from v3.4. NO thesis change. v3.4 quality-first pipeline (ELITE/RELIABLE weekly winners → strongest position → SM alignment), whale entry-discipline 5% threshold, nested-positions parser, MIN_SCORE 6, conviction-tier leverage all preserved verbatim.
 
 ## License
 

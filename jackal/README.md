@@ -1,8 +1,59 @@
-# 🐺 JACKAL v3.0.0 — The Smart Stalker. senpi_runtime_helpers.
+# 🐺 Jackal — The Smart Stalker
+
+The fleet's first SECONDARY-SIGNAL agent: stalk the top Senpi perp traders, copy their fresh entries only when an LLM gate confirms.
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v2.0. NO thesis change.** Producer ports onto `senpi_runtime_helpers` (in-process `SenpiClient`, no openclaw / mcporter subprocesses). Long-lived `producer_daemon` replaces the openclaw cron entry. v2.0.9 contamination rule applied: `JACKAL_WALLET` replaces generic `STRATEGY_ADDRESS`.
+## Thesis
+
+Jackal does not generate its own signals — it watches other people's. Once a day, the producer refreshes a pool of the top 25 Senpi perp traders by composite quality score (win_rate ≥ 0.50, roi_30d ≥ 10%, trader_age ≥ 14d). Every 60 seconds it diffs each pool member's open positions against the last-seen snapshot. A new position appearing on a top trader is a candidate signal.
+
+It is deliberately not a passive copy-trader. Every candidate goes through an LLM `decision_prompt` gate (min_confidence 7) that weighs consensus from the rest of the pool, current TA, funding context, and freshness (only entries < 10 min old qualify). That gate is the edge — passive mirrors blindly inherit the leader's bad days; Jackal filters down to the trades that survive a second opinion. Two concurrent slots, 5x leverage, with the runtime owning daily caps, cooldowns, drawdown halt, and DSL exits.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Pool | Top 25 Senpi traders by composite quality score (refreshed daily) |
+| Pool filters | win_rate ≥ 0.50, roi_30d ≥ 10%, trader_age ≥ 14d |
+| Tick interval | 60 s |
+| Entry age gate | < 10 min (producer-side freshness) |
+| Entry decision | LLM-gated via `decision_prompt`, min_confidence 7 (model via `$JACKAL_DECISION_MODEL`) |
+| Max concurrent | 2 slots |
+| Margin per slot | $300 |
+| Leverage | 5x default (runtime-enforced) |
+| Max entries/day | 4 |
+| Daily loss cap | 5% |
+| Consecutive losers pause | 3 → 120 min cooldown |
+| Per-asset cooldown | 240 min (4h) |
+| Drawdown halt | 20% |
+| DSL hard_timeout | 72 h |
+| DSL Phase 1 max_loss | 22% |
+| Entry order type | FEE_OPTIMIZED_LIMIT |
+| Exit order type | FEE_OPTIMIZED_LIMIT |
+
+## Scanner pattern
+
+This strategy uses the **trader-follower / hot-streak** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP calls: cached daily `discovery_get_top_traders` (pool refresh) + per-tick `discovery_get_trader_state` (diff against last-seen).
+
+## Architecture
+
+```
+jackal-producer.py (60s daemon)    senpi-trading-runtime
+  refresh pool (daily)              jackal_signals scanner
+  diff positions vs last-seen   →   jackal_entry action (LLM-gated)
+  enrich + push signal              position_tracker + DSL
+                                    risk.guard_rails
+```
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `runtime.yaml` | Runtime spec (scanner + action + DSL + risk gates) |
+| `scripts/jackal-producer.py` | Long-lived daemon (60 s tick) |
+| `scripts/jackal_config.py` | SDK probe + `SenpiClient` wrapper |
+| `scripts/jackal_state.py` | Last-seen position-diff state |
 
 ## Install
 
@@ -46,7 +97,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-### Step 2 — Pull Jackal v3.0.0
+### Step 2 — Pull Jackal
 
 ```bash
 mkdir -p /data/workspace/skills/jackal-tracker/{config,scripts,state,references}
@@ -65,7 +116,7 @@ export SENPI_AUTH_TOKEN=...
 export JACKAL_DECISION_MODEL=<your-preferred-model>   # or any model the runtime supports
 ```
 
-### Step 4 — Stop v2.x cron, start v3.0.0 daemon
+### Step 4 — Stop legacy cron, start daemon
 
 ```bash
 openclaw cron list | grep jackal
@@ -75,48 +126,18 @@ nohup python3 -u /data/workspace/skills/jackal-tracker/scripts/jackal-producer.p
   > /tmp/jackal-producer.log 2>&1 &
 ```
 
-## Smoke test
+## Verification
 
 ```bash
 tail -f /tmp/jackal-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
 ```
 
-Expected: `status=ok` every tick (60s interval).
+Expected: `status=ok` every tick (60 s interval).
 
----
+## Changelog
 
-## Thesis
-
-The fleet's first SECONDARY-SIGNAL agent. Observes top-performing Senpi perp traders, detects new entries by pool members, and lets an LLM decision prompt gate every entry. Not a passive mirror — an intelligent stalker where the runtime LLM gates each candidate against consensus + TA + funding context.
-
-## Architecture
-
-```
-jackal-producer.py (60s daemon)    senpi-trading-runtime (v2)
-  refresh pool (daily)              jackal_signals scanner
-  diff positions vs last-seen   →   jackal_entry action (LLM-gated)
-  enrich + push signal              position_tracker + DSL
-                                    risk.guard_rails
-```
-
-## Key Settings
-
-| Setting | Value |
-|---|---|
-| Pool | Top 25 by composite quality score (refreshed daily) |
-| Pool filters | win_rate ≥ 0.50, roi_30d ≥ 10%, trader_age ≥ 14d |
-| Entry age gate | < 10 min (producer-side freshness) |
-| Entry decision | LLM-gated via `decision_prompt`, min_confidence 7 (model required via `$JACKAL_DECISION_MODEL`) |
-| Max concurrent | 2 slots |
-| Leverage | 5x default (runtime-enforced) |
-| Margin per slot | $300 |
-| Daily loss cap | 5% |
-| Max entries/day | 4 |
-| Consecutive losers pause | 3 → 120 min cooldown |
-| Drawdown halt | 20% |
-| Per-asset cooldown | 240 min (4h) |
-| DSL hard_timeout | 72h |
-| DSL Phase 1 max_loss | 22% |
+- **v3.0.0** — Plumbing-only migration from v2.0 (NO thesis change). Producer ports onto `senpi_runtime_helpers` (in-process `SenpiClient`, no openclaw / mcporter subprocesses). Long-lived `producer_daemon` replaces the openclaw cron entry. v2.0.9 contamination rule applied: `JACKAL_WALLET` replaces generic `STRATEGY_ADDRESS`.
+- **v2.0** — Original SECONDARY-SIGNAL architecture (top-trader pool diff + LLM gate).
 
 ## License
 

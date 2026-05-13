@@ -1,8 +1,46 @@
-# 🦔 PANGOLIN v3.0.0 — Funding Rate Fader. senpi_runtime_helpers.
+# 🦔 PANGOLIN — Funding Rate Fader
+
+Fades crowded perpetuals when funding stays elevated, collecting funding while waiting for the crowded side to capitulate.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v2.2.0. NO thesis change.** Pangolin is the canonical reference producer for the `senpi_runtime_helpers` SDK wrapper pattern.
+## Thesis
+
+When funding rates are elevated (>0.015%/8h ≈ 20% annualized), the crowd is paying to hold their position. Pangolin enters opposite to the funding direction — collecting funding every 8 hours while waiting for the crowded side to capitulate. Conservative 3-5x leverage, very wide DSL (12h hard timeout, 30% Phase 1 max_loss). Scans every Hyperliquid perp with OI > $1M (~60 assets), persistence ≥ 3 hours, regime-confirmed.
+
+Pangolin's horizon (24-48h funding fade) is the longest in the fleet. The bet is patient: the longer crowding persists at extreme funding, the more violent the unwind, and the more 8h funding payments accumulate as a base-rate carry. Phase 1 max_loss 30% (10% price buffer at 3x), Phase 2 ladder starts at 12% ROE (above MAVIA's normal wick noise), `weak_peak_cut` disabled (funding fade takes 24-48h).
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Asset universe | All Hyperliquid perps with OI ≥ $1M (~60 assets); XYZ banned |
+| Tick interval | 300s (5 min) |
+| MIN_SCORE | 9 |
+| Funding threshold | ≥ 0.00015 (per-8h rate) |
+| Persistence | ≥ 3 hours, regime confirms or neutral |
+| Leverage tiers | 3-5x (conservative) |
+| Per-asset cooldown | 240 min |
+| Daily loss limit | Runtime `risk.guard_rails` |
+| Drawdown halt | Runtime `risk.guard_rails` |
+| Entry order type | FEE_OPTIMIZED_LIMIT, `ensure_execution_as_taker: false` (patience preserved from v1) |
+| Exit order type | FEE_OPTIMIZED_LIMIT (maker-first 60s, taker fallback) |
+| DSL hard_timeout | 12h |
+| DSL Phase 1 max_loss | 30% |
+| `weak_peak_cut` | disabled (funding fade takes 24-48h) |
+
+## Scanner pattern
+
+This strategy uses the **funding-regime fade** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `market_get_funding_regime`.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| runtime.yaml | Runtime spec |
+| scripts/pangolin-producer.py | Long-lived producer daemon (canonical reference for the `senpi_runtime_helpers` SDK wrapper pattern) |
+| scripts/pangolin_config.py | SDK probe + SenpiClient wrapper |
+| config/pangolin-config.json | Operator-tunable defaults |
 
 ## Install
 
@@ -46,7 +84,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-### Step 2 — Pull Pangolin v3.0.0
+### Step 2 — Pull Pangolin
 
 ```bash
 mkdir -p /data/workspace/skills/pangolin-strategy/{config,scripts,state,references}
@@ -65,7 +103,7 @@ export SENPI_AUTH_TOKEN=...
 export PANGOLIN_DECISION_MODEL=<your-preferred-model>
 ```
 
-### Step 4 — Stop v2.x cron, start v3.0.0 daemon
+### Step 4 — Stop any prior cron, start the daemon
 
 ```bash
 openclaw cron list | grep pangolin
@@ -75,7 +113,7 @@ nohup python3 -u /data/workspace/skills/pangolin-strategy/scripts/pangolin-produ
   > /tmp/pangolin-producer.log 2>&1 &
 ```
 
-## Smoke test
+## Verification
 
 ```bash
 tail -f /tmp/pangolin-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
@@ -83,13 +121,13 @@ tail -f /tmp/pangolin-producer.log | jq -c 'select(.event=="daemon_tick_finished
 
 Expected: `status=ok` every tick (300s interval — Pangolin's longer cadence reflects the 24-48h funding-fade thesis horizon).
 
----
+## Changelog
 
-## Thesis
+### v3.0.0 — senpi_runtime_helpers migration
 
-When funding rates are elevated (>0.015%/8h ≈ 20% annualized), the crowd is paying to hold their position. Pangolin enters opposite to the funding direction — collecting funding every 8 hours while waiting for the crowded side to capitulate. Conservative 3-5x leverage, very wide DSL (12h hard timeout, 30% Phase 1 max_loss). Scans every Hyperliquid perp with OI > $1M (~60 assets), persistence >= 3 hours, regime-confirmed.
+**Plumbing-only migration from v2.2.0. NO thesis change.** Pangolin is the canonical reference producer for the `senpi_runtime_helpers` SDK wrapper pattern.
 
-## v2.0 architecture
+### v2.0 architecture (preserved)
 
 | Layer | v1.x | v2.0 |
 |---|---|---|
@@ -99,9 +137,9 @@ When funding rates are elevated (>0.015%/8h ≈ 20% annualized), the crowd is pa
 | Exit order | DSL + MARKET orders | DSL + **FEE_OPTIMIZED_LIMIT** (maker-first, 60s, taker fallback) |
 | Risk gates | Agent enforces in scanner code | Declarative `runtime.risk.guard_rails` |
 
-**Why v2 matters for Pangolin:** v1 entries were already maker-first, but v1 EXITS used MARKET orders (taker fees). v2 brings maker-first to exits too. Fee saving per trade is small (~$0.10-0.20) given Pangolin's small notional, but architectural alignment + runtime-managed lifecycle + declarative risk gates are the real win.
+**Why v2 mattered for Pangolin:** v1 entries were already maker-first, but v1 EXITS used MARKET orders (taker fees). v2 brought maker-first to exits too. Fee saving per trade is small (~$0.10-0.20) given Pangolin's small notional, but architectural alignment + runtime-managed lifecycle + declarative risk gates are the real win.
 
-**Thesis preserved verbatim from v1.5/v1.7:** funding rate >= 0.00015, persistence >= 3h, regime confirms or neutral, OI >= $1M, score >= 9, per-asset 240min cooldown, XYZ banned. Phase 1 max_loss 30% (10% price buffer at 3x), Phase 2 ladder starts at 12% ROE (above MAVIA's normal wick noise), `weak_peak_cut` disabled (funding fade takes 24-48h).
+**Thesis preserved verbatim from v1.5/v1.7:** funding rate ≥ 0.00015, persistence ≥ 3h, regime confirms or neutral, OI ≥ $1M, score ≥ 9, per-asset 240min cooldown, XYZ banned. Phase 1 max_loss 30% (10% price buffer at 3x), Phase 2 ladder starts at 12% ROE (above MAVIA's normal wick noise), `weak_peak_cut` disabled (funding fade takes 24-48h).
 
 See [`SKILL.md`](SKILL.md) for full setup, env vars, and behavior expectations.
 

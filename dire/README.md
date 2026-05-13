@@ -1,23 +1,63 @@
-# 🦡 DIRE v2.0.0 — BRENTOIL XYZ Specialist (helpers-native)
+# 🦡 DIRE — BRENTOIL XYZ Specialist
+
+Single-asset alpha hunter for BRENTOIL on Hyperliquid's XYZ DEX. News-driven momentum breakouts on oil with tight DSL protection against sharp geopolitical reversals.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## What changed in v2.0.0
+## Thesis
 
-**Plumbing-only migration. NO thesis change.** v1.7.0's 4TF / SM / OI / volume / cleanliness gates, MIN_SCORE 11, FP-001 quiet hours, FP-003 require-all-confirmations, conviction-scaled sizing, DSL preset with T0/T1 patch — all preserved verbatim.
+Dire is the first non-crypto port of the Kodiak family — BRENTOIL XYZ specialist. The thesis adapts the Kodiak six-gate alpha-hunter pattern (4TF + SM + OI + volume + cleanliness + base-tech) to oil's geopolitical-news-driven cadence. Entry requires 4TF alignment (5m/15m/1h/4h), a Smart Money HARD BLOCK on mark/oracle premium direction, SM conviction tier, OI velocity scoring, volume spike scoring, and a price cleanliness check. MIN_SCORE 11 paired with FP-003 require-all-confirmations means every single soft confirmation must fire — not just summed score.
 
-- `dire-producer.py` and `dire_config.py` migrate to `senpi_runtime_helpers`:
-  - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
-  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
-  - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
-  - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
-- Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
-- `runtime.yaml` rewritten — `external_scanner.name: dire_signals` matches the producer's `push_signal(scanner=...)`. Risk guard rails (daily cap, drawdown halt, consecutive losses, per-asset cooldown) replace Python-side state files. Old `dire-scanner.py` removed.
-- `signal_type="DIRE_BRENTOIL_TREND"` passed explicitly to `push_signal()` so audit logs + LLM decision context stay correctly tagged.
+Because oil tail risk (sharp geopolitical reversals) is harsher than crypto, Dire ships a tighter drawdown halt (15% vs the 25% used on crypto siblings) and ISOLATED leverage is mandatory on XYZ DEX. Conviction-scaled leverage (3x cautious / 5x standard / 7x conviction / 10x apex) and a DSL Phase 2 ladder with v1.7 T0/T1 patch own all winner exits. FP-001 quiet hours block sub-apex entries 00:00-04:00 UTC.
 
-## Thesis (preserved from v1.7.0)
+## Key parameters
 
-Single-asset BRENTOIL XYZ specialist. News-driven momentum breakouts on oil with tight DSL protection against sharp geopolitical reversals. Six-gate entry validation: 4TF alignment (5m/15m/1h/4h), SM HARD BLOCK on mark/oracle premium direction, SM conviction tier, OI velocity scoring, volume spike scoring, price cleanliness check. MIN_SCORE 11 + all-five-confirmations gate (FP-003). FP-001 quiet hours block sub-apex entries during 00-04 UTC. Conviction-scaled leverage (3x cautious / 5x standard / 7x conviction / 10x apex). DSL Phase 2 trailing owns all winner exits with v1.7 T0/T1 patch.
+| Parameter | Value |
+|---|---|
+| Asset universe | xyz:BRENTOIL (single-asset, XYZ DEX) |
+| Tick interval | 180s |
+| MIN_SCORE | 11 |
+| Leverage tiers | 3x / 5x / 7x / 10x (score-tiered: 9 / 10 / 11 / 12+) |
+| Max entries per day | 2 |
+| Per-asset cooldown | 120 min (2h) |
+| Daily loss limit | 10% |
+| Drawdown halt | 15% (tighter than crypto siblings — oil tail risk) |
+| Quiet hours | 00:00-04:00 UTC (apex score 12+ bypasses) |
+| Require all confirmations | true (FP-003) |
+| LLM min_confidence | 7 |
+| Margin per slot | $250 |
+| Max positions | 1 |
+| Leverage type | ISOLATED (mandatory for XYZ DEX) |
+| Entry order type | FEE_OPTIMIZED_LIMIT (maker-first, 30s timeout) |
+| Exit order type | FEE_OPTIMIZED_LIMIT (maker-first, 60s timeout, taker-fallback) |
+
+### DSL Phase 2 ladder
+
+BRENTOIL-tuned with v1.7 T0/T1 patch. All time-based cuts disabled — exits 100% price-action.
+
+| Tier | Trigger ROE | Lock (% of HW) |
+|---|---|---|
+| T0 | +5% | 35% (v1.7 patch: 25→35) |
+| T1 | +8% | 50% (v1.7 patch: trigger 10→8) |
+| T2 | +20% | 70% |
+| T3 | +35% | 80% |
+| T4 | +50% | 90% |
+
+Phase 1: max_loss 20%, retrace 8%, 1 consecutive breach.
+**Time-cuts:** `hard_timeout` / `weak_peak_cut` / `dead_weight_cut` all DISABLED.
+
+## Scanner pattern
+
+This strategy uses the **Single-asset XYZ specialist** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `market_get_asset_data` for `xyz:BRENTOIL`.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `runtime.yaml` | Runtime spec (external_scanner, risk guard rails, DSL) |
+| `scripts/dire-producer.py` | Long-lived daemon emitting BRENTOIL entry signals |
+| `scripts/dire_config.py` | SDK probe + SenpiClient wrapper |
+| `config/dire-config.json` | Operator-tunable defaults (wallet, minScore, quiet hours) |
 
 ## Install
 
@@ -63,7 +103,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-ru
 
 Skip if the senpi-trading-runtime skill is already installed on this host.
 
-### Step 2 — Pull Dire v2.0.0
+### Step 2 — Pull Dire
 
 ```bash
 mkdir -p /data/workspace/skills/dire-strategy/{config,scripts,references}
@@ -84,14 +124,14 @@ export DIRE_DECISION_MODEL=<your-preferred-model>  # bare model name only; NO pr
 export TELEGRAM_CHAT_ID=<your-tg-chat-id>
 ```
 
-### Step 4 — Stop the v1.x cron, register the v2.0.0 runtime, start the daemon
+### Step 4 — Register runtime and start the daemon
 
 ```bash
-# Drop any v1.x cron (was self-executing)
+# Drop any prior cron
 openclaw cron list | grep dire
 openclaw cron delete <dire-cron-id>
 
-# Register the v2.0 runtime
+# Register the runtime
 openclaw senpi runtime delete dire-tracker 2>/dev/null || true
 openclaw senpi runtime create --path /data/workspace/skills/dire-strategy/runtime.yaml
 
@@ -99,14 +139,6 @@ openclaw senpi runtime create --path /data/workspace/skills/dire-strategy/runtim
 nohup python3 -u /data/workspace/skills/dire-strategy/scripts/dire-producer.py \
   > /tmp/dire-producer.log 2>&1 &
 ```
-
-## Smoke test
-
-```bash
-tail -f /tmp/dire-producer.log | jq -c 'select(.event=="daemon_tick_finished" or ._dire_producer_version)' | head -5
-```
-
-Expected: `status=ok` every tick (180s interval). Most ticks will show `signals_pushed=0` with a `note` documenting which gate blocked (BLOCKED:4TF_MISALIGNED, score_low, QUIET_HOURS, confirmations_incomplete). When all gates clear: `signals_pushed=1` with `note=PUSHED`.
 
 ## Configure
 
@@ -131,42 +163,30 @@ LLM model env var (only at runtime-create time):
 export DIRE_DECISION_MODEL=<your-preferred-model>  # bare model name only; NO provider prefix (e.g. "gemini-2.5-pro", "claude-sonnet-4-20250514", "gpt-4o" — any LLM your OpenClaw host has access to)
 ```
 
-## Key parameters
+## Verification
 
-| Parameter | Value |
-|---|---|
-| Asset | xyz:BRENTOIL (single-asset, XYZ DEX) |
-| Max positions | 1 |
-| Margin per slot | $250 |
-| Leverage | 3x / 5x / 7x / 10x (score-tiered: 9 / 10 / 11 / 12+) |
-| MIN_SCORE | 11 |
-| LLM min_confidence | 7 |
-| Per-asset cooldown | 120 min (2h) |
-| Daily entry cap | 2 |
-| Daily loss limit | 10% |
-| Drawdown halt | 15% (tighter than crypto siblings — oil tail risk) |
-| Quiet hours | 00:00-04:00 UTC (apex score 12+ bypasses) |
-| Require all confirmations | true (FP-003) |
-| Entry order type | FEE_OPTIMIZED_LIMIT (maker-first, 30s timeout) |
-| Exit order type | FEE_OPTIMIZED_LIMIT (maker-first, 60s timeout, taker-fallback) |
-| Leverage type | ISOLATED (mandatory for XYZ DEX) |
+```bash
+tail -f /tmp/dire-producer.log | jq -c 'select(.event=="daemon_tick_finished" or ._dire_producer_version)' | head -5
+```
 
-## DSL Phase 2 ladder (preserved verbatim with v1.7 T0/T1 patch)
+Expected: `status=ok` every tick (180s interval). Most ticks will show `signals_pushed=0` with a `note` documenting which gate blocked (BLOCKED:4TF_MISALIGNED, score_low, QUIET_HOURS, confirmations_incomplete). When all gates clear: `signals_pushed=1` with `note=PUSHED`.
 
-BRENTOIL-tuned. All time-based cuts disabled — exits 100% price-action.
+## Changelog
 
-| Tier | Trigger ROE | Lock (% of HW) |
-|---|---|---|
-| T0 | +5% | 35% (v1.7 patch: 25→35) |
-| T1 | +8% | 50% (v1.7 patch: trigger 10→8) |
-| T2 | +20% | 70% |
-| T3 | +35% | 80% |
-| T4 | +50% | 90% |
+### v2.0.0 — `senpi_runtime_helpers` migration
 
-Phase 1: max_loss 20%, retrace 8%, 1 consecutive breach.
-**Time-cuts:** `hard_timeout` / `weak_peak_cut` / `dead_weight_cut` all DISABLED (single-asset family pattern preserved from v1.3 / v1.4 / v1.5).
+Plumbing-only migration. NO thesis change. v1.7.0's 4TF / SM / OI / volume / cleanliness gates, MIN_SCORE 11, FP-001 quiet hours, FP-003 require-all-confirmations, conviction-scaled sizing, DSL preset with T0/T1 patch — all preserved verbatim.
 
-## Migrating from v1.x
+- `dire-producer.py` and `dire_config.py` migrate to `senpi_runtime_helpers`:
+  - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
+  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
+  - Reentrancy lock owned by `producer_daemon.scanner_lock` instead of hand-rolled `fcntl`
+  - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
+- Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
+- `runtime.yaml` rewritten — `external_scanner.name: dire_signals` matches the producer's `push_signal(scanner=...)`. Risk guard rails (daily cap, drawdown halt, consecutive losses, per-asset cooldown) replace Python-side state files. Old `dire-scanner.py` removed.
+- `signal_type="DIRE_BRENTOIL_TREND"` passed explicitly to `push_signal()` so audit logs + LLM decision context stay correctly tagged.
+
+### Migrating from v1.x
 
 ```bash
 cd /data/workspace/skills/dire-strategy

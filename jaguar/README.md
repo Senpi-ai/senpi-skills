@@ -1,11 +1,61 @@
-# 🐆 Jaguar v4.0.0 — Striker / Rank-Jump Detector (senpi_runtime_helpers)
+# 🐆 Jaguar — Striker / Rank-Jump Detector
+
+Hunts violent rank-jump explosions on the Hyperliquid leaderboard — rare but high-conviction.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v3.7. NO thesis change.** v3.x striker
-scoring + DSL preset + risk.guard_rails preserved verbatim. Producer
-flips to in-process `SenpiClient`, daemon replaces cron, runtime owns
-execution.
+## Thesis
+
+Jaguar fires only on violent rank-jump explosions. The trigger is specific: an asset rockets from rank 20+ into the top 10 with a ≥ 10 rank jump AND 15m contribution velocity is actively building AND 4h price is aligned with SM direction. That's a Striker — rare, high-conviction, one amazing trade.
+
+The discipline is asymmetric by P&L state: capped at 3 entries/day on RED days, unlimited on GREEN. Stay tight when bleeding, press when winning. XYZ is banned (no rank-jump signal on those markets); day-notional liquidity floor is $3M to avoid thin-book traps.
+
+## Key parameters
+
+| Parameter | Value |
+|---|---|
+| Mode | Striker only (rank-jump detector) |
+| Asset universe | All Hyperliquid perps on leaderboard (XYZ banned) |
+| Tick interval | 180s |
+| MIN_SCORE | 9 (producer); 7 LLM min_confidence |
+| Rank jump floor | ≥ 10 |
+| Prev-rank floor | ≥ 20 |
+| Day-notional liquidity floor | $3M |
+| Leverage tiers | 7x (conviction) / 10x (apex) — score-scaled, per-asset HL-clamped |
+| Margin per slot | 50% of account |
+| Max positions | 2 concurrent |
+| Daily entry cap (RED day) | 3 |
+| Daily entry cap (GREEN day) | unlimited (bypass on profit) |
+| Per-asset cooldown | 120 min |
+| Daily loss limit | 10% |
+| Drawdown halt | 25% |
+| `hard_timeout` | 45 min |
+| `weak_peak_cut` | 25 min @ 3% min |
+| `dead_weight_cut` | 12 min |
+| Entry order type | FEE_OPTIMIZED_LIMIT (30s timeout, ALO-then-taker) |
+| Exit order type | FEE_OPTIMIZED_LIMIT (60s timeout, ALO-then-taker) |
+
+### DSL Phase 2 ladder
+
+| Tier | Trigger (margin ROE) | Lock (% of HW) |
+|---|---|---|
+| T0 | +7% | 40% |
+| T1 | +12% | 55% |
+| T2 | +15% | 75% |
+| T3 | +20% | 85% |
+
+## Scanner pattern
+
+This strategy uses the **Striker / rank-jump detector** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `leaderboard_get_markets`, polled every 180s.
+
+## Files
+
+| File | Purpose |
+|---|---|
+| `runtime.yaml` | Runtime spec (scanners, actions, DSL preset, `risk.guard_rails`) |
+| `scripts/jaguar-producer.py` | Long-lived daemon; emits signals via `push_signal` |
+| `scripts/jaguar_config.py` | SDK probe + `SenpiClient` wrapper |
+| `config/jaguar-config.json` | Operator-tunable defaults (wallet, strategyId, chatId) |
 
 ## Install
 
@@ -49,7 +99,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-### Step 2 — Pull Jaguar v4.0.0
+### Step 2 — Pull Jaguar
 
 ```bash
 mkdir -p /data/workspace/skills/jaguar-strategy/{config,scripts,state,references}
@@ -73,8 +123,7 @@ Edit `/data/workspace/skills/jaguar-strategy/config/jaguar-config.json`:
 }
 ```
 
-This is the canonical source of truth. Producer reads `wallet` from
-here on every tick; runtime reads at startup.
+This is the canonical source of truth. Producer reads `wallet` from here on every tick; runtime reads at startup.
 
 ### Step 4 — Required env vars
 
@@ -92,7 +141,7 @@ openclaw senpi runtime create --path /data/workspace/skills/jaguar-strategy/runt
 openclaw senpi runtime list   # jaguar-tracker must appear ACTIVE
 ```
 
-### Step 6 — Stop v3.x cron, start v4.0.0 daemon
+### Step 6 — Stop any v3.x cron, start daemon
 
 ```bash
 openclaw cron list | grep jaguar
@@ -112,87 +161,30 @@ rm -f /data/workspace/skills/jaguar-strategy/state/asset-cooldowns.json
 # scan-history.json is still used by the producer — leave it.
 ```
 
-## Smoke test
+## Verification
 
 ```bash
+ps aux | grep jaguar-producer
+senpi-helpers list
 tail -f /tmp/jaguar-producer.log | jq -c 'select(.status=="ok")' | head -3
 ```
 
-Expected: `status=ok` every tick (180s interval). Heartbeat fields:
-`scanned`, `candidates`, `signals_pushed`, `min_score`, `elapsed_sec`,
-`_jaguar_producer_version`.
+Expected: `status=ok` every tick (180s interval). Heartbeat fields: `scanned`, `candidates`, `signals_pushed`, `min_score`, `elapsed_sec`, `_jaguar_producer_version`.
 
----
+## Changelog
 
-## Thesis (preserved from v3.7)
+### v4.0.0 — helpers-native plumbing migration
 
-Violent rank-jump explosions only. When an asset rockets from rank 20+
-into the top 10 with a ≥10 rank jump AND 15m contribution velocity is
-actively building AND 4h price is aligned with SM direction, that's a
-Striker. Rare but high-conviction. "One amazing trade per day"
-discipline; capped at 3 entries/day on RED days, unlimited on GREEN.
+Plumbing-only migration from v3.7. NO thesis change. v3.x striker scoring + DSL preset + `risk.guard_rails` preserved verbatim. Producer flips to in-process `SenpiClient`, daemon replaces cron, runtime owns execution.
 
-## What changed structurally in v4.0.0
+Structural changes:
 
-- `jaguar-producer.py` (NEW) replaces `jaguar-scanner.py` (DELETED).
-  Pure producer — no `create_position` calls, no trade counters, no
-  cooldown state, no held+pending dedup, no daily-cap state file.
-- MCP calls flip from mcporter subprocess to in-process
-  `SenpiClient.mcp_call()` via `jaguar_config.mcporter_call` shim.
+- `jaguar-producer.py` (NEW) replaces `jaguar-scanner.py` (DELETED). Pure producer — no `create_position` calls, no trade counters, no cooldown state, no held+pending dedup, no daily-cap state file.
+- MCP calls flip from mcporter subprocess to in-process `SenpiClient.mcp_call()` via `jaguar_config.mcporter_call` shim.
 - Cron → long-lived daemon via `producer_daemon` (180s tick).
-- fcntl reentrancy guard removed — `producer_daemon` owns the per-tick
-  scanner_lock with stale-PID auto-recovery.
-- runtime.yaml declares `jaguar_signals` external_scanner + an
-  LLM-pass-through `jaguar_entry` action; risk.guard_rails owns
-  daily caps, per-asset cooldown, drawdown halt, consecutive-loss halts.
-- Trade chain DB emits `LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED
-  → ACTION_RESULT → DSL_CREATED → DSL_CLOSED` for every trade —
-  per-trade telemetry restored.
-
-## Configure
-
-**Set wallet, strategy ID, and chat ID in `config/jaguar-config.json`** — this is the canonical source of truth. Producer reads from here on every tick; runtime reads from here at startup.
-
-Set the LLM decision model via env var at runtime-create time (resolved once into runtime.yaml's `${JAGUAR_DECISION_MODEL}` placeholder):
-
-```bash
-export JAGUAR_DECISION_MODEL=<your-preferred-model>  # bare model name only; NO provider prefix (e.g. "gemini-2.5-pro", "claude-sonnet-4-20250514", "gpt-4o" — any LLM your OpenClaw host has access to)
-```
-
-## Key parameters
-
-| Parameter | Value |
-|---|---|
-| Mode | Striker only (rank-jump detector) |
-| Universe | All Hyperliquid perps on leaderboard (XYZ banned) |
-| Max positions | 2 concurrent |
-| Leverage | 7x (conviction) / 10x (apex) — score-scaled, per-asset HL-clamped |
-| Margin per slot | 50% of account |
-| Entry order type | FEE_OPTIMIZED_LIMIT (30s timeout, ALO-then-taker) |
-| Exit order type | FEE_OPTIMIZED_LIMIT (60s timeout, ALO-then-taker) |
-| MIN_SCORE (producer) | 9 |
-| LLM min_confidence | 7 |
-| Rank jump floor | ≥10 |
-| Prev-rank floor | ≥20 |
-| Day-notional liquidity floor | $3M |
-| Producer tick interval | 180s |
-| hard_timeout | 45 min |
-| weak_peak_cut | 25 min @ 3% min |
-| dead_weight_cut | 12 min |
-| Per-asset cooldown | 120 min |
-| Daily entry cap (RED day) | 3 |
-| Daily entry cap (GREEN day) | unlimited (bypass on profit) |
-| Daily loss limit | 10% |
-| Drawdown halt | 25% |
-
-## DSL Phase 2 ladder
-
-| Tier | Trigger (margin ROE) | Lock (% of HW) |
-|---|---|---|
-| T0 | +7% | 40% |
-| T1 | +12% | 55% |
-| T2 | +15% | 75% |
-| T3 | +20% | 85% |
+- fcntl reentrancy guard removed — `producer_daemon` owns the per-tick scanner_lock with stale-PID auto-recovery.
+- `runtime.yaml` declares `jaguar_signals` external_scanner + an LLM-pass-through `jaguar_entry` action; `risk.guard_rails` owns daily caps, per-asset cooldown, drawdown halt, consecutive-loss halts.
+- Trade chain DB emits `LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED` for every trade — per-trade telemetry restored.
 
 ## License
 
