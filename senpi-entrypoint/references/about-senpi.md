@@ -53,23 +53,24 @@ Behavior rules:
 
 ## Core Capabilities
 
-- Discover high-performing traders and market opportunities (Discovery + market tools)
-- Copy top traders or run autonomous/custom strategy workflows
-- Apply risk controls such as dynamic stop-loss and budget-aware orchestration
-- Trade broad markets through Senpi's Hyperliquid-based stack (crypto perps and more)
+- **Run autonomous AI trading strategies** with `senpi-trading-runtime` — the canonical runtime + DSL exit engine + Python Producer SDK. Every active fleet strategy is built on this.
+- **Discover high-performing traders and market opportunities** via Discovery + market tools.
+- **Mirror top traders or deploy proven autonomous strategies** from the active fleet (live leaderboard at `strategies.senpi.ai`).
+- **Apply built-in risk controls** — daily loss caps, drawdown halts, consecutive-loss cooldowns, per-asset cooldowns — all enforced by `senpi-trading-runtime` declaratively in YAML.
+- **Trade broad markets** through Senpi's Hyperliquid-based stack (crypto perps + equities/metals/indices via XYZ DEX).
 
 ## Full Skill Catalog
 
-- `senpi-entrypoint`: onboarding flow for Senpi setup, discovery, and first-trade guidance.
+**Runtime / infrastructure:**
+- `senpi-trading-runtime`: the canonical OpenClaw plugin runtime + DSL exit engine + Python Producer SDK. Every autonomous trading strategy in the fleet is built on this. See `senpi-trading-runtime/SKILL.md`.
+
+**Onboarding:**
+- `senpi-entrypoint`: this skill — onboarding flow for Senpi setup, discovery, and first-trade guidance.
 - `senpi-onboard`: account + API key + MCP setup workflow.
-- `senpi-getting-started-guide`: interactive first-trade walkthrough.
-- `dsl-dynamic-stop-loss`: two-phase trailing stop-loss with tiered locking.
-- `opportunity-scanner`: market-wide scoring and setup discovery.
-- `emerging-movers`: smart-money rotation detection.
-- `autonomous-trading`: orchestrates DSL + scanner + movers.
-- `wolf-strategy`: full autonomous trading stack.
-- `wolf-howl`: nightly review and self-improvement loop.
-- `whale-index`: mirrors top-performing traders.
+- `senpi-getting-started-guide`: interactive first-trade walkthrough (mirror-strategy path).
+
+**Trading strategies:**
+- Active fleet of autonomous trading strategies — each a directory in this repo, all running live on `strategies.senpi.ai`. Fetch the current list via the `list_strategies` MCP call rather than enumerating here (the fleet changes; this catalog would drift).
 
 ## Install Skills
 

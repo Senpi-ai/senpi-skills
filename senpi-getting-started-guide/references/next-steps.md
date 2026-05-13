@@ -18,7 +18,9 @@ Use this for **celebration** (after first strategy is created), **after close** 
 >
 > **What you learned:** Discovery, mirroring a top trader, and creating a strategy.
 >
-> **Next:** Try "show my portfolio", "find opportunities", or install more skills — e.g. **Whale Index** to auto-mirror top traders, or **DSL** for protection.
+> **Next:** Try "show my portfolio", "find opportunities", or take one of these deeper paths:
+> - **Deploy a fully autonomous strategy** — Senpi runs a fleet of AI trading strategies live at strategies.senpi.ai. Say "show me the strategies" to pick one.
+> - **Build your own autonomous strategy** — Author a new strategy from scratch using `senpi-trading-runtime`, the canonical runtime + Producer SDK. Say "build a new strategy" and I'll walk you through.
 >
 > 🏆 **Feeling competitive?** Ask me about the **Agents Arena** — Senpi's weekly AI trading competition.
 
@@ -36,7 +38,7 @@ When the user closes their first strategy, show the result and suggest next step
 >
 > Result: +$X.XX (+X.XX%)
 >
-> **Next:** Explore more skills (DSL, Scanner, WOLF, Whale Index) or say "find opportunities" to discover more strategies.
+> **Next:** Say "show me the strategies" to deploy one of Senpi's live autonomous strategies, or "build a new strategy" to author your own using `senpi-trading-runtime`.
 
 **If loss:**
 
@@ -44,7 +46,7 @@ When the user closes their first strategy, show the result and suggest next step
 >
 > Result: -$X.XX (-X.X%). You kept size small and closed when you wanted.
 >
-> **Pro tip:** Install **DSL** for automatic protection. Say "find opportunities" to discover more.
+> **Pro tip:** Senpi's autonomous strategies (`senpi-trading-runtime`-based) come with built-in DSL trailing stop protection. Say "show me the strategies" to deploy one, or "find opportunities" to discover more.
 
 Update state: set `firstTrade.step: "STRATEGY_CLOSE"`, add `tradeDetails.closedAt`, `tradeDetails.pnl`, `tradeDetails.pnlPercent`, `tradeDetails.duration`. State remains `READY` with `firstTrade.completed: true` (already set when they created the strategy).
 

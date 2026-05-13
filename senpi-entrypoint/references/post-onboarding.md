@@ -151,18 +151,40 @@ Which sounds interesting? I can explain any in detail or deploy one right now.
 
 ### If user says "Build a new trading strategy" or "build a strategy" or "custom strategy" or "create a strategy"
 
-Help the user brainstorm custom strategies by combining Senpi tools and skills. Start the conversation with:
+The canonical path is to install `senpi-trading-runtime` and use its Producer SDK to author the strategy. That's how every active fleet strategy is built.
 
-> Help me brainstorm some custom strategies we could build from combining senpi tools and/or senpi skills
+**Step 1 — Install the runtime + Producer SDK:**
 
-The LLM should use its knowledge of the available Senpi MCP tools (market data, discovery, trading, portfolio) and installed skills to propose creative strategy ideas. Walk the user through:
+```bash
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
+```
 
-1. **Market scan** — Use available Senpi MCP tools to identify current market conditions and opportunities.
-2. **Strategy ideation** — Brainstorm approaches that combine multiple Senpi tools and skills in novel ways (e.g. combining discovery signals with specific entry/exit logic, layering multiple timeframes, blending copy-trading signals with technical filters).
-3. **Plan outline** — Draft a concrete plan: which tools to use, entry/exit criteria, risk parameters, position sizing, and how the pieces fit together.
-4. **Next steps** — Offer to help the user refine the strategy, backtest the logic manually with current data, or point them to existing strategies that are closest to their idea.
+The skill ships with `SenpiClient` (HTTPS MCP wrapper), `producer_daemon` (long-lived scheduler), `senpi-helpers` (operator CLI), the DSL exit engine, and full reference docs.
 
-Do NOT require any specific skill installation for this flow — it is a brainstorming and planning session powered by the LLM and whatever MCP tools are already available.
+**Step 2 — Walk the user through the strategy design:**
+
+1. **Pick a scanner archetype** — see `senpi-trading-runtime/references/producer-patterns.md` for the catalog of scanner patterns the active fleet implements (universe trend-follower, single-asset alpha hunter, trader-follower, funding-regime fade, cross-asset lag detector, multi-asset whitelist, XYZ specialist, contrarian crowding-unwind, etc.). Each pattern names its primary MCP tools, typical tick interval, and a living example agent to copy from.
+2. **Draft the `runtime.yaml`** — defer to `senpi-trading-runtime/references/yaml-schema.md` for field definitions and `references/strategy-examples.md` for templates. The YAML declares: scanners (`position_tracker` + the producer's `external_scanner`), actions (LLM-gated entry + position_tracker_action), `risk.guard_rails`, and the DSL exit preset.
+3. **Write the Python producer** — defer to `senpi-trading-runtime/references/python-producer-sdk.md`. The producer is a long-lived daemon using `producer_daemon(...)` that pushes signals via `client.push_signal(...)`. Reference any active fleet agent's `<agent>-producer.py` as a working template.
+
+**Step 3 — Deploy:**
+
+```bash
+openclaw senpi runtime create --path /data/workspace/skills/<strategy>-strategy/runtime.yaml
+nohup python3 -u /data/workspace/skills/<strategy>-strategy/scripts/<strategy>-producer.py \
+  > /tmp/<strategy>-producer.log 2>&1 &
+disown
+```
+
+**Step 4 — Verify:**
+
+```bash
+ps -ef | grep <strategy>-producer | grep -v grep
+senpi-helpers list
+grep daemon_tick_finished /tmp/<strategy>-producer.log | tail -3
+```
+
+Building a strategy is a longer flow than deploying an existing one — set expectations with the user. If they want something running today, the "Deploy a proven strategy" path (set me up / catalog) is faster.
 
 ---
 
@@ -179,7 +201,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill "${SLUG}" -g -y 
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill "${SLUG}-strategy" -g -y
 ```
 
-This covers all known cases: slugs that match directly (e.g. `fox`, `viper`, `cobra`) and slugs that need the `-strategy` suffix (e.g. `tiger` → `tiger-strategy`, `ghost-fox` → `ghost-fox-strategy`, `mamba` → `mamba-strategy`).
+This covers two cases: slugs that match the folder name directly (most agents), and slugs that need the `-strategy` suffix (some legacy directories). The fallback handles both transparently — don't enumerate specific examples here, since the fleet changes.
 
 ---
 
@@ -244,7 +266,7 @@ Always lead with the current #1 by ROE from the leaderboard as the primary recom
 
 **DO NOT run `npx skills add --list` in the welcome message.** This dumps every folder including infrastructure and confuses new users. Only use it if the user specifically asks for a raw listing.
 
-**DO NOT explain crons, mcporter, DSL internals, or implementation details** unless the user asks. They deployed a trading agent — show them trading strategies, not plumbing.
+**DO NOT explain runtime internals, scanner plumbing, DSL implementation, or producer-daemon mechanics** unless the user asks. They deployed a trading agent — show them trading strategies, not plumbing. (For users who DO want to look under the hood: point them at `senpi-trading-runtime/SKILL.md`, which is the canonical reference.)
 
 **DO lead with the current top 2 strategies by ROE** from `get_leaderboard` as the default recommendation. Present both so the user makes an active choice. Always fetch fresh leaderboard data rather than assuming a fixed strategy is on top.
 
