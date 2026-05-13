@@ -36,9 +36,10 @@ The `strategy` block tells the runtime which wallet to trade and how much capita
 | `wallet` | Your wallet address (use `${WALLET_ADDRESS}` to keep it in env) | **yes** |
 | `slots` | Max concurrent positions | no |
 | `margin_per_slot` | Fixed USD margin per position | no |
-| `margin_pct` | Margin as % of account (1-100) | no |
+| `margin_pct` | Margin as % of account (positive, max 100) | no |
 | `trading_risk` | Risk profile: `conservative`, `moderate`, or `aggressive` | no |
 | `default_leverage` | Leverage multiplier | no |
+| `leverage_multipliers` | Per-risk-level leverage overrides: `{ conservative?, moderate?, aggressive? }` | no |
 | `enabled` | Set to `false` to pause without uninstalling | no |
 
 ### Set Up Notifications
