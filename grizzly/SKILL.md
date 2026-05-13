@@ -260,7 +260,7 @@ get audited.
 
 ## Install
 
-**Prerequisite:** plugin must be the published `@senpi/runtime` >= 1.1.0. The
+**Prerequisite:** plugin must be the published `@senpi-ai/runtime` >= 1.1.0. The
 senpi-trading-runtime skill must also be installed on this host — it
 ships the Python Producer SDK (`senpi_runtime_helpers`) that this
 producer imports. See README install steps.

@@ -126,7 +126,7 @@ ch_ok, ch = results[0]
 |---|---|
 | `signal_post: … code=INVALID_REQUEST` | Most common: `asset`/`direction` inside `data`. Move to top-level kwargs; verify `data` keys against `runtime.yaml` `config.fields`. |
 | `signal_post: … code=NOT_FOUND` | Verify runtime install (`openclaw senpi runtime list`); confirm `scanner` matches `runtime.yaml`. |
-| `signal_post: unexpected envelope shape` | Runtime is on the legacy envelope; bump the runtime plugin (id: `runtime`, npm package: `@senpi/runtime`) to `>= 1.1.0`. |
+| `signal_post: unexpected envelope shape` | Runtime is on the legacy envelope; bump the runtime plugin (id: `runtime`, npm package: `@senpi-ai/runtime`) to `>= 1.1.0`. |
 | `signal_post: HTTP 400 … Exceeded api.maxItemsPerSignalsRequest=10` | Batch too large; split batch (default cap 10). |
 | `MCP error: …` from `mcp_call` | Check tool name + arguments against `senpi-hyperliquid-mcp` schema. |
 | `lock_recovered_after_crash` | Previous holder crashed; auto-recovered — no action needed. |
