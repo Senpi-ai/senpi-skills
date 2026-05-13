@@ -140,12 +140,23 @@ Actions decide what to do with signals. For LLM-driven entries:
 | Field | What it does |
 |-------|-------------|
 | `decision_mode` | `llm` (AI decides), `rule` (automatic), or `no_decision` (disabled) |
-| `decision_model` | Which LLM model to use (e.g. `claude-sonnet-4-20250514`) |
+| `decision_model` | Which LLM model to use. **Bare model name only — no provider prefix.** See [Model name format](#model-name-format). |
 | `scanners` | Which scanner(s) trigger this action |
 | `min_confidence` | Minimum LLM confidence (1-10) to execute the trade |
 | `params.order_type` | `MARKET` or `FEE_OPTIMIZED_LIMIT` |
 | `context` | What data to inject into the prompt |
 | `decision_prompt` | The prompt template with `{{placeholders}}` |
+
+#### Model name format
+
+Pass the **bare** model name to `decision_model`. The runtime forwards it to the OpenClaw `llm-task` gateway, which adds its own provider prefix when routing. Passing a prefixed name causes a double-prefix and the gateway responds with `500 Unknown model`.
+
+| | Example |
+|---|---|
+| Valid | `gemini-2.5-pro`, `claude-sonnet-4-20250514`, `gemini-3.1-pro-preview` |
+| Invalid | `google/gemini-2.5-pro`, `anthropic/claude-sonnet-4-20250514` |
+
+**Provider selection is not configured here.** The runtime auto-detects the backend at boot: if `ANTHROPIC_API_KEY` is set in the runtime's environment, it uses the Anthropic SDK directly; otherwise it routes through the OpenClaw gateway (which requires `OPENCLAW_GATEWAY_TOKEN`). The bare-name rule applies to the gateway path — the default in production.
 
 ### Configure Exit Management
 
