@@ -54,7 +54,7 @@ Edit `/data/workspace/skills/python-strategy/config/python-config.json` with `wa
 ```bash
 export PYTHON_WALLET=<your-python-wallet>
 export SENPI_AUTH_TOKEN=...
-export PYTHON_DECISION_MODEL=gemini-2.5-pro
+export PYTHON_DECISION_MODEL=<your-preferred-model>
 ```
 
 ### Step 5 — Recreate runtime + launch daemon

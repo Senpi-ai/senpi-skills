@@ -80,7 +80,7 @@ Edit `/data/workspace/skills/mantis-strategy/config/mantis-config.json`:
 export MANTIS_WALLET=<your-mantis-wallet>
 
 export SENPI_AUTH_TOKEN=...                            # required
-export MANTIS_DECISION_MODEL=gemini-2.5-pro            # bare model name; NO provider prefix
+export MANTIS_DECISION_MODEL=<your-preferred-model>            # bare model name; NO provider prefix
 ```
 
 ### Step 5 — Recreate the runtime + start the daemon

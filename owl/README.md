@@ -93,7 +93,7 @@ rm -f /data/workspace/skills/owl-strategy/state/*/producer.lock
 ```bash
 export OWL_WALLET=<your-owl-strategy-wallet>          # MUST match runtime.yaml's wallet
 export SENPI_AUTH_TOKEN=...                            # required for MCP + signal POST
-export OWL_DECISION_MODEL=gemini-3.1-pro-preview       # bare model name; NO provider prefix
+export OWL_DECISION_MODEL=<your-preferred-model>       # bare model name only; NO provider prefix (e.g. "gemini-2.5-pro", "claude-sonnet-4-20250514", "gpt-4o" — any LLM your OpenClaw host has access to)
 export WALLET_ADDRESS=$OWL_WALLET                      # for runtime YAML substitution
 export TELEGRAM_CHAT_ID=...                            # optional notifications
 ```
@@ -147,7 +147,7 @@ ls -la /data/workspace/skills/owl-strategy/state/<wallet-hash>/
 LLM model env var (only at runtime-create time):
 
 ```bash
-export OWL_DECISION_MODEL=gemini-2.5-pro    # bare model name; NO provider prefix
+export OWL_DECISION_MODEL=<your-preferred-model>    # bare model name only; NO provider prefix (e.g. "gemini-2.5-pro", "claude-sonnet-4-20250514", "gpt-4o" — any LLM your OpenClaw host has access to)
 ```
 
 ## Key parameters

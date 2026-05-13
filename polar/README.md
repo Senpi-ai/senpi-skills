@@ -81,7 +81,7 @@ done
 ```bash
 export POLAR_WALLET_ADDRESS=<your-polar-wallet>   # NOT STRATEGY_ADDRESS
 export SENPI_AUTH_TOKEN=...
-export POLAR_DECISION_MODEL=gemini-3.1-pro-preview
+export POLAR_DECISION_MODEL=<your-preferred-model>
 ```
 
 ### Step 4 — Stop the v4.x cron, start the v5.0.0 daemon
@@ -120,7 +120,7 @@ Expected: `status=ok` every tick (180s interval).
 Set the LLM decision model env var at runtime-create time only:
 
 ```bash
-export POLAR_DECISION_MODEL=gemini-2.5-pro    # bare model name; NO provider prefix
+export POLAR_DECISION_MODEL=<your-preferred-model>    # bare model name; NO provider prefix
 ```
 
 ## Key parameters

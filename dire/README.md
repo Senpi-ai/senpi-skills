@@ -80,7 +80,7 @@ done
 ```bash
 export DIRE_WALLET=<your-dire-wallet>
 export SENPI_AUTH_TOKEN=...
-export DIRE_DECISION_MODEL=gemini-2.5-pro          # bare model name; NO provider prefix
+export DIRE_DECISION_MODEL=<your-preferred-model>  # bare model name only; NO provider prefix (e.g. "gemini-2.5-pro", "claude-sonnet-4-20250514", "gpt-4o" — any LLM your OpenClaw host has access to)
 export TELEGRAM_CHAT_ID=<your-tg-chat-id>
 ```
 
@@ -128,7 +128,7 @@ Expected: `status=ok` every tick (180s interval). Most ticks will show `signals_
 LLM model env var (only at runtime-create time):
 
 ```bash
-export DIRE_DECISION_MODEL=gemini-2.5-pro          # bare model name; NO provider prefix
+export DIRE_DECISION_MODEL=<your-preferred-model>  # bare model name only; NO provider prefix (e.g. "gemini-2.5-pro", "claude-sonnet-4-20250514", "gpt-4o" — any LLM your OpenClaw host has access to)
 ```
 
 ## Key parameters

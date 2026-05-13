@@ -76,7 +76,7 @@ export SCORPION_WALLET=<your-scorpion-wallet>
 unset STRATEGY_ADDRESS                          # banned; v5.0 emits deprecation warning if set
 
 export SENPI_AUTH_TOKEN=...
-export SCORPION_DECISION_MODEL=gemini-3.1-pro-preview
+export SCORPION_DECISION_MODEL=<your-preferred-model>
 ```
 
 ### Step 4 — Stop the v4.x cron, start the v5.0.0 daemon

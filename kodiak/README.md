@@ -101,7 +101,7 @@ done
 ```bash
 export KODIAK_WALLET=<your-kodiak-wallet>       # NOT STRATEGY_ADDRESS
 export SENPI_AUTH_TOKEN=...
-export KODIAK_DECISION_MODEL=gemini-3.1-pro-preview   # bare model name
+export KODIAK_DECISION_MODEL=<your-preferred-model>   # bare model name
 ```
 
 Optional (sensible defaults):

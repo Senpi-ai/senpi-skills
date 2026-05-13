@@ -78,7 +78,7 @@ This is the canonical source of truth — producer reads from here on every tick
 export BISON_WALLET=<your-bison-wallet>
 
 export SENPI_AUTH_TOKEN=...                           # required
-export BISON_DECISION_MODEL=gemini-2.5-pro            # bare model name; NO provider prefix
+export BISON_DECISION_MODEL=<your-preferred-model>            # bare model name; NO provider prefix
 ```
 
 ### Step 5 — Recreate the runtime + start the daemon

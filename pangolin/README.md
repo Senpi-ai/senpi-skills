@@ -62,7 +62,7 @@ done
 ```bash
 export PANGOLIN_WALLET=<your-pangolin-wallet>
 export SENPI_AUTH_TOKEN=...
-export PANGOLIN_DECISION_MODEL=gemini-3.1-pro-preview
+export PANGOLIN_DECISION_MODEL=<your-preferred-model>
 ```
 
 ### Step 4 — Stop v2.x cron, start v3.0.0 daemon

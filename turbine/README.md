@@ -174,8 +174,8 @@ Leave the other defaults (`slots`, `margin`, `cycle`, `spread`, `xyzWeight`) alo
 export TURBINE_VOLUME_WALLET=0xVolumeWallet
 export TURBINE_RUNNERS_WALLET=0xRunnersWallet           # omit to disable runners
 export SENPI_AUTH_TOKEN=...
-export TURBINE_VOLUME_DECISION_MODEL=gemini-3.1-pro-preview
-export TURBINE_RUNNERS_DECISION_MODEL=gemini-3.1-pro-preview
+export TURBINE_VOLUME_DECISION_MODEL=<your-preferred-model>
+export TURBINE_RUNNERS_DECISION_MODEL=<your-preferred-model>
 export TELEGRAM_CHAT_ID=<your-chat-id>
 
 # Unset banned legacy vars

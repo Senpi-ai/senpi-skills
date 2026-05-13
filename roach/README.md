@@ -64,7 +64,7 @@ done
 ```bash
 export ROACH_WALLET=<your-roach-wallet>          # NOT STRATEGY_ADDRESS
 export SENPI_AUTH_TOKEN=...
-export ROACH_DECISION_MODEL=gemini-3.1-pro-preview
+export ROACH_DECISION_MODEL=<your-preferred-model>
 ```
 
 For **Roach-B** (variant): use the same skill files but set `ROACH_WALLET=<roach-b-wallet>` on that agent's host.

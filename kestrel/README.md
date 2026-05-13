@@ -62,7 +62,7 @@ done
 ```bash
 export KESTREL_WALLET=<your-kestrel-wallet>      # or set wallet field in config/kestrel-config.json
 export SENPI_AUTH_TOKEN=...
-export KESTREL_DECISION_MODEL=gemini-2.5-pro     # or any model the runtime supports
+export KESTREL_DECISION_MODEL=<your-preferred-model>     # or any model the runtime supports
 ```
 
 ### Step 4 — Stop v2.x cron, start v3.0.0 daemon

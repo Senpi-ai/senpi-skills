@@ -62,7 +62,7 @@ done
 ```bash
 export JACKAL_WALLET=<your-jackal-wallet>
 export SENPI_AUTH_TOKEN=...
-export JACKAL_DECISION_MODEL=gemini-2.5-pro   # or any model the runtime supports
+export JACKAL_DECISION_MODEL=<your-preferred-model>   # or any model the runtime supports
 ```
 
 ### Step 4 — Stop v2.x cron, start v3.0.0 daemon

@@ -64,7 +64,7 @@ done
 ```bash
 export VULTURE_WALLET_ADDRESS=<your-vulture-wallet>
 export SENPI_AUTH_TOKEN=...
-export VULTURE_DECISION_MODEL=gemini-3.1-pro-preview
+export VULTURE_DECISION_MODEL=<your-preferred-model>
 ```
 
 ### Step 4 — Stop v3.x cron, start v4.0.0 daemon
@@ -116,7 +116,7 @@ Scans 25+ small/mid-cap Hyperliquid perps (HEMI, WLD, MON, XPL, AIXBT, ARB, ASTE
 Set the LLM decision model via env var at runtime-create time (resolved once into runtime.yaml's `${VULTURE_DECISION_MODEL}` placeholder):
 
 ```bash
-export VULTURE_DECISION_MODEL=gemini-2.5-pro    # bare model name; NO provider prefix
+export VULTURE_DECISION_MODEL=<your-preferred-model>    # bare model name; NO provider prefix
 ```
 
 Optional: tune `quietHours.{startUtc,endUtc,apexBypassScore}` in config.json to override the default 00:00-04:00 UTC defer window.

@@ -54,7 +54,7 @@ Edit `/data/workspace/skills/lemon-strategy/config/lemon-config.json` with `wall
 ```bash
 export LEMON_WALLET=<your-lemon-wallet>
 export SENPI_AUTH_TOKEN=...
-export LEMON_DECISION_MODEL=gemini-2.5-pro
+export LEMON_DECISION_MODEL=<your-preferred-model>
 ```
 
 ### Step 5 — Recreate runtime + launch daemon

@@ -67,7 +67,7 @@ with `wallet`, `strategyId`, `chatId`.
 ```bash
 export EAGLE_WALLET=<your-bald-eagle-wallet>
 export SENPI_AUTH_TOKEN=...
-export EAGLE_DECISION_MODEL=gemini-2.5-pro    # bare model name; NO provider prefix
+export EAGLE_DECISION_MODEL=<your-preferred-model>    # bare model name only; NO provider prefix (e.g. "gemini-2.5-pro", "claude-sonnet-4-20250514", "gpt-4o" — any LLM your OpenClaw host has access to)
 ```
 
 ### Step 5 — Recreate runtime + launch daemon

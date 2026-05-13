@@ -159,7 +159,7 @@ done
 ```bash
 export GRIZZLY_WALLET_ADDRESS=<your-grizzly-wallet>
 export SENPI_AUTH_TOKEN=...
-export GRIZZLY_DECISION_MODEL=gemini-3.1-pro-preview
+export GRIZZLY_DECISION_MODEL=<your-preferred-model>
 ```
 
 ### Step 4 — Stop the v6.x cron, start the v7.0.0 daemon

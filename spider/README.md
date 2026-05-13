@@ -62,7 +62,7 @@ done
 ```bash
 export SPIDER_WALLET=<your-spider-wallet>      # or set wallet field in config/spider-config.json
 export SENPI_AUTH_TOKEN=...
-export SPIDER_DECISION_MODEL=gemini-2.5-pro    # or any model the runtime supports
+export SPIDER_DECISION_MODEL=<your-preferred-model>    # or any model the runtime supports
 ```
 
 ### Step 4 — Stop v2.x cron (if present), start v4.0.x daemon

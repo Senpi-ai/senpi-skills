@@ -54,7 +54,7 @@ Edit `/data/workspace/skills/raptor-strategy/config/raptor-config.json` with `wa
 ```bash
 export RAPTOR_WALLET=<your-raptor-wallet>
 export SENPI_AUTH_TOKEN=...
-export RAPTOR_DECISION_MODEL=gemini-2.5-pro
+export RAPTOR_DECISION_MODEL=<your-preferred-model>
 ```
 
 ### Step 5 — Recreate runtime + launch daemon

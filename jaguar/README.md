@@ -80,7 +80,7 @@ here on every tick; runtime reads at startup.
 
 ```bash
 export SENPI_AUTH_TOKEN=...                       # Bearer for MCP + signal POST
-export JAGUAR_DECISION_MODEL=gemini-2.5-pro       # bare model name; NO provider prefix
+export JAGUAR_DECISION_MODEL=<your-preferred-model>  # bare model name only; NO provider prefix (e.g. "gemini-2.5-pro", "claude-sonnet-4-20250514", "gpt-4o" — any LLM your OpenClaw host has access to)
 # Optional override (defaults to config.wallet):
 # export JAGUAR_WALLET=0x...
 ```
@@ -156,7 +156,7 @@ discipline; capped at 3 entries/day on RED days, unlimited on GREEN.
 Set the LLM decision model via env var at runtime-create time (resolved once into runtime.yaml's `${JAGUAR_DECISION_MODEL}` placeholder):
 
 ```bash
-export JAGUAR_DECISION_MODEL=gemini-2.5-pro    # bare model name; NO provider prefix
+export JAGUAR_DECISION_MODEL=<your-preferred-model>  # bare model name only; NO provider prefix (e.g. "gemini-2.5-pro", "claude-sonnet-4-20250514", "gpt-4o" — any LLM your OpenClaw host has access to)
 ```
 
 ## Key parameters

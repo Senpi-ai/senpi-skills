@@ -62,7 +62,7 @@ done
 ```bash
 export OTTER_WALLET=<your-otter-wallet>
 export SENPI_AUTH_TOKEN=...
-export OTTER_DECISION_MODEL=gemini-2.5-pro   # or any model the runtime supports
+export OTTER_DECISION_MODEL=<your-preferred-model>   # or any model the runtime supports
 ```
 
 ### Step 4 — Stop v1.x cron, start v2.0.0 daemon

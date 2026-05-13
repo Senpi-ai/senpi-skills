@@ -81,7 +81,7 @@ done
 ```bash
 export WOLVERINE_WALLET_ADDRESS=<your-wolverine-wallet>
 export SENPI_AUTH_TOKEN=...
-export WOLVERINE_DECISION_MODEL=gemini-3.1-pro-preview
+export WOLVERINE_DECISION_MODEL=<your-preferred-model>
 ```
 
 ### Step 4 — Stop the v4.x cron, start the v5.0.0 daemon
@@ -120,7 +120,7 @@ Expected: `status=ok` every tick (180s interval). Tick `duration_ms` should drop
 LLM model env var (only at runtime-create time):
 
 ```bash
-export WOLVERINE_DECISION_MODEL=gemini-2.5-pro    # bare model name; NO provider prefix
+export WOLVERINE_DECISION_MODEL=<your-preferred-model>    # bare model name; NO provider prefix
 ```
 
 ## Key parameters
