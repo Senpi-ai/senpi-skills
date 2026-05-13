@@ -13,7 +13,7 @@ Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
 - Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
 - `runtime.yaml` unchanged. `external_scanner.name: polar_signals` matches the producer's `client.push_signal(scanner=...)`.
-- Per Rachin's review of Cheetah PR #209: dead fields stripped from payload; `signal_type="POLAR_ETH_HYBRID"` passed explicitly.
+- Dead fields stripped from signal payload; `signal_type="POLAR_ETH_HYBRID"` passed explicitly to `push_signal()` so audit logs + LLM decision context stay correctly tagged (avoids relying on the runtime YAML's `defaultSignalType` fallback).
 
 ## Thesis (preserved from v4.2.0)
 
@@ -61,7 +61,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-Skip if already pulled for Cheetah / Turbine / Kodiak / another v3 skill.
+Skip if the senpi-trading-runtime skill is already installed on this host.
 
 ### Step 2 — Pull Polar v5.0.0
 
@@ -105,7 +105,7 @@ Expected: `status=ok` every tick (180s interval).
 
 ## Configure
 
-**Set wallet, strategy ID, and chat ID in `config/polar-config.json`** — this is the canonical source of truth. Producer reads from here on every cron tick; runtime reads from here at startup.
+**Set wallet, strategy ID, and chat ID in `config/polar-config.json`** — this is the canonical source of truth. Producer reads from here on every tick; runtime reads from here at startup.
 
 ```json
 {
@@ -121,19 +121,6 @@ Set the LLM decision model env var at runtime-create time only:
 
 ```bash
 export POLAR_DECISION_MODEL=gemini-2.5-pro    # bare model name; NO provider prefix
-```
-
-## Install runtime + create producer cron
-
-```bash
-openclaw senpi runtime create --path /data/workspace/skills/polar-strategy/runtime.yaml
-openclaw senpi runtime list
-```
-
-Add 3-minute cron (wallet read from config.json — no env vars needed):
-
-```cron
-*/3 * * * * cd /data/workspace/skills/polar-strategy && python3 scripts/polar-producer.py >> state/producer.log 2>&1
 ```
 
 ## Key parameters
@@ -168,18 +155,6 @@ ETH-tuned, leverage-aware. All time-based cuts disabled — exits are 100% price
 
 Phase 1: max_loss 25% / retrace 8% / 3 consecutive breaches.
 **Time-cuts:** `hard_timeout` / `weak_peak_cut` / `dead_weight_cut` all DISABLED (v3.0.4/3.0.5/3.0.6 fixes preserved — v1 DSL fired hard_timeout in Phase 2 incorrectly per spec).
-
-## Migrating from v3.x
-
-```bash
-cd /data/workspace/skills/polar-strategy
-rm -f scripts/polar-scanner.py                       # replaced by polar-producer.py
-# Pull the new files (curl commands above)
-# Update cron: replace polar-scanner.py with polar-producer.py
-# Reload runtime: openclaw senpi runtime delete <old-id>; openclaw senpi runtime create --path runtime.yaml
-```
-
-The runtime swap retains DSL state on any open position via venue-side stops — your live trade is not at risk during the upgrade. State files (`state/trade-counter.json`, `state/cooldowns.json`) are vestigial in v4.0 and can be deleted.
 
 ## License
 

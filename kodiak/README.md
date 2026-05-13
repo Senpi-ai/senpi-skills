@@ -15,7 +15,7 @@ SOL-only alpha hunter. Single-asset focus. Multi-factor scoring (SM consensus + 
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
 - Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
 - `runtime.yaml` unchanged. `external_scanner.name: kodiak_signals` matches the producer's `client.push_signal(scanner=...)`.
-- Per Rachin's review of Cheetah PR #209: dead fields stripped from `build_signal_payload`; `signal_type="KODIAK_SOL_THESIS"` passed explicitly.
+- Dead fields stripped from `build_signal_payload`; `signal_type="KODIAK_SOL_THESIS"` passed explicitly to `push_signal()` so audit logs + LLM decision context stay correctly tagged (avoids relying on the runtime YAML's `defaultSignalType` fallback).
 
 ## Thesis (preserved from v6.0.1)
 
@@ -80,7 +80,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-Skip if already pulled for Cheetah v7.0.0 / Turbine v3.2 / another v3 skill.
+Skip if the senpi-trading-runtime skill is already installed on this host.
 
 ### Step 2 — Pull Kodiak v7.0.0
 

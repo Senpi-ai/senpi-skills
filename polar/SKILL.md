@@ -13,11 +13,12 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "5.0.1"
+  version: "5.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
 # 🐻‍❄️ POLAR v5.0.0 — ETH Alpha Hunter (senpi_runtime_helpers)
@@ -28,9 +29,9 @@ Best gross trader in the fleet. Single asset. Maximum conviction.
 
 **What changed structurally:**
 - `polar-producer.py` (NEW) replaces `polar-scanner.py` (DELETED). Pure producer — no execution, no counters, no cooldowns, no resting-order guards.
-- `runtime.yaml` is now v2-runtime-native: external_scanner + LLM-pass-through gate + native risk.guard_rails + DSL preset with FEE_OPTIMIZED_LIMIT.
+- `runtime.yaml` is now runtime-native: external_scanner + LLM-pass-through gate + native risk.guard_rails + DSL preset with FEE_OPTIMIZED_LIMIT.
 - Trade chain DB emits `LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED` for every trade. **Per-trade telemetry is restored.**
-- The `set_cooldown` / `load_tc` Python state crashes that bit Vulture v2.x are structurally impossible in v4.0 (cooldowns are runtime-managed).
+- The `set_cooldown` / `load_tc` Python state crashes from the legacy scanner pattern are structurally impossible in v4.0+ (cooldowns are runtime-managed).
 
 **What's preserved from v3.0.6:**
 - ETH single-asset thesis (no multi-asset rotation)
@@ -62,7 +63,7 @@ Best gross trader in the fleet. Single asset. Maximum conviction.
 - `cancel_order`
 - `strategy_close` / `strategy_close_positions`
 
-These tools are reserved for the **producer cron** (polar-producer.py) and the **DSL ratchet engine**. The cron is the only entry path. The DSL is the only exit path. User-conversation sessions are read-only.
+These tools are reserved for the **producer daemon** (polar-producer.py) and the **DSL ratchet engine**. The daemon is the only entry path. The DSL is the only exit path. User-conversation sessions are read-only.
 
 If a user asks "should I take this trade?" or "anything close to triggering?", respond by reading current state — DO NOT execute. The producer will fire on its next tick if a real signal is there.
 
@@ -141,7 +142,7 @@ On EVERY session start, check `config/bootstrap-complete.json`. If missing:
 3. Set wallet and telegram in runtime.yaml
 4. Install runtime
 5. Verify: `openclaw senpi runtime list` and `openclaw senpi status`
-6. Create scanner cron (3 min, main)
+6. Launch the producer daemon (long-lived process; internally ticks every 3 min via `producer_daemon`)
 7. Write `config/bootstrap-complete.json`
 8. Send: "🐻‍❄️ POLAR v2.3 online. Hunting ETH. Silence = no conviction."
 

@@ -9,23 +9,21 @@ v7.0.0 (2026-05-08) — plumbing migration. NO thesis change. SOL
 alpha hunter logic, v5.1 base-tech-score floor, multi-factor scoring,
 5x leverage default — all preserved verbatim from v6.0.1.
 
-Six-layer plumbing flip per migration-cookbook (matches Cheetah v7.0.0
-/ Pangolin v2.2 patterns):
+Six-layer plumbing flip:
   1. MCP calls — cfg.mcporter_call() shim now routes through
      SenpiClient.mcp_call() (direct HTTPS, no mcporter subprocess).
      Existing call sites unchanged.
   2. Signal emit — subprocess.run(["openclaw","senpi","external-scanner",
      "ingest"...]) replaced by cfg._wrapper_client.push_signal(...).
      Direct HTTP POST to runtime API on 127.0.0.1:8787/signals.
-     CRITICAL: asset/direction/signal_type at top-level kwargs (Rachin's
-     review on Cheetah PR #209 — dead fields in payload dict are NOT
-     forwarded to the wire).
+     CRITICAL: asset/direction/signal_type at top-level kwargs — dead
+     fields in the payload dict are NOT forwarded to the wire.
   3. Reentrancy — hand-rolled fcntl flock dropped. producer_daemon
      owns per-tick scanner_lock with stale-PID auto-recovery.
   4. Tick scheduling — openclaw cron + agentTurn replaced by
      producer_daemon (long-lived process; zero per-tick LLM cost).
-  5. Per-tick cache + parallel fan-out NOT adopted (matches Pangolin
-     reference minimum-change pattern).
+  5. Per-tick cache + parallel fan-out NOT adopted (minimum-change
+     migration; future opt-in).
   6. /state alive_check — daemon self-terminates if runtime deleted
      or scanner renamed.
 
@@ -50,12 +48,12 @@ from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ign
 VERSION = "7.0.0"
 
 # Hardcoded — must match runtime.yaml external_scanner.name. Removing the
-# env var override eliminates a source of mismatch (Cheetah v7.0.0 pattern).
+# env var override eliminates a source of mismatch.
 SCANNER_NAME = "kodiak_signals"
 
-# Signal type passed explicitly to push_signal() per Rachin's review of
-# Cheetah PR #209. Don't rely on scanner's defaultSignalType fallback —
-# many runtime YAMLs (including Kodiak's) don't declare one.
+# Signal type passed explicitly to push_signal(). Don't rely on the
+# scanner's defaultSignalType fallback — many runtime YAMLs (including
+# Kodiak's) don't declare one, and missing tags break audit-log filtering.
 SIGNAL_TYPE = "KODIAK_SOL_THESIS"
 
 # v6.0: Agent-specific wallet env var. NO fallback to STRATEGY_ADDRESS
@@ -541,16 +539,17 @@ def build_sol_thesis():
 def build_signal_payload(thesis, leverage, margin_usd):
     """v7.0.0: returns only the fields push_signal() actually forwards.
 
-    Per Rachin's review of Cheetah PR #209: the wrapper-era push_signal()
-    only passes declared kwargs (address, scanner, asset, direction,
-    score, signal_type, data) to the wire. Everything else in a payload
-    dict is dead weight at best, schema-rejected at worst. Strip them.
+    The wrapper-era push_signal() only passes declared kwargs (address,
+    scanner, asset, direction, score, signal_type, data) to the wire.
+    Everything else in a payload dict is dead weight at best,
+    schema-rejected at worst. Strip them.
 
     asset / direction → top-level kwargs on push_signal() (routing)
     Everything else → goes inside `data` block (validated against
                        runtime.yaml external_scanner.config.fields).
     score stays inside data — Kodiak's composite is unbounded int 0-20,
-    not 0..1 confidence (matches Cheetah/Pangolin reference rationale).
+    not 0..1 confidence (different semantics than the standard wire-
+    format score field).
     """
     sm = thesis.get("sm", {}) or {}
     return {

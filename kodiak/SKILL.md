@@ -13,12 +13,13 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "7.0.1"
+  version: "7.0.0"
   platform: senpi
   exchange: hyperliquid
   base_skill: grizzly-v2.0
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
 # 🐻 KODIAK v7.0.0 — SOL Alpha Hunter

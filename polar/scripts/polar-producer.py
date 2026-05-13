@@ -12,21 +12,21 @@ structural gates, multi-factor scoring (~17 max), conviction-tiered
 leverage (5x/7x/10x), MIN_SCORE 12, FP-001 quiet hours — all
 preserved verbatim from v4.2.0.
 
-Six-layer plumbing flip per migration-cookbook (matches Cheetah v7.0.0
-/ Kodiak v7.0.0 / Pangolin v2.2 patterns):
+Six-layer plumbing flip:
   1. MCP calls — cfg.mcporter_call() shim now routes through
      SenpiClient.mcp_call() (direct HTTPS).
   2. Signal emit — subprocess.run(["openclaw","senpi","external-scanner",
      "ingest"...]) replaced by cfg._wrapper_client.push_signal(...).
      Direct HTTP POST to runtime API on 127.0.0.1:8787/signals.
-     Per Rachin's review of Cheetah PR #209: signal_type passed as
-     explicit kwarg ("POLAR_ETH_HYBRID"), no dead fields in payload.
+     signal_type passed as explicit kwarg ("POLAR_ETH_HYBRID") — no
+     dead fields in payload, avoids relying on the runtime YAML's
+     defaultSignalType fallback.
   3. Reentrancy — hand-rolled fcntl flock dropped. producer_daemon
      owns per-tick scanner_lock with stale-PID auto-recovery.
   4. Tick scheduling — openclaw cron + agentTurn replaced by
      producer_daemon (long-lived process; zero per-tick LLM cost).
-  5. Per-tick cache + parallel fan-out NOT adopted (matches Pangolin
-     reference minimum-change pattern).
+  5. Per-tick cache + parallel fan-out NOT adopted (minimum-change
+     migration; future opt-in).
   6. /state alive_check — wallet=/scanner= kwargs passed to
      producer_daemon; daemon self-terminates when the runtime is
      deleted or the scanner is renamed.
@@ -54,9 +54,9 @@ VERSION = "5.0.0"
 # the env var override eliminates a source of mismatch.
 SCANNER_NAME = "polar_signals"
 
-# Signal type passed explicitly to push_signal() per Rachin's review
-# of Cheetah PR #209. Don't rely on scanner's defaultSignalType
-# fallback — runtime YAMLs commonly don't declare one.
+# Signal type passed explicitly to push_signal(). Don't rely on the
+# scanner's defaultSignalType fallback — runtime YAMLs commonly
+# don't declare one, and missing tags break audit-log filtering.
 SIGNAL_TYPE = "POLAR_ETH_HYBRID"
 
 
@@ -545,8 +545,8 @@ def push_signal(thesis, held_assets):
     """Push a signal payload to the runtime via senpi_runtime_helpers.
 
     Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
-    asset/direction/signal_type at top-level kwargs (Rachin's PR #209
-    review). Score normalized 0..1 for SignalItem.score (Polar's
+    asset/direction/signal_type at top-level kwargs per the SignalItem
+    wire schema. Score normalized 0..1 for SignalItem.score (Polar's
     composite score 0-20 scaled), with raw int score also inside
     `data` for telemetry.
     """
