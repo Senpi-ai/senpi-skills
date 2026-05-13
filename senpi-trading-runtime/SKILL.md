@@ -5,7 +5,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.1"
+  version: "2.0.0"
   platform: senpi
   exchange: hyperliquid
 ---
