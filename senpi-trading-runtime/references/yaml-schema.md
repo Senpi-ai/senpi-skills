@@ -268,6 +268,7 @@ These are hard requirements — if you violate them, the YAML will fail to load:
 | "when using actions that depend on scanners, you must also add a non-empty 'scanners:' block" | OPEN_POSITION action but no scanners | Add a `scanners:` block with at least one scanner |
 | "Duplicate scanner name(s)" | Two scanners have the same name | Rename one of them |
 | "external_scanner does not allow interval" | You set `interval` on an external scanner | Remove the `interval` field |
+| "external_scanner does not support depends_on" | You set `depends_on` on an external scanner | Remove `depends_on`; declare it on the consuming scanner instead |
 | "external_scanner must enable at least one of outputs.signals or outputs.context" | Both outputs are `false` (or `outputs` is missing) | Set at least one of `outputs.signals` / `outputs.context` to `true` |
 | "external_scanner requires a non-empty config.fields map" | Missing field definitions | Add `config: { fields: { ... } }` |
 | "DSL requires at least one position-tracker scanner" | Exit management without position tracking | Add a `position_tracker` scanner |
