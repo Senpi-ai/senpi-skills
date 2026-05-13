@@ -40,7 +40,7 @@ If you copy any fleet agent's `_config.py` verbatim into your new strategy direc
 ### Building your own strategy from a pattern
 
 1. **Pick an archetype below** that matches your market thesis.
-2. **Fetch the example agent's producer + runtime.yaml** via the URLs in that pattern's section.
+2. **Fetch the example agent's producer + `_config.py` + runtime.yaml** via the URLs in that pattern's section.
 3. **Copy the structure**, then swap the parts that are strategy-specific:
    - Keep the archetype-defining MCP calls (those are what make the pattern work)
    - Replace the scoring logic with your thesis
@@ -49,6 +49,13 @@ If you copy any fleet agent's `_config.py` verbatim into your new strategy direc
    - Tune the tick interval (`producer_daemon(interval_seconds=N, ...)`)
 4. **Adjust the `runtime.yaml`** to match: LLM decision_prompt, DSL preset, risk.guard_rails.
 5. **Verify on-chain** after launch by audit-querying the producer-signature MCP call from this doc.
+
+The three files above are the **scoring + execution core**. Every shipped fleet agent also has two deployment-plumbing files in the same directory — you'll need them to ship your strategy, but they don't change between archetypes:
+
+- `<agent>/SKILL.md` — operator-facing skill manifest (description, install instructions, version)
+- `<agent>/config/<agent>-config.json` — wallet-specific values (`<AGENT>_WALLET`, starting budget, rebase schedule, env-var defaults). **Never hardcode wallet-specific values in the producer or runtime.yaml** — `senpi-skills` is public; those values belong in `config.json`.
+
+Copy both from the example agent and rename the wallet/agent strings.
 
 ### What you don't need to write yourself
 
