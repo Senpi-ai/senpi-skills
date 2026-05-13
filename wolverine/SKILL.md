@@ -36,7 +36,7 @@ metadata:
 - HYPE single-asset thesis
 - **Six-gate entry validation:**
   1. 4h trend != NEUTRAL
-  2. 4h structural strength ≥ 0.75 (Kodiak v5.1 pattern)
+  2. 4h structural strength ≥ 0.75
   3. 1h direction matches 4h
   4. 15m momentum ≥ MIN_MOM_15M (0.15) in direction
   5. Base-tech floor (strong_15m OR aligned_5m)
@@ -147,7 +147,7 @@ tail -20 /data/workspace/skills/wolverine-strategy/state/entry-log.jsonl | jq
 2. **THE SCANNER DOES NOT EXIT POSITIONS** — DSL handles all exits
 3. **MAX 1 POSITION** — HYPE only
 4. **Do not modify scanner constants** without testing — fleet-wide thresholds were tuned by audit
-5. **Do not rebase the cron to a faster cadence than 3 min** — 3 min is the right cadence for HYPE momentum signals
+5. **Do not rebase the daemon to a faster tick than 3 min** — 3 min is the right cadence for HYPE momentum signals
 
 ## Setup
 
@@ -236,7 +236,7 @@ ps aux | grep wolverine-scanner | grep -v grep
 tail -5 /tmp/wolverine-loop.log
 ```
 
-Alternative: configure an OpenClaw cron with `sessionTarget: isolated`. Avoid `sessionTarget: main` — that pattern was a $287/day bug on Sentinel and a $200/day timer-bomb on Scorpion before we caught it.
+Alternative: configure an OpenClaw cron with `sessionTarget: isolated`. Avoid `sessionTarget: main` — that pattern is a known fee-burn vector when the cron spawns LLM-driven agent turns instead of running the producer script directly.
 
 ## Operational notes
 

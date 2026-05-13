@@ -13,7 +13,7 @@ Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
 - Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
 - `runtime.yaml` unchanged. `external_scanner.name: wolverine_signals` matches the producer's `client.push_signal(scanner=...)`.
-- Per Rachin's review of Cheetah PR #209: dead fields stripped from payload; `signal_type="WOLVERINE_HYPE_HYBRID"` passed explicitly.
+- Dead fields stripped from signal payload; `signal_type="WOLVERINE_HYPE_HYBRID"` passed explicitly to `push_signal()` so audit logs + LLM decision context stay correctly tagged (avoids relying on the runtime YAML's `defaultSignalType` fallback).
 
 ## Thesis (preserved from v4.2.0)
 
@@ -61,7 +61,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-Skip if already pulled for Cheetah / Turbine / Kodiak / Polar / another v3 skill.
+Skip if the senpi-trading-runtime skill is already installed on this host.
 
 ### Step 2 — Pull Wolverine v5.0.0
 
@@ -105,7 +105,7 @@ Expected: `status=ok` every tick (180s interval). Tick `duration_ms` should drop
 
 ## Configure
 
-**Set wallet, strategyId, chatId in `config/wolverine-config.json`** — canonical source. Producer reads from here on every cron tick.
+**Set wallet, strategyId, chatId in `config/wolverine-config.json`** — canonical source. Producer reads from here on every tick.
 
 ```json
 {
@@ -121,19 +121,6 @@ LLM model env var (only at runtime-create time):
 
 ```bash
 export WOLVERINE_DECISION_MODEL=gemini-2.5-pro    # bare model name; NO provider prefix
-```
-
-## Install runtime + producer cron
-
-```bash
-openclaw senpi runtime create --path /data/workspace/skills/wolverine-strategy/runtime.yaml
-openclaw senpi runtime list
-```
-
-Cron (3-min cadence, no env vars needed — wallet read from config):
-
-```cron
-*/3 * * * * cd /data/workspace/skills/wolverine-strategy && python3 scripts/wolverine-producer.py >> state/producer.log 2>&1
 ```
 
 ## Key parameters
@@ -175,11 +162,12 @@ Phase 1: max_loss 20% / retrace 8% / 3 consecutive breaches.
 cd /data/workspace/skills/wolverine-strategy
 rm -f scripts/wolverine-scanner.py                    # replaced by wolverine-producer.py
 # Pull new files (curl above)
-# Update cron: replace wolverine-scanner.py with wolverine-producer.py
+# Stop any v3.x cron: openclaw cron list | grep wolverine ; openclaw cron delete <id>
+# Launch the v5.0+ daemon per Step 4 above (nohup python3 -u ...)
 # Reload runtime: openclaw senpi runtime delete <old>; openclaw senpi runtime create --path runtime.yaml
 ```
 
-State files (`state/trade-counter.json`, `state/cooldowns.json`) are vestigial in v4.0 and can be deleted.
+State files (`state/trade-counter.json`, `state/cooldowns.json`) are vestigial in v5.0+ and can be deleted.
 
 ## License
 

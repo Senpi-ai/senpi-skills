@@ -13,11 +13,12 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0.1"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
 # 🦅 KESTREL v2.0 — XYZ Macro Breakout Rider
@@ -122,12 +123,12 @@ Producer-side dynamic daily cap (P&L-aware):
 
 ## Fleet patches incorporated
 
-- ✓ **Held-asset dedup** (3-layer; Pangolin v2.1 pattern)
-- ✓ **Post-close cooldown** (180min; Pangolin v2.1.2 pattern)
-- ✓ **Reentrancy lockfile** (fcntl)
+- ✓ **Held-asset dedup** (3-layer: producer pre-filter, LLM gate, runtime per_asset_cooldown)
+- ✓ **Post-close cooldown** (180min; producer-side runtime-cooldown backstop)
+- ✓ **Reentrancy guard** (producer_daemon scanner_lock with stale-PID auto-recovery)
 - ✓ **Wallet-from-config** (no hardcoding)
-- ✓ **drawdown_reset_on_day_rollover: false** (Roach lesson)
-- ✓ **FEE_OPTIMIZED_LIMIT** entries AND exits with `ensure_execution_as_taker: true` (Kodiak v6.0.1 lesson)
+- ✓ **drawdown_reset_on_day_rollover: false**
+- ✓ **FEE_OPTIMIZED_LIMIT** entries AND exits with `ensure_execution_as_taker: true`
 - ✓ **Fleet-standard T0/T1 ladder**
 - ✗ **FP-001 quiet hours** — deferred fleet-wide
 
@@ -138,7 +139,7 @@ User-conversation Claude sessions MUST NOT call any of:
 `ratchet_stop_add`, `ratchet_stop_edit`, `ratchet_stop_delete`,
 `cancel_order`, `strategy_close`, `strategy_close_positions`.
 
-These tools are reserved for the **producer cron** (entry path) and
+These tools are reserved for the **producer daemon** (entry path) and
 the **DSL ratchet engine** (exit path). User-conversation sessions
 are **read-only**.
 

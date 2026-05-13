@@ -16,11 +16,12 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "7.0.1"
+  version: "7.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
 # 🐻 GRIZZLY v7.0.0 — BTC Alpha Hunter (senpi_runtime_helpers)
@@ -57,8 +58,8 @@ session MUST NOT call any of:
 - `cancel_order`
 - `strategy_close` / `strategy_close_positions`
 
-These tools are reserved for the **producer cron** (grizzly-producer.py)
-and the **DSL ratchet engine**. The cron is the only entry path. The DSL
+These tools are reserved for the **producer daemon** (grizzly-producer.py)
+and the **DSL ratchet engine**. The daemon is the only entry path. The DSL
 is the only exit path. User-conversation sessions are read-only.
 
 If the user asks an action-implying question ("anything close to
@@ -311,7 +312,7 @@ senpi-helpers health grizzly-<wallet-suffix>             # exit 0 = healthy
 - **Trade chain DB:** `LIFECYCLE_RUNTIME_STARTED → DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED` per trade
 - **DROPPED:** 3-mode state machine (HUNTING/RIDING/STALKING), `evaluate_reload`, `has_resting_orders`, `create_position`, `get_safe_leverage`, `get_dynamic_daily_cap`
 - **PRESERVED VERBATIM:** all 6 entry gates (4h trend != NEUTRAL, 4h structure ≥ 0.75, 1h matches 4h, 15m momentum, base-tech floor, v5.5 macro V-recovery), SM hard block, RSI 70/30 hard gates, multi-factor scoring (~17 max), MIN_SCORE 12, BTC-tuned thresholds, leverage tiers, DSL preset
-- **Observability fix:** Vulture v3.1.1 forensic-logging pattern — `INGEST_FAILED` / `INGEST_REJECTED` / `INGEST_EXCEPTION` all log rc + stderr + stdout + payload
+- **Observability fix:** forensic-logging pattern — `INGEST_FAILED` / `INGEST_REJECTED` / `INGEST_EXCEPTION` all log rc + stderr + stdout + payload
 
 ### v5.0 (2026-04-16) — COMPLETE REWRITE
 - Direction logic flipped back from v4.x contrarian to trend-following

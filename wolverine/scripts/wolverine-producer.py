@@ -11,20 +11,20 @@ opposing direction, RSI hard gates (74/26), multi-factor scoring
 (~17 max), conviction-tiered leverage (3x standard / 5x apex),
 MIN_SCORE 9, FP-001 quiet hours — all preserved verbatim from v4.2.0.
 
-Six-layer plumbing flip per migration-cookbook (matches Cheetah v7.0.0
-/ Kodiak v7.0.0 / Polar v5.0.0 patterns):
+Six-layer plumbing flip:
   1. MCP calls — cfg.mcporter_call() shim now routes through
      SenpiClient.mcp_call() (direct HTTPS).
   2. Signal emit — subprocess.run(["openclaw","senpi","external-scanner",
      "ingest"...]) replaced by cfg._wrapper_client.push_signal(...).
-     Per Rachin's PR #209 review: signal_type passed as explicit
-     kwarg ("WOLVERINE_HYPE_HYBRID"), no dead fields in payload.
+     signal_type passed as explicit kwarg ("WOLVERINE_HYPE_HYBRID") —
+     no dead fields in payload, avoids relying on the runtime YAML's
+     defaultSignalType fallback.
   3. Reentrancy — hand-rolled fcntl flock dropped. producer_daemon
      owns per-tick scanner_lock with stale-PID auto-recovery.
   4. Tick scheduling — openclaw cron + agentTurn replaced by
      producer_daemon (long-lived process; zero per-tick LLM cost).
-  5. Per-tick cache + parallel fan-out NOT adopted (matches Pangolin
-     reference minimum-change pattern).
+  5. Per-tick cache + parallel fan-out NOT adopted (minimum-change
+     migration; future opt-in).
   6. /state alive_check — wallet=/scanner= kwargs passed to
      producer_daemon; daemon self-terminates when the runtime is
      deleted or the scanner is renamed.
@@ -51,8 +51,9 @@ VERSION = "5.0.0"
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "wolverine_signals"
 
-# Signal type passed explicitly to push_signal() per Rachin's review
-# of Cheetah PR #209.
+# Signal type passed explicitly to push_signal(). Don't rely on the
+# scanner's defaultSignalType fallback — runtime YAMLs commonly don't
+# declare one, and missing tags break audit-log filtering.
 SIGNAL_TYPE = "WOLVERINE_HYPE_HYBRID"
 
 
@@ -624,8 +625,8 @@ def push_signal(thesis, held_assets):
     """Push a signal payload to the runtime via senpi_runtime_helpers.
 
     Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
-    asset/direction/signal_type at top-level kwargs (Rachin's PR #209
-    review). Score normalized 0..1 for SignalItem.score (Wolverine's
+    asset/direction/signal_type at top-level kwargs per the SignalItem
+    wire schema. Score normalized 0..1 for SignalItem.score (Wolverine's
     composite score 0-17 scaled), with raw int score in `data` for
     telemetry.
     """

@@ -10,10 +10,9 @@ NO threshold change. Producer ports onto senpi_runtime_helpers (in-process
 SenpiClient + direct HTTP POST to runtime /signals + producer_daemon
 long-lived loop).
 
-v1.x was a v1 full-agency Python scanner: scored signals, called
+v1.x was a full-agency Python scanner: scored signals, called
 create_position directly, maintained Python-side counters/cooldowns.
-v2.0 flips to producer + v2 runtime (Cheetah v6.0 / Spider v3.0 /
-Pangolin v2.1 pattern).
+v2.0 flips to producer + senpi-trading-runtime.
 
 WHAT v2.0 ENABLES:
   - Producer (kestrel-producer.py) emits signals via
@@ -26,7 +25,7 @@ WHAT v2.0 ENABLES:
     consecutive-loss halt, per-asset cooldown.
   - DSL uses FEE_OPTIMIZED_LIMIT on entries AND exits with
     ensure_execution_as_taker:true (fixes v1.x's resting-on-book
-    bug — Kodiak v6.0.1 lesson).
+    bug — exits must complete, taker fallback is the safety floor).
   - Trade chain DB emits LIFECYCLE / DECISION_EXECUTED /
     ACTION_RESULT / DSL_CREATED / DSL_CLOSED — telemetry restored.
 
@@ -162,7 +161,7 @@ SPREAD_MAX = 0.0035                    # v2.0: was 0.002 (loosened for XYZ)
 MAX_POSITIONS = 2
 MARGIN_PCT = 0.30                      # 30% per slot
 ASSET_COOLDOWN_MINUTES = 180           # 3h between same-asset entries
-POST_CLOSE_COOLDOWN_MINUTES = 180      # v2.0 post-close cooldown (Pangolin v2.1.2 pattern)
+POST_CLOSE_COOLDOWN_MINUTES = 180      # v2.0 producer-side runtime-cooldown backstop
 
 # Score-tiered leverage
 LEVERAGE_TIERS = [
@@ -259,7 +258,7 @@ def save_trade_counter(tc):
 
 
 # ═══════════════════════════════════════════════════════════════
-# v2.0 POST-CLOSE COOLDOWN (Pangolin v2.1.2 pattern)
+# v2.0 POST-CLOSE COOLDOWN (producer-side runtime-cooldown backstop)
 # ═══════════════════════════════════════════════════════════════
 
 def load_last_closed():

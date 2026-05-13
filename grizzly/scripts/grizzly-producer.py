@@ -12,14 +12,14 @@ conviction-scaled leverage (7x default / 10x conviction / 10x apex),
 MIN_SCORE 12, FP-001 quiet hours, FP-003 requireAllConfirmations
 gate — all preserved verbatim from v6.0.0.
 
-Six-layer plumbing flip per migration-cookbook (matches Cheetah
-v7.0.0 / Kodiak v7.0.0 / Polar v5.0.0 / Wolverine v5.0.0 patterns):
+Six-layer plumbing flip:
   1. MCP calls — cfg.mcporter_call() shim now routes through
      SenpiClient.mcp_call() (direct HTTPS).
   2. Signal emit — subprocess.run(["openclaw","senpi","external-scanner",
      "ingest"...]) replaced by cfg._wrapper_client.push_signal(...).
-     Per Rachin's PR #209 review: signal_type passed as explicit
-     kwarg ("GRIZZLY_BTC_TREND"), no dead fields in payload.
+     signal_type passed as explicit kwarg ("GRIZZLY_BTC_TREND") — no
+     dead fields in payload, avoids relying on the runtime YAML's
+     defaultSignalType fallback.
   3. Reentrancy — hand-rolled fcntl flock dropped. producer_daemon
      owns per-tick scanner_lock.
   4. Tick scheduling — openclaw cron + agentTurn replaced by
@@ -39,8 +39,7 @@ reload/scale-in evaluation, and direct create_position calls. The
 state machine drifted across runtime restarts and silent-state-file
 corruption was diagnosable only after the fact.
 
-v6.0 flips to producer + v2 runtime (Wolverine v4 / Cheetah v6 /
-Vulture v3 template):
+v6.0 flips to producer + senpi-trading-runtime:
   - Producer (grizzly-producer.py) emits BTC signals via
     `SenpiClient.push_signal()` (direct HTTP POST). NO execution code.
   - Runtime LLM gate is pass-through — producer has applied every
@@ -55,7 +54,7 @@ WHAT'S PRESERVED FROM v5.8:
   - Single-asset BTC thesis (Kodiak/Wolverine/Polar family pattern)
   - Six-gate entry validation:
     * GATE 1: 4h trend != NEUTRAL
-    * GATE 2: 4h structural strength ≥ 0.75 (Kodiak v5.1 fix)
+    * GATE 2: 4h structural strength ≥ 0.75 (v5.3 fleet-pattern fix)
     * GATE 3: 1h matches 4h direction
     * GATE 4: 15m momentum aligned ≥ MIN_MOM_15M (0.05)
     * GATE 5: base-tech floor (strong_15m OR aligned_5m)
@@ -109,8 +108,9 @@ VERSION = "7.0.0"
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "grizzly_signals"
 
-# Signal type passed explicitly to push_signal() per Rachin's review
-# of Cheetah PR #209.
+# Signal type passed explicitly to push_signal(). Don't rely on the
+# scanner's defaultSignalType fallback — runtime YAMLs commonly don't
+# declare one, and missing tags break audit-log filtering.
 SIGNAL_TYPE = "GRIZZLY_BTC_TREND"
 
 
@@ -154,7 +154,7 @@ MIN_VOL_RATIO = 1.1             # SOL: 1.2
 FUNDING_EXTREME = 0.0008        # BTC funding lower magnitude than alts
 FUNDING_CROWDED = 0.003
 
-# v5.3 4h structural strength floor — Kodiak v5.1 ported.
+# v5.3 4h structural strength floor — fleet-pattern import.
 # Marginal patterns (60% threshold) flip on the next candle close.
 # 75% (4 of 5 candles) rejects bull-rally pullbacks that briefly
 # scored as BEARISH. Live failure 2026-04-23: BTC $70k→$78k run
@@ -304,7 +304,7 @@ def in_quiet_hours():
     Returns (in_quiet: bool, hour: int, apex_bypass: int)."""
     c = _config()
     qh = c.get("quietHours") or {}
-    # Support both flat (v5.8) and nested (Wolverine v4) forms
+    # Support both flat (v5.8) and nested (legacy) quietHours config forms
     start = int(qh.get("startUtc", c.get("quietHoursStartUtc", 0)))
     end = int(qh.get("endUtc", c.get("quietHoursEndUtc", 4)))
     apex = int(qh.get("apexBypassScore", c.get("quietHoursApexBypassScore", 14)))
@@ -482,7 +482,7 @@ def build_btc_thesis():
     if trend_4h == "NEUTRAL":
         return {"blocked": True, "reason": "4h_NEUTRAL"}
 
-    # GATE 2: strong 4h structural alignment (v5.3 Kodiak v5.1 fix)
+    # GATE 2: strong 4h structural alignment (v5.3 fix)
     if trend_strength_4h < MIN_4H_STRUCTURE:
         return {"blocked": True, "reason": f"4h_weak_{trend_strength_4h:.0%}"}
 
@@ -504,7 +504,7 @@ def build_btc_thesis():
     if direction == "SHORT" and mom_15m > -MIN_MOM_15M:
         return {"blocked": True, "reason": f"15m_too_weak_{mom_15m:+.2f}"}
 
-    # GATE 5: Base-tech-score floor (v5.3 Kodiak v5.1 pattern)
+    # GATE 5: Base-tech-score floor (v5.3 fleet pattern)
     strong_15m = abs(mom_15m) > MIN_MOM_15M * 2
     aligned_5m = (direction == "LONG" and mom_5m > 0) or (direction == "SHORT" and mom_5m < 0)
     if not (strong_15m or aligned_5m):
@@ -711,8 +711,8 @@ def push_signal(thesis, held_assets):
     """Push a signal payload to the runtime via senpi_runtime_helpers.
 
     Direct HTTP POST to runtime API on 127.0.0.1; no subprocess.
-    asset/direction/signal_type at top-level kwargs (Rachin's PR #209
-    review). Score normalized 0..1 for SignalItem.score (Grizzly's
+    asset/direction/signal_type at top-level kwargs per the SignalItem
+    wire schema. Score normalized 0..1 for SignalItem.score (Grizzly's
     composite 0-17 scaled), with raw int score in `data` for telemetry.
     """
     if not STRATEGY_ADDRESS:

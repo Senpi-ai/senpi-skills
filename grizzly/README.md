@@ -15,7 +15,7 @@ Single-asset BTC trend-following scanner. Trades **WITH** smart money consensus 
   - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
 - Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
 - `runtime.yaml` unchanged from v6.x.
-- Per Rachin's review of Cheetah PR #209: dead fields stripped from payload; `signal_type="GRIZZLY_BTC_TREND"` passed explicitly.
+- Dead fields stripped from signal payload; `signal_type="GRIZZLY_BTC_TREND"` passed explicitly to `push_signal()` so audit logs + LLM decision context stay correctly tagged (avoids relying on the runtime YAML's `defaultSignalType` fallback).
 
 ## What Grizzly does
 
@@ -38,7 +38,7 @@ Grizzly v6 applies that exact thesis to BTC. BTC is slower and heavier than SOL,
 ## Six entry gates (all must pass)
 
 1. **4h trend != NEUTRAL** — must have macro structure
-2. **4h structural strength ≥ 0.75** — at least 4 of 5 candles must align (Kodiak v5.1 fix)
+2. **4h structural strength ≥ 0.75** — at least 4 of 5 candles must align (v5.3 fleet-pattern fix)
 3. **1h matches 4h** — short-timeframe must agree with macro
 4. **15m momentum aligned** — `MIN_MOM_15M = 0.05` (BTC-tuned)
 5. **Base-tech floor** — strong 15m magnitude OR 5m alignment
@@ -139,7 +139,7 @@ The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-Skip if already pulled for Cheetah / Turbine / Kodiak / Polar / Wolverine / another v3 skill.
+Skip if the senpi-trading-runtime skill is already installed on this host.
 
 ### Step 2 — Pull Grizzly v7.0.0
 
@@ -243,7 +243,7 @@ First producer scan should print JSON with `_grizzly_producer_version: "6.0.0"`.
 
 ## Troubleshooting
 
-**Producer fires but `INGEST_FAILED` in stderr:** Check the rc / stderr / stdout / payload now logged on every failure (Vulture v3.1.1 forensic-logging pattern). Most common cause is the host being on stable v1.0.97 instead of phase-2 — verify the runtime API responds at 127.0.0.1:8787 with `curl -s http://127.0.0.1:8787/health`.
+**Producer fires but `INGEST_FAILED` in stderr:** Check the rc / stderr / stdout / payload now logged on every failure (forensic-logging pattern). Most common cause is the host runtime plugin being on a pre-1.1.0 build — verify the runtime API responds at 127.0.0.1:8787 with `curl -s http://127.0.0.1:8787/health`.
 
 **Heartbeats constantly with `BLOCKED:` reasons:** Normal in chop. Grizzly fires 1-3 trades per day on average. Macro V-recovery gate especially blocks fresh reversals.
 
