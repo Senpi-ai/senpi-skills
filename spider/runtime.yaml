@@ -241,7 +241,7 @@ exit:
       enabled: true
       max_loss_pct: 12.0                   # weekly drawdown cap
       retrace_threshold: 8
-      consecutive_breaches_required: 3
+      consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:

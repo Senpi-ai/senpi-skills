@@ -122,7 +122,7 @@ v2.5's dynamic daily cap had intermediate tiers (12/8/5/3/1 entries based on ses
 |---|---|---|---|
 | Phase 1 | max_loss_pct | 15% | Tighter than fleet 25% — contrarian losses should be small |
 | Phase 1 | retrace_threshold | 8 | Standard |
-| Phase 1 | consecutive_breaches_required | 3 | Standard (patient) |
+| Phase 1 | consecutive_breaches_required | 1 | Single-breach (Senpi runtime no longer supports multi-breach) |
 | Time cuts | hard_timeout | 360 min (6h) | Reversals take time |
 | Time cuts | weak_peak_cut | 90 min, min_value 2.0 | Cut if peak ROE < 2% in 90 min |
 | Time cuts | dead_weight_cut | 60 min | v2.4 loosened from 30 → 60 (let fades develop) |

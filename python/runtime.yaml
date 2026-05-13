@@ -140,6 +140,7 @@ exit:
       enabled: true
       max_loss_pct: 20.0
       retrace_threshold: 30
+      consecutive_breaches_required: 1     # Senpi runtime is single-breach only — multi-breach no longer supported
     phase2:
       enabled: true
       tiers:

@@ -30,7 +30,7 @@ profile + resetting the budget baseline:
 - `hard_timeout` 45m → 480m (winners need time to run)
 - `dead_weight_cut` → 20m
 - Phase 1 loosened: `max_loss_pct` 25 → 15, `retrace_threshold` 8,
-  `consecutive_breaches_required` 3
+  `consecutive_breaches_required` 1 (Senpi runtime is single-breach only)
 - Phase 2 tiers widened to Lemon's ladder
   (5/20, 10/40, 15/60, 20/75, 30/85, 50/92)
 - `STARTING_BUDGET` 1000.0 → 637.93 (current equity) — unblocks the

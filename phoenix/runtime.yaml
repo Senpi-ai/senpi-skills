@@ -38,7 +38,7 @@ exit:
       enabled: true
       max_loss_pct: 15.0
       retrace_threshold: 8
-      consecutive_breaches_required: 3
+      consecutive_breaches_required: 1
     phase2:
       enabled: true
       tiers:
