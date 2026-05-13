@@ -1,139 +1,213 @@
 ---
 name: jaguar-strategy
 description: >-
-  JAGUAR v3.2 — Striker-Only. Rank-jump threshold loosened 15 → 10
-  (0 events fired in 10,239 evals under prior threshold). Stalker/Hunter
-  removed in v3.0. Pyramiding removed in v3.0. v3.1 fleet-hardened exec
-  path (internal create_position, fee-optimized limit, conviction-scaled
-  leverage). DSL exit managed by plugin runtime via runtime.yaml.
+  JAGUAR v4.0.0 — Striker (rank-jump detector), senpi_runtime_helpers
+  migration. Plumbing-only flip from openclaw-CLI subprocess +
+  mcporter subprocess + cron-driven self-executing scanner to
+  in-process SenpiClient + long-lived producer_daemon + helpers-native
+  push_signal. Thesis preserved verbatim from v3.7: violent
+  FIRST_JUMP signals, rank-jump ≥ 10, MIN_SCORE 9, conviction-scaled
+  leverage (10x apex / 7x conviction), 15m velocity hard gate, $3M
+  day-notional liquidity floor, XYZ ban, one-amazing-trade-per-day
+  discipline. Risk policy: max 3 entries/day when day is RED,
+  unlimited when GREEN (cap losers, ride winners).
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.2"
+  version: "4.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐆 JAGUAR v3.2 — Striker-Only
+# 🐆 JAGUAR v4.0.0 — Striker (helpers-native)
 
-Violent explosions only. DSL manages exits.
+**Plumbing-only migration from v3.7. NO thesis change.** v3.x striker
+scoring + DSL preset + risk.guard_rails preserved verbatim. Producer
+flips to in-process `SenpiClient`, daemon replaces cron, runtime owns
+execution.
 
-## v3.2 changelog (fleet-fix batch 4)
+## v4.0.0 changelog
 
-- `STRIKER_MIN_RANK_JUMP` lowered 15 → 10. 0 events fired in 10,239
-  evaluations under the prior threshold — signal was unreachable in the
-  current market regime. Lowering the jump floor re-engages Striker.
+- `jaguar-producer.py` (NEW) replaces `jaguar-scanner.py` (DELETED).
+  Pure producer — no `create_position` calls, no trade counters, no
+  cooldown state, no held+pending dedup, no daily-cap state file. The
+  runtime's `risk.guard_rails` and `per_asset_cooldown_minutes` own all
+  of that.
+- MCP calls flip from mcporter subprocess to in-process
+  `SenpiClient.mcp_call()` via `jaguar_config.mcporter_call` shim.
+- Cron → long-lived daemon via `producer_daemon` (180s tick).
+- fcntl reentrancy guard removed — `producer_daemon` owns the per-tick
+  `scanner_lock` with stale-PID auto-recovery.
+- `runtime.yaml` now declares the `jaguar_signals` external_scanner,
+  an LLM-pass-through `jaguar_entry` action with FEE_OPTIMIZED_LIMIT
+  entries, and the v3.7 DSL preset + risk.guard_rails verbatim.
+- Phase 1 `consecutive_breaches_required` set to 1 (v2 DSL single-breach).
+- Trade chain DB now emits LIFECYCLE_RUNTIME_STARTED →
+  DECISION_EXECUTED → ACTION_RESULT → DSL_CREATED → DSL_CLOSED for
+  every trade. Per-trade telemetry restored.
+
+## What's preserved from v3.7 verbatim
+
+- v3.2 rank-jump threshold floor (`STRIKER_MIN_RANK_JUMP = 10`)
+- v3.3 prev-rank floor (`STRIKER_MIN_PREV_RANK = 20`)
+- v3.3 reason-count floor (`STRIKER_MIN_REASONS = 3`)
+- v3.4 silent-None fix: $3M day-notional absolute liquidity floor
+  (replaces unreachable vol_ratio hard gate)
+- v3.0 Striker-only thesis (no Stalker, no Hunter, no Pyramiding)
+- Conviction-scaled leverage (score≥10 → 10x apex, score≥9 → 7x conviction)
+- 15m contribution velocity hard gate (`contrib_15m > 0`)
+- 4h direction-alignment gate
+- XYZ ban
+- v3.7 risk.guard_rails: max_entries_per_day=3, bypass_on_profit=true,
+  daily_loss_limit_pct=10, drawdown_halt_pct=25,
+  max_consecutive_losses=3, cooldown_minutes=60,
+  per_asset_cooldown_minutes=120
+- DSL preset: hard_timeout=45min, weak_peak_cut=25min@3%,
+  dead_weight_cut=12min, phase1 max_loss=15%, phase2 ladder
+  (7/40, 12/55, 15/75, 20/85)
+- Per-asset HL leverage clamp via `strategy_get_asset_trading_limits`
+  (XMR-class small caps with 5x venue ceilings)
 
 ---
 
-## ⛔ CRITICAL AGENT RULES
+## ⛔ Hard Rules
 
 ### RULE 1: Install path is `/data/workspace/skills/jaguar-strategy/`
 
-### RULE 2: THE SCANNER DOES NOT EXIT POSITIONS
+### RULE 2: The producer does NOT exit positions
 
-### RULE 3: MAX 2 POSITIONS at a time
+DSL ratchet engine owns all exits via `runtime.yaml`'s `exit:` block.
 
-### RULE 4: Scanner output is AUTHORITATIVE
+### RULE 3: MAX 2 concurrent positions
+
+Enforced via `strategy.slots: 2` in runtime.yaml.
+
+### RULE 4: User-conversation Claude sessions MUST NOT trade
+
+Hard rule. When responding to a user message (Telegram ping, status
+check, etc.), the Claude Code session MUST NOT call any of:
+
+- `create_position`
+- `close_position`
+- `edit_position`
+- `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete`
+- `cancel_order`
+- `strategy_close` / `strategy_close_positions`
+
+These tools are reserved for the **producer daemon** and the **DSL
+ratchet engine**. The daemon is the only entry path. The DSL is the
+only exit path. User sessions are read-only.
 
 ### RULE 5: Verify runtime is installed on every session start
 
-Run `openclaw senpi runtime list`. Runtime must be listed. The position tracker and DSL exit are handled by the plugin runtime.
+Run `openclaw senpi runtime list`. `jaguar-tracker` must be listed
+ACTIVE.
 
-### RULE 6: Never retry timed-out position creation
+### RULE 6: 120-minute per-asset cooldown (runtime-enforced)
 
-If `create_position` times out, check clearinghouse state. If position exists, the position tracker will pick it up automatically. If not, wait for next scan.
-
-### RULE 7: Never modify parameters
-
-### RULE 8: 120-minute per-asset cooldown
+`per_asset_cooldown_minutes: 120` in risk.guard_rails. Producer no
+longer tracks this in Python.
 
 ---
 
-## What Changed From v1.0
+## Thesis
 
-| v1.0 | v2.0 |
+Violent rank-jump explosions only. When an asset rockets from
+rank 20+ into the top 10 with a ≥10 rank jump AND its 15m
+contribution velocity is actively building AND 4h price is aligned
+with the SM direction, that's a Striker. Rare but high-conviction.
+
+Striker = "one amazing trade per day." The producer is the filter;
+the LLM gate and risk.guard_rails are sanity checks, not
+second-guessing layers.
+
+## Entry Scoring (preserved verbatim from v3.7)
+
+### Hard gates (all must pass)
+- Current rank > 10 (we only want assets climbing into the top 10)
+- 4h price ALIGNED with SM direction
+- Previous-scan match (must have been on the leaderboard prior tick)
+- Rank jump ≥ 10
+- Previous rank ≥ 20 (deep-from)
+- 15m contribution velocity > 0 (actively building)
+- Day-notional volume ≥ $3M (liquidity floor)
+- XYZ DEX banned
+- Reason count ≥ 3
+
+### Scoring contributors (max ~14 pts)
+
+| Signal | Points |
+|---|---:|
+| FIRST_JUMP (was below top 50 OR prev_rank ≥ 30) | +3 |
+| IMMEDIATE_MOVER (rank_jump ≥ 10 from rank ≥ 20) | +2 |
+| HIGH_VELOCITY (contrib velocity > 10) | +2 |
+| DEEP_CLIMBER (prev_rank ≥ 40) | +1 |
+| STRONG_4H (price chg 4h > 3%) | +1 |
+| DEEP_SM (≥30 traders) | +1 |
+| 15M_STRONG_SPIKE (contrib_15m > 2.0) | +3 |
+| 15M_SPIKE (contrib_15m > 0.5) | +2 |
+| 15M_BUILDING (contrib_15m > 0.1) | +1 |
+| 1H_ACCEL (contrib_1h > 1.0) | +1 |
+| ACCEL_PATTERN (15m > 1h > 0) | +1 |
+
+**MIN_SCORE: 9** — entry floor.
+
+---
+
+## Conviction-Scaled Leverage
+
+| Score | Leverage |
+|---|---:|
+| ≥10 (apex) | 10x |
+| ≥9 (conviction) | 7x |
+
+Producer pre-clamps via `strategy_get_asset_trading_limits` so the
+LLM gate's leverage echo is venue-safe (XMR=5x, etc.).
+
+---
+
+## Exit (DSL — preserved verbatim from v3.7)
+
+| Mechanism | Value |
 |---|---|
-| Stalker + Striker + Hunter (3 modes) | **Striker only** |
-| Pyramiding enabled | **Removed** |
-| DSL state missing wallet + size | **Both included** |
-| Leverage 10x | **7x** |
-| -29.3% ROE, 4/5 DSL failures | Clean architecture |
+| hard_timeout | 45 min |
+| weak_peak_cut | 25 min @ 3% min |
+| dead_weight_cut | 12 min |
+| Phase 1 max_loss_pct | 15.0 |
+| Phase 1 retrace_threshold | 8 |
+| Phase 1 consecutive_breaches_required | 1 |
+| Phase 2 T0 | 7% trigger → 40% lock |
+| Phase 2 T1 | 12% trigger → 55% lock |
+| Phase 2 T2 | 15% trigger → 75% lock |
+| Phase 2 T3 | 20% trigger → 85% lock |
 
 ---
 
-## v1.0 Post-Mortem
+## Risk Management (runtime.guard_rails — preserved verbatim from v3.7)
 
-- ZEC score 6 (Stalker): -$97, ran 28 hours with no DSL
-- WLD score 6 (Stalker): +$5, ran 28 hours with no DSL
-- ADA score 7 (Stalker): -$3, ran 28 hours with no DSL
-- HYPE score 11 (Striker): -$35, DSL worked correctly (clean floor hit)
-- SOL score 10 (Striker): -$138, ran 10 hours, DSL crashed on missing 'size'
+| Rule | Value |
+|---|---|
+| Max positions | 2 concurrent |
+| Max entries/day (when RED) | 3 |
+| Max entries/day (when GREEN) | unlimited (bypass on profit) |
+| Per-asset cooldown | 120 min |
+| Daily loss cap | 10% |
+| Drawdown halt | 25% |
+| Max consecutive losses | 3 → 60 min cooldown |
+| Asset blocklist | all XYZ |
 
-The ONLY trade with working DSL (HYPE) lost $35 instead of $138. With DSL, losses are bounded. Without DSL, they compound until manual intervention.
-
----
-
-## Exit Management
-
-DSL exit is handled by the plugin runtime via `runtime.yaml`. The `position_tracker` scanner auto-detects position opens/closes on-chain. See `runtime.yaml` for configuration details.
-
-**Monitor positions:**
-- `openclaw senpi dsl positions` — list all DSL-tracked positions
-- `openclaw senpi dsl inspect <ASSET>` — full position details
-
----
-
-## Runtime Setup
-
-**Step 1:** Set your strategy wallet address in runtime.yaml:
-```bash
-sed -i 's/${WALLET_ADDRESS}/<STRATEGY_WALLET_ADDRESS>/' /data/workspace/skills/jaguar-strategy/runtime.yaml
-```
-Replace `<STRATEGY_WALLET_ADDRESS>` with the actual wallet address.
-
-**Step 2:** Set telegram chat ID for notifications:
-```bash
-sed -i 's/${TELEGRAM_CHAT_ID}/<CHAT_ID>/' /data/workspace/skills/jaguar-strategy/runtime.yaml
-```
-Replace `<CHAT_ID>` with the actual Telegram chat ID.
-
-**Step 3:** Install the runtime:
-```bash
-openclaw senpi runtime create --path /data/workspace/skills/jaguar-strategy/runtime.yaml
-```
-
-**Step 4:** Verify:
-```bash
-openclaw senpi runtime list
-```
-
----
-
-## Bootstrap Gate
-
-On EVERY session start, check `config/bootstrap-complete.json`. If missing:
-1. Read the `senpi-trading-runtime` skill — it provides all CLI commands for runtime management and DSL position inspection.
-2. Verify Senpi MCP
-3. Set wallet in runtime.yaml: `sed -i 's/${WALLET_ADDRESS}/ACTUAL_ADDRESS/' /data/workspace/skills/jaguar-strategy/runtime.yaml`
-4. Set Telegram in runtime.yaml: `sed -i 's/${TELEGRAM_CHAT_ID}/CHAT_ID/' /data/workspace/skills/jaguar-strategy/runtime.yaml`
-5. Install runtime: `openclaw senpi runtime create --path /data/workspace/skills/jaguar-strategy/runtime.yaml`
-6. Verify runtime installed: `openclaw senpi runtime list`
-7. Remove old DSL cron (if upgrading): run `openclaw crons list`, delete any cron containing `dsl-v5.py` via `openclaw crons delete <id>`
-8. Create scanner cron (3 min, main)
-9. Write `config/bootstrap-complete.json`
-10. Send: "🐆 JAGUAR v3.2 online. Striker-only scanner (rank-jump ≥ 10). DSL managed by plugin runtime. Silence = no explosions."
-
-If bootstrap exists, still verify runtime and scanner cron on every session start.
+**Policy:** cap losers, ride winners. When today's PnL > 0 →
+`max_entries_per_day` bypass → unlimited entries. When today's PnL ≤ 0
+→ enforce 3/day → top 3 by score, then stop.
 
 ---
 
 ## License
 
 MIT — Built by Senpi (https://senpi.ai).
-
+Source: https://github.com/Senpi-ai/senpi-skills
 
 ---
 

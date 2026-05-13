@@ -1,198 +1,100 @@
-"""JAGUAR Strategy v3.1 — Shared config, MCP helpers, state I/O.
-Self-contained — does not depend on wolf_config."""
+"""JAGUAR v4.0.0 — Shared config + MCP shim + helpers wrapper.
+
+v4.0.0: senpi_runtime_helpers migration. mcporter_call now routes
+through SenpiClient.mcp_call() (direct HTTPS) instead of mcporter
+subprocess. _wrapper_client is exposed for the producer's signal
+push (cfg._wrapper_client.push_signal(...)).
+"""
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-# Source: https://github.com/Senpi-ai/senpi-skills
 
+import functools
 import json
 import os
-import subprocess
 import sys
-import tempfile
 import time
-import glob
 from datetime import datetime, timezone
 from pathlib import Path
 
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "jaguar-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "jaguar-config.json"
-STATE_DIR = SKILL_DIR / "state"
-HISTORY_FILE = os.path.join(WORKSPACE, "jaguar-emerging-history.json")
-COOLDOWN_FILE = STATE_DIR / "asset-cooldowns.json"
-
-STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def atomic_write(path, data):
-    path = str(path)
-    dir_name = os.path.dirname(path) or "."
-    os.makedirs(dir_name, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(data, f, indent=2)
-        os.replace(tmp_path, path)
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+# senpi_runtime_helpers ships inside the senpi-trading-runtime skill.
+# Global skills install under ~/.openclaw/skills/ on standard hosts
+# (e.g. /data/.openclaw/skills/ on Railway). Some setups install user
+# skills under ${OPENCLAW_WORKSPACE}/skills/. Probe both in order.
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
+)
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
 
+
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Jaguar's MCP calls and signal "
+            "POST both require it. Set it on the runtime host before "
+            "starting the producer daemon."
+        )
+    client = SenpiClient()
+    log_event("jaguar_wrapper_enabled", sdk_path=_sdk_path)
+    return client
+
+
+class _WrapperClientProxy:
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
+
+
+# ─── Config ──────────────────────────────────────────────────
 
 def load_config():
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH) as f:
-            return json.load(f)
-    return {}
-
-
-def get_wallet_and_strategy():
-    wallet = os.environ.get("JAGUAR_WALLET", "")
-    strategy_id = os.environ.get("JAGUAR_STRATEGY_ID", "")
-    if not wallet or not strategy_id:
-        config = load_config()
-        wallet = wallet or config.get("wallet", "")
-        strategy_id = strategy_id or config.get("strategyId", "")
-    return wallet, strategy_id
-
-
-def load_state(filename="state.json"):
-    path = STATE_DIR / filename
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-    return {}
-
-
-def save_state(data, filename="state.json"):
-    atomic_write(str(STATE_DIR / filename), data)
-
-
-def load_trade_counter():
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    path = STATE_DIR / "trade-counter.json"
-    default = {"date": today, "entries": 0, "last_entry_ts": 0}
-    if path.exists():
         try:
-            with open(path) as f:
-                tc = json.load(f)
-            if tc.get("date") != today:
-                tc["date"] = today
-                tc["entries"] = 0
-            for k, v in default.items():
-                if k not in tc:
-                    tc[k] = v
-            return tc
-        except (json.JSONDecodeError, IOError):
-            pass
-    return dict(default)
-
-
-def save_trade_counter(tc):
-    tc["updatedAt"] = now_iso()
-    atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
-
-
-def load_cooldowns():
-    if COOLDOWN_FILE.exists():
-        try:
-            with open(COOLDOWN_FILE) as f:
+            with open(CONFIG_PATH) as f:
                 return json.load(f)
         except (json.JSONDecodeError, IOError):
             pass
     return {}
 
 
-def save_cooldowns(cooldowns):
-    atomic_write(str(COOLDOWN_FILE), cooldowns)
+# ─── MCP Helper ──────────────────────────────────────────────
 
-
-def is_asset_cooled_down(token, cooldown_minutes=120):
-    cooldowns = load_cooldowns()
-    if token not in cooldowns:
-        return False
-    exit_ts = cooldowns[token].get("exitTimestamp", 0)
-    elapsed_min = (now_ts() - exit_ts) / 60
-    return elapsed_min < cooldown_minutes
-
-
-def mcporter_call(tool, retries=2, timeout=25, **params):
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
-
-
-def get_clearinghouse(wallet):
-    if not wallet:
+def mcporter_call(tool, retries=2, timeout=30, **params):
+    """v4.0.0: routes through SenpiClient.mcp_call() — direct HTTPS, no
+    mcporter subprocess. Returns the unwrapped JSON document on
+    success, or None if the wrapper raised."""
+    try:
+        return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(
+            f"[senpi_helpers] jaguar_mcp_call_failed tool={tool} "
+            f"err={type(e).__name__}: {e}\n"
+        )
         return None
-    return mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
-
-
-def get_positions(wallet):
-    ch = get_clearinghouse(wallet)
-    if not ch:
-        return 0, []
-    data = ch.get("data", ch)
-    positions, account_value = [], 0
-    for section in ("main", "xyz"):
-        s = data.get(section, {})
-        if not isinstance(s, dict):
-            continue
-        ms = s.get("marginSummary", {})
-        account_value += float(ms.get("accountValue", 0))
-        for ap in s.get("assetPositions", []):
-            pos = ap.get("position", ap)
-            szi = float(pos.get("szi", 0))
-            if szi == 0:
-                continue
-            entry_px = float(pos.get("entryPx", 0))
-            positions.append({
-                "coin": pos.get("coin", ""),
-                "direction": "LONG" if szi > 0 else "SHORT",
-                "upnl": float(pos.get("unrealizedPnl", 0)),
-                "margin": float(pos.get("marginUsed", 0)),
-                "entryPrice": entry_px,
-                "size": abs(szi),
-            })
-    return account_value, positions
 
 
 def output(data):
-    print(json.dumps(data))
+    print(json.dumps(data, default=str))
     sys.stdout.flush()
 
 
 def log(msg):
-    print(f"[jaguar] {msg}", file=sys.stderr)
-    sys.stderr.flush()
+    print(f"[JAGUAR-v4] {msg}", file=sys.stderr)
 
 
 def now_ts():
