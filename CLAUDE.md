@@ -100,3 +100,21 @@ A new skill is not complete until both files above exist with the correct `skill
 `@senpi/runtime` (no `-ai`) is a **separately-published internal package for runtime-side dev testing on Railway boxes**. It only ships `-dev.*` pre-releases — there is no stable `1.x.x`. Feature branches doing runtime-plugin validation may legitimately pin it; **anything on `main` must not**. Operators running `npm install @senpi/runtime@1.1.0` from a skill on `main` hit a 404 — the user's box stays broken until someone tells them which package they actually wanted.
 
 This mistake recurs. If you see `@senpi/` (no `-ai`) in any doc, `runtime.yaml` comment, producer docstring, or error-message string on `main`, treat it as a bug and fix it. Grep every diff that touches `@senpi/` — if there's no `-ai` after `@senpi`, it's the wrong package for `main`.
+
+### Before you write `@senpi/runtime` (no `-ai`), ask the user — on every branch
+
+If you (the AI) are about to commit `@senpi/runtime` anywhere on **any** branch — producer, doc, `runtime.yaml`, comment, anywhere — **stop and ask first**. The rule applies regardless of which branch you're on, because the AI can't reliably tell whether the current branch will land on `main` later. Use plain language:
+
+> "I'm about to write `@senpi/runtime` (no `-ai`). Before I do, please confirm which package you mean.
+>
+> - **`@senpi-ai/runtime`** — the package your end users install on their Railway / OpenClaw hosts. Use this for anything that may land on `main`.
+>   - **If you pick this when you actually wanted the internal one**: nothing breaks. The file just won't reference your in-flight test build.
+>
+> - **`@senpi/runtime`** — internal package; we use it to test runtime-plugin changes on Railway boxes ourselves. Only correct on a feature branch validating a runtime build, never on anything users install.
+>   - **If you pick this when users will install this skill**: their `npm install @senpi/runtime@1.1.0` returns **404**. Their OpenClaw host won't boot. Their trading agent goes offline until someone tells them the right package name.
+>
+> Default if you're not sure: **`@senpi-ai/runtime`**.
+>
+> Which one do you want?"
+
+The consequences are asymmetric. The wrong `@senpi-ai/runtime` pick is recoverable on a single feature branch. The wrong `@senpi/runtime` pick on `main` blocks every user from installing the skill. When in doubt, default to **`@senpi-ai/runtime`**.
