@@ -1,14 +1,19 @@
-"""BISON Strategy — Shared config, MCP helpers, state I/O."""
+"""BISON v3.0.0 — Shared config + MCP shim + helpers wrapper.
+
+v3.0.0: senpi_runtime_helpers migration. mcporter_call now routes
+through SenpiClient.mcp_call() (direct HTTPS) instead of mcporter
+subprocess. _wrapper_client is exposed for the producer's signal
+push (cfg._wrapper_client.push_signal(...)).
+"""
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0 — attribution required for derivative works
 # Source: https://github.com/Senpi-ai/senpi-skills
 
+import functools
 import json
 import os
-import subprocess
 import sys
 import tempfile
-import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,6 +23,45 @@ CONFIG_PATH = SKILL_DIR / "config" / "bison-config.json"
 STATE_DIR = SKILL_DIR / "state"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+# senpi_runtime_helpers ships inside the senpi-trading-runtime skill.
+# Global skills install under ~/.openclaw/skills/ on standard hosts
+# (e.g. /data/.openclaw/skills/ on Railway). Some setups install user
+# skills under ${OPENCLAW_WORKSPACE}/skills/. Probe both in order.
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
+)
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
+
+
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Bison's MCP calls and signal "
+            "POST both require it. Set it on the runtime host before "
+            "starting the producer daemon."
+        )
+    client = SenpiClient()
+    log_event("bison_wrapper_enabled", sdk_path=_sdk_path)
+    return client
+
+
+class _WrapperClientProxy:
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
 
 
 # --- Atomic Write ---
@@ -50,118 +94,50 @@ def load_config():
 
 
 def get_wallet_and_strategy():
-    wallet = os.environ.get("BISON_WALLET", "")
-    strategy_id = os.environ.get("BISON_STRATEGY_ID", "")
+    """Resolve (wallet, strategyId) — env var first, config.json second.
+
+    Env var resolution for wallet (first non-empty wins):
+      1. BISON_WALLET — fleet-standard <SKILL>_WALLET name (v2.0.9 rule)
+      2. cfg.load_config()["wallet"] — canonical source on disk
+    """
+    wallet = os.environ.get("BISON_WALLET", "").strip()
+    strategy_id = os.environ.get("BISON_STRATEGY_ID", "").strip()
     if not wallet or not strategy_id:
         config = load_config()
-        wallet = wallet or config.get("wallet", "")
-        strategy_id = strategy_id or config.get("strategyId", "")
+        wallet = wallet or config.get("wallet", "").strip()
+        strategy_id = strategy_id or config.get("strategyId", "").strip()
     return wallet, strategy_id
 
 
-# --- State I/O ---
+# --- MCP Helper ---
 
-def load_state(filename="state.json"):
-    path = STATE_DIR / filename
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-    return {}
+def mcp_call(tool, **params):
+    """Direct MCP call via SenpiClient (in-process HTTPS).
 
-
-def save_state(data, filename="state.json"):
-    atomic_write(str(STATE_DIR / filename), data)
-
-
-# --- Trade Counter ---
-
-def load_trade_counter():
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    path = STATE_DIR / "trade-counter.json"
-    default = {
-        "date": today, "entries": 0, "realizedPnl": 0,
-        "gate": "OPEN", "gateReason": None, "cooldownUntil": None,
-        "lastResults": []
-    }
-    if path.exists():
-        try:
-            with open(path) as f:
-                tc = json.load(f)
-            if tc.get("date") != today:
-                for k in ["entries", "realizedPnl"]:
-                    tc[k] = 0
-                tc["date"] = today
-                tc["gate"] = "OPEN"
-                tc["gateReason"] = None
-                tc["cooldownUntil"] = None
-            for k, v in default.items():
-                if k not in tc:
-                    tc[k] = v
-            return tc
-        except (json.JSONDecodeError, IOError):
-            pass
-    return dict(default)
+    Replaces v2.x mcporter subprocess. ~10-50× faster (~280ms vs
+    2.5-5s cold start). Same call signature as v2's mcporter_call so
+    legacy call sites (preserved from bison-scanner.py) keep working.
+    """
+    try:
+        return _wrapper_client.mcp_call(tool, **params)
+    except Exception as e:  # noqa: BLE001
+        log_event("bison_mcp_call_failed", tool=tool, error=str(e))
+        return None
 
 
-def save_trade_counter(tc):
-    tc["updatedAt"] = now_iso()
-    atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
-
-
-def increment_entry(tc):
-    tc["entries"] = tc.get("entries", 0) + 1
-    save_trade_counter(tc)
-
-
-def record_trade_result(tc, pnl):
-    tc["lastResults"].append("W" if pnl >= 0 else "L")
-    tc["lastResults"] = tc["lastResults"][-20:]
-    tc["realizedPnl"] = tc.get("realizedPnl", 0) + pnl
-    save_trade_counter(tc)
-
-
-# --- MCP Helpers ---
-
-def mcporter_call(tool, retries=2, timeout=25, **params):
-    """Call a Senpi MCP tool via mcporter. Array syntax, no shell=True."""
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
+# Backward-compat alias — keeps any legacy `cfg.mcporter_call(...)` call
+# sites working even though the underlying transport is in-process now.
+mcporter_call = mcp_call
 
 
 def get_clearinghouse(wallet):
     if not wallet:
         return None
-    return mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+    return mcp_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
 
 
 def get_positions(wallet):
+    """Returns (account_value, [position_dicts])."""
     ch = get_clearinghouse(wallet)
     if not ch:
         return 0, []
@@ -195,10 +171,11 @@ def output(data):
 
 
 def log(msg):
-    print(f"[bison] {msg}", file=sys.stderr, flush=True)
+    print(f"[bison-v3] {msg}", file=sys.stderr, flush=True)
 
 
 def now_ts():
+    import time
     return time.time()
 
 

@@ -1,32 +1,94 @@
 name: bison-tracker
-version: 1.0.1
+# Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
+# plugin. Strategy/skill is "Bison v3.0.0" — lives in description +
+# SKILL.md + _bison_producer_version. Do not set this to 3.x.x.
+version: 1.0.0
 description: >
-  BISON v2.1 — Conviction Holder (asset whitelist + conviction floor +
-  time-cuts disabled).
-  v2.1 (2026-05-07): scanner ports operator-diagnosed fixes:
-    - Asset whitelist (BTC/ETH/SOL); was top-10-by-volume which let
-      small-caps like ZEC consume the daily slot
-    - minScore 8 → 11; was firing on first mediocre setup post-midnight,
-      now demands real conviction
-  Runtime DSL preset (this file): time-cuts ALL DISABLED per fleet
-  pattern reference_dsl_time_cuts_single_asset.md. v1 DSL fires
-  hard_timeout incorrectly in Phase 2; weak_peak_cut stays as the only
-  time-based cut (self-limiting). Phase 1 max_loss + Phase 2 ratchet
-  ladder own all exits via price action. Phase 2 wide-by-design
-  (T0 trigger 10%/0% lock through T5 100%/85% lock) for conviction
-  breathing room.
+  BISON v3.0.0 — Conviction Holder, helpers-native rewrite. Plumbing-only
+  migration from v2.1. NO thesis change.
 
-  v2.0: Onchain position tracker; conviction holder thesis. Wide bands
-  for conviction holds. DSL High Water Mode via RatchetStop.
+  v2.x was a full-agency scanner: scored signals, called create_position
+  directly via mcporter subprocess, tracked daily entries + dynamic slot
+  cap in Python (state files), shipped a hardcoded DSL state template
+  in scanner output. v3.0 flips to producer + senpi-trading-runtime:
+    - Producer (bison-producer.py) emits BISON_CONVICTION_HOLDER signals
+      via SenpiClient.push_signal() (direct HTTP POST). NO execution code.
+      NO trade counters. NO Python cooldowns.
+    - LLM gate is pass-through — producer has applied every filter
+      (asset whitelist, MIN_SCORE 11, conviction-scaled margin/leverage).
+      LLM relays marginUsd + leverage from signal data verbatim.
+    - risk.guard_rails ENFORCES max_entries_per_day, per_asset_cooldown,
+      daily_loss_limit, max_consecutive_losses, drawdown_halt.
+    - DSL exits via FEE_OPTIMIZED_LIMIT — saves ~0.020-0.030% per
+      maker-filled close vs v2.x MARKET orders.
+
+  Thesis preserved verbatim from v2.1 (2026-05-07):
+    - Asset whitelist: BTC/ETH/SOL (override via "allowedAssets")
+    - MIN_SCORE 11 (real conviction, not first-bar-crossing post-midnight)
+    - Score components: 4H trend, 1H trend, 1H momentum (strength-scaled),
+      SM alignment, funding alignment, volume trend, OI proxy, RSI,
+      4H momentum
+    - Direction waterfall: 4H trend → SM direction → 1H momentum
+    - Conviction-scaled margin: score 8-9 → 25%, 10-11 → 31%, 12+ → 37%
+    - Leverage: default 10x, MIN_LEVERAGE 7, MAX_LEVERAGE 10
+    - DSL preset (this file): time-cuts DISABLED per the single-asset
+      pattern. weak_peak_cut KEPT as self-limiting. Phase 1 max_loss
+      30% + Phase 2 ratchet ladder own all exits. Phase 2 wide-by-design
+      (T0 10%/0 lock through T5 100%/85% lock) for conviction breathing.
+
+  v2.1's PnL-aware dynamic daily cap (3 base / 6 hard cap based on
+  realized PnL) is dropped in favor of runtime guard_rails:
+  max_entries_per_day=3 + daily_loss_limit_pct=10 + drawdown_halt_pct=25.
+  Dynamic intermediate tiers sacrificed for state-file-free reliability
+  (Roach lesson: Python state silently leaks).
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
+  slots: 3
+  margin_per_slot: 250            # baseline; LLM passes conviction-tier marginUsd from signal
+  trading_risk: moderate
   enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 30
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 120     # 2h — preserves v2.1 cooldown
 
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: bison_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        directionSource: { type: string, required: false }
+        reasons: { type: array, required: false }
+        trend4h: { type: string, required: false }
+        trend1h: { type: string, required: false }
+        momentum1hPct: { type: number, required: false }
+        momentum4hPct: { type: number, required: false }
+        smDirection: { type: string, required: false }
+        smPct: { type: number, required: false }
+        funding: { type: number, required: false }
+        rsi: { type: number, required: false }
+        volumeTrendPct: { type: number, required: false }
+        oiProxyPct: { type: number, required: false }
+        heldAssets: { type: array, required: false }
 
 actions:
   - name: position_tracker_action
@@ -34,30 +96,132 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# RatchetStop configuration (user-facing: DSL)
-# Scanner enters. RatchetStop exits. Scanner must NEVER exit positions.
+  - name: bison_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${BISON_DECISION_MODEL}"   # REQUIRED. Pass BARE model name only — NO provider prefix. Valid: "gemini-2.5-pro", "claude-sonnet-4-20250514". INVALID: "google/gemini-2.5-pro" (OpenClaw double-prefixes → 500 Unknown model). No default by design.
+    scanners: [bison_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false      # v2.1 hard rule: ALO patience, taker fallback OFF
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: bison_signals
+    decision_prompt: |
+      You are Bison's pass-through gate. Bison is a CONVICTION HOLDER —
+      it makes few, high-conviction trades on liquid majors (BTC/ETH/SOL
+      by default) and lets winners run. The producer has already applied
+      EVERY filter (asset whitelist, MIN_SCORE 11, direction waterfall,
+      9-component scoring, conviction-scaled margin/leverage). Your job
+      is to honor the signal and pass conviction-tier sizing through.
+
+      SIGNAL:
+      {{signal_bison_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. The `asset` in your output payload MUST be the exact value
+         from the signal's `asset` field (typically BTC, ETH, or SOL).
+      2. The `direction` MUST match the signal's `direction` field
+         exactly.
+      3. The `leverage` MUST be copied from the signal's `data.leverage`
+         field exactly (7-10x, typically 10).
+      4. The `marginUsd` MUST be copied from the signal's `data.marginUsd`
+         field exactly. This is the conviction-tier sizing — score 8-9
+         → 25%, 10-11 → 31%, 12+ → 37% of account value. Do NOT
+         substitute the runtime's slot default.
+      5. Every claim in `reasoning` MUST cite values from the signal
+         payload — score, trend4h, trend1h, smDirection, funding, rsi,
+         etc. Do not fabricate.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 11 (producer floor; defensive)
+      - leverage <= 0 OR marginUsd <= 0 OR signal data missing (malformed)
+      - heldAssets already contains this asset (duplicate)
+      - reasons array empty (malformed signal)
+
+      ## BISON'S THESIS
+
+      Big-game hunter. Fewer trades, longer holds, bigger moves.
+      Asset whitelist (BTC/ETH/SOL by default) eliminates the
+      small-cap-volume-spike failure mode (e.g. ZEC consuming a daily
+      slot at -$27). MIN_SCORE 11 demands real conviction across 5+
+      score components — not "first thing past the bar after midnight."
+      DSL is wide by design (T0 +10%/0% lock through T5 +100%/85% lock)
+      so winners can breathe. Time-cuts are disabled — DSL exits via
+      Phase 1 max_loss (30%) or Phase 2 ratchet retrace only.
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 13 (apex tier, marginUsd 37%) AND 4h_bullish
+        or 4h_bearish aligned AND SM aligned AND funding aligned
+      - 7-8: score 11-12 (base/mid tier, marginUsd 25-31%) AND at
+        least 4 score components fire including direction confirmation
+      - 7: score 11 (producer floor) — the signal IS the validation.
+        Honor unless a hard-skip applies.
+      - <7: producer floor not cleared — should never reach you.
+
+      Minimum confidence to execute is 7. Be permissive unless
+      structurally broken — Bison's edge requires occasional bets to
+      catch the right tail.
+
+      ## OUTPUT FORMAT
+
+      Return JSON. `leverage` and `marginUsd` MUST come from the signal
+      payload — these enforce Bison's conviction-tier sizing.
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values — e.g. 'score 13 LONG on ETH, 4h_bullish 83%, 1h_confirms, SM aligned LONG 67%, funding aligned -0.0012, rsi_room 51 — apex tier (37% margin, 10x lev)'",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "BISON_CONVICTION ASSET DIR — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — preserved VERBATIM from v2.1) ────────────────────
 #
-# v2.1 (2026-05-07): time-cuts DISABLED per fleet pattern. The original
-# 120-min hard_timeout + 45-min dead_weight_cut were artifacts of the v1
-# scanner architecture before the conviction thesis was crystallized.
-# A "Macro Conviction" thesis cannot tolerate clock-based exits — the
-# whole point is to ride a directional move until it retraces (Phase 2
-# tier breach) or hits the absolute floor (Phase 1 max_loss). v1 DSL
-# also fires hard_timeout in Phase 2 incorrectly per memory
-# reference_dsl_time_cuts_single_asset.md.
+# v2.1 (2026-05-07): time-cuts DISABLED per fleet pattern reference
+# (single-asset conviction holders disable hard_timeout +
+# dead_weight_cut entirely; v1 DSL fires hard_timeout in Phase 2
+# incorrectly). weak_peak_cut KEPT as self-limiting (fires only if
+# peak ROE never exceeds min_value=3.0 within 60min — thesis-validity
+# check, not clock-cut).
 #
-# weak_peak_cut KEPT (self-limiting): if peak ROE never exceeds 3%
-# within 60 min, the position isn't moving in our favor and gets cut.
-# That's a thesis-validity check, not a clock-cut.
+# Phase 2 wide-by-design (T0 +10%/0% lock through T5 +100%/85% lock)
+# for conviction breathing room.
+#
+# v3.0 update: order_type → FEE_OPTIMIZED_LIMIT (was MARKET). Saves
+# ~0.020-0.030% per maker-filled close. Taker fallback enabled
+# (ensure_execution_as_taker: true) on the exit path so closes always
+# happen — entry path keeps ensure_execution_as_taker: false (v2.1
+# patience rule).
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true       # closes MUST happen — taker fallback safety
+    execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
       enabled: false                     # v2.1: DISABLED. Conviction holds run until DSL retrace.
       interval_in_minutes: 120
     weak_peak_cut:
-      enabled: true                      # v2.1: KEPT. Self-limiting (only fires if peak ROE never above min_value).
+      enabled: true                      # v2.1: KEPT. Self-limiting.
       interval_in_minutes: 60
       min_value: 3.0
     dead_weight_cut:
@@ -71,8 +235,7 @@ exit:
       retrace_threshold: 8
       consecutive_breaches_required: 3
 
-    # Phase 2: RatchetStop profit trailing — High Water Mode
-    # Wide early (breathe), tight late (protect runners)
+    # Phase 2: RatchetStop profit trailing — wide-by-design for conviction
     phase2:
       enabled: true
       tiers:
@@ -85,3 +248,6 @@ exit:
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
