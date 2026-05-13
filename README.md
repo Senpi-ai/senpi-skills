@@ -433,7 +433,6 @@ senpi-skills/
 ├── README.md                       ← this file
 ├── CLAUDE.md                       ← repo conventions for Claude agents
 ├── DSL-MIGRATION-PLAYBOOK.md       ← Runtime 1 → 2 migration notes
-├── GUIDE.md                        ← general dev guide
 ├── catalog.json                    ← skill registry
 │
 ├── senpi-trading-runtime/          ╮
