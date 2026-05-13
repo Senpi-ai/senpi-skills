@@ -115,9 +115,22 @@ Scanners detect trading opportunities. For an external momentum strategy, you ne
 
 Rules for external scanners:
 - Do NOT set `interval` (it's push-driven, not polled)
+- Do NOT set `depends_on` (push-driven scanners do not consume upstream artifacts)
 - Must enable at least one of `outputs.signals` or `outputs.context`
 - Must define `config.fields` with at least one field
 - Each field needs a `type`: `string`, `number`, `boolean`, `object`, or `array`
+
+**Registered scanner types:** `position_tracker`, `external_scanner`, `momentum`, `emerging_movers`, `oi_tracker`, `prescreener`, `liquidation_watchdog`, `market_regime`, `sm_flip`, `opportunity`.
+
+**Other scanner fields (apply to all types):**
+
+| Field | What it does |
+|-------|-------------|
+| `depends_on` | Array of upstream scanner dependencies (`scanner`, `required`, `max_age`, `on_missing`, `on_stale`) |
+| `blocked_assets` | List of asset tickers to exclude from this scanner |
+| `retention` | `last_only` or `rolling_window` |
+| `retention_max_runs` | Integer; max retained runs when using `rolling_window` |
+| `advanced` | Passthrough record for advanced scanner options |
 
 ### Define How Trades Are Entered
 
