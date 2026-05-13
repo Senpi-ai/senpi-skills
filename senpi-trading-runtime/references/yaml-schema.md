@@ -11,7 +11,7 @@ Install a YAML file with `openclaw senpi runtime create --path /path/to/your.yam
 | Key | Required | Purpose |
 |-----|----------|---------|
 | `name` | yes | Runtime name (human-readable identifier). |
-| `version` | no | Runtime version string. |
+| `version` | no | Runtime version (integer or string). The major version must be supported by the runtime (currently `[1]`). |
 | `description` | no | Free-form description. |
 | `strategy` | yes | Wallet, slots, risk profile, leverage — see [Define Your Strategy](#define-your-strategy). |
 | `scanners` | conditional | At least one scanner is required when any action depends on one. See [Connect Your Signal Source](#connect-your-signal-source). |
@@ -287,3 +287,5 @@ These are hard requirements — if you violate them, the YAML will fail to load:
 | "Action decision_prompt references names with no matching context entry or param" | `{{placeholder}}` doesn't match any context entry | Check that your context entries match your placeholders |
 | "max_loss_pct is required" | Phase1 enabled without max_loss_pct | Add `max_loss_pct` to phase1 or preset root |
 | "exit / DSL preset validation failed" | Invalid DSL preset structure | Check tier sort order and required fields |
+| "Unsupported version" | Major version not in `SUPPORTED_RUNTIME_VERSIONS` | Use `version: 1` or omit the field |
+| "'strategies' (plural) is no longer supported" | Using the deprecated plural key | Change to `strategy:` (singular) with a single wallet |
