@@ -90,3 +90,13 @@ When creating a strategy, include `skill_name` and `skill_version` in the call. 
 ### Creating a new skill
 
 A new skill is not complete until both files above exist with the correct `skill_name` (matching the directory name) and `skill_version` (matching the SKILL.md frontmatter `version` field).
+
+---
+
+## Runtime npm package — `@senpi-ai/runtime` (NOT `@senpi/runtime`) on `main`
+
+**Any skill committed to `main` that references the runtime plugin MUST use `@senpi-ai/runtime`.** That's the production npm package — what end users install on their Railway / OpenClaw hosts. `latest = 1.1.0`. Source-of-truth: `senpi-trading-runtime/package.json` declares `name: "@senpi-ai/runtime"`.
+
+`@senpi/runtime` (no `-ai`) is a **separately-published internal package for runtime-side dev testing on Railway boxes**. It only ships `-dev.*` pre-releases — there is no stable `1.x.x`. Feature branches doing runtime-plugin validation may legitimately pin it; **anything on `main` must not**. Operators running `npm install @senpi/runtime@1.1.0` from a skill on `main` hit a 404 — the user's box stays broken until someone tells them which package they actually wanted.
+
+This mistake recurs. If you see `@senpi/` (no `-ai`) in any doc, `runtime.yaml` comment, producer docstring, or error-message string on `main`, treat it as a bug and fix it. Grep every diff that touches `@senpi/` — if there's no `-ai` after `@senpi`, it's the wrong package for `main`.

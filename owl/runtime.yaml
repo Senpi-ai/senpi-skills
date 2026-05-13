@@ -8,7 +8,7 @@ name: owl-tracker
 version: 1.8.0
 description: >
   OWL v8.0.0 — Pure Contrarian Crowding-Unwind Hunter, helpers-native
-  (2026-05-12). Plumbing-only migration on @senpi/runtime 1.1.0. NO
+  (2026-05-12). Plumbing-only migration on @senpi-ai/runtime 1.1.0. NO
   thesis change from v7.1. Same six-layer flip the rest of the fleet
   is doing: mcporter subprocess → SenpiClient.mcp_call() direct HTTPS,
   external-scanner ingest CLI → SenpiClient.push_signal() direct POST,

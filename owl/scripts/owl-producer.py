@@ -13,7 +13,7 @@ MARGIN_PCT 0.25, MIN_COMBINED_SCORE 12, XYZ banned, 6h post-loss
 asset cooldown, dynamic daily cap by PnL.
 
 Six-layer plumbing flip (same pattern as Wolverine/Lemon/Cheetah
-v3.0+ migrations on @senpi/runtime 1.1.0):
+v3.0+ migrations on @senpi-ai/runtime 1.1.0):
   1. MCP calls — cfg.mcporter_call() shim routes through
      SenpiClient.mcp_call() (direct HTTPS, no mcporter subprocess).
   2. Signal emit — subprocess.run(["openclaw","senpi",

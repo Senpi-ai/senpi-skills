@@ -31,7 +31,7 @@ Wait for the crowd to overcommit. Wait for them to exhaust. Then eat their liqui
 
 **Plumbing-only migration. NO thesis change.** v7.1's crowding/exhaustion scoring, persistence gates, MACRO_TREND_GATE, conviction leverage, DSL preset are all preserved verbatim.
 
-Six-layer plumbing flip on @senpi/runtime 1.1.0 (same pattern as Wolverine/Lemon/Cheetah v3.0+ migrations):
+Six-layer plumbing flip on @senpi-ai/runtime 1.1.0 (same pattern as Wolverine/Lemon/Cheetah v3.0+ migrations):
 
 | Layer | v7.1 | v8.0 |
 |---|---|---|
