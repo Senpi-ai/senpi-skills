@@ -1,45 +1,89 @@
 name: condor-tracker
-# Runtime SCHEMA version must have major=1 per senpi-trading-runtime
-# plugin ("Supported major versions: 1"). Strategy/skill is "Condor v3.4"
-# — that semver lives in description + SKILL.md + _condor_version in
-# scanner output. Do not set this to 3.x.x.
-version: 1.3.4
+# Runtime SCHEMA version must be major=1 per senpi-trading-runtime
+# plugin. Strategy/skill is "Condor v4.0.0" — that semver lives in
+# description + SKILL.md + _condor_producer_version. Do not set this
+# to 4.x.x.
+version: 1.0.0
 description: >
-  CONDOR v3.4 — gate calibration fix (2026-05-05). v3.2's tightening
-  (MIN_SCORE 11→13, MIN_SM 65%→75%) over-corrected. Account flatlined
-  at $1001.28 across 13 days post-deploy (2026-04-22 → 2026-05-05) —
-  zero trades, zero PnL change, vlm metric stuck at 213k from the
-  v3.0/v3.1 era. The gate combination required basically every scoring
-  lane to fire simultaneously, including the rare 15m_spike (c15m>=2.0).
-  v3.4 splits the difference: MIN_SCORE 13→12 (achievable without
-  rare 15m_spike lane), MIN_SM 75→70 (mid-stage moves now scoreable),
-  MIN_15M_VELOCITY 0.2→0.1 (was silent killer in 3TF structural gate).
-  Other gates preserved: MACRO_TREND_GATE 10% (Wolverine's lesson),
-  trader_count >= 50, OI >= $1M, MAX_LEVERAGE 10, position sizing
-  tiers, DSL preset (v3.3 weak_peak_cut disabled). Architecture
-  unchanged (still v1 full-agency); v4.0 producer migration on the
-  queue pending v3.4 calibration validation.
+  CONDOR v4.0.0 — One Amazing Trade per Day, helpers-native rewrite.
+  Plumbing-only migration from v3.4. NO thesis change.
 
-  CONDOR v3.3 — disable weak_peak_cut (apex-patience alignment).
-  Condor runs 1 trade/day (1 slot effectively) on apex-confluence
-  setups that develop over 4-8h. 2h weak_peak_cut at 3% ROE was
-  pre-empting the thesis the same way Polar's hard_timeout did on
-  2026-04-23 overnight — a structural mismatch between "I haven't
-  hit 3% ROE in 2 hours" and "this apex setup hasn't had time to
-  develop yet." Phase 1 max_loss (20%) + retrace (8%) + Phase 2 tiers
-  own exits. hard_timeout (24h) preserved as outer bound.
+  v3.x was a full-agency scanner: scored signals, called create_position
+  directly via mcporter subprocess, tracked entries + post-exit cooldown
+  + dynamic daily-cap circuit breaker in Python state files. v4.0 flips
+  to producer + senpi-trading-runtime:
+    - Producer (condor-producer.py) emits CONDOR_APEX_CONTINUATION signals
+      via SenpiClient.push_signal() (direct HTTP POST). NO execution code.
+      NO trade counters. NO Python cooldowns.
+    - LLM gate is pass-through — producer has applied every filter
+      (3TF alignment, MACRO_TREND_GATE, SM consensus 70%, OI/traders/XYZ
+      gates). LLM relays marginUsd + leverage from signal data verbatim.
+    - risk.guard_rails ENFORCES max_entries_per_day=1, per_asset_cooldown,
+      daily_loss_limit, drawdown_halt, max_consecutive_losses.
+    - DSL exits via FEE_OPTIMIZED_LIMIT — saves ~0.020-0.030% per
+      maker-filled close vs v3.x MARKET orders.
+
+  Thesis preserved verbatim from v3.4 (2026-05-05):
+    - Top 50 HL assets by 24h notional volume
+    - HARD GATES: XYZ + stablecoins banned, OI >= $1M, trader_count >= 50,
+      3TF alignment (4h + 1h + 15m velocity), MACRO_TREND_GATE (no
+      counter-trend >10%), SM consensus >= 70%
+    - SCORING: 4h magnitude + 1h confirmation + 15m velocity + 3TF bonus
+      + SM tier + trader depth + funding + BTC macro bonus + peak session
+    - MIN_SCORE 12 (v3.4 calibration)
+    - Score-scaled sizing: 11-12 → 50% margin, 13-14 → 70%, 15+ → 80%
+    - Leverage 10x cap (Kodiak empirical), auto-clamped to asset max
+    - DSL preset (this file): hard_timeout 1440 (24h), Phase 1 max_loss
+      20%, Phase 2 6-tier ladder (Kodiak SOL empirical), weak_peak_cut
+      DISABLED (v3.3 apex-patience alignment).
+
+  v3.x's PnL-aware dynamic daily cap (1 trade healthy, 0 at -25% drawdown)
+  is replaced by runtime guard_rails: max_entries_per_day=1 +
+  drawdown_halt_pct=25.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 1000
   slots: 1
-  margin_per_slot: 500
+  margin_per_slot: 500           # baseline; LLM passes score-tier marginUsd from signal
+  trading_risk: moderate
   enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 1                    # one amazing trade per day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 120                     # 2h post-loss freeze
+    drawdown_halt_pct: 25                     # HARD STOP circuit breaker
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 120           # 2h per-asset (v3.4 POST_EXIT_COOLDOWN)
 
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: condor_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        reasons: { type: array, required: false }
+        priceChange4hPct: { type: number, required: true }
+        priceChange1hPct: { type: number, required: false }
+        contribChange15m: { type: number, required: false }
+        smConsensusPct: { type: number, required: true }
+        smTraders: { type: number, required: false }
+        oiUsd: { type: number, required: false }
+        funding: { type: number, required: false }
+        heldAssets: { type: array, required: false }
 
 actions:
   - name: position_tracker_action
@@ -47,43 +91,149 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# ─── EXIT (DSL) — v3.0 mid-beta default profile ──────────────
-# Condor v3.0 scans 50 assets; most are mid-beta (SOL/ETH/LINK/AAVE class).
-# DSL profile calibrated off Kodiak's SOL empirical wins:
-#   - Phase 2 first lock at +8% ROE / 30% of HW (lets winners breathe)
-#   - Subsequent tiers escalate lock-in as ROE climbs
-#   - Tier 4 at +40% locks 85% of HW (Kodiak's best exit tier)
-#   - Hard timeout 1440 min = 24h "one trade per day" discipline
+  - name: condor_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${CONDOR_DECISION_MODEL}"   # REQUIRED. Pass BARE model name only — NO provider prefix. Valid: "gemini-2.5-pro", "claude-sonnet-4-20250514". INVALID: "google/gemini-2.5-pro" (OpenClaw double-prefixes → 500 Unknown model). No default by design.
+    scanners: [condor_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false      # v3.x ALO patience (entry side); taker fallback OFF
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: condor_signals
+    decision_prompt: |
+      You are Condor's pass-through gate. Condor is a TREND-CONTINUATION
+      APEX SNIPER — it scans the top 50 HL assets and only fires when
+      4h + 1h + 15m alignment + SM consensus + MACRO trend all confirm
+      a runaway move's continuation. The producer has applied EVERY
+      filter (hard gates + MIN_SCORE 12). Your job is to honor the
+      signal and pass score-tier sizing through.
+
+      SIGNAL:
+      {{signal_condor_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. The `asset` in your output payload MUST be the exact value
+         from the signal's `asset` field (one of the top 50 HL assets
+         by 24h volume; XYZ + stablecoins already filtered).
+      2. The `direction` MUST match the signal's `direction` field
+         exactly (LONG or SHORT).
+      3. The `leverage` MUST be copied from the signal's `data.leverage`
+         field exactly (always 10x, auto-clamped to asset max).
+      4. The `marginUsd` MUST be copied from the signal's `data.marginUsd`
+         field exactly. This is the score-tier sizing — score 11-12
+         → 50%, 13-14 → 70%, 15+ → 80% of equity. Do NOT substitute
+         the runtime's slot default.
+      5. Every claim in `reasoning` MUST cite values from the signal
+         payload — score, priceChange4hPct, smConsensusPct, oiUsd, etc.
+         Do not fabricate.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 12 (producer floor; defensive)
+      - leverage <= 0 OR marginUsd <= 0 OR signal data missing (malformed)
+      - heldAssets already contains this asset (duplicate)
+      - reasons array empty (malformed signal)
+
+      ## CONDOR'S THESIS
+
+      Trend continuation, never counter-trend. From Kodiak's top 3
+      lifetime winners (+$133 / +$87 / +$78 on SOL): the absolute
+      highest predictor of a massive swing is when 4H + 1H + 15m
+      price momentum are perfectly unified AND SM leaderboard is
+      heavily lopsided (>=70%) in that same direction. From
+      Wolverine's HYPE SHORT post-mortem: never short an asset
+      already up >10% on the 4H candle — don't fight runaway trends.
+      One trade per day. Wide DSL (Phase 1 20% / Phase 2 8-100%
+      ladder) so apex setups can breathe through normal wicks.
+
+      ## CONFIDENCE SCORING (output 1-10)
+
+      - 9-10: signal score >= 15 (APEX tier, 80% margin, 10x) AND
+        SM_STRONGLY_TILTED (>=80%) AND 4H_MOMENTUM_STRONG (>=6%)
+      - 7-8: signal score 13-14 (HIGH tier, 70% margin) AND
+        SM_CONVERGENT (>=75%) AND clean 3TF alignment
+      - 7: signal score 12 (base tier, 50% margin) — producer floor
+        cleared; honor unless a hard-skip applies.
+      - <7: producer floor not cleared — should never reach you.
+
+      Minimum confidence to execute is 7. Be permissive unless
+      structurally broken — Condor only fires when all hard gates
+      pass; the signal IS the validation.
+
+      ## OUTPUT FORMAT
+
+      Return JSON. `leverage` and `marginUsd` MUST come from the
+      signal payload — these enforce Condor's score-tier sizing.
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values — e.g. 'score 15 LONG on SOL, 4h +5.2%, 1h +0.8%, 15m velocity 1.4, SM_CONVERGENT 78% with 123 traders, BTC_CONFIRMS +2.1% — APEX tier (80% margin, 10x lev)'",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "CONDOR_APEX ASSET DIR — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — preserved VERBATIM from v3.3+/v3.4) ──────────────
 #
-# Single-breach DSL is enforced onchain (RatchetStop backend). Floors are
-# wider than pre-RatchetStop era to survive normal wicks within apex moves.
+# Mid-beta default profile calibrated from Kodiak's SOL winners.
+# weak_peak_cut DISABLED in v3.3 — apex thesis needs 4-8h to develop;
+# 2h @ 3% was pre-empting. Phase 1 + Phase 2 own exits.
+#
+# v4.0 update: order_type → FEE_OPTIMIZED_LIMIT (was MARKET). Saves
+# ~0.020-0.030% per maker-filled close. Taker fallback enabled on
+# exits so closes always happen. Entry path keeps
+# ensure_execution_as_taker: false (v3.x patience rule).
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen
+    execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 1440       # 24h — one trade per day
+      interval_in_minutes: 1440            # 24h — one trade per day discipline
     weak_peak_cut:
-      enabled: false                   # v3.3: DISABLED. Apex thesis needs 4-8h to develop; 2h @ 3% was pre-empting. 1 slot + high MIN_SCORE = single-asset-like. Phase 1 + Phase 2 own exits.
+      enabled: false                       # v3.3: DISABLED. Apex thesis needs 4-8h to develop.
       interval_in_minutes: 120
       min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 60          # 60 min no movement = dead
+      interval_in_minutes: 60              # 60 min no movement = dead
     phase1:
       enabled: true
-      max_loss_pct: 20.0               # Wolverine's HYPE SHORT died at -20%. Keep this.
+      max_loss_pct: 20.0
       retrace_threshold: 8
+      consecutive_breaches_required: 3
     phase2:
       enabled: true
       tiers:
         - { trigger_pct: 8,   lock_hw_pct: 30 }   # Kodiak mid-beta Tier 1
         - { trigger_pct: 15,  lock_hw_pct: 50 }   # Tier 2
-        - { trigger_pct: 25,  lock_hw_pct: 70 }   # Tier 3 — Kodiak's #3 exit
-        - { trigger_pct: 40,  lock_hw_pct: 85 }   # Tier 4 — Kodiak's #1/#2 exit tier
-        - { trigger_pct: 60,  lock_hw_pct: 90 }   # Tier 5 — infinite trail
-        - { trigger_pct: 100, lock_hw_pct: 94 }   # Tier 6 — monster winners
+        - { trigger_pct: 25,  lock_hw_pct: 70 }   # Kodiak's #3 exit tier
+        - { trigger_pct: 40,  lock_hw_pct: 85 }   # Kodiak's #1/#2 exit tier
+        - { trigger_pct: 60,  lock_hw_pct: 90 }   # Infinite trail
+        - { trigger_pct: 100, lock_hw_pct: 94 }   # Monster winners
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

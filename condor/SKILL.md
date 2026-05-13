@@ -1,43 +1,50 @@
 ---
 name: condor-strategy
 description: >-
-  CONDOR v3.0 — "One Amazing Trade per Day." Complete rewrite from v2.0
-  multi-asset thesis picker. Scans top 50 Hyperliquid assets by 24h notional
-  volume for apex trend-continuation setups: 4h + 1h + 15m + SM direction
-  all aligned, SM consensus >=65%, MACRO TREND GATE (no fighting runaway
-  trends), BTC macro aligned. Goes big on apex confluence (50-80% margin,
-  10x leverage, MIN_SCORE=11) and holds ONE TRADE per day while DSL manages
-  exits. Built from Kodiak's top 3 lifetime winners (+$133 / +$87 / +$78 on
-  SOL) + Wolverine's HYPE SHORT post-mortem identifying the counter-trend
-  failure mode. Max 1 position, 2h post-exit cooldown.
+  CONDOR v4.0.0 — One Amazing Trade per Day, senpi_runtime_helpers
+  migration. Plumbing-only flip from openclaw cron + mcporter
+  subprocess to in-process SenpiClient (direct HTTPS for MCP, direct
+  HTTP POST to runtime /signals, long-lived producer_daemon). Thesis
+  preserved verbatim from v3.4: top 50 HL assets, 3TF alignment hard
+  gate + MACRO_TREND_GATE + SM consensus >=70%, MIN_SCORE 12,
+  score-scaled sizing (50%/70%/80%), 10x leverage cap, 6-tier DSL
+  ladder from Kodiak SOL empirical wins.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.4"
+  version: "4.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
-# 🦅 CONDOR v3.0 — One Amazing Trade per Day
+# 🦅 CONDOR v4.0.0 — One Amazing Trade per Day
 
 Top 50 assets. Pure trend continuation. Apex confluence only. One trade a day.
 
----
+## v4.0.0 (2026-05-12) — plumbing-only migration
+
+NO thesis change. v3.4 scoring tables, hard gates, score-scaled sizing tiers, and DSL preset all preserved verbatim. Six-layer plumbing flip:
+
+1. **MCP transport**: `mcporter` subprocess (2.5-5s cold-start per call) → `senpi_runtime_helpers.SenpiClient.mcp_call()` in-process HTTPS (~280ms).
+2. **Signal emit**: scanner called `create_position` directly; producer now emits via `push_signal()` to runtime `/signals`. Runtime LLM-gated `condor_entry` action opens via FEE_OPTIMIZED_LIMIT, passing `marginUsd` + `leverage` through from signal data for score-tier sizing.
+3. **Reentrancy**: no v3 lockfile to replace (Condor v3.x ran on openclaw cron with no producer-side lock); `producer_daemon` owns the per-tick `scanner_lock` with stale-PID auto-recovery.
+4. **Scheduler**: openclaw cron (3 min) → `producer_daemon(interval_seconds=180)`. Long-lived process.
+5. **Risk gates**: Python `MAX_POSITIONS`, dynamic daily cap (1 healthy / 0 at -25%), post-exit cooldown state files → declarative `risk.guard_rails`. `state/trade-counter.json` is vestigial in v4.0 (only the `last_entry_ts` field stays for legacy log compat; cooldown enforcement moves to runtime).
+6. **Exit fee**: DSL exits switched from MARKET (taker, 0.045%) to FEE_OPTIMIZED_LIMIT (maker-first, 0.015%, 60s ALO timeout, taker fallback). Entries keep `ensure_execution_as_taker: false` per v3.x patience rule.
 
 ## ⛔ CRITICAL AGENT RULES
 
 ### RULE 1: Install path is `/data/workspace/skills/condor-strategy/`
-### RULE 2: THE SCANNER DOES NOT EXIT POSITIONS — DSL only.
+### RULE 2: THE PRODUCER DOES NOT EXIT POSITIONS — DSL only.
 ### RULE 3: MAX 1 POSITION (the one amazing trade)
-### RULE 4: Verify runtime on every session start
-### RULE 5: Never modify parameters
-### RULE 6: MAX 1 ENTRY per 24h
-### RULE 7: 120-minute post-exit cooldown before next entry
-### RULE 8: HARD_STOP circuit breaker triggers at -25% drawdown
-
----
+### RULE 4: Verify runtime + daemon on every session start
+### RULE 5: Never modify scoring or gate parameters
+### RULE 6: MAX 1 ENTRY per 24h (runtime `max_entries_per_day=1`)
+### RULE 7: 120-min post-exit cooldown (runtime `per_asset_cooldown_minutes=120`)
+### RULE 8: HARD_STOP circuit breaker at -25% drawdown (runtime `drawdown_halt_pct=25`)
 
 ## Thesis
 
@@ -56,23 +63,18 @@ From Wolverine's HYPE SHORT post-mortem (-$160 loss, 2026-04-16):
 > micro-retrace. The historical winners traded with the massive macro
 > shift, not against it."
 
-Condor v3.0 enforces both insights as hard gates.
+Condor enforces both insights as hard gates.
 
----
-
-## Hard Gates (all must pass — fail = skip asset)
+## Hard gates (all must pass — fail = skip asset)
 
 1. **Not XYZ, not stablecoin**
-2. **OI > $1M USD** (PR #196 context-aware read)
+2. **OI > $1M USD** (context-aware read)
 3. **trader_count >= 50** (signal validity)
-4. **3TF ALIGNMENT** — 4h_price + 1h_price + 15m SM velocity all aligned in entry direction, each clearing magnitude threshold
-5. **MACRO TREND GATE** — if `|4h_move| > 10%` in OPPOSITE direction of entry, BLOCK. No stepping in front of freight trains.
-6. **SM consensus >= 70%** in entry direction (v3.4: 65→75→70)
-7. ~~BTC macro aligned~~ — REMOVED as hard gate in v3.1 (HYPE/HIP-3 decoupling); BTC alignment is a +1 scoring bonus only.
+4. **3TF ALIGNMENT** — 4h_price + 1h_price + 15m SM velocity all aligned in entry direction, each clearing magnitude threshold (4h ≥ 1.0%, 1h ≥ 0.3%, 15m velocity ≥ 0.1)
+5. **MACRO TREND GATE** — if `|4h_move| > 10%` in OPPOSITE direction of entry, BLOCK
+6. **SM consensus >= 70%** in entry direction (v3.4 calibration)
 
----
-
-## Scoring (max ~18 pts, MIN_SCORE=12 since v3.4)
+## Scoring (max ~18 pts, MIN_SCORE = 12 since v3.4)
 
 | Signal | Points |
 |---|---:|
@@ -80,19 +82,17 @@ Condor v3.0 enforces both insights as hard gates.
 | 1h confirmation: >0.5% (+1), >1% (+2) | 1-2 |
 | 15m SM velocity: >1.0 (+1), >2.0 (+2) | 1-2 |
 | 3TF_ALIGNED bonus | +3 |
-| SM consensus: >=65% (+2), >=75% (+3), >=80% STRONGLY_TILTED (+4) | 2-4 |
+| SM consensus: >=70% (+2), >=75% (+3), >=80% STRONGLY_TILTED (+4) | 2-4 |
 | trader_count >= 100 (DEEP_CONSENSUS) | +1 |
 | Funding pays direction | +1 |
 | BTC macro confirms (aligned, >1.5%) | +1 |
 | Peak session (13-19 UTC or 00-05 UTC) | +1 |
 
----
-
-## Position Sizing (Kodiak empirical 10x cap)
+## Position sizing (score-scaled, 10x leverage cap)
 
 | Score | Leverage | Margin |
 |---|---:|---:|
-| 11-12 | 10x (clamped to asset max) | 50% of equity |
+| 11-12 | 10x | 50% of equity |
 | 13-14 | 10x | 70% of equity (HIGH) |
 | **15+ (APEX)** | **10x** | **80% of equity** |
 
@@ -100,84 +100,70 @@ Condor v3.0 enforces both insights as hard gates.
 
 Leverage auto-clamped to per-asset Hyperliquid max via `strategy_get_asset_trading_limits`.
 
----
+Producer computes `marginUsd` from score tier; signal data carries it; LLM gate passes through to runtime payload.
 
-## Exit (DSL) — Mid-Beta Profile
-
-Calibrated from Kodiak's SOL winners. Single-breach onchain RatchetStop.
+## DSL preset (mid-beta default, preserved from v3.3+/v3.4)
 
 | Mechanism | Value | Rationale |
 |---|---|---|
-| hard_timeout | 1440 min (24h) | One trade per day — close if not working by EOD |
-| weak_peak_cut | 120 min @ 3% min | Peak stale for 2h = not developing |
+| hard_timeout | 1440 min (24h) | One trade per day discipline |
+| weak_peak_cut | **DISABLED** | v3.3: apex thesis needs 4-8h to develop; 2h @ 3% was pre-empting |
 | dead_weight_cut | 60 min | No movement = dead |
 | Phase 1 max_loss | 20% | Same level that killed Wolverine's HYPE SHORT — but that was counter-trend. Kodiak's SOL trades didn't hit Phase 1. |
 | Phase 1 retrace | 8% | |
-| Phase 2 tier 1 | 8% ROE trigger → 30% HW lock | Kodiak's Tier 1 |
-| Phase 2 tier 2 | 15% → 50% | Tier 2 |
-| Phase 2 tier 3 | 25% → 70% | Kodiak's #3 trade exit tier |
-| Phase 2 tier 4 | 40% → 85% | Kodiak's #1/#2 exit tier |
-| Phase 2 tier 5 | 60% → 90% | Infinite trail on monster winners |
-| Phase 2 tier 6 | 100% → 94% | Monster-class winners |
+| Phase 2 tier 1 | +8% / 30% HW lock | Kodiak's Tier 1 |
+| Phase 2 tier 2 | +15% / 50% | Tier 2 |
+| Phase 2 tier 3 | +25% / 70% | Kodiak's #3 exit tier |
+| Phase 2 tier 4 | +40% / 85% | Kodiak's #1/#2 exit tier |
+| Phase 2 tier 5 | +60% / 90% | Infinite trail on monster winners |
+| Phase 2 tier 6 | +100% / 94% | Monster-class winners |
 
-**Note:** DSL profile is mid-beta default. High-beta alts (HYPE/WIF/AVAX) would benefit from wider tiers (12%/20%, 20%/40%, 35%/65%, 55%/80%). Low-beta majors (BTC) would benefit from tighter (5%/35%, 10%/55%). Future v3.1 could branch per-asset; v3.0 ships with mid-beta as universal.
+## Risk gates (`runtime.yaml` `risk.guard_rails`)
 
----
+| Gate | Setting | Replaces |
+|---|---|---|
+| max_entries_per_day | 1 | v3.x dynamic daily cap |
+| per_asset_cooldown_minutes | 120 | v3.x `POST_EXIT_COOLDOWN_MINUTES` |
+| daily_loss_limit_pct | 15 | new (fleet-standard) |
+| max_consecutive_losses | 3 | new (fleet-standard) |
+| cooldown_minutes (post-loss) | 120 | new (fleet-standard) |
+| drawdown_halt_pct | 25 | v3.x `get_dynamic_daily_cap()` hard-stop |
+| drawdown_reset_on_day_rollover | false | fleet-standard (Roach lesson) |
 
-## One-Trade-a-Day Discipline
+## Hardcoded constants (not configurable)
 
-- **Max 1 concurrent position.** No diversification — we're swinging for ONE big winner.
-- **Daily cap = 1** (circuit breaker triggers 0 at -25% drawdown).
-- **2h post-exit cooldown** before next entry on ANY asset.
-- **24h hard_timeout** on DSL — if position isn't working by end of day, close.
+- MAX_LEVERAGE: 10
+- MIN_OI_USD: 1,000,000
+- MIN_TRADER_COUNT: 50
+- XYZ_BANNED: true
+- STABLECOINS_BANNED: USDT, USDC, DAI, USDE, FDUSD, TUSD, BUSD
+- UNIVERSE_SIZE: 50
 
----
+## Hard rule for user-conversation Claude sessions
 
-## Install
+User-conversation Claude sessions MUST NOT call:
+`create_position`, `close_position`, `edit_position`,
+`ratchet_stop_add`, `ratchet_stop_edit`, `ratchet_stop_delete`,
+`cancel_order`, `strategy_close`, `strategy_close_positions`.
 
-```bash
-mkdir -p /data/workspace/skills/condor-strategy/{config,scripts,state}
+These tools are reserved for the **producer daemon** (entry path) and the **DSL ratchet engine** (exit path). User-conversation sessions are **read-only**.
 
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/runtime.yaml -o /data/workspace/skills/condor-strategy/runtime.yaml
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/SKILL.md -o /data/workspace/skills/condor-strategy/SKILL.md
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/config/condor-config.json -o /data/workspace/skills/condor-strategy/config/condor-config.json
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/scripts/condor-scanner.py -o /data/workspace/skills/condor-strategy/scripts/condor-scanner.py
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/scripts/condor_config.py -o /data/workspace/skills/condor-strategy/scripts/condor_config.py
-```
+## Operator install
 
-## Configure
-
-```bash
-sed -i 's/${WALLET_ADDRESS}/<YOUR_STRATEGY_WALLET>/' /data/workspace/skills/condor-strategy/runtime.yaml
-sed -i 's/${TELEGRAM_CHAT_ID}/<YOUR_TELEGRAM_CHAT_ID>/' /data/workspace/skills/condor-strategy/runtime.yaml
-```
-
-## Install runtime + create scanner cron
-
-```bash
-openclaw senpi runtime create --path /data/workspace/skills/condor-strategy/runtime.yaml
-openclaw senpi runtime list
-# Create 3-minute cron: python3 /data/workspace/skills/condor-strategy/scripts/condor-scanner.py
-```
-
----
+See [README.md](README.md) for fresh-install + migration commands from v3.4.
 
 ## Changelog
 
+### v4.0.0 (2026-05-12) — plumbing-only migration
+Migrated to helpers-native (`senpi_runtime_helpers`). Thesis preserved verbatim from v3.4.
+
 ### v3.4 (2026-05-05) — gate calibration fix
-- v3.2 over-tightening produced ZERO trades in 13 days (2026-04-22 → 2026-05-05). Account flatlined at $1001.28; vlm stuck at 213k from v3.0/v3.1 era.
-- Root cause: MIN_SCORE=13 + MIN_SM=75% required every scoring lane including rare 15m_spike (c15m>=2.0) to fire simultaneously.
-- **MIN_SCORE 13 → 12** (achievable without 15m_spike rare lane)
-- **MIN_SM_CONSENSUS_PCT 75 → 70** (mid-stage moves now scoreable)
-- **MIN_15M_VELOCITY 0.2 → 0.1** (silent killer in 3TF structural hard gate)
-- Other gates preserved (MACRO_TREND, trader_count, OI, sizing).
+- v3.2 over-tightening produced ZERO trades in 13 days. MIN_SCORE 13→12, MIN_SM 75→70, MIN_15M_VELOCITY 0.2→0.1.
 
-### v3.3 (post-2026-04-22) — disable weak_peak_cut
-- 2h @ 3% ROE was pre-empting apex thesis development; Phase 1 + Phase 2 own exits.
+### v3.3 — disable weak_peak_cut
+- 2h @ 3% ROE was pre-empting apex thesis development.
 
-### v3.2 (2026-04-22) — gate tightening (now reverted in v3.4)
-- MIN_SCORE 11 → 13 (over-corrected; reverted to 12 in v3.4)
-- MIN_SM_CONSENSUS_PCT 65 → 75 (over-corrected; reverted to 70 in v3.4)
+### v3.2 (2026-04-22) — gate tightening (reverted in v3.4)
 
 ### v3.1 (2026-04-16) — BTC hard-gate removed
 - BTC macro alignment moved from hard gate to scoring bonus only (HYPE/HIP-3 decoupling).
@@ -185,24 +171,15 @@ openclaw senpi runtime list
 ### v3.0 (2026-04-16) — COMPLETE REWRITE
 - Thesis flipped: multi-asset thesis picker → single-position trend-continuation apex sniper
 - Universe expanded: 4 majors → top 50 HL assets by 24h volume
-- Added 3TF_ALIGNMENT hard gate (Kodiak's pattern)
-- Added MACRO_TREND_GATE (Wolverine's insight — no counter-trend fights)
-- Added BTC macro alignment check
-- Added peak-session bonus (13-19 UTC or 00-05 UTC)
-- Sizing scales with score: 50% / 70% / 80% margin
-- Leverage hard-capped at 10x (Kodiak empirical)
+- Added 3TF_ALIGNMENT hard gate + MACRO_TREND_GATE
+- Sizing scales with score; leverage hard-capped at 10x
 - DSL profile calibrated from Kodiak's SOL winner exit tiers
-- ONE TRADE PER DAY discipline (max 1 position, 24h hard timeout)
-- Fleet-standard: canonical MCP schema, leverage clamping, inner-order validation, context-aware reads
-
-### v2.x (pre-2026-04-16)
-- Multi-asset thesis picker (BTC/ETH/SOL/HYPE)
-- Conviction-scaled margin
-- Not fit for the single-breach DSL era
-
----
+- ONE TRADE PER DAY discipline
 
 ## License
 
 MIT — Built by Senpi (https://senpi.ai).
-Source: https://github.com/Senpi-ai/senpi-skills
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.
