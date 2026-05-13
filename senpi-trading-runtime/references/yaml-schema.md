@@ -57,10 +57,12 @@ notifications:
 | `dsl_lifecycle` | Notify on DSL position open/close | `true` |
 | `dsl_notify_sl_updates` | Notify on stop-loss level changes | `false` |
 | `action_lifecycle` | Notify on action execution (open/close) | `true` |
+| `gateway_url` | Override the OpenClaw gateway URL for delivery | `http://127.0.0.1:18789` |
+| `gateway_token` | Override the OpenClaw gateway auth token | `process.env.OPENCLAW_GATEWAY_TOKEN` |
 
 > **Field name caveat:** The `notifications` block currently accepts unknown keys without erroring, so a typo like `action_lifecycle_notifications` is silently ignored and the default takes effect. Use the exact key shown above.
 
-**Requirement:** The `OPENCLAW_GATEWAY_TOKEN` environment variable must be set for Telegram delivery.
+**Requirement:** Telegram delivery needs an OpenClaw gateway token — either `OPENCLAW_GATEWAY_TOKEN` in the runtime's environment, or `gateway_token` in this block.
 
 ### Configure Risk Protection
 
