@@ -1,81 +1,60 @@
 #!/usr/bin/env python3
-# Senpi ORCA Scanner v3.0
+# Senpi ORCA Producer v4.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-"""ORCA v3.0 — Gen-1 Vanilla Striker revert.
+# Source: https://github.com/Senpi-ai/senpi-skills
+"""ORCA v4.0.0 Producer — Gen-1 Vanilla Striker, helpers-native.
 
-## v3.0 change — revert to Gen-1 vanilla Striker
+v4.0.0 (2026-05-12): plumbing migration from v3.0. NO thesis change.
+v3.0 Gen-1 vanilla Striker logic (FIRST_JUMP + base scoring + volume
+confirmation), MAX_LEVERAGE 7, MIN_SCORE 9, 4-reason floor, MAX_POSITIONS
+3, 120-min cooldown all preserved verbatim.
 
-v2.0 added Gen-2 quality confirmation (Tier 2 momentum events + TCS
-trader quality tags + contribution_pct_change_4h booster). Live data and
-Orca's own self-diagnosis: the second API call adds latency, and by the
-time the quality confirmation score lands, the move has already run — we
-buy local tops after the move. Orca's recommendation was explicit: revert
-to Gen-1 vanilla Striker (pure FIRST_JUMP + base scoring + volume
-confirmation). v3.0 executes that:
+Six-layer plumbing flip:
+1. MCP transport: mcporter subprocess → SenpiClient.mcp_call() HTTPS.
+2. Signal emit: scanner called create_position directly; producer
+   now emits via push_signal() to runtime /signals. Runtime opens
+   via LLM-gated orca_entry action with FEE_OPTIMIZED_LIMIT.
+3. Reentrancy: producer_daemon owns scanner_lock with stale-PID
+   auto-recovery.
+4. Scheduler: openclaw cron → producer_daemon(interval_seconds=90).
+5. Risk gates: Python MAX_DAILY_ENTRIES + dynamic daily cap →
+   declarative risk.guard_rails. State files for daily counter
+   now vestigial.
+6. Exit fee: DSL exits MARKET → FEE_OPTIMIZED_LIMIT (maker-first).
 
-- Removed leaderboard_get_momentum_events API call
-- Removed QUALITY_TCS gate (ELITE/RELIABLE)
-- Removed MOMENTUM_CONCENTRATION_MIN check
-- Removed QUALITY_CONFIRM_POINTS / ELITE_BONUS score booster
-- Removed CONTRIB_ACCEL_POINTS booster
-- Removed contrib_change field from parse_scan
-- Back to a single API call: leaderboard_get_markets
-
-Also applies the fleet-wide batch-4 leverage safety fix: the emitted
-entry.leverage is clamped via strategy_get_asset_trading_limits so
-downstream executors never hit CREATE_INVALID_LEVERAGE.
-
-DSL exit managed by plugin runtime. Scanner does NOT manage exits.
-Runs every 90 seconds.
+Environment:
+  SENPI_AUTH_TOKEN      — REQUIRED.
+  ORCA_WALLET           — strategy wallet (or config.json fallback)
+  ORCA_DECISION_MODEL   — bare LLM model name for the entry gate
 """
 
+import hashlib
 import json
-import sys
 import os
+import sys
+import time
 from datetime import datetime, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import orca_config as cfg
 
+from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
+
+
+VERSION = "4.0.0"
+SCANNER_NAME = "orca_signals"
+SIGNAL_TYPE = "ORCA_STRIKER_FIRST_JUMP"
+
+
+# ═══════════════════════════════════════════════════════════════
+# CONSTANTS — preserved verbatim from v3.0
+# ═══════════════════════════════════════════════════════════════
+
 TOP_N = 50
-
-
-# ═══════════════════════════════════════════════════════════════
-# HARDCODED CONSTANTS
-# ═══════════════════════════════════════════════════════════════
-
 MIN_LEVERAGE = 7
 MAX_LEVERAGE = 7
 DEFAULT_LEVERAGE = 7
-MAX_POSITIONS = 3
-MAX_DAILY_ENTRIES = 6
-
-
-# ═══════════════════════════════════════════════════════════════
-# DYNAMIC DAILY CAP (P&L-aware circuit breaker)
-# ═══════════════════════════════════════════════════════════════
-
-STARTING_BUDGET = 1000.0  # Default starting budget — override per-agent if different
-
-def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
-    """P&L-aware daily entry cap based on drawdown from starting budget.
-
-    Winners get more trades (ride the hot hand).
-    Losers get fewer trades (preserve capital).
-    Catastrophic drawdown triggers HARD STOP (circuit breaker).
-    """
-    if starting_budget <= 0:
-        return 4  # Safe fallback
-    pnl_pct = ((account_value - starting_budget) / starting_budget) * 100
-    if pnl_pct >= 5:       return 12   # Hot hand — up >5%
-    elif pnl_pct >= 0:     return 8    # Small win / breakeven
-    elif pnl_pct >= -5:    return 5    # Careful
-    elif pnl_pct >= -15:   return 3    # Defensive
-    elif pnl_pct >= -25:   return 1    # Preserve — only highest conviction
-    else:                  return 0    # HARD STOP — circuit breaker
-
-COOLDOWN_MINUTES = 120
 MARGIN_PCT = 0.18
 XYZ_BANNED = True
 
@@ -87,19 +66,24 @@ STRIKER_MIN_PREV_RANK = 25
 STRIKER_MIN_VOL_RATIO = 1.5
 
 
-# ═══════════════════════════════════════════════════════════════
-# HELPERS
-# ═══════════════════════════════════════════════════════════════
+def _resolve_wallet():
+    env_val = (os.environ.get("ORCA_WALLET") or "").strip()
+    if env_val:
+        return env_val
+    try:
+        return (cfg.load_config().get("wallet") or "").strip()
+    except Exception:
+        return ""
+
+
+STRATEGY_ADDRESS = _resolve_wallet()
+
 
 def safe_float(val, default=0.0):
     try:
         return float(val)
     except (TypeError, ValueError):
         return default
-
-
-def now_date():
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 def now_iso():
@@ -129,12 +113,14 @@ def get_market_in_scan(scan, token, dex):
 
 
 # ═══════════════════════════════════════════════════════════════
-# FETCH & PARSE
+# FETCH + PARSE — preserved verbatim
 # ═══════════════════════════════════════════════════════════════
 
 def fetch_markets():
     try:
-        data = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+        data = cfg.mcp_call("leaderboard_get_markets", limit=100)
+        if not data:
+            return None
         data = data.get("data", data)
         raw = data.get("markets", data)
         if isinstance(raw, dict):
@@ -168,20 +154,12 @@ def parse_scan(raw_markets):
                                        m.get("price_change_1h", 0))),
             "cc_15m": safe_float(m.get("contribution_pct_change_15m", 0)),
         })
-
     return {"markets": markets[:TOP_N], "time": now_iso()}
 
 
 def get_safe_leverage(wallet, asset, requested_leverage):
-    """Query Hyperliquid's max leverage for this asset and clamp.
-
-    Fleet-wide leverage safety fix (batch 4). Orca emits a signal with a
-    suggested leverage but does not itself call create_position — clamp
-    the suggested leverage here so the downstream executor never requests
-    more than the asset's Hyperliquid max.
-    """
     try:
-        limits = cfg.mcporter_call(
+        limits = cfg.mcp_call(
             "strategy_get_asset_trading_limits",
             strategy_wallet=wallet,
             coin=asset,
@@ -191,7 +169,7 @@ def get_safe_leverage(wallet, asset, requested_leverage):
             if isinstance(data, dict):
                 lev = data.get("leverage", {})
                 if isinstance(lev, dict):
-                    max_lev = int(float(lev.get("value", 20)))
+                    max_lev = int(float(lev.get("value", MAX_LEVERAGE)))
                     return min(requested_leverage, max_lev)
                 elif isinstance(lev, (int, float)):
                     return min(requested_leverage, int(lev))
@@ -202,9 +180,9 @@ def get_safe_leverage(wallet, asset, requested_leverage):
 
 def check_asset_volume(token, dex):
     try:
-        data = cfg.mcporter_call("market_get_asset_data",
-                                  asset=token, candle_intervals=["1h"],
-                                  include_funding=False)
+        data = cfg.mcp_call("market_get_asset_data",
+                            asset=token, candle_intervals=["1h"],
+                            include_funding=False)
         if not data:
             return 0, True
         ad = data.get("data", data)
@@ -224,7 +202,7 @@ def check_asset_volume(token, dex):
 
 
 # ═══════════════════════════════════════════════════════════════
-# SIGNAL DETECTION
+# SIGNAL DETECTION — preserved verbatim from v3.0
 # ═══════════════════════════════════════════════════════════════
 
 def detect_signals(current_scan, history):
@@ -325,10 +303,10 @@ def detect_signals(current_scan, history):
         if score < STRIKER_MIN_SCORE or len(reasons) < STRIKER_MIN_REASONS:
             continue
 
-        # 15m velocity freshness gate — SM must be actively building, not stale
+        # 15m velocity freshness gate
         cc_15m = safe_float(market.get("cc_15m", 0))
         if cc_15m <= 0:
-            continue  # SM velocity is flat or fading — signal is stale, don't enter
+            continue
 
         # Volume confirmation
         vol_ratio, vol_strong = check_asset_volume(token, dex)
@@ -359,121 +337,144 @@ def detect_signals(current_scan, history):
 
 
 # ═══════════════════════════════════════════════════════════════
-# MAIN
+# Signal emit
 # ═══════════════════════════════════════════════════════════════
 
-def run():
-    wallet, strategy_id = cfg.get_wallet_and_strategy()
-    if not wallet:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "no wallet"})
+def push_signal(signal, leverage, margin_usd, held_assets):
+    """Emit a STRIKER signal. asset/direction top-level routing,
+    leverage + marginUsd in data block for LLM gate to pass through."""
+    if not STRATEGY_ADDRESS:
+        print("ERROR: strategy wallet not resolved", file=sys.stderr)
+        return False
+    if signal["token"].upper() in {h.upper() for h in held_assets}:
+        return False
+
+    data_block = {
+        "score": signal["score"],
+        "leverage": leverage,
+        "marginUsd": margin_usd,
+        "mode": signal["mode"],
+        "currentRank": signal["currentRank"],
+        "rankJump": signal["rankJump"],
+        "isFirstJump": signal["isFirstJump"],
+        "isContribExplosion": signal["isContribExplosion"],
+        "contribVelocity": signal["contribVelocity"],
+        "volRatio": signal["volRatio"],
+        "contribution": signal["contribution"],
+        "traders": signal["traders"],
+        "priceChg4h": signal["priceChg4h"],
+        "reasons": " | ".join(signal["reasons"]),
+        "heldAssets": held_assets,
+    }
+
+    try:
+        cfg._wrapper_client.push_signal(
+            address=STRATEGY_ADDRESS,
+            scanner=SCANNER_NAME,
+            asset=signal["token"],
+            direction=signal["direction"],
+            score=min(signal["score"] / 14.0, 1.0),
+            signal_type=SIGNAL_TYPE,
+            data=data_block,
+        )
+        return True
+    except SenpiClientError as e:
+        print(f"INGEST_REJECTED {signal['token']}: {e}", file=sys.stderr)
+        return False
+    except Exception as e:  # noqa: BLE001
+        print(f"INGEST_EXCEPTION {signal['token']}: {type(e).__name__}: {e}", file=sys.stderr)
+        return False
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN — single tick. NO inner scanner_lock; daemon owns it.
+# ═══════════════════════════════════════════════════════════════
+
+def main():
+    run_start = time.time()
+
+    if not STRATEGY_ADDRESS:
+        cfg.output({"status": "error", "reason": "no_wallet",
+                    "_orca_producer_version": VERSION})
         return
 
-    account_value, positions = cfg.get_positions(wallet)
+    account_value, positions = cfg.get_positions(STRATEGY_ADDRESS)
+    held_assets = [p["coin"] for p in positions if p.get("coin")]
     if account_value <= 0:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY", "note": "cannot read account"})
-        return
-
-    if len(positions) >= MAX_POSITIONS:
-        coins = [p["coin"] for p in positions]
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                     "note": f"RIDING: {coins}. DSL manages exit.",
-                     "_v2_no_thesis_exit": True})
-        return
-
-    tc = load_trade_counter()
-    if tc.get("date") != now_date():
-        tc = {"date": now_date(), "entries": 0}
-    dynamic_cap = get_dynamic_daily_cap(account_value)
-    if tc.get("entries", 0) >= dynamic_cap:
-        pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"Daily cap ({dynamic_cap}) reached. Session PnL: {pnl_pct:+.1f}%. Entries: {tc.get('entries', 0)}/{dynamic_cap}"})
+        cfg.output({"status": "ok", "note": "no account value",
+                    "_orca_producer_version": VERSION})
         return
 
     raw_markets = fetch_markets()
     if raw_markets is None:
-        cfg.output({"status": "error", "error": "failed to fetch markets"})
+        cfg.output({"status": "error", "error": "failed to fetch markets",
+                    "_orca_producer_version": VERSION})
         return
 
     current_scan = parse_scan(raw_markets)
     history = cfg.load_scan_history()
-
     signals = detect_signals(current_scan, history)
 
     history["scans"].append(current_scan)
     cfg.save_scan_history(history)
 
+    # Filter cooldowns + held assets
     signals = [s for s in signals
-               if not cfg.is_asset_cooled_down(s["token"], COOLDOWN_MINUTES)]
-    held_coins = {p["coin"].upper() for p in positions}
-    signals = [s for s in signals if s["token"] not in held_coins]
+               if not cfg.is_asset_cooled_down(s["token"], 120)]
+    held_upper = {h.upper() for h in held_assets}
+    signals = [s for s in signals if s["token"] not in held_upper]
 
     if not signals:
-        cfg.output({"status": "ok", "heartbeat": "NO_REPLY",
-                    "note": f"No Striker signals. "
-                            f"Scanned {len(current_scan['markets'])} markets.",
-                    "scansInHistory": len(history["scans"])})
+        elapsed = time.time() - run_start
+        cfg.output({
+            "status": "ok",
+            "scanned": len(current_scan.get("markets", [])),
+            "scansInHistory": len(history["scans"]),
+            "candidates": 0,
+            "signals_pushed": 0,
+            "note": "No Striker signals.",
+            "elapsed_sec": round(elapsed, 2),
+            "_orca_producer_version": VERSION,
+        })
         return
 
     best = signals[0]
-    margin = round(account_value * MARGIN_PCT, 2)
-    # Fleet-wide batch-4 leverage safety: clamp emitted leverage to asset max.
-    safe_leverage = get_safe_leverage(wallet, best["token"], DEFAULT_LEVERAGE)
+    margin_usd = round(account_value * MARGIN_PCT, 2)
+    safe_leverage = get_safe_leverage(STRATEGY_ADDRESS, best["token"], DEFAULT_LEVERAGE)
 
-    tc["entries"] = tc.get("entries", 0) + 1
-    save_trade_counter(tc)
+    pushed = push_signal(best, safe_leverage, margin_usd, held_assets)
+    elapsed = time.time() - run_start
 
     cfg.output({
         "status": "ok",
-        "signal": best,
-        "entry": {
+        "scanned": len(current_scan.get("markets", [])),
+        "candidates": len(signals),
+        "signals_pushed": 1 if pushed else 0,
+        "best": {
             "asset": best["token"],
             "direction": best["direction"],
+            "score": best["score"],
             "leverage": safe_leverage,
-            "margin": margin,
-            "orderType": "FEE_OPTIMIZED_LIMIT",
+            "margin_usd": margin_usd,
+            "reasons": best["reasons"][:6],
         },
-        "constraints": {
-            "maxPositions": MAX_POSITIONS,
-            "maxLeverage": MAX_LEVERAGE,
-            "maxDailyEntries": MAX_DAILY_ENTRIES,
-            "cooldownMinutes": COOLDOWN_MINUTES,
-            "xyzBanned": XYZ_BANNED,
-            "_v2_no_thesis_exit": True,
-            "_note": "DSL managed by plugin runtime. Scanner does NOT manage exits.",
-        },
-        "_orca_version": "3.0",
+        "held_assets": held_assets,
+        "elapsed_sec": round(elapsed, 2),
+        "_orca_producer_version": VERSION,
     })
 
 
-def load_trade_counter():
-    # Fleet-wide stale date fix. Without the date check, an agent that
-    # doesn't trade for a day stays locked forever because load returns
-    # stale data and the rollover only ran on save.
-    today = now_date()
-    p = os.path.join(cfg.STATE_DIR, "trade-counter.json")
-    if os.path.exists(p):
-        try:
-            with open(p) as f:
-                tc = json.load(f)
-            if tc.get("date") == today:
-                return tc
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {"date": today, "entries": 0}
-
-
-def save_trade_counter(tc):
-    if tc.get("date") != now_date():
-        tc = {"date": now_date(), "entries": 0}
-    cfg.atomic_write(os.path.join(cfg.STATE_DIR, "trade-counter.json"), tc)
-
-
 if __name__ == "__main__":
-    try:
-        run()
-    except Exception as e:
-        cfg.log(f"CRITICAL ERROR: {e}")
-        import traceback
-        traceback.print_exc(file=sys.stderr)
-        cfg.output({"status": "error", "error": str(e)})
+    _wallet_lock_id = (
+        hashlib.sha256(STRATEGY_ADDRESS.lower().encode()).hexdigest()[:12]
+        if STRATEGY_ADDRESS
+        else "unset"
+    )
+    producer_daemon(
+        fn=main,
+        interval_seconds=90,                    # 90s — preserved from v3.0 cron cadence
+        name=f"orca-producer-{_wallet_lock_id}",
+        wallet=STRATEGY_ADDRESS,
+        scanner=SCANNER_NAME,
+        tick_timeout=120,
+    )

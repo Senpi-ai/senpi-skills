@@ -1,57 +1,92 @@
-# Lemon — Degen Fader
+# 🍋 Lemon v2.0.0 — Degen Fader (senpi_runtime_helpers)
 
-**Runtime:** 1.0  ·  **Asset:** XYZ markets  ·  **Version:** 1.3.0
+Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## Thesis
+**Plumbing-only migration from v1.3. NO thesis change.** v1.3 fade scoring, MACRO_TREND_GATE (crypto only, |BTC 4h| > 3% blocks), XYZ unban, leverage tiers (5x/7x/10x), MIN_SCORE 9 all preserved verbatim. Scanner flips to in-process `SenpiClient`; daemon replaces openclaw cron. Runtime owns execution, daily caps, cooldowns, FEE_OPTIMIZED_LIMIT exits.
 
-Lemon v1.3 — Degen Fader (macro gate + XYZ unban). v1.2 (10x cap / 30% margin / MIN_SCORE 9) eliminated catastrophic
+## Install
 
-See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
+### Step 0 — `openclaw.json` plugin registration (one-time per host)
 
-## Scoring components
-
-Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
-
-## Entry / Exit
-
-- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
-- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
-- **Time cuts:** See `dsl:` config in runtime.yaml.
-
-## Fleet rules applied
-
-- Standard fleet drawdown gate.
-- Fee budget tracking via shared infra.
-- Producer reentrancy guard via fcntl lockfile.
-
-## Configuration
-
-Operator-specific values configured at deploy time.
-
-## Recent version notes
-
-```
-Lemon v1.3 — Degen Fader (macro gate + XYZ unban).
-v1.2 (10x cap / 30% margin / MIN_SCORE 9) eliminated catastrophic
-blow-ups but didn't fix signal quality: -$246 lifetime / 37% win rate /
--$2 per trade avg / asymmetric win-loss size ($2 win vs $6 loss).
-v1.3 targets the underlying signal:
-  1. MACRO_TREND_GATE (crypto only): block fades when |BTC 4h| > 3%.
-     Fade thesis structurally fails in trending regimes — pattern
-     documented across Wolverine HYPE (-$160), Cobra (-60%), and
-     Condor v3.0's MACRO_TREND_GATE precedent. XYZ bypasses the
-     gate (oil/gold/spx trade on their own macro).
-  2. XYZ unban: prior XYZ_BANNED=True was a lazy scaffold default;
-     fade thesis applies to news-driven XYZ moves (Apr 17 Iranian
-     ship seizure on oil = textbook crowd-pile fade setup). Erik's
-     XYZ DSL prefix fix (2026-05-05) wires exit protection
-     correctly. Adds xyz:BRENTOIL/CL/GOLD/SPX. ISOLATED margin set
-     automatically on XYZ orders per HIP-3.
-DSL config unchanged from v1.2.
+```json
+{
+  "plugins": {
+    "entries": {
+      "runtime": {
+        "enabled": true,
+        "config": {
+          "stateDir": "/data/.openclaw/senpi-state",
+          "apiKey": "<your SENPI_AUTH_TOKEN>",
+          "autoUpdate": { "enabled": false }
+        }
+      }
+    }
+  }
+}
 ```
 
-## Related
+`openclaw gateway restart` after editing. Confirm with `curl -s -m 5 http://127.0.0.1:8787/state | head -c 200`.
 
-- Top-level repo README: `../README.md`
-- Runtime spec: `../senpi-trading-runtime/`
-- DSL plugin: `../dsl-dynamic-stop-loss/`
+### Step 1 — senpi-trading-runtime skill
+
+```bash
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
+which senpi-helpers
+```
+
+### Step 2 — Pull Lemon v2.0.0
+
+```bash
+mkdir -p /data/workspace/skills/lemon-strategy/{config,scripts,state}
+for f in scripts/lemon-producer.py scripts/lemon_config.py runtime.yaml SKILL.md README.md \
+         config/lemon-config.json; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/lemon/$f" \
+    -o "/data/workspace/skills/lemon-strategy/$f"
+done
+```
+
+### Step 3 — Configure wallet + chat ID
+
+Edit `/data/workspace/skills/lemon-strategy/config/lemon-config.json` with `wallet`, `strategyId`, `chatId`.
+
+### Step 4 — Env vars
+
+```bash
+export LEMON_WALLET=<your-lemon-wallet>
+export SENPI_AUTH_TOKEN=...
+export LEMON_DECISION_MODEL=gemini-2.5-pro
+```
+
+### Step 5 — Recreate runtime + launch daemon
+
+```bash
+openclaw senpi runtime list | grep lemon
+openclaw senpi runtime delete <old-lemon-runtime-id>
+openclaw senpi runtime create --path /data/workspace/skills/lemon-strategy/runtime.yaml
+
+# Stop any v1.x cron / bash loop
+openclaw cron list | grep lemon
+openclaw cron delete <lemon-cron-id>
+pkill -f lemon-scanner.py  # if running via the v1 bash loop
+
+nohup python3 -u /data/workspace/skills/lemon-strategy/scripts/lemon-producer.py \
+  > /tmp/lemon-producer.log 2>&1 &
+```
+
+If the daemon boots with `daemon_aborted_no_runtime: alive_check returned False`, the runtime wasn't installed — re-register it via the create command above.
+
+## Smoke test
+
+```bash
+tail -f /tmp/lemon-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
+
+Expect `status=ok` every 5 min (300s).
+
+## Thesis (preserved from v1.3)
+
+Counter-trade CHOPPY/DEGEN consensus on 12 crypto majors + 4 XYZ assets (BRENTOIL, CL, GOLD, SPX) when the move is exhausting (15m velocity ≤ 0.1). MACRO_TREND_GATE blocks crypto fades when |BTC 4h| > 3% — fade thesis fails in trending regimes. Wide DSL gives reversals time to mean-revert.
+
+## License
+
+MIT — Built by Senpi (https://senpi.ai).

@@ -1,26 +1,28 @@
 ---
 name: raptor-strategy
 description: >-
-  RAPTOR v3.2 — Hot Streak Follower (whale entry-price discipline).
-  Finds ELITE/RELIABLE traders currently on a 4-hour hot streak via
-  leaderboard_get_top + discovery_get_top_traders, identifies their
-  strongest position, confirms SM alignment, and piggybacks — but
-  ONLY if we get a fill at a better price than the whale did.
-  v3.2 (2026-04-16) adds entry-discipline: fetch current price vs
-  whale's entryPx; if asset has run 20%+ in whale's favor post-entry,
-  SKIP (we'd be buying their top). Bonus +1/+2 points if we're
-  getting a better fill than the whale. Prior v3.1 spiral (-$60 in
-  16h) was caused by re-entering whales' positions at worse prices
-  than they originally filled.
+  RAPTOR v4.0.0 — Hot Streak Follower, senpi_runtime_helpers migration.
+  Finds ELITE/RELIABLE quality traders currently winning weekly, identifies
+  their strongest position, confirms SM alignment, applies whale
+  entry-price discipline (5% threshold — skip if asset has already run in
+  whale's favor post-entry). Plumbing-only migration from v3.4; thesis
+  preserved verbatim including v3.4 nested-positions parser fix.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.4"
+  version: "4.0.0"
   platform: senpi
   exchange: hyperliquid
+  requires:
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
-# RAPTOR v3.2 — Hot Streak Follower (entry-price discipline)
+# RAPTOR v4.0.0 — Hot Streak Follower (helpers-native)
+
+## v4.0.0 (2026-05-12) — plumbing-only migration
+
+NO thesis change. v3.4 quality-first pipeline, whale entry-discipline 5% threshold, nested-positions parser, scoring weights, conviction-tier leverage all preserved verbatim. Migration: mcporter → SenpiClient, scanner-side `create_position` → producer `push_signal()`, openclaw cron → producer_daemon, Python state files for daily cap → `runtime.yaml risk.guard_rails`, MARKET exits → FEE_OPTIMIZED_LIMIT.
 
 Find traders who are already winning big right now, confirm they're quality (ELITE or RELIABLE on TCS), figure out what bet is driving their streak, check the smart money crowd agrees, and piggyback the same trade.
 

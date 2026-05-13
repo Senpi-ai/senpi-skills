@@ -1,22 +1,28 @@
 ---
 name: orca-strategy
 description: >-
-  ORCA v3.0 — Gen-1 Vanilla Striker revert. Quality confirmation removed
-  (it was buying local tops via second-API-call latency per Orca's own
-  self-diagnosis). Pure FIRST_JUMP detection + base Striker scoring +
-  volume confirmation. Stalker permanently removed (v2.0 pattern kept).
-  DSL exit managed by plugin runtime via runtime.yaml.
+  ORCA v4.0.0 — Gen-1 Vanilla Striker, senpi_runtime_helpers migration.
+  Plumbing-only flip from openclaw cron + mcporter subprocess to
+  in-process SenpiClient + long-lived producer_daemon. Thesis preserved
+  verbatim from v3.0: pure FIRST_JUMP detection + base Striker scoring
+  + volume confirmation. DSL exit managed by plugin runtime via
+  runtime.yaml.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0"
+  version: "4.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
-# 🐋 ORCA v3.0 — Gen-1 Vanilla Striker
+# 🐋 ORCA v4.0.0 — Gen-1 Vanilla Striker
+
+## v4.0.0 (2026-05-12) — plumbing-only migration
+
+NO thesis change. v3.0 Gen-1 vanilla Striker logic preserved verbatim. Migration: mcporter → SenpiClient, scanner-side create_position → producer push_signal() with LLM-gated runtime action, Python state files for daily cap → `runtime.yaml risk.guard_rails`, MARKET exits → FEE_OPTIMIZED_LIMIT.
 
 Back to pure FIRST_JUMP explosions.
 

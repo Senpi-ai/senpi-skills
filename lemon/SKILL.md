@@ -1,21 +1,28 @@
 ---
 name: lemon-strategy
 description: >-
-  LEMON v1.1 — Degen Fader. Counter-trades CHOPPY/DEGEN traders when their
-  consensus is fading on BTC, ETH, SOL, HYPE, AVAX, DOGE, LINK, XRP, ADA,
-  NEAR, UNI, AAVE. Mean-reversion edge against low-quality crowding.
-  Self-executing, fleet-hardened, multi-asset.
+  LEMON v2.0.0 — Degen Fader, senpi_runtime_helpers migration. Counter-
+  trades CHOPPY/DEGEN consensus on 12 crypto majors + 4 XYZ assets when
+  SM is exhausting. MACRO_TREND_GATE (crypto only, blocks fades when
+  |BTC 4h| > 3%). Plumbing-only flip from openclaw cron + mcporter to
+  in-process SenpiClient + long-lived producer_daemon. Thesis preserved
+  verbatim from v1.3.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.1"
+  version: "2.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
-# 🍋 LEMON v1.1 — Degen Fader
+# 🍋 LEMON v2.0.0 — Degen Fader
+
+## v2.0.0 (2026-05-12) — plumbing-only migration
+
+NO thesis change. v1.3 fade scoring, MACRO_TREND_GATE, XYZ unban, leverage tiers (5x/7x/10x), MARGIN_PCT 30%, MIN_SCORE 9 all preserved verbatim. Migration: mcporter → SenpiClient, scanner-side `create_position` → producer `push_signal()` with LLM-gated runtime action, Python state files for daily cap → `runtime.yaml risk.guard_rails`, MARKET exits → FEE_OPTIMIZED_LIMIT.
 
 The crowd is wrong. Lemon trades against the worst traders on the Hyperfeed when their consensus is fading.
 

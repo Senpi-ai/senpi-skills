@@ -1,27 +1,62 @@
-name: raptor-strategy
-version: 3.3.0
+name: raptor-tracker
+version: 1.0.0
 description: >
-  RAPTOR v3.3 — Hot Streak Follower (entry-price discipline tightened).
-  v3.2 introduced whale-entry-price gate at 20% threshold. Raptor
-  self-diagnosed 2026-04-23: the gate was still too loose. Scanner was
-  re-firing on whales already deep in profit, taking all downside risk
-  with none of their PnL cushion. v3.3 tightens
-  MAX_PRICE_RUN_PCT_FROM_WHALE_ENTRY from 20% to 5% — 4x tighter, still
-  leaves room for "whale in early profit" piggyback. Raptor's proposed
-  1-2% would likely zero the scanner; 5% is the first tightening with
-  room for further per data. Scanner-only change. DSL unchanged.
+  RAPTOR v4.0.0 — Hot Streak Follower, helpers-native rewrite.
+  Plumbing-only migration from v3.4. NO thesis change. Quality-first
+  pipeline (ELITE/RELIABLE weekly winners → strongest position → SM
+  alignment), v3.3 whale entry-price discipline (5% threshold), v3.4
+  nested-positions parser, MIN_SCORE 6, conviction-scaled leverage tiers,
+  per-trader event dedupe (4h), per-asset cooldown (120min). DSL preset
+  preserved from v3.3 — hard_timeout 360min, weak_peak_cut 60min/2.5%,
+  Phase 2 5-tier ladder.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
-  budget: 1000
   slots: 2
   margin_per_slot: 250
+  trading_risk: moderate
   enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 30
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 120
 
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: raptor_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        tcs: { type: string, required: false }
+        traderId: { type: string, required: false }
+        traderDeltaPnl: { type: number, required: false }
+        positionDeltaPnl: { type: number, required: false }
+        concentration: { type: number, required: false }
+        smPct: { type: number, required: false }
+        smTraders: { type: number, required: false }
+        priceChg4h: { type: number, required: false }
+        priceChg1h: { type: number, required: false }
+        whaleEntryPx: { type: number, required: false }
+        currentPx: { type: number, required: false }
+        reasons: { type: array, required: false }
+        heldAssets: { type: array, required: false }
 
 actions:
   - name: position_tracker_action
@@ -29,12 +64,73 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# Raptor-tuned DSL: follow-the-streak trades need time to play out because
-# they're backed by a quality trader's active run. Wide phase 1, patient
-# phase 2 tiers to let winners compound.
+  - name: raptor_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${RAPTOR_DECISION_MODEL}"
+    scanners: [raptor_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: raptor_signals
+    decision_prompt: |
+      You are Raptor's pass-through gate. The producer has applied every
+      filter (ELITE/RELIABLE TCS, MIN_SCORE 6, whale entry-discipline 5%
+      threshold, SM alignment, 4h+1h price confirmation, per-trader event
+      dedupe, conviction-tier sizing). Honor the signal unless structurally
+      broken.
+
+      SIGNAL:
+      {{signal_raptor_signals}}
+
+      ## STRICT OUTPUT RULES
+
+      1. `asset` MUST be copied EXACTLY from signal.asset.
+      2. `direction` MUST match signal.direction (whale's direction).
+      3. `leverage` from signal.data.leverage exactly (7/8/10).
+      4. `marginUsd` from signal.data.marginUsd exactly (25% or 35% of equity).
+
+      ## HARD SKIPS
+
+      - score < 6 (defensive)
+      - leverage <= 0 OR marginUsd <= 0
+      - heldAssets contains this asset
+      - tcs not in (ELITE, RELIABLE)
+
+      Minimum confidence to execute is 7. Honor unless structurally broken.
+
+      ## OUTPUT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing score + tcs + concentration + smPct + traderDeltaPnl",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "RAPTOR_HOT_STREAK ASSET DIR"
+            }
+          ]
+        }
+      }
+
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
       enabled: true
@@ -62,3 +158,6 @@ exit:
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

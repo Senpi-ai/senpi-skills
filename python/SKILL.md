@@ -1,24 +1,28 @@
 ---
 name: python-strategy
 description: >-
-  PYTHON v1.0 — The Patience Hunter. The fleet's first multi-day hold
-  agent. Scans top 50 Hyperliquid assets every 10 min, holds up to 2
-  concurrent positions for 2-4 days, uses low leverage (3-7x), LONG-biased.
-  Derived from pr0br000's Arena Weeks 2-3 pattern — 36% win rate but
-  3.14:1 win/loss ratio, multi-day holds generating 90% of gross profit
-  from top 5 trades. Python exists to catch the one weekly trend champion
-  while every other fleet predator rotates hourly.
+  PYTHON v2.0.0 — The Patience Hunter, senpi_runtime_helpers migration.
+  Multi-day hold agent (96h target). Scans top 50 HL assets every 10 min,
+  holds up to 2 concurrent positions for 2-4 days, low leverage (3-7x),
+  LONG-biased. Plumbing-only flip from openclaw cron + mcporter to
+  in-process SenpiClient + producer_daemon. Thesis preserved verbatim
+  from v1.2.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "1.0"
+  version: "2.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
-# 🐍 PYTHON v1.0 — The Patience Hunter
+# 🐍 PYTHON v2.0.0 — The Patience Hunter
+
+## v2.0.0 (2026-05-12) — plumbing-only migration
+
+NO thesis change. v1.2 scoring + MIN_SCORE 8 + LONG bias bonus + MACRO_TREND_GATE + 3-7x leverage tiers + conviction-scaled margin + 96h hard_timeout + weak_peak_cut DISABLED all preserved verbatim. Migration: mcporter → SenpiClient, scanner-side `create_position` → producer `push_signal()` with LLM-gated runtime action, Python state files → `runtime.yaml risk.guard_rails`, MARKET exits → FEE_OPTIMIZED_LIMIT.
 
 The snake doesn't chase. It waits for the right meal to wander into range
 and then holds tight for days. Python is the fleet's first multi-day hold

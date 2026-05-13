@@ -1,50 +1,90 @@
-# Python — Patient Multi-Asset Scanner
+# 🐍 Python v2.0.0 — The Patience Hunter (senpi_runtime_helpers)
 
-**Runtime:** 1.0  ·  **Asset:** Multi-asset  ·  **Version:** 1.2.0
+Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-## Thesis
+**Plumbing-only migration from v1.2. NO thesis change.** v1.2 multi-day hold thesis, 4h+1h+1d scoring, MACRO_TREND_GATE, MIN_SCORE 8, LONG bias, 3-7x leverage, conviction-tier margin (25/30/40%), 96h hard_timeout with weak_peak_cut DISABLED all preserved verbatim.
 
-PYTHON v1.2 — disable weak_peak_cut (completes patience thesis fix).
+## Install
 
-See `SKILL.md` and `runtime.yaml` for full scoring components, gates, and DSL configuration.
+### Step 0 — `openclaw.json` plugin registration (one-time per host)
 
-## Scoring components
-
-Defined in the producer/scanner. See `runtime.yaml` `scanner:` section and the producer script in this folder for the current scoring weights and gates.
-
-## Entry / Exit
-
-- **Entry:** Producer-emitted signals scored against MIN_SCORE gate.
-- **Exit:** DSL (Dynamic Stop-Loss) Phase 1 + Phase 2 trailing exits per `runtime.yaml` `dsl:` section.
-- **Time cuts:** See `dsl:` config in runtime.yaml.
-
-## Fleet rules applied
-
-- Standard fleet drawdown gate.
-- Fee budget tracking via shared infra.
-- Producer reentrancy guard via fcntl lockfile.
-
-## Configuration
-
-Operator-specific values configured at deploy time.
-
-## Recent version notes
-
-```
-PYTHON v1.2 — disable weak_peak_cut (completes patience thesis fix).
-v1.1 loosened Phase 1 retrace 10→30 and extended time cuts after
-Python's self-diagnostic showed trades averaging <4h despite a 2-4
-day thesis target. v1.2 removes weak_peak_cut entirely — a
-multi-day patience thesis cannot tolerate ANY time-based cut. A
-position peaking at 2% ROE on day 1 of a 3-day thesis can still
-develop into a monster over day 3. Phase 1 retrace (30%) + max_loss
-(20%) + Phase 2 tiers own all exits. dead_weight_cut + hard_timeout
-(96h) preserved — 96h matches thesis target as an outer bound.
-Scanner unchanged. v1.1 retrace/dead_weight loosening preserved.
+```json
+{
+  "plugins": {
+    "entries": {
+      "runtime": {
+        "enabled": true,
+        "config": {
+          "stateDir": "/data/.openclaw/senpi-state",
+          "apiKey": "<your SENPI_AUTH_TOKEN>",
+          "autoUpdate": { "enabled": false }
+        }
+      }
+    }
+  }
+}
 ```
 
-## Related
+`openclaw gateway restart`. Confirm with `curl -s -m 5 http://127.0.0.1:8787/state | head -c 200`.
 
-- Top-level repo README: `../README.md`
-- Runtime spec: `../senpi-trading-runtime/`
-- DSL plugin: `../dsl-dynamic-stop-loss/`
+### Step 1 — senpi-trading-runtime skill
+
+```bash
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
+which senpi-helpers
+```
+
+### Step 2 — Pull Python v2.0.0
+
+```bash
+mkdir -p /data/workspace/skills/python-strategy/{config,scripts,state}
+for f in scripts/python-producer.py scripts/python_config.py runtime.yaml SKILL.md README.md \
+         config/python-config.json; do
+  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/python/$f" \
+    -o "/data/workspace/skills/python-strategy/$f"
+done
+```
+
+### Step 3 — Configure wallet + chat ID
+
+Edit `/data/workspace/skills/python-strategy/config/python-config.json` with `wallet`, `strategyId`, `chatId`.
+
+### Step 4 — Env vars
+
+```bash
+export PYTHON_WALLET=<your-python-wallet>
+export SENPI_AUTH_TOKEN=...
+export PYTHON_DECISION_MODEL=gemini-2.5-pro
+```
+
+### Step 5 — Recreate runtime + launch daemon
+
+```bash
+openclaw senpi runtime list | grep python
+openclaw senpi runtime delete <old-python-runtime-id>
+openclaw senpi runtime create --path /data/workspace/skills/python-strategy/runtime.yaml
+
+openclaw cron list | grep python
+openclaw cron delete <python-cron-id>
+
+nohup python3 -u /data/workspace/skills/python-strategy/scripts/python-producer.py \
+  > /tmp/python-producer.log 2>&1 &
+```
+
+If `daemon_aborted_no_runtime: alive_check returned False`, re-register the runtime.
+
+## Smoke test
+
+```bash
+tail -f /tmp/python-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
+```
+
+Expect `status=ok` every 10 min (600s).
+
+## Thesis (preserved from v1.2)
+
+Multi-day hold (96h target) on top 50 HL assets. 36% target win rate with 3.14:1 win/loss ratio — most trades small losses, occasional multi-day winners do the work. LONG-biased, 3-7x leverage. MACRO_TREND_GATE blocks counter-trend setups. DSL preserves wide retrace (Phase 1 30%) + 96h hard_timeout; weak_peak_cut disabled because patience holds cannot tolerate clock-based cuts.
+
+## License
+
+MIT — Built by Senpi (https://senpi.ai).

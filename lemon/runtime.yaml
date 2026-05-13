@@ -1,39 +1,55 @@
 name: lemon-tracker
-version: 1.3.0
+version: 1.0.0
 description: >
-  Lemon v1.3 — Degen Fader (macro gate + XYZ unban).
-  v1.2 (10x cap / 30% margin / MIN_SCORE 9) eliminated catastrophic
-  blow-ups but didn't fix signal quality: -$246 lifetime / 37% win rate /
-  -$2 per trade avg / asymmetric win-loss size ($2 win vs $6 loss).
-  v1.3 targets the underlying signal:
-    1. MACRO_TREND_GATE (crypto only): block fades when |BTC 4h| > 3%.
-       Fade thesis structurally fails in trending regimes — pattern
-       documented across Wolverine HYPE (-$160), Cobra (-60%), and
-       Condor v3.0's MACRO_TREND_GATE precedent. XYZ bypasses the
-       gate (oil/gold/spx trade on their own macro).
-    2. XYZ unban: prior XYZ_BANNED=True was a lazy scaffold default;
-       fade thesis applies to news-driven XYZ moves (Apr 17 Iranian
-       ship seizure on oil = textbook crowd-pile fade setup). Erik's
-       XYZ DSL prefix fix (2026-05-05) wires exit protection
-       correctly. Adds xyz:BRENTOIL/CL/GOLD/SPX. ISOLATED margin set
-       automatically on XYZ orders per HIP-3.
-  DSL config unchanged from v1.2.
-
-  Lemon v1.2 — Degen Fader (leverage + margin normalization).
-  v1.1 shipped with MAX_LEVERAGE=20x tiers and MARGIN_PCT=0.50 — catastrophic
-  when a fade fails. Result: 215 fills / -20% ROI. v1.2 caps leverage at
-  fleet-standard 10x, reduces margin to 0.30, raises MIN_SCORE 8→9, and
-  loosens dead_weight_cut 20→45 min to let fades develop. Scanner logic
-  unchanged — same CHOPPY/DEGEN contrarian signal.
+  LEMON v2.0.0 — Degen Fader, helpers-native rewrite. Plumbing-only
+  migration from v1.3. NO thesis change. Counter-trade CHOPPY/DEGEN
+  consensus on 12 crypto majors + 4 XYZ assets when SM is exhausting.
+  MACRO_TREND_GATE (crypto only): blocks fades when |BTC 4h| > 3%.
+  MIN_SCORE 9, conviction-scaled leverage capped at 10x, MARGIN_PCT 30%.
+  Wide DSL gives reversals time to develop.
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
+  slots: 1
+  margin_per_slot: 300
+  trading_risk: moderate
   enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 60
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 120
 
 scanners:
   - name: position_tracker
     type: position_tracker
     interval: 10s
+
+  - name: lemon_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        isXyz: { type: boolean, required: false }
+        smDirection: { type: string, required: false }
+        smPct: { type: number, required: false }
+        smTraders: { type: number, required: false }
+        priceChg4h: { type: number, required: false }
+        contrib15m: { type: number, required: false }
+        reasons: { type: array, required: false }
+        heldAssets: { type: array, required: false }
 
 actions:
   - name: position_tracker_action
@@ -41,12 +57,71 @@ actions:
     decision_mode: rule
     scanners: [position_tracker]
 
-# Fade trades need time — mean reversion can take 8+ hours.
-# Hard timeout raised to 480 min to let winners run.
-# Dead weight tightened to cut losers faster.
+  - name: lemon_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${LEMON_DECISION_MODEL}"
+    scanners: [lemon_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: lemon_signals
+    decision_prompt: |
+      You are Lemon's pass-through gate. The producer has applied every
+      filter (15m fading, MIN_SCORE 9, MACRO_TREND_GATE on crypto, SM
+      concentration, conviction-tier sizing). The signal's `direction` is
+      the FADE direction (opposite of SM consensus).
+
+      SIGNAL:
+      {{signal_lemon_signals}}
+
+      ## STRICT OUTPUT RULES
+
+      1. `asset` MUST be copied EXACTLY from signal.asset (may have "xyz:" prefix).
+      2. `direction` MUST match signal.direction (the FADE direction).
+      3. `leverage` from signal.data.leverage exactly (5/7/10).
+      4. `marginUsd` from signal.data.marginUsd exactly.
+
+      ## HARD SKIPS
+
+      - score < 9 (defensive)
+      - leverage <= 0 OR marginUsd <= 0
+      - heldAssets contains this asset
+
+      Minimum confidence to execute is 7. Honor unless structurally broken.
+
+      ## OUTPUT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing score + smPct + priceChg4h + contrib15m",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "LEMON_FADE ASSET DIR"
+            }
+          ]
+        }
+      }
+
 exit:
   engine: dsl
   interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
   dsl_preset:
     hard_timeout:
       enabled: true
@@ -57,7 +132,7 @@ exit:
       min_value: 2.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 45       # v1.2: 20 → 45 (let fades develop)
+      interval_in_minutes: 45
     phase1:
       enabled: true
       max_loss_pct: 15.0
@@ -75,3 +150,6 @@ exit:
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

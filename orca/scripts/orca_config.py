@@ -1,16 +1,18 @@
-"""ORCA Strategy — Shared config, MCP helpers, state I/O.
-Self-contained — does not depend on wolf_config."""
+"""ORCA v4.0.0 — Shared config + MCP shim + helpers wrapper.
+
+v4.0.0: senpi_runtime_helpers migration. mcporter_call now routes
+through SenpiClient.mcp_call() (direct HTTPS). _wrapper_client is
+exposed for push_signal access.
+"""
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
-# Source: https://github.com/Senpi-ai/senpi-skills
 
+import functools
 import json
 import os
-import subprocess
 import sys
 import tempfile
 import time
-import glob
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,16 +20,47 @@ WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "orca-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "orca-config.json"
 STATE_DIR = SKILL_DIR / "state"
-HISTORY_FILE = os.path.join(WORKSPACE, "orca-emerging-history.json")
+HISTORY_FILE = STATE_DIR / "scan-history.json"
 COOLDOWN_FILE = STATE_DIR / "asset-cooldowns.json"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ─── Atomic Write ────────────────────────────────────────────
+# ─── senpi_runtime_helpers (lazy + auth-validated) ───
+_sdk_candidates = [
+    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
+    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
+]
+_sdk_path = next(
+    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
+    _sdk_candidates[0],
+)
+if _sdk_path not in sys.path:
+    sys.path.insert(0, _sdk_path)
+from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
+
+
+@functools.lru_cache(maxsize=1)
+def _get_wrapper_client() -> SenpiClient:
+    if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
+        raise RuntimeError(
+            "SENPI_AUTH_TOKEN is not set. Orca's MCP calls and signal "
+            "POST both require it."
+        )
+    client = SenpiClient()
+    log_event("orca_wrapper_enabled", sdk_path=_sdk_path)
+    return client
+
+
+class _WrapperClientProxy:
+    def __getattr__(self, name: str):
+        return getattr(_get_wrapper_client(), name)
+
+
+_wrapper_client = _WrapperClientProxy()
+
 
 def atomic_write(path, data):
-    """Write JSON atomically via tmp file + os.replace."""
     path = str(path)
     dir_name = os.path.dirname(path) or "."
     os.makedirs(dir_name, exist_ok=True)
@@ -44,8 +77,6 @@ def atomic_write(path, data):
         raise
 
 
-# ─── Config ──────────────────────────────────────────────────
-
 def load_config():
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH) as f:
@@ -54,167 +85,33 @@ def load_config():
 
 
 def get_wallet_and_strategy():
-    wallet = os.environ.get("MANTIS_WALLET", "")
-    strategy_id = os.environ.get("MANTIS_STRATEGY_ID", "")
+    """Resolve wallet — env var first, config.json second."""
+    wallet = os.environ.get("ORCA_WALLET", "").strip()
+    strategy_id = os.environ.get("ORCA_STRATEGY_ID", "").strip()
     if not wallet or not strategy_id:
         config = load_config()
-        wallet = wallet or config.get("wallet", "")
-        strategy_id = strategy_id or config.get("strategyId", "")
+        wallet = wallet or config.get("wallet", "").strip()
+        strategy_id = strategy_id or config.get("strategyId", "").strip()
     return wallet, strategy_id
 
 
-# ─── State I/O ───────────────────────────────────────────────
-
-def load_state(filename="state.json"):
-    path = STATE_DIR / filename
-    if path.exists():
-        with open(path) as f:
-            return json.load(f)
-    return {}
-
-
-def save_state(data, filename="state.json"):
-    atomic_write(str(STATE_DIR / filename), data)
-
-
-# ─── Trade Counter ───────────────────────────────────────────
-
-def load_trade_counter():
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    path = STATE_DIR / "trade-counter.json"
-    default = {
-        "date": today, "entries": 0, "realizedPnl": 0,
-        "gate": "OPEN", "gateReason": None, "cooldownUntil": None,
-        "lastResults": [],
-        "stalkerResults": [],  # v1.2: track Stalker W/L for streak detection
-    }
-    if path.exists():
-        try:
-            with open(path) as f:
-                tc = json.load(f)
-            if tc.get("date") != today:
-                for k in ["entries", "realizedPnl"]:
-                    tc[k] = 0
-                tc["date"] = today
-                tc["gate"] = "OPEN"
-                tc["gateReason"] = None
-                tc["cooldownUntil"] = None
-                # NOTE: stalkerResults persists across days (streak spans sessions)
-            for k, v in default.items():
-                if k not in tc:
-                    tc[k] = v
-            return tc
-        except (json.JSONDecodeError, IOError):
-            pass
-    return dict(default)
-
-
-def save_trade_counter(tc):
-    tc["updatedAt"] = now_iso()
-    atomic_write(str(STATE_DIR / "trade-counter.json"), tc)
-
-
-def record_stalker_result(tc, is_win):
-    """v1.2: Track Stalker trade results for streak detection.
-    If a win, reset the streak. Keep last 10 results."""
-    results = tc.get("stalkerResults", [])
-    results.append("W" if is_win else "L")
-    tc["stalkerResults"] = results[-10:]
-    save_trade_counter(tc)
-
-
-# ─── Asset Cooldowns ─────────────────────────────────────────
-
-def load_cooldowns():
-    if COOLDOWN_FILE.exists():
-        try:
-            with open(COOLDOWN_FILE) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
-
-
-def save_cooldowns(cooldowns):
-    atomic_write(str(COOLDOWN_FILE), cooldowns)
-
-
-def is_asset_cooled_down(token, cooldown_minutes=120):
-    """Check if an asset is in cooldown after a Phase 1 exit."""
-    cooldowns = load_cooldowns()
-    if token not in cooldowns:
-        return False
-    exit_ts = cooldowns[token].get("exitTimestamp", 0)
-    elapsed_min = (now_ts() - exit_ts) / 60
-    return elapsed_min < cooldown_minutes
-
-
-def set_asset_cooldown(token, reason="phase1_exit"):
-    """Set a cooldown on an asset after Phase 1 exit."""
-    cooldowns = load_cooldowns()
-    cooldowns[token] = {
-        "exitTimestamp": now_ts(),
-        "reason": reason,
-        "setAt": now_iso(),
-    }
-    save_cooldowns(cooldowns)
-
-
-# ─── Scanner History ─────────────────────────────────────────
-
-def load_scan_history():
+def mcp_call(tool, **params):
+    """Direct MCP call via SenpiClient."""
     try:
-        with open(HISTORY_FILE) as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {"scans": []}
+        return _wrapper_client.mcp_call(tool, **params)
+    except Exception as e:  # noqa: BLE001
+        log_event("orca_mcp_call_failed", tool=tool, error=str(e))
+        return None
 
 
-def save_scan_history(history, max_scans=60):
-    if len(history["scans"]) > max_scans:
-        history["scans"] = history["scans"][-max_scans:]
-    atomic_write(HISTORY_FILE, history)
-
-
-# ─── MCP Helpers ─────────────────────────────────────────────
-
-def mcporter_call(tool, retries=2, timeout=25, **params):
-    """Call a Senpi MCP tool via mcporter."""
-    args = json.dumps(params) if params else "{}"
-    cmd = ["mcporter", "call", "senpi", tool, "--args", args]
-    for attempt in range(retries):
-        try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-            if r.returncode != 0:
-                if attempt < retries - 1:
-                    time.sleep(2)
-                    continue
-                return None
-            raw = json.loads(r.stdout)
-            if isinstance(raw, dict) and "content" in raw:
-                content = raw["content"]
-                if isinstance(content, list) and content:
-                    first = content[0]
-                    if isinstance(first, dict) and "text" in first:
-                        try:
-                            return json.loads(first["text"])
-                        except (json.JSONDecodeError, TypeError):
-                            pass
-            return raw
-        except subprocess.TimeoutExpired:
-            if attempt < retries - 1:
-                time.sleep(2)
-                continue
-            return None
-        except (json.JSONDecodeError, Exception):
-            return None
-    return None
+# Backward-compat alias
+mcporter_call = mcp_call
 
 
 def get_clearinghouse(wallet):
     if not wallet:
         return None
-    return mcporter_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+    return mcp_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
 
 
 def get_positions(wallet):
@@ -245,13 +142,44 @@ def get_positions(wallet):
     return account_value, positions
 
 
+def load_scan_history():
+    if not HISTORY_FILE.exists():
+        return {"scans": []}
+    try:
+        with open(HISTORY_FILE) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {"scans": []}
+
+
+def save_scan_history(history):
+    # Keep only the last 5 scans
+    history["scans"] = history.get("scans", [])[-5:]
+    atomic_write(str(HISTORY_FILE), history)
+
+
+def is_asset_cooled_down(asset, cooldown_minutes=120):
+    if not COOLDOWN_FILE.exists():
+        return False
+    try:
+        with open(COOLDOWN_FILE) as f:
+            cooldowns = json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return False
+    if asset not in cooldowns:
+        return False
+    last_ts = cooldowns[asset].get("ts", 0)
+    elapsed_min = (time.time() - last_ts) / 60
+    return elapsed_min < cooldown_minutes
+
+
 def output(data):
     print(json.dumps(data))
     sys.stdout.flush()
 
 
-def now_ts():
-    return time.time()
+def log(msg):
+    print(f"[orca-v4] {msg}", file=sys.stderr, flush=True)
 
 
 def now_iso():
