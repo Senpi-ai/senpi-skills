@@ -122,10 +122,13 @@ class CmdRestartLegacyMigrationTests(unittest.TestCase):
             captured["kwargs"] = kwargs
             return FakeProc()
 
-        # Intercept all the side-effecting boundaries: don't really kill the
-        # current process, don't actually spawn anything, don't wait for pid.json.
+        # Intercept the side-effecting boundaries we DO care about:
+        # don't actually kill os.getpid(), don't spawn a real Popen, don't
+        # wait for pid.json. The liveness check that cmd_restart runs
+        # (`_pid_alive_for_daemon` → `state.pid_alive_and_matches`) sees
+        # `os.getpid()` as alive on its own — we don't need to monkeypatch
+        # liveness, just neutralize the consequences.
         orig_stop_pid = manage.stop_pid
-        orig_is_pid_alive = manage.is_pid_alive
         orig_popen = subprocess.Popen
         orig_wait = cli._wait_for_new_pid_json
         try:
@@ -134,7 +137,6 @@ class CmdRestartLegacyMigrationTests(unittest.TestCase):
                 "elapsed_seconds": 0.0,
                 "sigterm_sent": True, "sigkill_sent": False, "error": None,
             }
-            manage.is_pid_alive = lambda _pid: True  # so cmd_restart calls stop
             subprocess.Popen = fake_popen
             cli._wait_for_new_pid_json = lambda *_a, **_kw: None
 
@@ -142,7 +144,6 @@ class CmdRestartLegacyMigrationTests(unittest.TestCase):
             rc = cli.cmd_restart(ns)
         finally:
             manage.stop_pid = orig_stop_pid
-            manage.is_pid_alive = orig_is_pid_alive
             subprocess.Popen = orig_popen
             cli._wait_for_new_pid_json = orig_wait
 
@@ -178,8 +179,10 @@ class CmdRestartLegacyMigrationTests(unittest.TestCase):
             captured["argv"] = argv
             return FakeProc()
 
+        # Same as test_legacy_boot_json_triggers_normalization: we don't
+        # monkeypatch liveness because os.getpid() is genuinely alive and
+        # cmd_restart's `_pid_alive_for_daemon` resolves correctly on its own.
         orig_stop_pid = manage.stop_pid
-        orig_is_pid_alive = manage.is_pid_alive
         orig_popen = subprocess.Popen
         orig_wait = cli._wait_for_new_pid_json
         try:
@@ -187,7 +190,6 @@ class CmdRestartLegacyMigrationTests(unittest.TestCase):
                 "outcome": manage.STOP_TERM_OK, "elapsed_seconds": 0.0,
                 "sigterm_sent": True, "sigkill_sent": False, "error": None,
             }
-            manage.is_pid_alive = lambda _pid: True
             subprocess.Popen = fake_popen
             cli._wait_for_new_pid_json = lambda *_a, **_kw: None
 
@@ -195,7 +197,6 @@ class CmdRestartLegacyMigrationTests(unittest.TestCase):
             rc = cli.cmd_restart(ns)
         finally:
             manage.stop_pid = orig_stop_pid
-            manage.is_pid_alive = orig_is_pid_alive
             subprocess.Popen = orig_popen
             cli._wait_for_new_pid_json = orig_wait
 

@@ -484,6 +484,12 @@ def _stream_log(log_path: str) -> None:
                 if fh is not None:
                     fh.close()
                     fh = None
+                # Reset inode too: if the file reappears later with the
+                # same inode (rare but possible on inode-recycling FS), we
+                # want a clean reopen. Without this, `inode != st.st_ino`
+                # below would be False and we'd skip past the reopen
+                # branch, then hit `fh.seek(0)` / `fh.read()` on None.
+                inode = None
                 time.sleep(poll)
                 continue
             # Rotation detection: new inode → reopen at start.
