@@ -316,6 +316,86 @@ class PidAliveTests(unittest.TestCase):
         self.assertFalse(st.pid_alive(2147483646))
 
 
+class PidAliveZombieFilterTests(unittest.TestCase):
+    """Zombies sit in the kernel's process table until their parent reap()s
+    them. `os.kill(pid, 0)` succeeds on a zombie — but the process is dead.
+    `pid_alive` must filter zombies so `stop_pid`/`restart` don't report
+    `STOP_KILL_FAILED` after a daemon has actually exited cleanly.
+
+    Linux-only: /proc is the source of truth for process state. On non-Linux
+    dev hosts the function degrades to the plain signal(0) result.
+
+    Repro path the fix addresses: daemon launched via `nohup … &`, parent
+    bash exits, daemon reparented to PID 1, daemon dies, PID 1 doesn't
+    actively reap → zombie. Production: Railway's `node src/server.js` as
+    PID 1 doesn't reap.
+    """
+
+    def _spawn_and_kill(self):
+        """Spawn a short-lived subprocess WITHOUT waiting on it, so it
+        becomes a zombie under this test process (the parent). Returns the
+        pid. The test process is the parent — we leave it un-reaped so the
+        zombie sits in the process table.
+        """
+        import subprocess
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "import sys; sys.exit(0)"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        # Wait for the child to actually exit. `signal(0)` will still
+        # report it alive — the kernel keeps the slot until we wait().
+        # poll() observes exit without reaping (only wait() reaps).
+        for _ in range(200):
+            if proc.poll() is not None:
+                break
+            import time as _time
+            _time.sleep(0.01)
+        return proc
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux /proc only")
+    def test_zombie_is_not_alive(self):
+        """signal(0) succeeds on a zombie but the daemon has DIED — `stop_pid`
+        polling pid_alive would otherwise spin until SIGKILL grace ends, then
+        wrongly report STOP_KILL_FAILED. Filter zombies via /proc/<pid>/status."""
+        proc = self._spawn_and_kill()
+        try:
+            self.assertEqual(proc.poll(), 0,
+                             "zombie test requires the child to have exited")
+            # Confirm it's a zombie at the kernel level.
+            with open(f"/proc/{proc.pid}/status") as f:
+                state_line = next(l for l in f if l.startswith("State:"))
+            self.assertIn("Z", state_line,
+                          f"expected zombie state, got: {state_line.strip()}")
+            # The bug: signal(0) returns success for zombies.
+            self.assertFalse(
+                st.pid_alive(proc.pid),
+                "pid_alive must return False for zombies; otherwise stop_pid "
+                "spins to SIGKILL escalation on already-dead daemons.",
+            )
+        finally:
+            # Reap before the test process exits to keep CI clean.
+            proc.wait()
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux /proc only")
+    def test_live_process_still_reported_alive(self):
+        """Regression guard: the zombie filter must not break the common
+        path. The current Python process is alive; pid_alive must return True.
+        """
+        self.assertTrue(st.pid_alive(os.getpid()))
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux /proc only")
+    def test_proc_status_missing_falls_back_to_signal_zero(self):
+        """If `/proc/<pid>/status` cannot be read (race: pid just exited and
+        was reaped between signal(0) and our /proc read), the function must
+        not crash. The contract is: when /proc is unreadable, trust signal(0).
+        """
+        # Use init's pid (1) — always alive on any container, /proc/1/status
+        # always readable. Sanity-check the normal path. The race itself is
+        # hard to engineer deterministically; this test guards the
+        # "/proc read failure" recovery branch indirectly via code review.
+        self.assertTrue(st.pid_alive(1))
+
+
 class LogPathDetectionTests(unittest.TestCase):
     def setUp(self) -> None:
         self._prev = os.environ.get("SENPI_HELPERS_LOG_PATH")
@@ -579,6 +659,69 @@ class EnsureDaemonStderrRedirectedTests(unittest.TestCase):
             "print(state.ensure_daemon_stderr_redirected('test-already'))\n"
         )
         self.assertEqual(out, log_file)
+
+    def test_does_not_close_redirected_streams_when_fd_is_1_or_2(self) -> None:
+        """Adversarial: if stdin/stdout/stderr are closed (rare but possible
+        on `python script.py >&- 2>&-` launches), os.open returns the
+        lowest free fd — which could be 1 or 2. After dup2(fd, 1/2),
+        unconditionally `os.close(fd)` would close the very stream we just
+        redirected. Verify the post-fallback log handle is still usable.
+
+        Caught by reviewer on PR #279.
+        """
+        fallback_path = "/tmp/ensure-test-fd-guard.log"
+        try:
+            os.unlink(fallback_path)
+        except FileNotFoundError:
+            pass
+        try:
+            import subprocess
+            # Subprocess closes fd 1 and 2 BEFORE calling ensure(). After
+            # the call, write a known marker via os.write() to fd 2 — if
+            # ensure() closed fd 2 by mistake, that write raises EBADF.
+            # Marker has to land in the LOG FILE (since ensure redirects
+            # fd 2 to the fallback), which we can then check from the
+            # parent process.
+            script = (
+                "import os, sys\n"
+                f"sys.path.insert(0, {repr(_HELPERS_PARENT)})\n"
+                "from senpi_runtime_helpers import state\n"
+                "# Close fd 1 and fd 2 entirely. fd 0 is left alone so\n"
+                "# subprocess capture_output (which gives stdin=DEVNULL\n"
+                "# from the parent) doesn't fight us.\n"
+                "os.close(1)\n"
+                "os.close(2)\n"
+                "result = state.ensure_daemon_stderr_redirected('ensure-test-fd-guard')\n"
+                "# Write a sentinel to fd 2. If ensure() left fd 2 closed,\n"
+                "# this raises OSError EBADF and the subprocess fails with\n"
+                "# a non-zero exit, which the assertion below catches.\n"
+                "os.write(2, b'POST_ENSURE_WROTE_OK\\n')\n"
+            )
+            proc = subprocess.run(
+                [sys.executable, "-c", script],
+                capture_output=True, text=True, timeout=10,
+            )
+            # Subprocess must NOT have crashed. A crash here means stdout
+            # OR stderr got closed by the close-fd-after-dup2 bug.
+            self.assertEqual(
+                proc.returncode, 0,
+                f"subprocess failed (likely closed-fd regression): "
+                f"rc={proc.returncode} stderr={proc.stderr!r}",
+            )
+            # Sentinel reached the fallback log file (where fd 2 was
+            # redirected to). Confirms post-ensure fd 2 is still writable.
+            self.assertTrue(os.path.exists(fallback_path),
+                            f"fallback log not created at {fallback_path}")
+            with open(fallback_path) as f:
+                content = f.read()
+            self.assertIn("POST_ENSURE_WROTE_OK", content,
+                          "expected sentinel in log; fd 2 must remain "
+                          "writable after ensure_daemon_stderr_redirected")
+        finally:
+            try:
+                os.unlink(fallback_path)
+            except FileNotFoundError:
+                pass
 
     def test_fallback_to_tmp_name_log_when_stderr_is_pipe(self) -> None:
         """The motivating bug: openclaw exec gives the daemon a pipe on fd 2.

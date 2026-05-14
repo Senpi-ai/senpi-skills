@@ -230,9 +230,23 @@ def start_time_jiffies_for_pid(pid: int) -> Optional[int]:
 
 
 def pid_alive(pid: Optional[int]) -> bool:
-    """Cheap liveness check via signal(0). Canonical implementation shared by
+    """Cheap liveness check. Canonical implementation shared by
     `lock.py`, `cli.py`, and `manage.py` — they all need to ask the same
     question ("is this pid alive?") and previously each kept a private copy.
+
+    The basic check is `os.kill(pid, 0)`. On Linux, we ALSO filter out
+    zombies (`State: Z`) and dead-pending-reap (`State: X`): `signal(0)`
+    succeeds on those because the kernel still has the pid slot, but the
+    process has already exited. Without this filter, `stop_pid` would
+    poll until its SIGTERM timeout, escalate to SIGKILL (a no-op on the
+    already-dead zombie), and falsely return `STOP_KILL_FAILED` after
+    the kernel-grace window — even though the daemon DID stop cleanly.
+
+    Production trigger: daemon launched via `nohup … &`, parent shell
+    exits, daemon reparented to PID 1. On Railway boxes PID 1 is the
+    `node src/server.js` Express wrapper, which doesn't reap orphan
+    zombies. Zombies accumulate; the senpi-helpers CLI was previously
+    blind to them.
 
     Treats EPERM as "alive" (process exists, but we lack permission to
     signal it — that case is non-zero on shared-host setups where the
@@ -244,13 +258,25 @@ def pid_alive(pid: Optional[int]) -> bool:
         return False
     try:
         os.kill(pid, 0)
-        return True
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
     except OSError:
         return False
+    # signal(0) succeeded — process exists in the kernel's table. On Linux,
+    # consult /proc/<pid>/status to filter zombies. Non-Linux: trust signal(0).
+    try:
+        with open(f"/proc/{pid}/status") as f:
+            for line in f:
+                if line.startswith("State:"):
+                    # Example: "State:\tZ (zombie)" — split gives ["State:", "Z", ...].
+                    state_char = line.split()[1] if len(line.split()) >= 2 else ""
+                    return state_char not in ("Z", "X")
+    except (FileNotFoundError, PermissionError, OSError):
+        # /proc not available (non-Linux) or pid raced exit + reap. Trust signal(0).
+        pass
+    return True
 
 
 def pid_alive_and_matches(
@@ -400,7 +426,15 @@ def ensure_daemon_stderr_redirected(name: str) -> Optional[str]:
         os.dup2(fd, 1)  # stdout
         os.dup2(fd, 2)  # stderr
     finally:
-        os.close(fd)
+        # If stdin/stdout/stderr were closed by the caller (e.g. launched
+        # via `python3 script.py >&- 2>&-`), os.open could return fd 0, 1,
+        # or 2 as the lowest free descriptor. After our dup2 onto 1 and 2,
+        # those descriptors point at the log file we just opened.
+        # Unconditionally closing `fd` in that case would close the log
+        # file out from under our redirected streams. Guard: only close
+        # our temporary fd if it's NOT one of the standard streams.
+        if fd > 2:
+            os.close(fd)
     log_event(
         "log_path_fallback_applied",
         name=name,
