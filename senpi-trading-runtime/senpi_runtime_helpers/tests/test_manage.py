@@ -507,6 +507,42 @@ class RelaunchNormalizationTests(unittest.TestCase):
         self.assertEqual(captured["argv"], modern_argv)
         self.assertEqual(result["argv_used"], modern_argv)
 
+    def test_relaunch_with_relative_argv0_resolves_against_cwd(self) -> None:
+        """Schema-1 boot.json can record argv = ['./producer.py'] when the
+        operator launched from the script's directory. Popen will use the
+        daemon's cwd (`cwd=` parameter), so the existence check must too —
+        otherwise we'd return RELAUNCH_SCRIPT_MISSING for a launch that
+        would actually work.
+
+        Caught by garg-prashant on PR #279.
+        """
+        # Put a fake script in a subdir so we can pass a relative argv[0]
+        # against an explicit cwd.
+        import tempfile
+        sub = tempfile.mkdtemp(prefix="relaunch-relcwd-")
+        script_name = "producer.py"
+        with open(os.path.join(sub, script_name), "w") as f:
+            f.write("# fake\n")
+        factory, captured = self._make_fake_popen()
+        try:
+            result = manage.relaunch_daemon(
+                argv=[f"./{script_name}"],
+                cwd=sub,
+                log_path=self.log,
+                popen_factory=factory,
+            )
+            self.assertEqual(
+                result["outcome"], manage.RELAUNCH_OK,
+                f"expected OK, got: {result}",
+            )
+            # Popen receives the normalized argv (which still includes the
+            # relative path — we don't rewrite it; only the existence check
+            # was resolved against cwd).
+            self.assertEqual(captured["kwargs"].get("cwd"), sub)
+        finally:
+            import shutil
+            shutil.rmtree(sub, ignore_errors=True)
+
     def test_empty_argv_result_includes_normalization_fields(self) -> None:
         """Failure paths still populate argv_normalized / argv_used keys so
         callers can branch on them without KeyError."""

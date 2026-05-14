@@ -265,11 +265,19 @@ def relaunch_daemon(
         return {"outcome": RELAUNCH_SPAWN_FAILED, "pid": None,
                 "error": "argv is empty",
                 "argv_normalized": False, "argv_used": []}
-    if not os.path.exists(argv[0]):
-        # argv[0] may be the script (schema 1) or the interpreter (schema 2).
-        # Either should exist; the message names what we tried to find.
+
+    # Existence check: argv[0] may be the script (schema 1) or the
+    # interpreter (schema 2). Resolve it against the daemon's recorded
+    # `cwd` BEFORE checking — Popen will run with that cwd, so a relative
+    # path like `./producer.py` is valid relative to it even though it
+    # wouldn't exist relative to the CLI's current cwd. Falling back to
+    # os.getcwd() preserves the old behavior when cwd is None.
+    argv0 = argv[0]
+    if not os.path.isabs(argv0):
+        argv0 = os.path.normpath(os.path.join(cwd or os.getcwd(), argv0))
+    if not os.path.exists(argv0):
         return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
-                "error": f"argv[0] not found on disk: {argv[0]}",
+                "error": f"argv[0] not found on disk: {argv0}",
                 "argv_normalized": False, "argv_used": list(argv)}
 
     normalized_argv, was_normalized = _normalize_argv(argv)
