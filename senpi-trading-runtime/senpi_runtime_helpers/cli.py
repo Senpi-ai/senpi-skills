@@ -91,15 +91,20 @@ def _shorten_wallet(wallet: Optional[str]) -> str:
     return f"{wallet[:6]}…{wallet[-4:]}" if len(wallet) > 14 else wallet
 
 
-def _resolve_name(args: argparse.Namespace) -> Optional[str]:
-    """Resolve `<name>` for subcommands that take one daemon.
+def _resolve_name_readonly(args: argparse.Namespace) -> Optional[str]:
+    """Resolve `<name>` for READ-ONLY subcommands (list, health, stats,
+    boot, logs).
 
     Rules:
       - Explicit `<name>` arg always wins.
       - If no daemons registered → return None (caller surfaces "not found").
-      - If exactly one daemon registered → use it (single-daemon hosts
-        shouldn't pay the cost of always typing the name).
+      - If exactly one daemon registered → use it. Single-daemon hosts
+        shouldn't pay the cost of always typing the name for inspection.
       - If multiple daemons registered → return None and print a list.
+
+    For DESTRUCTIVE subcommands (stop, restart, start), use
+    `_resolve_name_explicit` instead — auto-resolve is a footgun when the
+    operator could be on the wrong box.
     """
     if getattr(args, "name", None):
         return args.name
@@ -118,6 +123,50 @@ def _resolve_name(args: argparse.Namespace) -> Optional[str]:
         f"  Available: {', '.join(names)}\n"
     )
     return None
+
+
+def _resolve_name_explicit(
+    args: argparse.Namespace, *, action: str,
+) -> Optional[str]:
+    """Resolve `<name>` for DESTRUCTIVE subcommands (stop, restart, start).
+
+    Unlike `_resolve_name_readonly`, this NEVER auto-resolves to the only
+    daemon on the host. The operator (or agent) MUST type the name. This
+    closes a footgun: `senpi-helpers stop` typed on the wrong SSH session
+    used to silently kill whatever daemon happened to be on that box.
+
+    Read-only commands keep the auto-resolve convenience because they can
+    only mis-inform — not destroy state.
+
+    Why no interactive `[y/N]` prompt:
+        The primary tool consumer is the openclaw agent (via its `exec`
+        tool, which has no interactive stdin). An interactive prompt would
+        hang every agent-driven stop/restart. Requiring an explicit name
+        is equally safe and works for both human + agent uniformly.
+    """
+    if getattr(args, "name", None):
+        return args.name
+    names = _state.list_daemons(state_dir=args.state_dir)
+    if not names:
+        sys.stderr.write(
+            "senpi-helpers: no daemons found in state dir "
+            f"({_state.get_state_dir(args.state_dir)}).\n"
+        )
+        return None
+    sys.stderr.write(
+        f"senpi-helpers: '{action}' requires an explicit <name>. "
+        f"Auto-resolution is disabled for destructive commands.\n"
+        f"  Available: {', '.join(names)}\n"
+        f"  See: `senpi-helpers list` for details before choosing.\n"
+    )
+    return None
+
+
+# Backward-compat alias for any code that imported `_resolve_name`. The
+# new code should pick the correct variant. We keep this pointing at the
+# READ-ONLY variant to preserve old call-site behavior for non-destructive
+# subcommands; destructive commands are switched explicitly below.
+_resolve_name = _resolve_name_readonly
 
 
 def _collect_daemon_row(name: str, state_dir: Optional[str]) -> Dict[str, Any]:
@@ -494,7 +543,9 @@ def _print_stop_summary(name: str, pid: int, result: Dict[str, Any]) -> None:
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
-    name = _resolve_name(args)
+    # Destructive: require an explicit <name>. See `_resolve_name_explicit`
+    # for why we don't auto-resolve on single-daemon hosts.
+    name = _resolve_name_explicit(args, action="stop")
     if name is None:
         return STOP_NOT_FOUND
 
@@ -664,7 +715,8 @@ START_NOT_FOUND = 2
 
 
 def cmd_start(args: argparse.Namespace) -> int:
-    name = _resolve_name(args)
+    # Destructive (spawns a process): require an explicit <name>.
+    name = _resolve_name_explicit(args, action="start")
     if name is None:
         return START_NOT_FOUND
 
@@ -771,7 +823,8 @@ def cmd_start(args: argparse.Namespace) -> int:
 
 
 def cmd_restart(args: argparse.Namespace) -> int:
-    name = _resolve_name(args)
+    # Destructive (kills the old daemon): require an explicit <name>.
+    name = _resolve_name_explicit(args, action="restart")
     if name is None:
         return RESTART_NOT_FOUND
 

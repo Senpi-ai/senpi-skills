@@ -795,6 +795,90 @@ class StartSubcommandTests(RestartSubcommandTests):
 # ─── pid-recycle guard at the CLI layer ─────────────────────────────────────
 
 
+class AutoResolveDisabledForDestructiveCommandsTests(RestartSubcommandTests):
+    """Single-daemon-host footgun fix. Stop / restart / start now require
+    an explicit <name>; auto-resolve is reserved for read-only commands
+    (list, health, stats, boot, logs). Verifies the new contract — and
+    that read-only commands keep auto-resolving."""
+
+    def _seed_minimal_daemon(self, name: str) -> None:
+        """Just enough state so `list_daemons` returns this name."""
+        d = os.path.join(self.tmp, name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 2, "name": name, "pid": 2147483646,
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": None, "scanner": None,
+                "interval_seconds": 60.0, "tick_timeout": 60.0,
+                "log_path": None, "version": "0.0.0",
+                "cmdline_fingerprint": None, "start_time_jiffies": None,
+            }, f)
+
+    def test_stop_without_name_on_single_daemon_host_errors(self) -> None:
+        self._seed_minimal_daemon("solo")
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["stop"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        # 2 = NOT_FOUND (semantic: "couldn't determine which daemon").
+        self.assertEqual(rc, 2)
+        self.assertIn("explicit <name>", err)
+        self.assertIn("solo", err)
+
+    def test_restart_without_name_on_single_daemon_host_errors(self) -> None:
+        self._seed_minimal_daemon("solo")
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["restart"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 2)
+        self.assertIn("explicit <name>", err)
+        # No relaunch_daemon should have fired.
+        self.assertEqual(len(self._relaunch_calls), 0)
+
+    def test_start_without_name_on_single_daemon_host_errors(self) -> None:
+        self._seed_minimal_daemon("solo")
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["start"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 2)
+        self.assertIn("explicit <name>", err)
+        self.assertEqual(len(self._relaunch_calls), 0)
+
+    def test_list_without_name_still_works_on_single_daemon_host(self) -> None:
+        """Read-only commands keep auto-resolve. Otherwise we'd break every
+        operator's `senpi-helpers list` muscle memory."""
+        self._seed_minimal_daemon("solo")
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["list", "--json"])
+        self.assertEqual(rc, 0)
+        doc = json.loads(buf.getvalue())
+        self.assertEqual(len(doc["daemons"]), 1)
+        self.assertEqual(doc["daemons"][0]["name"], "solo")
+
+    def test_stop_with_explicit_name_still_works(self) -> None:
+        """Confirm the existing happy-path didn't regress."""
+        self._seed_minimal_daemon("explicit")  # writes pid.json with dead pid
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["stop", "explicit", "--json"])
+        self.assertEqual(rc, 0)
+        doc = json.loads(buf.getvalue())
+        self.assertEqual(doc["outcome"], "already_dead")
+
+
 class StopRecycleGuardTests(RestartSubcommandTests):
     """When pid.json's fingerprints don't match /proc/<pid>'s, cmd_stop must
     refuse to SIGTERM and clear the stale pid.json."""
