@@ -549,6 +549,266 @@ def cmd_logs(args: argparse.Namespace) -> int:
     return LOGS_OK
 
 
+# ─── Subcommand: diagnose ───────────────────────────────────────────────────
+#
+# Composite reader over pid.json + boot.json + heartbeat.json + the log
+# file. Runs a checklist (each check pure-fn over local state, no network,
+# no Railway) and reports pass/warn/fail + a suggestion per check.
+#
+# Used by the agent (and humans) when a daemon misbehaves to skip the
+# "ssh in + cat pid.json + cat boot.json + ls log + pgrep + parse output"
+# routine.
+
+DIAGNOSE_OK = 0
+DIAGNOSE_UNHEALTHY = 1
+DIAGNOSE_NOT_FOUND = 2
+
+# Stable string keys so JSON consumers (alerting, dashboards) can branch.
+_DIAG_PASS = "pass"
+_DIAG_WARN = "warn"
+_DIAG_FAIL = "fail"
+
+
+def _diag_check(key: str, status: str, message: str, suggestion: Optional[str] = None) -> Dict[str, Any]:
+    return {"key": key, "status": status, "message": message,
+            "suggestion": suggestion}
+
+
+def _run_diagnostic_checks(
+    name: str, *, state_dir: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Run every diagnostic in order. Each returns a result dict.
+
+    The order is roughly "outer state → inner runtime" so the operator
+    sees structural problems (missing files) before runtime ones (stale
+    ticks). All checks are pure functions over the on-disk state — no
+    side effects, no Railway, no network.
+    """
+    pid_data = _state.read_pid(name, state_dir=state_dir)
+    boot_data = _state.read_boot(name, state_dir=state_dir)
+    hb_data = _state.read_heartbeat(name, state_dir=state_dir)
+
+    out: List[Dict[str, Any]] = []
+
+    # boot.json — without it, the daemon has never run under the helper.
+    if boot_data is None:
+        out.append(_diag_check(
+            "boot_json_present", _DIAG_FAIL,
+            "boot.json is missing",
+            suggestion=(
+                "The daemon has never started under the helper. Use your "
+                "skill's launch recipe once (nohup python3 -u <producer>.py "
+                "...); the daemon writes boot.json on its own startup."
+            ),
+        ))
+    else:
+        out.append(_diag_check(
+            "boot_json_present", _DIAG_PASS,
+            f"boot.json schema {boot_data.get('schema')}",
+        ))
+
+    # script_path — does the file the daemon was launched from still exist?
+    script_path = (boot_data or {}).get("script_path")
+    if not script_path:
+        out.append(_diag_check(
+            "script_path_recorded", _DIAG_WARN,
+            "script_path is not recorded in boot.json",
+            suggestion="Restart the daemon manually so boot.json captures it.",
+        ))
+    elif not os.path.exists(script_path):
+        out.append(_diag_check(
+            "script_path_exists", _DIAG_FAIL,
+            f"script_path '{script_path}' does not exist on disk",
+            suggestion=(
+                "The skill may have been moved or deleted. Re-clone or "
+                "re-install the skill at that path, or start manually so "
+                "boot.json picks up the new location."
+            ),
+        ))
+    else:
+        out.append(_diag_check(
+            "script_path_exists", _DIAG_PASS,
+            f"script_path {script_path} exists",
+        ))
+
+    # pid.json — present + pid still alive AND fingerprints match.
+    pid = (pid_data or {}).get("pid") if pid_data else None
+    if pid_data is None:
+        out.append(_diag_check(
+            "pid_json_present", _DIAG_WARN,
+            "pid.json is missing — daemon is not running",
+            suggestion=(
+                f"Run `senpi-helpers start {name}` to bring it back."
+            ),
+        ))
+    elif not isinstance(pid, int) or pid <= 0:
+        out.append(_diag_check(
+            "pid_json_valid", _DIAG_FAIL,
+            f"pid.json has invalid pid: {pid!r}",
+            suggestion=(
+                "Clear stale pid.json (rm) and start fresh, or upgrade the "
+                "helpers package — old schema may be in play."
+            ),
+        ))
+    else:
+        # Liveness with recycle guard.
+        alive_loose = _state.pid_alive(pid)
+        alive_strict = _pid_alive_for_daemon(pid_data)
+        if not alive_loose:
+            out.append(_diag_check(
+                "pid_alive", _DIAG_FAIL,
+                f"recorded pid {pid} is not running",
+                suggestion=f"Run `senpi-helpers start {name}` to relaunch.",
+            ))
+        elif alive_loose and not alive_strict:
+            out.append(_diag_check(
+                "pid_alive_and_matches", _DIAG_FAIL,
+                f"pid {pid} is alive but cmdline / start_time fingerprint "
+                f"doesn't match — kernel recycled it to a stranger",
+                suggestion=(
+                    "Run `senpi-helpers stop <name>` — the recycle guard "
+                    "will clear the stale pid.json without signaling the "
+                    "unrelated process."
+                ),
+            ))
+        else:
+            out.append(_diag_check(
+                "pid_alive_and_matches", _DIAG_PASS,
+                f"pid {pid} alive, fingerprints match",
+            ))
+
+    # log_path — resolve from pid → boot → default. Then check the file.
+    if boot_data is not None or pid_data is not None:
+        log_path = (pid_data or {}).get("log_path") or (boot_data or {}).get("log_path")
+        if not log_path:
+            env_snapshot = (boot_data or {}).get("env_snapshot") or {}
+            log_path = env_snapshot.get("SENPI_HELPERS_LOG_PATH")
+        if not log_path:
+            log_path = f"/tmp/{name}.log"
+            log_path_note = " (default — boot.json/pid.json didn't record one)"
+        else:
+            log_path_note = ""
+        if os.path.exists(log_path):
+            out.append(_diag_check(
+                "log_file_exists", _DIAG_PASS,
+                f"log file at {log_path}{log_path_note}",
+            ))
+        else:
+            out.append(_diag_check(
+                "log_file_exists", _DIAG_WARN,
+                f"log file not found at {log_path}{log_path_note}",
+                suggestion=(
+                    "The daemon may not have written yet, or the path is "
+                    "stale. After `senpi-helpers start`, the new daemon "
+                    "will write to this path."
+                ),
+            ))
+
+    # heartbeat freshness.
+    if hb_data is None:
+        out.append(_diag_check(
+            "heartbeat_present", _DIAG_WARN,
+            "heartbeat.json is missing — no tick has completed yet",
+        ))
+    else:
+        interval = (pid_data or {}).get("interval_seconds")
+        last_tick_iso = hb_data.get("last_tick_iso")
+        last_tick_age = _age_seconds(last_tick_iso)
+        last_tick_status = hb_data.get("last_tick_status")
+        if (
+            isinstance(interval, (int, float))
+            and interval > 0
+            and last_tick_age is not None
+            and last_tick_age > 2 * interval
+        ):
+            out.append(_diag_check(
+                "heartbeat_fresh", _DIAG_FAIL,
+                f"last tick was {last_tick_age}s ago, more than 2× interval "
+                f"({interval}s) — daemon is stalled",
+                suggestion=(
+                    f"Check `senpi-helpers logs {name}` for the last few "
+                    f"events. May need a restart."
+                ),
+            ))
+        elif last_tick_age is not None:
+            out.append(_diag_check(
+                "heartbeat_fresh", _DIAG_PASS,
+                f"last tick {last_tick_age}s ago",
+            ))
+        # Last tick outcome.
+        if last_tick_status is None:
+            out.append(_diag_check(
+                "last_tick_status", _DIAG_WARN,
+                "last_tick_status missing from heartbeat.json",
+            ))
+        elif last_tick_status not in ("ok", "skipped_locked"):
+            err_preview = (hb_data.get("last_tick_error") or "")
+            err_preview = err_preview[:120] + ("…" if len(err_preview) > 120 else "")
+            out.append(_diag_check(
+                "last_tick_status", _DIAG_FAIL,
+                f"last tick status was '{last_tick_status}'"
+                + (f": {err_preview}" if err_preview else ""),
+                suggestion=f"`senpi-helpers logs {name}` for full context.",
+            ))
+        else:
+            out.append(_diag_check(
+                "last_tick_status", _DIAG_PASS,
+                f"last tick status: {last_tick_status}",
+            ))
+
+    return out
+
+
+def _print_diagnose_summary(name: str, checks: List[Dict[str, Any]]) -> None:
+    """Human-readable diagnose report. One line per check + suggestion."""
+    by_status = {_DIAG_PASS: 0, _DIAG_WARN: 0, _DIAG_FAIL: 0}
+    for c in checks:
+        by_status[c["status"]] = by_status.get(c["status"], 0) + 1
+
+    print(f"name:           {name}")
+    print(f"summary:        "
+          f"{by_status[_DIAG_PASS]} pass, "
+          f"{by_status[_DIAG_WARN]} warn, "
+          f"{by_status[_DIAG_FAIL]} fail")
+    print()
+    glyph = {_DIAG_PASS: "✓", _DIAG_WARN: "!", _DIAG_FAIL: "✗"}
+    for c in checks:
+        g = glyph.get(c["status"], "?")
+        print(f"  [{g}] {c['key']:<28}  {c['message']}")
+        if c.get("suggestion"):
+            print(f"          → {c['suggestion']}")
+
+
+def cmd_diagnose(args: argparse.Namespace) -> int:
+    name = _resolve_name_readonly(args)
+    if name is None:
+        return DIAGNOSE_NOT_FOUND
+    # Confirm at least SOMETHING for this daemon exists; otherwise the
+    # diagnose output would be entirely "missing" rows with no signal.
+    if (
+        _state.read_pid(name, state_dir=args.state_dir) is None
+        and _state.read_boot(name, state_dir=args.state_dir) is None
+        and _state.read_heartbeat(name, state_dir=args.state_dir) is None
+    ):
+        sys.stderr.write(
+            f"senpi-helpers: no state files for '{name}'. "
+            f"Use `senpi-helpers list` to see registered daemons.\n"
+        )
+        return DIAGNOSE_NOT_FOUND
+
+    checks = _run_diagnostic_checks(name, state_dir=args.state_dir)
+
+    if args.json:
+        print(json.dumps(
+            {"name": name, "checks": checks}, indent=2, default=str,
+        ))
+    else:
+        _print_diagnose_summary(name, checks)
+
+    has_fail = any(c["status"] == _DIAG_FAIL for c in checks)
+    return DIAGNOSE_UNHEALTHY if has_fail else DIAGNOSE_OK
+
+
 # ─── Subcommand: stats ──────────────────────────────────────────────────────
 
 STATS_OK = 0
@@ -1255,6 +1515,24 @@ def _make_parser() -> argparse.ArgumentParser:
         help="Stream new lines as they're written (Ctrl-C to stop).",
     )
     logs_p.set_defaults(func=cmd_logs)
+
+    # diagnose
+    diag_p = sub.add_parser(
+        "diagnose",
+        help="Run a pre-flight checklist over pid/boot/heartbeat/log; pass/warn/fail per check.",
+        description=(
+            "Composite reader: pid.json + boot.json + heartbeat.json + log "
+            "file. Reports each check with pass / warn / fail and a "
+            "suggestion to act on failures. Use BEFORE filing a bug report "
+            "or stopping a misbehaving daemon."
+        ),
+    )
+    diag_p.add_argument(
+        "name", nargs="?", default=None,
+        help="Daemon name. Optional on single-daemon hosts.",
+    )
+    diag_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
+    diag_p.set_defaults(func=cmd_diagnose)
 
     # stats
     stats_p = sub.add_parser(

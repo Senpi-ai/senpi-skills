@@ -1221,5 +1221,187 @@ class LogsSubcommandTests(CliFixtures):
         self.assertIn("log file not found", err)
 
 
+# ─── cmd_diagnose ───────────────────────────────────────────────────────────
+
+
+class DiagnoseSubcommandTests(CliFixtures):
+    """`senpi-helpers diagnose <name>` runs the pre-flight checklist over
+    pid/boot/heartbeat/log. Each test stages a specific failure mode and
+    asserts the right check key flips to fail."""
+
+    def _write_files(
+        self, name: str, *,
+        pid_data: dict = None,
+        boot_data: dict = None,
+        hb_data: dict = None,
+    ) -> None:
+        d = os.path.join(self.tmp, name)
+        os.makedirs(d, exist_ok=True)
+        if pid_data is not None:
+            with open(os.path.join(d, "pid.json"), "w") as f:
+                json.dump(pid_data, f)
+        if boot_data is not None:
+            with open(os.path.join(d, "boot.json"), "w") as f:
+                json.dump(boot_data, f)
+        if hb_data is not None:
+            with open(os.path.join(d, "heartbeat.json"), "w") as f:
+                json.dump(hb_data, f)
+
+    def _run_json(self, name: str) -> dict:
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["diagnose", name, "--json"])
+        return {"rc": rc, "doc": json.loads(buf.getvalue())}
+
+    def _check_status(self, doc: dict, key: str) -> str:
+        for c in doc["checks"]:
+            if c["key"] == key:
+                return c["status"]
+        return "missing"
+
+    def test_diagnose_no_state_returns_not_found(self) -> None:
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["diagnose", "ghost"])
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 2)
+
+    def test_diagnose_missing_boot_json_fails_that_check(self) -> None:
+        # Only heartbeat present.
+        self._write_files("hb-only", hb_data={
+            "schema": 1, "name": "hb-only",
+            "last_tick_iso": "2026-05-12T08:00:00.000Z",
+            "last_tick_status": "ok", "tick_count": 1, "error_count": 0,
+        })
+        r = self._run_json("hb-only")
+        self.assertEqual(self._check_status(r["doc"], "boot_json_present"), "fail")
+        self.assertEqual(r["rc"], 1)  # any fail → DIAGNOSE_UNHEALTHY
+
+    def test_diagnose_script_path_missing_on_disk_fails(self) -> None:
+        self._write_files("ghost-script", boot_data={
+            "schema": 2, "name": "ghost-script",
+            "argv": [], "script_path": "/nonexistent/path.py",
+            "cwd": "/", "env_snapshot": {}, "log_path": None,
+            "captured_at_iso": "2026-05-12T08:00:00.000Z",
+        })
+        r = self._run_json("ghost-script")
+        self.assertEqual(self._check_status(r["doc"], "script_path_exists"), "fail")
+
+    def test_diagnose_pid_dead_fails_pid_alive_check(self) -> None:
+        self._write_files("dead-pid",
+            boot_data={
+                "schema": 2, "name": "dead-pid",
+                "argv": [], "script_path": self.tmp,  # exists (dir)
+                "cwd": "/", "env_snapshot": {}, "log_path": None,
+                "captured_at_iso": "2026-05-12T08:00:00.000Z",
+            },
+            pid_data={
+                "schema": 2, "name": "dead-pid", "pid": 2147483646,
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": None, "scanner": None,
+                "interval_seconds": 60.0, "tick_timeout": 60.0,
+                "log_path": None, "version": "0.0.0",
+                "cmdline_fingerprint": None, "start_time_jiffies": None,
+            },
+        )
+        r = self._run_json("dead-pid")
+        self.assertEqual(self._check_status(r["doc"], "pid_alive"), "fail")
+
+    def test_diagnose_alive_with_recycled_pid_fails_fingerprint_check(self) -> None:
+        if not sys.platform.startswith("linux"):
+            self.skipTest("recycle guard requires /proc")
+        own_pid = os.getpid()
+        self._write_files("recycled",
+            boot_data={
+                "schema": 2, "name": "recycled",
+                "argv": [], "script_path": self.tmp,
+                "cwd": "/", "env_snapshot": {}, "log_path": None,
+                "captured_at_iso": "2026-05-12T08:00:00.000Z",
+            },
+            pid_data={
+                "schema": 2, "name": "recycled", "pid": own_pid,
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": None, "scanner": None,
+                "interval_seconds": 60.0, "tick_timeout": 60.0,
+                "log_path": None, "version": "0.0.0",
+                "cmdline_fingerprint": "0" * 64,   # bogus
+                "start_time_jiffies": None,
+            },
+        )
+        r = self._run_json("recycled")
+        self.assertEqual(self._check_status(r["doc"], "pid_alive_and_matches"), "fail")
+
+    def test_diagnose_stale_heartbeat_fails(self) -> None:
+        # last_tick was hours ago; interval is 60s → way past 2× threshold.
+        self._write_files("stale",
+            boot_data={
+                "schema": 2, "name": "stale",
+                "argv": [], "script_path": self.tmp,
+                "cwd": "/", "env_snapshot": {}, "log_path": None,
+                "captured_at_iso": "2026-05-12T08:00:00.000Z",
+            },
+            pid_data={
+                "schema": 2, "name": "stale", "pid": os.getpid(),
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": None, "scanner": None,
+                "interval_seconds": 60.0, "tick_timeout": 60.0,
+                "log_path": None, "version": "0.0.0",
+                "cmdline_fingerprint": None, "start_time_jiffies": None,
+            },
+            hb_data={
+                "schema": 1, "name": "stale",
+                "last_tick_iso": "2020-01-01T00:00:00.000Z",  # ancient
+                "last_tick_status": "ok",
+                "tick_count": 1, "error_count": 0,
+            },
+        )
+        r = self._run_json("stale")
+        self.assertEqual(self._check_status(r["doc"], "heartbeat_fresh"), "fail")
+
+    def test_diagnose_all_passing_returns_ok(self) -> None:
+        # Build a fully-clean state: script_path = an existing file in tmp,
+        # pid = own pid (alive), no fingerprints (degrades cleanly),
+        # heartbeat = recent (within 2× interval).
+        from datetime import datetime, timezone, timedelta
+        recent_iso = (
+            datetime.now(timezone.utc) - timedelta(seconds=5)
+        ).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        script_path = os.path.join(self.tmp, "fake-script.py")
+        with open(script_path, "w") as f:
+            f.write("# stub\n")
+        log_path = os.path.join(self.tmp, "fake.log")
+        with open(log_path, "w") as f:
+            f.write("starting...\n")
+        self._write_files("clean",
+            boot_data={
+                "schema": 2, "name": "clean",
+                "argv": [], "script_path": script_path,
+                "cwd": "/", "env_snapshot": {}, "log_path": log_path,
+                "captured_at_iso": "2026-05-12T08:00:00.000Z",
+            },
+            pid_data={
+                "schema": 2, "name": "clean", "pid": os.getpid(),
+                "start_time_iso": recent_iso,
+                "wallet": None, "scanner": None,
+                "interval_seconds": 60.0, "tick_timeout": 60.0,
+                "log_path": log_path, "version": "0.0.0",
+                "cmdline_fingerprint": None, "start_time_jiffies": None,
+            },
+            hb_data={
+                "schema": 1, "name": "clean",
+                "last_tick_iso": recent_iso,
+                "last_tick_status": "ok",
+                "tick_count": 1, "error_count": 0,
+            },
+        )
+        r = self._run_json("clean")
+        self.assertEqual(r["rc"], 0)
+        # No checks should be fail.
+        fails = [c for c in r["doc"]["checks"] if c["status"] == "fail"]
+        self.assertEqual(fails, [], msg=f"unexpected failures: {fails}")
+
+
 if __name__ == "__main__":
     unittest.main()
