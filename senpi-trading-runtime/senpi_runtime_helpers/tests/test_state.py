@@ -744,34 +744,55 @@ class EnsureDaemonStderrRedirectedTests(unittest.TestCase):
     def test_fallback_to_tmp_name_log_when_stderr_is_pipe(self) -> None:
         """The motivating bug: openclaw exec gives the daemon a pipe on fd 2.
         ensure() must redirect to /tmp/<name>.log so the helpers state files
-        record a usable path."""
+        record a usable path.
+
+        Test mechanics: ensure() does `dup2(fd, 1)` AND `dup2(fd, 2)` —
+        BOTH fds get redirected to the fallback log file. So the subprocess
+        cannot write its assertion back via `sys.stdout` (which is fd 1).
+        Have the subprocess write its result to a separate result file we
+        read after it exits — this side-steps the fd-redirection issue.
+        """
         fallback_path = "/tmp/ensure-test-pipe-fallback.log"
+        for p in (fallback_path,):
+            try:
+                os.unlink(p)
+            except FileNotFoundError:
+                pass
+        result_file = tempfile.NamedTemporaryFile(
+            mode="w", suffix=".result", delete=False)
+        result_file.close()
         try:
-            os.unlink(fallback_path)
-        except FileNotFoundError:
-            pass
-        # Subprocess: pipe stderr, then call ensure().
-        # stdout (where we print the result) goes back to us via capture_output.
-        import subprocess
-        proc = subprocess.run(
-            [sys.executable, "-c",
-             "import os, sys\n"
-             f"sys.path.insert(0, {repr(_HELPERS_PARENT)})\n"
-             "from senpi_runtime_helpers import state\n"
-             "# Replace fd 2 with a pipe so detect_log_path returns None.\n"
-             "r, w = os.pipe()\n"
-             "os.dup2(w, 2); os.close(w); os.close(r)\n"
-             "result = state.ensure_daemon_stderr_redirected('ensure-test-pipe-fallback')\n"
-             "# Write result to fd 3 so we don't compete with the dup2'd stderr.\n"
-             "import sys as _s; _s.stdout.write(str(result)); _s.stdout.flush()\n"
-            ],
-            capture_output=True, text=True, timeout=10,
-        )
-        self.assertEqual(proc.returncode, 0,
-                         f"subprocess failed: {proc.stderr}")
-        self.assertEqual(proc.stdout.strip(), fallback_path)
-        self.assertTrue(os.path.exists(fallback_path),
-                        f"fallback log not created at {fallback_path}")
+            import subprocess
+            proc = subprocess.run(
+                [sys.executable, "-c",
+                 "import os, sys\n"
+                 f"sys.path.insert(0, {repr(_HELPERS_PARENT)})\n"
+                 "from senpi_runtime_helpers import state\n"
+                 "# Replace fd 2 with a pipe so detect_log_path returns None.\n"
+                 "r, w = os.pipe()\n"
+                 "os.dup2(w, 2); os.close(w); os.close(r)\n"
+                 "result = state.ensure_daemon_stderr_redirected('ensure-test-pipe-fallback')\n"
+                 "# Cannot use sys.stdout — ensure() dup2'd fd 1 onto the\n"
+                 "# fallback log file. Write to a separate result path the\n"
+                 "# parent reads after we exit.\n"
+                 f"with open({repr(result_file.name)}, 'w') as _f:\n"
+                 "    _f.write(str(result))\n"
+                ],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                timeout=10,
+            )
+            self.assertEqual(proc.returncode, 0,
+                             "subprocess crashed; ensure() raised or fd math went wrong")
+            with open(result_file.name) as fh:
+                result_str = fh.read().strip()
+            self.assertEqual(result_str, fallback_path)
+            self.assertTrue(os.path.exists(fallback_path),
+                            f"fallback log not created at {fallback_path}")
+        finally:
+            try:
+                os.unlink(result_file.name)
+            except OSError:
+                pass
 
 
 # ─── Tests for pid-recycle guard ────────────────────────────────────────────
