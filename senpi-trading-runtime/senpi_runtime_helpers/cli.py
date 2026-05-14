@@ -641,6 +641,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
         return RESTART_FAILED
 
     new_pid = relaunch_result["pid"]
+    argv_normalized = bool(relaunch_result.get("argv_normalized"))
 
     # Confirm the new daemon actually wrote its pid.json. If not, the script
     # may have crashed before writing — but the Popen succeeded, so it's
@@ -659,6 +660,7 @@ def cmd_restart(args: argparse.Namespace) -> int:
         "old_pid": pid if pid_data else None,
         "stop_result": stop_result,
         "relaunch_result": relaunch_result,
+        "argv_normalized": argv_normalized,
         "pid_json_confirmed": confirmed is not None,
         "log_path": log_path,
     }
@@ -673,6 +675,15 @@ def cmd_restart(args: argparse.Namespace) -> int:
         print(f"  new pid:        {new_pid}")
         print(f"  log path:       {log_path}")
         print(f"  script:         {script_path}")
+        if argv_normalized:
+            # Legacy schema-1 boot.json was migrated on read. The new daemon
+            # will write a fresh schema-2 boot.json on startup; this message
+            # only appears for the first restart per daemon after the
+            # upgrade lands.
+            print(
+                "  boot.json:      schema 1 detected; interpreter "
+                "auto-prepended (one-time migration)"
+            )
         if confirmed is not None:
             print("  pid.json:       confirmed (new daemon is ticking)")
         else:

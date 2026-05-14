@@ -262,7 +262,8 @@ What `restart` does, in order:
    next time. Exit 1.
 3. If the daemon is currently running, run the `stop` flow first.
 4. Re-exec the daemon as a detached process:
-   - argv from boot.json
+   - argv from boot.json (auto-migrated from legacy schema 1 if needed —
+     see "boot.json schema migration" below)
    - cwd from boot.json
    - env from the CLI's **current** environment (NOT the captured
      env_snapshot — so wallet / auth / decision-model changes since the
@@ -276,6 +277,38 @@ What `restart` does, in order:
 
 The new daemon's env_snapshot in boot.json will be rewritten with the new
 environment.
+
+### boot.json schema migration
+
+`boot.json` has two schemas in the wild:
+
+| schema | `argv` shape                                | how to launch |
+|--------|---------------------------------------------|---------------|
+| 1 (legacy) | `["/path/script.py"]`                   | `nohup python3 -u /path/script.py &` |
+| 2 (current) | `[sys.executable, "-u", "/path/script.py"]` | Written by every daemon since this fix |
+
+Why schema 2 exists: schema-1 captured only `sys.argv`, which is the
+script + script args — interpreter and `-u` flag are consumed before
+Python's `sys.argv` is populated and cannot be recovered from inside the
+script. When the operator launched as `nohup python3 -u script.py &`, the
+script never needed to be `+x`. But `senpi-helpers restart` (which
+`Popen`s `argv` directly) then tried to `execve` the `.py` file, which
+fails with `EACCES` when the file isn't executable. Result: stop half
+succeeded, start half silently died with `PermissionError`, producer
+ended up dead.
+
+Migration is transparent and one-shot per daemon:
+- On `restart`, if `argv[0]` looks like a `.py` script (and not a python
+  interpreter), the helper prepends `[sys.executable, "-u"]` and prints
+  a one-line note.
+- The newly-spawned daemon calls `write_boot()` on startup and writes a
+  fresh schema-2 `boot.json`. The next `restart` goes through the modern
+  path, no migration needed.
+- Operators don't have to do anything. Schema-1 boot files keep working
+  forever; they just get rewritten on first restart.
+
+`--json` output includes `"argv_normalized": true|false` so automation
+can detect the migration.
 
 Exit codes:
 

@@ -16,6 +16,7 @@ graceful drain (current tick finishes, then loop exits).
 # Licensed under MIT
 
 import signal
+import sys
 import threading
 import time
 from contextlib import suppress
@@ -230,6 +231,10 @@ def producer_daemon(
         max_ticks=max_ticks,
         alive_check_enabled=alive_check is not None,
         alive_check_every_n_ticks=alive_check_every_n if alive_check is not None else None,
+        # sys.argv is the script + its CLI args (interpreter and flags are
+        # consumed before sys.argv is populated). Logged here so post-mortem
+        # audit shows what script the daemon was actually running.
+        argv=list(sys.argv),
     )
 
     # Self-describing state files for the senpi-helpers CLI. Written ONCE on

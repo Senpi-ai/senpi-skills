@@ -24,10 +24,14 @@ Design:
 import os
 import signal
 import subprocess
+import sys
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from .state import pid_alive as is_pid_alive  # canonical PID-liveness check
+from .state import (
+    pid_alive as is_pid_alive,  # canonical PID-liveness check
+    looks_like_python_interpreter,  # heuristic for legacy argv normalization
+)
 
 
 # How long to wait after SIGKILL before declaring the process is unkillable.
@@ -163,6 +167,12 @@ def stop_outcome_was_success(outcome: str) -> bool:
 
 
 # ─── Relaunch (the back half of `restart`) ──────────────────────────────────
+#
+# `stop_pid` (above) is called with the OLD daemon's pid (read from pid.json).
+# It targets a SPECIFIC pid and CANNOT signal the helper process itself —
+# the helper's pid is never recorded in pid.json. So `restart` cannot
+# accidentally kill itself by PID. End-to-end coverage of this invariant is
+# in tests/test_restart_integration.py::test_restart_does_not_target_self_pid.
 
 
 # Relaunch outcome codes. Stable strings for JSON consumers.
@@ -172,19 +182,58 @@ RELAUNCH_LOG_OPEN_FAILED = "log_open_failed"
 RELAUNCH_SPAWN_FAILED = "spawn_failed"
 
 
+def _normalize_argv(argv: List[str]) -> Tuple[List[str], bool]:
+    """Migrate legacy boot.json argv (script-only) to interpreter-first form.
+
+    Schema 1 (legacy):  ["/path/script.py"]
+    Schema 2 (modern):  [sys.executable, "-u", "/path/script.py"]
+
+    Returns `(normalized_argv, was_normalized)`.
+
+    Migration rule: if argv[0] doesn't look like a python interpreter AND
+    it ends with `.py`, prepend `[sys.executable, "-u"]`. Idempotent — a
+    modern argv passes through unchanged. Non-.py argv[0] also passes
+    through (we don't try to "fix" launches we don't recognize).
+
+    Why this is needed: the operator playbook launches daemons as
+    `nohup python3 -u script.py &`. sys.argv inside that python is just
+    ["/path/script.py"] — interpreter and "-u" aren't observable from
+    inside the script. Schema-1 boot.json captured only sys.argv, inheriting
+    that gap. Popen([".py"]) requires the script to be `+x`, which the
+    operator's launch never required (interpreter was explicit on the
+    command line). We can't go back and fix existing boot.json on the
+    production fleet — so we migrate on read.
+
+    The new daemon, once it starts, calls `write_boot` and writes a fresh
+    schema-2 boot.json; migration is one-shot per daemon.
+    """
+    if not argv:
+        return argv, False
+    first = argv[0]
+    if looks_like_python_interpreter(first):
+        return argv, False
+    if first.endswith(".py"):
+        return [sys.executable, "-u", *argv], True
+    # Non-.py, non-python argv[0]: pass through. Could be a compiled binary
+    # or a wrapper script that DOES have +x. Not our place to second-guess.
+    return argv, False
+
+
 def relaunch_daemon(
     *,
     argv: List[str],
     cwd: Optional[str],
     log_path: str,
     env: Optional[Dict[str, str]] = None,
-    popen_factory: Callable[..., Any] = subprocess.Popen,
+    popen_factory: Optional[Callable[..., Any]] = None,
 ) -> Dict[str, Any]:
     """Re-exec a daemon as a detached process. Used by `restart`.
 
     Args:
-        argv: the daemon's argv (recorded in boot.json). argv[0] is the
-            script path; the script must still exist on disk.
+        argv: the daemon's argv (recorded in boot.json). For schema-2 boot
+            files this is `[interpreter, "-u", script, ...args]`; for
+            schema-1 (legacy) it's `[script, ...args]`. Legacy argv is
+            migrated transparently via `_normalize_argv`.
         cwd: working directory for the new process (recorded in boot.json).
             None falls back to the current process's CWD.
         log_path: path to the daemon's stderr log file. Opened in append
@@ -202,14 +251,28 @@ def relaunch_daemon(
     process survives the CLI's exit. `stdin=DEVNULL` to prevent the
     daemon from blocking on a closed parent stdin.
 
-    Returns a result dict with outcome, pid, error.
+    Returns a result dict with outcome, pid, error, argv_normalized,
+    argv_used. `argv_used` is what Popen was actually called with — a
+    schema-1→2 migration is observable to callers via `argv_normalized`.
     """
+    # Resolve popen_factory at call time so test monkeypatches of
+    # subprocess.Popen take effect. The historical default-arg form bound
+    # subprocess.Popen at import time and silently bypassed test mocks.
+    if popen_factory is None:
+        popen_factory = subprocess.Popen
+
     if not argv:
         return {"outcome": RELAUNCH_SPAWN_FAILED, "pid": None,
-                "error": "argv is empty"}
+                "error": "argv is empty",
+                "argv_normalized": False, "argv_used": []}
     if not os.path.exists(argv[0]):
+        # argv[0] may be the script (schema 1) or the interpreter (schema 2).
+        # Either should exist; the message names what we tried to find.
         return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
-                "error": f"script not found: {argv[0]}"}
+                "error": f"argv[0] not found on disk: {argv[0]}",
+                "argv_normalized": False, "argv_used": list(argv)}
+
+    normalized_argv, was_normalized = _normalize_argv(argv)
 
     try:
         # Open log file BEFORE spawning so an unwritable log path surfaces
@@ -217,13 +280,15 @@ def relaunch_daemon(
         log_fd = open(log_path, "a")
     except OSError as e:
         return {"outcome": RELAUNCH_LOG_OPEN_FAILED, "pid": None,
-                "error": f"cannot open {log_path}: {e}"}
+                "error": f"cannot open {log_path}: {e}",
+                "argv_normalized": was_normalized,
+                "argv_used": list(normalized_argv)}
 
     proc = None
     spawn_error: Optional[str] = None
     try:
         proc = popen_factory(
-            argv,
+            normalized_argv,
             cwd=cwd or None,
             env=env if env is not None else os.environ.copy(),
             stdout=log_fd,
@@ -249,5 +314,10 @@ def relaunch_daemon(
             pass
 
     if spawn_error is not None:
-        return {"outcome": RELAUNCH_SPAWN_FAILED, "pid": None, "error": spawn_error}
-    return {"outcome": RELAUNCH_OK, "pid": proc.pid, "error": None}
+        return {"outcome": RELAUNCH_SPAWN_FAILED, "pid": None,
+                "error": spawn_error,
+                "argv_normalized": was_normalized,
+                "argv_used": list(normalized_argv)}
+    return {"outcome": RELAUNCH_OK, "pid": proc.pid, "error": None,
+            "argv_normalized": was_normalized,
+            "argv_used": list(normalized_argv)}

@@ -75,7 +75,10 @@ class WriteReadRoundTripTests(unittest.TestCase):
         data = st.read_boot("round-trip-boot", state_dir=self.tmp)
         self.assertIsNotNone(data)
         self.assertEqual(data["name"], "round-trip-boot")
-        self.assertEqual(data["argv"], list(sys.argv))
+        # Schema 2: argv is [sys.executable, "-u", *sys.argv]. See the
+        # schema-versioning comment near the top of state.py.
+        self.assertEqual(data["schema"], 2)
+        self.assertEqual(data["argv"], [sys.executable, "-u", *sys.argv])
         self.assertEqual(data["cwd"], os.getcwd())
         self.assertIn("env_snapshot", data)
         self.assertIsInstance(data["env_snapshot"], dict)
@@ -350,11 +353,139 @@ class JsonShapeTests(unittest.TestCase):
             "shape", tick=1, status="ok", code=None, duration_ms=10,
             error=None, tick_count=1, error_count=0, state_dir=self.tmp,
         )
+        # boot.json bumped to schema 2 (interpreter-first argv); pid + heartbeat
+        # are still schema 1. See state.py top-of-file comment for boot's
+        # versioning history.
+        expected_schemas = {"pid": 1, "boot": 2, "heartbeat": 1}
         for kind in ("pid", "boot", "heartbeat"):
             with open(os.path.join(self.tmp, "shape", f"{kind}.json")) as f:
                 doc = json.load(f)
-            self.assertEqual(doc.get("schema"), 1, f"{kind}.json missing schema")
+            self.assertEqual(
+                doc.get("schema"), expected_schemas[kind],
+                f"{kind}.json wrong schema: got {doc.get('schema')}",
+            )
             self.assertEqual(doc.get("name"), "shape", f"{kind}.json missing name")
+
+
+# ─── Tests for schema-2 write_boot (R1-R4) ──────────────────────────────────
+
+
+class WriteBootSchema2Tests(unittest.TestCase):
+    """write_boot's schema-2 output: [sys.executable, "-u", *sys.argv].
+
+    Each test stubs sys.argv (and where needed, sys.executable) and asserts
+    the boot.json payload reflects the schema-2 contract. See the
+    schema-versioning comment near the top of state.py for the rationale.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="senpi-helpers-write-boot-")
+        self.addCleanup(self._cleanup)
+        # Save sys.argv / sys.executable so each test can mutate them.
+        self._orig_argv = list(sys.argv)
+        self._orig_executable = sys.executable
+        self.addCleanup(self._restore_sys)
+
+    def _cleanup(self) -> None:
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _restore_sys(self) -> None:
+        sys.argv[:] = self._orig_argv
+        sys.executable = self._orig_executable
+
+    def test_argv_includes_sys_executable_and_dash_u(self) -> None:
+        """R1: argv = [interpreter, "-u", script, ...args]."""
+        sys.argv[:] = ["/scripts/foo-producer.py", "--mode", "live"]
+        sys.executable = "/usr/bin/python3"
+        ok = st.write_boot("R1-test", state_dir=self.tmp)
+        self.assertTrue(ok)
+        data = st.read_boot("R1-test", state_dir=self.tmp)
+        self.assertEqual(
+            data["argv"],
+            ["/usr/bin/python3", "-u", "/scripts/foo-producer.py", "--mode", "live"],
+        )
+
+    def test_schema_field_is_2(self) -> None:
+        """R2: payload['schema'] is 2 on every fresh write_boot."""
+        ok = st.write_boot("R2-test", state_dir=self.tmp)
+        self.assertTrue(ok)
+        data = st.read_boot("R2-test", state_dir=self.tmp)
+        self.assertEqual(data["schema"], 2)
+
+    def test_script_path_resolved_to_realpath(self) -> None:
+        """R3: script_path follows symlinks (realpath), distinct from argv[0]."""
+        real_dir = os.path.join(self.tmp, "scripts")
+        os.makedirs(real_dir, exist_ok=True)
+        real_script = os.path.join(real_dir, "foo.py")
+        with open(real_script, "w") as fh:
+            fh.write("# fake\n")
+        link_path = os.path.join(self.tmp, "link.py")
+        os.symlink(real_script, link_path)
+
+        sys.argv[:] = [link_path]
+        ok = st.write_boot("R3-test", state_dir=self.tmp)
+        self.assertTrue(ok)
+        data = st.read_boot("R3-test", state_dir=self.tmp)
+        self.assertEqual(data["script_path"], os.path.realpath(link_path))
+        # argv preserves the link path (we don't realpath inside argv).
+        self.assertEqual(data["argv"][2], link_path)
+
+    def test_handles_empty_sys_argv(self) -> None:
+        """R4: empty sys.argv records [interpreter, "-u"] and script_path=None."""
+        sys.argv[:] = []
+        sys.executable = "/usr/bin/python3"
+        ok = st.write_boot("R4-test", state_dir=self.tmp)
+        self.assertTrue(ok)
+        data = st.read_boot("R4-test", state_dir=self.tmp)
+        self.assertEqual(data["argv"], ["/usr/bin/python3", "-u"])
+        self.assertIsNone(data["script_path"])
+
+
+# ─── Tests for looks_like_python_interpreter (R5-R6) ────────────────────────
+
+
+class LooksLikePythonInterpreterTests(unittest.TestCase):
+    """Heuristic used by manage._normalize_argv to detect modern boot.json
+    argv (where argv[0] is the interpreter) vs legacy (script-only)."""
+
+    POSITIVE_CASES = [
+        "python", "python3", "python3.11", "python.exe", "python3.exe",
+        "python3.11.exe", "pypy", "pypy3", "pypy3.10",
+        "/usr/bin/python3", "/usr/bin/python3.11",
+        # case insensitive
+        "PYTHON3", "/usr/bin/PYTHON3.11",
+        # Note: Windows-style paths ("C:\\Python311\\python.exe") aren't
+        # supported on Linux/macOS because os.path.basename uses the host's
+        # path separator. Production runs on Linux only; we don't carry the
+        # complexity of cross-platform basename here.
+    ]
+
+    NEGATIVE_CASES = [
+        "", "myscript.py", "/path/to/script.py",
+        "python3.11-config", "python-pip", "python-something",
+        "cat", "/usr/bin/cat", "/path/to/script.sh",
+        "pythonfoo",   # bare-letter suffix, not version digits
+        "/path/python3.11.dev",  # has trailing non-version garbage
+    ]
+
+    def test_positive_cases(self) -> None:
+        """R5: every recognized python/pypy invocation is detected."""
+        for path in self.POSITIVE_CASES:
+            with self.subTest(path=path):
+                self.assertTrue(
+                    st.looks_like_python_interpreter(path),
+                    f"{path!r} should be recognized as a python interpreter",
+                )
+
+    def test_negative_cases(self) -> None:
+        """R6: non-interpreter paths must not match."""
+        for path in self.NEGATIVE_CASES:
+            with self.subTest(path=path):
+                self.assertFalse(
+                    st.looks_like_python_interpreter(path),
+                    f"{path!r} should NOT be detected as a python interpreter",
+                )
 
 
 if __name__ == "__main__":

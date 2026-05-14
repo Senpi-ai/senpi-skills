@@ -26,6 +26,7 @@ Override with `SENPI_HELPERS_STATE_DIR` on hosts without a `/data` volume.
 
 import json
 import os
+import re
 import sys
 import tempfile
 import time
@@ -36,6 +37,58 @@ from ._logging import log_event
 
 
 _DEFAULT_STATE_DIR = "/data/.openclaw/senpi-helpers"
+
+
+# ─── boot.json schema versioning ────────────────────────────────────────────
+#
+# Schema 2 (current):
+#   argv = [sys.executable, "-u", *sys.argv]
+#   - sys.executable is the absolute path to the running interpreter.
+#   - "-u" forces unbuffered stdout/stderr on relaunch. The operator
+#     playbook launches daemons as `nohup python3 -u script.py &`; we
+#     can't capture the original "-u" because interpreter flags are
+#     consumed before the script's sys.argv is populated. Hard-coding
+#     "-u" on capture is harmless and matches the operator expectation
+#     (real-time log lines).
+#
+# Schema 1 (legacy, pre-2026-05):
+#   argv = list(sys.argv)
+#   - Missing the interpreter. `manage.relaunch_daemon` then tried to
+#     `execve` the .py file directly, which failed with EACCES whenever
+#     the script wasn't `+x`. The operator playbook never demanded `+x`
+#     because the interpreter was explicit on the original command line.
+#   - `manage._normalize_argv` migrates legacy argv on read, prepending
+#     `[sys.executable, "-u"]`. The next `write_boot` from the relaunched
+#     daemon rewrites the file as schema 2 — migration is one-shot.
+#
+# Why we don't capture interpreter flags beyond "-u":
+#   sys.argv inside Python excludes interpreter flags (`-u`, `-O`,
+#   `-X dev`, `-W ...`). They've already been consumed by the interpreter
+#   before user code runs and cannot be recovered from inside the script.
+#   For producers, only "-u" matters in practice (log readability).
+#   Setting PYTHONUNBUFFERED=1 in env has the same effect; operators who
+#   need it can put it in their launch env and it will land in
+#   env_snapshot below.
+
+_PYTHON_INTERPRETER_RE = re.compile(
+    r"^(python|pypy)(\d+(\.\d+)?)?(\.exe)?$"
+)
+
+
+def looks_like_python_interpreter(path: str) -> bool:
+    """True if `path`'s basename matches a python/pypy interpreter pattern.
+
+    Matches: python, python3, python3.11, python.exe, python3.exe,
+             pypy, pypy3.
+    Does NOT match: python3.11-config, python-pip, myscript.py, cat,
+                    empty string, anything ending in .py.
+
+    Used by `manage._normalize_argv` to detect legacy boot.json argv
+    (where argv[0] is the script, not the interpreter).
+    """
+    if not path:
+        return False
+    return bool(_PYTHON_INTERPRETER_RE.match(os.path.basename(path).lower()))
 
 # Env-var prefixes / suffixes that the boot snapshot should capture. Skill
 # names (PANGOLIN, KODIAK, ...) follow the per-skill convention each skill
@@ -268,17 +321,30 @@ def write_pid(
 
 
 def write_boot(name: str, *, state_dir: Optional[str] = None) -> bool:
-    """Write `boot.json` for `name`. Captures argv + sanitized env snapshot.
+    """Write `boot.json` for `name`. Captures full launch shape (schema 2).
 
-    Called once at daemon start. `senpi-helpers restart` reads this file
-    to re-exec the producer; if it's missing or `script_path` no longer
-    exists on disk, restart fails with a clear message.
+    Called once at daemon start, before the producer's user code runs, so
+    sys.argv reflects the original launch and can't have been mutated.
+    `senpi-helpers restart` reads this file to re-exec the producer.
+
+    Schema 2 captures argv as `[sys.executable, "-u", *sys.argv]` so the
+    relaunch can `Popen(argv)` without needing the script to be `+x`.
+    See the schema-versioning comment near the top of this file for the
+    full rationale (in particular: why "-u" is hard-coded and why we
+    don't capture other interpreter flags).
     """
     script_path = os.path.realpath(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    # Prepend interpreter + "-u" so the relaunch path doesn't require the
+    # script to be executable. If sys.argv is empty (extremely unusual —
+    # we still want a sensible boot.json), record just the interpreter.
+    if sys.argv:
+        argv = [sys.executable, "-u", *sys.argv]
+    else:
+        argv = [sys.executable, "-u"]
     payload = {
-        "schema": 1,
+        "schema": 2,
         "name": name,
-        "argv": list(sys.argv),
+        "argv": argv,
         "script_path": script_path,
         "cwd": os.getcwd(),
         "env_snapshot": _sanitized_env_snapshot(),

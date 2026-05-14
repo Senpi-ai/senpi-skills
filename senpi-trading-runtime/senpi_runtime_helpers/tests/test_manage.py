@@ -222,7 +222,14 @@ class RelaunchDaemonTests(unittest.TestCase):
         )
         self.assertEqual(result["outcome"], manage.RELAUNCH_OK)
         self.assertEqual(result["pid"], 4242)
-        self.assertEqual(captured["argv"], [self.script, "--flag"])
+        # Legacy schema-1 argv (script-only); _normalize_argv prepends the
+        # interpreter so Popen doesn't need the script to be executable.
+        self.assertEqual(
+            captured["argv"],
+            [sys.executable, "-u", self.script, "--flag"],
+        )
+        self.assertTrue(result["argv_normalized"])
+        self.assertEqual(result["argv_used"], captured["argv"])
         # Detach must be on.
         self.assertTrue(captured["kwargs"].get("start_new_session"))
         # stdin must be muted.
@@ -371,6 +378,144 @@ class StopOutcomeSuccessTests(unittest.TestCase):
 
     def test_invalid_pid_is_failure(self) -> None:
         self.assertFalse(manage.stop_outcome_was_success(manage.STOP_INVALID_PID))
+
+
+# ─── Tests for _normalize_argv (R7-R12) ─────────────────────────────────────
+
+
+class NormalizeArgvTests(unittest.TestCase):
+    """_normalize_argv migrates schema-1 boot.json argv (script-only) to
+    schema-2 (interpreter-first). Idempotent — modern argv passes through.
+    """
+
+    def test_passthrough_for_modern_shape(self) -> None:
+        """R7: [interpreter, script] is left unchanged."""
+        argv = ["/usr/bin/python3", "/path/script.py"]
+        out, was_norm = manage._normalize_argv(argv)
+        self.assertEqual(out, argv)
+        self.assertFalse(was_norm)
+
+    def test_passthrough_for_versioned_python(self) -> None:
+        """R8: /usr/bin/python3.11 is recognized as an interpreter."""
+        argv = ["/usr/bin/python3.11", "/path/script.py"]
+        out, was_norm = manage._normalize_argv(argv)
+        self.assertEqual(out, argv)
+        self.assertFalse(was_norm)
+
+    def test_prepends_for_legacy_script_only(self) -> None:
+        """R9: ['script.py'] → [sys.executable, '-u', 'script.py'], was_norm=True."""
+        argv = ["/path/script.py"]
+        out, was_norm = manage._normalize_argv(argv)
+        self.assertEqual(out, [sys.executable, "-u", "/path/script.py"])
+        self.assertTrue(was_norm)
+
+    def test_prepends_preserving_script_args(self) -> None:
+        """R10: script's own arguments are preserved after normalization."""
+        argv = ["/path/script.py", "--flag", "x"]
+        out, was_norm = manage._normalize_argv(argv)
+        self.assertEqual(
+            out, [sys.executable, "-u", "/path/script.py", "--flag", "x"],
+        )
+        self.assertTrue(was_norm)
+
+    def test_passthrough_for_unknown_non_py_binary(self) -> None:
+        """R11: non-.py argv[0] is NOT 'fixed' — we don't second-guess."""
+        argv = ["/usr/bin/cat", "/path/file"]
+        out, was_norm = manage._normalize_argv(argv)
+        self.assertEqual(out, argv)
+        self.assertFalse(was_norm)
+
+    def test_empty_argv(self) -> None:
+        """R12: empty argv passes through; relaunch_daemon handles emptiness."""
+        out, was_norm = manage._normalize_argv([])
+        self.assertEqual(out, [])
+        self.assertFalse(was_norm)
+
+    def test_idempotent_when_applied_twice(self) -> None:
+        """Defensive: normalizing an already-modern argv must not stack."""
+        argv = ["/path/script.py"]
+        once, _ = manage._normalize_argv(argv)
+        twice, was_norm_again = manage._normalize_argv(once)
+        self.assertEqual(twice, once)
+        self.assertFalse(was_norm_again)
+
+
+# ─── relaunch_daemon's normalization contract (R13-R14) ─────────────────────
+
+
+class RelaunchNormalizationTests(unittest.TestCase):
+    """relaunch_daemon must call Popen with the normalized argv, and surface
+    `argv_normalized` + `argv_used` in its result dict so callers (CLI,
+    automation) can see what was actually launched.
+    """
+
+    def setUp(self) -> None:
+        import tempfile
+        # Use a non-+x .py file — the original bug's smoking gun.
+        fd, self.script = tempfile.mkstemp(suffix=".py", prefix="legacy-")
+        os.write(fd, b"# fake daemon, intentionally not +x\n")
+        os.close(fd)
+        os.chmod(self.script, 0o644)
+        fd2, self.log = tempfile.mkstemp(suffix=".log", prefix="legacy-log-")
+        os.close(fd2)
+
+    def tearDown(self) -> None:
+        for path in (self.script, self.log):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+    def _make_fake_popen(self, fake_pid: int = 999):
+        captured = {}
+        class FakeProc:
+            pid = fake_pid
+        def factory(argv, **kwargs):
+            captured["argv"] = argv
+            captured["kwargs"] = kwargs
+            return FakeProc()
+        return factory, captured
+
+    def test_relaunch_uses_normalized_argv_for_legacy_boot(self) -> None:
+        """R13: legacy [script] → Popen called with [executable, "-u", script]."""
+        factory, captured = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=[self.script],
+            cwd=None,
+            log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_OK)
+        self.assertTrue(result["argv_normalized"])
+        self.assertEqual(
+            captured["argv"], [sys.executable, "-u", self.script],
+        )
+        self.assertEqual(result["argv_used"], captured["argv"])
+
+    def test_relaunch_records_argv_used_when_no_normalization(self) -> None:
+        """R14: modern [executable, script] passes through, was_norm=False."""
+        factory, captured = self._make_fake_popen()
+        modern_argv = [sys.executable, self.script]
+        result = manage.relaunch_daemon(
+            argv=modern_argv,
+            cwd=None,
+            log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_OK)
+        self.assertFalse(result["argv_normalized"])
+        self.assertEqual(captured["argv"], modern_argv)
+        self.assertEqual(result["argv_used"], modern_argv)
+
+    def test_empty_argv_result_includes_normalization_fields(self) -> None:
+        """Failure paths still populate argv_normalized / argv_used keys so
+        callers can branch on them without KeyError."""
+        result = manage.relaunch_daemon(
+            argv=[], cwd=None, log_path=self.log,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_SPAWN_FAILED)
+        self.assertIn("argv_normalized", result)
+        self.assertIn("argv_used", result)
 
 
 if __name__ == "__main__":
