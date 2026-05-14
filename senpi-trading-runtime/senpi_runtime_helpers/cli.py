@@ -466,65 +466,100 @@ def _print_last_n_lines(log_path: str, *, n: int) -> None:
         sys.stdout.write(line)
 
 
-def _stream_log(log_path: str) -> None:
-    """`tail -F` semantics: keep reading even if file rotates or truncates.
+class _LogTailer:
+    """`tail -F` state machine, factored out so the iteration logic is
+    directly unit-testable.
 
-    Polls every 250 ms. Reopens on inode change (rotation). Truncation
-    (file shrunk) → seek back to current size.
+    Each call to `step()` runs one observation cycle:
+      - Statting the file (handling FileNotFoundError).
+      - Reopening on inode change.
+      - Seeking-to-zero on truncation.
+      - Reading any new bytes.
+
+    Returns one of: ('output', chunk_str), ('wait', None). The caller
+    decides how to render output and how long to wait between steps.
     """
-    poll = 0.25
-    inode = None
-    fh = None
-    pos = 0
+
+    def __init__(self, log_path: str, *, poll_seconds: float = 0.25) -> None:
+        self.log_path = log_path
+        self.poll_seconds = poll_seconds
+        self.inode: Optional[int] = None
+        self.fh = None  # type: ignore[var-annotated]
+        self.pos: int = 0
+        # `started` is true once the FIRST successful open has happened.
+        # Independent of `inode` (which gets reset to None when the file
+        # disappears). This is what makes "seek to END" fire only on the
+        # initial open, not on rotation, recreation, or reappearance.
+        self.started: bool = False
+
+    def step(self) -> Tuple[str, Optional[str]]:
+        """Run one observation cycle. Returns the next action for the caller.
+
+        Pure-ish: only side effects are file I/O on `self.log_path`. No
+        sleeps; no writes to stdout. The caller composes those.
+        """
+        try:
+            st = os.stat(self.log_path)
+        except FileNotFoundError:
+            # File deleted (or never existed yet). Drop our handle so the
+            # next successful stat reopens cleanly; reset inode so the
+            # reopen branch fires even if the recreated file happens to
+            # land on the same inode the kernel just freed.
+            if self.fh is not None:
+                self.fh.close()
+                self.fh = None
+            self.inode = None
+            return ("wait", None)
+
+        # Reopen branch fires for: very first open, rotation (inode
+        # change), and reappearance after FileNotFoundError (inode is None).
+        if self.inode != st.st_ino:
+            if self.fh is not None:
+                self.fh.close()
+            self.fh = open(self.log_path, "r", errors="replace")
+            if not self.started:
+                # Very first open of this tailer instance — skip history
+                # so `logs --follow` doesn't replay the entire log file.
+                # Every subsequent reopen reads from byte 0, since the
+                # new/rotated/recreated file's content IS what we want.
+                self.fh.seek(0, os.SEEK_END)
+                self.started = True
+            self.inode = st.st_ino
+            self.pos = self.fh.tell()
+
+        # Truncation detection: file size shrank below our last position.
+        if st.st_size < self.pos:
+            self.fh.seek(0)
+            self.pos = 0
+
+        chunk = self.fh.read()
+        if chunk:
+            self.pos = self.fh.tell()
+            return ("output", chunk)
+        return ("wait", None)
+
+    def close(self) -> None:
+        if self.fh is not None:
+            self.fh.close()
+            self.fh = None
+
+
+def _stream_log(log_path: str) -> None:
+    """`tail -F` semantics: keep reading even if file rotates, truncates,
+    or temporarily disappears. Polls every 250 ms. Ctrl-C exits cleanly."""
+    tailer = _LogTailer(log_path)
     try:
         while True:
-            try:
-                st = os.stat(log_path)
-            except FileNotFoundError:
-                if fh is not None:
-                    fh.close()
-                    fh = None
-                # Reset inode too: if the file reappears later with the
-                # same inode (rare but possible on inode-recycling FS), we
-                # want a clean reopen. Without this, `inode != st.st_ino`
-                # below would be False and we'd skip past the reopen
-                # branch, then hit `fh.seek(0)` / `fh.read()` on None.
-                inode = None
-                time.sleep(poll)
-                continue
-            # Rotation detection: new inode → reopen.
-            if inode != st.st_ino:
-                # Capture whether this is the very first open BEFORE we
-                # reassign inode. First open skips history (we don't want
-                # to dump the entire historical log on `logs --follow`).
-                # Subsequent reopens (rotation OR reappearance) start from
-                # position 0 — otherwise we'd discard content already
-                # written to the rotated/new file by the time we noticed.
-                is_first_open = inode is None
-                if fh is not None:
-                    fh.close()
-                fh = open(log_path, "r", errors="replace")
-                if is_first_open:
-                    fh.seek(0, os.SEEK_END)
-                inode = st.st_ino
-                pos = fh.tell()
-            # Truncation detection: file size < our position.
-            if st.st_size < pos:
-                fh.seek(0)
-                pos = 0
-            chunk = fh.read()
-            if chunk:
-                sys.stdout.write(chunk)
+            action, payload = tailer.step()
+            if action == "output" and payload is not None:
+                sys.stdout.write(payload)
                 sys.stdout.flush()
-                pos = fh.tell()
             else:
-                time.sleep(poll)
+                time.sleep(tailer.poll_seconds)
     except KeyboardInterrupt:
-        # Operator hit Ctrl-C — exit cleanly.
         pass
     finally:
-        if fh is not None:
-            fh.close()
+        tailer.close()
 
 
 def cmd_logs(args: argparse.Namespace) -> int:

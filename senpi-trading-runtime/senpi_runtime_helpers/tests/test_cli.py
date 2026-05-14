@@ -1633,5 +1633,139 @@ class StartInheritEnvFromTests(CliFixtures):
         self.assertEqual(len(self._relaunch_calls), 0)
 
 
+# ─── _LogTailer state machine (adversarial input coverage) ──────────────────
+
+
+class LogTailerStepTests(unittest.TestCase):
+    """Unit-tests for the `tail -F` state machine extracted from
+    `_stream_log`. Tests the input domain explicitly rather than the
+    one happy path the original `_stream_log` exercised manually.
+
+    Each test drives `step()` directly with controlled file-system state."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="senpi-helpers-tailer-")
+        self.path = os.path.join(self.tmp, "log.txt")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write(self, content: str, *, append: bool = False) -> None:
+        mode = "a" if append else "w"
+        with open(self.path, mode) as f:
+            f.write(content)
+
+    def test_first_open_skips_history(self) -> None:
+        """The very first step() must seek-to-end so `logs --follow`
+        doesn't replay the whole historical log."""
+        self._write("historical line 1\nhistorical line 2\n")
+        tailer = cli._LogTailer(self.path)
+        action, payload = tailer.step()
+        self.assertEqual(action, "wait")
+        self.assertIsNone(payload)
+        # If subsequent appends happen, those DO show up.
+        self._write("new line\n", append=True)
+        action, payload = tailer.step()
+        self.assertEqual(action, "output")
+        self.assertEqual(payload, "new line\n")
+        tailer.close()
+
+    def test_subsequent_appends_yield_output(self) -> None:
+        self._write("a\n")
+        tailer = cli._LogTailer(self.path)
+        tailer.step()  # first open; skips history
+        self._write("b\nc\n", append=True)
+        action, payload = tailer.step()
+        self.assertEqual(action, "output")
+        self.assertEqual(payload, "b\nc\n")
+        tailer.close()
+
+    def test_rotation_reads_new_file_from_start(self) -> None:
+        """When the inode changes (rotation), the new file's full content
+        must be returned — NOT skipped via seek-to-end. This was the
+        Bugbot finding on commit 1a84707."""
+        self._write("old content\n")
+        tailer = cli._LogTailer(self.path)
+        tailer.step()  # first open, skip history
+        # Rotate: replace the file with a fresh one (different inode).
+        os.unlink(self.path)
+        self._write("rotated content line 1\nrotated content line 2\n")
+        action, payload = tailer.step()
+        self.assertEqual(action, "output")
+        self.assertEqual(
+            payload, "rotated content line 1\nrotated content line 2\n",
+            "rotation reopen must read from byte 0 of the new file",
+        )
+        tailer.close()
+
+    def test_disappear_then_reappear_reads_new_content(self) -> None:
+        """The bug I introduced in commit 7a03c7c: after FileNotFoundError,
+        inode resets to None, then `is_first_open = (inode is None)` was
+        True on the next reopen → seek-to-end → content lost. The
+        `started`-flag refactor fixes this."""
+        self._write("initial\n")
+        tailer = cli._LogTailer(self.path)
+        tailer.step()  # first open, skips history; started=True now
+        # File disappears.
+        os.unlink(self.path)
+        action, _ = tailer.step()
+        self.assertEqual(action, "wait")
+        self.assertIsNone(tailer.fh, "fh should be closed after FileNotFoundError")
+        self.assertIsNone(tailer.inode, "inode reset so reopen fires on reappearance")
+        # File reappears with new content.
+        self._write("reappeared line 1\nreappeared line 2\n")
+        action, payload = tailer.step()
+        self.assertEqual(action, "output")
+        self.assertEqual(
+            payload, "reappeared line 1\nreappeared line 2\n",
+            "post-disappear reopen must read from byte 0, not seek-to-end",
+        )
+        tailer.close()
+
+    def test_truncation_resets_position_and_reads_from_zero(self) -> None:
+        """File shrunk below our last position → seek to 0, read whatever's
+        there (may be smaller than what we'd already emitted)."""
+        self._write("aaaaaaaaaaaaaaaaaaaa\n")  # 21 bytes
+        tailer = cli._LogTailer(self.path)
+        tailer.step()  # skip history
+        self._write("bb\n")  # truncated to 3 bytes
+        action, payload = tailer.step()
+        self.assertEqual(action, "output")
+        self.assertEqual(payload, "bb\n")
+        tailer.close()
+
+    def test_missing_file_returns_wait_without_crashing(self) -> None:
+        """File never exists. Tailer should return 'wait' indefinitely
+        without raising."""
+        # Path points at a nonexistent file from the start.
+        tailer = cli._LogTailer(os.path.join(self.tmp, "never-created.log"))
+        for _ in range(5):
+            action, payload = tailer.step()
+            self.assertEqual(action, "wait")
+        tailer.close()
+
+    def test_started_flag_survives_multiple_disappearances(self) -> None:
+        """A flapping log file (created → deleted → recreated → deleted →
+        recreated …) must always read from byte 0 after the first open.
+        Only the very first open seeks to end."""
+        self._write("history\n")
+        tailer = cli._LogTailer(self.path)
+        tailer.step()  # first open
+        # Disappear / reappear cycle 1.
+        os.unlink(self.path)
+        tailer.step()  # wait
+        self._write("cycle1 content\n")
+        action, payload = tailer.step()
+        self.assertEqual(payload, "cycle1 content\n")
+        # Disappear / reappear cycle 2.
+        os.unlink(self.path)
+        tailer.step()  # wait
+        self._write("cycle2 content\n")
+        action, payload = tailer.step()
+        self.assertEqual(payload, "cycle2 content\n",
+                         "second reappearance must also read from byte 0")
+        tailer.close()
+
+
 if __name__ == "__main__":
     unittest.main()
