@@ -227,6 +227,7 @@ def relaunch_daemon(
     log_path: str,
     env: Optional[Dict[str, str]] = None,
     popen_factory: Optional[Callable[..., Any]] = None,
+    script_path: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Re-exec a daemon as a detached process. Used by `restart`.
 
@@ -247,6 +248,15 @@ def relaunch_daemon(
             decision-model changes since the daemon was started take
             effect). Tests pass an explicit dict.
         popen_factory: dependency-injected Popen for testability.
+        script_path: optional path to the python script the daemon
+            actually executes. For schema-2 argv `[python3, -u, X]`
+            the argv[0] check verifies the interpreter, not X — so a
+            deleted script would pass and crash at exec time. Callers
+            that know the script path (cmd_restart, cmd_start) pass it
+            here and we validate it BEFORE Popen, giving a clean
+            RELAUNCH_SCRIPT_MISSING instead of a spawn-then-die. None
+            (default) preserves prior behavior for callers that don't
+            know the script identity.
 
     Detached via `start_new_session=True` (POSIX setsid) so the new
     process survives the CLI's exit. `stdin=DEVNULL` to prevent the
@@ -305,6 +315,23 @@ def relaunch_daemon(
         return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
                 "error": f"argv[0] is not a regular file on disk: {argv0_resolved}",
                 "argv_normalized": False, "argv_used": list(argv)}
+
+    # Defense in depth: when the caller knows which file in argv IS the
+    # script (i.e. cmd_restart / cmd_start, which read script_path from
+    # boot.json), validate it explicitly. For schema-2 argv where argv[0]
+    # is the interpreter, the check above doesn't catch a missing script —
+    # Popen would spawn python3 and instantly die with "can't open file".
+    # This produces a clean SCRIPT_MISSING instead.
+    if script_path is not None:
+        sp_resolved = script_path
+        if not os.path.isabs(sp_resolved):
+            sp_resolved = os.path.normpath(
+                os.path.join(cwd or os.getcwd(), sp_resolved)
+            )
+        if not os.path.isfile(sp_resolved):
+            return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
+                    "error": f"script_path is not a regular file on disk: {sp_resolved}",
+                    "argv_normalized": False, "argv_used": list(argv)}
 
     normalized_argv, was_normalized = _normalize_argv(argv)
 

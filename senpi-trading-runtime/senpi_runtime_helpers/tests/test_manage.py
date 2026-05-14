@@ -510,6 +510,46 @@ class RelaunchNormalizationTests(unittest.TestCase):
         self.assertEqual(captured["argv"], modern_argv)
         self.assertEqual(result["argv_used"], modern_argv)
 
+    def test_relaunch_script_path_param_catches_missing_script_for_schema2(self) -> None:
+        """Adversarial: schema-2 argv = [python3, -u, script]. argv[0] is
+        the interpreter (always exists). If `script` is deleted between
+        cmd_restart's check and the spawn, Popen would spawn python3 and
+        instantly die. Pass script_path explicitly so the helper catches
+        it BEFORE spawn.
+
+        Caught by external reviewer on PR #279 (issue #1)."""
+        factory, _ = self._make_fake_popen()
+        # Use sys.executable as argv[0] — that's always a real interpreter
+        # on the test host (passes the argv[0] check). The script_path
+        # points at a path that doesn't exist.
+        result = manage.relaunch_daemon(
+            argv=[sys.executable, "-u", "/no/such/script.py"],
+            cwd=None, log_path=self.log,
+            popen_factory=factory,
+            script_path="/no/such/script.py",  # caller-known script path
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_SCRIPT_MISSING)
+        self.assertIn("/no/such/script.py", result["error"])
+
+    def test_relaunch_script_path_param_resolves_relative_against_cwd(self) -> None:
+        """script_path can be relative (matches operator launches from the
+        script's directory). Resolve against cwd same as argv[0]."""
+        import tempfile, shutil
+        sub = tempfile.mkdtemp(prefix="relaunch-script-rel-")
+        try:
+            with open(os.path.join(sub, "producer.py"), "w") as f:
+                f.write("# stub\n")
+            factory, _ = self._make_fake_popen()
+            result = manage.relaunch_daemon(
+                argv=[sys.executable, "-u", "./producer.py"],
+                cwd=sub, log_path=self.log,
+                popen_factory=factory,
+                script_path="./producer.py",  # relative; cwd resolves it
+            )
+            self.assertEqual(result["outcome"], manage.RELAUNCH_OK)
+        finally:
+            shutil.rmtree(sub, ignore_errors=True)
+
     def test_relaunch_bare_name_argv0_resolved_via_path(self) -> None:
         """Adversarial: argv[0] is a bare executable name (no path
         separator) that exists on $PATH. Popen would resolve it via $PATH;

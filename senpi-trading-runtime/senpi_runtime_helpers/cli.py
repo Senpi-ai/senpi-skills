@@ -1434,6 +1434,11 @@ def cmd_start(args: argparse.Namespace) -> int:
         cwd=cwd,
         log_path=log_path,
         env=env_for_spawn,
+        # Defense in depth: for schema-2 argv [python3, -u, script],
+        # the argv[0] check inside relaunch_daemon only verifies the
+        # interpreter. Pass script_path explicitly so it gets validated
+        # too — gives RELAUNCH_SCRIPT_MISSING instead of spawn-then-die.
+        script_path=script_path,
     )
 
     if relaunch_result["outcome"] != _manage.RELAUNCH_OK:
@@ -1558,6 +1563,10 @@ def cmd_restart(args: argparse.Namespace) -> int:
         argv=argv,
         cwd=cwd,
         log_path=log_path,
+        # Defense in depth: see comment in cmd_start. cmd_restart already
+        # validates script_path above (RESTART_FAILED on missing), but a
+        # race between that check and the spawn is theoretically possible.
+        script_path=script_path,
     )
 
     if relaunch_result["outcome"] != _manage.RELAUNCH_OK:
