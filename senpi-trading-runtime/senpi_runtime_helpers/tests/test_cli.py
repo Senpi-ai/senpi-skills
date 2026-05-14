@@ -1533,11 +1533,10 @@ class StartInheritEnvFromTests(CliFixtures):
         self.assertEqual(len(self._relaunch_calls), 0)
 
     def test_inherit_env_openclaw_alias_invokes_pgrep(self) -> None:
-        """The 'openclaw' literal resolves via pgrep. We mock pgrep so we
-        don't depend on a real openclaw process existing on the test host."""
+        """The 'openclaw' literal resolves via pgrep. Tries `pgrep -x openclaw`
+        first, falls back to a cmdline word match. We mock subprocess.run
+        so we don't depend on a real openclaw process on the test host."""
         self._seed_minimal_boot("oc-alias")
-        # Monkeypatch subprocess.run in cli to return a synthetic pgrep
-        # result pointing at our own pid.
         import subprocess as sp
         orig_run = sp.run
 
@@ -1545,7 +1544,12 @@ class StartInheritEnvFromTests(CliFixtures):
             class R:
                 returncode = 0
                 stdout = f"{os.getpid()}\n"
-            if cmd == ["pgrep", "-f", r"^openclaw$"]:
+            # Either resolution strategy returns our pid — we don't pin
+            # which one fires first so the test is resilient to ordering
+            # changes inside _resolve_inherit_env_source.
+            if cmd[:2] == ["pgrep", "-x"] and "openclaw" in cmd:
+                return R()
+            if cmd[:2] == ["pgrep", "-f"] and any("openclaw" in c for c in cmd):
                 return R()
             return orig_run(cmd, **kwargs)
         sp.run = fake_run
@@ -1568,6 +1572,44 @@ class StartInheritEnvFromTests(CliFixtures):
             ])
             self.assertEqual(rc, 0)
             self.assertEqual(len(self._relaunch_calls), 1)
+        finally:
+            sp.run = orig_run
+
+    def test_inherit_env_openclaw_alias_falls_back_when_exact_match_fails(self) -> None:
+        """Real installs put openclaw at /usr/local/bin/openclaw (so `pgrep -x
+        openclaw` matches comm) or run `node .../openclaw` (so comm is
+        `node` and only the cmdline match catches it). Verify the fallback
+        path fires when the exact-comm match misses."""
+        self._seed_minimal_boot("oc-fallback")
+        import subprocess as sp
+        orig_run = sp.run
+        invocations = []
+
+        def fake_run(cmd, **kwargs):
+            invocations.append(cmd)
+            class R:
+                returncode = 0
+                stdout = ""
+            if cmd[:2] == ["pgrep", "-x"]:
+                # Simulate "no exact comm match" — exit code 1, no stdout.
+                R.returncode = 1
+                return R()
+            if cmd[:2] == ["pgrep", "-f"]:
+                R.stdout = f"{os.getpid()}\n"
+                return R()
+            return orig_run(cmd, **kwargs)
+        sp.run = fake_run
+        try:
+            if not sys.platform.startswith("linux"):
+                self.skipTest("/proc lookup is Linux-only after pgrep resolves")
+            rc = cli.main([
+                "start", "oc-fallback", "--inherit-env-from", "openclaw", "--json",
+            ])
+            self.assertEqual(rc, 0)
+            # Both strategies should have been attempted in order.
+            self.assertEqual(len(invocations), 2)
+            self.assertEqual(invocations[0][:2], ["pgrep", "-x"])
+            self.assertEqual(invocations[1][:2], ["pgrep", "-f"])
         finally:
             sp.run = orig_run
 

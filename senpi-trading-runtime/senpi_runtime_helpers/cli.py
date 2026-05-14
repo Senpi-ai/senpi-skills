@@ -1161,7 +1161,7 @@ def _resolve_inherit_env_source(spec: str) -> Tuple[Optional[int], Optional[str]
     """Map an `--inherit-env-from` value to (pid, error).
 
     Accepted spec values:
-      - `"openclaw"`  → pgrep -f '^openclaw$', head -1.
+      - `"openclaw"`  → multi-strategy resolution; see below.
       - Any decimal integer string → that pid.
       - Anything else → error.
 
@@ -1169,22 +1169,46 @@ def _resolve_inherit_env_source(spec: str) -> Tuple[Optional[int], Optional[str]
     Linux is the only supported target — `/proc` lookup happens via
     `state.read_proc_environ`. The check for non-Linux happens at the
     use-site so this helper stays pure.
+
+    Resolution strategy for `openclaw` (tries in order, first match wins):
+      1. `pgrep -x openclaw`  — exact match on the process's kernel-level
+         comm (argv[0] basename, truncated to TASK_COMM_LEN). Matches the
+         common production case where the binary is /usr/local/bin/openclaw
+         or just openclaw on PATH.
+      2. `pgrep -f '(^|/)openclaw($| )'` — word-boundary match against the
+         full cmdline. Catches `node /path/to/openclaw` style launches
+         where comm is `node` but `openclaw` appears as a path component.
+
+    The original `pgrep -f '^openclaw$'` matched only the rare case where
+    the FULL cmdline is literally `openclaw` with no args / path. Caught
+    by garg-prashant on PR #279.
     """
     if spec == "openclaw":
         import subprocess
-        try:
-            res = subprocess.run(
-                ["pgrep", "-f", r"^openclaw$"],
-                capture_output=True, text=True, check=False, timeout=5,
-            )
-        except (subprocess.SubprocessError, FileNotFoundError) as e:
-            return None, f"could not invoke pgrep: {e}"
-        if res.returncode != 0:
-            return None, "no process matching '^openclaw$' is running"
-        pids = [ln for ln in res.stdout.split() if ln.strip().isdigit()]
-        if not pids:
-            return None, "pgrep returned no pids for '^openclaw$'"
-        return int(pids[0]), None
+        attempts = [
+            (["pgrep", "-x", "openclaw"], "exact comm match"),
+            (["pgrep", "-f", r"(^|/)openclaw($| )"], "cmdline word match"),
+        ]
+        last_err: Optional[str] = None
+        for cmd, label in attempts:
+            try:
+                res = subprocess.run(
+                    cmd, capture_output=True, text=True,
+                    check=False, timeout=5,
+                )
+            except (subprocess.SubprocessError, FileNotFoundError) as e:
+                last_err = f"could not invoke pgrep ({label}): {e}"
+                continue
+            if res.returncode == 0 and res.stdout.strip():
+                pids = [ln for ln in res.stdout.split() if ln.strip().isdigit()]
+                if pids:
+                    return int(pids[0]), None
+            # rc=1 from pgrep = no match; not an error, try the next strategy.
+        return None, (
+            last_err
+            or "no openclaw process found (tried exact comm match + "
+               "cmdline word boundary)"
+        )
     # Plain integer pid.
     try:
         pid = int(spec)
