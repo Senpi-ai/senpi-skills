@@ -10,8 +10,8 @@ Every active fleet agent's producer is built on the `senpi_runtime_helpers` SDK 
 
 You typically won't have the example agent's repo cloned locally when you're building your own strategy. Each pattern below includes:
 
-1. **An inline code snippet** showing the producer-signature MCP call(s) and the `push_signal` pattern. This is enough to copy-paste into your own producer.
-2. **Direct GitHub URLs** to the example agent's three working files — fetch each with `curl` or `WebFetch`. Every agent on `main` has the same three-file layout:
+1. **An inline code snippet** showing the producer-signature MCP call(s) and the `push_signal` shape. **These are skeletons, not runnable scripts** — they illustrate the archetype's distinguishing API surface. Helper functions, scoring loops, wallet resolution, and state tracking are elided for clarity. Fetch the example agent's full producer for runnable code.
+2. **Direct GitHub URLs** to the example agent's three working files — fetch each with `curl` or `WebFetch`. Every active fleet agent on `main` has at minimum this three-file core layout (a few — Mantis is one — include a fourth `<agent>_state.py` for diff tracking; fetch it too if the example uses it):
 
 ```bash
 # 1. The producer script (long-lived daemon, scoring loop, push_signal calls)
@@ -26,16 +26,26 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<example
 
 Every active fleet agent is on the `main` branch — no other branch matters.
 
-### About `cfg.mcporter_call(...)` and `cfg._wrapper_client.push_signal(...)` in the snippets below
+### About `cfg.mcp_call(...)` / `cfg.mcporter_call(...)` and `cfg._wrapper_client.push_signal(...)` in the snippets below
 
-The snippets show calls like `cfg.mcporter_call("market_get_asset_data", ...)` and `cfg._wrapper_client.push_signal(...)`. Here's what they mean:
+The snippets show calls like `cfg.mcp_call("market_get_asset_data", ...)` and `cfg._wrapper_client.push_signal(...)`. Here's what they mean:
 
 - `cfg` is the shared config module imported at the top of every producer: `import <agent>_config as cfg`. The file is `scripts/<agent>_config.py` (fetch URL #2 above).
-- `cfg.mcporter_call(tool, **kwargs)` is a thin wrapper around `senpi_runtime_helpers.SenpiClient.mcp_call()` that adds retry + timeout + JSON unwrap. Use it for all MCP reads.
-- `cfg._wrapper_client` is the lazy-initialized `SenpiClient` instance exposed as a proxy — call `cfg._wrapper_client.push_signal(...)` to emit signals to the runtime, and `cfg._wrapper_client.mcp_call(tool, ...)` for any MCP call you want raw (no retry wrapper).
+- `cfg.mcp_call(tool, **kwargs)` is a direct call to `senpi_runtime_helpers.SenpiClient.mcp_call()` — direct HTTPS to MCP, no per-call retry/timeout/unwrap layer. Newer agents (Condor, Raptor, Mantis, Bald Eagle) use this name directly.
+- `cfg.mcporter_call(...)` is a **backward-compat alias** for `cfg.mcp_call` kept in the `_config.py` files for older call sites (`mcporter_call = mcp_call`). It does the same thing — the name is left over from the v3.x subprocess implementation that's been retired. You'll see it in older agents (Wolverine, Owl); newer agents have moved to `mcp_call(...)` directly.
+- `cfg._wrapper_client` is the lazy-initialized `SenpiClient` instance exposed as a proxy — call `cfg._wrapper_client.push_signal(...)` to emit signals to the runtime, and `cfg._wrapper_client.mcp_call(tool, ...)` for any MCP call you want from outside the `cfg` shim.
 - The leading underscore on `_wrapper_client` is a convention, not "private — don't touch." Every active fleet producer uses it.
 
-If you copy any fleet agent's `_config.py` verbatim into your new strategy directory, all of this works without changes — you just rename the agent string.
+If you copy any fleet agent's `_config.py` verbatim into your new strategy directory, all of this works without changes — you just rename the agent string. For new code, prefer `cfg.mcp_call(...)`; `cfg.mcporter_call(...)` is kept only for compat with older producers.
+
+### `push_signal(...)` payload — what's required vs free-form
+
+The `data={}` dict passed to `push_signal(address=..., scanner=..., asset=..., direction=..., score=..., signal_type=..., data={...})` is split into two parts:
+
+- **Required runtime contract fields** (must be present so the runtime LLM gate, DSL preset, and execution engine work): `leverage`, `marginUsd`. The exact list per scanner is declared in the agent's `runtime.yaml` under `scanners[].config.fields` (`required: true` items). See `senpi-trading-runtime/references/signal-schema.md` for the canonical contract.
+- **Free-form telemetry** (everything else — `reasons`, `traderId`, `tcs`, `rankJump`, `followRate`, `crowdDir`, etc.): for audit-trail context and producer-side debugging. The runtime ignores keys it doesn't recognize. Add whatever helps you reconstruct the decision later.
+
+Don't cargo-cult the telemetry keys you see in the snippets below — they're examples specific to each archetype's scoring inputs. Use whatever helps you debug your own strategy.
 
 ### Building your own strategy from a pattern
 
@@ -82,11 +92,11 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 ```python
 # Pull the SM-ranked universe once per tick
-markets = cfg.mcporter_call("leaderboard_get_markets", limit=50)
+markets = cfg.mcp_call("leaderboard_get_markets", limit=50)
 
 # For each candidate, pull multi-TF candles
 for asset in candidates:
-    ad = cfg.mcporter_call(
+    ad = cfg.mcp_call(
         "market_get_asset_data",
         asset=asset,
         candle_intervals=["15m", "1h", "4h"],
@@ -130,7 +140,7 @@ cfg._wrapper_client.push_signal(
 ASSET = "HYPE"  # or "BTC" / "ETH" / "SOL" — pick one and only one
 
 # One call per tick — pulls all candles + funding for this asset
-ad = cfg.mcporter_call(
+ad = cfg.mcp_call(
     "market_get_asset_data",
     asset=ASSET,
     candle_intervals=["5m", "15m", "1h", "4h"],
@@ -183,7 +193,7 @@ If your target asset is one of these four, use that example directly. If your ta
 # Use XYZ-prefixed asset string
 ASSET = "xyz:BRENTOIL"  # or xyz:GOLD / xyz:SILVER / xyz:SP500 / xyz:XYZ100 / xyz:CL
 
-ad = cfg.mcporter_call(
+ad = cfg.mcp_call(
     "market_get_asset_data",
     asset=ASSET,
     candle_intervals=["15m", "1h", "4h"],
@@ -226,15 +236,21 @@ WHITELIST = ["BTC", "ETH", "SOL"]  # strict subset — pick 3-6 majors
 
 best_candidate = None
 for asset in WHITELIST:
-    ad = cfg.mcporter_call(
+    ad = cfg.mcp_call(
         "market_get_asset_data",
         asset=asset,
         candle_intervals=["15m", "1h", "4h"],
         include_funding=True,
     )
-    score, reasons = score_asset(ad)
+    # score_asset() returns (score, direction, reasons) — defined in your producer
+    score, direction, reasons = score_asset(ad)
     if score >= MIN_SCORE and (best_candidate is None or score > best_candidate["score"]):
-        best_candidate = {"asset": asset, "score": score, ...}
+        best_candidate = {
+            "asset": asset,
+            "score": score,
+            "direction": direction,
+            "reasons": reasons,
+        }
 
 if best_candidate:
     cfg._wrapper_client.push_signal(
@@ -271,7 +287,7 @@ if best_candidate:
 ```python
 # Refresh trader pool once per 24h (cache on disk)
 if cache_stale_or_empty():
-    pool = cfg.mcporter_call(
+    pool = cfg.mcp_call(
         "discovery_get_top_traders",
         time_frame="MONTHLY",
         sort_by="RETURN_ON_INVESTMENT",
@@ -280,7 +296,7 @@ if cache_stale_or_empty():
 
 # Per tick: pull live state of every cached trader
 trader_addresses = [t["wallet"] for t in pool]
-states = cfg.mcporter_call("discovery_get_trader_state", trader_addresses=trader_addresses)
+states = cfg.mcp_call("discovery_get_trader_state", trader_addresses=trader_addresses)
 
 # Find whoever has the highest-conviction current position
 # Apply SM-alignment + entry-discipline + per-trader dedupe gates
@@ -323,10 +339,10 @@ cfg._wrapper_client.push_signal(
 
 ```python
 # Pull current ranks
-markets = cfg.mcporter_call("leaderboard_get_markets", limit=100)
+markets = cfg.mcp_call("leaderboard_get_markets", limit=100)
 
 # Compare to previous tick (state file: rank-history.json)
-prev_ranks = load_rank_history()
+prev_ranks = load_rank_history()  # your helper — returns dict from state file
 current_ranks = {m["asset"]: m["rank"] for m in markets}
 
 jumpers = []
@@ -336,11 +352,18 @@ for asset, current_rank in current_ranks.items():
         continue  # only track jumps from quiet ranks
     jump = prev_rank - current_rank
     if jump >= 10:
-        jumpers.append({"asset": asset, "jump": jump, "current_rank": current_rank})
+        # Direction comes from the market data — e.g. signed 4h price change
+        direction = "LONG" if market_4h_change(asset) > 0 else "SHORT"
+        jumpers.append({
+            "asset": asset,
+            "jump": jump,
+            "current_rank": current_rank,
+            "direction": direction,
+        })
 
 # Pick the highest-quality jumper (quality gates: $3M+ day notional, trader_count >= 50)
 if jumpers:
-    best = pick_best_jumper(jumpers)
+    best = pick_best_jumper(jumpers)  # your helper — returns one dict from jumpers
     cfg._wrapper_client.push_signal(
         address=STRATEGY_ADDRESS,
         scanner="<agent>_signals",
@@ -376,12 +399,12 @@ save_rank_history(current_ranks)
 
 ```python
 # Pull universe + funding regime
-markets = cfg.mcporter_call("leaderboard_get_markets", limit=100)
-regime = cfg.mcporter_call("market_get_funding_regime")
+markets = cfg.mcp_call("leaderboard_get_markets", limit=100)
+regime = cfg.mcp_call("market_get_funding_regime")
 
 # For each candidate, check funding history (persistence over hours)
 for asset in candidates:
-    funding_hist = cfg.mcporter_call("market_get_funding_history", asset=asset)
+    funding_hist = cfg.mcp_call("market_get_funding_history", asset=asset)
     if funding_persistently_extreme(funding_hist) and exhaustion_signals_fire(asset):
         # Fade the crowd (signal direction is OPPOSITE of funding direction)
         cfg._wrapper_client.push_signal(
@@ -418,8 +441,8 @@ for asset in candidates:
 
 ```python
 # Pull universe + SM positioning map (shared across all candidates)
-instruments = cfg.mcporter_call("market_list_instruments")
-sm_map = cfg.mcporter_call("leaderboard_get_markets", limit=200)
+instruments = cfg.mcp_call("market_list_instruments")
+sm_map = cfg.mcp_call("leaderboard_get_markets", limit=200)
 
 # Score crowding per asset (funding extremity + SM tilt + OI concentration)
 # Score persistence: must stay crowded for 1+ hour before considering exhaustion
@@ -462,7 +485,7 @@ for asset, crowding_score in scored:
 
 ```python
 # Specialized MCP — pulls laggard alts with follow-rate when BTC moves
-flows = cfg.mcporter_call("market_get_cross_asset_flows")
+flows = cfg.mcp_call("market_get_cross_asset_flows")
 
 # flows contains laggards with follow_rate >= 0.8 when |BTC 4h| > 2%
 # If BTC hasn't moved enough, response is empty — patient producer, silence is correct
@@ -500,10 +523,12 @@ if flows.get("laggards"):
 **Distinctive MCP signature:**
 
 ```python
+import time  # for the stale-order sweep below
+
 XYZ_WHITELIST = ["CL", "BRENTOIL", "GOLD", "SILVER", "SP500", "XYZ100"]
 
 # Pre-tick safety: cancel any stale resting orders (v4.1 hot-patch from example agent)
-open_orders = cfg.mcporter_call(
+open_orders = cfg.mcp_call(
     "strategy_get_open_orders",
     strategy_wallet=STRATEGY_ADDRESS,
 )
@@ -516,10 +541,10 @@ for order in open_orders:
         )
 
 # Universe scan
-sm_map = cfg.mcporter_call("leaderboard_get_markets", limit=200)
+sm_map = cfg.mcp_call("leaderboard_get_markets", limit=200)
 for asset_name in XYZ_WHITELIST:
     asset = f"xyz:{asset_name}"
-    ad = cfg.mcporter_call("market_get_asset_data", asset=asset, candle_intervals=["1h", "4h"])
+    ad = cfg.mcp_call("market_get_asset_data", asset=asset, candle_intervals=["1h", "4h"])
     if contrarian_setup(ad, sm_map.get(asset_name)) and spread_ok(ad):
         cfg._wrapper_client.push_signal(
             address=STRATEGY_ADDRESS,
