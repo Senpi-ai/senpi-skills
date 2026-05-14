@@ -334,35 +334,19 @@ environment.
 
 ### boot.json schema migration
 
-`boot.json` has two schemas in the wild:
+Two schemas in the wild: schema-1 (pre-2026-05) captured only `sys.argv`
+which was missing the interpreter — `Popen(argv)` then needed the script
+to be `+x`. Schema 2 captures `[sys.executable, "-u", *sys.argv]` and
+also records `log_path` so `restart` works after a clean stop.
 
-| schema | `argv` shape                                | how to launch |
-|--------|---------------------------------------------|---------------|
-| 1 (legacy) | `["/path/script.py"]`                   | `nohup python3 -u /path/script.py &` |
-| 2 (current) | `[sys.executable, "-u", "/path/script.py"]` | Written by every daemon since this fix |
+Migration is one-shot per daemon and transparent — `restart` auto-
+prepends the interpreter when reading a schema-1 file; the newly-spawned
+daemon writes schema 2 on its own. `--json` output exposes
+`"argv_normalized": true|false` for automation.
 
-Why schema 2 exists: schema-1 captured only `sys.argv`, which is the
-script + script args — interpreter and `-u` flag are consumed before
-Python's `sys.argv` is populated and cannot be recovered from inside the
-script. When the operator launched as `nohup python3 -u script.py &`, the
-script never needed to be `+x`. But `senpi-helpers restart` (which
-`Popen`s `argv` directly) then tried to `execve` the `.py` file, which
-fails with `EACCES` when the file isn't executable. Result: stop half
-succeeded, start half silently died with `PermissionError`, producer
-ended up dead.
-
-Migration is transparent and one-shot per daemon:
-- On `restart`, if `argv[0]` looks like a `.py` script (and not a python
-  interpreter), the helper prepends `[sys.executable, "-u"]` and prints
-  a one-line note.
-- The newly-spawned daemon calls `write_boot()` on startup and writes a
-  fresh schema-2 `boot.json`. The next `restart` goes through the modern
-  path, no migration needed.
-- Operators don't have to do anything. Schema-1 boot files keep working
-  forever; they just get rewritten on first restart.
-
-`--json` output includes `"argv_normalized": true|false` so automation
-can detect the migration.
+For the full history (why each schema bump happened, what the recycle
+guard does, how to author the next bump) see
+[`senpi-helpers-schema-history.md`](./senpi-helpers-schema-history.md).
 
 Exit codes:
 
