@@ -331,50 +331,68 @@ class PidAliveZombieFilterTests(unittest.TestCase):
     PID 1 doesn't reap.
     """
 
-    def _spawn_and_kill(self):
-        """Spawn a short-lived subprocess WITHOUT waiting on it, so it
-        becomes a zombie under this test process (the parent). Returns the
-        pid. The test process is the parent — we leave it un-reaped so the
-        zombie sits in the process table.
+    def _spawn_zombie(self):
+        """Spawn a subprocess and wait for it to exit WITHOUT calling
+        waitpid() or Popen.poll()/.wait() — both of those reap the zombie.
+
+        Returns the pid. The caller is responsible for reaping (call
+        `os.waitpid(pid, 0)` in finally). Until then, the pid stays in
+        the kernel's process table as `State: Z (zombie)`.
+
+        We can't use Popen.poll()/.wait() to detect exit because both
+        synchronously reap (the kernel removes the pid from the process
+        table). We have to poll /proc/<pid>/status directly until we see
+        `State: Z`.
         """
-        import subprocess
+        import subprocess, time as _time
         proc = subprocess.Popen(
             [sys.executable, "-c", "import sys; sys.exit(0)"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
-        # Wait for the child to actually exit. `signal(0)` will still
-        # report it alive — the kernel keeps the slot until we wait().
-        # poll() observes exit without reaping (only wait() reaps).
+        pid = proc.pid
+        # Wait up to 2s for the child to enter zombie state.
+        # Read /proc/<pid>/status directly — does NOT reap.
         for _ in range(200):
-            if proc.poll() is not None:
-                break
-            import time as _time
+            try:
+                with open(f"/proc/{pid}/status") as f:
+                    state_line = next(l for l in f if l.startswith("State:"))
+                if "Z" in state_line.split()[1]:
+                    return pid, proc
+            except (FileNotFoundError, StopIteration, IndexError):
+                pass
             _time.sleep(0.01)
-        return proc
+        # Best-effort cleanup if we couldn't get a zombie.
+        try:
+            proc.wait(timeout=1.0)
+        except Exception:
+            pass
+        return None, proc
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux /proc only")
     def test_zombie_is_not_alive(self):
         """signal(0) succeeds on a zombie but the daemon has DIED — `stop_pid`
         polling pid_alive would otherwise spin until SIGKILL grace ends, then
         wrongly report STOP_KILL_FAILED. Filter zombies via /proc/<pid>/status."""
-        proc = self._spawn_and_kill()
+        pid, proc = self._spawn_zombie()
         try:
-            self.assertEqual(proc.poll(), 0,
-                             "zombie test requires the child to have exited")
-            # Confirm it's a zombie at the kernel level.
-            with open(f"/proc/{proc.pid}/status") as f:
+            self.assertIsNotNone(pid, "couldn't capture zombie state in 2s window")
+            # Re-confirm it's still a zombie immediately before the assertion.
+            with open(f"/proc/{pid}/status") as f:
                 state_line = next(l for l in f if l.startswith("State:"))
-            self.assertIn("Z", state_line,
+            self.assertIn("Z", state_line.split()[1],
                           f"expected zombie state, got: {state_line.strip()}")
             # The bug: signal(0) returns success for zombies.
             self.assertFalse(
-                st.pid_alive(proc.pid),
+                st.pid_alive(pid),
                 "pid_alive must return False for zombies; otherwise stop_pid "
                 "spins to SIGKILL escalation on already-dead daemons.",
             )
         finally:
             # Reap before the test process exits to keep CI clean.
-            proc.wait()
+            try:
+                proc.wait(timeout=1.0)
+            except Exception:
+                pass
 
     @unittest.skipUnless(sys.platform.startswith("linux"), "Linux /proc only")
     def test_live_process_still_reported_alive(self):
