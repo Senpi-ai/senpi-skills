@@ -395,7 +395,14 @@ class StatsSubcommandTests(CliFixtures):
         self.assertEqual(doc["name"], "svc")
         self.assertEqual(doc["window_hours"], 24)
 
-    def test_stats_missing_log_path_returns_no_log_exit(self) -> None:
+    def test_stats_missing_log_path_falls_back_to_default(self) -> None:
+        """Bugbot caught the divergence between cmd_stats and cmd_logs.
+        cmd_stats now uses the SAME 4-level fallback chain (pid → boot →
+        env → /tmp/<name>.log). When the default path doesn't exist, we
+        still return STATS_NO_LOG, but the error mentions exactly where
+        we looked — more actionable than the old 'did not record a log
+        path' message.
+        """
         # Seed pid.json WITHOUT log_path.
         d = os.path.join(self.tmp, "no-log-path")
         os.makedirs(d, exist_ok=True)
@@ -407,6 +414,11 @@ class StatsSubcommandTests(CliFixtures):
                 "interval_seconds": 300.0, "tick_timeout": 60.0,
                 "log_path": None, "version": "0.1.0",
             }, f)
+        # Make sure /tmp/no-log-path.log doesn't exist (the fallback target).
+        try:
+            os.unlink("/tmp/no-log-path.log")
+        except FileNotFoundError:
+            pass
         old_stderr = sys.stderr
         sys.stderr = io.StringIO()
         try:
@@ -415,8 +427,46 @@ class StatsSubcommandTests(CliFixtures):
         finally:
             sys.stderr = old_stderr
         self.assertEqual(rc, 1)  # STATS_NO_LOG
-        self.assertIn("log path", err.lower())
-        self.assertIn("SENPI_HELPERS_LOG_PATH", err)
+        # Error references the resolved default path so the operator knows
+        # exactly which file we tried to read.
+        self.assertIn("/tmp/no-log-path.log", err)
+
+    def test_stats_uses_default_path_same_as_logs_command(self) -> None:
+        """Regression guard against Bugbot's finding: cmd_stats and
+        cmd_logs should both succeed when /tmp/<name>.log exists, even if
+        no daemon recorded log_path explicitly. Pre-fix, cmd_stats failed
+        STATS_NO_LOG while cmd_logs found the default."""
+        # Seed pid.json with log_path=None (the realistic case for an
+        # older daemon launched before schema 2 always populated log_path).
+        d = os.path.join(self.tmp, "default-log")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 1, "name": "default-log", "pid": os.getpid(),
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": "0x" + "a" * 40, "scanner": "s",
+                "interval_seconds": 300.0, "tick_timeout": 60.0,
+                "log_path": None, "version": "0.1.0",
+            }, f)
+        log_path = "/tmp/default-log.log"
+        try:
+            os.unlink(log_path)
+        except FileNotFoundError:
+            pass
+        try:
+            with open(log_path, "w") as f:
+                f.write("")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = cli.main(["stats", "default-log", "--json"])
+            self.assertEqual(rc, 0)
+            doc = json.loads(buf.getvalue())
+            self.assertEqual(doc["log_path"], log_path)
+        finally:
+            try:
+                os.unlink(log_path)
+            except FileNotFoundError:
+                pass
 
     def test_stats_missing_log_file_returns_no_log_exit(self) -> None:
         self._seed_with_log("svc", "/no/such/file.log")

@@ -949,33 +949,26 @@ def cmd_stats(args: argparse.Namespace) -> int:
         return STATS_NOT_FOUND
 
     # Stats can run on a cleanly-stopped daemon: pid.json may be gone, but
-    # boot.json (which persists) records log_path under schema 2+. Try both.
+    # boot.json (which persists) records log_path under schema 2+.
     pid_data = _state.read_pid(name, state_dir=args.state_dir)
     boot_data = _state.read_boot(name, state_dir=args.state_dir)
 
-    log_path = (pid_data or {}).get("log_path")
-    if not log_path:
-        log_path = (boot_data or {}).get("log_path")
-    if not log_path and boot_data:
-        env_snapshot = boot_data.get("env_snapshot") or {}
-        log_path = env_snapshot.get("SENPI_HELPERS_LOG_PATH")
-
-    if not log_path:
-        if pid_data is None and boot_data is None:
-            sys.stderr.write(
-                f"senpi-helpers: no state files for '{name}'. "
-                f"Try `senpi-helpers list` to see registered daemons.\n"
-            )
-            return STATS_NOT_FOUND
+    if pid_data is None and boot_data is None:
         sys.stderr.write(
-            f"senpi-helpers: daemon '{name}' did not record a log path. "
-            f"Stats parses from the daemon's stderr log file; without a "
-            f"redirect, no log exists to parse.\n"
-            f"Fix by starting the daemon with stderr redirected — e.g. "
-            f"`nohup python3 -u <producer>.py > /tmp/{name}.log 2>&1 &` — "
-            f"or set SENPI_HELPERS_LOG_PATH=/path/to/log before launch.\n"
+            f"senpi-helpers: no state files for '{name}'. "
+            f"Try `senpi-helpers list` to see registered daemons.\n"
         )
-        return STATS_NO_LOG
+        return STATS_NOT_FOUND
+
+    # Use the SAME 4-level fallback chain that cmd_logs / cmd_restart use:
+    #   pid.json → boot.json → env_snapshot → /tmp/<name>.log default.
+    # Bugbot caught the prior inline 3-level chain (no default) — that
+    # made `stats` fail on a daemon where `logs` succeeded. Sharing the
+    # helper guarantees they stay aligned.
+    log_path = _resolve_log_path_for_relaunch(
+        name, pid_data=pid_data, boot_data=boot_data or {},
+        warn_when_defaulting=False,
+    )
 
     try:
         payload = _stats.aggregate_log_file(log_path, window_hours=args.hours)
