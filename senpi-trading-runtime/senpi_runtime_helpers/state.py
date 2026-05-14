@@ -167,6 +167,35 @@ def _read_proc_field(pid: int, field_name: str) -> Optional[str]:
         return None
 
 
+def read_proc_environ(pid: int) -> Optional[Dict[str, str]]:
+    """Parse `/proc/<pid>/environ` into a dict.
+
+    `/proc/<pid>/environ` is NUL-separated `KEY=value` entries (the
+    process's startup env, captured by the kernel at exec time). Returns
+    a dict; None if /proc isn't readable (non-Linux, missing pid, permission
+    denied). Skips malformed entries (no '=' or invalid key chars) silently
+    so a corrupt environ doesn't crash the helper.
+
+    Used by `senpi-helpers start --inherit-env-from <pid|openclaw>` so the
+    operator doesn't have to manually `cat /proc/<pid>/environ | tr ...`
+    to bootstrap the daemon's env with auth tokens.
+    """
+    raw = _read_proc_field(pid, "environ")
+    if raw is None:
+        return None
+    out: Dict[str, str] = {}
+    for entry in raw.split("\0"):
+        if "=" not in entry:
+            continue
+        key, _, value = entry.partition("=")
+        # Defensive: skip keys that aren't valid identifier-like names. A
+        # corrupt entry shouldn't poison the final env dict.
+        if not key or not all(c.isalnum() or c == "_" for c in key):
+            continue
+        out[key] = value
+    return out
+
+
 def cmdline_fingerprint_for_pid(pid: int) -> Optional[str]:
     """Hex sha256 of /proc/<pid>/cmdline, or None on Linux-less hosts."""
     raw = _read_proc_field(pid, "cmdline")

@@ -682,6 +682,57 @@ class PidAliveAndMatchesTests(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ─── Tests for read_proc_environ (used by --inherit-env-from) ───────────────
+
+
+@unittest.skipUnless(
+    sys.platform.startswith("linux"),
+    "read_proc_environ requires /proc (Linux-only)",
+)
+class ReadProcEnvironTests(unittest.TestCase):
+    """Reads /proc/<pid>/environ for the --inherit-env-from flag.
+    Production-only path; gated on Linux."""
+
+    def test_reads_own_environ(self) -> None:
+        """Use os.getpid() as the test pid — we know our own environ."""
+        os.environ["SENPI_HELPERS_READ_ENVIRON_TEST"] = "marker-value"
+        try:
+            env = st.read_proc_environ(os.getpid())
+        finally:
+            os.environ.pop("SENPI_HELPERS_READ_ENVIRON_TEST", None)
+        self.assertIsNotNone(env)
+        # Linux note: /proc/self/environ snapshots the env at exec time, so
+        # post-fork modifications via os.environ may not appear. The marker
+        # MIGHT not be there. We assert the function returns a dict with
+        # SOMETHING reasonable (it should at least have PATH or HOME).
+        self.assertIsInstance(env, dict)
+        self.assertTrue(env, "expected non-empty environ dict")
+        # Most CI/dev shells set HOME or PATH.
+        self.assertTrue(
+            "HOME" in env or "PATH" in env or "PWD" in env,
+            f"environ unexpectedly missing common keys: {sorted(env)[:10]}",
+        )
+
+    def test_returns_none_for_missing_pid(self) -> None:
+        self.assertIsNone(st.read_proc_environ(2147483646))
+
+    def test_skips_malformed_entries(self) -> None:
+        """Bad env entries (no '=' or weird key chars) don't poison the dict."""
+        # Can't easily inject bad data into our own /proc; rely on the
+        # robust parser tested indirectly via test_reads_own_environ.
+        # Direct unit test: invoke the parsing logic via a writable file.
+        # Path A: shadow _read_proc_field via monkeypatching.
+        orig = st._read_proc_field
+        try:
+            st._read_proc_field = lambda pid, field: (
+                "GOOD=ok\0NO_EQUALS_SIGN\0BAD-KEY=value\0OTHER=valid\0"
+            )
+            env = st.read_proc_environ(123)  # pid value ignored under stub
+        finally:
+            st._read_proc_field = orig
+        self.assertEqual(env, {"GOOD": "ok", "OTHER": "valid"})
+
+
 # ─── Tests for unknown-schema warning ───────────────────────────────────────
 
 

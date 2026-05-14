@@ -1403,5 +1403,193 @@ class DiagnoseSubcommandTests(CliFixtures):
         self.assertEqual(fails, [], msg=f"unexpected failures: {fails}")
 
 
+# ─── cmd_start --inherit-env-from ───────────────────────────────────────────
+
+
+class StartInheritEnvFromTests(CliFixtures):
+    """`senpi-helpers start --inherit-env-from <pid|openclaw>` reads /proc
+    environ and merges with the caller's env. Operator-set env wins."""
+
+    def _seed_minimal_boot(self, name: str) -> str:
+        """Returns the script_path that boot.json points at."""
+        d = os.path.join(self.tmp, name)
+        os.makedirs(d, exist_ok=True)
+        # Make a real script file so cmd_start's existence check passes.
+        script = os.path.join(self.tmp, f"{name}-script.py")
+        with open(script, "w") as f:
+            f.write("# stub\n")
+        with open(os.path.join(d, "boot.json"), "w") as f:
+            json.dump({
+                "schema": 2, "name": name,
+                "argv": [sys.executable, "-u", script],
+                "script_path": script, "cwd": "/",
+                "env_snapshot": {}, "log_path": f"/tmp/{name}.log",
+                "captured_at_iso": "2026-05-12T08:00:00.000Z",
+            }, f)
+        return script
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Stub relaunch_daemon so the test never spawns a real process.
+        self._cli = cli
+        self._orig_relaunch = self._cli._manage.relaunch_daemon
+        self._relaunch_calls = []
+
+        def fake_relaunch(**kwargs):
+            self._relaunch_calls.append(kwargs)
+            return {
+                "outcome": self._cli._manage.RELAUNCH_OK,
+                "pid": 4242, "error": None,
+                "argv_normalized": False, "argv_used": kwargs.get("argv", []),
+            }
+        self._cli._manage.relaunch_daemon = fake_relaunch
+
+    def tearDown(self) -> None:
+        self._cli._manage.relaunch_daemon = self._orig_relaunch
+        super().tearDown()
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"),
+        "/proc-based env inheritance is Linux-only",
+    )
+    def test_inherit_env_from_own_pid_merges_into_relaunch(self) -> None:
+        self._seed_minimal_boot("env-test")
+        # Set a unique env var so we can verify it's inherited.
+        os.environ["SENPI_HELPERS_INHERIT_TEST"] = "from-our-environ"
+        try:
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                rc = cli.main([
+                    "start", "env-test", "--inherit-env-from", str(os.getpid()),
+                    "--json",
+                ])
+        finally:
+            os.environ.pop("SENPI_HELPERS_INHERIT_TEST", None)
+        self.assertEqual(rc, 0)
+        # relaunch_daemon was called with an env dict (not None).
+        self.assertEqual(len(self._relaunch_calls), 1)
+        env_passed = self._relaunch_calls[0]["env"]
+        self.assertIsInstance(env_passed, dict)
+        # Either HOME or PATH should be there (inherited from this process).
+        self.assertTrue("HOME" in env_passed or "PATH" in env_passed)
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"),
+        "/proc-based env inheritance is Linux-only",
+    )
+    def test_inherit_env_explicit_env_wins_over_inherited(self) -> None:
+        """Operator-set env in the current shell takes priority — fills in
+        the auth tokens from the inherited env, but the operator can
+        override anything they explicitly set."""
+        self._seed_minimal_boot("priority-test")
+        # Inherited (from our /proc/self/environ) will have HOME.
+        # Override it in our os.environ to a unique value.
+        os.environ["HOME"] = "/explicitly-overridden"
+        try:
+            cli.main([
+                "start", "priority-test", "--inherit-env-from", str(os.getpid()),
+                "--json",
+            ])
+        finally:
+            # Restore parent's HOME — important for the rest of the test
+            # suite, which may rely on it.
+            del os.environ["HOME"]
+        env_passed = self._relaunch_calls[0]["env"]
+        self.assertEqual(env_passed["HOME"], "/explicitly-overridden")
+
+    def test_inherit_env_invalid_value_errors_cleanly(self) -> None:
+        self._seed_minimal_boot("invalid-test")
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main([
+                "start", "invalid-test", "--inherit-env-from", "not-a-pid-or-openclaw",
+            ])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)  # START_FAILED
+        self.assertIn("invalid value", err)
+        # Crucially, NO relaunch call fired.
+        self.assertEqual(len(self._relaunch_calls), 0)
+
+    @unittest.skipUnless(
+        sys.platform.startswith("linux"),
+        "Tests the /proc-read failure path; on macOS the Linux gate fires first",
+    )
+    def test_inherit_env_nonexistent_pid_errors_cleanly(self) -> None:
+        self._seed_minimal_boot("ghost-pid")
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main([
+                "start", "ghost-pid", "--inherit-env-from", "2147483646",
+            ])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)
+        self.assertIn("could not read", err)
+        self.assertEqual(len(self._relaunch_calls), 0)
+
+    def test_inherit_env_openclaw_alias_invokes_pgrep(self) -> None:
+        """The 'openclaw' literal resolves via pgrep. We mock pgrep so we
+        don't depend on a real openclaw process existing on the test host."""
+        self._seed_minimal_boot("oc-alias")
+        # Monkeypatch subprocess.run in cli to return a synthetic pgrep
+        # result pointing at our own pid.
+        import subprocess as sp
+        orig_run = sp.run
+
+        def fake_run(cmd, **kwargs):
+            class R:
+                returncode = 0
+                stdout = f"{os.getpid()}\n"
+            if cmd == ["pgrep", "-f", r"^openclaw$"]:
+                return R()
+            return orig_run(cmd, **kwargs)
+        sp.run = fake_run
+        try:
+            if not sys.platform.startswith("linux"):
+                # On macOS we expect the linux-gate to fail; only run the
+                # check we care about: pgrep was attempted.
+                old_stderr = sys.stderr
+                sys.stderr = io.StringIO()
+                try:
+                    rc = cli.main([
+                        "start", "oc-alias", "--inherit-env-from", "openclaw",
+                    ])
+                finally:
+                    sys.stderr = old_stderr
+                self.assertEqual(rc, 1)
+                return
+            rc = cli.main([
+                "start", "oc-alias", "--inherit-env-from", "openclaw", "--json",
+            ])
+            self.assertEqual(rc, 0)
+            self.assertEqual(len(self._relaunch_calls), 1)
+        finally:
+            sp.run = orig_run
+
+    @unittest.skipIf(
+        sys.platform.startswith("linux"),
+        "macOS-only: verifies the Linux gate fires off Linux",
+    )
+    def test_inherit_env_on_non_linux_returns_error(self) -> None:
+        self._seed_minimal_boot("dev-host")
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main([
+                "start", "dev-host", "--inherit-env-from", str(os.getpid()),
+            ])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)
+        self.assertIn("Linux", err)
+        self.assertEqual(len(self._relaunch_calls), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

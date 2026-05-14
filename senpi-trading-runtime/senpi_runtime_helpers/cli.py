@@ -23,7 +23,7 @@ import os
 import sys
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from . import manage as _manage
 from . import state as _state
@@ -1144,6 +1144,81 @@ START_FAILED = 1
 START_NOT_FOUND = 2
 
 
+def _resolve_inherit_env_source(spec: str) -> Tuple[Optional[int], Optional[str]]:
+    """Map an `--inherit-env-from` value to (pid, error).
+
+    Accepted spec values:
+      - `"openclaw"`  → pgrep -f '^openclaw$', head -1.
+      - Any decimal integer string → that pid.
+      - Anything else → error.
+
+    Returns `(pid, None)` on success or `(None, error_message)` on failure.
+    Linux is the only supported target — `/proc` lookup happens via
+    `state.read_proc_environ`. The check for non-Linux happens at the
+    use-site so this helper stays pure.
+    """
+    if spec == "openclaw":
+        import subprocess
+        try:
+            res = subprocess.run(
+                ["pgrep", "-f", r"^openclaw$"],
+                capture_output=True, text=True, check=False, timeout=5,
+            )
+        except (subprocess.SubprocessError, FileNotFoundError) as e:
+            return None, f"could not invoke pgrep: {e}"
+        if res.returncode != 0:
+            return None, "no process matching '^openclaw$' is running"
+        pids = [ln for ln in res.stdout.split() if ln.strip().isdigit()]
+        if not pids:
+            return None, "pgrep returned no pids for '^openclaw$'"
+        return int(pids[0]), None
+    # Plain integer pid.
+    try:
+        pid = int(spec)
+    except (TypeError, ValueError):
+        return None, (
+            f"invalid value {spec!r}: pass either an integer pid or "
+            f"the literal string 'openclaw'"
+        )
+    if pid <= 0:
+        return None, f"pid must be > 0 (got {pid})"
+    return pid, None
+
+
+def _build_inherited_env(spec: str) -> Tuple[Optional[Dict[str, str]], Optional[str]]:
+    """Resolve --inherit-env-from spec → merged env dict.
+
+    Returns `(env_dict, None)` on success: a copy of the inherited /proc
+    environ OVERLAID with the CLI's current `os.environ` (operator-set
+    values win). Returns `(None, error_msg)` on any failure.
+
+    Linux-only: returns an error on non-Linux hosts because /proc isn't
+    available. Production runs on Linux containers.
+
+    Spec validation runs BEFORE the platform check so an obviously-bad
+    value (typo, etc.) surfaces a useful error on dev machines too —
+    only the actual /proc read is gated on Linux.
+    """
+    pid, err = _resolve_inherit_env_source(spec)
+    if err is not None:
+        return None, err
+    if not sys.platform.startswith("linux"):
+        return None, (
+            "--inherit-env-from is only supported on Linux (requires /proc). "
+            "Production senpi-helpers runs on Linux; this dev host is not."
+        )
+    inherited = _state.read_proc_environ(pid)
+    if inherited is None:
+        return None, (
+            f"could not read /proc/{pid}/environ (missing pid, "
+            f"permission denied, or non-Linux)"
+        )
+    # Operator's explicit env wins over inherited. Inherited fills the
+    # gaps — auth tokens / api keys / runtime endpoints.
+    merged = {**inherited, **os.environ.copy()}
+    return merged, None
+
+
 def cmd_start(args: argparse.Namespace) -> int:
     # Destructive (spawns a process): require an explicit <name>.
     name = _resolve_name_explicit(args, action="start")
@@ -1191,10 +1266,24 @@ def cmd_start(args: argparse.Namespace) -> int:
         name, pid_data=pid_data, boot_data=boot_data,
     )
 
+    # Resolve --inherit-env-from if given. Falls back to passing env=None
+    # so relaunch_daemon inherits the CLI's current env (original behavior).
+    env_for_spawn = None
+    inherit_spec = getattr(args, "inherit_env_from", None)
+    if inherit_spec:
+        env_for_spawn, err = _build_inherited_env(inherit_spec)
+        if err is not None:
+            sys.stderr.write(
+                f"senpi-helpers: --inherit-env-from {inherit_spec!r} failed: "
+                f"{err}\n"
+            )
+            return START_FAILED
+
     relaunch_result = _manage.relaunch_daemon(
         argv=argv,
         cwd=cwd,
         log_path=log_path,
+        env=env_for_spawn,
     )
 
     if relaunch_result["outcome"] != _manage.RELAUNCH_OK:
@@ -1579,6 +1668,20 @@ def _make_parser() -> argparse.ArgumentParser:
         help="Daemon name. Optional on single-daemon hosts.",
     )
     start_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
+    start_p.add_argument(
+        "--inherit-env-from",
+        metavar="PROCESS",
+        default=None,
+        dest="inherit_env_from",
+        help=(
+            "Inherit env from a running process (Linux-only). Pass either "
+            "a pid integer or the literal 'openclaw' (auto-resolved via "
+            "pgrep). Useful when launching from a fresh shell that lacks "
+            "auth tokens — pulls them from the running openclaw process "
+            "without manual /proc gymnastics. Operator-set env in the "
+            "current shell still wins over inherited values."
+        ),
+    )
     start_p.set_defaults(func=cmd_start)
 
     # stop
