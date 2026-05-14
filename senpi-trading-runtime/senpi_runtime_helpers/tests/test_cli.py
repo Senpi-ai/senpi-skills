@@ -1141,5 +1141,85 @@ class BootSubcommandTests(CliFixtures):
         self.assertIn("no boot.json", err)
 
 
+# ─── cmd_logs ───────────────────────────────────────────────────────────────
+
+
+class LogsSubcommandTests(CliFixtures):
+    """`senpi-helpers logs <name>` prints the tail of the daemon's log file.
+    Tests the non-follow path (the follow path is real-time streaming —
+    too fragile to unit-test deterministically, exercised manually)."""
+
+    def _seed_boot_with_log(self, name: str, log_path: str) -> None:
+        d = os.path.join(self.tmp, name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "boot.json"), "w") as f:
+            json.dump({
+                "schema": 2, "name": name,
+                "argv": [], "script_path": "/x.py", "cwd": "/",
+                "env_snapshot": {}, "log_path": log_path,
+                "captured_at_iso": "2026-05-12T08:00:00.000Z",
+            }, f)
+
+    def test_logs_prints_last_n_lines(self) -> None:
+        log_path = os.path.join(self.tmp, "svc.log")
+        with open(log_path, "w") as f:
+            for i in range(200):
+                f.write(f"line-{i}\n")
+        self._seed_boot_with_log("svc", log_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["logs", "svc", "--lines", "10"])
+        out = buf.getvalue().splitlines()
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 10)
+        # Tail = last 10 lines: line-190 .. line-199.
+        self.assertEqual(out[0], "line-190")
+        self.assertEqual(out[-1], "line-199")
+
+    def test_logs_default_lines_is_50(self) -> None:
+        log_path = os.path.join(self.tmp, "svc2.log")
+        with open(log_path, "w") as f:
+            for i in range(120):
+                f.write(f"row-{i}\n")
+        self._seed_boot_with_log("svc2", log_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["logs", "svc2"])
+        out = buf.getvalue().splitlines()
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(out), 50)
+        # Tail = last 50: row-70 .. row-119.
+        self.assertEqual(out[0], "row-70")
+        self.assertEqual(out[-1], "row-119")
+
+    def test_logs_resolves_path_from_boot_json_when_pid_json_absent(self) -> None:
+        """After a clean stop, pid.json is gone but boot.json still has
+        log_path. `logs` should use the boot.json value."""
+        log_path = os.path.join(self.tmp, "post-stop.log")
+        with open(log_path, "w") as f:
+            f.write("only-line\n")
+        self._seed_boot_with_log("cleanly-stopped", log_path)
+        # No pid.json on disk for this daemon.
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["logs", "cleanly-stopped"])
+        out = buf.getvalue().strip()
+        self.assertEqual(rc, 0)
+        self.assertEqual(out, "only-line")
+
+    def test_logs_missing_file_returns_no_log(self) -> None:
+        # boot.json points at a path that doesn't exist on disk.
+        self._seed_boot_with_log("missing", "/tmp/does-not-exist-XYZ.log")
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["logs", "missing"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 1)  # LOGS_NO_LOG
+        self.assertIn("log file not found", err)
+
+
 if __name__ == "__main__":
     unittest.main()

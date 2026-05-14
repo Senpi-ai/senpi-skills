@@ -440,6 +440,115 @@ def cmd_boot(args: argparse.Namespace) -> int:
     return BOOT_OK
 
 
+# ─── Subcommand: logs ───────────────────────────────────────────────────────
+#
+# Tail / follow the daemon's stderr log. Uses the same fallback chain as
+# `restart` / `stats` to find log_path: pid.json first, boot.json second
+# (schema 2+), boot.json env_snapshot's SENPI_HELPERS_LOG_PATH third,
+# /tmp/<name>.log default last.
+
+LOGS_OK = 0
+LOGS_NO_LOG = 1
+LOGS_NOT_FOUND = 2
+
+
+def _print_last_n_lines(log_path: str, *, n: int) -> None:
+    """Read the tail of `log_path`. Tolerant of short files."""
+    # Don't pull the whole file into memory for large logs — use a deque.
+    from collections import deque
+    try:
+        with open(log_path, "r", errors="replace") as fh:
+            buf = deque(fh, maxlen=n)
+    except OSError as e:
+        sys.stderr.write(f"senpi-helpers: cannot read {log_path}: {e}\n")
+        return
+    for line in buf:
+        sys.stdout.write(line)
+
+
+def _stream_log(log_path: str) -> None:
+    """`tail -F` semantics: keep reading even if file rotates or truncates.
+
+    Polls every 250 ms. Reopens on inode change (rotation). Truncation
+    (file shrunk) → seek back to current size.
+    """
+    poll = 0.25
+    inode = None
+    fh = None
+    pos = 0
+    try:
+        while True:
+            try:
+                st = os.stat(log_path)
+            except FileNotFoundError:
+                if fh is not None:
+                    fh.close()
+                    fh = None
+                time.sleep(poll)
+                continue
+            # Rotation detection: new inode → reopen at start.
+            if inode != st.st_ino:
+                if fh is not None:
+                    fh.close()
+                fh = open(log_path, "r", errors="replace")
+                inode = st.st_ino
+                # On first open, seek to end so we don't replay history.
+                fh.seek(0, os.SEEK_END)
+                pos = fh.tell()
+            # Truncation detection: file size < our position.
+            if st.st_size < pos:
+                fh.seek(0)
+                pos = 0
+            chunk = fh.read()
+            if chunk:
+                sys.stdout.write(chunk)
+                sys.stdout.flush()
+                pos = fh.tell()
+            else:
+                time.sleep(poll)
+    except KeyboardInterrupt:
+        # Operator hit Ctrl-C — exit cleanly.
+        pass
+    finally:
+        if fh is not None:
+            fh.close()
+
+
+def cmd_logs(args: argparse.Namespace) -> int:
+    name = _resolve_name_readonly(args)
+    if name is None:
+        return LOGS_NOT_FOUND
+
+    # Reuse the same fallback chain that restart/stats use. Suppress the
+    # default-warning to stderr — for `logs`, the operator just wants the
+    # log; if we end up at /tmp/<name>.log by default and it doesn't exist,
+    # the existence check below surfaces a clear "no log" message.
+    pid_data = _state.read_pid(name, state_dir=args.state_dir)
+    boot_data = _state.read_boot(name, state_dir=args.state_dir) or {}
+    log_path = _resolve_log_path_for_relaunch(
+        name, pid_data=pid_data, boot_data=boot_data,
+        warn_when_defaulting=False,
+    )
+
+    if not os.path.exists(log_path):
+        sys.stderr.write(
+            f"senpi-helpers: log file not found at {log_path}.\n"
+            f"  Resolved from: "
+            f"{'pid.json' if (pid_data or {}).get('log_path') else ('boot.json' if boot_data.get('log_path') else 'default')}\n"
+            f"  The daemon may not have written yet, or the path is stale.\n"
+        )
+        return LOGS_NO_LOG
+
+    if args.follow:
+        # Print a one-line breadcrumb to stderr so operators know which
+        # file they're tailing; stdout stays the log stream.
+        sys.stderr.write(f"senpi-helpers: tailing {log_path} (Ctrl-C to stop)\n")
+        _stream_log(log_path)
+    else:
+        _print_last_n_lines(log_path, n=args.lines)
+    return LOGS_OK
+
+
 # ─── Subcommand: stats ──────────────────────────────────────────────────────
 
 STATS_OK = 0
@@ -1121,6 +1230,31 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     boot_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
     boot_p.set_defaults(func=cmd_boot)
+
+    # logs
+    logs_p = sub.add_parser(
+        "logs",
+        help="Tail the daemon's stderr log (resolved from pid.json / boot.json).",
+        description=(
+            "Print the last N lines of the daemon's log file, optionally "
+            "following new output. The log_path is resolved through the same "
+            "fallback chain `restart` and `stats` use, so this works even "
+            "after a clean stop (when pid.json is gone)."
+        ),
+    )
+    logs_p.add_argument(
+        "name", nargs="?", default=None,
+        help="Daemon name. Optional on single-daemon hosts.",
+    )
+    logs_p.add_argument(
+        "-n", "--lines", type=int, default=50,
+        help="How many trailing lines to print (default: 50). Ignored with --follow.",
+    )
+    logs_p.add_argument(
+        "-f", "--follow", action="store_true",
+        help="Stream new lines as they're written (Ctrl-C to stop).",
+    )
+    logs_p.set_defaults(func=cmd_logs)
 
     # stats
     stats_p = sub.add_parser(
