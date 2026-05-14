@@ -88,7 +88,7 @@ if _sdk_path not in sys.path:
 from senpi_runtime_helpers import producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "3.0.0"
+VERSION = "3.0.1"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "kestrel_signals")
 SIGNAL_TYPE = "KESTREL_XYZ_BREAKOUT"
 
@@ -412,6 +412,19 @@ def score_asset_breakout(asset, sm_map):
         return None
 
     # ── 1H breakout (mandatory hard gate) ──
+    # v3.0.1 (2026-05-14) — rolling candle boundary fix.
+    # Bug: the original code only compared the currently-forming hour candle
+    # (candles_1h[-1]) against the previously-closed one (candles_1h[-2]).
+    # When a breakout happened in the final 15-30 min of an hour, the
+    # currently-forming candle hadn't fully captured the move yet, so
+    # abs(pct_1h) < BREAKOUT_THRESHOLD_1H and we skipped. On the next hour
+    # rollover, the new fresh candle had near-zero delta against the
+    # just-closed breakout candle, so the breakout was permanently
+    # swallowed. Verified misses on 2026-05-14: NVDA at 05:00 + 14:00,
+    # MSFT at 14:00, CL at 06:00, TSLA at 13:00.
+    # Fix: also evaluate the just-closed hour (candles[-2] vs candles[-3])
+    # and use whichever delta has the larger magnitude. Catches end-of-hour
+    # breakouts on the next tick after rollover.
     last_1h = candles_1h[-1]
     prev_1h = candles_1h[-2]
     close_now = safe_float(last_1h.get("close", last_1h.get("c", 0)))
@@ -420,7 +433,23 @@ def score_asset_breakout(asset, sm_map):
     if close_prev <= 0 or close_now <= 0:
         return None
 
-    pct_1h = ((close_now - close_prev) / close_prev) * 100
+    pct_1h_current = ((close_now - close_prev) / close_prev) * 100
+
+    # Just-closed hour: candles[-2] (just closed) vs candles[-3] (prev to it).
+    # If this candle had a big move that happened late in the hour, we'd
+    # otherwise have missed it.
+    pct_1h_recent_closed = 0.0
+    if len(candles_1h) >= 3:
+        close_prev_prev = safe_float(candles_1h[-3].get("close", candles_1h[-3].get("c", 0)))
+        if close_prev_prev > 0:
+            pct_1h_recent_closed = ((close_prev - close_prev_prev) / close_prev_prev) * 100
+
+    # Use whichever has larger absolute magnitude — captures late-hour
+    # breakouts that the current-hour candle doesn't yet reflect.
+    if abs(pct_1h_recent_closed) > abs(pct_1h_current):
+        pct_1h = pct_1h_recent_closed
+    else:
+        pct_1h = pct_1h_current
 
     if abs(pct_1h) < BREAKOUT_THRESHOLD_1H:
         return None
@@ -508,16 +537,38 @@ def score_asset_breakout(asset, sm_map):
             reasons.append(f"SM_TRAPPED_{sm_dir} {sm_pct:.1f}%")
 
     # ── Spread gate (v2.0: relaxed 0.2% -> 0.35%) ──
+    # v3.0.1 (2026-05-14) — order book parsing fix.
+    # Bug: market_get_asset_data returns the order book as
+    #   {"levels": [[bid_levels], [ask_levels]]}
+    # but original code looked for top-level "bids"/"asks" keys that
+    # don't exist. The `if bids and asks:` check silently evaluated
+    # False, the spread gate was bypassed entirely, and spread_pct
+    # stayed at None. Any signal that passed other gates fired
+    # regardless of how wide the actual XYZ spread was — a real risk
+    # on low-liquidity XYZ assets where spreads can blow out.
+    # Fix: parse the nested `levels` structure first, fall back to
+    # the legacy top-level keys for compat.
     spread_pct = None
     ob = ad.get("order_book", ad.get("orderBook", {}))
     if isinstance(ob, dict):
-        bids = ob.get("bids", ob.get("bid", []))
-        asks = ob.get("asks", ob.get("ask", []))
+        levels = ob.get("levels", [])
+        bids, asks = [], []
+        if isinstance(levels, list) and len(levels) >= 2:
+            bids = levels[0] if isinstance(levels[0], list) else []
+            asks = levels[1] if isinstance(levels[1], list) else []
+        else:
+            # Legacy schema fallback (kept for backward compat)
+            bids = ob.get("bids", ob.get("bid", []))
+            asks = ob.get("asks", ob.get("ask", []))
         if bids and asks:
             best_bid = safe_float(bids[0][0] if isinstance(bids[0], list)
-                                  else bids[0].get("price", 0))
+                                  else bids[0].get("price", 0)
+                                  if isinstance(bids[0], dict)
+                                  else 0)
             best_ask = safe_float(asks[0][0] if isinstance(asks[0], list)
-                                  else asks[0].get("price", 0))
+                                  else asks[0].get("price", 0)
+                                  if isinstance(asks[0], dict)
+                                  else 0)
             if best_bid > 0 and best_ask > 0:
                 mid = (best_bid + best_ask) / 2
                 spread_pct = (best_ask - best_bid) / mid
