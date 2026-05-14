@@ -220,7 +220,11 @@ exit:
     phase1:
       enabled: true
       max_loss_pct: 20.0
-      retrace_threshold: 8
+      # 2026-05-14 HYPE +12.8% post-mortem: retrace_threshold 8 still tight
+      # enough to fire on normal pullbacks within strong trends. Raised to
+      # 12 (proportional to Cheetah/Scorpion's 6→10 bump) so Condor's
+      # "one amazing trade per day" doesn't get prematurely exited.
+      retrace_threshold: 12
       consecutive_breaches_required: 1
     phase2:
       enabled: true

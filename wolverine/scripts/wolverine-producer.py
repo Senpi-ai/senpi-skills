@@ -406,10 +406,20 @@ def build_hype_thesis():
 
     direction = "LONG" if trend_4h == "BULLISH" else "SHORT"
 
-    # GATE 3: 1h matches 4h
+    # GATE 3: 1h aligns with 4h (relaxed 2026-05-14)
+    # Original gate required strict equality: trend_1h == trend_4h. That
+    # blocks the common "pullback within trend" pattern where 4h is bullish
+    # but 1h has dipped briefly bearish/neutral inside an established uptrend.
+    # On HYPE specifically, 4h cadence is slower than 1h volatility, so
+    # strict alignment misses clean breakout entries. 2026-05-14 HYPE
+    # +12.8% post-mortem: gate blocked Wolverine all day on this exact
+    # mismatch. Relaxed to: 1h must NOT actively oppose 4h. NEUTRAL 1h
+    # passes (pullback-within-trend is allowed); only an actively
+    # OPPOSITE 1h blocks (genuine timeframe disagreement).
     trend_1h, _ = trend_structure(candles_1h)
-    if trend_1h != trend_4h:
-        return {"blocked": True, "reason": f"1h_{trend_1h}_vs_4h_{trend_4h}"}
+    opposite = {"BULLISH": "BEARISH", "BEARISH": "BULLISH"}
+    if trend_1h == opposite.get(trend_4h):
+        return {"blocked": True, "reason": f"1h_{trend_1h}_vs_4h_{trend_4h}_OPPOSITE"}
 
     # GATE 4: 15m momentum confirms
     mom_5m = price_momentum(candles_5m, 1)

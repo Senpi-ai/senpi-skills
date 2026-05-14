@@ -240,7 +240,12 @@ exit:
     phase1:
       enabled: true
       max_loss_pct: 15.0
-      retrace_threshold: 6
+      # 2026-05-14 HYPE +12.8% post-mortem: retrace_threshold 6 was firing
+      # on normal 2-3% pullbacks within strong trends, exiting at break-even
+      # before T0 ratchet engaged. Raised to 10 to allow more breathing room
+      # on volatile assets while preserving the catastrophic-loss protection
+      # of max_loss_pct.
+      retrace_threshold: 10
       consecutive_breaches_required: 1
     phase2:
       enabled: true

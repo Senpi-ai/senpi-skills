@@ -48,6 +48,10 @@ MARGIN_PCT = 0.30
 MIN_SCORE = 9
 XYZ_BANNED = False
 MACRO_GATE_BTC_4H_PCT = 3.0
+# 2026-05-14 HYPE +12.8% post-mortem: block fades when the asset itself is
+# in a strong directional run (4h ≥ 5%) AND the crowd is correctly riding
+# that direction. That's real trend, not exhaustion — fading loses.
+PER_ASSET_GATE_4H_PCT = 5.0
 
 LEVERAGE_TIERS = [
     {"min_score": 13, "leverage": 10},
@@ -154,6 +158,17 @@ def evaluate_fade(asset, sm, btc_4h):
     if not sm.get("is_xyz", False):
         if abs(btc_4h) > MACRO_GATE_BTC_4H_PCT:
             return None  # don't fade during BTC trending regime
+
+    # PER_ASSET_TREND_GATE (applies to crypto + XYZ)
+    # 2026-05-14 HYPE +12.8% post-mortem: Lemon shorted HYPE twice during
+    # the rally because MACRO_TREND_GATE only checks BTC. When a single
+    # asset itself is in a strong directional move ≥ 5% over 4h AND the
+    # SM crowd is correctly riding that move, the fade thesis fails —
+    # that's real trend, not exhaustion. Block these explicitly.
+    if sm_direction == "LONG" and p4h > PER_ASSET_GATE_4H_PCT:
+        return None  # asset rallying hard, crowd correctly long, don't fade
+    if sm_direction == "SHORT" and p4h < -PER_ASSET_GATE_4H_PCT:
+        return None  # asset dumping hard, crowd correctly short, don't fade
 
     score = 0
     reasons = []
