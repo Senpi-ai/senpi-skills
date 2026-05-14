@@ -10,9 +10,9 @@ description: >
 
 strategy:
   wallet: "${TURBINE_VOLUME_WALLET}"
-  budget: 4000
+  budget: 5400
   slots: 7
-  margin_per_slot: 500
+  margin_per_slot: 700
   trading_risk: aggressive
   default_leverage: 5
   enabled: true

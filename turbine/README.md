@@ -8,26 +8,28 @@ Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 Turbine is the fleet's volume-engine / market-making specialist. ONE producer daemon manages TWO Senpi strategy wallets that both receive the SAME volume-rotation alpha — same scoring, same asset universe, same funding-fade direction — but each wallet runs a different DSL exit profile, so the same signal stream gets two different patience levels:
 
-- **Volume wallet** ($4,000): hard_timeout 10 min, no Phase 2 — pure rotation cadence, the cheapest possible way to print $5M+/day of taker volume into HL.
-- **Runners wallet** ($1,900): hard_timeout 240 min (4h cap), Phase 2 ratchet enabled — let winners run.
+- **Volume wallet** ($5,400 — $4,900 active + $500 buffer): hard_timeout 10 min, no Phase 2 — pure rotation cadence, the cheapest possible way to print $3-4M/day of maker-first volume into HL.
+- **Runners wallet** ($2,600 — full active, $0 buffer): hard_timeout 240 min (4h cap), Phase 2 ratchet enabled — let winners run.
 
-Most positions on either wallet exit at small loss/win. ~5% of entries land on a real directional move and ratchet to apex on the runners wallet — that asymmetry is the alpha earlier versions were leaving on the table by force-cutting at 10 min. The economic mission is volume-cost minimization: builder-fee recycling means net wallet bleed ≈ mission cost rate (<$100/$1M target), and the volume wallet is designed to be topped up daily as it auto-downsizes.
+Most positions on either wallet exit at small loss/win. ~5% of entries land on a real directional move and ratchet to apex on the runners wallet — that asymmetry is the alpha earlier versions were leaving on the table by force-cutting at 10 min. The economic mission is volume-cost minimization: builder-fee recycling means net wallet bleed ≈ mission cost rate (~$150/$1M target, empirically verified at $2M/day over 3 consecutive days), and the volume wallet is designed to be topped up daily as it auto-downsizes.
 
 ## Key parameters
 
 | Parameter | Value |
 |---|---|
-| Asset universe | BTC / ETH / SOL / HYPE + xyz:BRENTOIL / GOLD / SPX |
+| Asset universe | BTC / ETH / SOL / HYPE + xyz:BRENTOIL / GOLD / SPX (7 high-liquidity, tight-spread only) |
 | Tick interval | Continuous (long-lived daemon; volume cycle 10 min) |
 | Slots | 9 total (7 volume + 2 runners) |
-| Volume wallet funding | $4,000 |
-| Runners wallet funding | $1,900 |
+| Volume wallet funding | $5,400 ($4,900 active + $500 buffer) |
+| Runners wallet funding | $2,600 (full active, $0 buffer) |
+| Volume margin/slot | $700 → $3,500 notional per trade at 5x leverage |
+| Runners margin/slot | $1,300 → $6,500 notional per trade at 5x leverage |
 | Volume DSL | hard_timeout 10 min, no Phase 2 |
 | Runners DSL | hard_timeout 240 min (4h), Phase 2 ratchet enabled |
 | Entry order type | FEE_OPTIMIZED_LIMIT |
 | Exit order type | FEE_OPTIMIZED_LIMIT |
-| Daily volume target | $5M+ |
-| Net cost target | <$100 per $1M volume |
+| Daily volume target | $3-4M/day (scaled from v3.2's $2M/day verified baseline) |
+| Net cost target | ~$150 per $1M volume (empirically verified) |
 
 See [SKILL.md](SKILL.md) for the full architecture, scoring, DSL presets, and risk-gate breakdown.
 
@@ -85,10 +87,10 @@ Create TWO new Senpi strategy wallets:
 
 | Wallet | Purpose | Funding |
 |---|---|---|
-| `<volume-wallet>` | Volume rotation (fast DSL) | **$4,000** USDC on HL perps |
-| `<runners-wallet>` | Volume rotation (patient DSL) | **$1,900** USDC on HL perps |
+| `<volume-wallet>` | Volume rotation (fast DSL) | **$5,400** USDC on HL perps |
+| `<runners-wallet>` | Volume rotation (patient DSL) | **$2,600** USDC on HL perps |
 
-**Total: $5,900.** If you want a pure volume engine without runners, provision only the volume wallet and leave runners unset.
+**Total: $8,000.** If you want a pure volume engine without runners, provision only the volume wallet and leave runners unset.
 
 ---
 
@@ -200,8 +202,8 @@ unset TURBINE_HUNT_DECISION_MODEL
 
 | Wallet | Amount |
 |---|---|
-| Volume | **$4,000** USDC on HL perps |
-| Runners | **$1,900** USDC on HL perps |
+| Volume | **$5,400** USDC on HL perps |
+| Runners | **$2,600** USDC on HL perps |
 
 ### Step 6 — Install BOTH runtimes
 
@@ -261,26 +263,27 @@ tail -50 /tmp/turbine-producer.log | grep -v '"event"' | jq '
 ```
 
 Expected first 5 minutes:
-- `volume.account_value` ≈ $4,000
+- `volume.account_value` ≈ $5,400
 - `volume.slots_held` climbing toward 7
 - `volume.slots_effective` = 7 (auto-downsize hasn't kicked in yet)
-- `runners.account_value` ≈ $1,900
+- `runners.account_value` ≈ $2,600
 - `runners.slots_held` climbing toward 2
 - `runners.slots_effective` = 2
 - `current_cycle_min == 10`
 
 ## Operating the volume wallet bleed
 
-The volume wallet bleeds at the cost-of-volume rate. At mission target ($100/$1M × $5M/day = ~$500/day), the wallet drops below the 7-slot threshold ($3,500) within ~24 hours. The producer auto-downsizes gracefully:
+The volume wallet bleeds at the cost-of-volume rate. At mission target (~$150/$1M × $3-4M/day = ~$450-$600/day), the wallet drops below the 7-slot threshold within ~24 hours. The producer auto-downsizes gracefully:
 
 | `volume.account_value` | `volume.slots_effective` |
 |---|---|
-| ≥ $3,500 | 7 |
-| $3,000-$3,499 | 6 |
-| $2,500-$2,999 | 5 |
-| $2,000-$2,499 | 4 |
+| ≥ $4,900 | 7 |
+| $4,200-$4,899 | 6 |
+| $3,500-$4,199 | 5 |
+| $2,800-$3,499 | 4 |
+| < $2,800 | 3 or fewer |
 
-Top up the volume wallet daily-to-weekly to keep 7 slots active. Senpi-side rebates flow separately — they don't refund into the wallet.
+Top up the volume wallet daily to keep 7 slots active. Senpi-side rebates flow separately — they don't refund into the wallet.
 
 ## What NOT to do
 
@@ -296,13 +299,36 @@ Top up the volume wallet daily-to-weekly to keep 7 slots active. Senpi-side reba
 |---|---|---|
 | Producer exits with `TURBINE_VOLUME_WALLET not set` | Env var missing | Export `TURBINE_VOLUME_WALLET` (NOT `TURBINE_WALLET`) |
 | Volume wallet's `slots_effective` drops over time | Cost-of-volume bleed (expected) | Top up volume wallet |
+| **`slots_effective` collapses from 7 to 1-2 in hours, not days** | **DSL exit engine is down — positions miss their 10-min hard cuts, available margin drains** | **Verify both runtimes are healthy: `curl -s http://127.0.0.1:8787/state`. If a runtime is unregistered or dead, positions stack up and starve slot capacity. Re-register the runtime BEFORE topping up the wallet.** |
+| Stale ALO orders persist after restart | Orphaned limit orders from prior daemon — the v3.2.1 sweep clears them but only on next tick | After ANY runtime swap / daemon restart, run `strategy_get_open_orders` on both wallets; cancel any non-reduce-only ALO orders older than 10 min before relaunching the daemon |
 | `push_signal rejected ... NOT_FOUND` | Runtime not registered to that wallet | `openclaw senpi runtime list`; confirm scanner names match |
 | `runtime for wallet X already running` on install | Both YAMLs pointing at same wallet | Confirm volume + runners env vars are different |
 | Volume slots never fill past 3-4 | Spread gates too tight, fill rate low | Check `current_cycle_min`; check per-asset spread distribution |
 
+### Restart procedure (always do this on daemon restart)
+
+Operator learning from v3.2 prod operation: any runtime swap or daemon restart can leave behind orphaned resting ALO orders that the new daemon doesn't own but that count against held-slot accounting. Always run this BEFORE relaunching the daemon:
+
+```bash
+# 1. Verify both runtimes are alive and registered
+curl -s http://127.0.0.1:8787/state | jq '.data.runtimes[].name'
+
+# 2. Cancel any stale (>10min) ALO orders on both wallets
+#    Use strategy_get_open_orders → cancel_order on each non-reduce-only entry
+#    older than 10 min on both volume and runners wallets
+
+# 3. Confirm clean state
+#    strategy_get_open_orders should show only fresh orders (<10min)
+#    or empty arrays after step 2
+
+# 4. NOW launch the daemon
+bash run-producer.sh
+```
+
 ## Changelog
 
-- **v3.2** — Runners wallet redesigned: gets the SAME volume-rotation alpha as the volume wallet, just with a patient DSL profile (4h cap, Phase 2 ratchet). Replaces v3.1's HYPE-only hunt specialist, which fired only 1-3 times/day and left the second wallet idle ~90% of the time. Mission targets bumped: $5M+/day volume, <$100 per $1M cost, 9 total slots (7 volume + 2 runners), 10-min volume cycle, $5,900 total funding.
+- **v3.3** — Budget upgrade for $3-4M/day volume target. Volume wallet $4,000 → $5,400 (margin/slot $500 → $700). Runners wallet $1,900 → $2,600 (margin/slot $950 → $1,300). Total $8,000. Maintains the verified <$150/$1M cost efficiency by doubling notional size on the same 7-asset universe instead of expanding into lower-tier coins. Auto-downsize thresholds updated. Two new troubleshooting entries documenting v3.2 prod learnings: DSL-exit-down → slot starvation, and orphaned ALO order restart hygiene.
+- **v3.2** — Runners wallet redesigned: gets the SAME volume-rotation alpha as the volume wallet, just with a patient DSL profile (4h cap, Phase 2 ratchet). Replaces v3.1's HYPE-only hunt specialist, which fired only 1-3 times/day and left the second wallet idle ~90% of the time. Mission targets: $2M/day volume verified at <$150/$1M cost over 3 consecutive days, 9 total slots (7 volume + 2 runners), 10-min volume cycle, $5,900 total funding.
 - **v3.1** — Added "hunt" mode on a second wallet (HYPE-only 4H breakout, score ≥ 10). Deprecated in v3.2.
 - **v3.0** — Two-wallet architecture introduced.
 - **v2.0.x** — Single-wallet volume engine; ~$2-3M/day, $200 per $1M cost.
