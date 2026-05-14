@@ -251,7 +251,10 @@ class RelaunchDaemonTests(unittest.TestCase):
             popen_factory=factory,
         )
         self.assertEqual(result["outcome"], manage.RELAUNCH_SCRIPT_MISSING)
-        self.assertIn("not found", result["error"])
+        # Error mentions both that we tried + what we tried — exact wording
+        # may evolve (today: "argv[0] is not a regular file on disk: …"),
+        # so match the path rather than a brittle substring.
+        self.assertIn("/no/such/script.py", result["error"])
 
     def test_relaunch_empty_argv_fails(self) -> None:
         factory, _ = self._make_fake_popen()
@@ -506,6 +509,51 @@ class RelaunchNormalizationTests(unittest.TestCase):
         self.assertFalse(result["argv_normalized"])
         self.assertEqual(captured["argv"], modern_argv)
         self.assertEqual(result["argv_used"], modern_argv)
+
+    def test_relaunch_empty_argv0_returns_script_missing(self) -> None:
+        """Adversarial: argv = [""] (empty string).
+
+        Before garg-prashant's cwd-resolution fix, `os.path.exists("")`
+        returned False ⇒ RELAUNCH_SCRIPT_MISSING. My fix joined "" against
+        cwd, which yields the cwd itself (a directory that exists). The
+        existence check passed despite argv[0] being garbage. Now we
+        require argv[0] to resolve to a FILE, not just a path that exists.
+
+        Caught while doing the adversarial review of commit e0fd059."""
+        factory, _ = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=[""],
+            cwd=self.tmp_cwd_for_tests if hasattr(self, "tmp_cwd_for_tests") else None,
+            log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(
+            result["outcome"], manage.RELAUNCH_SCRIPT_MISSING,
+            "empty argv[0] must fail the existence check, not pass via cwd",
+        )
+
+    def test_relaunch_argv0_pointing_at_a_directory_fails(self) -> None:
+        """Adversarial: argv[0] = a directory path (a real path that
+        exists, but isn't an executable file).
+
+        `os.path.exists()` returns True for directories. Popen would fail
+        on exec, but the helper's pre-check should refuse before Popen so
+        the operator gets a clearer error."""
+        import tempfile
+        dir_path = tempfile.mkdtemp(prefix="argv0-is-dir-")
+        try:
+            factory, _ = self._make_fake_popen()
+            result = manage.relaunch_daemon(
+                argv=[dir_path], cwd=None, log_path=self.log,
+                popen_factory=factory,
+            )
+            self.assertEqual(
+                result["outcome"], manage.RELAUNCH_SCRIPT_MISSING,
+                "argv[0] pointing at a directory must not pass the file check",
+            )
+        finally:
+            import shutil
+            shutil.rmtree(dir_path, ignore_errors=True)
 
     def test_relaunch_with_relative_argv0_resolves_against_cwd(self) -> None:
         """Schema-1 boot.json can record argv = ['./producer.py'] when the

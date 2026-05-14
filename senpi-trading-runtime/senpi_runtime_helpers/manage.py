@@ -272,12 +272,22 @@ def relaunch_daemon(
     # path like `./producer.py` is valid relative to it even though it
     # wouldn't exist relative to the CLI's current cwd. Falling back to
     # os.getcwd() preserves the old behavior when cwd is None.
+    #
+    # We require argv[0] to resolve to a REGULAR FILE, not just any
+    # existing path: an empty argv[0] would join with cwd to point at
+    # the cwd directory itself (which exists), and `argv[0]=/tmp` would
+    # likewise pass an `os.path.exists` check. Popen would fail on those
+    # at exec time, but with a less helpful error than ours.
     argv0 = argv[0]
+    if not argv0:
+        return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
+                "error": "argv[0] is empty",
+                "argv_normalized": False, "argv_used": list(argv)}
     if not os.path.isabs(argv0):
         argv0 = os.path.normpath(os.path.join(cwd or os.getcwd(), argv0))
-    if not os.path.exists(argv0):
+    if not os.path.isfile(argv0):
         return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
-                "error": f"argv[0] not found on disk: {argv0}",
+                "error": f"argv[0] is not a regular file on disk: {argv0}",
                 "argv_normalized": False, "argv_used": list(argv)}
 
     normalized_argv, was_normalized = _normalize_argv(argv)
