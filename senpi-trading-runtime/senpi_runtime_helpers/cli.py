@@ -567,6 +567,15 @@ def cmd_logs(args: argparse.Namespace) -> int:
     if name is None:
         return LOGS_NOT_FOUND
 
+    # Validate --lines BEFORE doing any work: argparse accepts negative
+    # integers as type=int, and `deque(maxlen=-1)` raises ValueError →
+    # uncaught traceback to the operator. Clamp / reject explicitly.
+    if not args.follow and args.lines < 0:
+        sys.stderr.write(
+            f"senpi-helpers: --lines must be >= 0 (got {args.lines}).\n"
+        )
+        return LOGS_NO_LOG
+
     # Reuse the same fallback chain that restart/stats use. Suppress the
     # default-warning to stderr — for `logs`, the operator just wants the
     # log; if we end up at /tmp/<name>.log by default and it doesn't exist,

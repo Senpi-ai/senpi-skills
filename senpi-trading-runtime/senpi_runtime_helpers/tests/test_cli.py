@@ -1207,6 +1207,43 @@ class LogsSubcommandTests(CliFixtures):
         self.assertEqual(rc, 0)
         self.assertEqual(out, "only-line")
 
+    def test_logs_negative_lines_rejected_cleanly(self) -> None:
+        """argparse accepts negative integers as type=int. `deque(maxlen=-1)`
+        would raise ValueError → uncaught traceback to the operator.
+        cmd_logs must validate the value and emit a clean error."""
+        log_path = os.path.join(self.tmp, "neg.log")
+        with open(log_path, "w") as f:
+            f.write("line\n")
+        self._seed_boot_with_log("neg-lines", log_path)
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["logs", "neg-lines", "-n", "-5"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        # Either non-zero exit (graceful error) or zero (clamped to 0 with
+        # a warning). Critical: NO unhandled exception, NO crash.
+        self.assertNotEqual(rc, None)
+        # Error should mention the bad value explicitly.
+        self.assertTrue(
+            "lines" in err.lower() or "negative" in err.lower(),
+            f"expected error about lines value; got: {err!r}",
+        )
+
+    def test_logs_zero_lines_prints_nothing(self) -> None:
+        """`--lines 0` is a degenerate but valid request: print no lines.
+        Should not crash."""
+        log_path = os.path.join(self.tmp, "zero.log")
+        with open(log_path, "w") as f:
+            f.write("hello\n" * 5)
+        self._seed_boot_with_log("zero-lines", log_path)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["logs", "zero-lines", "-n", "0"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(buf.getvalue(), "")
+
     def test_logs_missing_file_returns_no_log(self) -> None:
         # boot.json points at a path that doesn't exist on disk.
         self._seed_boot_with_log("missing", "/tmp/does-not-exist-XYZ.log")
