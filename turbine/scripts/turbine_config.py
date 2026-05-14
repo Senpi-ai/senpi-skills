@@ -13,12 +13,12 @@ volume rotation alpha. The wallet boundary just selects DSL
 behavior:
 
   Wallet A (volume):  own runtime turbine-volume-tracker
-                      $4,000 funded ($500 × 7 slots + $500 buffer)
+                      $5,400 funded ($700 × 7 slots + $500 buffer)
                       DSL: hard_timeout 10min, no Phase 2.
                       Pure rotation.
 
   Wallet B (runners): own runtime turbine-runners-tracker
-                      $1,900 funded ($950 × 2 slots)
+                      $2,600 funded ($1,300 × 2 slots, $0 buffer)
                       DSL: hard_timeout 240min (4h cap),
                       Phase 2 ratchet enabled.
                       SAME entries as volume; lets winners ride.

@@ -1,7 +1,7 @@
 ---
 name: turbine-strategy
 description: >-
-  TURBINE v3.2 — Volume rotation on TWO wallets, ONE producer daemon.
+  TURBINE v3.3 — Volume rotation on TWO wallets, ONE producer daemon.
   Both wallets receive the same volume-rotation alpha (same scoring,
   same asset universe, same funding-fade direction selection). The
   wallet boundary just selects DSL behavior: VOLUME wallet's runtime
@@ -10,11 +10,14 @@ description: >-
   enabled (let winners run). Most positions exit at small loss/win
   on either wallet; ~5% land on a real directional move and ratchet
   to apex on the runners wallet — that asymmetry is the alpha v3.0/v3.1
-  was leaving on the table by force-cutting at 10 min.
+  was leaving on the table by force-cutting at 10 min. v3.3 doubles
+  margin/slot to scale from v3.2's verified $2M/day to a $3-4M/day
+  target while preserving the <$150/$1M cost efficiency on the same
+  7-asset tight-spread universe.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.2.2"
+  version: "3.3.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -22,9 +25,31 @@ metadata:
     - senpi_runtime_helpers
 ---
 
-# 🌪️ TURBINE v3.2 — Volume Rotation + Runners
+# 🌪️ TURBINE v3.3 — Volume Rotation + Runners
 
 **Run the volume play. Let winners run.**
+
+## What changed in v3.3 vs v3.2.2 (2026-05-14)
+
+**Budget upgrade for $3-4M/day target.** v3.2 was empirically verified at $2M/day over 3 consecutive days at <$150/$1M cost. To double volume without expanding the asset universe (which would force lower-tier coins with wider spreads and break the cost efficiency), v3.3 doubles margin/slot on the same 7 high-liquidity assets.
+
+| Setting | v3.2 | v3.3 |
+|---|---|---|
+| Volume wallet budget | $4,000 | **$5,400** ($4,900 active + $500 buffer) |
+| Runners wallet budget | $1,900 | **$2,600** (full active, $0 buffer) |
+| Volume margin/slot | $500 | **$700** ($3,500 notional at 5x) |
+| Runners margin/slot | $950 | **$1,300** ($6,500 notional at 5x) |
+| Slots (volume / runners) | 7 / 2 | 7 / 2 (unchanged) |
+| Asset universe | BTC/ETH/SOL/HYPE + xyz:BRENTOIL/GOLD/SPX | Same (unchanged — would break cost target if expanded) |
+| Daily volume target | $2M (verified) | $3-4M (modeled) |
+| Cost target | <$150/$1M | <$150/$1M (preserved) |
+
+NO change to scoring, asset universe, DSL preset, risk gates, or producer code. Pure margin/budget scaling — every other knob preserved verbatim.
+
+**New documented learnings from v3.2 prod operation:**
+
+1. **DSL exit engine going offline causes slot starvation.** When runtimes die, the 10-min volume hard-cut stops firing, positions stay open past timeout, available margin drains → `slots_effective` collapses from 7 → 1-2. Symptom: rapid slot decay in hours, not days. Fix: re-register the dead runtime BEFORE topping up the wallet. Documented in README troubleshooting.
+2. **Orphaned ALO orders persist across daemon restarts.** Any runtime swap or daemon restart can leave non-reduce-only ALO orders resting on the books — the v3.2.1 sweep clears them on the next tick, but a clean restart procedure (cancel-stale → relaunch) is now standard. Documented in README "Restart procedure".
 
 ## What changed in v3.2.2 vs v3.2.1 (patch — 2026-05-09)
 

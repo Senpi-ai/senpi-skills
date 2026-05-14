@@ -28,9 +28,9 @@ description: >
 # ── STRATEGY ──
 strategy:
   wallet: "${TURBINE_RUNNERS_WALLET}"
-  budget: 1900
+  budget: 2600
   slots: 2
-  margin_per_slot: 950
+  margin_per_slot: 1300
   trading_risk: balanced
   default_leverage: 5
   enabled: true
