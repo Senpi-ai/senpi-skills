@@ -22,6 +22,7 @@ Design:
 # Source: https://github.com/Senpi-ai/senpi-skills
 
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -266,28 +267,43 @@ def relaunch_daemon(
                 "error": "argv is empty",
                 "argv_normalized": False, "argv_used": []}
 
-    # Existence check: argv[0] may be the script (schema 1) or the
-    # interpreter (schema 2). Resolve it against the daemon's recorded
-    # `cwd` BEFORE checking — Popen will run with that cwd, so a relative
-    # path like `./producer.py` is valid relative to it even though it
-    # wouldn't exist relative to the CLI's current cwd. Falling back to
-    # os.getcwd() preserves the old behavior when cwd is None.
+    # Existence check: argv[0] may be the script (schema 1), the
+    # interpreter (schema 2 with absolute path like /usr/bin/python3),
+    # or a bare executable name relying on $PATH (schema 2 written by a
+    # virtualenv host where sys.executable is just "python", or an
+    # operator-authored boot.json with argv=["python3", ...]).
     #
-    # We require argv[0] to resolve to a REGULAR FILE, not just any
-    # existing path: an empty argv[0] would join with cwd to point at
-    # the cwd directory itself (which exists), and `argv[0]=/tmp` would
-    # likewise pass an `os.path.exists` check. Popen would fail on those
-    # at exec time, but with a less helpful error than ours.
+    # Resolution rules:
+    #   - empty argv[0]              → SCRIPT_MISSING (Popen can't exec "")
+    #   - absolute path              → check os.path.isfile directly
+    #   - relative with a separator  → join against `cwd` (Popen's cwd), check
+    #   - bare name (no separator)   → shutil.which against $PATH
+    #
+    # We require argv[0] to resolve to a REGULAR FILE, not just any path
+    # that exists: empty argv[0] would join to `cwd` (a directory),
+    # `/tmp` would also pass `os.path.exists`. Popen fails on those at
+    # exec, but with a less helpful error than ours.
     argv0 = argv[0]
     if not argv0:
         return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
                 "error": "argv[0] is empty",
                 "argv_normalized": False, "argv_used": list(argv)}
-    if not os.path.isabs(argv0):
-        argv0 = os.path.normpath(os.path.join(cwd or os.getcwd(), argv0))
-    if not os.path.isfile(argv0):
+    if os.path.isabs(argv0):
+        argv0_resolved = argv0
+    elif os.sep in argv0 or (os.altsep and os.altsep in argv0):
+        # Has a path separator → operator meant a relative path. Join with cwd.
+        argv0_resolved = os.path.normpath(os.path.join(cwd or os.getcwd(), argv0))
+    else:
+        # No path separator → bare name. Honor $PATH the way Popen does.
+        which_result = shutil.which(argv0)
+        if which_result is None:
+            return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
+                    "error": f"argv[0] {argv0!r} not found on $PATH",
+                    "argv_normalized": False, "argv_used": list(argv)}
+        argv0_resolved = which_result
+    if not os.path.isfile(argv0_resolved):
         return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
-                "error": f"argv[0] is not a regular file on disk: {argv0}",
+                "error": f"argv[0] is not a regular file on disk: {argv0_resolved}",
                 "argv_normalized": False, "argv_used": list(argv)}
 
     normalized_argv, was_normalized = _normalize_argv(argv)

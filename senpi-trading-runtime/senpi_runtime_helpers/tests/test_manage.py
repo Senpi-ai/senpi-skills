@@ -510,6 +510,52 @@ class RelaunchNormalizationTests(unittest.TestCase):
         self.assertEqual(captured["argv"], modern_argv)
         self.assertEqual(result["argv_used"], modern_argv)
 
+    def test_relaunch_bare_name_argv0_resolved_via_path(self) -> None:
+        """Adversarial: argv[0] is a bare executable name (no path
+        separator) that exists on $PATH. Popen would resolve it via $PATH;
+        the existence check must do the same instead of joining it with
+        cwd and failing.
+
+        Pre-fix: os.path.join(cwd, 'python3') → '/data/python3' →
+        os.path.isfile false → RELAUNCH_SCRIPT_MISSING (FALSE NEGATIVE).
+        Caught by external reviewer on PR #279.
+        """
+        # Use 'python3' — guaranteed on every CI host and on production.
+        # If shutil.which can't find it, the test environment is broken in
+        # a way no fix here addresses; skip gracefully.
+        import shutil
+        if shutil.which("python3") is None:
+            self.skipTest("python3 not on $PATH in this test environment")
+
+        factory, captured = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=["python3", "-u", self.script],
+            cwd=None,  # cwd doesn't matter; resolution is via $PATH
+            log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(
+            result["outcome"], manage.RELAUNCH_OK,
+            f"bare-name argv[0] on $PATH must NOT fail existence check; "
+            f"got: {result}",
+        )
+        # Popen was called with the original argv unchanged — we don't
+        # rewrite to the resolved path because Popen handles that itself.
+        self.assertEqual(captured["argv"][0], "python3")
+
+    def test_relaunch_bare_name_argv0_not_on_path_fails(self) -> None:
+        """Adversarial: argv[0] is a bare name that's NOT on $PATH.
+        Should fail with a clear $PATH error message — distinct from the
+        'not a regular file' message for path-shaped argv[0]."""
+        factory, _ = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=["definitely-not-on-path-XYZQ"],
+            cwd=None, log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_SCRIPT_MISSING)
+        self.assertIn("$PATH", result["error"])
+
     def test_relaunch_empty_argv0_returns_script_missing(self) -> None:
         """Adversarial: argv = [""] (empty string).
 
