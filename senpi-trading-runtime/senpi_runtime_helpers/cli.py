@@ -379,6 +379,67 @@ def _print_health_summary(payload: Dict[str, Any]) -> None:
         print(f"last error:     {err[:200]}{'…' if len(err) > 200 else ''}")
 
 
+# ─── Subcommand: boot ───────────────────────────────────────────────────────
+#
+# Pure reader over boot.json. Operators / agents previously had to `cat`
+# the file directly on the box; surfaces argv, script_path, cwd, env
+# snapshot, and (schema 2+) log_path.
+
+BOOT_OK = 0
+BOOT_NOT_FOUND = 2
+
+
+def _print_boot_summary(boot_data: Dict[str, Any]) -> None:
+    """Human-readable single-block summary of boot.json."""
+    name = boot_data.get("name") or "-"
+    schema = boot_data.get("schema")
+    captured_at = boot_data.get("captured_at_iso") or "-"
+    script_path = boot_data.get("script_path") or "-"
+    cwd = boot_data.get("cwd") or "-"
+    log_path = boot_data.get("log_path") or "-"
+    argv = boot_data.get("argv") or []
+
+    print(f"name:           {name}")
+    print(f"schema:         {schema}")
+    print(f"captured at:    {captured_at}")
+    print(f"script path:    {script_path}")
+    print(f"cwd:            {cwd}")
+    print(f"log path:       {log_path}")
+    print(f"argv:           {' '.join(str(a) for a in argv)}")
+    env_snapshot = boot_data.get("env_snapshot") or {}
+    if env_snapshot:
+        print(f"env_snapshot ({len(env_snapshot)} keys):")
+        for k in sorted(env_snapshot):
+            v = str(env_snapshot[k])
+            # Truncate long values (e.g. wallet addresses are fine; URLs / paths
+            # get long). 60 chars + ellipsis keeps the column readable.
+            if len(v) > 60:
+                v = v[:60] + "…"
+            print(f"  {k:<28}  {v}")
+    else:
+        print("env_snapshot:   (empty)")
+
+
+def cmd_boot(args: argparse.Namespace) -> int:
+    name = _resolve_name_readonly(args)
+    if name is None:
+        return BOOT_NOT_FOUND
+    boot_data = _state.read_boot(name, state_dir=args.state_dir)
+    if boot_data is None:
+        sys.stderr.write(
+            f"senpi-helpers: no boot.json for '{name}' in "
+            f"{_state.get_state_dir(args.state_dir)}.\n"
+            f"The daemon has never started under the helper. "
+            f"Use `senpi-helpers list` to see what IS registered.\n"
+        )
+        return BOOT_NOT_FOUND
+    if args.json:
+        print(json.dumps(boot_data, indent=2, default=str))
+    else:
+        _print_boot_summary(boot_data)
+    return BOOT_OK
+
+
 # ─── Subcommand: stats ──────────────────────────────────────────────────────
 
 STATS_OK = 0
@@ -1043,6 +1104,23 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     health_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
     health_p.set_defaults(func=cmd_health)
+
+    # boot
+    boot_p = sub.add_parser(
+        "boot",
+        help="Show the daemon's recorded boot.json (argv, script, env_snapshot, log_path).",
+        description=(
+            "Pretty-print boot.json for the named daemon. Useful for verifying "
+            "the relaunch payload `restart`/`start` will use, including the "
+            "captured wallet / decision-model env vars and the script path."
+        ),
+    )
+    boot_p.add_argument(
+        "name", nargs="?", default=None,
+        help="Daemon name. Optional on single-daemon hosts.",
+    )
+    boot_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
+    boot_p.set_defaults(func=cmd_boot)
 
     # stats
     stats_p = sub.add_parser(

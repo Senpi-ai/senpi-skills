@@ -1061,5 +1061,85 @@ class FormattingTests(unittest.TestCase):
         self.assertEqual(age, 0)
 
 
+# ─── cmd_boot ───────────────────────────────────────────────────────────────
+
+
+class BootSubcommandTests(CliFixtures):
+    """`senpi-helpers boot <name>` is a pure reader over boot.json.
+    Verifies the JSON pass-through path, the human renderer, and the
+    not-found error case."""
+
+    def _write_boot(self, name: str, payload: dict) -> None:
+        d = os.path.join(self.tmp, name)
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "boot.json"), "w") as f:
+            json.dump(payload, f)
+
+    def test_boot_emits_json_passthrough(self) -> None:
+        payload = {
+            "schema": 2, "name": "svc",
+            "argv": ["/usr/bin/python3", "-u", "/data/scripts/svc.py"],
+            "script_path": "/data/scripts/svc.py", "cwd": "/data",
+            "env_snapshot": {"WALLET_ADDRESS": "0xabc"},
+            "log_path": "/tmp/svc.log",
+            "captured_at_iso": "2026-05-12T08:00:00.000Z",
+        }
+        self._write_boot("svc", payload)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["boot", "svc", "--json"])
+        self.assertEqual(rc, 0)
+        doc = json.loads(buf.getvalue())
+        self.assertEqual(doc, payload)
+
+    def test_boot_human_output_includes_key_fields(self) -> None:
+        self._write_boot("svc", {
+            "schema": 2, "name": "svc",
+            "argv": ["/usr/bin/python3", "/data/scripts/svc.py"],
+            "script_path": "/data/scripts/svc.py", "cwd": "/data",
+            "env_snapshot": {"WALLET_ADDRESS": "0xabc"},
+            "log_path": "/tmp/svc.log",
+            "captured_at_iso": "2026-05-12T08:00:00.000Z",
+        })
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["boot", "svc"])
+        out = buf.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("svc", out)
+        self.assertIn("/data/scripts/svc.py", out)
+        self.assertIn("/tmp/svc.log", out)
+        self.assertIn("WALLET_ADDRESS", out)
+        self.assertIn("0xabc", out)
+
+    def test_boot_truncates_long_env_values_in_human_output(self) -> None:
+        long_token = "x" * 200
+        self._write_boot("svc", {
+            "schema": 2, "name": "svc",
+            "argv": [], "script_path": "/x.py", "cwd": "/",
+            "env_snapshot": {"BIG_VAR": long_token},
+            "log_path": None, "captured_at_iso": "2026-05-12T08:00:00.000Z",
+        })
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            cli.main(["boot", "svc"])
+        out = buf.getvalue()
+        # First 60 chars of long_token should appear; the full 200-char value
+        # should NOT (truncated with ellipsis).
+        self.assertIn("x" * 60, out)
+        self.assertNotIn("x" * 200, out)
+
+    def test_boot_missing_returns_not_found(self) -> None:
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["boot", "ghost"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 2)
+        self.assertIn("no boot.json", err)
+
+
 if __name__ == "__main__":
     unittest.main()
