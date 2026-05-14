@@ -52,7 +52,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from ._logging import log_event
 
@@ -493,7 +493,7 @@ def _atomic_write(path: Path, payload: Dict[str, Any]) -> bool:
 
 # What schemas each file may legitimately have. Extend this set when bumping;
 # readers warn loudly on values outside it so future migrations are visible.
-_SUPPORTED_SCHEMAS: Dict[str, frozenset[int]] = {
+_SUPPORTED_SCHEMAS: Dict[str, FrozenSet[int]] = {
     "pid.json": frozenset({1, 2}),
     "boot.json": frozenset({1, 2}),
     "heartbeat.json": frozenset({1}),

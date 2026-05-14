@@ -1831,6 +1831,94 @@ class LogTailerStepTests(unittest.TestCase):
             self.assertEqual(action, "wait")
         tailer.close()
 
+    def test_open_failure_after_stat_succeeds_returns_wait(self) -> None:
+        """Adversarial race: between os.stat (succeeds) and open() (raises),
+        the file is deleted or permissions yanked. step() must catch the
+        OSError, reset state, and return wait — NOT propagate."""
+        self._write("content\n")
+        tailer = cli._LogTailer(self.path)
+        tailer.step()  # first open establishes baseline; skips history
+
+        import builtins
+        real_open = builtins.open
+        real_stat = os.stat
+        try:
+            os.stat = lambda path: type("S", (), {
+                "st_ino": (tailer.inode or 0) + 1,  # forces inode-change branch
+                "st_size": 100,
+            })()
+
+            def raising_open(*args, **kwargs):
+                if args and args[0] == self.path:
+                    raise PermissionError("simulated race: file unreadable")
+                return real_open(*args, **kwargs)
+            builtins.open = raising_open
+
+            action, payload = tailer.step()
+        finally:
+            builtins.open = real_open
+            os.stat = real_stat
+
+        self.assertEqual(action, "wait")
+        self.assertIsNone(payload)
+        self.assertIsNone(tailer.fh, "fh must be None after open failure")
+        self.assertIsNone(tailer.inode, "inode must be reset for clean retry")
+        tailer.close()
+
+    def test_open_failure_then_next_step_does_not_crash_on_closed_fh(self) -> None:
+        """The exact bug Cursor Bugbot caught on commit 57fad61.
+
+        If reopen's open() raises after self.fh.close() succeeded, the
+        OLD self.fh attribute pointed at the now-closed handle. On the
+        next step() call — if the inode happened to match the old one —
+        the reopen branch was skipped, then self.fh.read() raised
+        ValueError ('I/O operation on closed file').
+
+        Verify the fix: after an open failure, the next normal step()
+        recovers cleanly without touching the closed handle.
+        """
+        self._write("initial\n")
+        tailer = cli._LogTailer(self.path)
+        tailer.step()  # first open
+        old_inode = tailer.inode
+
+        # Force an open failure by closing the file beneath us AND making
+        # open raise. We use the same monkeypatch trick as above to drive
+        # the reopen branch and force the failure deterministically.
+        import builtins
+        real_open = builtins.open
+        real_stat = os.stat
+        try:
+            # Inode reported by stat differs → forces reopen.
+            os.stat = lambda path: type("S", (), {
+                "st_ino": (old_inode or 0) + 1,
+                "st_size": 100,
+            })()
+
+            def raising_open(*args, **kwargs):
+                if args and args[0] == self.path:
+                    raise PermissionError("simulated")
+                return real_open(*args, **kwargs)
+            builtins.open = raising_open
+            tailer.step()  # open fails — fh and inode must reset
+        finally:
+            builtins.open = real_open
+            os.stat = real_stat
+
+        # Now the file is back; the next step must NOT touch a closed
+        # handle. Critical: even if inode happens to match, fh is None
+        # (the fix), so the reopen branch fires fresh.
+        self._write("recovered\n", append=True)
+        action, payload = tailer.step()  # must not raise
+        self.assertEqual(action, "output")
+        # The reopen reads from byte 0 (per the started-flag rule:
+        # only the very first open seeks to end). So we get the full
+        # file content. The CRITICAL assertion is "no exception thrown
+        # on closed-handle"; the exact payload is incidental but locked
+        # for regression visibility.
+        self.assertEqual(payload, "initial\nrecovered\n")
+        tailer.close()
+
     def test_started_flag_survives_multiple_disappearances(self) -> None:
         """A flapping log file (created → deleted → recreated → deleted →
         recreated …) must always read from byte 0 after the first open.

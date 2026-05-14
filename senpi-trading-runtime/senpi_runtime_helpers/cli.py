@@ -516,7 +516,21 @@ class _LogTailer:
         if self.inode != st.st_ino:
             if self.fh is not None:
                 self.fh.close()
-            self.fh = open(self.log_path, "r", errors="replace")
+                self.fh = None
+            # Race window: file passed our os.stat above, but could be
+            # deleted OR have its permissions changed before open() runs.
+            # If open raises, we MUST clear both self.fh and self.inode —
+            # otherwise self.fh stays as the now-closed old handle (that
+            # was already close()'d above). Next step would see "inode
+            # matches" (since we never updated self.inode), skip the
+            # reopen branch, then crash on self.fh.read() with
+            # "ValueError: I/O operation on closed file". Same recovery
+            # path as the FileNotFoundError-from-stat branch.
+            try:
+                self.fh = open(self.log_path, "r", errors="replace")
+            except OSError:
+                self.inode = None
+                return ("wait", None)
             if not self.started:
                 # Very first open of this tailer instance — skip history
                 # so `logs --follow` doesn't replay the entire log file.
