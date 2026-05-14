@@ -492,14 +492,21 @@ def _stream_log(log_path: str) -> None:
                 inode = None
                 time.sleep(poll)
                 continue
-            # Rotation detection: new inode → reopen at start.
+            # Rotation detection: new inode → reopen.
             if inode != st.st_ino:
+                # Capture whether this is the very first open BEFORE we
+                # reassign inode. First open skips history (we don't want
+                # to dump the entire historical log on `logs --follow`).
+                # Subsequent reopens (rotation OR reappearance) start from
+                # position 0 — otherwise we'd discard content already
+                # written to the rotated/new file by the time we noticed.
+                is_first_open = inode is None
                 if fh is not None:
                     fh.close()
                 fh = open(log_path, "r", errors="replace")
+                if is_first_open:
+                    fh.seek(0, os.SEEK_END)
                 inode = st.st_ino
-                # On first open, seek to end so we don't replay history.
-                fh.seek(0, os.SEEK_END)
                 pos = fh.tell()
             # Truncation detection: file size < our position.
             if st.st_size < pos:
