@@ -237,6 +237,15 @@ def producer_daemon(
         argv=list(sys.argv),
     )
 
+    # Ensure stderr/stdout point at a regular file BEFORE any state writes.
+    # When the daemon is launched by openclaw's `exec` tool (the production
+    # agent path), fd 2 is a pipe back to the agent — `detect_log_path`
+    # would return None and pid.json would never record where logs land.
+    # This fallback redirects to /tmp/<name>.log so the rest of the helpers
+    # toolchain (restart, stats) keeps working. No-op when the operator
+    # playbook already redirected (`nohup python3 -u script > log 2>&1`).
+    resolved_log_path = _state.ensure_daemon_stderr_redirected(name)
+
     # Self-describing state files for the senpi-helpers CLI. Written ONCE on
     # boot — heartbeat.json is rewritten after every tick below; pid.json is
     # cleared in the outer finally on clean exit. Lazy import of __version__
@@ -248,7 +257,7 @@ def producer_daemon(
         scanner=scanner,
         interval_seconds=interval_seconds,
         tick_timeout=tick_timeout,
-        log_path=_state.detect_log_path(),
+        log_path=resolved_log_path,
         version=_helpers_version,
         state_dir=state_dir,
     )

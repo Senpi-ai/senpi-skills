@@ -192,6 +192,60 @@ Exit codes:
 
 ---
 
+## `senpi-helpers start <name>`
+
+Launch a daemon as a detached process using argv + cwd recorded in
+`boot.json`. Idempotent — if a daemon with that name is already running
+(verified via the pid-recycle guard), reports it and exits 0 without
+spawning a duplicate.
+
+```bash
+senpi-helpers start [<name>] [--json]
+```
+
+| option   | default | notes                                       |
+|----------|---------|---------------------------------------------|
+| `--json` | off     | Emit a JSON result envelope.                |
+
+Outcomes:
+
+| outcome           | meaning                                                |
+|-------------------|--------------------------------------------------------|
+| `started`         | New daemon spawned; pid.json confirmed (or pending).   |
+| `already_running` | Daemon's recorded pid is alive AND fingerprints match. |
+
+Exit codes:
+
+| code | meaning                                                |
+|------|--------------------------------------------------------|
+| 0    | started or already_running                             |
+| 1    | start failed (script path missing, spawn failure)      |
+| 2    | no `boot.json` for the daemon — never launched         |
+
+**First-time launches** still require the manual playbook (the daemon has
+no `boot.json` until it writes one on its own startup). After that, every
+subsequent start / restart goes through this command.
+
+`start` shares the relaunch path with `restart`; the difference is that
+`start` doesn't run `stop` first. If the daemon is alive, `start` is a
+no-op. If it isn't, `start` is what `restart` would have done minus the
+stop half.
+
+### Pid-recycle guard
+
+`start` (and `stop`, `restart`, `health`, `list`) all use a recycle-safe
+liveness check: a daemon is considered alive only if the recorded pid
+exists AND `/proc/<pid>/cmdline` + `/proc/<pid>/stat` field 22 match the
+fingerprints `write_pid` captured at daemon launch. If the pid was
+recycled to an unrelated process, the helpers refuse to signal it.
+
+The fingerprints are pid.json schema 2 fields (`cmdline_fingerprint`,
+`start_time_jiffies`). Schema-1 pid.json files degrade to plain
+`os.kill(pid, 0)` liveness — same as before. Migration is one-shot per
+daemon on its next launch.
+
+---
+
 ## `senpi-helpers stop <name>`
 
 Stop a running daemon. SIGTERM first, poll for exit, escalate to SIGKILL on

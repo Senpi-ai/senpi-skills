@@ -664,7 +664,12 @@ class RestartSubcommandTests(CliFixtures):
         self.assertIn("no longer exists", err)
         self.assertEqual(len(self._relaunch_calls), 0)
 
-    def test_restart_no_log_path_fails(self) -> None:
+    def test_restart_no_log_path_uses_default_with_warning(self) -> None:
+        """When no log_path is recorded anywhere (legacy schema-1 boot.json,
+        no pid.json after clean stop, no SENPI_HELPERS_LOG_PATH), restart
+        now falls back to /tmp/<name>.log with a stderr warning instead of
+        bailing. Previously failed RC=1; today it succeeds so the new
+        daemon's write_boot can persist a canonical path for next time."""
         self._seed_full("no-log", include_log=False)
         old_stderr = sys.stderr
         sys.stderr = io.StringIO()
@@ -673,9 +678,11 @@ class RestartSubcommandTests(CliFixtures):
             err = sys.stderr.getvalue()
         finally:
             sys.stderr = old_stderr
-        self.assertEqual(rc, 1)
-        self.assertIn("log path", err.lower())
-        self.assertEqual(len(self._relaunch_calls), 0)
+        self.assertEqual(rc, 0)
+        self.assertIn("/tmp/no-log.log", err)
+        # One relaunch_daemon call (the restart succeeded by using the default).
+        self.assertEqual(len(self._relaunch_calls), 1)
+        self.assertEqual(self._relaunch_calls[0]["log_path"], "/tmp/no-log.log")
 
     def test_restart_relaunch_failure_surfaces(self) -> None:
         self._seed_full("svc")
@@ -705,6 +712,126 @@ class RestartSubcommandTests(CliFixtures):
         finally:
             sys.stderr = old_stderr
         self.assertEqual(rc, 2)
+
+
+# ─── cmd_start (new in this PR) ─────────────────────────────────────────────
+
+
+class StartSubcommandTests(RestartSubcommandTests):
+    """`start` shares the relaunch path with `restart`; the difference is
+    that start doesn't run stop_pid. Inheriting from RestartSubcommandTests
+    reuses the fake-relaunch fixture without duplicating it."""
+
+    def test_start_no_existing_pid_relaunches_cold(self) -> None:
+        """Cleanly-stopped daemon (no pid.json) — start launches it fresh."""
+        d = os.path.join(self.tmp, "cold")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "boot.json"), "w") as f:
+            json.dump({
+                "schema": 2, "name": "cold",
+                "argv": [sys.executable, "-u", self.script],
+                "script_path": self.script,
+                "cwd": "/tmp",
+                "env_snapshot": {},
+                "log_path": "/tmp/cold.log",
+                "captured_at_iso": "2026-05-12T08:00:00.000Z",
+            }, f)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["start", "cold", "--json"])
+        self.assertEqual(rc, 0)
+        doc = json.loads(buf.getvalue())
+        self.assertEqual(doc["outcome"], "started")
+        self.assertEqual(doc["new_pid"], 4242)
+        self.assertEqual(len(self._relaunch_calls), 1)
+        self.assertEqual(self._relaunch_calls[0]["log_path"], "/tmp/cold.log")
+
+    def test_start_idempotent_when_already_running(self) -> None:
+        """If pid is alive AND fingerprints match → skip the relaunch."""
+        # Use our own pid + matching fingerprints so _pid_alive_for_daemon
+        # returns True. On non-Linux fingerprints are None, which also passes.
+        d = os.path.join(self.tmp, "already-up")
+        os.makedirs(d, exist_ok=True)
+        own_pid = os.getpid()
+        from senpi_runtime_helpers import state as st_mod
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 2, "name": "already-up", "pid": own_pid,
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": None, "scanner": None,
+                "interval_seconds": 60.0, "tick_timeout": 60.0,
+                "log_path": "/tmp/already-up.log", "version": "0.0.0",
+                "cmdline_fingerprint": st_mod.cmdline_fingerprint_for_pid(own_pid),
+                "start_time_jiffies": st_mod.start_time_jiffies_for_pid(own_pid),
+            }, f)
+        with open(os.path.join(d, "boot.json"), "w") as f:
+            json.dump({
+                "schema": 2, "name": "already-up",
+                "argv": [sys.executable, "-u", self.script],
+                "script_path": self.script, "cwd": "/tmp",
+                "env_snapshot": {}, "log_path": "/tmp/already-up.log",
+                "captured_at_iso": "2026-05-12T08:00:00.000Z",
+            }, f)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = cli.main(["start", "already-up", "--json"])
+        self.assertEqual(rc, 0)
+        doc = json.loads(buf.getvalue())
+        self.assertEqual(doc["outcome"], "already_running")
+        # Crucially, NO relaunch call fired.
+        self.assertEqual(len(self._relaunch_calls), 0)
+
+    def test_start_missing_boot_fails(self) -> None:
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cli.main(["start", "ghost"])
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 2)
+        self.assertEqual(len(self._relaunch_calls), 0)
+
+
+# ─── pid-recycle guard at the CLI layer ─────────────────────────────────────
+
+
+class StopRecycleGuardTests(RestartSubcommandTests):
+    """When pid.json's fingerprints don't match /proc/<pid>'s, cmd_stop must
+    refuse to SIGTERM and clear the stale pid.json."""
+
+    def test_stop_refuses_when_fingerprint_mismatch(self) -> None:
+        """pid is alive (we use os.getpid()) but the recorded fingerprint
+        won't match — recycle guard kicks in, no signal sent."""
+        if not sys.platform.startswith("linux"):
+            self.skipTest("requires /proc to compute live fingerprints")
+        d = os.path.join(self.tmp, "stale")
+        os.makedirs(d, exist_ok=True)
+        own_pid = os.getpid()
+        # Write pid.json with the WRONG fingerprint.
+        with open(os.path.join(d, "pid.json"), "w") as f:
+            json.dump({
+                "schema": 2, "name": "stale", "pid": own_pid,
+                "start_time_iso": "2026-05-12T08:00:00.000Z",
+                "wallet": None, "scanner": None,
+                "interval_seconds": 60.0, "tick_timeout": 60.0,
+                "log_path": "/tmp/stale.log", "version": "0.0.0",
+                "cmdline_fingerprint": "0" * 64,  # impossible hash
+                "start_time_jiffies": None,
+            }, f)
+        # Capture stdout + stderr so the recycle-guard message is testable.
+        out = io.StringIO()
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            with redirect_stdout(out):
+                rc = cli.main(["stop", "stale"])
+            err = sys.stderr.getvalue()
+        finally:
+            sys.stderr = old_stderr
+        self.assertEqual(rc, 0)  # treated as success (already dead)
+        self.assertIn("recycle", err.lower())
+        # pid.json should have been cleared by the recycle-guard branch.
+        self.assertFalse(os.path.exists(os.path.join(d, "pid.json")))
 
 
 class HealthComputationTests(unittest.TestCase):

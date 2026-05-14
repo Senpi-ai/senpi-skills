@@ -247,13 +247,14 @@ class StopPidTargetingTests(unittest.TestCase):
             pid = 1
 
         orig_stop_pid = manage.stop_pid
-        orig_is_pid_alive = manage.is_pid_alive
+        orig_pid_alive_and_matches = st.pid_alive_and_matches
         orig_popen = subprocess.Popen
         orig_wait = cli._wait_for_new_pid_json
         try:
             manage.stop_pid = fake_stop
-            # Pretend the daemon pid is alive so cmd_restart calls stop.
-            manage.is_pid_alive = lambda p: p == daemon_pid
+            # cli now uses _pid_alive_for_daemon → state.pid_alive_and_matches.
+            # Force it to report alive for the daemon_pid (which is synthetic).
+            st.pid_alive_and_matches = lambda pid, **_kw: pid == daemon_pid
             subprocess.Popen = lambda *_a, **_kw: FakeProc()
             cli._wait_for_new_pid_json = lambda *_a, **_kw: None
 
@@ -261,7 +262,7 @@ class StopPidTargetingTests(unittest.TestCase):
             cli.cmd_restart(ns)
         finally:
             manage.stop_pid = orig_stop_pid
-            manage.is_pid_alive = orig_is_pid_alive
+            st.pid_alive_and_matches = orig_pid_alive_and_matches
             subprocess.Popen = orig_popen
             cli._wait_for_new_pid_json = orig_wait
 

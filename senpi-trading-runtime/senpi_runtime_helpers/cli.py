@@ -31,11 +31,13 @@ from . import stats as _stats
 
 
 # ─── Helpers shared across subcommands ──────────────────────────────────────
-
-
-# Canonical PID-liveness check lives in `state.py` — re-aliased locally so
-# existing call sites keep their idiomatic name without an extra import alias.
-_is_pid_alive = _state.pid_alive
+#
+# Schema awareness: this module reads pid.json / boot.json / heartbeat.json
+# via `state.read_*`. Each file is independently versioned — see the
+# top-of-file comment in `state.py` for the protocol. The CLI uses `.get(...)`
+# for any field that was added in a later schema (e.g. `cmdline_fingerprint`,
+# `log_path` in boot.json), so reading a legacy-schema file degrades cleanly
+# instead of KeyError'ing.
 
 
 def _parse_iso(s: Optional[str]) -> Optional[datetime]:
@@ -123,10 +125,13 @@ def _collect_daemon_row(name: str, state_dir: Optional[str]) -> Dict[str, Any]:
     pid_data = _state.read_pid(name, state_dir=state_dir) or {}
     hb_data = _state.read_heartbeat(name, state_dir=state_dir) or {}
     pid = pid_data.get("pid")
+    # `running` consults the pid-recycle guard: True only if the pid exists
+    # AND its cmdline/start-time fingerprints match what write_pid recorded.
+    # On schema-1 pid.json or non-Linux hosts, degrades to plain pid_alive.
     return {
         "name": name,
         "pid": pid if isinstance(pid, int) else None,
-        "running": _is_pid_alive(pid) if isinstance(pid, int) else False,
+        "running": _pid_alive_for_daemon(pid_data) if pid_data else False,
         "wallet": pid_data.get("wallet"),
         "scanner": pid_data.get("scanner"),
         "interval_seconds": pid_data.get("interval_seconds"),
@@ -251,7 +256,8 @@ def _build_health_payload(
     pid_data = pid_data or {}
     hb_data = hb_data or {}
     pid = pid_data.get("pid") if isinstance(pid_data.get("pid"), int) else None
-    running = _is_pid_alive(pid) if pid is not None else False
+    # Use pid-recycle guard so health doesn't false-positive on a recycled pid.
+    running = _pid_alive_for_daemon(pid_data) if pid is not None else False
     interval = pid_data.get("interval_seconds")
     uptime = _age_seconds(pid_data.get("start_time_iso"))
     last_tick_iso = hb_data.get("last_tick_iso")
@@ -406,17 +412,25 @@ def cmd_stats(args: argparse.Namespace) -> int:
     if name is None:
         return STATS_NOT_FOUND
 
+    # Stats can run on a cleanly-stopped daemon: pid.json may be gone, but
+    # boot.json (which persists) records log_path under schema 2+. Try both.
     pid_data = _state.read_pid(name, state_dir=args.state_dir)
-    if pid_data is None:
-        sys.stderr.write(
-            f"senpi-helpers: no pid.json for '{name}' — the daemon "
-            f"may have exited cleanly. Stats reads the log path recorded "
-            f"there. Try `senpi-helpers list` to see registered daemons.\n"
-        )
-        return STATS_NOT_FOUND
+    boot_data = _state.read_boot(name, state_dir=args.state_dir)
 
-    log_path = pid_data.get("log_path")
+    log_path = (pid_data or {}).get("log_path")
     if not log_path:
+        log_path = (boot_data or {}).get("log_path")
+    if not log_path and boot_data:
+        env_snapshot = boot_data.get("env_snapshot") or {}
+        log_path = env_snapshot.get("SENPI_HELPERS_LOG_PATH")
+
+    if not log_path:
+        if pid_data is None and boot_data is None:
+            sys.stderr.write(
+                f"senpi-helpers: no state files for '{name}'. "
+                f"Try `senpi-helpers list` to see registered daemons.\n"
+            )
+            return STATS_NOT_FOUND
         sys.stderr.write(
             f"senpi-helpers: daemon '{name}' did not record a log path. "
             f"Stats parses from the daemon's stderr log file; without a "
@@ -499,6 +513,30 @@ def cmd_stop(args: argparse.Namespace) -> int:
         )
         return STOP_NOT_FOUND
 
+    # Pid-recycle guard: if pid_data has fingerprints (schema 2) but
+    # /proc/<pid>'s cmdline or start_time doesn't match, the kernel has
+    # given our daemon's old pid to an unrelated process. Refuse to signal
+    # — treat as already-dead — and clear the stale pid.json.
+    if _state.pid_alive(pid) and not _pid_alive_for_daemon(pid_data):
+        sys.stderr.write(
+            f"senpi-helpers: pid {pid} is alive but its cmdline / start_time "
+            f"doesn't match what '{name}' recorded — likely a pid recycle. "
+            f"Refusing to SIGTERM an unrelated process. Clearing stale pid.json.\n"
+        )
+        _state.clear_pid(name, state_dir=args.state_dir)
+        result = {
+            "outcome": _manage.STOP_ALREADY_DEAD,
+            "elapsed_seconds": 0.0,
+            "sigterm_sent": False, "sigkill_sent": False,
+            "error": "pid recycled to unrelated process",
+        }
+        if args.json:
+            payload = {"name": name, "pid": pid, **result}
+            print(json.dumps(payload, indent=2, default=str))
+        else:
+            print(f"{name}: pid {pid} recycled — daemon already gone.")
+        return STOP_OK
+
     result = _manage.stop_pid(pid, timeout_seconds=args.timeout)
 
     # SIGKILL'd daemons can't run their own clear_pid, so the CLI cleans up.
@@ -552,6 +590,186 @@ def _wait_for_new_pid_json(
     return None
 
 
+def _pid_alive_for_daemon(pid_data: Optional[Dict[str, Any]]) -> bool:
+    """Liveness check that consults pid_data's fingerprints when available.
+
+    Use this everywhere the CLI asks "is my daemon's pid alive?" — `stop`,
+    `restart`, `start`, `health`, `list`. It defends against pid recycling
+    by cross-checking /proc/<pid>/cmdline and /proc/<pid>/stat against the
+    fingerprints `write_pid` recorded.
+    """
+    if not pid_data:
+        return False
+    pid = pid_data.get("pid")
+    if not isinstance(pid, int):
+        return False
+    return _state.pid_alive_and_matches(
+        pid,
+        expected_fingerprint=pid_data.get("cmdline_fingerprint"),
+        expected_jiffies=pid_data.get("start_time_jiffies"),
+    )
+
+
+def _resolve_log_path_for_relaunch(
+    name: str,
+    *,
+    pid_data: Optional[Dict[str, Any]],
+    boot_data: Dict[str, Any],
+    warn_when_defaulting: bool = True,
+) -> str:
+    """Pick the log path to point the relaunched daemon's stderr at.
+
+    Tried in order:
+      1. pid.json's log_path — most recent observed value.
+      2. boot.json's log_path (schema 2+) — survives clean stops.
+      3. boot.json env_snapshot's SENPI_HELPERS_LOG_PATH — operator override.
+      4. Deterministic default /tmp/<name>.log — with a stderr warning.
+
+    Extracted so `cmd_restart` and `cmd_start` share identical resolution
+    semantics. Each daemon's first successful relaunch under schema-2
+    boot.json will persist its log_path, so the default is one-shot.
+    """
+    log_path = (pid_data or {}).get("log_path")
+    if log_path:
+        return log_path
+    log_path = boot_data.get("log_path")
+    if log_path:
+        return log_path
+    env_snapshot = boot_data.get("env_snapshot") or {}
+    log_path = env_snapshot.get("SENPI_HELPERS_LOG_PATH")
+    if log_path:
+        return log_path
+    default_path = f"/tmp/{name}.log"
+    if warn_when_defaulting:
+        sys.stderr.write(
+            f"senpi-helpers: no log_path recorded in boot.json or pid.json; "
+            f"defaulting to {default_path}. (Set SENPI_HELPERS_LOG_PATH before "
+            f"launch, or rely on the new daemon's write_boot to persist the "
+            f"resolved path so future restarts use it.)\n"
+        )
+    return default_path
+
+
+# ─── Subcommand: start ──────────────────────────────────────────────────────
+#
+# `start` is the missing peer of `stop`/`restart`. Without it, operators had
+# to hand-type the `nohup python3 -u … > /tmp/<name>.log 2>&1 &` playbook
+# every time — which is what introduced the schema-1 boot.json gap we fixed
+# earlier in this branch. With `start`, the daemon's argv + log path come
+# from boot.json (auto-migrated if schema 1), the operator types one command.
+
+START_OK = 0
+START_FAILED = 1
+START_NOT_FOUND = 2
+
+
+def cmd_start(args: argparse.Namespace) -> int:
+    name = _resolve_name(args)
+    if name is None:
+        return START_NOT_FOUND
+
+    boot_data = _state.read_boot(name, state_dir=args.state_dir)
+    if boot_data is None:
+        sys.stderr.write(
+            f"senpi-helpers: cannot start '{name}': boot.json is missing.\n"
+            f"The daemon has never started under the helper, so there's no "
+            f"record of how to launch it. Use your skill's launch recipe one "
+            f"time (`nohup python3 -u <producer>.py > /tmp/{name}.log 2>&1 &` "
+            f"plus the skill's env vars); `start` will work from the next "
+            f"launch onward.\n"
+        )
+        return START_NOT_FOUND
+
+    script_path = boot_data.get("script_path")
+    argv = boot_data.get("argv") or []
+    cwd = boot_data.get("cwd")
+
+    if not script_path or not os.path.exists(script_path):
+        sys.stderr.write(
+            f"senpi-helpers: cannot start '{name}': script_path "
+            f"'{script_path}' no longer exists on disk.\n"
+        )
+        return START_FAILED
+
+    # Idempotent: if the daemon is already alive (and the pid hasn't been
+    # recycled to an unrelated process), do nothing. `_pid_alive_for_daemon`
+    # cross-checks cmdline + start_time fingerprints from pid.json.
+    pid_data = _state.read_pid(name, state_dir=args.state_dir)
+    pid = pid_data.get("pid") if pid_data else None
+    if isinstance(pid, int) and _pid_alive_for_daemon(pid_data):
+        if args.json:
+            print(json.dumps({
+                "name": name, "outcome": "already_running", "pid": pid,
+            }, indent=2, default=str))
+        else:
+            print(f"{name}: already running (pid {pid}). No action taken.")
+        return START_OK
+
+    log_path = _resolve_log_path_for_relaunch(
+        name, pid_data=pid_data, boot_data=boot_data,
+    )
+
+    relaunch_result = _manage.relaunch_daemon(
+        argv=argv,
+        cwd=cwd,
+        log_path=log_path,
+    )
+
+    if relaunch_result["outcome"] != _manage.RELAUNCH_OK:
+        sys.stderr.write(
+            f"senpi-helpers: start failed: {relaunch_result['outcome']} "
+            f"({relaunch_result.get('error')})\n"
+        )
+        if args.json:
+            print(json.dumps({
+                "name": name, "outcome": relaunch_result["outcome"],
+                "relaunch_result": relaunch_result,
+            }, indent=2, default=str))
+        return START_FAILED
+
+    new_pid = relaunch_result["pid"]
+    argv_normalized = bool(relaunch_result.get("argv_normalized"))
+    confirmed = _wait_for_new_pid_json(
+        name,
+        state_dir=args.state_dir,
+        expected_pid=new_pid,
+        timeout=_RELAUNCH_CONFIRM_TIMEOUT,
+    )
+
+    payload = {
+        "name": name,
+        "outcome": "started",
+        "new_pid": new_pid,
+        "relaunch_result": relaunch_result,
+        "argv_normalized": argv_normalized,
+        "pid_json_confirmed": confirmed is not None,
+        "log_path": log_path,
+    }
+
+    if args.json:
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        print(f"{name}: started.")
+        print(f"  new pid:        {new_pid}")
+        print(f"  log path:       {log_path}")
+        print(f"  script:         {script_path}")
+        if argv_normalized:
+            print(
+                "  boot.json:      schema 1 detected; interpreter "
+                "auto-prepended (one-time migration)"
+            )
+        if confirmed is not None:
+            print("  pid.json:       confirmed (new daemon is ticking)")
+        else:
+            print(f"  pid.json:       not seen within {_RELAUNCH_CONFIRM_TIMEOUT}s")
+            print(
+                f"  → verify with `senpi-helpers health {name}` "
+                f"and check the log."
+            )
+
+    return START_OK
+
+
 def cmd_restart(args: argparse.Namespace) -> int:
     name = _resolve_name(args)
     if name is None:
@@ -584,11 +802,14 @@ def cmd_restart(args: argparse.Namespace) -> int:
         )
         return RESTART_FAILED
 
-    # If the daemon is running, stop it first (clean SIGTERM + escalation).
+    # If the daemon is running (and the pid hasn't been recycled to a
+    # stranger process), stop it first via SIGTERM + escalation.
+    # `_pid_alive_for_daemon` guards against recycling using cmdline +
+    # start_time fingerprints from pid.json.
     pid_data = _state.read_pid(name, state_dir=args.state_dir)
     pid = pid_data.get("pid") if pid_data else None
     stop_result: Optional[Dict[str, Any]] = None
-    if isinstance(pid, int) and _manage.is_pid_alive(pid):
+    if isinstance(pid, int) and _pid_alive_for_daemon(pid_data):
         stop_result = _manage.stop_pid(pid, timeout_seconds=args.timeout)
         if not _manage.stop_outcome_was_success(stop_result["outcome"]):
             sys.stderr.write(
@@ -605,22 +826,11 @@ def cmd_restart(args: argparse.Namespace) -> int:
         if stop_result["outcome"] == _manage.STOP_KILL_OK:
             _state.clear_pid(name, state_dir=args.state_dir)
 
-    # Restart needs a log path so the new daemon's stderr is captured
-    # somewhere the operator can find it. Pull from old pid.json
-    # (preferred) or boot.json env_snapshot's SENPI_HELPERS_LOG_PATH
-    # (operator-set explicit). If neither is available, fail loudly.
-    log_path = (pid_data or {}).get("log_path")
-    if not log_path:
-        env_snapshot = boot_data.get("env_snapshot") or {}
-        log_path = env_snapshot.get("SENPI_HELPERS_LOG_PATH")
-    if not log_path:
-        sys.stderr.write(
-            f"senpi-helpers: cannot restart '{name}': no log path recorded.\n"
-            f"`restart` needs to know where to send the new daemon's stderr. "
-            f"Start manually with `nohup python3 -u {script_path} > "
-            f"/tmp/{name}.log 2>&1 &` so the next pid.json captures the path.\n"
-        )
-        return RESTART_FAILED
+    # Shared resolution logic — see _resolve_log_path_for_relaunch's docstring
+    # for the fallback order. cmd_start uses the same helper.
+    log_path = _resolve_log_path_for_relaunch(
+        name, pid_data=pid_data, boot_data=boot_data,
+    )
 
     relaunch_result = _manage.relaunch_daemon(
         argv=argv,
@@ -744,7 +954,9 @@ def _make_parser() -> argparse.ArgumentParser:
         ),
     )
     sub = parser.add_subparsers(dest="command", metavar="<subcommand>")
-    sub.required = True  # py3.10 compat — required=True on add_subparsers isn't honored everywhere
+    # Some argparse releases don't honor `required=True` directly on
+    # `add_subparsers()` — set it explicitly for portability.
+    sub.required = True
 
     # list
     list_p = sub.add_parser(
@@ -804,6 +1016,27 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     stats_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
     stats_p.set_defaults(func=cmd_stats)
+
+    # start
+    start_p = sub.add_parser(
+        "start",
+        help="Start a daemon from its recorded boot.json (idempotent).",
+        description=(
+            "Launch the daemon as a detached process using argv + cwd from "
+            "boot.json. Idempotent — if a daemon with that name is already "
+            "running, `start` reports it and exits 0. If boot.json is missing "
+            "(the daemon has never been started under the helper), `start` "
+            "errors with the manual launch recipe."
+        ),
+    )
+    start_p.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        help="Daemon name. Optional on single-daemon hosts.",
+    )
+    start_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
+    start_p.set_defaults(func=cmd_start)
 
     # stop
     stop_p = sub.add_parser(
