@@ -4,7 +4,7 @@ description: "Configure, deploy, and manage runtimes in the Senpi Trading Runtim
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "6.1.0"
+  version: "6.1.1"
   platform: senpi
   exchange: hyperliquid
 ---
