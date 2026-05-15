@@ -4,10 +4,13 @@
 Three files per daemon, all under `${SENPI_HELPERS_STATE_DIR}/<name>/`:
 
 - `pid.json`        — pid, start_time_iso, log_path, wallet, scanner,
-                       interval_seconds, tick_timeout, version. Removed on
-                       clean exit; reader checks PID liveness when present.
-- `boot.json`       — argv, script_path, cwd, env_snapshot. Everything
-                       needed for `senpi-helpers restart` to re-exec.
+                       interval_seconds, tick_timeout, version,
+                       cmdline_fingerprint, start_time_jiffies. Removed on
+                       clean exit; reader checks PID liveness (and recycle
+                       guard) when present.
+- `boot.json`       — argv, script_path, cwd, env_snapshot, log_path.
+                       Everything needed for `senpi-helpers restart` to
+                       re-exec. Persists across stop/restart cycles.
 - `heartbeat.json`  — last_tick_iso, last_tick_status, last_tick_code,
                        tick_count, error_count. Rewritten after every tick.
 
@@ -19,23 +22,94 @@ producer, not the other way around.
 The default state dir is `/data/.openclaw/senpi-helpers/` so the files
 survive a container restart on Railway (matching where openclaw state lives).
 Override with `SENPI_HELPERS_STATE_DIR` on hosts without a `/data` volume.
+
+Schema versioning protocol
+--------------------------
+Each file has its own `"schema"` integer field. Schemas evolve INDEPENDENTLY
+— bumping boot.json's schema does not require touching pid.json. Readers
+must tolerate older AND newer schemas (forward-compat), failing soft on
+fields they don't recognize.
+
+Current supported schemas:
+    pid.json:       {1, 2}    # 2 adds cmdline_fingerprint + start_time_jiffies
+    boot.json:      {1, 2}    # 2 adds log_path + interpreter-first argv
+    heartbeat.json: {1}
+
+When `_read_json` encounters a schema number outside the supported set, it
+logs a one-line warning and returns the data anyway — callers should access
+fields defensively (`.get(...)`) rather than assume a particular shape. We
+never delete a file just because its schema is unrecognised.
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
 # Source: https://github.com/Senpi-ai/senpi-skills
 
+import hashlib
 import json
 import os
+import re
 import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional, Tuple
 
 from ._logging import log_event
 
 
 _DEFAULT_STATE_DIR = "/data/.openclaw/senpi-helpers"
+
+
+# ─── boot.json schema versioning ────────────────────────────────────────────
+#
+# Schema 2 (current):
+#   argv = [sys.executable, "-u", *sys.argv]
+#   - sys.executable is the absolute path to the running interpreter.
+#   - "-u" forces unbuffered stdout/stderr on relaunch. The operator
+#     playbook launches daemons as `nohup python3 -u script.py &`; we
+#     can't capture the original "-u" because interpreter flags are
+#     consumed before the script's sys.argv is populated. Hard-coding
+#     "-u" on capture is harmless and matches the operator expectation
+#     (real-time log lines).
+#
+# Schema 1 (legacy, pre-2026-05):
+#   argv = list(sys.argv)
+#   - Missing the interpreter. `manage.relaunch_daemon` then tried to
+#     `execve` the .py file directly, which failed with EACCES whenever
+#     the script wasn't `+x`. The operator playbook never demanded `+x`
+#     because the interpreter was explicit on the original command line.
+#   - `manage._normalize_argv` migrates legacy argv on read, prepending
+#     `[sys.executable, "-u"]`. The next `write_boot` from the relaunched
+#     daemon rewrites the file as schema 2 — migration is one-shot.
+#
+# Why we don't capture interpreter flags beyond "-u":
+#   sys.argv inside Python excludes interpreter flags (`-u`, `-O`,
+#   `-X dev`, `-W ...`). They've already been consumed by the interpreter
+#   before user code runs and cannot be recovered from inside the script.
+#   For producers, only "-u" matters in practice (log readability).
+#   Setting PYTHONUNBUFFERED=1 in env has the same effect; operators who
+#   need it can put it in their launch env and it will land in
+#   env_snapshot below.
+
+_PYTHON_INTERPRETER_RE = re.compile(
+    r"^(python|pypy)(\d+(\.\d+)?)?(\.exe)?$"
+)
+
+
+def looks_like_python_interpreter(path: str) -> bool:
+    """True if `path`'s basename matches a python/pypy interpreter pattern.
+
+    Matches: python, python3, python3.11, python.exe, python3.exe,
+             pypy, pypy3.
+    Does NOT match: python3.11-config, python-pip, myscript.py, cat,
+                    empty string, anything ending in .py.
+
+    Used by `manage._normalize_argv` to detect legacy boot.json argv
+    (where argv[0] is the script, not the interpreter).
+    """
+    if not path:
+        return False
+    return bool(_PYTHON_INTERPRETER_RE.match(os.path.basename(path).lower()))
 
 # Env-var prefixes / suffixes that the boot snapshot should capture. Skill
 # names (PANGOLIN, KODIAK, ...) follow the per-skill convention each skill
@@ -60,10 +134,131 @@ _SENSITIVE_KEYS = frozenset({
 })
 
 
+# ─── PID-recycle guard ──────────────────────────────────────────────────────
+#
+# `os.kill(pid, 0)` reports any pid that exists in the kernel's process table
+# as "alive" — including a recycled pid pointing at an unrelated process. In
+# Docker/Railway containers where pid_max defaults to 32k, recycling on a
+# long-running box is plausible. A `senpi-helpers stop` that signals the
+# recycled pid would SIGTERM a stranger.
+#
+# Defence in depth: record two cheap fingerprints in pid.json:
+#   - `cmdline_fingerprint`: sha256 of /proc/<pid>/cmdline (the daemon's full
+#     argv with NUL separators). Stable across the daemon's lifetime; almost
+#     certainly different from any unrelated process that lands on the same
+#     pid.
+#   - `start_time_jiffies`: field 22 of /proc/<pid>/stat. Monotonically
+#     increasing per-process. Two processes with the same pid cannot share
+#     this value unless one was killed and another spawned in the same jiffy
+#     (essentially impossible).
+#
+# `pid_alive_and_matches(pid, fingerprint, jiffies)` verifies both before
+# returning True. Callers that don't have the fingerprints (older pid.json,
+# non-Linux dev hosts) fall back to plain `pid_alive`.
+
+
+def _read_proc_field(pid: int, field_name: str) -> Optional[str]:
+    """Read /proc/<pid>/<field_name>. Returns None on any read failure
+    (file missing, permissions, non-Linux)."""
+    try:
+        with open(f"/proc/{pid}/{field_name}", "rb") as fh:
+            return fh.read().decode("utf-8", errors="replace")
+    except (OSError, FileNotFoundError):
+        return None
+
+
+def read_proc_environ(pid: int) -> Optional[Dict[str, str]]:
+    """Parse `/proc/<pid>/environ` into a dict.
+
+    `/proc/<pid>/environ` is NUL-separated `KEY=value` entries (the
+    process's startup env, captured by the kernel at exec time). Returns
+    a dict; None if /proc isn't readable (non-Linux, missing pid, permission
+    denied). Skips malformed entries (no '=' or invalid key chars) silently
+    so a corrupt environ doesn't crash the helper.
+
+    Used by `senpi-helpers start --inherit-env-from <pid|openclaw>` so the
+    operator doesn't have to manually `cat /proc/<pid>/environ | tr ...`
+    to bootstrap the daemon's env with auth tokens.
+    """
+    raw = _read_proc_field(pid, "environ")
+    if raw is None:
+        return None
+    out: Dict[str, str] = {}
+    for entry in raw.split("\0"):
+        if "=" not in entry:
+            continue
+        key, _, value = entry.partition("=")
+        # Defensive: skip keys that aren't valid identifier-like names. A
+        # corrupt entry shouldn't poison the final env dict.
+        if not key or not all(c.isalnum() or c == "_" for c in key):
+            continue
+        out[key] = value
+    return out
+
+
+def cmdline_fingerprint_for_pid(pid: int) -> Optional[str]:
+    """Hex sha256 of /proc/<pid>/cmdline, or None on Linux-less hosts.
+
+    Reads raw bytes and hashes them directly. Prior implementation went
+    through `_read_proc_field` which decoded with `errors='replace'` and
+    then re-encoded for hashing — a lossy round-trip. For valid UTF-8
+    cmdlines (the common case) the result was identical, but if a
+    cmdline contained invalid byte sequences (rare; possible for binary
+    argv content), `\\x80\\x81` would decode to U+FFFD U+FFFD then
+    re-encode to 6 bytes (`\\xef\\xbf\\xbd\\xef\\xbf\\xbd`) — fingerprint
+    of the same on-disk bytes would differ from a direct hash. External
+    code-review nitpick #3.
+    """
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()
+    except (OSError, FileNotFoundError):
+        return None
+
+
+def start_time_jiffies_for_pid(pid: int) -> Optional[int]:
+    """Field 22 of /proc/<pid>/stat — the process's start time in jiffies
+    since boot. Returns None on Linux-less hosts or unreadable stat file.
+
+    `/proc/<pid>/stat` line format: `pid (comm) state ppid pgrp session ...`.
+    The comm field can contain spaces and parens; field 22 is the 21st
+    AFTER the closing paren of (comm).
+    """
+    raw = _read_proc_field(pid, "stat")
+    if raw is None:
+        return None
+    # Find the last `)` so we skip past `comm` reliably.
+    rparen = raw.rfind(")")
+    if rparen < 0:
+        return None
+    tail = raw[rparen + 1:].strip().split()
+    # After ")": state(1) ppid(2) ... starttime(22). starttime is index 19
+    # in the post-paren split (1-indexed → 0-indexed -1 -1 since state was
+    # field 3 of the whole line).
+    try:
+        return int(tail[19])
+    except (IndexError, ValueError):
+        return None
+
+
 def pid_alive(pid: Optional[int]) -> bool:
-    """Cheap liveness check via signal(0). Canonical implementation shared by
+    """Cheap liveness check. Canonical implementation shared by
     `lock.py`, `cli.py`, and `manage.py` — they all need to ask the same
     question ("is this pid alive?") and previously each kept a private copy.
+
+    The basic check is `os.kill(pid, 0)`. On Linux, we ALSO filter out
+    zombies (`State: Z`) and dead-pending-reap (`State: X`): `signal(0)`
+    succeeds on those because the kernel still has the pid slot, but the
+    process has already exited. Without this filter, `stop_pid` would
+    poll until its SIGTERM timeout, escalate to SIGKILL (a no-op on the
+    already-dead zombie), and falsely return `STOP_KILL_FAILED` after
+    the kernel-grace window — even though the daemon DID stop cleanly.
+
+    Production trigger: daemon launched via `nohup … &`, parent shell
+    exits, daemon reparented to PID 1. On Railway boxes PID 1 is the
+    `node src/server.js` Express wrapper, which doesn't reap orphan
+    zombies. Zombies accumulate; the senpi-helpers CLI was previously
+    blind to them.
 
     Treats EPERM as "alive" (process exists, but we lack permission to
     signal it — that case is non-zero on shared-host setups where the
@@ -75,13 +270,58 @@ def pid_alive(pid: Optional[int]) -> bool:
         return False
     try:
         os.kill(pid, 0)
-        return True
     except ProcessLookupError:
         return False
     except PermissionError:
         return True
     except OSError:
         return False
+    # signal(0) succeeded — process exists in the kernel's table. On Linux,
+    # consult /proc/<pid>/status to filter zombies. Non-Linux: trust signal(0).
+    try:
+        with open(f"/proc/{pid}/status") as f:
+            for line in f:
+                if line.startswith("State:"):
+                    # Example: "State:\tZ (zombie)" — split gives ["State:", "Z", ...].
+                    state_char = line.split()[1] if len(line.split()) >= 2 else ""
+                    return state_char not in ("Z", "X")
+    except (FileNotFoundError, PermissionError, OSError):
+        # /proc not available (non-Linux) or pid raced exit + reap. Trust signal(0).
+        pass
+    return True
+
+
+def pid_alive_and_matches(
+    pid: Optional[int],
+    *,
+    expected_fingerprint: Optional[str] = None,
+    expected_jiffies: Optional[int] = None,
+) -> bool:
+    """Strict liveness check that guards against pid recycling.
+
+    Returns True iff:
+      - `pid_alive(pid)` (pid exists in kernel's process table), AND
+      - if `expected_fingerprint` was given, /proc/<pid>/cmdline hashes to
+        the same value, AND
+      - if `expected_jiffies` was given, /proc/<pid>/stat field 22 is the
+        same.
+
+    When `expected_*` are None (older pid.json before this fingerprinting
+    landed, or a non-Linux dev host) the function degrades to `pid_alive`.
+    Behavior preserved across the schema bump — callers can opt in gradually.
+    """
+    if not pid_alive(pid):
+        return False
+    assert isinstance(pid, int)
+    if expected_fingerprint is not None:
+        actual = cmdline_fingerprint_for_pid(pid)
+        if actual is not None and actual != expected_fingerprint:
+            return False  # different process; pid recycled
+    if expected_jiffies is not None:
+        actual = start_time_jiffies_for_pid(pid)
+        if actual is not None and actual != expected_jiffies:
+            return False
+    return True
 
 
 def _now_iso() -> str:
@@ -120,9 +360,9 @@ def detect_log_path() -> Optional[str]:
          (the canonical redirect-to-file launch form).
 
     Returns None when stderr is not redirected to a regular file (e.g.
-    interactive terminal, pipe, socket, deleted-file fd). The
-    `senpi-helpers stats` command surfaces this as a clear "log path
-    unknown" error rather than silently aggregating nothing.
+    interactive terminal, pipe, socket, deleted-file fd). Callers (the
+    daemon's startup, `senpi-helpers stats`) should fall back to
+    `/tmp/<name>.log` and warn rather than silently degrade.
     """
     env_override = os.environ.get("SENPI_HELPERS_LOG_PATH", "").strip()
     if env_override:
@@ -140,6 +380,92 @@ def detect_log_path() -> Optional[str]:
     if target.endswith(" (deleted)"):
         return None
     return target
+
+
+def ensure_daemon_stderr_redirected(name: str) -> Optional[str]:
+    """Ensure the daemon's stderr/stdout point at a regular file.
+
+    Called once at daemon startup, BEFORE write_pid / write_boot. If the
+    daemon was launched without explicit redirection (e.g. by openclaw's
+    `exec` tool, whose fd 2 is a pipe back to the agent), the helpers
+    state files would record `log_path = None`, breaking `senpi-helpers
+    stats` and `restart` for the rest of the daemon's life.
+
+    Behavior:
+      - If stderr already points at a real file, leave it alone and return
+        that path. This is the operator playbook case
+        (`nohup python3 -u … > /tmp/foo.log 2>&1 &`).
+      - Otherwise, on Linux open `/tmp/<name>.log` in append mode and dup2
+        it onto fd 1 and fd 2 so the existing file handle is preserved by
+        the kernel after we close ours. Return that path.
+      - On non-Linux (dev/macOS), return None without rewriting fds. The
+        path that motivates this function — openclaw on Linux containers
+        with stderr-is-a-pipe — only exists in production, and dup2'ing
+        in a unit-test or interactive shell would silently capture the
+        test runner's own stdout. Production behavior is preserved; dev
+        UX is the deliberate trade-off.
+      - If even the fallback can't be opened (read-only /tmp, permissions),
+        return None and let the caller log a state_write_failed-style event.
+
+    The fallback path is deterministic so operators can find it without
+    consulting state files. The /tmp/<name>.log pattern is also what the
+    error message in `cmd_restart` already documents.
+    """
+    existing = detect_log_path()
+    if existing:
+        return existing
+
+    # Linux-only: dup2'ing stdout/stderr in a non-daemon process (e.g. a
+    # unit-test runner) would hijack the parent's output. detect_log_path
+    # also relies on /proc/self/fd/2, which only exists on Linux — so on
+    # dev machines we return None and let callers handle it explicitly.
+    if not sys.platform.startswith("linux"):
+        return None
+
+    fallback = f"/tmp/{name}.log"
+    try:
+        # Open append so multiple daemon starts under the same name don't
+        # truncate each other's history.
+        fd = os.open(fallback, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+    except OSError as e:
+        log_event(
+            "ensure_log_path_failed",
+            path=fallback,
+            error=f"{type(e).__name__}: {e}"[:200],
+        )
+        return None
+    try:
+        os.dup2(fd, 1)  # stdout
+        os.dup2(fd, 2)  # stderr
+    finally:
+        # If stdin/stdout/stderr were closed by the caller (e.g. launched
+        # via `python3 script.py < /dev/null >&- 2>&-`), os.open could
+        # return fd 0, 1, or 2 as the lowest free descriptor.
+        # - fd == 1 or 2: dup2 onto that fd is a no-op (target == source).
+        #   The descriptor IS the log file we just opened — closing our
+        #   handle would close the redirected stream itself.
+        # - fd == 0: stdin was closed; our log fd landed there. We don't
+        #   dup2 onto 0 (we only redirect 1 and 2), so fd 0 ends up
+        #   pointing at the log file as a write-only handle. Closing
+        #   would just leak the descriptor; NOT closing leaves stdin
+        #   in a weird "write-only to log" state that any sys.stdin.read
+        #   would crash on. Both are bad — but leaving it open is the
+        #   smaller leak; and the alternative ("close fd 0") is the same
+        #   resource-state problem in production: the daemon launched
+        #   without stdin to start with.
+        #
+        # Both edge cases are fine to close in our finally — the
+        # condition just protects 1 and 2, which dup2 made point at the
+        # SAME open-file-description as fd. Closing one closes both.
+        if fd not in (1, 2):
+            os.close(fd)
+    log_event(
+        "log_path_fallback_applied",
+        name=name,
+        log_path=fallback,
+        reason="stderr was not a regular file at daemon startup",
+    )
+    return fallback
 
 
 # ─── Env snapshot ───────────────────────────────────────────────────────────
@@ -223,13 +549,37 @@ def _atomic_write(path: Path, payload: Dict[str, Any]) -> bool:
         return False
 
 
+# What schemas each file may legitimately have. Extend this set when bumping;
+# readers warn loudly on values outside it so future migrations are visible.
+_SUPPORTED_SCHEMAS: Dict[str, FrozenSet[int]] = {
+    "pid.json": frozenset({1, 2}),
+    "boot.json": frozenset({1, 2}),
+    "heartbeat.json": frozenset({1}),
+}
+
+
 def _read_json(path: Path) -> Optional[Dict[str, Any]]:
     try:
         with path.open("r") as f:
             data = json.load(f)
-        return data if isinstance(data, dict) else None
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
+    if not isinstance(data, dict):
+        return None
+    # Soft schema check: warn but still return. Callers use .get(...) and
+    # tolerate missing fields, so a future-schema-2-on-old-CLI scenario
+    # degrades gracefully instead of crashing.
+    expected = _SUPPORTED_SCHEMAS.get(path.name)
+    if expected is not None:
+        actual = data.get("schema")
+        if actual is not None and actual not in expected:
+            log_event(
+                "state_unknown_schema",
+                path=str(path),
+                got_schema=actual,
+                supported=sorted(expected),
+            )
+    return data
 
 
 # ─── Public API: write ──────────────────────────────────────────────────────
@@ -251,11 +601,16 @@ def write_pid(
     Called once at daemon start, after argument validation. The file is
     deleted on clean exit via `clear_pid` so a missing `pid.json` is the
     canonical "not running" signal for the CLI.
+
+    Schema 2 (current) adds `cmdline_fingerprint` + `start_time_jiffies`
+    so the CLI can detect pid recycling — see `pid_alive_and_matches`.
+    Schema 1 (legacy) lacked these; readers degrade to plain pid_alive.
     """
+    pid = os.getpid()
     payload = {
-        "schema": 1,
+        "schema": 2,
         "name": name,
-        "pid": os.getpid(),
+        "pid": pid,
         "start_time_iso": _now_iso(),
         "wallet": wallet,
         "scanner": scanner,
@@ -263,25 +618,48 @@ def write_pid(
         "tick_timeout": tick_timeout,
         "log_path": log_path,
         "version": version,
+        # Fingerprints — both None on non-Linux dev hosts; callers tolerate.
+        "cmdline_fingerprint": cmdline_fingerprint_for_pid(pid),
+        "start_time_jiffies": start_time_jiffies_for_pid(pid),
     }
     return _atomic_write(daemon_dir(name, state_dir) / "pid.json", payload)
 
 
 def write_boot(name: str, *, state_dir: Optional[str] = None) -> bool:
-    """Write `boot.json` for `name`. Captures argv + sanitized env snapshot.
+    """Write `boot.json` for `name`. Captures full launch shape (schema 2).
 
-    Called once at daemon start. `senpi-helpers restart` reads this file
-    to re-exec the producer; if it's missing or `script_path` no longer
-    exists on disk, restart fails with a clear message.
+    Called once at daemon start, before the producer's user code runs, so
+    sys.argv reflects the original launch and can't have been mutated.
+    `senpi-helpers restart` (and `start`) reads this file to re-exec the
+    producer.
+
+    Schema 2 captures argv as `[sys.executable, "-u", *sys.argv]` so the
+    relaunch can `Popen(argv)` without needing the script to be `+x`.
+    See the schema-versioning comment near the top of this file for the
+    full rationale (in particular: why "-u" is hard-coded and why we
+    don't capture other interpreter flags).
+
+    Schema 2 also records `log_path` here (in addition to pid.json). The
+    daemon's `pid.json` is removed on graceful exit, so restart/stats
+    have nowhere to find log_path otherwise. boot.json persists, so the
+    relaunch path always has a log target.
     """
     script_path = os.path.realpath(sys.argv[0]) if sys.argv and sys.argv[0] else None
+    # Prepend interpreter + "-u" so the relaunch path doesn't require the
+    # script to be executable. If sys.argv is empty (extremely unusual —
+    # we still want a sensible boot.json), record just the interpreter.
+    if sys.argv:
+        argv = [sys.executable, "-u", *sys.argv]
+    else:
+        argv = [sys.executable, "-u"]
     payload = {
-        "schema": 1,
+        "schema": 2,
         "name": name,
-        "argv": list(sys.argv),
+        "argv": argv,
         "script_path": script_path,
         "cwd": os.getcwd(),
         "env_snapshot": _sanitized_env_snapshot(),
+        "log_path": detect_log_path(),
         "captured_at_iso": _now_iso(),
     }
     return _atomic_write(daemon_dir(name, state_dir) / "boot.json", payload)

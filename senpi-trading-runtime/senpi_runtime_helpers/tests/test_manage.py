@@ -222,7 +222,14 @@ class RelaunchDaemonTests(unittest.TestCase):
         )
         self.assertEqual(result["outcome"], manage.RELAUNCH_OK)
         self.assertEqual(result["pid"], 4242)
-        self.assertEqual(captured["argv"], [self.script, "--flag"])
+        # Legacy schema-1 argv (script-only); _normalize_argv prepends the
+        # interpreter so Popen doesn't need the script to be executable.
+        self.assertEqual(
+            captured["argv"],
+            [sys.executable, "-u", self.script, "--flag"],
+        )
+        self.assertTrue(result["argv_normalized"])
+        self.assertEqual(result["argv_used"], captured["argv"])
         # Detach must be on.
         self.assertTrue(captured["kwargs"].get("start_new_session"))
         # stdin must be muted.
@@ -238,13 +245,21 @@ class RelaunchDaemonTests(unittest.TestCase):
         self.assertEqual(captured["kwargs"]["stdout"], captured["kwargs"]["stderr"])
 
     def test_relaunch_missing_script_fails_loudly(self) -> None:
+        """After the normalize-first reorder, argv[0]=script.py is
+        normalized to [interpreter, -u, script.py] before the existence
+        check — so argv[0] (the interpreter) always exists. The script
+        itself is validated via the explicit script_path parameter that
+        cmd_restart / cmd_start pass through. Without script_path, the
+        helper trusts argv (Popen would discover the missing script at
+        exec time). With script_path, we catch it cleanly here."""
         factory, _ = self._make_fake_popen()
         result = manage.relaunch_daemon(
             argv=["/no/such/script.py"], cwd=None, log_path=self.log,
             popen_factory=factory,
+            script_path="/no/such/script.py",
         )
         self.assertEqual(result["outcome"], manage.RELAUNCH_SCRIPT_MISSING)
-        self.assertIn("not found", result["error"])
+        self.assertIn("/no/such/script.py", result["error"])
 
     def test_relaunch_empty_argv_fails(self) -> None:
         factory, _ = self._make_fake_popen()
@@ -371,6 +386,347 @@ class StopOutcomeSuccessTests(unittest.TestCase):
 
     def test_invalid_pid_is_failure(self) -> None:
         self.assertFalse(manage.stop_outcome_was_success(manage.STOP_INVALID_PID))
+
+
+# ─── Tests for _normalize_argv (R7-R12) ─────────────────────────────────────
+
+
+class NormalizeArgvTests(unittest.TestCase):
+    """_normalize_argv migrates schema-1 boot.json argv (script-only) to
+    schema-2 (interpreter-first). Idempotent — modern argv passes through.
+    """
+
+    def test_passthrough_for_modern_shape(self) -> None:
+        """R7: [interpreter, script] is left unchanged."""
+        argv = ["/usr/bin/python3", "/path/script.py"]
+        out, was_norm = manage._normalize_argv(argv)
+        self.assertEqual(out, argv)
+        self.assertFalse(was_norm)
+
+    def test_passthrough_for_versioned_python(self) -> None:
+        """R8: /usr/bin/python3.11 is recognized as an interpreter."""
+        argv = ["/usr/bin/python3.11", "/path/script.py"]
+        out, was_norm = manage._normalize_argv(argv)
+        self.assertEqual(out, argv)
+        self.assertFalse(was_norm)
+
+    def test_prepends_for_legacy_script_only(self) -> None:
+        """R9: ['script.py'] → [sys.executable, '-u', 'script.py'], was_norm=True."""
+        argv = ["/path/script.py"]
+        out, was_norm = manage._normalize_argv(argv)
+        self.assertEqual(out, [sys.executable, "-u", "/path/script.py"])
+        self.assertTrue(was_norm)
+
+    def test_prepends_preserving_script_args(self) -> None:
+        """R10: script's own arguments are preserved after normalization."""
+        argv = ["/path/script.py", "--flag", "x"]
+        out, was_norm = manage._normalize_argv(argv)
+        self.assertEqual(
+            out, [sys.executable, "-u", "/path/script.py", "--flag", "x"],
+        )
+        self.assertTrue(was_norm)
+
+    def test_passthrough_for_unknown_non_py_binary(self) -> None:
+        """R11: non-.py argv[0] is NOT 'fixed' — we don't second-guess."""
+        argv = ["/usr/bin/cat", "/path/file"]
+        out, was_norm = manage._normalize_argv(argv)
+        self.assertEqual(out, argv)
+        self.assertFalse(was_norm)
+
+    def test_empty_argv(self) -> None:
+        """R12: empty argv passes through; relaunch_daemon handles emptiness."""
+        out, was_norm = manage._normalize_argv([])
+        self.assertEqual(out, [])
+        self.assertFalse(was_norm)
+
+    def test_idempotent_when_applied_twice(self) -> None:
+        """Defensive: normalizing an already-modern argv must not stack."""
+        argv = ["/path/script.py"]
+        once, _ = manage._normalize_argv(argv)
+        twice, was_norm_again = manage._normalize_argv(once)
+        self.assertEqual(twice, once)
+        self.assertFalse(was_norm_again)
+
+
+# ─── relaunch_daemon's normalization contract (R13-R14) ─────────────────────
+
+
+class RelaunchNormalizationTests(unittest.TestCase):
+    """relaunch_daemon must call Popen with the normalized argv, and surface
+    `argv_normalized` + `argv_used` in its result dict so callers (CLI,
+    automation) can see what was actually launched.
+    """
+
+    def setUp(self) -> None:
+        import tempfile
+        # Use a non-+x .py file — the original bug's smoking gun.
+        fd, self.script = tempfile.mkstemp(suffix=".py", prefix="legacy-")
+        os.write(fd, b"# fake daemon, intentionally not +x\n")
+        os.close(fd)
+        os.chmod(self.script, 0o644)
+        fd2, self.log = tempfile.mkstemp(suffix=".log", prefix="legacy-log-")
+        os.close(fd2)
+
+    def tearDown(self) -> None:
+        for path in (self.script, self.log):
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+    def _make_fake_popen(self, fake_pid: int = 999):
+        captured = {}
+        class FakeProc:
+            pid = fake_pid
+        def factory(argv, **kwargs):
+            captured["argv"] = argv
+            captured["kwargs"] = kwargs
+            return FakeProc()
+        return factory, captured
+
+    def test_relaunch_uses_normalized_argv_for_legacy_boot(self) -> None:
+        """R13: legacy [script] → Popen called with [executable, "-u", script]."""
+        factory, captured = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=[self.script],
+            cwd=None,
+            log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_OK)
+        self.assertTrue(result["argv_normalized"])
+        self.assertEqual(
+            captured["argv"], [sys.executable, "-u", self.script],
+        )
+        self.assertEqual(result["argv_used"], captured["argv"])
+
+    def test_relaunch_records_argv_used_when_no_normalization(self) -> None:
+        """R14: modern [executable, script] passes through, was_norm=False."""
+        factory, captured = self._make_fake_popen()
+        modern_argv = [sys.executable, self.script]
+        result = manage.relaunch_daemon(
+            argv=modern_argv,
+            cwd=None,
+            log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_OK)
+        self.assertFalse(result["argv_normalized"])
+        self.assertEqual(captured["argv"], modern_argv)
+        self.assertEqual(result["argv_used"], modern_argv)
+
+    def test_relaunch_script_path_param_catches_missing_script_for_schema2(self) -> None:
+        """Adversarial: schema-2 argv = [python3, -u, script]. argv[0] is
+        the interpreter (always exists). If `script` is deleted between
+        cmd_restart's check and the spawn, Popen would spawn python3 and
+        instantly die. Pass script_path explicitly so the helper catches
+        it BEFORE spawn.
+
+        Caught by external reviewer on PR #279 (issue #1)."""
+        factory, _ = self._make_fake_popen()
+        # Use sys.executable as argv[0] — that's always a real interpreter
+        # on the test host (passes the argv[0] check). The script_path
+        # points at a path that doesn't exist.
+        result = manage.relaunch_daemon(
+            argv=[sys.executable, "-u", "/no/such/script.py"],
+            cwd=None, log_path=self.log,
+            popen_factory=factory,
+            script_path="/no/such/script.py",  # caller-known script path
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_SCRIPT_MISSING)
+        self.assertIn("/no/such/script.py", result["error"])
+
+    def test_relaunch_script_path_param_resolves_relative_against_cwd(self) -> None:
+        """script_path can be relative (matches operator launches from the
+        script's directory). Resolve against cwd same as argv[0]."""
+        import tempfile, shutil
+        sub = tempfile.mkdtemp(prefix="relaunch-script-rel-")
+        try:
+            with open(os.path.join(sub, "producer.py"), "w") as f:
+                f.write("# stub\n")
+            factory, _ = self._make_fake_popen()
+            result = manage.relaunch_daemon(
+                argv=[sys.executable, "-u", "./producer.py"],
+                cwd=sub, log_path=self.log,
+                popen_factory=factory,
+                script_path="./producer.py",  # relative; cwd resolves it
+            )
+            self.assertEqual(result["outcome"], manage.RELAUNCH_OK)
+        finally:
+            shutil.rmtree(sub, ignore_errors=True)
+
+    def test_relaunch_bare_name_dot_py_argv0_resolves_via_cwd(self) -> None:
+        """Bugbot caught: schema-1 boot.json from operator playbook
+        (`nohup python3 -u script.py`) records argv = ["script.py"] —
+        bare name, no path separator, .py extension. Pre-fix, this hit
+        the shutil.which branch and falsely returned SCRIPT_MISSING
+        because PATH doesn't contain scripts. Popen would actually
+        succeed because _normalize_argv prepends the interpreter and the
+        interpreter resolves the script relative to cwd.
+
+        Fix: normalize argv FIRST (so argv[0] becomes interpreter, not
+        script), THEN do the existence check on the normalized argv[0].
+        """
+        import tempfile, shutil
+        sub = tempfile.mkdtemp(prefix="bare-py-cwd-")
+        try:
+            with open(os.path.join(sub, "producer.py"), "w") as f:
+                f.write("# stub\n")
+            factory, captured = self._make_fake_popen()
+            result = manage.relaunch_daemon(
+                argv=["producer.py"],  # legacy schema-1 shape
+                cwd=sub,
+                log_path=self.log,
+                popen_factory=factory,
+            )
+            self.assertEqual(
+                result["outcome"], manage.RELAUNCH_OK,
+                f"bare-name .py argv[0] should not be rejected; got: {result}",
+            )
+            # Popen should be called with the normalized argv (interpreter
+            # prepended), NOT shutil.which-resolved.
+            self.assertEqual(captured["argv"][0], sys.executable)
+            self.assertIn("producer.py", captured["argv"])
+            self.assertTrue(result["argv_normalized"])
+        finally:
+            shutil.rmtree(sub, ignore_errors=True)
+
+    def test_relaunch_bare_name_argv0_resolved_via_path(self) -> None:
+        """Adversarial: argv[0] is a bare executable name (no path
+        separator) that exists on $PATH. Popen would resolve it via $PATH;
+        the existence check must do the same instead of joining it with
+        cwd and failing.
+
+        Pre-fix: os.path.join(cwd, 'python3') → '/data/python3' →
+        os.path.isfile false → RELAUNCH_SCRIPT_MISSING (FALSE NEGATIVE).
+        Caught by external reviewer on PR #279.
+        """
+        # Use 'python3' — guaranteed on every CI host and on production.
+        # If shutil.which can't find it, the test environment is broken in
+        # a way no fix here addresses; skip gracefully.
+        import shutil
+        if shutil.which("python3") is None:
+            self.skipTest("python3 not on $PATH in this test environment")
+
+        factory, captured = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=["python3", "-u", self.script],
+            cwd=None,  # cwd doesn't matter; resolution is via $PATH
+            log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(
+            result["outcome"], manage.RELAUNCH_OK,
+            f"bare-name argv[0] on $PATH must NOT fail existence check; "
+            f"got: {result}",
+        )
+        # Popen was called with the original argv unchanged — we don't
+        # rewrite to the resolved path because Popen handles that itself.
+        self.assertEqual(captured["argv"][0], "python3")
+
+    def test_relaunch_bare_name_argv0_not_on_path_fails(self) -> None:
+        """Adversarial: argv[0] is a bare name that's NOT on $PATH.
+        Should fail with a clear $PATH error message — distinct from the
+        'not a regular file' message for path-shaped argv[0]."""
+        factory, _ = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=["definitely-not-on-path-XYZQ"],
+            cwd=None, log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_SCRIPT_MISSING)
+        self.assertIn("$PATH", result["error"])
+
+    def test_relaunch_empty_argv0_returns_script_missing(self) -> None:
+        """Adversarial: argv = [""] (empty string).
+
+        Before garg-prashant's cwd-resolution fix, `os.path.exists("")`
+        returned False ⇒ RELAUNCH_SCRIPT_MISSING. My fix joined "" against
+        cwd, which yields the cwd itself (a directory that exists). The
+        existence check passed despite argv[0] being garbage. Now we
+        require argv[0] to resolve to a FILE, not just a path that exists.
+
+        Caught while doing the adversarial review of commit e0fd059."""
+        factory, _ = self._make_fake_popen()
+        result = manage.relaunch_daemon(
+            argv=[""],
+            cwd=self.tmp_cwd_for_tests if hasattr(self, "tmp_cwd_for_tests") else None,
+            log_path=self.log,
+            popen_factory=factory,
+        )
+        self.assertEqual(
+            result["outcome"], manage.RELAUNCH_SCRIPT_MISSING,
+            "empty argv[0] must fail the existence check, not pass via cwd",
+        )
+
+    def test_relaunch_argv0_pointing_at_a_directory_fails(self) -> None:
+        """Adversarial: argv[0] = a directory path (a real path that
+        exists, but isn't an executable file).
+
+        `os.path.exists()` returns True for directories. Popen would fail
+        on exec, but the helper's pre-check should refuse before Popen so
+        the operator gets a clearer error."""
+        import tempfile
+        dir_path = tempfile.mkdtemp(prefix="argv0-is-dir-")
+        try:
+            factory, _ = self._make_fake_popen()
+            result = manage.relaunch_daemon(
+                argv=[dir_path], cwd=None, log_path=self.log,
+                popen_factory=factory,
+            )
+            self.assertEqual(
+                result["outcome"], manage.RELAUNCH_SCRIPT_MISSING,
+                "argv[0] pointing at a directory must not pass the file check",
+            )
+        finally:
+            import shutil
+            shutil.rmtree(dir_path, ignore_errors=True)
+
+    def test_relaunch_with_relative_argv0_resolves_against_cwd(self) -> None:
+        """Schema-1 boot.json can record argv = ['./producer.py'] when the
+        operator launched from the script's directory. Popen will use the
+        daemon's cwd (`cwd=` parameter), so the existence check must too —
+        otherwise we'd return RELAUNCH_SCRIPT_MISSING for a launch that
+        would actually work.
+
+        Caught by garg-prashant on PR #279.
+        """
+        # Put a fake script in a subdir so we can pass a relative argv[0]
+        # against an explicit cwd.
+        import tempfile
+        sub = tempfile.mkdtemp(prefix="relaunch-relcwd-")
+        script_name = "producer.py"
+        with open(os.path.join(sub, script_name), "w") as f:
+            f.write("# fake\n")
+        factory, captured = self._make_fake_popen()
+        try:
+            result = manage.relaunch_daemon(
+                argv=[f"./{script_name}"],
+                cwd=sub,
+                log_path=self.log,
+                popen_factory=factory,
+            )
+            self.assertEqual(
+                result["outcome"], manage.RELAUNCH_OK,
+                f"expected OK, got: {result}",
+            )
+            # Popen receives the normalized argv (which still includes the
+            # relative path — we don't rewrite it; only the existence check
+            # was resolved against cwd).
+            self.assertEqual(captured["kwargs"].get("cwd"), sub)
+        finally:
+            import shutil
+            shutil.rmtree(sub, ignore_errors=True)
+
+    def test_empty_argv_result_includes_normalization_fields(self) -> None:
+        """Failure paths still populate argv_normalized / argv_used keys so
+        callers can branch on them without KeyError."""
+        result = manage.relaunch_daemon(
+            argv=[], cwd=None, log_path=self.log,
+        )
+        self.assertEqual(result["outcome"], manage.RELAUNCH_SPAWN_FAILED)
+        self.assertIn("argv_normalized", result)
+        self.assertIn("argv_used", result)
 
 
 if __name__ == "__main__":
