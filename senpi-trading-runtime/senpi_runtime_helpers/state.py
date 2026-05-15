@@ -197,11 +197,23 @@ def read_proc_environ(pid: int) -> Optional[Dict[str, str]]:
 
 
 def cmdline_fingerprint_for_pid(pid: int) -> Optional[str]:
-    """Hex sha256 of /proc/<pid>/cmdline, or None on Linux-less hosts."""
-    raw = _read_proc_field(pid, "cmdline")
-    if raw is None:
+    """Hex sha256 of /proc/<pid>/cmdline, or None on Linux-less hosts.
+
+    Reads raw bytes and hashes them directly. Prior implementation went
+    through `_read_proc_field` which decoded with `errors='replace'` and
+    then re-encoded for hashing — a lossy round-trip. For valid UTF-8
+    cmdlines (the common case) the result was identical, but if a
+    cmdline contained invalid byte sequences (rare; possible for binary
+    argv content), `\\x80\\x81` would decode to U+FFFD U+FFFD then
+    re-encode to 6 bytes (`\\xef\\xbf\\xbd\\xef\\xbf\\xbd`) — fingerprint
+    of the same on-disk bytes would differ from a direct hash. External
+    code-review nitpick #3.
+    """
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()
+    except (OSError, FileNotFoundError):
         return None
-    return hashlib.sha256(raw.encode("utf-8", errors="replace")).hexdigest()
 
 
 def start_time_jiffies_for_pid(pid: int) -> Optional[int]:
