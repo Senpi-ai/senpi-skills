@@ -277,14 +277,27 @@ def relaunch_daemon(
                 "error": "argv is empty",
                 "argv_normalized": False, "argv_used": []}
 
-    # Existence check: argv[0] may be the script (schema 1), the
-    # interpreter (schema 2 with absolute path like /usr/bin/python3),
-    # or a bare executable name relying on $PATH (schema 2 written by a
-    # virtualenv host where sys.executable is just "python", or an
-    # operator-authored boot.json with argv=["python3", ...]).
+    if not argv[0]:
+        return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
+                "error": "argv[0] is empty",
+                "argv_normalized": False, "argv_used": list(argv)}
+
+    # Normalize FIRST so the existence check operates on the same argv
+    # Popen will actually receive. Schema-1 boots with argv=["script.py"]
+    # become [interpreter, "-u", "script.py"] — argv[0] is now the
+    # interpreter (absolute path or bare name on $PATH). The script
+    # itself is validated separately via `script_path` (defense in depth).
     #
-    # Resolution rules:
-    #   - empty argv[0]              → SCRIPT_MISSING (Popen can't exec "")
+    # Pre-normalize order was buggy for bare-name `.py` argv[0]: the
+    # `shutil.which` branch searched $PATH for "script.py", returned None,
+    # and we falsely rejected the relaunch — even though `Popen([python3,
+    # -u, "script.py"], cwd=boot_cwd)` would succeed because the
+    # interpreter resolves the script relative to its cwd. Caught by
+    # Bugbot on commit 4e42860.
+    normalized_argv, was_normalized = _normalize_argv(argv)
+
+    # Existence check: argv[0] (post-normalization) is either an
+    # absolute path or a bare executable name. Resolution rules:
     #   - absolute path              → check os.path.isfile directly
     #   - relative with a separator  → join against `cwd` (Popen's cwd), check
     #   - bare name (no separator)   → shutil.which against $PATH
@@ -293,28 +306,24 @@ def relaunch_daemon(
     # that exists: empty argv[0] would join to `cwd` (a directory),
     # `/tmp` would also pass `os.path.exists`. Popen fails on those at
     # exec, but with a less helpful error than ours.
-    argv0 = argv[0]
-    if not argv0:
-        return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
-                "error": "argv[0] is empty",
-                "argv_normalized": False, "argv_used": list(argv)}
+    argv0 = normalized_argv[0]
     if os.path.isabs(argv0):
         argv0_resolved = argv0
     elif os.sep in argv0 or (os.altsep and os.altsep in argv0):
-        # Has a path separator → operator meant a relative path. Join with cwd.
         argv0_resolved = os.path.normpath(os.path.join(cwd or os.getcwd(), argv0))
     else:
-        # No path separator → bare name. Honor $PATH the way Popen does.
         which_result = shutil.which(argv0)
         if which_result is None:
             return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
                     "error": f"argv[0] {argv0!r} not found on $PATH",
-                    "argv_normalized": False, "argv_used": list(argv)}
+                    "argv_normalized": was_normalized,
+                    "argv_used": list(normalized_argv)}
         argv0_resolved = which_result
     if not os.path.isfile(argv0_resolved):
         return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
                 "error": f"argv[0] is not a regular file on disk: {argv0_resolved}",
-                "argv_normalized": False, "argv_used": list(argv)}
+                "argv_normalized": was_normalized,
+                "argv_used": list(normalized_argv)}
 
     # Defense in depth: when the caller knows which file in argv IS the
     # script (i.e. cmd_restart / cmd_start, which read script_path from
@@ -331,9 +340,11 @@ def relaunch_daemon(
         if not os.path.isfile(sp_resolved):
             return {"outcome": RELAUNCH_SCRIPT_MISSING, "pid": None,
                     "error": f"script_path is not a regular file on disk: {sp_resolved}",
-                    "argv_normalized": False, "argv_used": list(argv)}
+                    "argv_normalized": was_normalized,
+                    "argv_used": list(normalized_argv)}
 
-    normalized_argv, was_normalized = _normalize_argv(argv)
+    # normalized_argv was computed at the top, before the existence check,
+    # so the check operated on the same argv Popen will receive.
 
     try:
         # Open log file BEFORE spawning so an unwritable log path surfaces

@@ -245,15 +245,20 @@ class RelaunchDaemonTests(unittest.TestCase):
         self.assertEqual(captured["kwargs"]["stdout"], captured["kwargs"]["stderr"])
 
     def test_relaunch_missing_script_fails_loudly(self) -> None:
+        """After the normalize-first reorder, argv[0]=script.py is
+        normalized to [interpreter, -u, script.py] before the existence
+        check — so argv[0] (the interpreter) always exists. The script
+        itself is validated via the explicit script_path parameter that
+        cmd_restart / cmd_start pass through. Without script_path, the
+        helper trusts argv (Popen would discover the missing script at
+        exec time). With script_path, we catch it cleanly here."""
         factory, _ = self._make_fake_popen()
         result = manage.relaunch_daemon(
             argv=["/no/such/script.py"], cwd=None, log_path=self.log,
             popen_factory=factory,
+            script_path="/no/such/script.py",
         )
         self.assertEqual(result["outcome"], manage.RELAUNCH_SCRIPT_MISSING)
-        # Error mentions both that we tried + what we tried — exact wording
-        # may evolve (today: "argv[0] is not a regular file on disk: …"),
-        # so match the path rather than a brittle substring.
         self.assertIn("/no/such/script.py", result["error"])
 
     def test_relaunch_empty_argv_fails(self) -> None:
@@ -547,6 +552,42 @@ class RelaunchNormalizationTests(unittest.TestCase):
                 script_path="./producer.py",  # relative; cwd resolves it
             )
             self.assertEqual(result["outcome"], manage.RELAUNCH_OK)
+        finally:
+            shutil.rmtree(sub, ignore_errors=True)
+
+    def test_relaunch_bare_name_dot_py_argv0_resolves_via_cwd(self) -> None:
+        """Bugbot caught: schema-1 boot.json from operator playbook
+        (`nohup python3 -u script.py`) records argv = ["script.py"] —
+        bare name, no path separator, .py extension. Pre-fix, this hit
+        the shutil.which branch and falsely returned SCRIPT_MISSING
+        because PATH doesn't contain scripts. Popen would actually
+        succeed because _normalize_argv prepends the interpreter and the
+        interpreter resolves the script relative to cwd.
+
+        Fix: normalize argv FIRST (so argv[0] becomes interpreter, not
+        script), THEN do the existence check on the normalized argv[0].
+        """
+        import tempfile, shutil
+        sub = tempfile.mkdtemp(prefix="bare-py-cwd-")
+        try:
+            with open(os.path.join(sub, "producer.py"), "w") as f:
+                f.write("# stub\n")
+            factory, captured = self._make_fake_popen()
+            result = manage.relaunch_daemon(
+                argv=["producer.py"],  # legacy schema-1 shape
+                cwd=sub,
+                log_path=self.log,
+                popen_factory=factory,
+            )
+            self.assertEqual(
+                result["outcome"], manage.RELAUNCH_OK,
+                f"bare-name .py argv[0] should not be rejected; got: {result}",
+            )
+            # Popen should be called with the normalized argv (interpreter
+            # prepended), NOT shutil.which-resolved.
+            self.assertEqual(captured["argv"][0], sys.executable)
+            self.assertIn("producer.py", captured["argv"])
+            self.assertTrue(result["argv_normalized"])
         finally:
             shutil.rmtree(sub, ignore_errors=True)
 
