@@ -489,19 +489,32 @@ def _read_last_n_lines(log_path: str, *, n: int,
         end_pos = fh.tell()
         if end_pos == 0:
             return []
-        data = b""
+        # Accumulate chunks in a list and join ONCE at the end. Prior
+        # version did `data = fh.read(read_size) + data` per iteration,
+        # which is O(N²) on bytes (each iteration allocates a new bytes
+        # object the size of cumulative data and copies everything).
+        # Track newline count incrementally too — `data.count(b'\n')`
+        # on growing data was the same O(N²) trap. External code-review
+        # nitpick #2.
+        chunks: List[bytes] = []
         pos = end_pos
         # We want n+1 newlines so the chunk we keep starts AFTER a complete
         # line break — otherwise the first "line" in our slice would be
         # the tail of an earlier line that got cut by the chunk boundary.
         target_newlines = n + 1
+        newlines_seen = 0
         while pos > 0:
             read_size = min(chunk_bytes, pos)
             pos -= read_size
             fh.seek(pos)
-            data = fh.read(read_size) + data
-            if data.count(b"\n") >= target_newlines:
+            chunk = fh.read(read_size)
+            chunks.append(chunk)
+            newlines_seen += chunk.count(b"\n")
+            if newlines_seen >= target_newlines:
                 break
+        # Chunks were appended back-to-front (newest-first). Reverse +
+        # join once to assemble the final byte string in O(N).
+        data = b"".join(reversed(chunks))
     finally:
         fh.close()
 
