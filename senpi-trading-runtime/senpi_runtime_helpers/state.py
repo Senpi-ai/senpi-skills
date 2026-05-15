@@ -427,13 +427,25 @@ def ensure_daemon_stderr_redirected(name: str) -> Optional[str]:
         os.dup2(fd, 2)  # stderr
     finally:
         # If stdin/stdout/stderr were closed by the caller (e.g. launched
-        # via `python3 script.py >&- 2>&-`), os.open could return fd 0, 1,
-        # or 2 as the lowest free descriptor. After our dup2 onto 1 and 2,
-        # those descriptors point at the log file we just opened.
-        # Unconditionally closing `fd` in that case would close the log
-        # file out from under our redirected streams. Guard: only close
-        # our temporary fd if it's NOT one of the standard streams.
-        if fd > 2:
+        # via `python3 script.py < /dev/null >&- 2>&-`), os.open could
+        # return fd 0, 1, or 2 as the lowest free descriptor.
+        # - fd == 1 or 2: dup2 onto that fd is a no-op (target == source).
+        #   The descriptor IS the log file we just opened — closing our
+        #   handle would close the redirected stream itself.
+        # - fd == 0: stdin was closed; our log fd landed there. We don't
+        #   dup2 onto 0 (we only redirect 1 and 2), so fd 0 ends up
+        #   pointing at the log file as a write-only handle. Closing
+        #   would just leak the descriptor; NOT closing leaves stdin
+        #   in a weird "write-only to log" state that any sys.stdin.read
+        #   would crash on. Both are bad — but leaving it open is the
+        #   smaller leak; and the alternative ("close fd 0") is the same
+        #   resource-state problem in production: the daemon launched
+        #   without stdin to start with.
+        #
+        # Both edge cases are fine to close in our finally — the
+        # condition just protects 1 and 2, which dup2 made point at the
+        # SAME open-file-description as fd. Closing one closes both.
+        if fd not in (1, 2):
             os.close(fd)
     log_event(
         "log_path_fallback_applied",
