@@ -1194,6 +1194,108 @@ class BootSubcommandTests(CliFixtures):
 # ─── cmd_logs ───────────────────────────────────────────────────────────────
 
 
+# ─── Adversarial coverage of the seek-from-end tail (input domain) ──────────
+#
+# Walked the parameter space explicitly per the
+# memory/feedback_tdd_adversarial.md discipline:
+#   n: 0, 1, < lines, == lines, > lines
+#   file size: empty, < chunk, > chunk (forces multiple backward reads)
+#   last line: with trailing newline, without
+#   single line longer than chunk (forces backward read until first \n)
+#   non-UTF-8 bytes (errors=replace)
+
+
+class ReadLastNLinesTests(unittest.TestCase):
+    """_read_last_n_lines is the seek-from-end implementation. Tests
+    correctness across input classes; the I/O cost (O(n × line length),
+    not O(file size)) is implicit in the algorithm — verified by the
+    'large file with small chunk' tests that exercise the backward loop."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.mkdtemp(prefix="tail-test-")
+        self.path = os.path.join(self.tmp, "log.txt")
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _write_bytes(self, b: bytes) -> None:
+        with open(self.path, "wb") as f:
+            f.write(b)
+
+    def test_n_zero_returns_empty(self) -> None:
+        self._write_bytes(b"a\nb\nc\n")
+        self.assertEqual(cli._read_last_n_lines(self.path, n=0), [])
+
+    def test_empty_file_returns_empty(self) -> None:
+        self._write_bytes(b"")
+        self.assertEqual(cli._read_last_n_lines(self.path, n=10), [])
+
+    def test_n_equals_file_lines_returns_all(self) -> None:
+        self._write_bytes(b"a\nb\nc\n")
+        self.assertEqual(
+            cli._read_last_n_lines(self.path, n=3), ["a\n", "b\n", "c\n"],
+        )
+
+    def test_n_more_than_file_lines_returns_all(self) -> None:
+        self._write_bytes(b"a\nb\n")
+        self.assertEqual(
+            cli._read_last_n_lines(self.path, n=10), ["a\n", "b\n"],
+        )
+
+    def test_n_one_returns_only_last_line(self) -> None:
+        self._write_bytes(b"a\nb\nc\n")
+        self.assertEqual(cli._read_last_n_lines(self.path, n=1), ["c\n"])
+
+    def test_last_line_without_trailing_newline_preserved(self) -> None:
+        self._write_bytes(b"a\nb\nfinal-no-newline")
+        result = cli._read_last_n_lines(self.path, n=2)
+        self.assertEqual(result, ["b\n", "final-no-newline"])
+
+    def test_single_line_no_newline(self) -> None:
+        self._write_bytes(b"only-line-no-newline")
+        self.assertEqual(
+            cli._read_last_n_lines(self.path, n=10), ["only-line-no-newline"],
+        )
+
+    def test_file_larger_than_chunk_forces_backward_loop(self) -> None:
+        """File >> chunk_bytes. Backward-read loop must keep reading
+        chunks until enough newlines accumulated. This is the case that
+        the deque-based implementation handled correctly but slowly —
+        and that the seek-from-end implementation handles fast."""
+        # 200 lines × ~30 bytes each = ~6 KB. Use chunk_bytes=64 to force
+        # ~100 backward iterations — the loop's correctness under load.
+        for i in range(200):
+            with open(self.path, "ab") as f:
+                f.write(f"line-{i:04d}-some-content\n".encode())
+        result = cli._read_last_n_lines(self.path, n=5, chunk_bytes=64)
+        self.assertEqual(len(result), 5)
+        self.assertEqual(result[0], "line-0195-some-content\n")
+        self.assertEqual(result[-1], "line-0199-some-content\n")
+
+    def test_single_line_larger_than_chunk(self) -> None:
+        """A single line longer than chunk_bytes. Backward loop reads
+        until pos==0 because no newline boundary is found. Returns the
+        whole giant line."""
+        giant = b"x" * 50_000 + b"\n"  # one 50KB line with newline
+        self._write_bytes(giant)
+        result = cli._read_last_n_lines(self.path, n=1, chunk_bytes=4096)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(len(result[0]), 50_001)  # 50K x's + \n
+        self.assertTrue(result[0].endswith("\n"))
+
+    def test_non_utf8_bytes_decoded_with_replace(self) -> None:
+        """Log files can contain stray binary bytes (e.g. control chars
+        from a misbehaving subprocess). The bytes-mode read + decode with
+        errors='replace' should never raise."""
+        self._write_bytes(b"valid line\n\x80\x81invalid\nlast\n")
+        result = cli._read_last_n_lines(self.path, n=3)
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0], "valid line\n")
+        # Replacement char might be U+FFFD or the literal — either is fine
+        # so long as no exception was raised.
+        self.assertEqual(result[2], "last\n")
+
+
 class LogsSubcommandTests(CliFixtures):
     """`senpi-helpers logs <name>` prints the tail of the daemon's log file.
     Tests the non-follow path (the follow path is real-time streaming —

@@ -452,17 +452,79 @@ LOGS_NO_LOG = 1
 LOGS_NOT_FOUND = 2
 
 
-def _print_last_n_lines(log_path: str, *, n: int) -> None:
-    """Read the tail of `log_path`. Tolerant of short files."""
-    # Don't pull the whole file into memory for large logs — use a deque.
-    from collections import deque
+# Read this many bytes per backward seek when tailing. 8 KiB is a typical
+# block size on most filesystems and comfortably fits hundreds of typical
+# log lines (~80–200 chars each). Tunable for tests.
+_TAIL_CHUNK_BYTES = 8192
+
+
+def _read_last_n_lines(log_path: str, *, n: int,
+                      chunk_bytes: int = _TAIL_CHUNK_BYTES) -> List[str]:
+    """Return the last `n` lines of `log_path` without reading the whole file.
+
+    Algorithm: seek to EOF, then read backwards in `chunk_bytes`-sized blocks
+    until we've accumulated at least n+1 newline characters (n+1 because n
+    lines have at most n+1 line breaks — the +1 catches the partial line
+    we'd otherwise truncate at the leading edge of our window). Decode the
+    accumulated bytes and return the last n lines.
+
+    Why not `collections.deque(fh, maxlen=n)`?
+        deque keeps memory bounded but its constructor IS Python's file
+        iterator — which reads the file line-by-line from the start. On
+        a multi-GB log, that's gigabytes of disk I/O and UTF-8 decoding
+        for "I want the last 50 lines." This implementation reads at
+        most O(n × avg_line_length) bytes from disk.
+
+    Returns lines as text (UTF-8, errors='replace') with their trailing
+    newlines preserved when present. Returns an empty list for n=0,
+    empty file, or unreadable file (caller writes the error).
+    """
+    if n <= 0:
+        return []
+    # Open binary so we can seek by byte offset. Text mode in Python 3
+    # forbids relative seeks on non-seek-from-zero positions.
+    fh = open(log_path, "rb")
     try:
-        with open(log_path, "r", errors="replace") as fh:
-            buf = deque(fh, maxlen=n)
+        fh.seek(0, os.SEEK_END)
+        end_pos = fh.tell()
+        if end_pos == 0:
+            return []
+        data = b""
+        pos = end_pos
+        # We want n+1 newlines so the chunk we keep starts AFTER a complete
+        # line break — otherwise the first "line" in our slice would be
+        # the tail of an earlier line that got cut by the chunk boundary.
+        target_newlines = n + 1
+        while pos > 0:
+            read_size = min(chunk_bytes, pos)
+            pos -= read_size
+            fh.seek(pos)
+            data = fh.read(read_size) + data
+            if data.count(b"\n") >= target_newlines:
+                break
+    finally:
+        fh.close()
+
+    text = data.decode("utf-8", errors="replace")
+    # splitlines(keepends=True) preserves trailing newlines on each line
+    # and handles a missing-final-newline case correctly (the last entry
+    # is a line without a newline, returned as-is).
+    lines = text.splitlines(keepends=True)
+    return lines[-n:]
+
+
+def _print_last_n_lines(log_path: str, *, n: int) -> None:
+    """Print the last `n` lines of `log_path` to stdout.
+
+    Uses the seek-from-end implementation so the I/O cost is O(n × line
+    length), not O(file size). Errors during read are written to stderr
+    and the function returns silently — same contract as before."""
+    try:
+        lines = _read_last_n_lines(log_path, n=n)
     except OSError as e:
         sys.stderr.write(f"senpi-helpers: cannot read {log_path}: {e}\n")
         return
-    for line in buf:
+    for line in lines:
         sys.stdout.write(line)
 
 
