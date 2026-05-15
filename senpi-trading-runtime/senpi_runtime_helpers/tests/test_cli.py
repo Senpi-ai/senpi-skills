@@ -2053,6 +2053,62 @@ class LogTailerStepTests(unittest.TestCase):
             self.assertEqual(action, "wait")
         tailer.close()
 
+    def test_stat_permission_error_returns_wait_and_resets_state(self) -> None:
+        """Adversarial input enumeration for `os.stat`: parent directory's
+        permissions get changed mid-tail (`chmod 000 /var/log`), so stat
+        raises `PermissionError` instead of `FileNotFoundError`. The
+        previous handler caught only `FileNotFoundError`, so this case
+        propagated through `_stream_log` → `cmd_logs` and crashed
+        `senpi-helpers logs --follow` with a raw traceback.
+
+        Bugbot Medium-sev (commit ed8732f, comment r3244947267).
+        """
+        self._write("initial\n")
+        tailer = cli._LogTailer(self.path)
+        tailer.step()  # first open establishes baseline; started=True now
+
+        real_stat = os.stat
+        try:
+            os.stat = lambda path: (_ for _ in ()).throw(
+                PermissionError("simulated parent-dir chmod 000")
+            )
+            action, payload = tailer.step()
+        finally:
+            os.stat = real_stat
+
+        self.assertEqual(action, "wait")
+        self.assertIsNone(payload)
+        # State must be reset the same way FileNotFoundError already does,
+        # so a subsequent successful stat reopens cleanly.
+        self.assertIsNone(tailer.fh, "fh must be closed after stat failure")
+        self.assertIsNone(tailer.inode, "inode must be reset for clean retry")
+        tailer.close()
+
+    def test_stat_generic_oserror_returns_wait_and_resets_state(self) -> None:
+        """Adversarial input enumeration: `os.stat` can also raise plain
+        `OSError` (e.g. EIO from a failing disk, EBUSY from a transient
+        mount race). Same recovery contract as `FileNotFoundError` and
+        `PermissionError` — return wait, reset state, do not propagate.
+        """
+        self._write("initial\n")
+        tailer = cli._LogTailer(self.path)
+        tailer.step()
+
+        real_stat = os.stat
+        try:
+            os.stat = lambda path: (_ for _ in ()).throw(
+                OSError(5, "Input/output error")  # errno.EIO
+            )
+            action, payload = tailer.step()
+        finally:
+            os.stat = real_stat
+
+        self.assertEqual(action, "wait")
+        self.assertIsNone(payload)
+        self.assertIsNone(tailer.fh)
+        self.assertIsNone(tailer.inode)
+        tailer.close()
+
     def test_open_failure_after_stat_succeeds_returns_wait(self) -> None:
         """Adversarial race: between os.stat (succeeds) and open() (raises),
         the file is deleted or permissions yanked. step() must catch the

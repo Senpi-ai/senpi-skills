@@ -575,11 +575,19 @@ class _LogTailer:
         """
         try:
             st = os.stat(self.log_path)
-        except FileNotFoundError:
-            # File deleted (or never existed yet). Drop our handle so the
-            # next successful stat reopens cleanly; reset inode so the
-            # reopen branch fires even if the recreated file happens to
-            # land on the same inode the kernel just freed.
+        except OSError:
+            # `OSError` (not just `FileNotFoundError`) so a transient
+            # `PermissionError` (parent dir chmod 000), `NotADirectoryError`,
+            # or generic disk error (EIO / EBUSY) doesn't crash
+            # `senpi-helpers logs --follow` — same recovery path we already
+            # use for the file-deleted case. The reopen branch downstream
+            # uses `except OSError` for the same reason; keeping the two
+            # symmetric closes the asymmetry Bugbot caught (Medium-sev,
+            # commit ed8732f, comment r3244947267).
+            #
+            # Drop our handle so the next successful stat reopens cleanly;
+            # reset inode so the reopen branch fires even if the recreated
+            # file happens to land on the same inode the kernel just freed.
             if self.fh is not None:
                 self.fh.close()
                 self.fh = None
