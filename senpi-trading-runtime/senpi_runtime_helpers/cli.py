@@ -721,7 +721,11 @@ def _diag_check(key: str, status: str, message: str, suggestion: Optional[str] =
 
 
 def _run_diagnostic_checks(
-    name: str, *, state_dir: Optional[str],
+    name: str,
+    *,
+    pid_data: Optional[Dict[str, Any]],
+    boot_data: Optional[Dict[str, Any]],
+    hb_data: Optional[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     """Run every diagnostic in order. Each returns a result dict.
 
@@ -729,11 +733,12 @@ def _run_diagnostic_checks(
     sees structural problems (missing files) before runtime ones (stale
     ticks). All checks are pure functions over the on-disk state — no
     side effects, no Railway, no network.
-    """
-    pid_data = _state.read_pid(name, state_dir=state_dir)
-    boot_data = _state.read_boot(name, state_dir=state_dir)
-    hb_data = _state.read_heartbeat(name, state_dir=state_dir)
 
+    State data is passed in (read once by the caller) so the CLI does
+    not double-read pid/boot/heartbeat — which previously also opened a
+    TOCTOU window between the existence pre-check and the per-check
+    pass. Bugbot Low-sev (commit 4b12ef3).
+    """
     out: List[Dict[str, Any]] = []
 
     # boot.json — without it, the daemon has never run under the helper.
@@ -929,20 +934,24 @@ def cmd_diagnose(args: argparse.Namespace) -> int:
     name = _resolve_name_readonly(args)
     if name is None:
         return DIAGNOSE_NOT_FOUND
-    # Confirm at least SOMETHING for this daemon exists; otherwise the
-    # diagnose output would be entirely "missing" rows with no signal.
-    if (
-        _state.read_pid(name, state_dir=args.state_dir) is None
-        and _state.read_boot(name, state_dir=args.state_dir) is None
-        and _state.read_heartbeat(name, state_dir=args.state_dir) is None
-    ):
+    # Read each state file ONCE and thread the values through. Doing the
+    # existence pre-check from the same dicts the per-check pass uses
+    # avoids a TOCTOU window where the pre-check sees state but the per-
+    # check pass sees None (a daemon that exited between the two reads),
+    # and trims wasted disk I/O. Bugbot Low-sev (commit 4b12ef3).
+    pid_data = _state.read_pid(name, state_dir=args.state_dir)
+    boot_data = _state.read_boot(name, state_dir=args.state_dir)
+    hb_data = _state.read_heartbeat(name, state_dir=args.state_dir)
+    if pid_data is None and boot_data is None and hb_data is None:
         sys.stderr.write(
             f"senpi-helpers: no state files for '{name}'. "
             f"Use `senpi-helpers list` to see registered daemons.\n"
         )
         return DIAGNOSE_NOT_FOUND
 
-    checks = _run_diagnostic_checks(name, state_dir=args.state_dir)
+    checks = _run_diagnostic_checks(
+        name, pid_data=pid_data, boot_data=boot_data, hb_data=hb_data,
+    )
 
     if args.json:
         print(json.dumps(

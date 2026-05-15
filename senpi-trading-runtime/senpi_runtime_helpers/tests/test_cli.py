@@ -1549,6 +1549,49 @@ class DiagnoseSubcommandTests(CliFixtures):
         r = self._run_json("stale")
         self.assertEqual(self._check_status(r["doc"], "heartbeat_fresh"), "fail")
 
+    def test_diagnose_reads_each_state_file_only_once(self) -> None:
+        """Bugbot Low-sev (commit 4b12ef3): cmd_diagnose previously read
+        pid/boot/heartbeat in a pre-check guard, then `_run_diagnostic_checks`
+        re-read the same three files. Two read passes burn extra disk I/O
+        AND open a TOCTOU window where the pre-check sees state and the
+        check pass sees None (or vice versa) on a daemon that just exited.
+
+        This test pins the contract: each state file is read at most once
+        per `cmd_diagnose` invocation.
+        """
+        # Stage minimal state so the pre-check passes (any non-None survives).
+        self._write_files("once", boot_data={
+            "schema": 2, "name": "once",
+            "argv": [], "script_path": self.tmp,
+            "cwd": "/", "env_snapshot": {}, "log_path": None,
+            "captured_at_iso": "2026-05-12T08:00:00.000Z",
+        })
+        # Wrap each state reader with a counter; keep the original behavior.
+        from senpi_runtime_helpers import state as st_mod
+        counts = {"read_pid": 0, "read_boot": 0, "read_heartbeat": 0}
+        originals = {k: getattr(st_mod, k) for k in counts}
+
+        def make_counter(name: str):
+            def wrapper(*args, **kwargs):
+                counts[name] += 1
+                return originals[name](*args, **kwargs)
+            return wrapper
+
+        # Patch on the cli module — that's where cmd_diagnose looks them up.
+        from senpi_runtime_helpers import cli as cli_mod
+        for k in counts:
+            setattr(cli_mod._state, k, make_counter(k))
+        try:
+            self._run_json("once")
+        finally:
+            for k, v in originals.items():
+                setattr(cli_mod._state, k, v)
+
+        self.assertEqual(
+            counts, {"read_pid": 1, "read_boot": 1, "read_heartbeat": 1},
+            msg=f"each state file should be read exactly once; got {counts}",
+        )
+
     def test_diagnose_all_passing_returns_ok(self) -> None:
         # Build a fully-clean state: script_path = an existing file in tmp,
         # pid = own pid (alive), no fingerprints (degrades cleanly),
