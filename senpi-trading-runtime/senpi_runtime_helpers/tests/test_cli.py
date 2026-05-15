@@ -585,10 +585,26 @@ class StopSubcommandTests(CliFixtures):
         self.assertEqual(rc, 0)
 
 
-class RestartSubcommandTests(CliFixtures):
-    """Restart requires boot.json + an existing script_path. The actual
-    subprocess.Popen is mocked via cli._manage monkeypatching so the test
-    doesn't spawn real daemons."""
+class _RelaunchFixtures(CliFixtures):
+    """Shared fixture (NO test methods) for command tests that need:
+
+      - a real on-disk script file (`self.script`) so cmd_restart /
+        cmd_start's `os.path.exists(script_path)` check passes;
+      - a monkeypatched `cli._manage.relaunch_daemon` that records each
+        invocation in `self._relaunch_calls` and returns a canned success
+        result, so the test doesn't actually spawn a daemon.
+
+    This class deliberately has no `test_*` methods. unittest discovery
+    picks it up as a TestCase (it inherits from CliFixtures → TestCase)
+    but produces an empty test suite from it.
+
+    Bugbot Low-sev (commit 214a0eb): three sibling test classes used to
+    inherit from `RestartSubcommandTests` directly to share these
+    fixtures, which had the side effect of running every restart-specific
+    test 4× (once in the parent, once in each of the three children) for
+    18 redundant runs. Sharing the fixture via a no-test mixin removes
+    the inflation without losing the convenience.
+    """
 
     def setUp(self) -> None:
         super().setUp()
@@ -644,6 +660,12 @@ class RestartSubcommandTests(CliFixtures):
                 "env_snapshot": {},
                 "captured_at_iso": "2026-05-12T08:00:00.000Z",
             }, f)
+
+
+class RestartSubcommandTests(_RelaunchFixtures):
+    """Restart requires boot.json + an existing script_path. The actual
+    subprocess.Popen is mocked via cli._manage monkeypatching so the test
+    doesn't spawn real daemons."""
 
     def test_restart_success_with_dead_daemon_skips_stop(self) -> None:
         self._seed_full("svc")  # dead pid in pid.json
@@ -767,10 +789,11 @@ class RestartSubcommandTests(CliFixtures):
 # ─── cmd_start (new in this PR) ─────────────────────────────────────────────
 
 
-class StartSubcommandTests(RestartSubcommandTests):
+class StartSubcommandTests(_RelaunchFixtures):
     """`start` shares the relaunch path with `restart`; the difference is
-    that start doesn't run stop_pid. Inheriting from RestartSubcommandTests
-    reuses the fake-relaunch fixture without duplicating it."""
+    that start doesn't run stop_pid. Inheriting from `_RelaunchFixtures`
+    reuses the fake-relaunch setup without picking up `RestartSubcommandTests`'
+    test methods (Bugbot Low-sev on commit 214a0eb)."""
 
     def test_start_no_existing_pid_relaunches_cold(self) -> None:
         """Cleanly-stopped daemon (no pid.json) — start launches it fresh."""
@@ -845,11 +868,16 @@ class StartSubcommandTests(RestartSubcommandTests):
 # ─── pid-recycle guard at the CLI layer ─────────────────────────────────────
 
 
-class AutoResolveDisabledForDestructiveCommandsTests(RestartSubcommandTests):
+class AutoResolveDisabledForDestructiveCommandsTests(_RelaunchFixtures):
     """Single-daemon-host footgun fix. Stop / restart / start now require
     an explicit <name>; auto-resolve is reserved for read-only commands
     (list, health, stats, boot, logs). Verifies the new contract — and
-    that read-only commands keep auto-resolving."""
+    that read-only commands keep auto-resolving.
+
+    Inherits from `_RelaunchFixtures` (not `RestartSubcommandTests`) so
+    parent restart tests don't run again under this class — Bugbot
+    Low-sev on commit 214a0eb. The destructive-without-name tests still
+    need the fake-relaunch mock to assert it was *not* called."""
 
     def _seed_minimal_daemon(self, name: str) -> None:
         """Just enough state so `list_daemons` returns this name."""
@@ -929,9 +957,16 @@ class AutoResolveDisabledForDestructiveCommandsTests(RestartSubcommandTests):
         self.assertEqual(doc["outcome"], "already_dead")
 
 
-class StopRecycleGuardTests(RestartSubcommandTests):
+class StopRecycleGuardTests(CliFixtures):
     """When pid.json's fingerprints don't match /proc/<pid>'s, cmd_stop must
-    refuse to SIGTERM and clear the stale pid.json."""
+    refuse to SIGTERM and clear the stale pid.json.
+
+    Inherits from `CliFixtures` directly — cmd_stop never reaches
+    relaunch_daemon, so the fake-relaunch fixture isn't needed here.
+    Was inheriting from `RestartSubcommandTests` (Bugbot Low-sev on
+    commit 214a0eb) which both ran restart tests redundantly AND made
+    each stop-recycle test pay the script-creation + monkeypatch cost
+    for nothing."""
 
     def test_stop_refuses_when_fingerprint_mismatch(self) -> None:
         """pid is alive (we use os.getpid()) but the recorded fingerprint
@@ -1863,6 +1898,48 @@ class StartInheritEnvFromTests(CliFixtures):
         self.assertEqual(rc, 1)
         self.assertIn("Linux", err)
         self.assertEqual(len(self._relaunch_calls), 0)
+
+
+# ─── Test-suite shape (Bugbot Low-sev: subclass-redundancy) ────────────────
+
+
+class TestSuiteShapeTests(unittest.TestCase):
+    """Bugbot Low-sev (commit 214a0eb): three test classes inherited from
+    `RestartSubcommandTests` to share the fake-relaunch fixture, which had
+    the side effect of re-running every `test_restart_*` method per
+    subclass — 18 redundant runs across CI.
+
+    Pin the contract: subclasses share the fixture via a no-test mixin
+    (`_RelaunchFixtures`), not via subclassing a concrete TestCase that
+    has its own test methods. New subclasses must not introduce the same
+    inflation.
+    """
+
+    def test_no_subclass_inherits_test_methods_from_restart_class(self) -> None:
+        loader = unittest.TestLoader()
+        parent_test_names = set(loader.getTestCaseNames(RestartSubcommandTests))
+        # Sanity: parent really does have the restart tests we expect.
+        self.assertTrue(
+            any(n.startswith("test_restart_") for n in parent_test_names),
+            "RestartSubcommandTests is expected to own the test_restart_* methods",
+        )
+        for child_cls in (
+            StartSubcommandTests,
+            AutoResolveDisabledForDestructiveCommandsTests,
+            StopRecycleGuardTests,
+        ):
+            child_test_names = set(loader.getTestCaseNames(child_cls))
+            overlap = parent_test_names & child_test_names
+            self.assertEqual(
+                overlap, set(),
+                msg=(
+                    f"{child_cls.__name__} inherits {len(overlap)} test "
+                    f"method(s) from RestartSubcommandTests; each runs "
+                    f"redundantly. Inherit fixture only (e.g. via "
+                    f"_RelaunchFixtures), not test methods. "
+                    f"Overlap: {sorted(overlap)}"
+                ),
+            )
 
 
 # ─── _LogTailer state machine (adversarial input coverage) ──────────────────
