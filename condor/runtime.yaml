@@ -199,9 +199,18 @@ actions:
 # ~0.020-0.030% per maker-filled close. Taker fallback enabled on
 # exits so closes always happen. Entry path keeps
 # ensure_execution_as_taker: false (v3.x patience rule).
+#
+# v4.0.1 (2026-05-18): interval_seconds 30 → 60. Same lesson as
+# Bison v3.0.1 — when runtime position-state pull lags HL after a
+# successful close, the DSL re-fires close_position on a flat HL
+# position which can produce CLOSE_FEE_OPTIMIZED_FAILED "Reduce
+# only order would increase position" errors. Doubling the interval
+# halves the wasted close attempts. Root cause (runtime-side
+# position-state sync) requires runtime team fix; this is downstream
+# mitigation.
 exit:
   engine: dsl
-  interval_seconds: 30
+  interval_seconds: 60                   # v4.0.1: 30 → 60 (REDUCE_ONLY spam mitigation)
   order_type: FEE_OPTIMIZED_LIMIT
   fee_optimized_limit_options:
     ensure_execution_as_taker: true        # exit closes MUST happen

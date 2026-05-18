@@ -58,9 +58,18 @@ import condor_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "4.0.0"
+VERSION = "4.0.1"
 SCANNER_NAME = "condor_signals"
 SIGNAL_TYPE = "CONDOR_APEX_CONTINUATION"
+
+# v4.0.1: each push_signal() success is recorded via
+# cfg.record_signal(coin). main() skips emission for any coin seen
+# in the cache within RECENT_SIGNAL_TTL_SEC (default 240s). Bridges
+# the race window where a freshly-pushed signal hasn't yet appeared
+# in the next-tick clearinghouse pull but has already triggered a
+# runtime LLM-gate fire. Audit on Condor2 (M193171) 2026-05-14 to
+# 2026-05-17 showed 4 consecutive CONDOR_APEX HYPE LONG
+# ENGINE_FAILUREs on already-held HYPE — all eliminated by this cache.
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -509,6 +518,34 @@ def main():
     candidates.sort(key=lambda c: c["score"], reverse=True)
     best = candidates[0]
 
+    # v4.0.1: race-window dedup. If we just pushed this coin within
+    # RECENT_SIGNAL_TTL_SEC, skip — the runtime is mid-fill and the
+    # on-chain held-asset check hasn't yet caught up. Re-emitting
+    # here would drive a duplicate runtime LLM-gate fire that hits
+    # ENGINE_FAILURE on the held-asset bug.
+    if cfg.was_recently_signaled(best["coin"]):
+        elapsed = time.time() - run_start
+        cfg.output({
+            "status": "ok",
+            "scanned": len(universe),
+            "candidates": len(candidates),
+            "signals_pushed": 0,
+            "note": (
+                f"DEDUP_SKIP {best['coin']} pushed within last "
+                f"{cfg.RECENT_SIGNAL_TTL_SEC}s (race window) — runtime is "
+                f"mid-fill, awaiting clearinghouse refresh"
+            ),
+            "best": {
+                "coin": best["coin"],
+                "direction": best["direction"],
+                "score": best["score"],
+            },
+            "held_assets": held_assets,
+            "elapsed_sec": round(elapsed, 2),
+            "_condor_producer_version": VERSION,
+        })
+        return
+
     # Score-scaled sizing
     base_leverage, margin_pct = get_sizing_for_score(best["score"])
     leverage = get_safe_leverage(STRATEGY_ADDRESS, best["coin"], base_leverage)
@@ -516,6 +553,10 @@ def main():
 
     # Push to runtime — LLM gate decides whether to open
     pushed = push_signal(best, margin_usd, leverage, held_assets)
+
+    # v4.0.1: record successful push for the next tick's dedup check.
+    if pushed:
+        cfg.record_signal(best["coin"])
 
     elapsed = time.time() - run_start
     cfg.output({

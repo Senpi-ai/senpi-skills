@@ -1,18 +1,18 @@
 ---
 name: condor-strategy
 description: >-
-  CONDOR v4.0.0 — One Amazing Trade per Day, senpi_runtime_helpers
-  migration. Plumbing-only flip from openclaw cron + mcporter
-  subprocess to in-process SenpiClient (direct HTTPS for MCP, direct
-  HTTP POST to runtime /signals, long-lived producer_daemon). Thesis
-  preserved verbatim from v3.4: top 50 HL assets, 3TF alignment hard
-  gate + MACRO_TREND_GATE + SM consensus >=70%, MIN_SCORE 12,
-  score-scaled sizing (50%/70%/80%), 10x leverage cap, 6-tier DSL
-  ladder from Kodiak SOL empirical wins.
+  CONDOR v4.0.1 — One Amazing Trade per Day. Top 50 HL assets, pure
+  trend continuation, apex confluence only. 3TF alignment hard gate
+  + MACRO_TREND_GATE + SM consensus >=70%, MIN_SCORE 12, score-scaled
+  sizing (50%/70%/80%), 10x leverage cap, 6-tier DSL ladder from
+  Kodiak SOL empirical wins. v4.0.1 ships a race-window dedup cache
+  that eliminates the ENGINE_FAILURE retry noise on already-held
+  assets, plus a doubled DSL exit interval to throttle REDUCE_ONLY
+  spam when runtime position-state lags HL.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.0.0"
+  version: "4.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -20,9 +20,49 @@ metadata:
     - senpi_runtime_helpers
 ---
 
-# 🦅 CONDOR v4.0.0 — One Amazing Trade per Day
+# 🦅 CONDOR v4.0.1 — One Amazing Trade per Day
 
 Top 50 assets. Pure trend continuation. Apex confluence only. One trade a day.
+
+## v4.0.1 (2026-05-18) — held-asset dedup race-fix + DSL throttle
+
+Operational reliability patch. NO thesis change. NO scoring change.
+NO gate change. Direct port of the Bison v3.0.1 patches to address
+the same race-window + position-state-drift bug class observed on
+Condor's decision log.
+
+**Bug observed.** Audit on Condor2 (M193171) 2026-05-14 to
+2026-05-17 showed **4 consecutive `CONDOR_APEX HYPE LONG`
+ENGINE_FAILUREs**, all for HYPE LONG signals fired while HYPE was
+already held by the runtime executor. The producer's on-chain
+`held_assets` check leaks during the race window between
+`push_signal()` returning OK and the resulting position appearing
+in the next-tick `clearinghouseState` pull. Same bug class Bison
+v3.0.1 fixed; same fix here.
+
+**Fix 1 — recent-signals cache (`scripts/condor_config.py`).**
+`record_signal(coin)` writes `{coin: epoch_seconds}` to
+`state/recent-signals.json` after every successful push. `main()`
+calls `was_recently_signaled(coin)` after candidate-best selection
+and BEFORE `push_signal`, skipping emission for any coin seen
+within `RECENT_SIGNAL_TTL_SEC` (default 240s ≈ 4× the typical ALO
+open-fill window + next-tick cadence). Skipped coins are reported
+with `DEDUP_SKIP` notes in the per-tick output for audit.
+
+**Fix 2 — DSL exit interval 30s → 60s (`runtime.yaml`).**
+Defensive mitigation of the runtime position-state drift bug seen
+in Bison's audit (`CLOSE_FEE_OPTIMIZED_FAILED "Reduce only order
+would increase position"` errors firing 1-2 ticks after a
+successful close). Condor's close-side audit shows no such failures
+yet, but the bug is fleet-wide — applying the throttle here
+proactively. **Root cause (runtime-side position-state sync) is
+escalated to the runtime team** — this YAML change is downstream
+mitigation only.
+
+**What this does NOT fix.** Phantom orphan positions where DSL
+state and HL state are durably out of sync. That class of bug
+needs runtime-side reconciliation; the producer has no authority
+over DSL state.
 
 ## v4.0.0 (2026-05-12) — plumbing-only migration
 
