@@ -60,9 +60,18 @@ import bison_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "3.0.0"
+VERSION = "3.0.1"
 SCANNER_NAME = "bison_signals"
 SIGNAL_TYPE = "BISON_CONVICTION_HOLDER"
+
+# v3.0.1: each push_signal() success is recorded via
+# cfg.record_signal(coin). main() skips any coin seen in the cache
+# within RECENT_SIGNAL_TTL_SEC (default 180s) BEFORE scoring. Covers
+# the race window where a freshly-pushed signal hasn't yet appeared
+# in the next-tick clearinghouse pull but has already triggered a
+# runtime LLM-gate fire. Pre-v3.0.1 audit (M192943, 2026-05-13 to
+# 2026-05-17): 16 BISON_CONVICTION ENGINE_FAILURE retries on held
+# assets — all eliminated by this cache.
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -467,13 +476,21 @@ def main():
     allowed = config.get("allowedAssets", ALLOWED_ASSETS_DEFAULT)
     candidates = get_top_assets(top_n, allowed_assets=allowed)
 
-    # Score all candidates; collect those at/above MIN_SCORE
+    # Score all candidates; collect those at/above MIN_SCORE.
+    # v3.0.1: skip coins recently signaled (race-window dedup) BEFORE
+    # build_thesis() — avoids paying the per-coin MCP fetch cost when
+    # we already know we won't emit.
+    held_set = {h.upper() for h in held_assets}
     signals = []
+    recently_skipped = []
     for asset in candidates:
         coin = asset["coin"]
         if coin.lower().startswith("xyz:"):
             continue
-        if coin in held_assets:
+        if coin.upper() in held_set:
+            continue
+        if cfg.was_recently_signaled(coin):
+            recently_skipped.append(coin)
             continue
         thesis = build_thesis(coin, entry_cfg)
         if thesis and thesis["score"] >= min_score:
@@ -488,6 +505,7 @@ def main():
             "signals_pushed": 0,
             "min_score": min_score,
             "held_assets": held_assets,
+            "recently_signaled_skipped": recently_skipped,
             "note": f"WAITING — no conviction thesis (min score {min_score})",
             "elapsed_sec": round(elapsed, 2),
             "_bison_producer_version": VERSION,
@@ -514,6 +532,13 @@ def main():
     # Push to runtime — LLM gate decides whether to open
     pushed = push_signal(best, margin_usd, leverage, held_assets)
 
+    # v3.0.1: record successful push for race-window dedup. The
+    # cache is checked at the top of the next tick BEFORE scoring,
+    # so even if the position hasn't yet appeared in clearinghouse,
+    # we won't fire a duplicate runtime LLM gate.
+    if pushed:
+        cfg.record_signal(best["coin"])
+
     elapsed = time.time() - run_start
     cfg.output({
         "status": "ok",
@@ -530,6 +555,7 @@ def main():
             "reasons": best["reasons"][:6],   # top reasons only
         },
         "held_assets": held_assets,
+        "recently_signaled_skipped": recently_skipped,
         "elapsed_sec": round(elapsed, 2),
         "_bison_producer_version": VERSION,
     })

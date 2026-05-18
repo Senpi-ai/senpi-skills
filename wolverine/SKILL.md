@@ -1,27 +1,102 @@
 ---
 name: wolverine-strategy
 description: >-
-  WOLVERINE v5.0.0 — HYPE alpha hunter, senpi_runtime_helpers migration.
-  Plumbing-only flip from openclaw-CLI subprocess + mcporter subprocess
-  to in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
-  runtime /signals, long-lived producer_daemon). Thesis preserved
-  verbatim from v4.2.0: HYPE single-asset hybrid, six-gate entry
-  validation (4h trend, 4h strength ≥0.65, 1h-4h alignment, 15m
-  momentum ≥0.15, base-tech floor, 4h magnitude ≥1.0%), SM hard-block
-  on opposing direction, RSI hard gates (74/26), multi-factor scoring
-  (~17 max), conviction-tiered leverage (3x standard / 5x apex),
-  MIN_SCORE 9, FP-001 quiet hours.
+  WOLVERINE v6.0.0 — HYPE Patient-Conviction. Six-gate HYPE single-
+  asset thesis preserved, behavior shifts to fewer-stronger entries
+  with multi-day DSL holds (Bison v3.0.1 pattern port). MIN_SCORE 10,
+  max 2 entries/day, 4h same-asset cooldown, Phase 2 ladder widened
+  to T0 lock 0 so a +10% mover can retrace fully without locking —
+  the structural change that lets winners run into BIG trends instead
+  of getting clipped at the first ratchet. Producer adds recent-
+  signals race-window dedup that eliminated ENGINE_FAILURE retry
+  noise on Bison's decision log. Conviction-tiered leverage (3x
+  standard / 5x apex) preserved — HYPE volatility doesn't yet warrant
+  Bison's 7-10x majors-tier sizing.
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "5.0.1"
+  version: "6.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
-    - senpi-trading-runtime
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
 ---
 
-# 🦡 WOLVERINE v5.0.0 — HYPE Alpha Hunter (senpi_runtime_helpers)
+# 🦡 WOLVERINE v6.0.0 — HYPE Patient-Conviction
+
+## v6.0.0 (2026-05-18) — Patient-Conviction adoption (Bison v3.0.1 port)
+
+NO scoring change. NO thesis change. NO gate change. Behavioral
+profile shifts from "4 entries/day on score ≥9 with tight T0 lock=35"
+to "2 entries/day on score ≥10 with wide T0 lock=0 multi-day holds."
+
+**Why.** Bison v1.0 (BTC/ETH/SOL conviction holder) shipped this
+exact pattern on 2026-05-12 and 4 days later was sitting on a
+**SOL SHORT at +93.5% ROE** that had been held 4 days through
+chop, V-recoveries, and an intraday paper drawdown to -8%. The
+SOL position rode SOL $92.30 → $83.67 (-9.4% spot) — a move that
+every fast-rotation agent in the fleet (Cheetah, Scorpion,
+Turbine) flipped out of within minutes of entry. Bison held
+through the noise because its DSL gave the position room to
+breathe past +10% retrace before locking anything. That T0
+lock=0 first tier is the single highest-leverage knob in the
+Bison ladder.
+
+Wolverine has been red since the +12.8% HYPE-day post-mortem
+(PR #281, 2026-05-15) tightened gates to reject the obvious
+chase. The gates now correctly identify clean trends. What was
+missing was the back-end discipline to let those trends run.
+v6.0.0 ports the Bison back-end without touching the Wolverine
+front-end.
+
+**What changed (5 small edits):**
+
+| File | Change |
+|---|---|
+| `runtime.yaml` `risk.guard_rails.max_entries_per_day` | 4 → 2 |
+| `runtime.yaml` `risk.guard_rails.per_asset_cooldown_minutes` | 120 → 240 |
+| `runtime.yaml` `exit.interval_seconds` | 30 → 60 (REDUCE_ONLY spam mitigation) |
+| `runtime.yaml` `exit.dsl_preset.phase2.tiers` | wide Bison ladder (T0 lock 0 through T5 lock 85) |
+| `config/wolverine-config.json` `minScore` | 9 → 10 |
+| `scripts/wolverine-producer.py` + `wolverine_config.py` | recent-signals race-window dedup (Bison v3.0.1 pattern) |
+
+**What did NOT change.**
+- Six-gate entry validation (4h trend, structure ≥0.65, 1h-4h
+  alignment, 15m momentum ≥0.15, base-tech floor, 4h magnitude
+  ≥1.0%) preserved verbatim.
+- SM hard block on opposing direction preserved.
+- RSI hard gates (74 LONG / 26 SHORT) preserved.
+- Multi-factor scoring (~17 max) preserved.
+- Conviction-tiered leverage (3x standard / 5x apex) preserved.
+  Bison uses 7-10x on majors; HYPE's volatility doesn't yet
+  warrant that — we get the patient-conviction benefits from the
+  DSL ladder, not from leverage.
+- FP-001 quiet hours (00-04 UTC unless apex score 11+) preserved.
+- All time-cuts remain DISABLED (hard_timeout, weak_peak_cut,
+  dead_weight_cut from v3.0.4 sweep).
+
+**Tradeoffs to monitor.**
+- Wider T0 lock means more giveback on weak winners (a +12%
+  mover that retraces to +0% will close at breakeven instead of
+  v5.x's locked +4.2%). Net positive ONLY if the captured BIG
+  trends exceed the lost small winners. Bison's track record
+  validates this on majors; HYPE-specific data needed for 30+
+  days post-deploy.
+- Cutting entries 4 → 2 means more idle time when HYPE chops.
+  Acceptable — Wolverine's red period under v5.x was driven by
+  too-frequent entries on borderline setups, not too-rare ones.
+- The 4h cooldown stacks with the recent-signals dedup —
+  Wolverine should fire HYPE at most every 4h regardless of
+  signal cadence.
+
+**Rollback condition.** If v6.0.0 produces zero or one entry per
+week for 2 consecutive weeks, the floor is too high. Drop
+`minScore` back to 9 in `wolverine-config.json` (the producer
+floor remains 9; only the operator's selectivity is config-
+driven). Other deltas should be preserved.
+
+## v5.0.0 (2026-05-08) → v5.0.1 (preserved)
 
 **v3 → v4 architectural rewrite.** v3.x was a full-agency scanner. v4.0 flips to the standard senpi-trading-runtime plugin pattern: producer emits signals, runtime owns execution + state.
 

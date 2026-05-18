@@ -29,19 +29,22 @@ The strategy is part of the Kodiak family (same architecture as Grizzly/Polar/Ko
 | Entry order type | FEE_OPTIMIZED_LIMIT |
 | Exit order type | FEE_OPTIMIZED_LIMIT |
 
-### DSL Phase 2 ladder
+### DSL Phase 2 ladder (v6.0.0 — Bison-pattern wide)
 
-HYPE-tuned. All time-based cuts disabled — exits 100% price-action.
+Widened from v5.x (T0 lock 35) to give winners breathing room
+past +10% retrace before locking. All time-based cuts disabled —
+exits 100% price-action.
 
 | Tier | Trigger (margin ROE) | Lock (% of HW) |
 |---|---|---|
-| T0 | +10% | 15% |
-| T1 | +20% | 35% |
-| T2 | +35% | 55% |
-| T3 | +55% | 70% |
-| T4 (apex) | +80% | 85% |
+| T0 | +10% | **0%** (was 35%) |
+| T1 | +20% | **25%** (was 55% @ +17%) |
+| T2 | +30% | **40%** (was 65% @ +35%) |
+| T3 | +50% | **60%** (was 75% @ +55%) |
+| T4 | +75% | 75% |
+| T5 (apex) | +100% | 85% (was 85% @ +80%) |
 
-Phase 1: max_loss 20% / retrace 8% / 3 consecutive breaches.
+Phase 1: max_loss 20% / retrace 8% / 1 breach.
 **Time-cuts:** `hard_timeout` / `weak_peak_cut` / `dead_weight_cut` all DISABLED.
 
 ## Scanner pattern
@@ -161,6 +164,42 @@ tail -f /tmp/wolverine-producer.log | jq -c 'select(.event=="daemon_tick_finishe
 Expected: `status=ok` every tick (180s interval). Tick `duration_ms` should be ~1-3s.
 
 ## Changelog
+
+### v6.0.0 (2026-05-18) — Patient-Conviction adoption (Bison v3.0.1 port)
+
+NO scoring change. NO thesis change. NO gate change. Behavioral
+profile shifts from "4 entries/day on score ≥9 with tight T0
+lock=35" to "2 entries/day on score ≥10 with wide T0 lock=0
+multi-day holds."
+
+**Why.** Bison v1.0 shipped this exact pattern on 2026-05-12 and
+4 days later was holding a SOL SHORT at +93.5% ROE after riding
+SOL $92.30 → $83.67 through chop and V-recoveries. Fast-rotation
+agents (Cheetah, Scorpion, Turbine) all flipped out within
+minutes. The differentiator was DSL discipline, not the entry
+thesis. Wolverine's red period under v5.x came from over-frequent
+entries on borderline setups + tight T0 lock clipping winners at
+the first ratchet — both fixed by porting the Bison back-end.
+
+**What changed (small, additive):**
+
+| File | Change |
+|---|---|
+| `runtime.yaml` `risk.guard_rails.max_entries_per_day` | 4 → 2 |
+| `runtime.yaml` `risk.guard_rails.per_asset_cooldown_minutes` | 120 → 240 |
+| `runtime.yaml` `exit.interval_seconds` | 30 → 60 (REDUCE_ONLY spam mitigation) |
+| `runtime.yaml` `exit.dsl_preset.phase2.tiers` | wide Bison ladder (T0 lock 0 through T5 lock 85) |
+| `config/wolverine-config.json` `minScore` | 9 → 10 |
+| `scripts/wolverine-producer.py` + `wolverine_config.py` | recent-signals race-window dedup (Bison v3.0.1 pattern) |
+
+Six-gate entry, RSI hard gates, SM hard block, conviction-tiered
+leverage (3x / 5x), FP-001 quiet hours, all time-cuts DISABLED —
+all preserved verbatim.
+
+**Rollback condition.** If v6.0.0 produces ≤1 entry/week for 2
+consecutive weeks, drop `minScore` back to 9 in
+`wolverine-config.json` (producer floor stays 9). Other deltas
+should be preserved.
 
 ### v5.0.0 — `senpi_runtime_helpers` migration
 

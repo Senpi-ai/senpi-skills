@@ -27,6 +27,8 @@ Where rotation agents churn through small-cap noise, Bison only fires when the m
 | Drawdown halt | 25% |
 | Entry order type | FEE_OPTIMIZED_LIMIT (ensureExecutionAsTaker: false) |
 | Exit order type | FEE_OPTIMIZED_LIMIT (ensureExecutionAsTaker: true) |
+| Exit DSL interval | **60s** (v3.0.1 — was 30s; REDUCE_ONLY spam mitigation) |
+| Recent-signals dedup | **180s TTL** (v3.0.1 — held-asset race-window dedup) |
 
 ## DSL preset (wide, patient)
 
@@ -168,6 +170,24 @@ tail -f /tmp/bison-producer.log | jq -c 'select(.event=="daemon_tick_finished")'
 Expected: `status=ok` every tick (300s / 5min interval).
 
 ## Changelog
+
+### v3.0.1 (2026-05-18) — held-asset dedup race-fix + DSL throttle
+
+Operational reliability patch. NO thesis change. NO scoring change.
+
+- `scripts/bison_config.py` adds `record_signal(coin)` /
+  `was_recently_signaled(coin)` backed by `state/recent-signals.json`
+  with a 180s TTL — covers the race window between `push_signal()`
+  returning OK and the resulting position appearing in the next-
+  tick `clearinghouseState` pull.
+- `scripts/bison-producer.py` calls the cache BEFORE
+  `build_thesis()` and after every successful push. Eliminates the
+  16 BISON_CONVICTION ENGINE_FAILURE retries seen on the Bison12
+  (M192943) decision log between 2026-05-13 and 2026-05-17.
+- `runtime.yaml exit.interval_seconds` 30 → 60 to throttle DSL
+  retry spam when the runtime's position-state pull lags HL after
+  a successful close. Root cause (runtime-side position-state
+  sync) escalated to runtime team; this is downstream mitigation.
 
 ### v3.0.0 — Plumbing-only migration from v2.1 (no thesis change)
 
