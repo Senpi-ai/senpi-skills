@@ -26,6 +26,8 @@ Unlike multi-position scanners that grind fees with mediocre signals, Condor's h
 | Drawdown halt | 25% |
 | Entry order type | FEE_OPTIMIZED_LIMIT (ensureExecutionAsTaker: false) |
 | Exit order type | FEE_OPTIMIZED_LIMIT (ensureExecutionAsTaker: true) |
+| Exit DSL interval | **60s** (v4.0.1 — was 30s; REDUCE_ONLY spam mitigation) |
+| Recent-signals dedup | **240s TTL** (v4.0.1 — held-asset race-window dedup) |
 
 ## Scanner pattern
 
@@ -152,6 +154,14 @@ tail -f /tmp/condor-producer.log | jq -c 'select(.event=="daemon_tick_finished")
 Expected: `status=ok` every 3 minutes (180s tick).
 
 ## Changelog
+
+### v4.0.1 (2026-05-18) — held-asset dedup race-fix + DSL throttle (Bison v3.0.1 port)
+
+Operational reliability patch. NO thesis change. NO scoring change. NO gate change.
+
+- `scripts/condor_config.py` adds `record_signal(coin)` / `was_recently_signaled(coin)` backed by `state/recent-signals.json` with a 240s TTL — covers the race window between `push_signal()` returning OK and the resulting position appearing in the next-tick `clearinghouseState` pull.
+- `scripts/condor-producer.py` calls the cache after candidate-best selection and BEFORE `push_signal`, and records on success. Eliminates the 4 `CONDOR_APEX HYPE LONG` ENGINE_FAILURE retries seen on the Condor2 (M193171) decision log between 2026-05-14 and 2026-05-17.
+- `runtime.yaml exit.interval_seconds` 30 → 60 to throttle DSL retry spam when runtime position-state lags HL after a successful close (defensive mitigation; Condor's audit hasn't shown REDUCE_ONLY errors yet, but the bug is fleet-wide). Root cause (runtime-side position-state sync) escalated to runtime team.
 
 ### v4.0.0 — helpers-native plumbing migration
 
