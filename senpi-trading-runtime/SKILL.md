@@ -92,7 +92,7 @@ openclaw senpi runtime create --path ./<name>.yaml
 
 ### 5. Wire producers (only if the YAML declares an `external_scanner`)
 
-External scanners are push-driven — without a producer, the scanner stays silent. Build the producer using the Python Producer SDK (`senpi_runtime_helpers`) bundled with this skill and launch it as a long-running daemon via `producer_daemon`. See [Python Producer SDK](#python-producer-sdk) below for rules, the import shim, and a new-producer skeleton. Strategy-specific env vars are documented in the consuming strategy skill.
+External scanners are push-driven — without a producer, the scanner stays silent. Build the producer using the Python Producer SDK (`senpi_runtime_helpers`) bundled with this skill and launch it as a long-running daemon via `producer_daemon`. See [Python Producer SDK](#python-producer-sdk) below for rules, the import shim, and a new-producer skeleton. **For a catalog of producer/scanner archetypes (universe trend-follower, single-asset alpha hunter, trader-follower, funding-regime fade, etc.) with inline code snippets and links to working example producers, see [`references/producer-patterns.md`](references/producer-patterns.md).** Strategy-specific env vars are documented in the consuming strategy skill.
 
 After first launch, the daemon is managed with the bundled `senpi-helpers` operator CLI (`list` / `health` / `stats` / `stop` / `restart`).
 
@@ -312,6 +312,7 @@ client.push_signal(
 ### Depth lives in references
 
 - [`references/python-producer-sdk.md`](references/python-producer-sdk.md) — import shim, full new-producer skeleton, batch + parallel recipes, error → fix table, operator CLI subcommands, logging format, SDK-tuning env vars.
+- **[`references/producer-patterns.md`](references/producer-patterns.md)** — **catalog of the ~11 producer/scanner archetypes implemented by the active fleet** (universe trend-follower, single-asset Kodiak family, trader-follower, funding-regime fade, cross-asset lag detector, etc.). Each pattern includes inline code snippets, distinctive MCP-call signature, typical tick interval + risk envelope, and direct GitHub URLs to a working example agent's producer.py + runtime.yaml. **Start here when building a new strategy** — pick a pattern, fetch the example, tune the thresholds.
 - [`references/signal-schema.md`](references/signal-schema.md) — `SignalItem` wire format consumed by `POST /signals`: routing fields vs. `data`, validation, per-item error codes, batch semantics.
 - [`references/senpi-helpers-cli.md`](references/senpi-helpers-cli.md) — operator CLI deep dive: subcommand reference, exit codes, JSON envelopes.
 
@@ -462,6 +463,7 @@ SDK-tuning env vars (`SENPI_HELPERS_STATE_DIR`, `_MCP_TIMEOUT`, `_SIGNAL_TIMEOUT
 - [Strategy Examples](references/strategy-examples.md) — Position-tracker runtimes with different DSL tuning profiles
 - [External Producers](references/external-producers.md) — Operations-level reference: how producers work end-to-end, common env vars, launch + restart
 - [Python Producer SDK](references/python-producer-sdk.md) — Full SDK depth: import shim, new-producer skeleton, batch + parallel recipes, error → fix table, operator CLI, SDK-tuning env vars
+- **[Producer Patterns](references/producer-patterns.md) — Catalog of the ~11 producer/scanner archetypes implemented by the active fleet, with inline code snippets and GitHub URLs to working example producers. Start here when building a new strategy.**
 - [Liveness Verification](references/liveness-verification.md) — Field-level decision tree and daemon ↔ runtime reconciliation for confirming the runtime is actually operating, not just registered
 - [Signal Schema](references/signal-schema.md) — `SignalItem` wire format consumed by `POST /signals`: routing fields vs. `data`, validation, per-item error codes, batch semantics
 - [`senpi-helpers` CLI](references/senpi-helpers-cli.md) — Operator CLI for producer daemons: list / health / stats / stop / restart with exit codes and JSON envelopes
