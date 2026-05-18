@@ -1,17 +1,20 @@
 ---
 name: bison-strategy
 description: >-
-  BISON v3.0.0 — Conviction Holder, senpi_runtime_helpers migration.
-  Plumbing-only flip from openclaw cron + mcporter subprocess to
-  in-process SenpiClient (direct HTTPS for MCP, direct HTTP POST to
-  runtime /signals, long-lived producer_daemon). Thesis preserved
-  verbatim from v2.1: BTC/ETH/SOL asset whitelist, MIN_SCORE 11,
-  conviction-scaled margin (25%/31%/37%), wide DSL with time-cuts
-  DISABLED. Fewer trades, longer holds, bigger moves.
+  BISON v3.0.1 — Conviction Holder. Patient multi-asset (BTC/ETH/SOL)
+  conviction trader. MIN_SCORE 11 across 9 components (4H/1H structure,
+  momentum, SM alignment, funding, volume, OI proxy, RSI). Conviction-
+  scaled margin tiers (25%/31%/37%) and 7-10× leverage. DSL is wide
+  by design — time-cuts DISABLED — so a real directional thesis can
+  run multiple days into the move. Few trades. Long holds. Big moves.
+  v3.0.1 ships a race-window dedup cache that eliminates the
+  ENGINE_FAILURE retry noise on already-held assets, plus a doubled
+  DSL exit interval to throttle REDUCE_ONLY spam when runtime
+  position-state lags HL.
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "3.0.0"
+  version: "3.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -19,10 +22,48 @@ metadata:
     - senpi_runtime_helpers
 ---
 
-# 🦬 BISON v3.0.0 — Conviction Holder
+# 🦬 BISON v3.0.1 — Conviction Holder
 
 **Asset whitelist (BTC/ETH/SOL).** **Conviction floor (minScore 11).**
 **No time-cuts** — Phase 1 + Phase 2 ratchet ladder own all exits.
+
+## v3.0.1 (2026-05-18) — held-asset dedup race-fix + DSL throttle
+
+Operational reliability patch. NO thesis change. NO scoring change.
+
+**Bug observed.** Audit on Bison12 (M192943) 2026-05-13 to 2026-05-17
+showed **16 `create_position` ENGINE_FAILUREs** carrying
+`BISON_CONVICTION` reasoning text, all for assets the wallet already
+held. Each failure was a runtime LLM-gate fire on a producer-emitted
+signal that should have been deduped — the producer's on-chain
+`heldAssets` check leaked during the race window between
+`push_signal()` returning OK and the resulting position appearing
+in the next-tick `clearinghouseState` pull.
+
+**Fix 1 — recent-signals cache (`scripts/bison_config.py`).**
+`record_signal(coin)` writes `{coin: epoch_seconds}` to
+`state/recent-signals.json` after every successful push. `main()`
+calls `was_recently_signaled(coin)` BEFORE `build_thesis()` and
+skips any coin seen within `RECENT_SIGNAL_TTL_SEC` (default 180s
+≈ 3× the typical ALO open-fill window). Skipped coins are echoed
+in `recently_signaled_skipped` in the per-tick output for audit.
+
+**Fix 2 — DSL exit interval 30s → 60s (`runtime.yaml`).**
+Audit also showed clusters of `CLOSE_FEE_OPTIMIZED_FAILED "Reduce
+only order would increase position"` + `CLOSE_NO_POSITION` errors
+firing 1-2 ticks after a successful close. The runtime's view of
+the closed position takes longer to refresh than the 30s DSL
+interval, so DSL re-fires close on a flat HL position. Doubling
+the interval gives the runtime position-state pull room to catch
+up and halves the wasted close attempts. **Root cause (runtime-
+side position-state sync) is escalated to the runtime team** —
+this YAML change is downstream mitigation only.
+
+**What this does NOT fix.** Phantom orphan positions where DSL
+state and HL state are durably out of sync (i.e. runtime thinks a
+position is open after a complete external close, or vice versa).
+That class of bug needs runtime-side reconciliation; the producer
+has no authority over DSL state.
 
 ## v3.0.0 (2026-05-12) — plumbing-only migration
 
@@ -128,6 +169,85 @@ v2.1's PnL-aware dynamic daily cap (3 base / 6 hard cap, tiered by realized PnL)
 - MAX_LEVERAGE: 10
 - MIN_LEVERAGE: 7
 - XYZ_BANNED: true (banned at producer scan level)
+
+## Operator deployment topology
+
+Bison's runtime + producer pair runs **per strategy wallet, not per
+operator**. Operators wanting more capital exposure deploy multiple
+strategy wallets, each running its own runtime instance and its own
+`bison-producer` daemon. Each instance:
+
+- Reads its own `${WALLET_ADDRESS}` (typically via env var) — the
+  runtime YAML's `${WALLET_ADDRESS}` placeholder is resolved at
+  `runtime create` time, and the producer falls back to
+  `bison-config.json`'s `wallet` field.
+- Computes `held_assets` from its own wallet's on-chain
+  `clearinghouseState` — instances do NOT see each other's
+  positions.
+- Writes its own `state/recent-signals.json` (per-instance cache).
+- Reuses the same `SENPI_AUTH_TOKEN` (operator-scoped) — a single
+  operator can run N strategy wallets under one auth token.
+
+**Implication: two-wallet deployment doubles capital exposure and
+parallelizes asset selection.** Wallet A may take SOL while Wallet
+B simultaneously takes BTC, capturing uncorrelated entries. Each
+wallet's DSL ratchet is independent.
+
+This topology is the production reality on Bison's live deployment
+(see Predator MCP `bison-v1-0` slug, `strategyWalletCount: 2`).
+It is NOT a Bison-specific feature — it's how the senpi-trading-
+runtime plugin natively scales: one runtime per wallet, multiple
+wallets per operator.
+
+## Signal cadence (what to expect)
+
+- **Producer tick:** every 300s (5 min). Long-lived daemon — no
+  per-tick cold-start cost.
+- **Universe scanned per tick:** ≤ 10 assets, filtered to the
+  whitelist (default BTC/ETH/SOL = 3 assets).
+- **MCP cost per tick:** ~4-7 calls (`market_list_instruments`,
+  `leaderboard_get_markets`, `market_get_asset_data` per
+  candidate, `strategy_get_clearinghouse_state` for held check).
+- **Emission rate:** 0-5 signals per day in typical regimes. The
+  MIN_SCORE 11 floor + 2h `per_asset_cooldown` keeps emission
+  selective.
+- **Quiet day signature:** every tick output ends with `"note":
+  "WAITING — no conviction thesis (min score 11)"`. This is the
+  most common state — the producer is alive, the thesis is just
+  not firing.
+- **Suspected silent producer:** check `audit_query({tool_name:
+  "market_get_asset_data", user_ids: [<MID>]})` — if entries fall
+  to zero for >15 min during market hours, the daemon has died
+  and needs `disown` re-launch (fleet pattern from 2026-05-13).
+
+## Reading the decision log
+
+Bison emits per-trade decision telemetry via the runtime LLM gate.
+To inspect the reasoning chain for a specific window:
+
+```
+mcp__senpi-prod__audit_query({
+  user_ids: ["<your Senpi MID>"],     # e.g. "M192943" for Bison12
+  tool_name: "create_position",
+  action_type: "create",
+  limit: 50
+})
+```
+
+Each entry's `ai_reasoning` field is the LLM gate's `reasoning`
+output — typically `"BISON_CONVICTION <ASSET> <DIRECTION> -
+<top_score_reason>"`. Successful entries have `success: true`;
+failures carry an `error_code` and `error_message`.
+
+Pair with `close_position` audit queries to see the DSL exit
+reasons (`weak_peak_cut`, `dsl_breach`, etc).
+
+The audit-query path is the **canonical post-hoc validation tool**
+for Bison — the Predator MCP shows aggregates (PnL, ROI, volume)
+but does not expose per-trade reasoning. For "why did this trade
+fire" questions, always go to audit_query.
+
+## v3.0.0 (2026-05-12) — plumbing-only migration
 
 ## Hard rule for user-conversation Claude sessions
 

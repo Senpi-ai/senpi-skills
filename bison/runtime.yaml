@@ -209,9 +209,20 @@ actions:
 # (ensure_execution_as_taker: true) on the exit path so closes always
 # happen — entry path keeps ensure_execution_as_taker: false (v2.1
 # patience rule).
+#
+# v3.0.1 (2026-05-18): interval_seconds 30 → 60. Audit on Bison12
+# (M192943) 2026-05-15 and 2026-05-17 showed clusters of
+# CLOSE_FEE_OPTIMIZED_FAILED "Reduce only order would increase
+# position" + CLOSE_NO_POSITION errors firing within 2-3 ticks after
+# a successful close — the runtime's view of the held position takes
+# longer to refresh than the DSL interval, so DSL re-fires close on
+# a flat HL position. Doubling the interval gives the runtime
+# position-state pull room to catch up and halves the wasted close
+# attempts. Root cause (runtime position-state sync) requires a
+# runtime-side fix — escalate to runtime team if pattern persists.
 exit:
   engine: dsl
-  interval_seconds: 30
+  interval_seconds: 60                   # v3.0.1: 30 → 60 (REDUCE_ONLY spam mitigation)
   order_type: FEE_OPTIMIZED_LIMIT
   fee_optimized_limit_options:
     ensure_execution_as_taker: true       # closes MUST happen — taker fallback safety

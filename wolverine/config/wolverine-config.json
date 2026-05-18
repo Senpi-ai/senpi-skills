@@ -1,9 +1,9 @@
 {
-  "_comment": "WOLVERINE v4.0.0 config — simplified for v2-runtime-native architecture. Runtime owns position tracking, daily caps, cooldowns, and drawdown gates via runtime.yaml's risk.guard_rails block. DSL tier ladder is in runtime.yaml exit.dsl_preset.phase2.tiers (no longer duplicated here). Producer reads only the few fields below.",
+  "_comment": "WOLVERINE v6.0.0 config — Patient-Conviction adoption (Bison v3.0.1 pattern). minScore raised 9 -> 10 (fewer-stronger entries). max_entries_per_day cut 4 -> 2 in runtime.yaml. DSL Phase 2 ladder widened in runtime.yaml (T0 lock 35 -> 0, etc) so winners can breathe past +10% retrace before locking anything. Runtime owns position tracking, daily caps, cooldowns, and drawdown gates via runtime.yaml's risk.guard_rails block.",
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "minScore": 9,
+  "minScore": 10,
   "quietHours": {
     "_comment": "FP-001: skip emission during low-liquidity UTC window. Apex setups (score >= apexBypassScore) bypass.",
     "startUtc": 0,

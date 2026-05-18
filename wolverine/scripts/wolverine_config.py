@@ -1,10 +1,16 @@
-"""WOLVERINE v5.0.0 — Shared config + MCP shim + helpers wrapper.
+"""WOLVERINE v6.0.0 — Shared config + MCP shim + helpers wrapper.
 
-v5.0.0: senpi_runtime_helpers migration. mcporter_call now routes
-through SenpiClient.mcp_call() (direct HTTPS) instead of mcporter
-subprocess. _wrapper_client is exposed for the producer's signal
-push (cfg._wrapper_client.push_signal(...)). All other helpers
-preserved verbatim.
+v5.0.0 (2026-05-08): senpi_runtime_helpers migration. mcporter_call
+now routes through SenpiClient.mcp_call() (direct HTTPS) instead of
+mcporter subprocess.
+
+v6.0.0 (2026-05-18): Patient-Conviction pattern adoption (Bison-port).
+HYPE single-asset thesis preserved; behavioral profile shifts from
+"4 entries/day on score ≥9" to "2 entries/day on score ≥10 with
+wide-DSL multi-day holds." Producer adds the same recent-signals
+race-window dedup that Bison v3.0.1 used to eliminate
+ENGINE_FAILURE retries on already-emitted assets. See SKILL.md
+v6.0.0 changelog for the full rationale + Bison-pattern attribution.
 """
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under MIT
@@ -13,6 +19,7 @@ import functools
 import json
 import os
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,6 +27,16 @@ from pathlib import Path
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "wolverine-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / "wolverine-config.json"
+STATE_DIR = SKILL_DIR / "state"
+RECENT_SIGNALS_PATH = STATE_DIR / "recent-signals.json"
+
+STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+# v6.0.0: race-window dedup TTL. Wolverine ticks every 180s and HYPE
+# ALO fills typically complete within 30-60s. 240s covers the full
+# fill window plus the next-tick clearinghouse-state refresh, so the
+# on-chain held-asset check picks up where this cache leaves off.
+RECENT_SIGNAL_TTL_SEC = 240
 
 
 # ─── senpi_runtime_helpers (lazy + auth-validated) ───
@@ -96,6 +113,76 @@ def mcporter_call(tool, retries=2, timeout=30, **params):
             f"err={type(e).__name__}: {e}\n"
         )
         return None
+
+
+# ─── v6.0.0 atomic-write + recent-signals cache ─────────────
+#
+# Mirrors the bison v3.0.1 race-window dedup. After push_signal(coin)
+# returns OK, record_signal(coin) writes {coin: epoch_seconds} to
+# state/recent-signals.json. main() calls was_recently_signaled(coin)
+# BEFORE fetching held-assets and aborts the tick if the cache says
+# "in flight." Covers the ~30-90s gap between push_signal returning
+# OK and the resulting position appearing in the next-tick
+# clearinghouseState pull. Stale entries (older than 4× TTL) are
+# pruned on read to keep the file bounded.
+
+def atomic_write(path, data):
+    """Write JSON atomically via tmp file + os.replace."""
+    path = str(path)
+    dir_name = os.path.dirname(path) or "."
+    os.makedirs(dir_name, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(tmp_path, path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _read_recent_signals():
+    if not RECENT_SIGNALS_PATH.exists():
+        return {}
+    try:
+        with open(RECENT_SIGNALS_PATH) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+        return {k: float(v) for k, v in data.items() if isinstance(v, (int, float))}
+    except (json.JSONDecodeError, OSError, ValueError):
+        return {}
+
+
+def _prune_recent_signals(signals, now):
+    cutoff = now - (RECENT_SIGNAL_TTL_SEC * 4)
+    return {k: v for k, v in signals.items() if v >= cutoff}
+
+
+def record_signal(coin):
+    if not coin:
+        return
+    now = time.time()
+    signals = _prune_recent_signals(_read_recent_signals(), now)
+    signals[coin.upper()] = now
+    try:
+        atomic_write(RECENT_SIGNALS_PATH, signals)
+    except OSError:
+        # Best-effort; on-chain held-asset check is the safety floor.
+        pass
+
+
+def was_recently_signaled(coin, ttl_sec=RECENT_SIGNAL_TTL_SEC):
+    if not coin:
+        return False
+    signals = _read_recent_signals()
+    last = signals.get(coin.upper())
+    if last is None:
+        return False
+    return (time.time() - last) < ttl_sec
 
 
 def output(data):

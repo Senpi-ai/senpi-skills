@@ -46,7 +46,7 @@ import wolverine_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "5.0.0"
+VERSION = "6.0.0"
 
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "wolverine_signals"
@@ -55,6 +55,14 @@ SCANNER_NAME = "wolverine_signals"
 # scanner's defaultSignalType fallback — runtime YAMLs commonly don't
 # declare one, and missing tags break audit-log filtering.
 SIGNAL_TYPE = "WOLVERINE_HYPE_HYBRID"
+
+# v6.0.0: each push_signal() success is recorded via
+# cfg.record_signal("HYPE"). main() skips emission if the cache says
+# HYPE was pushed within RECENT_SIGNAL_TTL_SEC (default 240s on
+# Wolverine — covers a full ALO fill + next-tick clearinghouse
+# refresh). Mirrors Bison v3.0.1's race-window dedup; addresses the
+# same ENGINE_FAILURE retry pattern observed on the Bison decision
+# log 2026-05-13 to 2026-05-17.
 
 
 # Reentrancy guard removed in v5.0.0. producer_daemon owns the
@@ -743,8 +751,26 @@ def main():
         }))
         return
 
+    # v6.0.0: race-window dedup — bail BEFORE fetching held assets
+    # if we just pushed HYPE in the last RECENT_SIGNAL_TTL_SEC.
+    # Eliminates the held-asset ENGINE_FAILURE retry pattern.
+    if cfg.was_recently_signaled(ASSET):
+        print(json.dumps({
+            "status": "ok",
+            "heartbeat": "NO_REPLY",
+            "note": f"DEDUP_SKIP {ASSET} pushed within last {cfg.RECENT_SIGNAL_TTL_SEC}s (race window)",
+            "direction": thesis["direction"],
+            "score": thesis["score"],
+            "_wolverine_producer_version": VERSION,
+        }))
+        return
+
     held_assets = fetch_held_assets()
     pushed = push_signal(thesis, held_assets)
+
+    # v6.0.0: record successful push for the next tick's dedup check.
+    if pushed:
+        cfg.record_signal(ASSET)
 
     elapsed = time.time() - run_start
     print(json.dumps({

@@ -1,10 +1,34 @@
 name: wolverine-tracker
 # Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
-# plugin. Strategy/skill is "Wolverine v4.0.0" — lives in description +
-# SKILL.md + _wolverine_producer_version. Do not set this to 4.x.x.
+# plugin. Strategy/skill is "Wolverine v6.0.0" — lives in description +
+# SKILL.md + _wolverine_producer_version. Do not set this to 6.x.x.
 version: 1.0.0
 description: >
-  WOLVERINE v4.2.0 — gate calibration fix (2026-05-05). Wolverine
+  WOLVERINE v6.0.0 (2026-05-18) — Patient-Conviction adoption.
+  Bison v3.0.1's pattern ported to HYPE single-asset: fewer entries,
+  higher score floor, wider DSL ratchet so winners can run multi-day
+  into the move. Producer adds the same recent-signals race-window
+  dedup that eliminated 16 ENGINE_FAILURE retries on Bison's
+  decision log 2026-05-13 to 2026-05-17.
+
+  Pattern deltas vs v5.0.1:
+    - MIN_SCORE 9 -> 10 (config-overridable; producer floor stays 9)
+    - max_entries_per_day 4 -> 2 (force selectivity)
+    - per_asset_cooldown_minutes 120 -> 240 (4h between HYPE attempts)
+    - Phase 2 ladder: T0 lock 35 -> 0, ladder widened end-to-end to
+      Bison-style (10/0, 20/25, 30/40, 50/60, 75/75, 100/85). The
+      T0 lock=0 is the KEY shift — lets a +10% mover retrace fully
+      without locking, capturing the BIG trends Bison rode SOL +93%
+      ROE on. Tradeoff: more giveback on weak winners.
+    - Exit interval_seconds 30 -> 60 (REDUCE_ONLY spam mitigation,
+      same lesson as Bison v3.0.1).
+
+  Leverage tiers preserved at 3x standard / 5x apex — HYPE volatility
+  doesn't yet warrant Bison's 7-10x majors-tier sizing. Six-gate
+  entry validation, RSI hard gates (74/26), SM hard block, FP-001
+  quiet hours all preserved verbatim. NO scoring or thesis changes.
+
+  v4.2.0 origin (2026-05-05) — gate calibration fix. Wolverine
   was deployed May 2 but produced ZERO trades over 3 days because two
   gates falsely blocked clean HYPE trends:
 
@@ -73,13 +97,13 @@ risk:
   data_retention_hours: 72
   guard_rails:
     daily_loss_limit_pct: 10
-    max_entries_per_day: 4
+    max_entries_per_day: 2              # v6.0.0: 4 -> 2 (force selectivity per Bison pattern)
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_minutes: 60
     drawdown_halt_pct: 25
     drawdown_reset_on_day_rollover: false
-    per_asset_cooldown_minutes: 120     # preserves v3.x same-asset cooldown
+    per_asset_cooldown_minutes: 240     # v6.0.0: 120 -> 240 (4h between HYPE attempts)
 
 scanners:
   - name: position_tracker
@@ -191,14 +215,19 @@ actions:
 
 exit:
   engine: dsl
-  interval_seconds: 30
+  interval_seconds: 60                  # v6.0.0: 30 -> 60 (REDUCE_ONLY spam mitigation, Bison v3.0.1 lesson)
   order_type: FEE_OPTIMIZED_LIMIT
   fee_optimized_limit_options:
     ensure_execution_as_taker: true
     execution_timeout_seconds: 60
-  # DSL preset preserved EXACTLY from v3.0.4 — time-cuts all disabled,
-  # 100% price-action exits via Phase 1 max_loss/retrace + Phase 2
-  # trailing.
+  # v6.0.0: DSL preset widened to Bison-style patient-conviction
+  # ladder. v5.x's T0 lock=35 was the right call for fast HYPE chop;
+  # for the "let the BIG trend run" thesis (the one that produced
+  # Bison's +93% SOL SHORT ROE), T0 lock=0 lets a +10% mover retrace
+  # fully without locking. Tradeoff: more giveback on weak winners,
+  # bigger captures on real trends. Time-cuts all remain DISABLED
+  # (preserved from v3.0.4) — Phase 1 max_loss + Phase 2 retrace
+  # own all exits.
   dsl_preset:
     hard_timeout:
       enabled: false                  # v3.0.2: DISABLED.
@@ -218,18 +247,17 @@ exit:
     phase2:
       enabled: true
       tiers:
-        # v4.1.0 fleet-wide DSL ratchet patch (2026-05-02):
-        # Wolverine had the loosest T0 in the fleet (15% lock). Full
-        # T0/T1 overhaul: T0 lock 15→35, T1 trigger 20→17 / lock 35→55,
-        # T2 lock 55→65. Closes the 10→20 dead zone where +12% margin
-        # ROE locked only 1.8% (=2.5x giveback). Triggered by Polar
-        # ladder review — Wolverine inherited Kodiak-family ladder
-        # without the v3.x lock tightening.
-        - { trigger_pct: 10, lock_hw_pct: 35 }
-        - { trigger_pct: 17, lock_hw_pct: 55 }
-        - { trigger_pct: 35, lock_hw_pct: 65 }
-        - { trigger_pct: 55, lock_hw_pct: 75 }
-        - { trigger_pct: 80, lock_hw_pct: 85 }
+        # v6.0.0 Bison-pattern wide ladder (replaces v4.1.0's tight T0/T1).
+        # Comparable to bison/runtime.yaml — gives apex HYPE trends
+        # multi-day breathing room. Confidence: validated on Bison
+        # v1.0 live (SOL SHORT 5d hold to +93% ROE) and Bison v2.1
+        # (149 prior trades on same ladder shape).
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 25 }
+        - { trigger_pct: 30, lock_hw_pct: 40 }
+        - { trigger_pct: 50, lock_hw_pct: 60 }
+        - { trigger_pct: 75, lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
