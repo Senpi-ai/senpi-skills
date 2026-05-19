@@ -125,6 +125,7 @@ cfg._wrapper_client.push_signal(
 | Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/scripts/condor-producer.py |
 | Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/scripts/condor_config.py |
 | Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/condor/runtime.yaml |
+| Other live examples | **Cheetah** (top-100 SM universe, multi-signal confluence + trader-quality enrichment), **Python** (multi-day-hold thesis, mixed `market_list_instruments` + `leaderboard_get_markets` + per-asset deep scan), **Scorpion** (universe + funding-regime backstop, post-close cooldown). Fetch each via `https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/scripts/<agent>-producer.py`. |
 
 **When to use this pattern:** You want broad market coverage and entries when multiple confirmations align across timeframes. Best for trend-continuation theses.
 
@@ -326,6 +327,7 @@ cfg._wrapper_client.push_signal(
 | Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/raptor/scripts/raptor-producer.py |
 | Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/raptor/scripts/raptor_config.py |
 | Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/raptor/runtime.yaml |
+| Other live examples | **Jackal** (active trader pool + new-entry detector, TA + funding enrichment), **Spider** (arena-leader anchor + SM-leaderboard overlap, patient 7-day-hold thesis — also runnable as an arena top-trader mirror variant). |
 
 **When to use this pattern:** You believe selecting alpha-generating traders and copying them produces better risk-adjusted returns than pure technical scanning.
 
@@ -386,6 +388,7 @@ save_rank_history(current_ranks)
 | Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/scripts/jaguar-producer.py |
 | Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/scripts/jaguar_config.py |
 | Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/jaguar/runtime.yaml |
+| Other live examples | **Roach** (Striker-only signal emitter, FIRST_JUMP / IMMEDIATE_MOVER + volume), **Orca** (Gen-1 vanilla Striker, FIRST_JUMP + volume + base scoring). Roach-B is a second wallet instance of the Roach producer. |
 
 **When to use this pattern:** You want to catch the inflection point when SM interest starts spiking on a previously-quiet asset. Fewer trades per day, higher conviction per trade.
 
@@ -428,6 +431,7 @@ for asset in candidates:
 | Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/pangolin/scripts/pangolin-producer.py |
 | Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/pangolin/scripts/pangolin_config.py |
 | Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/pangolin/runtime.yaml |
+| Other live examples | **Dog** (4-coin whitelist with regime hard-gate: skips entry when funding regime contradicts the fade), **Vulture** (HYPE funding-regime contrarian, also enriches with `market_get_funding_history` + held-position context). |
 
 **When to use this pattern:** You believe persistent funding extremity is a leading indicator of forced unwinds, and you want to position opposite the crowd at exhaustion.
 
@@ -472,6 +476,7 @@ for asset, crowding_score in scored:
 | Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/owl/scripts/owl-producer.py |
 | Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/owl/scripts/owl_config.py |
 | Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/owl/runtime.yaml |
+| Other live examples | **Lemon** (Degen Fader — counter-trades CHOPPY/DEGEN consensus on a crypto-majors + XYZ whitelist, MACRO_TREND_GATE blocks fades during strong BTC trends). |
 
 **When to use this pattern:** You believe crowded trades reliably unwind and you have a way to time the unwind (not just detect the crowding). The hard part is exhaustion timing, not crowding detection.
 
@@ -567,6 +572,7 @@ for asset_name in XYZ_WHITELIST:
 | Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/bald-eagle/scripts/eagle-producer.py |
 | Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/bald-eagle/scripts/eagle_config.py |
 | Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/bald-eagle/runtime.yaml |
+| Other live examples | **Kestrel** (13-asset XYZ macro universe — CL, BRENTOIL, GOLD, SP500, XYZ100, etc. — with funding-alignment overlay). |
 
 **When to use this pattern:** You want to trade XYZ commodities/indices with a contrarian thesis (faders, not trend-followers). The XYZ-specific stale-order guard is important because XYZ ALOs can rest for days if not actively managed.
 
@@ -642,6 +648,49 @@ When you're copying a pattern as a starting template, keep all of these — they
 ## Fleet auditor reference
 
 When verifying that a producer is firing on-chain (not silent), audit_query the producer-signature MCP call from the table above for the agent's `senpiUserId`. If the call appears at the configured tick interval, the producer is alive. If runtime-side calls (`strategy_get_clearinghouse_state` every 10s + `market_get_prices` every 30s) appear but the producer-signature calls don't, the daemon is dead or the runtime registration is broken — see [`liveness-verification.md`](liveness-verification.md) for the full diagnostic flow.
+
+---
+
+## Live fleet roster — archetype mapping
+
+Quick cross-reference of every currently-live fleet agent against the archetypes above. Use this to find the closest behavioral match to the strategy you want to build, then fetch that agent's three files via the standard URL pattern:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/scripts/<agent>-producer.py
+curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/scripts/<agent>_config.py
+curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/runtime.yaml
+```
+
+| Agent | Archetype | Distinguishing notes |
+|---|---|---|
+| Condor | 1 — Universe trend-follower | Canonical |
+| Cheetah | 1 — Universe trend-follower | Top-100 SM universe, multi-signal confluence + trader-quality enrichment |
+| Python | 1 — Universe trend-follower | Multi-day-hold trend, mixed signature (`market_list_instruments` + `leaderboard_get_markets` + per-asset scan) |
+| Scorpion | 1 — Universe trend-follower | Universe + funding-regime backstop, post-close cooldown |
+| Wolverine | 2 — Kodiak family (HYPE) | Canonical HYPE |
+| Grizzly | 2 — Kodiak family (BTC) | Canonical BTC |
+| Polar | 2 — Kodiak family (ETH) | Canonical ETH |
+| Kodiak | 2 — Kodiak family (SOL) | Canonical SOL |
+| Dire | 3 — Single-asset XYZ specialist | Canonical (BRENTOIL) |
+| Bison | 4 — Multi-asset whitelist | Canonical (BTC/ETH/SOL) |
+| Raptor | 5 — Trader-follower | Canonical |
+| Jackal | 5 — Trader-follower | Active trader pool + new-entry detector, TA + funding enrichment |
+| Spider | 5 — Trader-follower (arena variant) | Arena-leader anchor + SM-leaderboard overlap, 7-day-hold thesis |
+| Jaguar | 6 — Striker / rank-jump | Canonical |
+| Roach | 6 — Striker / rank-jump | FIRST_JUMP / IMMEDIATE_MOVER + volume |
+| Roach-B | 6 — Striker / rank-jump | Second wallet instance of the Roach producer |
+| Orca | 6 — Striker / rank-jump | Gen-1 vanilla Striker, FIRST_JUMP + volume + base scoring |
+| Pangolin | 7 — Funding-regime fade | Canonical |
+| Dog | 7 — Funding-regime fade | 4-coin whitelist with regime hard-gate |
+| Vulture | 7 — Funding-regime fade | HYPE funding-regime contrarian, funding-history + held-position enrichment |
+| Owl | 8 — Contrarian crowding-unwind | Canonical |
+| Lemon | 8 — Contrarian crowding-unwind | Degen Fader on crypto-majors + XYZ whitelist, MACRO_TREND_GATE |
+| Mantis | 9 — Cross-asset lag detector | Canonical |
+| Bald Eagle | 10 — Multi-asset XYZ contrarian fader | Canonical |
+| Kestrel | 10 — Multi-asset XYZ contrarian fader | 13-asset XYZ macro universe with funding alignment |
+| Turbine | 11 — Volume engine / market-making | Canonical |
+
+Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 
 ---
 
