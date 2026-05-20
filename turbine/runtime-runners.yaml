@@ -61,6 +61,12 @@ scanners:
       context: false
     config:
       fields:
+        # Mirror turbine_volume_signals. The producer (scripts/turbine-producer.py)
+        # emits the SAME data_block to both wallet scanners — including `mode` —
+        # so the runners scanner MUST declare it or senpi-trading-runtime rejects
+        # every runners signal with INVALID_REQUEST ("received undeclared data
+        # field 'mode'"). Observed on Turbine prod 2026-05-18 at ~15 rejects/hr.
+        mode: { type: string, required: true }                 # "VOLUME"
         thesis: { type: string, required: true }
         leverage: { type: number, required: true }
         marginUsd: { type: number, required: true }

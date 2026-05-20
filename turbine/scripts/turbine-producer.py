@@ -335,6 +335,12 @@ def emit_signal(wallet, scanner, signal_type, asset, direction, thesis,
         cfg.log(f"wallet not set; cannot emit signal to {scanner}")
         return False
     data_block = {
+        # Emitted to BOTH wallet scanners. Both turbine_volume_signals and
+        # turbine_runners_signals must declare `mode` in their config.fields,
+        # or the senpi-trading-runtime receiver rejects the signal with
+        # INVALID_REQUEST ("received undeclared data field 'mode'"). The volume
+        # gate's decision_prompt also branches on mode != "VOLUME".
+        "mode": "VOLUME",
         "thesis": thesis,
         "leverage": float(leverage),
         "marginUsd": float(margin_usd),
