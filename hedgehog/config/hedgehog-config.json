@@ -1,0 +1,16 @@
+{
+  "_comment": "HEDGEHOG v1.0.0 \u2014 Equal-weight major-crypto basket (BTC + ETH + SOL). Each asset evaluated independently via SM-confirmed 4h trend (long OR short). Up to 3 simultaneous positions. Per-position DSL managed by runtime.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": [
+    "BTC",
+    "ETH",
+    "SOL"
+  ],
+  "minScore": 5,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "marginPct": 0.1,
+  "leverage": 5
+}

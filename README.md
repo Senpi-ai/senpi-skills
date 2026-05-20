@@ -321,6 +321,59 @@ Each strategy is a directory at the repo root. The bucketing below is by **how t
 
 Each row links to the skill's own README and notes the runtime version it targets.
 
+## 🎯 New to Senpi? Start here.
+
+Ten **onboarding-tier** strategies built around the **Senpi Smart-Money direction gate** + **DSL Phase 1/Phase 2 ratchet exits**. Each opens LONG or SHORT (no long-only), uses simple 5-component scoring (max ~9), and lets the runtime own all exit logic. Pick by what you want to trade.
+
+### 🟢 Crypto Trend Followers — pick your coin
+
+Asset-specific 4h trend riders with Smart-Money confirmation. Long when SM and 4h trend both align bullish; short when both align bearish; idle otherwise. Wide Bison-pattern DSL (T0 lock 0 → T5 lock 85) so winners can ride multi-day moves.
+
+| Skill | Asset | Runtime | One-liner |
+|---|---|---|---|
+| [beaver](beaver/) | BTC | 1.0 | **Start here.** BTC trend + SM gate. Onboarding default. |
+| [heron](heron/) | ETH | 1.0 | ETH trend + SM gate. Same shape as Beaver. |
+| [hummingbird](hummingbird/) | HYPE | 1.0 | HYPE trend + SM gate. Same shape as Beaver. |
+
+### 🔵 Diversified Crypto Basket
+
+| Skill | Assets | Runtime | One-liner |
+|---|---|---|---|
+| [hedgehog](hedgehog/) | BTC + ETH + SOL | 1.0 | Equal-weight basket. Each asset directional independently — BTC long + ETH short is allowed. Up to 3 simultaneous positions. |
+
+### 🟣 Smart-Money Conviction Mirror (multi-week, not lucky-week)
+
+| Skill | Source | Runtime | One-liner |
+|---|---|---|---|
+| [albatross](albatross/) | Arena leaders | 1.0 | Multi-week ROE conviction composite. `0.3 × monthly + 0.7 × weekly_mean − 0.5 × weekly_stdev`. Mirror only persistent winners, not lucky-week leaders. REQUIRES user-scope auth token. |
+
+### 🟡 Technical Patterns
+
+| Skill | Signal | Runtime | One-liner |
+|---|---|---|---|
+| [hawk](hawk/) | 7d high/low breakout | 1.0 | Buy 4h breakouts above 7d high; short breakdowns below 7d low. **TIGHT DSL** (8% max_loss, lock at +5%) — failed breakouts get cut fast. |
+| [salamander](salamander/) | Pullback in trend | 1.0 | Buy 3-7% pullbacks in 4h uptrends; short rallies in downtrends. **Asymmetric DSL** — wider Phase 1, tight Phase 2. |
+
+### 🟠 XYZ Equities (Hyperliquid's HIP-3 sub-DEX, 23/5 trading)
+
+Senpi's distinctive moat — equity, commodity, and pre-IPO perps that retail can't trade anywhere else.
+
+| Skill | Universe | Runtime | One-liner |
+|---|---|---|---|
+| [lemur](lemur/) | Pre-IPO Perpetuals (IPOPs) | 1.0 | **Auto-discovers IPOPs** via the trade.xyz funding signature. Today: xyz:SPCX. Future-proof for ANTHROPIC / OPENAI / STRIPE when listed. 24/7 trading, moderate DSL. |
+| [bobcat](bobcat/) | Big tech | 1.0 | NVDA / TSLA / AAPL / META / MSFT / GOOGL / AMZN / AMD / MU / INTC / TSM / ORCL. 4h trend + SM. Standard DSL, 48h hard timeout for weekend gap. |
+| [raccoon](raccoon/) | All XYZ (excl. IPOPs) | 1.0 | **Weekend-only.** Fri 22:00 UTC → Mon 00:00 UTC. Captures the Mon-open reconciliation snap-back when trade.xyz external pricing resumes after the 50h internal-oracle gap. |
+
+**All 10 onboarding strategies share:**
+- Helpers-native producer (`senpi_runtime_helpers`)
+- `recent-signals.json` race-window dedup (240s TTL) — Bison v3.0.1 pattern
+- DSL Phase 1 max_loss floor + Phase 2 wide ratchet ladder
+- Runtime LLM-gated entries via FEE_OPTIMIZED_LIMIT (maker-first ALO)
+- `runtime.yaml risk.guard_rails` for daily-loss / drawdown / cooldown gates
+- Long OR short on Smart-Money direction (none are long-only)
+
+---
+
 ## Single-asset alpha hunters (Kodiak family)
 
 Patient, single-asset specialists. One ticker per skill, deep wall of confluence required before entry, DSL Phase 2 set to ride winners.
@@ -351,7 +404,6 @@ Combine multiple independent signals (SM concentration, trend, funding, structur
 | [cheetah](cheetah/) | 2.0 | Multi-signal confluence sniper — strict gate, lower frequency, higher quality |
 | [condor](condor/) | 1.0 | "One amazing trade per day" — high-conviction momentum |
 | [sentinel](sentinel/) | 1.0 | Quality-trader convergence scanner |
-| [hawk](hawk/) | 1.0 | Multi-asset momentum bot |
 
 ## Smart-Money signal followers
 

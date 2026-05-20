@@ -1,0 +1,10 @@
+{
+  "_comment": "HERON v1.0.0 — ETH trend follower with Smart-Money direction gate. Onboarding-tier strategy: simple scoring (max ~9), single asset (ETH), SM-confirmed long OR short. Edit wallet/strategyId/chatId. Defaults are tuned for new users — fewer-stronger entries, wide DSL Phase 2 ladder so winners can ride trends.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "asset": "ETH",
+  "minScore": 5,
+  "smTiltMinPct": 60,
+  "smStrongTiltPct": 70
+}

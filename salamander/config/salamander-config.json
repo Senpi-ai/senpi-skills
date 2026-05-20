@@ -1,0 +1,15 @@
+{
+  "_comment": "SALAMANDER v1.0.0 — Pullback catcher (BTC/ETH/SOL). LONG when 4h trend is BULLISH AND 1h price pulled back 3-7% from recent high AND SM > 55% long. SHORT when 4h trend is BEARISH AND 1h price rallied 3-7% from recent low AND SM > 55% short. Asymmetric DSL: Phase 1 wider (10% max_loss, pullbacks need room) but Phase 2 tighter (T0 +5% / lock 30%, when thesis works lock fast).",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["BTC", "ETH", "SOL"],
+  "minScore": 5,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "pullbackMinPct": 3.0,
+  "pullbackMaxPct": 7.0,
+  "pullbackLookbackHours": 24,
+  "marginPct": 0.20,
+  "leverage": 5
+}
