@@ -200,6 +200,9 @@ If your target asset is one of these four, use that example directly. If your ta
 | **Grizzly** | v5.3 | BTC | Kodiak template tuned for BTC's lower-volatility, higher-liquidity regime. Same six-gate confluence, calmer thresholds, tighter sizing. | BTC, Low-vol, Blue-chip |
 | **Polar** | v3.0 | ETH | Kodiak template tuned for ETH. Same six-gate framework with ETH-specific volatility and liquidity calibration. | ETH, 6-gate, Single-slot |
 | **Wolverine** | v3.0 | HYPE | Kodiak ported to HYPE — Hyperliquid's native token. Six-gate validation with HYPE-tuned thresholds for its high-vol profile. | HYPE, High-vol, Sharp moves |
+| **Beaver** | v1.0 | BTC | **Onboarding tier.** Simplified 5-component scoring (max ~9), single SM-direction gate, wide Bison-pattern DSL. The "first strategy" for new users. | Onboarding, BTC, SM-gate, Tick 300s |
+| **Heron** | v1.0 | ETH | Beaver fork — ETH instead of BTC. Same scaffold + scoring. | Onboarding, ETH, SM-gate, Tick 300s |
+| **Hummingbird** | v1.0 | HYPE | Beaver fork — HYPE instead of BTC. Same scaffold + scoring. | Onboarding, HYPE, SM-gate, Tick 300s |
 
 ---
 
@@ -248,6 +251,7 @@ cfg._wrapper_client.push_signal(
 | Agent | Version | Asset / Universe | Description | Tags |
 |---|---|---|---|---|
 | **Dire** | v1.0 | xyz:BRENTOIL | BRENTOIL specialist. Adapted Kodiak framework with XYZ-tuned thresholds and wider phase-1 loss tolerances. Commodity-specific drawdown guardrails. | BRENTOIL, Wide DSL, XYZ |
+| **Lemur** | v1.0 | xyz:IPOPs (auto-discovered) | **Onboarding tier.** Auto-detects Pre-IPO Perpetuals (IPOPs) via the trade.xyz funding signature: `\|funding\| ≤ 1e-7 AND max_leverage ≤ 5` (1% funding multiplier vs 0.5 standard). Today: `xyz:SPCX`. Auto-expands when ANTHROPIC / OPENAI / STRIPE list. 24/7 trading, moderate DSL. Tick 900s (Discovery Bounds throttle moves). | Onboarding, IPOP, Auto-discover, Tick 900s, 24/7 |
 
 ---
 
@@ -307,6 +311,11 @@ if best_candidate:
 | Agent | Version | Asset / Universe | Description | Tags |
 |---|---|---|---|---|
 | **Bison** | v1.0 | BTC · ETH · SOL | Iterates BTC / ETH / SOL per tick, scores each independently, fires the best-scoring candidate above MIN_SCORE. Tick 300s. Max 1–3 entries per day. | Whitelist, Best-of-N, Tick 300s |
+| **Hedgehog** | v1.0 | BTC · ETH · SOL | **Onboarding tier.** Same universe as Bison but each asset is independently directional — BTC long + ETH short allowed simultaneously. Up to 3 slots, per-position DSL. 10% margin per leg (30% max committed). | Onboarding, Basket, Per-leg-DSL, 3-slot |
+| **Hawk** | v1.0 | BTC · ETH · SOL | **Onboarding tier.** Multi-asset whitelist with breakout-detection scoring (7d high/low). **Tight DSL** — Phase 1 max_loss 8%, T0 locks 30% at +5%. Failed breakouts cut fast. | Onboarding, Breakout, Tight DSL, hard_timeout 24h |
+| **Salamander** | v1.0 | BTC · ETH · SOL | **Onboarding tier.** Multi-asset whitelist with pullback-detection scoring (3-7% counter-move in established 4h trend). **Asymmetric DSL** — wider Phase 1 (10%), tight Phase 2 (T0 +5% / lock 30%). | Onboarding, Pullback, Asymmetric DSL |
+| **Bobcat** | v1.0 | xyz: big-tech (NVDA · TSLA · AAPL · META · MSFT · GOOGL · AMZN · AMD · MU · INTC · TSM · ORCL) | **Onboarding tier.** Bison-pattern on XYZ big tech equities. 4h trend + SM agreement. 48h hard_timeout for the weekend pricing gap. | Onboarding, XYZ-Big-Tech, hard_timeout 48h |
+| **Raccoon** | v1.0 | All XYZ excl. IPOPs | **Onboarding tier — weekend-gated.** ONLY fires Fri 22:00 UTC → Mon 00:00 UTC, the trade.xyz no-external-price window. Captures the Mon-open reconciliation snap-back when external pricing resumes. Tight DSL, 48h hard_timeout forces Mon-open exit. | Onboarding, XYZ-Weekend, Reconciliation, Time-gated |
 
 ---
 
@@ -367,6 +376,7 @@ cfg._wrapper_client.push_signal(
 | **Raptor** | v3.0 | Multi (follows top traders) | Caches top traders (24h), detects highest-conviction current positions, follows with gates on reputation + position size + SM alignment + per-trader entry discipline. Deduplicates repeated follows. | Coat-tail, 24h cache, Tick 60–180s |
 | **Jackal** | v1.0 | Multi (follows top traders) | Maintains an active trader pool, detects new entries, enriches each candidate with TA + funding regime. Strict per-trader contamination rules. | New-entry, TA, Funding |
 | **Spider** | v2.0 | Multi (arena-anchored) | Patient anchor sniper. Arena-leader overlap + SM-leaderboard universe + funding + relative strength. Single-leg, 7-day minimum hold, fee-aware. | Patient, Arena-anchor, 7d-hold |
+| **Albatross** | v1.0 | Arena leaders (multi-week composite) | **Onboarding tier.** Mirrors Senpi Arena leaders selected by composite conviction score: `0.3 × monthly_roe + 0.7 × mean(weekly_roe) − 0.5 × stdev(weekly_roe)`. Rewards multi-week persistence, penalizes lucky-week luck. Pool refreshes every 4h. **Requires user-scope auth token** (calls `strategy_list` + `discovery_get_trader_state` for other users). | Onboarding, Arena, Multi-week, Conviction-weighted, User-scope-auth-required |
 
 ---
 
@@ -761,6 +771,16 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | Bald Eagle | 10 — Multi-asset XYZ contrarian fader | Canonical |
 | Kestrel | 10 — Multi-asset XYZ contrarian fader | 13-asset XYZ macro universe with funding alignment |
 | Turbine | 11 — Volume engine / market-making | Canonical |
+| **Beaver** | 2 — Kodiak family (BTC, onboarding) | Onboarding-tier simplified scoring |
+| **Heron** | 2 — Kodiak family (ETH, onboarding) | Onboarding-tier simplified scoring |
+| **Hummingbird** | 2 — Kodiak family (HYPE, onboarding) | Onboarding-tier simplified scoring |
+| **Hedgehog** | 4 — Multi-asset whitelist (onboarding) | BTC + ETH + SOL basket, per-position DSL, up to 3 simultaneous |
+| **Albatross** | 5 — Trader-follower (onboarding) | Arena-leader multi-week composite (4 weekly + 1 monthly), conviction-weighted pool |
+| **Hawk** | 4 — Multi-asset whitelist (onboarding) | BTC/ETH/SOL breakout buyer above 7d high / breakdown seller below 7d low. Tight DSL |
+| **Salamander** | 4 — Multi-asset whitelist (onboarding) | BTC/ETH/SOL pullback catcher in established 4h trend. Asymmetric DSL |
+| **Lemur** | 3 — Single-asset XYZ specialist (onboarding) | Auto-discovers IPOPs via funding signature. Today: xyz:SPCX. Future-proof for new pre-IPO listings |
+| **Bobcat** | 4 — Multi-asset whitelist (onboarding) | XYZ big tech: NVDA/TSLA/AAPL/META/MSFT/GOOGL/AMZN/AMD/MU/INTC/TSM/ORCL |
+| **Raccoon** | 4 — Multi-asset whitelist (onboarding, time-gated) | Weekend-only XYZ reconciliation. Fri 22:00 UTC → Mon 00:00 UTC. Captures Mon-open snap-back |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 
