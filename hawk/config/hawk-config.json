@@ -1,0 +1,13 @@
+{
+  "_comment": "HAWK v1.0.0 — 4h breakout buyer/breakdown seller (BTC/ETH/SOL). LONG when price breaks above 7d high AND SM > 55% long. SHORT when price breaks below 7d low AND SM > 55% short. TIGHT DSL — failed breakouts get cut at 8% max_loss. Phase 2 locks fast (T0 +5% / lock 30%).",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["BTC", "ETH", "SOL"],
+  "minScore": 5,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "breakoutLookbackHours": 168,
+  "marginPct": 0.20,
+  "leverage": 5
+}

@@ -1,0 +1,18 @@
+{
+  "_comment": "ALBATROSS v1.0.0 — Multi-week Arena conviction tracker. Mirrors trades from Senpi Arena participants whose ROE has been consistently strong across the last 4 weeks AND the current month. Composite score = 0.3 × monthly_roe + 0.7 × mean(weekly_roe) − 0.5 × stdev(weekly_roe). Pool refreshes every 4h. Edit wallet/strategyId/chatId.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "leaderPoolSize": 5,
+  "leaderRefreshHours": 4,
+  "minWeeksTraded": 3,
+  "minWeeklyVolumeUsd": 50000,
+  "convictionWeights": {
+    "monthlyRoe": 0.3,
+    "weeklyRoeMean": 0.7,
+    "weeklyRoeStdevPenalty": 0.5
+  },
+  "marginPct": 0.15,
+  "leverage": 5,
+  "excludeXHandles": ["betashop"]
+}

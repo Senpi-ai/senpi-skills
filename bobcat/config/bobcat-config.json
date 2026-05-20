@@ -1,0 +1,12 @@
+{
+  "_comment": "BOBCAT v1.0.0 — Big Tech equity perp trend follower on Hyperliquid XYZ. Universe: NVDA, TSLA, AAPL, META, MSFT, GOOGL, AMZN, AMD, MU, INTC, TSM, ORCL. LONG OR SHORT on 4h trend + Smart Money direction. Standard DSL — Phase 1 15% max_loss, Phase 2 standard ladder, hard_timeout 48h.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL"],
+  "minScore": 5,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "marginPct": 0.20,
+  "leverage": 5
+}

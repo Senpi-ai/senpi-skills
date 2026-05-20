@@ -1,0 +1,14 @@
+{
+  "_comment": "LEMUR v1.0.0 — Pre-IPO Perpetuals (IPOP) basket on Hyperliquid XYZ. Auto-discovers IPOPs via funding + leverage signature (per trade.xyz docs: IPOP funding multiplier is 0.005 vs 0.5 for standard XYZ perps = funding rates ~100x smaller; AND max_leverage <= 5 for the pre-listing cap). Today's universe: xyz:SPCX. Auto-expands when trade.xyz lists more IPOPs (e.g. ANTHROPIC, OPENAI, STRIPE). LONG OR SHORT based on 4h trend + SM direction. Wide DSL — IPOP velocity is throttled by Discovery Bounds so positions don't snap as fast as normal perps.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 5,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "ipopFundingMaxAbs": 1e-7,
+  "ipopMaxLeverageCap": 5,
+  "ipopMinDailyVolUsd": 100000,
+  "marginPct": 0.15,
+  "leverage": 3
+}

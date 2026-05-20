@@ -64,7 +64,7 @@ Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or bu
 ┌──────────────────────────────────▼───────────────────────────────────────┐
 │                  TRADING STRATEGY SKILLS (this repo)                      │
 │                                                                            │
-│   26 live trading strategy skills, one per directory                       │
+│   26 production skills + 10 onboarding tier = 36 total, one per directory │
 │   Each: producer script + runtime.yaml + SKILL.md + config.json            │
 │                                                                            │
 │   Bucketed below into 11 producer archetypes (see                          │
@@ -330,6 +330,55 @@ Each tool's full schema (params, types, response shape) is in the MCP server its
 The live fleet — **26 skills across 11 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
 
 Each row links to the skill's directory.
+
+## 🎯 Onboarding tier — new to Senpi? Start here.
+
+Ten v1.0 strategies designed for first-time operators. All share the same scaffold: **helpers-native producer + Smart-Money direction gate via `leaderboard_get_markets` + DSL Phase 1 floor + Phase 2 ratchet ladder + race-window dedup**. Each opens LONG or SHORT (no long-only), uses simple 5-component scoring (max ~9), and lets the runtime own all exit logic.
+
+Pick by what you want to trade. Each is its own self-contained skill directory at the repo root.
+
+### 🟢 Crypto Trend Followers — pick your coin (single-asset, SM-confirmed)
+
+| Skill | Asset | Description |
+|---|---|---|
+| [beaver](beaver/) | BTC | **Default first strategy.** 4h trend + Smart-Money direction gate. Wide Bison-pattern DSL (T0 lock 0 → T5 lock 85). |
+| [heron](heron/) | ETH | Same shape as Beaver, ETH. |
+| [hummingbird](hummingbird/) | HYPE | Same shape, HYPE. |
+
+### 🔵 Diversified Crypto Basket
+
+| Skill | Assets | Description |
+|---|---|---|
+| [hedgehog](hedgehog/) | BTC + ETH + SOL | Equal-weight basket, each asset directional independently. BTC long + ETH short is allowed. Up to 3 simultaneous positions, per-position DSL. |
+
+### 🟣 Multi-week Arena Conviction Mirror
+
+| Skill | Source | Description |
+|---|---|---|
+| [albatross](albatross/) | Arena leaders | Mirrors trades from Arena leaders selected by composite ROE conviction (`0.3 × monthly + 0.7 × weekly_mean − 0.5 × weekly_stdev`). Rewards persistence, not lucky-week luck. **Requires user-scope auth token.** |
+
+### 🟡 Technical Patterns
+
+| Skill | Signal | Description |
+|---|---|---|
+| [hawk](hawk/) | 7d high/low breakout | Buy 4h breakouts above 7d high; short breakdowns below 7d low. **Tight DSL** (8% max_loss, lock at +5%) — failed breakouts get cut fast. |
+| [salamander](salamander/) | Pullback in trend | Buy 3-7% pullbacks in 4h uptrends; short rallies in downtrends. **Asymmetric DSL** — wider Phase 1, tight Phase 2. |
+
+### 🟠 XYZ Equities (Hyperliquid HIP-3 / trade.xyz, 23/5 trading)
+
+Senpi's distinctive moat — equity, commodity, and pre-IPO perps that retail can't trade anywhere else.
+
+| Skill | Universe | Description |
+|---|---|---|
+| [lemur](lemur/) | Pre-IPO Perpetuals (IPOPs) | **Auto-discovers IPOPs** via the trade.xyz funding signature (\|funding\| ≤ 1e-7 AND max_leverage ≤ 5). Today: xyz:SPCX. Auto-expands when ANTHROPIC / OPENAI / STRIPE list. |
+| [bobcat](bobcat/) | Big tech | NVDA / TSLA / AAPL / META / MSFT / GOOGL / AMZN / AMD / MU / INTC / TSM / ORCL. 4h trend + SM. 48h hard timeout for the weekend pricing gap. |
+| [raccoon](raccoon/) | All XYZ (excl. IPOPs) | **Weekend-only.** Fri 22:00 UTC → Mon 00:00 UTC. Captures the Mon-open reconciliation snap-back when trade.xyz external pricing resumes after the 50h internal-oracle window. |
+
+---
+
+# The 11 production archetypes
+
+Below are the production-tier strategies sorted by their producer-pattern archetype. See [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md) for the canonical pattern catalog. The onboarding tier above maps into these same archetypes (Beaver/Heron/Hummingbird are single-asset; Hedgehog/Hawk/Salamander/Bobcat are multi-asset whitelist; Albatross is trader-follower; Lemur/Raccoon are XYZ specialist).
 
 ## 1. Universe trend-follower
 
