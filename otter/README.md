@@ -1,8 +1,12 @@
-# 🦦 OTTER v2.0.0 — Open Interest Velocity Hunter. senpi_runtime_helpers.
+# 🦦 Otter — Open Interest Velocity Hunter
+
+Trades fresh leveraged positioning the moment it appears: detects 1h Open Interest velocity with price confirmation, and rides the new flow.
 
 Part of the [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
-**Plumbing-only migration from v1.0. NO thesis change. NO scoring change.** Producer ports onto `senpi_runtime_helpers` (in-process `SenpiClient`, no openclaw / mcporter subprocesses). Long-lived `producer_daemon` replaces the openclaw cron entry.
+## Thesis
+
+When Open Interest on an asset accelerates sharply within an hour *and* price confirms the direction, fresh leveraged capital is entering — often ahead of a larger move. Otter scans for that OI-velocity signature, requires price confirmation to filter noise, and enters with the flow. The edge is reacting to new positioning before the crowd reprices.
 
 ## Install
 
