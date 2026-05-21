@@ -1,9 +1,7 @@
 name: cheetah-tracker
-# Note: top-level `version` is the SCHEMA version the senpi-trading-runtime
-# plugin expects (must be major=1). The STRATEGY/skill is "Cheetah v6.0" —
-# that lives in description + SKILL.md + _cheetah_producer_version.
-# Using version: 6.x at runtime level is rejected by the plugin as
-# "Unsupported version: 6.x". Keep this at 1.x.x forever.
+# `version` below is the runtime-schema version (must stay at major 1).
+# It is NOT the skill version — the skill's own version lives in
+# `description:` and SKILL.md. Don't bump this when you bump the skill.
 version: 1.0.0
 description: >
   CHEETAH v6.1 — Phase 2 T0 ladder calibration (2026-05-05).
