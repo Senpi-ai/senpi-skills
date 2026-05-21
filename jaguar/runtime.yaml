@@ -115,7 +115,7 @@ actions:
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
-        ensure_execution_as_taker: false   # entries: prefer maker fill on ALO; fall through to taker on timeout
+        ensure_execution_as_taker: true    # 2026-05-21: comment said "fall through to taker on timeout" but false does NOT do that — it leaves the order resting (CREATE_ORDER_RESTING) and the position never opens. Striker NEEDS the violent-jump entry; true delivers the intended taker fallback.
         execution_timeout_seconds: 30
     context:
       - type: signal
