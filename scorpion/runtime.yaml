@@ -333,12 +333,18 @@ exit:
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 5,   lock_hw_pct: 50 }   # v4.1: 30 → 50 — fix asymmetry math (5% peak now locks 2.5% breakeven floor instead of 1.5%)
-        - { trigger_pct: 10,  lock_hw_pct: 65 }   # v4.1: 50 → 65
-        - { trigger_pct: 15,  lock_hw_pct: 75 }   # v4.1: 70 → 75
-        - { trigger_pct: 25,  lock_hw_pct: 85 }
-        - { trigger_pct: 40,  lock_hw_pct: 90 }
-        - { trigger_pct: 80,  lock_hw_pct: 94 }
+        # 2026-05-21 HYPE 40→60 post-mortem: v4.1's T0 +5% / lock 50 (a
+        # 2.5% breakeven floor at 5x) chopped every Scorpion HYPE long
+        # inside 1.5-4h — caught the moves, never held one. Net -$15 on the
+        # run. Migrated to the Bison "let winners run" ladder: T0 lock=0
+        # gives the position room to develop before any profit lock,
+        # capturing the right-tail trend move instead of scalping +1% price.
+        - { trigger_pct: 10,  lock_hw_pct: 0 }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
