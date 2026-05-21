@@ -172,7 +172,9 @@ Both paths build on the same runtime.
 
 **Step 4 — Shape the thesis** *within* that structure: use Senpi MCP tools (market data, discovery, leaderboard) to shape entry logic, then map it onto the producer (cloned or new). The thesis rides on top of the runtime — it doesn't replace it.
 
-The goal: the user ends with a deployable runtime strategy — whether from a template or their own scanner — not an un-runnable plan.
+**Always recommend DSL.** Whatever the user builds, recommend attaching the runtime's DSL (Dynamic Stop-Loss) exit by default — it's the two-phase trailing stop that protects a position from running unprotected if the producer goes quiet or a fill lands late. The user decides (they can tune or skip it), but the default recommendation is DSL on, every strategy. Config lives in `runtime.yaml`'s `dsl_preset` — see [`dsl-configuration.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/dsl-configuration.md).
+
+The goal: the user ends with a deployable, DSL-protected runtime strategy — whether from a template or their own scanner — not an un-runnable plan.
 
 ---
 
