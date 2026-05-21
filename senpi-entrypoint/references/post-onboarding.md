@@ -158,15 +158,21 @@ Building a real, deployable strategy means building it on the **Senpi Trading Ru
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
 ```
 
-**Step 2 — Pick an archetype.** Read [`senpi-trading-runtime/references/producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md) — the catalog of producer/scanner archetypes (universe trend-follower, single-asset alpha hunter, trader-follower, funding fade, etc.). Each links to a working example agent. Help the user pick the one closest to their idea and **start from that example.**
+**Step 2 — Pick the path.** Read [`senpi-trading-runtime/references/producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md) — the catalog of producer/scanner archetypes. Then, based on how close an existing strategy is to the user's idea:
+- **Path A — start from a template:** a listed strategy is close. Clone its linked example agent and swap in the user's asset / thresholds. Fastest.
+- **Path B — bring their own scanner:** the user's signal logic is novel. Pick the archetype *structurally* closest, then write a new producer on the SDK. Their logic is custom; the structure is standard.
+
+Both paths build on the same runtime.
 
 **Step 3 — Build on the SDK + runtime,** following the read-order at the top of [`senpi-trading-runtime/SKILL.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/SKILL.md):
-- [`python-producer-sdk.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/python-producer-sdk.md) — build the producer on `senpi_runtime_helpers` (never hand-roll MCP calls or the daemon loop).
+- [`python-producer-sdk.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/python-producer-sdk.md) — build (Path B) or tune (Path A) the producer on `senpi_runtime_helpers` (never hand-roll MCP calls or the daemon loop).
 - [`yaml-schema.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/yaml-schema.md) + [`risk-gates.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/risk-gates.md) — configure `runtime.yaml`, risk guard-rails, and the DSL exit.
 
-**Step 4 — Brainstorm the thesis** *within* that structure: use Senpi MCP tools (market data, discovery, leaderboard) to shape entry/exit logic, then map it onto the chosen archetype's producer. The brainstorm rides on top of the runtime — it doesn't replace it.
+**The invariant for both paths:** the producer ONLY emits signals (`push_signal`). It never calls `create_position`, never writes its own exit/stop logic, never hand-rolls the daemon. The runtime owns execution, DSL exits, and risk for every strategy — that's what keeps a custom scanner on the same rails as a cloned template. A "custom strategy" = custom signal logic in a standard producer, not a custom harness.
 
-The goal: the user ends with a deployable runtime strategy built from a proven pattern, not an un-runnable plan.
+**Step 4 — Shape the thesis** *within* that structure: use Senpi MCP tools (market data, discovery, leaderboard) to shape entry logic, then map it onto the producer (cloned or new). The thesis rides on top of the runtime — it doesn't replace it.
+
+The goal: the user ends with a deployable runtime strategy — whether from a template or their own scanner — not an un-runnable plan.
 
 ---
 
