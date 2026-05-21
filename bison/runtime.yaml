@@ -105,7 +105,7 @@ actions:
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
-        ensure_execution_as_taker: false      # v2.1 hard rule: ALO patience, taker fallback OFF
+        ensure_execution_as_taker: true       # 2026-05-21: was false. Maker-only entries rest and silently fail to open during fast moves (CREATE_ORDER_RESTING). Bison is a conviction momentum holder — missing the entry costs the whole trade. Taker fallback guarantees fill + DSL attach.
         execution_timeout_seconds: 30
     context:
       - type: signal
@@ -206,9 +206,11 @@ actions:
 #
 # v3.0 update: order_type → FEE_OPTIMIZED_LIMIT (was MARKET). Saves
 # ~0.020-0.030% per maker-filled close. Taker fallback enabled
-# (ensure_execution_as_taker: true) on the exit path so closes always
-# happen — entry path keeps ensure_execution_as_taker: false (v2.1
-# patience rule).
+# (ensure_execution_as_taker: true) on BOTH paths. 2026-05-21: the entry
+# path was flipped from the v2.1 maker-only "patience" rule to taker
+# fallback ON after maker-only entries were shown to rest on the book and
+# silently fail to open during fast moves (CREATE_ORDER_RESTING). A
+# conviction momentum holder cannot afford to miss the entry.
 #
 # v3.0.1 (2026-05-18): interval_seconds 30 → 60. Audit on Bison12
 # (M192943) 2026-05-15 and 2026-05-17 showed clusters of
