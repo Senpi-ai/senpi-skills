@@ -151,18 +151,22 @@ Which sounds interesting? I can explain any in detail or deploy one right now.
 
 ### If user says "Build a new trading strategy" or "build a strategy" or "custom strategy" or "create a strategy"
 
-Help the user brainstorm custom strategies by combining Senpi tools and skills. Start the conversation with:
+Building a real, deployable strategy means building it on the **Senpi Trading Runtime** — the canonical runtime + DSL exit engine + Python Producer SDK. Do NOT treat this as a pure brainstorm or improvise a strategy from scratch: route the user through the runtime's authoring path so what they build actually deploys and is risk-protected.
 
-> Help me brainstorm some custom strategies we could build from combining senpi tools and/or senpi skills
+**Step 1 — Install the runtime skill:**
+```bash
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
+```
 
-The LLM should use its knowledge of the available Senpi MCP tools (market data, discovery, trading, portfolio) and installed skills to propose creative strategy ideas. Walk the user through:
+**Step 2 — Pick an archetype.** Read [`senpi-trading-runtime/references/producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md) — the catalog of producer/scanner archetypes (universe trend-follower, single-asset alpha hunter, trader-follower, funding fade, etc.). Each links to a working example agent. Help the user pick the one closest to their idea and **start from that example.**
 
-1. **Market scan** — Use available Senpi MCP tools to identify current market conditions and opportunities.
-2. **Strategy ideation** — Brainstorm approaches that combine multiple Senpi tools and skills in novel ways (e.g. combining discovery signals with specific entry/exit logic, layering multiple timeframes, blending copy-trading signals with technical filters).
-3. **Plan outline** — Draft a concrete plan: which tools to use, entry/exit criteria, risk parameters, position sizing, and how the pieces fit together.
-4. **Next steps** — Offer to help the user refine the strategy, backtest the logic manually with current data, or point them to existing strategies that are closest to their idea.
+**Step 3 — Build on the SDK + runtime,** following the read-order at the top of [`senpi-trading-runtime/SKILL.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/SKILL.md):
+- [`python-producer-sdk.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/python-producer-sdk.md) — build the producer on `senpi_runtime_helpers` (never hand-roll MCP calls or the daemon loop).
+- [`yaml-schema.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/yaml-schema.md) + [`risk-gates.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/risk-gates.md) — configure `runtime.yaml`, risk guard-rails, and the DSL exit.
 
-Do NOT require any specific skill installation for this flow — it is a brainstorming and planning session powered by the LLM and whatever MCP tools are already available.
+**Step 4 — Brainstorm the thesis** *within* that structure: use Senpi MCP tools (market data, discovery, leaderboard) to shape entry/exit logic, then map it onto the chosen archetype's producer. The brainstorm rides on top of the runtime — it doesn't replace it.
+
+The goal: the user ends with a deployable runtime strategy built from a proven pattern, not an un-runnable plan.
 
 ---
 

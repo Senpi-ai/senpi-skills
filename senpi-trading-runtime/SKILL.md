@@ -13,6 +13,18 @@ metadata:
 
 On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Monitors a wallet's positions on Hyperliquid for lifecycle events (open, close, edit, flip) and applies two-phase trailing stop-loss protection to all positions.
 
+## ▶ Writing a new strategy? Read these first, in this order
+
+This skill is the canonical way to build a Senpi strategy. **Before writing any code, read in sequence:**
+
+1. **[`references/producer-patterns.md`](references/producer-patterns.md)** — pick your archetype (universe trend-follower, single-asset alpha hunter, trader-follower, funding fade, etc.). Each pattern links to a working example agent's `producer.py` + `runtime.yaml`. **Start here — copy the closest example.**
+2. **[`references/python-producer-sdk.md`](references/python-producer-sdk.md)** — build the producer on the bundled `senpi_runtime_helpers` SDK (`SenpiClient`, `producer_daemon`, `scanner_lock`, `tick_cache`). Don't hand-roll MCP calls or the daemon loop.
+3. **[`references/yaml-schema.md`](references/yaml-schema.md)** — configure `runtime.yaml` (scanners, actions, decision gate).
+4. **[`references/risk-gates.md`](references/risk-gates.md)** + **[`references/dsl-configuration.md`](references/dsl-configuration.md)** — declare risk guard-rails and tune the two-phase exit.
+5. **[`references/senpi-helpers-cli.md`](references/senpi-helpers-cli.md)** — verify the daemon is alive and ticking after deploy.
+
+Full worked examples: **[`references/strategy-examples.md`](references/strategy-examples.md)**. The rest of this doc is the reference for each piece.
+
 ## Core Concepts
 
 **Python Producer SDK ships with this skill** at `senpi_runtime_helpers/`. When wiring up an `external_scanner` (a Python producer that pushes signals into this runtime), build it on this SDK — it wraps the `/signals` endpoint, the `SignalItem` schema, the per-tick lock, and the long-running daemon scheduler in one stdlib-only Python package. Recipes and rules: see [Python Producer SDK](#python-producer-sdk) below.

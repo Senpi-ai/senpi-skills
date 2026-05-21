@@ -4,6 +4,19 @@ This repo is almost entirely AI-generated. The rules below exist because they ha
 
 ---
 
+## ▶ Writing or editing a trading strategy? Start here
+
+Do **not** improvise a strategy from scratch. The canonical authoring path lives in `senpi-trading-runtime/`. Read in this order before writing code:
+
+1. **`senpi-trading-runtime/references/producer-patterns.md`** — the archetype catalog. Pick the closest pattern; it links to a working example agent. Copy that example.
+2. **`senpi-trading-runtime/references/python-producer-sdk.md`** — build the producer on the bundled `senpi_runtime_helpers` SDK. Never hand-roll MCP calls or the daemon loop.
+3. **`senpi-trading-runtime/references/yaml-schema.md`** + **`risk-gates.md`** + **`dsl-configuration.md`** — configure `runtime.yaml`, risk guard-rails, and the DSL exit.
+4. Verify with **`senpi-trading-runtime/references/senpi-helpers-cli.md`**.
+
+Fastest correct path: pick an archetype → clone the named example agent (`kodiak`, `cheetah`, `roach`) → swap in your signal logic → tune thresholds. Full read-order is at the top of `senpi-trading-runtime/SKILL.md`.
+
+---
+
 ## Skill Attribution (REQUIRED for strategy-representing skills only)
 
 **Scope:** This rule applies only to skills that *are* a trading strategy — i.e. adopting the skill results in a new strategy wallet being created and run under its thesis. This covers every animal-named / strategy-named skill in this repo (e.g. grizzly, kodiak, polar, cheetah, bald-eagle, owl, scorpion).
