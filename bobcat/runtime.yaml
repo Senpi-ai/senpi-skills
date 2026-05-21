@@ -91,7 +91,7 @@ actions:
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
-        ensure_execution_as_taker: false        # ALO patience on entry
+        ensure_execution_as_taker: true         # 2026-05-21 HYPE lesson: momentum entries must fill — maker-only can rest unfilled (CREATE_ORDER_RESTING), so taker fallback ON
         execution_timeout_seconds: 30
     context:
       - type: signal
@@ -167,7 +167,7 @@ exit:
   order_type: FEE_OPTIMIZED_LIMIT
   fee_optimized_limit_options:
     ensure_execution_as_taker: true                 # exit closes MUST happen — taker fallback is the safety floor
-    execution_timeout_seconds: 60
+    execution_timeout_seconds: 30          # 2026-05-21: 60->30 — keep the maker attempt comfortably under the server connection window
   dsl_preset:
     hard_timeout:
       enabled: true                                 # 48h cap — equities have weekend pricing gaps
