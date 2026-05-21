@@ -68,7 +68,16 @@ actions:
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
-        ensure_execution_as_taker: false
+        # 2026-05-21: was false (maker-only ALO patience). During the HYPE
+        # 40→60 run the maker entry rested and never filled — create_position
+        # returned ENGINE_FAILURE / CREATE_ORDER_RESTING on "PYTHON_PATIENCE
+        # HYPE LONG" (5/19 00:15) and 11 other entries (TAO/LIT/TON/SUI/NEAR/
+        # VVV/ONDO) over 5/18-5/21. Maker-only entries silently die exactly
+        # during fast moves — the trends we most want to catch. The engine
+        # error itself prescribes ensureExecutionAsTaker: true. Flip to true so
+        # the order crosses as taker at the timeout and the position opens with
+        # DSL attached, instead of resting on the book with no position.
+        ensure_execution_as_taker: true
         execution_timeout_seconds: 30
     context:
       - type: signal
