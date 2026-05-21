@@ -13,6 +13,40 @@ metadata:
 
 On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Monitors a wallet's positions on Hyperliquid for lifecycle events (open, close, edit, flip) and applies two-phase trailing stop-loss protection to all positions.
 
+## ▶ Writing a new strategy? Read these first, in this order
+
+This skill is the canonical way to build a Senpi strategy. **Every strategy is built the same way** — on this runtime, with the Producer SDK, DSL exit engine, and risk guard-rails. There are **two on-ramps** to that one structure:
+
+- **Path A — Start from a template.** Something close to your idea already exists. Pick the closest archetype in `producer-patterns.md`, clone the linked example agent, and swap in your asset / thresholds. Fastest path when a near-match exists.
+- **Path B — Bring your own scanner/producer.** Your signal logic is novel and no template fits. Pick the archetype in `producer-patterns.md` that's *structurally* closest to your approach, then write a new producer on the SDK. **Your signal logic is yours; the surrounding structure is standard.**
+
+Both paths follow the same read-order:
+
+1. **[`references/producer-patterns.md`](references/producer-patterns.md)** — pick the archetype (universe trend-follower, single-asset alpha hunter, trader-follower, funding fade, etc.). Each links to a working example agent's `producer.py` + `runtime.yaml`. **Path A: clone the closest example. Path B: use it as your structural template.**
+2. **[`references/python-producer-sdk.md`](references/python-producer-sdk.md)** — build (Path B) or tune (Path A) the producer on the bundled `senpi_runtime_helpers` SDK (`SenpiClient`, `producer_daemon`, `scanner_lock`, `tick_cache`). Don't hand-roll MCP calls or the daemon loop.
+3. **[`references/yaml-schema.md`](references/yaml-schema.md)** — configure `runtime.yaml` (scanners, actions, decision gate).
+4. **[`references/risk-gates.md`](references/risk-gates.md)** + **[`references/dsl-configuration.md`](references/dsl-configuration.md)** — declare risk guard-rails and tune the two-phase exit.
+5. **[`references/senpi-helpers-cli.md`](references/senpi-helpers-cli.md)** — verify the daemon is alive and ticking after deploy.
+
+### The invariant (both paths)
+
+Whether you cloned a template or wrote your own scanner, the contract is identical:
+
+- **The producer ONLY emits signals** via `push_signal` / `POST /signals`. It does **not** call `create_position`, **does not** write its own stop-loss / exit logic, and **does not** hand-roll a daemon loop or risk checks.
+- **The runtime owns execution, DSL exits, and risk guard-rails** for every strategy — always. That's what keeps a bring-your-own scanner on the same rails as a proven template.
+
+A "custom strategy" means **custom signal logic inside a standard producer**, not a custom harness. If you find yourself calling `create_position` or writing exit logic in the producer, stop — that belongs to the runtime.
+
+### Recommended for every strategy: attach DSL
+
+**Recommend DSL (Dynamic Stop-Loss) on every strategy, by default — both paths, every time.** It's the runtime's two-phase trailing exit (Phase 1 caps the loss, Phase 2 ratchets profit as the position runs) and it's the layer that keeps a position from running **unprotected** if the producer goes quiet, the host restarts, or an entry fills late. A strategy with no DSL carries naked-position risk: when anything interrupts the producer or the fill, nothing is managing the exit.
+
+The user and their agent decide for themselves — DSL can be tuned or turned off — **but the recommended default is DSL on, for every strategy.** When proposing a strategy, default to attaching it and only drop it if the user explicitly opts out.
+
+Configure it in `runtime.yaml`'s `dsl_preset` (phases, tiers, time-cuts) — see **[`references/dsl-configuration.md`](references/dsl-configuration.md)** for the full field reference and tuning guidance, and **[`references/risk-gates.md`](references/risk-gates.md)** for the declarative risk guard-rails that pair with it.
+
+Full worked examples: **[`references/strategy-examples.md`](references/strategy-examples.md)**. The rest of this doc is the reference for each piece.
+
 ## Core Concepts
 
 **Python Producer SDK ships with this skill** at `senpi_runtime_helpers/`. When wiring up an `external_scanner` (a Python producer that pushes signals into this runtime), build it on this SDK — it wraps the `/signals` endpoint, the `SignalItem` schema, the per-tick lock, and the long-running daemon scheduler in one stdlib-only Python package. Recipes and rules: see [Python Producer SDK](#python-producer-sdk) below.
