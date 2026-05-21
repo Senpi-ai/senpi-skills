@@ -151,30 +151,18 @@ Which sounds interesting? I can explain any in detail or deploy one right now.
 
 ### If user says "Build a new trading strategy" or "build a strategy" or "custom strategy" or "create a strategy"
 
-Building a real, deployable strategy means building it on the **Senpi Trading Runtime** — the canonical runtime + DSL exit engine + Python Producer SDK. Do NOT treat this as a pure brainstorm or improvise a strategy from scratch: route the user through the runtime's authoring path so what they build actually deploys and is risk-protected.
+Help the user brainstorm custom strategies by combining Senpi tools and skills. Start the conversation with:
 
-**Step 1 — Install the runtime skill:**
-```bash
-npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
-```
+> Help me brainstorm some custom strategies we could build from combining senpi tools and/or senpi skills
 
-**Step 2 — Pick the path.** Read [`senpi-trading-runtime/references/producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md) — the catalog of producer/scanner archetypes. Then, based on how close an existing strategy is to the user's idea:
-- **Path A — start from a template:** a listed strategy is close. Clone its linked example agent and swap in the user's asset / thresholds. Fastest.
-- **Path B — bring their own scanner:** the user's signal logic is novel. Pick the archetype *structurally* closest, then write a new producer on the SDK. Their logic is custom; the structure is standard.
+The LLM should use its knowledge of the available Senpi MCP tools (market data, discovery, trading, portfolio) and installed skills to propose creative strategy ideas. Walk the user through:
 
-Both paths build on the same runtime.
+1. **Market scan** — Use available Senpi MCP tools to identify current market conditions and opportunities.
+2. **Strategy ideation** — Brainstorm approaches that combine multiple Senpi tools and skills in novel ways (e.g. combining discovery signals with specific entry/exit logic, layering multiple timeframes, blending copy-trading signals with technical filters).
+3. **Plan outline** — Draft a concrete plan: which tools to use, entry/exit criteria, risk parameters, position sizing, and how the pieces fit together.
+4. **Next steps** — Offer to help the user refine the strategy, backtest the logic manually with current data, or point them to existing strategies that are closest to their idea.
 
-**Step 3 — Build on the SDK + runtime,** following the read-order at the top of [`senpi-trading-runtime/SKILL.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/SKILL.md):
-- [`python-producer-sdk.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/python-producer-sdk.md) — build (Path B) or tune (Path A) the producer on `senpi_runtime_helpers` (never hand-roll MCP calls or the daemon loop).
-- [`yaml-schema.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/yaml-schema.md) + [`risk-gates.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/risk-gates.md) — configure `runtime.yaml`, risk guard-rails, and the DSL exit.
-
-**The invariant for both paths:** the producer ONLY emits signals (`push_signal`). It never calls `create_position`, never writes its own exit/stop logic, never hand-rolls the daemon. The runtime owns execution, DSL exits, and risk for every strategy — that's what keeps a custom scanner on the same rails as a cloned template. A "custom strategy" = custom signal logic in a standard producer, not a custom harness.
-
-**Step 4 — Shape the thesis** *within* that structure: use Senpi MCP tools (market data, discovery, leaderboard) to shape entry logic, then map it onto the producer (cloned or new). The thesis rides on top of the runtime — it doesn't replace it.
-
-**Always recommend DSL.** Whatever the user builds, recommend attaching the runtime's DSL (Dynamic Stop-Loss) exit by default — it's the two-phase trailing stop that protects a position from running unprotected if the producer goes quiet or a fill lands late. The user decides (they can tune or skip it), but the default recommendation is DSL on, every strategy. Config lives in `runtime.yaml`'s `dsl_preset` — see [`dsl-configuration.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/dsl-configuration.md).
-
-The goal: the user ends with a deployable, DSL-protected runtime strategy — whether from a template or their own scanner — not an un-runnable plan.
+Do NOT require any specific skill installation for this flow — it is a brainstorming and planning session powered by the LLM and whatever MCP tools are already available.
 
 ---
 
