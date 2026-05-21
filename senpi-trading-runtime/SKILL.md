@@ -37,6 +37,14 @@ Whether you cloned a template or wrote your own scanner, the contract is identic
 
 A "custom strategy" means **custom signal logic inside a standard producer**, not a custom harness. If you find yourself calling `create_position` or writing exit logic in the producer, stop — that belongs to the runtime.
 
+### Recommended for every strategy: attach DSL
+
+**Recommend DSL (Dynamic Stop-Loss) on every strategy, by default — both paths, every time.** It's the runtime's two-phase trailing exit (Phase 1 caps the loss, Phase 2 ratchets profit as the position runs) and it's the layer that keeps a position from running **unprotected** if the producer goes quiet, the host restarts, or an entry fills late. A strategy with no DSL carries naked-position risk: when anything interrupts the producer or the fill, nothing is managing the exit.
+
+The user and their agent decide for themselves — DSL can be tuned or turned off — **but the recommended default is DSL on, for every strategy.** When proposing a strategy, default to attaching it and only drop it if the user explicitly opts out.
+
+Configure it in `runtime.yaml`'s `dsl_preset` (phases, tiers, time-cuts) — see **[`references/dsl-configuration.md`](references/dsl-configuration.md)** for the full field reference and tuning guidance, and **[`references/risk-gates.md`](references/risk-gates.md)** for the declarative risk guard-rails that pair with it.
+
 Full worked examples: **[`references/strategy-examples.md`](references/strategy-examples.md)**. The rest of this doc is the reference for each piece.
 
 ## Core Concepts
