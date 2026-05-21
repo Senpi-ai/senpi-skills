@@ -5,9 +5,9 @@ description: >-
   LONG when 4h trend is BULLISH AND 1h price pulled back 3-7% from
   recent high AND Smart Money is > 55% long. SHORT when 4h trend is
   BEARISH AND 1h price rallied 3-7% from recent low AND SM is > 55%
-  short. Universe: BTC, ETH, SOL. Asymmetric DSL — Phase 1 wider (10%
-  max_loss, pullbacks need room) but Phase 2 tighter (T0 +5% / lock
-  30%, when thesis works lock fast).
+  short. Universe: BTC, ETH, SOL. Wide DSL throughout — Phase 1 10%
+  max_loss (pullbacks need room to develop) AND Phase 2 "let winners
+  run" ladder (T0 +10% / lock 0); the resumed trend can run far.
 license: MIT
 metadata:
   author: jason-goldberg
@@ -47,11 +47,11 @@ The 4h trend must be NON-NEUTRAL. Salamander does not trade chop. If higher-lows
 ### RULE 2: Pullback band is hard
 The pullback must fall in `[pullbackMinPct, pullbackMaxPct]` (default 3-7%). Outside that band, no entry. Configurable per asset volatility (smaller bands for stable majors, wider for HYPE-tier).
 
-### RULE 3: Asymmetric DSL is intentional
+### RULE 3: Wide DSL throughout
 - **Phase 1 max_loss 10%** (wider than Hawk's 8%) — pullbacks within a trend need a few percent of room to develop
-- **Phase 2 T0 +5% / lock 30%** (same as Hawk) — when the pullback resolves and the trend resumes, lock fast
+- **Phase 2 wide "let winners run" ladder** (T0 +10% / lock 0 → T5 +100% / lock 85) — when the pullback resolves, the resumed trend can run far. The old tight T0 (+5% / lock 30) locked a floor after ~1-2% price and chopped the continuation out on the first wiggle (HYPE 40→60 post-mortem, 2026-05-21).
 
-If you tighten Phase 1 below 10%, you'll cut legitimate pullback continuations as noise.
+If you tighten Phase 1 below 10%, you'll cut legitimate pullback continuations as noise — and never re-tighten Phase 2, or you cap the very continuation Salamander exists to ride.
 
 ### RULE 4: Producer enters. DSL exits.
 No close_position call site. DSL Phase 1 + Phase 2 + hard_timeout 48h own all exits.
@@ -76,7 +76,7 @@ No close_position call site. DSL Phase 1 + Phase 2 + hard_timeout 48h own all ex
 
 **Floor:** `minScore: 5`. Typical entry clears 5-7.
 
-## DSL preset (asymmetric)
+## DSL preset (wide throughout — Phase 1 roomy, Phase 2 let-winners-run)
 
 | Phase | Component | Setting |
 |---|---|---|
@@ -86,11 +86,12 @@ No close_position call site. DSL Phase 1 + Phase 2 + hard_timeout 48h own all ex
 | Time cuts | hard_timeout | **48h** (pullback resolution can take time) |
 | Time cuts | weak_peak_cut | 90min / 3% min |
 | Time cuts | dead_weight_cut | DISABLED |
-| Phase 2 | T0 | **+5% / lock 30%** (tight — lock fast when thesis works) |
-| Phase 2 | T1 | +10% / lock 50% |
-| Phase 2 | T2 | +20% / lock 65% |
-| Phase 2 | T3 | +35% / lock 75% |
-| Phase 2 | T4 | +60% / lock 85% |
+| Phase 2 | T0 | **+10% / lock 0** (let the continuation breathe) |
+| Phase 2 | T1 | +20% / lock 25% |
+| Phase 2 | T2 | +30% / lock 40% |
+| Phase 2 | T3 | +50% / lock 60% |
+| Phase 2 | T4 | +75% / lock 75% |
+| Phase 2 | T5 | +100% / lock 85% |
 
 ## Scanner pattern
 

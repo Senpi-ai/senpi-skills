@@ -286,18 +286,23 @@ def push_mirror_signal(leader, new_pos, margin_usd, leverage, held_assets):
     if cfg.was_recently_signaled(dedup_key):
         return False
 
+    # 2026-05-21 HYPE lesson (root cause B): optional NUMERIC fields must never
+    # be emitted as None — the runtime signal schema types these as `number` and
+    # rejects null, which drops the ENTIRE signal silently. weeks_traded may be
+    # absent from the candidate dict, and entryPx/leverage come from external
+    # position data that can be missing. Coalesce every numeric field to 0.
     data_block = {
         "leaderUsername": leader.get("username"),
         "leaderXHandle": leader.get("xHandle"),
-        "leaderConvictionScore": leader.get("conviction_score"),
-        "leaderWeeksTraded": leader.get("weeks_traded"),
-        "leaderWeeklyRoeMean": leader.get("weekly_mean_roe"),
-        "leaderMonthlyRoe": leader.get("monthly_roe"),
+        "leaderConvictionScore": leader.get("conviction_score") or 0.0,
+        "leaderWeeksTraded": leader.get("weeks_traded") or 0,
+        "leaderWeeklyRoeMean": leader.get("weekly_mean_roe") or 0.0,
+        "leaderMonthlyRoe": leader.get("monthly_roe") or 0.0,
         "leverage": leverage,
         "marginUsd": margin_usd,
         "direction": direction,
-        "leaderEntryPrice": new_pos.get("entryPx"),
-        "leaderLeverage": new_pos.get("leverage"),
+        "leaderEntryPrice": new_pos.get("entryPx") or 0.0,
+        "leaderLeverage": new_pos.get("leverage") or 0,
         "reason": f"ALBATROSS_MIRROR {coin} {direction} from {leader.get('username')} (conviction {leader.get('conviction_score')})",
         "heldAssets": held_assets,
     }

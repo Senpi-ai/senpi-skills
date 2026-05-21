@@ -4,9 +4,9 @@ description: >-
   HAWK v1.0.0 — 4h Breakout Buyer / Breakdown Seller. LONG when price
   breaks above the 7-day high AND Senpi Smart-Money is > 55% long.
   SHORT when price breaks below the 7-day low AND SM is > 55% short.
-  Universe: BTC, ETH, SOL. Tight DSL — Phase 1 max_loss 8% (failed
-  breakouts get cut fast); Phase 2 locks fast at +5% (real breakouts
-  ratchet-protect immediately). hard_timeout 24h.
+  Universe: BTC, ETH, SOL. Asymmetric DSL — Phase 1 max_loss 8% (failed
+  breakouts get cut fast) but Phase 2 wide "let winners run" ladder
+  (T0 +10% / lock 0); a real breakout can run far. hard_timeout 24h.
 license: MIT
 metadata:
   author: jason-goldberg
@@ -34,7 +34,7 @@ Hawk fixes all three:
 2. **Smart Money must be > 55% in the breakout direction** (gate, not score)
 3. **DSL Phase 1 max_loss 8%** — failed breakouts close before they hurt
 
-When a breakout DOES work, Phase 2 locks fast (+5% → 30% lock) so a winning breakout immediately starts ratchet-protecting profit.
+When a breakout DOES work, Phase 2 uses a wide "let winners run" ladder — no profit lock until +10%, then a trailing ratchet out to +100%. A real breakout can run far; the old +5% / lock-30 design chopped the position out on the first pullback. Phase 1's 8% max_loss still cuts a FAILED breakout fast.
 
 ## CRITICAL RULES
 
@@ -47,13 +47,13 @@ If either gate fails, producer outputs `WAITING — no breakout with SM agreemen
 ### RULE 2: Producer enters. DSL exits.
 No `close_position` call site in the producer. DSL Phase 1 + Phase 2 + hard_timeout 24h own all exits.
 
-### RULE 3: Tight DSL is intentional
+### RULE 3: Asymmetric DSL — tight Phase 1, wide Phase 2
 Hawk's DSL is designed for breakouts:
 - Phase 1 max_loss **8%** (vs Beaver's 20%) — failed breakouts must be cut fast
-- Phase 2 first tier **+5% / lock 30%** — real breakouts lock profit immediately
+- Phase 2 wide **"let winners run" ladder** (T0 +10% / lock 0 → T5 +100% / lock 85) — a real breakout can run far; the old tight T0 (+5% / lock 30) locked a floor after ~1-2% price and chopped winners out on the first pullback (HYPE 40→60 post-mortem, 2026-05-21)
 - hard_timeout **24h** — if a breakout hasn't worked in 24h, it failed
 
-Don't widen this DSL — it would defeat the strategy.
+Keep Phase 1 tight (cut failed breakouts), but never re-tighten Phase 2 — the rare breakout that runs is what pays for the strategy.
 
 ### RULE 4: Universe is BTC, ETH, SOL
 Operators can override via `universe` in config, but the default is the three most-liquid majors. Adding low-liquidity coins to the universe will cause noisy "breakouts" that don't follow through.
@@ -79,7 +79,7 @@ Operators can override via `universe` in config, but the default is the three mo
 
 **Floor:** `minScore: 5`. Typical entry needs breakout magnitude moderate + SM aligned + 4h trend = 7.
 
-## DSL preset (tight Hawk profile)
+## DSL preset (asymmetric Hawk profile — tight Phase 1, wide Phase 2)
 
 | Phase | Component | Setting |
 |---|---|---|
@@ -89,11 +89,12 @@ Operators can override via `universe` in config, but the default is the three mo
 | Time cuts | hard_timeout | **24h** (kills failed breakouts) |
 | Time cuts | weak_peak_cut | **60min @ 3.0% min** (kills stale chop) |
 | Time cuts | dead_weight_cut | DISABLED |
-| Phase 2 | T0 | +5% / lock 30% |
-| Phase 2 | T1 | +10% / lock 50% |
-| Phase 2 | T2 | +20% / lock 65% |
-| Phase 2 | T3 | +35% / lock 75% |
-| Phase 2 | T4 | +60% / lock 85% |
+| Phase 2 | T0 | **+10% / lock 0** (let it breathe) |
+| Phase 2 | T1 | +20% / lock 25% |
+| Phase 2 | T2 | +30% / lock 40% |
+| Phase 2 | T3 | +50% / lock 60% |
+| Phase 2 | T4 | +75% / lock 75% |
+| Phase 2 | T5 | +100% / lock 85% |
 
 ## Scanner pattern
 
