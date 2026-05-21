@@ -11,33 +11,30 @@ Then match their goal to the table below.
 
 ## Goal → Skill Mapping
 
-| User goal | Recommended skill | Min budget |
+> The live fleet changes frequently (new strategy skills ship most weeks). **Always pull the current list from `catalog.json` (above) or the `list_strategies` MCP tool before recommending** — do not rely on a hard-coded list. The mappings below are stable archetype examples, named only with strategies confirmed live in the repo.
+
+| User goal | Recommended skill | Asset focus |
 |---|---|---|
-| Best default — proven, works with any balance | FOX (`fox-strategy`) | $500 |
-| Trade range-bound markets / support & resistance | Viper (`viper`) | $500 |
-| Copy whale wallets automatically | Scorpion (`scorpion-strategy`) | $500 |
-| Leaderboard momentum — follow smart money early | Wolf (`wolf-strategy`) | $500 |
-| Funding rate arbitrage | Croc (`croc-strategy`) | $500 |
-| Triple-signal convergence (price + volume + new money) | Cobra (`cobra-strategy`) | $500 |
-| BTC only, maximum conviction, high leverage | Grizzly (`grizzly-strategy`) | $2,000 |
-| HYPE only, fastest asset | Cheetah (`cheetah-strategy`) | $1,000 |
-| 5 parallel scanners across 230 assets | Tiger (`tiger-strategy`) | $2,000 |
-| Contrarian — fade crowded trades at exhaustion | Owl (`owl-strategy`) | $1,000 |
-| Smart money consensus + liquidation front-running | Shark (`shark`) | $1,000 |
-| Multi-market scanner, single strongest signal | Hawk (`hawk-strategy`) | $1,000 |
-| FOX with higher conviction filters | Feral Fox (`feral-fox`) | $500 |
-| Feral Fox + infinite trailing stop | Ghost Fox (`ghost-fox`) | $500 |
-| Wolf in sniper mode, maker fees | Dire Wolf (`dire-wolf`) | $1,000 |
-| Viper + infinite trailing | Mamba (`mamba`) | $500 |
+| BTC, maximum conviction, multi-timeframe trend | Grizzly (`grizzly`) | BTC |
+| SOL alpha hunter, single-asset focus | Kodiak (`kodiak`) | SOL |
+| ETH alpha hunter, hybrid hyperfeed + structure | Polar (`polar`) | ETH |
+| HYPE, multi-signal confluence sniper | Cheetah (`cheetah`) | HYPE / multi |
+| Multi-market active trader (crypto + XYZ) | Scorpion (`scorpion`) | Multi |
+| Contrarian — fade crowded trades at exhaustion | Owl (`owl`) | Multi |
+| Multi-market scanner, single strongest signal | Hawk (`hawk`) | Multi |
+| Build a new strategy from scratch | **`senpi-trading-runtime`** (canonical runtime + DSL + Producer SDK) | — |
+
+For any goal not covered above, query `list_strategies` for the current live fleet and match on the strategy's own thesis/tagline.
 
 ## Budget Guidance
 
+Each strategy declares its own minimum budget in `catalog.json` / `list_strategies`. General guidance:
+
 | Balance | Recommended |
 |---|---|
-| < $500 | No catalog skill has min_budget below $500. Recommend funding to at least $500, then FOX or Viper. |
-| $500–$2,000 | FOX, Viper, Cobra, Scorpion, Wolf, Croc, Owl, Cheetah, Hawk, Shark, Dire Wolf |
-| $2,000–$5,000 | Any skill in the catalog |
-| > $5,000 | Grizzly, Bison, Tiger, or multi-skill deployment |
+| < $500 | Fund to at least the lowest live strategy's `min_budget` before deploying. |
+| $500–$2,000 | Most single-asset and multi-asset strategies are viable. |
+| > $2,000 | Any live strategy, or a multi-skill deployment. |
 
 ## Presenting a Recommendation
 
