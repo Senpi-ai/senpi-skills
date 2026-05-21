@@ -1,0 +1,15 @@
+{
+  "_comment": "BADGER v1.0.0 — OI-Divergence Breakout Anticipator (BTC/ETH/SOL/HYPE). LONG when price breaks the prior 24h high AND open interest is rising (>= oiRisingMinPct) AND Smart Money is net long; SHORT on the mirror. The rising-OI gate is the edge — it filters fakeout breakouts that have no new money behind them. Wide DSL Phase 2 ladder (T0 +10% / lock 0) so a confirmed breakout can run. Edit wallet/strategyId/chatId.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["BTC", "ETH", "SOL", "HYPE"],
+  "minScore": 5,
+  "breakoutLookbackHours": 24,
+  "oiRisingMinPct": 2.0,
+  "oiStrongPct": 5.0,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "marginPct": 0.20,
+  "leverage": 5
+}
