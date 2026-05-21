@@ -55,21 +55,22 @@ Behavior rules:
 
 - Discover high-performing traders and market opportunities (Discovery + market tools)
 - Copy top traders or run autonomous/custom strategy workflows
-- Apply risk controls such as dynamic stop-loss and budget-aware orchestration
+- Apply risk controls — dynamic stop-loss (DSL), risk gates, fee-optimized execution — all native to `senpi-trading-runtime`
 - Trade broad markets through Senpi's Hyperliquid-based stack (crypto perps and more)
 
-## Full Skill Catalog
+## Skill Catalog
+
+**Onboarding & guides:**
 
 - `senpi-entrypoint`: onboarding flow for Senpi setup, discovery, and first-trade guidance.
 - `senpi-onboard`: account + API key + MCP setup workflow.
 - `senpi-getting-started-guide`: interactive first-trade walkthrough.
-- `dsl-dynamic-stop-loss`: two-phase trailing stop-loss with tiered locking.
-- `opportunity-scanner`: market-wide scoring and setup discovery.
-- `emerging-movers`: smart-money rotation detection.
-- `autonomous-trading`: orchestrates DSL + scanner + movers.
-- `wolf-strategy`: full autonomous trading stack.
-- `wolf-howl`: nightly review and self-improvement loop.
-- `whale-index`: mirrors top-performing traders.
+
+**Build-your-own:**
+
+- `senpi-trading-runtime`: the canonical runtime — bundles the DSL exit engine, risk gates, fee-optimized execution, and the Python Producer SDK. Install this to build a new autonomous strategy from scratch.
+
+**Trading strategies:** the animal-named strategy skills (grizzly, kodiak, polar, cheetah, scorpion, owl, and more). For the current live list with thesis + budget, call `list_strategies` on the Senpi MCP rather than relying on a static catalog.
 
 ## Install Skills
 

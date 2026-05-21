@@ -6,9 +6,9 @@ This repo is almost entirely AI-generated. The rules below exist because they ha
 
 ## Skill Attribution (REQUIRED for strategy-representing skills only)
 
-**Scope:** This rule applies only to skills that *are* a trading strategy — i.e. adopting the skill results in a new strategy wallet being created and run under its thesis. This covers every animal-named / strategy-named skill in this repo (bald-eagle, cobra, mamba, owl, tiger-strategy, wolf-strategy, whale-index, etc.).
+**Scope:** This rule applies only to skills that *are* a trading strategy — i.e. adopting the skill results in a new strategy wallet being created and run under its thesis. This covers every animal-named / strategy-named skill in this repo (e.g. grizzly, kodiak, polar, cheetah, bald-eagle, owl, scorpion).
 
-**Out of scope** (do NOT add attribution files to these): onboarding/guide skills (senpi-onboard, senpi-entrypoint, senpi-getting-started-guide), runtime and infrastructure skills (senpi-trading-runtime, dsl-dynamic-stop-loss), utility skills (fee-optimizer, opportunity-scanner, emerging-movers), and analysis/feedback-loop skills (wolf-howl).
+**Out of scope** (do NOT add attribution files to these): onboarding/guide skills (senpi-onboard, senpi-entrypoint, senpi-getting-started-guide) and the runtime/infrastructure skill (senpi-trading-runtime — which bundles the DSL exit engine and the Python Producer SDK natively).
 
 If you're creating a new skill and are unsure: if the skill represents a *trading thesis* that gets deployed as its own strategy wallet, it's in scope. If it's a guide, utility, infra, or analysis tool, it's out of scope.
 
