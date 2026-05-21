@@ -33,7 +33,7 @@
     {
       "id": "albatross",
       "tracker_slug": "albatross",
-      "name": "Albatross \u2014 Multi-week Arena Conviction Mirror",
+      "name": "Albatross \u2014 Multi-Week Arena Conviction Mirror",
       "emoji": "\ud83d\udc26\u200d\u2b1b",
       "tagline": "Mirror the consistent winners from the Senpi Arena, not the lucky-week winners. Albatross pulls 4 weekly leaderboards + the current monthly ",
       "group": "trader-follower",
@@ -49,7 +49,7 @@
       "id": "bald-eagle",
       "tracker_slug": "bald-eagle",
       "name": "Bald Eagle \u2014 XYZ Contrarian Fader",
-      "emoji": "\u25ab\ufe0f",
+      "emoji": "\ud83e\udd85",
       "tagline": "Counter-trades SM consensus on six high-liquidity XYZ macro assets when the move is exhausting.",
       "group": "contrarian-unwind",
       "sort_order": 2,
@@ -63,7 +63,7 @@
     {
       "id": "beaver",
       "tracker_slug": "beaver",
-      "name": "Beaver \u2014 BTC Trend Follower (SM-confirmed)",
+      "name": "Beaver \u2014 BTC Trend Follower (SM-Confirmed)",
       "emoji": "\ud83e\uddab",
       "tagline": "Onboarding-tier strategy. Single asset (BTC). Long OR short based on the confluence of 4h trend structure + Senpi Smart-Money leaderboard di",
       "group": "single-asset-alpha-hunter",
@@ -78,7 +78,7 @@
     {
       "id": "bison",
       "tracker_slug": "bison",
-      "name": "Bison \u2014 Conviction Holder",
+      "name": "Bison \u2014 Blue-Chip Conviction Holder",
       "emoji": "\ud83e\uddac",
       "tagline": "Few trades, longer holds, bigger moves on a tight blue-chip whitelist.",
       "group": "single-asset-alpha-hunter",
@@ -93,7 +93,7 @@
     {
       "id": "bobcat",
       "tracker_slug": "bobcat",
-      "name": "Bobcat \u2014 Big Tech Equity Perp Trend Follower",
+      "name": "Bobcat \u2014 Big-Tech Equity Perp Trend Follower",
       "emoji": "\ud83d\udc08",
       "tagline": "NVDA / TSLA / AAPL / META / MSFT / GOOGL / AMZN / AMD / MU / INTC / TSM / ORCL as perpetuals on Hyperliquid XYZ. Same names retail knows fro",
       "group": "multi-asset-whitelist",
@@ -108,7 +108,7 @@
     {
       "id": "cheetah",
       "tracker_slug": "cheetah",
-      "name": "CHEETAH \u2014 Multi-Signal Confluence Sniper",
+      "name": "Cheetah \u2014 Multi-Signal Confluence Sniper",
       "emoji": "\ud83d\udc06",
       "tagline": "Patient trader-follower that refuses to enter unless every confluence signal agrees.",
       "group": "universe-trend-follower",
@@ -123,7 +123,7 @@
     {
       "id": "condor",
       "tracker_slug": "condor",
-      "name": "Condor \u2014 One Amazing Trade per Day",
+      "name": "Condor \u2014 One High-Conviction Trade per Day",
       "emoji": "\ud83e\udd85",
       "tagline": "Top-50 HL trend continuation that fires at most one apex-confluence entry per day.",
       "group": "universe-trend-follower",
@@ -138,7 +138,7 @@
     {
       "id": "dire",
       "tracker_slug": "dire",
-      "name": "DIRE \u2014 BRENTOIL XYZ Specialist",
+      "name": "Dire \u2014 BRENTOIL XYZ Specialist",
       "emoji": "\ud83e\udda1",
       "tagline": "Single-asset alpha hunter for BRENTOIL on Hyperliquid's XYZ DEX. News-driven momentum breakouts on oil with tight DSL protection against sha",
       "group": "xyz-specialist",
@@ -153,7 +153,7 @@
     {
       "id": "dog",
       "tracker_slug": "dog",
-      "name": "Dog \u2014 The Contrarian Pup",
+      "name": "Dog \u2014 Multi-Asset Mean-Reversion Fader",
       "emoji": "\ud83d\udc15",
       "tagline": "Multi-asset mean-reversion fader on BTC, ETH, SOL, and HYPE.",
       "group": "funding-fade",
@@ -168,7 +168,7 @@
     {
       "id": "grizzly",
       "tracker_slug": "grizzly",
-      "name": "GRIZZLY \u2014 BTC Alpha Hunter",
+      "name": "Grizzly \u2014 BTC Alpha Hunter",
       "emoji": "\ud83d\udc3b",
       "tagline": "Single-asset BTC trend-following scanner. Trades WITH smart money consensus when BTC's multi-timeframe momentum aligns.",
       "group": "single-asset-alpha-hunter",
@@ -183,7 +183,7 @@
     {
       "id": "hawk",
       "tracker_slug": "hawk",
-      "name": "Hawk \u2014 4h Breakout / Breakdown (SM-confirmed)",
+      "name": "Hawk \u2014 4h Breakout / Breakdown (SM-Confirmed)",
       "emoji": "\ud83e\udd85",
       "tagline": "LONG when price breaks above the 7-day high AND Smart Money is > 55% long. SHORT when price breaks below the 7-day low AND SM is > 55% short",
       "group": "multi-asset-whitelist",
@@ -198,7 +198,7 @@
     {
       "id": "hedgehog",
       "tracker_slug": "hedgehog",
-      "name": "Hedgehog \u2014 Major Crypto Basket (BTC + ETH + SOL)",
+      "name": "Hedgehog \u2014 Major-Crypto Basket (BTC/ETH/SOL)",
       "emoji": "\ud83e\udd94",
       "tagline": "Equal-weight crypto basket. Each asset independently evaluated \u2014 BTC long, ETH short, SOL idle if that's what the signals say. Per-position ",
       "group": "multi-asset-whitelist",
@@ -213,7 +213,7 @@
     {
       "id": "heron",
       "tracker_slug": "heron",
-      "name": "Heron \u2014 ETH Trend Follower (SM-confirmed)",
+      "name": "Heron \u2014 ETH Trend Follower (SM-Confirmed)",
       "emoji": "\ud83d\udc26",
       "tagline": "Onboarding-tier strategy. Single asset (ETH). Long OR short based on the confluence of 4h trend structure + Senpi Smart-Money leaderboard di",
       "group": "single-asset-alpha-hunter",
@@ -228,7 +228,7 @@
     {
       "id": "hummingbird",
       "tracker_slug": "hummingbird",
-      "name": "Hummingbird \u2014 HYPE Trend Follower (SM-confirmed)",
+      "name": "Hummingbird \u2014 HYPE Trend Follower (SM-Confirmed)",
       "emoji": "\ud83e\udeb6",
       "tagline": "Onboarding-tier strategy. Single asset (HYPE). Long OR short based on the confluence of 4h trend structure + Senpi Smart-Money leaderboard d",
       "group": "single-asset-alpha-hunter",
@@ -243,7 +243,7 @@
     {
       "id": "jackal",
       "tracker_slug": "jackal",
-      "name": "Jackal \u2014 The Smart Stalker",
+      "name": "Jackal \u2014 Top-Trader Stalker",
       "emoji": "\ud83d\udc3a",
       "tagline": "The fleet's first SECONDARY-SIGNAL agent: stalk the top Senpi perp traders, copy their fresh entries only when an LLM gate confirms.",
       "group": "trader-follower",
@@ -258,7 +258,7 @@
     {
       "id": "jaguar",
       "tracker_slug": "jaguar",
-      "name": "Jaguar \u2014 Striker / Rank-Jump Detector",
+      "name": "Jaguar \u2014 Rank-Jump Striker",
       "emoji": "\ud83d\udc06",
       "tagline": "Hunts violent rank-jump explosions on the Hyperliquid leaderboard \u2014 rare but high-conviction.",
       "group": "striker-rank-jump",
@@ -273,7 +273,7 @@
     {
       "id": "kestrel",
       "tracker_slug": "kestrel",
-      "name": "KESTREL \u2014 XYZ Macro Breakout Rider",
+      "name": "Kestrel \u2014 XYZ Macro Breakout Rider",
       "emoji": "\ud83e\udd85",
       "tagline": "Universe trend-follower that rides 1H breakouts on commodities, indices, and high-volume equities 24/7.",
       "group": "contrarian-unwind",
@@ -288,7 +288,7 @@
     {
       "id": "kodiak",
       "tracker_slug": "kodiak",
-      "name": "KODIAK \u2014 SOL Alpha Hunter",
+      "name": "Kodiak \u2014 SOL Alpha Hunter",
       "emoji": "\ud83d\udc3b",
       "tagline": "Single-asset alpha hunter for SOL. Multi-factor scoring (SM consensus + trend structure + momentum + funding + OI + BTC correlation + RSI) w",
       "group": "single-asset-alpha-hunter",
@@ -333,7 +333,7 @@
     {
       "id": "mantis",
       "tracker_slug": "mantis",
-      "name": "Mantis \u2014 Slipstream",
+      "name": "Mantis \u2014 Cross-Asset Lag Hunter",
       "emoji": "\ud83e\udd8e",
       "tagline": "Cross-asset lag detector that strikes the laggard alt when the leader has already moved.",
       "group": "volume-engine",
@@ -348,7 +348,7 @@
     {
       "id": "orca",
       "tracker_slug": "orca",
-      "name": "Orca \u2014 Gen-1 Vanilla Striker",
+      "name": "Orca \u2014 Rank-Jump Striker",
       "emoji": "\ud83d\udc0b",
       "tagline": "The fleet's reference universe trend-follower: rank-jump detection on the HL leaderboard, single MCP call per scan, plugin-runtime exits.",
       "group": "striker-rank-jump",
@@ -378,7 +378,7 @@
     {
       "id": "owl",
       "tracker_slug": "owl",
-      "name": "OWL \u2014 Pure Contrarian Crowding-Unwind Hunter",
+      "name": "Owl \u2014 Pure Contrarian Crowding-Unwind Hunter",
       "emoji": "\ud83e\udd89",
       "tagline": "Fades crowded crypto perps once exhaustion signals confirm the unwind.",
       "group": "contrarian-unwind",
@@ -393,7 +393,7 @@
     {
       "id": "pangolin",
       "tracker_slug": "pangolin",
-      "name": "PANGOLIN \u2014 Funding Rate Fader",
+      "name": "Pangolin \u2014 Funding-Rate Fader",
       "emoji": "\ud83e\udd94",
       "tagline": "Fades crowded perpetuals when funding stays elevated, collecting funding while waiting for the crowded side to capitulate.",
       "group": "funding-fade",
@@ -408,7 +408,7 @@
     {
       "id": "polar",
       "tracker_slug": "polar",
-      "name": "POLAR \u2014 ETH Alpha Hunter",
+      "name": "Polar \u2014 ETH Alpha Hunter",
       "emoji": "\ud83d\udc3b\u200d\u2744\ufe0f",
       "tagline": "Single-asset alpha hunter for ETH. Combines Hyperfeed Smart Money acceleration with multi-timeframe structural alignment for high-conviction",
       "group": "single-asset-alpha-hunter",
@@ -423,7 +423,7 @@
     {
       "id": "python",
       "tracker_slug": "python",
-      "name": "Python \u2014 The Patience Hunter",
+      "name": "Python \u2014 Patient Multi-Day Trend Holder",
       "emoji": "\ud83d\udc0d",
       "tagline": "Multi-day LONG-biased trend holds on top-50 HL assets.",
       "group": "universe-trend-follower",
@@ -438,7 +438,7 @@
     {
       "id": "raccoon",
       "tracker_slug": "raccoon",
-      "name": "Raccoon \u2014 Weekend XYZ Reconciliation",
+      "name": "Raccoon \u2014 Weekend XYZ Reconciliation Trader",
       "emoji": "\ud83e\udd9d",
       "tagline": "ONLY trades during the trade.xyz no-external-price weekend window (Fri 22:00 UTC \u2192 Mon 00:00 UTC). Captures the Monday-open snap-back when e",
       "group": "multi-asset-whitelist",
@@ -453,7 +453,7 @@
     {
       "id": "raptor",
       "tracker_slug": "raptor",
-      "name": "Raptor \u2014 Hot Streak Follower",
+      "name": "Raptor \u2014 Hot-Streak Follower",
       "emoji": "\ud83e\udd96",
       "tagline": "Follows weekly-winning ELITE/RELIABLE traders into their strongest current position.",
       "group": "trader-follower",
@@ -468,7 +468,7 @@
     {
       "id": "roach",
       "tracker_slug": "roach",
-      "name": "ROACH \u2014 Striker Only",
+      "name": "Roach \u2014 Striker-Only Signal Emitter",
       "emoji": "\ud83e\udeb3",
       "tagline": "Rank-jump explosion hunter that fires only on extreme upside breakouts.",
       "group": "striker-rank-jump",
@@ -498,7 +498,7 @@
     {
       "id": "scorpion",
       "tracker_slug": "scorpion",
-      "name": "SCORPION \u2014 Multi-Market Active Trader",
+      "name": "Scorpion \u2014 Multi-Market Active Trader",
       "emoji": "\ud83e\udd82",
       "tagline": "Universe trend-follower hunting altcoin swarms across both crypto and XYZ DEX.",
       "group": "universe-trend-follower",
@@ -513,7 +513,7 @@
     {
       "id": "spider",
       "tracker_slug": "spider",
-      "name": "SPIDER \u2014 Patient Anchor Sniper",
+      "name": "Spider \u2014 Patient Anchor Sniper",
       "emoji": "\ud83d\udd77\ufe0f",
       "tagline": "Hold one high-conviction long anchor for at least 7 days while the rest of the fleet churns.",
       "group": "trader-follower",
@@ -558,7 +558,7 @@
     {
       "id": "wolverine",
       "tracker_slug": "wolverine",
-      "name": "WOLVERINE \u2014 HYPE Alpha Hunter",
+      "name": "Wolverine \u2014 HYPE Alpha Hunter",
       "emoji": "\ud83e\udda1",
       "tagline": "Single-asset alpha hunter for HYPE. Trades with multi-timeframe trend alignment when 4h structure, 1h confirmation, and 15m momentum line up",
       "group": "single-asset-alpha-hunter",
