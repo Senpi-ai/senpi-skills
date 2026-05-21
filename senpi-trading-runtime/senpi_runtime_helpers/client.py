@@ -4,11 +4,15 @@ Bypasses openclaw gateway and mcporter entirely. The 6-process spawn tree
 (gateway → sh → python → node mcporter → npm exec → sh → node mcp-remote)
 is replaced with a single Python HTTP request.
 
-Connection reuse: a thread-local pool of `http.client.HTTPSConnection`
-keeps one keep-alive connection per (scheme, host, port) per thread. The
-first MCP call in a tick pays the TLS handshake; subsequent calls reuse
-the connection and only pay the request round-trip. On errors the
-connection is closed and re-opened on next use.
+Connection model: a FRESH `http.client` connection per request, always
+closed in a `finally`. There is deliberately no keep-alive pool. Producers
+make ~1 call per tick on a 90s+ cadence, so connection reuse saves nothing
+to amortize — while a pooled keep-alive socket, left idle past the server's
+keep-alive timeout, gets closed server-side and the next reuse raises
+`BrokenPipe` / "remote end closed connection". That stale-socket failure
+silently dropped trade signals; fresh-per-call removes the failure class
+entirely. A single, idempotency-gated retry (see `_with_post_retry`) covers
+genuinely transient blips (e.g. the runtime plugin mid-restart).
 
 Returns the same unwrapped JSON shape that `mcporter call` returns — so
 it is a near drop-in for `mcporter_call(tool, **params)`.
@@ -25,7 +29,7 @@ import time
 import urllib.error
 import urllib.request
 from contextlib import contextmanager
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit
 
 from . import _config as cfg
@@ -39,11 +43,22 @@ _HELPERS_NAME = "senpi_runtime_helpers"
 # MCP `clientInfo.version`, and the package `__version__` is what `pip show`
 # / log scrapers report. A drift between the two makes incident triage say
 # different things depending on where you look.
-_HELPERS_VERSION = "0.1.0"
+_HELPERS_VERSION = "0.1.1"
 
 
 class SenpiClientError(Exception):
     """Raised when MCP or signal call fails for non-network reasons (auth, schema)."""
+
+
+class _NeverDelivered(urllib.error.URLError):
+    """Transport failure on the connect/send leg — the request never reached
+    the server, so re-issuing it is always safe (even for a non-idempotent POST)."""
+
+
+class _MaybeDelivered(urllib.error.URLError):
+    """Transport failure on the read-response leg — the request bytes were
+    already on the wire, so the server MAY have processed it. Re-issuing a
+    non-idempotent POST here risks a duplicate (e.g. a second position)."""
 
 
 class _MCPSession:
@@ -60,77 +75,57 @@ class _MCPSession:
         return next(self._id_counter)
 
 
-class _ConnectionPool:
-    """Thread-local keep-alive connection pool keyed by (scheme, host, port).
+def _new_connection(scheme: str, host: str, port: int, timeout: float) -> "http.client.HTTPConnection":
+    """Open a fresh connection. The constructor `timeout` governs connect,
+    send, and recv on this connection — no live-socket pushdown needed since
+    every call gets its own connection and connects immediately."""
+    cls = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
+    return cls(host, port, timeout=timeout)
 
-    Each worker thread keeps its own connection per host, so two threads
-    in `parallel(...)` don't serialise on one connection. http.client's
-    HTTPConnection is single-request-at-a-time per instance; the
-    thread-local layout is the simplest way to get keep-alive without
-    adding a dependency on a real pool library.
+
+def _with_post_retry(do_call: "Callable[[], Any]", *, idempotent: bool) -> Any:
+    """Run `do_call` with at most ONE extra attempt, gated on idempotency.
+
+    - `_NeverDelivered` (connect/send leg failed): always retry — the request
+      never left us, so re-issuing cannot duplicate anything.
+    - `_MaybeDelivered` (read leg failed after send): retry ONLY when the
+      operation is idempotent (GET). For a non-idempotent POST (`/signals`,
+      MCP `tools/call`) we must NOT retry — the server may already have
+      processed it, and a blind retry could open a duplicate position.
+
+    Deliberately does NOT catch `urllib.error.HTTPError` (a delivered server
+    response — no transport problem) or `SenpiClientError` (protocol/schema).
+    No backoff: a fresh connect IS the wait, and the per-tick budget is tight.
     """
-
-    def __init__(self) -> None:
-        self._local = threading.local()
-
-    def _conns(self) -> Dict[Tuple[str, str, int], "http.client.HTTPConnection"]:
-        if not hasattr(self._local, "conns"):
-            self._local.conns = {}
-        return self._local.conns
-
-    def get(self, scheme: str, host: str, port: int, timeout: float) -> "http.client.HTTPConnection":
-        key = (scheme, host, port)
-        conns = self._conns()
-        conn = conns.get(key)
-        if conn is None:
-            cls = http.client.HTTPSConnection if scheme == "https" else http.client.HTTPConnection
-            conn = cls(host, port, timeout=timeout)
-            conns[key] = conn
-        else:
-            # `conn.timeout` is only consulted by http.client during connect().
-            # On a reused connection the socket was created with the original
-            # timeout; mutating the attribute now is a silent no-op. To make
-            # per-call timeout overrides actually take effect, push the new
-            # timeout down to the live socket's deadline. `conn.sock` is None
-            # before connect — that path is fine because the next request()
-            # will trigger connect() and pick up the updated `conn.timeout`.
-            conn.timeout = timeout
-            if conn.sock is not None:
-                conn.sock.settimeout(timeout)
-        return conn
-
-    def reset(self, scheme: str, host: str, port: int) -> None:
-        key = (scheme, host, port)
-        conns = self._conns()
-        conn = conns.pop(key, None)
-        if conn is not None:
-            try:
-                conn.close()
-            except OSError:
-                pass
+    try:
+        return do_call()
+    except _NeverDelivered:
+        return do_call()
+    except _MaybeDelivered:
+        if idempotent:
+            return do_call()
+        raise
 
 
 @contextmanager
 def _post_json(
-    pool: "_ConnectionPool",
     url: str,
     body: Any,
     headers: Dict[str, str],
     timeout: float,
 ):
-    """Context manager: POST a JSON body and yield the open
-    `http.client.HTTPResponse`.
+    """Context manager: POST a JSON body on a FRESH connection and yield the
+    open `http.client.HTTPResponse`.
 
-    Reuses a per-thread keep-alive connection from `pool`. On any transport
-    error the connection is closed (so the next call gets a fresh one) and a
-    `urllib.error.URLError` / `HTTPError` is raised to keep the existing
-    exception-handling shape intact.
+    The connection is unconditionally closed in `finally`, so the caller MUST
+    read the response body INSIDE the `with` block — `resp` is invalid after
+    the block exits.
 
-    On every exit path — success, error, or exception inside the `with` block
-    — `Connection: close` from the server triggers `pool.reset()`. Otherwise
-    the pool would retain a connection whose remote end is already closed,
-    causing the next call through that thread's pool to fail with a transport
-    error before the pool self-heals.
+    Transport failures are tagged by which leg failed so the retry wrapper can
+    decide whether re-issuing is safe:
+    - `conn.request(...)` (connect/send) failure → `_NeverDelivered`
+    - `conn.getresponse()` (read) failure → `_MaybeDelivered`
+    A 4xx/5xx response is a delivered result and surfaces as `urllib.error.HTTPError`.
     """
     parts = urlsplit(url)
     scheme = parts.scheme
@@ -149,38 +144,32 @@ def _post_json(
     }
     request_headers.update(headers)
 
-    conn = pool.get(scheme, host, port, timeout)
+    conn = _new_connection(scheme, host, port, timeout)
     try:
-        conn.request("POST", path, body=data, headers=request_headers)
-        resp = conn.getresponse()
-    except (http.client.HTTPException, ConnectionError, OSError, TimeoutError) as e:
-        pool.reset(scheme, host, port)
-        raise urllib.error.URLError(str(e)) from e
+        # Keep these two legs in SEPARATE try-blocks. Merging them would tag a
+        # read-leg failure as never-delivered and make non-idempotent POSTs
+        # retry-eligible — risking duplicate positions.
+        try:
+            conn.request("POST", path, body=data, headers=request_headers)
+        except (http.client.HTTPException, ConnectionError, OSError, TimeoutError) as e:
+            raise _NeverDelivered(str(e)) from e
+        try:
+            resp = conn.getresponse()
+        except (http.client.HTTPException, ConnectionError, OSError, TimeoutError) as e:
+            raise _MaybeDelivered(str(e)) from e
 
-    if resp.status >= 400:
-        # Drain so the connection can be reused for the next request.
-        body_bytes = resp.read()
-        # If the server signalled connection-close, drop our reference.
-        if resp.getheader("Connection", "").lower() == "close":
-            pool.reset(scheme, host, port)
-        raise urllib.error.HTTPError(
-            url, resp.status, resp.reason, dict(resp.getheaders()), io.BytesIO(body_bytes)
-        )
+        if resp.status >= 400:
+            body_bytes = resp.read()
+            raise urllib.error.HTTPError(
+                url, resp.status, resp.reason, dict(resp.getheaders()), io.BytesIO(body_bytes)
+            )
 
-    try:
         yield resp
     finally:
-        # Mirror the error-path cleanup on the success path too. Without this,
-        # `Connection: close` on a 2xx leaves a server-closed socket in the
-        # pool and the next call through that thread fails before pool reset.
         try:
-            if resp.getheader("Connection", "").lower() == "close":
-                pool.reset(scheme, host, port)
-        finally:
-            try:
-                resp.close()
-            except Exception:
-                pass
+            conn.close()
+        except Exception:
+            pass
 
 
 def _read_response_body(resp) -> Dict[str, Any]:
@@ -261,9 +250,6 @@ class SenpiClient:
         # Serializes initialize / notifications/initialized handshake so
         # parallel callers don't issue duplicate init POSTs.
         self._init_lock = threading.Lock()
-        # Thread-local keep-alive HTTP connections. First call per thread
-        # pays a TLS handshake; subsequent calls reuse the connection.
-        self._pool = _ConnectionPool()
 
     # ──────────────── MCP ────────────────
 
@@ -296,9 +282,15 @@ class SenpiClient:
             started = time.time()
             sid: Optional[str] = None
             try:
-                with _post_json(self._pool, self.mcp_url, body, self._mcp_headers(), timeout) as resp:
-                    sid = resp.headers.get("Mcp-Session-Id")  # case-insensitive in CPython
-                    _ = _read_response_body(resp)
+                # initialize POST. Non-idempotent → retry only if it never
+                # left us (`_NeverDelivered`), via `_with_post_retry`.
+                def _do_initialize() -> Optional[str]:
+                    with _post_json(self.mcp_url, body, self._mcp_headers(), timeout) as resp:
+                        candidate = resp.headers.get("Mcp-Session-Id")  # case-insensitive in CPython
+                        _ = _read_response_body(resp)
+                    return candidate
+
+                sid = _with_post_retry(_do_initialize, idempotent=False)
                 # Streamable-HTTP requires `notifications/initialized` after init.
                 # Use the candidate sid in headers for THIS handshake so the
                 # server can correlate; only commit it to the session if the
@@ -311,8 +303,12 @@ class SenpiClient:
                     "method": "notifications/initialized",
                     "params": {},
                 }
-                with _post_json(self._pool, self.mcp_url, note, note_headers, timeout) as resp:
-                    _ = resp.read()
+
+                def _do_notify() -> None:
+                    with _post_json(self.mcp_url, note, note_headers, timeout) as resp:
+                        _ = resp.read()
+
+                _with_post_retry(_do_notify, idempotent=False)
             except urllib.error.HTTPError as e:
                 # Init failed cleanly — leave session_id unset so the next
                 # attempt starts from scratch. No partial commit.
@@ -359,8 +355,12 @@ class SenpiClient:
         }
         started = time.time()
         try:
-            with _post_json(self._pool, self.mcp_url, body, self._mcp_headers(), timeout) as resp:
-                rpc = _read_response_body(resp)
+            # tools/call is non-idempotent → retry only if it never left us.
+            def _do_call() -> Any:
+                with _post_json(self.mcp_url, body, self._mcp_headers(), timeout) as resp:
+                    return _read_response_body(resp)
+
+            rpc = _with_post_retry(_do_call, idempotent=False)
             duration_ms = int((time.time() - started) * 1000)
             log_event("mcp_call", tool=tool, duration_ms=duration_ms, status="ok")
             return _unwrap_tool_result(rpc)
@@ -442,33 +442,39 @@ class SenpiClient:
         port = parts.port or 80
         path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
 
-        conn = self._pool.get(scheme, host, port, timeout)
+        # GET is idempotent, so a retry is safe on EITHER leg. Fresh connection
+        # per attempt; closed in `finally`.
+        def _attempt() -> Tuple[int, bytes]:
+            conn = _new_connection(scheme, host, port, timeout)
+            try:
+                try:
+                    conn.request("GET", path, headers={"Host": parts.netloc, "Accept": "application/json"})
+                except (http.client.HTTPException, ConnectionError, OSError, TimeoutError) as e:
+                    raise _NeverDelivered(str(e)) from e
+                try:
+                    resp = conn.getresponse()
+                except (http.client.HTTPException, ConnectionError, OSError, TimeoutError) as e:
+                    raise _MaybeDelivered(str(e)) from e
+                return resp.status, resp.read()
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
         try:
-            conn.request("GET", path, headers={"Host": parts.netloc, "Accept": "application/json"})
-            resp = conn.getresponse()
-        except (http.client.HTTPException, ConnectionError, OSError, TimeoutError) as e:
-            self._pool.reset(scheme, host, port)
+            status, raw = _with_post_retry(_attempt, idempotent=True)
+        except urllib.error.URLError as e:
             raise SenpiClientError(f"state probe transport error: {e}") from e
 
-        # Use HTTPResponse as a context manager so its socket-bookkeeping
-        # `close()` runs on every exit path (success, non-200 raise, JSON decode
-        # raise). Without `with`, leaving via raise leaves the keep-alive socket
-        # to GC — under boot + every 5-minute alive_check, that adds up.
-        with resp:
-            try:
-                raw = resp.read()
-            finally:
-                if resp.getheader("Connection", "").lower() == "close":
-                    self._pool.reset(scheme, host, port)
-
-            if resp.status != 200:
-                raise SenpiClientError(
-                    f"state probe HTTP {resp.status}: {raw[:200]!r}"
-                )
-            try:
-                parsed = json.loads(raw.decode("utf-8"))
-            except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                raise SenpiClientError(f"state probe response not valid JSON: {e}") from e
+        if status != 200:
+            raise SenpiClientError(
+                f"state probe HTTP {status}: {raw[:200]!r}"
+            )
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            raise SenpiClientError(f"state probe response not valid JSON: {e}") from e
 
         # Senpi-stack envelope:
         #   { "success": true, "data": { "runtimes": [RuntimeSystemState, ...] } }
@@ -602,8 +608,14 @@ class SenpiClient:
         body = items  # bare array — runtime schema is Array<SignalItem>
         started = time.time()
         try:
-            with _post_json(self._pool, self._signals_url(), body, {}, timeout) as resp:
-                raw = resp.read()
+            # POST /signals is NON-idempotent — a blind retry after the request
+            # may have been delivered could open a duplicate position. So retry
+            # only when the request provably never left us (`_NeverDelivered`).
+            def _do_post() -> bytes:
+                with _post_json(self._signals_url(), body, {}, timeout) as resp:
+                    return resp.read()
+
+            raw = _with_post_retry(_do_post, idempotent=False)
             duration_ms = int((time.time() - started) * 1000)
             # --- Body parse: distinguish empty / malformed / non-object ---
             # Three failure modes that previous code collapsed into one

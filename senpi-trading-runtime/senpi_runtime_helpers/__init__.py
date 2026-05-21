@@ -46,4 +46,4 @@ __all__ = [
     "log_event",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
