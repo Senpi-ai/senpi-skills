@@ -1,6 +1,6 @@
 # 🦡 Badger — OI-Divergence Breakout Anticipator
 
-Advanced-tier strategy. Multi-asset (BTC/ETH/SOL/HYPE). Takes a price breakout **only when rising open interest confirms it** — new money committing, not a fakeout — with Smart-Money agreement. Wide DSL ladder so a confirmed breakout can run.
+Multi-signal whitelist strategy. Multi-asset (BTC/ETH/SOL/HYPE). Takes a price breakout **only when rising open interest confirms it** — new money committing, not a fakeout — with Smart-Money agreement. Wide DSL ladder so a confirmed breakout can run.
 
 Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 

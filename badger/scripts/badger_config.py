@@ -1,6 +1,6 @@
 """BADGER v1.0.0 — Shared config + MCP shim + helpers wrapper.
 
-Advanced-tier OI-Divergence Breakout Anticipator. Multi-asset whitelist
+OI-Divergence Breakout Anticipator. Multi-asset whitelist
 (BTC/ETH/SOL/HYPE). Open interest is the fuel of a breakout: a price
 push confirmed by RISING open interest = new money committing = real
 follow-through. A breakout on flat/declining OI is a fakeout. Badger

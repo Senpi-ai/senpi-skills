@@ -99,7 +99,7 @@ See [README.md](README.md).
 
 ### v1.0.0 (2026-05-21) — initial release
 
-Advanced-tier gap-filler. First fleet agent to gate breakouts on open-interest velocity. Built with the 2026-05-21 HYPE post-mortem guidelines baked in: wide "let winners run" Phase 2 ladder (a confirmed breakout can run far), taker-fallback entries (a breakout entry must fill — maker-only risks CREATE_ORDER_RESTING), exit timeout 30s, and no null numeric signal fields.
+Gap-filler in the multi-signal whitelist family. First fleet agent to gate breakouts on open-interest velocity. Built with the 2026-05-21 HYPE post-mortem guidelines baked in: wide "let winners run" Phase 2 ladder (a confirmed breakout can run far), taker-fallback entries (a breakout entry must fill — maker-only risks CREATE_ORDER_RESTING), exit timeout 30s, and no null numeric signal fields.
 
 ## License
 
