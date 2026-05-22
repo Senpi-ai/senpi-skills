@@ -1,0 +1,113 @@
+# Senpi DSL Presets v1.0.0
+# Copyright 2026 Senpi (https://senpi.ai) — MIT
+# Source: https://github.com/Senpi-ai/senpi-skills
+#
+# Named DSL presets by strategy class. Copy the chosen preset's `dsl_preset`
+# block into your strategy's runtime.yaml `exit:` config, or hand-author your
+# own. `default: balanced`.
+#
+# NOTE: `max_loss_pct` and `retrace_threshold` are ROE % (margin), NOT price %.
+# The engine converts to a price floor by dividing by leverage. See
+# dsl-configuration.md.
+
+default: balanced
+
+presets:
+
+  let_winners_run:
+    use_for: Trend / breakout / momentum / trader-follower (most directional strategies)
+    character: >-
+      Widest. No profit lock until +10% ROE, lock ramps slowly to a +100%
+      tier, time-cuts off. Captures fat-tail trends; gives back more on a
+      reversal. Validated on the 2026-05 HYPE run (held winners +40% to +93%).
+    dsl_preset:
+      phase1:
+        enabled: true
+        max_loss_pct: 20.0
+        retrace_threshold: 8
+        consecutive_breaches_required: 1
+      phase2:
+        enabled: true
+        tiers:
+          - { trigger_pct: 10,  lock_hw_pct: 0 }
+          - { trigger_pct: 20,  lock_hw_pct: 25 }
+          - { trigger_pct: 30,  lock_hw_pct: 40 }
+          - { trigger_pct: 50,  lock_hw_pct: 60 }
+          - { trigger_pct: 75,  lock_hw_pct: 75 }
+          - { trigger_pct: 100, lock_hw_pct: 85 }
+
+  balanced:
+    use_for: General-purpose / unsure (the default)
+    character: >-
+      Breathes early (no lock until +10%), locks gradually, runner tier to
+      +100%, 24h outer-bound timeout. Survives normal noise via a 15% margin
+      floor.
+    dsl_preset:
+      hard_timeout:
+        enabled: true
+        interval_in_minutes: 1440
+      phase1:
+        enabled: true
+        max_loss_pct: 15.0
+        retrace_threshold: 10
+        consecutive_breaches_required: 1
+      phase2:
+        enabled: true
+        tiers:
+          - { trigger_pct: 10,  lock_hw_pct: 0 }
+          - { trigger_pct: 20,  lock_hw_pct: 30 }
+          - { trigger_pct: 35,  lock_hw_pct: 50 }
+          - { trigger_pct: 60,  lock_hw_pct: 70 }
+          - { trigger_pct: 100, lock_hw_pct: 85 }
+
+  mean_reversion:
+    use_for: Faders / contrarian / range unwinds
+    character: >-
+      Tight. Banks the bounded snapback fast (lock 30% at +5%), time-cuts ON
+      (48h hard_timeout + weak_peak_cut) — a fade resolves quickly or the
+      thesis failed. Matches the live faders (Owl / Pangolin / Bald-eagle / Egret).
+    dsl_preset:
+      hard_timeout:
+        enabled: true
+        interval_in_minutes: 2880
+      weak_peak_cut:
+        enabled: true
+        interval_in_minutes: 120
+        min_value: 2.0
+      phase1:
+        enabled: true
+        max_loss_pct: 15.0
+        retrace_threshold: 6
+        consecutive_breaches_required: 1
+      phase2:
+        enabled: true
+        tiers:
+          - { trigger_pct: 5,  lock_hw_pct: 30 }
+          - { trigger_pct: 10, lock_hw_pct: 50 }
+          - { trigger_pct: 15, lock_hw_pct: 65 }
+          - { trigger_pct: 25, lock_hw_pct: 80 }
+          - { trigger_pct: 40, lock_hw_pct: 90 }
+
+  scalp:
+    use_for: High-frequency, fee-sensitive, fast in/out
+    character: >-
+      Tightest. Fast profit locks, tight max-loss, short hard_timeout +
+      dead_weight_cut to recycle stagnant capital.
+    dsl_preset:
+      hard_timeout:
+        enabled: true
+        interval_in_minutes: 90
+      dead_weight_cut:
+        enabled: true
+        interval_in_minutes: 45
+      phase1:
+        enabled: true
+        max_loss_pct: 8.0
+        retrace_threshold: 5
+        consecutive_breaches_required: 1
+      phase2:
+        enabled: true
+        tiers:
+          - { trigger_pct: 5,  lock_hw_pct: 50 }
+          - { trigger_pct: 10, lock_hw_pct: 70 }
+          - { trigger_pct: 15, lock_hw_pct: 85 }
