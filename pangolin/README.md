@@ -6,7 +6,7 @@ Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 ## Thesis
 
-When funding rates are elevated (>0.015%/8h ≈ 20% annualized), the crowd is paying to hold their position. Pangolin enters opposite to the funding direction — collecting funding every 8 hours while waiting for the crowded side to capitulate. Conservative 3-5x leverage, very wide DSL (12h hard timeout, 30% Phase 1 max_loss). Scans every Hyperliquid perp with OI > $1M (~60 assets), persistence ≥ 3 hours, regime-confirmed.
+When funding rates are elevated (≈20% annualized, i.e. ≥ 0.00228%/hr — Hyperliquid funding is **hourly**), the crowd is paying to hold their position. Pangolin enters opposite to the funding direction — collecting funding every hour while waiting for the crowded side to capitulate. Conservative 3-5x leverage, very wide DSL (12h hard timeout, 30% Phase 1 max_loss). Scans every Hyperliquid perp with OI > $1M (~60 assets), persistence ≥ 3 hours, regime-confirmed.
 
 Pangolin's horizon (24-48h funding fade) is the longest in the fleet. The bet is patient: the longer crowding persists at extreme funding, the more violent the unwind, and the more 8h funding payments accumulate as a base-rate carry. Phase 1 max_loss 30% (10% price buffer at 3x), Phase 2 ladder starts at 12% ROE (above MAVIA's normal wick noise), `weak_peak_cut` disabled (funding fade takes 24-48h).
 
@@ -17,7 +17,7 @@ Pangolin's horizon (24-48h funding fade) is the longest in the fleet. The bet is
 | Asset universe | All Hyperliquid perps with OI ≥ $1M (~60 assets); XYZ banned |
 | Tick interval | 300s (5 min) |
 | MIN_SCORE | 9 |
-| Funding threshold | ≥ 0.00015 (per-8h rate) |
+| Funding threshold | ≥ 0.0000228 per-hour (≈ 20% annualized; HL funding is hourly, ×8760) |
 | Persistence | ≥ 3 hours, regime confirms or neutral |
 | Leverage tiers | 3-5x (conservative) |
 | Per-asset cooldown | 240 min |
@@ -145,7 +145,7 @@ Expected: `status=ok` every tick (300s interval — Pangolin's longer cadence re
 
 **Why v2 mattered for Pangolin:** v1 entries were already maker-first, but v1 EXITS used MARKET orders (taker fees). v2 brought maker-first to exits too. Fee saving per trade is small (~$0.10-0.20) given Pangolin's small notional, but architectural alignment + runtime-managed lifecycle + declarative risk gates are the real win.
 
-**Thesis preserved verbatim from v1.5/v1.7:** funding rate ≥ 0.00015, persistence ≥ 3h, regime confirms or neutral, OI ≥ $1M, score ≥ 9, per-asset 240min cooldown, XYZ banned. Phase 1 max_loss 30% (10% price buffer at 3x), Phase 2 ladder starts at 12% ROE (above MAVIA's normal wick noise), `weak_peak_cut` disabled (funding fade takes 24-48h).
+**Thesis preserved from v1.5/v1.7** (funding floor recalibrated in v3.0.1): funding rate ≥ 0.0000228/hr (≈20% annualized; was 0.00015 under the old 8h convention), persistence ≥ 3h, regime confirms or neutral, OI ≥ $1M, score ≥ 9, per-asset 240min cooldown, XYZ banned. Phase 1 max_loss 30% (10% price buffer at 3x), Phase 2 ladder starts at 12% ROE (above MAVIA's normal wick noise), `weak_peak_cut` disabled (funding fade takes 24-48h).
 
 See [`SKILL.md`](SKILL.md) for full setup, env vars, and behavior expectations.
 
