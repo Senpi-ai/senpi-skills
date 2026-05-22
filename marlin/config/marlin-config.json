@@ -1,0 +1,15 @@
+{
+  "_comment": "MARLIN v1.0.0 — Order-Book Imbalance Momentum (BTC/ETH/SOL/HYPE). Enters in the direction of a persistent L2 order-book imbalance (bid depth / ask depth over the top levelsN levels) WHEN 15m momentum and Smart Money agree. LONG when book is bid-heavy (ratio >= imbalanceMin) + 15m up + SM long; SHORT on the mirror. NOT a scalper — the imbalance is entry-timing; the position is held with a wide DSL + 24h hard_timeout (microstructure is short-horizon). Edit wallet/strategyId/chatId.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["BTC", "ETH", "SOL", "HYPE"],
+  "minScore": 5,
+  "levelsN": 10,
+  "imbalanceMin": 1.5,
+  "imbalanceStrong": 2.5,
+  "momMinPct": 0.1,
+  "smTiltMinPct": 55,
+  "marginPct": 0.15,
+  "leverage": 4
+}

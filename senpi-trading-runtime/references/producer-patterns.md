@@ -708,8 +708,7 @@ bid_depth, ask_depth = sum(l["sz"] for l in levels[0]), sum(l["sz"] for l in lev
 | Agent | Version | Asset / Universe | Description | Tags |
 |---|---|---|---|---|
 | **Piranha** | v1.0 | BTC/ETH/SOL/HYPE | Liquidation-cascade / forced-flow hunter — OI unwinding fast + violent move + thin book ⇒ ride the forced flow. Wide DSL + 24h hard_timeout. | OI velocity, Order book, Forced flow |
-
-*(Marlin — order-book-imbalance momentum — joins this family next.)*
+| **Marlin** | v1.0 | BTC/ETH/SOL/HYPE | Order-book-imbalance momentum — bid/ask resting-depth skew as the entry-TIMING edge on a momentum thesis (NOT a scalper); holds with a wide DSL + 24h hard_timeout. | Order book, Imbalance, Momentum |
 
 ---
 
@@ -834,12 +833,13 @@ XYZ markets (stocks / commodities / pre-IPO) trade **24/7 on Hyperliquid**, even
 - **Buy the dip *within* an uptrend** → 🟢 **Salamander** (pullback catcher).
 - **Leaderboard rank-jumps caught early** → **Jaguar** · **Orca** · **Roach**.
 - **Ride a liquidation cascade / forced flow** (OI unwinding fast + a violent move) → **Piranha** (microstructure / order-flow).
+- **Trade order-book pressure** (resting bid/ask depth skew, confirmed by momentum + SM) → **Marlin** (microstructure / order-flow).
 
 ### Layer 2F — Structural / neutral → what structure?
 
 - **BTC-led laggard rotation** (an alt that hasn't caught up to a BTC move yet) → **Mantis** (cross-asset lag).
 - **Volume / market-making** (not a directional bet) → **Turbine** (specialized).
-- *Expanding set — relative-value pairs, order-book-imbalance momentum (Marlin), and copy-the-copiers are being added. (Microstructure forced-flow is already live — see Piranha under Layer 2E.)*
+- *Expanding set — relative-value pairs and copy-the-copiers are being added. (Microstructure is already live — Piranha (forced flow) and Marlin (order-book imbalance) under Layer 2E.)*
 
 ### Run a current top performer (by live ROE)
 
@@ -963,6 +963,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Badger** | 4 — Multi-asset whitelist (OI-confirmed breakout) | BTC/ETH/SOL/HYPE. Takes a breakout only when rising open interest confirms it (new money, not a fakeout). Wide "let winners run" DSL |
 | **Egret** | 8 — Contrarian crowding-unwind (SM-divergence fader) | BTC/ETH/SOL/HYPE. Fades extreme SM crowding (≥70%) that price won't confirm. Tight DSL + maker-only entry + time-cuts on |
 | **Piranha** | 12 — Microstructure / order-flow | BTC/ETH/SOL/HYPE. Rides forced flow — OI unwinding fast + violent move + thin book ⇒ liquidation cascade. Wide DSL + 24h hard_timeout |
+| **Marlin** | 12 — Microstructure / order-flow | BTC/ETH/SOL/HYPE. Order-book imbalance (bid/ask depth skew) as entry-timing on a momentum thesis — not a scalper. Wide DSL + 24h hard_timeout |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 
