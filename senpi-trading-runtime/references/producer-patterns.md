@@ -721,7 +721,7 @@ This is the guided path an **onboarding agent** walks a new user through. Start 
 
 Most first-time users can't say "I want a trend-follower" — they don't have the vocabulary. **The agent must recommend without the user self-classifying.** Four paths below.
 
-> ⚡ **Ask before you scan — keep the first moment fast.** Paths **A / B / C are instant** (no data calls). Path **D reads live market data** (several MCP calls, a few seconds). So **lead with the question, and only run D when the user explicitly opts in** — e.g. they pick *"help me choose"* or *"suggest something for me."* Don't pre-fetch market data on entry; fetch on demand, and say *"give me a sec to read the market…"* so the wait is expected, not a freeze.
+> ⚡ **Ask before you scan — keep the first moment fast.** Paths **A / B / C are instant** (no data calls). Path **D** *and* the **top-performer path** (below) read live data (several MCP calls, a few seconds). So **lead with the question, and only run the data paths when the user explicitly opts in** — e.g. they pick *"help me choose,"* *"suggest something for me,"* or *"show me what's winning."* Don't pre-fetch on entry; fetch on demand, and say *"give me a sec to read the market…"* so the wait is expected, not a freeze.
 
 **A. Express lane — "just pick something simple for me."** The user wants the agent to decide. Recommend the conservative default and go straight to deploy:
 - **Default first strategy → Hedgehog** (equal-weight BTC+ETH+SOL trend, diversified) — or **Beaver** (BTC only) for the simplest single-asset version.
@@ -790,6 +790,7 @@ Ask which one sentence sounds most like the user:
 | "I want to trade a specific market — a coin, **stocks, commodities, or 🔥 pre-IPO names** (SpaceX, …)." | **Single-market / XYZ** | Layer 2D |
 | "Catch explosive breakouts / jumps early." | **Breakout / momentum-jump** | Layer 2E |
 | "Earn from market structure, not from picking a direction." | **Structural / neutral** | Layer 2F |
+| "🏆 Just run whatever's **performing best right now**." | **Top performer (live ROE)** | *Run a current top performer* (below) |
 
 > 💡 **Not just crypto.** Senpi trades **XYZ markets 24/7** (even when TradFi is closed): big-tech **stocks** (NVDA, TSLA, …), **commodities** (oil, gold, indices), and — increasingly popular — **pre-IPO perpetuals (IPOPs)** like **SpaceX**, *tradeable before the company lists*. If a user perks up at stocks or pre-IPO, route straight to **Layer 2D** — it's one of Senpi's most distinctive hooks.
 
@@ -837,6 +838,21 @@ XYZ markets (stocks / commodities / pre-IPO) trade **24/7 on Hyperliquid**, even
 - **BTC-led laggard rotation** (an alt that hasn't caught up to a BTC move yet) → **Mantis** (cross-asset lag).
 - **Volume / market-making** (not a directional bet) → **Turbine** (specialized).
 - *Expanding set — relative-value pairs, order-book-imbalance momentum (Marlin), and copy-the-copiers are being added. (Microstructure forced-flow is already live — see Piranha under Layer 2E.)*
+
+### Run a current top performer (by live ROE)
+
+Some users don't want a thesis — they want whatever's working *now*. The agent can rank live performance and let them pick. **This reads live data, so it's opt-in** (same ask-before-scan rule as path D) — only run it when asked.
+
+*How:*
+- Pull live performance for **deployable** strategies: `arena_leaderboard` (7-day rolling ROE %, resets Thu 00:00 UTC) and/or the Senpi Agent Tracker `get_performance` per strategy (ROI / PnL / equity).
+- **Prefer consistency over a single hot week.** A strategy up big over 7 days can give it all back the next — multi-week blow-ups are real. If you have more than one window, weight steady performers over one-week wonders (this is exactly Albatross's "multi-week, not one lucky day" logic).
+- **Filter:** only strategies that exist as installable skills (cross-reference `catalog.json`; exclude unpublished agents like Sentinel), and whose `min_budget` ≤ the user's account value.
+
+*Present* the top 2–3 with: recent ROE + **the window** + a one-line thesis — then the required caveat.
+
+> ⚠️ **Required framing — recent ≠ future.** Say it plainly: *"These are **recently** top-performing, not guaranteed winners. A strategy that's up this week can reverse hard next week — past performance doesn't predict future results."* Never present a leaderboard ROE as an expected return.
+
+Example: *"Over the last 7 days the top deployable performers are **Vulture** +X% (HYPE funding-regime contrarian), **Condor** +Y% (universe trend), **Bison** +Z% (conviction whitelist). Vulture's leading right now — want to run it? Heads-up: that's a 7-day window and it can reverse; if you'd rather something proven over a longer stretch, **Albatross** specifically tracks multi-week winners."*
 
 ### Layer 3 — Lock it in (the deploy step)
 
