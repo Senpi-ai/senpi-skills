@@ -6,10 +6,11 @@ description: >-
   subprocess to in-process SenpiClient. Pangolin is the canonical
   reference producer for the senpi_runtime_helpers SDK wrapper pattern.
   Thesis preserved verbatim from v2.2.0:
-  funding-fade entries opposite to elevated funding rates (>0.015%/8h
-  ≈ 20% annualized), persistence ≥3h, regime confirms or neutral.
-  Conservative 3-5x leverage, wide DSL (12h hard_timeout). Collects
-  funding every 8h while crowded positions mean-revert (24-48h thesis).
+  funding-fade entries opposite to elevated funding rates (≈20%
+  annualized, ≥0.0000228/hr — HL funding is hourly), persistence ≥3h,
+  regime confirms or neutral. Conservative 3-5x leverage, wide DSL
+  (12h hard_timeout). Collects funding hourly while crowded positions
+  mean-revert (24-48h thesis).
   Phase 2 v2.2 ratchet ladder T0 8/50, T1 16/65, T2 30/85, T3 50/92.
 license: MIT
 metadata:
@@ -44,7 +45,7 @@ An entirely new strategy archetype for the Predators fleet. No other agent trade
 **Why v2:** v1 entries were already maker-first (Pangolin shipped with FEE_OPTIMIZED_LIMIT in v1), but EXITS used MARKET orders. Per-trade fee saving from maker exits is small ($0.10-0.20 given Pangolin's small notional) but architectural alignment matters. The bigger v2 win is declarative risk + runtime-managed lifecycle.
 
 **Thesis preserved from v1.5/v1.7:**
-- Funding rate >= 0.00015 (~20% annualized)
+- Funding rate >= 0.0000228 per-hour (~20% annualized; recalibrated v3.0.1 — was 0.00015 under the old 8h convention)
 - Persistence >= 3 hours (reject fresh spikes)
 - Regime confirms fade OR is neutral (no fighting the crowd)
 - OI >= $1M (liquidity floor)

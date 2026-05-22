@@ -33,9 +33,10 @@ description: >
   v2.0 — v2-runtime-native rewrite + maker-exit fee recovery.
 
   Mission unchanged from v1.7: extreme funding rate fader. Enters
-  opposite to elevated funding (>0.015%/8h ≈ 20% annualized) on assets
-  where funding has been extreme for >= 3 hours AND the market regime
-  confirms (or is neutral). Collects funding every 8h while waiting
+  opposite to elevated funding (≈ 20% annualized, ≥ 0.0000228/hr — HL
+  funding is hourly) on assets where funding has been extreme for >= 3
+  hours AND the market regime confirms (or is neutral). Collects funding
+  hourly while waiting
   for crowded positions to mean-revert (24-48h thesis horizon).
 
   v2.0 architectural changes (no thesis change):

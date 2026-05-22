@@ -15,7 +15,8 @@
   },
   "entry": {
     "minScore": 9,
-    "minFundingRate": 0.00015,
+    "minFundingRate": 0.0000228,
+    "_minFundingRate_note": "Per-hour rate (HL funding is hourly) ≈ 20% annualized. Live gate is the producer's MIN_FUNDING_RATE constant; this mirrors it. v3.0.1 recalibrated from 0.00015 (which was ~131% ann under hourly cadence).",
     "minOiUsd": 1000000,
     "minPersistenceHours": 3,
     "assetCooldownMinutes": 240,
