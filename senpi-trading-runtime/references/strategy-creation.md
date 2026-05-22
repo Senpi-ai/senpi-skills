@@ -5,18 +5,37 @@
 A Senpi strategy is **a Python producer that emits signals + a `runtime.yaml` that tells the runtime how to act on them.** The runtime owns execution, exits (DSL), and risk. You write the *signal logic*; you do **not** write execution, stops, or a daemon loop.
 
 > **The invariant — non-negotiable.** The producer ONLY emits signals via `push_signal`. It NEVER calls `create_position`/`strategy_create_custom_strategy`, NEVER writes its own stop/exit logic, NEVER hand-rolls a daemon loop or risk checks. A "custom strategy" = custom *signal logic* in a standard producer, not a custom harness. If you're calling `create_position` in the producer, stop — that's the runtime's job.
+>
+> **This invariant also applies to YOU, the authoring agent.** During authoring you do NOT call `strategy_create_custom_strategy`, `create_position`, `estimate_custom_strategy_positions_opening`, or any other execution/strategy-mutating MCP tool. **Authoring ends when the file bundle exists on disk.** Deployment is a separate operator step (Step 6) — running an execution MCP during authoring just creates a real, empty strategy that someone has to clean up.
 
 ---
 
-## The 5 steps
+## The steps
 
-1. **Pick your archetype + example agent** from [`producer-patterns.md`](producer-patterns.md), then **map it to a DSL preset** (heuristic below). Clone the example agent's three files as your starting point.
-2. **Write the producer** (`scripts/<skill>-producer.py`) on the bundled SDK — skeleton below.
-3. **Write `runtime.yaml`** — complete minimal template below.
-4. **Write `config/<skill>-config.json`** — operator-tunable defaults (wallet, chatId, model via env).
-5. **Verify** the daemon is alive + ticking.
+- **Step 0** — Pre-flight: one parallel batch of read-only MCP calls.
+- **Step 1** — Pick the archetype + example agent (from [`producer-patterns.md`](producer-patterns.md)), map it to a DSL preset.
+- **Step 1.5** — Write `SKILL.md` + lay out the bundle directory.
+- **Step 2** — Write the producer (`scripts/<skill>-producer.py`) — complete worked example below.
+- **Step 3** — Write `runtime.yaml` — fill-in-the-blank template below.
+- **Step 4** — Pick the DSL preset block (all 4 inlined).
+- **Step 5** — Verify the bundle (one-liner) — then it's done.
+- **Step 6** — Hand the bundle to the operator to deploy. (You do not deploy.)
 
 If the user gave you full autonomy, **pick the archetype + preset yourself**. Otherwise, **prompt the user** to pick.
+
+## Step 0 — Pre-flight (one parallel batch, ~5s)
+
+Make these read-only calls **in a single batch** (not three scattered waves) to ground the build in the user's actual account + current market state:
+
+```
+user_get_me            # who am I / auth sanity
+account_get_portfolio  # available capital → informs margin_per_slot
+strategy_list          # existing strategies (avoid wallet/name collisions)
+market_get_funding_regime    # current regime — sanity-check a funding/contrarian thesis
+market_list_instruments      # tradeable universe + per-asset context (see shape in Step 2)
+```
+
+Everything here is read-only — none of it mutates state or creates a strategy.
 
 ## Step 1 — Pick the archetype (+ example agent), then map it to a DSL preset
 
@@ -34,7 +53,43 @@ If the user gave you full autonomy, **pick the archetype + preset yourself**. Ot
 | Volume-engine · high-frequency | `scalp` |
 | Anything else, or unsure | `balanced` ⭐ |
 
-## Step 2 — The producer (copy this skeleton)
+## Step 1.5 — Lay out the bundle + write `SKILL.md`
+
+**Create the bundle at `/data/workspace/skills/<skill-name>/`** (the skills dir — **NOT** `/data/workspace/strategies/`). `<skill-name>` is your strategy's directory name, e.g. `funding-harvest-1779475145`. Standard layout:
+
+```
+/data/workspace/skills/<skill-name>/
+├── SKILL.md                       # frontmatter + operator spec (write this now)
+├── README.md                      # install/deploy steps for the operator
+├── runtime.yaml                   # Step 3
+├── config/<skill-name>-config.json
+├── scripts/<skill>-producer.py    # Step 2
+├── scripts/<skill>_config.py      # boilerplate — copy from the cloned example
+└── references/skill-attribution.md
+```
+
+**`SKILL.md` frontmatter** — match this real structure (note `version` + `requires` live under `metadata`, not top-level):
+
+```yaml
+---
+name: <skill-name>                  # e.g. funding-harvest-1779475145
+description: >-
+  One-paragraph thesis: what it trades, the signal, the edge, leverage/DSL posture.
+license: MIT
+metadata:
+  author: <operator>
+  version: "1.0.0"                  # YOUR agent semver — distinct from runtime.yaml's schema version
+  platform: senpi
+  exchange: hyperliquid
+  requires:
+    - senpi-trading-runtime>=1.1.0
+    - senpi_runtime_helpers
+---
+```
+
+Below the frontmatter, add a 5-line operator spec table (asset/universe, signal, tick cadence, leverage, DSL preset) + the file inventory above. This is what stops the agent from emitting a stray `README.md`-only deviation — `SKILL.md` is a first-class deliverable, not an afterthought.
+
+## Step 2 — The producer (complete worked example — clone & edit)
 
 ```python
 # scripts/<skill>-producer.py
@@ -51,29 +106,50 @@ if _sdk_path not in sys.path:
 
 from senpi_runtime_helpers import SenpiClient, scanner_lock, tick_cache, producer_daemon
 
-WALLET = os.environ["<SKILL>_WALLET"]
+WALLET = os.environ["<SKILL>_WALLET"]     # e.g. FUNDING_HARVEST_WALLET — per-agent env var
 SCANNER_NAME = "<scanner_name>"           # MUST match the external_scanner name in runtime.yaml
 LOCK_NAME = f"<skill>-{WALLET[2:10]}"     # per-wallet — multi-wallet-host safe
 
 client = SenpiClient()
 mcp = tick_cache(client)                  # per-tick memoization; call MCP tools through this
 
+# ── Your tunables (the only part you change per thesis) ──────────────
+MIN_FUNDING_HOURLY = 0.00005              # gate: |hourly funding| this large = "elevated"
+MIN_OI_USD = 3_000_000                    # skip illiquid markets
+
 def run_one_tick():
     with scanner_lock(LOCK_NAME):
-        # 1. Pull whatever your thesis needs (cached per tick). EVERY MCP tool
-        #    returns the envelope {success, data, meta} — your payload is under
-        #    "data". Always unwrap with .get("data", resp) (see shapes below):
+        # 1. PULL. Every MCP tool returns {success, data, meta} — unwrap with
+        #    .get("data", resp). market_list_instruments → data["instruments"].
         resp = mcp("market_list_instruments")
         instruments = resp.get("data", resp).get("instruments", [])
-        # ch = mcp("strategy_get_clearinghouse_state", strategy_wallet=WALLET).get("data", {})
-        # 2. Score / gate per your thesis. 3. Emit ONLY when a signal qualifies:
-        if signal_ready:
+
+        # 2. SCORE / GATE. This worked example is a funding-fade: short the
+        #    asset with the most-positive funding (crowded longs paying up).
+        best = None
+        for inst in instruments:
+            ctx = inst.get("context") or {}
+            funding = float(ctx.get("funding") or 0)          # HOURLY rate (string → float)
+            oi_usd = float(ctx.get("openInterest") or 0) * float(ctx.get("markPx") or 0)
+            if oi_usd < MIN_OI_USD or abs(funding) < MIN_FUNDING_HOURLY:
+                continue
+            if best is None or abs(funding) > abs(float((best.get("context") or {}).get("funding") or 0)):
+                best = inst
+
+        # 3. EMIT — only when a signal qualifies. Fade: positive funding → SHORT.
+        if best is not None:
+            ctx = best["context"]
+            funding = float(ctx["funding"])
             client.push_signal(
                 address=WALLET, scanner=SCANNER_NAME,
-                asset="BTC", direction="LONG",   # asset & direction are TOP-LEVEL (never inside data)
-                score=0.85,                       # 0..1 confidence
-                signal_type="<YOUR_TYPE>",
-                data={"your_factor": 1.23},       # must match config.fields in runtime.yaml
+                asset=best["name"],                                  # TOP-LEVEL — never inside data
+                direction="SHORT" if funding > 0 else "LONG",        # TOP-LEVEL
+                score=min(1.0, abs(funding) / 0.0005),               # 0..1 confidence
+                signal_type="FUNDING_FADE",                          # always pass explicitly
+                data={                                               # must match config.fields in runtime.yaml
+                    "funding_annualized_pct": round(abs(funding) * 8760 * 100, 2),  # HOURLY → ×8760
+                    "oi_usd": round(float(ctx["openInterest"]) * float(ctx["markPx"])),
+                },
             )
 
 if __name__ == "__main__":
@@ -86,7 +162,7 @@ if __name__ == "__main__":
     )
 ```
 
-The config/wrapper module (`scripts/<skill>_config.py`) just exposes the `SenpiClient`; copy it from the example agent — it's boilerplate.
+This runs as-is (swap the `<...>` names + the two tunables for your thesis). The config/wrapper module (`scripts/<skill>_config.py`) just exposes the `SenpiClient` — copy it verbatim from the cloned example; it's boilerplate.
 
 ### MCP response envelopes (so you don't guess the shape)
 
@@ -117,10 +193,14 @@ So: `market_list_instruments` → `data["instruments"]` (a **list**); `market_ge
 
 The producer emits **entry** signals only; **DSL owns every exit** (Step 4). That's the invariant — a normal strategy has **no `CLOSE_POSITION` action** at all. Do not invent one to "close on signal," and note there is **no `signal_type_filter` field** — actions bind to scanners via the `scanners:` list, not by signal type. (Producer-driven signal-invalidation closes are an advanced, rarely-needed pattern: a separate `CLOSE_POSITION` action subscribed to its **own** scanner that the producer pushes exit signals to — see [`yaml-schema.md`](yaml-schema.md). Default and recommended: let DSL handle it.)
 
-## Step 3 — `runtime.yaml` (complete minimal template)
+## Step 3 — `runtime.yaml` (fill-in-the-blank template)
+
+**Substitute every `<<<SLOT>>>`; leave everything else as-is.** The four slots are: the runtime name, the scanner name (must equal `SCANNER_NAME` in your producer), your `data` field declarations, and the decision-model env var. `${WALLET_ADDRESS}` / `${TELEGRAM_CHAT_ID}` resolve from the operator's environment at deploy — don't hardcode them.
 
 ```yaml
+name: <<<RUNTIME_NAME>>>          # e.g. funding-harvest-1779475145-tracker
 version: 1                       # plugin SCHEMA version (always 1) — NOT your agent semver
+description: <<<ONE_LINE_THESIS>>>   # e.g. "Fade the most-crowded funding on liquid perps."
 
 strategy:
   wallet: "${WALLET_ADDRESS}"
@@ -132,31 +212,32 @@ notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
 
 scanners:
-  - name: position_tracker       # REQUIRED for exit management
+  - name: position_tracker       # REQUIRED for exit management — leave verbatim
     type: position_tracker
     interval: 10s
-  - name: <scanner_name>         # MUST match SCANNER_NAME in the producer
+  - name: <<<SCANNER_NAME>>>      # e.g. funding_harvest_signals — MUST equal SCANNER_NAME in the producer
     type: external_scanner       # push-driven — do NOT set interval
     outputs: { signals: true, context: false }
     config:
-      fields:                    # every key your producer puts in `data`
-        your_factor: { type: number, required: true }
+      fields:                    # one line per key your producer puts in `data`
+        <<<DATA_FIELD_1>>>: { type: number, required: true }   # e.g. funding_annualized_pct
+        <<<DATA_FIELD_2>>>: { type: number, required: true }   # e.g. oi_usd  (add/remove to match your data{})
 
 actions:
-  - name: <skill>_entry
+  - name: <<<ACTION_OPEN>>>      # e.g. funding_harvest_entry
     action_type: OPEN_POSITION
     decision_mode: llm           # llm gate; or `rule` for pass-through
-    decision_model: ${<SKILL>_DECISION_MODEL}   # BARE model name, no provider prefix
-    scanners: [<scanner_name>]
+    decision_model: ${<<<DECISION_MODEL_ENV>>>}   # e.g. ${FUNDING_HARVEST_DECISION_MODEL} — BARE model name, no provider prefix
+    scanners: [<<<SCANNER_NAME>>>]                # same name as the external_scanner above
     min_confidence: 7
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options: { ensure_execution_as_taker: true, execution_timeout_seconds: 15 }
     context:
-      - { type: signal, scanner: <scanner_name> }
+      - { type: signal, scanner: <<<SCANNER_NAME>>> }
     decision_prompt: |
       Decide whether to open this position. Approve only if the signal is clean.
-      {{signal_<scanner_name>}}
+      {{signal_<<<SCANNER_NAME>>>}}
 
 exit:
   engine: dsl
@@ -249,11 +330,40 @@ phase2:
 
 **Always attach DSL** unless the user explicitly opts out — it's what protects a position if the producer goes quiet or a fill lands late. Field-by-field tuning: [`dsl-configuration.md`](dsl-configuration.md).
 
-## Step 5 — Verify
+## Step 5 — Verify the bundle (one-liner) — then authoring is done
+
+Static checks only — the producer parses, the YAML loads, the files exist. **This is where your job ends.** One exec call:
+
+```bash
+cd /data/workspace/skills/<skill-name>/ && \
+  python3 -c "import ast; ast.parse(open('scripts/<skill>-producer.py').read())" && \
+  python3 -c "import yaml; yaml.safe_load(open('runtime.yaml'))" && \
+  ls -la scripts config runtime.yaml SKILL.md
+```
+
+If that exits clean, the bundle is complete. **Do not start the daemon, do not call `runtime create`, do not run any execution MCP** — that's the operator's step.
+
+## Step 6 — Hand off to the operator to deploy (you do NOT deploy)
+
+Authoring is done; deployment is a separate, operator-run step. Tell the operator (or put in the README) the sequence — substitute wallet + chat first, then:
+
+```bash
+# 1. Register the runtime from the bundle
+openclaw senpi runtime create --path /data/workspace/skills/<skill-name>/runtime.yaml
+openclaw senpi runtime list          # confirm it registered
+openclaw senpi status
+
+# 2. Launch the producer daemon (long-lived; ticks internally). disown so a
+#    shell/SIGTERM exit doesn't kill it. Env vars must be set in this shell.
+nohup python3 -u /data/workspace/skills/<skill-name>/scripts/<skill>-producer.py \
+  > /tmp/<skill>-producer.log 2>&1 &
+disown
+```
+
+Post-deploy liveness (operator runs these once it's up):
 
 ```bash
 ps -ef | grep <skill>-producer | grep -v grep        # exactly one process
-senpi-helpers list                                    # TICKS ≥ 1, ERRORS = 0
 grep daemon_tick_finished /tmp/<skill>-producer.log | tail -3   # "status":"ok"
 ```
 
