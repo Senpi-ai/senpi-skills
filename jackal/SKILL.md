@@ -14,7 +14,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0.0"
+  version: "3.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -242,6 +242,9 @@ context is too strict.
 ---
 
 ## Changelog
+
+### v3.0.1 (2026-05-22) — funding annualization fix
+- `funding_annualized_pct` now uses `× 24 × 365 (×8760)` — HL funding is hourly, so the prior `× 3 × 365` was 8x too low. This value is enrichment context for the LLM gate only (no hard funding threshold), so entry behavior is unchanged.
 
 ### v3.0.0 (2026-05-08) — senpi_runtime_helpers migration (plumbing-only)
 - Producer rewritten on `senpi_runtime_helpers.SenpiClient` — direct HTTPS

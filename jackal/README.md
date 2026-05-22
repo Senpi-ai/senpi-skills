@@ -136,6 +136,7 @@ Expected: `status=ok` every tick (60 s interval).
 
 ## Changelog
 
+- **v3.0.1** — Funding annualization fix. HL funding is hourly, so `funding_annualized_pct` (enrichment context fed to the LLM gate) must use `× 24 × 365 (×8760)`, not `× 3 × 365`. The prior value was 8x too low. Display/context-only — Jackal has no hard funding gate, so entry behavior is unchanged.
 - **v3.0.0** — Plumbing-only migration from v2.0 (NO thesis change). Producer ports onto `senpi_runtime_helpers` (in-process `SenpiClient`, no openclaw / mcporter subprocesses). Long-lived `producer_daemon` replaces the openclaw cron entry. v2.0.9 contamination rule applied: `JACKAL_WALLET` replaces generic `STRATEGY_ADDRESS`.
 - **v2.0** — Original SECONDARY-SIGNAL architecture (top-trader pool diff + LLM gate).
 
