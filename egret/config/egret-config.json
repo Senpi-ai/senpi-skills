@@ -1,0 +1,14 @@
+{
+  "_comment": "EGRET v1.0.0 — Smart-Money Divergence Fader (BTC/ETH/SOL/HYPE). When SM concentration is extreme (>= crowdingMinPct) on one side but price is NOT confirming over the recent window (divergence), fade the exhausted crowd: crowded LONG + price stalled → SHORT; crowded SHORT + price stalled → LONG. RSI exhaustion adds conviction. TIGHT DSL (bank the bounded snapback) + MAKER-ONLY entry (fades are non-urgent, fee-sensitive). Edit wallet/strategyId/chatId.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["BTC", "ETH", "SOL", "HYPE"],
+  "minScore": 5,
+  "crowdingMinPct": 70,
+  "crowdingExtremePct": 80,
+  "confirmMaxPct": 0.5,
+  "divergenceLookbackHours": 4,
+  "marginPct": 0.15,
+  "leverage": 4
+}
