@@ -8,7 +8,7 @@ The DSL (Dynamic Stop-Loss) manages exit logic for open perpetual positions. It 
 
 **The right DSL shape depends on the strategy class.** A single "one-size" stop is wrong for most strategies — a trend-follower needs room to let a winner run, while a fader needs to bank a bounded snapback fast. Start from the preset that matches your thesis, then hand-tune the fields.
 
-> ⭐ **Default = `balanced`.** If you're unsure, start here. It lets a position **breathe** — no profit lock until +10% ROE, lock ramps gradually, and a runner tier out to +100% — while three layers protect it: a **15% max-loss floor** (catastrophic stop), a **weak_peak_cut** that frees a dead-on-arrival position (never reached +3% ROE in 2h) *without touching a winner*, and a **72h hard_timeout** outer bound long enough not to cap a multi-day trend. This replaces the older tight default whose +7%/lock-40 first tier and +20% cap chopped trend winners during the 2026-05 HYPE run.
+> ⭐ **Default = `balanced`.** If you're unsure, start here. It lets a position **breathe** — no profit lock until +10% ROE, lock ramps gradually, and a runner tier out to +100% — while three layers protect it: a **15% max-loss floor** (catastrophic stop), a **weak_peak_cut** that frees a position only if it's BOTH flat (never reached +3% ROE in 6h) AND fading — *never a winner or a position still near its high* — and a **72h hard_timeout** outer bound long enough not to cap a multi-day trend. This replaces the older tight default whose +7%/lock-40 first tier and +20% cap chopped trend winners during the 2026-05 HYPE run.
 
 | Preset | Use for | Character |
 |--------|---------|-----------|
@@ -63,7 +63,7 @@ dsl_preset:
     interval_in_minutes: 4320                   # 72h — outer bound only; won't cap a multi-day winner
   weak_peak_cut:
     enabled: true
-    interval_in_minutes: 120                    # frees a dead-on-arrival position (peak < 3% ROE in 2h) WITHOUT touching a winner
+    interval_in_minutes: 360                    # 6h — only frees a position that is BOTH flat (peak < 3% ROE) AND fading; gives slow developers room, never touches a winner
     min_value: 3.0
   phase1:
     enabled: true
