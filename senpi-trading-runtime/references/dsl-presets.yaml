@@ -41,16 +41,16 @@ presets:
     character: >-
       Breathes early (no lock until +10%), locks gradually, runner tier to
       +100%, 15% margin floor. Smart auto-close: weak_peak_cut frees a
-      dead-on-arrival position (never reached +3% ROE in 2h) WITHOUT touching
-      a winner, and a 72h hard_timeout is a true outer bound that won't cap a
-      multi-day trend.
+      position that is BOTH flat (never reached +3% ROE in 6h) AND fading — it
+      never touches a winner or a position still near its high — and a 72h
+      hard_timeout is a true outer bound that won't cap a multi-day trend.
     dsl_preset:
       hard_timeout:
         enabled: true
         interval_in_minutes: 4320       # 72h — outer bound only; long enough not to cut a multi-day winner
       weak_peak_cut:
         enabled: true
-        interval_in_minutes: 120        # if it hasn't reached +3% ROE in 2h, free the capital (Phase 1 only; never cuts a position past T0)
+        interval_in_minutes: 360        # 6h — gives a slow developer real room; only fires if peak ROE never cleared +3% AND price is declining (Phase 1 only; never cuts a position past T0)
         min_value: 3.0
       phase1:
         enabled: true
