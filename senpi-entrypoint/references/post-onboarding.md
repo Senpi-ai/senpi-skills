@@ -153,6 +153,8 @@ Which sounds interesting? I can explain any in detail or deploy one right now.
 
 Building a real, deployable strategy means building it on the **Senpi Trading Runtime** — the canonical runtime + DSL exit engine + Python Producer SDK. Do NOT treat this as a pure brainstorm or improvise a strategy from scratch: route the user through the runtime's authoring path so what they build actually deploys and is risk-protected.
 
+> **The fast path — read one doc:** [`senpi-trading-runtime/references/strategy-creation.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/strategy-creation.md). It's self-contained: the 5-step flow, an inline producer skeleton, a complete `runtime.yaml`, the DSL presets, an archetype→example map, and the gotchas — in a single fetch. The steps below are the same path expanded; if you read `strategy-creation.md` you have everything you need.
+
 **Step 1 — Install the runtime skill:**
 ```bash
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
@@ -172,7 +174,7 @@ Both paths build on the same runtime.
 
 **Step 4 — Shape the thesis** *within* that structure: use Senpi MCP tools (market data, discovery, leaderboard) to shape entry logic, then map it onto the producer (cloned or new). The thesis rides on top of the runtime — it doesn't replace it.
 
-**Always recommend DSL.** Whatever the user builds, recommend attaching the runtime's DSL (Dynamic Stop-Loss) exit by default — it's the two-phase trailing stop that protects a position from running unprotected if the producer goes quiet or a fill lands late. The user decides (they can tune or skip it), but the default recommendation is DSL on, every strategy. Config lives in `runtime.yaml`'s `dsl_preset` — see [`dsl-configuration.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/dsl-configuration.md).
+**Always recommend DSL.** Whatever the user builds, recommend attaching the runtime's DSL (Dynamic Stop-Loss) exit by default — it's the two-phase trailing stop that protects a position from running unprotected if the producer goes quiet or a fill lands late. The user decides (they can tune or skip it), but the default recommendation is DSL on, every strategy. **Prompt the user to pick a DSL preset** — `balanced` (default), `let_winners_run`, `mean_reversion`, or `scalp` — or hand-author a custom one. **If the user gave the agent full autonomy to design the strategy, the agent picks the preset itself** by matching the archetype (trend/single-asset/striker/follower → `let_winners_run`; faders/contrarian → `mean_reversion`; high-frequency → `scalp`; else → `balanced`). Presets: [`dsl-presets.yaml`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/dsl-presets.yaml); tuning: [`dsl-configuration.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/dsl-configuration.md).
 
 The goal: the user ends with a deployable, DSL-protected runtime strategy — whether from a template or their own scanner — not an un-runnable plan.
 

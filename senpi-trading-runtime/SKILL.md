@@ -13,7 +13,9 @@ metadata:
 
 On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Monitors a wallet's positions on Hyperliquid for lifecycle events (open, close, edit, flip) and applies two-phase trailing stop-loss protection to all positions.
 
-## ▶ Writing a new strategy? Read these first, in this order
+## ▶ Writing a new strategy? Read the fast path first
+
+> **Start here: [`references/strategy-creation.md`](references/strategy-creation.md).** It's the self-contained fast path — the 5-step flow, the producer-only-emits-signals invariant, an archetype→example→DSL-preset table, an inline producer skeleton, a complete `runtime.yaml`, the DSL presets, and the gotchas, all in one fetch. **You should not need to read anything else to ship a working strategy.** The sections below are the deep reference, linked from `strategy-creation.md` for edge cases.
 
 This skill is the canonical way to build a Senpi strategy. **Every strategy is built the same way** — on this runtime, with the Producer SDK, DSL exit engine, and risk guard-rails. There are **two on-ramps** to that one structure:
 
@@ -43,7 +45,18 @@ A "custom strategy" means **custom signal logic inside a standard producer**, no
 
 The user and their agent decide for themselves — DSL can be tuned or turned off — **but the recommended default is DSL on, for every strategy.** When proposing a strategy, default to attaching it and only drop it if the user explicitly opts out.
 
-Configure it in `runtime.yaml`'s `dsl_preset` (phases, tiers, time-cuts) — see **[`references/dsl-configuration.md`](references/dsl-configuration.md)** for the full field reference and tuning guidance, and **[`references/risk-gates.md`](references/risk-gates.md)** for the declarative risk guard-rails that pair with it.
+**Pick a preset — don't hand-author from zero.** Four named DSL presets cover the strategy spectrum (machine-readable in [`references/dsl-presets.yaml`](references/dsl-presets.yaml), copy-paste blocks + tuning in [`references/dsl-configuration.md`](references/dsl-configuration.md)):
+
+| Preset | Use for |
+|---|---|
+| **`balanced`** ⭐ default | General-purpose / unsure — breathes early, runner tier to +100%, smart time-cuts |
+| **`let_winners_run`** | Trend / breakout / momentum / trader-follower — widest, no time-cuts |
+| **`mean_reversion`** | Faders / contrarian / range unwinds — banks the snapback fast |
+| **`scalp`** | High-frequency, fee-sensitive — tightest, fast locks + short timeouts |
+
+**When creating a strategy, prompt the user to pick a preset** (or hand-author a custom one — fully supported). **If the user has given the agent full autonomy to design the strategy, the agent picks the preset itself** by matching the producer archetype: trend-follower / single-asset / striker / trader-follower → `let_winners_run`; funding-fade / contrarian → `mean_reversion`; volume-engine / high-frequency → `scalp`; anything else or unsure → `balanced`.
+
+Then tune from there — see **[`references/dsl-configuration.md`](references/dsl-configuration.md)** for the full field reference, and **[`references/risk-gates.md`](references/risk-gates.md)** for the declarative risk guard-rails that pair with it.
 
 Full worked examples: **[`references/strategy-examples.md`](references/strategy-examples.md)**. The rest of this doc is the reference for each piece.
 

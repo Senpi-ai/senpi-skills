@@ -22,7 +22,7 @@ Then match their goal to the table below.
 | Multi-market active trader (crypto + XYZ) | Scorpion (`scorpion`) | Multi |
 | Contrarian — fade crowded trades at exhaustion | Owl (`owl`) | Multi |
 | Multi-market scanner, single strongest signal | Hawk (`hawk`) | Multi |
-| Build a new strategy from scratch | **`senpi-trading-runtime`** (canonical runtime + DSL + Producer SDK) | — |
+| Build a new strategy from scratch | **`senpi-trading-runtime`** — read [`references/strategy-creation.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/strategy-creation.md) first (self-contained fast path) | — |
 
 For any goal not covered above, query `list_strategies` for the current live fleet and match on the strategy's own thesis/tagline.
 

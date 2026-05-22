@@ -68,7 +68,7 @@ Behavior rules:
 
 **Build-your-own:**
 
-- `senpi-trading-runtime`: the canonical runtime — bundles the DSL exit engine, risk gates, fee-optimized execution, and the Python Producer SDK. Install this to build a new autonomous strategy from scratch.
+- `senpi-trading-runtime`: the canonical runtime — bundles the DSL exit engine, risk gates, fee-optimized execution, and the Python Producer SDK. Install this to build a new autonomous strategy from scratch. **The fast path is one self-contained doc: [`senpi-trading-runtime/references/strategy-creation.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/strategy-creation.md)** — read it first.
 
 **Trading strategies:** the animal-named strategy skills (grizzly, kodiak, polar, cheetah, scorpion, owl, and more). For the current live list with thesis + budget, call `list_strategies` on the Senpi MCP rather than relying on a static catalog.
 

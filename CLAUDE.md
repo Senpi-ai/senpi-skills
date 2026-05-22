@@ -6,14 +6,16 @@ This repo is almost entirely AI-generated. The rules below exist because they ha
 
 ## ▶ Writing or editing a trading strategy? Start here
 
-Do **not** improvise a strategy from scratch. The canonical authoring path lives in `senpi-trading-runtime/`. Read in this order before writing code:
+Do **not** improvise a strategy from scratch. **Read one doc first: [`senpi-trading-runtime/references/strategy-creation.md`](senpi-trading-runtime/references/strategy-creation.md).** It's the self-contained fast path — the 5-step flow, the producer-only-emits-signals invariant, an archetype→example→DSL-preset table, an inline producer skeleton, a complete `runtime.yaml`, the DSL presets, and the gotchas, all in a single fetch. You should not need to browse the repo to produce a working strategy.
 
-1. **`senpi-trading-runtime/references/producer-patterns.md`** — the archetype catalog. Pick the closest pattern; it links to a working example agent. Copy that example.
-2. **`senpi-trading-runtime/references/python-producer-sdk.md`** — build the producer on the bundled `senpi_runtime_helpers` SDK. Never hand-roll MCP calls or the daemon loop.
-3. **`senpi-trading-runtime/references/yaml-schema.md`** + **`risk-gates.md`** + **`dsl-configuration.md`** — configure `runtime.yaml`, risk guard-rails, and the DSL exit.
-4. Verify with **`senpi-trading-runtime/references/senpi-helpers-cli.md`**.
+The deep references below are for edge cases only — `strategy-creation.md` links to them when needed:
 
-Fastest correct path: pick an archetype → clone the named example agent (`kodiak`, `cheetah`, `roach`) → swap in your signal logic → tune thresholds. Full read-order is at the top of `senpi-trading-runtime/SKILL.md`.
+- **`senpi-trading-runtime/references/producer-patterns.md`** — full archetype catalog (each links a working example agent to clone).
+- **`senpi-trading-runtime/references/python-producer-sdk.md`** — full SDK (batch, parallel, cache, errors). Never hand-roll MCP calls or the daemon loop.
+- **`senpi-trading-runtime/references/yaml-schema.md`** + **`risk-gates.md`** + **`dsl-configuration.md`** + **`dsl-presets.yaml`** — every `runtime.yaml` field, the risk guard-rails, and the DSL exit.
+- **`senpi-trading-runtime/references/senpi-helpers-cli.md`** — verify the daemon is alive + ticking.
+
+Fastest correct path: read `strategy-creation.md` → pick an archetype → clone the named example agent (`kodiak`, `cheetah`, `roach`) → swap in your signal logic → tune thresholds + DSL preset.
 
 ---
 
