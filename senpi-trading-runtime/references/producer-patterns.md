@@ -679,36 +679,99 @@ This pattern is more involved than the others (continuous high-frequency `cancel
 
 ---
 
-## Decision tree — which pattern fits your goal?
+## Decision tree — help a user pick their first strategy
+
+This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.
+
+> **Conversational rule for the agent:** never dump the whole tree. Surface Layer 1, let the user choose, then reveal only that branch's Layer 2. Explain each option in one plain sentence ("trend-following = when something's moving, ride it and hold"). Always end at exactly one recommended strategy + its risk level + DSL preset, then offer to deploy it.
+
+### Layer 1 — What should your agent *believe* about markets?
+
+Ask which one sentence sounds most like the user:
+
+| If they say… | They want | Go to |
+|---|---|---|
+| "When something's trending, ride it and hold." | **Trend-following** | Layer 2A |
+| "When the crowd is all-in, bet on the reversal." | **Contrarian / fade** | Layer 2B |
+| "Just copy traders who are already winning." | **Copy-trading** | Layer 2C |
+| "I have a view on one specific market (a coin, oil, gold, a stock)." | **Single-market specialist** | Layer 2D |
+| "Catch explosive breakouts / jumps early." | **Breakout / momentum-jump** | Layer 2E |
+| "Earn from market structure, not from picking a direction." | **Structural / neutral** | Layer 2F |
+
+### Layer 2A — Trend-following → what do you want to ride?
+
+- **One major coin** — pick BTC / ETH / SOL / HYPE.
+  - 🟢 Beginner: **Beaver** (BTC) · **Heron** (ETH) · **Hummingbird** (HYPE) — SM-gated 4h trend, wide DSL, simple scoring.
+  - ⬆️ Level up: **Grizzly** (BTC) · **Polar** (ETH) · **Kodiak** (SOL) · **Wolverine** (HYPE) — Kodiak-family alpha hunters.
+- **A basket of majors** (BTC + ETH + SOL together).
+  - 🟢 Beginner: **Hedgehog** (equal-weight basket, up to 3 at once).
+  - ⬆️ Level up: **Bison** (conviction whitelist) · **Condor** / **Cheetah** (full-universe trend).
+- **Only when order flow confirms it** (enter a breakout only if open interest is rising).
+  - **Badger** (OI-confirmed breakout). Wide DSL.
+
+### Layer 2B — Contrarian / fade → what extreme do you fade?
+
+- **An overcrowded Smart-Money side** (everyone's long, price won't follow) → 🟢 **Egret** (SM-divergence fader) · ⬆️ **Owl** (crowding-unwind) · **Lemon**.
+- **Extreme funding rates** → **Pangolin** (canonical) · **Vulture** (HYPE) · **Dog** (4-coin).
+- **Overextended stocks / commodities (XYZ)** → **Bald Eagle** · **Kestrel** (13-asset macro).
+
+### Layer 2C — Copy-trading → who do you copy?
+
+- **Multi-week arena winners** (proven over a month, not one lucky week) → 🟢 **Albatross** (conviction-weighted leader pool).
+- **Live hot-streak traders** (whoever's hot right now) → **Raptor** · **Jackal** · **Spider** (arena-anchored).
+
+### Layer 2D — Single-market specialist → which market?
+
+- **A specific crypto major** → see Layer 2A (Kodiak family).
+- **Oil / metals / indices (XYZ)** → **Dire** (BRENTOIL) as the template — tune the asset string.
+- **Big-tech stocks (XYZ equities)** → 🟢 **Bobcat** (NVDA/TSLA/AAPL/META/MSFT/…).
+- **Pre-IPO names (IPOPs — SpaceX, etc.)** → 🟢 **Lemur** (auto-discovers IPOPs by funding signature).
+- **Weekend stock-gap reconciliation** → 🟢 **Raccoon** (weekend-only XYZ snap-back).
+
+### Layer 2E — Breakout / momentum-jump → what kind of move?
+
+- **Break of the 7-day high/low (majors)** → 🟢 **Hawk** (breakout buyer / breakdown seller) · **Badger** (OI-confirmed).
+- **Buy the dip *within* an uptrend** → 🟢 **Salamander** (pullback catcher).
+- **Leaderboard rank-jumps caught early** → **Jaguar** · **Orca** · **Roach**.
+
+### Layer 2F — Structural / neutral → what structure?
+
+- **BTC-led laggard rotation** (an alt that hasn't caught up to a BTC move yet) → **Mantis** (cross-asset lag).
+- **Volume / market-making** (not a directional bet) → **Turbine** (specialized).
+- *Expanding set — relative-value pairs, microstructure (liquidation cascades, order-book imbalance), and copy-the-copiers are being added.*
+
+### Layer 3 — Lock it in (the deploy step)
+
+Once a strategy is chosen, confirm three things with the user, then deploy:
+
+1. **Risk / sizing** — margin % of equity + leverage. *First-strategy default: 20–25% margin, ≤5x.*
+2. **DSL preset** — `balanced` (the smart default) for most; `let_winners_run` for conviction trend-holders; `mean_reversion` for faders; `scalp` for high-frequency. See [`dsl-presets.yaml`](dsl-presets.yaml).
+3. **Config + launch** — set wallet / chat / decision-model, then `openclaw senpi runtime create` + the disown-safe daemon launch. Each agent's README has the exact steps.
+
+> **First-strategy rule of thumb:** pick an **onboarding-tier** agent (🟢 above — Beaver/Heron/Hummingbird/Hedgehog/Hawk/Salamander/Albatross/Lemur/Bobcat/Raccoon), keep the **`balanced`** DSL preset, size at 20–25% margin / ≤5x. Graduate to fleet agents once they've watched one run.
+
+---
+
+### Builder shortcut — map a thesis to an archetype by structure
+
+For someone who already knows their thesis and just wants the matching producer archetype to fork:
 
 ```
-Are you trading a single asset, a small whitelist, or a universe?
-├─ Single crypto asset (BTC, ETH, SOL, HYPE, etc.)
-│  └─ Pattern 2 — Single-asset alpha hunter (Kodiak family)
-│
-├─ Single XYZ asset (oil, metals, indices)
-│  └─ Pattern 3 — Single-asset XYZ specialist
-│
-├─ Small whitelist of crypto majors (3–6 assets)
-│  └─ Pattern 4 — Multi-asset whitelist
-│
+Single asset, small whitelist, or universe?
+├─ Single crypto asset (BTC/ETH/SOL/HYPE)      → Pattern 2 — Single-asset alpha hunter (Kodiak family)
+├─ Single XYZ asset (oil/metals/indices)        → Pattern 3 — Single-asset XYZ specialist
+├─ Small whitelist of crypto majors (3–6)       → Pattern 4 — Multi-asset whitelist
 ├─ Top-N HL universe (scan everything liquid)
-│  ├─ Want trend-continuation? → Pattern 1 — Universe trend-follower
-│  ├─ Want first-jump detection? → Pattern 6 — Striker / rank-jump
-│  ├─ Want funding-regime fades? → Pattern 7 — Funding-regime fade
-│  └─ Want contrarian crowding-unwinds? → Pattern 8 — Contrarian unwind hunter
-│
-├─ Multiple XYZ assets with contrarian thesis
-│  └─ Pattern 10 — Multi-asset XYZ contrarian fader
-│
-├─ Follow specific traders (copy alpha)
-│  └─ Pattern 5 — Trader-follower / hot-streak
-│
-└─ BTC-anchored lag (alt catches up to BTC)
-   └─ Pattern 9 — Cross-asset lag detector
+│   ├─ trend-continuation?    → Pattern 1 — Universe trend-follower
+│   ├─ first-jump detection?  → Pattern 6 — Striker / rank-jump
+│   ├─ funding-regime fades?  → Pattern 7 — Funding-regime fade
+│   └─ contrarian unwinds?    → Pattern 8 — Contrarian unwind hunter
+├─ Multiple XYZ, contrarian   → Pattern 10 — Multi-asset XYZ contrarian fader
+├─ Follow specific traders    → Pattern 5 — Trader-follower / hot-streak
+└─ BTC-anchored lag           → Pattern 9 — Cross-asset lag detector
 ```
 
-If your thesis doesn't fit any of these patterns: it's probably either (a) a hybrid of two patterns (most active agents are hybrids of 1–2 archetypes), or (b) something genuinely new. Hybrid: copy the closest archetype and layer in the second one. Genuinely new: write it from scratch using `senpi_runtime_helpers`; the framework supports any signal flow that can call MCP tools and emit `push_signal`.
+If a thesis doesn't fit any pattern: it's usually (a) a hybrid of two (most live agents are hybrids of 1–2 archetypes) — copy the closest and layer in the second; or (b) genuinely new — write it from scratch with `senpi_runtime_helpers`; the framework supports any signal flow that can call MCP tools and emit `push_signal`.
 
 ---
 
@@ -781,6 +844,8 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Lemur** | 3 — Single-asset XYZ specialist (onboarding) | Auto-discovers IPOPs via funding signature. Today: xyz:SPCX. Future-proof for new pre-IPO listings |
 | **Bobcat** | 4 — Multi-asset whitelist (onboarding) | XYZ big tech: NVDA/TSLA/AAPL/META/MSFT/GOOGL/AMZN/AMD/MU/INTC/TSM/ORCL |
 | **Raccoon** | 4 — Multi-asset whitelist (onboarding, time-gated) | Weekend-only XYZ reconciliation. Fri 22:00 UTC → Mon 00:00 UTC. Captures Mon-open snap-back |
+| **Badger** | 4 — Multi-asset whitelist (OI-confirmed breakout) | BTC/ETH/SOL/HYPE. Takes a breakout only when rising open interest confirms it (new money, not a fakeout). Wide "let winners run" DSL |
+| **Egret** | 8 — Contrarian crowding-unwind (SM-divergence fader) | BTC/ETH/SOL/HYPE. Fades extreme SM crowding (≥70%) that price won't confirm. Tight DSL + maker-only entry + time-cuts on |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 
