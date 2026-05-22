@@ -28,7 +28,7 @@ If the user gave you full autonomy, **pick the archetype + preset yourself** fro
 | Multi-asset whitelist | `bison`, `hedgehog` | `balanced` |
 | Trader-follower / hot-streak | `jackal`, `spider`, `raptor` | `let_winners_run` |
 | Striker / rank-jump | `roach`, `jaguar`, `orca` | `balanced` |
-| Funding-rate fade | `pangolin`, `barracuda` | `mean_reversion` |
+| Funding-rate fade | `pangolin`, `vulture` | `mean_reversion` |
 | Contrarian / crowding-unwind | `owl`, `dog`, `lemon` | `mean_reversion` |
 | Volume engine / high-frequency | `turbine` | `scalp` |
 
