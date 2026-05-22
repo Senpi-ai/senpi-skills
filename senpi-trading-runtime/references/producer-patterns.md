@@ -1,5 +1,7 @@
 # Producer Patterns — Scanner Archetypes Catalog
 
+> **When to read this:** [`strategy-creation.md`](strategy-creation.md) is the build doc — start there. Come here for one thing: to **pick your archetype and the example agent to clone** (this catalog + the decision tree below are the single source of truth for that). Jump to your archetype's section or the [decision tree](#decision-tree--help-a-user-pick-their-first-strategy); you don't need to read cover-to-cover.
+
 The active fleet of trading agents on Senpi implements roughly a dozen distinct producer/scanner archetypes. This doc catalogs them so you can pick a starting pattern when building your own strategy.
 
 Every active fleet agent's producer is built on the `senpi_runtime_helpers` SDK (`SenpiClient`, `producer_daemon`, `push_signal`). What differs between agents is **which MCP tools they call**, **how they score signals**, and **what scoring archetype they implement**. Pick the archetype that matches the kind of market regime you want to hunt, then copy the structure from the named example agent.
