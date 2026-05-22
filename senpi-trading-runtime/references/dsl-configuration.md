@@ -8,7 +8,7 @@ The DSL (Dynamic Stop-Loss) manages exit logic for open perpetual positions. It 
 
 **The right DSL shape depends on the strategy class.** A single "one-size" stop is wrong for most strategies — a trend-follower needs room to let a winner run, while a fader needs to bank a bounded snapback fast. Start from the preset that matches your thesis, then hand-tune the fields.
 
-> ⭐ **Default = `balanced`.** If you're unsure, start here. It lets a position **breathe** — no profit lock until +10% ROE, lock ramps gradually, and a runner tier out to +100% — while a 15% max-loss floor and a 24h outer-bound timeout protect the downside. This replaces the older tight default whose +7%/lock-40 first tier and +20% cap chopped trend winners during the 2026-05 HYPE run.
+> ⭐ **Default = `balanced`.** If you're unsure, start here. It lets a position **breathe** — no profit lock until +10% ROE, lock ramps gradually, and a runner tier out to +100% — while three layers protect it: a **15% max-loss floor** (catastrophic stop), a **weak_peak_cut** that frees a dead-on-arrival position (never reached +3% ROE in 2h) *without touching a winner*, and a **72h hard_timeout** outer bound long enough not to cap a multi-day trend. This replaces the older tight default whose +7%/lock-40 first tier and +20% cap chopped trend winners during the 2026-05 HYPE run.
 
 | Preset | Use for | Character |
 |--------|---------|-----------|
@@ -60,7 +60,11 @@ dsl_preset:
 dsl_preset:
   hard_timeout:
     enabled: true
-    interval_in_minutes: 1440                   # 24h outer bound only
+    interval_in_minutes: 4320                   # 72h — outer bound only; won't cap a multi-day winner
+  weak_peak_cut:
+    enabled: true
+    interval_in_minutes: 120                    # frees a dead-on-arrival position (peak < 3% ROE in 2h) WITHOUT touching a winner
+    min_value: 3.0
   phase1:
     enabled: true
     max_loss_pct: 15.0
@@ -430,4 +434,4 @@ exit:
         - { trigger_pct: 100, lock_hw_pct: 85 }
 ```
 
-> The block above shows every time-cut key for reference. The `balanced` default enables only `hard_timeout` (24h outer bound); see [DSL Presets](#dsl-presets) for which time-cuts each class uses (`mean_reversion` adds `weak_peak_cut`; `scalp` adds `dead_weight_cut`; `let_winners_run` uses none).
+> The block above shows every time-cut key for reference. The `balanced` default enables `hard_timeout` (72h outer bound) + `weak_peak_cut` (frees dead-on-arrival positions); see [DSL Presets](#dsl-presets) for which time-cuts each class uses (`scalp` adds `dead_weight_cut`; `let_winners_run` uses none).
