@@ -186,7 +186,7 @@ grep daemon_tick_finished /tmp/<skill>-producer.log | tail -3   # "status":"ok"
 - **`decision_model` takes a BARE model name** (`gemini-2.5-pro`, `claude-sonnet-4-20250514`) — no provider prefix, or the gateway returns `500 Unknown model`.
 - **`runtime.yaml` `version:` is always `1`** (plugin schema major). Your agent semver lives in SKILL.md frontmatter — NOT here.
 - **Runtime package on main is `@senpi-ai/runtime`** (with the `-ai`), never `@senpi/runtime`.
-- **Confirm the funding-rate cadence before annualizing.** The fleet currently disagrees — some producers annualize `×8760` (per-hour assumption), others `×3×365` (per-8h). Check Hyperliquid's published funding mechanics and annualize consistently; don't copy a number blindly. (Convention reconciliation pending.)
+- **Hyperliquid funding is hourly — annualize with `×24×365` (`×8760`), never `×3×365`.** The `funding` field on the asset context (and each `funding_history` row, spaced 1h apart) is the **per-hour** rate — verified against Hyperliquid's Info API: both return `0.0000125` for BTC at baseline (HL's `0.01%/8h ÷ 8`). So annualized % = `abs(funding) × 8760 × 100`. Annualizing `×3×365` (an 8-hour / Binance-style assumption) understates funding by ~8x. Owl's producer is the correct reference; don't copy an 8h convention.
 - **One runtime per wallet.** Installing a second for the same wallet is rejected — delete the first.
 
 ## Deep references (only if the template above isn't enough)
