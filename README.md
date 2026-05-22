@@ -1,5 +1,8 @@
 # Senpi Skills — Open-Source AI Trading Skills for Hyperliquid
 
+> ## 🛠 Building a strategy? Read one doc: [`senpi-trading-runtime/references/strategy-creation.md`](senpi-trading-runtime/references/strategy-creation.md)
+> It's self-contained — the full path, an inline producer skeleton, a complete `runtime.yaml`, DSL presets, an archetype→example map, and the gotchas, in a single fetch. **Start there; you should not need to browse the repo or fetch other files to build a working strategy.**
+
 Every file in this repo is a self-contained, plug-and-play **skill** for an autonomous AI trading agent that operates on [Hyperliquid](https://hyperliquid.xyz) via the [Senpi](https://senpi.ai) platform.
 
 The repo is two things stacked on top of each other:
