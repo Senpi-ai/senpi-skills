@@ -1,6 +1,6 @@
 {
   "_version": "1.0",
-  "_updated": "2026-05-21",
+  "_updated": "2026-05-22",
   "_instructions": "Agent reads this file to build the onboarding skill catalog. Group by 'group', sort within group by 'sort_order'. Infrastructure skills (DSL, fee optimizer, scanners) are never displayed.",
   "groups": [
     {
@@ -43,6 +43,21 @@
       "base_skill": null,
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/albatross",
+      "version": "1.0.0"
+    },
+    {
+      "id": "badger",
+      "tracker_slug": "badger",
+      "name": "Badger \u2014 OI-Divergence Breakout Anticipator",
+      "emoji": "\ud83e\udda1",
+      "tagline": "Takes a breakout only when rising open interest confirms it \u2014 new money committing, not a fakeout. BTC/ETH/SOL/HYPE, wide DSL.",
+      "group": "multi-asset-whitelist",
+      "sort_order": 40,
+      "min_budget": 1000,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/badger",
       "version": "1.0.0"
     },
     {
@@ -164,6 +179,21 @@
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/dog",
       "version": "3.0.0"
+    },
+    {
+      "id": "egret",
+      "tracker_slug": "egret",
+      "name": "Egret \u2014 Smart-Money Divergence Fader",
+      "emoji": "\ud83d\udc26",
+      "tagline": "Fades extreme Smart-Money crowding (>=70%) that price won't confirm \u2014 the exhausted-crowd unwind. Tight DSL, maker-only entry.",
+      "group": "contrarian-unwind",
+      "sort_order": 30,
+      "min_budget": 500,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/egret",
+      "version": "1.0.0"
     },
     {
       "id": "grizzly",
@@ -404,6 +434,21 @@
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/pangolin",
       "version": "3.0.0"
+    },
+    {
+      "id": "piranha",
+      "tracker_slug": "piranha",
+      "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",
+      "emoji": "\ud83d\udc1f",
+      "tagline": "Rides forced flow \u2014 OI unwinding fast + a violent move + a thinning book = a liquidation cascade. BTC/ETH/SOL/HYPE, wide DSL + 24h timeout.",
+      "group": "microstructure-order-flow",
+      "sort_order": 1,
+      "min_budget": 1000,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/piranha",
+      "version": "1.0.0"
     },
     {
       "id": "polar",

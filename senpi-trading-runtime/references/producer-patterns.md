@@ -679,6 +679,38 @@ This pattern is more involved than the others (continuous high-frequency `cancel
 
 ---
 
+### 12. Microstructure / order-flow
+
+The first archetype to trade the *order flow underneath* price rather than price/SM alone. It reads `market_get_asset_data`'s `oi_velocity` (open-interest velocity) and the L2 `order_book` (up to 20 levels per side) to detect **forced** or **imbalanced** flow:
+
+- **Liquidation / forced flow:** OI unwinding fast (positions being force-closed) + a violent price move + a thinning book on the side price is running into = a cascade to ride.
+- **Order-book imbalance:** a persistent resting-depth skew (bids ≫ asks, or the reverse) as an accumulation / distribution tell.
+
+```python
+# Per asset, per tick:
+data = mcp_call("market_get_asset_data", asset=a,
+                candle_intervals=["5m","1h"], include_order_book=True, include_funding=False)
+oi_pct = oi_velocity_1h(data, a)      # from the oi_velocity object — or self-computed from a last-OI cache (it can be null)
+move   = price_move_pct(candles_1h, 1)
+levels = data["data"]["order_book"]["levels"]   # levels[0]=bids, levels[1]=asks; each {px, sz, n}
+bid_depth, ask_depth = sum(l["sz"] for l in levels[0]), sum(l["sz"] for l in levels[1])
+# Forced flow: oi_pct <= -3  AND  |move| >= 2  AND  5m still moving the same way  → ride the flow direction
+```
+
+**Gotcha:** `oi_velocity` can be `null` — keep a persisted last-OI cache (`state/oi-state.json`) and compute the delta yourself as a fallback (the cache warms after one tick per asset).
+
+**When to use this pattern:** You want an edge from market *microstructure* (forced liquidations, resting-depth imbalance) rather than candle trend or SM positioning. Short-horizon — pair a wide "let winners run" ladder with a `hard_timeout` outer bound.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Piranha** | v1.0 | BTC/ETH/SOL/HYPE | Liquidation-cascade / forced-flow hunter — OI unwinding fast + violent move + thin book ⇒ ride the forced flow. Wide DSL + 24h hard_timeout. | OI velocity, Order book, Forced flow |
+
+*(Marlin — order-book-imbalance momentum — joins this family next.)*
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.
@@ -733,12 +765,13 @@ Ask which one sentence sounds most like the user:
 - **Break of the 7-day high/low (majors)** → 🟢 **Hawk** (breakout buyer / breakdown seller) · **Badger** (OI-confirmed).
 - **Buy the dip *within* an uptrend** → 🟢 **Salamander** (pullback catcher).
 - **Leaderboard rank-jumps caught early** → **Jaguar** · **Orca** · **Roach**.
+- **Ride a liquidation cascade / forced flow** (OI unwinding fast + a violent move) → **Piranha** (microstructure / order-flow).
 
 ### Layer 2F — Structural / neutral → what structure?
 
 - **BTC-led laggard rotation** (an alt that hasn't caught up to a BTC move yet) → **Mantis** (cross-asset lag).
 - **Volume / market-making** (not a directional bet) → **Turbine** (specialized).
-- *Expanding set — relative-value pairs, microstructure (liquidation cascades, order-book imbalance), and copy-the-copiers are being added.*
+- *Expanding set — relative-value pairs, order-book-imbalance momentum (Marlin), and copy-the-copiers are being added. (Microstructure forced-flow is already live — see Piranha under Layer 2E.)*
 
 ### Layer 3 — Lock it in (the deploy step)
 
@@ -846,6 +879,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Raccoon** | 4 — Multi-asset whitelist (onboarding, time-gated) | Weekend-only XYZ reconciliation. Fri 22:00 UTC → Mon 00:00 UTC. Captures Mon-open snap-back |
 | **Badger** | 4 — Multi-asset whitelist (OI-confirmed breakout) | BTC/ETH/SOL/HYPE. Takes a breakout only when rising open interest confirms it (new money, not a fakeout). Wide "let winners run" DSL |
 | **Egret** | 8 — Contrarian crowding-unwind (SM-divergence fader) | BTC/ETH/SOL/HYPE. Fades extreme SM crowding (≥70%) that price won't confirm. Tight DSL + maker-only entry + time-cuts on |
+| **Piranha** | 12 — Microstructure / order-flow | BTC/ETH/SOL/HYPE. Rides forced flow — OI unwinding fast + violent move + thin book ⇒ liquidation cascade. Wide DSL + 24h hard_timeout |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 

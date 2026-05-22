@@ -1,0 +1,14 @@
+{
+  "_comment": "PIRANHA v1.0.0 — Liquidation-Cascade / Forced-Flow Hunter (BTC/ETH/SOL/HYPE). Rides forced flow: when open interest is unwinding fast (>= oiDropMinPct over 1h, positions force-closing) AND price is moving violently (>= priceMoveMinPct over 1h) AND 5m is still moving the same way, ride the flow direction (OI down + price up = short squeeze → LONG; OI down + price down = long liquidation → SHORT). Thin book on the move side + volume spike + SM alignment add conviction. Wide DSL + 24h hard_timeout (forced flow is short-horizon). Edit wallet/strategyId/chatId.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["BTC", "ETH", "SOL", "HYPE"],
+  "minScore": 5,
+  "oiDropMinPct": 3.0,
+  "oiDropStrongPct": 6.0,
+  "priceMoveMinPct": 2.0,
+  "volSpikePct": 50.0,
+  "marginPct": 0.15,
+  "leverage": 4
+}
