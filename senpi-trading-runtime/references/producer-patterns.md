@@ -767,7 +767,7 @@ Most first-time users can't say "I want a trend-follower" — they don't have th
 | Interest in **stocks / commodities** | 🟢 **Bobcat** (big-tech) · **Dire** (oil) · **Lemur** (pre-IPO) |
 | Nothing clean (chop + weak signals) | Default → **Hedgehog** basket, `balanced`, conservative sizing — or honestly say *"nothing's set up cleanly right now; want to start small and watch, or wait?"* |
 
-*Step 4 — filter & size:* drop any candidate whose catalog `min_budget` exceeds their account value; set margin % + leverage + DSL preset from the risk answer (cautious → ~15% / 3x / `balanced`; aggressive → ~25% / 5x / `let_winners_run`).
+*Step 4 — size & advise (don't gate):* `min_budget` is a **guideline, not a gate — never refuse to deploy over it.** If the account is below a candidate's `min_budget`, still offer it, but flag it plainly (*"you're under the ~$X suggested floor, so positions will be small and have less room — you can start tiny now or fund more"*) and let the user decide. Never dead-end a willing user; offer to start small or watch first instead of saying "no." Set margin % + leverage + DSL preset from the risk answer (cautious → ~15% / 3x / `balanced`; aggressive → ~25% / 5x / `let_winners_run`). Whatever the size, tell them to **fund only what they can afford to lose.**
 
 *Step 5 — recommend with the "why":*
 > *"Here's what I can see: you hold **{assets}**, budget **${X}**. Right now **{asset}** is **{regime}** and Smart Money is **{SM read}**{, and the Hyperfeed shows {event}}. I'd start you on **{strategy}** — {one-line thesis} — with the **{preset}** stop profile at {margin}% / {lev}x. Why: {2–3 concrete reasons}. Want me to deploy it?"*
@@ -846,7 +846,7 @@ Some users don't want a thesis — they want whatever's working *now*. The agent
 *How:*
 - Pull live performance for **deployable** strategies: `arena_leaderboard` (7-day rolling ROE %, resets Thu 00:00 UTC) and/or the Senpi Agent Tracker `get_performance` per strategy (ROI / PnL / equity).
 - **Prefer consistency over a single hot week.** A strategy up big over 7 days can give it all back the next — multi-week blow-ups are real. If you have more than one window, weight steady performers over one-week wonders (this is exactly Albatross's "multi-week, not one lucky day" logic).
-- **Filter:** only strategies that exist as installable skills (cross-reference `catalog.json`; exclude unpublished agents like Sentinel), and whose `min_budget` ≤ the user's account value.
+- **Filter:** only strategies that exist as installable skills (cross-reference `catalog.json`; exclude unpublished agents like Sentinel). `min_budget` is a **guideline, not a gate** — don't drop a strategy for being above the user's balance; if they want it, flag that they're under the suggested floor (smaller positions, less room) and let them decide, or top up.
 
 *Present* the top 2–3 with: recent ROE + **the window** + a one-line thesis — then the required caveat.
 
