@@ -56,7 +56,7 @@ from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ign
 # scanner_lock with stale-PID auto-recovery.
 
 
-VERSION = "3.0.0"
+VERSION = "3.0.1"
 
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "jackal_signals"
@@ -416,7 +416,7 @@ def enrich_with_ta(candidate, funding_regime):
                 if funding is not None:
                     try:
                         f = float(funding)
-                        out["funding_annualized_pct"] = round(f * 3 * 365 * 100, 2)
+                        out["funding_annualized_pct"] = round(f * 8760 * 100, 2)  # HL funding is HOURLY → ×24×365
                     except (TypeError, ValueError):
                         pass
     except Exception:

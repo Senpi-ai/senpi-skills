@@ -126,7 +126,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pangolin_config as cfg
 
 
-VERSION = "3.0.0"  # single source of truth; matches SKILL.md frontmatter
+VERSION = "3.0.1"  # single source of truth; matches SKILL.md frontmatter
 
 # v2.0.0: Agent-specific wallet env var. NO fallback to STRATEGY_ADDRESS
 # (contamination risk per Turbine v2.0.9 fix — see feedback_mcp_auth_is_fleet_wide.md).
@@ -171,7 +171,7 @@ _PREV_HELD_FILE = _STATE_DIR / "previously-held.json"
 # HARDCODED CONSTANTS (fleet-tuned, not operator-set)
 # ═══════════════════════════════════════════════════════════════
 MIN_SCORE = 9                         # v1.4: raised from 7 (new persistence + regime points)
-MIN_FUNDING_RATE = 0.00015            # v1.1: 20% annualized threshold
+MIN_FUNDING_RATE = 0.0000228          # ~20% annualized floor (hourly funding × 8760 × 100). v3.0.1: was 0.00015, which under HL's HOURLY cadence is ~131% ann — ~8x stricter than the intended 20% (the old value assumed an 8h cadence). Recalibrated to design intent.
 MIN_OI_USD = 1_000_000                # v1.3 floor — ensures liquidity
 MIN_PERSISTENCE_HOURS = 3             # v1.4: hard gate against fresh spikes
 ASSET_COOLDOWN_MINUTES = 240          # v1 — 4h. Post-EMIT cooldown.
@@ -544,7 +544,7 @@ def scan_funding_extremes():
 
         # Funding extremity
         abs_funding = abs(funding)
-        annualized = abs_funding * 3 * 365 * 100
+        annualized = abs_funding * 8760 * 100   # HL funding is HOURLY → ×24×365
         if abs_funding >= 0.001:
             score += 4
             reasons.append(f"EXTREME_FUNDING {funding*100:.4f}% ({annualized:.0f}% ann)")

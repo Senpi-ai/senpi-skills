@@ -123,6 +123,12 @@ Expected: `status=ok` every tick (300s interval — Pangolin's longer cadence re
 
 ## Changelog
 
+### v3.0.1 — funding annualization fix
+
+**Bug fix + threshold recalibration.** Hyperliquid funding is charged **hourly**, so annualized funding is `rate × 24 × 365 (×8760)`, not `× 3 × 365`. Two corrections:
+- **Display math:** the `annualized` figure shown in signal reasons + `data.annualizedPct` was 8x too low. Fixed to `×8760`.
+- **Entry threshold:** `MIN_FUNDING_RATE` was `0.00015`, set under an 8h-cadence assumption to mean "~20% annualized." Under HL's true hourly cadence that floor is actually **~131% annualized** — ~8x stricter than intended. Recalibrated to `0.0000228` (the real ~20% floor), restoring design intent. **This widens entry frequency ~8x — review accordingly.**
+
 ### v3.0.0 — senpi_runtime_helpers migration
 
 **Plumbing-only migration from v2.2.0. NO thesis change.** Pangolin is the canonical reference producer for the `senpi_runtime_helpers` SDK wrapper pattern.
