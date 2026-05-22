@@ -1,5 +1,7 @@
 # Signal schema reference
 
+> **Read only if [`strategy-creation.md`](strategy-creation.md) doesn't cover your edge case.** That doc inlines the `push_signal(...)` contract you need to build. This is the exhaustive wire-format reference — reach for it for the `POST /signals` envelope, per-item error codes, or unusual `data` field types.
+
 Full description of the `SignalItem` shape consumed by
 `senpi-trading-runtime`'s `POST /signals` endpoint, as exposed by
 `SenpiClient.push_signal(...)` and `push_signals([...])`.
