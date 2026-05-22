@@ -741,6 +741,39 @@ Most first-time users can't say "I want a trend-follower" — they don't have th
 - **Albatross** — *"copies traders who've won the arena for weeks, not just one lucky day."*
 - **Bobcat** — *"trades big-tech stocks (NVDA, TSLA, …) 24/7 on Hyperliquid."*
 
+**D. Contextual suggestion (preferred — recommend *for them, right now*).** When the agent can see the user's wallet, don't make them choose from a menu — read their situation and the live market, then propose one strategy with reasons. This is the strongest first-run experience.
+
+*Step 1 — read the user* (reads only; all safe):
+- `account_get_portfolio` → **budget** (account value) + **current holdings** (assets they already own/know).
+- `discovery_get_trader_history` on their wallet → **what they tend to trade** (recurring assets/direction).
+- Ask **one** question — *risk comfort / goal*: "play it safe" / "balanced" / "go big" → maps to leverage + DSL preset.
+
+*Step 2 — read the market* for the candidate asset(s) (candidate = an asset they hold/trade; else a Hyperfeed-hot name; else BTC):
+- `leaderboard_get_momentum_events` (tier 3) + `leaderboard_get_top` → **Hyperfeed**: what's in a strong live move right now.
+- `market_get_asset_data(asset)` → **regime** from 4h trend structure + `oi_velocity` + funding → `TRENDING` / `RANGEBOUND` / `VIOLENT`.
+- `leaderboard_get_markets` → **Smart Money** concentration + direction on that asset.
+
+*Step 3 — map the read to a strategy:*
+
+| What the signals say | Recommend |
+|---|---|
+| Asset **TRENDING** + SM **aligned** (same dir, ≥55%) | Trend-follower on that asset — 🟢 Beaver/Heron/Hummingbird, or **Hedgehog** basket if no single standout |
+| **RANGEBOUND** + SM **extreme & one-sided** (≥70%) price won't confirm | Fader → **Egret** |
+| **VIOLENT** move + OI unwinding fast (Hyperfeed lit up) | Microstructure → **Piranha** (*only if risk = "go big"*) |
+| Hyperfeed shows a **fresh rank-jump / breakout** | 🟢 **Hawk** (breakout) or **Jaguar** (rank-jump) |
+| User would rather **copy winners** / has no asset view | 🟢 **Albatross** (multi-week arena winners) |
+| Interest in **stocks / commodities** | 🟢 **Bobcat** (big-tech) · **Dire** (oil) · **Lemur** (pre-IPO) |
+| Nothing clean (chop + weak signals) | Default → **Hedgehog** basket, `balanced`, conservative sizing — or honestly say *"nothing's set up cleanly right now; want to start small and watch, or wait?"* |
+
+*Step 4 — filter & size:* drop any candidate whose catalog `min_budget` exceeds their account value; set margin % + leverage + DSL preset from the risk answer (safe → ~15% / 3x / `balanced`; go big → ~25% / 5x / `let_winners_run`).
+
+*Step 5 — recommend with the "why":*
+> *"Here's what I can see: you hold **{assets}**, budget **${X}**. Right now **{asset}** is **{regime}** and Smart Money is **{SM read}**{, and the Hyperfeed shows {event}}. I'd start you on **{strategy}** — {one-line thesis} — with the **{preset}** stop profile at {margin}% / {lev}x. Why: {2–3 concrete reasons}. Want me to deploy it?"*
+
+Worked example: *"You hold BTC and ETH; budget $1,500. BTC's 4h structure is higher-lows and Smart Money is 64% long — trend and crowd agree. → **Beaver** (BTC trend-follower), `balanced` preset, 20% margin / 3x. It rides BTC while it trends and steps out when it stalls, and you already hold BTC so it's a market you know."*
+
+**Fallbacks:** no wallet access → use the plain-language quiz (B). Any MCP read fails or signals conflict → fall back to the express default (A). Never block on a missing signal.
+
 Whatever the path, **always land on exactly one strategy**, confirm risk + DSL preset (Layer 3), and deploy. Tell the user plainly: *the first strategy is a starting point to learn from, not a final answer* — you'll help them tune it after they've watched one trade.
 
 ### Layer 1 — What should your agent *believe* about markets?
