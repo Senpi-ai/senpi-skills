@@ -721,10 +721,10 @@ This is the guided path an **onboarding agent** walks a new user through. Start 
 
 Most first-time users can't say "I want a trend-follower" — they don't have the vocabulary. **The agent must recommend without the user self-classifying.** Three fallbacks, from most decisive to least:
 
-**A. Express lane — "just start me, safely."** The user wants the agent to decide. Recommend the safe default and go straight to deploy:
+**A. Express lane — "just pick something simple for me."** The user wants the agent to decide. Recommend the conservative default and go straight to deploy:
 - **Default first strategy → Hedgehog** (equal-weight BTC+ETH+SOL trend, diversified) — or **Beaver** (BTC only) for the simplest single-asset version.
-- Settings: **`balanced` DSL preset, 20% margin, 3x leverage** — lowest-surprise, most-liquid, hands-off.
-- Frame it: *"I'll start you on a simple trend-follower on the major coins — it holds them while they're trending and steps out when they stall. Lowest-drama way to begin; we can change it the moment you've watched it run."*
+- Settings: **`balanced` DSL preset, 20% margin, 3x leverage** — the simplest, most-liquid, lowest-leverage starting point.
+- Frame it honestly — **never say "safe."** *"I'll start you on a simple trend-follower on the major coins — it holds them while they're trending and steps out when they stall. It's the lowest-complexity, lowest-leverage place to begin — not risk-free (no strategy is; any single trade can lose), just the least to think about while you learn. We'll tune it the moment you've watched it run."*
 
 **B. Plain-language quiz — map feelings to an archetype.** The user wants some say, but the Layer-1 terms are jargon. Ask these (no trading words), then route:
 
@@ -743,10 +743,10 @@ Most first-time users can't say "I want a trend-follower" — they don't have th
 
 **D. Contextual suggestion (preferred — recommend *for them, right now*).** When the agent can see the user's wallet, don't make them choose from a menu — read their situation and the live market, then propose one strategy with reasons. This is the strongest first-run experience.
 
-*Step 1 — read the user* (reads only; all safe):
+*Step 1 — read the user* (reads only — nothing is traded):
 - `account_get_portfolio` → **budget** (account value) + **current holdings** (assets they already own/know).
 - `discovery_get_trader_history` on their wallet → **what they tend to trade** (recurring assets/direction).
-- Ask **one** question — *risk comfort / goal*: "play it safe" / "balanced" / "go big" → maps to leverage + DSL preset.
+- Ask **one** question — *risk comfort / goal*: "cautious" / "balanced" / "aggressive" → maps to leverage + DSL preset.
 
 *Step 2 — read the market* for the candidate asset(s) (candidate = an asset they hold/trade; else a Hyperfeed-hot name; else BTC):
 - `leaderboard_get_momentum_events` (tier 3) + `leaderboard_get_top` → **Hyperfeed**: what's in a strong live move right now.
@@ -765,7 +765,7 @@ Most first-time users can't say "I want a trend-follower" — they don't have th
 | Interest in **stocks / commodities** | 🟢 **Bobcat** (big-tech) · **Dire** (oil) · **Lemur** (pre-IPO) |
 | Nothing clean (chop + weak signals) | Default → **Hedgehog** basket, `balanced`, conservative sizing — or honestly say *"nothing's set up cleanly right now; want to start small and watch, or wait?"* |
 
-*Step 4 — filter & size:* drop any candidate whose catalog `min_budget` exceeds their account value; set margin % + leverage + DSL preset from the risk answer (safe → ~15% / 3x / `balanced`; go big → ~25% / 5x / `let_winners_run`).
+*Step 4 — filter & size:* drop any candidate whose catalog `min_budget` exceeds their account value; set margin % + leverage + DSL preset from the risk answer (cautious → ~15% / 3x / `balanced`; aggressive → ~25% / 5x / `let_winners_run`).
 
 *Step 5 — recommend with the "why":*
 > *"Here's what I can see: you hold **{assets}**, budget **${X}**. Right now **{asset}** is **{regime}** and Smart Money is **{SM read}**{, and the Hyperfeed shows {event}}. I'd start you on **{strategy}** — {one-line thesis} — with the **{preset}** stop profile at {margin}% / {lev}x. Why: {2–3 concrete reasons}. Want me to deploy it?"*
@@ -774,7 +774,7 @@ Worked example: *"You hold BTC and ETH; budget $1,500. BTC's 4h structure is hig
 
 **Fallbacks:** no wallet access → use the plain-language quiz (B). Any MCP read fails or signals conflict → fall back to the express default (A). Never block on a missing signal.
 
-Whatever the path, **always land on exactly one strategy**, confirm risk + DSL preset (Layer 3), and deploy. Tell the user plainly: *the first strategy is a starting point to learn from, not a final answer* — you'll help them tune it after they've watched one trade.
+Whatever the path, **always land on exactly one strategy**, confirm risk + DSL preset (Layer 3), and deploy. Be honest up front: *the first strategy is a starting point to learn from, not a final answer — and not risk-free; any strategy can lose on a given trade.* Set the expectation that you'll help them tune it after they've watched one trade. **Never describe a strategy or default as "safe."**
 
 ### Layer 1 — What should your agent *believe* about markets?
 
