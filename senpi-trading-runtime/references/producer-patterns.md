@@ -715,7 +715,33 @@ bid_depth, ask_depth = sum(l["sz"] for l in levels[0]), sum(l["sz"] for l in lev
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.
 
-> **Conversational rule for the agent:** never dump the whole tree. Surface Layer 1, let the user choose, then reveal only that branch's Layer 2. Explain each option in one plain sentence ("trend-following = when something's moving, ride it and hold"). Always end at exactly one recommended strategy + its risk level + DSL preset, then offer to deploy it.
+> **Conversational rule for the agent:** never dump the whole tree. Surface Layer 1, let the user choose, then reveal only that branch's Layer 2. Explain each option in one plain sentence ("trend-following = when something's moving, ride it and hold"). Always end at exactly one recommended strategy + its risk level + DSL preset, then offer to deploy it. **If the user can't answer Layer 1 — they don't know the words yet — drop to Layer 0 and let the agent suggest.**
+
+### Layer 0 — When the user doesn't know how to answer
+
+Most first-time users can't say "I want a trend-follower" — they don't have the vocabulary. **The agent must recommend without the user self-classifying.** Three fallbacks, from most decisive to least:
+
+**A. Express lane — "just start me, safely."** The user wants the agent to decide. Recommend the safe default and go straight to deploy:
+- **Default first strategy → Hedgehog** (equal-weight BTC+ETH+SOL trend, diversified) — or **Beaver** (BTC only) for the simplest single-asset version.
+- Settings: **`balanced` DSL preset, 20% margin, 3x leverage** — lowest-surprise, most-liquid, hands-off.
+- Frame it: *"I'll start you on a simple trend-follower on the major coins — it holds them while they're trending and steps out when they stall. Lowest-drama way to begin; we can change it the moment you've watched it run."*
+
+**B. Plain-language quiz — map feelings to an archetype.** The user wants some say, but the Layer-1 terms are jargon. Ask these (no trading words), then route:
+
+| Ask (plain English) | If they lean… | Route to |
+|---|---|---|
+| "When something's already shooting up, do you want to **jump in and ride it**, or **wait for it to fall back first**?" | ride it → trend · wait → contrarian | Layer 2A / 2B |
+| "Should the agent **form its own opinion**, or just **copy whoever's winning right now**?" | own opinion → (keep going) · copy → copy-trading | Layer 2C |
+| "Do you have a **specific market in mind** (a coin, a stock, oil/gold), or want it to **scan everything** for you?" | specific → single-market · scan → basket/universe | Layer 2D / 2A |
+| "A few **big wins you hold for days**, or **lots of small quick ones**?" | big/held → `let_winners_run` · small/quick → tighter preset | sets the DSL preset |
+
+**C. Show, don't ask — pick by vibe.** Some people decide best from concrete examples. Offer 2–3 plain-English one-liners and let them point at one:
+- **Beaver** — *"patiently holds BTC while it's trending up, steps out when it stalls."*
+- **Egret** — *"bets against the crowd when everyone's piled in one direction and price stops following."*
+- **Albatross** — *"copies traders who've won the arena for weeks, not just one lucky day."*
+- **Bobcat** — *"trades big-tech stocks (NVDA, TSLA, …) 24/7 on Hyperliquid."*
+
+Whatever the path, **always land on exactly one strategy**, confirm risk + DSL preset (Layer 3), and deploy. Tell the user plainly: *the first strategy is a starting point to learn from, not a final answer* — you'll help them tune it after they've watched one trade.
 
 ### Layer 1 — What should your agent *believe* about markets?
 
