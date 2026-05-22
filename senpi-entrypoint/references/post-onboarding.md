@@ -153,6 +153,8 @@ Which sounds interesting? I can explain any in detail or deploy one right now.
 
 Building a real, deployable strategy means building it on the **Senpi Trading Runtime** — the canonical runtime + DSL exit engine + Python Producer SDK. Do NOT treat this as a pure brainstorm or improvise a strategy from scratch: route the user through the runtime's authoring path so what they build actually deploys and is risk-protected.
 
+> **The fast path — read one doc:** [`senpi-trading-runtime/references/strategy-creation.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/strategy-creation.md). It's self-contained: the 5-step flow, an inline producer skeleton, a complete `runtime.yaml`, the DSL presets, an archetype→example map, and the gotchas — in a single fetch. The steps below are the same path expanded; if you read `strategy-creation.md` you have everything you need.
+
 **Step 1 — Install the runtime skill:**
 ```bash
 npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y

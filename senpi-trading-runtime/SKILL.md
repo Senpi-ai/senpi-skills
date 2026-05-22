@@ -13,7 +13,9 @@ metadata:
 
 On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Monitors a wallet's positions on Hyperliquid for lifecycle events (open, close, edit, flip) and applies two-phase trailing stop-loss protection to all positions.
 
-## ▶ Writing a new strategy? Read these first, in this order
+## ▶ Writing a new strategy? Read the fast path first
+
+> **Start here: [`references/strategy-creation.md`](references/strategy-creation.md).** It's the self-contained fast path — the 5-step flow, the producer-only-emits-signals invariant, an archetype→example→DSL-preset table, an inline producer skeleton, a complete `runtime.yaml`, the DSL presets, and the gotchas, all in one fetch. **You should not need to read anything else to ship a working strategy.** The sections below are the deep reference, linked from `strategy-creation.md` for edge cases.
 
 This skill is the canonical way to build a Senpi strategy. **Every strategy is built the same way** — on this runtime, with the Producer SDK, DSL exit engine, and risk guard-rails. There are **two on-ramps** to that one structure:
 
