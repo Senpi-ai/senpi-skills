@@ -10,32 +10,29 @@ A Senpi strategy is **a Python producer that emits signals + a `runtime.yaml` th
 
 ## The 5 steps
 
-1. **Pick your archetype + example + DSL preset** (table below). Clone the example agent's three files as your starting point.
+1. **Pick your archetype + example agent** from [`producer-patterns.md`](producer-patterns.md), then **map it to a DSL preset** (heuristic below). Clone the example agent's three files as your starting point.
 2. **Write the producer** (`scripts/<skill>-producer.py`) on the bundled SDK — skeleton below.
 3. **Write `runtime.yaml`** — complete minimal template below.
 4. **Write `config/<skill>-config.json`** — operator-tunable defaults (wallet, chatId, model via env).
 5. **Verify** the daemon is alive + ticking.
 
-If the user gave you full autonomy, **pick the archetype + preset yourself** from the table. Otherwise, **prompt the user** to pick.
+If the user gave you full autonomy, **pick the archetype + preset yourself**. Otherwise, **prompt the user** to pick.
 
-## Step 1 — Archetype → example agent → DSL preset
+## Step 1 — Pick the archetype (+ example agent), then map it to a DSL preset
 
-**Not sure which archetype fits the user's idea?** Walk the [decision tree in `producer-patterns.md`](producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy) — it takes a user from "I don't know" (or "just give me a good one") through what they believe about markets to a concrete archetype + example agent. Once you've landed on a row below, come back here and build.
+**The archetype catalog and the example agent to clone for each live in [`producer-patterns.md`](producer-patterns.md) — that's the single source of truth, so this doc never duplicates (and never drifts from) the agent roster.** Go there to choose:
 
-| Archetype | Clone this example | DSL preset |
-|---|---|---|
-| Universe trend-follower | `condor`, `cheetah` | `let_winners_run` |
-| Single-asset alpha hunter | `kodiak` (SOL), `grizzly` (BTC), `polar` (ETH), `wolverine` (HYPE) | `let_winners_run` |
-| XYZ specialist | `dire` (oil), `kestrel` (macro) | `balanced` |
-| Multi-asset whitelist | `bison`, `hedgehog` | `balanced` |
-| Trader-follower / hot-streak | `jackal`, `spider`, `raptor` | `let_winners_run` |
-| Striker / rank-jump | `roach`, `jaguar`, `orca` | `balanced` |
-| Funding-rate fade | `pangolin`, `vulture` | `mean_reversion` |
-| Contrarian / crowding-unwind | `owl`, `dog`, `lemon` | `mean_reversion` |
-| Volume engine / high-frequency | `turbine` | `scalp` |
+- **Know roughly what you want?** Skim the archetype catalog and clone the example agent under the closest one.
+- **Not sure?** Walk the [decision tree](producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy) — it takes a user from "I don't know" (or "just give me a good one") through what they believe about markets to a concrete archetype + example agent.
 
-Fetch the chosen example's producer for the full reference (one fetch, optional):
-`https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<example>/scripts/<example>-producer.py`
+**Then map the archetype to a DSL preset** (default `balanced` when unsure):
+
+| Archetype class | DSL preset |
+|---|---|
+| Trend-follower · single-asset alpha · striker / rank-jump · trader-follower | `let_winners_run` |
+| Funding-fade · contrarian / crowding-unwind | `mean_reversion` |
+| Volume-engine · high-frequency | `scalp` |
+| Anything else, or unsure | `balanced` ⭐ |
 
 ## Step 2 — The producer (copy this skeleton)
 
