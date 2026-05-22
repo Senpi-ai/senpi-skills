@@ -719,7 +719,9 @@ This is the guided path an **onboarding agent** walks a new user through. Start 
 
 ### Layer 0 — When the user doesn't know how to answer
 
-Most first-time users can't say "I want a trend-follower" — they don't have the vocabulary. **The agent must recommend without the user self-classifying.** Three fallbacks, from most decisive to least:
+Most first-time users can't say "I want a trend-follower" — they don't have the vocabulary. **The agent must recommend without the user self-classifying.** Four paths below.
+
+> ⚡ **Ask before you scan — keep the first moment fast.** Paths **A / B / C are instant** (no data calls). Path **D reads live market data** (several MCP calls, a few seconds). So **lead with the question, and only run D when the user explicitly opts in** — e.g. they pick *"help me choose"* or *"suggest something for me."* Don't pre-fetch market data on entry; fetch on demand, and say *"give me a sec to read the market…"* so the wait is expected, not a freeze.
 
 **A. Express lane — "just pick something simple for me."** The user wants the agent to decide. Recommend the conservative default and go straight to deploy:
 - **Default first strategy → Hedgehog** (equal-weight BTC+ETH+SOL trend, diversified) — or **Beaver** (BTC only) for the simplest single-asset version.
@@ -741,7 +743,7 @@ Most first-time users can't say "I want a trend-follower" — they don't have th
 - **Albatross** — *"copies traders who've won the arena for weeks, not just one lucky day."*
 - **Bobcat** — *"trades big-tech stocks (NVDA, TSLA, …) 24/7 on Hyperliquid."*
 
-**D. Contextual suggestion (preferred — recommend *for them, right now*).** When the agent can see the user's wallet, don't make them choose from a menu — read their situation and the live market, then propose one strategy with reasons. This is the strongest first-run experience.
+**D. Contextual suggestion (opt-in — *only after* the user picks "help me choose / suggest for me").** The strongest recommendation, but it reads the live market (several MCP calls, a few seconds) — so **do not run it on entry**; trigger it only when the user explicitly asks for it, and tell them you're reading the market first. When triggered, read their situation + the market, then propose one strategy with reasons.
 
 *Step 1 — read the user* (reads only — nothing is traded):
 - `account_get_portfolio` → **budget** (account value) + **current holdings** (assets they already own/know).
@@ -785,9 +787,11 @@ Ask which one sentence sounds most like the user:
 | "When something's trending, ride it and hold." | **Trend-following** | Layer 2A |
 | "When the crowd is all-in, bet on the reversal." | **Contrarian / fade** | Layer 2B |
 | "Just copy traders who are already winning." | **Copy-trading** | Layer 2C |
-| "I have a view on one specific market (a coin, oil, gold, a stock)." | **Single-market specialist** | Layer 2D |
+| "I want to trade a specific market — a coin, **stocks, commodities, or 🔥 pre-IPO names** (SpaceX, …)." | **Single-market / XYZ** | Layer 2D |
 | "Catch explosive breakouts / jumps early." | **Breakout / momentum-jump** | Layer 2E |
 | "Earn from market structure, not from picking a direction." | **Structural / neutral** | Layer 2F |
+
+> 💡 **Not just crypto.** Senpi trades **XYZ markets 24/7** (even when TradFi is closed): big-tech **stocks** (NVDA, TSLA, …), **commodities** (oil, gold, indices), and — increasingly popular — **pre-IPO perpetuals (IPOPs)** like **SpaceX**, *tradeable before the company lists*. If a user perks up at stocks or pre-IPO, route straight to **Layer 2D** — it's one of Senpi's most distinctive hooks.
 
 ### Layer 2A — Trend-following → what do you want to ride?
 
@@ -813,11 +817,13 @@ Ask which one sentence sounds most like the user:
 
 ### Layer 2D — Single-market specialist → which market?
 
-- **A specific crypto major** → see Layer 2A (Kodiak family).
+XYZ markets (stocks / commodities / pre-IPO) trade **24/7 on Hyperliquid**, even when TradFi is closed.
+
+- 🔥 **Pre-IPO names (IPOPs — SpaceX, etc.)** → 🟢 **Lemur** — trades pre-IPO perpetuals *before the company lists*; auto-discovers new IPOPs by their funding signature (today: SPCX/SpaceX; auto-expands as trade.xyz lists names like ANTHROPIC, OPENAI, STRIPE). One of Senpi's most distinctive capabilities.
+- **Big-tech stocks (XYZ equities)** → 🟢 **Bobcat** (NVDA/TSLA/AAPL/META/MSFT/GOOGL/…).
 - **Oil / metals / indices (XYZ)** → **Dire** (BRENTOIL) as the template — tune the asset string.
-- **Big-tech stocks (XYZ equities)** → 🟢 **Bobcat** (NVDA/TSLA/AAPL/META/MSFT/…).
-- **Pre-IPO names (IPOPs — SpaceX, etc.)** → 🟢 **Lemur** (auto-discovers IPOPs by funding signature).
-- **Weekend stock-gap reconciliation** → 🟢 **Raccoon** (weekend-only XYZ snap-back).
+- **Weekend stock-gap reconciliation** → 🟢 **Raccoon** (weekend-only XYZ snap-back, captures the Mon-open move).
+- **A specific crypto major** → see Layer 2A (Kodiak family).
 
 ### Layer 2E — Breakout / momentum-jump → what kind of move?
 
