@@ -26,6 +26,28 @@ Every signal that reaches `open-position` triggers a real-time gate check via MC
 
 **Default booleans (when `guard_rails` exists):** `bypass_max_entries_per_day_on_profit` and `drawdown_reset_on_day_rollover` default to `false`.
 
+## Recommended default envelope
+
+⚠️ Because the `risk:` block is fully optional and omitting a field disables that gate, a strategy that ships without `risk.guard_rails` runs with **no daily-loss halt, no drawdown halt, no cooldowns, and no entry cap** — only the DSL's `max_loss_pct` protects each individual position. That's rarely what you want. **Pair the `balanced` DSL preset with this guard-rail envelope** unless you have a reason to deviate — it's the "smart default" that works for most strategies:
+
+```yaml
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 15          # halt new entries after a -15% day
+    drawdown_halt_pct: 25             # circuit breaker on a -25% PnL drawdown from peak
+    drawdown_reset_on_day_rollover: false
+    max_consecutive_losses: 3         # + cooldown_minutes → pause after a losing streak
+    cooldown_minutes: 60
+    per_asset_cooldown_minutes: 240   # 4h between attempts on the same asset (anti-whipsaw)
+    max_entries_per_day: 5            # caps fee-bleed / runaway over-trading
+    bypass_max_entries_per_day_on_profit: false
+```
+
+Tune per strategy class: faders/scalpers want a **lower** `per_asset_cooldown_minutes` and **higher** `max_entries_per_day`; conviction holders want the opposite. The fail-safe below means an over-tight envelope only ever *suspends* trading — it never forces a bad entry.
+
+**Fail-safe:** any risk MCP call that errors (network/timeout/missing snapshot) returns `CLOSED` for halt-class gates and `COOLDOWN` for asset checks — trading is suspended whenever risk state is unknown. There is no permissive fallback.
+
 ## Gate 5 timestamp arithmetic
 
 `max_entries_per_day` is enforced by counting opens since UTC midnight. The MCP fields involved — `discovery_get_trader_history.openTime`/`closeTime` and `discovery_get_trader_state` position `startTime` — are **Unix epoch seconds**, and the runtime compares them against **UTC midnight expressed in seconds** (same unit end-to-end). Don't pass milliseconds anywhere in this path.
