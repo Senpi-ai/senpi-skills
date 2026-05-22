@@ -376,6 +376,21 @@
       "version": "6.0.0"
     },
     {
+      "id": "marlin",
+      "tracker_slug": "marlin",
+      "name": "Marlin \u2014 Order-Book Imbalance Momentum",
+      "emoji": "\ud83d\udc1f",
+      "tagline": "Reads the L2 order book \u2014 enters in the direction of resting-depth imbalance when momentum and Smart Money agree, then holds the move. Not a scalper.",
+      "group": "microstructure-order-flow",
+      "sort_order": 2,
+      "min_budget": 500,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/marlin",
+      "version": "1.0.0"
+    },
+    {
       "id": "orca",
       "tracker_slug": "orca",
       "name": "Orca \u2014 Rank-Jump Striker",
