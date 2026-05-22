@@ -13,7 +13,7 @@ The DSL (Dynamic Stop-Loss) manages exit logic for open perpetual positions. It 
 | Preset | Use for | Character |
 |--------|---------|-----------|
 | **`let_winners_run`** | Trend / breakout / momentum / trader-follower (most directional strategies) | Widest. No lock until +10%, lock ramps slowly to a +100% tier, time-cuts off. Captures fat-tail trends; gives back more on a reversal. |
-| **`balanced`** ⭐ *default* | General-purpose / unsure | Breathes early, locks gradually, runner tier to +100%, 24h outer bound. |
+| **`balanced`** ⭐ *default* | General-purpose / unsure | Breathes early, locks gradually, runner tier to +100%, 72h outer bound. |
 | **`mean_reversion`** | Faders / contrarian / range unwinds | Tight. Banks the bounded snapback fast (lock 30% at +5%), time-cuts ON — a fade resolves quickly or the thesis failed. |
 | **`scalp`** | High-frequency, fee-sensitive, fast in/out | Tightest. Fast profit locks, tight max-loss, short `hard_timeout` + `dead_weight_cut`. |
 
