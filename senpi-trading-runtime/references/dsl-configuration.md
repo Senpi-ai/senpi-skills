@@ -4,24 +4,133 @@
 
 The DSL (Dynamic Stop-Loss) manages exit logic for open perpetual positions. It monitors prices on a fixed interval and closes positions when price breaches a computed floor. Two-phase design: Phase 1 protects from initial loss, Phase 2 locks in profits as they grow.
 
-## Tuning Guidance
+## Presets & Tuning
 
-| Profile | Description | Typical settings |
-|---------|-------------|------------------|
-| **Conservative** | Wide stops, long timeouts. For swing-style or low-conviction entries. | max_loss_pct: 5-8, retrace_threshold: 10+, hard_timeout: 360+ min |
-| **Moderate** | Balanced protection. Suitable for most momentum strategies. | max_loss_pct: 2.5-4, retrace_threshold: 7, hard_timeout: 120-240 min |
-| **Aggressive** | Tight stops, fast cuts. For scalp-style or high-conviction entries. | max_loss_pct: 1.5-2.5, retrace_threshold: 5, hard_timeout: 60-90 min |
+**The right DSL shape depends on the strategy class.** A single "one-size" stop is wrong for most strategies — a trend-follower needs room to let a winner run, while a fader needs to bank a bounded snapback fast. Start from the preset that matches your thesis, then hand-tune the fields.
+
+> ⭐ **Default = `balanced`.** If you're unsure, start here. It lets a position **breathe** — no profit lock until +10% ROE, lock ramps gradually, and a runner tier out to +100% — while a 15% max-loss floor and a 24h outer-bound timeout protect the downside. This replaces the older tight default whose +7%/lock-40 first tier and +20% cap chopped trend winners during the 2026-05 HYPE run.
+
+| Preset | Use for | Character |
+|--------|---------|-----------|
+| **`let_winners_run`** | Trend / breakout / momentum / trader-follower (most directional strategies) | Widest. No lock until +10%, lock ramps slowly to a +100% tier, time-cuts off. Captures fat-tail trends; gives back more on a reversal. |
+| **`balanced`** ⭐ *default* | General-purpose / unsure | Breathes early, locks gradually, runner tier to +100%, 24h outer bound. |
+| **`mean_reversion`** | Faders / contrarian / range unwinds | Tight. Banks the bounded snapback fast (lock 30% at +5%), time-cuts ON — a fade resolves quickly or the thesis failed. |
+| **`scalp`** | High-frequency, fee-sensitive, fast in/out | Tightest. Fast profit locks, tight max-loss, short `hard_timeout` + `dead_weight_cut`. |
+
+Full copy-paste blocks are in [DSL Presets](#dsl-presets) below and machine-readable in [`dsl-presets.yaml`](dsl-presets.yaml). Or skip presets entirely and hand-author every field — the schema is the same.
+
+> **`max_loss_pct` is ROE %, not price %.** The engine converts to a price floor by dividing by leverage (`entry × (1 - max_loss_pct/100/leverage)`), so `max_loss_pct: 15` means "cut at −15% of *margin*" at any leverage. Set it to the margin loss you'll accept per trade (fleet practice is ~15–25), **not** a price-move percentage. The old default of `4.0` cut at −4% margin — tight enough to stop out on noise.
 
 Key trade-offs:
-- Lower `max_loss_pct` = less risk per trade, but more stop-outs on noise
-- Higher `retrace_threshold` = more room to breathe, but gives back more profit on reversals
-- More phase2 tiers = smoother profit locking, but each tier is a potential exit trigger
-- Lower `consecutive_breaches_required` = faster exit on breach, but more false triggers
+- Higher `max_loss_pct` = survives more noise, but a bigger loss when a trade fails.
+- Higher `retrace_threshold` = more room to breathe, but gives back more profit on reversals.
+- Earlier / higher `lock_hw_pct` in the early tiers = locks profit sooner but **caps the winner** — the asymmetry that hurt during the HYPE run (capping a fat-tail winner is unbounded opportunity cost; "too wide" is bounded by `max_loss_pct`).
+- Lower `consecutive_breaches_required` = faster exit on breach, but more false triggers.
+
+---
+
+## DSL Presets
+
+Copy the `dsl_preset` block that matches your strategy class into your `exit:` config. Machine-readable copies live in [`dsl-presets.yaml`](dsl-presets.yaml).
+
+### `let_winners_run` — trend / breakout / momentum / follower
+
+```yaml
+dsl_preset:
+  # time-cuts OFF — let the trend run on its own timescale
+  phase1:
+    enabled: true
+    max_loss_pct: 20.0
+    retrace_threshold: 8
+    consecutive_breaches_required: 1
+  phase2:
+    enabled: true
+    tiers:
+      - { trigger_pct: 10,  lock_hw_pct: 0  }   # confirm working, no lock yet
+      - { trigger_pct: 20,  lock_hw_pct: 25 }
+      - { trigger_pct: 30,  lock_hw_pct: 40 }
+      - { trigger_pct: 50,  lock_hw_pct: 60 }
+      - { trigger_pct: 75,  lock_hw_pct: 75 }
+      - { trigger_pct: 100, lock_hw_pct: 85 }   # apex — multi-day runners ratchet here
+```
+
+### `balanced` — default / general-purpose ⭐
+
+```yaml
+dsl_preset:
+  hard_timeout:
+    enabled: true
+    interval_in_minutes: 1440                   # 24h outer bound only
+  phase1:
+    enabled: true
+    max_loss_pct: 15.0
+    retrace_threshold: 10
+    consecutive_breaches_required: 1
+  phase2:
+    enabled: true
+    tiers:
+      - { trigger_pct: 10,  lock_hw_pct: 0  }   # breathe — no early lock
+      - { trigger_pct: 20,  lock_hw_pct: 30 }
+      - { trigger_pct: 35,  lock_hw_pct: 50 }
+      - { trigger_pct: 60,  lock_hw_pct: 70 }
+      - { trigger_pct: 100, lock_hw_pct: 85 }   # runner tier
+```
+
+### `mean_reversion` — faders / contrarian / range unwinds
+
+```yaml
+dsl_preset:
+  hard_timeout:
+    enabled: true
+    interval_in_minutes: 2880                   # 48h — a fade resolves or the thesis failed
+  weak_peak_cut:
+    enabled: true
+    interval_in_minutes: 120
+    min_value: 2.0
+  phase1:
+    enabled: true
+    max_loss_pct: 15.0
+    retrace_threshold: 6
+    consecutive_breaches_required: 1
+  phase2:
+    enabled: true
+    tiers:
+      - { trigger_pct: 5,  lock_hw_pct: 30 }    # bank the bounded snapback fast
+      - { trigger_pct: 10, lock_hw_pct: 50 }
+      - { trigger_pct: 15, lock_hw_pct: 65 }
+      - { trigger_pct: 25, lock_hw_pct: 80 }
+      - { trigger_pct: 40, lock_hw_pct: 90 }
+```
+
+### `scalp` — high-frequency, fee-sensitive
+
+```yaml
+dsl_preset:
+  hard_timeout:
+    enabled: true
+    interval_in_minutes: 90
+  dead_weight_cut:
+    enabled: true
+    interval_in_minutes: 45
+  phase1:
+    enabled: true
+    max_loss_pct: 8.0
+    retrace_threshold: 5
+    consecutive_breaches_required: 1
+  phase2:
+    enabled: true
+    tiers:
+      - { trigger_pct: 5,  lock_hw_pct: 50 }
+      - { trigger_pct: 10, lock_hw_pct: 70 }
+      - { trigger_pct: 15, lock_hw_pct: 85 }
+```
 
 ---
 
 ## Table of Contents
 
+- [Presets & Tuning](#presets--tuning)
+- [DSL Presets](#dsl-presets)
 - [Exit block](#exit-block)
 - [Preset configuration](#preset-configuration)
 - [Phase 1 configuration](#phase-1-configuration)
@@ -95,15 +204,15 @@ Active from entry until the first tier is reached.
 | Key | Type | Required | Default | Description |
 |-----|------|----------|---------|-------------|
 | `enabled` | boolean | No | `true` | `false` = skip Phase 1 rules; start with Phase 2 behavior. |
-| `max_loss_pct` | number | Yes | — | Max loss % from entry. Range: (0, 100]. Sets the absolute floor. |
+| `max_loss_pct` | number | Yes | — | Max loss as **ROE %** (margin), not price %. Range: (0, 100]. Converted to a price floor by dividing by leverage. `15` = cut at −15% of margin. Sets the absolute floor. |
 | `retrace_threshold` | number | Yes* | — | ROE % retrace from high-water mark. Must be > 0. *Required when phase1 enabled. |
 | `consecutive_breaches_required` | integer | Yes* | — | Consecutive ticks below floor before exit (>= 1). *Required when phase1 enabled. |
 
 ```yaml
 phase1:
   enabled: true
-  max_loss_pct: 4.0
-  retrace_threshold: 7
+  max_loss_pct: 15.0          # ROE %, not price % — cut at -15% of margin (see Presets & Tuning)
+  retrace_threshold: 10
   consecutive_breaches_required: 1
 ```
 
@@ -178,11 +287,12 @@ Phase 2 is exchange-SL driven. It starts when the first tier is reached (always 
 ```yaml
 phase2:
   enabled: true
-  tiers:
-    - { trigger_pct: 7,  lock_hw_pct: 40 }
-    - { trigger_pct: 12, lock_hw_pct: 55 }
-    - { trigger_pct: 15, lock_hw_pct: 75 }
-    - { trigger_pct: 20, lock_hw_pct: 85 }
+  tiers:                                  # `balanced` default — breathes early, runner tier to +100%
+    - { trigger_pct: 10,  lock_hw_pct: 0  }
+    - { trigger_pct: 20,  lock_hw_pct: 30 }
+    - { trigger_pct: 35,  lock_hw_pct: 50 }
+    - { trigger_pct: 60,  lock_hw_pct: 70 }
+    - { trigger_pct: 100, lock_hw_pct: 85 }
 ```
 
 ---
@@ -307,14 +417,17 @@ exit:
       interval_in_minutes: 60
     phase1:
       enabled: true
-      max_loss_pct: 4.0
-      retrace_threshold: 7
+      max_loss_pct: 15.0          # ROE % (margin), not price %
+      retrace_threshold: 10
       consecutive_breaches_required: 1
     phase2:
       enabled: true
-      tiers:
-        - { trigger_pct: 7,  lock_hw_pct: 40 }
-        - { trigger_pct: 12, lock_hw_pct: 55 }
-        - { trigger_pct: 15, lock_hw_pct: 75 }
-        - { trigger_pct: 20, lock_hw_pct: 85 }
+      tiers:                      # `balanced` default ladder
+        - { trigger_pct: 10,  lock_hw_pct: 0  }
+        - { trigger_pct: 20,  lock_hw_pct: 30 }
+        - { trigger_pct: 35,  lock_hw_pct: 50 }
+        - { trigger_pct: 60,  lock_hw_pct: 70 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
 ```
+
+> The block above shows every time-cut key for reference. The `balanced` default enables only `hard_timeout` (24h outer bound); see [DSL Presets](#dsl-presets) for which time-cuts each class uses (`mean_reversion` adds `weak_peak_cut`; `scalp` adds `dead_weight_cut`; `let_winners_run` uses none).
