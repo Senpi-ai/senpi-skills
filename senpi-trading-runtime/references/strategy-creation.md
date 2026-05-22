@@ -20,6 +20,8 @@ If the user gave you full autonomy, **pick the archetype + preset yourself** fro
 
 ## Step 1 — Archetype → example agent → DSL preset
 
+**Not sure which archetype fits the user's idea?** Walk the [decision tree in `producer-patterns.md`](producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy) — it takes a user from "I don't know" (or "just give me a good one") through what they believe about markets to a concrete archetype + example agent. Once you've landed on a row below, come back here and build.
+
 | Archetype | Clone this example | DSL preset |
 |---|---|---|
 | Universe trend-follower | `condor`, `cheetah` | `let_winners_run` |
