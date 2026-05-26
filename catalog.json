@@ -1,6 +1,6 @@
 {
   "_version": "1.0",
-  "_updated": "2026-05-22",
+  "_updated": "2026-05-26",
   "_instructions": "Agent reads this file to build the onboarding skill catalog. Group by 'group', sort within group by 'sort_order'. Infrastructure skills (DSL, fee optimizer, scanners) are never displayed.",
   "groups": [
     {
@@ -373,6 +373,21 @@
       "base_skill": null,
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/lemur",
+      "version": "1.0.0"
+    },
+    {
+      "id": "falcon",
+      "tracker_slug": "falcon",
+      "name": "Falcon \u2014 Conversion-Event Momentum (Pre-IPO \u2192 Equity)",
+      "emoji": "\ud83e\udd85",
+      "tagline": "Trades the moment a pre-IPO name goes public. Detects the IPOP\u2192equity conversion (funding jumps ~100x, throttle off) and rides the post-conversion price-discovery momentum.",
+      "group": "xyz-specialist",
+      "sort_order": 21,
+      "min_budget": 500,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/falcon",
       "version": "1.0.0"
     },
     {

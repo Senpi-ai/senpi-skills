@@ -1,0 +1,17 @@
+{
+  "_comment": "FALCON v1.0.0 — Conversion-Event Momentum (XYZ Pre-IPO → equity). Each tick classifies every xyz instrument IPOP vs STANDARD by funding signature (|funding| <= ipopFundingMaxAbs AND max_leverage <= ipopMaxLeverageCap = IPOP; otherwise STANDARD), compares against a class cache, and stamps any IPOP→STANDARD flip into a conversionWindowHours eligibility window. Within the window it requires post-conversion price momentum (|move over momentumLookbackBars 1h bars| >= minMomentumPct) and trades in the momentum direction. Wide let-winners-run DSL (7d hard_timeout). Edit wallet/strategyId/chatId; tune thresholds. Distinct from Lemur, which trades the IPOP basket itself.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "ipopFundingMaxAbs": 1e-7,
+  "ipopMaxLeverageCap": 5,
+  "conversionWindowHours": 72,
+  "momentumLookbackBars": 6,
+  "minMomentumPct": 3.0,
+  "strongMomentumPct": 8.0,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "minScore": 5,
+  "marginPct": 0.15,
+  "leverage": 4
+}
