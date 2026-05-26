@@ -449,6 +449,7 @@ save_rank_history(current_ranks)
 | **Roach** | v1.0 | Multi (Strikers) | Striker-only signal emitter. FIRST_JUMP / IMMEDIATE_MOVER detection with volume floor. Producer pushes signals only; runtime handles execution. | Striker, FIRST_JUMP, Volume-floor |
 | **Roach-B** | v1.0 | Multi (Strikers) | Second wallet instance of the Roach producer. Same FIRST_JUMP / IMMEDIATE_MOVER thesis on a separate strategy wallet. | Striker, Roach-pattern, Multi-wallet |
 | **Orca** | v1.0 | Multi (Strikers) | Gen-1 vanilla Striker — FIRST_JUMP + volume + base scoring. The original Striker template before per-asset specializations. | Striker, Vanilla-Gen-1, FIRST_JUMP |
+| **Meerkat** | v1.0 | Multi (momentum-event feed) | **Event-feed variant.** Reads `leaderboard_get_momentum_events` directly (not the `_markets` rank table) and snipes the freshest, highest-tier events: tier (3 ≥10% · 2 ≥5%) + freshness (≤30min) gate; SM + volume are bonuses. Wide let-winners-run DSL + SHORT 36h hard_timeout (momentum is time-bounded). Tick 120s. | Momentum-event, Tier-sniper, Freshness-gate, Wide DSL, Tick 120s |
 
 ---
 
@@ -897,6 +898,7 @@ XYZ markets (stocks / commodities / pre-IPO) trade **24/7 on Hyperliquid**, even
 - **Break of the 7-day high/low (majors)** → 🟢 **Hawk** (breakout buyer / breakdown seller) · **Badger** (OI-confirmed).
 - **Buy the dip *within* an uptrend** → 🟢 **Salamander** (pullback catcher).
 - **Leaderboard rank-jumps caught early** → **Jaguar** · **Orca** · **Roach**.
+- **Fresh momentum events the instant they fire** (snipe the strongest, just-formed moves off the momentum feed) → **Meerkat** (tier + freshness sniper).
 - **Ride a liquidation cascade / forced flow** (OI unwinding fast + a violent move) → **Piranha** (microstructure / order-flow).
 - **Trade order-book pressure** (resting bid/ask depth skew, confirmed by momentum + SM) → **Marlin** (microstructure / order-flow).
 
@@ -1036,6 +1038,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Osprey** | 9 — Cross-asset lag detector (cross-VENUE variant) | BTC → xyz: equity proxies (COIN/MSTR/miners). Self-computes the catch-up gap (leader move × beta − proxy move) from candles; trades the proxy in the leader's direction while it owes the gap. NOT cross_asset_flows (crypto-only). Wide let-winners-run DSL, 96h hard_timeout |
 | **Remora** | 5 — Trader-follower (hand-picked whale mirror) | Operator-picked whale set. Mirrors each whale's largest-notional position, scored by consensus (2 whales +2, 3+ +3) + ELITE-tier bonus. Unwraps the nested leaderboard_get_trader_positions shape. Wide let-winners-run DSL, 120h staleness cap |
 | **Cuckoo** | 14 — Meta-strategy follower / copy-the-copiers | Auto-discovers the top-N strategies by performance and trades their performance-weighted consensus (weight = clamp(1 + roi/50, 0.5, cap)); gate ≥2 strategies agree. Wide let-winners-run DSL, 96h staleness cap. User-scope auth |
+| **Meerkat** | 6 — Striker / rank-jump (momentum-event-feed variant) | Reads leaderboard_get_momentum_events directly; snipes the freshest (≤30min), highest-tier (3 ≥10% · 2 ≥5%) momentum events in the move's direction. SM + volume bonuses. Wide let-winners-run DSL + short 36h hard_timeout. Tick 120s. User-scope auth |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 

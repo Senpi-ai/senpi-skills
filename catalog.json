@@ -586,6 +586,21 @@
       "version": "3.0.1"
     },
     {
+      "id": "meerkat",
+      "tracker_slug": "meerkat",
+      "name": "Meerkat \u2014 Momentum-Event Sniper",
+      "emoji": "\ud83e\udda6",
+      "tagline": "Stand sentry, pop the instant something moves. Snipes the freshest, highest-tier momentum events off the Senpi event feed before the move is broadly known.",
+      "group": "striker-rank-jump",
+      "sort_order": 31,
+      "min_budget": 500,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/meerkat",
+      "version": "1.0.0"
+    },
+    {
       "id": "salamander",
       "tracker_slug": "salamander",
       "name": "Salamander \u2014 Pullback Catcher",
