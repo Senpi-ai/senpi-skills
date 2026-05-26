@@ -380,6 +380,7 @@ cfg._wrapper_client.push_signal(
 | **Jackal** | v1.0 | Multi (follows top traders) | Maintains an active trader pool, detects new entries, enriches each candidate with TA + funding regime. Strict per-trader contamination rules. | New-entry, TA, Funding |
 | **Spider** | v2.0 | Multi (arena-anchored) | Patient anchor sniper. Arena-leader overlap + SM-leaderboard universe + funding + relative strength. Single-leg, 7-day minimum hold, fee-aware. | Patient, Arena-anchor, 7d-hold |
 | **Albatross** | v1.0 | Arena leaders (multi-week composite) | **Onboarding tier.** Mirrors Senpi Arena leaders selected by composite conviction score: `0.3 × monthly_roe + 0.7 × mean(weekly_roe) − 0.5 × stdev(weekly_roe)`. Rewards multi-week persistence, penalizes lucky-week luck. Pool refreshes every 4h. **Requires user-scope auth token** (calls `strategy_list` + `discovery_get_trader_state` for other users). | Onboarding, Arena, Multi-week, Conviction-weighted, User-scope-auth-required |
+| **Remora** | v1.0 | Operator-picked whale set | **Hand-picked mirror.** You name the whales; Remora takes each whale's highest-conviction (largest-notional) position and mirrors the strongest, with a **consensus** multiplier (2 whales +2, 3+ +3) and an ELITE/RELIABLE-tier bonus. Contrast to the universe scanners above — exposure tracks traders YOU choose. Wide let-winners-run DSL + 120h staleness cap (whale-exit mirror is a future enhancement). Tick 600s. | Whale-mirror, Consensus, Operator-picked, Wide DSL |
 
 ---
 
@@ -842,6 +843,7 @@ Ask which one sentence sounds most like the user:
 
 - **Multi-week arena winners** (proven over a month, not one lucky week) → 🟢 **Albatross** (conviction-weighted leader pool).
 - **Live hot-streak traders** (whoever's hot right now) → **Raptor** · **Jackal** · **Spider** (arena-anchored).
+- **Specific whales YOU pick** (name the traders, mirror their biggest bet) → **Remora** — hand-picked whale mirror with a consensus boost when several agree.
 
 ### Layer 2D — Single-market specialist → which market?
 
@@ -996,6 +998,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Chameleon** | 13 — Relative-value / pairs | ETH/BTC · SOL/ETH · SOL/BTC. Ratio mean-reversion — trades the high-beta leg when a pair's z-score extends ~2σ and starts reverting. Mean-reversion DSL |
 | **Falcon** | 3 — Single-asset XYZ specialist (event-detection layer) | xyz: conversion events. Detects the IPOP→equity flip (funding jumps ~100x, leverage cap lifts, throttle off) and rides post-conversion price-discovery momentum. Class-state + conversion-window cache. Wide let-winners-run DSL, 7d hard_timeout |
 | **Osprey** | 9 — Cross-asset lag detector (cross-VENUE variant) | BTC → xyz: equity proxies (COIN/MSTR/miners). Self-computes the catch-up gap (leader move × beta − proxy move) from candles; trades the proxy in the leader's direction while it owes the gap. NOT cross_asset_flows (crypto-only). Wide let-winners-run DSL, 96h hard_timeout |
+| **Remora** | 5 — Trader-follower (hand-picked whale mirror) | Operator-picked whale set. Mirrors each whale's largest-notional position, scored by consensus (2 whales +2, 3+ +3) + ELITE-tier bonus. Unwraps the nested leaderboard_get_trader_positions shape. Wide let-winners-run DSL, 120h staleness cap |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 

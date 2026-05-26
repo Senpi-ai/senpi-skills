@@ -631,6 +631,21 @@
       "version": "4.0.1"
     },
     {
+      "id": "remora",
+      "tracker_slug": "remora",
+      "name": "Remora \u2014 Whale Single-Position Mirror",
+      "emoji": "\ud83d\udc1f",
+      "tagline": "Ride the whales you choose. Names a hand-picked set of traders, takes each whale's biggest-conviction position, and mirrors the strongest \u2014 with a consensus boost when several agree.",
+      "group": "trader-follower",
+      "sort_order": 34,
+      "min_budget": 500,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/remora",
+      "version": "1.0.0"
+    },
+    {
       "id": "turbine",
       "tracker_slug": "turbine",
       "name": "Turbine \u2014 Volume Engine + Runners",
