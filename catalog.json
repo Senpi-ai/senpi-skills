@@ -121,6 +121,21 @@
       "version": "1.0.0"
     },
     {
+      "id": "chameleon",
+      "tracker_slug": "chameleon",
+      "name": "Chameleon \u2014 Relative-Value / Pairs",
+      "emoji": "\ud83e\udd8e",
+      "tagline": "Trades the spread between two coins, not the market. When a pair ratio (ETH/BTC, SOL/ETH) stretches far from its mean, it bets on the snap-back via the high-beta leg.",
+      "group": "relative-value-pairs",
+      "sort_order": 1,
+      "min_budget": 500,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/chameleon",
+      "version": "1.0.0"
+    },
+    {
       "id": "cheetah",
       "tracker_slug": "cheetah",
       "name": "Cheetah \u2014 Multi-Signal Confluence Sniper",
