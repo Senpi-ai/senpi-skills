@@ -1,0 +1,20 @@
+{
+  "_comment": "OSPREY v1.0.0 — Cross-Venue Lag (crypto leader → XYZ equity proxy). Each tick measures the leader's recent move over moveLookbackBars 1h candles; if |move| >= minLeaderMovePct it checks each proxy's catch-up gap (leader move × beta − the proxy's own move). When |gap| >= minGapPct AND the gap shares the leader's sign (proxy still owes catch-up in the leader's direction), it trades the proxy in that direction. Wide let-winners-run DSL (96h hard_timeout). Edit wallet/strategyId/chatId; tune leader/proxies/betas/thresholds. Proxy list is operator-tunable — add/remove crypto-correlated XYZ equities and set each beta to the leader. Distinct from Mantis, which trades crypto→crypto laggards.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "leader": "BTC",
+  "proxies": [
+    { "proxy": "xyz:COIN", "beta": 1.8 },
+    { "proxy": "xyz:MSTR", "beta": 2.5 }
+  ],
+  "moveLookbackBars": 4,
+  "minLeaderMovePct": 2.0,
+  "minGapPct": 2.0,
+  "strongGapPct": 5.0,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "minScore": 4,
+  "marginPct": 0.15,
+  "leverage": 4
+}

@@ -406,6 +406,21 @@
       "version": "6.0.0"
     },
     {
+      "id": "osprey",
+      "tracker_slug": "osprey",
+      "name": "Osprey \u2014 Cross-Venue Lag (Crypto \u2192 XYZ Equity)",
+      "emoji": "\ud83e\udd85",
+      "tagline": "When BTC moves, the crypto stocks (Coinbase, MicroStrategy, miners) lag on XYZ. Osprey measures each proxy's catch-up gap and trades it in the leader's direction.",
+      "group": "cross-asset-lag",
+      "sort_order": 2,
+      "min_budget": 500,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/osprey",
+      "version": "1.0.0"
+    },
+    {
       "id": "marlin",
       "tracker_slug": "marlin",
       "name": "Marlin \u2014 Order-Book Imbalance Momentum",

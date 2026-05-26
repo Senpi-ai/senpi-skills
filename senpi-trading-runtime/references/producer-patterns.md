@@ -592,6 +592,7 @@ if flows.get("laggards"):
 | Agent | Version | Asset / Universe | Description | Tags |
 |---|---|---|---|---|
 | **Mantis** | v5.0 | Multi (BTC-led laggards) | When BTC moves >2% in 4h, identifies laggard alts with follow-rate ≥0.8 and enters for the catch-up close. Direction matches BTC's 4h move sign. Tick 60s. Often silent on quiet BTC days. | BTC-led, Follow-rate ≥0.8, Tick 60s |
+| **Osprey** | v1.0 | BTC → xyz: equity proxies | **Cross-VENUE variant.** When BTC moves, crypto-correlated XYZ equities (COIN, MSTR, miners) lag on the other venue. Osprey self-computes the catch-up gap (`leader move × beta − proxy move`) from candles — it does NOT use `cross_asset_flows` (which only surfaces crypto laggards) — and trades the proxy in the leader's direction while it still owes the gap. Wide let-winners-run DSL, 96h hard_timeout. Tick 300s. | Cross-venue, XYZ-equity, Beta-gap, Wide DSL, Self-computed |
 
 ---
 
@@ -864,6 +865,7 @@ XYZ markets (stocks / commodities / pre-IPO) trade **24/7 on Hyperliquid**, even
 ### Layer 2F — Structural / neutral → what structure?
 
 - **BTC-led laggard rotation** (an alt that hasn't caught up to a BTC move yet) → **Mantis** (cross-asset lag).
+- **Crypto stocks that lag a BTC move** (COIN / MSTR / miners on XYZ haven't caught up yet) → **Osprey** (cross-VENUE lag — self-computes the catch-up gap from each proxy's beta).
 - **Volume / market-making** (not a directional bet) → **Turbine** (specialized).
 - **Trade the spread between two coins** (a pair's ratio stretched far from its mean) → **Chameleon** (relative-value / pairs — ratio mean-reversion).
 - *Expanding set — copy-the-copiers is being added. Already live: microstructure (Piranha, Marlin — Layer 2E) and relative-value / pairs (Chameleon).*
@@ -993,6 +995,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Marlin** | 12 — Microstructure / order-flow | BTC/ETH/SOL/HYPE. Order-book imbalance (bid/ask depth skew) as entry-timing on a momentum thesis — not a scalper. Wide DSL + 24h hard_timeout |
 | **Chameleon** | 13 — Relative-value / pairs | ETH/BTC · SOL/ETH · SOL/BTC. Ratio mean-reversion — trades the high-beta leg when a pair's z-score extends ~2σ and starts reverting. Mean-reversion DSL |
 | **Falcon** | 3 — Single-asset XYZ specialist (event-detection layer) | xyz: conversion events. Detects the IPOP→equity flip (funding jumps ~100x, leverage cap lifts, throttle off) and rides post-conversion price-discovery momentum. Class-state + conversion-window cache. Wide let-winners-run DSL, 7d hard_timeout |
+| **Osprey** | 9 — Cross-asset lag detector (cross-VENUE variant) | BTC → xyz: equity proxies (COIN/MSTR/miners). Self-computes the catch-up gap (leader move × beta − proxy move) from candles; trades the proxy in the leader's direction while it owes the gap. NOT cross_asset_flows (crypto-only). Wide let-winners-run DSL, 96h hard_timeout |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 
