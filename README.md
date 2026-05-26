@@ -330,7 +330,7 @@ Each tool's full schema (params, types, response shape) is in the MCP server its
 
 # Trading Strategy Skills
 
-The live fleet — **26 skills across 11 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
+The fleet — **36 skills across 14 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
 
 Each row links to the skill's directory.
 
@@ -379,7 +379,7 @@ Senpi's distinctive moat — equity, commodity, and pre-IPO perps that retail ca
 
 ---
 
-# The 11 production archetypes
+# The 14 production archetypes
 
 Below are the production-tier strategies sorted by their producer-pattern archetype. See [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md) for the canonical pattern catalog. The onboarding tier above maps into these same archetypes (Beaver/Heron/Hummingbird are single-asset; Hedgehog/Hawk/Salamander/Bobcat are multi-asset whitelist; Albatross is trader-follower; Lemur/Raccoon are XYZ specialist).
 
@@ -412,6 +412,7 @@ Kodiak architecture applied to a single non-crypto XYZ asset.
 | Skill | Version | Asset | Description |
 |---|---|---|---|
 | [dire](dire/) | v1.0 | xyz:BRENTOIL | BRENTOIL specialist. Wider phase-1 loss tolerances, commodity-specific drawdown guardrails. |
+| [falcon](falcon/) | v1.0 | xyz: conversion events | **Event-detection layer.** Trades the IPOP→equity conversion itself: classifies every xyz instrument IPOP vs STANDARD by funding signature, caches it, and fires when one flips (funding jumps ~100x, throttle off → free price discovery). Rides post-conversion momentum. Wide DSL, 7d hard timeout. |
 
 ## 4. Multi-asset whitelist
 
@@ -420,6 +421,7 @@ Strict whitelist of 3–6 majors, best-of-N selection per tick.
 | Skill | Version | Asset / Universe | Description |
 |---|---|---|---|
 | [bison](bison/) | v1.0 | BTC · ETH · SOL | Iterates BTC / ETH / SOL per tick, fires the best-scoring above MIN_SCORE. Tick 300s. |
+| [badger](badger/) | v1.0 | BTC · ETH · SOL · HYPE | Takes a breakout only when **rising open interest** confirms it (new money, not a fakeout). OI-state cache. Wide "let winners run" DSL. |
 
 ## 5. Trader-follower / hot-streak
 
@@ -430,6 +432,7 @@ Top-trader pool + conviction-gated coat-tail entries.
 | [raptor](raptor/) | v3.0 | Multi (top traders) | 24h-cached trader pool. Gates on reputation, position size, SM alignment, per-trader entry discipline. |
 | [jackal](jackal/) | v1.0 | Multi (top traders) | Active trader pool + new-entry detector. Enriches with TA + funding regime. |
 | [spider](spider/) | v2.0 | Multi (arena-anchored) | Patient anchor sniper — arena-leader overlap + SM universe + funding + relative strength. 7-day minimum hold. |
+| [remora](remora/) | v1.0 | Operator-picked whale set | **Hand-picked mirror.** You name the whales; Remora mirrors each one's largest-notional position, with a consensus boost when ≥2 agree + an ELITE-tier bonus. Wide DSL, 120h staleness cap. |
 
 ## 6. Striker / rank-jump
 
@@ -441,6 +444,7 @@ Detect rank acceleration on the SM leaderboard. First-jump events, high-convicti
 | [roach](roach/) | v1.0 | Multi (Strikers) | Striker-only emitter. FIRST_JUMP / IMMEDIATE_MOVER with volume floor. |
 | [roach](roach/) (roach-b instance) | v1.0 | Multi (Strikers) | Second wallet instance of the Roach producer. |
 | [orca](orca/) | v1.0 | Multi (Strikers) | Gen-1 vanilla Striker — FIRST_JUMP + volume + base scoring. |
+| [meerkat](meerkat/) | v1.0 | Multi (momentum-event feed) | **Event-feed variant.** Reads `leaderboard_get_momentum_events` directly and snipes the freshest (≤30min), highest-tier (3 ≥10% · 2 ≥5%) momentum events. Wide DSL + short 36h hard timeout. Tick 120s. |
 
 ## 7. Funding-regime fade
 
@@ -460,6 +464,7 @@ Wait for crowd to overcommit AND exhaustion signals; enter opposite.
 |---|---|---|---|
 | [owl](owl/) | v6.1 | Multi (OI > $3M) | Crowding persistence (1+ hour) + multi-signal exhaustion. Tick 900s. 6h per-asset cooldown. |
 | [lemon](lemon/) | v1.1 | Crypto majors + XYZ | Degen Fader — counter-trades CHOPPY/DEGEN consensus. MACRO_TREND_GATE blocks fades during strong BTC trends. |
+| [egret](egret/) | v1.0 | BTC · ETH · SOL · HYPE | SM-divergence fader — fades extreme Smart-Money crowding (≥70%) that price won't confirm. Tight DSL + maker-only entry + time-cuts on. |
 
 ## 9. Cross-asset lag detector
 
@@ -468,6 +473,7 @@ BTC leads alts on macro moves; capture the catch-up.
 | Skill | Version | Asset / Universe | Description |
 |---|---|---|---|
 | [mantis](mantis/) | v5.0 | Multi (BTC-led laggards) | BTC moves >2% in 4h → identifies laggard alts with follow-rate ≥0.8. Tick 60s. Often silent on quiet BTC days. |
+| [osprey](osprey/) | v1.0 | BTC → xyz: equity proxies | **Cross-VENUE variant.** When BTC moves, crypto-correlated XYZ equities (COIN/MSTR/miners) lag on the other venue. Self-computes the catch-up gap (`leader move × beta − proxy move`) from candles. Wide DSL, 96h hard timeout. |
 
 ## 10. Multi-asset XYZ contrarian fader
 
@@ -485,6 +491,31 @@ Not directional. Two-wallet pair recycling builder fees against a volume target.
 | Skill | Version | Asset / Universe | Description |
 |---|---|---|---|
 | [turbine](turbine/) | v3.2 | Two-wallet pair | High-frequency cancel + create cycle. Volume wallet + runner wallet. Daily top-ups; net bleed = mission cost rate. |
+
+## 12. Microstructure / order-flow
+
+Trade the order book + open-interest dynamics directly — forced flow and resting-depth skew as the edge.
+
+| Skill | Version | Asset / Universe | Description |
+|---|---|---|---|
+| [piranha](piranha/) | v1.0 | BTC · ETH · SOL · HYPE | Rides forced flow — OI unwinding fast + a violent move + a thin book ⇒ liquidation cascade. OI-velocity self-compute fallback. Wide DSL + 24h hard timeout. |
+| [marlin](marlin/) | v1.0 | BTC · ETH · SOL · HYPE | Order-book-imbalance momentum — bid/ask resting-depth skew as the entry-TIMING edge on a momentum thesis (not a scalper). Wide DSL + 24h hard timeout. |
+
+## 13. Relative-value / pairs
+
+Trade the spread between two correlated assets, not a single asset's direction.
+
+| Skill | Version | Asset / Universe | Description |
+|---|---|---|---|
+| [chameleon](chameleon/) | v1.0 | ETH/BTC · SOL/ETH · SOL/BTC | Ratio mean-reversion — trades the high-beta leg when a pair's ratio z-score extends past ~2σ and starts reverting. Single-position directional bet (not a two-leg spread). Mean-reversion DSL (tight ladder, 48h). |
+
+## 14. Meta-strategy follower / copy-the-copiers
+
+Follow not individual traders but the top-performing **strategies** — and trade their performance-weighted consensus.
+
+| Skill | Version | Asset / Universe | Description |
+|---|---|---|---|
+| [cuckoo](cuckoo/) | v1.0 | Top-strategy consensus | Auto-discovers the top-N strategies by performance and trades what ≥2 of them agree on most, weighted by each one's ROI (capped so one outlier can't dominate). Wide DSL + 96h staleness cap. **User-scope auth.** |
 
 For full archetype theses, distinguishing MCP signatures, and code snippets, see [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md).
 
