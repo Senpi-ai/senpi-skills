@@ -1,0 +1,15 @@
+{
+  "_comment": "REMORA v1.0.0 — Whale Single-Position Mirror. Each tick pulls each configured whale's open positions (leaderboard_get_trader_positions), takes their highest-conviction (largest-notional) position above minNotionalUsd, aggregates across whales into (asset, direction) candidates, scores by consensus (how many whales agree) + whale quality (discovery_get_trader_state ELITE/RELIABLE tier when useWhaleQuality), and mirrors the strongest. Let-winners-run DSL with a 120h staleness cap. SET config.whales to the trader_ids/wallets you want to ride. Edit wallet/strategyId/chatId; tune thresholds. Distinct from the broad trader-followers (Raptor/Jackal/Spider) — Remora mirrors whales YOU choose.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "whales": [
+    { "trader_id": "0xWHALE_WALLET_OR_TRADER_ID_1" },
+    { "trader_id": "0xWHALE_WALLET_OR_TRADER_ID_2" }
+  ],
+  "useWhaleQuality": true,
+  "minNotionalUsd": 5000,
+  "minScore": 4,
+  "marginPct": 0.15,
+  "leverage": 4
+}
