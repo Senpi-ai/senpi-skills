@@ -646,6 +646,21 @@
       "version": "1.0.0"
     },
     {
+      "id": "cuckoo",
+      "tracker_slug": "cuckoo",
+      "name": "Cuckoo \u2014 Copy-the-Copiers (Meta-Strategy Follower)",
+      "emoji": "\ud83d\udc26",
+      "tagline": "Let the best strategies do the work. Auto-discovers the top-performing strategies and trades their performance-weighted consensus \u2014 the layer above trader-following.",
+      "group": "trader-follower",
+      "sort_order": 35,
+      "min_budget": 500,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/cuckoo",
+      "version": "1.0.0"
+    },
+    {
       "id": "turbine",
       "tracker_slug": "turbine",
       "name": "Turbine \u2014 Volume Engine + Runners",

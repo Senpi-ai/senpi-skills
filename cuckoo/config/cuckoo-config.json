@@ -1,0 +1,14 @@
+{
+  "_comment": "CUCKOO v1.0.0 — Copy-the-Copiers (meta-strategy follower). Each tick auto-discovers the top topN strategies by realized performance (discovery_get_top_strategies), pulls each strategy's current positions (leaderboard_get_trader_positions), and builds a PERFORMANCE-WEIGHTED consensus: each strategy casts one vote per (asset, direction) it holds above minNotionalUsd, weighted by performance_weight(roi) = clamp(1 + roi/50, 0.5, weightCap). It trades the highest weighted-consensus candidate that >= minStrategies top strategies agree on. Because those strategies are themselves copy/algo strategies, Cuckoo copies the copiers. Let-winners-run DSL with a 96h staleness cap. Edit wallet/strategyId/chatId; tune topN/minStrategies/thresholds. NEW archetype #14. Distinct from Remora (operator-picked whales).",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "topN": 12,
+  "minStrategies": 2,
+  "minNotionalUsd": 2000,
+  "weightCap": 3.0,
+  "highWeight": 6.0,
+  "minScore": 4,
+  "marginPct": 0.15,
+  "leverage": 4
+}

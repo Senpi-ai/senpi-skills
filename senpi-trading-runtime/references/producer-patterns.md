@@ -739,6 +739,41 @@ z, ratio, mean, std = ratio_zscore(ca, cb, lookback=48)  # z of latest ratio vs 
 
 ---
 
+### 14. Meta-strategy follower / copy-the-copiers
+
+Follows not individual traders but the **top-performing strategies** on the platform — which are themselves copy/algo/trader-following strategies — and trades their **performance-weighted consensus**. The layer above trader-following: it captures the *consensus of the consensus*, and the pool self-cleans (underperformers fall out of the top-N automatically).
+
+```python
+strats = top_strategies(limit=12)                      # discovery_get_top_strategies, by realized PnL/ROI
+entries = []
+for s in strats:                                       # each strategy's live positions
+    w = performance_weight(s["roi"])                   # clamp(1 + roi/50, 0.5, cap) — stronger strategy, more say
+    for pos in trader_positions(s["wallet"]):          # leaderboard_get_trader_positions (nested data.positions.positions)
+        entries.append({"asset": asset(pos), "direction": dir(pos), "weight": w})
+consensus = tally_consensus(entries)                   # (asset,dir) -> {count, summed weight}
+# fire the highest weighted-consensus candidate that >= minStrategies agree on
+```
+
+| | |
+|---|---|
+| Producer-signature for fleet audit | `discovery_get_top_strategies` every tick (+ `leaderboard_get_trader_positions` per strategy) |
+| Typical tick interval | 600s (top-strategy consensus drifts slowly) |
+| Typical risk envelope | consensus-gated (≥2 top strategies agree), conviction-tier leverage, wide DSL + staleness cap |
+| Example agent | **Cuckoo** |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/cuckoo/scripts/cuckoo-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/cuckoo/scripts/cuckoo_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/cuckoo/runtime.yaml |
+
+**When to use this pattern:** you trust the platform's *aggregate* of best strategies more than any one trader or your own read, and want exposure that auto-rotates toward whatever is currently working. **Requires user-scope auth** (`discovery_get_top_strategies` + `leaderboard_get_trader_positions` for other accounts).
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Cuckoo** | v1.0 | Top-strategy consensus | Auto-discovers the top-N strategies by performance, builds a performance-weighted consensus across their positions, and trades what ≥2 of them agree on most. Wide let-winners-run DSL + 96h staleness cap. Tick 600s. | Meta-follower, Copy-the-copiers, Consensus, Performance-weighted, User-scope-auth-required |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.
@@ -844,6 +879,7 @@ Ask which one sentence sounds most like the user:
 - **Multi-week arena winners** (proven over a month, not one lucky week) → 🟢 **Albatross** (conviction-weighted leader pool).
 - **Live hot-streak traders** (whoever's hot right now) → **Raptor** · **Jackal** · **Spider** (arena-anchored).
 - **Specific whales YOU pick** (name the traders, mirror their biggest bet) → **Remora** — hand-picked whale mirror with a consensus boost when several agree.
+- **The best strategies, automatically** (don't pick anyone — follow whatever's working) → **Cuckoo** — auto-discovers the top-performing strategies and trades their performance-weighted consensus (copy-the-copiers).
 
 ### Layer 2D — Single-market specialist → which market?
 
@@ -870,7 +906,7 @@ XYZ markets (stocks / commodities / pre-IPO) trade **24/7 on Hyperliquid**, even
 - **Crypto stocks that lag a BTC move** (COIN / MSTR / miners on XYZ haven't caught up yet) → **Osprey** (cross-VENUE lag — self-computes the catch-up gap from each proxy's beta).
 - **Volume / market-making** (not a directional bet) → **Turbine** (specialized).
 - **Trade the spread between two coins** (a pair's ratio stretched far from its mean) → **Chameleon** (relative-value / pairs — ratio mean-reversion).
-- *Expanding set — copy-the-copiers is being added. Already live: microstructure (Piranha, Marlin — Layer 2E) and relative-value / pairs (Chameleon).*
+- *Expanding set — already live: microstructure (Piranha, Marlin — Layer 2E), relative-value / pairs (Chameleon), and copy-the-copiers meta-following (Cuckoo — Layer 2C).*
 
 ### Run a current top performer (by live ROE)
 
@@ -999,6 +1035,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Falcon** | 3 — Single-asset XYZ specialist (event-detection layer) | xyz: conversion events. Detects the IPOP→equity flip (funding jumps ~100x, leverage cap lifts, throttle off) and rides post-conversion price-discovery momentum. Class-state + conversion-window cache. Wide let-winners-run DSL, 7d hard_timeout |
 | **Osprey** | 9 — Cross-asset lag detector (cross-VENUE variant) | BTC → xyz: equity proxies (COIN/MSTR/miners). Self-computes the catch-up gap (leader move × beta − proxy move) from candles; trades the proxy in the leader's direction while it owes the gap. NOT cross_asset_flows (crypto-only). Wide let-winners-run DSL, 96h hard_timeout |
 | **Remora** | 5 — Trader-follower (hand-picked whale mirror) | Operator-picked whale set. Mirrors each whale's largest-notional position, scored by consensus (2 whales +2, 3+ +3) + ELITE-tier bonus. Unwraps the nested leaderboard_get_trader_positions shape. Wide let-winners-run DSL, 120h staleness cap |
+| **Cuckoo** | 14 — Meta-strategy follower / copy-the-copiers | Auto-discovers the top-N strategies by performance and trades their performance-weighted consensus (weight = clamp(1 + roi/50, 0.5, cap)); gate ≥2 strategies agree. Wide let-winners-run DSL, 96h staleness cap. User-scope auth |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 
