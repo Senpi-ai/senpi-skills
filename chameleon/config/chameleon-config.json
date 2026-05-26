@@ -1,0 +1,18 @@
+{
+  "_comment": "CHAMELEON v1.0.0 — Relative-Value / Pairs ratio mean-reversion. For each pair (numerator/denominator, plus the high-beta leg actually traded), computes the latest ratio's z-score vs its mean/std over lookbackBars 1h candles. When |z| >= zEntryMin AND the reversion is starting, trades the leg in the direction that profits as the ratio reverts (z high → numerator rich → SHORT the leg if leg==numerator, LONG if leg==denominator; mirror for z low). Mean-reversion DSL (tight ladder, 48h hard_timeout). Edit wallet/strategyId/chatId; tune pairs/thresholds.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "pairs": [
+    { "numerator": "ETH", "denominator": "BTC", "leg": "ETH" },
+    { "numerator": "SOL", "denominator": "ETH", "leg": "SOL" },
+    { "numerator": "SOL", "denominator": "BTC", "leg": "SOL" }
+  ],
+  "minScore": 4,
+  "lookbackBars": 48,
+  "zEntryMin": 2.0,
+  "zStrong": 3.0,
+  "smTiltMinPct": 55,
+  "marginPct": 0.15,
+  "leverage": 4
+}

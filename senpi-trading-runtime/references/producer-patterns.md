@@ -712,6 +712,30 @@ bid_depth, ask_depth = sum(l["sz"] for l in levels[0]), sum(l["sz"] for l in lev
 
 ---
 
+### 13. Relative-value / pairs
+
+The first archetype to trade **relative value** instead of a single asset's direction. It measures how stretched a price *ratio* between two correlated assets is (z-score over a lookback) and bets on reversion — ratios mean-revert far more reliably than outright prices.
+
+```python
+# Per pair (numerator/denominator, plus the high-beta leg actually traded):
+ca = closes("ETH"); cb = closes("BTC")                 # 1h candles for BOTH legs
+z, ratio, mean, std = ratio_zscore(ca, cb, lookback=48)  # z of latest ratio vs its window
+# z high (numerator rich)  → ratio reverts down → SHORT leg if leg==numerator, LONG if leg==denominator
+# z low  (numerator cheap) → mirror.  Enter when |z| >= ~2 AND reversion is starting (|z| shrinking vs last bar).
+```
+
+**Single-position note:** a textbook pairs trade is two legs (long A / short B) for market-neutrality. The Senpi runtime is single-position, so this archetype takes the **directional high-beta leg** in the reversion direction — capturing most of the edge without spread-level position management.
+
+**When to use this pattern:** you believe two assets are tethered (BTC/ETH/SOL) and want to trade the *spread* reverting rather than guess absolute direction. Mean-reversion play → tight "bank the snapback" DSL + time-cuts ON (a reversion resolves fast or the thesis failed).
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Chameleon** | v1.0 | ETH/BTC, SOL/ETH, SOL/BTC | Ratio mean-reversion — trades the high-beta leg when a pair's ratio z-score extends past ~2σ and starts reverting. Mean-reversion DSL. | Ratio z-score, Pairs, Mean-reversion |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.
@@ -839,7 +863,8 @@ XYZ markets (stocks / commodities / pre-IPO) trade **24/7 on Hyperliquid**, even
 
 - **BTC-led laggard rotation** (an alt that hasn't caught up to a BTC move yet) → **Mantis** (cross-asset lag).
 - **Volume / market-making** (not a directional bet) → **Turbine** (specialized).
-- *Expanding set — relative-value pairs and copy-the-copiers are being added. (Microstructure is already live — Piranha (forced flow) and Marlin (order-book imbalance) under Layer 2E.)*
+- **Trade the spread between two coins** (a pair's ratio stretched far from its mean) → **Chameleon** (relative-value / pairs — ratio mean-reversion).
+- *Expanding set — copy-the-copiers is being added. Already live: microstructure (Piranha, Marlin — Layer 2E) and relative-value / pairs (Chameleon).*
 
 ### Run a current top performer (by live ROE)
 
@@ -964,6 +989,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Egret** | 8 — Contrarian crowding-unwind (SM-divergence fader) | BTC/ETH/SOL/HYPE. Fades extreme SM crowding (≥70%) that price won't confirm. Tight DSL + maker-only entry + time-cuts on |
 | **Piranha** | 12 — Microstructure / order-flow | BTC/ETH/SOL/HYPE. Rides forced flow — OI unwinding fast + violent move + thin book ⇒ liquidation cascade. Wide DSL + 24h hard_timeout |
 | **Marlin** | 12 — Microstructure / order-flow | BTC/ETH/SOL/HYPE. Order-book imbalance (bid/ask depth skew) as entry-timing on a momentum thesis — not a scalper. Wide DSL + 24h hard_timeout |
+| **Chameleon** | 13 — Relative-value / pairs | ETH/BTC · SOL/ETH · SOL/BTC. Ratio mean-reversion — trades the high-beta leg when a pair's z-score extends ~2σ and starts reverting. Mean-reversion DSL |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 
