@@ -254,6 +254,7 @@ cfg._wrapper_client.push_signal(
 |---|---|---|---|---|
 | **Dire** | v1.0 | xyz:BRENTOIL | BRENTOIL specialist. Adapted Kodiak framework with XYZ-tuned thresholds and wider phase-1 loss tolerances. Commodity-specific drawdown guardrails. | BRENTOIL, Wide DSL, XYZ |
 | **Lemur** | v1.0 | xyz:IPOPs (auto-discovered) | **Onboarding tier.** Auto-detects Pre-IPO Perpetuals (IPOPs) via the trade.xyz funding signature: `\|funding\| ≤ 1e-7 AND max_leverage ≤ 5` (1% funding multiplier vs 0.5 standard). Today: `xyz:SPCX`. Auto-expands when ANTHROPIC / OPENAI / STRIPE list. 24/7 trading, moderate DSL. Tick 900s (Discovery Bounds throttle moves). | Onboarding, IPOP, Auto-discover, Tick 900s, 24/7 |
+| **Falcon** | v1.0 | xyz: conversion events | **Event-detection layer.** Trades the IPOP→equity **conversion** itself, not the pre-listing basket. Classifies every xyz instrument IPOP vs STANDARD by funding signature, caches it, and fires when one **flips** (funding jumps ~100x, leverage cap lifts, Discovery Bounds throttle removed → free price discovery). Requires post-conversion momentum; rides it with a **wide let-winners-run DSL** (7d hard_timeout). Carries a class-state + conversion-window cache (Badger/Piranha pattern). Tick 600s. | IPOP, Conversion-event, Momentum, Wide DSL, State-cache |
 
 ---
 
@@ -789,7 +790,7 @@ Most first-time users can't say "I want a trend-follower" — they don't have th
 | **VIOLENT** move + OI unwinding fast (Hyperfeed lit up) | Microstructure → **Piranha** (*only if risk = "go big"*) |
 | Hyperfeed shows a **fresh rank-jump / breakout** | 🟢 **Hawk** (breakout) or **Jaguar** (rank-jump) |
 | User would rather **copy winners** / has no asset view | 🟢 **Albatross** (multi-week arena winners) |
-| Interest in **stocks / commodities** | 🟢 **Bobcat** (big-tech) · **Dire** (oil) · **Lemur** (pre-IPO) |
+| Interest in **stocks / commodities** | 🟢 **Bobcat** (big-tech) · **Dire** (oil) · **Lemur** (pre-IPO) · **Falcon** (the IPO moment) |
 | Nothing clean (chop + weak signals) | Default → **Hedgehog** basket, `balanced`, conservative sizing — or honestly say *"nothing's set up cleanly right now; want to start small and watch, or wait?"* |
 
 *Step 4 — size & advise (don't gate):* `min_budget` is a **guideline, not a gate — never refuse to deploy over it.** If the account is below a candidate's `min_budget`, still offer it, but flag it plainly (*"you're under the ~$X suggested floor, so positions will be small and have less room — you can start tiny now or fund more"*) and let the user decide. Never dead-end a willing user; offer to start small or watch first instead of saying "no." Set margin % + leverage + DSL preset from the risk answer (cautious → ~15% / 3x / `balanced`; aggressive → ~25% / 5x / `let_winners_run`). Whatever the size, tell them to **fund only what they can afford to lose.**
@@ -846,6 +847,7 @@ Ask which one sentence sounds most like the user:
 XYZ markets (stocks / commodities / pre-IPO) trade **24/7 on Hyperliquid**, even when TradFi is closed.
 
 - 🔥 **Pre-IPO names (IPOPs — SpaceX, etc.)** → 🟢 **Lemur** — trades pre-IPO perpetuals *before the company lists*; auto-discovers new IPOPs by their funding signature (today: SPCX/SpaceX; auto-expands as trade.xyz lists names like ANTHROPIC, OPENAI, STRIPE). One of Senpi's most distinctive capabilities.
+- 🔥 **The IPO moment itself (when a pre-IPO name goes public)** → **Falcon** — sits out the pre-listing phase and fires only *around the conversion*, when an IPOP flips to a standard equity perp (funding jumps ~100x, leverage cap lifts, the price throttle comes off → free price discovery). Rides the post-conversion momentum with a wide let-winners-run DSL. Pairs naturally with Lemur (Lemur holds the IPOP; Falcon trades its graduation).
 - **Big-tech stocks (XYZ equities)** → 🟢 **Bobcat** (NVDA/TSLA/AAPL/META/MSFT/GOOGL/…).
 - **Oil / metals / indices (XYZ)** → **Dire** (BRENTOIL) as the template — tune the asset string.
 - **Weekend stock-gap reconciliation** → 🟢 **Raccoon** (weekend-only XYZ snap-back, captures the Mon-open move).
@@ -990,6 +992,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Piranha** | 12 — Microstructure / order-flow | BTC/ETH/SOL/HYPE. Rides forced flow — OI unwinding fast + violent move + thin book ⇒ liquidation cascade. Wide DSL + 24h hard_timeout |
 | **Marlin** | 12 — Microstructure / order-flow | BTC/ETH/SOL/HYPE. Order-book imbalance (bid/ask depth skew) as entry-timing on a momentum thesis — not a scalper. Wide DSL + 24h hard_timeout |
 | **Chameleon** | 13 — Relative-value / pairs | ETH/BTC · SOL/ETH · SOL/BTC. Ratio mean-reversion — trades the high-beta leg when a pair's z-score extends ~2σ and starts reverting. Mean-reversion DSL |
+| **Falcon** | 3 — Single-asset XYZ specialist (event-detection layer) | xyz: conversion events. Detects the IPOP→equity flip (funding jumps ~100x, leverage cap lifts, throttle off) and rides post-conversion price-discovery momentum. Class-state + conversion-window cache. Wide let-winners-run DSL, 7d hard_timeout |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 

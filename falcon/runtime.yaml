@@ -1,0 +1,191 @@
+name: falcon-tracker
+# Top-level `version` is the SCHEMA version expected by the
+# senpi-trading-runtime plugin (major=1). Skill version is "Falcon v1.0.0"
+# and lives in description + SKILL.md + _falcon_producer_version.
+version: 1.0.0
+description: >
+  FALCON v1.0.0 — Conversion-Event Momentum (XYZ Pre-IPO → equity).
+
+  A Pre-IPO Perpetual (IPOP) carries a structural funding signature
+  (|funding| <= ~1e-7, max_leverage <= 5) and is price-throttled by trade.xyz
+  Discovery Bounds. When the company IPOs the product CONVERTS to a standard
+  equity perp — funding jumps ~100x, the leverage cap lifts, the throttle is
+  removed — opening a window of free price discovery. Falcon detects the
+  IPOP→STANDARD flip and trades the post-conversion momentum.
+
+  Distinct from Lemur, which trades the IPOP basket WHILE it is still an IPOP.
+  Falcon only fires AROUND the conversion.
+
+  Architecture (helpers-native): producer ticks every 600s, classifies every
+  xyz instrument IPOP vs STANDARD, detects flips against a class cache, stamps
+  flips into a conversionWindowHours eligibility window, and emits
+  FALCON_CONVERSION_MOMENTUM via SenpiClient.push_signal() when confirmed
+  momentum develops. LLM gate is pass-through.
+
+  DSL: let-winners-run preset — wide ladder (T0 +10% / lock 0), max_loss 20%,
+  time-cuts OFF except a long hard_timeout (price discovery can trend for
+  days). Phase 1 retrace trailing only.
+
+strategy:
+  wallet: "${WALLET_ADDRESS}"
+  slots: 1
+  margin_per_slot: 200
+  trading_risk: balanced
+  enabled: true
+
+risk:
+  data_retention_hours: 96
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 2
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_minutes: 120
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_minutes: 720
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+  - name: falcon_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        direction: { type: string, required: true }
+        reasons: { type: array, required: false }
+        momentumPct: { type: number, required: false }
+        smDirection: { type: string, required: false }
+        smTiltPct: { type: number, required: false }
+        volumeTrendPct: { type: number, required: false }
+        conversionEvent: { type: boolean, required: false }
+        heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: falcon_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${FALCON_DECISION_MODEL}"   # REQUIRED. Bare model name only — NO provider prefix.
+    scanners: [falcon_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true         # enter the discovery move — a maker order that rests (CREATE_ORDER_RESTING) misses the post-conversion run
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: falcon_signals
+    decision_prompt: |
+      You are Falcon's pass-through gate. Falcon trades the CONVERSION EVENT of
+      a Hyperliquid XYZ Pre-IPO Perpetual (IPOP): the product just flipped from
+      IPOP to a standard equity perp (funding jumped ~100x, leverage cap lifted,
+      Discovery-Bounds price throttle removed), opening free price discovery. The
+      producer confirmed the flip is inside the eligibility window AND that
+      directional momentum has developed. Honor the signal.
+
+      SIGNAL:
+      {{signal_falcon_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. asset MUST be copied from signal.asset EXACTLY (keep the xyz: prefix and case).
+      2. direction MUST be copied from signal.direction (LONG or SHORT).
+      3. leverage MUST be copied from signal.data.leverage (1-10x).
+      4. marginUsd MUST be copied from signal.data.marginUsd.
+      5. Every claim in reasoning MUST cite signal values.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 5 (producer floor; defensive)
+      - leverage <= 0 OR marginUsd <= 0
+      - signal.asset already in signal.data.heldAssets (duplicate)
+      - reasons array empty
+      - conversionEvent is not true (Falcon ONLY trades post-conversion)
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 7 AND |momentumPct| >= 8
+      - 7-8:  score 5-6
+      - 7:    score 5 (producer floor) — the signal IS the validation
+      - <7:   producer floor not cleared (should never reach you)
+
+      ## OUTPUT FORMAT
+
+      Return JSON:
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values (e.g. 'score 7 xyz:SPCX LONG, IPOP→equity conversion, momentum +11.2%, vol rising — post-conversion discovery')",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "FALCON_CONVERSION_MOMENTUM ${direction} — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — let-winners-run preset) ──────────────────────
+#
+# Post-conversion price discovery can trend for days as a real spot reference
+# arrives and the leverage cap lifts. Let it run: wide ladder (T0 +10% / lock
+# 0), max_loss 20%, time-cuts OFF except a long hard_timeout. Phase 1 retrace
+# trailing only. NO weak_peak_cut / dead_weight_cut — they would churn a
+# slow-developing discovery trend.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 10080                  # 7d — a conversion discovery trend can run for days
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 360
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 12
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0 }
+        - { trigger_pct: 20,  lock_hw_pct: 40 }
+        - { trigger_pct: 35,  lock_hw_pct: 60 }
+        - { trigger_pct: 60,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
