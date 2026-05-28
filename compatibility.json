@@ -1,0 +1,13 @@
+{
+  "senpi-trading-runtime": {
+    "2.2": {
+      "runtimes": [
+        "1.0",
+        "1.1"
+      ],
+      "releases": {
+        "2.2.0": "3ae2d0926e2fb07bd5e7ecbcf70756eaa82fd01a"
+      }
+    }
+  }
+}
