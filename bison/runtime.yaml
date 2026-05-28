@@ -45,7 +45,7 @@ description: >
 strategy:
   wallet: "${WALLET_ADDRESS}"
   slots: 3
-  margin_per_slot: 250            # baseline; LLM passes conviction-tier marginUsd from signal
+  margin_pct: 25        # baseline % of account budget; producer/LLM passes the tier marginUsd via signal
   trading_risk: moderate
   enabled: true
 

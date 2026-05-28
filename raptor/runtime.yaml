@@ -13,7 +13,7 @@ description: >
 strategy:
   wallet: "${WALLET_ADDRESS}"
   slots: 2
-  margin_per_slot: 250
+  margin_pct: 25        # % of account budget per slot (scales with any budget)
   trading_risk: moderate
   enabled: true
 
