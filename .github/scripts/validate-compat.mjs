@@ -3,11 +3,11 @@
 // on every PR that touches the file. Fails the PR with precise error
 // messages when entries are malformed.
 //
-// Checks every entry against the schema in
-// `/Users/yosephks/.claude/plans/senpi-skills-side-spec.md` §3:
+// Checks:
 //   1. Top-level value is an object of objects keyed by /^\d+\.\d+$/.
 //   2. runtimes entries match /^\d+\.\d+$/. A given runtime major.minor
-//      appears in at most one band across the entire file.
+//      appears in at most one band within a single skill — different skills
+//      can independently claim compatibility with the same runtime line.
 //   3. releases keys match /^\d+\.\d+\.\d+$/ and their major.minor equals
 //      the band key.
 //   4. releases values match /^[0-9a-f]{40}$/.
@@ -16,9 +16,15 @@
 //   6. <skill>/SKILL.md exists at that SHA, its YAML frontmatter parses,
 //      and its metadata.version equals the releases key.
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
+
+// Defense in depth: skill names become argv to `git show <sha>:<name>/SKILL.md`.
+// execFileSync already avoids the shell, but constraining the key shape catches
+// obviously-malformed registry entries up front and rules out git-arg injection
+// tricks (leading "-", path traversal, etc).
+const SKILL_NAME_RE = /^[a-z0-9][a-z0-9_-]*$/;
 
 const compatPath = "compatibility.json";
 
@@ -37,15 +43,22 @@ if (compat === null || typeof compat !== "object" || Array.isArray(compat)) {
   reportAndExit();
 }
 
-// Map of runtime majorMinor -> "skillName/bandKey" that already claimed it.
-// A given runtime version must be served by exactly one band across the file.
-const seenRuntimes = new Map();
-
 for (const [skillName, bands] of Object.entries(compat)) {
+  if (!SKILL_NAME_RE.test(skillName)) {
+    errors.push(
+      `Skill key "${skillName}" must match ${SKILL_NAME_RE} (lowercase alphanumeric, hyphens, underscores).`
+    );
+    continue;
+  }
+
   if (bands === null || typeof bands !== "object" || Array.isArray(bands)) {
     errors.push(`Skill "${skillName}" value must be an object of bands.`);
     continue;
   }
+
+  // Per-skill: a runtime major.minor must be served by exactly one band of
+  // THIS skill. Different skills may independently claim the same runtime.
+  const seenRuntimes = new Map();
 
   for (const [bandKey, band] of Object.entries(bands)) {
     if (!/^\d+\.\d+$/.test(bandKey)) {
@@ -71,7 +84,7 @@ for (const [skillName, bands] of Object.entries(compat)) {
         const owner = seenRuntimes.get(rt);
         if (owner) {
           errors.push(
-            `Runtime "${rt}" is listed in both ${owner} and ${skillName}/${bandKey} — must appear in at most one band.`
+            `Runtime "${rt}" is listed in both ${owner} and ${skillName}/${bandKey} — within a single skill it must appear in at most one band.`
           );
         } else {
           seenRuntimes.set(rt, `${skillName}/${bandKey}`);
@@ -107,7 +120,9 @@ for (const [skillName, bands] of Object.entries(compat)) {
       }
 
       try {
-        execSync(`git cat-file -e ${sha}^{commit}`, { stdio: "pipe" });
+        // execFileSync (no shell) — sha is hex-validated above, but we use
+        // execFile across the board so registry keys can never reach a shell.
+        execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`], { stdio: "pipe" });
       } catch {
         errors.push(
           `${skillName}/${bandKey}/${version}: SHA ${sha} is not reachable in this repository.`
@@ -118,7 +133,7 @@ for (const [skillName, bands] of Object.entries(compat)) {
       const skillMdPath = `${skillName}/SKILL.md`;
       let skillMdAtSha;
       try {
-        skillMdAtSha = execSync(`git show ${sha}:${skillMdPath}`, {
+        skillMdAtSha = execFileSync("git", ["show", `${sha}:${skillMdPath}`], {
           encoding: "utf8",
           stdio: ["ignore", "pipe", "pipe"],
         });
