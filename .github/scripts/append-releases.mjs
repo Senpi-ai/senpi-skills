@@ -106,7 +106,11 @@ for (const file of changedFiles) {
     continue;
   }
 
-  if (!band.releases || typeof band.releases !== "object") {
+  if (!band.releases || typeof band.releases !== "object" || Array.isArray(band.releases)) {
+    // compat-lint rejects arrays/non-objects on PR-time, so this branch is a
+    // defensive recovery rather than a normal code path. Reset to an empty
+    // object so the subsequent assignment isn't lost (JSON.stringify silently
+    // drops non-integer keys on arrays).
     band.releases = {};
   }
 
@@ -116,11 +120,20 @@ for (const file of changedFiles) {
         `append-releases: ${skillName}/${expectedBand}/${version} already pinned to ${sha} — no-op`
       );
     } else {
-      console.error(
+      // Skip, don't fail. This branch fires when:
+      //  (a) compat.json was hand-seeded with a pre-merge SHA (e.g. the
+      //      initial registry commit), then the merge fires this workflow
+      //      and github.sha is the merge commit — different from the seed.
+      //  (b) Someone edits SKILL.md without bumping the version (e.g. a
+      //      typo fix). Path-filter still triggers; version is unchanged.
+      // In both cases the registry already has a valid entry. compat-lint
+      // is the source of truth for "is the registered SHA self-consistent";
+      // we leave it alone here. Manual drift surfaces on the next
+      // compat.json PR via the lint.
+      console.log(
         `append-releases: ${skillName}/${expectedBand}/${version} already exists with a different SHA ` +
-          `(${band.releases[version]} vs ${sha}). Refusing to overwrite — investigate manually.`
+          `(registered ${band.releases[version]}, this push ${sha}) — leaving registry entry as-is`
       );
-      hadFatal = true;
     }
     continue;
   }
