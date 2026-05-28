@@ -19,6 +19,16 @@ on:
     paths:
       - 'senpi-trading-runtime/SKILL.md'
 
+# Serialize runs of this workflow. Each run does `git pull-style` work on main
+# (read compatibility.json -> append -> git push). If two tracked SKILL.md
+# pushes land back-to-back, parallel runs would both fetch the same base
+# state; the second push would fail with a non-fast-forward error and its
+# release entry would be lost. `cancel-in-progress: false` queues the second
+# run instead of cancelling it so both pushes get their entries.
+concurrency:
+  group: compat-update
+  cancel-in-progress: false
+
 jobs:
   update-compat:
     runs-on: ubuntu-latest
