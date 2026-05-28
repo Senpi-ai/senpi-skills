@@ -4,7 +4,23 @@ This repo is almost entirely AI-generated. The rules below exist because they ha
 
 ---
 
-## ▶ Writing or editing a trading strategy? Start here
+## ▶ User wants help with a "strategy"? Classify the intent FIRST
+
+The word "strategy" is overloaded in Senpi and the wrong path is the most common silent failure. Two paths, opposite code:
+
+- **Operational** — "Buy me HYPE 10x", "Open a short on BTC", "Copy this trader". The user named the position or trader. **Execute via MCP `strategy_create_custom_strategy`** (multi-asset positions) **or `strategy_create`** (copy-trader). Purely functional — no recommendation, no template, no producer code.
+- **Strategic** — "Help me pick a strategy", "What should I trade?", "Build a trading strategy", "Recommend a strategy". The user wants help deciding. **Template-first picker:** recommend 2–3 fits from `catalog.json` + `senpi-trading-runtime/references/producer-patterns.md`, install via `install_skill`. **Fallback** (only if no template fits): author a new one via `senpi-trading-runtime/references/strategy-creation.md`.
+- **Ambiguous** — ask the user before acting. A single disambiguation question costs nothing.
+
+**The canonical router with the full picker flow and the what-never-to-do list:** [`senpi-entrypoint/references/strategy-intent-routing.md`](senpi-entrypoint/references/strategy-intent-routing.md). Every surface points there.
+
+**Never default to `strategy_create_custom_strategy` for an ambiguous "what should I trade?"** That tool is for specific positions the user named. Using it as the default for strategic queries is the exact failure mode the router exists to prevent.
+
+---
+
+## ▶ Writing or editing a trading strategy (the build-new-autonomous-agent path)? Start here
+
+This section applies only to the **strategic / build-from-scratch** path above — *not* to operational MCP position-opening.
 
 Do **not** improvise a strategy from scratch. **Read one doc first: [`senpi-trading-runtime/references/strategy-creation.md`](senpi-trading-runtime/references/strategy-creation.md).** It's the self-contained fast path — the 5-step flow, the producer-only-emits-signals invariant, an archetype→example→DSL-preset table, an inline producer skeleton, a complete `runtime.yaml`, the DSL presets, and the gotchas, all in a single fetch. You should not need to browse the repo to produce a working strategy.
 

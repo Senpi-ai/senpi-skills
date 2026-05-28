@@ -148,9 +148,35 @@ Which sounds interesting? I can explain any in detail or deploy one right now.
 
 **When a new strategy is added to the MCP:** it appears automatically in the leaderboard. No agent code changes needed.
 
-### If user says "Build a new trading strategy" or "build a strategy" or "custom strategy" or "create a strategy"
+### If user says "help me pick a strategy", "what should I trade", "recommend a strategy", "build a trading strategy", or similar open-ended intent
 
-Building a real, deployable strategy means building it on the **Senpi Trading Runtime** — the canonical runtime + DSL exit engine + Python Producer SDK. Do NOT treat this as a pure brainstorm or improvise a strategy from scratch: route the user through the runtime's authoring path so what they build actually deploys and is risk-protected.
+> ⚠️ **First, classify the intent — do NOT default to building/authoring code.**
+>
+> - **"Buy me HYPE 10x" · "Open a short on BTC" · "Copy this trader 0x..."** — *operational, position-specific*. Execute via MCP `strategy_create_custom_strategy` (multi-asset positions) or `strategy_create` (copy-trader). No template recommendation, no producer code. Stop here.
+> - **"Help me pick" · "what should I trade" · "recommend a strategy" · "build a trading strategy"** — *strategic, open-ended*. **Run the picker flow below — recommend templates from our fleet FIRST.** Authoring from scratch is the fallback, never the default.
+> - **Ambiguous** — ask: *"Do you want to (a) open a specific position, (b) copy a specific trader, or (c) get help picking or building a strategy from our catalog?"* Then act.
+>
+> Full router with the what-never-to-do list: [`strategy-intent-routing.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-entrypoint/references/strategy-intent-routing.md).
+
+**Picker flow (the default for strategic intents — always recommend a fleet template first):**
+
+1. **Pull user context** in one parallel batch: `account_get_portfolio` (balance), `market_get_funding_regime` (regime), plus any expressed preference from the conversation.
+2. **Pull the live catalog:**
+   ```bash
+   curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json
+   ```
+   And consult [`producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md) (catalog + [decision tree](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy) for unsure users).
+3. **Filter to 2–3 templates that fit** the user's balance (`min_budget`), expressed asset/archetype preference, and current regime.
+4. **Present each** with: name + one-line thesis, archetype, asset focus, min budget, one-line install (`install_skill skill_name=<name>` via MCP).
+5. **End every recommendation with the build-from-scratch offer**: *"Or, if none of these fit your thesis, we can build a new autonomous strategy from scratch — that path is in [`strategy-creation.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/strategy-creation.md). Which do you want?"*
+6. **User picks a template → install via `install_skill`. Done.**
+7. **User picks "build new" → continue with the authoring path below.** *(Only continue past this point if the user has explicitly chosen build-from-scratch.)*
+
+---
+
+**Authoring path (only when the user has chosen build-from-scratch above):**
+
+Building a real, deployable autonomous agent means building it on the **Senpi Trading Runtime** — the canonical runtime + DSL exit engine + Python Producer SDK. Do NOT treat this as a pure brainstorm or improvise a strategy from scratch: route the user through the runtime's authoring path so what they build actually deploys and is risk-protected.
 
 > **The fast path — read one doc:** [`senpi-trading-runtime/references/strategy-creation.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/strategy-creation.md). It's self-contained: the 5-step flow, an inline producer skeleton, a complete `runtime.yaml`, the DSL presets, an archetype→example map, and the gotchas — in a single fetch. The steps below are the same path expanded; if you read `strategy-creation.md` you have everything you need.
 
