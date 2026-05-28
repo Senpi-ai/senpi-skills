@@ -130,7 +130,10 @@ Edit `compatibility.json` directly to remove the bad entry from `releases`. The 
 
 **Which skills are tracked today:**
 
-Only `senpi-trading-runtime` is in `compatibility.json` right now. The `compat-update` Action silently skips bumps for any skill not yet tracked, and silently skips bumps whose SKILL.md `metadata.version` is not three-part SemVer (`X.Y.Z`). To opt a new skill in, add a top-level entry with at least one band + `runtimes` array to `compatibility.json` manually.
+Only `senpi-trading-runtime` is in `compatibility.json` right now. The `compat-update` Action only fires on pushes that touch a tracked skill's `SKILL.md` (its `paths:` filter lists them explicitly) and additionally silently skips bumps whose `metadata.version` is not three-part SemVer (`X.Y.Z`). To opt a new skill in:
+
+1. Add a top-level entry to `compatibility.json` with at least one band + `runtimes` array.
+2. Add the new `<skill>/SKILL.md` path to `.github/workflows/compat-update.yml`'s `paths:` list so the workflow actually fires on its pushes.
 
 **Never:**
 

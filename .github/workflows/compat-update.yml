@@ -10,8 +10,14 @@ name: compat-update
 on:
   push:
     branches: [main]
+    # Scope the trigger to skills that are actually tracked in
+    # compatibility.json. The append-releases.mjs script also gates on
+    # `compat[skillName]` existence (defense in depth), but listing the
+    # exact paths here keeps unrelated SKILL.md pushes from spinning up
+    # the workflow at all. When opting a new skill in, edit BOTH
+    # compatibility.json AND this paths list.
     paths:
-      - '*/SKILL.md'
+      - 'senpi-trading-runtime/SKILL.md'
 
 jobs:
   update-compat:
