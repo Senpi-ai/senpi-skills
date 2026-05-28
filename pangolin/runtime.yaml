@@ -74,7 +74,7 @@ strategy:
   wallet: "${WALLET_ADDRESS}"
   budget: 1000
   slots: 2
-  margin_per_slot: 250                           # 25% of $1k starting budget per slot
+  margin_pct: 25        # % of account budget per slot (scales with any budget)
   trading_risk: conservative                     # funding fade is patient — no aggression
   default_leverage: 3                            # crowded unwinds are violent; 3x default per v1
   enabled: true

@@ -37,6 +37,8 @@ The `strategy` block tells the runtime which wallet to trade and how much capita
 | `slots` | Max concurrent positions | no |
 | `margin_per_slot` | Fixed USD margin per position | no |
 | `margin_pct` | Margin as % of account (positive, max 100) | no |
+
+> **Prefer `margin_pct` over `margin_per_slot`.** Operators fund a strategy with any budget (≥ $100, no upper bound), so a fixed USD `margin_per_slot` either over- or under-commits depending on their balance. `margin_pct` sizes each slot as a share of the actual account and scales correctly with any budget. Keep `slots × margin_pct ≤ 100` so total committed margin stays within the account.
 | `trading_risk` | Risk profile: `conservative`, `moderate`, or `aggressive` | no |
 | `default_leverage` | Leverage multiplier | no |
 | `leverage_multipliers` | Per-risk-level leverage overrides: `{ conservative?, moderate?, aggressive? }` | no |

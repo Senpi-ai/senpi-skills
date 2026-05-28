@@ -44,7 +44,7 @@ description: >
 strategy:
   wallet: "${WALLET_ADDRESS}"
   slots: 1
-  margin_per_slot: 500           # baseline; LLM passes score-tier marginUsd from signal
+  margin_pct: 50        # baseline % of account budget; producer/LLM passes the tier marginUsd via signal
   trading_risk: moderate
   enabled: true
 

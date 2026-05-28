@@ -92,7 +92,7 @@ description: Wide stops, long time windows for swing trading.
 strategy:
   wallet: "${WALLET_ADDRESS}"
   slots: 3
-  margin_per_slot: 300
+  margin_pct: 25            # % of account budget per slot — scales with any budget
   trading_risk: conservative
   enabled: true
 
@@ -164,7 +164,7 @@ description: Tight stops, fast cuts for active trading.
 strategy:
   wallet: "${WALLET_ADDRESS}"
   slots: 4
-  margin_per_slot: 100
+  margin_pct: 10            # % of account budget per slot — 4 × 10% = 40% committed, scales with any budget
   trading_risk: aggressive
   enabled: true
 

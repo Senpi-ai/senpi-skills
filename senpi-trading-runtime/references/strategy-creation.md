@@ -29,7 +29,7 @@ Make these read-only calls **in a single batch** (not three scattered waves) to 
 
 ```
 user_get_me            # who am I / auth sanity
-account_get_portfolio  # available capital → informs margin_per_slot
+account_get_portfolio  # available capital → informs margin_pct sizing
 strategy_list          # existing strategies (avoid wallet/name collisions)
 market_get_funding_regime    # current regime — sanity-check a funding/contrarian thesis
 market_list_instruments      # tradeable universe + per-asset context (see shape in Step 2)
@@ -205,7 +205,7 @@ description: <<<ONE_LINE_THESIS>>>   # e.g. "Fade the most-crowded funding on li
 strategy:
   wallet: "${WALLET_ADDRESS}"
   slots: 1                       # max concurrent positions
-  margin_per_slot: 200           # USD per position (or use margin_pct)
+  margin_pct: 20                 # % of account budget per slot — scales with any budget (preferred over fixed margin_per_slot USD)
   enabled: true
 
 notifications:

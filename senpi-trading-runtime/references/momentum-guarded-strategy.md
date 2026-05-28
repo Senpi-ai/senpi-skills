@@ -41,7 +41,7 @@ notifications:
 strategy:
   wallet: "${STRATEGY_WALLET_ADDRESS}"
   slots: 3
-  margin_per_slot: 300
+  margin_pct: 25            # % of account budget per slot — scales with any budget (prefer over fixed margin_per_slot)
   trading_risk: moderate
   enabled: true
 
