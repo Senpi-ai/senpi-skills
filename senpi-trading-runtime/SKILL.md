@@ -13,7 +13,17 @@ metadata:
 
 On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Monitors a wallet's positions on Hyperliquid for lifecycle events (open, close, edit, flip) and applies two-phase trailing stop-loss protection to all positions.
 
-## ▶ Writing a new strategy? Read the fast path first
+## ▶ Before you read this: classify the user's intent
+
+The word "strategy" is overloaded. **This doc is only for the build-a-new-autonomous-agent path** (author code + `runtime.yaml` + DSL). It is NOT for opening positions or copy-trading.
+
+- **User wants to open a specific position or copy a named trader?** → use MCP `strategy_create_custom_strategy` / `strategy_create`. Stop reading this doc.
+- **User wants help picking what to trade?** → template-first picker via `producer-patterns.md` + `catalog.json`, install via `install_skill`. Stop reading this doc.
+- **User explicitly wants to BUILD a new autonomous trading agent from scratch** (or no existing fleet template fits their thesis)? → keep reading.
+
+Canonical router with the full picker flow: [`../senpi-entrypoint/references/strategy-intent-routing.md`](../senpi-entrypoint/references/strategy-intent-routing.md).
+
+## ▶ Building a new autonomous strategy? Read the fast path first
 
 > **Start here: [`references/strategy-creation.md`](references/strategy-creation.md).** It's the self-contained fast path — the 5-step flow, the producer-only-emits-signals invariant, an archetype→example→DSL-preset table, an inline producer skeleton, a complete `runtime.yaml`, the DSL presets, and the gotchas, all in one fetch. **You should not need to read anything else to ship a working strategy.** The sections below are the deep reference, linked from `strategy-creation.md` for edge cases.
 
