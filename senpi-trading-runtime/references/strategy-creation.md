@@ -23,6 +23,23 @@ A Senpi strategy is **a Python producer that emits signals + a `runtime.yaml` th
 
 If the user gave you full autonomy, **pick the archetype + preset yourself**. Otherwise, **prompt the user** to pick.
 
+## Composition contract — the three name spaces
+
+A skill bundle has **three** kinds of names. Confusing them is the most common authoring bug — and the most common silent compose-check failure downstream. Read this once before writing any code or YAML; everything below assumes you understand the distinction.
+
+| Kind | Looks like | Where it comes from | Authors should… |
+|---|---|---|---|
+| **Runtime / env injection** | `${WALLET_ADDRESS}`, `${TELEGRAM_CHAT_ID}`, `${<SKILL>_DECISION_MODEL}` — **ALL_CAPS** inside `${…}`, only in `runtime.yaml` | Injected by the runtime at start-up from the operator's environment (wallet, notifier config, decision-model name, etc.) | Use as-is in `runtime.yaml`. **Do not** define them in the producer. **Do not** invent new ones for thesis logic. |
+| **Config parameter** | Read inside the producer from `config/<skill>-config.json` (or via a config helper module like the example agent's `<skill>_config.py`) | The operator-tunable defaults you ship in `config/<skill>-config.json` | Define in the config JSON; reference in the producer. `runtime.yaml` does **not** typically refer to these — they're for the producer's own gating logic. |
+| **Scanner emission** | The `asset` / `direction` / `score` / `signal_type` kwargs and the top-level keys of the `data={…}` kwarg on `client.push_signal(…)` | Produced by the producer each tick | These are the fields the runtime / actions / exit DSL see. If `runtime.yaml` (or an action condition) needs to reference one, write it as `scanner.score`, `scanner.data.<field>`, etc. — **never** as `${UPPER_CASE}`. |
+
+**Rules of thumb (every authoring bug we've seen violates one of these):**
+
+- **Never use `${UPPER_CASE}` to mean "a field the scanner produces."** Reserve `${…}` for runtime/env injection only (and it's always ALL_CAPS).
+- **Never invent emission names like `${rsi_value}` and hope the runtime knows them.** Emit via `push_signal(data={"rsi_value": …})` and reference as `scanner.data.rsi_value` if `runtime.yaml` needs it.
+- **The top-level `push_signal` kwargs (`asset`, `direction`, `score`, `signal_type`) are the runtime's stable contract.** Keep them top-level; never nest them inside `data={…}` — the runtime rejects that with `INVALID_REQUEST`.
+- **Every key your producer puts in `data={…}` must be declared** in `runtime.yaml` under `scanners.config.fields`. Producer-side keys and YAML-declared fields are the same set; mismatches fail validation.
+
 ## Step 0 — Pre-flight (one parallel batch, ~5s)
 
 Make these read-only calls **in a single batch** (not three scattered waves) to ground the build in the user's actual account + current market state:
