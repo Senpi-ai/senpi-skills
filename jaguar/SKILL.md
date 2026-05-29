@@ -14,19 +14,39 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.0.1"
+  version: "4.0.2"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐆 JAGUAR v4.0.1 — Striker (helpers-native)
+# 🐆 JAGUAR v4.0.2 — Striker (helpers-native)
 
 **Plumbing-only migration from v3.7. NO thesis change.** v3.x striker
-scoring + DSL preset + risk.guard_rails preserved verbatim. Producer
+scoring + risk.guard_rails preserved verbatim. Producer
 flips to in-process `SenpiClient`, daemon replaces cron, runtime owns
-execution.
+execution. v4.0.2 relaxes one DSL time-cut (`dead_weight_cut` 12 → 30min);
+scoring and gates are untouched.
+
+## v4.0.2 changelog (2026-05-29) — dead_weight_cut 12 → 30min
+
+**Symptom:** a GRASS LONG was cut at exactly 12:00 with price essentially
+flat ($0.4925 → $0.4924) — `dead_weight_cut` fired on a position that
+hadn't failed, it just hadn't started moving yet. Entry + exit fees paid
+for zero edge.
+
+**Diagnosis:** the v3.7 `dead_weight_cut: 12min` was too eager. A Striker
+rank-jump can take longer than 12min to accelerate; cutting that early
+turns "not moving yet" into "guaranteed fee loss." Per fleet HYPE-run
+lessons (fees are the biggest killer; momentum needs room before it
+accelerates), the 12min floor was chopping winners-in-waiting.
+
+**Fix:** `dead_weight_cut.interval_in_minutes` 12 → 30. At 30min,
+`weak_peak_cut` (25min @ 3% min) becomes the effective backstop for flat
+trades, and `dead_weight_cut` now only catches positions that DID peak
+but then went stagnant. `hard_timeout` (45min) and all scoring/gates
+unchanged. Hypothesis test — re-evaluate after ~50 more trades.
 
 ## v4.0.1 changelog (2026-05-29) — order-of-operations bug fix
 
@@ -200,7 +220,7 @@ LLM gate's leverage echo is venue-safe (XMR=5x, etc.).
 |---|---|
 | hard_timeout | 45 min |
 | weak_peak_cut | 25 min @ 3% min |
-| dead_weight_cut | 12 min |
+| dead_weight_cut | 30 min (v4.0.2: was 12) |
 | Phase 1 max_loss_pct | 15.0 |
 | Phase 1 retrace_threshold | 8 |
 | Phase 1 consecutive_breaches_required | 1 |

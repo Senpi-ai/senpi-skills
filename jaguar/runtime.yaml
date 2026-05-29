@@ -198,8 +198,18 @@ actions:
 
 # ── EXIT (DSL) ──
 # Striker trades are violent short-term explosions. Tight DSL: 45min
-# hard timeout, 12min dead weight, wide Phase 1 for volatility.
-# Preset preserved verbatim from v3.7.
+# hard timeout, 30min dead weight, wide Phase 1 for volatility.
+#
+# v4.0.2 (2026-05-29): dead_weight_cut relaxed 12 → 30min. The 12min
+# floor was chopping flat-but-not-yet-failed trades before the move had
+# a chance to start — e.g. a GRASS LONG cut at exactly 12:00 with price
+# essentially unchanged ($0.4925 → $0.4924), paying entry+exit fees for
+# zero edge. Per fleet HYPE-run lessons (fees are the biggest killer;
+# momentum needs room before it accelerates), 12min was too eager. At
+# 30min, weak_peak_cut (25min @ 3% min) becomes the effective backstop
+# for flat trades, and dead_weight_cut now only catches positions that
+# DID peak but then went stagnant. hard_timeout 45min unchanged.
+# Hypothesis test — re-evaluate after ~50 more trades.
 exit:
   engine: dsl
   interval_seconds: 30
@@ -220,7 +230,7 @@ exit:
       min_value: 3.0
     dead_weight_cut:
       enabled: true
-      interval_in_minutes: 12
+      interval_in_minutes: 30   # v4.0.2: 12 → 30 (12min chopped flat trades before they could move)
     phase1:
       enabled: true
       max_loss_pct: 15.0
