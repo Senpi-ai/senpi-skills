@@ -31,7 +31,7 @@ The discipline is asymmetric by P&L state: capped at 3 entries/day on RED days, 
 | Drawdown halt | 25% |
 | `hard_timeout` | 45 min |
 | `weak_peak_cut` | 25 min @ 3% min |
-| `dead_weight_cut` | 12 min |
+| `dead_weight_cut` | 30 min |
 | Entry order type | FEE_OPTIMIZED_LIMIT (30s timeout, ALO-then-taker) |
 | Exit order type | FEE_OPTIMIZED_LIMIT (60s timeout, ALO-then-taker) |
 
@@ -172,6 +172,14 @@ tail -f /tmp/jaguar-producer.log | jq -c 'select(.status=="ok")' | head -3
 Expected: `status=ok` every tick (180s interval). Heartbeat fields: `scanned`, `candidates`, `signals_pushed`, `min_score`, `elapsed_sec`, `_jaguar_producer_version`.
 
 ## Changelog
+
+### v4.0.2 (2026-05-29) — `dead_weight_cut` 12 → 30min
+
+**Symptom:** a GRASS LONG was cut at exactly 12:00 with price essentially flat ($0.4925 → $0.4924). `dead_weight_cut` fired on a position that hadn't failed — it just hadn't started moving yet — paying entry + exit fees for zero edge.
+
+**Diagnosis:** the v3.7 `dead_weight_cut: 12min` was too eager. A Striker rank-jump can take longer than 12min to accelerate; cutting that early converts "not moving yet" into a guaranteed fee loss. Per fleet HYPE-run lessons (fees are the biggest killer; momentum needs room before it accelerates), the 12min floor was chopping winners-in-waiting.
+
+**Fix:** `dead_weight_cut.interval_in_minutes` 12 → 30. At 30min, `weak_peak_cut` (25min @ 3% min) becomes the effective backstop for flat trades, and `dead_weight_cut` now only catches positions that DID peak but then went stagnant. `hard_timeout` (45min) and all scoring/gates unchanged. Hypothesis test — re-evaluate after ~50 more trades.
 
 ### v4.0.1 (2026-05-29) — order-of-operations bug fix (silent scanner)
 

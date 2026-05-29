@@ -70,7 +70,7 @@ from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ign
 # reentrant; nested call raises BlockingIOError every tick.
 
 
-VERSION = "4.0.1"
+VERSION = "4.0.2"
 
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "jaguar_signals"
