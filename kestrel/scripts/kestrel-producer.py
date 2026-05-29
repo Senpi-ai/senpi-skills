@@ -88,7 +88,7 @@ if _sdk_path not in sys.path:
 from senpi_runtime_helpers import producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "3.0.1"
+VERSION = "3.0.2"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "kestrel_signals")
 SIGNAL_TYPE = "KESTREL_XYZ_BREAKOUT"
 
@@ -628,11 +628,27 @@ def build_signal_data(candidate, leverage, margin_usd, held_assets):
 
 
 def push_signal(candidate, leverage, margin_usd, held_assets):
-    """v3.0.0: direct POST to runtime /signals via helpers SenpiClient."""
+    """v3.0.0: direct POST to runtime /signals via helpers SenpiClient.
+
+    v3.0.2 SCORE-NORMALIZATION FIX: the runtime requires the TOP-LEVEL
+    `score` kwarg to be in [0, 1] (it's the runtime's confidence band, not
+    the strategy's raw score). Kestrel's raw scoring stack is 5-10+, so
+    passing it verbatim caused every push_signal call to fail with:
+        push_signal: top-level score must be in [0, 1] (got 7.0)
+    The producer silently went without signals — and Kestrel hadn't traded
+    in over a week before the agent diagnosed this on 2026-05-29.
+
+    Fix: normalize the raw score to [0, 1] for the top-level kwarg (a
+    Score-10 entry becomes 1.0, Score-5 becomes 0.5). The full raw score
+    stays inside `data.score` so the LLM gate still sees the actual
+    conviction tier when deciding execute/skip.
+    """
     if not STRATEGY_ADDRESS:
         cfg.log("KESTREL_WALLET not set; cannot push signal")
         return False
     data_block = build_signal_data(candidate, leverage, margin_usd, held_assets)
+    raw_score = float(candidate["score"])
+    normalized = min(max(raw_score / 10.0, 0.0), 1.0)
     try:
         cfg._wrapper_client.push_signal(
             address=STRATEGY_ADDRESS,
@@ -640,7 +656,7 @@ def push_signal(candidate, leverage, margin_usd, held_assets):
             asset=f"xyz:{candidate['token']}",
             direction=candidate["direction"],
             signal_type=SIGNAL_TYPE,
-            score=float(candidate["score"]),
+            score=normalized,
             data=data_block,
         )
         return True
