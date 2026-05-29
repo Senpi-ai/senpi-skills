@@ -319,6 +319,10 @@ if best_candidate:
 | **Salamander** | v1.0 | BTC · ETH · SOL | **Onboarding tier.** Multi-asset whitelist with pullback-detection scoring (3-7% counter-move in established 4h trend). **Asymmetric DSL** — wider Phase 1 (10%), tight Phase 2 (T0 +5% / lock 30%). | Onboarding, Pullback, Asymmetric DSL |
 | **Bobcat** | v1.0 | xyz: big-tech (NVDA · TSLA · AAPL · META · MSFT · GOOGL · AMZN · AMD · MU · INTC · TSM · ORCL) | **Onboarding tier.** Bison-pattern on XYZ big tech equities. 4h trend + SM agreement. 48h hard_timeout for the weekend pricing gap. | Onboarding, XYZ-Big-Tech, hard_timeout 48h |
 | **Raccoon** | v1.0 | All XYZ excl. IPOPs | **Onboarding tier — weekend-gated.** ONLY fires Fri 22:00 UTC → Mon 00:00 UTC, the trade.xyz no-external-price window. Captures the Mon-open reconciliation snap-back when external pricing resumes. Tight DSL, 48h hard_timeout forces Mon-open exit. | Onboarding, XYZ-Weekend, Reconciliation, Time-gated |
+| **Tortoise** | v1.0 | BTC · ETH · SOL | **Onboarding tier — time-trigger variant.** DCA scheduler. Doesn't call `market_get_asset_data` for scoring — its "scanner" is a clock. Each tick checks per-asset DCA history; the most-overdue past the interval (default 24h) wins. LONG only. Persisted DCA-history cache. Maker-preferred entry (DCA isn't urgent). Wide let-winners-run DSL + 30d hard_timeout for compounding. THE most beginner-accessible trade — zero prediction skill required. | Onboarding, DCA, Time-trigger, No-prediction, Wide DSL |
+| **Sheep** | v1.0 | BTC · ETH · SOL · HYPE | **Onboarding tier.** Long-only triple-EMA-stacked trend. Fires LONG only when `ema(fast) > ema(slow)` on ALL THREE timeframes (15m + 1h + 4h). Never shorts. A visual rule beginners can sanity-check on any chart. Balanced DSL + `weak_peak_cut` 6h/3%. | Onboarding, Long-only, Multi-timeframe, EMA-stack, Balanced DSL |
+| **Iguana** | v1.0 | xyz:SP500 · xyz:XYZ100 | **Onboarding tier — XYZ subset.** The simplest XYZ exposure in the fleet — just the broad indices. Picks whichever has the stronger 4-day move past the threshold and trades its direction. No stock-picking, no commodities, no pre-IPO. Closest thing to "an index fund, but 24/7." Balanced DSL + 48h hard_timeout for weekend pricing-gap risk. | Onboarding, XYZ-Macro, Index-only, Balanced DSL, hard_timeout 48h |
+| **Sailfish** | v1.0 | BTC · ETH · SOL · HYPE | Relative-Strength Rotator. Ranks the universe by ~2.7d RS each tick and longs the leader iff (a) leader's own RS ≥ 1% AND (b) it beats the runner-up by ≥ 1.5pp (no whipsaw on tight races). Runtime is single-position; "rotation" happens via DSL exit on the holdover + Sailfish's next-tick re-entry on the new leader. Momentum cousin of Chameleon's mean-reversion. Balanced DSL + 96h hard_timeout. | Momentum-rotation, RS-leader, Margin-gate, Balanced DSL |
 
 ---
 
@@ -789,6 +793,7 @@ Most first-time users can't say "I want a trend-follower" — they don't have th
 
 **A. Express lane — "just pick something simple for me."** The user wants the agent to decide. Recommend the conservative default and go straight to deploy:
 - **Default first strategy → Hedgehog** (equal-weight BTC+ETH+SOL trend, diversified) — or **Beaver** (BTC only) for the simplest single-asset version.
+- Variant — *"I just want to accumulate over time, no thinking"* → **Tortoise** (DCA scheduler). Buys a fixed % on cadence; predicts nothing. The easiest possible answer for users who don't want a strategy thesis at all.
 - Settings: **`balanced` DSL preset, 20% margin, 3x leverage** — the simplest, most-liquid, lowest-leverage starting point.
 - Frame it honestly — **never say "safe."** *"I'll start you on a simple trend-follower on the major coins — it holds them while they're trending and steps out when they stall. It's the lowest-complexity, lowest-leverage place to begin — not risk-free (no strategy is; any single trade can lose), just the least to think about while you learn. We'll tune it the moment you've watched it run."*
 
@@ -823,7 +828,9 @@ Most first-time users can't say "I want a trend-follower" — they don't have th
 
 | What the signals say | Recommend |
 |---|---|
-| Asset **TRENDING** + SM **aligned** (same dir, ≥55%) | Trend-follower on that asset — 🟢 Beaver/Heron/Hummingbird, or **Hedgehog** basket if no single standout |
+| Asset **TRENDING** + SM **aligned** (same dir, ≥55%) | Trend-follower on that asset — 🟢 Beaver/Heron/Hummingbird, 🟢 **Sheep** for long-only triple-EMA-stack, or **Hedgehog** basket if no single standout |
+| **Just want to accumulate** (no thesis, no timing) | 🟢 **Tortoise** (DCA scheduler — fixed % on cadence; predicts nothing) |
+| Interest in **broad equity exposure** (no stock-picking) | 🟢 **Iguana** (xyz:SP500 + xyz:XYZ100 trend) |
 | **RANGEBOUND** + SM **extreme & one-sided** (≥70%) price won't confirm | Fader → **Egret** |
 | **VIOLENT** move + OI unwinding fast (Hyperfeed lit up) | Microstructure → **Piranha** (*only if risk = "go big"*) |
 | Hyperfeed shows a **fresh rank-jump / breakout** | 🟢 **Hawk** (breakout) or **Jaguar** (rank-jump) |
@@ -862,6 +869,8 @@ Ask which one sentence sounds most like the user:
 
 - **One major coin** — pick BTC / ETH / SOL / HYPE.
   - 🟢 Beginner: **Beaver** (BTC) · **Heron** (ETH) · **Hummingbird** (HYPE) — SM-gated 4h trend, wide DSL, simple scoring.
+  - 🟢 Beginner — *long only, multi-timeframe agreement*: **Sheep** (BTC/ETH/SOL/HYPE). Fires LONG only when 15m + 1h + 4h EMAs are all stacked bullishly. Never shorts — for users intimidated by directional choice.
+  - ⬆️ Level up — *rotation across majors*: **Sailfish** (RS leader). Always holds the strongest of BTC/ETH/SOL/HYPE; rotates via DSL exit + re-entry.
   - ⬆️ Level up: **Grizzly** (BTC) · **Polar** (ETH) · **Kodiak** (SOL) · **Wolverine** (HYPE) — Kodiak-family alpha hunters.
 - **A basket of majors** (BTC + ETH + SOL together).
   - 🟢 Beginner: **Hedgehog** (equal-weight basket, up to 3 at once).
@@ -889,6 +898,7 @@ XYZ markets (stocks / commodities / pre-IPO) trade **24/7 on Hyperliquid**, even
 - 🔥 **Pre-IPO names (IPOPs — SpaceX, etc.)** → 🟢 **Lemur** — trades pre-IPO perpetuals *before the company lists*; auto-discovers new IPOPs by their funding signature (today: SPCX/SpaceX; auto-expands as trade.xyz lists names like ANTHROPIC, OPENAI, STRIPE). One of Senpi's most distinctive capabilities.
 - 🔥 **The IPO moment itself (when a pre-IPO name goes public)** → **Falcon** — sits out the pre-listing phase and fires only *around the conversion*, when an IPOP flips to a standard equity perp (funding jumps ~100x, leverage cap lifts, the price throttle comes off → free price discovery). Rides the post-conversion momentum with a wide let-winners-run DSL. Pairs naturally with Lemur (Lemur holds the IPOP; Falcon trades its graduation).
 - **Big-tech stocks (XYZ equities)** → 🟢 **Bobcat** (NVDA/TSLA/AAPL/META/MSFT/GOOGL/…).
+- **Just the broad indices (no stock-picking)** → 🟢 **Iguana** (xyz:SP500 + xyz:XYZ100). The closest thing to an index fund, but 24/7. Beginners who want stock-market exposure without choosing individual names.
 - **Oil / metals / indices (XYZ)** → **Dire** (BRENTOIL) as the template — tune the asset string.
 - **Weekend stock-gap reconciliation** → 🟢 **Raccoon** (weekend-only XYZ snap-back, captures the Mon-open move).
 - **A specific crypto major** → see Layer 2A (Kodiak family).
@@ -933,7 +943,7 @@ Once a strategy is chosen, confirm three things with the user, then deploy:
 2. **DSL preset** — `balanced` (the smart default) for most; `let_winners_run` for conviction trend-holders; `mean_reversion` for faders; `scalp` for high-frequency. See [`dsl-presets.yaml`](dsl-presets.yaml).
 3. **Config + launch** — set wallet / chat / decision-model, then `openclaw senpi runtime create` + the disown-safe daemon launch. Each agent's README has the exact steps.
 
-> **First-strategy rule of thumb:** pick an **onboarding-tier** agent (🟢 above — Beaver/Heron/Hummingbird/Hedgehog/Hawk/Salamander/Albatross/Lemur/Bobcat/Raccoon), keep the **`balanced`** DSL preset, size at 20–25% margin / ≤5x. Graduate to fleet agents once they've watched one run.
+> **First-strategy rule of thumb:** pick an **onboarding-tier** agent (🟢 above — Beaver/Heron/Hummingbird/Hedgehog/Hawk/Salamander/Albatross/Lemur/Bobcat/Raccoon/Tortoise/Sheep/Iguana), keep the **`balanced`** DSL preset (or `let_winners_run` for Tortoise), size at 20–25% margin / ≤5x. Graduate to fleet agents once they've watched one run.
 
 ---
 
@@ -1039,6 +1049,10 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Remora** | 5 — Trader-follower (hand-picked whale mirror) | Operator-picked whale set. Mirrors each whale's largest-notional position, scored by consensus (2 whales +2, 3+ +3) + ELITE-tier bonus. Unwraps the nested leaderboard_get_trader_positions shape. Wide let-winners-run DSL, 120h staleness cap |
 | **Cuckoo** | 14 — Meta-strategy follower / copy-the-copiers | Auto-discovers the top-N strategies by performance and trades their performance-weighted consensus (weight = clamp(1 + roi/50, 0.5, cap)); gate ≥2 strategies agree. Wide let-winners-run DSL, 96h staleness cap. User-scope auth |
 | **Meerkat** | 6 — Striker / rank-jump (momentum-event-feed variant) | Reads leaderboard_get_momentum_events directly; snipes the freshest (≤30min), highest-tier (3 ≥10% · 2 ≥5%) momentum events in the move's direction. SM + volume bonuses. Wide let-winners-run DSL + short 36h hard_timeout. Tick 120s. User-scope auth |
+| **Tortoise** | 4 — Multi-asset whitelist (time-trigger variant, onboarding) | DCA scheduler — time-trigger, no `market_get_asset_data` for scoring. Most-overdue past interval wins. LONG only. Wide DSL + 30d hard_timeout. Persisted DCA-history cache |
+| **Sheep** | 4 — Multi-asset whitelist (onboarding) | BTC/ETH/SOL/HYPE long-only triple-EMA-stacked trend. Fires only when 15m + 1h + 4h EMAs are all stacked bullishly. Balanced DSL + weak_peak_cut 6h/3% |
+| **Iguana** | 4 — Multi-asset whitelist (XYZ subset, onboarding) | xyz:SP500 + xyz:XYZ100. Simplest possible XYZ exposure — index-fund equivalent. Balanced DSL + 48h hard_timeout for weekend pricing-gap risk |
+| **Sailfish** | 4 — Multi-asset whitelist (momentum-rotation) | BTC/ETH/SOL/HYPE. Ranks by ~2.7d RS, longs the leader iff leader RS ≥ 1% AND beats runner-up by ≥ 1.5pp (no whipsaw). Rotation via DSL exit + re-entry. Balanced DSL + 96h hard_timeout |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 

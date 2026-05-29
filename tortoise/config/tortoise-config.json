@@ -1,0 +1,10 @@
+{
+  "_comment": "TORTOISE v1.0.0 — DCA Scheduler. Each tick checks how long since each whitelisted asset's last DCA buy (history persisted across restarts). The most-overdue asset past the interval is fired LONG at marginPct of equity. Never-DCA'd assets always win over any DCA'd asset (so a fresh setup starts buying immediately, then the cadence takes over). Onboarding tier — zero prediction skill required. Wide let-winners-run DSL with a 30d hard_timeout so accumulation compounds. Edit wallet/strategyId/chatId; tune assets/intervalHours/marginPct. Default: BTC+ETH+SOL every 24h at 8% margin per buy.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "assets": ["BTC", "ETH", "SOL"],
+  "intervalHours": 24,
+  "marginPct": 0.08,
+  "leverage": 2
+}

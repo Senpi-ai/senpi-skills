@@ -1,0 +1,15 @@
+{
+  "_comment": "SHEEP v1.0.0 — Long-Only Triple-EMA-Stacked Trend. Each tick iterates the whitelist (default BTC/ETH/SOL/HYPE) and checks whether the emaFast (default 9) > emaSlow (default 21) on ALL THREE timeframes (15m, 1h, 4h). Only fires LONG when minStackedFrames timeframes confirm (default 3 = all). Score boosts from 4h/1h spread magnitude and SM tilt; SM is a bonus, never a gate. ONBOARDING TIER. Balanced DSL. Edit wallet/strategyId/chatId; tune whitelist/EMA periods.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "whitelist": ["BTC", "ETH", "SOL", "HYPE"],
+  "emaFast": 9,
+  "emaSlow": 21,
+  "minStackedFrames": 3,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "minScore": 4,
+  "marginPct": 0.20,
+  "leverage": 3
+}
