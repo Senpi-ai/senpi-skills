@@ -137,6 +137,16 @@ Expected: `status=ok` every tick (300s interval — macro 1H candles change slow
 
 ## Changelog
 
+### v3.0.2 (2026-05-29) — score-normalization bug fix (silent producer)
+
+**Bug:** the producer was passing the raw strategy-specific score (5–10+) as the **top-level** `score` kwarg to `SenpiClient.push_signal()`. The runtime requires that field to be in `[0, 1]` (it's the runtime's confidence band, not the strategy's raw score). Every `push_signal()` call failed with:
+
+> `push_signal: top-level score must be in [0, 1] (got 7.0)`
+
+**Impact:** **Kestrel hadn't traded in over a week** before the agent diagnosed this on 2026-05-29. The scanner was actively running and finding 0 candidates at score >= 5 *during the recent flat XYZ regime* — so the bug was hidden by a quiet market, but it would have silenced the agent even in active conditions. Within minutes of the live hot-patch the producer fired Score-7 `SHORT xyz:NVDA` (1H -2.38%, 4H -1.92% aligned, SM 5.0%, spread 0%).
+
+**Fix:** Normalize the raw score to `[0, 1]` for the top-level `score` kwarg (a Score-10 entry becomes 1.0, Score-5 becomes 0.5). The full raw score stays inside `data.score` so the LLM gate still sees the actual conviction tier when deciding execute/skip. Added a 12-line bug-explainer comment inside `push_signal()` so the contract is in-code for future edits.
+
 ### v3.0.0 — Plumbing-only migration from v2.0 (no thesis change)
 
 NO scoring change. NO threshold change. Producer ports onto `senpi_runtime_helpers` (in-process `SenpiClient`, no openclaw / mcporter subprocesses). Long-lived `producer_daemon` replaces the openclaw cron entry. v2.0.9 contamination rule applied: `KESTREL_WALLET` is the canonical env var (with `STRATEGY_ADDRESS` deprecation fallback).
