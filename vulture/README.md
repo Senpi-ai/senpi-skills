@@ -17,11 +17,11 @@ The long-tail edge is twofold: most predators cluster on majors + a tight altcoi
 | Asset universe | 25 small/mid-cap perps (see SKILL.md) |
 | Banned | BTC, ETH, SOL, all XYZ |
 | Tick interval | 60-180s |
-| MIN_SCORE (producer) | 7 |
-| LLM min_confidence | 7 |
+| MIN_SCORE (producer) | **9** (raised from 7 in v4.1.0 — see SKILL.md changelog for the 30-trade analysis) |
+| LLM min_confidence | **8** (raised from 7 in v4.1.0) |
 | Max positions | 2 concurrent |
-| Margin per slot | $400 |
-| Leverage tiers | 3x / 5x / 7x (score-scaled) |
+| Margin per slot | 45% of equity (was a fixed $400; switched to budget-relative `margin_pct: 45`) |
+| Leverage tiers | 5x / 7x (score-scaled — `cautious` tier 3x removed in v4.1.0) |
 | Max entries per day | 6 |
 | Per-asset cooldown | 240 min (4h) |
 | Daily loss limit | 10% |
