@@ -503,7 +503,7 @@ for asset in candidates:
 |---|---|---|---|---|
 | **Pangolin** | v1.4 | Multi (perps with OI > $3M) | Detects persistent extreme funding over hours and fades the crowd at exhaustion. Funding extremity + persistence duration + SM positioning + cooldowns. Quiet-hours gating (00–04 UTC). | Funding-fade, Tick 300s, Quiet-hours |
 | **Dog** | v2.0 | 4-coin whitelist | Fades crowded funding on a 4-coin watchlist. Regime hard-gate: skips entry when funding regime contradicts the fade direction. | 4-coin, Hard-gate, Regime |
-| **Vulture** | v2.3 | HYPE | HYPE funding-regime contrarian. Enriches each candidate with `market_get_funding_history` + held-position context. LLM gate is pass-through. | HYPE, Funding-hist, Contrarian |
+| **Vulture** | v4.1 | 25 small/mid-cap Hyperliquid perps (BTC/ETH/SOL/XYZ banned) | **Long-tail momentum rider** (full rewrite at v2.0 from the original HYPE-funding-contrarian — this row's archetype bucket is left for compatibility; Vulture's thesis is closer to a small-cap whitelist with momentum scoring). Score is composed of HEAVY_FLOW (SM concentration), trend persistence, multi-TF alignment, and 15m velocity. v4.1.0 raised MIN_SCORE 7→9 after a 30-trade analysis showed score 7–8 ran 12.5%/28.6% win rates at -3.94%/-3.52% avg ROE; conviction-scaled leverage 5x (score 9-10) / 7x (score 11+); cautious tier removed. | Small-cap, Long-tail, Conviction-scaled, MIN_SCORE 9 |
 
 ---
 
@@ -1024,7 +1024,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | Orca | 6 — Striker / rank-jump | Gen-1 vanilla Striker, FIRST_JUMP + volume + base scoring |
 | Pangolin | 7 — Funding-regime fade | Canonical |
 | Dog | 7 — Funding-regime fade | 4-coin whitelist with regime hard-gate |
-| Vulture | 7 — Funding-regime fade | HYPE funding-regime contrarian, funding-history + held-position enrichment |
+| Vulture | 7 — Funding-regime fade (legacy bucket; thesis is actually long-tail momentum on small caps since v2.0) | 25 small/mid-cap perps, conviction-scaled leverage 5x/7x. v4.1.0: MIN_SCORE 7→9 after 30-trade analysis culled the losing buckets |
 | Owl | 8 — Contrarian crowding-unwind | Canonical |
 | Lemon | 8 — Contrarian crowding-unwind | Degen Fader on crypto-majors + XYZ whitelist, MACRO_TREND_GATE |
 | Mantis | 9 — Cross-asset lag detector | Canonical |

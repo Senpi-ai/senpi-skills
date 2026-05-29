@@ -1,7 +1,7 @@
 name: vulture-tracker
 # Runtime SCHEMA version must be major=1 per the senpi-trading-runtime
-# plugin. Strategy/skill is "Vulture v3.0.0" — lives in description +
-# SKILL.md + _vulture_producer_version. Do not set this to 3.x.x.
+# plugin. Strategy/skill is "Vulture v4.1.0" — lives in description +
+# SKILL.md + _vulture_producer_version. Do not set this to 4.x.x.
 version: 1.0.1
 description: >
   VULTURE v3.1.1 — observability fix: full ingest-failure logging.
@@ -114,7 +114,7 @@ actions:
     decision_mode: llm
     decision_model: "${VULTURE_DECISION_MODEL}"  # REQUIRED. Bare model name only — NO provider prefix. INVALID: "<provider>/<model>" (e.g. "google/...", "anthropic/...", "openai/...") — OpenClaw double-prefixes → 500 Unknown model. The LLM gate is a pass-through rubber-stamp (producer already applied every filter); any reliable structured-JSON model works. No default by design — operators pick their own.
     scanners: [vulture_signals]
-    min_confidence: 7
+    min_confidence: 8                 # v4.1.0: raised from 7 — see decision_prompt CONFIDENCE SCORING
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
@@ -147,33 +147,34 @@ actions:
 
       ## HARD SKIP CONDITIONS (output execute: false)
 
-      - score < 7 (producer should filter; defensive only)
+      - score < 9 (producer floor; defensive — v4.1.0 raised from 7)
       - leverage <= 0 OR signal data missing (malformed)
       - heldAssets already contains this exact asset (duplicate position)
       - reasons array empty (malformed signal)
 
       ## VULTURE'S THESIS
 
-      Long-tail momentum on small/mid-cap Hyperliquid perps. 38% WR
-      target with 6.15x profit factor — most trades are small losses
-      cut fast via 90-min dead_weight_cut, occasional right-tail winners
-      pay for everything. The producer is calibrated for THIS expectancy
-      profile. Don't add subjective second-guessing.
+      Long-tail momentum on small/mid-cap Hyperliquid perps. Most trades
+      are small losses cut fast via 90-min dead_weight_cut; occasional
+      right-tail winners pay for everything. The producer is calibrated
+      for THIS expectancy profile. Don't add subjective second-guessing.
 
       ## CONFIDENCE SCORING
 
+      v4.1.0 — score 7-8 culled at the producer after a 30-trade analysis
+      showed those buckets ran 12.5% / 28.6% win rates with -3.94% / -3.52%
+      avg ROE. Vulture now hunts strictly in the 9-12 conviction zone:
+
       - 9-10: score >= 11 (apex tier, 7x leverage) AND HEAVY_FLOW or
         STRONG_FLOW AND TREND_RUNNING/STRONG AND ACCELERATING
-      - 7-8: score >= 9 (conviction tier, 5x leverage) AND at least
-        STRONG_FLOW AND TREND_BUILDING+ AND 15M_BUILDING+
-      - 7: score 7-8 (cautious tier, 3x leverage) — producer has
-        gated this; the signal IS the validation. Honor it unless
-        a hard-skip applies.
-      - <7: producer floor not cleared — should never reach you.
+      - 8: score 9-10 (conviction tier, 5x leverage) — producer has
+        gated this; the signal IS the validation. Honor it unless a
+        hard-skip applies.
+      - <8: producer floor (>=9) not cleared — should never reach you.
 
-      Minimum confidence to execute is 7. The strategy needs the volume
-      of attempts to hit the right tail. Be permissive unless something
-      is structurally broken.
+      Minimum confidence to execute is 8. Score 7-8 signals are dropped
+      by the producer BEFORE reaching this gate; if one somehow reaches
+      you, hard-skip.
 
       ## OUTPUT FORMAT
 

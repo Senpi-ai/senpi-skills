@@ -14,7 +14,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.0.1"
+  version: "4.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -138,19 +138,18 @@ FARTCOIN, MORPHO, NEAR, INJ, AVAX, LINK, DOGE
 | **Move ≥15% in direction (LATE_ENTRY_PENALTY)** | **-3** |
 | **Move ≥12% in direction (MOVE_EXTENDED)** | **-2** |
 
-**MIN_SCORE: 7** — entry floor. The scoring dimensions (especially HEAVY_FLOW requiring ≥18% SM concentration) do the real quality work.
+**MIN_SCORE: 9** (raised from 7 in v4.1.0) — entry floor. A 30-trade aggregate showed score 7–8 buckets (n=15 combined) ran 12.5% / 28.6% win rates at -3.94% / -3.52% avg ROE — the DSL was chopping them at the Phase 1 hard stop before they did real damage, but they were still net-negative. Vulture now hunts strictly in the 9–12 conviction zone where wins concentrate. The scoring dimensions (especially HEAVY_FLOW requiring ≥18% SM concentration) do the real quality work above the floor.
 
 ---
 
 ## Conviction-Scaled Leverage
 
-| Score | Leverage |
-|---|---:|
-| ≥11 | 7x |
-| ≥9 | 5x |
-| ≥7 | 3x |
+| Score | Leverage | Tier |
+|---|---:|---|
+| ≥11 | 7x | apex (the right tail) |
+| 9–10 | 5x | conviction (the new floor tier in v4.1.0) |
 
-**Capped at 7x because small-cap liquidity can't support 20x.** Lemon can go 20x on BTC/ETH because slippage is <0.1%. Small caps can have 0.5%+ slippage per fill, which eats gains at 20x.
+**v4.1.0 removed the `cautious` tier (score 7–8, 3x).** Below-floor signals are dropped at the producer now; that whole tier became unreachable. **Capped at 7x because small-cap liquidity can't support 20x.** Lemon can go 20x on BTC/ETH because slippage is <0.1%. Small caps can have 0.5%+ slippage per fill, which eats gains at 20x.
 
 ---
 
@@ -203,7 +202,7 @@ Both agents are "fleet alpha extractors" but via **opposite** philosophies:
 | hard_timeout | 480 min | 10,080 min (21x longer) |
 | dead_weight_cut | 20 min | 60 min |
 | Max leverage | 20x (apex) | 7x (liquidity limit) |
-| MIN_SCORE | 8 | 7 |
+| MIN_SCORE | 8 | 9 |
 
 **Both are bets on asymmetric payoff** — low win rate + big winners / tiny losers — but Lemon bets on mean reversion of exhausted crowds while Vulture bets on continuation of small-cap trends.
 
@@ -271,6 +270,21 @@ Send: "🦅 VULTURE v2.0 online. Long-Tail Momentum Rider. Riding small-cap tren
 ---
 
 ## Changelog
+
+### v4.1.0 (2026-05-29) — MIN_SCORE 7 → 9 (low-conviction cull)
+
+Aggregate analysis of the last 30 closed trades, grouped by producer entry score:
+
+| Score | Trades | Avg ROE  | Win Rate |
+|---:|---:|---:|---:|
+| 12 | 4 |  +5.56% | 25.0% (the fat tail — one +33.3% HYPE winner) |
+| 11 | 5 |  -1.04% | 60.0% |
+| 10 | 3 | +10.54% | 66.7% |
+|  9 | 2 |  -3.17% | 50.0% |
+|  8 | 7 |  -3.52% | 28.6% |
+|  7 | 8 |  -3.94% | 12.5% |
+
+Score 7–8 (n=15) ran a 12.5%/28.6% win rate at -3.94%/-3.52% avg ROE — the DSL was chopping each one at the Phase 1 hard stop before they did real damage, but they were still net-negative and were churning fees/attention. Score 9–12 (n=14) was where the wins concentrated. Raised `MIN_SCORE` 7→9 at the producer and `min_confidence` 7→8 at the LLM gate. Removed the `cautious` sizing tier (score 7-8, 3x) — unreachable now.
 
 ### v2.0 (2026-04-15) — **COMPLETE REWRITE**
 - Thesis flipped: contrarian fader → momentum rider

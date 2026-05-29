@@ -78,7 +78,7 @@ from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ign
 # reentrant; nested call raises BlockingIOError every tick.
 
 
-VERSION = "4.0.0"
+VERSION = "4.1.0"
 
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "vulture_signals"
@@ -131,21 +131,36 @@ XYZ_BANNED = True
 
 
 # ═══════════════════════════════════════════════════════════════
-# SCORING CONFIG — preserved from v2.4 (proven on the +$117 ZEC trade)
+# SCORING CONFIG
+#
+# v4.1.0 — raised MIN_SCORE 7 → 9 after a 30-trade aggregate analysis showed
+# the low-conviction buckets weren't pulling their weight:
+#
+#   Score  7:  8 trades  | Avg ROE  -3.94%  | Win Rate  12.5%
+#   Score  8:  7 trades  | Avg ROE  -3.52%  | Win Rate  28.6%
+#   Score  9:  2 trades  | Avg ROE  -3.17%  | Win Rate  50.0%
+#   Score 10:  3 trades  | Avg ROE  +10.54% | Win Rate  66.7%
+#   Score 11:  5 trades  | Avg ROE  -1.04%  | Win Rate  60.0%
+#   Score 12:  4 trades  | Avg ROE  +5.56%  | Win Rate  25.0%   (the fat tail)
+#
+# Score 7-8 (n=15) was a clear culling signal — 12.5% / 28.6% win rates with
+# the DSL chopping each one at -3.5-3.9% avg before they did real damage.
+# Vulture now hunts strictly in the 9-12 conviction zone where wins
+# concentrate. The `cautious` sizing tier (score 7-8, 3x) is removed —
+# unreachable given the new floor.
 # ═══════════════════════════════════════════════════════════════
 
-MIN_SCORE = 7                   # Entry floor; scoring tiers do the real work
+MIN_SCORE = 9                   # Entry floor — score 7-8 culled (see analysis above)
 MIN_SM_PCT = 3.0                # Asset must have at least 3% SM concentration
 MIN_SM_TRADERS = 15             # Small caps need lower threshold than majors
 MIN_4H_ALIGNED_PCT = 1.0        # 4h price must be aligned ≥1% in SM direction
-MIN_1H_ALIGNED_PCT = 0.1        # v2.4 fix: 1h must be aligned (catches false breakouts)
+MIN_1H_ALIGNED_PCT = 0.1        # 1h must be aligned (catches false breakouts)
 MIN_15M_VELOCITY = 0.3          # 15m velocity must be actively building
 
 # Conviction-scaled leverage — small caps capped at 7x (low-liq slippage)
 SIZING_TIERS = [
-    {"min_score": 11, "leverage": 7,  "label": "apex"},
-    {"min_score": 9,  "leverage": 5,  "label": "conviction"},
-    {"min_score": 7,  "leverage": 3,  "label": "cautious"},
+    {"min_score": 11, "leverage": 7, "label": "apex"},        # Score 11-12: the right tail
+    {"min_score": 9,  "leverage": 5, "label": "conviction"},  # Score 9-10: the new floor tier
 ]
 
 
