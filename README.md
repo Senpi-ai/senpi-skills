@@ -330,7 +330,7 @@ Each tool's full schema (params, types, response shape) is in the MCP server its
 
 # Trading Strategy Skills
 
-The fleet — **41 skills across 14 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
+The fleet — **44 skills across 16 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
 
 Each row links to the skill's directory.
 
@@ -360,6 +360,7 @@ Pick by what you want to trade. Each is its own self-contained skill directory a
 | Skill | Assets | Description |
 |---|---|---|
 | [tortoise](tortoise/) | BTC + ETH + SOL | **DCA scheduler.** Buys a fixed % of budget on a strict 24h cadence. No price prediction, no scoring — most-overdue past interval wins. LONG only. The most accessible trade in crypto: zero prediction skill required. |
+| [koala](koala/) | Single asset (default BTC) | **Set-and-forget HODL.** Fires one LONG signal per lifetime and holds with the widest DSL in any Senpi agent (max_loss 30%, retrace 25, 90d hard_timeout). No scoring, no decisions after deploy. The simplest possible Senpi agent — for users whose entire trading thesis is "I want to own BTC and have a safety net." |
 
 ### 🟣 Multi-week Arena Conviction Mirror
 
@@ -387,7 +388,7 @@ Senpi's distinctive moat — equity, commodity, and pre-IPO perps that retail ca
 
 ---
 
-# The 14 production archetypes
+# The 16 production archetypes
 
 Below are the production-tier strategies sorted by their producer-pattern archetype. See [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md) for the canonical pattern catalog. The onboarding tier above maps into these same archetypes (Beaver/Heron/Hummingbird are single-asset; Hedgehog/Hawk/Salamander/Bobcat are multi-asset whitelist; Albatross is trader-follower; Lemur/Raccoon are XYZ specialist).
 
@@ -412,6 +413,7 @@ One asset, six-gate entry validation, tight scoring, conviction-tiered leverage.
 | [grizzly](grizzly/) | v5.3 | BTC | BTC-tuned thresholds — calmer regime, tighter sizing. |
 | [polar](polar/) | v3.0 | ETH | ETH-tuned thresholds, deep confluence required. |
 | [wolverine](wolverine/) | v3.0 | HYPE | HYPE-tuned thresholds for its high-vol native profile. |
+| [koala](koala/) | v1.0 | Operator-chosen (default BTC) | **Onboarding tier — state-trigger variant.** No scoring, no `market_get_asset_data` call. Fires ONE LONG signal per lifetime and holds with the widest DSL in any Senpi agent (max_loss 30%, retrace 25, 90d hard_timeout). For users whose entire trading thesis is "I want to own BTC and have a safety net." |
 
 ## 3. Single-asset XYZ specialist
 
@@ -529,6 +531,22 @@ Follow not individual traders but the top-performing **strategies** — and trad
 | Skill | Version | Asset / Universe | Description |
 |---|---|---|---|
 | [cuckoo](cuckoo/) | v1.0 | Top-strategy consensus | Auto-discovers the top-N strategies by performance and trades what ≥2 of them agree on most, weighted by each one's ROI (capped so one outlier can't dominate). Wide DSL + 96h staleness cap. **User-scope auth.** |
+
+## 15. Self-tuning / adaptive-threshold agent
+
+The first archetype where the agent **modifies its own behavior based on its own trade history.** The agent runs a normal scoring producer but on a scheduled cron pulls its own closed-trade telemetry (via `audit_query`), buckets trades by entry score, and auto-raises `MIN_SCORE` when bottom buckets bleed. Productizes the [Vulture v4.1 manual cull](https://github.com/Senpi-ai/senpi-skills/pull/337) as a first-class pattern.
+
+| Skill | Version | Asset / Universe | Description |
+|---|---|---|---|
+| [lynx](lynx/) | v1.0 | BTC · ETH · SOL · HYPE | Multi-asset momentum scorer with a 6h audit cron. Every audit: pull own closed trades, bucket by entry score, raise `MIN_SCORE` if any bucket at-or-above the floor has ≥8 samples averaging worse than -1% ROE. Caps at `maxMinScore: 7`. Logs every adjustment with bleeding-bucket evidence. **First fleet agent that modifies its own behavior based on its own track record.** |
+
+## 16. Regime classifier / meta-router
+
+Watches macro conditions and **classifies the market** into TREND_UP / TREND_DOWN / CHOP. Publishes the classification in every tick output — including ticks where no trade is taken. The "meta-router" framing is aspirational: future runtime work can let other agents subscribe to the regime channel as a gating input.
+
+| Skill | Version | Asset / Universe | Description |
+|---|---|---|---|
+| [coyote](coyote/) | v1.0 | BTC (positional) + universe (dispersion) | 3-regime classifier (TREND_UP / TREND_DOWN / CHOP) with vol-confirmation on the down side (crash = drop + vol spike, not slow grind). LONG BTC in TREND_UP, SHORT BTC in TREND_DOWN, no trade in CHOP. Regime + all 3 input metrics published on every tick. Balanced DSL. |
 
 For full archetype theses, distinguishing MCP signatures, and code snippets, see [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md).
 

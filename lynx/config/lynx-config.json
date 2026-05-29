@@ -1,0 +1,17 @@
+{
+  "_comment": "LYNX v1.0.0 — Adaptive MIN_SCORE Self-Tuner. The Vulture v4.1 story productized. Runs a simple BTC/ETH/SOL/HYPE momentum scorer (max ~8). Every auditEverySec (default 6h = 21600s) calls audit_query for its own closed-trade history, buckets the trades by entry score, and auto-raises MIN_SCORE if any bucket >= current floor has minBucketN samples AND avg ROE < bucketBleedThresholdPct. Caps at maxMinScore. NEW archetype #15: Self-tuning agent. REQUIRES senpiUserId to enable the self-tuning audit — otherwise the agent runs with the initialMinScore forever (and emits a 'no senpiUserId' notice each tick). Find your senpiUserId via user_get_me or arena_leaderboard. Edit wallet/strategyId/chatId/senpiUserId; tune thresholds.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "senpiUserId": "",
+  "whitelist": ["BTC", "ETH", "SOL", "HYPE"],
+  "initialMinScore": 4,
+  "maxMinScore": 7,
+  "auditEverySec": 21600,
+  "auditLimit": 200,
+  "minBucketN": 8,
+  "bucketBleedThresholdPct": -1.0,
+  "smTiltMinPct": 55,
+  "marginPct": 0.20,
+  "leverage": 3
+}

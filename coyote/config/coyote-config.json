@@ -1,0 +1,17 @@
+{
+  "_comment": "COYOTE v1.0.0 — Regime Classifier / Meta-Router. Each tick computes BTC 7d move + annualized realized vol + cross-asset dispersion across the dispersionUniverse, then classifies the market: TREND_UP (BTC 7d >= trendUpThresholdPct AND vol <= maxVolForTrendPct), TREND_DOWN (BTC 7d <= -trendDownThresholdPct AND vol >= minVolForCrashPct), CHOP (otherwise). Routes to LONG BTC / SHORT BTC / no trade. Regime classification is published in every signal data block (and in every WAITING output) so operators can read Coyote's regime view at any tick. NEW archetype #16: Regime classifier / meta-router. Tick 900s. Balanced DSL. Edit wallet/strategyId/chatId; tune regime thresholds.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "btcAsset": "BTC",
+  "dispersionUniverse": ["BTC", "ETH", "SOL", "HYPE"],
+  "trendLookbackBars": 42,
+  "volLookbackBars": 42,
+  "dispersionLookbackBars": 24,
+  "trendUpThresholdPct": 5.0,
+  "trendDownThresholdPct": 5.0,
+  "maxVolForTrendPct": 80.0,
+  "minVolForCrashPct": 60.0,
+  "marginPct": 0.25,
+  "leverage": 3
+}
