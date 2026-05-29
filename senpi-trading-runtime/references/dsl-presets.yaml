@@ -117,3 +117,33 @@ presets:
           - { trigger_pct: 5,  lock_hw_pct: 50 }
           - { trigger_pct: 10, lock_hw_pct: 70 }
           - { trigger_pct: 15, lock_hw_pct: 85 }
+
+  parabolic_runner:
+    use_for: Single regime-selective parabolic-runner setups (Stag-class agents)
+    character: >-
+      Widest in the catalog. Built for asymmetric parabolic moves (the HYPE
+      2026-05 +60% run is the reference) where standard DSL trails would chop
+      out on 5-8% intraday gyrations. Late first lock (+15%, no early tier),
+      lighter early ratchet, wide retrace_threshold (18), requires 2
+      consecutive breaches so a single volatile bar doesn't trip Phase 1, and
+      a 14d hard_timeout outer bound to accommodate multi-week runs.
+      **Trade-off: bleeds in chop.** Deploy only when you've already
+      identified the parabolic setup — not as a default trend preset.
+    dsl_preset:
+      hard_timeout:
+        enabled: true
+        interval_in_minutes: 20160        # 14d — parabolic runs can extend 2-3 weeks
+      # weak_peak_cut + dead_weight_cut deliberately OFF — consolidations are NORMAL here
+      phase1:
+        enabled: true
+        max_loss_pct: 25.0                # accept deeper initial drawdown to stay on the bus
+        retrace_threshold: 18             # accommodate 5-8% intraday gyrations
+        consecutive_breaches_required: 2  # one bad bar doesn't trip
+      phase2:
+        enabled: true
+        tiers:
+          - { trigger_pct: 15,  lock_hw_pct: 0  }   # don't lock anything until +15% — let it build
+          - { trigger_pct: 30,  lock_hw_pct: 30 }   # light early lock
+          - { trigger_pct: 60,  lock_hw_pct: 55 }
+          - { trigger_pct: 120, lock_hw_pct: 72 }
+          - { trigger_pct: 250, lock_hw_pct: 85 }   # apex — only late lock takes most off the table

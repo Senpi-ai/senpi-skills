@@ -16,6 +16,7 @@ The DSL (Dynamic Stop-Loss) manages exit logic for open perpetual positions. It 
 | **`balanced`** ⭐ *default* | General-purpose / unsure | Breathes early, locks gradually, runner tier to +100%, 72h outer bound. |
 | **`mean_reversion`** | Faders / contrarian / range unwinds | Tight. Banks the bounded snapback fast (lock 30% at +5%), time-cuts ON — a fade resolves quickly or the thesis failed. |
 | **`scalp`** | High-frequency, fee-sensitive, fast in/out | Tightest. Fast profit locks, tight max-loss, short `hard_timeout` + `dead_weight_cut`. |
+| **`parabolic_runner`** | Single regime-selective parabolic-runner setups | Widest. Late first lock (+15%), light early ratchet, retrace 18, max_loss 25, 2 consecutive breaches required, 14d outer bound. **Bleeds in chop.** Built for HYPE-class +60% runs. |
 
 Full copy-paste blocks are in [DSL Presets](#dsl-presets) below and machine-readable in [`dsl-presets.yaml`](dsl-presets.yaml). Or skip presets entirely and hand-author every field — the schema is the same.
 
@@ -128,6 +129,33 @@ dsl_preset:
       - { trigger_pct: 10, lock_hw_pct: 70 }
       - { trigger_pct: 15, lock_hw_pct: 85 }
 ```
+
+### `parabolic_runner` — single regime-selective parabolic-runner setups
+
+Built for asymmetric parabolic moves (the HYPE 2026-05 +60% run is the reference) where standard DSL trails would chop out on 5–8% intraday gyrations. **Bleeds in chop — only deploy after you've identified the parabolic setup.** The [Stag agent](https://github.com/Senpi-ai/senpi-skills/tree/main/stag) is the canonical entry-side pair for this preset (strict 5-gate filter: 7d trend ≥ 25%, volume surge ≥ 1.5×, acceleration, structural trend, SM aligned).
+
+```yaml
+dsl_preset:
+  hard_timeout:
+    enabled: true
+    interval_in_minutes: 20160                # 14d — parabolic runs can extend 2-3 weeks
+  # weak_peak_cut + dead_weight_cut deliberately OFF — consolidations are NORMAL here
+  phase1:
+    enabled: true
+    max_loss_pct: 25.0                        # accept deeper initial drawdown to stay on the bus
+    retrace_threshold: 18                     # accommodate 5-8% intraday gyrations
+    consecutive_breaches_required: 2          # one bad bar doesn't trip
+  phase2:
+    enabled: true
+    tiers:
+      - { trigger_pct: 15,  lock_hw_pct: 0  }   # don't lock anything until +15% — let it build
+      - { trigger_pct: 30,  lock_hw_pct: 30 }   # light early lock
+      - { trigger_pct: 60,  lock_hw_pct: 55 }
+      - { trigger_pct: 120, lock_hw_pct: 72 }
+      - { trigger_pct: 250, lock_hw_pct: 85 }   # apex — only late lock takes most off the table
+```
+
+**Why not just widen `let_winners_run`?** `let_winners_run` is the right default for normal trend-followers (Beaver/Heron/Hummingbird/Vulture style). Pushing its retrace to 18 and adding `consecutive_breaches_required: 2` would make it bleed unnecessarily on normal 20–30% trend moves. `parabolic_runner` accepts that bleed *only when* you're targeting a 60%+ move that justifies the wider stop. The trade-off only pays in parabolic regimes — that's why Stag exists to gate it.
 
 ---
 

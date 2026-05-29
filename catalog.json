@@ -121,6 +121,21 @@
       "version": "1.0.0"
     },
     {
+      "id": "stag",
+      "tracker_slug": "stag",
+      "name": "Stag \u2014 Parabolic-Run Hunter",
+      "emoji": "\ud83e\udd8c",
+      "tagline": "Ride HYPE-class +60% runs without getting chopped on the gyrations. Strict 5-gate entry filter pairs with the widest DSL preset in the catalog. Operator-driven \u2014 most ticks are empty by design.",
+      "group": "multi-asset-whitelist",
+      "sort_order": 45,
+      "min_budget": 500,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/stag",
+      "version": "1.0.0"
+    },
+    {
       "id": "bald-eagle",
       "tracker_slug": "bald-eagle",
       "name": "Bald Eagle \u2014 XYZ Contrarian Fader",
