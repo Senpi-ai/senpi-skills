@@ -202,6 +202,7 @@ If your target asset is one of these four, use that example directly. If your ta
 | **Grizzly** | v5.3 | BTC | Kodiak template tuned for BTC's lower-volatility, higher-liquidity regime. Same six-gate confluence, calmer thresholds, tighter sizing. | BTC, Low-vol, Blue-chip |
 | **Polar** | v3.0 | ETH | Kodiak template tuned for ETH. Same six-gate framework with ETH-specific volatility and liquidity calibration. | ETH, 6-gate, Single-slot |
 | **Wolverine** | v3.0 | HYPE | Kodiak ported to HYPE — Hyperliquid's native token. Six-gate validation with HYPE-tuned thresholds for its high-vol profile. | HYPE, High-vol, Sharp moves |
+| **Koala** | v1.0 | Operator-chosen single asset (default BTC) | **Onboarding tier — state-trigger variant.** No scoring, no multi-timeframe analysis, no market_get_asset_data call — just a state-file check. Fires ONE LONG signal per lifetime (fire-once mode) and holds with the widest DSL in any Senpi agent (max_loss 30%, retrace 25, 90d hard_timeout). Operators who want a cycling deploy set `fireOnceMode: false` with a `reEntryCooldownHours` (default 7d). For users whose entire trading thesis is "I want to own BTC and have a safety net." | Onboarding, HODL, Fire-once, Ultra-wide DSL, No-scoring |
 | **Beaver** | v1.0 | BTC | **Onboarding tier.** Simplified 5-component scoring (max ~9), single SM-direction gate, wide Bison-pattern DSL. The "first strategy" for new users. | Onboarding, BTC, SM-gate, Tick 300s |
 | **Heron** | v1.0 | ETH | Beaver fork — ETH instead of BTC. Same scaffold + scoring. | Onboarding, ETH, SM-gate, Tick 300s |
 | **Hummingbird** | v1.0 | HYPE | Beaver fork — HYPE instead of BTC. Same scaffold + scoring. | Onboarding, HYPE, SM-gate, Tick 300s |
@@ -780,6 +781,77 @@ consensus = tally_consensus(entries)                   # (asset,dir) -> {count, 
 
 ---
 
+### 15. Self-tuning / adaptive-threshold agent
+
+The first archetype where the agent **modifies its own behavior based on its own trade history**. The agent runs a normal scoring producer with a configured `MIN_SCORE`, but on a scheduled cron it pulls its own closed-trade telemetry (via `audit_query`), buckets the trades by entry score, and auto-raises `MIN_SCORE` if any bucket at-or-above the current floor has accumulated enough samples AND is averaging below the bleed threshold.
+
+This is the Vulture v4.1 manual cull turned into a first-class agent pattern. See [the Vulture v4.1 PR](https://github.com/Senpi-ai/senpi-skills/pull/337) for the source story.
+
+```python
+# Each tick, if audit interval has elapsed:
+trades = mcp_call("audit_query", user_ids=[senpi_user_id], action_type="close", limit=200)
+bucket_stats = compute_bucket_stats(trades)            # {score: {n, avg_roe_pct, win_rate_pct}}
+recommended = recommend_min_score(bucket_stats, current_min, min_n=8, bleed_pct=-1.0, max_min=7)
+if should_update_threshold(current_min, recommended):
+    state["current_min_score"] = recommended
+    state["adjustments"].append({...})                # full audit-trail log
+```
+
+| | |
+|---|---|
+| Producer-signature for fleet audit | `market_get_asset_data` per asset (scoring) + `audit_query` per audit interval (self-tuning) |
+| Typical tick interval | 300s (5min) for scoring; audit every 6h |
+| Typical risk envelope | small whitelist of crypto majors, conviction-tier leverage, MIN_SCORE ratchets upward only (never lowers) |
+| Example agent | **Lynx** |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/lynx/scripts/lynx-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/lynx/scripts/lynx_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/lynx/runtime.yaml |
+
+**When to use this pattern:** the agent has a known scoring system AND the data exists (via `audit_query`) to measure which score buckets pay. Caveat: works best when there's enough volume to fill score buckets within an actionable window — for slow / low-frequency strategies, the auto-tune is starved for data. Requires user-scope auth.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Lynx** | v1.0 | BTC · ETH · SOL · HYPE | Multi-asset momentum scorer (max ~8) with a periodic self-tuning audit. Every 6h pulls own closed trades, buckets by entry score, raises `MIN_SCORE` if a bucket at-or-above the floor has ≥8 trades averaging worse than -1% ROE. Caps at `maxMinScore: 7`. Logs every adjustment with bleeding-bucket evidence. | Self-tuning, Adaptive-MIN_SCORE, Audit-cron, RL-on-threshold, User-scope-auth-required |
+
+---
+
+### 16. Regime classifier / meta-router
+
+The first archetype built around **macro-regime classification as a first-class signal**. The agent computes BTC trend strength + realized volatility + cross-asset dispersion, classifies the market into `{TREND_UP / TREND_DOWN / CHOP / UNKNOWN}`, and publishes the classification in every tick output — including ticks where no trade is taken.
+
+For v1, the classifier also takes its own regime-positional trade so it has skin in its own call. The "meta-router" framing is aspirational: future runtime work can let other agents *subscribe* to the regime channel as a gating input (e.g. Tortoise auto-pauses in TREND_DOWN; Stag auto-enables in TREND_UP).
+
+```python
+btc_move = pct_move(btc_closes, lookback=42)            # 7d on 4h bars
+btc_vol  = realized_vol_pct(btc_closes, lookback=42)    # annualized
+dispersion = dispersion_pct({asset: pct_move(...) for asset in universe})  # cross-sectional
+
+regime = classify_regime(btc_move, btc_vol, ...thresholds)   # TREND_UP / TREND_DOWN / CHOP / UNKNOWN
+direction = regime_to_direction(regime)                       # LONG / SHORT / None
+```
+
+| | |
+|---|---|
+| Producer-signature for fleet audit | `market_get_asset_data` per universe asset (just for close prices) |
+| Typical tick interval | 900s (15min — regimes don't flip in 5 minutes) |
+| Typical risk envelope | 1 slot, conservative leverage, 6h cooldown between regime trades |
+| Example agent | **Coyote** |
+| Example producer (full source) | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/coyote/scripts/coyote-producer.py |
+| Example `_config.py` | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/coyote/scripts/coyote_config.py |
+| Example runtime.yaml | https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/coyote/runtime.yaml |
+
+**When to use this pattern:** you want a single agent making a single macro call ("is the market trending up / down / sideways?") and everything else flowing from there. The classification is the deliverable; the trade is a consequence.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Coyote** | v1.0 | BTC (positional) + BTC/ETH/SOL/HYPE (dispersion universe) | 3-regime classifier (TREND_UP / TREND_DOWN / CHOP) with explicit volatility-confirmation on the down side (crash = price drop + vol spike, not slow grind). LONG BTC in TREND_UP, SHORT BTC in TREND_DOWN, no trade in CHOP. Regime classification + all three input metrics published on every tick. Balanced DSL. Tick 900s. | Regime-classifier, Meta-router, Macro, Vol-aware, Published-on-every-tick, User-scope-auth-required |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.
@@ -873,6 +945,8 @@ Ask which one sentence sounds most like the user:
   - 🟢 Beginner — *long only, multi-timeframe agreement*: **Sheep** (BTC/ETH/SOL/HYPE). Fires LONG only when 15m + 1h + 4h EMAs are all stacked bullishly. Never shorts — for users intimidated by directional choice.
   - ⬆️ Level up — *rotation across majors*: **Sailfish** (RS leader). Always holds the strongest of BTC/ETH/SOL/HYPE; rotates via DSL exit + re-entry.
   - 🎯 *Operator-driven — "I see a parabolic running, deploy something to ride it"*: **Stag** (parabolic-run hunter). Strict 5-gate entry filter (7d ≥ 25%, vol surge, acceleration, SM ≥60% LONG, structural trend); pairs with the widest DSL in the catalog (`parabolic_runner`: max_loss 25, retrace 18, 14d outer bound). Bleeds in chop — deploy only when you've identified the setup. Reference: HYPE 2026-05.
+  - 🟢 *Even simpler — "I just want to own BTC and have a safety net"*: **Koala** (set-and-forget HODL). One asset, one entry per lifetime, the widest DSL in any Senpi agent (max_loss 30%, retrace 25, 90d hard_timeout). No scoring, no decisions after deploy. The simplest possible Senpi agent.
+  - 🧠 *Advanced — "watch the agent learn from its own trades"*: **Lynx** (adaptive MIN_SCORE self-tuner). Productizes the Vulture v4.1 manual cull as a scheduled audit. Every 6h Lynx pulls its own closed-trade history and raises its MIN_SCORE if a bucket below the floor is bleeding. First fleet agent that modifies its own behavior based on its own track record.
   - ⬆️ Level up: **Grizzly** (BTC) · **Polar** (ETH) · **Kodiak** (SOL) · **Wolverine** (HYPE) — Kodiak-family alpha hunters.
 - **A basket of majors** (BTC + ETH + SOL together).
   - 🟢 Beginner: **Hedgehog** (equal-weight basket, up to 3 at once).
@@ -1056,6 +1130,9 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Iguana** | 4 — Multi-asset whitelist (XYZ subset, onboarding) | xyz:SP500 + xyz:XYZ100. Simplest possible XYZ exposure — index-fund equivalent. Balanced DSL + 48h hard_timeout for weekend pricing-gap risk |
 | **Sailfish** | 4 — Multi-asset whitelist (momentum-rotation) | BTC/ETH/SOL/HYPE. Ranks by ~2.7d RS, longs the leader iff leader RS ≥ 1% AND beats runner-up by ≥ 1.5pp (no whipsaw). Rotation via DSL exit + re-entry. Balanced DSL + 96h hard_timeout |
 | **Stag** | 4 — Multi-asset whitelist (parabolic-run hunter, operator-driven) | BTC/ETH/SOL/HYPE (often single-asset). Strict 5-gate filter (7d ≥ 25% + vol surge + accel + 200-SMA + SM ≥60% LONG). LONG only. Entry-side pair for new `parabolic_runner` DSL preset (max_loss 25%, retrace 18, 2 breaches required, 14d outer bound). Reference: HYPE 2026-05 +60% in 16 days |
+| **Koala** | 2 — Single-asset alpha hunter (state-trigger variant, onboarding) | Operator-chosen single asset (default BTC). No scoring — state-file fire-once entry, then the widest DSL in any Senpi agent (max_loss 30%, retrace 25, 90d hard_timeout). The simplest possible Senpi agent |
+| **Lynx** | 15 — Self-tuning / adaptive-threshold agent | BTC/ETH/SOL/HYPE. Simple momentum scorer with a 6h audit cron that pulls own closed-trade history via audit_query, buckets by entry score, and raises MIN_SCORE if a bucket below the floor is bleeding. First fleet agent that modifies its own behavior based on its own track record |
+| **Coyote** | 16 — Regime classifier / meta-router | BTC (positional) + BTC/ETH/SOL/HYPE (dispersion universe). 3-regime classifier (TREND_UP / TREND_DOWN / CHOP) with vol-confirmation on the down side. Publishes regime + all input metrics on every tick. LONG BTC in TREND_UP, SHORT BTC in TREND_DOWN, no trade in CHOP |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 

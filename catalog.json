@@ -1,6 +1,6 @@
 {
   "_version": "1.0",
-  "_updated": "2026-05-28",
+  "_updated": "2026-05-29",
   "_instructions": "Agent reads this file to build the onboarding skill catalog. Group by 'group', sort within group by 'sort_order'. Infrastructure skills (DSL, fee optimizer, scanners) are never displayed.",
   "groups": [
     {
@@ -133,6 +133,36 @@
       "base_skill": null,
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/stag",
+      "version": "1.0.0"
+    },
+    {
+      "id": "lynx",
+      "tracker_slug": "lynx",
+      "name": "Lynx \u2014 Adaptive MIN_SCORE Self-Tuner",
+      "emoji": "\ud83d\udc2f",
+      "tagline": "The Vulture v4.1 story productized. First fleet agent that modifies its own behavior based on its own trade history \u2014 every 6h Lynx audits its closed trades and raises MIN_SCORE if low-conviction buckets bleed.",
+      "group": "self-tuning",
+      "sort_order": 47,
+      "min_budget": 500,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/lynx",
+      "version": "1.0.0"
+    },
+    {
+      "id": "coyote",
+      "tracker_slug": "coyote",
+      "name": "Coyote \u2014 Regime Classifier / Meta-Router",
+      "emoji": "\ud83d\udc3a",
+      "tagline": "The agent that asks \"what kind of market are we in?\" before anything else. Classifies TREND_UP / TREND_DOWN / CHOP and publishes the view on every tick. LONG BTC in TREND_UP, SHORT BTC in TREND_DOWN.",
+      "group": "regime-classifier",
+      "sort_order": 48,
+      "min_budget": 500,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/coyote",
       "version": "1.0.0"
     },
     {
@@ -794,6 +824,21 @@
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/wolverine",
       "version": "6.0.0"
+    },
+    {
+      "id": "koala",
+      "tracker_slug": "koala",
+      "name": "Koala \u2014 Set-and-Forget HODL",
+      "emoji": "\ud83d\udc28",
+      "tagline": "The simplest possible Senpi agent. Pick an asset, fire LONG once, hold with the widest DSL in any Senpi agent. For users whose entire thesis is \"I want to own BTC and have a safety net.\"",
+      "group": "single-asset-hunter",
+      "sort_order": 46,
+      "min_budget": 500,
+      "risk_level": "conservative",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/koala",
+      "version": "1.0.0"
     }
   ]
 }
