@@ -1,6 +1,6 @@
 {
   "_version": "1.0",
-  "_updated": "2026-05-26",
+  "_updated": "2026-05-28",
   "_instructions": "Agent reads this file to build the onboarding skill catalog. Group by 'group', sort within group by 'sort_order'. Infrastructure skills (DSL, fee optimizer, scanners) are never displayed.",
   "groups": [
     {
@@ -58,6 +58,66 @@
       "base_skill": null,
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/badger",
+      "version": "1.0.0"
+    },
+    {
+      "id": "tortoise",
+      "tracker_slug": "tortoise",
+      "name": "Tortoise \u2014 DCA Scheduler",
+      "emoji": "\ud83d\udc22",
+      "tagline": "Slow and steady wins the race. Buys a fixed % of budget on a 24h cadence \u2014 no prediction, no scoring. The most accessible trade in crypto: zero prediction skill required.",
+      "group": "multi-asset-whitelist",
+      "sort_order": 41,
+      "min_budget": 500,
+      "risk_level": "conservative",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/tortoise",
+      "version": "1.0.0"
+    },
+    {
+      "id": "sheep",
+      "tracker_slug": "sheep",
+      "name": "Sheep \u2014 Long-Only Triple-EMA-Stacked Trend",
+      "emoji": "\ud83d\udc11",
+      "tagline": "Long-only trend follower. Fires only when 15m + 1h + 4h EMAs are all stacked bullishly. Never shorts \u2014 for users intimidated by directional choice.",
+      "group": "multi-asset-whitelist",
+      "sort_order": 42,
+      "min_budget": 500,
+      "risk_level": "conservative",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/sheep",
+      "version": "1.0.0"
+    },
+    {
+      "id": "iguana",
+      "tracker_slug": "iguana",
+      "name": "Iguana \u2014 XYZ Macro Index Trend",
+      "emoji": "\ud83e\udd8e",
+      "tagline": "Stock-market exposure on Hyperliquid without picking stocks. Trend-follows xyz:SP500 + xyz:XYZ100. Closest thing to an index fund, but 24/7.",
+      "group": "multi-asset-whitelist",
+      "sort_order": 43,
+      "min_budget": 500,
+      "risk_level": "conservative",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/iguana",
+      "version": "1.0.0"
+    },
+    {
+      "id": "sailfish",
+      "tracker_slug": "sailfish",
+      "name": "Sailfish \u2014 Relative-Strength Rotator",
+      "emoji": "\ud83d\udc20",
+      "tagline": "Always hold the strongest major. Ranks BTC/ETH/SOL/HYPE by ~2.7d relative strength; longs the leader iff it beats the runner-up by \u22651.5pp.",
+      "group": "multi-asset-whitelist",
+      "sort_order": 44,
+      "min_budget": 500,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/sailfish",
       "version": "1.0.0"
     },
     {

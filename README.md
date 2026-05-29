@@ -330,13 +330,13 @@ Each tool's full schema (params, types, response shape) is in the MCP server its
 
 # Trading Strategy Skills
 
-The fleet — **36 skills across 14 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
+The fleet — **40 skills across 14 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
 
 Each row links to the skill's directory.
 
 ## 🎯 Onboarding tier — new to Senpi? Start here.
 
-Ten v1.0 strategies designed for first-time operators. All share the same scaffold: **helpers-native producer + Smart-Money direction gate via `leaderboard_get_markets` + DSL Phase 1 floor + Phase 2 ratchet ladder + race-window dedup**. Each opens LONG or SHORT (no long-only), uses simple 5-component scoring (max ~9), and lets the runtime own all exit logic.
+Thirteen v1.0 strategies designed for first-time operators. Most share the same scaffold: **helpers-native producer + Smart-Money direction gate via `leaderboard_get_markets` + DSL Phase 1 floor + Phase 2 ratchet ladder + race-window dedup**, with simple scoring and runtime-owned exits. A few deliberately break that mold — **Sheep** is long-only triple-EMA-stack (no shorts), and **Tortoise** has no scoring at all (DCA cadence is the signal).
 
 Pick by what you want to trade. Each is its own self-contained skill directory at the repo root.
 
@@ -347,12 +347,19 @@ Pick by what you want to trade. Each is its own self-contained skill directory a
 | [beaver](beaver/) | BTC | **Default first strategy.** 4h trend + Smart-Money direction gate. Wide Bison-pattern DSL (T0 lock 0 → T5 lock 85). |
 | [heron](heron/) | ETH | Same shape as Beaver, ETH. |
 | [hummingbird](hummingbird/) | HYPE | Same shape, HYPE. |
+| [sheep](sheep/) | BTC · ETH · SOL · HYPE | **Long-only triple-EMA-stack.** Fires LONG only when 15m + 1h + 4h EMAs are all stacked bullishly. Never shorts — for users who want trend exposure without learning what shorts are. |
 
 ### 🔵 Diversified Crypto Basket
 
 | Skill | Assets | Description |
 |---|---|---|
 | [hedgehog](hedgehog/) | BTC + ETH + SOL | Equal-weight basket, each asset directional independently. BTC long + ETH short is allowed. Up to 3 simultaneous positions, per-position DSL. |
+
+### 🟤 Accumulation (no prediction, no scoring)
+
+| Skill | Assets | Description |
+|---|---|---|
+| [tortoise](tortoise/) | BTC + ETH + SOL | **DCA scheduler.** Buys a fixed % of budget on a strict 24h cadence. No price prediction, no scoring — most-overdue past interval wins. LONG only. The most accessible trade in crypto: zero prediction skill required. |
 
 ### 🟣 Multi-week Arena Conviction Mirror
 
@@ -376,6 +383,7 @@ Senpi's distinctive moat — equity, commodity, and pre-IPO perps that retail ca
 | [lemur](lemur/) | Pre-IPO Perpetuals (IPOPs) | **Auto-discovers IPOPs** via the trade.xyz funding signature (\|funding\| ≤ 1e-7 AND max_leverage ≤ 5). Today: xyz:SPCX. Auto-expands when ANTHROPIC / OPENAI / STRIPE list. |
 | [bobcat](bobcat/) | Big tech | NVDA / TSLA / AAPL / META / MSFT / GOOGL / AMZN / AMD / MU / INTC / TSM / ORCL. 4h trend + SM. 48h hard timeout for the weekend pricing gap. |
 | [raccoon](raccoon/) | All XYZ (excl. IPOPs) | **Weekend-only.** Fri 22:00 UTC → Mon 00:00 UTC. Captures the Mon-open reconciliation snap-back when trade.xyz external pricing resumes after the 50h internal-oracle window. |
+| [iguana](iguana/) | xyz:SP500 · xyz:XYZ100 | **Broad indices only — no stock-picking.** Trades whichever has the stronger 4-day move past 1.5%. The closest thing to an index fund, but 24/7 on Hyperliquid. |
 
 ---
 
@@ -422,6 +430,10 @@ Strict whitelist of 3–6 majors, best-of-N selection per tick.
 |---|---|---|---|
 | [bison](bison/) | v1.0 | BTC · ETH · SOL | Iterates BTC / ETH / SOL per tick, fires the best-scoring above MIN_SCORE. Tick 300s. |
 | [badger](badger/) | v1.0 | BTC · ETH · SOL · HYPE | Takes a breakout only when **rising open interest** confirms it (new money, not a fakeout). OI-state cache. Wide "let winners run" DSL. |
+| [tortoise](tortoise/) | v1.0 | BTC · ETH · SOL | **Onboarding — DCA scheduler.** Buys a fixed % of budget on a strict 24h cadence. No price prediction, no scoring. Most-overdue past interval wins. LONG only. Wide DSL + 30d hard_timeout for compounding. |
+| [sheep](sheep/) | v1.0 | BTC · ETH · SOL · HYPE | **Onboarding — long-only triple-stack.** Fires LONG only when 15m + 1h + 4h EMAs are all stacked bullishly. Never shorts. Balanced DSL + `weak_peak_cut` 6h/3%. |
+| [iguana](iguana/) | v1.0 | xyz:SP500 · xyz:XYZ100 | **Onboarding — XYZ index basket.** The simplest XYZ exposure — just the broad indices. Picks whichever has the stronger 4-day move past 1.5% and trades its direction. Balanced DSL + 48h hard_timeout. |
+| [sailfish](sailfish/) | v1.0 | BTC · ETH · SOL · HYPE | **Relative-strength rotator.** Ranks the universe by ~2.7d RS each tick; longs the leader iff leader RS ≥ 1% AND beats runner-up by ≥ 1.5pp (no whipsaw). Rotation via DSL exit + re-entry. Balanced DSL + 96h hard_timeout. |
 
 ## 5. Trader-follower / hot-streak
 
