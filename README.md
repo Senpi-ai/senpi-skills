@@ -330,7 +330,7 @@ Each tool's full schema (params, types, response shape) is in the MCP server its
 
 # Trading Strategy Skills
 
-The fleet — **40 skills across 14 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
+The fleet — **41 skills across 14 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
 
 Each row links to the skill's directory.
 
@@ -434,6 +434,7 @@ Strict whitelist of 3–6 majors, best-of-N selection per tick.
 | [sheep](sheep/) | v1.0 | BTC · ETH · SOL · HYPE | **Onboarding — long-only triple-stack.** Fires LONG only when 15m + 1h + 4h EMAs are all stacked bullishly. Never shorts. Balanced DSL + `weak_peak_cut` 6h/3%. |
 | [iguana](iguana/) | v1.0 | xyz:SP500 · xyz:XYZ100 | **Onboarding — XYZ index basket.** The simplest XYZ exposure — just the broad indices. Picks whichever has the stronger 4-day move past 1.5% and trades its direction. Balanced DSL + 48h hard_timeout. |
 | [sailfish](sailfish/) | v1.0 | BTC · ETH · SOL · HYPE | **Relative-strength rotator.** Ranks the universe by ~2.7d RS each tick; longs the leader iff leader RS ≥ 1% AND beats runner-up by ≥ 1.5pp (no whipsaw). Rotation via DSL exit + re-entry. Balanced DSL + 96h hard_timeout. |
+| [stag](stag/) | v1.0 | BTC · ETH · SOL · HYPE (often single-asset) | **Parabolic-run hunter.** Entry-side pair for the new `parabolic_runner` DSL preset (widest in the catalog: max_loss 25%, retrace 18, 2 breaches required, 14d outer bound). Strict 5-gate filter (200-SMA + 7d ≥25% + vol surge + acceleration + SM ≥60% LONG). LONG only. Operator-driven — most ticks return empty by design. Reference: HYPE 2026-05 (+60% in 16 days). |
 
 ## 5. Trader-follower / hot-streak
 

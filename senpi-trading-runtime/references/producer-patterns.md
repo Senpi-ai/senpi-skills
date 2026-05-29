@@ -323,6 +323,7 @@ if best_candidate:
 | **Sheep** | v1.0 | BTC · ETH · SOL · HYPE | **Onboarding tier.** Long-only triple-EMA-stacked trend. Fires LONG only when `ema(fast) > ema(slow)` on ALL THREE timeframes (15m + 1h + 4h). Never shorts. A visual rule beginners can sanity-check on any chart. Balanced DSL + `weak_peak_cut` 6h/3%. | Onboarding, Long-only, Multi-timeframe, EMA-stack, Balanced DSL |
 | **Iguana** | v1.0 | xyz:SP500 · xyz:XYZ100 | **Onboarding tier — XYZ subset.** The simplest XYZ exposure in the fleet — just the broad indices. Picks whichever has the stronger 4-day move past the threshold and trades its direction. No stock-picking, no commodities, no pre-IPO. Closest thing to "an index fund, but 24/7." Balanced DSL + 48h hard_timeout for weekend pricing-gap risk. | Onboarding, XYZ-Macro, Index-only, Balanced DSL, hard_timeout 48h |
 | **Sailfish** | v1.0 | BTC · ETH · SOL · HYPE | Relative-Strength Rotator. Ranks the universe by ~2.7d RS each tick and longs the leader iff (a) leader's own RS ≥ 1% AND (b) it beats the runner-up by ≥ 1.5pp (no whipsaw on tight races). Runtime is single-position; "rotation" happens via DSL exit on the holdover + Sailfish's next-tick re-entry on the new leader. Momentum cousin of Chameleon's mean-reversion. Balanced DSL + 96h hard_timeout. | Momentum-rotation, RS-leader, Margin-gate, Balanced DSL |
+| **Stag** | v1.0 | BTC · ETH · SOL · HYPE (often deployed single-asset) | **Parabolic-Run Hunter.** Entry-side pair for the new `parabolic_runner` DSL preset (widest in the catalog: max_loss 25%, retrace 18, 2 consecutive breaches required, late first lock +15%, 14d outer bound). Strict 5-gate filter: (1) close > 200-bar 4h SMA AND 7d high within 48h, (2) 7d move ≥ 25% (the parabolic threshold), (3) 24h volume ≥ 1.5× trailing 7d, (4) 4d move ≥ 7d move / 2 (acceleration), (5) SM aligned LONG ≥ 60%. LONG only — parabolic crashes happen too fast for shorts. **Operator-driven** deployment: most ticks return empty by design. Reference setup: HYPE 2026-05 (+60% in 16 days). 1 entry/day max + 24h per-asset cooldown after bad takes. Tick 600s. | Parabolic, 5-gate, LONG-only, Operator-driven, parabolic_runner DSL |
 
 ---
 
@@ -871,6 +872,7 @@ Ask which one sentence sounds most like the user:
   - 🟢 Beginner: **Beaver** (BTC) · **Heron** (ETH) · **Hummingbird** (HYPE) — SM-gated 4h trend, wide DSL, simple scoring.
   - 🟢 Beginner — *long only, multi-timeframe agreement*: **Sheep** (BTC/ETH/SOL/HYPE). Fires LONG only when 15m + 1h + 4h EMAs are all stacked bullishly. Never shorts — for users intimidated by directional choice.
   - ⬆️ Level up — *rotation across majors*: **Sailfish** (RS leader). Always holds the strongest of BTC/ETH/SOL/HYPE; rotates via DSL exit + re-entry.
+  - 🎯 *Operator-driven — "I see a parabolic running, deploy something to ride it"*: **Stag** (parabolic-run hunter). Strict 5-gate entry filter (7d ≥ 25%, vol surge, acceleration, SM ≥60% LONG, structural trend); pairs with the widest DSL in the catalog (`parabolic_runner`: max_loss 25, retrace 18, 14d outer bound). Bleeds in chop — deploy only when you've identified the setup. Reference: HYPE 2026-05.
   - ⬆️ Level up: **Grizzly** (BTC) · **Polar** (ETH) · **Kodiak** (SOL) · **Wolverine** (HYPE) — Kodiak-family alpha hunters.
 - **A basket of majors** (BTC + ETH + SOL together).
   - 🟢 Beginner: **Hedgehog** (equal-weight basket, up to 3 at once).
@@ -1053,6 +1055,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Sheep** | 4 — Multi-asset whitelist (onboarding) | BTC/ETH/SOL/HYPE long-only triple-EMA-stacked trend. Fires only when 15m + 1h + 4h EMAs are all stacked bullishly. Balanced DSL + weak_peak_cut 6h/3% |
 | **Iguana** | 4 — Multi-asset whitelist (XYZ subset, onboarding) | xyz:SP500 + xyz:XYZ100. Simplest possible XYZ exposure — index-fund equivalent. Balanced DSL + 48h hard_timeout for weekend pricing-gap risk |
 | **Sailfish** | 4 — Multi-asset whitelist (momentum-rotation) | BTC/ETH/SOL/HYPE. Ranks by ~2.7d RS, longs the leader iff leader RS ≥ 1% AND beats runner-up by ≥ 1.5pp (no whipsaw). Rotation via DSL exit + re-entry. Balanced DSL + 96h hard_timeout |
+| **Stag** | 4 — Multi-asset whitelist (parabolic-run hunter, operator-driven) | BTC/ETH/SOL/HYPE (often single-asset). Strict 5-gate filter (7d ≥ 25% + vol surge + accel + 200-SMA + SM ≥60% LONG). LONG only. Entry-side pair for new `parabolic_runner` DSL preset (max_loss 25%, retrace 18, 2 breaches required, 14d outer bound). Reference: HYPE 2026-05 +60% in 16 days |
 
 Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
 
