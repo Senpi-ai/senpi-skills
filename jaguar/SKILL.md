@@ -14,19 +14,45 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.0"
+  version: "4.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# 🐆 JAGUAR v4.0.0 — Striker (helpers-native)
+# 🐆 JAGUAR v4.0.1 — Striker (helpers-native)
 
 **Plumbing-only migration from v3.7. NO thesis change.** v3.x striker
 scoring + DSL preset + risk.guard_rails preserved verbatim. Producer
 flips to in-process `SenpiClient`, daemon replaces cron, runtime owns
 execution.
+
+## v4.0.1 changelog (2026-05-29) — order-of-operations bug fix
+
+**Bug:** v4.0 appended `current_scan` to `history["scans"]` BEFORE calling
+`detect_striker_signals()`. Inside the detection function, `prev_scans[-1]`
+then returned the same scan that was just appended — so every asset's
+`rank_jump` computed as `current_rank − current_rank = 0`. No asset ever
+met `STRIKER_MIN_RANK_JUMP`. **The scanner went completely silent.**
+
+**Impact:** A historical-replay test on the bug missed 25 valid signals over
+2 days, including spikes on VVV, XMR, and GRASS. The agent diagnosed the
+bug from its own diagnostics on 2026-05-29 ("score 11 GRASS LONG —
+FIRST_JUMP #34→#15" fired within minutes of the hot-patch) and the fix
+is now ferried into the repo.
+
+**Fix:** Reordered `main()`:
+1. Build `current_scan`
+2. Load history
+3. If history is empty, seed it and return early (first-ever scan)
+4. **Call `detect_striker_signals(current_scan, history)` FIRST** — so
+   `prev_scans[-1]` returns the actual previous scan
+5. Append `current_scan` to history AFTER detection
+6. Save history
+
+The detect-then-append sequence is now the contract; future
+`jaguar-producer.py` edits must preserve it.
 
 ## v4.0.0 changelog
 

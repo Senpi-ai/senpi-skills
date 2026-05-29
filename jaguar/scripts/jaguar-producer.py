@@ -70,7 +70,7 @@ from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ign
 # reentrant; nested call raises BlockingIOError every tick.
 
 
-VERSION = "4.0.0"
+VERSION = "4.0.1"
 
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "jaguar_signals"
@@ -578,13 +578,28 @@ def main():
         }))
         return
 
-    # Build scan snapshot, append, persist
+    # Build scan snapshot
+    #
+    # v4.0.1 ORDER-OF-OPERATIONS FIX: detect FIRST, then append.
+    #
+    # Bug: prior to v4.0.1, the producer appended `current_scan` to
+    # history["scans"] BEFORE calling detect_striker_signals(). Inside the
+    # detection function, `prev_scans[-1]` then returned the SAME scan that
+    # was just appended — so every asset's `rank_jump` computed as
+    # current_rank - current_rank = 0. No asset ever met STRIKER_MIN_RANK_JUMP
+    # and the scanner went completely silent. In a historical-replay test,
+    # this dropped 25 valid signals over 2 days (VVV/XMR/GRASS spikes among
+    # them). The agent's own diagnosis on 2026-05-29; ferried into the repo.
+    #
+    # Correct order: detect (with the still-prior history), THEN append the
+    # current scan for the next tick to compare against.
     current_scan = build_scan_snapshot(markets)
     history = load_scan_history()
-    history["scans"].append(current_scan)
-    save_scan_history(history)
 
-    if len(history["scans"]) < 2:
+    # First-ever scan? Seed history and return — nothing to compare against yet.
+    if not history.get("scans"):
+        history["scans"] = [current_scan]
+        save_scan_history(history)
         print(json.dumps({
             "status": "ok",
             "scanned": len(markets),
@@ -596,8 +611,12 @@ def main():
         }))
         return
 
-    # Detect Striker signals (full v3.7 logic preserved)
+    # Detect Striker signals against the previous scan (now actually prior, not self)
     candidates = detect_striker_signals(current_scan, history)
+
+    # Append current scan AFTER detection so the next tick has a real prior.
+    history["scans"].append(current_scan)
+    save_scan_history(history)
 
     if not candidates:
         elapsed = time.time() - run_start

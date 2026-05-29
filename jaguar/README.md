@@ -173,6 +173,14 @@ Expected: `status=ok` every tick (180s interval). Heartbeat fields: `scanned`, `
 
 ## Changelog
 
+### v4.0.1 (2026-05-29) — order-of-operations bug fix (silent scanner)
+
+**Bug:** v4.0 appended `current_scan` to `history["scans"]` BEFORE calling `detect_striker_signals()`. Inside the detection function, `prev_scans[-1]` returned the same scan that was just appended — so every asset's `rank_jump` computed as `current_rank − current_rank = 0`. No asset ever met `STRIKER_MIN_RANK_JUMP`. **The scanner went completely silent.**
+
+A historical-replay test on the bug missed **25 valid signals over 2 days**, including spikes on VVV, XMR, and GRASS. The agent diagnosed it from its own diagnostics on 2026-05-29 and hot-patched the live host (immediately found 3 candidates and fired Score-11 GRASS LONG — `FIRST_JUMP #34→#15`). This commit ferries the fix into the repo.
+
+**Fix:** Reordered `main()` to **detect first, then append**: detection now runs against history that doesn't yet include the current scan; the current scan is appended only after detection so it becomes the *prior* on the next tick. First-ever-scan guard added to seed history without trying to detect.
+
 ### v4.0.0 — helpers-native plumbing migration
 
 Plumbing-only migration from v3.7. NO thesis change. v3.x striker scoring + DSL preset + `risk.guard_rails` preserved verbatim. Producer flips to in-process `SenpiClient`, daemon replaces cron, runtime owns execution.
