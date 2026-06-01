@@ -17,8 +17,8 @@ The long-tail edge is twofold: most predators cluster on majors + a tight altcoi
 | Asset universe | 25 small/mid-cap perps (see SKILL.md) |
 | Banned | BTC, ETH, SOL, all XYZ |
 | Tick interval | 60-180s |
-| MIN_SCORE (producer) | **9** (raised from 7 in v4.1.0 — see SKILL.md changelog for the 30-trade analysis) |
-| LLM min_confidence | **8** (raised from 7 in v4.1.0) |
+| MIN_SCORE (producer) | **10** (raised from 9 in v4.2.0; 7→9 in v4.1.0 — see SKILL.md changelog for the 100-trade analysis) |
+| LLM min_confidence | **9** (raised from 8 in v4.2.0) |
 | Max positions | 2 concurrent |
 | Margin per slot | 45% of equity (was a fixed $400; switched to budget-relative `margin_pct: 45`) |
 | Leverage tiers | 5x / 7x (score-scaled — `cautious` tier 3x removed in v4.1.0) |
@@ -161,6 +161,14 @@ tail -f /tmp/vulture-producer.log | jq -c 'select(.event=="daemon_tick_finished"
 Expected: `status=ok` every tick (60s interval).
 
 ## Changelog
+
+### v4.2.0 (2026-06-01) — MIN_SCORE 9 → 10
+
+A 100-trade aggregate showed every score bucket ≥10 net-positive (10/11/12 = **+$416.78** / 41 trades) and every bucket ≤9 net-negative (7/8/9 = **−$645.12** / 41 trades). Score 9 ran a 27.3% win rate at −3.32% avg ROE; score 10 was the single best bucket (+8.70% avg ROE, +$259.67 net). Raised `MIN_SCORE` 9→10 (producer) and `min_confidence` 8→9 (LLM gate); conviction sizing tier floor moved to 10. See SKILL.md changelog for the full table. NO thesis change — floor tightening only.
+
+### v4.1.0 (2026-05-29) — MIN_SCORE 7 → 9 (low-conviction cull)
+
+A 30-trade aggregate showed score 7–8 (n=15) ran 12.5%/28.6% win rates at −3.94%/−3.52% avg ROE. Raised `MIN_SCORE` 7→9 (producer) and `min_confidence` 7→8 (LLM gate); removed the `cautious` 3x sizing tier. NO thesis change — floor tightening only.
 
 ### v4.0.0 — senpi_runtime_helpers migration
 

@@ -114,7 +114,7 @@ actions:
     decision_mode: llm
     decision_model: "${VULTURE_DECISION_MODEL}"  # REQUIRED. Bare model name only — NO provider prefix. INVALID: "<provider>/<model>" (e.g. "google/...", "anthropic/...", "openai/...") — OpenClaw double-prefixes → 500 Unknown model. The LLM gate is a pass-through rubber-stamp (producer already applied every filter); any reliable structured-JSON model works. No default by design — operators pick their own.
     scanners: [vulture_signals]
-    min_confidence: 8                 # v4.1.0: raised from 7 — see decision_prompt CONFIDENCE SCORING
+    min_confidence: 9                 # v4.2.0: raised from 8 — see decision_prompt CONFIDENCE SCORING
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
@@ -147,7 +147,7 @@ actions:
 
       ## HARD SKIP CONDITIONS (output execute: false)
 
-      - score < 9 (producer floor; defensive — v4.1.0 raised from 7)
+      - score < 10 (producer floor; defensive — v4.2.0 raised from 9)
       - leverage <= 0 OR signal data missing (malformed)
       - heldAssets already contains this exact asset (duplicate position)
       - reasons array empty (malformed signal)
@@ -161,18 +161,21 @@ actions:
 
       ## CONFIDENCE SCORING
 
-      v4.1.0 — score 7-8 culled at the producer after a 30-trade analysis
-      showed those buckets ran 12.5% / 28.6% win rates with -3.94% / -3.52%
-      avg ROE. Vulture now hunts strictly in the 9-12 conviction zone:
+      v4.2.0 — score 7-9 culled at the producer after a 100-trade analysis.
+      Every score bucket >=10 was net-positive (10/11/12 = +$416.78 over 41
+      trades); every bucket <=9 was net-negative (7/8/9 = -$645.12 over 41
+      trades). Score 9 specifically ran a 27.3% win rate at -3.32% avg ROE.
+      Vulture now hunts strictly in the 10-12 conviction zone:
 
-      - 9-10: score >= 11 (apex tier, 7x leverage) AND HEAVY_FLOW or
+      - 10: score >= 11 (apex tier, 7x leverage) AND HEAVY_FLOW or
         STRONG_FLOW AND TREND_RUNNING/STRONG AND ACCELERATING
-      - 8: score 9-10 (conviction tier, 5x leverage) — producer has
+      - 9: score 10 (conviction tier, 5x leverage) — the single best
+        historical bucket (+8.70% avg ROE, 50% win). The producer has
         gated this; the signal IS the validation. Honor it unless a
         hard-skip applies.
-      - <8: producer floor (>=9) not cleared — should never reach you.
+      - <9: producer floor (>=10) not cleared — should never reach you.
 
-      Minimum confidence to execute is 8. Score 7-8 signals are dropped
+      Minimum confidence to execute is 9. Score 7-9 signals are dropped
       by the producer BEFORE reaching this gate; if one somehow reaches
       you, hard-skip.
 
