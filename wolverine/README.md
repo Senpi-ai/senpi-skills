@@ -44,7 +44,7 @@ exits 100% price-action.
 | T4 | +75% | 75% |
 | T5 (apex) | +100% | 85% (was 85% @ +80%) |
 
-Phase 1: max_loss 20% / retrace 8% / 1 breach.
+Phase 1: max_loss 20% / retrace 15% / 1 breach. (v6.1.0: retrace 8→15 — at 5x the old 8-ROE-pt retrace was a 1.6% HYPE price leash that fired on intra-candle noise; 15 ≈ 3.0% price buffer, still below the 20% hard stop.)
 **Time-cuts:** `hard_timeout` / `weak_peak_cut` / `dead_weight_cut` all DISABLED.
 
 ## Scanner pattern
@@ -164,6 +164,25 @@ tail -f /tmp/wolverine-producer.log | jq -c 'select(.event=="daemon_tick_finishe
 Expected: `status=ok` every tick (180s interval). Tick `duration_ms` should be ~1-3s.
 
 ## Changelog
+
+### v6.1.0 (2026-06-01) — Phase 1 retrace leash widened for HYPE volatility
+
+One isolated DSL change: `exit.dsl_preset.phase1.retrace_threshold` **8 → 15**.
+NO scoring, gate, leverage, or Phase 2 change.
+
+During HYPE's run Wolverine caught a +16.4% ROE winner but missed the bulk of
+the move, with recent losses clustered at −5% to −9% ROE. Provable cause: at
+5x leverage an 8-ROE-point retrace is a **1.6% price leash** (8 ÷ 5), and HYPE
+wicks 3-5% intra-candle — so the single-breach retrace fired on noise and
+clipped winners before the wide Phase 2 ladder could ride them. 15 ROE pts ≈
+3.0% price leash at 5x (~2x the buffer), still below the 20% `max_loss_pct`
+hard stop so it stays a distinct trailing rule.
+
+This is the **only** change made: the recent sample is n=12 (score buckets
+n=2-4) — too thin to retune Phase 2 locks, the score floor, or
+`MIN_4H_STRUCTURE`. The retrace fix is defensible on stop-width-vs-volatility
+math alone, independent of sample size. Re-measure expectancy after 40-50
+trades before touching anything else.
 
 ### v6.0.0 (2026-05-18) — Patient-Conviction adoption (Bison v3.0.1 port)
 

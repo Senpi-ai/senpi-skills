@@ -15,7 +15,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "6.0.0"
+  version: "6.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -23,7 +23,42 @@ metadata:
     - senpi_runtime_helpers
 ---
 
-# 🦡 WOLVERINE v6.0.0 — HYPE Patient-Conviction
+# 🦡 WOLVERINE v6.1.0 — HYPE Patient-Conviction
+
+## v6.1.0 (2026-06-01) — Phase 1 retrace leash widened for HYPE volatility
+
+**One isolated DSL change. NO scoring, gate, leverage, or Phase 2 change.**
+`exit.dsl_preset.phase1.retrace_threshold` **8 → 15**.
+
+**Why.** During HYPE's epic run Wolverine caught a +16.4% ROE winner but
+left the bulk of the move on the table, and its recent window ran a 25% win
+rate with losses clustered at −5% to −9% ROE. The provable structural cause:
+at 5x leverage an 8-ROE-point retrace is a **1.6% HYPE price leash** (8 ÷ 5).
+HYPE routinely wicks 3-5% inside a single 15m candle, so this single-breach
+(`consecutive_breaches_required: 1`) retrace fired on ordinary noise — exiting
+positions at small losses before they could become the BIG trend the wide
+Phase 2 "let winners run" ladder exists to ride. The −5% to −9% loss cluster
+is consistent with a trade peaking +2-3% ROE, pulling back 1.6% price, and
+tripping the 8-point retrace.
+
+**The fix.** 15 ROE pts = **~3.0% price leash at 5x** — roughly double the
+buffer, still well below the 20% `max_loss_pct` hard stop so it remains a
+distinct trailing-from-peak rule, not a collapse into the hard stop (which is
+why 15 and not the 20 that would equal max_loss).
+
+**Why ONLY this.** The recent window is n=12 (score buckets n=2-4) —
+statistically indistinguishable from a 50% win rate, far too thin to justify
+retuning Phase 2 locks, the entry score floor, or `MIN_4H_STRUCTURE`. This
+retrace fix is the one change defensible on **stop-width-vs-volatility math
+alone**, independent of sample size. Everything else waits for data.
+
+**Decision rule.** Re-measure expectancy after 40-50 trades. A let-winners-run
+trend agent is *supposed* to have a low win rate; it only fails if the wins
+can't clear the loss size. Break-even at a 25% win rate needs a 3:1 avg-win/
+avg-loss ratio (recent window was 1.56:1 — wins truncated). If, after this
+fix and a real sample, expectancy is still negative, the trend-follower
+archetype is wrong for HYPE and a rewrite is earned. Until then it's a
+mis-calibrated strategy, not a broken one.
 
 ## v6.0.0 (2026-05-18) — Patient-Conviction adoption (Bison v3.0.1 port)
 
@@ -121,7 +156,7 @@ driven). Other deltas should be preserved.
 - Multi-factor scoring (~17 max points): base-tech + SM concentration + SM velocity + funding alignment + funding regime + funding persistence + volume + OI velocity + BTC correlation + RSI room + 4h momentum bonus + move-exhaustion penalty
 - MIN_SCORE = 9 (config-overridable)
 - Conviction-tiered leverage: 5x apex (score ≥11) / 3x standard (≥9)
-- DSL preset preserved: time-cuts ALL DISABLED, Phase 1 max_loss 20% / retrace 8 / 3 breaches, Phase 2 ladder (10/15, 20/35, 35/55, 55/70, 80/85)
+- DSL preset preserved: time-cuts ALL DISABLED, Phase 1 max_loss 20% / retrace 8 (v6.1.0: → 15) / 3 breaches, Phase 2 ladder (10/15, 20/35, 35/55, 55/70, 80/85)
 
 **v3.0.1/3.0.2/3.0.4 v1-DSL fixes preserved:**
 - `dead_weight_cut`: DISABLED (single-asset has no rotation cost)
