@@ -220,21 +220,36 @@ exit:
     ensure_execution_as_taker: true
     execution_timeout_seconds: 60
   # DSL preset — Cheetah is high-conviction sniper with multi-hour holds.
-  # Time cuts kept (multi-asset rotation has opportunity cost — unlike
-  # single-asset patience agents Polar/Wolverine where time cuts are
-  # disabled). Phase 2 ladder uses fleet-standard T0/T1 patch (commit
-  # 6cad383 pattern: T0 trigger 5%, lock 35%; T1 trigger 10%, lock 50%).
+  # v7.2.0 (2026-06-01): 100-trade-by-score analysis showed ENTRIES are
+  # fine but EXITS were the bottleneck. Win rate scaled cleanly with score
+  # (40% @ score 10 → 55.6% @ score 13 — the accuracy filter works), yet
+  # Avg ROE was NEGATIVE across EVERY score bracket. Diagnosis: "death by a
+  # thousand cuts." The tight Phase 2 locks + the 60m/90m time-cuts made it
+  # mechanically impossible to hold for a big win — Cheetah took the full
+  # brunt of -15% stops / -5% chops but was forced to give up every +15% /
+  # +30% runner. The two big HYPE longs that actually paid (+13.9%, +8.9%)
+  # only landed because they hit the 12h HARD TIMEOUT — NOT a trailing stop,
+  # NOT a 60m dead_weight_cut. "When forced to hold, the position printed."
+  # FIX: disable weak_peak_cut + dead_weight_cut entirely; keep ONLY the 12h
+  # hard_timeout fail-safe (the one cut that captured the winners). Phase 2
+  # ladder already widened to the "let winners run" shape (T0 +10% / lock 0)
+  # on 2026-05-21 — together this removes the glass ceiling so heavy
+  # trenders can run. Hypothesis test — re-evaluate after ~50 more trades.
   dsl_preset:
     hard_timeout:
       enabled: true
-      interval_in_minutes: 720          # 12h fail-safe
+      interval_in_minutes: 720          # 12h fail-safe — the ONLY time cut
+                                        # left; it captured both big HYPE
+                                        # wins (+13.9%, +8.9%) when forced
+                                        # to hold.
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 90
-      min_value: 3.0
+      enabled: false                    # v7.2.0: disabled — was chopping
+      interval_in_minutes: 90           # winners-in-waiting at 90m/3% and
+      min_value: 3.0                    # capping the right-tail move.
     dead_weight_cut:
-      enabled: true
-      interval_in_minutes: 60           # rotation cost: cut dead weight
+      enabled: false                    # v7.2.0: disabled — the 60m cut
+      interval_in_minutes: 60           # forced exits before trenders could
+                                        # accelerate. hard_timeout backstops.
     phase1:
       enabled: true
       max_loss_pct: 15.0

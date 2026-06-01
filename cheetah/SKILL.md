@@ -14,7 +14,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "7.1.2"
+  version: "7.2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -22,9 +22,42 @@ metadata:
     - senpi_runtime_helpers
 ---
 
-# 🐆 CHEETAH v7.1.0 — Multi-Signal Confluence Sniper
+# 🐆 CHEETAH v7.2.0 — Multi-Signal Confluence Sniper
 
 **SM commits. Quality traders commit. Price confirms. Volume commits. All at once. Cheetah pounces once. The runtime DSL ratchets to lock the win.**
+
+## v7.2.0 (2026-06-01) — DSL exit overhaul: disable time cuts, let winners run
+
+**Entries are fine. Exits were the bottleneck.** A 100-trade-by-score
+analysis on the live wallet showed win rate scaling cleanly with score —
+40.0% @ score 10, 41.7% @ score 11 (n=84), 50.0% @ score 12, 55.6% @ score
+13 — confirming the accuracy filter works. But **Avg ROE was negative across
+EVERY score bracket** (−1.90% / −0.35% / −0.20% / −0.12%).
+
+| Score | Trades | Win rate | Avg ROE |
+|---|---:|---:|---:|
+| 10 | 5 | 40.0% | −1.90% |
+| 11 | 84 | 41.7% | −0.35% |
+| 12 | 2 | 50.0% | −0.20% |
+| 13 | 9 | 55.6% | −0.12% |
+
+**Diagnosis: "death by a thousand cuts."** The tight Phase 2 locks plus the
+60m/90m time-cuts made it mechanically impossible to hold for a big win —
+Cheetah took the full brunt of −15% stops / −5% chops but was forced to give
+up every +15% / +30% runner. The two big HYPE longs that actually paid
+(+13.9%, +8.9%) only landed because they hit the **12h hard timeout** — not a
+trailing stop, not a 60m dead_weight_cut. When forced to hold, the position
+printed.
+
+**Fix (mirrors the live deploy):**
+- `weak_peak_cut` → **disabled** (was 90m @ 3.0 — chopping winners-in-waiting)
+- `dead_weight_cut` → **disabled** (was 60m — forcing exits before trenders accelerate)
+- `hard_timeout` → **kept** (12h fail-safe — the one cut that captured the winners)
+- Phase 2 ladder already widened to the "let winners run" shape (T0 +10% / lock 0 → +100% / lock 85) on 2026-05-21
+
+Together this removes the glass ceiling so heavy trenders can run. NO change
+to scoring, MIN_SCORE, leverage tiers, margin, cooldowns, or risk gates —
+exit-mechanics only. Hypothesis test; re-evaluate after ~50 more trades.
 
 ## v7.1.1 (2026-05-11) — positions parser fix (patch)
 
@@ -108,23 +141,29 @@ Diff `held_assets` across ticks. When asset disappears from held set, record clo
 ### Reentrancy guard
 `producer_daemon` owns a per-tick `scanner_lock` with stale-PID auto-recovery — replaces v6.x's hand-rolled fcntl lockfile. Prevents two ticks racing.
 
-## DSL preset (v6.0 — fleet-standard T0/T1 ladder)
+## DSL preset (v7.2.0 — "let winners run" ladder, time cuts disabled)
 
 | Phase | Component | Setting |
 |---|---|---|
 | Phase 1 | max_loss_pct | 15% |
-| Phase 1 | retrace_threshold | 6 |
-| Phase 1 | consecutive_breaches | 3 |
-| Phase 2 T0 | trigger 5% / lock 35% | (fleet-standard, closes T0→T1 dead zone) |
-| Phase 2 T1 | trigger 10% / lock 50% | |
-| Phase 2 T2 | trigger 20% / lock 65% | |
-| Phase 2 T3 | trigger 35% / lock 80% | |
-| Phase 2 T4 | trigger 50% / lock 90% | (apex) |
-| hard_timeout | 720 min (12h) | enabled |
-| weak_peak_cut | 90 min, min 3.0 | enabled |
-| dead_weight_cut | 60 min | enabled |
+| Phase 1 | retrace_threshold | 10 (v6.x raise from 6) |
+| Phase 1 | consecutive_breaches | 1 |
+| Phase 2 T0 | trigger 10% / lock 0% | (lets a +10% mover retrace fully before any lock) |
+| Phase 2 T1 | trigger 20% / lock 25% | |
+| Phase 2 T2 | trigger 30% / lock 40% | |
+| Phase 2 T3 | trigger 50% / lock 60% | |
+| Phase 2 T4 | trigger 75% / lock 75% | |
+| Phase 2 T5 | trigger 100% / lock 85% | (apex) |
+| hard_timeout | 720 min (12h) | **enabled** (the only time cut left) |
+| weak_peak_cut | — | **disabled** (v7.2.0) |
+| dead_weight_cut | — | **disabled** (v7.2.0) |
 
-Time cuts kept: Cheetah is multi-asset rotation, NOT single-asset patience. Idle positions have opportunity cost.
+v7.2.0: weak_peak_cut + dead_weight_cut disabled. The 100-trade analysis
+showed the time cuts were the bottleneck — they forced exits before
+trenders could accelerate and capped the right-tail move that pays for
+everything. The two big HYPE wins (+13.9%, +8.9%) only landed via the 12h
+hard timeout, so that fail-safe is kept. Median trade gives back a bit;
+the right tail is now uncapped.
 
 ## Risk gates (`runtime.yaml` `risk.guard_rails`)
 
