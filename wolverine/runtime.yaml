@@ -4,6 +4,14 @@ name: wolverine-tracker
 # SKILL.md + _wolverine_producer_version. Do not set this to 6.x.x.
 version: 1.0.0
 description: >
+  WOLVERINE v6.1.0 (2026-06-01) — Phase 1 retrace leash widened for
+  HYPE volatility. retrace_threshold 8 -> 15: at 5x the old 8-ROE-point
+  retrace was a 1.6% price leash that fired on HYPE's 3-5% intra-candle
+  wicks, clipping winners before the wide Phase 2 ladder could ride
+  them. Scoring, gates, leverage, Phase 2 ladder, time-cuts all
+  UNCHANGED. Isolated DSL change; re-measure expectancy after 40-50
+  trades before touching anything justified by small-sample data.
+
   WOLVERINE v6.0.0 (2026-05-18) — Patient-Conviction adoption.
   Bison v3.0.1's pattern ported to HYPE single-asset: fewer entries,
   higher score floor, wider DSL ratchet so winners can run multi-day
@@ -78,7 +86,7 @@ description: >
     - RSI hard gates (74 LONG / 26 SHORT)
     - Multi-factor scoring + conviction tiers (5x apex / 3x standard)
     - DSL preset preserved exactly: time-cuts ALL DISABLED (v3.0.1/2/4),
-      Phase 1 max_loss 20% / retrace 8 / 3 breaches, Phase 2 ladder
+      Phase 1 max_loss 20% / retrace 8 (v6.1.0: -> 15) / 3 breaches, Phase 2 ladder
       10/15, 20/35, 35/55, 55/70, 80/85
 
   FLEET PATCHES:
@@ -242,7 +250,17 @@ exit:
     phase1:
       enabled: true
       max_loss_pct: 20.0
-      retrace_threshold: 8
+      # v6.1.0 (2026-06-01): retrace_threshold 8 -> 15. At 5x leverage an
+      # 8-ROE-point retrace is a 1.6% HYPE price leash (8 / 5x). HYPE wicks
+      # 3-5% intra-candle, so this single-breach retrace fired on noise and
+      # clipped winners before they could become the BIG trend the wide
+      # Phase 2 ladder is built to ride. 15 ROE pts = ~3.0% price leash at
+      # 5x (~2x the buffer), still well below the 20% max-loss hard stop so
+      # it stays a distinct trailing-from-peak rule rather than collapsing
+      # into the hard stop. Structural stop-width-vs-volatility fix —
+      # independent of the thin v6.0.0 sample. Isolated change so the
+      # 40-50 trade expectancy re-measurement attributes cleanly.
+      retrace_threshold: 15
       consecutive_breaches_required: 1
     phase2:
       enabled: true

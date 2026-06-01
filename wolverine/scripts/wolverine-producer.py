@@ -46,7 +46,7 @@ import wolverine_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "6.0.0"
+VERSION = "6.1.0"
 
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "wolverine_signals"
