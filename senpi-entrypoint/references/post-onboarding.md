@@ -130,7 +130,7 @@ Fetch live strategy data from the senpi-agent-tracker MCP. Do NOT hardcode skill
 2. Include all strategies from `list_strategies`. Build a leaderboard lookup map: `slug → { roe, totalTrades }`.
 3. For each strategy, join leaderboard data on `slug`. Sort active strategies by ROE descending first, then paused strategies (by ROE descending) at the bottom.
 4. For each strategy, show: `{emoji} {name} — {tagline}` and append live stats if available: `+X% ROE · X trades`. Append `(Paused)` for `active: false` strategies. Do NOT show dollar PnL amounts — percentages only. Do NOT omit trade counts for paused strategies — show their historical data.
-5. If user's balance is known and `min_budget` is available in the leaderboard response, highlight strategies where `min_budget <= balance` and note which ones need more capital.
+5. If user's balance is known, you may note `min_budget` as a *suggested comfortable size* — but treat it as guidance, never a gate. Any balance at/above the ~$100 platform floor can deploy any strategy (size scales via `margin_pct`); when a budget is below a strategy's suggested size, flag it as smaller-positions rather than excluding the strategy.
 
 **Template:**
 ```
@@ -167,7 +167,7 @@ Which sounds interesting? I can explain any in detail or deploy one right now.
    curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json
    ```
    And consult [`producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md) (catalog + [decision tree](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy) for unsure users).
-3. **Filter to 2–3 templates that fit** the user's balance (`min_budget`), expressed asset/archetype preference, and current regime.
+3. **Filter to 2–3 templates that fit** the user's expressed asset/archetype preference and current regime. Use `min_budget` only as a *soft sizing hint* — never exclude a strategy for being above the user's balance; positions scale via `margin_pct`, so flag "smaller positions / start small" instead.
 4. **Present each** with: name + one-line thesis, archetype, asset focus, min budget, one-line install (`install_skill skill_name=<name>` via MCP).
 5. **End every recommendation with the build-from-scratch offer**: *"Or, if none of these fit your thesis, we can build a new autonomous strategy from scratch — that path is in [`strategy-creation.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/strategy-creation.md). Which do you want?"*
 6. **User picks a template → install via `install_skill`. Done.**
@@ -267,14 +267,14 @@ Fetch leaderboard strategies by ROE, handle 2/1/0 results correctly, and deploy 
 
 ### Budget-Based Recommendations
 
-If the user asks what to deploy, fetch the leaderboard and filter by `min_budget` if that field is available in the response. Recommend based on their balance:
+If the user asks what to deploy, fetch the leaderboard. **`min_budget` is a suggested comfortable starting size, never a hard gate** — position size scales with budget via `margin_pct`, so any balance at or above the ~$100 platform floor can deploy any strategy. Never refuse a willing user over budget; offer to start small instead.
 
 | Balance | Recommended | Why |
 |---|---|---|
-| < $500 | None — fund to $500+ | Check leaderboard for any strategies with min_budget below $500 |
-| $500–$2,000 | Top strategies with min_budget ≤ balance (from leaderboard) | Mid-range, multiple options available |
-| $2,000–$5,000 | Any strategy from leaderboard | Full catalog available |
-| > $5,000 | Highest min_budget strategies or run multiple | Enough for high-leverage or multi-position strategies |
+| < $100 | Fund to ~$100 first | The platform floor — Hyperliquid's minimum to open any position at all |
+| $100–$500 | Any strategy — start small | Positions are smaller but the logic is identical; flag "you're under the suggested size, positions will be smaller" and let the user decide |
+| $500–$2,000 | Any strategy at comfortable sizing | Mid-range, suggested sizes are met for most of the catalog |
+| > $2,000 | Any strategy, or run multiple | Enough for comfortable sizing across the catalog or a multi-skill deployment |
 
 Always lead with the current #1 by ROE from the leaderboard as the primary recommendation.
 

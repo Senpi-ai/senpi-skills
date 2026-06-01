@@ -43,10 +43,10 @@ When the user wants help **deciding** — not executing a known position — the
    And read [`senpi-trading-runtime/references/producer-patterns.md`](../../senpi-trading-runtime/references/producer-patterns.md) for archetype context. The catalog has the installable list with `min_budget`, asset focus, and thesis tagline per agent; `producer-patterns.md` has the archetype catalog and the decision tree for "I don't know what I want."
 
 3. **Filter to 2–3 templates that fit:**
-   - `min_budget` ≤ user's available balance
    - Archetype aligns with any expressed preference (use the [decision tree](../../senpi-trading-runtime/references/producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy) when the user is unsure)
    - Asset focus aligns if the user named an asset
    - Current regime is consistent with the strategy's thesis (don't recommend a funding-fade in a flat funding regime)
+   - `min_budget` is a **soft sizing hint, not a filter** — never drop a strategy for being above the user's balance; positions scale via `margin_pct`, so flag "you're under the suggested size, positions will be smaller — start small or fund more" and let the user decide
 
 4. **Present each template** with: name + tagline, archetype, asset focus, min budget, the one-line install command (`install_skill skill_name=<name>` via MCP). Two or three options — not the whole catalog. Pick the best fits.
 

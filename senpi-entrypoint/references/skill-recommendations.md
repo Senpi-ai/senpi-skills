@@ -42,13 +42,13 @@ For any goal not covered above, query `list_strategies` for the current live fle
 
 ## Budget Guidance
 
-Each strategy declares its own minimum budget in `catalog.json` / `list_strategies`. General guidance:
+Each strategy declares a `min_budget` in `catalog.json` / `list_strategies`. **It is a suggested comfortable size, not a hard gate** — position size scales with budget via `margin_pct`, so any balance at or above the ~$100 platform floor can deploy any strategy. Never refuse a willing user over budget; offer to start small instead.
 
 | Balance | Recommended |
 |---|---|
-| < $500 | Fund to at least the lowest live strategy's `min_budget` before deploying. |
-| $500–$2,000 | Most single-asset and multi-asset strategies are viable. |
-| > $2,000 | Any live strategy, or a multi-skill deployment. |
+| < $100 | Fund to ~$100 first — the platform floor to open any position at all. |
+| $100–$500 | Any strategy — start small; positions are smaller but the logic is identical. |
+| > $500 | Any strategy at comfortable sizing, or a multi-skill deployment. |
 
 ## Presenting a Recommendation
 

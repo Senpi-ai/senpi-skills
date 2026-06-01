@@ -209,7 +209,7 @@ openclaw senpi runtime list
 ## Not For
 
 - Operators wanting fast rotation or daily closures
-- Capital below $500 (margin per slot is too small)
+- Capital below the ~$100 platform floor (can't open a position at all; above that, sizing scales via `margin_pct`)
 - Users uncomfortable with multi-day holds through drawdowns
 
 ---
