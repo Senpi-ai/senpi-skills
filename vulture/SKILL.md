@@ -14,7 +14,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "4.1.0"
+  version: "4.2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -138,7 +138,7 @@ FARTCOIN, MORPHO, NEAR, INJ, AVAX, LINK, DOGE
 | **Move ≥15% in direction (LATE_ENTRY_PENALTY)** | **-3** |
 | **Move ≥12% in direction (MOVE_EXTENDED)** | **-2** |
 
-**MIN_SCORE: 9** (raised from 7 in v4.1.0) — entry floor. A 30-trade aggregate showed score 7–8 buckets (n=15 combined) ran 12.5% / 28.6% win rates at -3.94% / -3.52% avg ROE — the DSL was chopping them at the Phase 1 hard stop before they did real damage, but they were still net-negative. Vulture now hunts strictly in the 9–12 conviction zone where wins concentrate. The scoring dimensions (especially HEAVY_FLOW requiring ≥18% SM concentration) do the real quality work above the floor.
+**MIN_SCORE: 10** (raised from 9 in v4.2.0; 7 → 9 in v4.1.0) — entry floor. A 100-trade aggregate made the boundary unambiguous: every score bucket ≥10 was net-positive (10/11/12 combined: **+$416.78** over 41 trades, 42–50% win rates) and every bucket ≤9 was net-negative (7/8/9 combined: **−$645.12** over 41 trades). Score 9 specifically ran a 27.3% win rate at −3.32% avg ROE. **Score 10 is the single best bucket** (+8.70% avg ROE, 50% win, +$259.67 net) — the floor is set to *keep* it. Vulture now hunts strictly in the 10–12 conviction zone. (Caveat: per-bucket n is small at the 9/10 boundary, but expectancy sign is consistent and the direction matches the v4.1.0 cull.) The scoring dimensions (especially HEAVY_FLOW requiring ≥18% SM concentration) do the real quality work above the floor.
 
 ---
 
@@ -147,9 +147,9 @@ FARTCOIN, MORPHO, NEAR, INJ, AVAX, LINK, DOGE
 | Score | Leverage | Tier |
 |---|---:|---|
 | ≥11 | 7x | apex (the right tail) |
-| 9–10 | 5x | conviction (the new floor tier in v4.1.0) |
+| 10 | 5x | conviction (floor tier as of v4.2.0 — the best historical bucket) |
 
-**v4.1.0 removed the `cautious` tier (score 7–8, 3x).** Below-floor signals are dropped at the producer now; that whole tier became unreachable. **Capped at 7x because small-cap liquidity can't support 20x.** Lemon can go 20x on BTC/ETH because slippage is <0.1%. Small caps can have 0.5%+ slippage per fill, which eats gains at 20x.
+**v4.1.0 removed the `cautious` tier (score 7–8, 3x); v4.2.0 raised the floor to 10 (score 9 culled).** Below-floor signals are dropped at the producer now; those tiers are unreachable. **Capped at 7x because small-cap liquidity can't support 20x.** Lemon can go 20x on BTC/ETH because slippage is <0.1%. Small caps can have 0.5%+ slippage per fill, which eats gains at 20x.
 
 ---
 
@@ -202,7 +202,7 @@ Both agents are "fleet alpha extractors" but via **opposite** philosophies:
 | hard_timeout | 480 min | 10,080 min (21x longer) |
 | dead_weight_cut | 20 min | 60 min |
 | Max leverage | 20x (apex) | 7x (liquidity limit) |
-| MIN_SCORE | 8 | 9 |
+| MIN_SCORE | 8 | 10 |
 
 **Both are bets on asymmetric payoff** — low win rate + big winners / tiny losers — but Lemon bets on mean reversion of exhausted crowds while Vulture bets on continuation of small-cap trends.
 
@@ -270,6 +270,21 @@ Send: "🦅 VULTURE v2.0 online. Long-Tail Momentum Rider. Riding small-cap tren
 ---
 
 ## Changelog
+
+### v4.2.0 (2026-06-01) — MIN_SCORE 9 → 10 (the boundary is exactly 10)
+
+A 100-trade aggregate, grouped by producer entry score:
+
+| Score | Trades | Avg ROE | Win Rate | Net PnL |
+|---:|---:|---:|---:|---:|
+| 12 |  7 | +4.80% | 42.9% |  +$97.47 |
+| 11 | 24 | +1.17% | 41.7% |  +$59.64 |
+| 10 | 10 | +8.70% | 50.0% | +$259.67 |
+|  9 | 11 | -3.32% | 27.3% | -$220.70 |
+|  8 | 16 | -5.07% | 12.5% | -$254.11 |
+|  7 | 14 | -1.99% | 21.4% | -$170.31 |
+
+The high-conviction tier (10/11/12, n=41) made **+$416.78**; the low tier (7/8/9, n=41) bled **−$645.12**. The split is clean: every bucket ≥10 is net-positive, every bucket ≤9 is net-negative. v4.1.0 had already culled 7–8 (−$424 of the bleed); this cut adds 9 (−$220, a 27.3% win rate but a clearly negative −3.32% avg ROE). **Score 10 is the single best bucket** (+8.70% avg ROE, +$259.67 net) — the floor is set to keep it, not cut it. Raised `MIN_SCORE` 9→10 at the producer and `min_confidence` 8→9 at the LLM gate; conviction sizing tier floor moved 9→10. (Caveat: n is small per bucket at the 9/10 boundary, but the expectancy sign is consistent and matches the v4.1.0 direction — re-evaluate after another ~50 trades.)
 
 ### v4.1.0 (2026-05-29) — MIN_SCORE 7 → 9 (low-conviction cull)
 
