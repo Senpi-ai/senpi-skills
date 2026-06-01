@@ -1,6 +1,6 @@
 ---
 name: senpi-trading-runtime
-description: "The Senpi Trading Runtime OpenClaw plugin runs automated trading strategies on Hyperliquid end-to-end: external producers push signals over POST /signals, rule-based or LLM-gated actions decide whether to open positions, declarative risk guard rails enforce daily caps and drawdown halts, FEE_OPTIMIZED_LIMIT orders execute maker-first with optional taker fallback, the position_tracker scanner detects on-chain position changes (including positions opened manually or by other tools), and the DSL exit engine applies two-phase trailing stop-loss protection. A bundled stdlib-only Python Producer SDK (senpi_runtime_helpers — SenpiClient, producer_daemon, scanner_lock, tick_cache, parallel) is the canonical way to author push producers; a senpi-helpers operator CLI manages running daemons. Use when a user needs to create/install/list/delete runtime YAMLs, configure DSL phases/tiers/time-cuts, set up an external_scanner with an LLM decision gate, declare risk guard_rails, inspect DSL-tracked positions, check runtime + daemon health, or write a Python producer that ingests external signals. Triggers on mentions of senpi, trading runtime, DSL exit, stop-loss tiers, position tracker, trailing stop, openclaw senpi, dsl_preset, decision_mode llm, risk guard_rails, FEE_OPTIMIZED_LIMIT, strategy YAML configuration, runtime status, runtime health, system state, scanner health, external_scanner producer, push_signal, signal POST, scanner_lock, tick_cache, producer_daemon, senpi_runtime_helpers, or senpi-helpers CLI."
+description: "The Senpi Trading Runtime OpenClaw plugin runs automated trading strategies on Hyperliquid end-to-end: external producers push signals over POST /signals, rule-based or LLM-gated actions decide whether to open positions, declarative risk guard rails enforce daily caps and drawdown halts, FEE_OPTIMIZED_LIMIT orders execute maker-first with optional taker fallback, the position_tracker scanner detects on-chain position changes (including positions opened manually or by other tools), and the DSL exit engine applies two-phase trailing stop-loss protection. A bundled stdlib-only Python Producer SDK (senpi_runtime_helpers — SenpiClient, producer_daemon, scanner_lock, tick_cache, parallel) is the canonical way to author push producers; a senpi-helpers operator CLI manages running daemons. Use when a user needs to create/install/list/delete runtime YAMLs, configure DSL phases/tiers/time-cuts, set up an external_scanner with an LLM decision gate, declare risk guard_rails, inspect DSL-tracked positions, check runtime + daemon health, or write a Python producer that ingests external signals. ALSO load this skill when the user asks ANY of: 'build a trading strategy', 'build a new strategy', 'create a strategy', 'what trading strategies can we create', 'what types of strategies', 'what templates exist', 'show me the templates', 'help me pick a strategy', 'recommend a strategy', 'what should I trade', 'autonomous trading strategies', 'autonomous agents', 'write my own scanner', 'write a producer', or any open-ended 'strategy' query that is NOT an explicit specific-position request (those go to MCP strategy_create_custom_strategy) and NOT an explicit copy-trade request (those go to MCP strategy_create). Triggers on mentions of senpi, trading runtime, DSL exit, stop-loss tiers, position tracker, trailing stop, openclaw senpi, dsl_preset, decision_mode llm, risk guard_rails, FEE_OPTIMIZED_LIMIT, strategy YAML configuration, runtime status, runtime health, system state, scanner health, external_scanner producer, push_signal, signal POST, scanner_lock, tick_cache, producer_daemon, senpi_runtime_helpers, senpi-helpers CLI, build a strategy, autonomous strategy, custom strategy authoring, strategy templates, producer patterns, picker flow, install_skill, catalog.json, strategy-creation, strategy-intent-routing, or any other senpi strategy authoring / template selection query. The 'classify the user's intent FIRST' table at the top of this skill is the canonical disambiguation — read it before responding."
 license: Apache-2.0
 metadata:
   author: Senpi
@@ -13,15 +13,36 @@ metadata:
 
 On-chain position tracker with automated DSL (Dynamic Stop-Loss) exit engine. Monitors a wallet's positions on Hyperliquid for lifecycle events (open, close, edit, flip) and applies two-phase trailing stop-loss protection to all positions.
 
+> **Install location (OpenClaw-managed hosts):** Senpi skills live at `/data/.openclaw/skills/`. The Senpi skill family is `senpi-onboard` (bootstrap + welcome), `senpi-entrypoint` (post-onboarding routing + the strategy-intent router + the fleet catalog), and `senpi-trading-runtime` (this skill — the build path). If you only see `senpi-trading-runtime` installed and not the other two, follow the raw-URL pointers in this doc — they work regardless of install state.
+
 ## ▶ Before you read this: classify the user's intent
 
-The word "strategy" is overloaded. **This doc is only for the build-a-new-autonomous-agent path** (author code + `runtime.yaml` + DSL). It is NOT for opening positions or copy-trading.
+The word "strategy" is overloaded — and **defaulting to the build-from-scratch path when the user just wanted a recommendation is the most common silent failure.** This skill is only for the build-a-new-autonomous-agent path (author code + `runtime.yaml` + DSL). Before you read further, do this:
 
-- **User wants to open a specific position or copy a named trader?** → use MCP `strategy_create_custom_strategy` / `strategy_create`. Stop reading this doc.
-- **User wants help picking what to trade?** → template-first picker via `producer-patterns.md` + `catalog.json`, install via `install_skill`. Stop reading this doc.
-- **User explicitly wants to BUILD a new autonomous trading agent from scratch** (or no existing fleet template fits their thesis)? → keep reading.
+**If the user's intent is anything other than an explicit, specific build-from-scratch request, ASK them to disambiguate:**
 
-Canonical router with the full picker flow: [`../senpi-entrypoint/references/strategy-intent-routing.md`](../senpi-entrypoint/references/strategy-intent-routing.md).
+> "Do you want to (a) open a specific position you already have in mind, (b) copy a specific trader, or (c) get help picking or building a strategy from our catalog?"
+
+Then route accordingly:
+
+| User intent | Path |
+|---|---|
+| (a) "go long HYPE 10x", "open a short on BTC" — **specific named position** | MCP `strategy_create_custom_strategy` — execute directly. **Stop reading this doc.** |
+| (b) "copy 0x...", "mirror this OG" — **explicit copy of a named trader** | MCP `strategy_create` — mirror them. **Stop reading this doc.** |
+| (c) "help me pick a strategy", "what should I trade", "recommend a strategy", "what templates exist" — **open-ended, wants help deciding** | **Template-first picker:** fetch `catalog.json` + browse `producer-patterns.md`, recommend 2–3 fleet templates that fit the user's balance + regime, install via `install_skill`. Build-from-scratch is the **fallback**, not the default. **Stop reading this doc unless the user explicitly picks "build new".** |
+| The user explicitly chose "build new", or no fleet template fits their thesis | **Keep reading.** |
+
+**Never default to `strategy_create_custom_strategy` for an ambiguous "what should I trade?" or "help me pick a strategy" query.** That tool is for positions the user named. Using it for open-ended queries surfaces a manual-position basket where the user wanted *strategy recommendations* — the exact failure mode this section exists to prevent.
+
+The fleet catalog (use for the template-first picker in case (c)):
+
+```bash
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json
+```
+
+Full router with the picker flow and the what-never-to-do list (raw URL — works whether or not `senpi-entrypoint` is installed):
+
+[`https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-entrypoint/references/strategy-intent-routing.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-entrypoint/references/strategy-intent-routing.md)
 
 ## ▶ Building a new autonomous strategy? Read the fast path first
 
