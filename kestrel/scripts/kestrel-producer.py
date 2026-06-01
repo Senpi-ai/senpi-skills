@@ -88,7 +88,7 @@ if _sdk_path not in sys.path:
 from senpi_runtime_helpers import producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "3.0.2"
+VERSION = "3.0.3"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "kestrel_signals")
 SIGNAL_TYPE = "KESTREL_XYZ_BREAKOUT"
 
@@ -623,7 +623,16 @@ def build_signal_data(candidate, leverage, margin_usd, held_assets):
         "spreadPct": float(candidate["spread_pct"]),
         "reasons": " | ".join(candidate["reasons"]),
         "heldAssets": held_list,
-        "_kestrel_producer_version": VERSION,
+        # v3.0.3: _kestrel_producer_version is intentionally NOT in the
+        # signal `data` payload. The runtime's external_scanner validates
+        # the data block against config.fields; an undeclared key here is
+        # rejected with INVALID_REQUEST ("received undeclared data field
+        # '_kestrel_producer_version'"), which silently dropped EVERY
+        # Kestrel signal. The version tag stays in cfg.output(...) log
+        # lines only (fleet-standard — see cheetah/dire/etc.), so it's
+        # still visible in /tmp/kestrel-producer.log without polluting the
+        # validated signal contract. Do NOT re-add it here, and do NOT
+        # "fix" this by declaring the tag in runtime.yaml.
     }
 
 

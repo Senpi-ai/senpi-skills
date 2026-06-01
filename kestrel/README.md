@@ -137,6 +137,18 @@ Expected: `status=ok` every tick (300s interval — macro 1H candles change slow
 
 ## Changelog
 
+### v3.0.3 (2026-06-01) — drop undeclared `_kestrel_producer_version` from the signal payload
+
+**Bug.** `build_signal_data()` injected `_kestrel_producer_version` **inside the signal `data` block** — the object the runtime validates against the `external_scanner` `config.fields` declaration. That key is not (and should not be) a declared field, so the runtime rejected the signal:
+
+> `INVALID_REQUEST: External scanner 'kestrel_signals' received undeclared data field '_kestrel_producer_version'.`
+
+Kestrel was the **only** producer in the fleet that put its version tag in the validated payload — every other agent (cheetah, dire, …) keeps the tag in `cfg.output(...)` log lines only. The `senpi_runtime_helpers` SDK catches the rejection and lets the daemon tick finish `status:ok`, so the failure is invisible at the tick level — you only see it in the `signal_post … status:rejected` / `push_signal failed` log lines. Same *class* of silent-producer bug as v3.0.2 (a malformed signal field rejected by the runtime), different field.
+
+**Fix.** Removed the tag from `build_signal_data()`. It stays in all six `cfg.output(...)` log sites, so the running version is still visible in `/tmp/kestrel-producer.log` without polluting the validated signal contract — fleet-standard.
+
+**Do NOT "fix" this by declaring `_kestrel_producer_version` in `runtime.yaml`.** That bakes a producer-internal debug field into the scanner contract, which no other agent does. The producer-side removal is the correct fix; the data block must contain only declared fields.
+
 ### v3.0.2 (2026-05-29) — score-normalization bug fix (silent producer)
 
 **Bug:** the producer was passing the raw strategy-specific score (5–10+) as the **top-level** `score` kwarg to `SenpiClient.push_signal()`. The runtime requires that field to be in `[0, 1]` (it's the runtime's confidence band, not the strategy's raw score). Every `push_signal()` call failed with:
