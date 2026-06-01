@@ -30,18 +30,19 @@ While most rotation-style agents take any setup that crosses a single threshold,
 | Entry order type | FEE_OPTIMIZED_LIMIT |
 | Exit order type | FEE_OPTIMIZED_LIMIT |
 
-## DSL Phase 2 ladder (fleet-standard T0/T1)
+## DSL Phase 2 ladder ("let winners run")
 
 | Tier | Trigger (margin ROE) | Lock (% of HW) |
 |---|---|---|
-| T0 | +5% | 35% |
-| T1 | +10% | 50% |
-| T2 | +20% | 65% |
-| T3 | +35% | 80% |
-| T4 (apex) | +50% | 90% |
+| T0 | +10% | 0% |
+| T1 | +20% | 25% |
+| T2 | +30% | 40% |
+| T3 | +50% | 60% |
+| T4 | +75% | 75% |
+| T5 (apex) | +100% | 85% |
 
-Phase 1: max_loss 15% / retrace 6 / 3 consecutive breaches.
-Time cuts: hard_timeout 720min, weak_peak_cut 90min @ 3.0, dead_weight_cut 60min — all ENABLED (multi-asset rotation has opportunity cost).
+Phase 1: max_loss 15% / retrace 10 / 1 consecutive breach.
+Time cuts (v7.2.0): hard_timeout 720min ENABLED (12h fail-safe); weak_peak_cut + dead_weight_cut **DISABLED**. The 100-trade analysis showed the 60m/90m cuts were forcing exits before trenders could accelerate — the two big HYPE wins (+13.9%, +8.9%) only landed via the 12h timeout. T0 lock=0 lets a +10% mover retrace fully before any profit lock; the rare +50–100% move makes the book.
 
 ## Scanner pattern
 
@@ -197,6 +198,22 @@ Expected: every line shows `status=ok`.
 State files (`state/entry-log.jsonl`, `state/scan-history.json`, `state/quality-cache.json`, `state/cooldowns.json`, `state/trade-counter.json`) live under `state/<wallet-hash>/` — wallet-isolated.
 
 ## Changelog
+
+### v7.2.0 (2026-06-01) — DSL exit overhaul: disable time cuts, let winners run
+
+A 100-trade-by-score analysis showed entries are sound — win rate scales
+cleanly with score (40.0% @ 10 → 41.7% @ 11 / n=84 → 50.0% @ 12 → 55.6% @ 13)
+— but **Avg ROE was negative across EVERY bracket** (−1.90% / −0.35% / −0.20%
+/ −0.12%). Diagnosis: exits, not entries. "Death by a thousand cuts" — tight
+Phase 2 locks + 60m/90m time-cuts made it mechanically impossible to hold for
+a big win. The two HYPE longs that paid (+13.9%, +8.9%) only landed because
+they hit the 12h **hard timeout**, not a trailing stop or dead_weight_cut.
+Fix (mirrors live deploy): `weak_peak_cut` and `dead_weight_cut` **disabled**;
+`hard_timeout` (12h) kept as the sole time fail-safe; Phase 2 ladder already
+on the "let winners run" shape (T0 +10% / lock 0). Exit-mechanics only — NO
+change to scoring, MIN_SCORE, leverage, margin, or risk gates. Also syncs the
+README/SKILL DSL tables, which were stale (still showed the pre-2026-05-21
++5%/35% fleet-standard ladder).
 
 ### v7.0.0 — Plumbing-only migration (no thesis change)
 
