@@ -1,0 +1,15 @@
+{
+  "_comment": "SPIDER v5.0 SWING leg — Tech & AI multi-day momentum, autonomous style scan (NOT copy-trading). Producer scores the allowedAssets universe on 4h+1h trend structure + 24h relative-strength, LONG only, multi-day holds. Leverage clamped to swingMaxLeverage then to each asset's HL max. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-swing.yaml. Producer launched with SPIDER_LEG=swing.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "allowedAssets": ["xyz:NVDA", "xyz:AMD", "xyz:INTC", "xyz:MRVL", "xyz:MU", "xyz:TSM", "SUI", "ONDO", "HYPE", "NIL", "GRASS", "ZEC"],
+  "minScore": 5,
+  "marginPct": 0.28,
+  "swingMaxLeverage": 10,
+  "minNotionalUsd": 200,
+  "maxSlots": 3,
+  "tickSeconds": 300,
+  "rsiMaxLong": 78,
+  "_persona": "Tech & AI Swing — semis (NVDA/AMD/INTC/MRVL/MU/TSM) + momentum alts (SUI/ONDO/HYPE/NIL/GRASS/ZEC), LONG only, avg ~27h hold up to 7d, conviction leverage clamped 10x, wide let-winners-run DSL, time-cuts OFF."
+}
