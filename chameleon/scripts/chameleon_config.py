@@ -121,7 +121,7 @@ def get_positions(wallet):
         if not isinstance(s, dict):
             continue
         ms = s.get("marginSummary", {})
-        account_value += float(ms.get("accountValue", 0))
+        account_value = max(account_value, float(ms.get("accountValue", 0)))  # one wallet, two sub-DEX views -> count equity ONCE (summing double-counts the shared free balance -> 2x sizing)
         for ap in s.get("assetPositions", []):
             pos = ap.get("position", ap)
             szi = float(pos.get("szi", 0))

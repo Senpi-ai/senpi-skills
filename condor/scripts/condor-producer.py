@@ -58,7 +58,7 @@ import condor_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "4.0.1"
+VERSION = "4.0.2"
 SCANNER_NAME = "condor_signals"
 SIGNAL_TYPE = "CONDOR_APEX_CONTINUATION"
 

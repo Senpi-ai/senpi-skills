@@ -60,7 +60,7 @@ import mantis_state as state
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "6.0.0"
+VERSION = "6.0.1"
 SCANNER_NAME = "mantis_signals"
 SIGNAL_TYPE = "MANTIS_SLIPSTREAM"
 
