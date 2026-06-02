@@ -1,20 +1,25 @@
 #!/usr/bin/env python3
-# Senpi SPIDER Producer v5.0.0
+# Senpi SPIDER Producer v5.1.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SPIDER v5.0.0 Producer — two autonomous style legs, one script.
+"""SPIDER v5.1.0 Producer — two autonomous style legs, one script.
 
 Spider runs TWO concurrent strategy wallets, each a distinct trading
 style. ONE producer script serves both; the SPIDER_LEG env var selects
 which leg this process is:
 
   SPIDER_LEG=swing  Tech & AI multi-day momentum, LONG only.
-    Universe (config.allowedAssets): semis (xyz:NVDA/AMD/INTC/MRVL/MU/
-    TSM) + high-beta momentum alts (SUI/ONDO/HYPE/NIL/GRASS/ZEC).
-    Scores 4h + 1h trend-structure alignment, 24h relative-strength
-    proxy, SM-consensus LONG bonus, RSI-room penalty, funding crowding.
-    Multi-day horizon. Emits up to (maxSlots - held) signals/tick.
+    Universe = static crypto alts (cryptoAlts: SUI/ONDO/HYPE/NIL/GRASS/
+    ZEC) + a DYNAMIC pool of XYZ equities rebuilt each tick from the live
+    instrument board (build_universe). An XYZ name is eligible if liquid
+    (dayNtlVlm >= xyzVolFloorUsd) AND either in the curated tech/AI/space
+    include-set OR freshly listed (< xyzFreshDays) and not in the
+    commodity/FX/index exclude-set — the fresh branch auto-catches new
+    Pre-IPO Perpetuals / AI IPOs (e.g. CBRS/Cerebras, SPCX/SpaceX) with no
+    code edit. Scores 4h + 1h trend-structure alignment, 24h relative-
+    strength proxy, SM-consensus LONG bonus, RSI-room penalty, funding
+    crowding. Multi-day horizon. Emits up to (maxSlots - held) signals/tick.
 
   SPIDER_LEG=scalp  Macro & majors fast mean-reversion, BOTH directions.
     Universe: majors (BTC/ETH/SOL/HYPE) + energy (xyz:BRENTOIL/xyz:CL).
@@ -50,7 +55,7 @@ import spider_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "5.0.0"
+VERSION = "5.1.0"
 LEG = cfg.LEG
 SCANNER_NAME = f"spider_{LEG}_signals"
 SIGNAL_TYPE = "SPIDER_SWING_MOMENTUM" if LEG == "swing" else "SPIDER_SCALP_REVERSION"
@@ -63,6 +68,25 @@ NORM_DIV = 12.0 if LEG == "swing" else 7.0
 # Per-leg defaults (config.json overrides every one of these).
 _DEFAULTS = {
     "swing": {
+        # Static crypto-alt pool (not on the XYZ board).
+        "cryptoAlts": ["SUI", "ONDO", "HYPE", "NIL", "GRASS", "ZEC"],
+        # Curated tech/AI/space core — always eligible if live + liquid.
+        "xyzIncludeSet": ["NVDA", "AMD", "INTC", "MRVL", "MU", "TSM", "ASML",
+                          "ARM", "SMSN", "SKHX", "DRAM", "SNDK", "DELL",
+                          "LITE", "CRWV", "PLTR", "ORCL", "GOOGL", "META",
+                          "MSFT", "AMZN", "AAPL", "NFLX", "IBM", "COIN",
+                          "MSTR", "CRCL", "HOOD", "SPCX", "RKLB", "CBRS"],
+        # Hard guard — commodities / FX / broad indices / ETFs never count
+        # as "Tech & AI", even if freshly listed.
+        "xyzExcludeSet": ["GOLD", "SILVER", "PLATINUM", "PALLADIUM", "COPPER",
+                          "CL", "BRENTOIL", "NATGAS", "URANIUM", "URNM",
+                          "EUR", "JPY", "GBP", "KRW", "DXY", "SP500", "JP225",
+                          "KR200", "NIFTY", "IBOV", "XYZ100", "EWY", "EWJ",
+                          "EWT", "EWZ", "XLE", "VIX", "PURRDAT", "BIRD"],
+        "xyzVolFloorUsd": 5000000,
+        "xyzFreshDays": 21,
+        "xyzMaxNames": 20,
+        # Static fallback list if the instrument board is unavailable.
         "allowedAssets": ["xyz:NVDA", "xyz:AMD", "xyz:INTC", "xyz:MRVL",
                           "xyz:MU", "xyz:TSM", "SUI", "ONDO", "HYPE",
                           "NIL", "GRASS", "ZEC"],
@@ -502,6 +526,73 @@ def push_signal(thesis, margin_usd, leverage, held_assets):
 
 
 # ═══════════════════════════════════════════════════════════════
+# Universe resolution (swing = dynamic XYZ pool + static crypto alts)
+# ═══════════════════════════════════════════════════════════════
+
+def build_universe(config, meta_map):
+    """Resolve the asset list to score this tick.
+
+    SCALP: static config.allowedAssets (majors + energy).
+    SWING: static crypto alts + a DYNAMIC pool of XYZ equities rebuilt
+      from the live instrument board. An XYZ name qualifies if it is
+      liquid (dayNtlVlm >= xyzVolFloorUsd) AND either (a) in the curated
+      tech/AI/space include-set, or (b) freshly listed (younger than
+      xyzFreshDays) and not in the commodity/FX/index exclude-set — the
+      (b) branch auto-catches the next Pre-IPO Perp / AI IPO with no code
+      edit. Qualifiers are capped to the top xyzMaxNames by 24h volume to
+      bound per-tick candle fetches. The score gate (4h-bullish required)
+      does the final quality filtering downstream.
+    """
+    if LEG == "scalp":
+        return list(config.get("allowedAssets", _DEFAULTS["allowedAssets"]))
+
+    crypto = list(config.get("cryptoAlts", _DEFAULTS["cryptoAlts"]))
+    include = {t.upper() for t in config.get("xyzIncludeSet", _DEFAULTS["xyzIncludeSet"])}
+    exclude = {t.upper() for t in config.get("xyzExcludeSet", _DEFAULTS["xyzExcludeSet"])}
+    vol_floor = float(config.get("xyzVolFloorUsd", _DEFAULTS["xyzVolFloorUsd"]))
+    fresh_days = float(config.get("xyzFreshDays", _DEFAULTS["xyzFreshDays"]))
+    max_names = int(config.get("xyzMaxNames", _DEFAULTS["xyzMaxNames"]))
+
+    # Fallback if the instrument board is unavailable: static include-set.
+    if not meta_map:
+        return crypto + [f"xyz:{t}" for t in sorted(include)]
+
+    # Canonical live XYZ names only (meta_map double-keys name + UPPER;
+    # originals are lower-prefixed "xyz:", the alias is "XYZ:").
+    xyz_names = sorted(n for n in meta_map if isinstance(n, str) and n.startswith("xyz:"))
+
+    now = cfg.now_ts()
+    fresh_window = fresh_days * 86400
+    first_seen = cfg.read_first_seen()
+    first_run = not first_seen
+    backdate = now - fresh_window - 1  # mark pre-existing names as already-old
+    changed = False
+    for n in xyz_names:
+        if n not in first_seen:
+            first_seen[n] = backdate if first_run else now
+            changed = True
+    if changed:
+        cfg.write_first_seen(first_seen)
+
+    qualifiers = []
+    for n in xyz_names:
+        ctx = (meta_map.get(n) or {}).get("ctx", {})
+        try:
+            vol = float(ctx.get("dayNtlVlm", 0) or 0)
+        except (TypeError, ValueError):
+            vol = 0.0
+        if vol < vol_floor:
+            continue
+        bare = n.split(":", 1)[1].upper()
+        is_fresh = (now - first_seen.get(n, backdate)) < fresh_window
+        if bare in include or (is_fresh and bare not in exclude):
+            qualifiers.append((n, vol))
+
+    qualifiers.sort(key=lambda x: x[1], reverse=True)
+    return crypto + [n for n, _ in qualifiers[:max_names]]
+
+
+# ═══════════════════════════════════════════════════════════════
 # MAIN — single tick. NO inner scanner_lock; daemon owns it.
 # ═══════════════════════════════════════════════════════════════
 
@@ -527,7 +618,6 @@ def main():
     leg_max_lev = config.get(_LEG_MAX_LEVERAGE_KEY, _DEFAULTS["maxLeverage"])
     max_slots = config.get("maxSlots", _DEFAULTS["maxSlots"])
     min_notional = config.get("minNotionalUsd", _DEFAULTS["minNotionalUsd"])
-    allowed = config.get("allowedAssets", _DEFAULTS["allowedAssets"])
 
     open_slots = max_slots - len(held_assets)
     if open_slots <= 0:
@@ -538,6 +628,7 @@ def main():
 
     meta_map = get_universe_meta()
     sm_map = get_sm_map() if (LEG == "swing" and config.get("useSmBonus", True)) else {}
+    allowed = build_universe(config, meta_map)
 
     candidates = []
     recently_skipped = []
