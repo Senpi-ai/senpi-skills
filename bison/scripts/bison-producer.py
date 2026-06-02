@@ -60,7 +60,7 @@ import bison_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "3.0.1"
+VERSION = "3.0.2"
 SCANNER_NAME = "bison_signals"
 SIGNAL_TYPE = "BISON_CONVICTION_HOLDER"
 

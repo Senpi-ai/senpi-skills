@@ -103,7 +103,7 @@ import grizzly_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "7.0.0"
+VERSION = "7.0.1"
 
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "grizzly_signals"

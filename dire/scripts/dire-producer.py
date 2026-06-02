@@ -50,7 +50,7 @@ import dire_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 
 # Hardcoded — must match runtime.yaml external_scanner.name.
 SCANNER_NAME = "dire_signals"
@@ -449,7 +449,7 @@ def get_account_value_and_held():
                 continue
             ms = s.get("marginSummary", {})
             try:
-                account_value += float(ms.get("accountValue", 0))
+                account_value = max(account_value, float(ms.get("accountValue", 0)))  # one wallet, two sub-DEX views -> count equity ONCE (summing double-counts the shared free balance -> 2x sizing)
             except (TypeError, ValueError):
                 pass
             for ap in s.get("assetPositions", []):

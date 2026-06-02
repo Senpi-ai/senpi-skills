@@ -27,7 +27,7 @@ import hawk_config as cfg
 
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 SCANNER_NAME = "hawk_signals"
 SIGNAL_TYPE = "HAWK_BREAKOUT"
 
