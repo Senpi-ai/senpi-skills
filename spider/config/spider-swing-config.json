@@ -1,8 +1,14 @@
 {
-  "_comment": "SPIDER v5.0 SWING leg — Tech & AI multi-day momentum, autonomous style scan (NOT copy-trading). Producer scores the allowedAssets universe on 4h+1h trend structure + 24h relative-strength, LONG only, multi-day holds. Leverage clamped to swingMaxLeverage then to each asset's HL max. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-swing.yaml. Producer launched with SPIDER_LEG=swing.",
+  "_comment": "SPIDER v5.1 SWING leg — Tech & AI multi-day momentum, autonomous style scan (NOT copy-trading), LONG only. Universe = static crypto alts (cryptoAlts) + a DYNAMIC pool of XYZ equities rebuilt each tick from the live instrument board. An XYZ name is eligible if liquid (24h volume >= xyzVolFloorUsd) AND (its bare ticker is in xyzIncludeSet OR it was first seen < xyzFreshDays ago and is NOT in xyzExcludeSet). The fresh-listing branch auto-catches new Pre-IPO Perpetuals / AI IPOs (e.g. CBRS/Cerebras, SPCX/SpaceX) with no code edit; the score gate (4h-bullish required) does final quality filtering. Top xyzMaxNames qualifiers by 24h volume are scored. Leverage clamped to swingMaxLeverage then each asset's HL venue max. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-swing.yaml. Producer launched with SPIDER_LEG=swing.",
   "strategyId": "",
   "wallet": "",
   "chatId": "",
+  "cryptoAlts": ["SUI", "ONDO", "HYPE", "NIL", "GRASS", "ZEC"],
+  "xyzIncludeSet": ["NVDA", "AMD", "INTC", "MRVL", "MU", "TSM", "ASML", "ARM", "SMSN", "SKHX", "DRAM", "SNDK", "DELL", "LITE", "CRWV", "PLTR", "ORCL", "GOOGL", "META", "MSFT", "AMZN", "AAPL", "NFLX", "IBM", "COIN", "MSTR", "CRCL", "HOOD", "SPCX", "RKLB", "CBRS"],
+  "xyzExcludeSet": ["GOLD", "SILVER", "PLATINUM", "PALLADIUM", "COPPER", "CL", "BRENTOIL", "NATGAS", "URANIUM", "URNM", "EUR", "JPY", "GBP", "KRW", "DXY", "SP500", "JP225", "KR200", "NIFTY", "IBOV", "XYZ100", "EWY", "EWJ", "EWT", "EWZ", "XLE", "VIX", "PURRDAT", "BIRD"],
+  "xyzVolFloorUsd": 5000000,
+  "xyzFreshDays": 21,
+  "xyzMaxNames": 20,
   "allowedAssets": ["xyz:NVDA", "xyz:AMD", "xyz:INTC", "xyz:MRVL", "xyz:MU", "xyz:TSM", "SUI", "ONDO", "HYPE", "NIL", "GRASS", "ZEC"],
   "minScore": 5,
   "marginPct": 0.28,
@@ -11,5 +17,6 @@
   "maxSlots": 3,
   "tickSeconds": 300,
   "rsiMaxLong": 78,
-  "_persona": "Tech & AI Swing — semis (NVDA/AMD/INTC/MRVL/MU/TSM) + momentum alts (SUI/ONDO/HYPE/NIL/GRASS/ZEC), LONG only, avg ~27h hold up to 7d, conviction leverage clamped 10x, wide let-winners-run DSL, time-cuts OFF."
+  "useSmBonus": true,
+  "_persona": "Tech & AI Swing — semis/AI-hardware + AI software + crypto-equity + space + freshly listed AI IPOs (auto-caught), LONG only, avg ~27h hold up to 7d, conviction leverage clamped 10x, wide let-winners-run DSL, time-cuts OFF. allowedAssets is a static fallback used only if the live instrument board is unavailable."
 }

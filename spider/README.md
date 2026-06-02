@@ -18,12 +18,15 @@ See [SKILL.md](SKILL.md) for the full thesis, scoring tables, and risk gates.
 
 ## Thesis
 
-**SWING — Tech & AI multi-day momentum.** Multi-day trend rider. Holds a
-small basket of the strongest names in a semiconductor/AI + high-beta-alt
-universe (`xyz:NVDA/AMD/INTC/MRVL/MU/TSM` + `SUI/ONDO/HYPE/NIL/GRASS/ZEC`),
-LONG only, scored on 4h+1h trend structure + 24h relative strength.
-Conviction leverage clamped 10x. Wide *let-winners-run* DSL — sits through
-drawdowns while the multi-timeframe trend holds.
+**SWING — Tech & AI multi-day momentum.** Multi-day trend rider on a
+**dynamic** universe: static crypto alts (`SUI/ONDO/HYPE/NIL/GRASS/ZEC`)
+plus an XYZ-equity pool rebuilt each tick from the live instrument board — a
+curated tech/AI/space include-set (`NVDA AMD MRVL MU TSM ASML ARM CRWV PLTR
+COIN SPCX RKLB CBRS …`) **plus auto-caught freshly listed Pre-IPO
+Perpetuals / AI IPOs** (the edge behind Spider's CBRS/Cerebras win). LONG
+only, scored on 4h+1h trend structure + 24h relative strength. Conviction
+leverage clamped 10x. Wide *let-winners-run* DSL — sits through drawdowns
+while the multi-timeframe trend holds.
 
 **SCALP — Macro & majors fast mean-reversion.** Fades short-timeframe stretch
 and rides the snap-back across majors (`BTC/ETH/SOL/HYPE`) + energy
@@ -60,6 +63,34 @@ This prevents emitting an unfillable order — e.g. `GRASS` and `NIL` cap at
 decision gate also rejects any leverage above the leg cap (clamp-breach
 defense).
 
+## Dynamic swing universe (auto-catching new AI IPOs)
+
+The swing leg does **not** trade a fixed ticker list. Each tick it rebuilds
+its XYZ-equity pool from the live `market_list_instruments` board (the same
+call already made for leverage caps — no extra cost). A name is eligible if
+it is liquid (`dayNtlVlm ≥ xyzVolFloorUsd`) **and** either:
+
+1. its bare ticker is in the curated tech/AI/space **`xyzIncludeSet`**, or
+2. it was **first seen < `xyzFreshDays` ago** and is **not** in the
+   commodity/FX/index **`xyzExcludeSet`** — this branch auto-catches new
+   **Pre-IPO Perpetuals / AI IPOs** (Spider's CBRS/Cerebras and SPCX/SpaceX
+   wins) with no code edit.
+
+Qualifiers are capped to the top **`xyzMaxNames`** by 24h volume. First-seen
+timestamps persist in `state/xyz-first-seen-swing.json`; on first run all
+current names are back-dated so the auto-catch only fires on names that list
+**after** deploy. A fresh perp needs ~24h of candles before it can score.
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `xyzVolFloorUsd` | 5,000,000 | min 24h notional volume to be eligible |
+| `xyzFreshDays` | 21 | new-listing auto-catch window |
+| `xyzMaxNames` | 20 | cap on XYZ names scored per tick |
+| `xyzIncludeSet` | curated tech/AI/space | always-eligible core |
+| `xyzExcludeSet` | commodities/FX/indices | hard guard against non-tech |
+
+The scalp universe stays static (majors + energy).
+
 ## Files
 
 | File | Purpose |
@@ -68,8 +99,9 @@ defense).
 | `runtime-scalp.yaml` | Scalp-leg runtime spec |
 | `scripts/spider-producer.py` | Leg-aware producer daemon (one script, both legs) |
 | `scripts/spider_config.py` | Leg resolution + SenpiClient wrapper + helpers |
-| `config/spider-swing-config.json` | Swing-leg tunables |
+| `config/spider-swing-config.json` | Swing-leg tunables (dynamic-universe sets, floors) |
 | `config/spider-scalp-config.json` | Scalp-leg tunables |
+| `state/xyz-first-seen-swing.json` | Auto-generated first-seen ledger (fresh-listing detection) |
 
 ## Install
 
@@ -189,6 +221,18 @@ Expected: `status=ok` every tick (swing 300s / scalp 60s). Each daemon logs
 under `[spider-v5:swing]` / `[spider-v5:scalp]` on stderr.
 
 ## Changelog
+
+### v5.1.0 — Dynamic swing universe (auto-catch new AI IPOs)
+
+The swing leg's XYZ-equity universe is now **dynamic** instead of a fixed
+`allowedAssets` list. Each tick `build_universe()` rebuilds the equity pool
+from the live instrument board: a curated tech/AI/space include-set plus
+**any freshly listed, liquid, non-excluded name** — which auto-catches new
+Pre-IPO Perpetuals / AI IPOs (the edge behind Spider's CBRS/Cerebras win)
+with no code edit. New config keys: `cryptoAlts`, `xyzIncludeSet`,
+`xyzExcludeSet`, `xyzVolFloorUsd`, `xyzFreshDays`, `xyzMaxNames`. New state
+file `state/xyz-first-seen-swing.json`. Scalp universe unchanged. Scoring,
+DSL, risk gates, and leverage clamping all unchanged.
 
 ### v5.0.0 — Two-persona style-hunter rebuild
 

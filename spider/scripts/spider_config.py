@@ -47,6 +47,10 @@ SKILL_DIR = Path(WORKSPACE) / "skills" / "spider-strategy"
 CONFIG_PATH = SKILL_DIR / "config" / f"spider-{LEG}-config.json"
 STATE_DIR = SKILL_DIR / "state"
 RECENT_SIGNALS_PATH = STATE_DIR / f"recent-signals-{LEG}.json"
+# First-seen ledger for the swing leg's dynamic XYZ-equity universe.
+# Tracks when each XYZ instrument first appeared so freshly-listed names
+# (e.g. a new Pre-IPO Perpetual) can be auto-caught. Per-leg for symmetry.
+XYZ_FIRST_SEEN_PATH = STATE_DIR / f"xyz-first-seen-{LEG}.json"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -256,6 +260,39 @@ def was_recently_signaled(coin, ttl_sec=RECENT_SIGNAL_TTL_SEC):
     if last is None:
         return False
     return (time.time() - last) < ttl_sec
+
+
+# ─── first-seen cache (dynamic-universe new-listing detection) ─────
+#
+# The swing leg builds its XYZ-equity universe dynamically each tick.
+# To auto-catch freshly listed names (e.g. a new Pre-IPO Perpetual like
+# CBRS/Cerebras) the producer records when each XYZ instrument first
+# appeared. A name younger than xyzFreshDays is auto-eligible even if it
+# isn't in the curated include-set. On the very first run (no state file)
+# every current name is treated as already-old so the auto-catch doesn't
+# fire across the whole board at once — only names that appear AFTER
+# deploy are "fresh".
+
+def read_first_seen():
+    """Return {name: epoch_seconds} of when each instrument was first seen."""
+    if not XYZ_FIRST_SEEN_PATH.exists():
+        return {}
+    try:
+        with open(XYZ_FIRST_SEEN_PATH) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+        return {k: float(v) for k, v in data.items() if isinstance(v, (int, float))}
+    except (json.JSONDecodeError, OSError, ValueError):
+        return {}
+
+
+def write_first_seen(data):
+    """Persist the first-seen map atomically. Best-effort."""
+    try:
+        atomic_write(XYZ_FIRST_SEEN_PATH, data)
+    except OSError:
+        pass
 
 
 def output(data):

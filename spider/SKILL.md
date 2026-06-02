@@ -1,21 +1,23 @@
 ---
 name: spider-strategy
 description: >-
-  SPIDER v5.0.0 — Two autonomous style legs on two wallets, one producer.
+  SPIDER v5.1.0 — Two autonomous style legs on two wallets, one producer.
   NOT a copy-trader: each leg scores its own universe to a STYLE and
   pushes signals; the runtime owns the LLM gate (pass-through), DSL
   exits, and all risk.guard_rails. SWING leg = Tech & AI multi-day
-  momentum (semis xyz:NVDA/AMD/INTC/MRVL/MU/TSM + momentum alts
-  SUI/ONDO/HYPE/NIL/GRASS/ZEC), LONG only, 4h+1h trend structure + 24h
-  relative-strength, conviction leverage clamped 10x, wide
-  let-winners-run DSL. SCALP leg = Macro & majors fast mean-reversion
+  momentum on a DYNAMIC XYZ-equity universe (curated semis/AI/space
+  include-set + auto-caught fresh listings like CBRS/Cerebras and
+  SPCX/SpaceX) plus static crypto alts (SUI/ONDO/HYPE/NIL/GRASS/ZEC),
+  LONG only, 4h+1h trend structure + 24h relative-strength, conviction
+  leverage clamped 10x, wide let-winners-run DSL. SCALP leg = Macro &
+  majors fast mean-reversion
   (BTC/ETH/SOL/HYPE + xyz:BRENTOIL/xyz:CL), BOTH directions, short-TF
   stretch + RSI extreme with a 1h trend filter, strict 5x, tight
   fast-capture DSL. SPIDER_LEG env selects the leg.
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "5.0.0"
+  version: "5.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -48,6 +50,14 @@ arena-leader alignment + SM consensus. v5.0 is a full thesis
 the scalp leg, and a leg-parameterized producer. The old single-leg
 `runtime.yaml` / `spider-config.json` are removed.
 
+**v5.1** made the swing XYZ-equity universe **dynamic**: instead of a fixed
+`allowedAssets` list, the leg rebuilds its equity pool each tick from the
+live instrument board and **auto-catches freshly listed Pre-IPO Perpetuals
+/ AI IPOs** (the edge behind Spider's CBRS/Cerebras win — a name that did
+not exist as a tradeable ticker when a static list would have been written).
+The scalp universe stays static (majors + energy). See the SWING universe
+section above.
+
 ---
 
 ## SWING leg — Tech & AI multi-day momentum (LONG only)
@@ -56,9 +66,29 @@ Multi-day trend rider. Holds a small basket of the strongest names in a
 semiconductor/AI + high-beta-alt universe, sits through drawdowns while
 the multi-timeframe trend holds.
 
-**Universe** (`config/spider-swing-config.json` → `allowedAssets`):
-semis `xyz:NVDA / xyz:AMD / xyz:INTC / xyz:MRVL / xyz:MU / xyz:TSM` +
-momentum alts `SUI / ONDO / HYPE / NIL / GRASS / ZEC`.
+**Universe** (`config/spider-swing-config.json`) — **dynamic**, rebuilt
+every tick by `build_universe()`:
+
+- **Static crypto alts** (`cryptoAlts`): `SUI / ONDO / HYPE / NIL / GRASS / ZEC`.
+- **Dynamic XYZ equities**: derived from the live `market_list_instruments`
+  board (the same call already made for venue-leverage caps — zero extra
+  cost). An XYZ name is eligible if it is **liquid** (`dayNtlVlm ≥
+  xyzVolFloorUsd`, default $5M) **and** either (a) its bare ticker is in the
+  curated tech/AI/space **`xyzIncludeSet`** (`NVDA AMD INTC MRVL MU TSM ASML
+  ARM SMSN SKHX DRAM SNDK DELL LITE CRWV PLTR ORCL GOOGL META MSFT AMZN AAPL
+  NFLX IBM COIN MSTR CRCL HOOD SPCX RKLB CBRS`), or (b) it was **first seen <
+  `xyzFreshDays`** (default 21d) ago **and** is **not** in the commodity/FX/
+  index **`xyzExcludeSet`**. Branch (b) auto-catches new **Pre-IPO
+  Perpetuals / AI IPOs** (Spider's CBRS/Cerebras and SPCX/SpaceX wins) with
+  no code edit. Qualifiers are capped to the top **`xyzMaxNames`** (default
+  20) by 24h volume to bound per-tick candle fetches; the score gate below
+  does the final quality filtering.
+
+First-seen timestamps live in `state/xyz-first-seen-swing.json`. On first
+run every current name is back-dated as already-old, so the auto-catch fires
+only on names that appear **after** deploy. A freshly listed perp needs ~24h
+of candles (≥6 4h bars) before it can score. If the instrument board is
+unavailable, the leg falls back to a static `allowedAssets` list.
 
 ### Scoring (raw integer; `minScore` 5)
 
@@ -166,8 +196,9 @@ true; swing 60s maker-first window, scalp 20s).
 | `runtime-scalp.yaml` | Scalp-leg runtime spec |
 | `scripts/spider-producer.py` | Leg-aware producer daemon (one script, both legs) |
 | `scripts/spider_config.py` | Leg resolution + SenpiClient wrapper + helpers |
-| `config/spider-swing-config.json` | Swing-leg tunables |
+| `config/spider-swing-config.json` | Swing-leg tunables (dynamic-universe sets, floors) |
 | `config/spider-scalp-config.json` | Scalp-leg tunables |
+| `state/xyz-first-seen-swing.json` | Auto-generated first-seen ledger for fresh-listing detection |
 
 ## Operator install
 
