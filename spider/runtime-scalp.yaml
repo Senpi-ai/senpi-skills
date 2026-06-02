@@ -40,6 +40,13 @@ description: >
 
 strategy:
   wallet: "${SPIDER_SCALP_WALLET}"
+  # ── FUNDING SPLIT DEFAULT: SWING 60% / SCALP 40% of the combined pool ──
+  # Scalp takes the SMALLER 40% share: it is FEE-SENSITIVE (30 entries/day) and
+  # unproven net-of-fees, so it is funded small to validate before scaling. Raise
+  # its share only after net-of-fees proves out over several weeks. Swing carries
+  # the larger 60% (see runtime-swing.yaml). This is a FUNDING guideline for the
+  # operator (how to split capital across the two wallets), NOT a runtime-enforced
+  # field. Per-position sizing is governed by margin_pct + slots below.
   slots: 4
   margin_pct: 15          # 4 x 15 = 60% max committed; small scalp size
   trading_risk: moderate

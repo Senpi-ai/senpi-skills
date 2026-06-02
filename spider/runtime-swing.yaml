@@ -30,6 +30,14 @@ description: >
 
 strategy:
   wallet: "${SPIDER_SWING_WALLET}"
+  # ── FUNDING SPLIT DEFAULT: SWING 60% / SCALP 40% of the combined pool ──
+  # Swing carries the LARGER 60% share: it is the fee-efficient, asymmetric-
+  # upside leg (low turnover, let-winners-run DSL, plus the dynamic-universe
+  # edge that auto-catches fresh AI IPOs). Scalp takes 40% — it is fee-sensitive
+  # and funded small to validate net-of-fees first (see runtime-scalp.yaml).
+  # This is a FUNDING guideline for the operator (how to split capital across the
+  # two wallets), NOT a runtime-enforced field. Per-position sizing is governed
+  # by margin_pct + slots below.
   slots: 3
   margin_pct: 28          # 3 x 28 = 84% max committed; leaves headroom
   trading_risk: moderate

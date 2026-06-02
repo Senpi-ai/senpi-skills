@@ -182,6 +182,14 @@ Each leg also accepts an optional `SPIDER_SWING_STRATEGY_ID` /
 `SPIDER_SCALP_STRATEGY_ID` (falls back to the `strategyId` field in the
 matching config file).
 
+**Recommended funding split — SWING 60% / SCALP 40%** of the combined Spider
+pool. Swing is the fee-efficient, asymmetric-upside leg (low turnover,
+let-winners-run, plus the dynamic-universe edge), so it carries the larger
+share. Scalp is **fee-sensitive** and funded small to validate net-of-fees
+before scaling — raise its share only after it proves out. This is an operator
+funding guideline (documented in each `runtime-*.yaml` `strategy:` block); the
+runtime does not pull or enforce a budget, so fund the two wallets accordingly.
+
 ### Step 4 — Register both runtimes, start both daemons
 
 Register each runtime YAML with the gateway (per your host's runtime-register
