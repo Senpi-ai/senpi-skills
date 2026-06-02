@@ -1,15 +1,27 @@
-"""SPIDER v4.0.0 — Shared MCP helpers + config loader.
+"""SPIDER v5.0 — Shared config + MCP shim + helpers wrapper (LEG-AWARE).
 
-Plumbing-only migration from v3.0.2. Routes MCP calls + signal POSTs
-through `senpi_runtime_helpers.SenpiClient` (in-process, direct HTTPS).
-No mcporter / openclaw subprocesses.
+v5.0.0 (2026-06-02): two-persona rebuild. Spider is now ONE producer
+script driven by the SPIDER_LEG env var into one of two style legs,
+each bound to its own wallet + runtime + DSL:
 
-This module is the MCP call helper + config loader. All state
-(position tracking, post-close cooldown, anchor history) lives in
-state/<wallet-hash>/ JSON files.
+  SPIDER_LEG=swing  -> Tech & AI multi-day momentum (LONG only)
+                       config/spider-swing-config.json  -> spider_swing_signals
+  SPIDER_LEG=scalp  -> Macro & majors fast mean-reversion (BOTH dirs)
+                       config/spider-scalp-config.json  -> spider_scalp_signals
+
+This module owns: leg resolution, config load, the senpi_runtime_helpers
+client, the MCP call shim, account/position pulls, and the per-leg
+recent-signals race-dedup cache. The producer (spider-producer.py) owns
+scoring + emit. The runtime owns the LLM gate, DSL exits, and all
+risk.guard_rails. NOT a copy-trader — each leg scores its own universe.
+
+Plumbing: MCP calls + signal POSTs route through
+senpi_runtime_helpers.SenpiClient (in-process, direct HTTPS). No
+mcporter / openclaw subprocesses.
 """
 # Copyright 2026 Senpi (https://senpi.ai)
-# Licensed under MIT
+# Licensed under Apache-2.0 — attribution required for derivative works
+# Source: https://github.com/Senpi-ai/senpi-skills
 
 import functools
 import json
@@ -20,9 +32,36 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+# ─── Leg resolution ──────────────────────────────────────────
+# One script, two legs. SPIDER_LEG selects the config file, the
+# scanner name, the wallet env var, and the recent-signals cache.
+LEG = (os.environ.get("SPIDER_LEG") or "swing").strip().lower()
+if LEG not in ("swing", "scalp"):
+    raise RuntimeError(
+        f"SPIDER_LEG must be 'swing' or 'scalp' (got {LEG!r}). "
+        "Set it on the runtime host before starting the producer daemon."
+    )
+
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
 SKILL_DIR = Path(WORKSPACE) / "skills" / "spider-strategy"
-CONFIG_PATH = SKILL_DIR / "config" / "spider-config.json"
+CONFIG_PATH = SKILL_DIR / "config" / f"spider-{LEG}-config.json"
+STATE_DIR = SKILL_DIR / "state"
+RECENT_SIGNALS_PATH = STATE_DIR / f"recent-signals-{LEG}.json"
+
+STATE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Per-leg wallet / strategy env var names. The runtime YAMLs bind
+# ${SPIDER_SWING_WALLET} / ${SPIDER_SCALP_WALLET}; the producer reads
+# the same names so producer and runtime always agree on the wallet.
+_WALLET_ENV = "SPIDER_SWING_WALLET" if LEG == "swing" else "SPIDER_SCALP_WALLET"
+_STRATEGY_ENV = "SPIDER_SWING_STRATEGY_ID" if LEG == "swing" else "SPIDER_SCALP_STRATEGY_ID"
+
+# How long after a push_signal() we treat the asset as "in-flight" and
+# refuse to re-emit. 180s = 3x the typical ALO open fill window. Covers
+# the race between push_signal() returning OK and the resulting position
+# appearing in the next-tick clearinghouse pull. On-chain held-asset
+# check is the safety floor underneath this.
+RECENT_SIGNAL_TTL_SEC = 180
 
 
 # ─── senpi_runtime_helpers (lazy + auth-validated) ───
@@ -48,10 +87,11 @@ def _get_wrapper_client() -> SenpiClient:
     if not os.environ.get("SENPI_AUTH_TOKEN", "").strip():
         raise RuntimeError(
             "SENPI_AUTH_TOKEN is not set. Spider's MCP calls and signal "
-            "POST both require it."
+            "POST both require it. Set it on the runtime host before "
+            "starting the producer daemon."
         )
     client = SenpiClient()
-    log_event("spider_wrapper_enabled", sdk_path=_sdk_path)
+    log_event("spider_wrapper_enabled", leg=LEG, sdk_path=_sdk_path)
     return client
 
 
@@ -95,20 +135,127 @@ def load_config():
     return {}
 
 
+def get_wallet_and_strategy():
+    """Resolve (wallet, strategyId) — leg env var first, config.json second."""
+    wallet = os.environ.get(_WALLET_ENV, "").strip()
+    strategy_id = os.environ.get(_STRATEGY_ENV, "").strip()
+    if not wallet or not strategy_id:
+        config = load_config()
+        wallet = wallet or (config.get("wallet") or "").strip()
+        strategy_id = strategy_id or (config.get("strategyId") or "").strip()
+    return wallet, strategy_id
+
+
 # ─── MCP Helper ──────────────────────────────────────────────
 
-def mcporter_call(tool, retries=2, timeout=30, **params):
-    """v4.0.0: routes through SenpiClient.mcp_call() — direct HTTPS, no
-    mcporter subprocess. Returns the unwrapped JSON document on
-    success, or None if the wrapper raised."""
+def mcp_call(tool, **params):
+    """Direct MCP call via SenpiClient (in-process HTTPS). Returns the
+    unwrapped JSON document on success, or None if the wrapper raised."""
     try:
-        return _wrapper_client.mcp_call(tool, timeout=timeout, **params)
+        return _wrapper_client.mcp_call(tool, **params)
     except Exception as e:  # noqa: BLE001
         sys.stderr.write(
-            f"[senpi_helpers] spider_mcp_call_failed tool={tool} "
+            f"[spider-v5:{LEG}] mcp_call_failed tool={tool} "
             f"err={type(e).__name__}: {e}\n"
         )
         return None
+
+
+# Backward-compat alias — keeps legacy `cfg.mcporter_call(...)` call
+# sites working even though the transport is in-process now.
+mcporter_call = mcp_call
+
+
+def get_clearinghouse(wallet):
+    if not wallet:
+        return None
+    return mcp_call("strategy_get_clearinghouse_state", strategy_wallet=wallet)
+
+
+def get_positions(wallet):
+    """Returns (account_value, [position_dicts]).
+
+    Sums marginSummary.accountValue across BOTH the 'main' and 'xyz'
+    sub-DEX views — Spider's swing leg holds XYZ equities and the scalp
+    leg holds XYZ energy, so both views matter.
+    """
+    ch = get_clearinghouse(wallet)
+    if not ch:
+        return 0, []
+    data = ch.get("data", ch)
+    positions, account_value = [], 0
+    for section in ("main", "xyz"):
+        s = data.get(section, {})
+        if not isinstance(s, dict):
+            continue
+        ms = s.get("marginSummary", {})
+        account_value += float(ms.get("accountValue", 0) or 0)
+        for ap in s.get("assetPositions", []):
+            pos = ap.get("position", ap)
+            szi = float(pos.get("szi", 0) or 0)
+            if szi == 0:
+                continue
+            positions.append({
+                "coin": pos.get("coin", ""),
+                "direction": "LONG" if szi > 0 else "SHORT",
+                "upnl": float(pos.get("unrealizedPnl", 0) or 0),
+                "margin": float(pos.get("marginUsed", 0) or 0),
+                "entryPrice": float(pos.get("entryPx", 0) or 0),
+                "size": abs(szi),
+            })
+    return account_value, positions
+
+
+# ─── recent-signals cache (held-asset dedup race-fix) ─────────
+#
+# Each successful push_signal(coin) writes {coin: epoch_seconds} to
+# recent-signals-<leg>.json. The producer checks this BEFORE scoring and
+# skips coins seen within RECENT_SIGNAL_TTL_SEC. This covers the gap
+# between push_signal returning OK and the resulting position appearing
+# in the next-tick clearinghouse pull. The on-chain held-asset check
+# (get_positions) is the safety floor underneath.
+
+def _read_recent_signals():
+    if not RECENT_SIGNALS_PATH.exists():
+        return {}
+    try:
+        with open(RECENT_SIGNALS_PATH) as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return {}
+        return {k: float(v) for k, v in data.items() if isinstance(v, (int, float))}
+    except (json.JSONDecodeError, OSError, ValueError):
+        return {}
+
+
+def _prune_recent_signals(signals, now):
+    """Drop entries older than 4x TTL to keep the file bounded."""
+    cutoff = now - (RECENT_SIGNAL_TTL_SEC * 4)
+    return {k: v for k, v in signals.items() if v >= cutoff}
+
+
+def record_signal(coin):
+    """Mark `coin` as recently signaled. Writes atomically."""
+    if not coin:
+        return
+    now = time.time()
+    signals = _prune_recent_signals(_read_recent_signals(), now)
+    signals[coin.upper()] = now
+    try:
+        atomic_write(RECENT_SIGNALS_PATH, signals)
+    except OSError:
+        pass
+
+
+def was_recently_signaled(coin, ttl_sec=RECENT_SIGNAL_TTL_SEC):
+    """True if `coin` was pushed within `ttl_sec`."""
+    if not coin:
+        return False
+    signals = _read_recent_signals()
+    last = signals.get(coin.upper())
+    if last is None:
+        return False
+    return (time.time() - last) < ttl_sec
 
 
 def output(data):
@@ -117,7 +264,7 @@ def output(data):
 
 
 def log(msg):
-    print(f"[SPIDER-v4] {msg}", file=sys.stderr)
+    print(f"[spider-v5:{LEG}] {msg}", file=sys.stderr, flush=True)
 
 
 def now_ts():

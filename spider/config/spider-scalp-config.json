@@ -1,0 +1,16 @@
+{
+  "_comment": "SPIDER v5.0 SCALP leg — Macro commodities & majors fast mean-reversion, autonomous style scan (NOT copy-trading). Producer scores the allowedAssets universe on short-TF stretch + RSI extreme with a 1h trend filter, BOTH directions, strict 5x, fast in-and-out. Leverage clamped to scalpMaxLeverage then to each asset's HL max. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-scalp.yaml. Producer launched with SPIDER_LEG=scalp. FEE NOTE: high turnover — lower max_entries_per_day (runtime-scalp.yaml) if net-of-fees underperforms.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "allowedAssets": ["BTC", "ETH", "SOL", "HYPE", "xyz:BRENTOIL", "xyz:CL"],
+  "minScore": 4,
+  "marginPct": 0.15,
+  "scalpMaxLeverage": 5,
+  "minNotionalUsd": 500,
+  "maxSlots": 4,
+  "tickSeconds": 60,
+  "rsiOversold": 30,
+  "rsiOverbought": 70,
+  "_persona": "Macro & Majors Scalp — majors (BTC/ETH/SOL/HYPE) + energy (xyz:BRENTOIL/xyz:CL), both directions (long-biased), strict 5x cap, 5-45 min holds, tight fast-capture DSL with dead_weight + weak_peak cuts ON."
+}
