@@ -13,7 +13,7 @@ description: >-
 license: MIT
 metadata:
   author: jason-goldberg
-  version: "3.0.3"
+  version: "3.0.4"
   platform: senpi
   exchange: hyperliquid
   requires:

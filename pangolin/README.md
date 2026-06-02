@@ -123,6 +123,12 @@ Expected: `status=ok` every tick (300s interval — Pangolin's longer cadence re
 
 ## Changelog
 
+### v3.0.2 (2026-06-02) — dynamic daily-cap baseline fix (phantom-drawdown throttle)
+
+**Bug.** `STARTING_BUDGET` was hardcoded to the `$1,000` fleet default and used as the drawdown baseline for the P&L-aware dynamic daily-entry cap. Any wallet funded **below** `$1,000` was read as a proportional loss — e.g. a `$499` deposit scored as `−50%` PnL and slammed the cap to `~0` entries/day, so the agent silently sat out valid funding-fade setups.
+
+**Fix.** The baseline is now resolved per-tick from the operator's **actual deployed capital** via `resolve_starting_budget()`: config `startingBudget` override → persisted first-tick equity (`state/equity-baseline.json`) → current account value. Funding **any** amount now reads as `~0%` PnL at deploy. No thesis change; the cap tiers are untouched. Reset after a top-up via config `startingBudget` or by deleting `state/equity-baseline.json`. The hardcoded `1000.0` constant remains only as a last-resort fallback.
+
 ### v3.0.1 — funding annualization fix
 
 **Bug fix + threshold recalibration.** Hyperliquid funding is charged **hourly**, so annualized funding is `rate × 24 × 365 (×8760)`, not `× 3 × 365`. Two corrections:

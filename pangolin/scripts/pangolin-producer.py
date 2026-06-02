@@ -126,7 +126,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pangolin_config as cfg
 
 
-VERSION = "3.0.1"  # single source of truth; matches SKILL.md frontmatter
+VERSION = "3.0.2"  # single source of truth; matches SKILL.md frontmatter
 
 # v2.0.0: Agent-specific wallet env var. NO fallback to STRATEGY_ADDRESS
 # (contamination risk per Turbine v2.0.9 fix — see feedback_mcp_auth_is_fleet_wide.md).
@@ -180,7 +180,12 @@ POST_CLOSE_COOLDOWN_MINUTES = 240     # v2.1.2 — post-CLOSE cooldown.
                                       # which is silently not enforcing in the runtime.
                                       # Producer-side backstop until the runtime gate
                                       # is fixed.
+# Last-resort fallback only. The live drawdown baseline is resolved per-tick
+# by resolve_starting_budget() from the operator's ACTUAL deployed capital.
+# A hardcoded fleet default mislabels sub-default funding as a phantom
+# drawdown (e.g. $499 funded reads as -50% and throttles the cap to ~0/day).
 STARTING_BUDGET = 1000.0
+_EQUITY_BASELINE_FILE = _STATE_DIR / "equity-baseline.json"
 XYZ_BANNED = True                     # never trade equities
 
 # Leverage tiers — preserved from v1.4
@@ -207,6 +212,32 @@ def get_leverage_for_score(score):
         if score >= tier["min_score"]:
             return tier["leverage"]
     return DEFAULT_LEVERAGE
+
+
+def resolve_starting_budget(account_value):
+    """Drawdown baseline for the dynamic daily cap, resolved from REAL
+    deployed capital — never a hardcoded fleet default.
+    Order: config 'startingBudget' override > persisted first-tick equity
+    > capture current account value now. Funding ANY amount then reads as
+    ~0% PnL at deploy. Reset after a top-up by setting config startingBudget
+    or deleting state/equity-baseline.json."""
+    cfg_budget = safe_float(cfg.load_config().get("startingBudget"), 0.0)
+    if cfg_budget > 0:
+        return cfg_budget
+    try:
+        with open(_EQUITY_BASELINE_FILE) as f:
+            saved = safe_float(json.load(f).get("baseline"), 0.0)
+        if saved > 0:
+            return saved
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    if account_value and account_value > 0:
+        cfg.atomic_write(str(_EQUITY_BASELINE_FILE), {
+            "baseline": round(float(account_value), 2),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return float(account_value)
+    return float(account_value) if account_value else 1.0
 
 
 def get_dynamic_daily_cap(account_value, starting_budget=STARTING_BUDGET):
@@ -793,9 +824,10 @@ def main():
 
     # Producer-side dynamic daily cap (v1 carryover; runtime ceiling at 12)
     tc = load_trade_counter()
-    dyn_cap = get_dynamic_daily_cap(account_value)
+    starting_budget = resolve_starting_budget(account_value)
+    dyn_cap = get_dynamic_daily_cap(account_value, starting_budget)
     if tc.get("entries", 0) >= dyn_cap:
-        pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
+        pnl_pct = ((account_value - starting_budget) / starting_budget) * 100
         cfg.output({
             "status": "ok",
             "note": f"dynamic cap reached: entries {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",

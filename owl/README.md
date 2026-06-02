@@ -189,6 +189,12 @@ ls -la /data/workspace/skills/owl-strategy/state/<wallet-hash>/
 
 ## Changelog
 
+### v8.0.1 (2026-06-02) — dynamic daily-cap baseline fix (phantom-drawdown freeze)
+
+**Bug.** `STARTING_BUDGET` was hardcoded to the `$1,000` fleet default and used as the drawdown baseline for the dynamic daily-entry cap. Any wallet funded **below** `$1,000` was read as a proportional loss — and because Owl's drawdown circuit breaker returns **0 entries below −25%**, any Owl funded under `~$750` was **fully frozen** (0 trades/day), while funding under `~$950` was throttled. The agent looked healthy but never traded.
+
+**Fix.** The baseline is now resolved per-tick from the operator's **actual deployed capital** via `resolve_starting_budget()`: config `startingBudget` override → persisted first-tick equity (`state/equity-baseline.json`) → current account value. Funding **any** amount now reads as `~0%` PnL at deploy. `get_dynamic_daily_cap()` takes the resolved baseline as a parameter (was reading the module constant). No thesis change; the cap/breaker tiers are untouched. Reset after a top-up via config `startingBudget` or by deleting `state/equity-baseline.json`.
+
 ### v8.0.0 — senpi_runtime_helpers migration
 
 **Plumbing-only migration. NO thesis change.** v7.1's crowding/exhaustion scoring, persistence gates, MACRO_TREND_GATE, conviction leverage tiers (7/8/10), MIN_COMBINED_SCORE 12, 6h post-loss cooldown, dynamic daily cap, XYZ ban, DSL preset are all preserved verbatim.

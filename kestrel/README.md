@@ -137,6 +137,12 @@ Expected: `status=ok` every tick (300s interval — macro 1H candles change slow
 
 ## Changelog
 
+### v3.0.4 (2026-06-02) — dynamic daily-cap baseline fix (phantom-drawdown throttle)
+
+**Bug.** `STARTING_BUDGET` was hardcoded to the `$1,000` fleet default and used as the drawdown baseline for the P&L-aware dynamic daily-entry cap. Any wallet funded **below** `$1,000` was read as a proportional loss — e.g. a `$499` deposit scored as `−50%` PnL and slammed the cap to `~0` entries/day, so the agent silently sat out valid breakouts (observed live: a `GOOGL` setup skipped with `note: "daily cap reached: 1/0 (PnL -50.9%)"` while the account was actually healthy).
+
+**Fix.** The baseline is now resolved per-tick from the operator's **actual deployed capital** via `resolve_starting_budget()`: config `startingBudget` override → persisted first-tick equity (`state/equity-baseline.json`) → current account value. Funding **any** amount now reads as `~0%` PnL at deploy, so the cap reflects real performance, not deposit size. No thesis change; the cap tiers are untouched. After a top-up, reset the baseline by setting config `startingBudget` or deleting `state/equity-baseline.json`. The hardcoded `1000.0` constant remains only as a last-resort fallback and is never used on the live path.
+
 ### v3.0.3 (2026-06-01) — drop undeclared `_kestrel_producer_version` from the signal payload
 
 **Bug.** `build_signal_data()` injected `_kestrel_producer_version` **inside the signal `data` block** — the object the runtime validates against the `external_scanner` `config.fields` declaration. That key is not (and should not be) a declared field, so the runtime rejected the signal:
