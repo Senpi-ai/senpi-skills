@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Senpi SPIDER Producer v5.1.0
+# Senpi SPIDER Producer v5.1.1
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SPIDER v5.1.0 Producer — two autonomous style legs, one script.
+"""SPIDER v5.1.1 Producer — two autonomous style legs, one script.
 
 Spider runs TWO concurrent strategy wallets, each a distinct trading
 style. ONE producer script serves both; the SPIDER_LEG env var selects
@@ -55,7 +55,7 @@ import spider_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "5.1.0"
+VERSION = "5.1.1"
 LEG = cfg.LEG
 SCANNER_NAME = f"spider_{LEG}_signals"
 SIGNAL_TYPE = "SPIDER_SWING_MOMENTUM" if LEG == "swing" else "SPIDER_SCALP_REVERSION"
