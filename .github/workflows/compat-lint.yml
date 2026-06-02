@@ -1,0 +1,31 @@
+name: compat-lint
+
+# Validates compatibility.json on every PR that touches it. Blocks the PR
+# when entries are malformed (bad SHA, version mismatch, overlapping
+# runtime bands, etc). See `.github/scripts/validate-compat.mjs` for the
+# full check list — it implements the rules in §3 of the spec.
+
+on:
+  pull_request:
+    paths:
+      - 'compatibility.json'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history is required so we can resolve every SHA in the
+          # registry and `git show <sha>:<skill>/SKILL.md` against it.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install yaml parser
+        run: npm install yaml@2 --no-save --no-package-lock
+
+      - name: Validate compatibility.json
+        run: node .github/scripts/validate-compat.mjs

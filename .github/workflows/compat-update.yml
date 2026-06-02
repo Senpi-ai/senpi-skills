@@ -1,0 +1,91 @@
+name: compat-update
+
+# Auto-appends a releases entry to compatibility.json whenever a
+# SKILL.md `metadata.version` is bumped on main. See
+# `.github/scripts/append-releases.mjs` for the per-file decision logic.
+#
+# The `[skip ci]` in the bot commit message is critical — without it
+# this workflow would trigger itself in an infinite loop.
+
+on:
+  push:
+    branches: [main]
+    # Scope the trigger to skills that are actually tracked in
+    # compatibility.json. The append-releases.mjs script also gates on
+    # `compat[skillName]` existence (defense in depth), but listing the
+    # exact paths here keeps unrelated SKILL.md pushes from spinning up
+    # the workflow at all. When opting a new skill in, edit BOTH
+    # compatibility.json AND this paths list.
+    paths:
+      - 'senpi-trading-runtime/SKILL.md'
+
+# Serialize runs of this workflow. Each run does `git pull-style` work on main
+# (read compatibility.json -> append -> git push). If two tracked SKILL.md
+# pushes land back-to-back, parallel runs would both fetch the same base
+# state; the second push would fail with a non-fast-forward error and its
+# release entry would be lost. `cancel-in-progress: false` queues the second
+# run instead of cancelling it so both pushes get their entries.
+concurrency:
+  group: compat-update
+  cancel-in-progress: false
+
+jobs:
+  update-compat:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install yaml parser
+        run: npm install yaml@2 --no-save --no-package-lock
+
+      - name: Detect bumped SKILL.md files
+        id: detect
+        run: |
+          BEFORE="${{ github.event.before }}"
+          AFTER="${{ github.sha }}"
+          # On the first push to a new branch BEFORE may be all-zeros;
+          # diff against the empty tree to list every SKILL.md instead.
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            CHANGED=$(git ls-tree -r --name-only "$AFTER" | grep -E '^[^/]+/SKILL\.md$' || true)
+          else
+            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" | grep -E '^[^/]+/SKILL\.md$' || true)
+          fi
+          {
+            echo "changed_files<<__EOF__"
+            echo "$CHANGED"
+            echo "__EOF__"
+          } >> "$GITHUB_OUTPUT"
+          if [ -z "$CHANGED" ]; then
+            echo "No SKILL.md changes detected."
+          else
+            echo "Changed SKILL.md files:"
+            echo "$CHANGED"
+          fi
+
+      - name: Append releases entries
+        if: steps.detect.outputs.changed_files != ''
+        env:
+          CHANGED_FILES: ${{ steps.detect.outputs.changed_files }}
+        run: node .github/scripts/append-releases.mjs "${{ github.sha }}"
+
+      - name: Commit and push
+        if: steps.detect.outputs.changed_files != ''
+        run: |
+          if git diff --quiet compatibility.json; then
+            echo "compatibility.json unchanged — nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add compatibility.json
+          git commit -m "chore: auto-append compatibility entries [skip ci]"
+          git push

@@ -124,6 +124,41 @@ A new skill is not complete until both files above exist with the correct `skill
 
 ---
 
+## Compatibility registry (`compatibility.json`)
+
+The senpi-trading-runtime auto-update gate reads `compatibility.json` at the repo root to decide which skill version to install for each runtime line. The file is **append-only for normal patch releases** — do not hand-edit `releases` maps when bumping a skill's version.
+
+**For a patch release (most common):**
+
+1. Bump the `metadata.version:` field in `<skill-name>/SKILL.md` (e.g. `2.2.0` → `2.2.1`).
+2. Push to `main`.
+3. The `compat-update` GitHub Action automatically appends `releases["2.2.1"] = <commit-sha>` to `compatibility.json` and commits back with `[skip ci]`.
+
+You should NOT edit `compatibility.json` directly for this case.
+
+**For a new band (skill major.minor bump):**
+
+If the new version jumps to a new major.minor (e.g. `2.2.x` → `2.3.0`), the band entry must be created first by a human. Open a PR that adds the new band to `compatibility.json` with its `runtimes: [...]` array, then push the SKILL.md bump. The `compat-update` Action errors out if it sees a SKILL.md version whose band doesn't already exist in the registry — that's intentional, because deciding which runtimes a new band supports is a policy call.
+
+**For a rollback (removing a bad release):**
+
+Edit `compatibility.json` directly to remove the bad entry from `releases`. The `compat-lint` CI workflow validates remaining entries on the PR. The runtime's next tick picks the next-highest version and converges users backward — no other changes needed.
+
+**Which skills are tracked today:**
+
+Only `senpi-trading-runtime` is in `compatibility.json` right now. The `compat-update` Action only fires on pushes that touch a tracked skill's `SKILL.md` (its `paths:` filter lists them explicitly) and additionally silently skips bumps whose `metadata.version` is not three-part SemVer (`X.Y.Z`). To opt a new skill in:
+
+1. Add a top-level entry to `compatibility.json` with at least one band + `runtimes` array.
+2. Add the new `<skill>/SKILL.md` path to `.github/workflows/compat-update.yml`'s `paths:` list so the workflow actually fires on its pushes.
+
+**Never:**
+
+- Type commit hashes by hand for patch releases. Let the Action do it.
+- Remove a band's `runtimes` array. That's a runtime-compatibility policy decision.
+- Use short SHAs anywhere. The runtime requires full 40-char hex SHAs.
+
+---
+
 ## Runtime npm package — `@senpi-ai/runtime` (NOT `@senpi/runtime`) on `main`
 
 **Any skill committed to `main` that references the runtime plugin MUST use `@senpi-ai/runtime`.** That's the production npm package — what end users install on their Railway / OpenClaw hosts. `latest = 1.1.0`. Source-of-truth: `senpi-trading-runtime/package.json` declares `name: "@senpi-ai/runtime"`.
