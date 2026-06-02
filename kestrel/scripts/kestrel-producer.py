@@ -88,7 +88,7 @@ if _sdk_path not in sys.path:
 from senpi_runtime_helpers import producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "3.0.3"
+VERSION = "3.0.4"
 SCANNER_NAME = os.environ.get("EXTERNAL_SCANNER_NAME", "kestrel_signals")
 SIGNAL_TYPE = "KESTREL_XYZ_BREAKOUT"
 
@@ -170,7 +170,38 @@ LEVERAGE_TIERS = [
 ]
 DEFAULT_LEVERAGE = 3
 
+# Last-resort fallback only. The live drawdown baseline is resolved per-tick
+# by resolve_starting_budget() from the operator's ACTUAL deployed capital.
+# A hardcoded fleet default mislabels sub-default funding as a phantom
+# drawdown (e.g. $499 funded reads as -50% and throttles the cap to ~0/day).
 STARTING_BUDGET = 1000.0
+_EQUITY_BASELINE_FILE = _STATE_DIR / "equity-baseline.json"
+
+
+def resolve_starting_budget(account_value):
+    """Drawdown baseline for the dynamic daily cap, resolved from REAL
+    deployed capital — never a hardcoded fleet default.
+    Order: config 'startingBudget' override > persisted first-tick equity
+    > capture current account value now. Funding ANY amount then reads as
+    ~0% PnL at deploy. Reset after a top-up by setting config startingBudget
+    or deleting state/equity-baseline.json."""
+    cfg_budget = safe_float(cfg.load_config().get("startingBudget"), 0.0)
+    if cfg_budget > 0:
+        return cfg_budget
+    try:
+        with open(_EQUITY_BASELINE_FILE) as f:
+            saved = safe_float(json.load(f).get("baseline"), 0.0)
+        if saved > 0:
+            return saved
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+    if account_value and account_value > 0:
+        cfg.atomic_write(str(_EQUITY_BASELINE_FILE), {
+            "baseline": round(float(account_value), 2),
+            "captured_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return float(account_value)
+    return float(account_value) if account_value else 1.0
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -717,9 +748,10 @@ def main():
 
     # ── Daily cap (P&L-aware dynamic) ──
     tc = load_trade_counter()
-    dyn_cap = get_dynamic_daily_cap(account_value)
+    starting_budget = resolve_starting_budget(account_value)
+    dyn_cap = get_dynamic_daily_cap(account_value, starting_budget)
     if tc.get("entries", 0) >= dyn_cap:
-        pnl_pct = ((account_value - STARTING_BUDGET) / STARTING_BUDGET) * 100
+        pnl_pct = ((account_value - starting_budget) / starting_budget) * 100
         cfg.output({
             "status": "ok",
             "note": f"daily cap reached: {tc.get('entries')}/{dyn_cap} (PnL {pnl_pct:+.1f}%)",

@@ -12,7 +12,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "8.0"
+  version: "8.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
