@@ -179,9 +179,17 @@ def get_clearinghouse(wallet):
 def get_positions(wallet):
     """Returns (account_value, [position_dicts]).
 
-    Sums marginSummary.accountValue across BOTH the 'main' and 'xyz'
-    sub-DEX views — Spider's swing leg holds XYZ equities and the scalp
-    leg holds XYZ energy, so both views matter.
+    The 'main' and 'xyz' clearinghouse sections are TWO VIEWS of ONE
+    cross-margined Senpi wallet, NOT two separate collateral silos. Both
+    views report the SAME marginSummary.accountValue (the whole wallet's
+    equity). So account_value is taken ONCE via max() across the two
+    sections — never summed. Summing double-counts the balance and makes
+    every position size 2x too large (margin_usd = account_value *
+    margin_pct downstream). max() is exact whether the views mirror
+    (equal → max is the shared value), one view is empty/0 (the populated
+    view wins), or positions are open on both sub-DEXs (still one shared
+    cross-margin balance). assetPositions ARE per-sub-DEX, so those are
+    still enumerated across both sections.
     """
     ch = get_clearinghouse(wallet)
     if not ch:
@@ -193,7 +201,7 @@ def get_positions(wallet):
         if not isinstance(s, dict):
             continue
         ms = s.get("marginSummary", {})
-        account_value += float(ms.get("accountValue", 0) or 0)
+        account_value = max(account_value, float(ms.get("accountValue", 0) or 0))
         for ap in s.get("assetPositions", []):
             pos = ap.get("position", ap)
             szi = float(pos.get("szi", 0) or 0)

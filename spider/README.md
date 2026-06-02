@@ -230,6 +230,20 @@ under `[spider-v5:swing]` / `[spider-v5:scalp]` on stderr.
 
 ## Changelog
 
+### v5.1.1 — Fix equity double-count (2x position sizing)
+
+`get_positions()` summed `marginSummary.accountValue` across the `main` and
+`xyz` clearinghouse sections. Those are **two views of one cross-margined
+wallet, not two collateral silos** — both report the whole wallet's equity,
+so summing **doubled** the equity used for sizing (`margin_usd =
+account_value * margin_pct`) and opened every position **2x too large**.
+Live impact: a freshly-funded swing leg opened ONDO/MRVL at ~$414 margin
+when ~$207 was intended → over-leverage → forced exits + fee bleed. Fix:
+take `accountValue` **once** via `max()` across the two views (exact whether
+the views mirror, one is empty, or positions exist on both sub-DEXs).
+`assetPositions` are still enumerated per-sub-DEX. No scoring/DSL/risk
+changes.
+
 ### v5.1.0 — Dynamic swing universe (auto-catch new AI IPOs)
 
 The swing leg's XYZ-equity universe is now **dynamic** instead of a fixed

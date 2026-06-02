@@ -1,7 +1,7 @@
 ---
 name: spider-strategy
 description: >-
-  SPIDER v5.1.0 — Two autonomous style legs on two wallets, one producer.
+  SPIDER v5.1.1 — Two autonomous style legs on two wallets, one producer.
   NOT a copy-trader: each leg scores its own universe to a STYLE and
   pushes signals; the runtime owns the LLM gate (pass-through), DSL
   exits, and all risk.guard_rails. SWING leg = Tech & AI multi-day
@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "5.1.0"
+  version: "5.1.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -160,9 +160,14 @@ leverage above the leg cap as a clamp-breach defense.
 
 XYZ equities/energy require `dex="xyz"` on `market_get_asset_data` (an
 empty dex errors with `Asset prefix "xyz" must match dex`). Main-DEX
-assets pass `dex=""`. `get_positions()` sums `accountValue` across both
-the `main` and `xyz` sub-DEX clearinghouse views, since each leg holds
-assets on both. Candle fields are HL-native (`o/h/l/c/v`).
+assets pass `dex=""`. The `main` and `xyz` sub-DEX sections are two
+VIEWS of ONE cross-margined wallet (not two collateral silos), so both
+report the same `accountValue`. `get_positions()` takes `accountValue`
+ONCE via `max()` across the two views — never sums it. Summing
+double-counts the balance and sizes every position 2x too large
+(`margin_usd = account_value * margin_pct`). `assetPositions` ARE
+per-sub-DEX, so those are enumerated across both. Candle fields are
+HL-native (`o/h/l/c/v`).
 
 ## Race-window dedup
 
