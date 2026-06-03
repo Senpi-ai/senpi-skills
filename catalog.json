@@ -1,34 +1,7 @@
 {
-  "_version": "1.1",
-  "_updated": "2026-06-01",
-  "_instructions": "Agent reads this file to build the onboarding skill catalog. Group by 'group', sort within group by 'sort_order'. Infrastructure skills (DSL, fee optimizer, scanners) are never displayed. NOTE on 'min_budget': it is the realistic platform floor (~$100 is the minimum to trade at all on Hyperliquid) and a SUGGESTED comfortable starting size — it is NOT a hard gate. Never refuse to deploy a willing user who is at or above the platform floor: position size scales with budget via margin_pct, so any amount works (smaller budget = smaller positions). Offer to start small or watch first; never dead-end a user over budget.",
-  "groups": [
-    {
-      "id": "proven",
-      "emoji": "\ud83c\udfc6",
-      "label": "Proven Performers"
-    },
-    {
-      "id": "single",
-      "emoji": "\ud83c\udfaf",
-      "label": "Single-Asset Hunters"
-    },
-    {
-      "id": "multi",
-      "emoji": "\ud83d\udd2c",
-      "label": "Multi-Signal Strategies"
-    },
-    {
-      "id": "alt",
-      "emoji": "\ud83d\udd75\ufe0f",
-      "label": "Alternative Edge"
-    },
-    {
-      "id": "variant",
-      "emoji": "\ud83d\udd27",
-      "label": "Strategy Variants"
-    }
-  ],
+  "_version": "1.2",
+  "_updated": "2026-06-02",
+  "_instructions": "Agent reads this file to build the onboarding skill catalog. Group by each skill's 'group' field (the archetype slug \u2014 e.g. 'single-asset-alpha-hunter', 'contrarian-unwind', 'trader-follower'), sort within group by 'sort_order'. When displaying, humanize the archetype slug (e.g. 'single-asset-alpha-hunter' -> 'Single-Asset Alpha Hunters'). DO NOT INVENT quality tiers like 'Proven Performers', 'Top Picks', 'Best-in-Class' \u2014 there is no curated quality ranking in this catalog. Every live skill ships with the same standard runtime / DSL / risk-gate scaffolding; differentiation is by archetype and thesis only. Infrastructure skills (DSL, fee optimizer, scanners) are never displayed. NOTE on 'min_budget': it is the realistic platform floor (~$100 is the minimum to trade at all on Hyperliquid) and a SUGGESTED comfortable starting size \u2014 it is NOT a hard gate. Never refuse to deploy a willing user who is at or above the platform floor: position size scales with budget via margin_pct, so any amount works (smaller budget = smaller positions). Offer to start small or watch first; never dead-end a user over budget.",
   "skills": [
     {
       "id": "albatross",
