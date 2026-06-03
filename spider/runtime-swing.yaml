@@ -52,7 +52,7 @@ risk:
     max_consecutive_losses: 4
     cooldown_minutes: 90
     drawdown_halt_pct: 25
-    drawdown_reset_on_day_rollover: false   # Roach Sat-Sun bleed lesson
+    drawdown_reset_on_day_rollover: true    # let-winners-run leg: a closed winner's inflated PnL peak (e.g. a +100% runner) must not carry over and halt next-day entries while the leg is still net green
     per_asset_cooldown_minutes: 240          # 4h — avoid re-churning a name
 
 scanners:

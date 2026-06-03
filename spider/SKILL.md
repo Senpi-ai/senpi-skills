@@ -188,7 +188,7 @@ filtering (`get_positions`) is the safety floor underneath.
 | drawdown_halt_pct | 25 | 20 |
 | per_asset_cooldown_minutes | 240 (4h) | 10 |
 | data_retention_hours | 168 (7d) | 72 |
-| drawdown_reset_on_day_rollover | false | false |
+| drawdown_reset_on_day_rollover | **true** | false |
 
 Entries and exits both use `FEE_OPTIMIZED_LIMIT` (`ensure_execution_as_taker`
 true; swing 60s maker-first window, scalp 20s).
