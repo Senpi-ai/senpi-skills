@@ -711,17 +711,17 @@
     {
       "id": "spider",
       "tracker_slug": "spider",
-      "name": "Spider \u2014 Patient Anchor Sniper",
+      "name": "Spider \u2014 Autonomous Hyperliquid Hedge Fund",
       "emoji": "\ud83d\udd77\ufe0f",
-      "tagline": "Hold one high-conviction long anchor for at least 7 days while the rest of the fleet churns.",
-      "group": "trader-follower",
-      "sort_order": 33,
+      "tagline": "AI/Tech-focused long book + a macro/majors long-short counter-trading book \u2014 two style legs, two wallets, one producer.",
+      "group": "multi-asset-whitelist",
+      "sort_order": 46,
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/spider",
-      "version": "4.0.1"
+      "version": "5.1.1"
     },
     {
       "id": "remora",

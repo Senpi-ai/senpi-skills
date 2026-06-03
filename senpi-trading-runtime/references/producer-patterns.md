@@ -325,6 +325,7 @@ if best_candidate:
 | **Iguana** | v1.0 | xyz:SP500 · xyz:XYZ100 | **Onboarding tier — XYZ subset.** The simplest XYZ exposure in the fleet — just the broad indices. Picks whichever has the stronger 4-day move past the threshold and trades its direction. No stock-picking, no commodities, no pre-IPO. Closest thing to "an index fund, but 24/7." Balanced DSL + 48h hard_timeout for weekend pricing-gap risk. | Onboarding, XYZ-Macro, Index-only, Balanced DSL, hard_timeout 48h |
 | **Sailfish** | v1.0 | BTC · ETH · SOL · HYPE | Relative-Strength Rotator. Ranks the universe by ~2.7d RS each tick and longs the leader iff (a) leader's own RS ≥ 1% AND (b) it beats the runner-up by ≥ 1.5pp (no whipsaw on tight races). Runtime is single-position; "rotation" happens via DSL exit on the holdover + Sailfish's next-tick re-entry on the new leader. Momentum cousin of Chameleon's mean-reversion. Balanced DSL + 96h hard_timeout. | Momentum-rotation, RS-leader, Margin-gate, Balanced DSL |
 | **Stag** | v1.0 | BTC · ETH · SOL · HYPE (often deployed single-asset) | **Parabolic-Run Hunter.** Entry-side pair for the new `parabolic_runner` DSL preset (widest in the catalog: max_loss 25%, retrace 18, 2 consecutive breaches required, late first lock +15%, 14d outer bound). Strict 5-gate filter: (1) close > 200-bar 4h SMA AND 7d high within 48h, (2) 7d move ≥ 25% (the parabolic threshold), (3) 24h volume ≥ 1.5× trailing 7d, (4) 4d move ≥ 7d move / 2 (acceleration), (5) SM aligned LONG ≥ 60%. LONG only — parabolic crashes happen too fast for shorts. **Operator-driven** deployment: most ticks return empty by design. Reference setup: HYPE 2026-05 (+60% in 16 days). 1 entry/day max + 24h per-asset cooldown after bad takes. Tick 600s. | Parabolic, 5-gate, LONG-only, Operator-driven, parabolic_runner DSL |
+| **Spider** | v5.1.1 | AI/Tech XYZ equities + crypto alts (swing) · BTC · ETH · SOL · HYPE + xyz:BRENTOIL/CL (scalp) | **Autonomous Hyperliquid hedge fund — two style legs on two wallets, one leg-parameterized producer (`SPIDER_LEG`).** SWING: LONG-only AI/Tech multi-day momentum on a dynamic XYZ-equity universe (auto-catches fresh IPO/pre-IPO listings) + crypto alts; conviction 10x; wide let-winners-run DSL; low turnover. SCALP: both-directions macro/majors + energy mean-reversion counter-trading book; strict 5x; tight fast-capture DSL; high turnover. Each leg scores its own universe and pushes signals; the runtime owns the LLM gate, DSL exits, and risk. **Not a copy-trader** (v5.0 replaced the old single-leg anchor sniper). | Two-leg, Hedge-fund, AI/Tech-long, Macro-scalp, Both-direction, Dynamic-universe |
 
 ---
 
@@ -384,7 +385,6 @@ cfg._wrapper_client.push_signal(
 |---|---|---|---|---|
 | **Raptor** | v3.0 | Multi (follows top traders) | Caches top traders (24h), detects highest-conviction current positions, follows with gates on reputation + position size + SM alignment + per-trader entry discipline. Deduplicates repeated follows. | Coat-tail, 24h cache, Tick 60–180s |
 | **Jackal** | v1.0 | Multi (follows top traders) | Maintains an active trader pool, detects new entries, enriches each candidate with TA + funding regime. Strict per-trader contamination rules. | New-entry, TA, Funding |
-| **Spider** | v2.0 | Multi (arena-anchored) | Patient anchor sniper. Arena-leader overlap + SM-leaderboard universe + funding + relative strength. Single-leg, 7-day minimum hold, fee-aware. | Patient, Arena-anchor, 7d-hold |
 | **Albatross** | v1.0 | Arena leaders (multi-week composite) | **Onboarding tier.** Mirrors Senpi Arena leaders selected by composite conviction score: `0.3 × monthly_roe + 0.7 × mean(weekly_roe) − 0.5 × stdev(weekly_roe)`. Rewards multi-week persistence, penalizes lucky-week luck. Pool refreshes every 4h. **Requires user-scope auth token** (calls `strategy_list` + `discovery_get_trader_state` for other users). | Onboarding, Arena, Multi-week, Conviction-weighted, User-scope-auth-required |
 | **Remora** | v1.0 | Operator-picked whale set | **Hand-picked mirror.** You name the whales; Remora takes each whale's highest-conviction (largest-notional) position and mirrors the strongest, with a **consensus** multiplier (2 whales +2, 3+ +3) and an ELITE/RELIABLE-tier bonus. Contrast to the universe scanners above — exposure tracks traders YOU choose. Wide let-winners-run DSL + 120h staleness cap (whale-exit mirror is a future enhancement). Tick 600s. | Whale-mirror, Consensus, Operator-picked, Wide DSL |
 
@@ -963,7 +963,7 @@ Ask which one sentence sounds most like the user:
 ### Layer 2C — Copy-trading → who do you copy?
 
 - **Multi-week arena winners** (proven over a month, not one lucky week) → 🟢 **Albatross** (conviction-weighted leader pool).
-- **Live hot-streak traders** (whoever's hot right now) → **Raptor** · **Jackal** · **Spider** (arena-anchored).
+- **Live hot-streak traders** (whoever's hot right now) → **Raptor** · **Jackal**.
 - **Specific whales YOU pick** (name the traders, mirror their biggest bet) → **Remora** — hand-picked whale mirror with a consensus boost when several agree.
 - **The best strategies, automatically** (don't pick anyone — follow whatever's working) → **Cuckoo** — auto-discovers the top-performing strategies and trades their performance-weighted consensus (copy-the-copiers).
 
@@ -1091,7 +1091,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | Bison | 4 — Multi-asset whitelist | Canonical (BTC/ETH/SOL) |
 | Raptor | 5 — Trader-follower | Canonical |
 | Jackal | 5 — Trader-follower | Active trader pool + new-entry detector, TA + funding enrichment |
-| Spider | 5 — Trader-follower (arena variant) | Arena-leader anchor + SM-leaderboard overlap, 7-day-hold thesis |
+| Spider | 4 — Multi-asset whitelist (two-leg hedge fund) | AI/Tech long book (swing) + macro/majors long-short counter-trading book (scalp); two wallets, one leg-parameterized producer |
 | Jaguar | 6 — Striker / rank-jump | Canonical |
 | Roach | 6 — Striker / rank-jump | FIRST_JUMP / IMMEDIATE_MOVER + volume |
 | Roach-B | 6 — Striker / rank-jump | Second wallet instance of the Roach producer |
