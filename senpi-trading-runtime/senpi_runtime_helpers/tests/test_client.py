@@ -381,10 +381,10 @@ class ClientTests(unittest.TestCase):
         from senpi_runtime_helpers import client as client_mod
         original = client_mod._post_json
 
-        def with_legacy_header(pool, url, body, headers, timeout):
+        def with_legacy_header(url, body, headers, timeout):
             headers = dict(headers)
             headers["X-Mock-Shape"] = "legacy"
-            return original(pool, url, body, headers, timeout)
+            return original(url, body, headers, timeout)
 
         client_mod._post_json = with_legacy_header
         try:
@@ -410,10 +410,10 @@ class ClientTests(unittest.TestCase):
         from senpi_runtime_helpers import client as client_mod
         original = client_mod._post_json
 
-        def with_empty_header(pool, url, body, headers, timeout):
+        def with_empty_header(url, body, headers, timeout):
             headers = dict(headers)
             headers["X-Mock-Body"] = "empty"
-            return original(pool, url, body, headers, timeout)
+            return original(url, body, headers, timeout)
 
         client_mod._post_json = with_empty_header
         try:
@@ -435,10 +435,10 @@ class ClientTests(unittest.TestCase):
         from senpi_runtime_helpers import client as client_mod
         original = client_mod._post_json
 
-        def with_bad_json_header(pool, url, body, headers, timeout):
+        def with_bad_json_header(url, body, headers, timeout):
             headers = dict(headers)
             headers["X-Mock-Body"] = "bad-json"
-            return original(pool, url, body, headers, timeout)
+            return original(url, body, headers, timeout)
 
         client_mod._post_json = with_bad_json_header
         try:
@@ -507,121 +507,184 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(SenpiClientError):
             c.is_scanner_registered("0xrt1ABCDEF", "")
 
-    def test_fetch_state_closes_response_on_success(self) -> None:
-        """`_fetch_state` must run the HTTPResponse through a context manager so
-        its socket bookkeeping (HTTPResponse.close()) fires on every exit path.
-        Without the `with resp:` wrapper, repeated state probes leaked
-        keep-alive sockets — boot probe + every 5-min alive_check on a
-        long-running daemon.
-        """
-        from unittest.mock import MagicMock
+    def test_fetch_state_closes_connection_on_success(self) -> None:
+        """Every `_fetch_state` call must close its fresh connection — no FD
+        leak across repeated probes (boot + every alive_check on a long-running
+        daemon). We spy at the `http.client.HTTPConnection` level: the conn the
+        GET path creates must have `close()` called."""
+        from senpi_runtime_helpers import client as client_mod
+
+        created = []
+        real_cls = client_mod.http.client.HTTPConnection
+
+        class _SpyConn(real_cls):  # type: ignore[misc,valid-type]
+            def __init__(self, *a, **kw):
+                super().__init__(*a, **kw)
+                self._close_count = 0
+                created.append(self)
+
+            def close(self):
+                self._close_count += 1
+                return super().close()
 
         c = self._client_for_state()
-        # Drive a successful probe through the real mock server, but spy on
-        # `resp.close()` by wrapping `getresponse` to capture the response and
-        # patch its close method.
-        original_get = c._pool.get
-        captured = {}
+        client_mod.http.client.HTTPConnection = _SpyConn
+        try:
+            c.is_runtime_registered("0xrt1ABCDEF")
+        finally:
+            client_mod.http.client.HTTPConnection = real_cls
 
-        def spy_pool_get(scheme, host, port, timeout):
-            conn = original_get(scheme, host, port, timeout)
-            real_getresponse = conn.getresponse
+        self.assertTrue(created, "GET path created no connection")
+        self.assertTrue(all(conn._close_count >= 1 for conn in created),
+                        "a connection was not closed")
 
-            def wrapped_getresponse(*a, **kw):
-                resp = real_getresponse(*a, **kw)
-                resp.close = MagicMock(side_effect=resp.close)  # spy
-                captured["resp"] = resp
-                return resp
-
-            conn.getresponse = wrapped_getresponse
-            return conn
-
-        c._pool.get = spy_pool_get
-        c.is_runtime_registered("0xrt1ABCDEF")
-        self.assertIn("resp", captured)
-        captured["resp"].close.assert_called()
-
-    def test_pool_propagates_timeout_to_live_socket(self) -> None:
-        """Per-call timeout overrides must reach the live socket on reused
-        connections. Setting `conn.timeout` alone is a no-op after connect
-        (http.client only consults `conn.timeout` during connect()) — the
-        pool must also call `conn.sock.settimeout()` so subsequent requests
-        on the same connection honor the new deadline. Bugbot caught this
-        as a silent no-op on PR #208.
-        """
-        from unittest.mock import MagicMock
-        from senpi_runtime_helpers.client import _ConnectionPool
-
-        pool = _ConnectionPool()
-
-        # First get: brand-new conn. No socket yet → pool only sets
-        # conn.timeout. The next connect() picks it up.
-        conn = pool.get("http", "127.0.0.1", 18787, 10.0)
-        self.assertIsNone(conn.sock)
-        self.assertEqual(conn.timeout, 10.0)
-
-        # Simulate a connected socket so the reused-connection branch runs.
-        # MagicMock lets us assert that .settimeout(NEW) was called.
-        conn.sock = MagicMock()
-
-        # Second get with a different timeout. The fix must propagate the
-        # new value to the live socket via settimeout() — without it, the
-        # socket keeps its original deadline and per-call overrides are
-        # silently ignored.
-        same_conn = pool.get("http", "127.0.0.1", 18787, 2.5)
-        self.assertIs(same_conn, conn)
-        self.assertEqual(conn.timeout, 2.5)
-        conn.sock.settimeout.assert_called_once_with(2.5)
-
-    def test_post_json_resets_pool_on_connection_close_after_success(self) -> None:
-        """A 2xx response with `Connection: close` must trigger pool.reset.
-
-        Before the fix, _post_json only handled `Connection: close` on the
-        error path (status >= 400). On a successful response the pool kept
-        the connection — but the remote end was already closed — so the next
-        call through that thread's pool would fail with a transport error
-        before the pool self-healed. This test asserts the success-path
-        cleanup runs."""
+    def test_connection_closed_no_fd_leak(self) -> None:
+        """N successful mcp_calls → created connection count == closed count.
+        Locks in the `finally: conn.close()` contract that replaced the pool."""
         from senpi_runtime_helpers import client as client_mod
+
+        created = []
+        real_cls = client_mod.http.client.HTTPConnection
+
+        class _SpyConn(real_cls):  # type: ignore[misc,valid-type]
+            def __init__(self, *a, **kw):
+                super().__init__(*a, **kw)
+                self.closed_n = 0
+                created.append(self)
+
+            def close(self):
+                self.closed_n += 1
+                return super().close()
 
         client = SenpiClient(
             mcp_url=f"http://127.0.0.1:{self.port}",
             auth_token="test-token",
         )
-
-        # Make mcp_call inject the X-Mock-Conn-Close trigger header so the
-        # server replies with `Connection: close` on the 200 tools/call.
-        original = client_mod._post_json
-
-        def with_conn_close_header(pool, url, body, headers, timeout):
-            headers = dict(headers)
-            headers["X-Mock-Conn-Close"] = "1"
-            return original(pool, url, body, headers, timeout)
-
-        client_mod._post_json = with_conn_close_header
-        # Count reset() calls without stubbing them out — let the real reset
-        # still run so the pool is genuinely cleaned.
-        reset_calls = []
-        real_reset = client._pool.reset
-
-        def counting_reset(scheme, host, port):
-            reset_calls.append((scheme, host, port))
-            return real_reset(scheme, host, port)
-
-        client._pool.reset = counting_reset
+        client_mod.http.client.HTTPConnection = _SpyConn
         try:
-            client.mcp_call("any_tool", k=1)
+            for _ in range(20):
+                client.mcp_call("leaderboard_get_markets", limit=1)
         finally:
-            client_mod._post_json = original
+            client_mod.http.client.HTTPConnection = real_cls
 
-        # initialize + notifications/initialized + tools/call each receive
-        # Connection: close from the mock, so reset fires three times.
-        self.assertGreaterEqual(len(reset_calls), 1)
-        # All resets target the mock server's host:port.
-        for scheme, host, port in reset_calls:
-            self.assertEqual(scheme, "http")
-            self.assertEqual(host, "127.0.0.1")
-            self.assertEqual(port, self.port)
+        self.assertGreaterEqual(len(created), 20)
+        self.assertTrue(all(c.closed_n >= 1 for c in created),
+                        "every created connection must be closed exactly once-or-more")
+
+    # ──────────────── Retry / idempotency gate ────────────────
+    #
+    # The retry gate is the safety-critical part of the fix. A fresh connection
+    # is monkeypatched in so we can fail a chosen leg deterministically and
+    # count attempts. The capital-safety invariant: a non-idempotent POST whose
+    # request MAY have been delivered (read-leg failure) must NOT be retried.
+
+    def _install_fake_conn(self, *, fail_leg, exc, fail_attempts):
+        """Patch client_mod.http.client.HTTPConnection / HTTPSConnection with a
+        fake that raises `exc` from `fail_leg` ('request' or 'getresponse') for
+        the first `fail_attempts` instances, then delegates to the real class.
+        Returns a dict with the shared `request_count` / `instances`."""
+        from senpi_runtime_helpers import client as client_mod
+        real_http = client_mod.http.client.HTTPConnection
+        real_https = client_mod.http.client.HTTPSConnection
+        state = {"request_count": 0, "instances": 0}
+        outer = self
+
+        class _FakeConn:
+            def __init__(self, host, port, timeout=None):
+                state["instances"] += 1
+                self._n = state["instances"]
+                self._real = real_http(host, port, timeout=timeout)
+
+            def request(self, *a, **kw):
+                state["request_count"] += 1
+                if self._n <= fail_attempts and fail_leg == "request":
+                    raise exc
+                return self._real.request(*a, **kw)
+
+            def getresponse(self, *a, **kw):
+                if self._n <= fail_attempts and fail_leg == "getresponse":
+                    raise exc
+                return self._real.getresponse(*a, **kw)
+
+            def close(self):
+                return self._real.close()
+
+        client_mod.http.client.HTTPConnection = _FakeConn
+
+        def restore():
+            client_mod.http.client.HTTPConnection = real_http
+            client_mod.http.client.HTTPSConnection = real_https
+        outer.addCleanup(restore)
+        return state
+
+    def test_post_signals_not_retried_on_maybe_delivered(self) -> None:
+        """Read-leg failure on a POST /signals → request may have been
+        delivered → MUST NOT retry (would risk a duplicate position)."""
+        import http.client as _hc
+        client = SenpiClient(runtime_host="127.0.0.1", runtime_port=self.port)
+        state = self._install_fake_conn(
+            fail_leg="getresponse",
+            exc=_hc.RemoteDisconnected("Remote end closed connection without response"),
+            fail_attempts=1,
+        )
+        with self.assertRaises(Exception):  # URLError (_MaybeDelivered) propagates
+            client.push_signals([{"address": "0xabc", "scanner": "s1", "data": {"k": 1}}])
+        self.assertEqual(state["request_count"], 1, "POST must not be retried after send")
+
+    def test_post_signals_retried_on_connect_refused(self) -> None:
+        """Connect/send-leg failure → request never delivered → retry once,
+        and the second attempt succeeds."""
+        client = SenpiClient(runtime_host="127.0.0.1", runtime_port=self.port)
+        state = self._install_fake_conn(
+            fail_leg="request",
+            exc=ConnectionRefusedError("connection refused"),
+            fail_attempts=1,
+        )
+        result = client.push_signals([{"address": "0xabc", "scanner": "s1", "data": {"k": 1}}])
+        self.assertTrue(result.get("success"))
+        self.assertEqual(state["instances"], 2, "expected exactly one retry")
+
+    def test_mcp_call_not_retried_on_maybe_delivered(self) -> None:
+        """tools/call is non-idempotent too — read-leg failure must not retry."""
+        import http.client as _hc
+        client = SenpiClient(mcp_url=f"http://127.0.0.1:{self.port}", auth_token="t")
+        # Initialize first so the failure lands on the tools/call POST, not init.
+        client.mcp_call("warmup")
+        state = self._install_fake_conn(
+            fail_leg="getresponse",
+            exc=_hc.RemoteDisconnected("closed"),
+            fail_attempts=1,
+        )
+        with self.assertRaises(Exception):
+            client.mcp_call("any_tool", k=1)
+        self.assertEqual(state["request_count"], 1)
+
+    def test_fetch_state_retried_once_then_succeeds(self) -> None:
+        """GET /state is idempotent → retry on EITHER leg. First attempt fails
+        the read leg, second succeeds."""
+        import http.client as _hc
+        c = self._client_for_state()
+        state = self._install_fake_conn(
+            fail_leg="getresponse",
+            exc=_hc.RemoteDisconnected("closed"),
+            fail_attempts=1,
+        )
+        self.assertTrue(c.is_runtime_registered("0xrt1ABCDEF"))
+        self.assertEqual(state["instances"], 2, "GET should retry once")
+
+    def test_fetch_state_retry_exhausted_raises(self) -> None:
+        """Both GET attempts fail → SenpiClientError('state probe transport
+        error'); exactly two attempts (one retry)."""
+        c = self._client_for_state()
+        state = self._install_fake_conn(
+            fail_leg="request",
+            exc=ConnectionRefusedError("refused"),
+            fail_attempts=99,  # always fail
+        )
+        with self.assertRaises(SenpiClientError) as cm:
+            c.is_runtime_registered("0xrt1ABCDEF")
+        self.assertIn("state probe transport error", str(cm.exception))
+        self.assertEqual(state["instances"], 2)
 
 
 if __name__ == "__main__":
