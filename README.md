@@ -470,6 +470,7 @@ Persistent funding extremity → fade the crowd at exhaustion.
 | [pangolin](pangolin/) | v1.4 | Multi (OI > $3M) | Funding extremity + persistence + SM positioning + cooldowns. Quiet-hours gating (00–04 UTC). |
 | [dog](dog/) | v2.0 | 4-coin whitelist | Funding fade on 4-coin watchlist with regime hard-gate. |
 | [vulture](vulture/) | v2.3 | HYPE | HYPE funding-regime contrarian. Funding-history + held-position enrichment. |
+| [camel](camel/) | v1.0 | Liquid crypto cross-section (harvest + payout books) | **Carry Hedge Fund.** Two equally-funded single-direction books, one producer: the **harvest** book shorts the most-positive-funding names (short collects), the **payout** book longs the most-negative-funding names (paid to hold) — each gated to an *exhausting* crowd so price doesn't fight the carry. The edge is funding **carry** (recurring income), not direction. Funding read from the instrument board (no ClickHouse dependency). Strict 5x, tighter carry DSL. |
 
 ## 8. Contrarian crowding-unwind hunter
 
