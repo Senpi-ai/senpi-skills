@@ -1,0 +1,16 @@
+{
+  "_comment": "THESIS FUND tunables (shared across all presets). The active preset is chosen by the THESIS env var and resolved from thesis-presets.json. One wallet holds the whole basket. Per-name sizing = marginPct x account_value, clamped to maxLeverage then each asset's HL venue max; only names whose notional clears minNotionalUsd are emitted. The producer only presses a basket name when the market confirms the thesis direction (4h/1h trend + 24h momentum); minScore is that confirmation bar. Set wallet/strategyId/chatId. Runtime owns tracking/caps/cooldowns/DSL via runtime.yaml. Producer launched with THESIS=<preset>.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 4,
+  "marginPct": 0.12,
+  "maxLeverage": 5,
+  "maxSlots": 6,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "momThresholdPct": 1.0,
+  "rsiOverbought": 78,
+  "rsiOversold": 22,
+  "_persona": "You bring the macro view, the fund expresses it with discipline — holds the preset's long/short basket in one wallet, presses each name only when the market confirms the thesis direction, de-risks via DSL when it doesn't. Strict 5x, balanced let-it-work DSL."
+}

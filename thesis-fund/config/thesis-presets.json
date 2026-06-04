@@ -1,0 +1,47 @@
+{
+  "_comment": "THESIS FUND presets. Each key is a THESIS the producer can express. 'long'/'short' are the basket — assets the thesis is biased long/short. The producer only PRESSES a name when the market confirms that direction (trend + momentum aligned); it skips names fighting the thesis and de-risks via DSL. Opposing presets are just flipped baskets. Asset names use HL conventions: bare ticker for main-DEX crypto (BTC/ETH/SOL/HYPE), 'xyz:' prefix for XYZ (indices/metals/energy). Names not live on the instrument board are skipped automatically. Add/edit presets here — no code change needed.",
+  "presets": {
+    "risk_off": {
+      "name": "Risk-Off — Bet Against the Trump Economy",
+      "summary": "US growth disappoints, risk assets fall, capital flees to hard assets. Long gold/metals, short US equity indices + BTC. Presses only as the move confirms.",
+      "long": ["xyz:GOLD", "xyz:SILVER"],
+      "short": ["xyz:SP500", "xyz:XYZ100", "BTC"]
+    },
+    "recovery": {
+      "name": "U.S. Recovery — Risk-On",
+      "summary": "US growth re-accelerates, risk bid returns, hard assets soften. The mirror of risk_off: long US indices + BTC, short gold.",
+      "long": ["xyz:SP500", "xyz:XYZ100", "BTC"],
+      "short": ["xyz:GOLD"]
+    },
+    "war_escalation": {
+      "name": "War Escalation — Iran/US/Israel Quagmire",
+      "summary": "Conflict deepens: oil spikes on supply fear, gold bid as a safe haven, equities and risk sell off. Long oil + gold, short indices + BTC.",
+      "long": ["xyz:BRENTOIL", "xyz:CL", "xyz:GOLD"],
+      "short": ["xyz:SP500", "xyz:XYZ100", "BTC"]
+    },
+    "war_recovery": {
+      "name": "War De-escalation — Recovery",
+      "summary": "Conflict cools: oil unwinds its risk premium, safe-haven gold fades, risk assets recover. Short oil + gold, long indices + BTC.",
+      "long": ["xyz:SP500", "xyz:XYZ100", "BTC"],
+      "short": ["xyz:BRENTOIL", "xyz:CL", "xyz:GOLD"]
+    },
+    "hype_vs_market": {
+      "name": "HYPE vs. the Rest of the Market",
+      "summary": "HYPE keeps outrunning the majors. Long HYPE, short the BTC/ETH/SOL basket — profit from the dispersion, roughly market-neutral.",
+      "long": ["HYPE"],
+      "short": ["BTC", "ETH", "SOL"]
+    },
+    "gold_over_btc": {
+      "name": "Gold over Bitcoin — Real Gold Wins",
+      "summary": "The flight-to-real-safety trade: gold outperforms 'digital gold'. Long gold, short BTC.",
+      "long": ["xyz:GOLD"],
+      "short": ["BTC"]
+    },
+    "btc_over_gold": {
+      "name": "Bitcoin over Gold — Digital Gold Wins",
+      "summary": "The inverse: BTC takes share from gold as the reserve hedge. Long BTC, short gold.",
+      "long": ["BTC"],
+      "short": ["xyz:GOLD"]
+    }
+  }
+}
