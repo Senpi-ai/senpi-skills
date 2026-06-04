@@ -4,7 +4,7 @@ description: "The Senpi Trading Runtime OpenClaw plugin runs automated trading s
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.2"
+  version: "2.3"
   platform: senpi
   exchange: hyperliquid
 ---
