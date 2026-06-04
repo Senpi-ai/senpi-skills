@@ -1,7 +1,7 @@
 {
   "_version": "1.2",
-  "_updated": "2026-06-02",
-  "_instructions": "Agent reads this file to build the onboarding skill catalog. Group by each skill's 'group' field (the archetype slug \u2014 e.g. 'single-asset-alpha-hunter', 'contrarian-unwind', 'trader-follower'), sort within group by 'sort_order'. When displaying, humanize the archetype slug (e.g. 'single-asset-alpha-hunter' -> 'Single-Asset Alpha Hunters'). DO NOT INVENT quality tiers like 'Proven Performers', 'Top Picks', 'Best-in-Class' \u2014 there is no curated quality ranking in this catalog. Every live skill ships with the same standard runtime / DSL / risk-gate scaffolding; differentiation is by archetype and thesis only. Infrastructure skills (DSL, fee optimizer, scanners) are never displayed. NOTE on 'min_budget': it is the realistic platform floor (~$100 is the minimum to trade at all on Hyperliquid) and a SUGGESTED comfortable starting size \u2014 it is NOT a hard gate. Never refuse to deploy a willing user who is at or above the platform floor: position size scales with budget via margin_pct, so any amount works (smaller budget = smaller positions). Offer to start small or watch first; never dead-end a user over budget.",
+  "_updated": "2026-06-04",
+  "_instructions": "Agent reads this file to build the onboarding skill catalog. Each skill has a 'group' (its display category) and most also have an 'archetype' (the underlying trading edge). FEATURE the 'hedge-fund' group FIRST: these are Senpi's flagship multi-strategy AI Hedge Funds \u2014 each runs two complementary strategy books on two wallets under one producer. Show each fund's 'archetype' (e.g. 'AI/Tech', 'Market-Neutral', 'Carry', 'Volatility', 'Global-Macro') as its sub-label, sorted within the group by 'sort_order'. Group all OTHER skills by their 'group' archetype slug, humanized (e.g. 'single-asset-alpha-hunter' -> 'Single-Asset Alpha Hunters'), sorted within group by 'sort_order'. DO NOT INVENT quality tiers like 'Proven Performers', 'Top Picks', 'Best-in-Class' \u2014 there is no curated quality ranking in this catalog; differentiation is by category/archetype and thesis only. Infrastructure skills (DSL, fee optimizer, scanners) are never displayed. NOTE on 'min_budget': it is the realistic platform floor (~$100 is the minimum to trade at all on Hyperliquid) and a SUGGESTED comfortable starting size \u2014 it is NOT a hard gate: position size scales with budget via margin_pct, so any amount at or above the floor works (smaller budget = smaller positions). Never refuse to deploy a willing user who is at or above the platform floor; offer to start small or watch first, never dead-end a user over budget.",
   "skills": [
     {
       "id": "albatross",
@@ -216,17 +216,18 @@
     {
       "id": "octopus",
       "tracker_slug": "octopus",
-      "name": "Octopus — Market-Neutral Hedge Fund",
-      "emoji": "🐙",
-      "tagline": "Longs the relative leaders and shorts the relative laggards of the liquid crypto cross-section on two equally-funded wallets — net ~beta-neutral, harvesting dispersion (leaders minus laggards), not market direction.",
-      "group": "relative-value-pairs",
-      "sort_order": 49,
+      "name": "Octopus \u2014 Market-Neutral Hedge Fund",
+      "emoji": "\ud83d\udc19",
+      "tagline": "Longs the relative leaders and shorts the relative laggards of the liquid crypto cross-section on two equally-funded wallets \u2014 net ~beta-neutral, harvesting dispersion (leaders minus laggards), not market direction.",
+      "group": "hedge-fund",
+      "sort_order": 2,
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/octopus",
-      "version": "1.0.0"
+      "version": "1.0.0",
+      "archetype": "relative-value"
     },
     {
       "id": "cheetah",
@@ -591,47 +592,50 @@
     {
       "id": "camel",
       "tracker_slug": "camel",
-      "name": "Camel — Carry Hedge Fund",
-      "emoji": "🐫",
-      "tagline": "Harvests funding carry on two wallets: shorts the most-positive-funding names (short collects) and longs the most-negative-funding names (paid to hold), each gated to an exhausting crowd. The edge is carry — recurring funding income — not market direction.",
-      "group": "funding-fade",
-      "sort_order": 50,
+      "name": "Camel \u2014 Carry Hedge Fund",
+      "emoji": "\ud83d\udc2b",
+      "tagline": "Harvests funding carry on two wallets: shorts the most-positive-funding names (short collects) and longs the most-negative-funding names (paid to hold), each gated to an exhausting crowd. The edge is carry \u2014 recurring funding income \u2014 not market direction.",
+      "group": "hedge-fund",
+      "sort_order": 3,
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/camel",
-      "version": "1.0.0"
+      "version": "1.0.0",
+      "archetype": "carry"
     },
     {
       "id": "caracal",
       "tracker_slug": "caracal",
-      "name": "Caracal — Volatility Hedge Fund",
-      "emoji": "🐱",
-      "tagline": "Trades volatility expansion, not direction: rides coiled-spring breakouts (low-vol squeeze -> range break -> surge) on two wallets — crypto and XYZ (oil / AI-infra / metals / indices), both long and short, 24/7.",
-      "group": "volatility-breakout",
-      "sort_order": 51,
+      "name": "Caracal \u2014 Volatility Hedge Fund",
+      "emoji": "\ud83d\udc31",
+      "tagline": "Trades volatility expansion, not direction: rides coiled-spring breakouts (low-vol squeeze -> range break -> surge) on two wallets \u2014 crypto and XYZ (oil / AI-infra / metals / indices), both long and short, 24/7.",
+      "group": "hedge-fund",
+      "sort_order": 4,
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/caracal",
-      "version": "1.0.0"
+      "version": "1.0.0",
+      "archetype": "volatility"
     },
     {
       "id": "elephant",
       "tracker_slug": "elephant",
-      "name": "Elephant — Global-Macro Hedge Fund",
-      "emoji": "🐘",
-      "tagline": "Trades the cross-asset macro complex — equity indices, metals, energy, FX (all on XYZ) + BTC — on two wallets: a trend book rides the durable macro direction, a fade book catches macro over-extensions reverting to regime. Both directions, 24/7.",
-      "group": "global-macro",
-      "sort_order": 52,
+      "name": "Elephant \u2014 Global-Macro Hedge Fund",
+      "emoji": "\ud83d\udc18",
+      "tagline": "Trades the cross-asset macro complex \u2014 equity indices, metals, energy, FX (all on XYZ) + BTC \u2014 on two wallets: a trend book rides the durable macro direction, a fade book catches macro over-extensions reverting to regime. Both directions, 24/7.",
+      "group": "hedge-fund",
+      "sort_order": 5,
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/elephant",
-      "version": "1.0.0"
+      "version": "1.0.0",
+      "archetype": "global-macro"
     },
     {
       "id": "piranha",
@@ -774,14 +778,15 @@
       "name": "Spider \u2014 AI/Tech Hedge Fund",
       "emoji": "\ud83d\udd77\ufe0f",
       "tagline": "AI/Tech-focused long book + a macro/majors long-short counter-trading book \u2014 two style legs, two wallets, one producer.",
-      "group": "multi-asset-whitelist",
-      "sort_order": 46,
+      "group": "hedge-fund",
+      "sort_order": 1,
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
       "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/spider",
-      "version": "5.1.1"
+      "version": "5.1.1",
+      "archetype": "ai-tech"
     },
     {
       "id": "remora",
