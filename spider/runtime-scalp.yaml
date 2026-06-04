@@ -56,7 +56,7 @@ risk:
   data_retention_hours: 72
   guard_rails:
     daily_loss_limit_pct: 10      # high frequency → cap a bad streak sooner
-    max_entries_per_day: 30       # FEE-SENSITIVE — see description note
+    max_entries_per_day: 18       # FEE-SENSITIVE + net-negative — trimmed from 30 to lose less: fewer trades = less fee drag + fewer marginal fades.
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 5     # scalpers run loss streaks (small losses)
     cooldown_minutes: 30
@@ -184,8 +184,8 @@ exit:
       interval_in_minutes: 25             # at/below break-even after 25m → cut
     phase1:
       enabled: true
-      max_loss_pct: 7.0                    # scalper cuts losers fast
-      retrace_threshold: 4
+      max_loss_pct: 5.0                    # tightened 7->5 to LOSE LESS: losers were running to ~2x winner size (winners bank fast at +3%, losers ran to -$14). Cap the downside tighter so per-trade R/R is closer to symmetric.
+      retrace_threshold: 3
       consecutive_breaches_required: 1
     phase2:
       enabled: true
