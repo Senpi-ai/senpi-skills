@@ -1,0 +1,23 @@
+{
+  "_comment": "CARACAL v1.0 BREAKOUT book — crypto vol compression->expansion. Each tick scans the liquid main-DEX crypto universe (top universeMaxNames by 24h volume) for names coiled in a low-volatility squeeze (recent ATR over baseBars-baseline ATR <= squeezeTight/squeezeLoose) that break their prior breakoutBars-bar range, and rides the break direction (LONG up / SHORT down) when an expansion surge confirms (breakout-bar TR / baseline ATR >= surgeMod/surgeStrong). BOTH directions. Leverage clamped to maxLeverage then HL venue max. Pairs with the CATALYST book (XYZ) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-breakout.yaml. Producer launched with CARACAL_LEG=breakout.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 5,
+  "marginPct": 0.18,
+  "maxLeverage": 5,
+  "maxSlots": 3,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "volFloorUsd": 20000000,
+  "universeMaxNames": 20,
+  "wantXyz": false,
+  "breakoutBars": 20,
+  "recentBars": 10,
+  "baseBars": 30,
+  "squeezeTight": 0.70,
+  "squeezeLoose": 0.90,
+  "surgeStrong": 2.0,
+  "surgeMod": 1.3,
+  "_persona": "Crypto coiled-spring breakouts — volatility compression precedes expansion; rides the break direction, both ways, strict 5x, tight fast-capture DSL (a failed breakout reverses fast)."
+}

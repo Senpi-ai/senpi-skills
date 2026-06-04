@@ -854,6 +854,31 @@ direction = regime_to_direction(regime)                       # LONG / SHORT / N
 
 ---
 
+### 17. Volatility / breakout-expansion
+
+Trades **movement, not direction**. The thesis is volatility regime: compression precedes expansion, and a breakout *from a low-volatility coil* follows through more than a breakout in already-volatile tape. Fires on the conjunction of (range breakout) + (ATR squeeze) + (expansion surge), and takes the break direction either way.
+
+```python
+# Per name (1h candles): is it coiled, did it break, was the break a surge?
+prior_high = max(highs[-21:-1]); prior_low = min(lows[-21:-1])
+broke = "LONG" if price > prior_high else ("SHORT" if price < prior_low else None)
+squeeze = atr(c[-11:], 10) / atr(c[-31:], 30)          # < 0.7-0.9 = coiled spring
+surge   = true_range(c[-1]) / atr(c[-31:], 30)          # >= 1.3-2.0x = real expansion
+# score = breakout(+3) + coil(+2/+1/-1) + surge(+2/+1) + 4h-agreement(+1/-1)
+```
+
+**Distinct from Hawk/Badger (4h breakouts) and Stag (parabolic):** those fire on *any* breakout; this archetype *requires a prior compression* (the coil) plus an expansion surge — a coiled spring, not a chase — and is direction-agnostic (both legs trade long and short). Tight, early-locking DSL: a failed breakout reverses fast.
+
+**When to use this pattern:** you want to harvest volatility expansion as a low-correlation return stream (convexity / managed-futures flavor) independent of market direction. Episodic by design — most ticks return empty.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Caracal** | v1.0 | Crypto (breakout book) + XYZ (catalyst book) | **Volatility Hedge Fund.** Two books on two wallets, one leg-parameterized producer (`CARACAL_LEG`): **breakout** rides coiled-spring breakouts in liquid main-DEX crypto; **catalyst** runs the same compression→expansion engine on XYZ (equities/energy/metals/indices), turning oil-geopolitics + AI-infra moves into direction-agnostic vol events, 24/7. Signal = range break + ATR squeeze (≤0.7-0.9) + expansion surge (≥1.3-2.0×) + 4h agreement; LONG or SHORT per the break. Strict 5x, tight early-locking DSL (12% phase1, lock at +8%→30%, 2d timeout). | Volatility, Compression-expansion, Both-direction, Two-universe, Episodic, Two-wallet |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.

@@ -1,0 +1,190 @@
+name: caracal-breakout-tracker
+# Top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (major=1). Skill version is "Caracal v1.0" — lives in
+# description + SKILL.md + _caracal_producer_version.
+version: 1.0.0
+description: >
+  CARACAL v1.0 (BREAKOUT book) — crypto volatility compression->expansion.
+
+  One of two volatility books. This book scans the liquid main-DEX crypto
+  universe for names coiled in a low-volatility squeeze (recent ATR << baseline
+  ATR) that break their recent range with an expansion surge, and rides the
+  break direction — LONG on an upside break, SHORT on a downside break. BOTH
+  directions. Pairs with the CATALYST book (XYZ, runtime-catalyst.yaml) on a
+  separate wallet. The edge is VOLATILITY (compression precedes expansion),
+  not a directional view.
+
+  Scoring (producer-side): range breakout, compression precondition (ATR
+  squeeze), expansion surge, higher-TF agreement. LONG or SHORT per the break.
+
+  Execution envelope:
+    - slots 3, margin_pct 18
+    - strict 5x leverage clamp, then each asset's HL venue max
+    - tight fast-capture DSL: a failed breakout reverses fast, so cut quickly
+      and lock gains as the expansion runs; 2d hard_timeout
+
+  Producer scores its universe and pushes signals via
+  SenpiClient.push_signal(); runtime LLM gate is pass-through; runtime owns
+  execution + DSL.
+
+strategy:
+  wallet: "${CARACAL_BREAKOUT_WALLET}"
+  # ── FUNDING SPLIT DEFAULT: BREAKOUT 50% / CATALYST 50% of the combined pool ──
+  # Fund the two vol books ~equally. This is a FUNDING guideline for the
+  # operator, NOT a runtime-enforced field. Per-position sizing is governed by
+  # margin_pct + slots below.
+  slots: 3
+  margin_pct: 18
+  trading_risk: moderate
+  enabled: true
+
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 8        # breakouts cluster; vol events are episodic
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_minutes: 45
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 120
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+  - name: caracal_breakout_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        direction: { type: string, required: true }
+        reasons: { type: array, required: false }
+        trend4h: { type: string, required: false }
+        squeeze: { type: number, required: false }
+        surge: { type: number, required: false }
+        heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: caracal_breakout_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${CARACAL_DECISION_MODEL}"   # REQUIRED. Bare model name only — NO provider prefix.
+    scanners: [caracal_breakout_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: caracal_breakout_signals
+    decision_prompt: |
+      You are Caracal's BREAKOUT-book pass-through gate. The producer scans the
+      liquid crypto universe for names coiled in a low-volatility squeeze that
+      break their recent range, and emits the break DIRECTION (LONG on an
+      upside break, SHORT on a downside break). It already applied the breakout
+      test, compression + surge scoring, the 5x leverage clamp, and held-asset
+      dedup. Honor the signal unless it is malformed.
+
+      SIGNAL:
+      {{signal_caracal_breakout_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. asset MUST be copied from signal.asset EXACTLY.
+      2. direction MUST be copied from signal.direction (LONG or SHORT — this book trades both).
+      3. leverage MUST be copied from signal.data.leverage.
+      4. marginUsd MUST be copied from signal.data.marginUsd.
+      5. Every claim in reasoning MUST cite signal values.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 5 (producer floor; defensive)
+      - leverage <= 0 OR leverage > 5 (clamp breach) OR marginUsd <= 0
+      - direction not in [LONG, SHORT]
+      - signal.asset already in signal.data.heldAssets (duplicate)
+      - reasons array empty
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 7 AND no malformed fields
+      - 7-8:  score 5.5-6.9
+      - 7:    score 5-5.4 (producer floor) — the signal IS the validation
+      - <7:   producer floor not cleared (should never reach you)
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values (e.g. 'score 7 ASSET LONG 5x, broke 20-bar high from a 0.62 coil, 2.4x surge — volatility expansion')",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "CARACAL_VOL_BREAKOUT ${direction} — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — tight vol-breakout capture) ──────────────────────────
+#
+# A failed breakout reverses fast, so cut quickly (tight phase1) and lock gains
+# as the expansion runs. Stall-cuts ON (a breakout that goes nowhere has
+# failed). 2d hard_timeout — vol events resolve fast.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 2880           # 2d — vol events resolve fast
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 180            # 3h — a stalled breakout has failed
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 360            # 6h
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0
+      retrace_threshold: 7
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8, lock_hw_pct: 30 }
+        - { trigger_pct: 18, lock_hw_pct: 50 }
+        - { trigger_pct: 35, lock_hw_pct: 68 }
+        - { trigger_pct: 60, lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 90 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

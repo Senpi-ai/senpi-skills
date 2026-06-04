@@ -604,6 +604,21 @@
       "version": "1.0.0"
     },
     {
+      "id": "caracal",
+      "tracker_slug": "caracal",
+      "name": "Caracal — Volatility Hedge Fund",
+      "emoji": "🐱",
+      "tagline": "Trades volatility expansion, not direction: rides coiled-spring breakouts (low-vol squeeze -> range break -> surge) on two wallets — crypto and XYZ (oil / AI-infra / metals / indices), both long and short, 24/7.",
+      "group": "volatility-breakout",
+      "sort_order": 51,
+      "min_budget": 100,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/caracal",
+      "version": "1.0.0"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",
