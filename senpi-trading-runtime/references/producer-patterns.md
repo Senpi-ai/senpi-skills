@@ -734,7 +734,7 @@ z, ratio, mean, std = ratio_zscore(ca, cb, lookback=48)  # z of latest ratio vs 
 # z low  (numerator cheap) → mirror.  Enter when |z| >= ~2 AND reversion is starting (|z| shrinking vs last bar).
 ```
 
-**Single-position note:** a textbook pairs trade is two legs (long A / short B) for market-neutrality. The Senpi runtime is single-position, so this archetype takes the **directional high-beta leg** in the reversion direction — capturing most of the edge without spread-level position management.
+**Single-position note:** a textbook pairs trade is two legs (long A / short B) for market-neutrality. The Senpi runtime is single-position, so this archetype takes the **directional high-beta leg** in the reversion direction (Chameleon) — OR achieves neutrality at the **fund level** with two equally-funded single-direction books, a long book + a short book, whose notionals offset (Octopus). The latter is cross-sectional **dispersion** (long the leaders, short the laggards of one peer group) rather than a single ratio.
 
 **When to use this pattern:** you believe two assets are tethered (BTC/ETH/SOL) and want to trade the *spread* reverting rather than guess absolute direction. Mean-reversion play → tight "bank the snapback" DSL + time-cuts ON (a reversion resolves fast or the thesis failed).
 
@@ -743,6 +743,7 @@ z, ratio, mean, std = ratio_zscore(ca, cb, lookback=48)  # z of latest ratio vs 
 | Agent | Version | Asset / Universe | Description | Tags |
 |---|---|---|---|---|
 | **Chameleon** | v1.0 | ETH/BTC, SOL/ETH, SOL/BTC | Ratio mean-reversion — trades the high-beta leg when a pair's ratio z-score extends past ~2σ and starts reverting. Mean-reversion DSL. | Ratio z-score, Pairs, Mean-reversion |
+| **Octopus** | v1.0 | Liquid crypto cross-section (long + short books) | **Market-Neutral Hedge Fund.** Two equally-funded single-direction books, one leg-parameterized producer (`OCTOPUS_LEG`): longs the relative leaders (top relative-strength, trend-confirmed) and shorts the relative laggards (bottom RS, trend-confirmed) of the liquid main-DEX cross-section. Net ~beta-neutral at the FUND level, harvesting cross-sectional DISPERSION rather than a single ratio. RS rank computed once from the instrument board (no per-asset fetch); only top/bottom names get candles. Strict 5x, moderate DSL with stall-cuts ON. | Cross-sectional, Dispersion, Market-neutral, Long+short books, Two-wallet |
 
 ---
 
