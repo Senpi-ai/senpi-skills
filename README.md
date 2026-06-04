@@ -558,6 +558,14 @@ Trades **movement, not direction** — fires when a coiled (low-volatility) name
 |---|---|---|---|
 | [caracal](caracal/) | v1.0 | Crypto (breakout book) + XYZ (catalyst book) | **Volatility Hedge Fund.** Two books, one producer: the **breakout** book rides coiled-spring breakouts in liquid crypto; the **catalyst** book runs the same compression→expansion engine on XYZ (oil / AI-infra / metals / indices), capturing macro vol events 24/7. Requires an ATR squeeze (recent/baseline ≤ 0.7–0.9) **and** a range break **and** an expansion surge (≥1.3–2.0×). Both directions. Strict 5x, tight early-locking DSL. Episodic by design — most ticks empty. |
 
+## 18. Global macro / cross-asset
+
+Trades the macro asset complex — equity indices, precious metals, energy, FX — plus BTC as the macro risk asset. These move on macro **regime**, not crypto noise.
+
+| Skill | Version | Asset / Universe | Description |
+|---|---|---|---|
+| [elephant](elephant/) | v1.0 | XYZ indices/metals/energy/FX + BTC (trend + fade books) | **Global-Macro Hedge Fund.** Two books, one producer, over a curated macro whitelist: the **trend** book rides the medium-term multi-TF macro trend (4h backbone + 1h + momentum), the **fade** book fades short-TF macro over-extensions back to regime (RSI/stretch with a 4h knife guard). Both directions. Aware of oil/Iran + the AI-equity bid as *macro* (not chases). Trend = wide let-it-run DSL (7d); fade = tight fast-capture (2d). Strict 5x, 24/7 (XYZ). |
+
 For full archetype theses, distinguishing MCP signatures, and code snippets, see [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md).
 
 > **Live fleet trackers:** [strategies.senpi.ai](https://strategies.senpi.ai) (all-time PnL) · [senpi.ai/arena](https://senpi.ai/arena) (weekly ROE). One agent — Sentinel — runs an in-house producer not published to this repo; it appears on the live trackers but has no source link here.

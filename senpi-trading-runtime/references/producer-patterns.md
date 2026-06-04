@@ -879,6 +879,29 @@ surge   = true_range(c[-1]) / atr(c[-31:], 30)          # >= 1.3-2.0x = real exp
 
 ---
 
+### 18. Global macro / cross-asset
+
+Trades the **macro asset complex** — equity indices, precious metals, energy, FX (all on XYZ) plus BTC as the macro risk asset — which moves on macro *regime* rather than crypto noise. A curated whitelist, intersected with the live board so unavailable names are skipped. Distinct from the crypto-native funds: the only archetype focused on the cross-asset macro classes, deliberately excluding single AI/Tech stocks (Spider's domain).
+
+```python
+# trend book: the 4h structure IS the macro trend; confirm + ride.
+trend4 = trend_structure(c4)            # BULLISH->LONG, BEARISH->SHORT, NEUTRAL->skip
+score  = 3 + confirm(1h) + momentum(24h) + rsi_room
+# fade book: fade short-TF over-extension with a 4h regime knife guard.
+side   = "LONG" if oversold(rsi,stretch) else "SHORT"
+score  = rsi_extreme + stretch - knife_guard(against a strong macro trend)
+```
+
+**When to use this pattern:** you want a low-correlation, regime-driven return stream over indices / metals / energy / FX — the global-macro / managed-futures lane — rather than a single-asset or crypto-only book. Two complementary sub-books (trend rides, fade reverts) keep it engaged across regimes.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Elephant** | v1.0 | XYZ indices/metals/energy/FX + BTC (trend + fade books) | **Global-Macro Hedge Fund.** Two books on two wallets, one leg-parameterized producer (`ELEPHANT_LEG`): **trend** rides the medium-term multi-TF macro trend (4h backbone + 1h + 24h momentum), **fade** fades short-TF macro over-extensions back to regime (1h RSI/stretch with a 4h knife guard). Both directions. Curated macro whitelist intersected with the live board. Theme-aware (oil/Iran energy trend, AI-equity index bid) but trades them AS macro, not chases. Trend = wide let-it-run DSL (18% phase1, time-cuts OFF, 7d timeout); fade = tight fast-capture (8% phase1, stall-cuts ON, 2d timeout). Strict 5x; 24/7 (XYZ). | Global-macro, Cross-asset, Trend+fade, Both-direction, Two-wallet, 24/7 |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.

@@ -1,0 +1,17 @@
+{
+  "_comment": "ELEPHANT v1.0 TREND book — macro trend leg of the global-macro fund. Each tick scores the macro whitelist (XYZ equity indices / metals / energy / FX + BTC, intersected with the live instrument board) on its medium-term multi-timeframe trend: the 4h structure is the macro backbone (BULLISH -> LONG, BEARISH -> SHORT, NEUTRAL -> skip), confirmed by 1h structure + 24h momentum + RSI room. BOTH directions. Leverage clamped to maxLeverage then each asset's HL venue max (indices/metals/FX cap low). Pairs with the FADE book (elephant-fade-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-trend.yaml. Producer launched with ELEPHANT_LEG=trend.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "allowedAssets": ["BTC", "xyz:SP500", "xyz:XYZ100", "xyz:JP225", "xyz:KR200", "xyz:NIFTY", "xyz:IBOV", "xyz:GOLD", "xyz:SILVER", "xyz:PLATINUM", "xyz:COPPER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:EUR", "xyz:JPY", "xyz:GBP", "xyz:DXY"],
+  "minScore": 5,
+  "marginPct": 0.18,
+  "maxLeverage": 5,
+  "maxSlots": 3,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "momThresholdPct": 1.5,
+  "rsiOverbought": 75,
+  "rsiOversold": 25,
+  "_persona": "Global-macro trend — rides clean multi-day trends on indices/metals/energy/FX + BTC, both directions, strict 5x, WIDE let-it-run DSL (macro trends are slow + persistent). allowedAssets is the macro complex; names not live on the board are skipped automatically."
+}

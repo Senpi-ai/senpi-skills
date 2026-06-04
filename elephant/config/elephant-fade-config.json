@@ -1,0 +1,17 @@
+{
+  "_comment": "ELEPHANT v1.0 FADE book — macro mean-reversion leg of the global-macro fund. Each tick scores the macro whitelist (XYZ equity indices / metals / energy / FX + BTC, intersected with the live board) on short-TF over-extension: picks the more-extreme side (oversold -> LONG, overbought -> SHORT) from 1h RSI extreme + stretch from the 20-bar 1h MA, with a 4h regime filter (never fades a strong macro trend — knife guard). BOTH directions. Leverage clamped to maxLeverage then HL venue max. Pairs with the TREND book (elephant-trend-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-fade.yaml. Producer launched with ELEPHANT_LEG=fade.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "allowedAssets": ["BTC", "xyz:SP500", "xyz:XYZ100", "xyz:JP225", "xyz:KR200", "xyz:NIFTY", "xyz:IBOV", "xyz:GOLD", "xyz:SILVER", "xyz:PLATINUM", "xyz:COPPER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:EUR", "xyz:JPY", "xyz:GBP", "xyz:DXY"],
+  "minScore": 4,
+  "marginPct": 0.15,
+  "maxLeverage": 5,
+  "maxSlots": 3,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "rsiOversold": 30,
+  "rsiOverbought": 70,
+  "stretchThresholdPct": 1.0,
+  "_persona": "Global-macro mean-reversion — fades RSI extremes + stretch on the macro complex back toward the mean, with a 4h knife guard so it never fights a strong macro trend, both directions, strict 5x, tight fast-capture DSL. allowedAssets is the macro complex; names not live on the board are skipped automatically."
+}
