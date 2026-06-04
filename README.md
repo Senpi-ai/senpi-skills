@@ -550,6 +550,14 @@ Watches macro conditions and **classifies the market** into TREND_UP / TREND_DOW
 |---|---|---|---|
 | [coyote](coyote/) | v1.0 | BTC (positional) + universe (dispersion) | 3-regime classifier (TREND_UP / TREND_DOWN / CHOP) with vol-confirmation on the down side (crash = drop + vol spike, not slow grind). LONG BTC in TREND_UP, SHORT BTC in TREND_DOWN, no trade in CHOP. Regime + all 3 input metrics published on every tick. Balanced DSL. |
 
+## 17. Volatility / breakout-expansion
+
+Trades **movement, not direction** — fires when a coiled (low-volatility) name breaks its range with an expansion surge, and rides the break either way. Compression precedes expansion; a breakout from a coil follows through more than one in already-volatile tape.
+
+| Skill | Version | Asset / Universe | Description |
+|---|---|---|---|
+| [caracal](caracal/) | v1.0 | Crypto (breakout book) + XYZ (catalyst book) | **Volatility Hedge Fund.** Two books, one producer: the **breakout** book rides coiled-spring breakouts in liquid crypto; the **catalyst** book runs the same compression→expansion engine on XYZ (oil / AI-infra / metals / indices), capturing macro vol events 24/7. Requires an ATR squeeze (recent/baseline ≤ 0.7–0.9) **and** a range break **and** an expansion surge (≥1.3–2.0×). Both directions. Strict 5x, tight early-locking DSL. Episodic by design — most ticks empty. |
+
 For full archetype theses, distinguishing MCP signatures, and code snippets, see [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md).
 
 > **Live fleet trackers:** [strategies.senpi.ai](https://strategies.senpi.ai) (all-time PnL) · [senpi.ai/arena](https://senpi.ai/arena) (weekly ROE). One agent — Sentinel — runs an in-house producer not published to this repo; it appears on the live trackers but has no source link here.

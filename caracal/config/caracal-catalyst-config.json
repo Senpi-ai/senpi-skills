@@ -1,0 +1,23 @@
+{
+  "_comment": "CARACAL v1.0 CATALYST book — XYZ event/catalyst vol compression->expansion. Same engine as the BREAKOUT book but on the XYZ DEX (equities / energy / metals / indices): scans the liquid XYZ universe (top universeMaxNames by 24h volume) for coiled names breaking their range, and rides the break direction. Captures oil-geopolitics and AI-infra moves as direction-agnostic volatility events, 24/7 (XYZ trades through weekends). wantXyz=true routes candle fetches with dex='xyz'. BOTH directions. Leverage clamped to maxLeverage then HL venue max. Pairs with the BREAKOUT book (crypto) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-catalyst.yaml. Producer launched with CARACAL_LEG=catalyst.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 5,
+  "marginPct": 0.18,
+  "maxLeverage": 5,
+  "maxSlots": 3,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "volFloorUsd": 3000000,
+  "universeMaxNames": 15,
+  "wantXyz": true,
+  "breakoutBars": 20,
+  "recentBars": 10,
+  "baseBars": 30,
+  "squeezeTight": 0.70,
+  "squeezeLoose": 0.90,
+  "surgeStrong": 2.0,
+  "surgeMod": 1.3,
+  "_persona": "XYZ catalyst breakouts — oil/AI-infra/metals/indices coiled-spring expansions captured as direction-agnostic vol events, 24/7, both ways, strict 5x, tight fast-capture DSL. Lower volFloorUsd (3M) because XYZ is thinner than crypto majors."
+}
