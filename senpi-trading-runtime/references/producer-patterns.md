@@ -86,6 +86,18 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 ## The archetypes
 
+> **Cross-cutting: 🏦 AI Hedge Funds (multi-book architecture).** Five skills are
+> *funds* rather than single-strategy agents — each runs **two complementary
+> books on two wallets under one leg-parameterized producer** (the Spider
+> pattern: `<AGENT>_LEG` selects the book; each book has its own wallet, runtime
+> YAML, DSL, and risk envelope). They are catalogued below under their
+> trading-edge archetype (a builder studying an edge should find them there),
+> but as a product line they are: **Spider** (AI/Tech, §4) · **Octopus**
+> (relative-value, §13) · **Camel** (carry, §7) · **Caracal** (volatility, §17)
+> · **Elephant** (global-macro, §18). To build a sixth, clone any of them: same
+> `producer_daemon` + fcntl-lock + `push_signal` spine, swap the per-book scorer
+> + universe, fund the two wallets, launch two daemons with `setsid`+cron.
+
 ### 1. Universe trend-follower
 
 **Thesis:** Scan top-N HL assets each tick, score on SM consensus + multi-timeframe alignment, fire entries when conviction tier is hit. Hunts coordinated risk-on / risk-off moves across crypto majors.

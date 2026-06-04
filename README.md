@@ -330,9 +330,23 @@ Each tool's full schema (params, types, response shape) is in the MCP server its
 
 # Trading Strategy Skills
 
-The fleet — **44 skills across 16 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
+The fleet — Senpi's flagship **AI Hedge Funds** plus a deep bench of single-strategy archetypes. Every skill targets runtime **1.1.0**. Archetype bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
 
 Each row links to the skill's directory.
+
+## 🏦 AI Hedge Funds — flagship multi-strategy
+
+Senpi's flagship line. Each fund runs **two complementary strategy books on two wallets** under one producer — a real multi-strategy fund, not a single scanner — with its own built-in risk controls. Pick the style that fits your market view.
+
+| Fund | Style | Books | Description |
+|---|---|---|---|
+| [spider](spider/) | AI/Tech | AI/Tech momentum (long) + macro/majors mean-reversion (both ways) | Buys the strongest AI & tech names — including brand-new listings the day they appear — and rides winners for days; a faster book trades majors + oil both ways for quick profits. |
+| [octopus](octopus/) | Market-Neutral | Long leaders + short laggards | Longs the strongest and shorts the weakest of the liquid crypto cross-section at once — profits from the **gap** (dispersion), ~beta-neutral, in any market. |
+| [camel](camel/) | Carry | +funding shorts + −funding longs | Gets **paid to hold** — systematically collects the funding the crowd pays, on positions where the crowd is exhausting. Steady income, both directions. |
+| [caracal](caracal/) | Volatility | Crypto breakouts + XYZ catalyst breakouts | Waits for a market to coil, then rides the breakout **either way** — across crypto and stocks/oil/gold, 24/7. Episodic: most ticks empty by design. |
+| [elephant](elephant/) | Global Macro | Macro trend + macro fade | Trades the cross-asset macro complex — equity indices, metals, energy, FX + BTC — riding macro trends and fading the overreactions. Both directions, 24/7. |
+
+Each fund's individual books are also catalogued under their trading-edge archetype below.
 
 ## 🎯 Onboarding tier — new to Senpi? Start here.
 
@@ -437,8 +451,6 @@ Strict whitelist of 3–6 majors, best-of-N selection per tick.
 | [iguana](iguana/) | v1.0 | xyz:SP500 · xyz:XYZ100 | **Onboarding — XYZ index basket.** The simplest XYZ exposure — just the broad indices. Picks whichever has the stronger 4-day move past 1.5% and trades its direction. Balanced DSL + 48h hard_timeout. |
 | [sailfish](sailfish/) | v1.0 | BTC · ETH · SOL · HYPE | **Relative-strength rotator.** Ranks the universe by ~2.7d RS each tick; longs the leader iff leader RS ≥ 1% AND beats runner-up by ≥ 1.5pp (no whipsaw). Rotation via DSL exit + re-entry. Balanced DSL + 96h hard_timeout. |
 | [stag](stag/) | v1.0 | BTC · ETH · SOL · HYPE (often single-asset) | **Parabolic-run hunter.** Entry-side pair for the new `parabolic_runner` DSL preset (widest in the catalog: max_loss 25%, retrace 18, 2 breaches required, 14d outer bound). Strict 5-gate filter (200-SMA + 7d ≥25% + vol surge + acceleration + SM ≥60% LONG). LONG only. Operator-driven — most ticks return empty by design. Reference: HYPE 2026-05 (+60% in 16 days). |
-| [spider](spider/) | v5.1.1 | AI/Tech XYZ equities + crypto alts (swing) · BTC · ETH · SOL · HYPE + xyz:BRENTOIL/CL (scalp) | **AI/Tech hedge fund.** Two style legs on two wallets, one producer: a LONG-only AI/Tech momentum book (dynamic XYZ-equity universe, auto-catches fresh IPO/pre-IPO listings, 10x, wide let-winners-run DSL) **plus** a both-directions macro/majors mean-reversion counter-trading book (strict 5x, tight fast-capture DSL). Each leg scores its own universe; runtime owns LLM gate, DSL exits, and risk. |
-
 ## 5. Trader-follower / hot-streak
 
 Top-trader pool + conviction-gated coat-tail entries.
@@ -470,8 +482,6 @@ Persistent funding extremity → fade the crowd at exhaustion.
 | [pangolin](pangolin/) | v1.4 | Multi (OI > $3M) | Funding extremity + persistence + SM positioning + cooldowns. Quiet-hours gating (00–04 UTC). |
 | [dog](dog/) | v2.0 | 4-coin whitelist | Funding fade on 4-coin watchlist with regime hard-gate. |
 | [vulture](vulture/) | v2.3 | HYPE | HYPE funding-regime contrarian. Funding-history + held-position enrichment. |
-| [camel](camel/) | v1.0 | Liquid crypto cross-section (harvest + payout books) | **Carry Hedge Fund.** Two equally-funded single-direction books, one producer: the **harvest** book shorts the most-positive-funding names (short collects), the **payout** book longs the most-negative-funding names (paid to hold) — each gated to an *exhausting* crowd so price doesn't fight the carry. The edge is funding **carry** (recurring income), not direction. Funding read from the instrument board (no ClickHouse dependency). Strict 5x, tighter carry DSL. |
-
 ## 8. Contrarian crowding-unwind hunter
 
 Wait for crowd to overcommit AND exhaustion signals; enter opposite.
@@ -524,8 +534,6 @@ Trade the spread between two correlated assets, not a single asset's direction.
 | Skill | Version | Asset / Universe | Description |
 |---|---|---|---|
 | [chameleon](chameleon/) | v1.0 | ETH/BTC · SOL/ETH · SOL/BTC | Ratio mean-reversion — trades the high-beta leg when a pair's ratio z-score extends past ~2σ and starts reverting. Single-position directional bet (not a two-leg spread). Mean-reversion DSL (tight ladder, 48h). |
-| [octopus](octopus/) | v1.0 | Liquid crypto cross-section (long + short books) | **Market-Neutral Hedge Fund.** Two equally-funded single-direction books on two wallets, one producer: longs the relative leaders (top relative-strength, trend-confirmed) and shorts the relative laggards (bottom RS, trend-confirmed) of the liquid main-DEX cross-section. Net ~beta-neutral — harvests **dispersion** (leaders minus laggards), not market direction. Strict 5x, moderate DSL with stall-cuts ON. |
-
 ## 14. Meta-strategy follower / copy-the-copiers
 
 Follow not individual traders but the top-performing **strategies** — and trade their performance-weighted consensus.
@@ -550,21 +558,7 @@ Watches macro conditions and **classifies the market** into TREND_UP / TREND_DOW
 |---|---|---|---|
 | [coyote](coyote/) | v1.0 | BTC (positional) + universe (dispersion) | 3-regime classifier (TREND_UP / TREND_DOWN / CHOP) with vol-confirmation on the down side (crash = drop + vol spike, not slow grind). LONG BTC in TREND_UP, SHORT BTC in TREND_DOWN, no trade in CHOP. Regime + all 3 input metrics published on every tick. Balanced DSL. |
 
-## 17. Volatility / breakout-expansion
-
-Trades **movement, not direction** — fires when a coiled (low-volatility) name breaks its range with an expansion surge, and rides the break either way. Compression precedes expansion; a breakout from a coil follows through more than one in already-volatile tape.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [caracal](caracal/) | v1.0 | Crypto (breakout book) + XYZ (catalyst book) | **Volatility Hedge Fund.** Two books, one producer: the **breakout** book rides coiled-spring breakouts in liquid crypto; the **catalyst** book runs the same compression→expansion engine on XYZ (oil / AI-infra / metals / indices), capturing macro vol events 24/7. Requires an ATR squeeze (recent/baseline ≤ 0.7–0.9) **and** a range break **and** an expansion surge (≥1.3–2.0×). Both directions. Strict 5x, tight early-locking DSL. Episodic by design — most ticks empty. |
-
-## 18. Global macro / cross-asset
-
-Trades the macro asset complex — equity indices, precious metals, energy, FX — plus BTC as the macro risk asset. These move on macro **regime**, not crypto noise.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [elephant](elephant/) | v1.0 | XYZ indices/metals/energy/FX + BTC (trend + fade books) | **Global-Macro Hedge Fund.** Two books, one producer, over a curated macro whitelist: the **trend** book rides the medium-term multi-TF macro trend (4h backbone + 1h + momentum), the **fade** book fades short-TF macro over-extensions back to regime (RSI/stretch with a 4h knife guard). Both directions. Aware of oil/Iran + the AI-equity bid as *macro* (not chases). Trend = wide let-it-run DSL (7d); fade = tight fast-capture (2d). Strict 5x, 24/7 (XYZ). |
+> The **volatility** (Caracal) and **global-macro** (Elephant) archetypes live in the 🏦 AI Hedge Funds section at the top — each is a two-book fund rather than a single-strategy agent. Their per-edge architecture is documented in [`producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md) §17–§18.
 
 For full archetype theses, distinguishing MCP signatures, and code snippets, see [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md).
 
