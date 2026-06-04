@@ -589,6 +589,21 @@
       "version": "3.0.0"
     },
     {
+      "id": "camel",
+      "tracker_slug": "camel",
+      "name": "Camel — Carry Hedge Fund",
+      "emoji": "🐫",
+      "tagline": "Harvests funding carry on two wallets: shorts the most-positive-funding names (short collects) and longs the most-negative-funding names (paid to hold), each gated to an exhausting crowd. The edge is carry — recurring funding income — not market direction.",
+      "group": "funding-fade",
+      "sort_order": 50,
+      "min_budget": 100,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/camel",
+      "version": "1.0.0"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",

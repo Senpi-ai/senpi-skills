@@ -1,0 +1,20 @@
+{
+  "_comment": "CAMEL v1.0 HARVEST book — funding-harvest SHORT leg of the carry fund. Each tick ranks the liquid main-DEX crypto cross-section by funding DESC and SHORTS the most-POSITIVE-funding names (longs pay shorts -> short COLLECTS the funding), gated so it never shorts a fresh 4h uptrend (squeeze risk dwarfs carry) — prefers crowded longs rolling over (4h bearish/neutral, RSI overbought, 24h turning down). Funding read from the instrument board context (hourly decimal; annualized = x8760). Only the top rankPoolSize names by funding get candles for confirmation. Leverage clamped to maxLeverage then HL venue max. Pairs with the PAYOUT book (camel-payout-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-harvest.yaml. Producer launched with CAMEL_LEG=harvest.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 4,
+  "marginPct": 0.18,
+  "maxLeverage": 5,
+  "maxSlots": 4,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "volFloorUsd": 20000000,
+  "universeMaxNames": 60,
+  "rankPoolSize": 12,
+  "fundingFloorHourly": 0.00003,
+  "fundingTier2Hourly": 0.00006,
+  "fundingTier3Hourly": 0.0001,
+  "rsiOverbought": 70,
+  "_persona": "Short the expensive longs — funding-harvest SHORT book, collects positive funding on exhausting crowds, strict 5x, 4-name basket. fundingFloorHourly 0.00003 ~= 26%/yr entry floor; tiers 0.00006 (~53%/yr) and 0.0001 (~88%/yr). FEE NOTE: carry P&L is small per period — keep turnover modest so fees do not eat the funding."
+}
