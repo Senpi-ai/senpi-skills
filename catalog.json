@@ -619,6 +619,21 @@
       "version": "1.0.0"
     },
     {
+      "id": "elephant",
+      "tracker_slug": "elephant",
+      "name": "Elephant — Global-Macro Hedge Fund",
+      "emoji": "🐘",
+      "tagline": "Trades the cross-asset macro complex — equity indices, metals, energy, FX (all on XYZ) + BTC — on two wallets: a trend book rides the durable macro direction, a fade book catches macro over-extensions reverting to regime. Both directions, 24/7.",
+      "group": "global-macro",
+      "sort_order": 52,
+      "min_budget": 100,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/elephant",
+      "version": "1.0.0"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",

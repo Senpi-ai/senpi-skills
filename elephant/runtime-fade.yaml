@@ -1,0 +1,187 @@
+name: elephant-fade-tracker
+# Top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (major=1). Skill version is "Elephant v1.0" — lives in
+# description + SKILL.md + _elephant_producer_version.
+version: 1.0.0
+description: >
+  ELEPHANT v1.0 (FADE book) — global-macro mean-reversion.
+
+  One of two macro books. This book fades short-TF over-extensions on the
+  cross-asset macro complex (XYZ equity indices / metals / energy / FX + BTC)
+  back toward the mean: it picks the more-extreme side (oversold -> LONG,
+  overbought -> SHORT) from 1h RSI extreme + stretch from the 20-bar MA, with a
+  4h regime filter (knife guard) so it never fades a strong macro trend. BOTH
+  directions. Pairs with the TREND book (runtime-trend.yaml) on a separate
+  wallet. The edge is GLOBAL MACRO over-extension reverting to regime.
+
+  Scoring (producer-side): RSI extreme, stretch from MA, 4h regime knife guard.
+  LONG oversold / SHORT overbought.
+
+  Execution envelope:
+    - slots 3, margin_pct 15
+    - strict 5x leverage clamp, then each asset's HL venue max
+    - tight fast-capture DSL: a reversion resolves fast or the thesis failed
+
+  Producer scores its universe and pushes signals via
+  SenpiClient.push_signal(); runtime LLM gate is pass-through; runtime owns
+  execution + DSL.
+
+strategy:
+  wallet: "${ELEPHANT_FADE_WALLET}"
+  # ── FUNDING SPLIT DEFAULT: TREND 60% / FADE 40% of the combined pool ──
+  # The fade book is higher-turnover and funded smaller; the trend book carries
+  # the larger share. This is a FUNDING guideline for the operator, NOT a
+  # runtime-enforced field. Per-position sizing is governed by margin_pct + slots.
+  slots: 3
+  margin_pct: 15
+  trading_risk: moderate
+  enabled: true
+
+risk:
+  data_retention_hours: 96
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 12       # mean-reversion turns over faster
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_minutes: 45
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 120
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+  - name: elephant_fade_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        direction: { type: string, required: true }
+        reasons: { type: array, required: false }
+        trend4h: { type: string, required: false }
+        stretchPct: { type: number, required: false }
+        rsi: { type: number, required: false }
+        heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: elephant_fade_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${ELEPHANT_DECISION_MODEL}"   # REQUIRED. Bare model name only — NO provider prefix.
+    scanners: [elephant_fade_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: elephant_fade_signals
+    decision_prompt: |
+      You are Elephant's FADE-book pass-through gate. The producer fades
+      short-TF over-extensions on the cross-asset macro complex (indices /
+      metals / energy / FX + BTC) and emits the fade DIRECTION (LONG an
+      oversold extreme, SHORT an overbought extreme), with a 4h knife guard
+      already applied so it never fades a strong macro trend. It also applied
+      the 5x leverage clamp and held-asset dedup. Honor the signal unless malformed.
+
+      SIGNAL:
+      {{signal_elephant_fade_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. asset MUST be copied from signal.asset EXACTLY (preserve any xyz: prefix).
+      2. direction MUST be copied from signal.direction (LONG or SHORT — this book trades both).
+      3. leverage MUST be copied from signal.data.leverage.
+      4. marginUsd MUST be copied from signal.data.marginUsd.
+      5. Every claim in reasoning MUST cite signal values.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 4 (producer floor; defensive)
+      - leverage <= 0 OR leverage > 5 (clamp breach) OR marginUsd <= 0
+      - direction not in [LONG, SHORT]
+      - signal.asset already in signal.data.heldAssets (duplicate)
+      - reasons array empty
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 6 AND no malformed fields
+      - 7-8:  score 4.5-5.9
+      - 7:    score 4-4.4 (producer floor) — the signal IS the validation
+      - <7:   producer floor not cleared (should never reach you)
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values (e.g. 'score 5 xyz:GOLD SHORT 5x, RSI 78, +1.8% stretch, 4h NEUTRAL — fade a macro over-extension')",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "ELEPHANT_MACRO_FADE ${direction} — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — tight fast-capture mean-reversion) ──────────────────
+#
+# A reversion resolves fast or the thesis failed: tight phase1, lock the
+# snapback quickly, stall-cuts ON, 2d hard_timeout.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 2880           # 2d
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 240            # 4h
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h
+    phase1:
+      enabled: true
+      max_loss_pct: 8.0
+      retrace_threshold: 5
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 4, lock_hw_pct: 35 }
+        - { trigger_pct: 8, lock_hw_pct: 55 }
+        - { trigger_pct: 15, lock_hw_pct: 70 }
+        - { trigger_pct: 28, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
