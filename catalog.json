@@ -214,6 +214,21 @@
       "version": "1.0.0"
     },
     {
+      "id": "octopus",
+      "tracker_slug": "octopus",
+      "name": "Octopus — Market-Neutral Hedge Fund",
+      "emoji": "🐙",
+      "tagline": "Longs the relative leaders and shorts the relative laggards of the liquid crypto cross-section on two equally-funded wallets — net ~beta-neutral, harvesting dispersion (leaders minus laggards), not market direction.",
+      "group": "relative-value-pairs",
+      "sort_order": 49,
+      "min_budget": 100,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/octopus",
+      "version": "1.0.0"
+    },
+    {
       "id": "cheetah",
       "tracker_slug": "cheetah",
       "name": "Cheetah \u2014 Multi-Signal Confluence Sniper",

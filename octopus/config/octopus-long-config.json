@@ -1,0 +1,18 @@
+{
+  "_comment": "OCTOPUS v1.0 LONG book — cross-sectional dispersion LONG leg of the market-neutral fund. Each tick ranks the live liquid main-DEX crypto cross-section by 24h RELATIVE STRENGTH (excess return vs the universe mean) and LONGS the strongest names, but only when absolute trend confirms (4h structure bullish + positive own momentum) so it never longs a least-bad laggard in a crash. Only the top rankPoolSize names by RS get candles pulled for confirmation. Leverage clamped to maxLeverage then each asset's HL venue max. Pairs with the SHORT book (octopus-short-config.json) on a SEPARATE wallet; the two books net to ~beta-neutral. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-long.yaml. Producer launched with OCTOPUS_LEG=long.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 5,
+  "marginPct": 0.20,
+  "maxLeverage": 5,
+  "maxSlots": 4,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "volFloorUsd": 20000000,
+  "universeMaxNames": 40,
+  "rankPoolSize": 12,
+  "rsThresholdPct": 3.0,
+  "rsiOverbought": 80,
+  "_persona": "Long the leaders — cross-sectional relative-strength LONG book, trend-confirmed, strict 5x cap, 4-name basket, net-neutral against the SHORT book. Funding split default: 50/50 long/short of the combined Octopus pool to keep net exposure ~0."
+}

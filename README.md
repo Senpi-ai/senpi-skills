@@ -523,6 +523,7 @@ Trade the spread between two correlated assets, not a single asset's direction.
 | Skill | Version | Asset / Universe | Description |
 |---|---|---|---|
 | [chameleon](chameleon/) | v1.0 | ETH/BTC · SOL/ETH · SOL/BTC | Ratio mean-reversion — trades the high-beta leg when a pair's ratio z-score extends past ~2σ and starts reverting. Single-position directional bet (not a two-leg spread). Mean-reversion DSL (tight ladder, 48h). |
+| [octopus](octopus/) | v1.0 | Liquid crypto cross-section (long + short books) | **Market-Neutral Hedge Fund.** Two equally-funded single-direction books on two wallets, one producer: longs the relative leaders (top relative-strength, trend-confirmed) and shorts the relative laggards (bottom RS, trend-confirmed) of the liquid main-DEX cross-section. Net ~beta-neutral — harvests **dispersion** (leaders minus laggards), not market direction. Strict 5x, moderate DSL with stall-cuts ON. |
 
 ## 14. Meta-strategy follower / copy-the-copiers
 

@@ -1,0 +1,18 @@
+{
+  "_comment": "OCTOPUS v1.0 SHORT book — cross-sectional dispersion SHORT leg of the market-neutral fund. Each tick ranks the live liquid main-DEX crypto cross-section by 24h RELATIVE WEAKNESS (negative excess return vs the universe mean) and SHORTS the weakest names, but only when absolute trend confirms (4h structure bearish + negative own momentum) so it never shorts a relative outperformer that's still rising. Only the bottom rankPoolSize names by RS get candles pulled for confirmation. Leverage clamped to maxLeverage then each asset's HL venue max. Pairs with the LONG book (octopus-long-config.json) on a SEPARATE wallet; the two books net to ~beta-neutral. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-short.yaml. Producer launched with OCTOPUS_LEG=short.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 5,
+  "marginPct": 0.20,
+  "maxLeverage": 5,
+  "maxSlots": 4,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "volFloorUsd": 20000000,
+  "universeMaxNames": 40,
+  "rankPoolSize": 12,
+  "rsThresholdPct": 3.0,
+  "rsiOversold": 20,
+  "_persona": "Short the laggards — cross-sectional relative-weakness SHORT book, trend-confirmed, strict 5x cap, 4-name basket, net-neutral against the LONG book. Funding split default: 50/50 long/short of the combined Octopus pool to keep net exposure ~0."
+}
