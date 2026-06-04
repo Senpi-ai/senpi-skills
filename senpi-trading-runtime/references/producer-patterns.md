@@ -914,6 +914,31 @@ score  = rsi_extreme + stretch - knife_guard(against a strong macro trend)
 
 ---
 
+### 19. Thesis fund — preset-driven view expression
+
+A **view-based** pattern, distinct from the edge-based archetypes above: the user picks *what they believe will happen* and the fund expresses it. **One engine** reads a `THESIS` env var that selects a preset (a fixed long/short basket) from a JSON file; the per-asset direction is set by the preset. Use-cases ship as **catalog variants** (`base_skill` + a `thesis` field), so a new bet is a JSON edit, not new code. Single wallet (one coherent bet), both directions.
+
+```python
+preset = presets[THESIS]                      # {long:[...], short:[...]}
+for asset, target_dir in basket(preset):      # direction FIXED by the preset
+    # only PRESS when the market confirms the thesis direction:
+    if target_dir == "LONG"  and trend4 == "BEARISH": skip   # don't fight the tape
+    if target_dir == "SHORT" and trend4 == "BULLISH": skip
+    score = trend_confirm + momentum_confirm + rsi_room       # minScore = the confirmation bar
+```
+
+**The key discipline:** the preset fixes the *direction*, but the engine only *enters* when trend + momentum confirm it — so a "short SP500" thesis only shorts SP500 once it's actually rolling over. That + a hard drawdown halt is what keeps a directional macro bet from bleeding on a wrong-but-stubborn view.
+
+**When to use this pattern:** you want to let a user express a macro conviction (risk-on/off, geopolitics, a relative-value call like HYPE-vs-market or gold-vs-BTC) as a one-tap, risk-managed vehicle — rather than offer them a trading *method*. Theses have a shelf life; event-driven presets get retired/updated as the situation resolves.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Thesis Fund** | v1.0 | Per-preset long/short basket (crypto + XYZ macro) | **One engine, many one-tap macro bets.** `THESIS` selects a preset basket; ships as catalog variants — `risk_off` (anti-Trump-economy), `recovery`, `war_escalation`/`war_recovery` (Iran/US/Israel), `hype_vs_market`, `gold_over_btc`/`btc_over_gold`. Holds the basket in ONE wallet, presses each name only when the market confirms the thesis direction (trend+momentum), de-risks via DSL + a 20% drawdown halt. Strict 5x, balanced let-it-work DSL with stall-cuts ON. Add a bet by editing `thesis-presets.json`. | Thesis, Preset-driven, View-based, Variants, Confirmation-gated, Single-wallet |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.

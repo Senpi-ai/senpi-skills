@@ -1,0 +1,191 @@
+name: thesis-fund-tracker
+# Top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (major=1). Skill version is "Thesis Fund v1.0" — lives in
+# description + SKILL.md + _thesis_producer_version.
+version: 1.0.0
+description: >
+  THESIS FUND v1.0 — one configurable engine, many one-tap macro bets.
+
+  You bring the macro view; this fund expresses it with discipline. The THESIS
+  env var selects a preset (e.g. risk_off, recovery, war_escalation,
+  war_recovery, hype_vs_market, gold_over_btc, btc_over_gold) from
+  thesis-presets.json — each defines a long basket + a short basket that
+  together express a single view. ONE wallet holds the whole basket.
+
+  It is NOT a blind hold: the producer only PRESSES a basket name when the
+  market is CONFIRMING the thesis direction (4h/1h trend + 24h momentum), and
+  this DSL + the drawdown gate de-risk when it stops working. Disciplined
+  conviction, not a hope trade. Both directions (the basket has longs AND
+  shorts).
+
+  Execution envelope:
+    - slots 6 (a diversified basket), margin_pct 12
+    - strict 5x leverage clamp, then each asset's HL venue max
+    - balanced let-it-work DSL with stall-cuts ON (a basket name that stops
+      confirming the thesis is recycled), 5d hard_timeout
+
+  Producer scores its preset basket and pushes signals via
+  SenpiClient.push_signal(); runtime LLM gate is pass-through; runtime owns
+  execution + DSL.
+
+strategy:
+  wallet: "${THESIS_WALLET}"
+  # Single-wallet fund: one wallet holds the whole long/short thesis basket —
+  # a single coherent bet. Fund it with the capital you want behind this view.
+  slots: 6
+  margin_pct: 12          # 6 x 12 = 72% max committed; leaves headroom
+  trading_risk: moderate
+  enabled: true
+
+risk:
+  data_retention_hours: 168
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_minutes: 60
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 180
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+  - name: thesis_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        direction: { type: string, required: true }
+        reasons: { type: array, required: false }
+        thesis: { type: string, required: false }
+        trend4h: { type: string, required: false }
+        own24h: { type: number, required: false }
+        heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: thesis_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${THESIS_DECISION_MODEL}"   # REQUIRED. Bare model name only — NO provider prefix.
+    scanners: [thesis_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: thesis_signals
+    decision_prompt: |
+      You are the Thesis Fund's pass-through gate. The producer expresses a
+      user-chosen macro view (signal.data.thesis) by trading a fixed long/short
+      basket, but only pressing a name when the market CONFIRMS the thesis
+      direction. It already applied the trend/momentum confirmation, the 5x
+      leverage clamp, and held-asset dedup. The direction is set by the thesis
+      (a long-basket name comes as LONG, a short-basket name as SHORT). Honor
+      the signal unless it is malformed.
+
+      SIGNAL:
+      {{signal_thesis_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. asset MUST be copied from signal.asset EXACTLY (preserve any xyz: prefix).
+      2. direction MUST be copied from signal.direction (LONG or SHORT).
+      3. leverage MUST be copied from signal.data.leverage.
+      4. marginUsd MUST be copied from signal.data.marginUsd.
+      5. Every claim in reasoning MUST cite signal values.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 4 (producer floor; defensive)
+      - leverage <= 0 OR leverage > 5 (clamp breach) OR marginUsd <= 0
+      - direction not in [LONG, SHORT]
+      - signal.asset already in signal.data.heldAssets (duplicate)
+      - reasons array empty
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 6 AND no malformed fields
+      - 7-8:  score 4.5-5.9
+      - 7:    score 4-4.4 (producer floor) — the signal IS the validation
+      - <7:   producer floor not cleared (should never reach you)
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values (e.g. 'score 6 xyz:GOLD LONG 5x, 4h BULLISH, +1.4% 24h — risk_off thesis confirming')",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "THESIS_FUND ${direction} — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — balanced let-the-thesis-work, cut when it doesn't) ──────
+#
+# A thesis name rides the view while it confirms; if it stalls or reverses the
+# basket name is recycled (stall-cuts ON) and the drawdown gate halts the whole
+# fund if the thesis is broadly failing. 5d hard_timeout — macro theses play
+# out over days/weeks but a position shouldn't linger forever.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 7200           # 5d
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h — recycle a name that stops confirming
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 960            # 16h
+    phase1:
+      enabled: true
+      max_loss_pct: 14.0
+      retrace_threshold: 9
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 22, lock_hw_pct: 45 }
+        - { trigger_pct: 40, lock_hw_pct: 65 }
+        - { trigger_pct: 70, lock_hw_pct: 80 }
+        - { trigger_pct: 120, lock_hw_pct: 90 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

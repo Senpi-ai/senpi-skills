@@ -348,6 +348,22 @@ Senpi's flagship line. Each fund runs **two complementary strategy books on two 
 
 Each fund's individual books are also catalogued under their trading-edge archetype below.
 
+## 🎯 Thesis Funds — bet your view
+
+Pick *what you believe will happen*; the fund trades the long/short basket that expresses it. **One engine** ([thesis-fund](thesis-fund/)) drives all of these — each is a `THESIS` preset (a variant of the same skill). It only **presses** a position when the market is *confirming* the thesis, and de-risks via the DSL when it isn't — disciplined conviction, not a hope trade. One wallet per thesis.
+
+| Thesis (preset) | The bet | Expression |
+|---|---|---|
+| 🐻 Risk-Off | Bet against the Trump economy | long gold/metals · short US indices + BTC |
+| 🐂 U.S. Recovery | Risk-on rebound | long US indices + BTC · short gold |
+| 🛢️ War Escalation | Iran/US/Israel quagmire deepens | long oil + gold · short equities + BTC |
+| 🕊️ War Recovery | De-escalation | short oil + gold · long equities + BTC |
+| ⚡ HYPE vs. Market | HYPE keeps outrunning the majors | long HYPE · short BTC/ETH/SOL |
+| 🥇 Gold over Bitcoin | Real gold beats digital gold | long gold · short BTC |
+| 🟠 Bitcoin over Gold | Digital gold wins | long BTC · short gold |
+
+Add a new bet by editing [`thesis-fund/config/thesis-presets.json`](thesis-fund/config/thesis-presets.json) — no code change.
+
 ## 🎯 Onboarding tier — new to Senpi? Start here.
 
 Thirteen v1.0 strategies designed for first-time operators. Most share the same scaffold: **helpers-native producer + Smart-Money direction gate via `leaderboard_get_markets` + DSL Phase 1 floor + Phase 2 ratchet ladder + race-window dedup**, with simple scoring and runtime-owned exits. A few deliberately break that mold — **Sheep** is long-only triple-EMA-stack (no shorts), and **Tortoise** has no scoring at all (DCA cadence is the signal).
