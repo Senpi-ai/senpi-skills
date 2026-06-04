@@ -47,8 +47,8 @@ risk:
   data_retention_hours: 168       # 7d — match the max hold horizon
   guard_rails:
     daily_loss_limit_pct: 15      # source tolerates drawdowns on conviction
-    max_entries_per_day: 4        # multi-day holds → few new entries/day
-    bypass_max_entries_per_day_on_profit: false
+    max_entries_per_day: 12       # don't throttle the winning style by trade COUNT — the loss-based gates (daily_loss_limit + drawdown_halt) are the real circuit breakers. A let-winners-run leg needs many shots at the next big winner; a 4/day cap blocked MRVL/CBRS after 3 quick DSL-cut losers used the budget.
+    bypass_max_entries_per_day_on_profit: true   # when the leg is green, never block a new qualifying entry
     max_consecutive_losses: 4
     cooldown_minutes: 90
     drawdown_halt_pct: 25

@@ -110,7 +110,7 @@ alignment to clear the floor.
 - slots **3**, `margin_pct` **28%** (3 × 28 = 84% max committed), tick **300s**
 - conviction leverage clamped **10x**, then to each asset's venue max
 - DSL **wide let-winners-run**: phase1 max_loss **22%** / retrace 12 / 1 breach; **all time-cuts OFF**; `hard_timeout` **7d** staleness backstop; phase2 ladder `15%→lock0 / 30%→45 / 60%→68 / 100%→80 / 150%→90`
-- low turnover: `max_entries_per_day` **4**, `per_asset_cooldown` **4h**
+- low turnover: `max_entries_per_day` **12** (raised from 4 — don't throttle the winning style by trade count; the loss-based gates own risk), `per_asset_cooldown` **4h**, `bypass_max_entries_per_day_on_profit` **true**
 
 ---
 
@@ -141,8 +141,8 @@ a ripping uptrend — it only fires on genuine intraday extremes.
 
 - slots **4**, `margin_pct` **15%** (small scalp size), tick **60s**
 - **strict 5x** leverage clamp (the style's defining discipline), then venue max
-- DSL **tight fast-capture**: phase1 max_loss **7%** / retrace 4 / 1 breach; `weak_peak_cut` **ON** (30m @ 1.5), `dead_weight_cut` **ON** (25m), `hard_timeout` **2h**; phase2 ladder `3%→lock35 / 6%→55 / 12%→70 / 25%→85`
-- **HIGH turnover**: `max_entries_per_day` **30** — *fee-sensitive*; lower it if net-of-fees underperforms
+- DSL **tight fast-capture**: phase1 max_loss **5%** (tightened from 7% to lose less) / retrace 3 / 1 breach; `weak_peak_cut` **ON** (30m @ 1.5), `dead_weight_cut` **ON** (25m), `hard_timeout` **2h**; phase2 ladder `3%→lock35 / 6%→55 / 12%→70 / 25%→85`
+- **turnover**: `max_entries_per_day` **18** (trimmed from 30) — *fee-sensitive*; lower further if net-of-fees underperforms
 
 ---
 
@@ -182,7 +182,7 @@ filtering (`get_positions`) is the safety floor underneath.
 | Gate | swing | scalp |
 |---|---|---|
 | daily_loss_limit_pct | 15 | 10 |
-| max_entries_per_day | 4 | 30 (fee-sensitive) |
+| max_entries_per_day | 12 (bypass-on-profit) | 18 (fee-sensitive) |
 | max_consecutive_losses | 4 | 5 |
 | cooldown_minutes | 90 | 30 |
 | drawdown_halt_pct | 25 | 20 |
