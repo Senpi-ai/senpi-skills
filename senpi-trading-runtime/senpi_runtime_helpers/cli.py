@@ -25,6 +25,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from . import install as _install
 from . import manage as _manage
 from . import state as _state
 from . import stats as _stats
@@ -1694,6 +1695,46 @@ def cmd_health(args: argparse.Namespace) -> int:
     return HEALTH_OK if payload["health"] == _HEALTH_HEALTHY else HEALTH_UNHEALTHY
 
 
+# ─── install / uninstall ────────────────────────────────────────────────────
+
+INSTALL_OK = 0
+INSTALL_FAILED = 1
+INSTALL_NOT_FOUND = 2
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    pkg = args.package
+    if not os.path.isfile(os.path.join(pkg, "strategy.yaml")):
+        sys.stderr.write(f"no strategy.yaml in package dir: {pkg}\n")
+        return INSTALL_NOT_FOUND
+    report = _install.install_strategy(
+        pkg,
+        budget=args.budget,
+        wallets=args.wallet or None,
+        decision_model=args.decision_model,
+        telegram_chat_id=args.telegram_chat_id,
+        reinstall=args.reinstall,
+        dry_run=args.dry_run,
+        log=lambda m: sys.stderr.write(m + "\n"),
+    )
+    print(json.dumps(report, indent=2))
+    if args.dry_run:
+        return INSTALL_OK
+    return INSTALL_OK if report.get("status") == "live" else INSTALL_FAILED
+
+
+def cmd_uninstall(args: argparse.Namespace) -> int:
+    report = _install.uninstall_strategy(
+        args.package,
+        instance=args.instance,
+        log=lambda m: sys.stderr.write(m + "\n"),
+    )
+    print(json.dumps(report, indent=2))
+    if report.get("status") == "not_found":
+        return INSTALL_NOT_FOUND
+    return INSTALL_OK if report.get("status") == "ok" else INSTALL_FAILED
+
+
 # ─── Parser ─────────────────────────────────────────────────────────────────
 
 
@@ -1925,6 +1966,49 @@ def _make_parser() -> argparse.ArgumentParser:
     )
     restart_p.add_argument("--json", action="store_true", help="Emit JSON instead of a summary.")
     restart_p.set_defaults(func=cmd_restart)
+
+    # install
+    install_p = sub.add_parser(
+        "install",
+        help="Deploy a strategy package onto ready wallet(s) (runtime + scanner daemon).",
+        description=(
+            "Deploy a strategy PACKAGE (scanner.py + runtime.yaml(s) + strategy.yaml) onto "
+            "wallet addresses YOU ALREADY CREATED. For each instance: render + create the "
+            "runtime, launch the scanner daemon, verify liveness. This CLI does NOT create "
+            "or fund wallets — create them first via MCP strategy_create_custom_strategy "
+            "(skillName/skillVersion, initialBudget>=100 per wallet), wait until ACTIVE, then "
+            "pass the addresses with --wallet. Use --dry-run to print the plan."
+        ),
+    )
+    install_p.add_argument("package", help="Path to the strategy package directory.")
+    install_p.add_argument("--budget", type=float, default=None,
+                           help="Optional. Total USDC, for dry-run budget-split display only; the CLI does not create wallets.")
+    install_p.add_argument("--wallet", action="append", default=[],
+                           help="A ready strategy-wallet address, or name=ADDR per instance (repeatable for multi-instance). Required for a real install ('new' is rejected — create wallets via MCP first).")
+    install_p.add_argument("--decision-model", dest="decision_model", default=None,
+                           help="Bare model name for the runtime LLM gate (NO provider prefix).")
+    install_p.add_argument("--telegram-chat-id", dest="telegram_chat_id", default=None)
+    install_p.add_argument("--reinstall", action="store_true",
+                           help="Delete-then-recreate the runtime in place (same wallet).")
+    install_p.add_argument("--dry-run", action="store_true", dest="dry_run",
+                           help="Print the deploy plan; make no changes.")
+    install_p.add_argument("--json", action="store_true", help="(the report is always JSON)")
+    install_p.set_defaults(func=cmd_install)
+
+    # uninstall
+    uninstall_p = sub.add_parser(
+        "uninstall",
+        help="Uninstall a deployed strategy (stop daemon + delete runtime).",
+        description=(
+            "Tear down a deployed strategy from the PACKAGE + live state (ledger-free): per "
+            "instance, stop the scanner daemon (found by scanner name among running daemons) and "
+            "delete the runtime (id = the runtime.yaml top-level name)."
+        ),
+    )
+    uninstall_p.add_argument("package", help="Strategy PACKAGE directory (containing strategy.yaml).")
+    uninstall_p.add_argument("--instance", default=None, help="Only this instance (default: all).")
+    uninstall_p.add_argument("--json", action="store_true")
+    uninstall_p.set_defaults(func=cmd_uninstall)
 
     return parser
 

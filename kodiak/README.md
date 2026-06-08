@@ -1,176 +1,236 @@
-# 🐻 KODIAK — SOL Alpha Hunter
+> **Install:** `install_strategy(id="kodiak", budget=<usd>, wallet="new")`. This is a strategy *package* (`scanner.py` + `runtime.yaml` + `strategy.yaml`), not a skill.
 
-Single-asset alpha hunter for SOL. Multi-factor scoring (SM consensus + trend structure + momentum + funding + OI + BTC correlation + RSI) with conviction-tiered leverage.
+# 🐻 KODIAK v7.0.0 — SOL Alpha Hunter
 
-Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+One asset. Every signal. Scanner enters. DSL exits.
 
-## Thesis
+---
 
-Kodiak hunts SOL directional moves where multi-factor confluence is unambiguous. Entry requires base-tech-score floor v5.1 thresholds: 15-min momentum ≥ 0.1%, 4h trend strength ≥ 0.75 (4 of 5 higher-lows / lower-highs), RSI not extreme (LONG max 72, SHORT min 28), and a composite score ≥ 10 from Smart Money consensus, trend structure, momentum, funding, OI, BTC correlation, and RSI.
+## ⛔ CRITICAL AGENT RULES
 
-Kodiak is the founding member of the Kodiak family — its SOL thesis was ported to BTC (Grizzly), ETH (Polar), HYPE (Wolverine), and BRENTOIL (Dire). Leverage is conviction-tiered (5x standard / 6x conviction / 7x apex) so size scales with score. A 4h per-asset cooldown after each emit prevents re-firing on the same setup, and exits are owned by the DSL — no Python execution code is in the producer.
+### RULE 1: Install path is `/data/workspace/skills/kodiak-strategy/`
 
-## Key parameters
+### RULE 2: THE SCANNER DOES NOT EXIT POSITIONS
 
-| Parameter | Value |
+When the scanner sees an active SOL position, it outputs NO_REPLY. DSL is the
+ONLY exit mechanism. v1.1.1 had a thesis exit that chopped positions before
+DSL could trail them. v2.0 removes it entirely.
+
+### RULE 3: MAX 1 POSITION — SOL only
+
+### RULE 4: Scanner output is AUTHORITATIVE
+
+### RULE 5: Verify runtime is installed on every session start
+
+Run `openclaw senpi runtime list`. Runtime must be listed. The position tracker and DSL exit are handled by the plugin runtime.
+
+### RULE 6: Never modify parameters. Never increase leverage above 7x.
+
+### RULE 7: 120-minute cooldown after consecutive losses
+
+---
+
+## What Changed From v1.1.1
+
+| v1.1.1 | v2.0 |
 |---|---|
-| Asset universe | SOL (single-asset) |
-| Tick interval | 180s |
-| MIN_SCORE | 10 |
-| MIN_MOM_15M_PCT | 0.1% |
-| MIN_TREND_STRENGTH_4H | 0.75 |
-| RSI_LONG_MAX / RSI_SHORT_MIN | 72 / 28 |
-| Leverage tiers | 5x (score 10) / 6x (11-12) / 7x apex (13+) |
-| Max positions | 1 |
-| Per-asset cooldown | 240 min (4h) |
-| Margin per trade | 20% of account value |
-| Entry order type | FEE_OPTIMIZED_LIMIT |
-| Exit order type | FEE_OPTIMIZED_LIMIT |
+| Thesis exit active in RIDING mode | **Removed** — DSL manages all exits |
+| DSL state missing wallet + size | **All fields included** |
+| Leverage 10-12x | **Capped at 7x** |
+| Retrace 0.03 (3% ROE = 0.3% price at 10x) | **0.08 (8% ROE = 1.14% price at 7x)** |
+| `strategy_id` discarded in run() | **Captured and passed to DSL builder** |
+| SOL SHORT ran 13h unprotected | **Every position protected from second 1** |
 
-## Scanner pattern
+---
 
-This strategy uses the **Single-asset alpha hunter (Kodiak family)** scanner pattern — see `senpi-trading-runtime/references/producer-patterns.md` for the canonical reference. Primary MCP call: `market_get_asset_data` for SOL.
+## v1.1.1 Proof of Concept
+
+Kodiak's best trade: SOL SHORT, entry $90.36, DSL trailed to Tier 4 (+44% ROE),
+exit at $85.86, realized **+$134** profit. The scanner found the setup. DSL
+managed the exit perfectly — locked 85% of peak, gave back only $3 from top.
+
+The problem: DSL was manually patched onto this trade 13 hours after entry
+because the state file was missing wallet fields. v2.0 fixes this permanently.
+
+---
+
+## The Three-Mode Lifecycle
+
+### MODE 1 — HUNTING (default)
+
+Scan SOL every 3 minutes. All signals must align (4h trend, 1h momentum, SM,
+funding, OI, volume). Score 10+ to enter. When a position opens, switch to MODE 2.
+
+### MODE 2 — RIDING
+
+Active position. **DSL manages the exit via the plugin runtime. Scanner outputs NO_REPLY.**
+The scanner does NOT re-evaluate the thesis. It does NOT close positions.
+The plugin DSL trails the position through Phase 1 protection and Phase 2
+trailing tiers. When DSL closes the position → switch to MODE 3.
+
+### MODE 3 — STALKING
+
+DSL locked profits. Watch for a reload opportunity. ALL reload conditions
+must pass: fresh momentum impulse, OI stable, volume present, funding not
+crowded, SM still aligned, 4h trend intact.
+
+If reload fires → re-enter same direction, switch to MODE 2.
+If kill conditions trigger → reset to MODE 1.
+
+---
+
+## Cron Setup
+
+Scanner (3 min, main):
+```
+python3 /data/workspace/skills/kodiak-strategy/scripts/kodiak-scanner.py
+```
+
+---
+
+## How KODIAK Trades
+
+### Entry (score >= 10 required)
+
+Every 3 minutes, the scanner evaluates SOL across all signal sources:
+
+| Signal | Points | Required? |
+|---|---|---|
+| 4h trend structure (higher lows / lower highs) | 3 | **Yes** |
+| 1h trend agrees with 4h | 2 | **Yes** |
+| 15m momentum confirms direction | 0-1 | **Yes** |
+| 5m alignment (all 4 timeframes agree) | 1 | No |
+| SM aligned with direction | 2-3 | **Hard block if opposing** |
+| Funding pays to hold the direction | 2 | No |
+| Volume above average | 1-2 | No |
+| OI growing | 1 | No |
+| BTC confirms move | 1 | No |
+| RSI has room | 1 | No (blocks overbought/oversold) |
+| 4h momentum strength | 1 | No |
+
+Maximum score: ~18. Minimum to enter: 10.
+
+### Conviction-Scaled Leverage
+
+| Score | Leverage |
+|---|---|
+| 10-11 | 7x |
+| 12+ | 7x |
+
+### Conviction-Scaled Margin
+
+| Score | Margin |
+|---|---|
+| 10-11 | 20% of account |
+| 12-13 | 25% |
+| 14+ | 30% |
+
+## Exit Management
+
+DSL exit is handled by the plugin runtime via `runtime.yaml`. The `position_tracker` scanner auto-detects position opens/closes on-chain. See `runtime.yaml` for configuration details.
+
+**Monitor positions:**
+- `openclaw senpi dsl positions` — list all DSL-tracked positions
+- `openclaw senpi dsl inspect <ASSET>` — full position details
+
+## Why SOL-Only at 7x Leverage
+
+---
+
+## Risk
+
+| Rule | Value |
+|---|---|
+| Max positions | 1 (SOL only) |
+| Max leverage | 7x |
+| Phase 1 retrace | 0.08 |
+| Daily loss limit | 10% |
+| Cooldown | 120 min after 3 consecutive losses |
+
+---
+
+## Runtime Setup
+
+**Step 1:** Set your strategy wallet address in runtime.yaml:
+```bash
+sed -i 's/${WALLET_ADDRESS}/<STRATEGY_WALLET_ADDRESS>/' /data/workspace/skills/kodiak-strategy/runtime.yaml
+```
+Replace `<STRATEGY_WALLET_ADDRESS>` with the actual wallet address.
+
+**Step 2:** Set telegram chat ID for notifications:
+```bash
+sed -i 's/${TELEGRAM_CHAT_ID}/<CHAT_ID>/' /data/workspace/skills/kodiak-strategy/runtime.yaml
+```
+Replace `<CHAT_ID>` with the actual Telegram chat ID.
+
+**Step 3:** Install the runtime:
+```bash
+openclaw senpi runtime create --path /data/workspace/skills/kodiak-strategy/runtime.yaml
+```
+
+**Step 4:** Verify:
+```bash
+openclaw senpi runtime list
+```
+
+---
+
+## Bootstrap Gate
+
+On EVERY session start, check `config/bootstrap-complete.json`. If missing:
+1. Read the `senpi-trading-runtime` skill — it provides all CLI commands for runtime management and DSL position inspection.
+2. Verify Senpi MCP
+3. Set wallet in runtime.yaml: `sed -i 's/${WALLET_ADDRESS}/ACTUAL_ADDRESS/' /data/workspace/skills/kodiak-strategy/runtime.yaml`
+4. Set Telegram in runtime.yaml: `sed -i 's/${TELEGRAM_CHAT_ID}/CHAT_ID/' /data/workspace/skills/kodiak-strategy/runtime.yaml`
+5. Install runtime: `openclaw senpi runtime create --path /data/workspace/skills/kodiak-strategy/runtime.yaml`
+6. Verify runtime installed: `openclaw senpi runtime list`
+7. Remove old DSL cron (if upgrading): run `openclaw crons list`, delete any cron containing `dsl-v5.py` via `openclaw crons delete <id>`
+8. Create scanner cron (3 min, isolated)
+9. Write `config/bootstrap-complete.json`
+10. Send: "KODIAK is online. Watching SOL. DSL managed by plugin runtime. Silence = no conviction."
+
+If bootstrap exists, still verify runtime and scanner cron on every session start.
+
+---
+
+## Notification Policy
+
+**ONLY alert:** Position OPENED (direction, leverage, score, reasons), position CLOSED (DSL exit with P&L), risk guardian triggered, critical error.
+**NEVER alert:** Scanner found no thesis, thesis re-eval passed, any reasoning.
+
+---
+
+## Expected Behavior
+
+| Metric | Expected |
+|---|---|
+| Trades/day | 1-3 |
+| Avg hold time | 1-12 hours |
+| Win rate | ~45-55% |
+| Avg winner | 20-50%+ ROE |
+| Avg loser | -20 to -40% ROE |
+
+---
 
 ## Files
 
 | File | Purpose |
 |---|---|
-| `runtime.yaml` | Runtime spec (external_scanner, risk guard rails, DSL) |
-| `scripts/kodiak-producer.py` | Long-lived daemon emitting SOL entry signals |
-| `scripts/kodiak_config.py` | SDK probe + SenpiClient wrapper |
-| `config/kodiak-config.json` | Operator-tunable defaults |
+| `scripts/kodiak-scanner.py` | SOL thesis builder + stalk/reload |
+| `scripts/kodiak_config.py` | Config helper (MCP, state, cooldowns) |
+| `config/kodiak-config.json` | Wallet, strategy ID, configurable variables |
+| `runtime.yaml` | Runtime config for plugin (DSL exit + position tracker) |
 
-## Install
-
-### Step 0 — Register the runtime plugin in `openclaw.json` (one-time per host)
-
-The senpi-trading-runtime plugin won't bind its API port (`127.0.0.1:8787`) unless `plugins.entries.runtime` is present in `/data/.openclaw/openclaw.json`. Without that block the plugin logs `No plugin config found — skipping registration` and the producer daemon's `signal_post` calls fail with `[Errno 111] Connection refused`. Confirm or add:
-
-```json
-{
-  "plugins": {
-    "entries": {
-      "runtime": {
-        "enabled": true,
-        "config": {
-          "stateDir": "/data/.openclaw/senpi-state",
-          "apiKey": "<your SENPI_AUTH_TOKEN>",
-          "autoUpdate": { "enabled": false }
-        }
-      }
-    }
-  }
-}
-```
-
-Restart the gateway after editing so the plugin re-registers:
-
-```bash
-openclaw gateway restart
-sleep 10
-curl -s -m 5 http://127.0.0.1:8787/state | head -c 200
-# Expected: a JSON response with "success":true,"data":{"runtimes":[...]}
-```
-
-If `curl` returns Connection refused, the plugin still isn't registered — check `openclaw plugin list` shows the runtime entry as loaded and re-verify the JSON.
-
-### Step 1 — Install the senpi-trading-runtime skill (one-time per host)
-
-The Python Producer SDK (`senpi_runtime_helpers`) ships inside the senpi-trading-runtime skill. Install it once per host:
-
-```bash
-npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
-```
-
-Skip if the senpi-trading-runtime skill is already installed on this host.
-
-### Step 2 — Pull Kodiak
-
-```bash
-mkdir -p /data/workspace/skills/kodiak-strategy/{config,scripts,state,references}
-
-for f in scripts/kodiak-producer.py scripts/kodiak_config.py \
-         SKILL.md README.md references/skill-attribution.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/kodiak/$f" \
-    -o "/data/workspace/skills/kodiak-strategy/$f"
-done
-```
-
-### Step 3 — Required env vars
-
-```bash
-export KODIAK_WALLET=<your-kodiak-wallet>       # NOT STRATEGY_ADDRESS
-export SENPI_AUTH_TOKEN=...
-export KODIAK_DECISION_MODEL=<your-preferred-model>   # bare model name
-```
-
-Optional (sensible defaults):
-
-| Env var | Default |
-|---|---|
-| `SENPI_MCP_URL` | `https://mcp.prod.senpi.ai/mcp` |
-| `SENPI_RUNTIME_API_HOST` | `127.0.0.1` |
-| `SENPI_RUNTIME_API_PORT` | `8787` |
-| `OPENCLAW_WORKSPACE` | `/data/workspace` |
-| `KODIAK_MARGIN_PCT` | `0.20` |
-
-### Step 4 — Start the daemon
-
-```bash
-# Stop any prior cron
-openclaw cron list | grep kodiak
-openclaw cron delete <kodiak-cron-id>
-```
-
-Start the daemon (long-lived process, no cron):
-
-```bash
-# Option A — supervised by tini:
-exec tini -- python3 -u /data/workspace/skills/kodiak-strategy/scripts/kodiak-producer.py
-
-# Option B — nohup:
-nohup python3 -u /data/workspace/skills/kodiak-strategy/scripts/kodiak-producer.py \
-  > /tmp/kodiak-producer.log 2>&1 &
-```
-
-## Verification
-
-```bash
-tail -f /tmp/kodiak-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
-```
-
-Expected: every line shows `status=ok`. Kodiak's tick interval is 180s (3 min) so the first tick fires shortly after startup.
-
-| Status | Meaning | What to do |
-|---|---|---|
-| `ok` | Tick succeeded | Healthy |
-| `skipped_locked` | Lock collision | Confirm no inner `scanner_lock` was added |
-| `error` | `fn` raised | Read the `error` field |
-| `timeout` | `fn` took > 240s | Check MCP latency |
-
-`daemon_self_terminated_no_runtime` is normal when the runtime is deleted.
-
-## What NOT to do
-
-- Do NOT add an openclaw cron — the daemon supervises itself
-- Do NOT set `STRATEGY_ADDRESS` env var — banned per v2.0.9
-- Do NOT delete the runtime — orphan-position bug applies if positions are open
-
-## Changelog
-
-### v7.0.0 — `senpi_runtime_helpers` migration
-
-Plumbing-only migration. NO thesis change. v6.0.1's scoring tables, leverage tiers, asset cooldown, base-tech-score floor all preserved verbatim.
-
-- `kodiak-producer.py` and `kodiak_config.py` migrate to `senpi_runtime_helpers`:
-  - MCP calls go via `SenpiClient.mcp_call()` (direct HTTPS) instead of `mcporter` subprocess
-  - Signal emission goes via `SenpiClient.push_signal()` (direct HTTP POST)
-  - Reentrancy lock owned by `producer_daemon.scanner_lock` (PID-aliveness auto-recovery) instead of hand-rolled `fcntl`
-  - Tick scheduling owned by `producer_daemon` (long-lived process) instead of openclaw cron + `agentTurn`
-- Requires the `senpi-trading-runtime` skill (preinstalled on the OpenClaw host).
-- `runtime.yaml` unchanged. `external_scanner.name: kodiak_signals` matches the producer's `client.push_signal(scanner=...)`.
-- Dead fields stripped from `build_signal_payload`; `signal_type="KODIAK_SOL_THESIS"` passed explicitly to `push_signal()` so audit logs + LLM decision context stay correctly tagged (avoids relying on the runtime YAML's `defaultSignalType` fallback).
+---
 
 ## License
 
-MIT — Copyright 2026 Senpi (https://senpi.ai)
+MIT — Built by Senpi (https://senpi.ai).
+Source: https://github.com/Senpi-ai/senpi-skills
+
+
+---
+
+## Skill Attribution
+
+When creating a strategy, include `skill_name` and `skill_version` in the call. See `references/skill-attribution.md` for details.

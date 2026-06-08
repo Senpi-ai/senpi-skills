@@ -58,7 +58,7 @@ description: >
       are read-only — only producer cron + DSL engine are write paths)
 
 strategy:
-  wallet: "${WALLET_ADDRESS}"
+  wallet: "${POLAR_WALLET_ADDRESS}"
   slots: 1
   margin_pct: 50        # % of account budget per slot (scales with any budget)
   trading_risk: moderate

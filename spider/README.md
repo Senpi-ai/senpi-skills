@@ -1,95 +1,172 @@
+> **Install:** `install_strategy(id="spider", budget=<usd>, wallet="new")` — provisions 2 instances (swing/scalp), splits the budget, launches both. This is a strategy *package* (`scanner.py` + `runtime-*.yaml` + `strategy.yaml`), not a skill.
+
 # 🕷️ SPIDER v5.0 — Two-Persona Style Hunter
 
-Two autonomous style legs on two wallets, served by **one** producer script.
-**Not a copy-trader** — each leg scores its own universe to a *style* and
-pushes signals; the runtime owns the LLM gate (pass-through), DSL exits, and
-all `risk.guard_rails`.
+Spider runs **two concurrent strategy wallets**, each a distinct trading
+style. **One producer script** (`spider-producer.py`) serves both; the
+`SPIDER_LEG` env var selects which leg a given daemon is. Each leg binds
+to its own wallet, runtime YAML, DSL, and risk envelope.
 
-Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
+> **Not a copy-trader.** Earlier Spider versions chased other traders'
+> books. v5.0 hunts the **style**: each leg scores its own universe with
+> its own technicals and emits its own signals. The runtime LLM gate is
+> pass-through; the runtime owns execution + DSL + risk.
 
 | Leg | Style | Wallet env | Runtime | Scanner |
 |---|---|---|---|---|
-| `swing` | Tech & AI multi-day momentum, **LONG only** | `SPIDER_SWING_WALLET` | `runtime-swing.yaml` | `spider_swing_signals` |
-| `scalp` | Macro & majors fast mean-reversion, **BOTH dirs** | `SPIDER_SCALP_WALLET` | `runtime-scalp.yaml` | `spider_scalp_signals` |
+| `swing` | Tech & AI multi-day momentum, LONG only | `SPIDER_SWING_WALLET` | `runtime-swing.yaml` | `spider_swing_signals` |
+| `scalp` | Macro & majors fast mean-reversion, BOTH dirs | `SPIDER_SCALP_WALLET` | `runtime-scalp.yaml` | `spider_scalp_signals` |
 
-The `SPIDER_LEG` env var (`swing` | `scalp`) selects which leg a given daemon
-is. Each leg binds to its own wallet, runtime YAML, DSL, and risk envelope.
-See [SKILL.md](SKILL.md) for the full thesis, scoring tables, and risk gates.
+## What changed from v4.0
 
-## Thesis
+v4.0 was a single-leg "patient anchor sniper" — one 7-day LONG scored on
+arena-leader alignment + SM consensus. v5.0 is a full thesis
+**replacement**: two style legs, multi-signal baskets, both directions on
+the scalp leg, and a leg-parameterized producer. The old single-leg
+`runtime.yaml` / `spider-config.json` are removed.
 
-**SWING — Tech & AI multi-day momentum.** Multi-day trend rider on a
-**dynamic** universe: static crypto alts (`SUI/ONDO/HYPE/NIL/GRASS/ZEC`)
-plus an XYZ-equity pool rebuilt each tick from the live instrument board — a
-curated tech/AI/space include-set (`NVDA AMD MRVL MU TSM ASML ARM CRWV PLTR
-COIN SPCX RKLB CBRS …`) **plus auto-caught freshly listed Pre-IPO
-Perpetuals / AI IPOs** (the edge behind Spider's CBRS/Cerebras win). LONG
-only, scored on 4h+1h trend structure + 24h relative strength. Conviction
-leverage clamped 10x. Wide *let-winners-run* DSL — sits through drawdowns
-while the multi-timeframe trend holds.
+**v5.1** made the swing XYZ-equity universe **dynamic**: instead of a fixed
+`allowedAssets` list, the leg rebuilds its equity pool each tick from the
+live instrument board and **auto-catches freshly listed Pre-IPO Perpetuals
+/ AI IPOs** (the edge behind Spider's CBRS/Cerebras win — a name that did
+not exist as a tradeable ticker when a static list would have been written).
+The scalp universe stays static (majors + energy). See the SWING universe
+section above.
 
-**SCALP — Macro & majors fast mean-reversion.** Fades short-timeframe stretch
-and rides the snap-back across majors (`BTC/ETH/SOL/HYPE`) + energy
-(`xyz:BRENTOIL/xyz:CL`). BOTH directions (long-biased), strict 5x, minutes-to-
-hour holds, tight *fast-capture* DSL with `dead_weight_cut` + `weak_peak_cut`
-ON. **Fee-sensitive** — high turnover.
+---
 
-## Key parameters
+## SWING leg — Tech & AI multi-day momentum (LONG only)
 
-| Parameter | swing | scalp |
+Multi-day trend rider. Holds a small basket of the strongest names in a
+semiconductor/AI + high-beta-alt universe, sits through drawdowns while
+the multi-timeframe trend holds.
+
+**Universe** (`config/spider-swing-config.json`) — **dynamic**, rebuilt
+every tick by `build_universe()`:
+
+- **Static crypto alts** (`cryptoAlts`): `SUI / ONDO / HYPE / NIL / GRASS / ZEC`.
+- **Dynamic XYZ equities**: derived from the live `market_list_instruments`
+  board (the same call already made for venue-leverage caps — zero extra
+  cost). An XYZ name is eligible if it is **liquid** (`dayNtlVlm ≥
+  xyzVolFloorUsd`, default $5M) **and** either (a) its bare ticker is in the
+  curated tech/AI/space **`xyzIncludeSet`** (`NVDA AMD INTC MRVL MU TSM ASML
+  ARM SMSN SKHX DRAM SNDK DELL LITE CRWV PLTR ORCL GOOGL META MSFT AMZN AAPL
+  NFLX IBM COIN MSTR CRCL HOOD SPCX RKLB CBRS`), or (b) it was **first seen <
+  `xyzFreshDays`** (default 21d) ago **and** is **not** in the commodity/FX/
+  index **`xyzExcludeSet`**. Branch (b) auto-catches new **Pre-IPO
+  Perpetuals / AI IPOs** (Spider's CBRS/Cerebras and SPCX/SpaceX wins) with
+  no code edit. Qualifiers are capped to the top **`xyzMaxNames`** (default
+  20) by 24h volume to bound per-tick candle fetches; the score gate below
+  does the final quality filtering.
+
+First-seen timestamps live in `state/xyz-first-seen-swing.json`. On first
+run every current name is back-dated as already-old, so the auto-catch fires
+only on names that appear **after** deploy. A freshly listed perp needs ~24h
+of candles (≥6 4h bars) before it can score. If the instrument board is
+unavailable, the leg falls back to a static `allowedAssets` list.
+
+### Scoring (raw integer; `minScore` 5)
+
+| Component | Pts | Source |
 |---|---|---|
-| Direction | LONG only | LONG + SHORT |
-| Tick interval | 300s | 60s |
-| `minScore` (raw) | 5 | 4 |
-| Max slots | 3 | 4 |
-| Margin per slot | 28% | 15% |
-| Leverage cap | 10x → venue max | 5x → venue max |
-| `max_entries_per_day` | 4 | 30 (fee-sensitive) |
-| `per_asset_cooldown` | 4h | 10m |
-| `daily_loss_limit_pct` | 15 | 10 |
-| `drawdown_halt_pct` | 25 | 20 |
-| DSL phase1 max_loss | 22% | 7% |
-| DSL `hard_timeout` | 7d (staleness) | 2h |
-| Time cuts | all OFF | weak_peak + dead_weight ON |
-| Entry / exit order | FEE_OPTIMIZED_LIMIT | FEE_OPTIMIZED_LIMIT |
+| 4h trend structure | +3 BULLISH / −4 BEARISH | `market_get_asset_data` 4h candles |
+| 1h trend confirmation | +2 BULLISH / −1 BEARISH | 1h candles |
+| 24h relative-strength proxy | +3 (≥8%) / +2 (≥4%) / +1 (≥1%) / −1 (<0) | `markPx` vs `prevDayPx` |
+| RSI room | +1 (<50) / −2 (> `rsiMaxLong` 78) | 1h RSI |
+| Funding | +1 (negative) / −1 (crowded long) | instrument context |
+| SM consensus bonus | +2 LONG / −2 SHORT | `leaderboard_get_markets` (alts only; XYZ has none) |
 
-## Leverage clamping
+Direction is always LONG — a bearish 4h structure drives the score below
+`minScore`, so the leg simply waits. Requires 4h **and** 1h bullish
+alignment to clear the floor.
 
-Desired leverage = the leg cap (`swingMaxLeverage` 10 / `scalpMaxLeverage` 5).
-The producer then clamps to each asset's **Hyperliquid venue max**, read from
-`market_list_instruments` → `instruments[].max_leverage` (one call per tick).
-This prevents emitting an unfillable order — e.g. `GRASS` and `NIL` cap at
-**3x**, so a swing 10x desire is clamped to 3x for those names. The runtime
-decision gate also rejects any leverage above the leg cap (clamp-breach
-defense).
+### Execution & exit
 
-## Dynamic swing universe (auto-catching new AI IPOs)
+- slots **3**, `margin_pct` **28%** (3 × 28 = 84% max committed), tick **300s**
+- conviction leverage clamped **10x**, then to each asset's venue max
+- DSL **wide let-winners-run**: phase1 max_loss **22%** / retrace 12 / 1 breach; **all time-cuts OFF**; `hard_timeout` **7d** staleness backstop; phase2 ladder `15%→lock0 / 30%→45 / 60%→68 / 100%→80 / 150%→90`
+- low turnover: `max_entries_per_day` **4**, `per_asset_cooldown` **4h**
 
-The swing leg does **not** trade a fixed ticker list. Each tick it rebuilds
-its XYZ-equity pool from the live `market_list_instruments` board (the same
-call already made for leverage caps — no extra cost). A name is eligible if
-it is liquid (`dayNtlVlm ≥ xyzVolFloorUsd`) **and** either:
+---
 
-1. its bare ticker is in the curated tech/AI/space **`xyzIncludeSet`**, or
-2. it was **first seen < `xyzFreshDays` ago** and is **not** in the
-   commodity/FX/index **`xyzExcludeSet`** — this branch auto-catches new
-   **Pre-IPO Perpetuals / AI IPOs** (Spider's CBRS/Cerebras and SPCX/SpaceX
-   wins) with no code edit.
+## SCALP leg — Macro & majors fast mean-reversion (BOTH directions)
 
-Qualifiers are capped to the top **`xyzMaxNames`** by 24h volume. First-seen
-timestamps persist in `state/xyz-first-seen-swing.json`; on first run all
-current names are back-dated so the auto-catch only fires on names that list
-**after** deploy. A fresh perp needs ~24h of candles before it can score.
+Fades short-timeframe stretch and rides the snap-back. Long-biased but
+actively shorts when overbought. Strict 5x, minutes-to-hour holds, high
+win rate, small per-trade size.
 
-| Knob | Default | Meaning |
+**Universe** (`config/spider-scalp-config.json` → `allowedAssets`):
+majors `BTC / ETH / SOL / HYPE` + energy `xyz:BRENTOIL / xyz:CL`.
+
+### Scoring (raw integer; `minScore` 4)
+
+Picks the more-extreme side (oversold → LONG, overbought → SHORT), then:
+
+| Component | Pts |
+|---|---|
+| RSI extreme | +3 (≤20 / ≥80) / +2 (≤25 / ≥75) / +1 (≤ `rsiOversold` 30 / ≥ `rsiOverbought` 70) |
+| Stretch from 20-bar 15m MA | +2 (≥2× `stretchThresholdPct` 0.8%) / +1 (≥1×) |
+| 1h trend filter | +1 fading **with** higher-TF bias / −2 against a strong trend (knife guard) |
+| Funding tiebreak | +1 (shorts pay a LONG / longs pay a SHORT) |
+
+The −2 knife guard keeps the leg from longing a falling knife or shorting
+a ripping uptrend — it only fires on genuine intraday extremes.
+
+### Execution & exit
+
+- slots **4**, `margin_pct` **15%** (small scalp size), tick **60s**
+- **strict 5x** leverage clamp (the style's defining discipline), then venue max
+- DSL **tight fast-capture**: phase1 max_loss **7%** / retrace 4 / 1 breach; `weak_peak_cut` **ON** (30m @ 1.5), `dead_weight_cut` **ON** (25m), `hard_timeout` **2h**; phase2 ladder `3%→lock35 / 6%→55 / 12%→70 / 25%→85`
+- **HIGH turnover**: `max_entries_per_day` **30** — *fee-sensitive*; lower it if net-of-fees underperforms
+
+---
+
+## Leverage clamping (both legs)
+
+Desired leverage = the leg cap (`swingMaxLeverage` 10 / `scalpMaxLeverage`
+5). The producer then clamps to each asset's **Hyperliquid venue max**,
+read from `market_list_instruments` → `instruments[].max_leverage` (one
+call per tick, whole universe). This prevents emitting an unfillable
+order — e.g. `GRASS` and `NIL` cap at **3x**, so a swing 10x desire is
+clamped to 3x for those names. The runtime decision gate also rejects any
+leverage above the leg cap as a clamp-breach defense.
+
+## XYZ (HIP-3) asset handling
+
+XYZ equities/energy require `dex="xyz"` on `market_get_asset_data` (an
+empty dex errors with `Asset prefix "xyz" must match dex`). Main-DEX
+assets pass `dex=""`. The `main` and `xyz` sub-DEX sections are two
+VIEWS of ONE cross-margined wallet (not two collateral silos), so both
+report the same `accountValue`. `get_positions()` takes `accountValue`
+ONCE via `max()` across the two views — never sums it. Summing
+double-counts the balance and sizes every position 2x too large
+(`margin_usd = account_value * margin_pct`). `assetPositions` ARE
+per-sub-DEX, so those are enumerated across both. Candle fields are
+HL-native (`o/h/l/c/v`).
+
+## Race-window dedup
+
+Each `push_signal(coin)` is recorded in `state/recent-signals-<leg>.json`
+(per-leg). The producer skips any coin seen within 180s **before**
+scoring — covering the gap between a push returning OK and the position
+appearing in the next-tick clearinghouse pull. On-chain held-asset
+filtering (`get_positions`) is the safety floor underneath.
+
+## Risk gates (`risk.guard_rails`)
+
+| Gate | swing | scalp |
 |---|---|---|
-| `xyzVolFloorUsd` | 5,000,000 | min 24h notional volume to be eligible |
-| `xyzFreshDays` | 21 | new-listing auto-catch window |
-| `xyzMaxNames` | 20 | cap on XYZ names scored per tick |
-| `xyzIncludeSet` | curated tech/AI/space | always-eligible core |
-| `xyzExcludeSet` | commodities/FX/indices | hard guard against non-tech |
+| daily_loss_limit_pct | 15 | 10 |
+| max_entries_per_day | 4 | 30 (fee-sensitive) |
+| max_consecutive_losses | 4 | 5 |
+| cooldown_minutes | 90 | 30 |
+| drawdown_halt_pct | 25 | 20 |
+| per_asset_cooldown_minutes | 240 (4h) | 10 |
+| data_retention_hours | 168 (7d) | 72 |
+| drawdown_reset_on_day_rollover | **true** | false |
 
-The scalp universe stays static (majors + energy).
+Entries and exits both use `FEE_OPTIMIZED_LIMIT` (`ensure_execution_as_taker`
+true; swing 60s maker-first window, scalp 20s).
 
 ## Files
 
@@ -101,188 +178,24 @@ The scalp universe stays static (majors + energy).
 | `scripts/spider_config.py` | Leg resolution + SenpiClient wrapper + helpers |
 | `config/spider-swing-config.json` | Swing-leg tunables (dynamic-universe sets, floors) |
 | `config/spider-scalp-config.json` | Scalp-leg tunables |
-| `state/xyz-first-seen-swing.json` | Auto-generated first-seen ledger (fresh-listing detection) |
+| `state/xyz-first-seen-swing.json` | Auto-generated first-seen ledger for fresh-listing detection |
 
-## Install
+## Operator install
 
-The two legs are **two daemons on two wallets**, each with its own runtime
-YAML. Steps 0–2 are one-time per host; steps 3–4 are run once per leg.
+See [README.md](README.md) — the two legs are two daemons
+(`SPIDER_LEG=swing` and `SPIDER_LEG=scalp`) on two wallets, each with its
+own runtime YAML.
 
-### Step 0 — Register the runtime plugin in `openclaw.json` (one-time per host)
+## Hard rule for user-conversation Claude sessions
 
-The senpi-trading-runtime plugin won't bind its API port (`127.0.0.1:8787`)
-unless `plugins.entries.runtime` is present in `/data/.openclaw/openclaw.json`.
-Without it the plugin logs `No plugin config found — skipping registration`
-and producer `signal_post` calls fail with `[Errno 111] Connection refused`.
-Confirm or add:
+User-conversation Claude sessions MUST NOT call any of:
+`create_position`, `close_position`, `edit_position`,
+`ratchet_stop_add`, `ratchet_stop_edit`, `ratchet_stop_delete`,
+`cancel_order`, `strategy_close`, `strategy_close_positions`.
 
-```json
-{
-  "plugins": {
-    "entries": {
-      "runtime": {
-        "enabled": true,
-        "config": {
-          "stateDir": "/data/.openclaw/senpi-state",
-          "apiKey": "<your SENPI_AUTH_TOKEN>",
-          "autoUpdate": { "enabled": false }
-        }
-      }
-    }
-  }
-}
-```
-
-Restart the gateway after editing so the plugin re-registers:
-
-```bash
-openclaw gateway restart
-sleep 10
-curl -s -m 5 http://127.0.0.1:8787/state | head -c 200
-# Expected: a JSON response with "success":true,"data":{"runtimes":[...]}
-```
-
-### Step 1 — Install the senpi-trading-runtime skill (one-time per host)
-
-The Python Producer SDK (`senpi_runtime_helpers`) ships inside the
-senpi-trading-runtime skill. Install it once per host:
-
-```bash
-npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-runtime -g -y
-```
-
-### Step 2 — Pull Spider (both legs)
-
-```bash
-mkdir -p /data/workspace/skills/spider-strategy/{config,scripts,state,references}
-for f in scripts/spider-producer.py scripts/spider_config.py \
-         runtime-swing.yaml runtime-scalp.yaml \
-         config/spider-swing-config.json config/spider-scalp-config.json \
-         SKILL.md README.md; do
-  curl -fsSL "https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/spider/$f" \
-    -o "/data/workspace/skills/spider-strategy/$f"
-done
-```
-
-### Step 3 — Required env vars
-
-Both legs share the auth token, decision model, and (optional) Telegram chat
-id. Each leg binds its own wallet:
-
-```bash
-export SENPI_AUTH_TOKEN=...
-export SPIDER_DECISION_MODEL=<your-preferred-model>   # bare model name, no provider prefix
-export TELEGRAM_CHAT_ID=...                            # optional, for trade notifications
-
-export SPIDER_SWING_WALLET=<your-swing-wallet>         # or set wallet in config/spider-swing-config.json
-export SPIDER_SCALP_WALLET=<your-scalp-wallet>         # or set wallet in config/spider-scalp-config.json
-```
-
-Each leg also accepts an optional `SPIDER_SWING_STRATEGY_ID` /
-`SPIDER_SCALP_STRATEGY_ID` (falls back to the `strategyId` field in the
-matching config file).
-
-**Recommended funding split — SWING 60% / SCALP 40%** of the combined Spider
-pool. Swing is the fee-efficient, asymmetric-upside leg (low turnover,
-let-winners-run, plus the dynamic-universe edge), so it carries the larger
-share. Scalp is **fee-sensitive** and funded small to validate net-of-fees
-before scaling — raise its share only after it proves out. This is an operator
-funding guideline (documented in each `runtime-*.yaml` `strategy:` block); the
-runtime does not pull or enforce a budget, so fund the two wallets accordingly.
-
-### Step 4 — Register both runtimes, start both daemons
-
-Register each runtime YAML with the gateway (per your host's runtime-register
-flow), then launch one producer daemon per leg. `SPIDER_LEG` selects the leg;
-the daemon reads the matching config, scanner name, and wallet env var.
-
-```bash
-# SWING daemon
-SPIDER_LEG=swing \
-SPIDER_SWING_WALLET=$SPIDER_SWING_WALLET \
-SENPI_AUTH_TOKEN=$SENPI_AUTH_TOKEN \
-nohup python3 -u /data/workspace/skills/spider-strategy/scripts/spider-producer.py \
-  > /tmp/spider-swing-producer.log 2>&1 &
-disown
-
-# SCALP daemon
-SPIDER_LEG=scalp \
-SPIDER_SCALP_WALLET=$SPIDER_SCALP_WALLET \
-SENPI_AUTH_TOKEN=$SENPI_AUTH_TOKEN \
-nohup python3 -u /data/workspace/skills/spider-strategy/scripts/spider-producer.py \
-  > /tmp/spider-scalp-producer.log 2>&1 &
-disown
-```
-
-`disown` detaches each daemon from the shell job table so a shell/OpenClaw
-exit (SIGTERM to children) doesn't kill it. Env vars are passed inline so each
-daemon's environment is self-contained.
-
-## Verification
-
-```bash
-tail -f /tmp/spider-swing-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
-tail -f /tmp/spider-scalp-producer.log | jq -c 'select(.event=="daemon_tick_finished")' | head -3
-```
-
-Expected: `status=ok` every tick (swing 300s / scalp 60s). Each daemon logs
-under `[spider-v5:swing]` / `[spider-v5:scalp]` on stderr.
-
-## Changelog
-
-### v5.1.1 — Fix equity double-count (2x position sizing)
-
-`get_positions()` summed `marginSummary.accountValue` across the `main` and
-`xyz` clearinghouse sections. Those are **two views of one cross-margined
-wallet, not two collateral silos** — both report the whole wallet's equity,
-so summing **doubled** the equity used for sizing (`margin_usd =
-account_value * margin_pct`) and opened every position **2x too large**.
-Live impact: a freshly-funded swing leg opened ONDO/MRVL at ~$414 margin
-when ~$207 was intended → over-leverage → forced exits + fee bleed. Fix:
-take `accountValue` **once** via `max()` across the two views (exact whether
-the views mirror, one is empty, or positions exist on both sub-DEXs).
-`assetPositions` are still enumerated per-sub-DEX. No scoring/DSL/risk
-changes.
-
-### v5.1.0 — Dynamic swing universe (auto-catch new AI IPOs)
-
-The swing leg's XYZ-equity universe is now **dynamic** instead of a fixed
-`allowedAssets` list. Each tick `build_universe()` rebuilds the equity pool
-from the live instrument board: a curated tech/AI/space include-set plus
-**any freshly listed, liquid, non-excluded name** — which auto-catches new
-Pre-IPO Perpetuals / AI IPOs (the edge behind Spider's CBRS/Cerebras win)
-with no code edit. New config keys: `cryptoAlts`, `xyzIncludeSet`,
-`xyzExcludeSet`, `xyzVolFloorUsd`, `xyzFreshDays`, `xyzMaxNames`. New state
-file `state/xyz-first-seen-swing.json`. Scalp universe unchanged. Scoring,
-DSL, risk gates, and leverage clamping all unchanged.
-
-### v5.0.0 — Two-persona style-hunter rebuild
-
-Full thesis **replacement** of the v4.0 single-leg "patient anchor sniper."
-v5.0 is two autonomous style legs on two wallets served by one
-leg-parameterized producer (`SPIDER_LEG` selects `swing` | `scalp`):
-
-- **SWING** — Tech & AI multi-day momentum, LONG only, 4h+1h trend + 24h
-  relative strength, conviction 10x clamp, wide let-winners-run DSL.
-- **SCALP** — Macro & majors fast mean-reversion, BOTH directions, short-TF
-  stretch + RSI extreme with a 1h knife-guard trend filter, strict 5x, tight
-  fast-capture DSL.
-- **Not a copy-trader** — each leg scores its own universe; the runtime LLM
-  gate is pass-through and the runtime owns execution + DSL + risk.
-- Leverage clamped to each asset's Hyperliquid venue max via
-  `market_list_instruments` (GRASS/NIL cap 3x).
-- XYZ (HIP-3) equities/energy handled with `dex="xyz"`;
-  `get_positions` sums account value across both the main and xyz sub-DEX
-  views.
-- Per-leg race-window dedup (`state/recent-signals-<leg>.json`, 180s).
-
-The old single-leg `runtime.yaml` / `config/spider-config.json` /
-`config/spider-config.example.json` are removed.
-
-### v4.0.0 — Plumbing-only migration from v3.0.2 (no thesis change)
-
-Producer ported onto `senpi_runtime_helpers` (in-process `SenpiClient`,
-long-lived `producer_daemon`). Superseded by v5.0.
+These tools are reserved for the **producer daemon** (entry path) and the
+**DSL ratchet engine** (exit path). User-conversation sessions are
+**read-only**. Each producer daemon handles real signals on its next tick.
 
 ## License
 

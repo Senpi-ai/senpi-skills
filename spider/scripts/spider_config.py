@@ -42,9 +42,9 @@ if LEG not in ("swing", "scalp"):
         "Set it on the runtime host before starting the producer daemon."
     )
 
-WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
-SKILL_DIR = Path(WORKSPACE) / "skills" / "spider-strategy"
-CONFIG_PATH = SKILL_DIR / "config" / f"spider-{LEG}-config.json"
+# Package root = the directory containing strategy.yaml (this file lives in
+# <package>/scripts/). State persists under the package, per-leg.
+SKILL_DIR = Path(__file__).resolve().parents[1]
 STATE_DIR = SKILL_DIR / "state"
 RECENT_SIGNALS_PATH = STATE_DIR / f"recent-signals-{LEG}.json"
 # First-seen ledger for the swing leg's dynamic XYZ-equity universe.
@@ -83,7 +83,7 @@ _sdk_path = next(
 )
 if _sdk_path not in sys.path:
     sys.path.insert(0, _sdk_path)
-from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
+from senpi_runtime_helpers import SenpiClient, load_params, log_event  # type: ignore  # noqa: E402
 
 
 @functools.lru_cache(maxsize=1)
@@ -130,13 +130,15 @@ def atomic_write(path, data):
 # ─── Config ──────────────────────────────────────────────────
 
 def load_config():
-    if CONFIG_PATH.exists():
-        try:
-            with open(CONFIG_PATH) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
+    """This leg's params from strategy.yaml — the single source of truth.
+    SPIDER_LEG selects the instance; replaces config/spider-<leg>-config.json."""
+    try:
+        return load_params(__file__)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(
+            f"[spider-v5:{LEG}] load_params_failed err={type(e).__name__}: {e}\n"
+        )
+        return {}
 
 
 def get_wallet_and_strategy():

@@ -4,6 +4,44 @@ This repo is almost entirely AI-generated. The rules below exist because they ha
 
 ---
 
+## ▶▶ v2 architecture (`strategy-v2` branch) — strategies are PACKAGES, not skills
+
+This branch reorganizes the repo around the principle that **a trading strategy is a deployable
+package, not an agent skill**:
+
+```
+<id>/                              # a strategy package (e.g. spider/, polar/, kodiak/)
+  scanner.py                       # signal producer — emits signals only, never executes/exits,
+                                   #   never hardcodes a wallet; reads tunables via load_params()
+  runtime.yaml (or runtime-*.yaml) # the deterministic runtime spec (one per instance)
+  strategy.yaml                    # the deploy declaration & SINGLE source of truth:
+                                   #   id, version, catalog, instances[], params
+```
+
+- A strategy has **no `SKILL.md`** and **no `references/skill-attribution.md`**. `strategy.yaml` is
+  the single source of truth; `config/*.json` is retired (tunables live in `params`).
+- **Skills** are the agent's lifecycle capability, split into: **`senpi-strategy-discover`** (find/
+  recommend), **`senpi-strategy-author`** (build/edit), **`senpi-strategy-ops`** (install/monitor/
+  uninstall). `senpi-trading-runtime` is the **infra bundle** (the `@senpi-ai/runtime` engine
+  contract + the `senpi_runtime_helpers` SDK incl. `load_params` + the `senpi-helpers` CLI).
+  `senpi-entrypoint` / `senpi-onboard` / `senpi-getting-started-guide` remain the front door.
+- **Install is two steps** (because strategy-wallet creation is an async, funded MCP lifecycle): the
+  **agent** creates the wallet(s) via MCP `strategy_create_custom_strategy(initialBudget≥100,
+  positions=[], skillName=<id>, skillVersion=<version>)` — splitting the budget by `funding_share`,
+  one wallet per instance, **min $100 each**, polling `strategy_list` by `strategyId` until `ACTIVE`
+  and reading `strategyWalletAddress` — then the **CLI** `senpi-helpers install <pkg> --wallet
+  <name>=0x..` deploys onto those ready addresses (render runtime → `runtime create` → launch scanner
+  daemon → verify). The CLI never creates wallets. Attribution is the MCP tool's **`skillName` /
+  `skillVersion`** params, valued from `strategy.yaml` `id` + `version` (the "Skill Attribution"
+  section below is superseded for strategies; `strategy.yaml.version` is the one source).
+- **`catalog.json` is GENERATED** from `*/strategy.yaml` via
+  `senpi-trading-runtime/scripts/gen_catalog.py` — never hand-edit it.
+- **Validate** a package with `senpi-strategy-author/scripts/validate_strategy.py <dir>`.
+
+The sections below predate v2; where they say "strategy = skill", read it through this model.
+
+---
+
 ## ▶ User wants help with a "strategy"? Classify the intent FIRST
 
 The word "strategy" is overloaded in Senpi and the wrong path is the most common silent failure. Two paths, opposite code:

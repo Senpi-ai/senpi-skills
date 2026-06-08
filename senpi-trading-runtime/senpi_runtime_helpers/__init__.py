@@ -31,6 +31,8 @@ from .daemon import producer_daemon
 from .lock import scanner_lock
 from ._logging import enable_logging, log_event
 from .parallel import parallel
+from .strategy import find_manifest, load_manifest, load_params, resolve_instance
+from .install import install_strategy, uninstall_strategy
 
 __all__ = [
     "SenpiClient",
@@ -44,6 +46,12 @@ __all__ = [
     "producer_daemon",
     "enable_logging",
     "log_event",
+    "find_manifest",
+    "load_manifest",
+    "load_params",
+    "resolve_instance",
+    "install_strategy",
+    "uninstall_strategy",
 ]
 
-__version__ = "0.1.1"
+__version__ = "0.3.0"

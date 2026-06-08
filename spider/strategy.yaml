@@ -1,0 +1,73 @@
+# Spider — strategy package deploy declaration (single source of truth).
+# A strategy = scanner.py + runtime.yaml(s) + this file. Not a skill.
+schema_version: 1
+
+id: spider
+version: "5.1.1"
+
+catalog:
+  name: "Spider — AI/Tech Hedge Fund"
+  emoji: "🕷️"
+  tagline: "AI/Tech-focused long book + a macro/majors long-short counter-trading book — two style legs, two wallets, one producer."
+  group: multi-asset-whitelist
+  risk_level: moderate
+  min_budget: 100
+
+requires:
+  runtime: ">=1.1.0"        # @senpi-ai/runtime semver range (NOT the runtime.yaml schema major)
+
+defaults:                   # env VAR NAMES only — never values
+  decision_model_env: SPIDER_DECISION_MODEL
+  telegram_chat_id_env: TELEGRAM_CHAT_ID
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: swing
+    runtime: runtime-swing.yaml
+    scanner:
+      entrypoint: scanner.py
+      name: spider_swing_signals          # == external_scanner.name in runtime-swing.yaml
+      signal_type: SPIDER_SWING_MOMENTUM
+    wallet_env: SPIDER_SWING_WALLET
+    env:
+      SPIDER_LEG: swing                    # instance selector — installer sets it on the daemon
+    tick_seconds: 300
+    funding_share: 0.60
+    params:                                # SINGLE source of scanner tunables (was spider-swing-config.json)
+      cryptoAlts: [SUI, ONDO, HYPE, NIL, GRASS, ZEC]
+      xyzIncludeSet: [NVDA, AMD, INTC, MRVL, MU, TSM, ASML, ARM, SMSN, SKHX, DRAM, SNDK, DELL, LITE, CRWV, PLTR, ORCL, GOOGL, META, MSFT, AMZN, AAPL, NFLX, IBM, COIN, MSTR, CRCL, HOOD, SPCX, RKLB, CBRS]
+      xyzExcludeSet: [GOLD, SILVER, PLATINUM, PALLADIUM, COPPER, CL, BRENTOIL, NATGAS, URANIUM, URNM, EUR, JPY, GBP, KRW, DXY, SP500, JP225, KR200, NIFTY, IBOV, XYZ100, EWY, EWJ, EWT, EWZ, XLE, VIX, PURRDAT, BIRD]
+      xyzVolFloorUsd: 5000000
+      xyzFreshDays: 21
+      xyzMaxNames: 20
+      allowedAssets: ["xyz:NVDA", "xyz:AMD", "xyz:INTC", "xyz:MRVL", "xyz:MU", "xyz:TSM", SUI, ONDO, HYPE, NIL, GRASS, ZEC]
+      minScore: 5
+      marginPct: 0.28
+      swingMaxLeverage: 10
+      minNotionalUsd: 200
+      maxSlots: 3
+      tickSeconds: 300
+      rsiMaxLong: 78
+      useSmBonus: true
+
+  - name: scalp
+    runtime: runtime-scalp.yaml
+    scanner:
+      entrypoint: scanner.py                # SAME script — multiplexed by SPIDER_LEG
+      name: spider_scalp_signals
+      signal_type: SPIDER_SCALP_REVERSION
+    wallet_env: SPIDER_SCALP_WALLET
+    env:
+      SPIDER_LEG: scalp
+    tick_seconds: 60
+    funding_share: 0.40
+    params:                                # was spider-scalp-config.json
+      allowedAssets: [BTC, ETH, SOL, HYPE, "xyz:BRENTOIL", "xyz:CL"]
+      minScore: 4
+      marginPct: 0.15
+      scalpMaxLeverage: 5
+      minNotionalUsd: 200
+      maxSlots: 4
+      tickSeconds: 60
+      rsiOversold: 30
+      rsiOverbought: 70

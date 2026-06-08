@@ -43,7 +43,7 @@ description: >
 
 # ── STRATEGY ──
 strategy:
-  wallet: "${WALLET_ADDRESS}"
+  wallet: "${KODIAK_WALLET}"
   budget: 1000
   slots: 1                                       # single-asset, single position
   margin_pct: 20        # % of account budget per slot (scales with any budget)

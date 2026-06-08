@@ -17,9 +17,9 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
-SKILL_DIR = Path(WORKSPACE) / "skills" / "polar-strategy"
-CONFIG_PATH = SKILL_DIR / "config" / "polar-config.json"
+# Package root = the directory containing strategy.yaml (this file lives in
+# <package>/scripts/).
+SKILL_DIR = Path(__file__).resolve().parents[1]
 
 
 # ─── senpi_runtime_helpers (lazy + auth-validated) ───
@@ -41,7 +41,7 @@ _sdk_path = next(
 )
 if _sdk_path not in sys.path:
     sys.path.insert(0, _sdk_path)
-from senpi_runtime_helpers import SenpiClient, log_event  # type: ignore  # noqa: E402
+from senpi_runtime_helpers import SenpiClient, load_params, log_event  # type: ignore  # noqa: E402
 
 
 @functools.lru_cache(maxsize=1)
@@ -68,13 +68,13 @@ _wrapper_client = _WrapperClientProxy()
 # ─── Config ──────────────────────────────────────────────────
 
 def load_config():
-    if CONFIG_PATH.exists():
-        try:
-            with open(CONFIG_PATH) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, IOError):
-            pass
-    return {}
+    """Params from strategy.yaml — the single source of truth.
+    Replaces config/polar-config.json."""
+    try:
+        return load_params(__file__)
+    except Exception as e:  # noqa: BLE001
+        sys.stderr.write(f"[polar] load_params_failed err={type(e).__name__}: {e}\n")
+        return {}
 
 
 # ─── MCP Helper ──────────────────────────────────────────────

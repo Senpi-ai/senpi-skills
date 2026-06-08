@@ -113,7 +113,7 @@ Detail on each capability follows. The full tool surface is enumerated in the **
 
 The OpenClaw plugin that owns the trading loop. Replaces the legacy Python cron + state file system.
 
-Current release: **`@senpi/runtime` 1.1.0** (live on prod since 2026-05-12). Every live skill in this repo runs on 1.1.0. Features:
+Current release: **`@senpi-ai/runtime` 1.1.0** (live on prod since 2026-05-12). Every live strategy in this repo runs on 1.1.0. Features:
 
 - In-process producer daemon (long-lived Python loop, no per-tick subprocess spawn)
 - Direct HTTPS to MCP and direct POST to runtime `/signals` (no `mcporter` / `openclaw` subprocess shell-out)

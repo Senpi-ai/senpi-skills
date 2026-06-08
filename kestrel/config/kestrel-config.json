@@ -1,8 +1,0 @@
-{
-  "_comment": "KESTREL v2.0 config — simplified for v2-runtime-native architecture. Runtime owns position tracking, daily caps, cooldowns, and drawdown gates via runtime.yaml's risk.guard_rails block. DSL tier ladder is in runtime.yaml exit.dsl_preset.phase2.tiers (no longer duplicated here). Producer reads only the few fields below.",
-  "strategyId": "",
-  "wallet": "",
-  "chatId": "",
-  "minScore": 5,
-  "_thesis": "XYZ macro breakout rider. Detects >=1.5% 1H breakouts on commodities (CL, BRENTOIL, GOLD), indices (SP500, XYZ100), and high-volume equities (AAPL, NVDA, GOOGL, TSLA, AMZN, META, MSFT). v2.0 calibration: 1H base scores +1, MOVE_EXHAUSTION threshold 4%->6%, MIN_SCORE 6->5, spread gate 0.2%->0.35%."
-}

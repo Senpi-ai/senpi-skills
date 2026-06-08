@@ -1,8 +1,0 @@
-{
-  "_comment": "CHEETAH v6.0 config — simplified for v2-runtime-native architecture. Runtime owns position tracking, daily caps, cooldowns, and drawdown gates via runtime.yaml's risk.guard_rails block. DSL tier ladder is in runtime.yaml exit.dsl_preset.phase2.tiers (no longer duplicated here). Producer reads only the few fields below. Operators set wallet/strategyId/chatId at deploy time.",
-  "strategyId": "",
-  "wallet": "",
-  "chatId": "",
-  "minScore": 10,
-  "_thesis": "Multi-signal confluence sniper. v6.0 restores MIN_SCORE 10 (from v5.2's 11) to bring back the trade flow that produced +$182 net in the v5.0/v5.1 era before over-tightening caused 8 days of zero trades."
-}
