@@ -162,16 +162,17 @@ Which sounds interesting? I can explain any in detail or deploy one right now.
 **Picker flow (the default for strategic intents — always recommend a fleet template first):**
 
 1. **Pull user context** in one parallel batch: `account_get_portfolio` (balance), `market_get_funding_regime` (regime), plus any expressed preference from the conversation.
-2. **Pull the live catalog:**
+2. **Walk the Decision Tree in [`producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy) — this is the canonical routing source.** Layer 0 has 4 default paths (Express Lane / Plain-language quiz / Show-don't-ask / Contextual). Layer 1 routes by belief. Layers 2A–H take you to a concrete strategy. Use the tree to land on 2–3 candidates.
+3. **Cross-reference `catalog.json` for install metadata only** (name, tagline, install command, min_budget):
    ```bash
    curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json
    ```
-   And consult [`producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md) (catalog + [decision tree](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy) for unsure users).
-3. **Filter to 2–3 templates that fit** the user's expressed asset/archetype preference and current regime. Use `min_budget` only as a *soft sizing hint* — never exclude a strategy for being above the user's balance; positions scale via `margin_pct`, so flag "smaller positions / start small" instead.
-4. **Present each** with: name + one-line thesis, archetype, asset focus, min budget, one-line install (`install_skill skill_name=<name>` via MCP).
-5. **End every recommendation with the build-from-scratch offer**: *"Or, if none of these fit your thesis, we can build a new autonomous strategy from scratch — that path is in [`strategy-creation.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/strategy-creation.md). Which do you want?"*
-6. **User picks a template → install via `install_skill`. Done.**
-7. **User picks "build new" → continue with the authoring path below.** *(Only continue past this point if the user has explicitly chosen build-from-scratch.)*
+   `catalog.json` is **not** the routing source — when its structure suggests a different recommendation than the Decision Tree, the Decision Tree wins.
+4. **Refine the candidate set:** asset focus aligns if the user named an asset; current regime is consistent with the strategy's thesis. Use `min_budget` only as a *soft sizing hint* — never exclude a strategy for being above the user's balance; positions scale via `margin_pct`, so flag "smaller positions / start small" instead.
+5. **Present each** with: name + one-line thesis, archetype, asset focus, min budget, one-line install (`install_skill skill_name=<name>` via MCP).
+6. **End every recommendation with the build-from-scratch offer**: *"Or, if none of these fit your thesis, we can build a new autonomous strategy from scratch — that path is in [`strategy-creation.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/strategy-creation.md). Which do you want?"*
+7. **User picks a template → install via `install_skill`. Done.**
+8. **User picks "build new" → continue with the authoring path below.** *(Only continue past this point if the user has explicitly chosen build-from-scratch.)*
 
 ---
 
