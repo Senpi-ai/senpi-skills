@@ -1,11 +1,14 @@
 ---
 name: senpi-strategy-discover
 description: >-
-  Find and recommend a Senpi trading strategy to install. Use when the user asks
-  "what should I trade?", "recommend a strategy", "help me pick a strategy", or
-  wants to browse the strategy catalog by archetype, asset, budget, or risk.
-  Hands off to senpi-strategy-ops to install the chosen one. NOT for building a
-  strategy (senpi-strategy-author) or installing a named one directly.
+  Find and recommend a Senpi trading strategy (a.k.a. "predator") to install. Use
+  when the user asks "what should I trade?", "recommend a strategy", "help me pick
+  a strategy/predator", "which predators are there?", "browse the strategy
+  catalog", or wants a strategy but has NOT named a specific one ("install a
+  trading strategy", "set me up with a predator" — pick first, then hand off).
+  Filters the catalog by archetype, asset, budget, or risk and hands the chosen
+  one to senpi-strategy-ops to install. NOT for installing a NAMED strategy
+  directly (that's senpi-strategy-ops) or building one (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
@@ -33,9 +36,11 @@ registry, then hand the chosen one to **senpi-strategy-ops** for `install_strate
    `references/strategy-discovery.md` for the goal→archetype mapping and budget guidance.
 4. **Present** each as: name + emoji, one-line tagline, archetype, suggested budget. Lead with your
    top pick and why it fits.
-5. **Hand off**: when the user picks one, route to **senpi-strategy-ops**:
-   `install_strategy(id=<chosen>, budget=<usd>, wallet="new")`. If nothing fits, offer to **build a
-   new one** via **senpi-strategy-author**.
+5. **Hand off to senpi-strategy-ops** with the chosen `id`. Ops then: gets the wallet (create a new one
+   via MCP `strategy_create_custom_strategy` — confirm budget ≥ $100 — or reuse an existing one), then
+   runs `senpi-helpers install <id> --wallet <addr> --decision-model <model>`. (Ops does NOT create
+   wallets and is not called as `install_strategy(...)`.) If nothing fits, offer to **build a new one**
+   via **senpi-strategy-author**.
 
 ## Rules
 

@@ -1,11 +1,18 @@
 ---
 name: senpi-strategy-ops
 description: >-
-  Install, monitor, and uninstall a Senpi trading strategy PACKAGE. Use when the
-  user wants to deploy/install a strategy (create or use a wallet, create runtime,
-  launch the scanner daemon), check whether a running strategy is healthy/live,
-  troubleshoot a deployed strategy, or tear one down. NOT for building/editing a
-  strategy (senpi-strategy-author) or choosing one (senpi-strategy-discover).
+  Install / deploy / run a NAMED Senpi trading strategy (a.k.a. a "predator") —
+  and monitor, troubleshoot, or uninstall a deployed one. Use when the user names
+  a strategy to run, e.g. "install polar", "install the polar strategy", "install
+  polar predator", "install the polar predators strategy", "deploy spider", "set
+  up kodiak", "run the <name> strategy", "install a trading strategy", "is my
+  strategy live?", "stop/uninstall <name>". The agent obtains a strategy wallet
+  (create a new one via MCP strategy_create_custom_strategy, or reuse an existing
+  one with consent) and runs `senpi-helpers install <id> --wallet <addr>
+  --decision-model <model>`. The strategy <id> (e.g. polar, kodiak, spider) is the
+  package folder; match the user's word to a registry/catalog id. NOT for choosing
+  WHICH strategy (senpi-strategy-discover) or building/editing one
+  (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
@@ -21,10 +28,20 @@ metadata:
 A strategy is a package (`scanner.py` + `runtime.yaml`(s) + `strategy.yaml`). Ops owns its deployed
 lifecycle: **get the wallet(s) → deploy → verify.**
 
-## Install — two steps: get the wallet(s), then deploy
+## Install — resolve, get the wallet(s), then deploy
 
 `senpi-helpers install` deploys onto wallet addresses you **already have**; it does NOT create or fund
 wallets.
+
+**Step 0 — resolve which strategy.** The user's word (e.g. "polar", "the polar predator") is a strategy
+**`id`**. The `id` IS the package directory name (`polar/` = `id: polar`). Match it to an `id` in the
+registry index:
+```
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/strategy-v2/catalog.json
+```
+(or `ls` the installed packages on the host). If the user's word doesn't match any `id`, hand off to
+**senpi-strategy-discover** to pick one. You pass that `id` (or its package path) to `senpi-helpers
+install`; the package must be present on the host (the registry/repo checkout).
 
 **Step 1 — get the strategy wallet address for each instance** (split the budget by `funding_share`).
 Two ways:
@@ -66,6 +83,33 @@ if a runtime already exists for a wallet and you didn't pass `--reinstall`, that
 `already_installed` and is skipped. What each step does under the hood (+ the runtime-engine CLI) is in
 [`references/deploy-and-teardown.md`](references/deploy-and-teardown.md); the install ledger is an
 ephemeral install-time scratchpad only — see [`references/install-ledger.md`](references/install-ledger.md).
+
+### Worked example — "install polar"
+
+```
+user: "install the polar strategy"
+1. resolve   → id = polar (package polar/)
+2. wallet    → ask the user: new wallet or existing? If new (confirm budget ≥ $100):
+               strategy_create_custom_strategy(initialBudget=100, positions=[], skillName="polar",
+                 skillVersion="5.0.0") → poll strategy_list until ACTIVE → strategyWalletAddress 0xABC…
+3. deploy    → senpi-helpers install polar --wallet 0xABC… --decision-model claude-sonnet-4-20250514
+4. report    → status "registered" (runtime + scanner registered)
+5. confirm   → run Monitor (below) until the scanner has a recent tick, THEN tell the user it's live
+```
+Multi-instance (spider) is the same but one wallet per instance:
+`senpi-helpers install spider --wallet swing=0x… --wallet scalp=0x… --decision-model <model>`.
+
+### Manual-test prerequisites (host)
+
+Before `senpi-helpers install` can run end-to-end:
+- `openclaw` + the `@senpi-ai/runtime` plugin installed and running on the host.
+- `senpi-helpers` on `PATH` (or call it at `~/.openclaw/skills/senpi-trading-runtime/senpi-helpers`).
+- `SENPI_AUTH_TOKEN` exported in the shell that runs install (or the strategy's `auth_token_env`).
+- A **funded, ACTIVE** strategy wallet for `--wallet` (created via MCP, or an existing one).
+- A bare `--decision-model` name (no provider prefix), e.g. `claude-sonnet-4-20250514`.
+- PyYAML available to the host Python; the strategy **package dir on disk** (repo/registry checkout).
+
+Smoke it first with `--dry-run` (no side effects), then run for real, then Monitor.
 
 ## Monitor — is it actually live?
 
