@@ -964,6 +964,7 @@ Most first-time users can't say "I want a trend-follower" — they don't have th
 | "When something's already shooting up, do you want to **jump in and ride it**, or **wait for it to fall back first**?" | ride it → trend · wait → contrarian | Layer 2A / 2B |
 | "Should the agent **form its own opinion**, or just **copy whoever's winning right now**?" | own opinion → (keep going) · copy → copy-trading | Layer 2C |
 | "Do you have a **specific market in mind** (a coin, a stock, oil/gold), or want it to **scan everything** for you?" | specific → single-market · scan → basket/universe | Layer 2D / 2A |
+| "Do you have a **strong hunch about the world** — a war, the economy, a coin taking over — you'd bet on?" | yes, a view → thesis fund · no → keep going | Layer 2G |
 | "A few **big wins you hold for days**, or **lots of small quick ones**?" | big/held → `let_winners_run` · small/quick → tighter preset | sets the DSL preset |
 
 **C. Show, don't ask — pick by vibe.** Some people decide best from concrete examples. Offer 2–3 plain-English one-liners and let them point at one:
@@ -971,6 +972,8 @@ Most first-time users can't say "I want a trend-follower" — they don't have th
 - **Egret** — *"bets against the crowd when everyone's piled in one direction and price stops following."*
 - **Albatross** — *"copies traders who've won the arena for weeks, not just one lucky day."*
 - **Bobcat** — *"trades big-tech stocks (NVDA, TSLA, …) 24/7 on Hyperliquid."*
+- **Risk-Off Thesis Fund** — *"bets against the Trump economy: long gold, short US stocks and Bitcoin — and only presses as the move actually confirms."*
+- **Octopus** — *"a market-neutral fund: long the strongest coins, short the weakest, so it can make money even when the market goes nowhere."*
 
 **D. Contextual suggestion (opt-in — *only after* the user picks "help me choose / suggest for me").** The strongest recommendation, but it reads the live market (several MCP calls, a few seconds) — so **do not run it on entry**; trigger it only when the user explicitly asks for it, and tell them you're reading the market first. When triggered, read their situation + the market, then propose one strategy with reasons.
 
@@ -1021,9 +1024,13 @@ Ask which one sentence sounds most like the user:
 | "I want to trade a specific market — a coin, **stocks, commodities, or 🔥 pre-IPO names** (SpaceX, …)." | **Single-market / XYZ** | Layer 2D |
 | "Catch explosive breakouts / jumps early." | **Breakout / momentum-jump** | Layer 2E |
 | "Earn from market structure, not from picking a direction." | **Structural / neutral** | Layer 2F |
+| "I have a **strong view on the world** — a war, the economy, one coin beating the rest." | 🎯 **Thesis fund (view-based)** | Layer 2G |
+| "I want a **hedge-fund-style return profile** — AI/tech, market-neutral, income, volatility, or macro." | 🏦 **Hedge fund (method-based)** | Layer 2H |
 | "🏆 Just run whatever's **performing best right now**." | **Top performer (live ROE)** | *Run a current top performer* (below) |
 
 > 💡 **Not just crypto.** Senpi trades **XYZ markets 24/7** (even when TradFi is closed): big-tech **stocks** (NVDA, TSLA, …), **commodities** (oil, gold, indices), and — increasingly popular — **pre-IPO perpetuals (IPOPs)** like **SpaceX**, *tradeable before the company lists*. If a user perks up at stocks or pre-IPO, route straight to **Layer 2D** — it's one of Senpi's most distinctive hooks.
+
+> 🎯🏦 **Two higher-level products — and the one rule that routes them.** Beyond single strategies, Senpi packages two kinds of multi-leg product. **Thesis Funds** take a *view* — "the war drags on," "bet against the Trump economy," "HYPE beats the market" — and express it as a disciplined long/short basket that only presses each name as the market *confirms* the thesis. **Hedge Funds** take a *return style* — AI/tech, market-neutral, carry/income, volatility, global-macro — each a packaged two-wallet long/short book. **Routing rule: an opinion ("I think X will happen") → a Thesis Fund (Layer 2G); a return goal ("I want X kind of returns") → a Hedge Fund (Layer 2H).** And when a user names a *theme but not a side* ("bet on the war," "trade gold vs. Bitcoin"), ask **one** sharp follow-up — *escalation or de-escalation? which one wins?* — before deploying; a fund's direction is fixed by its preset, so never guess the side.
 
 ### Layer 2A — Trend-following → what do you want to ride?
 
@@ -1083,6 +1090,37 @@ XYZ markets (stocks / commodities / pre-IPO) trade **24/7 on Hyperliquid**, even
 - **Trade the spread between two coins** (a pair's ratio stretched far from its mean) → **Chameleon** (relative-value / pairs — ratio mean-reversion).
 - *Expanding set — already live: microstructure (Piranha, Marlin — Layer 2E), relative-value / pairs (Chameleon), and copy-the-copiers meta-following (Cuckoo — Layer 2C).*
 
+### Layer 2G — Thesis fund (view-based) → what's your view?
+
+The user brings a **worldview** and the fund expresses it as a disciplined long/short basket in **one wallet**. It is *not* a blind bet: each name is only pressed when the market is **confirming** the thesis direction (trend + momentum aligned), and the DSL + drawdown gate de-risk when it isn't. Every variant below is the **same `thesis-fund` engine** with a different `THESIS` preset (`config/thesis-presets.json`) — pick the row that matches what the user just said.
+
+| If the user says… (plain English) | Their view | Deploy — `THESIS` preset |
+|---|---|---|
+| "Bet against the Trump economy." · "A recession's coming." · "Tariffs will wreck things." | risk-off | 🎯 **Risk-Off — Bet Against the Trump Economy** (`risk_off`) — long gold/metals, short US indices + BTC |
+| "America roars back." · "I'm betting on the soft landing." | recovery | 🎯 **U.S. Recovery — Risk-On** (`recovery`) — long US indices + BTC, short gold (the mirror) |
+| "The Iran/Israel war drags on." · "The Middle East blows up." · "The conflict gets worse." | war escalation | 🎯 **War Escalation** (`war_escalation`) — long oil + gold, short equities + BTC |
+| "A ceasefire's coming, markets calm down." · "Peace and recovery." | war de-escalation | 🎯 **War De-escalation — Recovery** (`war_recovery`) — short oil + gold, long equities + BTC |
+| "HYPE keeps eating everyone's lunch." · "Long HYPE, but not the whole market." | HYPE outperforms | 🎯 **HYPE vs. the Rest of the Market** (`hype_vs_market`) — long HYPE, short the BTC/ETH/SOL basket (~market-neutral) |
+| "Real gold beats crypto in a crisis." | gold > BTC | 🎯 **Gold over Bitcoin** (`gold_over_btc`) — long gold, short BTC |
+| "Bitcoin is the new gold — it takes over." | BTC > gold | 🎯 **Bitcoin over Gold** (`btc_over_gold`) — long BTC, short gold |
+| "I have a view, but it's not on this list." | custom | Fork the `thesis-fund` engine — add a preset to `thesis-presets.json` (a `long` basket + a `short` basket that together express the view). No new code. |
+
+> **Ask one follow-up when the side is ambiguous.** "Bet on the war" → *escalation or de-escalation?* "Trade gold vs. Bitcoin" → *which one wins?* A Thesis Fund's direction is **fixed by the preset**, so pin the side before deploying — don't guess. Single wallet, both books at once, drawdown-halt at 20%; deploy via the `thesis-fund` README with the chosen `THESIS=`.
+
+### Layer 2H — Hedge fund (method-based) → what return style?
+
+The user wants a **style of return**, not a market view. These are packaged **two-wallet** long/short funds — one leg-parameterized producer running a long (or long-biased) book on one wallet and a short (or counter) book on the other. Pick by the kind of return they describe.
+
+| If the user says… | Return style | Deploy |
+|---|---|---|
+| "I'm all-in on the AI boom." · "Get me AI + chip exposure." | AI/Tech momentum | 🏦 **Spider — AI/Tech Hedge Fund** — an AI/tech long book (swing) + a macro/majors long-short counter book (scalp) |
+| "Make money in any market — up, down, or sideways." · "Returns that don't move with Bitcoin." | market-neutral | 🏦 **Octopus — Market-Neutral Hedge Fund** — longs the relative leaders, shorts the laggards of the liquid cross-section (~beta-neutral dispersion) |
+| "I want steady income, not big swings." · "Put my crypto to work while I sleep." | carry / income | 🏦 **Camel — Carry Hedge Fund** — shorts the most-positive-funding names (short collects), longs the most-negative (paid to hold) — harvests funding both ways |
+| "Just catch the big moves — I don't care which way it breaks." · "Comes alive when it's volatile." | volatility | 🏦 **Caracal — Volatility Hedge Fund** — trades volatility *expansion*, not direction (coiled-spring breakouts), across crypto + XYZ |
+| "Trade the whole macro board, not just crypto." · "I want gold, oil, and indices too." | global macro | 🏦 **Elephant — Global-Macro Hedge Fund** — equity indices, metals, energy, FX (XYZ) + BTC; a trend book that rides the macro direction + a fade book |
+
+> **Funds size differently from single strategies.** Each Hedge Fund spans **two wallets** (fund both legs per the fund's README split — Spider defaults 60% swing / 40% scalp); Thesis Funds use **one**. These are **not onboarding-tier** — route a brand-new user to a single onboarding agent first (Layer 3), and offer a fund once they want a packaged long/short book rather than a single position stream.
+
 ### Run a current top performer (by live ROE)
 
 Some users don't want a thesis — they want whatever's working *now*. The agent can rank live performance and let them pick. **This reads live data, so it's opt-in** (same ask-before-scan rule as path D) — only run it when asked.
@@ -1126,8 +1164,18 @@ Single asset, small whitelist, or universe?
 │   └─ contrarian unwinds?    → Pattern 8 — Contrarian unwind hunter
 ├─ Multiple XYZ, contrarian   → Pattern 10 — Multi-asset XYZ contrarian fader
 ├─ Follow specific traders    → Pattern 5 — Trader-follower / hot-streak
-└─ BTC-anchored lag           → Pattern 9 — Cross-asset lag detector
+├─ BTC-anchored lag           → Pattern 9 — Cross-asset lag detector
+└─ Packaged long/short FUND (two books)?
+    ├─ view-based (war / economy / one coin wins)  → Pattern 19 — Thesis fund (one engine, preset-driven; single wallet)
+    └─ method-based return style                   → Hedge-fund composite (two wallets, one leg-parameterized producer):
+        ├─ AI/tech momentum      → Spider   (Pattern 4 long book + macro/majors counter book)
+        ├─ market-neutral        → Octopus  (Pattern 13 — cross-sectional dispersion, long leaders / short laggards)
+        ├─ carry / income        → Camel    (Pattern 7 — funding harvest both directions)
+        ├─ volatility expansion  → Caracal  (Pattern 17 — coiled-spring breakout, crypto + XYZ)
+        └─ global macro          → Elephant (Pattern 18 — indices/metals/energy/FX + BTC, trend book + fade book)
 ```
+
+> **Thesis vs. Hedge fund — which to fork.** A **Thesis Fund** is *one* engine (`thesis-fund`) whose behavior is entirely data: add a `{long: […], short: […]}` preset to `thesis-presets.json` and set `THESIS=` — no new code. A **Hedge Fund** is *two* runtime YAMLs + one leg-parameterized producer (`<FUND>_LEG=…`), each wallet running a different scoring book. Fork the closest fund above and re-tune the two books' scoring + universes.
 
 If a thesis doesn't fit any pattern: it's usually (a) a hybrid of two (most live agents are hybrids of 1–2 archetypes) — copy the closest and layer in the second; or (b) genuinely new — write it from scratch with `senpi_runtime_helpers`; the framework supports any signal flow that can call MCP tools and emit `push_signal`.
 
