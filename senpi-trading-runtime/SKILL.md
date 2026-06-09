@@ -29,16 +29,18 @@ Then route accordingly:
 |---|---|
 | (a) "go long HYPE 10x", "open a short on BTC" — **specific named position** | MCP `strategy_create_custom_strategy` — execute directly. **Stop reading this doc.** |
 | (b) "copy 0x...", "mirror this OG" — **explicit copy of a named trader** | MCP `strategy_create` — mirror them. **Stop reading this doc.** |
-| (c) "help me pick a strategy", "what should I trade", "recommend a strategy", "what templates exist" — **open-ended, wants help deciding** | **Template-first picker:** fetch `catalog.json` + browse `producer-patterns.md`, recommend 2–3 fleet templates that fit the user's balance + regime, install via `install_skill`. Build-from-scratch is the **fallback**, not the default. **Stop reading this doc unless the user explicitly picks "build new".** |
+| (c) "help me pick a strategy", "what should I trade", "recommend a strategy", "what templates exist" — **open-ended, wants help deciding** | **Template-first picker:** walk the **Decision Tree in [`references/producer-patterns.md`](references/producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy)** — the canonical routing source (Layers 0–3). Cross-reference `catalog.json` for install metadata (name, tagline, install command, min_budget). Recommend 2–3 templates, install via `install_skill`. Build-from-scratch is the **fallback**, not the default. **Stop reading this doc unless the user explicitly picks "build new".** |
 | The user explicitly chose "build new", or no fleet template fits their thesis | **Keep reading.** |
 
 **Never default to `strategy_create_custom_strategy` for an ambiguous "what should I trade?" or "help me pick a strategy" query.** That tool is for positions the user named. Using it for open-ended queries surfaces a manual-position basket where the user wanted *strategy recommendations* — the exact failure mode this section exists to prevent.
 
-The fleet catalog (use for the template-first picker in case (c)):
+The fleet install metadata (use for case (c), after the Decision Tree has narrowed to a candidate set):
 
 ```bash
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json
 ```
+
+`catalog.json` is install/display metadata only — names, emojis, taglines, min_budget, version. All recommendation logic lives in the Decision Tree in `producer-patterns.md`.
 
 Full router with the picker flow and the what-never-to-do list (raw URL — works whether or not `senpi-entrypoint` is installed):
 

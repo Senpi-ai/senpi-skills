@@ -1,6 +1,8 @@
 # Producer Patterns — Scanner Archetypes Catalog
 
-> **When to read this:** [`strategy-creation.md`](strategy-creation.md) is the build doc — start there. Come here for one thing: to **pick your archetype and the example agent to clone** (this catalog + the decision tree below are the single source of truth for that). Jump to your archetype's section or the [decision tree](#decision-tree--help-a-user-pick-their-first-strategy); you don't need to read cover-to-cover.
+> **This doc is the canonical routing brain.** Everything about *which strategy to recommend, how to walk a user through picking one, how to handle variants (e.g. Thesis Fund presets), default selections, and how to disambiguate between similar strategies* lives here — primarily in the [Decision Tree](#decision-tree--help-a-user-pick-their-first-strategy) below. The `catalog.json` at the repo root is now **display + install metadata only**; when the two disagree, this doc wins. (See *"Where this catalog lives in the broader docs"* at the bottom for the full source-of-truth contract.)
+>
+> **When to read it:** [`strategy-creation.md`](strategy-creation.md) is the build doc — start there if you're authoring a brand-new strategy. Come here for one thing: to **pick the right archetype and example agent**, either by walking the Decision Tree with a user or by jumping directly to your archetype's section. You don't need to read cover-to-cover.
 
 The active fleet of trading agents on Senpi implements roughly a dozen distinct producer/scanner archetypes. This doc catalogs them so you can pick a starting pattern when building your own strategy.
 
@@ -1268,8 +1270,21 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Koala** | 2 — Single-asset alpha hunter (state-trigger variant, onboarding) | Operator-chosen single asset (default BTC). No scoring — state-file fire-once entry, then the widest DSL in any Senpi agent (max_loss 30%, retrace 25, 90d hard_timeout). The simplest possible Senpi agent |
 | **Lynx** | 15 — Self-tuning / adaptive-threshold agent | BTC/ETH/SOL/HYPE. Simple momentum scorer with a 6h audit cron that pulls own closed-trade history via audit_query, buckets by entry score, and raises MIN_SCORE if a bucket below the floor is bleeding. First fleet agent that modifies its own behavior based on its own track record |
 | **Coyote** | 16 — Regime classifier / meta-router | BTC (positional) + BTC/ETH/SOL/HYPE (dispersion universe). 3-regime classifier (TREND_UP / TREND_DOWN / CHOP) with vol-confirmation on the down side. Publishes regime + all input metrics on every tick. LONG BTC in TREND_UP, SHORT BTC in TREND_DOWN, no trade in CHOP |
+| **Otter** | 1 — Universe trend-follower | Universe-scan variant; see catalog.json for current tagline + min_budget |
+| **Spider** | (hedge fund) AI/Tech — two-leg long/short | AI/Tech long book (swing) + macro/majors long-short counter-trading book (scalp). Two wallets, one leg-parameterized producer. Catalog group: `hedge-fund`, archetype `ai-tech`. (Also appears above under #4 Multi-asset whitelist — the same two-leg producer; this row reflects its hedge-fund packaging) |
+| **Octopus** | (hedge fund) Market-neutral — relative-value dispersion | Longs the relative leaders, shorts the relative laggards of the liquid crypto cross-section (~beta-neutral). Returns that don't move with Bitcoin. Catalog group: `hedge-fund`, archetype `relative-value`. Structurally related to #13 Relative-value / pairs |
+| **Camel** | (hedge fund) Carry / income — funding harvest, two-sided | Two-wallet funding-harvest fund: shorts the most-positive-funding names (collects on short side), longs the most-negative (paid to hold). Harvests funding both ways. Catalog group: `hedge-fund`, archetype `carry`. Structurally related to #7 Funding-regime fade |
+| **Caracal** | 17 — Volatility / breakout-expansion (hedge fund variant) | Trades volatility *expansion*, not direction — coiled-spring breakouts across crypto + XYZ. Catalog group: `hedge-fund`, archetype `volatility` |
+| **Elephant** | 18 — Global macro / cross-asset (hedge fund variant) | Equity indices, metals, energy, FX (XYZ) + BTC. Trend book that rides the macro direction + a fade book. Catalog group: `hedge-fund`, archetype `global-macro` |
+| **thesis-risk-off** | 19 — Thesis fund (preset: `risk_off`) | "Bet against the Trump economy" — long gold/metals, short US indices + BTC. Variant of the `thesis-fund-strategy` engine; deploy via base_skill + `THESIS=risk_off` |
+| **thesis-recovery** | 19 — Thesis fund (preset: `recovery`) | "U.S. Recovery — Risk-On" — long US indices + BTC, short gold. Mirror of `risk_off`. Deploy via base_skill + `THESIS=recovery` |
+| **thesis-war-escalation** | 19 — Thesis fund (preset: `war_escalation`) | "War Escalation" — long oil + gold, short equities + BTC. Deploy via base_skill + `THESIS=war_escalation` |
+| **thesis-war-recovery** | 19 — Thesis fund (preset: `war_recovery`) | "War De-escalation — Recovery" — short oil + gold, long equities + BTC. Deploy via base_skill + `THESIS=war_recovery` |
+| **thesis-hype-vs-market** | 19 — Thesis fund (preset: `hype_vs_market`) | "HYPE vs. the Rest of the Market" — long HYPE, short the BTC/ETH/SOL basket (~market-neutral). Deploy via base_skill + `THESIS=hype_vs_market` |
+| **thesis-gold-over-btc** | 19 — Thesis fund (preset: `gold_over_btc`) | "Gold over Bitcoin" — long gold, short BTC. Deploy via base_skill + `THESIS=gold_over_btc` |
+| **thesis-btc-over-gold** | 19 — Thesis fund (preset: `btc_over_gold`) | "Bitcoin over Gold" — long BTC, short gold. Deploy via base_skill + `THESIS=btc_over_gold` |
 
-Sentinel runs an in-house producer that is not currently published to this repo; no public URL.
+Sentinel runs an in-house producer that is not currently published to this repo; no public URL. Roach-B (above) is the second-wallet instance of the Roach producer — same producer, different wallet — and therefore appears in this roster but not as a separately-installable entry in `catalog.json`.
 
 ---
 
@@ -1279,7 +1294,24 @@ Sentinel runs an in-house producer that is not currently published to this repo;
 - [`yaml-schema.md`](yaml-schema.md) — full `runtime.yaml` field reference
 - [`python-producer-sdk.md`](python-producer-sdk.md) — full Producer SDK reference
 - [`strategy-examples.md`](strategy-examples.md) — runtime.yaml templates by strategy type
-- **This file** — scanner archetype catalog (you are here)
+- **This file** — scanner archetype catalog + Decision Tree (you are here) — **the canonical routing source**
 - [`liveness-verification.md`](liveness-verification.md) — how to confirm your producer is firing on-chain
+- `/catalog.json` (repo root) — install + display metadata only; defers to this doc for all routing logic
+
+### Source-of-truth contract — catalog.json vs. this doc
+
+The two artifacts answer two different questions. Don't mix them up:
+
+| Question | Authoritative source |
+|---|---|
+| *"What's installable, and what's its display info (name, emoji, tagline, install command, min_budget, predators_url)?"* | `catalog.json` |
+| *"Which strategy do we recommend when a user says X?"* | **This doc — the Decision Tree** |
+| *"What's the conversational flow to land a user on a strategy?"* | **This doc — the Decision Tree (Layers 0–3)** |
+| *"How do we handle variants (e.g. Thesis Fund presets)?"* | **This doc — Layer 2G + the variant rows in the roster** (catalog.json carries `base_skill` + `thesis` as install-time fields, but the routing/UX intent lives here) |
+| *"How do we order strategies for display?"* | **This doc — Layer 1 / Layer 2 ordering** (catalog.json `sort_order` is a per-group display tiebreaker only) |
+| *"What's the default first strategy for a brand-new user?"* | **This doc — Layer 0A Express Lane** (Hedgehog / Beaver — catalog.json doesn't encode defaults) |
+| *"How do we frame `min_budget`?"* | **This doc — Layer 0D, Layer 3** (guideline, not a gate; never refuse over budget) |
+
+When `catalog.json` and this doc disagree, this doc wins. `catalog.json`'s `_instructions` field now states this explicitly and points back here.
 
 Pick a pattern from this catalog, fetch the example agent's producer + runtime.yaml from the GitHub URLs in that pattern's section, tune the scoring and thresholds for your thesis, deploy with `openclaw senpi runtime create` + `nohup python3 ... &`. That's the canonical build path.

@@ -1,17 +1,21 @@
 # Skill Recommendations
 
-When the user asks "what skills should I install?" or "what should I use for [goal]?",
-fetch the current catalog:
+When the user asks "what skills should I install?" or "what should I use for [goal]?":
 
-```bash
-CATALOG=$(curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json)
-```
+1. **Walk the Decision Tree in [`producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy) — this is the canonical routing source** for which strategy to recommend.
+2. **Cross-reference `catalog.json` for install metadata only** (name, tagline, install command, min_budget):
 
-Then match their goal to the table below.
+   ```bash
+   CATALOG=$(curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/catalog.json)
+   ```
 
-## Goal → Skill Mapping
+   `catalog.json` is install/display metadata — **not** the routing source. When its structure suggests a different recommendation than the Decision Tree, the Decision Tree wins.
 
-> The live fleet changes frequently (new strategy skills ship most weeks). **Always pull the current list from `catalog.json` (above) or the `list_strategies` MCP tool before recommending** — do not rely on a hard-coded list. The mappings below are stable archetype examples, named only with strategies confirmed live in the repo.
+3. As a shortcut, the table below maps common goals to specific skills. The Decision Tree is more comprehensive (and handles the harder cases like "just pick something for me" or "bet against the Trump economy"); this table is for the easy direct asks.
+
+## Goal → Skill Mapping (shortcut for common asks)
+
+> The live fleet changes frequently (new strategy skills ship most weeks). **Always pull the current install metadata from `catalog.json` (above) or the `list_strategies` MCP tool before recommending** — do not rely on a hard-coded list. The mappings below are stable archetype examples, named only with strategies confirmed live in the repo. For anything beyond these — and especially for unsure / open-ended users — use the Decision Tree.
 
 | User goal | Recommended skill | Asset focus |
 |---|---|---|
@@ -28,7 +32,7 @@ Then match their goal to the table below.
 
 | User goal | Recommended skill | Asset focus |
 |---|---|---|
-| **Help me pick a strategy / what should I trade / recommend a strategy** | **Run the picker flow** (see [`post-onboarding.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-entrypoint/references/post-onboarding.md)): pull balance + regime, filter the catalog + [`producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md), recommend 2–3 fleet templates, install via `install_skill`. **Always offer build-from-scratch as the last option.** | — |
+| **Help me pick a strategy / what should I trade / recommend a strategy** | **Run the picker flow** (see [`post-onboarding.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-entrypoint/references/post-onboarding.md)): pull balance + regime, **walk the [Decision Tree in `producer-patterns.md`](https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/senpi-trading-runtime/references/producer-patterns.md#decision-tree--help-a-user-pick-their-first-strategy) (canonical routing source)**, cross-reference `catalog.json` for install metadata, recommend 2–3 fleet templates, install via `install_skill`. **Always offer build-from-scratch as the last option.** | — |
 | BTC, maximum conviction, multi-timeframe trend | Grizzly (`grizzly`) | BTC |
 | SOL alpha hunter, single-asset focus | Kodiak (`kodiak`) | SOL |
 | ETH alpha hunter, hybrid hyperfeed + structure | Polar (`polar`) | ETH |
