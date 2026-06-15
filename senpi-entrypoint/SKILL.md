@@ -178,7 +178,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill <skill-name> -g 
 Example:
 
 ```bash
-npx skills add https://github.com/Senpi-ai/senpi-skills --skill wolf-strategy -g -y
+npx skills add https://github.com/Senpi-ai/senpi-skills --skill hedgehog -g -y
 ```
 
 Onboarding is complete. The agent is now equipped with Senpi's trading

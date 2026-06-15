@@ -1,4 +1,10 @@
-# 🐺 JACKAL — First Jump Pyramider
+# JACKAL — First Jump Pyramider
+
+> ⚠️ **DEPRECATED — retired early-lifecycle concept, kept for design lineage only.**
+> Not an installable skill. It predates runtime 1.1.0 and builds on **FOX** and
+> **RHINO**, two early Senpi strategies now retired. The **RHINO** here is that
+> old pyramiding strategy — **NOT** the current [Rhino](../../rhino/) (Tail-Risk /
+> Crisis-Alpha Hedge Fund). The active trader-follower is [Jackal](../).
 
 A trading strategy (config override) based on FOX v1.6. Uses FOX's exact scanner and five-layer entry gauntlet — the proven #1 signal on the leaderboard — combined with RHINO's pyramiding mechanic. Enter small on a First Jump, add as it confirms.
 

@@ -36,7 +36,7 @@ When the user closes their first strategy, show the result and suggest next step
 >
 > Result: +$X.XX (+X.XX%)
 >
-> **Next:** Explore more skills (DSL, Scanner, WOLF, Whale Index) or say "find opportunities" to discover more strategies.
+> **Next:** Explore more skills — AI Hedge Funds (Spider, Octopus, …) or single-strategy agents (Hedgehog, Beaver, …) — or say "find opportunities" to discover more strategies.
 
 **If loss:**
 
