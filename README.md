@@ -348,7 +348,7 @@ Senpi's flagship line. Each fund runs **two complementary strategy books on two 
 | [wolf](wolf/) | Event-Driven | Risk-on rotation + risk-off rotation | Trades the **turn**. A shared cross-asset regime detector (equities + oil + gold + BTC + the dollar) decides which book works — longing beaten-down beta in a confirmed risk-on regime, or longing defensives + shorting risk in a confirmed risk-off regime. Capital rotates to whichever regime is in force. |
 | [rhino](rhino/) | Tail-Risk | Always-on hedge + stress-gated escalation | Carries cheap **convexity** — bleeds a little in calm, pays big in shocks. A small always-on hedge in crisis beneficiaries (gold/oil/dollar/yen) plus a dormant book that fires hard when a stress detector confirms a shock: long the spiking crisis assets, short the cratering risk assets. |
 
-Each fund's individual books are also catalogued under their trading-edge archetype below.
+Some funds' books also map to a single-strategy archetype below (Spider §4, Camel §7, Octopus §13); the volatility, global-macro, event-driven, and tail-risk funds (Caracal, Elephant, **Wolf**, **Rhino**) are two-book funds documented in [`producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md) §17–§21.
 
 ## 🎯 Thesis Funds — bet your view
 
