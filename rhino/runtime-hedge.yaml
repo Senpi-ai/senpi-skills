@@ -1,0 +1,192 @@
+name: rhino-hedge-tracker
+# Top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (major=1). Skill version is "Rhino v1.0" — lives in
+# description + SKILL.md + _rhino_producer_version.
+version: 1.0.0
+description: >
+  RHINO v1.0 (HEDGE book) — always-on tail-risk carry.
+
+  One of two books. This book carries a SMALL, persistent LONG position in the
+  crisis-beneficiary complex (gold / oil / dollar / yen), entered only when a
+  defensive is actually trending up (no falling-knife hedges). It is the
+  standing insurance — held through calm so you already own it when a shock
+  hits. NOT stress-gated. Pairs with the ESCALATION book
+  (runtime-escalation.yaml) on a separate wallet, which adds leveraged
+  convexity only when stress confirms. The edge is owning cheap convexity
+  before the shock.
+
+  Scoring (producer-side): 4h BULLISH backbone (required) + 1h confirm + 24h
+  momentum + RSI room on the defensive whitelist. LONG only.
+
+  Execution envelope:
+    - slots 3, margin_pct 10 (SMALL — cheap standing insurance, lots of cash)
+    - strict 5x leverage clamp, then each asset's HL venue max
+    - WIDE let-it-run DSL: hold the hedge, let a crisis winner run, all
+      time-cuts OFF, 10d hard_timeout staleness backstop
+
+  Producer scores its universe and pushes signals via
+  SenpiClient.push_signal(); runtime LLM gate is pass-through; runtime owns
+  execution + DSL.
+
+strategy:
+  wallet: "${RHINO_HEDGE_WALLET}"
+  # ── FUNDING SPLIT DEFAULT: HEDGE 50% / ESCALATION 50% of the combined pool ──
+  # The hedge book runs a SMALL margin_pct (10%), so even at half the pool it is
+  # lightly deployed — that is the point (cheap standing insurance). The other
+  # half is dry powder the escalation book deploys only under stress. This is a
+  # FUNDING guideline for the operator, NOT a runtime-enforced field.
+  slots: 3
+  margin_pct: 10
+  trading_risk: moderate
+  enabled: true
+
+risk:
+  data_retention_hours: 168
+  guard_rails:
+    daily_loss_limit_pct: 8       # small book — cap the calm-time bleed
+    max_entries_per_day: 3        # the hedge turns over slowly
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_minutes: 120
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 360
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+  - name: rhino_hedge_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        direction: { type: string, required: true }
+        reasons: { type: array, required: false }
+        trend4h: { type: string, required: false }
+        own24h: { type: number, required: false }
+        stress: { type: boolean, required: false }
+        stressFired: { type: number, required: false }
+        heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: rhino_hedge_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${RHINO_DECISION_MODEL}"   # REQUIRED. Bare model name only — NO provider prefix.
+    scanners: [rhino_hedge_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: rhino_hedge_signals
+    decision_prompt: |
+      You are Rhino's HEDGE-book pass-through gate. The producer scored a
+      crisis-beneficiary defensive (gold / oil / dollar / yen) that is trending
+      up, to carry as the standing tail-risk hedge. This book is LONG only and
+      sized small on purpose. It applied the 5x leverage clamp and held-asset
+      dedup. Honor the signal unless it is malformed.
+
+      SIGNAL:
+      {{signal_rhino_hedge_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. asset MUST be copied from signal.asset EXACTLY (preserve any xyz: prefix).
+      2. direction MUST be LONG (this book is long-only). If signal.direction is not LONG, execute: false.
+      3. leverage MUST be copied from signal.data.leverage.
+      4. marginUsd MUST be copied from signal.data.marginUsd.
+      5. Every claim in reasoning MUST cite signal values.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 5 (producer floor; defensive)
+      - leverage <= 0 OR leverage > 5 (clamp breach) OR marginUsd <= 0
+      - direction != LONG
+      - signal.asset already in signal.data.heldAssets (duplicate)
+      - reasons array empty
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 7 AND no malformed fields
+      - 7-8:  score 5.5-6.9
+      - 7:    score 5-5.4 (producer floor) — the signal IS the validation
+      - <7:   producer floor not cleared (should never reach you)
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values (e.g. 'score 7 xyz:GOLD LONG 5x, 4h BULLISH, +1.4% 24h — standing tail-risk hedge')",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "LONG",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "RHINO_TAIL_HEDGE LONG — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — wide, hold the insurance) ───────────────────────────
+#
+# The hedge is meant to be held and to RUN when a crisis hits: wide phase1, ALL
+# time cuts OFF, and only a 10d hard_timeout staleness backstop. Small position
+# size is the cost control; the DSL is not.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 14400          # 10d staleness cap
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 720
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 16.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 12, lock_hw_pct: 0 }
+        - { trigger_pct: 25, lock_hw_pct: 45 }
+        - { trigger_pct: 50, lock_hw_pct: 65 }
+        - { trigger_pct: 90, lock_hw_pct: 80 }
+        - { trigger_pct: 140, lock_hw_pct: 90 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

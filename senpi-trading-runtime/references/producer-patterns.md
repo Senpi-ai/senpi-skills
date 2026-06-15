@@ -96,9 +96,13 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 > trading-edge archetype (a builder studying an edge should find them there),
 > but as a product line they are: **Spider** (AI/Tech, §4) · **Octopus**
 > (relative-value, §13) · **Camel** (carry, §7) · **Caracal** (volatility, §17)
-> · **Elephant** (global-macro, §18). To build a sixth, clone any of them: same
-> `producer_daemon` + fcntl-lock + `push_signal` spine, swap the per-book scorer
-> + universe, fund the two wallets, launch two daemons with `setsid`+cron.
+> · **Elephant** (global-macro, §18) · **Wolf** (event-driven regime-rotation,
+> §20) · **Rhino** (tail-risk / crisis-alpha, §21). To build another, clone any
+> of them: same `producer_daemon` + fcntl-lock + `push_signal` spine, swap the
+> per-book scorer + universe, fund the two wallets, launch two daemons with
+> `setsid`+cron. **Wolf and Rhino add a shared "brain" the producer computes
+> once per tick before either book scores** — a cross-asset *regime* read (Wolf)
+> or *stress* read (Rhino) that gates which book may fire.
 
 ### 1. Universe trend-follower
 
@@ -941,6 +945,60 @@ for asset, target_dir in basket(preset):      # direction FIXED by the preset
 
 ---
 
+### 20. Event-driven / regime-rotation (shared-brain hedge fund)
+
+A **two-book hedge fund with a shared regime brain.** Before either book scores anything, the producer computes a single market-wide **regime** from cross-asset confirmation, and a book only fires when the regime agrees with its mandate — so capital *rotates* to whichever book the regime favors. The edge is the macro **transition itself**, detected across the whole complex, not a per-asset trend (§1/§18) and not a fixed bet (§19).
+
+```python
+# computed ONCE per tick, BEFORE either book scores (no single asset flips it):
+on = off = 0
+for probe in [equities, oil, gold, btc, dollar]:         # 4h trend of each
+    t = trend4(probe.asset)
+    if t == probe.risk_on_when:  on  += 1                 # e.g. equities BULLISH, oil BEARISH
+    elif t == probe.risk_off_when: off += 1
+net = on - off
+regime = "RISK_ON" if net >= threshold else "RISK_OFF" if net <= -threshold else "NEUTRAL"
+if regime != MY_REGIME: emit_standing_down(); return       # the rotation gate
+# only now score the book's universe in the regime-mandated direction
+```
+
+**The key discipline:** the *threshold* (net votes, default 2) means no single asset can flip the book — the whole macro complex has to lean one way. A regime flip is handled on the **entry** side (the losing-regime book stops *adding*); open winners still trail out via the DSL ladder, so the fund doesn't dump a book just because the tape turned.
+
+**When to use this pattern:** the market is in a headline-driven, regime-whipsaw environment (war-on/war-off, risk-on/off on macro catalysts) and you want a vehicle that *adapts* — taking the prevailing side and flipping as conditions change — rather than a fixed directional bet.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Wolf** | v1.0 | Risk complex (crypto majors + growth indices) ↔ defensives (gold/oil/$/JPY); regime probes = equities/oil/gold/BTC/$ | **Event-Driven / Regime-Rotation Hedge Fund.** Two books, two wallets, one producer + a shared cross-asset regime detector. `risk_on` book longs beaten-down beta ONLY in a confirmed RISK_ON regime (wide let-it-run DSL); `risk_off` book longs defensives + shorts risk ONLY in RISK_OFF (tighter DSL, risk-off moves reverse fast). Stands down in NEUTRAL. `regimeThreshold` = net cross-asset votes to declare a regime. 50/50 funding (rotation — one book usually active). | Hedge-fund, Event-driven, Regime-rotation, Shared-brain, Adaptive, Two-wallet |
+
+---
+
+### 21. Tail-risk / crisis-alpha (shared-brain hedge fund)
+
+A **two-book hedge fund built for convexity** — designed to bleed a little in calm and pay big in shocks. The shared brain here is a **stress detector** (cross-asset breakdown/breakout + vol-expansion). One book is always-on insurance; the other is dormant dry powder that the stress gate wakes.
+
+```python
+stress = sum(probe_fires(p) for p in [oil_up, equities_down, gold_up, btc_down]) \
+         + (1 if btc_atr_recent/btc_atr_base >= vol_surge else 0)
+stressed = stress >= stressThreshold
+# HEDGE book: always-on, LONG defensives that are trending up (no falling-knife hedges), small size
+# ESCALATION book: if not stressed -> emit_dormant(); return
+#                  else LONG spiking crisis assets + SHORT cratering risk, larger size
+```
+
+**The key discipline:** the hedge book is **sized small** (`margin_pct` ~10%) so calm-time bleed is bounded by *position size*, not a tight stop — and a crisis winner runs on a wide DSL. The escalation book sits in **cash as dry powder** (that idle capital *is* the tail hedge) and only deploys under a confirmed stress regime, with a moderate-tight DSL that banks the spike (crises reverse violently — a ceasefire dumps oil/gold).
+
+**When to use this pattern:** you want the portfolio *hedge* of a fund line-up — the thing that's green on the days everything else is red — without requiring the user to hold a view. Best launched in calm (insurance is cheap when nobody wants it).
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Rhino** | v1.0 | Crisis longs (gold/silver/oil/CL/natgas/$/JPY) + risk shorts (crypto majors + growth indices); stress probes = oil/equities/gold/BTC + BTC-vol | **Tail-Risk / Crisis-Alpha Hedge Fund.** Two books, two wallets, one producer + a shared stress detector. `hedge` book: always-on small LONG carry in defensives that are trending up (cheap standing insurance, wide 10d-timeout DSL). `escalation` book: dormant until STRESS confirms, then LONG spiking crisis assets + SHORT cratering risk (larger size, moderate-tight DSL that banks the spike). `stressThreshold` = cross-asset stress probes that must fire. 50/50 funding (hedge runs small; escalation holds dry powder). | Hedge-fund, Tail-risk, Crisis-alpha, Convexity, Shared-brain, Stress-gated, Two-wallet |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.
@@ -1120,6 +1178,8 @@ The user wants a **style of return**, not a market view. These are packaged **tw
 | "I want steady income, not big swings." · "Put my crypto to work while I sleep." | carry / income | 🏦 **Camel — Carry Hedge Fund** — shorts the most-positive-funding names (short collects), longs the most-negative (paid to hold) — harvests funding both ways |
 | "Just catch the big moves — I don't care which way it breaks." · "Comes alive when it's volatile." | volatility | 🏦 **Caracal — Volatility Hedge Fund** — trades volatility *expansion*, not direction (coiled-spring breakouts), across crypto + XYZ |
 | "Trade the whole macro board, not just crypto." · "I want gold, oil, and indices too." | global macro | 🏦 **Elephant — Global-Macro Hedge Fund** — equity indices, metals, energy, FX (XYZ) + BTC; a trend book that rides the macro direction + a fade book |
+| "Trade the turn — ride risk-on rallies, flip defensive when it rolls over." · "Adapt to the macro mood." | event-driven / regime-rotation | 🏦 **Wolf — Event-Driven Hedge Fund** — a shared cross-asset regime detector rotates the book: long beaten-down beta in risk-on, long defensives + short risk in risk-off |
+| "Protect me when things break." · "Make money in a crash." · "I want a hedge." | tail-risk / crisis-alpha | 🏦 **Rhino — Tail-Risk Hedge Fund** — a small always-on hedge in crisis beneficiaries (gold/oil/$) + a stress-gated book that fires hard when a shock confirms (long crisis, short risk) |
 
 > **Funds size differently from single strategies.** Each Hedge Fund spans **two wallets** (fund both legs per the fund's README split — Spider defaults 60% swing / 40% scalp); Thesis Funds use **one**. These are **not onboarding-tier** — route a brand-new user to a single onboarding agent first (Layer 3), and offer a fund once they want a packaged long/short book rather than a single position stream.
 
@@ -1174,7 +1234,9 @@ Single asset, small whitelist, or universe?
         ├─ market-neutral        → Octopus  (Pattern 13 — cross-sectional dispersion, long leaders / short laggards)
         ├─ carry / income        → Camel    (Pattern 7 — funding harvest both directions)
         ├─ volatility expansion  → Caracal  (Pattern 17 — coiled-spring breakout, crypto + XYZ)
-        └─ global macro          → Elephant (Pattern 18 — indices/metals/energy/FX + BTC, trend book + fade book)
+        ├─ global macro          → Elephant (Pattern 18 — indices/metals/energy/FX + BTC, trend book + fade book)
+        ├─ event-driven / regime → Wolf     (Pattern 20 — shared regime brain, risk-on book ↔ risk-off book)
+        └─ tail-risk / crisis    → Rhino    (Pattern 21 — shared stress brain, always-on hedge + stress-gated escalation)
 ```
 
 > **Thesis vs. Hedge fund — which to fork.** A **Thesis Fund** is *one* engine (`thesis-fund`) whose behavior is entirely data: add a `{long: […], short: […]}` preset to `thesis-presets.json` and set `THESIS=` — no new code. A **Hedge Fund** is *two* runtime YAMLs + one leg-parameterized producer (`<FUND>_LEG=…`), each wallet running a different scoring book. Fork the closest fund above and re-tune the two books' scoring + universes.
@@ -1276,6 +1338,8 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Camel** | (hedge fund) Carry / income — funding harvest, two-sided | Two-wallet funding-harvest fund: shorts the most-positive-funding names (collects on short side), longs the most-negative (paid to hold). Harvests funding both ways. Catalog group: `hedge-fund`, archetype `carry`. Structurally related to #7 Funding-regime fade |
 | **Caracal** | 17 — Volatility / breakout-expansion (hedge fund variant) | Trades volatility *expansion*, not direction — coiled-spring breakouts across crypto + XYZ. Catalog group: `hedge-fund`, archetype `volatility` |
 | **Elephant** | 18 — Global macro / cross-asset (hedge fund variant) | Equity indices, metals, energy, FX (XYZ) + BTC. Trend book that rides the macro direction + a fade book. Catalog group: `hedge-fund`, archetype `global-macro` |
+| **Wolf** | 20 — Event-driven / regime-rotation (hedge fund variant) | Shared cross-asset regime brain (equities/oil/gold/BTC/$ 4h votes) gates which book fires: `risk_on` longs beaten-down beta in RISK_ON (wide DSL), `risk_off` longs defensives + shorts risk in RISK_OFF (tighter DSL). Stands down in NEUTRAL. Two wallets, one leg-parameterized producer, 50/50 funding. Catalog group: `hedge-fund`, archetype `event-driven` |
+| **Rhino** | 21 — Tail-risk / crisis-alpha (hedge fund variant) | Shared stress brain (oil/equities/gold/BTC breaks + BTC vol-expansion). `hedge` book: always-on small LONG defensives carry (wide 10d DSL). `escalation` book: dormant until stress, then LONG spiking crisis + SHORT cratering risk (larger size, moderate-tight DSL). Two wallets, one leg-parameterized producer, 50/50 funding. Catalog group: `hedge-fund`, archetype `tail-risk` |
 | **thesis-risk-off** | 19 — Thesis fund (preset: `risk_off`) | "Bet against the Trump economy" — long gold/metals, short US indices + BTC. Variant of the `thesis-fund-strategy` engine; deploy via base_skill + `THESIS=risk_off` |
 | **thesis-recovery** | 19 — Thesis fund (preset: `recovery`) | "U.S. Recovery — Risk-On" — long US indices + BTC, short gold. Mirror of `risk_off`. Deploy via base_skill + `THESIS=recovery` |
 | **thesis-war-escalation** | 19 — Thesis fund (preset: `war_escalation`) | "War Escalation" — long oil + gold, short equities + BTC. Deploy via base_skill + `THESIS=war_escalation` |

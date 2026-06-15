@@ -1,0 +1,19 @@
+{
+  "_comment": "WOLF v1.0 RISK-ON book — long-beta rotation leg of the regime-rotation fund. Trades ONLY when the shared cross-asset regime detector confirms RISK-ON (net of equities-up / oil-down / gold-soft / BTC-up / dollar-soft votes >= regimeThreshold). It then goes LONG beaten-down beta (riskAssets) that is turning up: 4h BULLISH backbone + 1h confirm + 24h momentum + RSI room. When the regime is RISK-OFF or NEUTRAL this book STANDS DOWN and emits no signals. Leverage clamped to maxLeverage then each asset's HL venue max. Pairs with the RISK-OFF book (wolf-risk_off-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-risk_on.yaml. Producer launched with WOLF_LEG=risk_on.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "riskAssets": ["BTC", "ETH", "SOL", "HYPE", "SUI", "xyz:XYZ100", "xyz:SP500"],
+  "defensives": [],
+  "minScore": 5,
+  "marginPct": 0.20,
+  "maxLeverage": 5,
+  "maxSlots": 3,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "regimeThreshold": 2,
+  "momThresholdPct": 1.0,
+  "rsiOverbought": 78,
+  "rsiOversold": 22,
+  "_persona": "Regime-rotation long-beta — fires only in a confirmed RISK-ON regime, longs the beaten-down risk complex (crypto majors + growth indices) as it turns up, strict 5x, WIDE let-it-run DSL (a relief rally runs). Stands down in RISK-OFF / NEUTRAL. regimeThreshold = net cross-asset votes required to declare the regime (no single asset flips the book)."
+}

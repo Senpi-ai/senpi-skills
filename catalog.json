@@ -592,6 +592,38 @@
       "version": "1.0.0"
     },
     {
+      "id": "wolf",
+      "tracker_slug": "wolf",
+      "name": "Wolf \u2014 Event-Driven / Regime-Rotation Hedge Fund",
+      "emoji": "\ud83d\udc3a",
+      "tagline": "Trades the macro TURN. A shared cross-asset regime detector (equities + oil + gold + BTC + the dollar) decides which book works: a risk-on book longing beaten-down beta in a confirmed risk-on regime, a risk-off book longing defensives and shorting risk in a confirmed risk-off regime. Capital rotates to whichever regime is in force. Two wallets, 24/7.",
+      "group": "hedge-fund",
+      "sort_order": 6,
+      "min_budget": 100,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/wolf",
+      "version": "1.0.0",
+      "archetype": "event-driven"
+    },
+    {
+      "id": "rhino",
+      "tracker_slug": "rhino",
+      "name": "Rhino \u2014 Tail-Risk / Crisis-Alpha Hedge Fund",
+      "emoji": "\ud83e\udd8f",
+      "tagline": "Carries cheap convexity \u2014 bleeds a little in calm, pays big in shocks. An always-on hedge book holds a small long carry in crisis beneficiaries (gold/oil/dollar/yen); an escalation book sits in cash until a cross-asset stress detector confirms a shock, then fires hard \u2014 long the spiking crisis assets, short the cratering risk assets. Two wallets, 24/7.",
+      "group": "hedge-fund",
+      "sort_order": 7,
+      "min_budget": 100,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "branch": "main",
+      "predators_url": "https://strategies.senpi.ai/bot/rhino",
+      "version": "1.0.0",
+      "archetype": "tail-risk"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",

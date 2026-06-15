@@ -1,0 +1,19 @@
+{
+  "_comment": "WOLF v1.0 RISK-OFF book — defensives + short-risk rotation leg of the regime-rotation fund. Trades ONLY when the shared cross-asset regime detector confirms RISK-OFF (net of equities-up / oil-down / gold-soft / BTC-up / dollar-soft votes <= -regimeThreshold). It then goes LONG defensives that are trending up (gold/oil/dollar/yen) and SHORT risk assets rolling over (riskAssets): 4h backbone + 1h confirm + momentum + RSI room. When the regime is RISK-ON or NEUTRAL this book STANDS DOWN and emits no signals. Leverage clamped to maxLeverage then each asset's HL venue max. Pairs with the RISK-ON book (wolf-risk_on-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-risk_off.yaml. Producer launched with WOLF_LEG=risk_off.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "riskAssets": ["BTC", "ETH", "SOL", "HYPE", "SUI", "xyz:XYZ100", "xyz:SP500"],
+  "defensives": ["xyz:GOLD", "xyz:SILVER", "xyz:BRENTOIL", "xyz:DXY", "xyz:JPY"],
+  "minScore": 5,
+  "marginPct": 0.18,
+  "maxLeverage": 5,
+  "maxSlots": 3,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "regimeThreshold": 2,
+  "momThresholdPct": 1.0,
+  "rsiOverbought": 78,
+  "rsiOversold": 22,
+  "_persona": "Regime-rotation defensives + short-risk — fires only in a confirmed RISK-OFF regime, longs defensives (gold/oil/dollar/yen) trending up and shorts the risk complex rolling over, strict 5x, TIGHTER DSL (risk-off moves are sharp and reverse fast). Stands down in RISK-ON / NEUTRAL. defensives = LONG candidates; riskAssets = SHORT candidates."
+}

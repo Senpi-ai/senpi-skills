@@ -345,6 +345,8 @@ Senpi's flagship line. Each fund runs **two complementary strategy books on two 
 | [camel](camel/) | Carry | +funding shorts + −funding longs | Gets **paid to hold** — systematically collects the funding the crowd pays, on positions where the crowd is exhausting. Steady income, both directions. |
 | [caracal](caracal/) | Volatility | Crypto breakouts + XYZ catalyst breakouts | Waits for a market to coil, then rides the breakout **either way** — across crypto and stocks/oil/gold, 24/7. Episodic: most ticks empty by design. |
 | [elephant](elephant/) | Global Macro | Macro trend + macro fade | Trades the cross-asset macro complex — equity indices, metals, energy, FX + BTC — riding macro trends and fading the overreactions. Both directions, 24/7. |
+| [wolf](wolf/) | Event-Driven | Risk-on rotation + risk-off rotation | Trades the **turn**. A shared cross-asset regime detector (equities + oil + gold + BTC + the dollar) decides which book works — longing beaten-down beta in a confirmed risk-on regime, or longing defensives + shorting risk in a confirmed risk-off regime. Capital rotates to whichever regime is in force. |
+| [rhino](rhino/) | Tail-Risk | Always-on hedge + stress-gated escalation | Carries cheap **convexity** — bleeds a little in calm, pays big in shocks. A small always-on hedge in crisis beneficiaries (gold/oil/dollar/yen) plus a dormant book that fires hard when a stress detector confirms a shock: long the spiking crisis assets, short the cratering risk assets. |
 
 Each fund's individual books are also catalogued under their trading-edge archetype below.
 
@@ -574,7 +576,7 @@ Watches macro conditions and **classifies the market** into TREND_UP / TREND_DOW
 |---|---|---|---|
 | [coyote](coyote/) | v1.0 | BTC (positional) + universe (dispersion) | 3-regime classifier (TREND_UP / TREND_DOWN / CHOP) with vol-confirmation on the down side (crash = drop + vol spike, not slow grind). LONG BTC in TREND_UP, SHORT BTC in TREND_DOWN, no trade in CHOP. Regime + all 3 input metrics published on every tick. Balanced DSL. |
 
-> The **volatility** (Caracal) and **global-macro** (Elephant) archetypes live in the 🏦 AI Hedge Funds section at the top — each is a two-book fund rather than a single-strategy agent. Their per-edge architecture is documented in [`producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md) §17–§18.
+> The **volatility** (Caracal), **global-macro** (Elephant), **event-driven / regime-rotation** (Wolf), and **tail-risk / crisis-alpha** (Rhino) archetypes live in the 🏦 AI Hedge Funds section at the top — each is a two-book fund rather than a single-strategy agent. Their per-edge architecture is documented in [`producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md) §17–§21 (Wolf §20, Rhino §21 add a shared cross-asset "brain" — a regime/stress read computed once per tick that gates which book fires).
 
 For full archetype theses, distinguishing MCP signatures, and code snippets, see [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md).
 

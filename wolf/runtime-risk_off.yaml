@@ -1,0 +1,194 @@
+name: wolf-risk-off-tracker
+# Top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (major=1). Skill version is "Wolf v1.0" — lives in
+# description + SKILL.md + _wolf_producer_version.
+version: 1.0.0
+description: >
+  WOLF v1.0 (RISK-OFF book) — regime-rotation defensives + short-risk.
+
+  One of two rotation books. This book trades ONLY when Wolf's shared
+  cross-asset regime detector confirms RISK-OFF (equities down + oil up + gold
+  bid + BTC down + dollar bid, net votes over threshold). It then goes LONG
+  defensives that are trending up (gold / oil / dollar / yen) and SHORT risk
+  assets that are rolling over (crypto majors / growth indices). When the
+  regime is RISK-ON or NEUTRAL this book STANDS DOWN (emits no signals) and the
+  RISK-ON book (runtime-risk_on.yaml) carries. The edge is trading the macro
+  TURN, not a fixed view and not per-asset trend.
+
+  Scoring (producer-side): regime gate (RISK-OFF required), then 4h trend
+  backbone + 1h confirmation + 24h momentum + RSI room — LONG defensives,
+  SHORT risk.
+
+  Execution envelope:
+    - slots 3, margin_pct 18
+    - strict 5x leverage clamp, then each asset's HL venue max
+    - TIGHTER DSL: risk-off moves are sharp and reverse fast on a headline, so
+      bank gains quicker, time-cuts ON, 3d hard_timeout
+
+  Producer scores its universe and pushes signals via
+  SenpiClient.push_signal(); runtime LLM gate is pass-through; runtime owns
+  execution + DSL.
+
+strategy:
+  wallet: "${WOLF_RISK_OFF_WALLET}"
+  # ── FUNDING SPLIT DEFAULT: RISK_ON 50% / RISK_OFF 50% of the combined pool ──
+  # Wolf rotates — usually only ONE book is active at a time. A 50/50 split gives
+  # each regime equal firepower. This is a FUNDING guideline for the operator, NOT
+  # a runtime-enforced field. Per-position sizing is governed by margin_pct + slots.
+  slots: 3
+  margin_pct: 18
+  trading_risk: moderate
+  enabled: true
+
+risk:
+  data_retention_hours: 120
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 8        # risk-off is sharper / shorter → turns over faster than risk-on
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_minutes: 60
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 180
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+  - name: wolf_risk_off_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        direction: { type: string, required: true }
+        reasons: { type: array, required: false }
+        trend4h: { type: string, required: false }
+        regime: { type: string, required: false }
+        regimeNet: { type: number, required: false }
+        own24h: { type: number, required: false }
+        heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: wolf_risk_off_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${WOLF_DECISION_MODEL}"   # REQUIRED. Bare model name only — NO provider prefix.
+    scanners: [wolf_risk_off_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: wolf_risk_off_signals
+    decision_prompt: |
+      You are Wolf's RISK-OFF-book pass-through gate. The producer ALREADY
+      confirmed the cross-asset regime is RISK-OFF before emitting (no signal is
+      sent in any other regime), then scored either a defensive turning up
+      (LONG: gold / oil / dollar / yen) or a risk asset rolling over (SHORT:
+      crypto majors / growth indices). It applied the 5x leverage clamp and
+      held-asset dedup. This book trades BOTH directions. Honor the signal
+      unless it is malformed.
+
+      SIGNAL:
+      {{signal_wolf_risk_off_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. asset MUST be copied from signal.asset EXACTLY (preserve any xyz: prefix).
+      2. direction MUST be copied from signal.direction (LONG or SHORT).
+      3. leverage MUST be copied from signal.data.leverage.
+      4. marginUsd MUST be copied from signal.data.marginUsd.
+      5. Every claim in reasoning MUST cite signal values.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 5 (producer floor; defensive)
+      - leverage <= 0 OR leverage > 5 (clamp breach) OR marginUsd <= 0
+      - direction not in [LONG, SHORT]
+      - signal.data.regime != "RISK_OFF"
+      - signal.asset already in signal.data.heldAssets (duplicate)
+      - reasons array empty
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 7 AND regime net strong AND no malformed fields
+      - 7-8:  score 5.5-6.9
+      - 7:    score 5-5.4 (producer floor) — the signal IS the validation
+      - <7:   producer floor not cleared (should never reach you)
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values (e.g. 'score 7 xyz:GOLD LONG 5x, RISK_OFF regime net -3, 4h BULLISH — flight to safety' OR 'score 6 SOL SHORT 5x, RISK_OFF, 4h BEARISH — risk rolling over')",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "copy signal.direction EXACTLY",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "WOLF_RISK_OFF_ROTATION ${direction} — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — tighter, risk-off moves are sharp) ──────────────────
+#
+# Risk-off rallies in defensives and drops in risk reverse fast on a headline
+# (a ceasefire dumps oil/gold, a relief bid squeezes shorts). So bank gains
+# quicker: tighter phase1, earlier profit-lock ladder, stall-cuts ON, 3d timeout.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 4320           # 3d
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 240            # 4h
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h
+    phase1:
+      enabled: true
+      max_loss_pct: 10.0
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8, lock_hw_pct: 35 }
+        - { trigger_pct: 15, lock_hw_pct: 55 }
+        - { trigger_pct: 30, lock_hw_pct: 70 }
+        - { trigger_pct: 50, lock_hw_pct: 85 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
