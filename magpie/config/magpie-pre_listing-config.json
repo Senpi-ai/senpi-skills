@@ -7,7 +7,7 @@
   "marginPct": 0.12,
   "maxLeverage": 3,
   "maxSlots": 3,
-  "minNotionalUsd": 150,
+  "minNotionalPctOfEquity": 0.01,
   "tickSeconds": 900,
   "ipopFundingMaxAbs": 1e-7,
   "ipopMaxLeverageCap": 5,

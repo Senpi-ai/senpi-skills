@@ -109,10 +109,12 @@ that finds no qualifying name prints `WAITING — no name cleared min score 5`
 ## Sizing sanity check
 
 `margin_usd` per slot should be **≈20% of that book's wallet** (`margin_pct`
-20). For a book to place an order, `margin_usd × leverage ≥ minNotionalUsd`
-(200). At 5x that needs only `account_value × 0.20 × 5 ≥ 200` → **≥ $200**
-wallet, so any realistic funding trades. Each book fills up to 4 slots
-(4 × 20% = 80% committed, 20% buffer).
+20). The minimum-order floor **scales with the wallet** — a book places an order
+when `margin_usd × leverage ≥ max(account_value × minNotionalPctOfEquity 1%, the
+HL venue minimum ~$10)`. The position itself is `account_value × 0.20 × 5 ≈ 1×
+account_value` in notional, so any funded wallet above the exchange minimum
+trades (the floor is never a hardcoded dollar amount). Each book fills up to 4
+slots (4 × 20% = 80% committed, 20% buffer).
 
 ---
 

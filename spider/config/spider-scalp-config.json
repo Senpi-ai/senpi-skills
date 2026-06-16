@@ -7,7 +7,7 @@
   "minScore": 4,
   "marginPct": 0.15,
   "scalpMaxLeverage": 5,
-  "minNotionalUsd": 200,
+  "minNotionalPctOfEquity": 0.01,
   "maxSlots": 4,
   "tickSeconds": 60,
   "rsiOversold": 30,

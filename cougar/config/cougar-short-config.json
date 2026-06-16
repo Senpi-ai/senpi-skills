@@ -8,7 +8,7 @@
   "marginPct": 0.20,
   "maxLeverage": 5,
   "maxSlots": 4,
-  "minNotionalUsd": 200,
+  "minNotionalPctOfEquity": 0.01,
   "tickSeconds": 300,
   "volFloorUsd": 500000,
   "rankPoolSize": 8,

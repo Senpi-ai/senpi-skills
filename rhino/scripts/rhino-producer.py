@@ -82,7 +82,8 @@ _DEFAULTS = {
         "marginPct": 0.10,           # SMALL — cheap standing insurance
         "maxLeverage": 5,
         "maxSlots": 3,
-        "minNotionalUsd": 200,
+        "venueMinNotionalUsd": 10,
+        "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
         "momThresholdPct": 1.0,
         "rsiOverbought": 80,
@@ -103,7 +104,8 @@ _DEFAULTS = {
         "marginPct": 0.22,           # LARGER — the convex add when stress confirms
         "maxLeverage": 5,
         "maxSlots": 3,
-        "minNotionalUsd": 200,
+        "venueMinNotionalUsd": 10,
+        "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
         "momThresholdPct": 1.0,
         "rsiOverbought": 80,
@@ -529,7 +531,7 @@ def main():
     margin_pct = config.get("marginPct", _DEFAULTS["marginPct"])
     max_lev = config.get("maxLeverage", _DEFAULTS["maxLeverage"])
     max_slots = config.get("maxSlots", _DEFAULTS["maxSlots"])
-    min_notional = config.get("minNotionalUsd", _DEFAULTS["minNotionalUsd"])
+    min_notional = max(account_value * float(config.get("minNotionalPctOfEquity", 0.01)), float(config.get("venueMinNotionalUsd", 10)))  # scales with budget; floor = HL venue minimum order value
 
     open_slots = max_slots - len(held_assets)
     if open_slots <= 0:

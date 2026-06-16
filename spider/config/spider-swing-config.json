@@ -13,7 +13,7 @@
   "minScore": 5,
   "marginPct": 0.28,
   "swingMaxLeverage": 10,
-  "minNotionalUsd": 200,
+  "minNotionalPctOfEquity": 0.01,
   "maxSlots": 3,
   "tickSeconds": 300,
   "rsiMaxLong": 78,

@@ -10,7 +10,7 @@
   "marginPct": 0.22,
   "maxLeverage": 5,
   "maxSlots": 3,
-  "minNotionalUsd": 200,
+  "minNotionalPctOfEquity": 0.01,
   "tickSeconds": 300,
   "momThresholdPct": 1.0,
   "rsiOverbought": 80,

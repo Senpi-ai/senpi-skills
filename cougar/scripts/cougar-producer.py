@@ -68,7 +68,8 @@ _DEFAULTS = {
         "marginPct": 0.20,
         "maxLeverage": 5,
         "maxSlots": 4,
-        "minNotionalUsd": 200,
+        "venueMinNotionalUsd": 10,
+        "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
         "volFloorUsd": 500000,         # equity liquidity floor (lower than crypto)
         "rankPoolSize": 8,
@@ -81,7 +82,8 @@ _DEFAULTS = {
         "marginPct": 0.20,
         "maxLeverage": 5,
         "maxSlots": 4,
-        "minNotionalUsd": 200,
+        "venueMinNotionalUsd": 10,
+        "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
         "volFloorUsd": 500000,
         "rankPoolSize": 8,
@@ -415,7 +417,7 @@ def main():
     margin_pct = config.get("marginPct", _DEFAULTS["marginPct"])
     max_lev = config.get("maxLeverage", _DEFAULTS["maxLeverage"])
     max_slots = config.get("maxSlots", _DEFAULTS["maxSlots"])
-    min_notional = config.get("minNotionalUsd", _DEFAULTS["minNotionalUsd"])
+    min_notional = max(account_value * float(config.get("minNotionalPctOfEquity", 0.01)), float(config.get("venueMinNotionalUsd", 10)))  # scales with budget; floor = HL venue minimum order value
     rank_pool = int(config.get("rankPoolSize", _DEFAULTS["rankPoolSize"]))
 
     open_slots = max_slots - len(held_assets)

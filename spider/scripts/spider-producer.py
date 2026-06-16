@@ -94,7 +94,8 @@ _DEFAULTS = {
         "marginPct": 0.28,
         "maxLeverage": 10,
         "maxSlots": 3,
-        "minNotionalUsd": 200,
+        "venueMinNotionalUsd": 10,
+        "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
     },
     "scalp": {
@@ -104,7 +105,8 @@ _DEFAULTS = {
         "marginPct": 0.15,
         "maxLeverage": 5,
         "maxSlots": 4,
-        "minNotionalUsd": 500,
+        "venueMinNotionalUsd": 10,
+        "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 60,
     },
 }[LEG]
@@ -617,7 +619,7 @@ def main():
     margin_pct = config.get("marginPct", _DEFAULTS["marginPct"])
     leg_max_lev = config.get(_LEG_MAX_LEVERAGE_KEY, _DEFAULTS["maxLeverage"])
     max_slots = config.get("maxSlots", _DEFAULTS["maxSlots"])
-    min_notional = config.get("minNotionalUsd", _DEFAULTS["minNotionalUsd"])
+    min_notional = max(account_value * float(config.get("minNotionalPctOfEquity", 0.01)), float(config.get("venueMinNotionalUsd", 10)))  # scales with budget; floor = HL venue minimum order value
 
     open_slots = max_slots - len(held_assets)
     if open_slots <= 0:

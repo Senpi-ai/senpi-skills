@@ -89,7 +89,8 @@ _DEFAULTS = {
         "maxWeightPct": 0.22,          # cap any single sleeve at 22% of equity (low-vol sleeve guard)
         "maxLeverage": 3,              # LOW — a core, not a bet; inverse-vol controls risk
         "maxSlots": 10,                # hold the whole sleeve basket
-        "minNotionalUsd": 150,
+        "venueMinNotionalUsd": 10,
+        "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 600,            # low turnover — rebalance slowly
         "volBars": 30,                 # 1h bars for realized-vol estimate
         "minScore": 5,
@@ -102,7 +103,8 @@ _DEFAULTS = {
         "maxWeightPct": 0.30,
         "maxLeverage": 3,
         "maxSlots": 4,
-        "minNotionalUsd": 150,
+        "venueMinNotionalUsd": 10,
+        "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 600,
         "volBars": 30,
         "minScore": 5,
@@ -343,7 +345,7 @@ def main():
     max_weight = float(config.get("maxWeightPct", _DEFAULTS["maxWeightPct"]))
     max_lev = config.get("maxLeverage", _DEFAULTS["maxLeverage"])
     max_slots = config.get("maxSlots", _DEFAULTS["maxSlots"])
-    min_notional = config.get("minNotionalUsd", _DEFAULTS["minNotionalUsd"])
+    min_notional = max(account_value * float(config.get("minNotionalPctOfEquity", 0.01)), float(config.get("venueMinNotionalUsd", 10)))  # scales with budget; floor = HL venue minimum order value
     vol_bars = int(config.get("volBars", _DEFAULTS["volBars"]))
     min_score = config.get("minScore", _DEFAULTS["minScore"])
 

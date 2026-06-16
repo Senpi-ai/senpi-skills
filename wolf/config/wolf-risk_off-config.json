@@ -9,7 +9,7 @@
   "marginPct": 0.18,
   "maxLeverage": 5,
   "maxSlots": 3,
-  "minNotionalUsd": 200,
+  "minNotionalPctOfEquity": 0.01,
   "tickSeconds": 300,
   "regimeThreshold": 2,
   "momThresholdPct": 1.0,

@@ -8,7 +8,7 @@
   "maxWeightPct": 0.22,
   "maxLeverage": 3,
   "maxSlots": 10,
-  "minNotionalUsd": 150,
+  "minNotionalPctOfEquity": 0.01,
   "tickSeconds": 600,
   "volBars": 30,
   "minScore": 5,

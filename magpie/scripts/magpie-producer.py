@@ -61,7 +61,8 @@ _DEFAULTS = {
         "marginPct": 0.12,
         "maxLeverage": 3,
         "maxSlots": 3,
-        "minNotionalUsd": 150,
+        "venueMinNotionalUsd": 10,
+        "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 900,
         "ipopFundingMaxAbs": 1e-7,
         "ipopMaxLeverageCap": 5,
@@ -74,7 +75,8 @@ _DEFAULTS = {
         "marginPct": 0.15,
         "maxLeverage": 5,
         "maxSlots": 3,
-        "minNotionalUsd": 150,
+        "venueMinNotionalUsd": 10,
+        "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 600,
         "ipopFundingMaxAbs": 1e-7,
         "ipopMaxLeverageCap": 5,
@@ -463,7 +465,7 @@ def main():
     margin_pct = float(config.get("marginPct", _DEFAULTS["marginPct"]))
     max_lev = int(config.get("maxLeverage", _DEFAULTS["maxLeverage"]))
     max_slots = int(config.get("maxSlots", _DEFAULTS["maxSlots"]))
-    min_notional = float(config.get("minNotionalUsd", _DEFAULTS["minNotionalUsd"]))
+    min_notional = max(account_value * float(config.get("minNotionalPctOfEquity", 0.01)), float(config.get("venueMinNotionalUsd", 10)))  # scales with budget; floor = HL venue minimum order value
 
     open_slots = max_slots - len(held_assets)
     if open_slots <= 0:
