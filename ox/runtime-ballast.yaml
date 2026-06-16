@@ -1,0 +1,188 @@
+name: ox-ballast-tracker
+# Top-level `version` is the SCHEMA version the senpi-trading-runtime
+# plugin expects (major=1). Skill version is "Ox v1.0" — lives in
+# description + SKILL.md + _ox_producer_version.
+version: 1.0.0
+description: >
+  OX v1.0 (BALLAST book) — defensive all-weather overlay.
+
+  One of two books. This is the active downside cushion: a vol-balanced LONG
+  basket of defensives (gold / silver / dollar / yen), inverse-vol weighted to a
+  SMALL base budget that SCALES UP (≈2x) when a light cross-asset risk-off lean
+  confirms (equities soft + gold/dollar bid). Always-on, LONG only, never shorts
+  and never fully to cash. Pairs with the CORE book (runtime-core.yaml) on a
+  separate wallet. The edge is RISK BALANCING — owning ballast at all times,
+  more of it when the tape turns defensive.
+
+  Sizing (producer-side): each defensive's marginUsd = (scaled) defensive_budget
+  * (1/vol_i)/sum(1/vol_j), capped per sleeve. This per-sleeve marginUsd MUST be
+  honored — it is the risk-parity weight, not a flat size.
+
+  Execution envelope:
+    - slots 4, LONG only
+    - LOW leverage clamp (3x), then each asset's HL venue max
+    - WIDE let-it-hold DSL: defensives are held as protection, all time-cuts
+      OFF, 10d hard_timeout staleness backstop
+
+  Producer sizes its basket and pushes signals via SenpiClient.push_signal();
+  runtime LLM gate is pass-through; runtime owns execution + DSL.
+
+strategy:
+  wallet: "${OX_BALLAST_WALLET}"
+  # ── FUNDING SPLIT DEFAULT: CORE 70% / BALLAST 30% of the combined pool ──
+  # The ballast is the smaller defensive overlay; the core carries the larger share.
+  # This is a FUNDING guideline for the operator, NOT a runtime-enforced field.
+  # Per-position sizing is governed by the producer's per-sleeve marginUsd
+  # (inverse-vol, scaled on risk-off); margin_pct below is only a fallback cap.
+  slots: 4
+  margin_pct: 5
+  trading_risk: moderate
+  enabled: true
+
+risk:
+  data_retention_hours: 168
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_minutes: 90
+    drawdown_halt_pct: 16
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 360
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+
+  - name: ox_ballast_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        direction: { type: string, required: true }
+        reasons: { type: array, required: false }
+        weightPct: { type: number, required: false }
+        vol: { type: number, required: false }
+        riskOff: { type: boolean, required: false }
+        heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: ox_ballast_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${OX_DECISION_MODEL}"   # REQUIRED. Bare model name only — NO provider prefix.
+    scanners: [ox_ballast_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: ox_ballast_signals
+    decision_prompt: |
+      You are Ox's BALLAST-book pass-through gate. The producer sized one
+      defensive sleeve (gold / silver / dollar / yen): its marginUsd is the
+      INVERSE-VOLATILITY weight, scaled up when risk-off confirms — copy
+      marginUsd EXACTLY; do NOT normalize or override it. This book is LONG only
+      (defensives are the downside cushion). It applied the 3x leverage clamp
+      and held-asset dedup. Honor the signal unless it is malformed.
+
+      SIGNAL:
+      {{signal_ox_ballast_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+
+      1. asset MUST be copied from signal.asset EXACTLY (preserve any xyz: prefix).
+      2. direction MUST be LONG (this book is long-only). If signal.direction is not LONG, execute: false.
+      3. leverage MUST be copied from signal.data.leverage.
+      4. marginUsd MUST be copied from signal.data.marginUsd EXACTLY (per-sleeve risk-parity weight).
+      5. Every claim in reasoning MUST cite signal values.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+
+      - score < 5 (producer floor; defensive)
+      - leverage <= 0 OR leverage > 3 (clamp breach) OR marginUsd <= 0
+      - direction != LONG
+      - signal.asset already in signal.data.heldAssets (duplicate)
+      - reasons array empty
+
+      ## CONFIDENCE SCORING
+
+      - 9-10: score >= 7 AND no malformed fields
+      - 7-8:  score 5-6 — the signal IS the validation
+      - <7:   producer floor not cleared (should never reach you)
+
+      ## OUTPUT FORMAT
+
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values (e.g. 'score 7 xyz:GOLD LONG 3x, risk-parity weight 34%, riskOff true — defensive ballast scaled up')",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "LONG",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "OX_DEFENSIVE_BALLAST LONG — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — wide, hold the ballast) ─────────────────────────────
+#
+# Defensives are held as protection, not stopped out on noise: wide phase1, ALL
+# time cuts OFF, 10d hard_timeout backstop.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 14400          # 10d staleness cap
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 720
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 14.0
+      retrace_threshold: 9
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 22, lock_hw_pct: 45 }
+        - { trigger_pct: 45, lock_hw_pct: 65 }
+        - { trigger_pct: 80, lock_hw_pct: 80 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

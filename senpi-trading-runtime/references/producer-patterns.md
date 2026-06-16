@@ -97,12 +97,16 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 > but as a product line they are: **Spider** (AI/Tech, §4) · **Octopus**
 > (relative-value, §13) · **Camel** (carry, §7) · **Caracal** (volatility, §17)
 > · **Elephant** (global-macro, §18) · **Wolf** (event-driven regime-rotation,
-> §20) · **Rhino** (tail-risk / crisis-alpha, §21). To build another, clone any
-> of them: same `producer_daemon` + fcntl-lock + `push_signal` spine, swap the
-> per-book scorer + universe, fund the two wallets, launch two daemons with
-> `setsid`+cron. **Wolf and Rhino add a shared "brain" the producer computes
-> once per tick before either book scores** — a cross-asset *regime* read (Wolf)
-> or *stress* read (Rhino) that gates which book may fire.
+> §20) · **Rhino** (tail-risk / crisis-alpha, §21) · **Ox** (risk-parity /
+> all-weather, §22). To build another, clone any of them: same `producer_daemon`
+> + fcntl-lock + `push_signal` spine, swap the per-book scorer + universe, fund
+> the two wallets, launch two daemons with `setsid`+cron. **Wolf and Rhino add a
+> shared "brain" the producer computes once per tick before either book scores**
+> — a cross-asset *regime* read (Wolf) or *stress* read (Rhino) that gates which
+> book may fire. **Ox adds a different twist: per-sleeve *inverse-volatility*
+> sizing** — instead of a flat `margin_pct`, each position's `marginUsd` is its
+> risk-parity weight `(1/vol_i)/Σ(1/vol_j)`, so it depends on the runtime
+> honoring per-signal `marginUsd`.
 
 ### 1. Universe trend-follower
 
@@ -999,6 +1003,31 @@ stressed = stress >= stressThreshold
 
 ---
 
+### 22. Risk parity / all-weather (inverse-volatility hedge fund)
+
+A **two-book hedge fund whose distinctive mechanic is sizing, not signal.** Every other archetype sizes positions at a flat `margin_pct`; this one sizes each sleeve by **inverse realized volatility**, so a low-vol sleeve carries more notional than a high-vol one and no single asset class dominates portfolio risk — true risk parity. It is a *core holding*: always invested, low leverage, low turnover.
+
+```python
+# size vol for the WHOLE basket (held + un-held), then weight:
+vols = {a: realized_vol(closes_1h[a], n) for a in basket}     # stdev of pct returns
+w    = {a: (1/vols[a]) / sum(1/v for v in vols.values()) for a in basket}   # inverse-vol weights
+for a in unheld(basket):
+    margin_usd = min(budget_pct * equity * w[a], maxWeightPct * equity)     # per-sleeve risk-parity weight
+    emit(a, "LONG", margin_usd, leverage=3)                                 # low leverage; LONG only
+```
+
+**The key discipline:** weights are computed over the **full basket**, not the un-held subset — otherwise a single re-entry would get weight≈1.0 and be sized to the entire budget. The per-sleeve `marginUsd` IS the product, so the runtime must **honor per-signal `marginUsd`** rather than collapse to a flat `margin_pct` (same code path as the cross-margin sizing fix). Knife guard only governs *adding* a sleeve (won't buy a hard downtrend); the wide DSL holds existing sleeves through normal drawdowns.
+
+**When to use this pattern:** the user wants a diversified, lower-drawdown **core** they hold while betting with the other funds — not a directional view (Wolf), crisis convexity (Rhino), or per-asset trend (Elephant). Best in any regime; especially valued in a whippy, dispersed tape where balance beats concentration.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Ox** | v1.0 | Core sleeves (BTC/ETH/SOL + xyz:SP500/XYZ100/GOLD/COPPER/BRENTOIL/DXY/JPY); ballast = defensives (gold/silver/$/JPY) | **Risk-Parity / All-Weather Hedge Fund.** Two books, two wallets, one producer. `core` book: always-invested vol-balanced LONG basket, inverse-vol sized to a 60% budget, 3x, wide 14d-timeout DSL. `ballast` book: always-on LONG defensives, inverse-vol sized to an 18% base budget that scales ×2 when a light risk-off lean confirms. Low leverage, low turnover (600s tick); per-sleeve `marginUsd` is the risk-parity weight. 70/30 funding. | Hedge-fund, Risk-parity, All-weather, Inverse-vol-sizing, Core-holding, Two-wallet |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.
@@ -1180,6 +1209,7 @@ The user wants a **style of return**, not a market view. These are packaged **tw
 | "Trade the whole macro board, not just crypto." · "I want gold, oil, and indices too." | global macro | 🏦 **Elephant — Global-Macro Hedge Fund** — equity indices, metals, energy, FX (XYZ) + BTC; a trend book that rides the macro direction + a fade book |
 | "Trade the turn — ride risk-on rallies, flip defensive when it rolls over." · "Adapt to the macro mood." | event-driven / regime-rotation | 🏦 **Wolf — Event-Driven Hedge Fund** — a shared cross-asset regime detector rotates the book: long beaten-down beta in risk-on, long defensives + short risk in risk-off |
 | "Protect me when things break." · "Make money in a crash." · "I want a hedge." | tail-risk / crisis-alpha | 🏦 **Rhino — Tail-Risk Hedge Fund** — a small always-on hedge in crisis beneficiaries (gold/oil/$) + a stress-gated book that fires hard when a shock confirms (long crisis, short risk) |
+| "Give me a diversified core I can just hold." · "Lower drawdown, set-and-forget." · "Balance my risk across everything." | risk-parity / all-weather | 🏦 **Ox — Risk-Parity Hedge Fund** — a vol-balanced LONG basket across crypto/indices/metals/energy/FX, each sleeve sized by *inverse volatility* so no asset class dominates risk, plus a defensive ballast that scales up on risk-off. The core you hold while betting with the others |
 
 > **Funds size differently from single strategies.** Each Hedge Fund spans **two wallets** (fund both legs per the fund's README split — Spider defaults 60% swing / 40% scalp); Thesis Funds use **one**. These are **not onboarding-tier** — route a brand-new user to a single onboarding agent first (Layer 3), and offer a fund once they want a packaged long/short book rather than a single position stream.
 
@@ -1236,7 +1266,8 @@ Single asset, small whitelist, or universe?
         ├─ volatility expansion  → Caracal  (Pattern 17 — coiled-spring breakout, crypto + XYZ)
         ├─ global macro          → Elephant (Pattern 18 — indices/metals/energy/FX + BTC, trend book + fade book)
         ├─ event-driven / regime → Wolf     (Pattern 20 — shared regime brain, risk-on book ↔ risk-off book)
-        └─ tail-risk / crisis    → Rhino    (Pattern 21 — shared stress brain, always-on hedge + stress-gated escalation)
+        ├─ tail-risk / crisis    → Rhino    (Pattern 21 — shared stress brain, always-on hedge + stress-gated escalation)
+        └─ risk-parity / core    → Ox       (Pattern 22 — inverse-vol sizing, all-weather core + defensive ballast)
 ```
 
 > **Thesis vs. Hedge fund — which to fork.** A **Thesis Fund** is *one* engine (`thesis-fund`) whose behavior is entirely data: add a `{long: […], short: […]}` preset to `thesis-presets.json` and set `THESIS=` — no new code. A **Hedge Fund** is *two* runtime YAMLs + one leg-parameterized producer (`<FUND>_LEG=…`), each wallet running a different scoring book. Fork the closest fund above and re-tune the two books' scoring + universes.
@@ -1340,6 +1371,7 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Elephant** | 18 — Global macro / cross-asset (hedge fund variant) | Equity indices, metals, energy, FX (XYZ) + BTC. Trend book that rides the macro direction + a fade book. Catalog group: `hedge-fund`, archetype `global-macro` |
 | **Wolf** | 20 — Event-driven / regime-rotation (hedge fund variant) | Shared cross-asset regime brain (equities/oil/gold/BTC/$ 4h votes) gates which book fires: `risk_on` longs beaten-down beta in RISK_ON (wide DSL), `risk_off` longs defensives + shorts risk in RISK_OFF (tighter DSL). Stands down in NEUTRAL. Two wallets, one leg-parameterized producer, 50/50 funding. Catalog group: `hedge-fund`, archetype `event-driven` |
 | **Rhino** | 21 — Tail-risk / crisis-alpha (hedge fund variant) | Shared stress brain (oil/equities/gold/BTC breaks + BTC vol-expansion). `hedge` book: always-on small LONG defensives carry (wide 10d DSL). `escalation` book: dormant until stress, then LONG spiking crisis + SHORT cratering risk (larger size, moderate-tight DSL). Two wallets, one leg-parameterized producer, 50/50 funding. Catalog group: `hedge-fund`, archetype `tail-risk` |
+| **Ox** | 22 — Risk-parity / all-weather (hedge fund variant) | Inverse-volatility sizing — each sleeve's marginUsd = budget × (1/vol)/Σ(1/vol), over the full basket. `core` book: always-invested vol-balanced LONG basket (crypto/indices/metals/energy/FX), 60% budget, 3x, wide 14d DSL. `ballast` book: always-on LONG defensives, 18% budget ×2 on a risk-off lean. Low leverage, low turnover (600s). Two wallets, one leg-parameterized producer, 70/30 funding. Catalog group: `hedge-fund`, archetype `risk-parity` |
 | **thesis-risk-off** | 19 — Thesis fund (preset: `risk_off`) | "Bet against the Trump economy" — long gold/metals, short US indices + BTC. Variant of the `thesis-fund-strategy` engine; deploy via base_skill + `THESIS=risk_off` |
 | **thesis-recovery** | 19 — Thesis fund (preset: `recovery`) | "U.S. Recovery — Risk-On" — long US indices + BTC, short gold. Mirror of `risk_off`. Deploy via base_skill + `THESIS=recovery` |
 | **thesis-war-escalation** | 19 — Thesis fund (preset: `war_escalation`) | "War Escalation" — long oil + gold, short equities + BTC. Deploy via base_skill + `THESIS=war_escalation` |

@@ -1,0 +1,18 @@
+{
+  "_comment": "OX v1.0 BALLAST book — defensive all-weather overlay leg. Always-on: each tick it estimates realized vol for the defensive basket (gold/silver/dollar/yen), computes INVERSE-VOL weights, and sizes each un-held defensive LONG at marginUsd = portfolioBudgetPct * accountValue * w_i (capped at maxWeightPct). A light cross-asset risk-off lean (equities 4h bearish + gold/dollar 4h bullish; votes >= riskOffThreshold) SCALES the defensive budget up by riskOffMultiplier — more ballast when the tape turns defensive. LONG only, never shorts, never fully to cash. Low leverage (3x). Pairs with the CORE book (ox-core-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-ballast.yaml. Producer launched with OX_LEG=ballast. NOTE: risk parity depends on the runtime honoring per-sleeve signal.data.marginUsd.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "sleeves": ["xyz:GOLD", "xyz:SILVER", "xyz:DXY", "xyz:JPY"],
+  "portfolioBudgetPct": 0.18,
+  "maxWeightPct": 0.30,
+  "maxLeverage": 3,
+  "maxSlots": 4,
+  "minNotionalUsd": 150,
+  "tickSeconds": 600,
+  "volBars": 30,
+  "minScore": 5,
+  "riskOffThreshold": 1,
+  "riskOffMultiplier": 2.0,
+  "_persona": "Defensive ballast — always-on, vol-balanced LONG basket of defensives (gold/silver/dollar/yen), inverse-vol sized, scaled up ~2x when a light risk-off lean confirms. The active downside cushion of the all-weather fund. Wide let-it-hold DSL. riskOffMultiplier scales the defensive budget; riskOffThreshold = risk-off probe votes needed."
+}

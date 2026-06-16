@@ -1,0 +1,16 @@
+{
+  "_comment": "OX v1.0 CORE book — all-weather risk-parity core leg. Each tick it estimates realized volatility for the full sleeve basket (crypto majors + equity indices + metals + energy + FX, intersected with the live board), computes INVERSE-VOL weights w_i = (1/vol_i)/sum(1/vol_j) over the WHOLE basket, and sizes each un-held sleeve LONG at marginUsd = portfolioBudgetPct * accountValue * w_i, capped at maxWeightPct of equity. Low leverage (3x), low turnover (600s tick). Knife guard: declines to ADD a sleeve in a hard 4h downtrend; existing sleeves are held through drawdowns by the DSL. Pairs with the BALLAST book (ox-ballast-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-core.yaml. Producer launched with OX_LEG=core. NOTE: Ox's risk parity depends on the runtime honoring the per-sleeve signal.data.marginUsd (not a flat margin_pct).",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "sleeves": ["BTC", "ETH", "SOL", "xyz:SP500", "xyz:XYZ100", "xyz:GOLD", "xyz:COPPER", "xyz:BRENTOIL", "xyz:DXY", "xyz:JPY"],
+  "portfolioBudgetPct": 0.60,
+  "maxWeightPct": 0.22,
+  "maxLeverage": 3,
+  "maxSlots": 10,
+  "minNotionalUsd": 150,
+  "tickSeconds": 600,
+  "volBars": 30,
+  "minScore": 5,
+  "_persona": "All-weather risk-parity core — always invested, vol-balanced LONG basket across asset-class sleeves, inverse-vol sized so no sleeve dominates risk. Low leverage, low turnover, wide let-it-hold DSL. The fund line's steady core, not a directional bet. portfolioBudgetPct = gross deployed; maxWeightPct caps any single low-vol sleeve."
+}

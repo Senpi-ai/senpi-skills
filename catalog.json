@@ -602,10 +602,8 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/wolf-v1-0-0",
-      "version": "1.0.0",
-      "archetype": "event-driven"
+      "version": "1.0.0"
     },
     {
       "id": "rhino",
@@ -618,10 +616,22 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "branch": "main",
       "predators_url": "https://strategies.senpi.ai/bot/rhino-v1-0-0",
-      "version": "1.0.0",
-      "archetype": "tail-risk"
+      "version": "1.0.0"
+    },
+    {
+      "id": "ox",
+      "tracker_slug": "ox-v1-0-0",
+      "name": "Ox \u2014 Risk-Parity / All-Weather Hedge Fund",
+      "emoji": "\ud83d\udc02",
+      "tagline": "The all-weather core. Sizes every sleeve by INVERSE volatility so no asset class dominates risk (true risk parity) \u2014 a vol-balanced LONG basket across crypto majors, equity indices, metals, energy and FX, plus a defensive ballast (gold/dollar/yen) that scales up when the tape turns risk-off. Always invested, low leverage, low turnover. Two wallets, 24/7.",
+      "group": "hedge-fund",
+      "sort_order": 8,
+      "min_budget": 100,
+      "risk_level": "conservative",
+      "base_skill": null,
+      "predators_url": "https://strategies.senpi.ai/bot/ox-v1-0-0",
+      "version": "1.0.0"
     },
     {
       "id": "piranha",

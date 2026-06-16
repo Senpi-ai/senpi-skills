@@ -347,8 +347,9 @@ Senpi's flagship line. Each fund runs **two complementary strategy books on two 
 | [elephant](elephant/) | Global Macro | Macro trend + macro fade | Trades the cross-asset macro complex — equity indices, metals, energy, FX + BTC — riding macro trends and fading the overreactions. Both directions, 24/7. |
 | [wolf](wolf/) | Event-Driven | Risk-on rotation + risk-off rotation | Trades the **turn**. A shared cross-asset regime detector (equities + oil + gold + BTC + the dollar) decides which book works — longing beaten-down beta in a confirmed risk-on regime, or longing defensives + shorting risk in a confirmed risk-off regime. Capital rotates to whichever regime is in force. |
 | [rhino](rhino/) | Tail-Risk | Always-on hedge + stress-gated escalation | Carries cheap **convexity** — bleeds a little in calm, pays big in shocks. A small always-on hedge in crisis beneficiaries (gold/oil/dollar/yen) plus a dormant book that fires hard when a stress detector confirms a shock: long the spiking crisis assets, short the cratering risk assets. |
+| [ox](ox/) | Risk-Parity | Vol-balanced core + defensive ballast | The **all-weather core**. Sizes every sleeve by **inverse volatility** so no asset class dominates risk (true risk parity) — a LONG basket across crypto, indices, metals, energy, and FX, plus a defensive ballast (gold/dollar/yen) that scales up when the tape turns risk-off. Always invested, low leverage, low turnover. |
 
-Some funds' books also map to a single-strategy archetype below (Spider §4, Camel §7, Octopus §13); the volatility, global-macro, event-driven, and tail-risk funds (Caracal, Elephant, **Wolf**, **Rhino**) are two-book funds documented in [`producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md) §17–§21.
+Some funds' books also map to a single-strategy archetype below (Spider §4, Camel §7, Octopus §13); the volatility, global-macro, event-driven, tail-risk, and risk-parity funds (Caracal, Elephant, **Wolf**, **Rhino**, **Ox**) are two-book funds documented in [`producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md) §17–§22.
 
 ## 🎯 Thesis Funds — bet your view
 
