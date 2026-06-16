@@ -405,6 +405,10 @@ def main():
 
     # ── PASS 2: emit the un-held sleeves at their full-basket inverse-vol weight ──
     pushed, emitted, recently_skipped = 0, [], []
+    # Track free margin so we never emit a sleeve the wallet can't FUND — without
+    # this, an open slot with no free margin re-emits an un-fillable order every
+    # tick (insufficient-funds spam). free margin = equity minus committed margin.
+    free_margin = max(0.0, account_value - sum(p.get("margin", 0) for p in positions))
     # enter the largest-weight (lowest-vol) sleeves first
     for name in sorted(vols, key=lambda n: weights.get(n, 0), reverse=True):
         if pushed >= open_slots:
@@ -424,6 +428,8 @@ def main():
         leverage = clamp_leverage(max_lev, metas[name])
         if margin_usd <= 0 or leverage <= 0 or margin_usd * leverage < min_notional:
             continue
+        if margin_usd * 1.1 > free_margin:
+            continue   # can't fund this sleeve (1.1 = fee/slippage headroom) — try a smaller-weight one, don't spam
         score = 6 + (1 if trend4 == "BULLISH" else 0)
         if score < min_score:
             continue
@@ -433,6 +439,7 @@ def main():
             extra["riskOff"] = bool((lean or {}).get("risk_off"))
         if push_signal(name, score, reasons, margin_usd, leverage, w, held_assets, extra):
             pushed += 1
+            free_margin -= margin_usd
             cfg.record_signal(name)
             emitted.append({"coin": name, "direction": "LONG", "score": score,
                             "leverage": leverage, "margin_usd": margin_usd,

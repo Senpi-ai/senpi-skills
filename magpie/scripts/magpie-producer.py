@@ -531,8 +531,14 @@ def main():
         return
 
     candidates.sort(key=lambda c: c["score"], reverse=True)
-    to_emit = candidates[:open_slots]
     margin_usd = round(account_value * margin_pct, 2)
+    # Cap emissions to what the wallet can actually FUND — never emit an entry we
+    # can't afford. Without this, an open slot with no free margin re-emits an
+    # un-fillable order every tick (insufficient-funds create_position spam).
+    # free margin = equity minus on-chain committed margin (marginUsed).
+    free_margin = max(0.0, account_value - sum(p.get("margin", 0) for p in positions))
+    affordable = int(free_margin / (margin_usd * 1.1)) if margin_usd > 0 else 0  # 1.1 = fee/slippage headroom
+    to_emit = candidates[:min(open_slots, affordable)]
 
     pushed, emitted = 0, []
     for th in to_emit:
