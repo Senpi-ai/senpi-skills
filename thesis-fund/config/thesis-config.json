@@ -1,5 +1,5 @@
 {
-  "_comment": "THESIS FUND tunables (shared across all presets). The active preset is chosen by the THESIS env var and resolved from thesis-presets.json. One wallet holds the whole basket. Per-name sizing = marginPct x account_value, clamped to maxLeverage then each asset's HL venue max; only names whose notional clears minNotionalUsd are emitted. The producer only presses a basket name when the market confirms the thesis direction (4h/1h trend + 24h momentum); minScore is that confirmation bar. Set wallet/strategyId/chatId. Runtime owns tracking/caps/cooldowns/DSL via runtime.yaml. Producer launched with THESIS=<preset>.",
+  "_comment": "THESIS FUND tunables (shared across all presets). The active preset is chosen by the THESIS env var and resolved from thesis-presets.json. One wallet holds the whole basket. Per-name sizing = marginPct x account_value, clamped to maxLeverage then each asset's HL venue max; only names whose notional clears the budget-scaling floor (max(minNotionalPctOfEquity x account_value, venueMinNotionalUsd ~$10 HL minimum)) are emitted. The producer only presses a basket name when the market confirms the thesis direction (4h/1h trend + 24h momentum); minScore is that confirmation bar. Set wallet/strategyId/chatId. Runtime owns tracking/caps/cooldowns/DSL via runtime.yaml. Producer launched with THESIS=<preset>.",
   "strategyId": "",
   "wallet": "",
   "chatId": "",
@@ -7,7 +7,7 @@
   "marginPct": 0.12,
   "maxLeverage": 5,
   "maxSlots": 6,
-  "minNotionalUsd": 200,
+  "minNotionalPctOfEquity": 0.01,
   "tickSeconds": 300,
   "momThresholdPct": 1.0,
   "rsiOverbought": 78,
