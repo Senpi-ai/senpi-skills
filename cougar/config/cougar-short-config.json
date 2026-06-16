@@ -1,0 +1,18 @@
+{
+  "_comment": "COUGAR v1.0 SHORT book — short-laggards leg of the U.S. equity long/short fund. Each tick it ranks the tokenized US-equity universe (config.equities, intersected with the live board + a liquidity floor) by 24h relative strength (own 24h return minus the equity-universe mean), takes the bottom rankPoolSize, and SHORTS those with negative excess + a confirming 4h/1h downtrend (capitulation guard via rsiOversold). Leverage clamped to maxLeverage then each name's HL venue max. Pairs with the LONG book (cougar-long-config.json) on a SEPARATE, equally-funded wallet so the pair is ~market-neutral. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-short.yaml. Producer launched with COUGAR_LEG=short.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "equities": ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL", "xyz:NFLX", "xyz:AVGO", "xyz:CRM", "xyz:COIN", "xyz:MSTR", "xyz:PLTR", "xyz:SMCI", "xyz:UBER", "xyz:SHOP", "xyz:SPCX"],
+  "minScore": 5,
+  "marginPct": 0.20,
+  "maxLeverage": 5,
+  "maxSlots": 4,
+  "minNotionalUsd": 200,
+  "tickSeconds": 300,
+  "volFloorUsd": 500000,
+  "rankPoolSize": 8,
+  "rsThresholdPct": 3.0,
+  "rsiOversold": 20,
+  "_persona": "U.S. equity dispersion — shorts the weakest tokenized stocks by relative strength, trend-confirmed, market-neutral vs the long book. Capitulation guard avoids shorting an oversold bottom. equities is the trade.xyz US-equity whitelist."
+}

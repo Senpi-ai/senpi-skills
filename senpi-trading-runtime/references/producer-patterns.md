@@ -88,7 +88,7 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 
 ## The archetypes
 
-> **Cross-cutting: 🏦 AI Hedge Funds (multi-book architecture).** Five skills are
+> **Cross-cutting: 🏦 AI Hedge Funds (multi-book architecture).** Ten skills are
 > *funds* rather than single-strategy agents — each runs **two complementary
 > books on two wallets under one leg-parameterized producer** (the Spider
 > pattern: `<AGENT>_LEG` selects the book; each book has its own wallet, runtime
@@ -98,15 +98,18 @@ Your producer only has to score the signal and call `push_signal(...)`. The runt
 > (relative-value, §13) · **Camel** (carry, §7) · **Caracal** (volatility, §17)
 > · **Elephant** (global-macro, §18) · **Wolf** (event-driven regime-rotation,
 > §20) · **Rhino** (tail-risk / crisis-alpha, §21) · **Ox** (risk-parity /
-> all-weather, §22). To build another, clone any of them: same `producer_daemon`
-> + fcntl-lock + `push_signal` spine, swap the per-book scorer + universe, fund
-> the two wallets, launch two daemons with `setsid`+cron. **Wolf and Rhino add a
-> shared "brain" the producer computes once per tick before either book scores**
-> — a cross-asset *regime* read (Wolf) or *stress* read (Rhino) that gates which
-> book may fire. **Ox adds a different twist: per-sleeve *inverse-volatility*
-> sizing** — instead of a flat `margin_pct`, each position's `marginUsd` is its
+> all-weather, §22) · **Cougar** (U.S. equity long/short, §23) · **Magpie**
+> (IPO / new-listing event, §24). To build another, clone any of them: same
+> `producer_daemon` + fcntl-lock + `push_signal` spine, swap the per-book scorer
+> + universe, fund the two wallets, launch two daemons with `setsid`+cron.
+> **Wolf and Rhino add a shared "brain" the producer computes once per tick
+> before either book scores** — a cross-asset *regime* read (Wolf) or *stress*
+> read (Rhino) that gates which book may fire. **Ox adds a different twist:
+> per-sleeve *inverse-volatility* sizing** — each position's `marginUsd` is its
 > risk-parity weight `(1/vol_i)/Σ(1/vol_j)`, so it depends on the runtime
-> honoring per-signal `marginUsd`.
+> honoring per-signal `marginUsd`. **Cougar** is the Octopus dispersion method on
+> the tokenized-equity universe; **Magpie** reuses Lemur's IPOP discovery +
+> Falcon's conversion detector as a two-book fund.
 
 ### 1. Universe trend-follower
 
@@ -1028,6 +1031,56 @@ for a in unheld(basket):
 
 ---
 
+### 23. U.S. equity long/short (tokenized-equity dispersion hedge fund)
+
+The cross-sectional **dispersion** method (§13 / Octopus) applied to a *different universe*: the tokenized U.S. equity market on Hyperliquid XYZ (trade.xyz: NVDA, TSLA, AAPL, AMZN, … + index products), now the venue's fastest-growing market (HIP-3 stock markets did >$18B in the first half of June 2026; 23 of the top-30 HL assets by OI are equities + commodities). Long the relative-strength leaders, short the laggards, ~beta-neutral.
+
+```python
+universe = curated_equity_whitelist ∩ live_board ∩ {dayNtlVlm >= floor}    # not a whole-board scan
+mean_rs  = mean(ret_24h(x) for x in universe)
+for x in (top if LEG=="long" else bottom)(rank_by(ret_24h - mean_rs)):
+    if score(x, excess=ret_24h(x)-mean_rs) >= minScore: emit(x, LEG)        # trend-confirmed, RS-driven
+```
+
+**The key discipline:** rank a **coherent peer group** (US equities), not a mix of stocks/commodities/FX — so relative strength means something. Long-leaders + short-laggards on equally funded wallets nets ~beta-neutral; the P&L is the dispersion *spread*. Trend confirmation prevents longing a downtrend / shorting an uptrend; blow-off / capitulation RSI guards prevent chasing extremes.
+
+**When to use this pattern:** equity dispersion is wide (winners and losers far apart) and the tokenized-equity universe is deep + liquid enough to rank — the classic equity hedge-fund play, now viable on-chain.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Cougar** | v1.0 | Curated tokenized-US-equity whitelist (xyz: NVDA/TSLA/AAPL/META/MSFT/GOOGL/AMZN/AMD/MU/INTC/TSM/ORCL/NFLX/AVGO/CRM/COIN/MSTR/PLTR/SMCI/UBER/SHOP/SPCX) | **U.S. Equity Long/Short Hedge Fund.** Two books, two wallets, one producer. `long` book longs the RS leaders, `short` book shorts the RS laggards, trend-confirmed, ~beta-neutral. Octopus's dispersion scorer on the equity universe (lower liquidity floor, longer 7d DSL timeout — equities trend longer than crypto). 50/50 funding. New trade.xyz listings auto-join the whitelist. | Hedge-fund, Equity-long-short, Dispersion, Market-neutral, XYZ-equities, Two-wallet |
+
+---
+
+### 24. IPO / new-listing event (pre-IPO → graduation hedge fund)
+
+An **event-driven** fund on the tokenized-equity listing arc. trade.xyz pre-IPO perpetuals (IPOPs) carry a structural funding signature (`|funding| ≤ ~1e-7`, `max_leverage ≤ 5`); when the company IPOs the product **converts** to a standard equity perp (funding jumps ~100×, the leverage cap lifts, the price throttle comes off → free price discovery). Two books trade the two phases — the SpaceX $1.4B-day-1 pattern.
+
+```python
+# pre_listing book — Lemur's IPOP discovery:
+for x in instruments(dex="xyz") if is_ipop(x):    # funding+leverage+volume signature
+    emit(x, trend_direction(x))                    # ride the pre-listing ramp, SM-confirmed
+# graduation book — Falcon's conversion detector (class-state cache):
+for x in instruments(dex="xyz"):
+    if prev_class[x]=="IPOP" and curr_class[x]=="STANDARD": stamp_conversion(x)   # the flip
+for x in conversions_in_window(hours):             # stays eligible for days, not just the flip tick
+    if momentum(x) >= min: emit(x, momentum_direction(x))                          # ride price discovery
+```
+
+**The key discipline:** the graduation book persists a **class-state cache** and only fires a conversion against a *known prior* class (the first tick seeds, doesn't fire), and stamps each flip into a multi-day **eligibility window** so momentum that develops over hours/days is still tradeable. SM is a *bonus, not a gate*, on fresh names (data is sparse). Detection reuses Lemur (`fetch_ipop_universe`) + Falcon (`classify_instrument` / `detect_conversion`) verbatim.
+
+**When to use this pattern:** new equity listings are flowing onto the venue (IPOPs converting, fresh tickers) and you want the event alpha — distinct from trading the ongoing equity market (Cougar).
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Magpie** | v1.0 | xyz: IPOPs (pre_listing) + freshly-converted equities (graduation); today ~SPCX, auto-expands | **IPO / New-Listing Event Hedge Fund.** Two books, two wallets, one producer. `pre_listing` book: auto-discovers IPOPs by funding signature (Lemur method), rides the pre-listing trend, 3x / 12% / moderate-wide DSL. `graduation` book: detects the IPOP→STANDARD conversion flip via a class-state cache (Falcon method) + a 72h window, rides post-conversion momentum, 5x / 15% / wide let-winners-run DSL. Episodic by design (most ticks empty). 50/50 funding. Requires user-scope auth for SM. | Hedge-fund, Event-driven, IPO, IPOP, Conversion-detection, Class-state-cache, Two-wallet |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.
@@ -1210,6 +1263,8 @@ The user wants a **style of return**, not a market view. These are packaged **tw
 | "Trade the turn — ride risk-on rallies, flip defensive when it rolls over." · "Adapt to the macro mood." | event-driven / regime-rotation | 🏦 **Wolf — Event-Driven Hedge Fund** — a shared cross-asset regime detector rotates the book: long beaten-down beta in risk-on, long defensives + short risk in risk-off |
 | "Protect me when things break." · "Make money in a crash." · "I want a hedge." | tail-risk / crisis-alpha | 🏦 **Rhino — Tail-Risk Hedge Fund** — a small always-on hedge in crisis beneficiaries (gold/oil/$) + a stress-gated book that fires hard when a shock confirms (long crisis, short risk) |
 | "Give me a diversified core I can just hold." · "Lower drawdown, set-and-forget." · "Balance my risk across everything." | risk-parity / all-weather | 🏦 **Ox — Risk-Parity Hedge Fund** — a vol-balanced LONG basket across crypto/indices/metals/energy/FX, each sleeve sized by *inverse volatility* so no asset class dominates risk, plus a defensive ballast that scales up on risk-off. The core you hold while betting with the others |
+| "Trade the stock market." · "Long the best stocks, short the worst." · "I want tokenized equities." | U.S. equity long/short | 🏦 **Cougar — U.S. Equity Long/Short Hedge Fund** — longs the relative-strength leaders and shorts the laggards of the tokenized US-equity universe (NVDA/TSLA/AAPL/…), ~market-neutral; harvests equity dispersion |
+| "Trade the SpaceX-style IPOs." · "Get me in on new listings early." · "Play the pre-IPO names." | IPO / new-listing event | 🏦 **Magpie — IPO / New-Listing Event Hedge Fund** — a pre-listing book that accumulates pre-IPO perpetuals into the IPO + a graduation book that rides the explosive momentum when one converts to a full equity perp |
 
 > **Funds size differently from single strategies.** Each Hedge Fund spans **two wallets** (fund both legs per the fund's README split — Spider defaults 60% swing / 40% scalp); Thesis Funds use **one**. These are **not onboarding-tier** — route a brand-new user to a single onboarding agent first (Layer 3), and offer a fund once they want a packaged long/short book rather than a single position stream.
 
@@ -1267,7 +1322,9 @@ Single asset, small whitelist, or universe?
         ├─ global macro          → Elephant (Pattern 18 — indices/metals/energy/FX + BTC, trend book + fade book)
         ├─ event-driven / regime → Wolf     (Pattern 20 — shared regime brain, risk-on book ↔ risk-off book)
         ├─ tail-risk / crisis    → Rhino    (Pattern 21 — shared stress brain, always-on hedge + stress-gated escalation)
-        └─ risk-parity / core    → Ox       (Pattern 22 — inverse-vol sizing, all-weather core + defensive ballast)
+        ├─ risk-parity / core    → Ox       (Pattern 22 — inverse-vol sizing, all-weather core + defensive ballast)
+        ├─ U.S. equity long/short → Cougar  (Pattern 23 — dispersion on tokenized equities, long leaders / short laggards)
+        └─ IPO / new-listing event → Magpie (Pattern 24 — IPOP discovery + conversion detection, pre-listing + graduation)
 ```
 
 > **Thesis vs. Hedge fund — which to fork.** A **Thesis Fund** is *one* engine (`thesis-fund`) whose behavior is entirely data: add a `{long: […], short: […]}` preset to `thesis-presets.json` and set `THESIS=` — no new code. A **Hedge Fund** is *two* runtime YAMLs + one leg-parameterized producer (`<FUND>_LEG=…`), each wallet running a different scoring book. Fork the closest fund above and re-tune the two books' scoring + universes.
@@ -1372,6 +1429,8 @@ curl -fsSL https://raw.githubusercontent.com/Senpi-ai/senpi-skills/main/<agent>/
 | **Wolf** | 20 — Event-driven / regime-rotation (hedge fund variant) | Shared cross-asset regime brain (equities/oil/gold/BTC/$ 4h votes) gates which book fires: `risk_on` longs beaten-down beta in RISK_ON (wide DSL), `risk_off` longs defensives + shorts risk in RISK_OFF (tighter DSL). Stands down in NEUTRAL. Two wallets, one leg-parameterized producer, 50/50 funding. Catalog group: `hedge-fund`, archetype `event-driven` |
 | **Rhino** | 21 — Tail-risk / crisis-alpha (hedge fund variant) | Shared stress brain (oil/equities/gold/BTC breaks + BTC vol-expansion). `hedge` book: always-on small LONG defensives carry (wide 10d DSL). `escalation` book: dormant until stress, then LONG spiking crisis + SHORT cratering risk (larger size, moderate-tight DSL). Two wallets, one leg-parameterized producer, 50/50 funding. Catalog group: `hedge-fund`, archetype `tail-risk` |
 | **Ox** | 22 — Risk-parity / all-weather (hedge fund variant) | Inverse-volatility sizing — each sleeve's marginUsd = budget × (1/vol)/Σ(1/vol), over the full basket. `core` book: always-invested vol-balanced LONG basket (crypto/indices/metals/energy/FX), 60% budget, 3x, wide 14d DSL. `ballast` book: always-on LONG defensives, 18% budget ×2 on a risk-off lean. Low leverage, low turnover (600s). Two wallets, one leg-parameterized producer, 70/30 funding. Catalog group: `hedge-fund`, archetype `risk-parity` |
+| **Cougar** | 23 — U.S. equity long/short (hedge fund variant) | Cross-sectional dispersion (Octopus method) on the tokenized US-equity universe (trade.xyz: NVDA/TSLA/AAPL/…). `long` book longs the RS leaders, `short` book shorts the laggards, trend-confirmed, ~beta-neutral. 5x, 20% margin, 7d DSL (equities trend longer than crypto). Two wallets, one leg-parameterized producer, 50/50 funding. Catalog group: `hedge-fund`, archetype `equity-long-short` |
+| **Magpie** | 24 — IPO / new-listing event (hedge fund variant) | `pre_listing` book: auto-discovers IPOPs by funding signature (Lemur method), rides the pre-listing ramp (3x/12%, moderate-wide DSL). `graduation` book: detects the IPOP→STANDARD conversion flip via a class-state cache (Falcon method) + 72h window, rides post-conversion momentum (5x/15%, wide DSL). Episodic. Two wallets, one leg-parameterized producer, 50/50 funding. Requires user-scope auth. Catalog group: `hedge-fund`, archetype `event-driven-ipo` |
 | **thesis-risk-off** | 19 — Thesis fund (preset: `risk_off`) | "Bet against the Trump economy" — long gold/metals, short US indices + BTC. Variant of the `thesis-fund-strategy` engine; deploy via base_skill + `THESIS=risk_off` |
 | **thesis-recovery** | 19 — Thesis fund (preset: `recovery`) | "U.S. Recovery — Risk-On" — long US indices + BTC, short gold. Mirror of `risk_off`. Deploy via base_skill + `THESIS=recovery` |
 | **thesis-war-escalation** | 19 — Thesis fund (preset: `war_escalation`) | "War Escalation" — long oil + gold, short equities + BTC. Deploy via base_skill + `THESIS=war_escalation` |

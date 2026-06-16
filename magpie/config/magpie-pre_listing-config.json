@@ -1,0 +1,18 @@
+{
+  "_comment": "MAGPIE v1.0 PRE-LISTING book — pre-IPO accumulation leg of the IPO/new-listing fund. Each tick it auto-discovers IPOPs (pre-IPO perpetuals on Hyperliquid XYZ) by the trade.xyz funding signature: name starts with 'xyz:', not delisted, |funding| <= ipopFundingMaxAbs, max_leverage <= ipopMaxLeverageCap, dayNtlVlm >= ipopMinDailyVolUsd. For each IPOP it scores the pre-listing trend (4h structure sets direction, 1h + Smart-Money confirm; SM sparse pre-listing -> trend-only fallback) and emits LONG/SHORT up to maxSlots. Today the universe is ~[xyz:SPCX]; it auto-expands as trade.xyz lists more (ANTHROPIC, OPENAI, STRIPE, …). Leverage clamped to maxLeverage (3x, IPOP discovery-bounds regime) then each name's venue max. Pairs with the GRADUATION book (magpie-graduation-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-pre_listing.yaml. Producer launched with MAGPIE_LEG=pre_listing. REQUIRES USER-SCOPE AUTH for leaderboard_get_markets.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 5,
+  "marginPct": 0.12,
+  "maxLeverage": 3,
+  "maxSlots": 3,
+  "minNotionalUsd": 150,
+  "tickSeconds": 900,
+  "ipopFundingMaxAbs": 1e-7,
+  "ipopMaxLeverageCap": 5,
+  "ipopMinDailyVolUsd": 100000,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "_persona": "Pre-IPO accumulation — auto-discovers pre-IPO perpetuals by funding signature and rides the pre-listing ramp into the IPO, trend + SM confirmed. Small size (12% margin, 3x — Discovery Bounds throttle IPOP velocity), moderate-wide DSL for multi-day discovery. Auto-expands as trade.xyz lists new IPOPs."
+}

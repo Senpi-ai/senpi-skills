@@ -634,6 +634,34 @@
       "version": "1.0.0"
     },
     {
+      "id": "cougar",
+      "tracker_slug": "cougar-v1-0-0",
+      "name": "Cougar \u2014 U.S. Equity Long/Short Hedge Fund",
+      "emoji": "\ud83d\udc06",
+      "tagline": "Trades the tokenized U.S. equity market on Hyperliquid (trade.xyz: NVDA, TSLA, AAPL, AMZN, \u2026) cross-sectionally: longs the relative-strength leaders, shorts the laggards, ~market-neutral. Harvests EQUITY DISPERSION \u2014 the spread between the best and worst stocks, now at multi-decade extremes. Stock-selection alpha, not market direction. Two wallets, 24/7.",
+      "group": "hedge-fund",
+      "sort_order": 9,
+      "min_budget": 100,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "predators_url": "https://strategies.senpi.ai/bot/cougar-v1-0-0",
+      "version": "1.0.0"
+    },
+    {
+      "id": "magpie",
+      "tracker_slug": "magpie-v1-0-0",
+      "name": "Magpie \u2014 IPO / New-Listing Event Hedge Fund",
+      "emoji": "\ud83d\udc26",
+      "tagline": "Trades the new-listing event arc of tokenized equities on Hyperliquid (the SpaceX $1.4B-day-1 pattern). A pre-listing book auto-discovers pre-IPO perpetuals by their funding signature and rides the ramp into the IPO; a graduation book detects the IPOP\u2192equity conversion (funding jumps ~100x, leverage cap lifts, price throttle comes off) and rides the explosive first-days price discovery. Event alpha, two wallets, 24/7.",
+      "group": "hedge-fund",
+      "sort_order": 10,
+      "min_budget": 100,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "predators_url": "https://strategies.senpi.ai/bot/magpie-v1-0-0",
+      "version": "1.0.0"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",

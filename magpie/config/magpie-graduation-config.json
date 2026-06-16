@@ -1,0 +1,21 @@
+{
+  "_comment": "MAGPIE v1.0 GRADUATION book — IPOP→equity conversion-momentum leg of the IPO/new-listing fund. Each tick it classifies every xyz instrument IPOP vs STANDARD by funding signature (|funding| <= ipopFundingMaxAbs AND max_leverage <= ipopMaxLeverageCap = IPOP; else STANDARD), compares to the prior-tick class cache to detect IPOP->STANDARD CONVERSION flips, and stamps each flip into a conversionWindowHours eligibility window. Within that window it scores the post-conversion price-discovery momentum (momentumLookbackBars / minMomentumPct / strongMomentumPct, + SM and rising-volume bonuses) and rides the move (LONG/SHORT) up to maxSlots. This is the SpaceX-day-1 pattern: funding jumps ~100x, the leverage cap lifts, the price throttle comes off. Leverage clamped to maxLeverage (5x) then venue max. Pairs with the PRE-LISTING book (magpie-pre_listing-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-graduation.yaml. Producer launched with MAGPIE_LEG=graduation. REQUIRES USER-SCOPE AUTH for leaderboard_get_markets.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 5,
+  "marginPct": 0.15,
+  "maxLeverage": 5,
+  "maxSlots": 3,
+  "minNotionalUsd": 150,
+  "tickSeconds": 600,
+  "ipopFundingMaxAbs": 1e-7,
+  "ipopMaxLeverageCap": 5,
+  "momentumLookbackBars": 6,
+  "minMomentumPct": 3.0,
+  "strongMomentumPct": 8.0,
+  "conversionWindowHours": 72,
+  "smTiltMinPct": 55,
+  "smStrongTiltPct": 70,
+  "_persona": "Graduation momentum — detects the IPOP->equity conversion flip and rides the explosive first-days price discovery (the throttle is off). Wide let-winners-run DSL, 5d timeout, both directions. conversionWindowHours keeps a freshly-converted name eligible for days, not just the flip tick."
+}
