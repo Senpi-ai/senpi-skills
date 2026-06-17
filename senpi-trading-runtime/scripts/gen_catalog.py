@@ -38,7 +38,6 @@ def build(updated: str, branch: str) -> dict:
             "min_budget": c.get("min_budget", 100),
             "version": m["version"],
             "branch": branch,
-            "predators_url": f"https://strategies.senpi.ai/bot/{m['id']}",
         })
     groups = defaultdict(list)
     for s in skills:

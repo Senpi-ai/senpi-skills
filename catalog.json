@@ -14,7 +14,6 @@
       "min_budget": 100,
       "version": "5.1.1",
       "branch": "strategy-v2",
-      "predators_url": "https://strategies.senpi.ai/bot/spider",
       "sort_order": 1
     },
     {
@@ -27,7 +26,6 @@
       "min_budget": 100,
       "version": "7.0.0",
       "branch": "strategy-v2",
-      "predators_url": "https://strategies.senpi.ai/bot/kodiak",
       "sort_order": 1
     },
     {
@@ -40,7 +38,6 @@
       "min_budget": 100,
       "version": "5.0.0",
       "branch": "strategy-v2",
-      "predators_url": "https://strategies.senpi.ai/bot/polar",
       "sort_order": 2
     }
   ]
