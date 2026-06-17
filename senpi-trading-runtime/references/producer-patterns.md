@@ -1110,6 +1110,32 @@ for x in universe:
 
 ---
 
+### 26. Composite allocation (a base fund + a satellite sleeve, one funding split)
+
+A **variation pattern**: take an existing multi-book fund and add a third book that runs a *different* discovery method, then express the inter-sleeve allocation as the operator's **funding split across the wallets**. The leg-parameterized producer already supports N legs; you add a leg with its own universe-builder and let funding set the %. The point is *composition without a new engine* — reuse two proven books and bolt on a satellite for optionality.
+
+```python
+# CUB_LEG selects the book; long+short ARE Lion, preipo is the satellite
+universe = (ipop_universe(meta, canonical, budget_relative_floor)   # preipo: Lemur discovery
+            if LEG == "preipo" else
+            curated_thematic_whitelist(config))                     # long/short: Lion
+for x in rank(universe):
+    if score(x, direction=DIRECTION) >= minScore: emit(x)           # SAME scoring engine, all legs
+# allocation = how much the operator funds into each of the 3 wallets (NOT hardcoded)
+```
+
+**The key discipline:** the allocation (e.g. 90/10) is **funding, not code** — the books are separate wallets, so the split is set by capital, exactly like every multi-book fund's inter-book balance. The satellite reuses the base engine's scoring (one `score()`); only the **universe-builder** differs per leg. A satellite that discovers a dynamic universe (IPOPs) needs a *budget-relative* liquidity floor, not a median gate — its universe is often 1–2 names.
+
+**When to use this pattern:** you want a proven fund's core exposure plus a small, higher-optionality sleeve (pre-IPO, a new venue, an event book) under one strategy, with the mix as a simple funding dial.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Cub** | v1.0 | ~90%: Lion's long "haves" (AI complex + HYPE/SOL) + short "have-nots" (SP500 + laggard alts). ~10%: `preipo` — DISCOVERED IPOPs (pre-IPO perps by funding signature, e.g. SPCX/QNT/CBRS pre-conversion) | **Lion + Pre-IPO Hedge Fund.** A variation of Lion (§25): ~90% to the Lion two-speed AI long/short engine, ~10% to a pre-IPO ramp satellite. Three books (`long`/`short`/`preipo`), three wallets, one producer. `preipo` auto-discovers IPOPs by funding signature (Lemur method) and LONGs the ramping ones (SpaceX/Cerebras pattern), budget-relative liquidity floor, SM a bonus not a gate, episodic. The 90/10 is the operator's funding split, not hardcoded. On conversion an IPOP graduates into the haves book. | Hedge-fund, Composite-allocation, Lion-variation, Pre-IPO, IPOP, Lemur-method, Satellite-sleeve, Three-wallet |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.

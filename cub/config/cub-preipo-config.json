@@ -1,0 +1,26 @@
+{
+  "_comment": "CUB v1.0 PREIPO book — the 10% pre-IPO ramp satellite (Lemur IPOP-discovery method). Each tick it auto-DISCOVERS pre-IPO perpetuals (IPOPs) from the live Hyperliquid XYZ board by their structural funding signature (|funding| <= ipopFundingMaxAbs AND venue max_leverage <= ipopMaxLeverageCap — the throttled pre-listing state, before the company IPOs and the product converts to a standard equity), then LONGS the ones with a confirming absolute 4h/1h uptrend (rides the pre-listing ramp; blow-off guard loosened since pre-IPO names run hot). There is NO static universe list — it is discovered every tick, so a new IPOP (the next SpaceX/Cerebras) auto-joins the moment it lists. Per-name size = account_value * marginPct * sizingWeights[name]. Liquidity floor is BUDGET-RELATIVE (24h vol >= ipopLiqVolMultiple x position notional) — the IPOP universe is too small for a median gate, and a $ floor is never hardcoded. SM is a bonus, not a gate (IPOP SM data is sparse). Pairs with the LONG 'haves' + SHORT 'have-nots' Cub/Lion books on SEPARATE wallets; this wallet holds the 10% pre-IPO allocation. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-preipo.yaml. Producer launched with CUB_LEG=preipo.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "sizingWeights": {
+    "_default": 1.0
+  },
+  "minScore": 4,
+  "marginPct": 0.15,
+  "maxLeverage": 5,
+  "maxSlots": 3,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "ipopFundingMaxAbs": 1e-7,
+  "ipopMaxLeverageCap": 5,
+  "ipopLiqVolMultiple": 30,
+  "rankPoolSize": 16,
+  "rsThresholdPct": 3.0,
+  "rsiOverbought": 88,
+  "_alloc_note": "THIS IS THE 10% PRE-IPO SATELLITE. Cub's total budget is allocated ~90% to the Lion two-speed L/S engine (the long 'haves' + short 'have-nots' wallets) and ~10% to this pre-IPO ramp wallet. The split is set by how much capital the operator funds into each wallet (the three books run on SEPARATE wallets) — NOT a hardcoded constant. Fund this wallet with ~10% of the combined pool.",
+  "_discovery_note": "NO static universe. IPOPs are discovered each tick by signature: |funding| <= ipopFundingMaxAbs (1e-7) AND venue max_leverage <= ipopMaxLeverageCap (5). When an IPOP IPOs and converts to a standard equity (funding jumps ~100x, leverage cap lifts), it AUTOMATICALLY drops out of this universe and (if it is an AI name) becomes eligible for the haves book instead. Episodic by design — most ticks may find 0-2 IPOPs.",
+  "_liquidity_note": "NO hardcoded $ floor. IPOP eligibility requires 24h volume >= ipopLiqVolMultiple (30) x the standard position notional (account_value * marginPct * maxLeverage) — budget-relative, so a bigger book demands a deeper pre-IPO market. (A median-of-universe gate like the haves/have-nots books use does not work here — the IPOP universe is often just 1-2 names.) venueMinNotionalUsd (10) is Hyperliquid's physical minimum order value, wrapped %-first via max(account_value*minNotionalPctOfEquity, venueMinNotionalUsd).",
+  "_persona": "Pre-IPO ramp satellite (10%) — auto-discovers pre-IPO perpetuals (IPOPs) by their funding signature and rides the pre-listing ramp, LONG only, trend-confirmed. The high-optionality complement to the 90% AI two-speed core: catches the next SpaceX/Cerebras before it converts. Speculative by design — small allocation, capped 5x (venue), wide-but-protected DSL."
+}
