@@ -59,13 +59,15 @@ if __name__ == "__main__":
     case("paging", ["--offset", "8"])
     case("named-degrade", ["--assets", "DOGE"])
 
-    # live path (network): must still exit 0 and emit valid JSON even unauthenticated
-    r = case("live-degrade", ["--risk", "moderate", "--assets", "btc_eth", "--limit", "2"], live=True)
+    # live path (network): exit 0 + valid JSON + a REAL market read (not all-null) even unauthenticated
+    r = case("live", ["--risk", "moderate", "--assets", "btc_eth", "--limit", "2"], live=True)
     if r is not None:
-        ck("live-degrade: market_facts present (structure)",
-           all("market_facts" in c for c in r["candidates"]))
-        ck("live-degrade: user_context returned",
-           "user_context" in r["meta"])
+        ck("live: market_facts present", all("market_facts" in c for c in r["candidates"]))
+        ck("live: user_context returned", "user_context" in r["meta"])
+        signals = [f for c in r["candidates"] for f in c["market_facts"]
+                   if f.get("price_change_24h_pct") is not None or f.get("trend")]
+        ck("live: market read carries real signal (not all-null)", len(signals) > 0,
+           f"facts={[c['market_facts'] for c in r['candidates']]}")
 
     print(f"\n{_P} passed, {_F} failed")
     sys.exit(1 if _F else 0)

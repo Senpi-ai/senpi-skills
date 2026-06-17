@@ -451,11 +451,42 @@ def fetch_user_context(client):
     return ctx
 
 
+def _pct(mark, prev):
+    try:
+        m, p = float(mark), float(prev)
+        return round((m - p) / p * 100, 2) if p else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _candle_trend(candles):
+    """Coarse 24h direction from 4h closes: 'up'/'down'/'flat'."""
+    try:
+        closes = [float(x["c"]) for x in candles if x.get("c")]
+        if len(closes) < 4:
+            return None
+        recent, past = closes[-1], closes[-min(7, len(closes))]  # ~24h on 4h candles
+        chg = (recent - past) / past * 100 if past else 0
+        return "up" if chg > 1.5 else ("down" if chg < -1.5 else "flat")
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def _funding_sign(funding):
+    try:
+        f = float(funding)
+    except (TypeError, ValueError):
+        return None
+    return "positive" if f > 1e-6 else ("negative" if f < -1e-6 else "flat")
+
+
 def fetch_market_map(client, assets):
-    """One batched pass: funding regime + per-asset regime/OI. Parallel; degrades to {} per asset."""
+    """One batched pass per asset -> a live 'why now' read. Built from asset_context (funding, 24h
+    change) + candle trend, enriched with oi_trend + market-wide funding_regime when available.
+    """
     regime = None
     try:
-        regime = (_ok(client.mcp_call("market_get_funding_regime", timeout=10)) or {}).get("regime")
+        regime = (_ok(client.mcp_call("market_get_funding_regime", timeout=8)) or {}).get("regime")
     except Exception:  # noqa
         pass
 
@@ -466,13 +497,28 @@ def fetch_market_map(client, assets):
     uniq = uniq[:12]
 
     def one(a):
+        kw = dict(asset=a, candle_intervals=["4h"], include_order_book=False,
+                  include_funding=False, timeout=12)
+        if str(a).startswith("xyz:"):
+            kw["dex"] = "xyz"  # HIP-3 assets require the dex param, else INVALID_ARGUMENT
         try:
-            data = _ok(client.mcp_call("market_get_asset_data", asset=a, candle_intervals=["4h"],
-                                       include_order_book=False, include_funding=False, timeout=12))
-            oiv = (data or {}).get("oi_velocity") or {}
-            return (a, {"asset": a, "oi_trend": oiv.get("oi_trend"), "funding_regime": regime})
+            data = _ok(client.mcp_call("market_get_asset_data", **kw))
+            if not data:
+                return (a, {"asset": a})
+            ctx = data.get("asset_context") or {}
+            oiv = data.get("oi_velocity") or {}
+            candles = (data.get("candles") or {}).get("4h") or []
+            fact = {
+                "asset": a,
+                "price_change_24h_pct": _pct(ctx.get("markPx"), ctx.get("prevDayPx")),
+                "funding": _funding_sign(ctx.get("funding")),
+                "trend": _candle_trend(candles),
+                "oi_trend": oiv.get("oi_trend"),        # richer when authenticated
+                "funding_regime": regime,               # market-wide; when available
+            }
+            return (a, {k: v for k, v in fact.items() if v is not None or k == "asset"})
         except Exception:  # noqa
-            return (a, {"asset": a, "funding_regime": regime})
+            return (a, {"asset": a})
 
     try:
         from senpi_runtime_helpers import parallel

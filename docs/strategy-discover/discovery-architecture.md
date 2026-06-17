@@ -75,7 +75,7 @@ canonicalizes) · unknown → unstated.
 **MatchResult (JSON stdout):**
 ```
 { candidates: [{ id, name, emoji, tagline, archetype_label, suggested_budget, funding_split?,
-                 relevance, match_reasons[ {dim,value,tolerant} ], market_facts[ {asset,regime,oi_trend,sm_pct,sm_dir} ],
+                 relevance, match_reasons[ {dim,value,tolerant} ], market_facts[ {asset,price_change_24h_pct,funding,trend,oi_trend?,funding_regime?} ],
                  caveats[ <fixed script string> ] }],   // coarse-ranked top-N; LLM selects
   build_custom: { label, route: "senpi-strategy-author" },
   meta: { widened?: [], unmet?: [], eligible_count, returned_n, offset, intent_echo, warnings[] } }
@@ -92,7 +92,8 @@ instance_count, funding_split, max_slots`) + inlined `archetype_label`/`sub_styl
 **UserContext** `{budget, holdings[], favored_assets[], favored_direction}` (any null) — **data only**;
 the LLM decides whether to turn it into intent (confirms with the user first; never silently inferred).
 
-**MarketContext** `{funding_regime, per_asset:{asset:{regime, oi_trend, sm_pct, sm_dir}}}` (top-N assets).
+**MarketContext** per asset `{price_change_24h_pct, funding (sign), trend}` from `asset_context`+candles
+(work unauthenticated) + `oi_trend` & market-wide `funding_regime` when authenticated (top-N assets).
 
 ---
 
