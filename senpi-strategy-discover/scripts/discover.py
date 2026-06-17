@@ -6,7 +6,7 @@ stdout and narrates 2-3 cards. The script fetches data + matches; the LLM conver
 
   python3 discover.py --risk conservative --assets btc_eth --budget 300
 
-Contract: see senpi-strategy-discover/references/discovery-architecture.md.
+Contract: see docs/strategy-discover/discovery-architecture.md.
 - rejects only the impossible (cross-domain asset, named-asset unavailable, strict-opposite direction,
   explicit exclusions); coarse-ranks the rest by a flat +1 relevance count; returns the top-N.
 - fails open: unknown values drop to "unstated" (widen, never dead-end); always emits valid JSON;
