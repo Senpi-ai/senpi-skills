@@ -662,6 +662,20 @@
       "version": "1.0.0"
     },
     {
+      "id": "lion",
+      "tracker_slug": "lion-v1-0-0",
+      "name": "Lion — Two-Speed-Market (K-Shaped) Cross-Asset Long/Short Hedge Fund",
+      "emoji": "🦁",
+      "tagline": "Bets on a K-shaped divergence: LONGS the structural winners — the AI complex on Hyperliquid XYZ (NVDA, AMD, MRVL, TSM, ASML, ARM, AVGO, CRWV, PLTR, ORCL, …) plus the crypto winners (HYPE large, SOL modest) — and SHORTS the laggards — the broad U.S. market via the SP500 index (the 'economy suffers' core) plus a gated basket of laggard crypto alts. Trend-confirmed, conviction-sized (HYPE big, SOL small, SP500 core). The edge is the DISPERSION between the two speeds, not market direction. Cross-asset (equities + crypto) on two wallets, net exposure an operator dial, 24/7.",
+      "group": "hedge-fund",
+      "sort_order": 11,
+      "min_budget": 100,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "predators_url": "https://strategies.senpi.ai/bot/lion-v1-0-0",
+      "version": "1.0.0"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",

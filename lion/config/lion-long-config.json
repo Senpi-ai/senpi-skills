@@ -1,0 +1,26 @@
+{
+  "_comment": "LION v1.0 LONG book — the 'haves' leg of the two-speed-market (K-shaped) cross-asset long/short fund. Each tick it builds the curated thematic universe (config.universe — the AI complex on Hyperliquid XYZ + the crypto winners HYPE/SOL), intersects it with the live board + a liquidity floor, and LONGS the names with a confirming absolute 4h/1h uptrend (blow-off guard via rsiOverbought). Cross-sectional relative strength is a score tiebreaker, NOT a gate — a genuinely-trending winner is longed even on a day its peers ran harder. Per-name size = account_value * marginPct * sizingWeights[name] (HYPE large, SOL modest, AI equities standard) — conviction without hardcoded dollars; every size scales with budget. Leverage clamped to maxLeverage then each name's HL venue max. Pairs with the SHORT 'have-nots' book (lion-short-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-long.yaml. Producer launched with LION_LEG=long.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:MU", "xyz:TSM", "xyz:ASML", "xyz:ARM", "xyz:AVGO", "xyz:CRWV", "xyz:PLTR", "xyz:ORCL", "xyz:SMCI", "xyz:DELL", "HYPE", "SOL"],
+  "sizingWeights": {
+    "HYPE": 1.5,
+    "SOL": 0.6,
+    "_default": 1.0
+  },
+  "minScore": 5,
+  "marginPct": 0.18,
+  "maxLeverage": 5,
+  "maxSlots": 5,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "volFloorUsd": 500000,
+  "rankPoolSize": 16,
+  "rsThresholdPct": 3.0,
+  "rsiOverbought": 82,
+  "_net_exposure_note": "NET EXPOSURE IS AN OPERATOR DECISION, not a hardcoded constant. The long and short books run on SEPARATE wallets, so you set the fund's net posture by how much capital each wallet holds, plus the per-leg knobs (maxSlots, marginPct, sizingWeights). DEFAULT = modest NET-LONG tilt (~60/40), matching the directional AI/HYPE conviction: the long book carries more slots (5 vs 4) and a higher marginPct (0.18 vs 0.15). To run market-neutral, fund the two wallets equally and equalize slots*marginPct across legs. To run net-short, tilt capital + slots toward the short book. Nothing here is enforced by the runtime — it is the dial you turn.",
+  "_sizing_note": "sizingWeights expresses per-name CONVICTION as a multiplier on the standard slot size (account_value * marginPct). HYPE 1.5 = the highest-conviction crypto winner; SOL 0.6 = modest growth; AI equities default 1.0. Keys are bare tickers (no xyz: prefix); '_default' is the fallback. Clamped to [0.1, 3.0] in code.",
+  "_persona": "Two-speed-market HAVES — longs the structural winners of a K-shaped world: the AI complex (semis / AI hardware / AI infra / AI software) plus crypto's winners (HYPE large, SOL modest), trend-confirmed, LONG only. The bet is dispersion vs the SHORT 'have-nots' book (broad U.S. market + laggard alts). universe auto-extends as new AI/winner listings are added and go live on the board."
+}

@@ -1081,6 +1081,35 @@ for x in conversions_in_window(hours):             # stays eligible for days, no
 
 ---
 
+### 25. Two-speed-market / K-shaped (cross-asset thematic long/short hedge fund)
+
+A **thematic** long/short fund that bets on a *K-shaped divergence* — a structural winner cohort keeps booming while the rest struggles — and spans **both tokenized U.S. equities (XYZ) and main-DEX crypto on one cross-margined wallet**. Unlike the cross-sectional dispersion fund (§23 / Cougar), which ranks a single coherent peer group, the universe here is a **curated thematic whitelist per leg**: the "haves" (long) vs the "have-nots" (short). Membership *is* the thesis; **absolute trend is the gate**, relative strength only a tiebreaker — so a conviction winner is held while it trends even when peers run harder, and a laggard is shorted only while it actually rolls over.
+
+```python
+# LONG "haves" universe = AI complex (xyz) + crypto winners (HYPE/SOL, main)
+# SHORT "have-nots" universe = broad market (xyz:SP500) + laggard alts (main)
+universe = curated_theme_whitelist[LEG] ∩ live_board ∩ {dayNtlVlm >= floor}
+mean_rs  = mean(ret_24h(x) for x in universe)
+for x in universe:
+    if absolute_trend(x) is wrong_way: continue          # HARD GATE (never long a downtrend / short an uptrend)
+    s = score(x, excess=ret_24h(x)-mean_rs)              # RS is a tiebreaker, not a gate
+    if s >= minScore:
+        margin = account_value * marginPct * sizingWeights[bare(x)]   # conviction, not dollars (HYPE 1.5, SOL 0.6, SP500 1.2, alts 0.7)
+        if affordable(margin): emit(x, LEG)              # per-candidate free-margin cap
+```
+
+**The key discipline:** the universe is the thesis, but the *gate is absolute price action* — a thesis name is only traded while the tape agrees, never on conviction alone. Conviction is expressed purely through **per-group sizing weights** (a multiplier on a budget-scaled slot), never a hardcoded dollar amount. **Net exposure is an explicit operator dial** — the two books run on separate wallets, so the funding split + per-leg knobs (slots / marginPct / sizingWeights) set the posture; the default is a modest net-long tilt. The short book runs **tighter than the long book** (lower leverage, tighter max-loss, faster stall-cuts, smaller alt weights, BTC omitted) because short squeezes are violent. **Long-AI + short-SP500 overlap is intentional** — the index contains the AI names, so the pair isolates the pure AI-vs-broad-market spread.
+
+**When to use this pattern:** you have a *directional thematic view* (one cohort booms, another suffers) that spans asset classes, and you want to express it as a hedged long/short — capturing the dispersion between the two speeds rather than betting on overall market direction.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Lion** | v1.0 | LONG "haves": AI complex (xyz: NVDA/AMD/MRVL/MU/TSM/ASML/ARM/AVGO/CRWV/PLTR/ORCL/SMCI/DELL) + crypto winners (HYPE/SOL). SHORT "have-nots": broad market (xyz:SP500) + laggard alts (ETH/XRP/DOGE/AVAX/LINK/ADA/LTC/NEAR/APT) | **Two-Speed-Market (K-Shaped) Cross-Asset Long/Short Hedge Fund.** Two thematic books, two wallets, one producer. `long` longs the structural winners (AI + HYPE/SOL); `short` shorts the laggards (SP500 + laggard alts). Cross-asset on one cross-margined wallet; absolute-trend gate, RS tiebreaker, per-group conviction sizing (HYPE 1.5×, SOL 0.6×, SP500 1.2×, alts 0.7×). Net exposure an operator dial (default modest net-long). Short book runs tighter (4x vs 5x); BTC omitted from the short basket. | Hedge-fund, Two-speed-market, K-shaped, Thematic-long-short, Cross-asset, Conviction-sizing, AI, HYPE, Two-wallet |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.

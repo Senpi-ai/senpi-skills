@@ -1,0 +1,25 @@
+{
+  "_comment": "LION v1.0 SHORT book — the 'have-nots' leg of the two-speed-market (K-shaped) cross-asset long/short fund. Each tick it builds the curated thematic universe (config.universe — the broad U.S. market via the SP500 index product, the 'economy suffers' core, plus a curated basket of laggard crypto majors/alts, the 'rest of crypto struggles' bet), intersects it with the live board + a liquidity floor, and SHORTS the names with a confirming absolute 4h/1h downtrend (capitulation guard via rsiOversold — never short an exhausted bottom). Cross-sectional relative weakness is a score tiebreaker, NOT a gate. Per-name size = account_value * marginPct * sizingWeights[name] (SP500 core weight, laggard alts small — alts squeeze). Leverage clamped to maxLeverage (4x, lower than the long book — short squeezes are violent) then each name's HL venue max. Pairs with the LONG 'haves' book (lion-long-config.json) on a SEPARATE wallet. NOTE: longing AI names while shorting SP500 (which CONTAINS those AI names) isolates the pure AI-vs-broad-market spread — that overlap is intentional, not a conflict. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-short.yaml. Producer launched with LION_LEG=short.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["xyz:SP500", "ETH", "XRP", "DOGE", "AVAX", "LINK", "ADA", "LTC", "NEAR", "APT"],
+  "sizingWeights": {
+    "SP500": 1.2,
+    "_default": 0.7
+  },
+  "minScore": 5,
+  "marginPct": 0.15,
+  "maxLeverage": 4,
+  "maxSlots": 4,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "volFloorUsd": 500000,
+  "rankPoolSize": 16,
+  "rsThresholdPct": 3.0,
+  "rsiOversold": 18,
+  "_net_exposure_note": "NET EXPOSURE IS AN OPERATOR DECISION, not a hardcoded constant. The long and short books run on SEPARATE wallets, so you set the fund's net posture by how much capital each wallet holds, plus the per-leg knobs (maxSlots, marginPct, sizingWeights). DEFAULT = modest NET-LONG tilt (~60/40): the SHORT book carries fewer slots (4 vs 5), a lower marginPct (0.15 vs 0.18), and a lower leverage cap (4x vs 5x) because short squeezes are violent and the thesis is directionally bullish-AI/HYPE. To run market-neutral, fund the two wallets equally and equalize slots*marginPct. To run net-short, tilt capital + slots toward this book. Nothing here is enforced by the runtime.",
+  "_short_universe_note": "The laggard-alt basket is a CURATED DEFAULT, not a fixed opinion — tune config.universe to your view of which majors/alts are losing share to HYPE/SOL. SP500 is the macro core. Shorting alts is squeeze-prone, hence the low default sizingWeights (0.7), the 4x leverage cap, and the absolute-downtrend hard gate + capitulation guard. BTC is deliberately omitted from the default basket (too reflexive to short cleanly); add it only with intent.",
+  "_persona": "Two-speed-market HAVE-NOTS — shorts the laggards of a K-shaped world: the broad U.S. market (SP500 index, the 'economy suffers' core) plus a gated basket of laggard crypto alts (the 'rest of crypto struggles'), trend-confirmed, SHORT only. The bet is dispersion vs the LONG 'haves' book. Long-AI + short-SP500 isolates the AI-vs-broad-market spread by design."
+}
