@@ -1,0 +1,130 @@
+{
+  "_version": "2.1",
+  "_generated": true,
+  "_note": "SYNTHETIC fixtures for discover.py tests — not real strategies.",
+  "skills": [
+    {
+      "id": "beaver", "name": "Beaver — BTC Trend", "emoji": "🦫",
+      "tagline": "Patiently holds BTC while it trends, steps out when it stalls.",
+      "belief_plain": "Rides BTC while it's trending up and steps out when it stalls.",
+      "group": "single-asset-alpha-hunter", "archetype": "trend_following", "archetype_label": "Trend-Follower",
+      "sub_style": "alpha_hunter", "sub_style_label": "Single-asset conviction.",
+      "asset_classes": ["btc_eth"], "asset_scope": "single", "assets": ["BTC"],
+      "direction": "long_short", "risk_level": "moderate", "tier": "starter",
+      "leverage_max": 5, "time_horizon": "swing", "cadence_seconds": 300,
+      "min_budget": 100, "instance_count": 1, "funding_split": [1.0], "max_slots": 1, "sort_order": 1
+    },
+    {
+      "id": "heron", "name": "Heron — ETH Trend", "emoji": "🦢",
+      "tagline": "Rides ETH trends with smart-money gating.",
+      "belief_plain": "Holds ETH while it trends, gated by smart-money flow.",
+      "group": "single-asset-alpha-hunter", "archetype": "trend_following", "archetype_label": "Trend-Follower",
+      "sub_style": "alpha_hunter", "sub_style_label": "Single-asset conviction.",
+      "asset_classes": ["btc_eth"], "asset_scope": "single", "assets": ["ETH"],
+      "direction": "long_short", "risk_level": "moderate", "tier": "starter",
+      "leverage_max": 5, "time_horizon": "swing", "cadence_seconds": 300,
+      "min_budget": 100, "instance_count": 1, "funding_split": [1.0], "max_slots": 1, "sort_order": 2
+    },
+    {
+      "id": "kodiak", "name": "Kodiak — SOL Alpha", "emoji": "🐻",
+      "tagline": "Single-asset SOL alpha hunter with conviction-tiered leverage.",
+      "belief_plain": "Hunts SOL alpha with multi-factor conviction scoring.",
+      "group": "single-asset-alpha-hunter", "archetype": "trend_following", "archetype_label": "Trend-Follower",
+      "sub_style": "alpha_hunter", "sub_style_label": "Single-asset conviction.",
+      "asset_classes": ["major_alts"], "asset_scope": "single", "assets": ["SOL"],
+      "direction": "long_short", "risk_level": "moderate", "tier": "starter",
+      "leverage_max": 7, "time_horizon": "swing", "cadence_seconds": 300,
+      "min_budget": 100, "instance_count": 1, "funding_split": [1.0], "max_slots": 1, "sort_order": 3
+    },
+    {
+      "id": "hedgehog", "name": "Hedgehog — Majors Basket", "emoji": "🦔",
+      "tagline": "Equal-weight trend across BTC, ETH, SOL.",
+      "belief_plain": "Holds the trending majors, up to three at once.",
+      "group": "multi-asset-whitelist", "archetype": "trend_following", "archetype_label": "Trend-Follower",
+      "sub_style": "basket", "sub_style_label": "Holds a whitelist basket of majors.",
+      "asset_classes": ["btc_eth", "major_alts"], "asset_scope": "basket", "assets": ["BTC", "ETH", "SOL"],
+      "direction": "long_short", "risk_level": "moderate", "tier": "starter",
+      "leverage_max": 5, "time_horizon": "swing", "cadence_seconds": 300,
+      "min_budget": 100, "instance_count": 1, "funding_split": [1.0], "max_slots": 3, "sort_order": 1
+    },
+    {
+      "id": "egret", "name": "Egret — Crowd Fader", "emoji": "🦩",
+      "tagline": "Bets against the crowd when smart money is one-sided.",
+      "belief_plain": "Fades the crowded side once price stops following.",
+      "group": "contrarian-unwind", "archetype": "contrarian_fade", "archetype_label": "Contrarian / Fade",
+      "sub_style": "sm_crowding", "sub_style_label": "Fades crowded smart-money.",
+      "asset_classes": ["btc_eth", "major_alts", "universe_crypto"], "asset_scope": "universe",
+      "assets": ["BTC", "ETH", "SOL", "HYPE", "SUI"],
+      "direction": "long_short", "risk_level": "aggressive", "tier": "advanced",
+      "leverage_max": 8, "time_horizon": "swing", "cadence_seconds": 300,
+      "min_budget": 100, "instance_count": 1, "funding_split": [1.0], "max_slots": 4, "sort_order": 1
+    },
+    {
+      "id": "albatross", "name": "Albatross — Arena Copier", "emoji": "🐦",
+      "tagline": "Copies multi-week arena winners.",
+      "belief_plain": "Mirrors traders who've won the arena for weeks, not one lucky day.",
+      "group": "trader-follower", "archetype": "copy_trading", "archetype_label": "Copy-Trader",
+      "sub_style": "arena_winners", "sub_style_label": "Copies multi-week winners.",
+      "asset_classes": ["none"], "asset_scope": "follows_traders", "assets": [],
+      "direction": "long_short", "risk_level": "moderate", "tier": "starter",
+      "leverage_max": 5, "time_horizon": "swing", "cadence_seconds": 300,
+      "min_budget": 100, "instance_count": 1, "funding_split": [1.0], "max_slots": 5, "sort_order": 1
+    },
+    {
+      "id": "tortoise", "name": "Tortoise — DCA", "emoji": "🐢",
+      "tagline": "Dollar-cost-averages the majors on a schedule.",
+      "belief_plain": "Buys a fixed slice of the majors on a cadence; predicts nothing.",
+      "group": "structural-neutral", "archetype": "structural_neutral", "archetype_label": "Structural / Neutral",
+      "sub_style": "dca", "sub_style_label": "Dollar-cost-averages on a schedule.",
+      "asset_classes": ["btc_eth", "major_alts"], "asset_scope": "basket", "assets": ["BTC", "ETH", "SOL"],
+      "direction": "long_only", "risk_level": "conservative", "tier": "starter",
+      "leverage_max": 2, "time_horizon": "hodl", "cadence_seconds": 86400,
+      "min_budget": 100, "instance_count": 1, "funding_split": [1.0], "max_slots": 3, "sort_order": 2
+    },
+    {
+      "id": "bobcat", "name": "Bobcat — Big Tech", "emoji": "🐈",
+      "tagline": "Trades big-tech stocks (NVDA, TSLA, …) 24/7.",
+      "belief_plain": "Trades big-tech equities when smart-money flow lines up.",
+      "group": "xyz-specialist", "archetype": "single_market", "archetype_label": "Single-Market Specialist",
+      "sub_style": "big_tech", "sub_style_label": "Trades big-tech equities 24/7.",
+      "asset_classes": ["xyz_equities"], "asset_scope": "basket", "assets": ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL"],
+      "direction": "long_short", "risk_level": "moderate", "tier": "starter",
+      "leverage_max": 5, "time_horizon": "swing", "cadence_seconds": 300,
+      "min_budget": 100, "instance_count": 1, "funding_split": [1.0], "max_slots": 3, "sort_order": 1
+    },
+    {
+      "id": "dire", "name": "Dire — Oil", "emoji": "🐺",
+      "tagline": "Trades oil and metals on the XYZ DEX.",
+      "belief_plain": "Trades commodities like oil with a momentum filter.",
+      "group": "xyz-specialist", "archetype": "single_market", "archetype_label": "Single-Market Specialist",
+      "sub_style": "commodity", "sub_style_label": "Trades a commodity.",
+      "asset_classes": ["commodities"], "asset_scope": "single", "assets": ["xyz:BRENTOIL"],
+      "direction": "long_short", "risk_level": "aggressive", "tier": "advanced",
+      "leverage_max": 10, "time_horizon": "swing", "cadence_seconds": 300,
+      "min_budget": 100, "instance_count": 1, "funding_split": [1.0], "max_slots": 2, "sort_order": 2
+    },
+    {
+      "id": "lemur", "name": "Lemur — Pre-IPO", "emoji": "🦒",
+      "tagline": "Trades pre-IPO perpetuals (SpaceX, …) before listing.",
+      "belief_plain": "Trades pre-IPO names before the company lists; grows as more list.",
+      "group": "xyz-specialist", "archetype": "single_market", "archetype_label": "Single-Market Specialist",
+      "sub_style": "pre_ipo", "sub_style_label": "Trades pre-IPO perpetuals.",
+      "asset_classes": ["pre_ipo"], "asset_scope": "single", "assets": ["xyz:SPCX"],
+      "direction": "long_short", "risk_level": "aggressive", "tier": "starter",
+      "leverage_max": 5, "time_horizon": "position", "cadence_seconds": 300,
+      "min_budget": 100, "instance_count": 1, "funding_split": [1.0], "max_slots": 2, "sort_order": 3
+    },
+    {
+      "id": "spider", "name": "Spider — AI/Tech Hedge Fund", "emoji": "🕷️",
+      "tagline": "AI/Tech long book + a macro counter-trading book — two legs.",
+      "belief_plain": "Runs an AI/tech long book and a macro counter-trading book together.",
+      "group": "multi-asset-whitelist", "archetype": "trend_following", "archetype_label": "Trend-Follower",
+      "sub_style": "basket", "sub_style_label": "Holds a whitelist basket.",
+      "asset_classes": ["btc_eth", "major_alts", "xyz_equities", "commodities"], "asset_scope": "basket",
+      "assets": ["BTC", "ETH", "SOL", "HYPE", "SUI", "xyz:NVDA", "xyz:AMD", "xyz:BRENTOIL"],
+      "direction": "long_short", "risk_level": "aggressive", "tier": "advanced",
+      "leverage_max": 10, "time_horizon": "scalp", "cadence_seconds": 60,
+      "min_budget": 200, "instance_count": 2, "funding_split": [0.6, 0.4], "max_slots": 4, "sort_order": 2
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+# Strategy Discovery — canonical taxonomy glossary.
+#
+# The single source of truth for the discovery vocabulary. Consumed by:
+#   - authors (which value to declare in strategy.yaml `catalog:`)
+#   - gen_catalog.py (inlines `label` + `gloss` into each CatalogRecord; WARNS on undocumented values)
+#   - the matcher (valid value sets)
+#   - the conversation LLM (mapping user language -> flags; ride-along glosses for narration)
+#
+# `sub_style` is EXTENSIBLE: authors may add a new value here (with a gloss) when a genuine new pattern
+# appears. gen_catalog warns (never fails) on a value missing from this file.
+# Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+
+archetype:        # the market belief; what `--belief` matches against (closed set of 6)
+  trend_following:
+    label: "Trend-Follower"
+    gloss: "Rides assets while they're trending and steps out when they stall."
+    user_signals: ["ride it", "follow the momentum", "when it's running, hold it"]
+  contrarian_fade:
+    label: "Contrarian / Fade"
+    gloss: "Bets against the crowd once a one-sided move stops following through."
+    user_signals: ["fade the crowd", "bet on the reversal", "wait for the pullback"]
+  copy_trading:
+    label: "Copy-Trader"
+    gloss: "Mirrors proven traders instead of forming its own view."
+    user_signals: ["copy winners", "follow good traders", "mirror whales"]
+  single_market:
+    label: "Single-Market Specialist"
+    gloss: "Specializes in one market — a coin, a stock, a commodity, or pre-IPO names."
+    user_signals: ["just trade SOL", "trade stocks", "pre-IPO names"]
+  breakout_momentum:
+    label: "Breakout / Momentum"
+    gloss: "Catches explosive breakouts and fresh momentum jumps early."
+    user_signals: ["catch breakouts", "ride explosive moves", "jump on momentum"]
+  structural_neutral:
+    label: "Structural / Neutral"
+    gloss: "Earns from market structure (pairs, lag, market-making), not from picking a direction."
+    user_signals: ["market-neutral", "trade the spread", "not a directional bet"]
+
+sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with a gloss)
+  # trend_following
+  basket:        { gloss: "Holds a whitelist basket of majors." }
+  rotation:      { gloss: "Always holds the strongest of a basket; rotates as leadership changes." }
+  parabolic:     { gloss: "Hunts parabolic runs with a very wide let-winners-run exit." }
+  hodl:          { gloss: "Set-and-forget single holding; widest exit." }
+  oi_confirmed:  { gloss: "Enters a breakout only when open interest confirms (new money)." }
+  adaptive:      { gloss: "Self-tunes its thresholds from its own track record." }
+  alpha_hunter:  { gloss: "Multi-factor conviction scoring on one asset, with tiered leverage." }
+  # contrarian_fade
+  sm_crowding:   { gloss: "Fades the crowded smart-money side once price stops following." }
+  funding_extreme: { gloss: "Fades extreme funding rates." }
+  xyz_overextended: { gloss: "Fades overextended stocks/commodities." }
+  # copy_trading
+  arena_winners: { gloss: "Copies multi-week arena winners, not one-week wonders." }
+  hot_streak:    { gloss: "Copies whoever is hot in the live window." }
+  named_whales:  { gloss: "Mirrors specific hand-picked whales." }
+  copy_the_copiers: { gloss: "Follows the best-performing strategies automatically." }
+  # single_market
+  pre_ipo:       { gloss: "Trades pre-IPO perpetuals (IPOPs) before the company lists." }
+  ipo_moment:    { gloss: "Trades the IPO conversion moment." }
+  big_tech:      { gloss: "Trades big-tech equities (NVDA/TSLA/AAPL/…) 24/7." }
+  broad_index:   { gloss: "Trades broad indices (SP500, XYZ100)." }
+  commodity:     { gloss: "Trades a commodity (oil/metals)." }
+  weekend_gap:   { gloss: "Trades the weekend stock-gap reconciliation." }
+  crypto_major:  { gloss: "Specializes in one crypto major." }
+  # breakout_momentum
+  range_break:   { gloss: "Buys/sells the break of a multi-day range." }
+  pullback:      { gloss: "Buys the dip within an uptrend." }
+  rank_jump:     { gloss: "Catches leaderboard rank-jumps early." }
+  momentum_event: { gloss: "Snipes fresh momentum events the instant they fire." }
+  liquidation_cascade: { gloss: "Rides liquidation cascades / forced flow." }
+  orderbook_pressure: { gloss: "Trades order-book depth skew." }
+  # structural_neutral
+  cross_asset_lag: { gloss: "Trades an alt that lags a BTC move." }
+  cross_venue_lag: { gloss: "Trades crypto-stocks that lag a BTC move." }
+  market_making: { gloss: "Volume / market-making, not directional." }
+  pairs_rv:      { gloss: "Trades a pair's ratio back to its mean (relative value)." }
+  dca:           { gloss: "Dollar-cost-averages on a schedule; predicts nothing." }
+
+asset_classes:    # declared per strategy; same vocabulary normalizes user-named assets
+  btc_eth:        { label: "BTC & ETH", gloss: "BTC and/or ETH — the bluest chips.", user_signals: ["btc","eth","bitcoin","ethereum"] }
+  major_alts:     { label: "Major alts", gloss: "Established large-cap alts beyond BTC/ETH (SOL, HYPE, …).", user_signals: ["alts","altcoins","sol","hype"] }
+  universe_crypto: { label: "Crypto universe", gloss: "Scans the broad crypto universe, not a fixed list.", user_signals: ["everything","scan the market","all coins"] }
+  xyz_equities:   { label: "Equities", gloss: "Tokenized equities (NVDA, TSLA, …) on the XYZ DEX, 24/7.", user_signals: ["stocks","equities","tech stocks"] }
+  commodities:    { label: "Commodities", gloss: "Commodities/metals/FX (oil, gold, …) on the XYZ DEX.", user_signals: ["oil","gold","silver","commodities","metals"] }
+  indices:        { label: "Indices", gloss: "Broad indices (SP500, XYZ100, …).", user_signals: ["index","indices","sp500","nasdaq"] }
+  pre_ipo:        { label: "Pre-IPO", gloss: "Pre-IPO perpetuals (IPOPs) like SpaceX, tradeable before listing.", user_signals: ["pre-ipo","spacex","pre ipo names"] }
+  none:           { label: "—", gloss: "No fixed assets (e.g. copy-trading follows traders)." }
+
+risk_level:
+  conservative: { gloss: "Slower cadence, wider stops, lower leverage." }
+  moderate:     { gloss: "Balanced — the middle of the fleet." }
+  aggressive:   { gloss: "Tighter / higher-turnover / higher-leverage." }
+
+tier:
+  starter:  { gloss: "Beginner-friendly; simplest mental model. Shows a STARTER badge." }
+  advanced: { gloss: "Fleet-grade; more moving parts." }
+
+asset_scope:
+  single:          { gloss: "One market." }
+  basket:          { gloss: "A whitelist of a few markets." }
+  universe:        { gloss: "Scans everything liquid." }
+  follows_traders: { gloss: "No fixed assets; follows traders." }
+
+direction:
+  long_only:  { gloss: "Never shorts." }
+  short_only: { gloss: "Only shorts." }
+  long_short: { gloss: "Trades both directions." }
+
+time_horizon:
+  scalp:    { gloss: "Lots of small, quick trades." }
+  swing:    { gloss: "Holds for hours to days." }
+  position: { gloss: "Holds for days to weeks." }
+  hodl:     { gloss: "Set-and-forget, holds indefinitely." }
