@@ -78,7 +78,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "volFloorUsd": 20000000,      # liquid main-DEX perps only
+        "volFloorPctOfMedian": 0.2,   # liquid majors: keep names >= 20% of the top-N median vol (no $ floor)
         "universeMaxNames": 40,        # cap the cross-section
         "rankPoolSize": 12,            # top-N by RS to confirm with candles
         "rsThresholdPct": 3.0,         # excess return for full RS points
@@ -92,7 +92,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "volFloorUsd": 20000000,
+        "volFloorPctOfMedian": 0.2,
         "universeMaxNames": 40,
         "rankPoolSize": 12,
         "rsThresholdPct": 3.0,
@@ -409,12 +409,12 @@ def push_signal(thesis, margin_usd, leverage, held_assets):
 def build_universe(config, meta_map, canonical):
     """Resolve the liquid main-DEX crypto cross-section to rank this tick.
 
-    A name qualifies if it is a main-DEX perp (no xyz: prefix) and liquid
-    (dayNtlVlm >= volFloorUsd). Capped to the top universeMaxNames by 24h
-    volume. XYZ equities are excluded — Octopus ranks crypto dispersion;
-    XYZ has no clean cross-sectional peer group here.
+    A name qualifies if it is a main-DEX perp (no xyz: prefix), survives the
+    top-universeMaxNames-by-24h-volume cap, and is in the liquid cohort
+    (24h volume >= volFloorPctOfMedian of the top-N median — relative-to-market,
+    NO hardcoded $ floor). XYZ equities are excluded — Octopus ranks crypto
+    dispersion; XYZ has no clean cross-sectional peer group here.
     """
-    vol_floor = float(config.get("volFloorUsd", _DEFAULTS["volFloorUsd"]))
     max_names = int(config.get("universeMaxNames", _DEFAULTS["universeMaxNames"]))
     seen, pool = set(), []
     for name in canonical:
@@ -427,12 +427,23 @@ def build_universe(config, meta_map, canonical):
         if not meta:
             continue
         vol = day_vol(meta)
-        if vol < vol_floor:
+        if vol <= 0:
             continue
         seen.add(key)
         pool.append((name, vol))
     pool.sort(key=lambda x: x[1], reverse=True)
-    return [n for n, _ in pool[:max_names]]
+    pool = pool[:max_names]
+    if not pool:
+        return []
+    # Relative-to-market liquidity gate (NO hardcoded $): keep only names whose
+    # 24h volume is >= volFloorPctOfMedian of the top-N cohort's median. The top-N
+    # cap already restricts to the most-liquid majors; this drops the anomalously
+    # thin tail within that cohort. Budget-independent and market-adaptive.
+    pct = float(config.get("volFloorPctOfMedian", _DEFAULTS["volFloorPctOfMedian"]))
+    vols = sorted(v for _, v in pool)
+    median = vols[len(vols) // 2]
+    floor = pct * median
+    return [n for n, v in pool if v >= floor]
 
 
 # ═══════════════════════════════════════════════════════════════

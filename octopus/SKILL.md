@@ -54,7 +54,9 @@ other — the books re-balance continuously as leadership rotates.
 ## The relative-strength rank (shared by both books)
 
 Each tick the producer pulls the live instrument board **once** and computes,
-for every liquid main-DEX perp (`dayNtlVlm ≥ volFloorUsd`, default $20M), its
+for every liquid main-DEX perp (top-`universeMaxNames` by 24h volume, then a
+relative-to-market floor: `dayNtlVlm ≥ volFloorPctOfMedian` × the cohort median —
+no hardcoded $ floor), its
 **24h return** from `markPx` vs `prevDayPx`. The **universe mean** of those
 returns is "the market." Each asset's **excess = own 24h − universe mean** is
 its cross-sectional relative strength. This rank costs **zero candle fetches**.

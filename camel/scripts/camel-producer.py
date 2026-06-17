@@ -75,7 +75,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "volFloorUsd": 20000000,
+        "volFloorPctOfMedian": 0.2,
         "universeMaxNames": 60,
         "rankPoolSize": 12,
         # Funding entry floor + tiers (HOURLY decimal). 0.00003/hr ~= 26%/yr.
@@ -92,7 +92,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "volFloorUsd": 20000000,
+        "volFloorPctOfMedian": 0.2,
         "universeMaxNames": 60,
         "rankPoolSize": 12,
         "fundingFloorHourly": 0.00003,
@@ -397,9 +397,10 @@ def push_signal(thesis, margin_usd, leverage, held_assets):
 # ═══════════════════════════════════════════════════════════════
 
 def build_universe(config, meta_map, canonical):
-    """Liquid main-DEX crypto perps (dayNtlVlm >= volFloorUsd), capped to
-    universeMaxNames by 24h volume. XYZ excluded (XYZ funding is sparse)."""
-    vol_floor = float(config.get("volFloorUsd", _DEFAULTS["volFloorUsd"]))
+    """Liquid main-DEX crypto perps, capped to the top universeMaxNames by 24h
+    volume, then filtered to the liquid cohort (24h volume >= volFloorPctOfMedian
+    of the top-N median — relative-to-market, NO hardcoded $ floor). XYZ excluded
+    (XYZ funding is sparse)."""
     max_names = int(config.get("universeMaxNames", _DEFAULTS["universeMaxNames"]))
     seen, pool = set(), []
     for name in canonical:
@@ -412,12 +413,21 @@ def build_universe(config, meta_map, canonical):
         if not meta:
             continue
         vol = day_vol(meta)
-        if vol < vol_floor:
+        if vol <= 0:
             continue
         seen.add(key)
         pool.append((name, vol))
     pool.sort(key=lambda x: x[1], reverse=True)
-    return [n for n, _ in pool[:max_names]]
+    pool = pool[:max_names]
+    if not pool:
+        return []
+    # Relative-to-market liquidity gate (NO hardcoded $): keep only names whose
+    # 24h volume is >= volFloorPctOfMedian of the top-N cohort's median.
+    pct = float(config.get("volFloorPctOfMedian", _DEFAULTS["volFloorPctOfMedian"]))
+    vols = sorted(v for _, v in pool)
+    median = vols[len(vols) // 2]
+    floor = pct * median
+    return [n for n, v in pool if v >= floor]
 
 
 # ═══════════════════════════════════════════════════════════════

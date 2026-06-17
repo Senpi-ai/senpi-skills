@@ -70,9 +70,10 @@ dispersion between the two speeds.
 - Budget-scaling notional floor: `max(account_value × minNotionalPctOfEquity,
   venueMinNotionalUsd)` — no hardcoded dollar sizing floor (venueMinNotionalUsd
   is the venue's physical minimum order value, an exchange constant, not a knob).
-- Budget-relative liquidity floor: an instrument's 24h volume must be ≥
-  `liqVolMultiple × position notional` — no hardcoded dollar volume floor, so a
-  bigger book demands a deeper market.
+- Relative-to-market liquidity gate: an instrument's 24h volume must be ≥
+  `volFloorPctOfMedian × the universe median volume` — no hardcoded dollar volume
+  floor; the gate is a market property, so it adapts to conditions (shared
+  fleet-wide with the other universe funds).
 - Per-candidate affordability cap — never emits an order the wallet can't fund.
 - Sizes off `max(main, xyz)` account value — never the sum.
 

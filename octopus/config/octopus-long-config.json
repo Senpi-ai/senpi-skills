@@ -9,7 +9,7 @@
   "maxSlots": 4,
   "minNotionalPctOfEquity": 0.01,
   "tickSeconds": 300,
-  "volFloorUsd": 20000000,
+  "volFloorPctOfMedian": 0.2,
   "universeMaxNames": 40,
   "rankPoolSize": 12,
   "rsThresholdPct": 3.0,

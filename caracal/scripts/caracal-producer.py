@@ -63,7 +63,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "volFloorUsd": 20000000,      # liquid main-DEX crypto
+        "volFloorPctOfMedian": 0.2,   # relative-to-market liquidity gate (no $ floor)
         "universeMaxNames": 20,        # bounds per-tick candle fetches
         "wantXyz": False,
         "breakoutBars": 20,            # prior-range lookback for the break
@@ -82,7 +82,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "volFloorUsd": 3000000,       # XYZ is less liquid than crypto majors
+        "volFloorPctOfMedian": 0.2,   # relative-to-market; XYZ thinner than crypto, but the gate is relative so it adapts
         "universeMaxNames": 15,
         "wantXyz": True,
         "breakoutBars": 20,
@@ -350,7 +350,6 @@ def push_signal(thesis, margin_usd, leverage, held_assets):
 def build_universe(config, meta_map, canonical):
     """Liquid names on the leg's DEX, capped to universeMaxNames by 24h volume.
     breakout -> main-DEX crypto; catalyst -> XYZ (equities/energy/metals/indices)."""
-    vol_floor = float(config.get("volFloorUsd", _DEFAULTS["volFloorUsd"]))
     max_names = int(config.get("universeMaxNames", _DEFAULTS["universeMaxNames"]))
     want_xyz = bool(config.get("wantXyz", _DEFAULTS["wantXyz"]))
     seen, pool = set(), []
@@ -367,12 +366,22 @@ def build_universe(config, meta_map, canonical):
         if not meta:
             continue
         vol = day_vol(meta)
-        if vol < vol_floor:
+        if vol <= 0:
             continue
         seen.add(key)
         pool.append((name, vol))
     pool.sort(key=lambda x: x[1], reverse=True)
-    return [n for n, _ in pool[:max_names]]
+    pool = pool[:max_names]
+    if not pool:
+        return []
+    # Relative-to-market liquidity gate (NO hardcoded $): keep only names whose
+    # 24h volume is >= volFloorPctOfMedian of the top-N cohort's median. XYZ is
+    # thinner than crypto majors, but the gate being relative handles both DEXes.
+    pct = float(config.get("volFloorPctOfMedian", _DEFAULTS["volFloorPctOfMedian"]))
+    vols = sorted(v for _, v in pool)
+    median = vols[len(vols) // 2]
+    floor = pct * median
+    return [n for n, v in pool if v >= floor]
 
 
 # ═══════════════════════════════════════════════════════════════

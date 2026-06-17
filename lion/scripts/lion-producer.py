@@ -97,7 +97,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "liqVolMultiple": 50,          # 24h vol must be >= 50x the position notional (budget-relative; NO hardcoded $ floor)
+        "volFloorPctOfMedian": 0.2,    # relative-to-market liquidity gate (no $ floor)
         "rankPoolSize": 16,
         "rsThresholdPct": 3.0,
         "rsiOverbought": 82,
@@ -112,7 +112,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "liqVolMultiple": 50,          # 24h vol must be >= 50x the position notional (budget-relative; NO hardcoded $ floor)
+        "volFloorPctOfMedian": 0.2,    # relative-to-market liquidity gate (no $ floor)
         "rankPoolSize": 16,
         "rsThresholdPct": 3.0,
         "rsiOversold": 18,
@@ -431,27 +431,33 @@ def push_signal(thesis, margin_usd, leverage, held_assets):
 # Universe — curated thematic whitelist, liquid + live only
 # ═══════════════════════════════════════════════════════════════
 
-def build_universe(config, meta_map, min_day_vol):
+def build_universe(config, meta_map):
     """The curated thematic whitelist (config.universe — haves for the long leg,
-    have-nots for the short leg), intersected with the live instrument board and
-    a BUDGET-RELATIVE liquidity floor. An instrument's 24h notional volume must be
-    >= min_day_vol (= liqVolMultiple x the standard position notional, computed
-    from account value in main()), so a bigger book demands a deeper market and we
-    never take a position that is a large fraction of an instrument's daily flow.
-    No hardcoded dollar floor — it scales with the account. Names not live / too
-    thin are skipped, so new listings auto-join once added to config.universe."""
+    have-nots for the short leg), intersected with the live instrument board and a
+    RELATIVE-TO-MARKET liquidity gate: an instrument's 24h volume must be >=
+    volFloorPctOfMedian of the whitelist's median 24h volume. NO hardcoded dollar
+    floor — it adapts to the market and drops an anomalously-thin name without a
+    fixed threshold. Names not live are skipped, so new listings auto-join once
+    added to config.universe."""
     wl = config.get("universe", _DEFAULTS["universe"])
-    out = []
+    pct = float(config.get("volFloorPctOfMedian", _DEFAULTS["volFloorPctOfMedian"]))
+    cand = []
     for name in wl:
         if not isinstance(name, str):
             continue
         meta = meta_map.get(name) or meta_map.get(name.upper())
         if not meta:
             continue
-        if day_vol(meta) < min_day_vol:
+        vol = day_vol(meta)
+        if vol <= 0:
             continue
-        out.append(name)
-    return out
+        cand.append((name, vol))
+    if not cand:
+        return []
+    vols = sorted(v for _, v in cand)
+    median = vols[len(vols) // 2]
+    floor = pct * median
+    return [n for n, v in cand if v >= floor]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -489,15 +495,8 @@ def main():
                     "_lion_producer_version": VERSION})
         return
 
-    # Budget-relative liquidity floor: an instrument's 24h volume must dwarf the
-    # position we'd take in it. std position notional = account_value * marginPct *
-    # maxLeverage; require 24h vol >= liqVolMultiple x that. No hardcoded $ floor —
-    # a $2k book needs a far shallower market than a $2M book.
-    liq_mult = float(config.get("liqVolMultiple", _DEFAULTS["liqVolMultiple"]))
-    min_day_vol = liq_mult * (account_value * float(margin_pct) * float(max_lev))
-
     meta_map, _canonical = get_universe_meta()
-    universe = build_universe(config, meta_map, min_day_vol)
+    universe = build_universe(config, meta_map)
 
     # ── Cross-sectional relative strength over the thematic universe (used as a
     #    score tiebreaker; absolute trend is the gate inside score_thematic) ──
@@ -589,7 +588,7 @@ def main():
         "signals_pushed": pushed, "emitted": emitted,
         "mean_rs_24h": round(mean_rs, 2),
         "held_assets": held_assets, "recently_signaled_skipped": recently_skipped,
-        "account_value": round(account_value, 2), "min_day_vol": round(min_day_vol, 0),
+        "account_value": round(account_value, 2),
         "elapsed_sec": round(time.time() - run_start, 2),
         "_lion_producer_version": VERSION,
     })

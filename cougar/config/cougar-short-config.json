@@ -10,7 +10,7 @@
   "maxSlots": 4,
   "minNotionalPctOfEquity": 0.01,
   "tickSeconds": 300,
-  "volFloorUsd": 500000,
+  "volFloorPctOfMedian": 0.2,
   "rankPoolSize": 8,
   "rsThresholdPct": 3.0,
   "rsiOversold": 20,

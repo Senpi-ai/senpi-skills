@@ -71,9 +71,10 @@ names; longing NVDA while shorting the index isolates the pure
 
 1. **Curated thematic universe** — `config.universe` (the haves for the long
    leg, the have-nots for the short leg), intersected with the live instrument
-   board + a **budget-relative liquidity floor** (an instrument's 24h volume must
-   be ≥ `liqVolMultiple` × your position notional — no hardcoded dollar floor, so
-   a bigger book demands a deeper market). New listings auto-join once added.
+   board + a **relative-to-market liquidity gate** (an instrument's 24h volume
+   must be ≥ `volFloorPctOfMedian` × the universe's median volume — no hardcoded
+   dollar floor; it adapts to the market and drops anomalously-thin names). New
+   listings auto-join once added.
 2. **ABSOLUTE trend is the gate** — long a have only while its 4h structure is
    not bearish; short a have-not only while its 4h is not bullish. This is the
    hard gate: *never long a downtrend, never short an uptrend*, even for a

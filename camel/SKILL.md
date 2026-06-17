@@ -49,7 +49,9 @@ not the net direction.
 
 Each tick the producer pulls the live instrument board **once** and reads the
 per-asset `funding` field (hourly decimal) for every liquid main-DEX perp
-(`dayNtlVlm ≥ volFloorUsd`, default $20M). Annualized ≈ `funding × 24 × 365`.
+(top-`universeMaxNames` by 24h volume, then a relative-to-market floor:
+`dayNtlVlm ≥ volFloorPctOfMedian` × the cohort median — no hardcoded $ floor).
+Annualized ≈ `funding × 24 × 365`.
 The **harvest** book ranks funding **descending** (most positive); the
 **payout** book ranks **ascending** (most negative). Only the top
 `rankPoolSize` names (default 12) then get 1h+4h candles for confirmation.

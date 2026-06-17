@@ -71,7 +71,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "volFloorUsd": 500000,         # equity liquidity floor (lower than crypto)
+        "volFloorPctOfMedian": 0.2,    # relative-to-market liquidity gate (no $ floor)
         "rankPoolSize": 8,
         "rsThresholdPct": 3.0,
         "rsiOverbought": 80,
@@ -85,7 +85,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "volFloorUsd": 500000,
+        "volFloorPctOfMedian": 0.2,
         "rankPoolSize": 8,
         "rsThresholdPct": 3.0,
         "rsiOversold": 20,
@@ -378,18 +378,27 @@ def build_universe(config, meta_map):
     live instrument board and a liquidity floor. Names not live / too thin are
     skipped, so new trade.xyz listings auto-join once added to the whitelist."""
     wl = config.get("equities", _DEFAULTS["equities"])
-    vol_floor = float(config.get("volFloorUsd", _DEFAULTS["volFloorUsd"]))
-    out = []
+    pct = float(config.get("volFloorPctOfMedian", _DEFAULTS["volFloorPctOfMedian"]))
+    cand = []
     for name in wl:
         if not isinstance(name, str):
             continue
         meta = meta_map.get(name) or meta_map.get(name.upper())
         if not meta:
             continue
-        if day_vol(meta) < vol_floor:
+        vol = day_vol(meta)
+        if vol <= 0:
             continue
-        out.append(name)
-    return out
+        cand.append((name, vol))
+    if not cand:
+        return []
+    # Relative-to-market liquidity gate (NO hardcoded $): keep names whose 24h
+    # volume is >= volFloorPctOfMedian of the curated whitelist's median — drops
+    # an anomalously-thin equity without a fixed dollar floor.
+    vols = sorted(v for _, v in cand)
+    median = vols[len(vols) // 2]
+    floor = pct * median
+    return [n for n, v in cand if v >= floor]
 
 
 # ═══════════════════════════════════════════════════════════════

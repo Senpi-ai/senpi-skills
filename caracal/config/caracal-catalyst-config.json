@@ -9,7 +9,7 @@
   "maxSlots": 3,
   "minNotionalPctOfEquity": 0.01,
   "tickSeconds": 300,
-  "volFloorUsd": 3000000,
+  "volFloorPctOfMedian": 0.2,
   "universeMaxNames": 15,
   "wantXyz": true,
   "breakoutBars": 20,
@@ -19,5 +19,5 @@
   "squeezeLoose": 0.90,
   "surgeStrong": 2.0,
   "surgeMod": 1.3,
-  "_persona": "XYZ catalyst breakouts — oil/AI-infra/metals/indices coiled-spring expansions captured as direction-agnostic vol events, 24/7, both ways, strict 5x, tight fast-capture DSL. Lower volFloorUsd (3M) because XYZ is thinner than crypto majors."
+  "_persona": "XYZ catalyst breakouts — oil/AI-infra/metals/indices coiled-spring expansions captured as direction-agnostic vol events, 24/7, both ways, strict 5x, tight fast-capture DSL. Liquidity gate is relative-to-market (24h volume >= volFloorPctOfMedian of the top-N median), not a hardcoded $ floor."
 }
