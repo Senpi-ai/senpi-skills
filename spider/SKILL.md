@@ -1,7 +1,7 @@
 ---
 name: spider-strategy
 description: >-
-  SPIDER v5.1.1 — Two autonomous style legs on two wallets, one producer.
+  SPIDER v5.2.0 — Two autonomous style legs on two wallets, one producer.
   NOT a copy-trader: each leg scores its own universe to a STYLE and
   pushes signals; the runtime owns the LLM gate (pass-through), DSL
   exits, and all risk.guard_rails. SWING leg = Tech & AI multi-day
@@ -13,11 +13,14 @@ description: >-
   majors fast mean-reversion
   (BTC/ETH/SOL/HYPE + xyz:BRENTOIL/xyz:CL), BOTH directions, short-TF
   stretch + RSI extreme with a 1h trend filter, strict 5x, tight
-  fast-capture DSL. SPIDER_LEG env selects the leg.
+  fast-capture DSL. v5.2: the swing leg adds an ADAPTIVE RISK GOVERNOR
+  (green/red-day entry scaling, trailing multi-day drawdown halt, outcome-based
+  per-asset cooldown) + a market-regime gate as the primary, self-driving risk
+  brake — no hardwired entry caps. SPIDER_LEG env selects the leg.
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "5.1.1"
+  version: "5.2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -25,7 +28,7 @@ metadata:
     - senpi_runtime_helpers
 ---
 
-# 🕷️ SPIDER v5.0 — Two-Persona Style Hunter
+# 🕷️ SPIDER v5.2 — Two-Persona Style Hunter
 
 Spider runs **two concurrent strategy wallets**, each a distinct trading
 style. **One producer script** (`spider-producer.py`) serves both; the
@@ -41,6 +44,19 @@ to its own wallet, runtime YAML, DSL, and risk envelope.
 |---|---|---|---|---|
 | `swing` | Tech & AI multi-day momentum, LONG only | `SPIDER_SWING_WALLET` | `runtime-swing.yaml` | `spider_swing_signals` |
 | `scalp` | Macro & majors fast mean-reversion, BOTH dirs | `SPIDER_SCALP_WALLET` | `runtime-scalp.yaml` | `spider_scalp_signals` |
+
+## v5.2 — Adaptive risk governor + regime gate (swing leg)
+
+v5.1's swing leg over-traded a momentum thesis into a choppy tape (June 16–17: ~113 trades, ~13% win rate, heavy taker-fee drag, two red days compounding to ≈−40%). The lesson: the risk envelope was **hardwired** (`max_entries_per_day`, `bypass_on_profit`, fixed cooldowns, daily-resetting drawdown halt) and had no way to sense its own regime. v5.2 replaces that with two self-driving brakes — the runtime `guard_rails` are now only a **wide hard backstop**.
+
+**Adaptive risk governor** (`scripts/adaptive_governor.py`, configured under the swing config's `governor` block) — every gate is a function of the strategy's *own* results, read each tick from `account_value` + producer-local state (no extra MCP calls, no hardcoded $ values):
+- **Green/red day budget:** entries = `baseEntries` (3) on a flat day, **+1 per +5% green**, capped at `maxEntriesCap` (8); the day **stops** once it reddens past an **adaptive band** — tight (`bandMin` 5%) on a losing streak, wide (`bandMax` 12%) when winning, scaled by the rolling win-rate. Replaces `max_entries` + bypass + daily-loss-limit in one rule.
+- **Trailing multi-day drawdown halt** (hysteresis): pauses new entries past **20%** below the *rolling* (non-resetting) peak, resumes only within **10%** of it. Kills the day-over-day compounding the old daily reset allowed. Entry-halt only — the DSL still owns open exits.
+- **Per-asset cooldown by OUTCOME:** a name that closed **green** re-enters on the next signal; a name that closed **red** backs off, the cooldown **doubling per consecutive loss** (2h → 24h). Auto-handles volatile losers (e.g. SPCX) without a hardcoded exclude-list.
+
+**Regime gate** (swing only, `regimeGateEnabled`): stands the leg down on **new** longs when the broad tape is risk-off — BTC + an equity index (xyz:XYZ100→SP500) 4h; any probe 4h-bearish ⇒ no new momentum entries. Fails open on a data outage.
+
+Both are producer-side and reusable — the governor is a standalone module intended for fleet adoption (Lynx-style: prove on Spider, then port).
 
 ## What changed from v4.0
 

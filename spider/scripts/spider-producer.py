@@ -3,7 +3,15 @@
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""SPIDER v5.1.1 Producer — two autonomous style legs, one script.
+"""SPIDER v5.2.0 Producer — two autonomous style legs, one script.
+
+v5.2.0: swing leg adds an ADAPTIVE RISK GOVERNOR (adaptive_governor.py) +
+a market-regime gate. The governor is the primary, self-driving risk brake —
+green-day entry scaling, an adaptive red-stop band, a trailing multi-day
+drawdown halt, and per-asset cooldown by trade OUTCOME — replacing the
+hardwired entry caps / bypass flag / fixed cooldowns (runtime guard_rails are
+now a wide hard backstop). The regime gate stands the swing leg down on new
+longs when the broad tape (BTC + an equity index, 4h) is risk-off.
 
 Spider runs TWO concurrent strategy wallets, each a distinct trading
 style. ONE producer script serves both; the SPIDER_LEG env var selects
@@ -51,11 +59,12 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import spider_config as cfg
+import adaptive_governor
 
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "5.1.1"
+VERSION = "5.2.0"
 LEG = cfg.LEG
 SCANNER_NAME = f"spider_{LEG}_signals"
 SIGNAL_TYPE = "SPIDER_SWING_MOMENTUM" if LEG == "swing" else "SPIDER_SCALP_REVERSION"
@@ -270,6 +279,43 @@ def fetch_candles(asset, intervals):
         return None
     d = data.get("data", data)
     return {"candles": d.get("candles", {}) or {}, "ctx": d.get("asset_context", {}) or {}}
+
+
+# ═══════════════════════════════════════════════════════════════
+# Regime gate (swing momentum) — don't chase breakouts in a risk-off tape
+# ═══════════════════════════════════════════════════════════════
+
+def market_regime_ok(config):
+    """Swing-momentum go/no-go: stand down on NEW longs when the broad tape is
+    risk-off. Reads the 4h trend of a crypto proxy (BTC) + an equity index
+    (xyz:XYZ100, SP500 fallback). Default: ANY probe 4h-bearish => risk-off
+    (a momentum-long leg shouldn't chase breakouts when either crypto or
+    equities are rolling over). Fails OPEN on a data outage. Returns (ok, detail)."""
+    probes = config.get("regimeProbes", [
+        {"asset": "BTC", "fallback": None},
+        {"asset": "xyz:XYZ100", "fallback": "xyz:SP500"},
+    ])
+    require_all_non_bearish = bool(config.get("regimeRequireAllNonBearish", True))
+    detail, bearish, seen = {}, 0, 0
+    for p in probes:
+        a = p.get("asset")
+        md = fetch_candles(a, ["4h"])
+        if (not md or len(md["candles"].get("4h", [])) < 6) and p.get("fallback"):
+            a = p["fallback"]
+            md = fetch_candles(a, ["4h"])
+        c4 = md["candles"].get("4h", []) if md else []
+        if len(c4) < 6:
+            detail[p.get("asset")] = "no_data"
+            continue
+        t, _ = trend_structure(c4)
+        detail[p.get("asset")] = t.lower()
+        seen += 1
+        if t == "BEARISH":
+            bearish += 1
+    if seen == 0:
+        return True, detail  # data outage → fail open (governor + DSL still protect)
+    ok = (bearish == 0) if require_all_non_bearish else (bearish < seen)
+    return ok, detail
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -615,6 +661,39 @@ def main():
                     "_spider_producer_version": VERSION})
         return
 
+    now = time.time()
+    # ── Adaptive governor (instantiated only when config has a "governor" block;
+    # primary smart brake — the runtime guard_rails are a wide hard backstop) ──
+    gov_cfg = config.get("governor")
+    gov = (adaptive_governor.AdaptiveGovernor(cfg.STATE_DIR / f"governor-{LEG}.json", gov_cfg)
+           if gov_cfg else None)
+    gsnap = gov.observe(account_value, positions, now) if gov else None
+    if gsnap and gsnap.get("halted"):
+        cfg.output({
+            "status": "ok", "leg": LEG, "signals_pushed": 0,
+            "note": f"HALTED — trailing drawdown {gsnap['trailing_dd_pct']:.0%}; "
+                    "new entries paused until equity recovers (DSL still owns open exits)",
+            "governor": gsnap, "held_assets": held_assets,
+            "elapsed_sec": round(time.time() - run_start, 2),
+            "_spider_producer_version": VERSION,
+        })
+        return
+
+    # ── Regime gate (swing momentum): stand down on new longs in a risk-off tape ──
+    regime_detail = None
+    if LEG == "swing" and config.get("regimeGateEnabled", True):
+        regime_ok, regime_detail = market_regime_ok(config)
+        if not regime_ok:
+            cfg.output({
+                "status": "ok", "leg": LEG, "signals_pushed": 0,
+                "note": "STANDING DOWN — risk-off regime (broad tape 4h-bearish); "
+                        "no new momentum entries (DSL still owns open exits)",
+                "regime": regime_detail, "governor": gsnap, "held_assets": held_assets,
+                "elapsed_sec": round(time.time() - run_start, 2),
+                "_spider_producer_version": VERSION,
+            })
+            return
+
     min_score = config.get("minScore", _DEFAULTS["minScore"])
     margin_pct = config.get("marginPct", _DEFAULTS["marginPct"])
     leg_max_lev = config.get(_LEG_MAX_LEVERAGE_KEY, _DEFAULTS["maxLeverage"])
@@ -639,6 +718,9 @@ def main():
         if au in held_set:
             continue
         if cfg.was_recently_signaled(asset):
+            recently_skipped.append(asset)
+            continue
+        if gov and gov.asset_blocked(asset, now):   # outcome-based cooldown (loss → back off)
             recently_skipped.append(asset)
             continue
         meta = meta_map.get(asset) or meta_map.get(au)
@@ -672,7 +754,13 @@ def main():
     # free margin = equity minus on-chain committed margin (marginUsed).
     free_margin = max(0.0, account_value - sum(p.get("margin", 0) for p in positions))
     affordable = int(free_margin / (margin_usd * 1.1)) if margin_usd > 0 else 0  # 1.1 = fee/slippage headroom
-    to_emit = candidates[:min(open_slots, affordable)]
+    # Governor sets the dynamic per-day entry budget (green scales up, red stops);
+    # the final cap is the tightest of slots / affordability / governor.
+    caps = [open_slots, affordable]
+    gov_max = gov.max_entries() if gov else None
+    if gov_max is not None:
+        caps.append(gov_max)
+    to_emit = candidates[:max(0, min(caps))]
 
     pushed = 0
     emitted = []
@@ -693,10 +781,12 @@ def main():
     cfg.output({
         "status": "ok", "leg": LEG,
         "scanned": len(allowed), "candidates": len(candidates),
-        "open_slots": open_slots, "signals_pushed": pushed,
+        "open_slots": open_slots, "gov_max_entries": gov_max,
+        "signals_pushed": pushed,
         "emitted": emitted, "held_assets": held_assets,
         "recently_signaled_skipped": recently_skipped,
         "account_value": round(account_value, 2),
+        "governor": gsnap, "regime": regime_detail,
         "elapsed_sec": round(time.time() - run_start, 2),
         "_spider_producer_version": VERSION,
     })

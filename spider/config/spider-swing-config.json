@@ -18,5 +18,23 @@
   "tickSeconds": 300,
   "rsiMaxLong": 78,
   "useSmBonus": true,
-  "_persona": "Tech & AI Swing — semis/AI-hardware + AI software + crypto-equity + space + freshly listed AI IPOs (auto-caught), LONG only, avg ~27h hold up to 7d, conviction leverage clamped 10x, wide let-winners-run DSL, time-cuts OFF. allowedAssets is a static fallback used only if the live instrument board is unavailable."
+  "regimeGateEnabled": true,
+  "regimeRequireAllNonBearish": true,
+  "governor": {
+    "baseEntries": 3,
+    "entryStepPct": 0.05,
+    "maxEntriesCap": 8,
+    "bandMin": 0.05,
+    "bandMax": 0.12,
+    "bandWinRateLo": 0.35,
+    "bandWinRateHi": 0.55,
+    "trailingDdStop": 0.20,
+    "trailingDdResume": 0.10,
+    "assetCooldownBaseSec": 7200,
+    "assetCooldownCapSec": 86400,
+    "winRateWindow": 20
+  },
+  "_governor_note": "Adaptive risk governor (producer-side, primary brake; runtime guard_rails are a wide hard backstop). Entry budget = baseEntries on a flat day, +1 per +entryStepPct green, capped at maxEntriesCap; stops the day once it reddens past an adaptive band (bandMin on a losing streak → bandMax when winning, by recent win-rate). Trailing multi-day drawdown halt at trailingDdStop, resumes within trailingDdResume of the rolling peak (kills daily-reset compounding). Per-asset cooldown by OUTCOME: a name that closed green re-enters on the next signal; a name that closed red backs off, doubling per consecutive loss (assetCooldownBaseSec → assetCooldownCapSec) — this auto-handles volatile losers like SPCX without a hardcoded exclude.",
+  "_regime_note": "regimeGateEnabled (swing): skip NEW momentum longs when the broad tape is risk-off — BTC + xyz:XYZ100(→SP500) 4h. regimeRequireAllNonBearish true = any probe 4h-bearish stands the leg down. Fails open on a data outage.",
+  "_persona": "Tech & AI Swing — semis/AI-hardware + AI software + crypto-equity + space + freshly listed AI IPOs (auto-caught), LONG only, avg ~27h hold up to 7d, conviction leverage clamped 10x, wide let-winners-run DSL, time-cuts OFF. Risk is governed by an ADAPTIVE producer-side governor (green/red-day entry scaling, trailing-DD halt, outcome-based per-asset cooldown) + a regime gate — not hardwired caps. allowedAssets is a static fallback used only if the live instrument board is unavailable."
 }

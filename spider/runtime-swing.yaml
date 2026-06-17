@@ -1,10 +1,16 @@
 name: spider-swing-tracker
 # Top-level `version` is the SCHEMA version the senpi-trading-runtime
-# plugin expects (major=1). Skill version is "Spider v5.0" — lives in
+# plugin expects (major=1). Skill version is "Spider v5.2" — lives in
 # description + SKILL.md + _spider_producer_version.
 version: 1.0.0
 description: >
-  SPIDER v5.0 (SWING leg) — Tech & AI multi-day momentum.
+  SPIDER v5.2 (SWING leg) — Tech & AI multi-day momentum.
+
+  v5.2: an adaptive producer-side risk governor + a market-regime gate own the
+  risk envelope (see spider-swing-config.json governor block + the guard_rails
+  note below). The governor green-scales the entry budget, stops the day on an
+  adaptive red band, halts on a trailing multi-day drawdown, and cools off
+  losing names by outcome; the regime gate stands the leg down in a risk-off tape.
 
   One of two autonomous style legs. This leg scores a Tech & AI momentum
   universe: semiconductor/AI equities on XYZ (NVDA, AMD, INTC, MRVL, MU,
@@ -45,15 +51,22 @@ strategy:
 
 risk:
   data_retention_hours: 168       # 7d — match the max hold horizon
+  # NOTE: as of v5.2 the producer-side ADAPTIVE GOVERNOR (adaptive_governor.py,
+  # configured in spider-swing-config.json) is the PRIMARY risk brake — it owns
+  # the per-day entry budget (green-scaled, red-stopped on an adaptive band), the
+  # trailing multi-day drawdown halt, and per-asset cooldown by trade OUTCOME.
+  # The guard_rails below are now a WIDE HARD BACKSTOP that should rarely fire —
+  # they only catch a governor failure. Don't tighten them to do the governor's
+  # job; tune the governor block in the config instead.
   guard_rails:
-    daily_loss_limit_pct: 15      # source tolerates drawdowns on conviction
-    max_entries_per_day: 12       # don't throttle the winning style by trade COUNT — the loss-based gates (daily_loss_limit + drawdown_halt) are the real circuit breakers. A let-winners-run leg needs many shots at the next big winner; a 4/day cap blocked MRVL/CBRS after 3 quick DSL-cut losers used the budget.
-    bypass_max_entries_per_day_on_profit: true   # when the leg is green, never block a new qualifying entry
-    max_consecutive_losses: 4
+    daily_loss_limit_pct: 25      # backstop only — governor's adaptive red-stop band (5-12%) is primary
+    max_entries_per_day: 20       # backstop only — governor caps the real budget (baseEntries 3 → maxEntriesCap 8)
+    bypass_max_entries_per_day_on_profit: false   # governor now owns green-day scaling (capped); no unlimited bypass
+    max_consecutive_losses: 6     # backstop — governor's win-rate band handles streaks
     cooldown_minutes: 90
-    drawdown_halt_pct: 25
-    drawdown_reset_on_day_rollover: true    # let-winners-run leg: a closed winner's inflated PnL peak (e.g. a +100% runner) must not carry over and halt next-day entries while the leg is still net green
-    per_asset_cooldown_minutes: 240          # 4h — avoid re-churning a name
+    drawdown_halt_pct: 30         # hard backstop — governor's trailing-DD halt (20% off rolling peak) is primary
+    drawdown_reset_on_day_rollover: true    # backstop resets daily; the governor's trailing-DD is the NON-resetting multi-day brake that prevents day-over-day compounding
+    per_asset_cooldown_minutes: 60           # low dumb floor — governor's OUTCOME-based cooldown (gain→0, loss→2h doubling) is primary
 
 scanners:
   - name: position_tracker

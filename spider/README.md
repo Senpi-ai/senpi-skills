@@ -99,6 +99,7 @@ The scalp universe stays static (majors + energy).
 | `runtime-scalp.yaml` | Scalp-leg runtime spec |
 | `scripts/spider-producer.py` | Leg-aware producer daemon (one script, both legs) |
 | `scripts/spider_config.py` | Leg resolution + SenpiClient wrapper + helpers |
+| `scripts/adaptive_governor.py` | v5.2 adaptive risk governor (swing): green/red-day entry budget, trailing-DD halt, outcome-based per-asset cooldown |
 | `config/spider-swing-config.json` | Swing-leg tunables (dynamic-universe sets, floors) |
 | `config/spider-scalp-config.json` | Scalp-leg tunables |
 | `state/xyz-first-seen-swing.json` | Auto-generated first-seen ledger (fresh-listing detection) |
@@ -155,7 +156,7 @@ npx skills add https://github.com/Senpi-ai/senpi-skills --skill senpi-trading-ru
 
 ```bash
 mkdir -p /data/workspace/skills/spider-strategy/{config,scripts,state,references}
-for f in scripts/spider-producer.py scripts/spider_config.py \
+for f in scripts/spider-producer.py scripts/spider_config.py scripts/adaptive_governor.py \
          runtime-swing.yaml runtime-scalp.yaml \
          config/spider-swing-config.json config/spider-scalp-config.json \
          SKILL.md README.md; do
