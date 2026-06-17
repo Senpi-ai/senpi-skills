@@ -12,7 +12,7 @@ The repo is two things stacked on top of each other:
 
 Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or build a new one from scratch using the capabilities below.
 
-**Platform:** [senpi.ai](https://senpi.ai) · **Live fleet tracker:** [strategies.senpi.ai](https://strategies.senpi.ai) · **Arena competition:** [senpi.ai/arena](https://senpi.ai/arena)
+**Platform:** [senpi.ai](https://senpi.ai) · **Arena competition:** [senpi.ai/arena](https://senpi.ai/arena)
 
 ---
 
@@ -583,7 +583,7 @@ Watches macro conditions and **classifies the market** into TREND_UP / TREND_DOW
 
 For full archetype theses, distinguishing MCP signatures, and code snippets, see [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md).
 
-> **Live fleet trackers:** [strategies.senpi.ai](https://strategies.senpi.ai) (all-time PnL) · [senpi.ai/arena](https://senpi.ai/arena) (weekly ROE). One agent — Sentinel — runs an in-house producer not published to this repo; it appears on the live trackers but has no source link here.
+> **Live performance:** [senpi.ai/arena](https://senpi.ai/arena) (weekly ROE). One agent — Sentinel — runs an in-house producer not published to this repo; it appears on the Arena but has no source link here.
 
 ---
 

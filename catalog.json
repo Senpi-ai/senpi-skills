@@ -14,7 +14,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/albatross",
       "version": "1.0.0"
     },
     {
@@ -28,7 +27,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/badger",
       "version": "1.0.0"
     },
     {
@@ -42,7 +40,6 @@
       "min_budget": 100,
       "risk_level": "conservative",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/tortoise",
       "version": "1.0.0"
     },
     {
@@ -56,7 +53,6 @@
       "min_budget": 100,
       "risk_level": "conservative",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/sheep",
       "version": "1.0.0"
     },
     {
@@ -70,7 +66,6 @@
       "min_budget": 100,
       "risk_level": "conservative",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/iguana",
       "version": "1.0.0"
     },
     {
@@ -84,7 +79,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/sailfish",
       "version": "1.0.0"
     },
     {
@@ -98,7 +92,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/stag",
       "version": "1.0.0"
     },
     {
@@ -112,7 +105,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/lynx",
       "version": "1.0.0"
     },
     {
@@ -126,7 +118,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/coyote",
       "version": "1.0.0"
     },
     {
@@ -140,7 +131,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/bald-eagle",
       "version": "5.0"
     },
     {
@@ -154,7 +144,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/beaver",
       "version": "1.0.0"
     },
     {
@@ -168,7 +157,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/bison",
       "version": "3.0.1"
     },
     {
@@ -182,7 +170,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/bobcat",
       "version": "1.0.0"
     },
     {
@@ -196,7 +183,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/chameleon",
       "version": "1.0.0"
     },
     {
@@ -210,7 +196,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/octopus",
       "version": "1.0.0"
     },
     {
@@ -224,7 +209,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/cheetah",
       "version": "7.1.2"
     },
     {
@@ -238,7 +222,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/condor",
       "version": "4.0.1"
     },
     {
@@ -252,7 +235,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/dire",
       "version": "2.0"
     },
     {
@@ -266,7 +248,6 @@
       "min_budget": 100,
       "risk_level": "conservative",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/dog",
       "version": "3.0.0"
     },
     {
@@ -280,7 +261,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/egret",
       "version": "1.0.0"
     },
     {
@@ -294,7 +274,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/grizzly",
       "version": "7.0.0"
     },
     {
@@ -308,7 +287,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/hawk",
       "version": "1.0.0"
     },
     {
@@ -322,7 +300,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/hedgehog",
       "version": "1.0.0"
     },
     {
@@ -336,7 +313,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/heron",
       "version": "1.0.0"
     },
     {
@@ -350,7 +326,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/hummingbird",
       "version": "1.0.0"
     },
     {
@@ -364,7 +339,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/jackal",
       "version": "3.0.0"
     },
     {
@@ -378,7 +352,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/jaguar",
       "version": "4.0"
     },
     {
@@ -392,7 +365,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/kestrel",
       "version": "3.0.0"
     },
     {
@@ -406,7 +378,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/kodiak",
       "version": "7.0.0"
     },
     {
@@ -420,7 +391,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/lemon",
       "version": "2.0.0"
     },
     {
@@ -434,7 +404,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/lemur",
       "version": "1.0.0"
     },
     {
@@ -448,7 +417,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/falcon",
       "version": "1.0.0"
     },
     {
@@ -462,7 +430,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/mantis",
       "version": "6.0.0"
     },
     {
@@ -476,7 +443,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/osprey",
       "version": "1.0.0"
     },
     {
@@ -490,7 +456,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/marlin",
       "version": "1.0.0"
     },
     {
@@ -504,7 +469,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/orca",
       "version": "4.0.0"
     },
     {
@@ -518,7 +482,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/otter",
       "version": "2.0.1"
     },
     {
@@ -532,7 +495,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/owl",
       "version": "8.0"
     },
     {
@@ -546,7 +508,6 @@
       "min_budget": 100,
       "risk_level": "conservative",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/pangolin",
       "version": "3.0.0"
     },
     {
@@ -560,7 +521,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/camel",
       "version": "1.0.0"
     },
     {
@@ -574,7 +534,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/caracal",
       "version": "1.0.0"
     },
     {
@@ -588,7 +547,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/elephant",
       "version": "1.0.0"
     },
     {
@@ -602,7 +560,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/wolf-v1-0-0",
       "version": "1.0.0"
     },
     {
@@ -616,7 +573,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/rhino-v1-0-0",
       "version": "1.0.0"
     },
     {
@@ -630,7 +586,6 @@
       "min_budget": 100,
       "risk_level": "conservative",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/ox-v1-0-0",
       "version": "1.0.0"
     },
     {
@@ -644,7 +599,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/cougar-v1-0-0",
       "version": "1.0.0"
     },
     {
@@ -658,7 +612,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/magpie-v1-0-0",
       "version": "1.0.0"
     },
     {
@@ -672,7 +625,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/piranha",
       "version": "1.0.0"
     },
     {
@@ -686,7 +638,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/polar",
       "version": "5.0.0"
     },
     {
@@ -700,7 +651,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/python",
       "version": "2.0.0"
     },
     {
@@ -714,7 +664,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/raccoon",
       "version": "1.0.0"
     },
     {
@@ -728,7 +677,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/raptor",
       "version": "4.0.0"
     },
     {
@@ -742,7 +690,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/roach",
       "version": "3.0.1"
     },
     {
@@ -756,7 +703,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/meerkat",
       "version": "1.0.0"
     },
     {
@@ -770,7 +716,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/salamander",
       "version": "1.0.0"
     },
     {
@@ -784,7 +729,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/scorpion",
       "version": "5.0.1"
     },
     {
@@ -798,7 +742,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/spider",
       "version": "5.1.1"
     },
     {
@@ -812,7 +755,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/remora",
       "version": "1.0.0"
     },
     {
@@ -826,7 +768,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/cuckoo",
       "version": "1.0.0"
     },
     {
@@ -840,7 +781,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/turbine",
       "version": "3.3.0"
     },
     {
@@ -854,7 +794,6 @@
       "min_budget": 100,
       "risk_level": "conservative",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/vulture",
       "version": "4.0.1"
     },
     {
@@ -868,7 +807,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/wolverine",
       "version": "6.0.0"
     },
     {
@@ -882,7 +820,6 @@
       "min_budget": 100,
       "risk_level": "conservative",
       "base_skill": null,
-      "predators_url": "https://strategies.senpi.ai/bot/koala",
       "version": "1.0.0"
     },
     {
@@ -897,7 +834,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": "thesis-fund-strategy",
-      "predators_url": "https://strategies.senpi.ai/bot/thesis-risk-off",
       "version": "1.0.0"
     },
     {
@@ -912,7 +848,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": "thesis-fund-strategy",
-      "predators_url": "https://strategies.senpi.ai/bot/thesis-recovery",
       "version": "1.0.0"
     },
     {
@@ -927,7 +862,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": "thesis-fund-strategy",
-      "predators_url": "https://strategies.senpi.ai/bot/thesis-war-escalation",
       "version": "1.0.0"
     },
     {
@@ -942,7 +876,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": "thesis-fund-strategy",
-      "predators_url": "https://strategies.senpi.ai/bot/thesis-war-recovery",
       "version": "1.0.0"
     },
     {
@@ -957,7 +890,6 @@
       "min_budget": 100,
       "risk_level": "moderate",
       "base_skill": "thesis-fund-strategy",
-      "predators_url": "https://strategies.senpi.ai/bot/thesis-hype-vs-market",
       "version": "1.0.0"
     },
     {
@@ -972,7 +904,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": "thesis-fund-strategy",
-      "predators_url": "https://strategies.senpi.ai/bot/thesis-gold-over-btc",
       "version": "1.0.0"
     },
     {
@@ -987,7 +918,6 @@
       "min_budget": 100,
       "risk_level": "aggressive",
       "base_skill": "thesis-fund-strategy",
-      "predators_url": "https://strategies.senpi.ai/bot/thesis-btc-over-gold",
       "version": "1.0.0"
     }
   ]
