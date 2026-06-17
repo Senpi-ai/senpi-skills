@@ -22,7 +22,6 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 DEFAULT_CATALOG = os.path.join(REPO_ROOT, "catalog.json")
-RUNTIME_DIR = os.path.join(REPO_ROOT, "senpi-trading-runtime")
 
 # ---------------------------------------------------------------- vocabulary
 RISK_ORDER = ["conservative", "moderate", "aggressive"]
@@ -419,10 +418,11 @@ def load_catalog(path):
 
 
 def _get_client():
-    if RUNTIME_DIR not in sys.path:
-        sys.path.insert(0, RUNTIME_DIR)
-    from senpi_runtime_helpers import SenpiClient  # noqa
-    return SenpiClient()
+    # self-contained MCP client shipped in this skill — no senpi_runtime_helpers dependency
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    from _mcp import MCPClient
+    return MCPClient()
 
 
 def _ok(resp):
@@ -521,9 +521,9 @@ def fetch_market_map(client, assets):
             return (a, {"asset": a})
 
     try:
-        from senpi_runtime_helpers import parallel
-        results = parallel([(lambda a=a: one(a)) for a in uniq])  # -> [(ok, value), ...]
-        pairs = [val for ok, val in results if ok and val]
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            pairs = [p for p in ex.map(one, uniq) if p]   # one(a) -> (a, fact); never raises
     except Exception:  # noqa
         pairs = [one(a) for a in uniq]
     return dict(pairs), regime

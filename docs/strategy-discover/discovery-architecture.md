@@ -26,13 +26,13 @@
                 │        ▲ intent flags │ MatchResult ▲
   2. MATCHER (script, hidden): hard-reject · coarse-narrow (relevance count) · enrich top-N
                 │        ▲ needs data   │
-  1. DATA LAYER (scripts, hidden): catalog · user context · market context (via SenpiClient)
+  1. DATA LAYER (scripts, hidden): catalog · user context · market context (via self-contained _mcp.MCPClient)
   4. HANDOFF: deploy → ops (id + version) · build-custom → author (intent brief)
 ```
 
 ### 1. Data Layer — acquire & shape all data (script, hidden)
 - **Strategy data** → enriched `catalog.json` (committed; built by `gen_catalog.py`).
-- **User context** → one batched `SenpiClient` pass (`account_get_portfolio`, `discovery_get_trader_history`).
+- **User context** → one batched MCP pass via the skill's own `_mcp.MCPClient` (`account_get_portfolio`).
 - **Market context** → one batched pass (`market_get_funding_regime`, `market_get_asset_data`,
   `leaderboard_get_markets`).
 - **Does NOT** decide, rank, or converse. Tolerates missing auth/data (degrades, never throws).
@@ -149,9 +149,11 @@ for the top-N's ≤3 most-relevant assets each → `market_facts`. One `exec` in
 
 ## Code location & iteration
 
-**v1:** Data Layer + Matcher ship as `senpi-strategy-discover/scripts/discover.py`, reusing
-`senpi_runtime_helpers.SenpiClient` via the `sys.path` shim. Invoked by the OpenClaw **`exec`** tool with
-discrete flags. **v2:** lift into `senpi-trading-runtime` (`senpi-helpers discover` CLI), MCP-tool-wrappable.
+**v1:** Matcher + Data Layer ship as `senpi-strategy-discover/scripts/discover.py` with a **self-contained
+MCP client** (`scripts/_mcp.py`, stdlib only — ported from `SenpiClient` so the skill has **no
+`senpi_runtime_helpers` dependency**; works wherever the skill is installed). The matcher is pure stdlib;
+only market enrichment touches the network (auth via `SENPI_AUTH_TOKEN`). Invoked by the OpenClaw **`exec`**
+tool with discrete flags.
 
 ---
 
