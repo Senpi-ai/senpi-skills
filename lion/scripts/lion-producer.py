@@ -97,7 +97,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "volFloorUsd": 500000,
+        "liqVolMultiple": 50,          # 24h vol must be >= 50x the position notional (budget-relative; NO hardcoded $ floor)
         "rankPoolSize": 16,
         "rsThresholdPct": 3.0,
         "rsiOverbought": 82,
@@ -112,7 +112,7 @@ _DEFAULTS = {
         "venueMinNotionalUsd": 10,
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
-        "volFloorUsd": 500000,
+        "liqVolMultiple": 50,          # 24h vol must be >= 50x the position notional (budget-relative; NO hardcoded $ floor)
         "rankPoolSize": 16,
         "rsThresholdPct": 3.0,
         "rsiOversold": 18,
@@ -431,13 +431,16 @@ def push_signal(thesis, margin_usd, leverage, held_assets):
 # Universe — curated thematic whitelist, liquid + live only
 # ═══════════════════════════════════════════════════════════════
 
-def build_universe(config, meta_map):
+def build_universe(config, meta_map, min_day_vol):
     """The curated thematic whitelist (config.universe — haves for the long leg,
     have-nots for the short leg), intersected with the live instrument board and
-    a liquidity floor. Names not live / too thin are skipped, so new listings
-    auto-join once added to config.universe."""
+    a BUDGET-RELATIVE liquidity floor. An instrument's 24h notional volume must be
+    >= min_day_vol (= liqVolMultiple x the standard position notional, computed
+    from account value in main()), so a bigger book demands a deeper market and we
+    never take a position that is a large fraction of an instrument's daily flow.
+    No hardcoded dollar floor — it scales with the account. Names not live / too
+    thin are skipped, so new listings auto-join once added to config.universe."""
     wl = config.get("universe", _DEFAULTS["universe"])
-    vol_floor = float(config.get("volFloorUsd", _DEFAULTS["volFloorUsd"]))
     out = []
     for name in wl:
         if not isinstance(name, str):
@@ -445,7 +448,7 @@ def build_universe(config, meta_map):
         meta = meta_map.get(name) or meta_map.get(name.upper())
         if not meta:
             continue
-        if day_vol(meta) < vol_floor:
+        if day_vol(meta) < min_day_vol:
             continue
         out.append(name)
     return out
@@ -486,8 +489,15 @@ def main():
                     "_lion_producer_version": VERSION})
         return
 
+    # Budget-relative liquidity floor: an instrument's 24h volume must dwarf the
+    # position we'd take in it. std position notional = account_value * marginPct *
+    # maxLeverage; require 24h vol >= liqVolMultiple x that. No hardcoded $ floor —
+    # a $2k book needs a far shallower market than a $2M book.
+    liq_mult = float(config.get("liqVolMultiple", _DEFAULTS["liqVolMultiple"]))
+    min_day_vol = liq_mult * (account_value * float(margin_pct) * float(max_lev))
+
     meta_map, _canonical = get_universe_meta()
-    universe = build_universe(config, meta_map)
+    universe = build_universe(config, meta_map, min_day_vol)
 
     # ── Cross-sectional relative strength over the thematic universe (used as a
     #    score tiebreaker; absolute trend is the gate inside score_thematic) ──
@@ -579,7 +589,7 @@ def main():
         "signals_pushed": pushed, "emitted": emitted,
         "mean_rs_24h": round(mean_rs, 2),
         "held_assets": held_assets, "recently_signaled_skipped": recently_skipped,
-        "account_value": round(account_value, 2),
+        "account_value": round(account_value, 2), "min_day_vol": round(min_day_vol, 0),
         "elapsed_sec": round(time.time() - run_start, 2),
         "_lion_producer_version": VERSION,
     })

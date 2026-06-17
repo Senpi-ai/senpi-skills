@@ -15,11 +15,12 @@
   "minNotionalPctOfEquity": 0.01,
   "venueMinNotionalUsd": 10,
   "tickSeconds": 300,
-  "volFloorUsd": 500000,
+  "liqVolMultiple": 50,
   "rankPoolSize": 16,
   "rsThresholdPct": 3.0,
   "rsiOversold": 18,
   "_net_exposure_note": "NET EXPOSURE IS AN OPERATOR DECISION, not a hardcoded constant. The long and short books run on SEPARATE wallets, so you set the fund's net posture by how much capital each wallet holds, plus the per-leg knobs (maxSlots, marginPct, sizingWeights). DEFAULT = modest NET-LONG tilt (~60/40): the SHORT book carries fewer slots (4 vs 5), a lower marginPct (0.15 vs 0.18), and a lower leverage cap (4x vs 5x) because short squeezes are violent and the thesis is directionally bullish-AI/HYPE. To run market-neutral, fund the two wallets equally and equalize slots*marginPct. To run net-short, tilt capital + slots toward this book. Nothing here is enforced by the runtime.",
   "_short_universe_note": "The laggard-alt basket is a CURATED DEFAULT, not a fixed opinion — tune config.universe to your view of which majors/alts are losing share to HYPE/SOL. SP500 is the macro core. Shorting alts is squeeze-prone, hence the low default sizingWeights (0.7), the 4x leverage cap, and the absolute-downtrend hard gate + capitulation guard. BTC is deliberately omitted from the default basket (too reflexive to short cleanly); add it only with intent.",
+  "_liquidity_note": "NO hardcoded $ liquidity floor. An instrument is eligible only if its 24h notional volume >= liqVolMultiple (50) x the standard position notional (account_value * marginPct * maxLeverage) — so the floor scales with the book: a small wallet needs a far shallower market than a large one, and we never take a position that is a large fraction of an instrument's daily flow. venueMinNotionalUsd (10) is NOT a budget knob — it is Hyperliquid's PHYSICAL minimum order value (an exchange constant). The effective min order = max(account_value * minNotionalPctOfEquity, venueMinNotionalUsd), so the % term governs above ~$1k of equity and the $10 only binds on tiny wallets to avoid emitting an order the venue would reject.",
   "_persona": "Two-speed-market HAVE-NOTS — shorts the laggards of a K-shaped world: the broad U.S. market (SP500 index, the 'economy suffers' core) plus a gated basket of laggard crypto alts (the 'rest of crypto struggles'), trend-confirmed, SHORT only. The bet is dispersion vs the LONG 'haves' book. Long-AI + short-SP500 isolates the AI-vs-broad-market spread by design."
 }

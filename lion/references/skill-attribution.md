@@ -68,7 +68,11 @@ dispersion between the two speeds.
 - Verbose per-tick JSON (never silent): `scanned / ranked_pool / candidates /
   signals_pushed / emitted` + `mean_rs_24h`.
 - Budget-scaling notional floor: `max(account_value × minNotionalPctOfEquity,
-  venueMinNotionalUsd)` — no hardcoded dollar floor.
+  venueMinNotionalUsd)` — no hardcoded dollar sizing floor (venueMinNotionalUsd
+  is the venue's physical minimum order value, an exchange constant, not a knob).
+- Budget-relative liquidity floor: an instrument's 24h volume must be ≥
+  `liqVolMultiple × position notional` — no hardcoded dollar volume floor, so a
+  bigger book demands a deeper market.
 - Per-candidate affordability cap — never emits an order the wallet can't fund.
 - Sizes off `max(main, xyz)` account value — never the sum.
 
