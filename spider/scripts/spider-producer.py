@@ -794,16 +794,32 @@ def main():
 
 if __name__ == "__main__":
     # Long-lived daemon. producer_daemon owns the per-tick scanner_lock
-    # with stale-PID auto-recovery. Simplified signature (fn /
-    # interval_seconds / name / tick_timeout) — the lock id encodes leg +
-    # wallet so the swing and scalp daemons never collide.
+    # with stale-PID auto-recovery. The lock id encodes leg + wallet so the
+    # swing and scalp daemons never collide.
+    #
+    # Host-package signature skew: older senpi_runtime_helpers expose only
+    # (fn, interval_seconds, name, tick_timeout); newer ones additionally
+    # accept (wallet, scanner) to drive the /state alive_check. We introspect
+    # the INSTALLED signature and pass those two only if supported — so this
+    # runs unpatched on both: old hosts omit them (no TypeError); upgraded
+    # hosts get the liveness check for free, no operator hand-edit needed.
+    import inspect
     _lock_id = hashlib.sha256(
         (STRATEGY_ADDRESS or LEG).lower().encode()
     ).hexdigest()[:12]
     _tick = int(cfg.load_config().get("tickSeconds", _DEFAULTS["tickSeconds"]))
-    producer_daemon(
-        fn=main,
-        interval_seconds=_tick,
-        name=f"spider-{LEG}-producer-{_lock_id}",
-        tick_timeout=min(180, max(30, _tick - 10)),
-    )
+    _kwargs = {
+        "fn": main,
+        "interval_seconds": _tick,
+        "name": f"spider-{LEG}-producer-{_lock_id}",
+        "tick_timeout": min(180, max(30, _tick - 10)),
+    }
+    try:
+        _params = inspect.signature(producer_daemon).parameters
+    except (TypeError, ValueError):
+        _params = {}
+    if "wallet" in _params:
+        _kwargs["wallet"] = STRATEGY_ADDRESS
+    if "scanner" in _params:
+        _kwargs["scanner"] = SCANNER_NAME
+    producer_daemon(**_kwargs)
