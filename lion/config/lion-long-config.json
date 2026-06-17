@@ -3,10 +3,14 @@
   "strategyId": "",
   "wallet": "",
   "chatId": "",
-  "universe": ["xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:MU", "xyz:TSM", "xyz:ASML", "xyz:ARM", "xyz:AVGO", "xyz:CRWV", "xyz:PLTR", "xyz:ORCL", "xyz:SMCI", "xyz:DELL", "HYPE", "SOL"],
+  "universe": ["xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:ARM", "xyz:AVGO", "xyz:INTC", "xyz:TSM", "xyz:ASML", "xyz:CBRS", "xyz:MU", "xyz:SMSN", "xyz:SKHX", "xyz:SNDK", "xyz:CRWV", "xyz:NBIS", "xyz:DELL", "xyz:LITE", "xyz:GOOGL", "xyz:MSFT", "xyz:META", "xyz:AMZN", "xyz:ORCL", "xyz:PLTR", "xyz:NOW", "xyz:IBM", "xyz:SPCX", "xyz:QNT", "HYPE", "SOL"],
   "sizingWeights": {
     "HYPE": 1.5,
     "SOL": 0.6,
+    "SPCX": 0.6,
+    "QNT": 0.5,
+    "CBRS": 0.7,
+    "NBIS": 0.7,
     "_default": 1.0
   },
   "minScore": 5,
@@ -17,11 +21,11 @@
   "venueMinNotionalUsd": 10,
   "tickSeconds": 300,
   "volFloorPctOfMedian": 0.2,
-  "rankPoolSize": 16,
+  "rankPoolSize": 30,
   "rsThresholdPct": 3.0,
   "rsiOverbought": 82,
   "_net_exposure_note": "NET EXPOSURE IS AN OPERATOR DECISION, not a hardcoded constant. The long and short books run on SEPARATE wallets, so you set the fund's net posture by how much capital each wallet holds, plus the per-leg knobs (maxSlots, marginPct, sizingWeights). DEFAULT = modest NET-LONG tilt (~60/40), matching the directional AI/HYPE conviction: the long book carries more slots (5 vs 4) and a higher marginPct (0.18 vs 0.15). To run market-neutral, fund the two wallets equally and equalize slots*marginPct across legs. To run net-short, tilt capital + slots toward the short book. Nothing here is enforced by the runtime — it is the dial you turn.",
-  "_sizing_note": "sizingWeights expresses per-name CONVICTION as a multiplier on the standard slot size (account_value * marginPct). HYPE 1.5 = the highest-conviction crypto winner; SOL 0.6 = modest growth; AI equities default 1.0. Keys are bare tickers (no xyz: prefix); '_default' is the fallback. Clamped to [0.1, 3.0] in code.",
+  "_sizing_note": "sizingWeights expresses per-name CONVICTION as a multiplier on the standard slot size (account_value * marginPct). HYPE 1.5 = highest-conviction crypto winner; SOL 0.6 = modest growth; core AI complex (megacap chips + hyperscalers) default 1.0; the speculative frontier names size SMALLER — SPCX 0.6 (pre-IPO, 5x-capped, volatile, AI via xAI), QNT 0.5 (quantum, most speculative), CBRS 0.7 / NBIS 0.7 (smaller-cap AI-chip / AI-cloud). Keys are bare tickers (no xyz: prefix); '_default' is the fallback. Clamped to [0.1, 3.0] in code.",
   "_liquidity_note": "NO hardcoded $ liquidity floor. An instrument is eligible only if its 24h notional volume >= volFloorPctOfMedian (0.2) of the universe's MEDIAN 24h volume — a relative-to-market gate that adapts to conditions and drops an anomalously-thin name without any fixed dollar threshold. venueMinNotionalUsd (10) is NOT a budget knob — it is Hyperliquid's PHYSICAL minimum order value (an exchange constant). The effective min order = max(account_value * minNotionalPctOfEquity, venueMinNotionalUsd), so the % term governs above ~$1k of equity and the $10 only binds on tiny wallets to avoid emitting an order the venue would reject.",
   "_persona": "Two-speed-market HAVES — longs the structural winners of a K-shaped world: the AI complex (semis / AI hardware / AI infra / AI software) plus crypto's winners (HYPE large, SOL modest), trend-confirmed, LONG only. The bet is dispersion vs the SHORT 'have-nots' book (broad U.S. market + laggard alts). universe auto-extends as new AI/winner listings are added and go live on the board."
 }

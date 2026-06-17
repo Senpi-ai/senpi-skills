@@ -58,10 +58,19 @@ wallet**. `_dex_for()` routes each asset to its DEX automatically. The
 
 | Sleeve | Direction | Default names | Rationale |
 |---|---|---|---|
-| AI complex | LONG | NVDA, AMD, MRVL, MU, TSM, ASML, ARM, AVGO, CRWV, PLTR, ORCL, SMCI, DELL | The AI capex/compute cycle keeps compounding |
+| AI chips | LONG | NVDA, AMD, MRVL, ARM, AVGO, INTC, TSM, ASML, CBRS | The compute layer of the AI boom |
+| AI memory | LONG | MU, SMSN, SKHX, SNDK | HBM/DRAM/NAND — the AI-capex supply squeeze |
+| AI infra / cloud | LONG | CRWV, NBIS, DELL, LITE | GPU cloud, AI servers, datacenter optics |
+| AI software / hyperscalers | LONG | GOOGL, MSFT, META, AMZN, ORCL, PLTR, NOW, IBM | The model + cloud layer |
+| Frontier compute | LONG | **SPCX** (owns xAI), **QNT** (quantum+ML) | Speculative AI optionality — sized smaller |
 | Crypto winners | LONG | **HYPE (1.5× size)**, SOL (0.6× size) | HYPE keeps booming; SOL modest growth |
 | Broad U.S. market | SHORT | **SP500 (1.2× size)** | The rest of the economy suffers |
 | Laggard crypto | SHORT | ETH, XRP, DOGE, AVAX, LINK, ADA, LTC, NEAR, APT (0.7× size) | The rest of crypto struggles vs HYPE/SOL |
+
+The AI long basket is the full live-board AI complex (27 names), resolved against
+the trade.xyz instrument board on 2026-06-17. Speculative frontier names size
+smaller (SPCX 0.6×, QNT 0.5×, CBRS/NBIS 0.7×); the core megacap chips and
+hyperscalers run full slots. The universe auto-extends as new AI names list.
 
 **The long-AI / short-SP500 overlap is intentional.** SP500 *contains* the AI
 names; longing NVDA while shorting the index isolates the pure

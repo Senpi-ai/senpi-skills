@@ -67,10 +67,18 @@ NORM_DIV = 9.0
 # Names not live on the board are skipped at universe-build time, so new
 # listings auto-join once added here (or in config.universe).
 _HAVES = [
-    # AI complex — semis / AI hardware / AI infra / AI software
-    "xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:MU", "xyz:TSM", "xyz:ASML",
-    "xyz:ARM", "xyz:AVGO", "xyz:CRWV", "xyz:PLTR", "xyz:ORCL", "xyz:SMCI",
-    "xyz:DELL",
+    # AI compute / chips
+    "xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:ARM", "xyz:AVGO", "xyz:INTC",
+    "xyz:TSM", "xyz:ASML", "xyz:CBRS",
+    # AI memory (HBM/DRAM/NAND — the AI-capex squeeze)
+    "xyz:MU", "xyz:SMSN", "xyz:SKHX", "xyz:SNDK",
+    # AI infra / GPU cloud / servers / optical
+    "xyz:CRWV", "xyz:NBIS", "xyz:DELL", "xyz:LITE",
+    # AI software / hyperscalers
+    "xyz:GOOGL", "xyz:MSFT", "xyz:META", "xyz:AMZN", "xyz:ORCL", "xyz:PLTR",
+    "xyz:NOW", "xyz:IBM",
+    # frontier compute (SPCX owns xAI; QNT = quantum + ML)
+    "xyz:SPCX", "xyz:QNT",
     # crypto winners
     "HYPE", "SOL",
 ]
@@ -83,7 +91,15 @@ _HAVE_NOTS = [
 
 # Per-group sizing weights (conviction, NOT dollars). margin = account_value *
 # marginPct * weight. config.sizingWeights overrides; "_default" is the fallback.
-_HAVES_WEIGHTS = {"HYPE": 1.5, "SOL": 0.6, "_default": 1.0}
+_HAVES_WEIGHTS = {
+    "HYPE": 1.5,    # highest-conviction crypto winner
+    "SOL": 0.6,     # modest crypto growth
+    "SPCX": 0.6,    # frontier (xAI) but pre-IPO / 5x-capped / volatile -> smaller
+    "QNT": 0.5,     # quantum, most speculative -> smallest
+    "CBRS": 0.7,    # smaller-cap AI-chip
+    "NBIS": 0.7,    # smaller-cap AI-cloud
+    "_default": 1.0,  # core AI complex (megacap chips + hyperscalers) at full slot
+}
 _HAVE_NOTS_WEIGHTS = {"SP500": 1.2, "_default": 0.7}
 
 _DEFAULTS = {
@@ -98,7 +114,7 @@ _DEFAULTS = {
         "minNotionalPctOfEquity": 0.01,
         "tickSeconds": 300,
         "volFloorPctOfMedian": 0.2,    # relative-to-market liquidity gate (no $ floor)
-        "rankPoolSize": 16,
+        "rankPoolSize": 30,            # large AI universe — score the whole complex each tick
         "rsThresholdPct": 3.0,
         "rsiOverbought": 82,
     },
