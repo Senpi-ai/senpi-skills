@@ -1162,6 +1162,30 @@ SHORT the_losers_of(thesis)    # trend-confirmed, capitulation-guarded
 
 ---
 
+### 28. Single-coin portfolio (multi-style heads, one asset, one hedge)
+
+The **portfolio / hedge-pairing pattern (see *Running a portfolio*) packaged into one fund.** Instead of the operator hand-assembling a directional agent + a complement + a hedge on a coin, a single coin-and-leg-parameterized producer ships them as three "heads," each on its own wallet. The defining discipline: the heads are gated to **disjoint market regimes**, so across the fund's wallets they never hold opposing positions on the coin — the fund is net-long, pressed on dips, cushioned on breaks.
+
+```python
+# HYDRA_COIN sets the asset; HYDRA_LEG sets the head. Same engine, 3 wallets/coin.
+core:  trend(coin) -> LONG if 4h bullish / SHORT if bearish      # the thesis, always-on
+dip:   if 4h bullish and pulled_back(coin): LONG                  # complement, UPTRENDS ONLY
+hedge: if 4h bearish and fast_drawdown(coin): SHORT (capit-guard) # cushion, DOWNTRENDS/STRESS ONLY
+# regime lanes: uptrend -> core long + dip; downtrend -> core short + hedge; never opposing
+```
+
+**The key discipline:** gate the complement and the hedge to **opposite regimes** so they never fight — the dip head's *uptrends-only* gate is exactly what stops it knife-catching against the hedge's short. The hedge is **stress-gated** (idle in calm, fires on confirmed-downtrend + fast-drawdown, capitulation-guarded, lowest leverage — short squeezes are violent), so it's a genuine cushion, not a constant drag. One position per head; single-asset DSL (time-cuts off, let winners run).
+
+**When to use this pattern:** a user wants a *complete book* on one major (ride it, add the dips, and carry a fast cushion) rather than a single bet — and you want it managed as one fund. Deploy per coin (ETH/SOL/HYPE/any major) = three wallets each.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Hydra** | v1.0 | ONE major per deployment (ETH / SOL / HYPE / any), three heads: core (trend, long/short) + dip (uptrend pullback-buyer, long) + hedge (stress-gated short) | **Single-Coin Portfolio Fund.** One coin-and-leg-parameterized producer; three wallets per coin. Regime-gated heads (never opposing); net-long the coin, pressed on dips, cushioned on breaks. core 5x / dip 4x / hedge 3x; funding split default 50/25/25 (operator dial). Single-asset DSL (time-cuts off). v1.0 price-action gated; SM confirm planned v1.1. | Hedge-fund, Single-coin-portfolio, Multi-style, Stress-hedge, Coin-parameterized, Three-wallet |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.

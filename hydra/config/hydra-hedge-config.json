@@ -1,0 +1,20 @@
+{
+  "_comment": "HYDRA v1.0 HEDGE head — the hedge. Single-coin (config.coin / HYDRA_COIN), SHORT-only: fires ONLY when a confirmed 4h downtrend AND a fast-drawdown signal agree (peak-to-current drawdown over stressLookback 4h candles >= stressDropPct, or the 1h is breaking down), with a capitulation guard (don't short below rsiOversold). Idle (tiny bleed) in uptrends; cushions the long heads during the flip. One position per wallet. Pairs with the core + dip heads on SEPARATE wallets, same HYDRA_COIN. Set wallet/strategyId/chatId (and HYDRA_COIN or coin). Runtime owns position tracking, caps, DSL via runtime-hedge.yaml. Producer launched with HYDRA_LEG=hedge.",
+  "coin": "ETH",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 4,
+  "marginPct": 0.15,
+  "maxLeverage": 3,
+  "stdLeverage": 3,
+  "stressDropPct": 8.0,
+  "stressLookback": 6,
+  "rsiOversold": 18,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "_coin_note": "Set HYDRA_COIN (env) or this `coin` field per deployment (ETH / SOL / HYPE). Same engine, three wallets per coin. For higher-vol coins (HYPE), consider a larger stressDropPct so the hedge doesn't arm on normal noise.",
+  "_role_note": "HEDGE = the protector, gated to confirmed-downtrend + fast-drawdown only, SHORT only, capitulation-guarded so it never shorts an exhausted bottom. It is episodic by design — most ticks in an uptrend it does NOTHING (the tiny bleed is the cost of insurance). It exists to cushion the core+dip long heads while a break is still unfolding. Lowest leverage of the three (short squeezes are violent). Fund default sizing: core 50% / dip 25% / hedge 25%.",
+  "_persona": "Single-coin stress hedge — short-only, fires on confirmed-downtrend + fast drawdown, capitulation-guarded, tight quick-lock DSL. The hedge head of a Hydra single-coin portfolio fund."
+}
