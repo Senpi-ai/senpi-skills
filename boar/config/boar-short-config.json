@@ -1,0 +1,26 @@
+{
+  "_comment": "BOAR v1.0 PAPER book — the short leg (the hedge) of the Hard Money vs Paper (debasement) thesis fund. Each tick it builds the 'paper economy' universe (config.universe — the broad market via SP500 + rate-sensitive long-duration growth RIVN/DKNG/HIMS), intersects it with the live board + a relative-to-market liquidity gate, and SHORTS the names with a confirming absolute 4h/1h downtrend (capitulation guard via rsiOversold — never short an exhausted bottom). Per-name size = account_value * marginPct * sizingWeights[name] (SP500 core, growth names small + squeeze-prone). Leverage clamped to maxLeverage (4x, lower than the hard-money book) then each name's HL venue max. Pairs with the LONG hard-money book (boar-long-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-short.yaml. Producer launched with BOAR_LEG=short.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["xyz:SP500", "xyz:RIVN", "xyz:DKNG", "xyz:HIMS"],
+  "sizingWeights": {
+    "SP500": 1.2,
+    "_default": 0.6
+  },
+  "minScore": 5,
+  "marginPct": 0.15,
+  "maxLeverage": 4,
+  "maxSlots": 4,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "volFloorPctOfMedian": 0.2,
+  "rankPoolSize": 8,
+  "rsThresholdPct": 3.0,
+  "rsiOversold": 18,
+  "_hedge_note": "The 'paper' short — the financial claims that lose most under fiscal dominance as the term premium rises. SP500 (weight 1.2) is the broad paper-claims anchor; RIVN/DKNG/HIMS (weight 0.6) are rate-sensitive long-duration growth names whose far-future cash flows get discounted hardest. This rate-sensitive tilt is what tightens the debasement hedge vs a pure index short (those names underperform even in a melt-up). But it is SQUEEZE-PRONE (small, meme-y), so weights are small and the absolute-downtrend gate + capitulation guard are strict. FUNDING SPLIT is the operator's dial: default a net-long-hard-money tilt; fund 50/50 for a tighter hedge. See the long config _hedge_note for the melt-up correlation caveat.",
+  "_universe_note": "SP500 = broad financial-beta. RIVN (cash-burning EV), DKNG (high-multiple betting), HIMS (high-multiple telehealth) = long-duration growth proxies for 'rate-sensitive paper'. Tune config.universe to your view; these small-cap shorts are speculative.",
+  "_liquidity_note": "NO hardcoded $ floor. Eligibility requires 24h volume >= volFloorPctOfMedian (0.2) of the universe MEDIAN 24h volume — relative-to-market. venueMinNotionalUsd (10) is Hyperliquid's physical minimum order value, wrapped %-first via max(account_value*minNotionalPctOfEquity, venueMinNotionalUsd).",
+  "_persona": "Paper — shorts the broad market + rate-sensitive long-duration growth, trend-confirmed, SHORT only, capitulation guard. The hedge leg of the debasement pair: the fiat-denominated financial claims that lose ground to hard money when deficits compound and rates stay high."
+}

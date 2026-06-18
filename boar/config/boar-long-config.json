@@ -1,0 +1,30 @@
+{
+  "_comment": "BOAR v1.0 HARD-MONEY book — the long leg of the Hard Money vs Paper (debasement) thesis fund. Each tick it builds the curated hard-money universe (config.universe — precious metals GOLD/SILVER/PLATINUM/PALLADIUM on Hyperliquid XYZ + BTC on the main DEX), intersects it with the live board + a relative-to-market liquidity gate, and LONGS the names with a confirming absolute 4h/1h uptrend (blow-off guard via rsiOverbought). Per-name size = account_value * marginPct * sizingWeights[name]. Pairs with the SHORT paper book (boar-short-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-long.yaml. Producer launched with BOAR_LEG=long.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["xyz:GOLD", "BTC", "xyz:SILVER", "xyz:PLATINUM", "xyz:PALLADIUM"],
+  "sizingWeights": {
+    "GOLD": 1.2,
+    "BTC": 1.2,
+    "SILVER": 1.0,
+    "PLATINUM": 0.7,
+    "PALLADIUM": 0.6,
+    "_default": 1.0
+  },
+  "minScore": 5,
+  "marginPct": 0.18,
+  "maxLeverage": 5,
+  "maxSlots": 4,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "volFloorPctOfMedian": 0.2,
+  "rankPoolSize": 12,
+  "rsThresholdPct": 3.0,
+  "rsiOverbought": 84,
+  "_hedge_note": "DEBASEMENT pair: LONG hard money (scarce real assets), SHORT the paper economy (boar-short-config.json) on a separate wallet. HONEST WEAKNESS — the LOOSEST hedge of the thesis-fund family: in a pure liquidity MELT-UP, gold AND stocks both rise (everything priced in debasing fiat rises), so the legs can correlate POSITIVELY. The short tilts toward rate-sensitive long-duration growth (which underperforms even in a melt-up as the term premium compresses multiples) to tighten it, but the hedge is imperfect — best in a 'real assets outperform' regime, not a blow-off. FUNDING SPLIT is the operator's dial: default a net-long-hard-money tilt; fund 50/50 for a tighter (still imperfect) hedge.",
+  "_sizing_note": "sizingWeights = per-name conviction multiplier on the standard slot (account_value * marginPct). GOLD + BTC the co-cores (1.2 — the monetary metal + digital gold), SILVER 1.0, PLATINUM 0.7 + PALLADIUM 0.6 (thinner precious). Bare tickers; '_default' fallback; clamped [0.1, 3.0].",
+  "_liquidity_note": "NO hardcoded $ floor. Eligibility requires 24h volume >= volFloorPctOfMedian (0.2) of the universe MEDIAN 24h volume — relative-to-market. venueMinNotionalUsd (10) is Hyperliquid's physical minimum order value, wrapped %-first via max(account_value*minNotionalPctOfEquity, venueMinNotionalUsd).",
+  "_persona": "Hard money — longs precious metals (gold/silver/platinum/palladium) + BTC (digital gold), trend-confirmed, LONG only. The bet is currency debasement under fiscal dominance: scarce real assets outperform fiat-denominated paper claims. Hedged by the SHORT paper book. The loosest hedge of the family (melt-up correlation risk — see _hedge_note)."
+}

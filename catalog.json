@@ -718,6 +718,20 @@
       "version": "1.0.0"
     },
     {
+      "id": "boar",
+      "tracker_slug": "boar-v1-0-0",
+      "name": "Boar — Hard Money vs Paper (Debasement) Hedge Fund",
+      "emoji": "🥇",
+      "tagline": "Bets on currency DEBASEMENT under fiscal dominance: scarce real assets outperform fiat-denominated paper claims as deficits compound and the term premium rises. LONGS hard money (GOLD, BTC, SILVER, PLATINUM, PALLADIUM) and SHORTS the paper economy (SP500 + rate-sensitive long-duration growth RIVN/DKNG/HIMS). The P&L is the real-assets-beat-paper-claims spread. HONEST CAVEAT: the loosest hedge of the thesis-fund family — in a pure liquidity melt-up gold AND stocks rise together; the rate-sensitive short tilt tightens it but the hedge is imperfect. Best as a tilt, not market-neutral. Trend-confirmed.",
+      "group": "hedge-fund",
+      "sort_order": 15,
+      "min_budget": 100,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "predators_url": "https://strategies.senpi.ai/bot/boar-v1-0-0",
+      "version": "1.0.0"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",
