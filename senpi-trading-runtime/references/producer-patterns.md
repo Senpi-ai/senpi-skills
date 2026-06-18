@@ -1136,6 +1136,30 @@ for x in rank(universe):
 
 ---
 
+### 27. Thesis-fund family — a macro divergence as a hedged long/short
+
+The **generalized Lion pattern** (§25): take a strong directional macro view and express it as a hedged long/short — LONG the winners of the divergence, SHORT the losers — so the book profits from the *spread* (dispersion), not market direction. Same engine as Lion (one leg-parameterized producer, two wallets, absolute-trend gate, RS tiebreaker, per-group conviction sizing, relative-to-market liquidity gate, the hedge built in); only the two universes and the DSL tuning change per theme. The tightest hedges are **same-sector pairs** (a sector-wide move cancels); cross-sector pairs (Lion: AI vs broad market) still net down beta but carry more correlation risk.
+
+```python
+# identical to §25 — the only per-fund deltas are config.universe (the two baskets),
+# sizingWeights (per-name conviction), and the runtime DSL tuning.
+LONG  the_winners_of(thesis)   # trend-confirmed, conviction-sized
+SHORT the_losers_of(thesis)    # trend-confirmed, capitulation-guarded
+# balance = operator funding split across the two wallets (NOT hardcoded)
+```
+
+**When to use:** you have an opinionated, current macro divergence with a tradeable long AND short basket on the venue. Fork Lion, swap the two universes + weights + DSL, re-tune.
+
+**Agents in this family** (Lion §25 and Cub §26 are members too):
+
+| Agent | Version | Long basket | Short basket (the hedge) | Hedge type | Tags |
+|---|---|---|---|---|---|
+| **Eel** | v1.0 | AI-power complex — URNM (uranium), NATGAS, COPPER, BE (fuel cells), USAR (rare-earth) | crude oil — BRENTOIL + CL (WTI) | **same-sector (energy)** — tightest | Hedge-fund, Thesis-fund, Energy, AI-power, Same-sector-pair, Two-wallet |
+
+**Why Eel is the cleanest of the family:** both legs are energy, so a broad energy selloff hurts both and cancels — the P&L is purely power-minus-oil. Caveat: a crude supply shock (Mideast/OPEC) or a cold-winter natgas spike can move hydrocarbons independent of the electrification thesis; the DSL owns those drawdowns.
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.

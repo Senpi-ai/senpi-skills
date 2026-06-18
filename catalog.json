@@ -690,6 +690,20 @@
       "version": "1.0.0"
     },
     {
+      "id": "eel",
+      "tracker_slug": "eel-v1-0-0",
+      "name": "Eel — Electrons vs Hydrocarbons Energy-Pair Hedge Fund",
+      "emoji": "⚡",
+      "tagline": "Bets that AI datacenters are a structural new source of ELECTRICITY demand. LONGS the AI-power complex on Hyperliquid XYZ (uranium URNM, gas-fired power NATGAS, grid copper COPPER, fuel cells BE, rare-earth USAR) and SHORTS crude oil (BRENTOIL + WTI) — the legacy transport fuel barely levered to AI. Both legs are energy, so an energy-wide move washes out and the P&L is the electrons-vs-barrels spread — an energy-sector-NEUTRAL pair, the cleanest hedge of the thesis-fund family. Conviction-sized, trend-confirmed, ~24/7.",
+      "group": "hedge-fund",
+      "sort_order": 13,
+      "min_budget": 100,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "predators_url": "https://strategies.senpi.ai/bot/eel-v1-0-0",
+      "version": "1.0.0"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",

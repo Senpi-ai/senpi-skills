@@ -1,0 +1,30 @@
+{
+  "_comment": "EEL v1.0 POWER book — the long leg of the energy-pair (Electrons vs Hydrocarbons) thesis fund. Each tick it builds the curated AI-power complex (config.universe — uranium/gas-fired-power/grid-copper/fuel-cells/rare-earth on Hyperliquid XYZ), intersects it with the live board + a relative-to-market liquidity gate, and LONGS the names with a confirming absolute 4h/1h uptrend (blow-off guard via rsiOverbought). Per-name size = account_value * marginPct * sizingWeights[name]. Pairs with the SHORT oil book (eel-short-config.json) on a SEPARATE wallet — both legs are 'energy', so an energy-wide move washes out and the P&L is the electrons-vs-barrels spread. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-long.yaml. Producer launched with EEL_LEG=long.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["xyz:URNM", "xyz:NATGAS", "xyz:COPPER", "xyz:BE", "xyz:USAR"],
+  "sizingWeights": {
+    "URNM": 1.2,
+    "COPPER": 1.1,
+    "NATGAS": 1.0,
+    "USAR": 0.7,
+    "BE": 0.6,
+    "_default": 1.0
+  },
+  "minScore": 5,
+  "marginPct": 0.18,
+  "maxLeverage": 5,
+  "maxSlots": 4,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "volFloorPctOfMedian": 0.2,
+  "rankPoolSize": 12,
+  "rsThresholdPct": 3.0,
+  "rsiOverbought": 82,
+  "_hedge_note": "ENERGY-SECTOR-NEUTRAL PAIR. The long power complex is hedged by the SHORT crude-oil book on a separate wallet; a broad energy selloff hurts both legs, so the fund is paid on power OUTPERFORMING oil (electrons > hydrocarbons), not on energy direction. FUNDING SPLIT is the operator's dial: default a slight long-power tilt (~55/45 long:short) since the thesis is directionally pro-power; fund 50/50 for a cleaner market-neutral spread, or tilt to the short book if you expect an oil shock.",
+  "_sizing_note": "sizingWeights = per-name conviction multiplier on the standard slot (account_value * marginPct). URNM 1.2 (purest AI-power play), COPPER 1.1 (electrification metal), NATGAS 1.0, USAR 0.7 (smaller-cap rare-earth), BE 0.6 (speculative fuel-cell). Bare tickers; '_default' is the fallback; clamped [0.1, 3.0].",
+  "_liquidity_note": "NO hardcoded $ floor. An instrument is eligible only if its 24h volume >= volFloorPctOfMedian (0.2) of the universe MEDIAN 24h volume — relative-to-market, adapts to conditions. venueMinNotionalUsd (10) is Hyperliquid's physical minimum order value (an exchange constant), wrapped %-first via max(account_value*minNotionalPctOfEquity, venueMinNotionalUsd).",
+  "_persona": "Electrons — longs the AI-power complex (uranium / gas-fired power / grid copper / fuel cells / rare earth), trend-confirmed, LONG only. The bet is power OUTPERFORMING oil as AI datacenter electricity demand compounds. Hedged by the SHORT crude book; the edge is the energy dispersion, not energy direction. universe auto-extends as new power/energy listings go live."
+}

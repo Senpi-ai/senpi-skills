@@ -1,0 +1,25 @@
+{
+  "_comment": "EEL v1.0 OIL book — the short leg of the energy-pair (Electrons vs Hydrocarbons) thesis fund. Each tick it builds the crude-oil universe (config.universe — Brent + WTI), intersects it with the live board + a relative-to-market liquidity gate, and SHORTS the names with a confirming absolute 4h/1h downtrend (capitulation guard via rsiOversold — never short an exhausted bottom). Per-name size = account_value * marginPct * sizingWeights[name]. Leverage clamped to maxLeverage (4x, lower than the power book) then each name's HL venue max. Pairs with the LONG power book (eel-long-config.json) on a SEPARATE wallet — the pair is energy-sector-neutral, paid on power outperforming oil. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-short.yaml. Producer launched with EEL_LEG=short.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["xyz:BRENTOIL", "xyz:CL"],
+  "sizingWeights": {
+    "_default": 1.0
+  },
+  "minScore": 5,
+  "marginPct": 0.15,
+  "maxLeverage": 4,
+  "maxSlots": 2,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "volFloorPctOfMedian": 0.2,
+  "rankPoolSize": 8,
+  "rsThresholdPct": 3.0,
+  "rsiOversold": 18,
+  "_hedge_note": "ENERGY-SECTOR-NEUTRAL PAIR. This short crude-oil book hedges the LONG power book on a separate wallet; the fund is paid on power OUTPERFORMING oil, not energy direction. FUNDING SPLIT is the operator's dial: default a slight long-power tilt (~55/45 long:short); fund 50/50 for a cleaner market-neutral spread, or tilt to this short book if you expect an oil shock. Lower leverage (4x) than the power book — a supply-shock oil spike is violent.",
+  "_universe_note": "Both global crude benchmarks (Brent + WTI). Tune config.universe to your view; XLE (energy ETF) is deliberately NOT shorted here — it is oil-major-heavy but also holds some of the power names, muddying the pair. The capitulation guard (rsiOversold) avoids shorting an exhausted oil bottom.",
+  "_liquidity_note": "NO hardcoded $ floor. Eligibility requires 24h volume >= volFloorPctOfMedian (0.2) of the universe MEDIAN 24h volume — relative-to-market. venueMinNotionalUsd (10) is Hyperliquid's physical minimum order value, wrapped %-first via max(account_value*minNotionalPctOfEquity, venueMinNotionalUsd).",
+  "_persona": "Hydrocarbons — shorts crude oil (Brent + WTI), trend-confirmed, SHORT only, capitulation guard. The hedge leg of the energy pair: crude is the legacy transport fuel losing relative ground to the electrification/AI-power demand the long book rides."
+}
