@@ -1155,6 +1155,7 @@ SHORT the_losers_of(thesis)    # trend-confirmed, capitulation-guarded
 | Agent | Version | Long basket | Short basket (the hedge) | Hedge type | Tags |
 |---|---|---|---|---|---|
 | **Eel** | v1.0 | AI-power complex — URNM (uranium), NATGAS, COPPER, BE (fuel cells), USAR (rare-earth) | crude oil — BRENTOIL + CL (WTI) | **same-sector (energy)** — tightest | Hedge-fund, Thesis-fund, Energy, AI-power, Same-sector-pair, Two-wallet |
+| **Mongoose** | v1.0 | on-chain finance rails — HYPE, CRCL (Circle), COIN, HOOD, MSTR + PURRDAT (crypto treasuries) | legacy finance — BX (Blackstone) + SP500 | **cross-sector, thin / index-led** — looser; documented honestly | Hedge-fund, Thesis-fund, On-chain-finance, Stablecoins, Tokenization, Two-wallet |
 
 **Why Eel is the cleanest of the family:** both legs are energy, so a broad energy selloff hurts both and cancels — the P&L is purely power-minus-oil. Caveat: a crude supply shock (Mideast/OPEC) or a cold-winter natgas spike can move hydrocarbons independent of the electrification thesis; the DSL owns those drawdowns.
 

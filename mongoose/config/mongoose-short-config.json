@@ -1,0 +1,27 @@
+{
+  "_comment": "MONGOOSE v1.0 LEGACY book — the short leg (the hedge) of the On-Chain Finance vs Legacy thesis fund. Each tick it builds the legacy-finance universe (config.universe — Blackstone/BX + the broad market via SP500), intersects it with the live board + a relative-to-market liquidity gate, and SHORTS the names with a confirming absolute 4h/1h downtrend (capitulation guard via rsiOversold — never short an exhausted bottom). Per-name size = account_value * marginPct * sizingWeights[name]. Leverage clamped to maxLeverage (4x, lower than the on-chain book — short squeezes are violent) then each name's HL venue max. Pairs with the LONG on-chain book (mongoose-long-config.json) on a SEPARATE wallet. NOTE: the short universe is thin (few pure legacy-finance names list on the venue), so the hedge leans on SP500 — a looser, cross-sector hedge that nets down market beta. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-short.yaml. Producer launched with MONGOOSE_LEG=short.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["xyz:BX", "xyz:SP500"],
+  "sizingWeights": {
+    "SP500": 1.2,
+    "BX": 0.8,
+    "_default": 1.0
+  },
+  "minScore": 5,
+  "marginPct": 0.15,
+  "maxLeverage": 4,
+  "maxSlots": 2,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "volFloorPctOfMedian": 0.2,
+  "rankPoolSize": 8,
+  "rsThresholdPct": 3.0,
+  "rsiOversold": 18,
+  "_hedge_note": "CROSS-SECTOR hedge with a THIN short universe — leans on SP500 (broad financial-beta) plus the one liquid legacy-finance name on the board (BX/Blackstone). Looser than a same-sector pair: it nets down market beta rather than perfectly isolating disruptor-vs-incumbent. FUNDING SPLIT is the operator's dial: default a net-long tilt; fund 50/50 for a tighter hedge. Tune config.universe as more legacy-finance names list.",
+  "_universe_note": "SP500 = broad financial-beta (the incumbent market); BX = Blackstone, legacy alternative-asset finance. As more pure banks / payment incumbents list on the venue, add them here to sharpen the disruptor-vs-incumbent pair.",
+  "_liquidity_note": "NO hardcoded $ floor. Eligibility requires 24h volume >= volFloorPctOfMedian (0.2) of the universe MEDIAN 24h volume — relative-to-market. venueMinNotionalUsd (10) is Hyperliquid's physical minimum order value, wrapped %-first via max(account_value*minNotionalPctOfEquity, venueMinNotionalUsd).",
+  "_persona": "Legacy finance — shorts the incumbents being disrupted (Blackstone + the broad market), trend-confirmed, SHORT only, capitulation guard. The hedge leg of the on-chain-finance pair; the short universe is deliberately thin and index-led until more legacy-finance names list."
+}

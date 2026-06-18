@@ -1,0 +1,31 @@
+{
+  "_comment": "MONGOOSE v1.0 ON-CHAIN book — the long leg of the On-Chain Finance vs Legacy thesis fund. Each tick it builds the curated on-chain-finance universe (config.universe — HYPE + Circle/CRCL + Coinbase/COIN + Robinhood/HOOD + the crypto treasuries MSTR/PURRDAT), intersects it with the live board + a relative-to-market liquidity gate, and LONGS the names with a confirming absolute 4h/1h uptrend (blow-off guard via rsiOverbought). Per-name size = account_value * marginPct * sizingWeights[name]. Pairs with the SHORT legacy book (mongoose-short-config.json) on a SEPARATE wallet. Set wallet/strategyId/chatId. Runtime owns position tracking, caps, cooldowns, DSL via runtime-long.yaml. Producer launched with MONGOOSE_LEG=long.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "universe": ["HYPE", "xyz:CRCL", "xyz:COIN", "xyz:HOOD", "xyz:MSTR", "xyz:PURRDAT"],
+  "sizingWeights": {
+    "HYPE": 1.3,
+    "CRCL": 1.2,
+    "COIN": 1.0,
+    "HOOD": 1.0,
+    "MSTR": 0.7,
+    "PURRDAT": 0.6,
+    "_default": 1.0
+  },
+  "minScore": 5,
+  "marginPct": 0.18,
+  "maxLeverage": 5,
+  "maxSlots": 5,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "volFloorPctOfMedian": 0.2,
+  "rankPoolSize": 12,
+  "rsThresholdPct": 3.0,
+  "rsiOverbought": 84,
+  "_hedge_note": "CROSS-SECTOR pair: LONG on-chain-finance disruptors, SHORT legacy finance + broad index (mongoose-short-config.json) on a separate wallet. HONEST WEAKNESS: the short universe is thin (few pure legacy-finance names list on the venue), so the hedge leans on SP500 and is looser than a same-sector pair — it nets down market beta rather than perfectly isolating disruptor-vs-incumbent. FUNDING SPLIT is the operator's dial: default a net-long tilt (the thesis is directionally bullish the disruptors); fund 50/50 for a tighter hedge.",
+  "_sizing_note": "sizingWeights = per-name conviction multiplier on the standard slot (account_value * marginPct). HYPE 1.3 (the venue + token, core of the thesis), CRCL 1.2 (stablecoin leader — clearest on-chain-finance winner), COIN/HOOD 1.0, MSTR 0.7 + PURRDAT 0.6 (levered BTC/HYPE treasury proxies — double-count risk, sized down). Bare tickers; '_default' fallback; clamped [0.1, 3.0].",
+  "_liquidity_note": "NO hardcoded $ floor. Eligibility requires 24h volume >= volFloorPctOfMedian (0.2) of the universe MEDIAN 24h volume — relative-to-market. venueMinNotionalUsd (10) is Hyperliquid's physical minimum order value, wrapped %-first via max(account_value*minNotionalPctOfEquity, venueMinNotionalUsd).",
+  "_persona": "On-chain finance — longs the crypto-financial rails (HYPE, stablecoin issuer Circle, exchange Coinbase, brokerage Robinhood, BTC/HYPE treasuries), trend-confirmed, LONG only. The bet is money migrating on-chain and eating legacy finance. Hedged by the SHORT legacy book. universe auto-extends as new on-chain-finance names list."
+}

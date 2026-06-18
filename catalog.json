@@ -704,6 +704,20 @@
       "version": "1.0.0"
     },
     {
+      "id": "mongoose",
+      "tracker_slug": "mongoose-v1-0-0",
+      "name": "Mongoose — On-Chain Finance vs Legacy Hedge Fund",
+      "emoji": "🪙",
+      "tagline": "Bets that money is migrating ON-CHAIN — stablecoins, crypto exchanges, and BTC treasuries eating legacy financial rails. LONGS the on-chain financial rails on Hyperliquid (HYPE the venue, Circle/CRCL stablecoins, Coinbase/COIN, Robinhood/HOOD, crypto treasuries MSTR/PURRDAT) and SHORTS legacy finance + broad financial-beta (Blackstone/BX + SP500). The P&L is the disruptor-vs-incumbent spread. Note: the hedge is cross-sector and the short universe is thin, so it leans on the index — looser than a same-sector pair. Conviction-sized, trend-confirmed.",
+      "group": "hedge-fund",
+      "sort_order": 14,
+      "min_budget": 100,
+      "risk_level": "aggressive",
+      "base_skill": null,
+      "predators_url": "https://strategies.senpi.ai/bot/mongoose-v1-0-0",
+      "version": "1.0.0"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",
