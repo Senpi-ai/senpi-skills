@@ -1388,6 +1388,58 @@ If a thesis doesn't fit any pattern: it's usually (a) a hybrid of two (most live
 
 ---
 
+## Running a portfolio — pair strategies as a hedge
+
+**A single predator is one bet. Most users should run two or three, paired so they don't all bleed at once.** This is the same idea the hedge-fund / thesis funds bake into a *single* package (Lion = long AI + short the broad market; Cougar = long leaders + short laggards) — except here the user assembles it from **independent agents** and tunes the ratio themselves. Recommend it by default: a directional agent + a complement cuts drawdown without abandoning the thesis.
+
+> **The connection to thesis funds.** A fund like **Lion/Cub/Cougar** is the *pre-packaged, hedge-managed-for-you* version — pick a fund if you want the long/short balance handled internally. **Pairing two agents** is the *DIY* version — more control over the ratio (just fund each wallet to taste), at the cost of running two installs. Same principle, two delivery models.
+
+### Every strategy has a portfolio *role* (derivable, no new field)
+
+You don't need a new catalog field — a strategy's role falls out of its existing `direction` + `belief` + archetype:
+
+| Role | What it is | Examples |
+|---|---|---|
+| **directional-long** | trend / breakout, long-biased | Spider, Kodiak, Bison, Condor, Cheetah |
+| **directional-short** | short-biased | (rare as a standalone) |
+| **contrarian** | fades extremes / mean-reverts | **Dog**, Vulture, Pangolin |
+| **market-neutral** | runs its own long *and* short book | Lion, Cougar, Octopus, Camel |
+| **defensive / convex** | low-beta anchor or crash insurance | **Ox** (all-weather), **Rhino** (tail-risk), Wolf (risk-off) |
+| **volatility / event** | direction-agnostic vol or event alpha | Caracal (catalyst), Stag, Magpie |
+
+### How to pick a hedge
+
+Pair your primary bet with something that wins (or at least doesn't lose) when the primary struggles. In order of how cleanly they offset:
+
+1. **Opposite belief, same market** — momentum + mean-reversion. The fade book makes money in exactly the chop that whipsaws the trend book. *(The canonical pairing.)*
+2. **Defensive / convex ballast** — a low-beta or crisis-alpha agent that scales up risk-off, so a broad drawdown is cushioned.
+3. **Uncorrelated market / regime** — a different asset class or a regime-rotation agent, so the two rarely draw down together.
+
+### Pairing matrix (concrete, fleet-real)
+
+| Primary (directional) | Complement (the hedge) | Why it works |
+|---|---|---|
+| **Spider** — tech/AI momentum, long | **Dog** — contrarian fade | Dog's mean-reversion profits in the choppy tape that whipsaws Spider's breakouts (Jason's canonical example) |
+| **Kodiak** — SOL trend | **Vulture / Pangolin** — HYPE funding-regime contrarian | trend + fade across crypto, fired by *different* triggers — rarely wrong at the same time |
+| Any crypto-momentum agent | **Ox** — all-weather / risk-parity | a low-leverage, always-invested anchor that tilts defensive when the tape turns risk-off |
+| Any long-biased book | **Rhino** — tail-risk convexity | cheap crash insurance: bleeds a little in calm, pays big in a shock |
+| A universe long (**Octopus / Condor**) | a contrarian or short-biased book | nets down market beta so the P&L leans on selection, not direction |
+
+### Sizing the pair
+
+The split is just **how much capital you fund into each agent's wallet** — the same dial as Lion's net-exposure / Cub's 90/10:
+- **Conviction tilt (≈70/30):** mostly the primary, a smaller hedge sleeve — you want the thesis, with a cushion.
+- **Balanced (≈50/50):** near-neutral — you want the *spread* between them, not the direction.
+- **Insurance (≈90/10):** a big primary + a small convex hedge (e.g., a momentum book + a 10% Rhino tail-risk sleeve).
+
+### Caveats — say these honestly
+
+- **A hedge is not a guarantee.** In a sharp liquidity event correlations spike to 1 — even a fade book can lose alongside the trend book for a stretch. Pairing *reduces* drawdown, it doesn't eliminate it.
+- **Each agent is its own wallet, its own fees, its own DSL.** Two agents = two installs to maintain. Keep a portfolio to **2–3** — more than that and the overlap muddies the hedge and the fees compound (see *Fees are the biggest killer*).
+- **Don't double up the same bet.** Two trend-following agents on correlated assets isn't a portfolio — it's one bigger position. A real hedge needs a genuinely different role from the table above.
+
+---
+
 ## Common ingredients (regardless of pattern)
 
 Every pattern above shares these common producer ingredients. Copy them verbatim from any example agent's `<agent>_config.py` and `<agent>-producer.py` (URLs in each pattern's section above):

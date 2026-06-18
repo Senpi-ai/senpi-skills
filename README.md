@@ -334,6 +334,8 @@ The fleet — Senpi's flagship **AI Hedge Funds** plus a deep bench of single-st
 
 Each row links to the skill's directory.
 
+> 💡 **You don't have to pick just one — pair strategies as a hedge.** A single agent is one bet; running two or three paired (e.g. a momentum agent like **Spider** alongside a contrarian like **Dog**, or any long-biased book + a defensive **Ox**/**Rhino** sleeve) cuts drawdown without abandoning the thesis. The **AI Hedge Funds** below are the *pre-packaged* version of this (the hedge is built into one fund); pairing independent agents is the DIY version where you tune the ratio by funding. See [**Running a portfolio — pair strategies as a hedge**](senpi-trading-runtime/references/producer-patterns.md#running-a-portfolio--pair-strategies-as-a-hedge) in producer-patterns.
+
 ## 🏦 AI Hedge Funds — flagship multi-strategy
 
 Senpi's flagship line. Each fund runs **two complementary strategy books on two wallets** under one producer — a real multi-strategy fund, not a single scanner — with its own built-in risk controls. Pick the style that fits your market view.
