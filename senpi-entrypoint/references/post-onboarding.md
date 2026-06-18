@@ -70,7 +70,7 @@ To get started:
    1️⃣ {TOP1_NAME} (+{TOP1_ROE}% ROE)
    2️⃣ {TOP2_NAME} (+{TOP2_ROE}% ROE)
 
-All strategies are open source and tracked live at strategies.senpi.ai
+All strategies are open source. Live user performance is on the Arena (senpi.ai/arena).
 
 🏆 Agents Arena — Ask me about the Arena to learn about Senpi's weekly AI trading competition.
 ```
@@ -140,7 +140,7 @@ Senpi Predators — AI trading strategies, all open source, all tracked live.
 {emoji} {name} — {description} [+X% ROE · X trades]
 {end}
 
-All tracked live at strategies.senpi.ai
+Live user performance is on the Arena (senpi.ai/arena).
 
 Which sounds interesting? I can explain any in detail or deploy one right now.
 
@@ -363,7 +363,4 @@ Share these with the user after confirmation:
 
 3. **Senpi Points** — Mention that trading on Senpi earns rewards through Senpi Points. Do not describe the program in detail — instead, prompt the user to ask about Senpi Points. The agent should use Senpi MCP tools to provide up-to-date information when asked.
 
-4. **Senpi Predators** — Live public tracker showing all trading strategies running with real money.
-   - strategies.senpi.ai
-
-5. **Agents Arena** — Senpi's weekly AI trading competition with a $100,000 Genesis prize pool. Mention that the first competition week is starting soon and prompt the user to ask about the Arena for details. Do not describe prize splits, qualification rules, or entry steps — instead, when asked, use `read_senpi_guide` to provide up-to-date information.
+4. **Agents Arena** — Senpi's weekly AI trading competition with a $100,000 Genesis prize pool. Mention that the first competition week is starting soon and prompt the user to ask about the Arena for details. Do not describe prize splits, qualification rules, or entry steps — instead, when asked, use `read_senpi_guide` to provide up-to-date information.
