@@ -9,11 +9,14 @@
 - **Conversation-first; the engine is invisible.** It must feel like a sharp analyst, never a form or
   filter. When intent is unknown the agent **proactively asks plain-English questions** (chips are just
   a UI rendering of those questions).
-- **Scripts own data + matching; the LLM owns talking.** All data acquisition and all matching is
-  deterministic code; the LLM converses, selects, and narrates.
-- **The matcher rejects the impossible and coarse-narrows — it does not select.** The LLM does the
-  final selection over a small, enriched top-N.
-- **Built for open models (Qwen-class):** the LLM only ever sees small, fact-rich, bounded payloads.
+- **Scripts own data + the concrete filter; the LLM owns all ranking + talking.** Data acquisition and
+  the *concrete* filter (asset/direction/exclusion) are deterministic code; the LLM ranks, selects, and
+  narrates. Soft/semantic ranking (risk, belief, horizon, worldview) is the LLM's job — no glossary.
+- **The matcher only filters the impossible and returns ALL survivors — it does not score or select.**
+  A bad rank still contains the right answer; a bad cut doesn't, so the script never cuts (a `--limit`
+  is a safety cap only). The LLM ranks the full eligible set.
+- **Built for open models (Qwen-class):** records are flat + labels pre-inlined; the LLM ranks a
+  human-readable set (its strength), never decodes slugs or emits an exact taxonomy value.
 - **Data-driven & extensible:** adding/removing a strategy is a data change (one `strategy.yaml` +
   regenerate), never a skill edit. **Discovery owns the schema + logic; authors own per-strategy values.**
 
@@ -22,9 +25,9 @@
 ## The four components
 
 ```
-  user ⇄ chat   │ 3. CONVERSATION (LLM, visible): ask · extract intent · select · narrate
-                │        ▲ intent flags │ MatchResult ▲
-  2. MATCHER (script, hidden): hard-reject · coarse-narrow (relevance count) · enrich top-N
+  user ⇄ chat   │ 3. CONVERSATION (LLM, visible): ask · extract CONCRETE flags · RANK the set · narrate
+                │        ▲ concrete flags │ MatchResult (ALL eligible) ▲
+  2. FILTER (script, hidden): hard-reject only (concrete) · return ALL survivors · neutral order · enrich
                 │        ▲ needs data   │
   1. DATA LAYER (scripts, hidden): catalog · user context · market context (via self-contained _mcp.MCPClient)
   4. HANDOFF: deploy → ops (id + version) · build-custom → author (intent brief)
@@ -38,19 +41,20 @@
 - **Does NOT** decide, rank, or converse. Tolerates missing auth/data (degrades, never throws).
 - Outputs: `CatalogRecord[]`, `UserContext`, `MarketContext` (schemas below).
 
-### 2. Matcher — reject, enrich & coarse-narrow (script, hidden)
-- **Hard-reject** only on explicit constraints (cross-domain asset, named-asset unavailable,
-  strict-opposite direction, explicit exclusions).
-- **Coarse relevance** = `#stated facets matched − (1 if opposite belief)`. Flat +1 per facet, no tuned
-  weights. Surface the **top-N (=8)**.
-- **Enrich** the top-N with `market_facts`.
-- **Does NOT** select the lead, write prose, or score with weights. The LLM selects.
+### 2. Filter — reject the impossible, return ALL survivors (script, hidden)
+- **Hard-reject** only on explicit **concrete** constraints (cross-domain asset, named-asset
+  unavailable, strict-opposite direction, explicit exclusions). Nothing soft ever filters.
+- **Return every survivor** — no relevance score, no top-N. Neutral order: `asset-match desc, name`
+  (lossless ordering, never a cut). A `--limit` caps the returned list as a safety valve only.
+- **Enrich** survivors with `market_facts` (one batched read per unique asset, bounded by asset count).
+- **Does NOT** score, select, write prose, or rank on risk/belief/horizon/worldview. The LLM does all of that.
 
-### 3. Conversation Layer — talk, select, narrate (LLM, the only visible layer)
-- Proactively asks plain-English questions; extracts intent → flags; re-calls the engine with the full
-  accumulated flag set; **selects from the top-N** and narrates **2–3 cards** in the analyst voice using
-  `market_facts`. Never fetches, filters, or names a strategy outside `candidates[]`. Details in
-  `discovery-conversation.md`.
+### 3. Conversation Layer — talk, RANK, narrate (LLM, the only visible layer)
+- Proactively asks plain-English questions; extracts only **concrete** constraints → flags (keeps risk/
+  belief/horizon/worldview in its head); re-runs the engine with the full concrete set; **RANKS the
+  returned eligible set itself** (risk_level, belief_plain, `thesis`/`tags` for worldview, market_facts)
+  and narrates **2–3 cards**. Never fetches, filters, or names a strategy outside `candidates[]`. Details
+  in `discovery-conversation.md`.
 
 ### 4. Handoff Layer
 - **Deploy** → `senpi-strategy-ops` with **`id` + `version`** (ops re-reads `strategy.yaml`, makes wallets).
@@ -60,34 +64,37 @@
 
 ## Contracts
 
-**Intent (CLI flags → discover.py):** all optional · hybrid values (exact enum or loose NL, normalizer
-canonicalizes) · unknown → unstated.
+**Intent (CLI flags → discover.py): CONCRETE only.** All optional · hybrid values (exact enum or loose
+NL, normalizer canonicalizes) · unknown → unstated. There is deliberately **no** `--risk`/`--belief`/
+`--horizon`/`--market-scope`/`--goal`/`--experience` — those are the LLM's ranking job.
 ```
---risk conservative|moderate|aggressive
 --assets <csv: class-tags (btc_eth,major_alts,universe_crypto,xyz_equities,commodities,indices,pre_ipo)
           and/or named tickers (BTC,SOL,NVDA)>
---belief trend|contrarian|copy|breakout|structural|single_market
---horizon scalp|swing|position|hodl   --direction long_only|short_only|any
---budget <number>   --exclude <csv>   --experience new|experienced
---limit <int=8>   --offset <int=0>
+--direction long_only|short_only|any
+--exclude <csv: copy_trading,stocks,crypto,commodities,pre_ipo,dca,shorting>
+--budget <number>     --limit <int>   (safety cap only; default returns ALL eligible)
 ```
 
 **MatchResult (JSON stdout):**
 ```
-{ candidates: [{ id, name, emoji, tagline, archetype_label, suggested_budget, funding_split?,
-                 relevance, match_reasons[ {dim,value,tolerant} ], market_facts[ {asset,price_change_24h_pct,funding,trend,oi_trend?,funding_regime?} ],
-                 caveats[ <fixed script string> ] }],   // coarse-ranked top-N; LLM selects
+{ candidates: [{ id, version, name, emoji, tagline,
+                 risk_level, archetype_label, belief_plain, thesis, tags[], tag_labels?,   // SOFT-RANK surface (LLM ranks on these)
+                 time_horizon, asset_scope, direction, asset_classes[], assets[], tier,
+                 suggested_budget, funding_split?, caveats[ <fixed script string> ],
+                 market_facts[ {asset,price_change_24h_pct,funding,trend,oi_trend?,funding_regime?} ] }],  // ALL eligible, neutral-ordered
   build_custom: { label, route: "senpi-strategy-author" },
-  meta: { widened?: [], unmet?: [], eligible_count, returned_n, offset, intent_echo, warnings[] } }
+  meta: { widened?: [], unmet?: [], eligible_count, returned_n, intent_echo, warnings[] } }
 ```
-- `market_facts` + `match_reasons` are **structured** (LLM phrases); `caveats` are **fixed script strings**
-  (honesty wording, not softened).
-- `relevance` is a coarse sort key, never quoted to the user.
+- `thesis` + `tags` are the LLM's **worldview/theme** ranking surface; `thesis` is narration-grade prose,
+  never a matched field. `caveats` are **fixed script strings** (honesty wording, not softened).
+- No `relevance`/`match_reasons` — the script does not score. The LLM ranks the full set.
 
 **CatalogRecord** (Data Layer / `gen_catalog`): identity (`id,name,emoji,tagline,belief_plain,version`)
-+ thesis (`group, archetype, sub_style`) + market (`asset_classes, asset_scope, assets, direction`) +
-risk (`risk_level, tier, leverage_max, time_horizon, cadence_seconds`) + capital (`min_budget,
-instance_count, funding_split, max_slots`) + inlined `archetype_label`/`sub_style_label` glosses.
++ thesis/theme (`group, archetype, sub_style, thesis, tags[]`) + market (`asset_classes, asset_scope,
+assets, direction`) + risk (`risk_level, tier, leverage_max, time_horizon, cadence_seconds`) + capital
+(`min_budget, instance_count, funding_split, max_slots`) + inlined `archetype_label`/`sub_style_label`/
+`tag_labels` glosses. `thesis` (one sentence) + `tags` (free-text keywords) are **author-declared, no
+controlled vocabulary** — the LLM matches them semantically.
 
 **UserContext** `{budget, holdings[], favored_assets[], favored_direction}` (any null) — **data only**;
 the LLM decides whether to turn it into intent (confirms with the user first; never silently inferred).
@@ -104,9 +111,9 @@ never reject): cross-domain asset (crypto-stated user vs *pure* non-crypto strat
 domain), named-asset unavailable (membership check on `assets`), strict-opposite direction
 (`short_only` for a long-only user; `long_short` never rejected), explicit exclusions.
 
-**Coarse relevance:** +1 per matched stated facet (risk exact-or-adjacent, asset fit, belief, direction
-`long_only`, horizon, scope, goal, starter-when-`--experience new`); `−1` opposite belief; `long_short`
-for a longs-only user = +0. Sort desc → top-N. Tie-breaks: lower `min_budget` → `sort_order` → name.
+**No scoring.** Survivors are returned in full, neutral-ordered by `(asset-match desc, name)` — a
+lossless ordering hint (asset-matched first), never a cut. All soft ranking (risk, belief, horizon,
+worldview via `thesis`/`tags`) happens LLM-side over the returned set.
 
 **Degrade (empty set):** only **named-asset auto-broadens** to its class (flag `meta.widened`).
 Cross-domain / direction / exclusions are **not** silently relaxed → build-custom + `meta.unmet`; the

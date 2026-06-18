@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
-"""senpi-strategy-discover engine — Data Layer + Matcher (hidden, deterministic).
+"""senpi-strategy-discover engine — Data Layer + concrete Filter (hidden, deterministic).
 
 The agent (LLM) runs this via the OpenClaw `exec` tool with discrete flags; it reads the JSON on
-stdout and narrates 2-3 cards. The script fetches data + matches; the LLM converses + selects.
+stdout, RANKS the returned set itself (on risk / belief / worldview / thesis), and narrates 2-3 cards.
 
-  python3 discover.py --risk conservative --assets btc_eth --budget 300
+  python3 discover.py --assets btc_eth --direction long_only
 
-Contract: see docs/strategy-discover/discovery-architecture.md.
-- rejects only the impossible (cross-domain asset, named-asset unavailable, strict-opposite direction,
-  explicit exclusions); coarse-ranks the rest by a flat +1 relevance count; returns the top-N.
-- fails open: unknown values drop to "unstated" (widen, never dead-end); always emits valid JSON;
+Contract (see docs/strategy-discover/discovery-architecture.md):
+- The SCRIPT only does CONCRETE set logic: it hard-rejects on the few unambiguous, explicitly-stated
+  constraints (cross-domain asset, named-asset unavailable, strict-opposite direction, explicit
+  exclusions) and returns ALL survivors — no relevance score, no top-N cut. A bad rank still contains
+  the right answer; a bad cut doesn't, so we never cut.
+- Survivors are neutral-ordered (asset-match desc, then name) — lossless ordering, never a filter.
+- Each record carries its full soft-rank surface (risk_level, belief_plain, THESIS, tags, horizon,
+  scope, direction, asset_classes, tier) + caveats + market_facts. The LLM does ALL soft/semantic
+  ranking — nothing it matches on requires a maintained glossary.
+- Fails open: unknown concrete values drop to "unstated" (widen, never dead-end); always valid JSON;
   exit 0 for handled cases.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
@@ -21,53 +27,19 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-# ▼▼▼ TEMPORARY — real-agent testing only. Default to the 54-strategy SYNTHETIC fleet so the agent
+# ▼▼▼ TEMPORARY — real-agent testing only. Default to the SYNTHETIC full-fleet so the agent
 # recommends from the full roster instead of just spider/kodiak/polar. REVERT this to
 # `os.path.join(REPO_ROOT, "catalog.json")` before merging to strategy-v2. ▲▲▲
 _PROD_CATALOG = os.path.join(REPO_ROOT, "catalog.json")
 DEFAULT_CATALOG = os.path.join(HERE, "..", "tests", "fixtures", "catalog_fullfleet.json")
 
-# ---------------------------------------------------------------- vocabulary
-RISK_ORDER = ["conservative", "moderate", "aggressive"]
-HORIZON_ORDER = ["scalp", "swing", "position", "hodl"]
+# ---------------------------------------------------------------- vocabulary (concrete filters only)
+# A synonym map is kept ONLY because the SCRIPT acts on the field. risk/belief/horizon/scope/goal are
+# the LLM's job now (it ranks the returned set on them) — no flags, no maps for those.
 CLASS_TAGS = {"btc_eth", "major_alts", "universe_crypto", "xyz_equities", "commodities", "indices", "pre_ipo"}
 CRYPTO_CLASSES = {"btc_eth", "major_alts", "universe_crypto"}
 XYZ_CLASSES = {"xyz_equities", "commodities", "indices", "pre_ipo"}
-BELIEF_TO_ARCHETYPE = {
-    "trend": "trend_following", "contrarian": "contrarian_fade", "copy": "copy_trading",
-    "breakout": "breakout_momentum", "structural": "structural_neutral", "single_market": "single_market",
-}
-ARCHETYPES = set(BELIEF_TO_ARCHETYPE.values())
-ARCH_ADJACENT = {"trend_following": {"breakout_momentum"}, "breakout_momentum": {"trend_following"}}
-ARCH_OPPOSITE = {
-    "trend_following": {"contrarian_fade"}, "breakout_momentum": {"contrarian_fade"},
-    "contrarian_fade": {"trend_following", "breakout_momentum"},
-}
 
-# Synonym maps (lowercased NL -> canonical). Forgiving; unmapped -> unstated.
-RISK_SYN = {**{v: v for v in RISK_ORDER},
-            "safe": "conservative", "cautious": "conservative", "low": "conservative",
-            "low-risk": "conservative", "careful": "conservative", "steady": "conservative",
-            "slow": "conservative", "defensive": "conservative", "conservatively": "conservative",
-            "balanced": "moderate", "medium": "moderate", "normal": "moderate", "middle": "moderate", "mid": "moderate",
-            "high": "aggressive", "risky": "aggressive", "yolo": "aggressive", "big": "aggressive",
-            "degen": "aggressive", "high-risk": "aggressive"}
-BELIEF_SYN = {**{v: v for v in BELIEF_TO_ARCHETYPE},
-              "ride": "trend", "riding": "trend", "momentum": "trend", "trending": "trend", "follow": "trend",
-              "fade": "contrarian", "reversal": "contrarian", "reversion": "contrarian",
-              "mean-reversion": "contrarian", "against": "contrarian", "dip": "contrarian",
-              "mirror": "copy", "follow-traders": "copy", "copytrade": "copy", "copy-trading": "copy",
-              "break": "breakout", "breakouts": "breakout", "jump": "breakout", "explosive": "breakout",
-              "neutral": "structural", "market-neutral": "structural", "pairs": "structural", "spread": "structural"}
-HORIZON_SYN = {**{v: v for v in HORIZON_ORDER},
-               "quick": "scalp", "fast": "scalp", "small": "scalp", "short-term": "scalp", "short": "scalp",
-               "swings": "swing", "days": "swing",
-               "hold": "position", "long-term": "position", "longterm": "position",
-               "set-and-forget": "hodl", "forever": "hodl"}
-DIRECTION_SYN = {"long_only": "long_only", "long-only": "long_only", "longonly": "long_only", "long": "long_only",
-                 "no-short": "long_only", "no-shorting": "long_only", "longs": "long_only",
-                 "short_only": "short_only", "short-only": "short_only", "shorts": "short_only", "short": "short_only",
-                 "any": "any", "both": "any"}
 ASSET_SYN = {**{t: t for t in CLASS_TAGS},
              "btc": "btc_eth", "eth": "btc_eth", "bitcoin": "btc_eth", "ethereum": "btc_eth", "btceth": "btc_eth",
              "alts": "major_alts", "altcoins": "major_alts", "alt": "major_alts", "majors": "major_alts",
@@ -76,6 +48,10 @@ ASSET_SYN = {**{t: t for t in CLASS_TAGS},
              "oil": "commodities", "gold": "commodities", "silver": "commodities", "metals": "commodities", "commodity": "commodities",
              "index": "indices", "sp500": "indices", "nasdaq": "indices",
              "pre-ipo": "pre_ipo", "preipo": "pre_ipo", "ipo": "pre_ipo", "spacex": "pre_ipo"}
+DIRECTION_SYN = {"long_only": "long_only", "long-only": "long_only", "longonly": "long_only", "long": "long_only",
+                 "no-short": "long_only", "no-shorting": "long_only", "longs": "long_only",
+                 "short_only": "short_only", "short-only": "short_only", "shorts": "short_only", "short": "short_only",
+                 "any": "any", "both": "any"}
 # exclude token -> (dimension, canonical value)
 EXCLUDE_SYN = {
     "copy": ("archetype", "copy_trading"), "copy_trading": ("archetype", "copy_trading"),
@@ -86,12 +62,8 @@ EXCLUDE_SYN = {
     "dca": ("sub_style", "dca"), "shorting": ("direction", "no_short"), "shorts": ("direction", "no_short"),
 }
 
-GOAL_SYN = {"accumulate": "dca", "accumulating": "dca", "dca": "dca"}
-SCOPE_SYN = {"single": "single", "basket": "basket", "universe": "universe", "scan": "universe",
-             "specific": "single", "one": "single"}
 
-
-# ---------------------------------------------------------------- normalizer
+# ---------------------------------------------------------------- normalizer (concrete inputs only)
 def _canon(value, synmap, warnings, field):
     if value is None:
         return None
@@ -166,22 +138,13 @@ def _norm_exclude(raw, warnings):
 def normalize_intent(args):
     w = []
     intent = {
-        "risk": _canon(getattr(args, "risk", None), RISK_SYN, w, "risk"),
-        "belief": _canon(getattr(args, "belief", None), BELIEF_SYN, w, "belief"),
-        "horizon": _canon(getattr(args, "horizon", None), HORIZON_SYN, w, "horizon"),
         "direction": _canon(getattr(args, "direction", None), DIRECTION_SYN, w, "direction"),
-        "market_scope": _canon(getattr(args, "market_scope", None), SCOPE_SYN, w, "market_scope"),
-        "goal": _canon(getattr(args, "goal", None), GOAL_SYN, w, "goal"),
-        "experience": (getattr(args, "experience", None) or None),
         "budget": _parse_budget(getattr(args, "budget", None), w),
         "assets": _norm_assets(getattr(args, "assets", None), w),
         "exclude": _norm_exclude(getattr(args, "exclude", None), w),
     }
     if intent["direction"] == "any":
         intent["direction"] = None
-    if intent["experience"] not in (None, "new", "experienced"):
-        w.append(f"dropped experience='{intent['experience']}'")
-        intent["experience"] = None
     intent["_warnings"] = w
     return intent
 
@@ -205,18 +168,6 @@ def asset_matches(named, assets):
     return False
 
 
-def adjacent_risk(a, b):
-    if a in RISK_ORDER and b in RISK_ORDER:
-        return abs(RISK_ORDER.index(a) - RISK_ORDER.index(b)) == 1
-    return False
-
-
-def adjacent_horizon(a, b):
-    if a in HORIZON_ORDER and b in HORIZON_ORDER:
-        return abs(HORIZON_ORDER.index(a) - HORIZON_ORDER.index(b)) == 1
-    return False
-
-
 def infer_class_for_named(named):
     n = named.upper().replace("XYZ:", "")
     if named.upper().startswith("XYZ:"):
@@ -226,8 +177,9 @@ def infer_class_for_named(named):
     return "major_alts"
 
 
-# ---------------------------------------------------------------- matcher (pure)
+# ---------------------------------------------------------------- matcher (pure: filter + return all)
 def _hard_reject(r, intent):
+    """The ONLY narrowing — reject on an explicitly-stated, unambiguous constraint. Nothing soft."""
     user_classes = [v for k, v in intent["assets"] if k == "class"]
     if user_classes:
         ud, sd = domain_of(user_classes), domain_of(r.get("asset_classes") or [])
@@ -235,7 +187,10 @@ def _hard_reject(r, intent):
             return True
     named = [v for k, v in intent["assets"] if k == "named"]
     if named and not any(asset_matches(n, r.get("assets")) for n in named):
-        return True
+        if not intent.get("_broadened_classes"):
+            return True
+        if not (set(intent["_broadened_classes"]) & set(r.get("asset_classes") or [])):
+            return True
     d = intent["direction"]
     if d == "long_only" and r.get("direction") == "short_only":
         return True
@@ -257,79 +212,34 @@ def _hard_reject(r, intent):
     return False
 
 
-def _score(r, intent):
-    rel, reasons, caveats = 0, [], []
+def _asset_match(r, intent):
+    """Neutral ORDERING key (not a filter): how many stated asset constraints this record satisfies."""
+    n = 0
     user_classes = [v for k, v in intent["assets"] if k == "class"]
     named = [v for k, v in intent["assets"] if k == "named"]
+    acs = set(r.get("asset_classes") or [])
+    if user_classes and (set(user_classes) & acs):
+        n += 1
+    if named and any(asset_matches(x, r.get("assets")) for x in named):
+        n += 1
+    return n
 
-    if intent["risk"] and r.get("risk_level"):
-        if r["risk_level"] == intent["risk"]:
-            rel += 1
-            reasons.append({"dim": "risk", "value": r["risk_level"], "tolerant": False})
-        elif adjacent_risk(r["risk_level"], intent["risk"]):
-            rel += 1
-            reasons.append({"dim": "risk", "value": r["risk_level"], "tolerant": True})
-            more = RISK_ORDER.index(r["risk_level"]) > RISK_ORDER.index(intent["risk"])
-            caveats.append("A notch more aggressive than you asked — the closest fit." if more
-                           else "A notch more conservative than you asked — the closest fit.")
 
-    if user_classes:
-        acs = set(r.get("asset_classes") or [])
-        if set(user_classes) & acs:
-            rel += 1
-            reasons.append({"dim": "asset", "value": sorted(set(user_classes) & acs), "tolerant": False})
-        if "btc_eth" in user_classes and "btc_eth" not in acs and (acs & CRYPTO_CLASSES):
-            caveats.append("Trades alts beyond just BTC/ETH.")
-    for c in intent.get("_broadened_classes", []):
-        if c in (r.get("asset_classes") or []):
-            rel += 1
-            reasons.append({"dim": "asset", "value": c, "tolerant": True})
-            break
-    if named and any(asset_matches(n, r.get("assets")) for n in named):
-        rel += 1
-        reasons.append({"dim": "asset", "value": named, "tolerant": False})
-
-    if intent["belief"]:
-        a, b = r.get("archetype"), BELIEF_TO_ARCHETYPE[intent["belief"]]
-        if a == b:
-            rel += 1
-            reasons.append({"dim": "belief", "value": a, "tolerant": False})
-        elif b in ARCH_ADJACENT.get(a, set()):
-            rel += 1
-            reasons.append({"dim": "belief", "value": a, "tolerant": True})
-        elif b in ARCH_OPPOSITE.get(a, set()):
-            rel -= 1
-
-    if intent["direction"] in ("long_only", "short_only"):
-        if r.get("direction") == intent["direction"]:
-            rel += 1
-            reasons.append({"dim": "direction", "value": r["direction"], "tolerant": False})
-        elif r.get("direction") == "long_short" and intent["direction"] == "long_only":
-            caveats.append("Can also take short positions.")
-
-    if intent["horizon"] and r.get("time_horizon"):
-        if r["time_horizon"] == intent["horizon"]:
-            rel += 1
-            reasons.append({"dim": "horizon", "value": r["time_horizon"], "tolerant": False})
-        elif adjacent_horizon(r["time_horizon"], intent["horizon"]):
-            rel += 1
-            reasons.append({"dim": "horizon", "value": r["time_horizon"], "tolerant": True})
-
-    if intent["market_scope"] and r.get("asset_scope") == intent["market_scope"]:
-        rel += 1
-        reasons.append({"dim": "scope", "value": r["asset_scope"], "tolerant": False})
-    if intent["goal"] == "dca" and r.get("sub_style") == "dca":
-        rel += 1
-        reasons.append({"dim": "goal", "value": "dca", "tolerant": False})
-    if intent["experience"] == "new" and r.get("tier") == "starter":
-        rel += 1
-
-    if (r.get("instance_count") or 1) > 1 and user_classes:
+def _caveats(r, intent):
+    """Fixed-string honesty caveats — concrete only (no soft scoring). Surfaced verbatim by the LLM."""
+    cav = []
+    user_classes = [v for k, v in intent["assets"] if k == "class"]
+    acs = set(r.get("asset_classes") or [])
+    if "btc_eth" in user_classes and "btc_eth" not in acs and (acs & CRYPTO_CLASSES):
+        cav.append("Trades alts beyond just BTC/ETH.")
+    if intent["direction"] == "long_only" and r.get("direction") == "long_short":
+        cav.append("Can also take short positions.")
+    if (r.get("instance_count") or 1) > 1 and (user_classes or [v for k, v in intent["assets"] if k == "named"]):
         split = "/".join(str(s) for s in (r.get("funding_split") or []))
-        caveats.append(f"Splits across {r['instance_count']} wallets ({split}); your assets may sit mainly in one leg.")
+        cav.append(f"Splits across {r['instance_count']} wallets ({split}); your assets may sit mainly in one leg.")
     if intent["budget"] is not None and intent["budget"] < (r.get("min_budget") or 0):
-        caveats.append(f"Needs ~${int(r['min_budget'])} to start; you mentioned ${int(intent['budget'])}.")
-    return rel, reasons, caveats
+        cav.append(f"Needs ~${int(r['min_budget'])} to start; you mentioned ${int(intent['budget'])}.")
+    return cav
 
 
 def _suggested_budget(r, intent):
@@ -341,12 +251,11 @@ def _suggested_budget(r, intent):
 
 def _intent_echo(intent):
     echo = {}
-    for k in ("risk", "belief", "horizon", "direction", "market_scope", "goal", "experience", "budget"):
-        if intent.get(k) is not None:
-            v = intent[k]
-            if k == "budget" and isinstance(v, float) and v.is_integer():
-                v = int(v)
-            echo[k] = v
+    if intent.get("direction"):
+        echo["direction"] = intent["direction"]
+    if intent.get("budget") is not None:
+        v = intent["budget"]
+        echo["budget"] = int(v) if isinstance(v, float) and v.is_integer() else v
     if intent["assets"]:
         echo["assets"] = [v for _, v in intent["assets"]]
     if intent["exclude"]:
@@ -367,11 +276,37 @@ def _active_constraints(intent):
     return c
 
 
-def match(intent, records, limit=8, offset=0):
+def _candidate(r, intent):
+    """A flat, labels-pre-inlined record — everything the LLM needs to rank + narrate, no extra context."""
+    cand = {
+        # identity + handoff
+        "id": r.get("id"), "version": r.get("version"), "name": r.get("name"),
+        "emoji": r.get("emoji"), "tagline": r.get("tagline"),
+        # soft-rank surface (the script never reads these — the LLM ranks on them)
+        "risk_level": r.get("risk_level"), "archetype_label": r.get("archetype_label"),
+        "belief_plain": r.get("belief_plain"), "thesis": r.get("thesis"), "tags": r.get("tags") or [],
+        "time_horizon": r.get("time_horizon"), "asset_scope": r.get("asset_scope"),
+        "direction": r.get("direction"), "asset_classes": r.get("asset_classes") or [],
+        "assets": r.get("assets") or [], "tier": r.get("tier"),
+        # narration
+        "suggested_budget": _suggested_budget(r, intent), "caveats": _caveats(r, intent),
+        "market_facts": [],
+    }
+    if r.get("tag_labels"):
+        cand["tag_labels"] = r.get("tag_labels")
+    if (r.get("instance_count") or 1) > 1:
+        cand["funding_split"] = r.get("funding_split")
+    return cand
+
+
+def match(intent, records, limit=None):
+    """Filter on the concrete constraints, return ALL survivors neutral-ordered. No score, no top-N."""
     intent.setdefault("_broadened_classes", [])
     survivors = [r for r in records if not _hard_reject(r, intent)]
     widened = []
 
+    # The ONLY graceful degrade: a named asset nobody trades broadens to its class (never silent on
+    # cross-domain / direction / exclusions — those stay rejected; the conversation may offer widening).
     named = [v for k, v in intent["assets"] if k == "named"]
     if not survivors and named:
         broadened = [c for c in (infer_class_for_named(n) for n in named) if c]
@@ -384,35 +319,19 @@ def match(intent, records, limit=8, offset=0):
             intent = i2
 
     build_custom = {"label": "Build a custom strategy", "route": "senpi-strategy-author"}
-    if not survivors:
-        return {"candidates": [], "build_custom": build_custom,
-                "meta": {"widened": widened, "unmet": _active_constraints(intent),
-                         "eligible_count": 0, "returned_n": 0, "offset": offset,
-                         "intent_echo": _intent_echo(intent), "warnings": intent.get("_warnings", [])}}
+    survivors.sort(key=lambda r: (-_asset_match(r, intent), r.get("name") or r.get("id") or ""))
+    eligible_total = len(survivors)
+    if limit:
+        survivors = survivors[:limit]
 
-    scored = []
-    for r in survivors:
-        rel, reasons, caveats = _score(r, intent)
-        scored.append((rel, r, reasons, caveats))
-    scored.sort(key=lambda x: (-x[0], 0 if x[1].get("tier") == "starter" else 1,
-                               x[1].get("min_budget") or 0, x[1].get("sort_order") or 0, x[1].get("name") or ""))
-    page = scored[offset:offset + limit]
-    candidates = []
-    for rel, r, reasons, caveats in page:
-        cand = {
-            "id": r.get("id"), "name": r.get("name"), "emoji": r.get("emoji"),
-            "tagline": r.get("tagline"), "belief_plain": r.get("belief_plain"),
-            "archetype_label": r.get("archetype_label"), "tier": r.get("tier"),
-            "suggested_budget": _suggested_budget(r, intent), "relevance": rel,
-            "match_reasons": reasons, "market_facts": [], "caveats": caveats,
-        }
-        if (r.get("instance_count") or 1) > 1:
-            cand["funding_split"] = r.get("funding_split")
-        candidates.append(cand)
-    return {"candidates": candidates, "build_custom": build_custom,
-            "meta": {"widened": widened, "eligible_count": len(scored), "returned_n": len(candidates),
-                     "offset": offset, "intent_echo": _intent_echo(intent),
-                     "warnings": intent.get("_warnings", [])}}
+    candidates = [_candidate(r, intent) for r in survivors]
+    meta = {"eligible_count": eligible_total, "returned_n": len(candidates),
+            "intent_echo": _intent_echo(intent), "warnings": intent.get("_warnings", [])}
+    if widened:
+        meta["widened"] = widened
+    if not candidates:
+        meta["unmet"] = _active_constraints(intent)
+    return {"candidates": candidates, "build_custom": build_custom, "meta": meta}
 
 
 # ---------------------------------------------------------------- data layer (guarded I/O)
@@ -485,8 +404,9 @@ def _funding_sign(funding):
 
 
 def fetch_market_map(client, assets):
-    """One batched pass per asset -> a live 'why now' read. Built from asset_context (funding, 24h
-    change) + candle trend, enriched with oi_trend + market-wide funding_regime when available.
+    """One batched pass per UNIQUE asset -> a live 'why now' read. Bounded by asset count, not strategy
+    count. Built from asset_context (funding, 24h change) + candle trend, enriched with oi_trend +
+    market-wide funding_regime when available.
     """
     regime = None
     try:
@@ -498,7 +418,7 @@ def fetch_market_map(client, assets):
     for a in assets:
         if a and a not in uniq:
             uniq.append(a)
-    uniq = uniq[:12]
+    uniq = uniq[:24]   # cap the live fetch; ordered so asset-matched candidates' assets come first
 
     def one(a):
         kw = dict(asset=a, candle_intervals=["4h"], include_order_book=False,
@@ -535,19 +455,14 @@ def fetch_market_map(client, assets):
 
 # ---------------------------------------------------------------- CLI
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="senpi strategy discovery engine")
-    ap.add_argument("--risk")
+    ap = argparse.ArgumentParser(description="senpi strategy discovery engine (concrete filter)")
+    # CONCRETE filters only — risk/belief/horizon/scope/goal/experience are the LLM's job (it ranks
+    # the returned set on them), so they are deliberately NOT flags here.
     ap.add_argument("--assets")
-    ap.add_argument("--belief")
-    ap.add_argument("--horizon")
     ap.add_argument("--direction")
-    ap.add_argument("--market-scope", dest="market_scope")
-    ap.add_argument("--goal")
-    ap.add_argument("--budget")
     ap.add_argument("--exclude")
-    ap.add_argument("--experience")
-    ap.add_argument("--limit", type=int, default=8)
-    ap.add_argument("--offset", type=int, default=0)
+    ap.add_argument("--budget")
+    ap.add_argument("--limit", type=int, default=None, help="safety cap on returned candidates (default: all)")
     ap.add_argument("--catalog", default=DEFAULT_CATALOG)
     ap.add_argument("--no-market", action="store_true", help="skip the live market enrichment pass")
     ap.add_argument("--context-only", action="store_true", help="return user context only, no match")
@@ -571,18 +486,20 @@ def main(argv=None):
         return 0
 
     intent = normalize_intent(args)
-    result = match(intent, records, limit=args.limit, offset=args.offset)
+    result = match(intent, records, limit=args.limit)
 
-    # market enrichment (pass 2): ONE batched fetch over the union of the top-N's chosen assets
+    # market enrichment (pass 2): ONE batched fetch over the union of survivors' chosen assets, in
+    # candidate order (asset-matched first), capped by unique-asset count inside fetch_market_map.
     if not args.no_market and result["candidates"]:
         user_named = [v for k, v in intent["assets"] if k == "named"]
-        per_cand = {}
-        union = []
+        per_cand, union = {}, []
         for cand in result["candidates"]:
             assets = by_id.get(cand["id"], {}).get("assets") or []
             pref = [a for a in assets if any(asset_matches(n, [a]) for n in user_named)] or assets
             per_cand[cand["id"]] = pref[:3]
-            union.extend(pref[:3])
+            for a in pref[:3]:
+                if a not in union:
+                    union.append(a)
         try:
             client = _get_client()
             result["meta"]["user_context"] = fetch_user_context(client)

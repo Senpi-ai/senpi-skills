@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Unit tests for discover.py (matcher + normalizer). Run: python3 tests/test_discover.py"""
+"""Unit tests for discover.py — the CONCRETE filter (filter + return all). Run: python3 tests/test_discover.py
+
+New contract (see docs/strategy-discover/discovery-architecture.md): the script filters ONLY on the
+explicit concrete constraints (asset domain, named asset, strict-opposite direction, exclusions) and
+returns ALL survivors, neutral-ordered (asset-match desc, name). No relevance score, no top-N, no
+risk/belief/horizon flags — the LLM ranks the returned set on those soft dimensions itself.
+"""
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
-import json
 import os
 import sys
 from types import SimpleNamespace
@@ -11,6 +16,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 import discover  # noqa: E402
 
 CATALOG = discover.load_catalog(os.path.join(HERE, "fixtures", "catalog_fixture.json"))
+N_CATALOG = len(CATALOG)  # 11
 
 _PASS = 0
 _FAIL = 0
@@ -26,9 +32,8 @@ def check(name, cond, detail=""):
 
 
 def intent(**kw):
-    args = SimpleNamespace(**{k: None for k in (
-        "risk", "assets", "belief", "horizon", "direction", "market_scope",
-        "goal", "budget", "exclude", "experience")})
+    # Only the concrete flags exist now.
+    args = SimpleNamespace(**{k: None for k in ("assets", "direction", "budget", "exclude")})
     for k, v in kw.items():
         setattr(args, k, v)
     return discover.normalize_intent(args)
@@ -39,34 +44,54 @@ def ids(result):
 
 
 def run(**kw):
-    return discover.match(intent(**kw), CATALOG, limit=20)
+    return discover.match(intent(**kw), CATALOG)
 
 
-# ---- normalizer ----
+# ---- normalizer (concrete inputs only) ----
 def test_normalizer():
-    i = intent(risk="safe", belief="ride", horizon="quick", direction="no shorting",
-               budget="around $300", assets="btc,eth,SOL", exclude="copy_trading")
-    check("risk safe->conservative", i["risk"] == "conservative", i["risk"])
-    check("belief ride->trend", i["belief"] == "trend", i["belief"])
-    check("horizon quick->scalp", i["horizon"] == "scalp", i["horizon"])
+    i = intent(direction="no shorting", budget="around $300", assets="btc,eth,SOL", exclude="copy_trading")
     check("direction 'no shorting'->long_only", i["direction"] == "long_only", i["direction"])
     check("budget around $300->300", i["budget"] == 300, i["budget"])
     check("assets dedup btc/eth + named SOL",
           i["assets"] == [("class", "btc_eth"), ("named", "SOL")], i["assets"])
     check("exclude copy_trading", ("archetype", "copy_trading") in i["exclude"], i["exclude"])
 
-    check("risk medium->moderate", intent(risk="medium")["risk"] == "moderate")
-    check("risk yolo->aggressive", intent(risk="yolo")["risk"] == "aggressive")
     check("budget 300k->300000", intent(budget="300k")["budget"] == 300000)
     check("budget range 500-2000->1250", intent(budget="500-2000")["budget"] == 1250)
     check("budget 'lots'->None", intent(budget="lots")["budget"] is None)
     check("assets 'stocks'->xyz_equities", intent(assets="stocks")["assets"] == [("class", "xyz_equities")])
     check("assets 'NVDA'->named", intent(assets="NVDA")["assets"] == [("named", "NVDA")])
-    bad = intent(risk="purple")
-    check("unknown risk dropped + warned", bad["risk"] is None and any("purple" in w for w in bad["_warnings"]))
+    check("direction 'both'->None (any)", intent(direction="both")["direction"] is None)
+    bad = intent(direction="sideways")
+    check("unknown direction dropped + warned",
+          bad["direction"] is None and any("sideways" in w for w in bad["_warnings"]))
 
 
-# ---- hard rejects ----
+# ---- return ALL (no top-N) ----
+def test_return_all():
+    r = run()
+    check("empty intent returns ALL", r["meta"]["eligible_count"] == N_CATALOG, r["meta"]["eligible_count"])
+    check("empty intent returned_n == eligible", r["meta"]["returned_n"] == N_CATALOG)
+    check("no relevance field on candidates", all("relevance" not in c for c in r["candidates"]))
+    check("no match_reasons field on candidates", all("match_reasons" not in c for c in r["candidates"]))
+    # limit is a SAFETY cap only, never the default
+    rl = discover.match(intent(), CATALOG, limit=3)
+    check("limit caps returned but reports full eligible",
+          rl["meta"]["returned_n"] == 3 and rl["meta"]["eligible_count"] == N_CATALOG)
+
+
+# ---- soft surface present for the LLM ----
+def test_soft_surface():
+    c = next(x for x in run()["candidates"] if x["id"] == "spider")
+    for f in ("thesis", "tags", "risk_level", "belief_plain", "archetype_label", "time_horizon",
+              "asset_scope", "direction", "asset_classes", "tier", "suggested_budget", "caveats",
+              "market_facts", "id", "version", "name", "emoji", "tagline"):
+        check(f"candidate carries '{f}'", f in c, list(c.keys()))
+    check("spider thesis non-empty", bool(c["thesis"]))
+    check("spider tags include hedge-fund", "hedge-fund" in c["tags"], c["tags"])
+
+
+# ---- hard rejects (the only narrowing) ----
 def test_asset_class_crossdomain():
     r = run(assets="btc_eth")
     check("crypto user: bobcat(xyz) rejected", "bobcat" not in ids(r), ids(r))
@@ -104,11 +129,12 @@ def test_direction():
     check("long_only: tortoise kept", "tortoise" in ids(r))
     check("long_only: no short_only strategies surfaced",
           all(by_id[cid]["direction"] != "short_only" for cid in ids(r)))
-    # tortoise (long_only) should have a direction reason; a long_short one carries the short caveat
-    tort = next(c for c in r["candidates"] if c["id"] == "tortoise")
-    check("tortoise direction +1 reason", any(rr["dim"] == "direction" for rr in tort["match_reasons"]))
+    # a long_short strategy under a long_only ask carries the honest short caveat
     beav = next(c for c in r["candidates"] if c["id"] == "beaver")
     check("beaver long_short short-caveat", any("short" in cv.lower() for cv in beav["caveats"]), beav["caveats"])
+    # tortoise IS long_only -> no short caveat
+    tort = next(c for c in r["candidates"] if c["id"] == "tortoise")
+    check("tortoise no short caveat", not any("short" in cv.lower() for cv in tort["caveats"]))
 
 
 def test_exclude():
@@ -125,55 +151,46 @@ def test_exclude():
     check("stocks-not-crypto: mixed spider dropped", "spider" not in ids(rc), ids(rc))
 
 
-# ---- relevance ----
-def test_relevance():
-    r = run(belief="copy")
-    alb = next(c for c in r["candidates"] if c["id"] == "albatross")
-    check("copy belief: albatross +1", alb["relevance"] == 1, alb["relevance"])
+# ---- neutral ordering (asset-match desc, then name) ----
+def test_ordering():
+    r = run(assets="btc_eth")
+    cands = r["candidates"]
+    by_id = {x["id"]: x for x in CATALOG}
 
-    r2 = run(belief="trend")
-    egret = next(c for c in r2["candidates"] if c["id"] == "egret")
-    check("trend belief: egret(contrarian) opposite -1", egret["relevance"] == -1, egret["relevance"])
-    check("trend belief: egret still present (not rejected)", "egret" in ids(r2))
-    beav = next(c for c in r2["candidates"] if c["id"] == "beaver")
-    check("trend belief: beaver(trend) +1", beav["relevance"] == 1)
+    def matched(cid):
+        return bool({"btc_eth"} & set(by_id[cid]["asset_classes"]))
+    # all asset-matched come before all non-matched
+    flags = [matched(c["id"]) for c in cands]
+    first_false = flags.index(False) if False in flags else len(flags)
+    check("asset-matched ordered before non-matched",
+          all(flags[:first_false]) and not any(flags[first_false:]), flags)
+    # ties broken by name
+    matched_names = [c["name"] for c in cands[:first_false]]
+    check("asset-matched group sorted by name", matched_names == sorted(matched_names), matched_names)
 
-    r3 = run(risk="conservative")
-    tort = next(c for c in r3["candidates"] if c["id"] == "tortoise")
-    check("conservative: tortoise exact +1, no caveat", tort["relevance"] == 1 and not any("notch" in c for c in tort["caveats"]))
-    beav3 = next(c for c in r3["candidates"] if c["id"] == "beaver")
-    check("conservative: beaver(moderate) adjacent +1 + caveat",
-          beav3["relevance"] == 1 and any("notch" in c for c in beav3["caveats"]), beav3["caveats"])
 
-    # within-crypto specificity caveat
+def test_caveats():
+    # within-crypto specificity: btc_eth user, a broader-crypto strategy flags it trades alts
     rk = run(assets="btc_eth")
     kod = next((c for c in rk["candidates"] if c["id"] == "kodiak"), None)
-    check("btc_eth user: kodiak gets alts caveat", kod and any("alts" in c.lower() for c in kod["caveats"]), kod["caveats"] if kod else None)
-
-
-def test_ranking_and_topn():
-    r = discover.match(intent(), CATALOG, limit=8)
-    check("empty intent eligible_count=11", r["meta"]["eligible_count"] == 11, r["meta"]["eligible_count"])
-    check("empty intent returned_n=8 (top-N)", r["meta"]["returned_n"] == 8, r["meta"]["returned_n"])
-    check("empty intent: starters before advanced",
-          all(c["tier"] == "starter" for c in r["candidates"][:6]), [c["tier"] for c in r["candidates"]])
-    # paging
-    p2 = discover.match(intent(), CATALOG, limit=8, offset=8)
-    check("page 2 returns the remaining 3", p2["meta"]["returned_n"] == 3, p2["meta"]["returned_n"])
-    check("no overlap between pages", not (set(ids(r)) & set(ids(p2))))
-
-    # multi-instance funding split surfaced
-    rs = run(risk="aggressive", assets="btc_eth")
+    check("btc_eth user: kodiak gets alts caveat",
+          kod and any("alts" in c.lower() for c in kod["caveats"]), kod["caveats"] if kod else None)
+    # multi-instance funding split + caveat surfaced when the user stated assets
+    rs = run(assets="btc_eth")
     sp = next((c for c in rs["candidates"] if c["id"] == "spider"), None)
     check("spider funding_split present", sp and sp.get("funding_split") == [0.6, 0.4], sp.get("funding_split") if sp else None)
     check("spider multi-leg caveat", sp and any("wallet" in c.lower() for c in sp["caveats"]))
     check("spider suggested_budget>=200", sp and sp["suggested_budget"] >= 200)
+    # below-floor budget caveat
+    rb = run(assets="btc_eth", budget="50")
+    sp2 = next((c for c in rb["candidates"] if c["id"] == "spider"), None)
+    check("below-floor budget caveat", sp2 and any("needs" in c.lower() for c in sp2["caveats"]), sp2["caveats"] if sp2 else None)
 
 
 def test_degrade():
     # named asset nobody trades -> broaden to class
     r = run(assets="DOGE")
-    check("DOGE broadened (widened named_asset)", "named_asset" in r["meta"]["widened"], r["meta"]["widened"])
+    check("DOGE broadened (widened named_asset)", "named_asset" in r["meta"].get("widened", []), r["meta"])
     check("DOGE broaden -> alt strategies survive", "kodiak" in ids(r), ids(r))
 
     # genuinely impossible (crypto user, exclude crypto AND copy) -> build-custom only
@@ -182,30 +199,32 @@ def test_degrade():
     check("impossible -> build_custom present", r2["build_custom"]["route"] == "senpi-strategy-author")
     check("impossible -> unmet non-empty", len(r2["meta"]["unmet"]) > 0, r2["meta"]["unmet"])
 
-    # 'no stocks' only excludes equities, NOT commodities/pre-IPO/copy (regression for the above)
+    # 'no stocks' only excludes equities, NOT commodities/pre-IPO/copy
     r3 = run(assets="xyz_equities", exclude="stocks")
     check("'no stocks' keeps commodities (dire)", "dire" in ids(r3), ids(r3))
     check("'no stocks' drops equities (bobcat, spider)", "bobcat" not in ids(r3) and "spider" not in ids(r3))
 
 
 def test_failopen():
-    r = run(risk="purple", belief="vibes", horizon="whenever")
-    check("garbage intent still returns candidates", r["meta"]["returned_n"] > 0, r["meta"]["returned_n"])
-    check("garbage intent logged warnings", len(r["meta"]["warnings"]) >= 3, r["meta"]["warnings"])
+    # unparseable concrete values drop to unstated (widen) -> still returns everything
+    r = run(direction="vibes", budget="lots")
+    check("garbage concrete intent still returns all", r["meta"]["returned_n"] == N_CATALOG, r["meta"]["returned_n"])
+    check("garbage intent logged warnings", len(r["meta"]["warnings"]) >= 1, r["meta"]["warnings"])
 
 
 def test_intent_echo():
-    r = run(risk="safe", assets="btc_eth,SOL", budget="$500")
+    r = run(assets="btc_eth,SOL", budget="$500", direction="long")
     e = r["meta"]["intent_echo"]
-    check("echo risk", e.get("risk") == "conservative", e)
     check("echo assets", e.get("assets") == ["btc_eth", "SOL"], e)
     check("echo budget", e.get("budget") == 500, e)
+    check("echo direction", e.get("direction") == "long_only", e)
+    check("echo has no soft keys", not any(k in e for k in ("risk", "belief", "horizon")), e)
 
 
 if __name__ == "__main__":
-    for fn in [test_normalizer, test_asset_class_crossdomain, test_named_asset, test_direction,
-               test_exclude, test_relevance, test_ranking_and_topn, test_degrade, test_failopen,
-               test_intent_echo]:
+    for fn in [test_normalizer, test_return_all, test_soft_surface, test_asset_class_crossdomain,
+               test_named_asset, test_direction, test_exclude, test_ordering, test_caveats,
+               test_degrade, test_failopen, test_intent_echo]:
         try:
             fn()
         except Exception as e:  # noqa

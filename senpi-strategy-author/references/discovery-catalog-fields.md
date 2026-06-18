@@ -20,18 +20,26 @@ catalog:
   group: single-asset-alpha-hunter   # structural grouping (existing)
 
   # NEW — discovery matching fields:
-  archetype: trend_following     # the market BELIEF (1 of 6; see glossary). What --belief matches.
+  archetype: trend_following     # the market BELIEF (1 of 6; see glossary). The LLM ranks belief on this.
   sub_style: alpha_hunter        # refinement within the archetype (glossary; extensible)
   asset_classes: [major_alts]    # which classes you trade (glossary). Tag INCLUSIVELY — a universe
                                  #   scanner that touches BTC/ETH lists btc_eth too. xyz category comes
                                  #   from YOU (the platform exposes no category): big-tech -> xyz_equities,
                                  #   oil/metals -> commodities, SP500 -> indices, SpaceX -> pre_ipo.
+                                 #   THIS is the one field the engine hard-FILTERS on — get it right.
   asset_scope: single            # single | basket | universe | follows_traders
   risk_level: moderate           # conservative | moderate | aggressive (be honest)
   tier: starter                  # starter (beginner-friendly; shows a STARTER badge) | advanced
   direction: long_short          # long_only | short_only | long_short
   belief_plain: "Hunts SOL alpha with multi-factor conviction scoring."   # ONE jargon-free sentence;
-                                 #   this is the LLM's primary match + narration surface — write it well.
+                                 #   how it trades, in a person's words.
+
+  # NEW — worldview / theme surface (FREE TEXT, no glossary to maintain):
+  thesis: "Concentrated SOL conviction with leverage that scales to the signal."   # one sentence:
+                                 #   WHEN / WHO it's for. This is how the LLM matches a user's WORLDVIEW
+                                 #   ("there'll be a war", "run a hedge fund"). Write it as a purpose.
+  tags: [sol, alpha-hunter, single-asset]   # free-text keywords (hedge-fund, tail-risk, macro,
+                                 #   all-weather, war, …). No controlled vocab — the LLM reads them.
 ```
 
 ## Derived for you (do NOT duplicate unless params can't express it)
@@ -50,8 +58,20 @@ catalog:
 If your params don't carry the asset/leverage (e.g. it's hardcoded in the scanner), declare a fallback
 in the `catalog:` block (`assets: [ETH]`, `leverage_max: 10`) and `gen_catalog` will use it.
 
-## Writing `belief_plain`
+## Writing `belief_plain` vs `thesis`
 
-One plain sentence, no jargon, describing *what it does* as a person would say it. It's what the
-analyst reads to the user. Good: *"Rides BTC while it's trending and steps out when it stalls."*
-Bad: *"4h SM-gated trend-continuation with conviction-tiered sizing."*
+- **`belief_plain`** = *what it does*, plain. Good: *"Rides BTC while it's trending and steps out when it
+  stalls."* Bad: *"4h SM-gated trend-continuation with conviction-tiered sizing."*
+- **`thesis`** = *when / who it's for* — the worldview it expresses. This is what lets a user's view of
+  the world find you. Good: *"You want the portfolio hedge of a fund line-up — green on the days
+  everything else is red — without holding a view."* (Rhino) · *"Bet the conflict deepens: long oil +
+  gold, short equities + BTC."* (a thesis fund). If your strategy is a directional macro/thematic bet
+  or a fund-style book, write the `thesis` carefully — it's the only worldview hook.
+
+## Why `thesis`/`tags` are free text (no glossary)
+
+Worldviews are open-ended ("stagflation", "AI bubble pops", "China/Taiwan") — no fixed taxonomy covers
+them. So the discovery engine does **not** match `thesis`/`tags` with a controlled vocabulary; the LLM
+reads them as plain language and ranks semantically. Write them like a sharp human would describe the
+bet. The only field the engine hard-filters on is `asset_classes` (+ `direction`/exclusions) — keep
+those accurate; be expressive with `thesis`/`tags`.

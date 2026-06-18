@@ -198,7 +198,10 @@ def build(updated, branch):
             "tagline": c.get("tagline"),
             "belief_plain": c.get("belief_plain"),
             "version": m.get("version"),
-            # thesis (declared) + inlined labels
+            # worldview / theme surface (declared free text; no controlled vocab, no validation)
+            "thesis": c.get("thesis"),
+            "tags": c.get("tags") or [],
+            # thesis facets (declared) + inlined labels
             "group": c.get("group"),
             "archetype": c.get("archetype"),
             "archetype_label": label_for(glossary, "archetype", c.get("archetype"), sid),

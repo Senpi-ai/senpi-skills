@@ -1,7 +1,7 @@
 {
   "_version": "2.1",
   "_generated": true,
-  "_note": "SYNTHETIC v2 catalog for aggressive matcher testing — discovery fields inferred from main-branch group+tagline, NOT authoritative.",
+  "_note": "SYNTHETIC v2 catalog for aggressive matcher testing — built from origin/main catalog.json (75 strategies) ENRICHED with thesis + free-text tags from producer-patterns.md (§1-27). Discovery fields inferred from group/tagline/family, NOT authoritative classification.",
   "skills": [
     {
       "id": "albatross",
@@ -11,6 +11,14 @@
       "belief_plain": "Mirror the consistent winners from the Senpi Arena, not the lucky-week winners.",
       "version": "1.0.0",
       "group": "trader-follower",
+      "thesis": "You'd rather copy proven alpha-generating traders than form your own technical view.",
+      "tags": [
+        "onboarding",
+        "arena",
+        "multi-week",
+        "conviction-weighted",
+        "user-scope-auth-required"
+      ],
       "archetype": "copy_trading",
       "archetype_label": "Copy Trading",
       "sub_style": "arena_winners",
@@ -43,6 +51,11 @@
       "belief_plain": "Takes a breakout only when rising open interest confirms it — new money committing, not a fakeout.",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "breakout",
+        "oi-velocity"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "basket",
@@ -81,6 +94,14 @@
       "belief_plain": "Slow and steady wins the race.",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "onboarding",
+        "dca",
+        "time-trigger",
+        "no-prediction",
+        "wide-dsl"
+      ],
       "archetype": "structural_neutral",
       "archetype_label": "Structural Neutral",
       "sub_style": "dca",
@@ -114,6 +135,14 @@
       "belief_plain": "Long-only trend follower.",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "onboarding",
+        "long-only",
+        "multi-timeframe",
+        "ema-stack",
+        "balanced-dsl"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "basket",
@@ -147,11 +176,20 @@
       "belief_plain": "Stock-market exposure on Hyperliquid without picking stocks.",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "onboarding",
+        "xyz-macro",
+        "index-only",
+        "balanced-dsl",
+        "hard-timeout-48h"
+      ],
       "archetype": "single_market",
       "archetype_label": "Single Market",
       "sub_style": "broad_index",
       "sub_style_label": "Broad Index",
       "asset_classes": [
+        "xyz_equities",
         "indices"
       ],
       "asset_scope": "basket",
@@ -182,6 +220,13 @@
       "belief_plain": "Always hold the strongest major.",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "momentum-rotation",
+        "rs-leader",
+        "margin-gate",
+        "balanced-dsl"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "basket",
@@ -220,12 +265,19 @@
       "belief_plain": "Ride HYPE-class +60% runs without getting chopped on the gyrations.",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "parabolic",
+        "5-gate",
+        "long-only",
+        "operator-driven",
+        "parabolic-runner-dsl"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "basket",
       "sub_style_label": "Basket",
       "asset_classes": [
-        "btc_eth",
         "major_alts"
       ],
       "asset_scope": "basket",
@@ -255,6 +307,14 @@
       "belief_plain": "The Vulture v4.1 story productized.",
       "version": "1.0.0",
       "group": "self-tuning",
+      "thesis": "You want an agent that auto-tunes its own entry bar from its own trade history.",
+      "tags": [
+        "self-tuning",
+        "adaptive-min-score",
+        "audit-cron",
+        "rl-on-threshold",
+        "user-scope-auth-required"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "adaptive",
@@ -289,14 +349,20 @@
       "belief_plain": "The agent that asks \"what kind of market are we in?\" before anything else.",
       "version": "1.0.0",
       "group": "regime-classifier",
+      "thesis": "You want one agent making a single macro call — trending up / down / sideways — and trading off it.",
+      "tags": [
+        "regime-classifier",
+        "meta-router",
+        "macro",
+        "vol-aware",
+        "user-scope-auth-required"
+      ],
       "archetype": "structural_neutral",
       "archetype_label": "Structural Neutral",
       "sub_style": "adaptive",
       "sub_style_label": "Adaptive",
       "asset_classes": [
-        "btc_eth",
-        "major_alts",
-        "universe_crypto"
+        "btc_eth"
       ],
       "asset_scope": "universe",
       "assets": [
@@ -325,14 +391,21 @@
       "belief_plain": "Counter-trades SM consensus on six high-liquidity XYZ macro assets when the move is exhausting.",
       "version": "5.0",
       "group": "contrarian-unwind",
+      "thesis": "You want a contrarian book on macro XYZ assets (commodities/indices/equities), fading over-extension.",
+      "tags": [
+        "xyz-macro",
+        "stale-cancel",
+        "tick-300s",
+        "contrarian"
+      ],
       "archetype": "contrarian_fade",
       "archetype_label": "Contrarian Fade",
       "sub_style": "sm_crowding",
       "sub_style_label": "Sm Crowding",
       "asset_classes": [
-        "btc_eth",
-        "major_alts",
-        "universe_crypto"
+        "indices",
+        "commodities",
+        "xyz_equities"
       ],
       "asset_scope": "universe",
       "assets": [],
@@ -359,6 +432,13 @@
       "belief_plain": "Onboarding-tier strategy.",
       "version": "1.0.0",
       "group": "single-asset-alpha-hunter",
+      "thesis": "You have a thesis on one specific asset and want scoring + exits tuned to that asset's behavior.",
+      "tags": [
+        "onboarding",
+        "btc",
+        "sm-gate",
+        "tick-300s"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "alpha_hunter",
@@ -393,6 +473,12 @@
       "belief_plain": "Few trades, longer holds, bigger moves on a tight blue-chip whitelist.",
       "version": "3.0.1",
       "group": "single-asset-alpha-hunter",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "whitelist",
+        "best-of-n",
+        "tick-300s"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "alpha_hunter",
@@ -425,6 +511,12 @@
       "belief_plain": "NVDA / TSLA / AAPL / META / MSFT / GOOGL / AMZN / AMD / MU / INTC / TSM / ORCL as perpetuals on Hyperliquid XYZ.",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "onboarding",
+        "xyz-big-tech",
+        "hard-timeout-48h"
+      ],
       "archetype": "single_market",
       "archetype_label": "Single Market",
       "sub_style": "big_tech",
@@ -470,12 +562,20 @@
       "belief_plain": "Trades the spread between two coins, not the market.",
       "version": "1.0.0",
       "group": "relative-value-pairs",
+      "thesis": "You want to trade the spread between two tethered assets reverting, not guess absolute direction.",
+      "tags": [
+        "ratio-z-score",
+        "pairs",
+        "mean-reversion",
+        "market-neutral"
+      ],
       "archetype": "structural_neutral",
       "archetype_label": "Structural Neutral",
       "sub_style": "pairs_rv",
       "sub_style_label": "Pairs Rv",
       "asset_classes": [
-        "btc_eth"
+        "btc_eth",
+        "major_alts"
       ],
       "asset_scope": "single",
       "assets": [
@@ -499,6 +599,44 @@
       "branch": "main-synthetic"
     },
     {
+      "id": "octopus",
+      "name": "Octopus — Market-Neutral Hedge Fund",
+      "emoji": "🐙",
+      "tagline": "Longs the relative leaders and shorts the relative laggards of the liquid crypto cross-section on two equally-funded wallets — net ~beta-neutral, harvesting dispersion (leaders minus laggards), not market direction.",
+      "belief_plain": "Longs the relative leaders and shorts the relative laggards of the liquid crypto cross-section on two equally-funded wallets — net ~beta-neu",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "Longs the relative leaders and shorts the relative laggards of the liquid crypto cross-section on two equally-funded wallets — net ~beta-neutral, harvesting dispersion (leaders minus laggards), not ma",
+      "tags": [
+        "hedge-fund",
+        "two-wallet",
+        "dispersion"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "basket",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 2,
+      "branch": "main-synthetic"
+    },
+    {
       "id": "cheetah",
       "name": "Cheetah — Multi-Signal Confluence Sniper",
       "emoji": "🐆",
@@ -506,6 +644,12 @@
       "belief_plain": "Patient trader-follower that refuses to enter unless every confluence signal agrees.",
       "version": "7.1.2",
       "group": "universe-trend-follower",
+      "thesis": "You want broad market coverage and entries only when multiple confirmations align across timeframes.",
+      "tags": [
+        "top-100",
+        "multi-signal",
+        "quality-trader"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "rotation",
@@ -540,13 +684,17 @@
       "belief_plain": "Top-50 HL trend continuation that fires at most one apex-confluence entry per day.",
       "version": "4.0.1",
       "group": "universe-trend-follower",
+      "thesis": "You want broad market coverage and entries only when multiple confirmations align across timeframes.",
+      "tags": [
+        "top-50",
+        "multi-tf",
+        "tick-180s"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "rotation",
       "sub_style_label": "Rotation",
       "asset_classes": [
-        "btc_eth",
-        "major_alts",
         "universe_crypto"
       ],
       "asset_scope": "universe",
@@ -574,6 +722,12 @@
       "belief_plain": "Single-asset alpha hunter for BRENTOIL on Hyperliquid's XYZ DEX.",
       "version": "2.0",
       "group": "xyz-specialist",
+      "thesis": "You want to trade one non-crypto market — oil, gold, an index, or pre-IPO names — on the 24/7 XYZ venue.",
+      "tags": [
+        "brentoil",
+        "wide-dsl",
+        "xyz"
+      ],
       "archetype": "single_market",
       "archetype_label": "Single Market",
       "sub_style": "commodity",
@@ -608,14 +762,19 @@
       "belief_plain": "Multi-asset mean-reversion fader on BTC, ETH, SOL, and HYPE.",
       "version": "3.0.0",
       "group": "funding-fade",
+      "thesis": "You believe persistent funding extremity precedes forced unwinds and want to fade the crowd at exhaustion.",
+      "tags": [
+        "4-coin",
+        "hard-gate",
+        "regime"
+      ],
       "archetype": "contrarian_fade",
       "archetype_label": "Contrarian Fade",
       "sub_style": "funding_extreme",
       "sub_style_label": "Funding Extreme",
       "asset_classes": [
         "btc_eth",
-        "major_alts",
-        "universe_crypto"
+        "major_alts"
       ],
       "asset_scope": "universe",
       "assets": [
@@ -647,6 +806,10 @@
       "belief_plain": "Fades extreme Smart-Money crowding (>=70%) that price won't confirm — the exhausted-crowd unwind.",
       "version": "1.0.0",
       "group": "contrarian-unwind",
+      "thesis": "You believe crowded trades reliably unwind and want to fade the exhausted crowd once price stops following.",
+      "tags": [
+        "contrarian"
+      ],
       "archetype": "contrarian_fade",
       "archetype_label": "Contrarian Fade",
       "sub_style": "sm_crowding",
@@ -681,12 +844,19 @@
       "belief_plain": "Single-asset BTC trend-following scanner.",
       "version": "7.0.0",
       "group": "single-asset-alpha-hunter",
+      "thesis": "You have a thesis on one specific asset and want scoring + exits tuned to that asset's behavior.",
+      "tags": [
+        "btc",
+        "low-vol",
+        "blue-chip"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "alpha_hunter",
       "sub_style_label": "Alpha Hunter",
       "asset_classes": [
-        "btc_eth"
+        "btc_eth",
+        "universe_crypto"
       ],
       "asset_scope": "single",
       "assets": [
@@ -715,6 +885,13 @@
       "belief_plain": "LONG when price breaks above the 7-day high AND Smart Money is > 55% long.",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "onboarding",
+        "breakout",
+        "tight-dsl",
+        "hard-timeout-24h"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "basket",
@@ -748,6 +925,13 @@
       "belief_plain": "Equal-weight crypto basket.",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "onboarding",
+        "basket",
+        "per-leg-dsl",
+        "3-slot"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "basket",
@@ -785,6 +969,13 @@
       "belief_plain": "Onboarding-tier strategy.",
       "version": "1.0.0",
       "group": "single-asset-alpha-hunter",
+      "thesis": "You have a thesis on one specific asset and want scoring + exits tuned to that asset's behavior.",
+      "tags": [
+        "onboarding",
+        "eth",
+        "sm-gate",
+        "tick-300s"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "alpha_hunter",
@@ -819,6 +1010,13 @@
       "belief_plain": "Onboarding-tier strategy.",
       "version": "1.0.0",
       "group": "single-asset-alpha-hunter",
+      "thesis": "You have a thesis on one specific asset and want scoring + exits tuned to that asset's behavior.",
+      "tags": [
+        "onboarding",
+        "hype",
+        "sm-gate",
+        "tick-300s"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "alpha_hunter",
@@ -853,6 +1051,12 @@
       "belief_plain": "The fleet's first SECONDARY-SIGNAL agent: stalk the top Senpi perp traders, copy their fresh entries only when an LLM gate confirms.",
       "version": "3.0.0",
       "group": "trader-follower",
+      "thesis": "You'd rather copy proven alpha-generating traders than form your own technical view.",
+      "tags": [
+        "new-entry",
+        "ta",
+        "funding"
+      ],
       "archetype": "copy_trading",
       "archetype_label": "Copy Trading",
       "sub_style": "arena_winners",
@@ -885,6 +1089,12 @@
       "belief_plain": "Hunts violent rank-jump explosions on the Hyperliquid leaderboard — rare but high-conviction.",
       "version": "4.0",
       "group": "striker-rank-jump",
+      "thesis": "You want to catch the inflection when smart-money interest suddenly spikes on a previously-quiet asset.",
+      "tags": [
+        "rank-jump",
+        "1-per-day",
+        "3m-notional"
+      ],
       "archetype": "breakout_momentum",
       "archetype_label": "Breakout Momentum",
       "sub_style": "rank_jump",
@@ -919,11 +1129,20 @@
       "belief_plain": "Universe trend-follower that rides 1H breakouts on commodities, indices, and high-volume equities 24/7.",
       "version": "3.0.0",
       "group": "contrarian-unwind",
+      "thesis": "You want a contrarian book on macro XYZ assets (commodities/indices/equities), fading over-extension.",
+      "tags": [
+        "xyz-macro",
+        "funding-align",
+        "13-xyz-assets"
+      ],
       "archetype": "single_market",
       "archetype_label": "Single Market",
       "sub_style": "broad_index",
       "sub_style_label": "Broad Index",
       "asset_classes": [
+        "universe_crypto",
+        "xyz_equities",
+        "commodities",
         "indices"
       ],
       "asset_scope": "basket",
@@ -951,12 +1170,19 @@
       "belief_plain": "Single-asset alpha hunter for SOL.",
       "version": "7.0.0",
       "group": "single-asset-alpha-hunter",
+      "thesis": "You have a thesis on one specific asset and want scoring + exits tuned to that asset's behavior.",
+      "tags": [
+        "sol",
+        "6-gate",
+        "single-slot"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "alpha_hunter",
       "sub_style_label": "Alpha Hunter",
       "asset_classes": [
-        "btc_eth"
+        "btc_eth",
+        "major_alts"
       ],
       "asset_scope": "single",
       "assets": [
@@ -986,14 +1212,18 @@
       "belief_plain": "Counter-trades exhausting consensus on 12 crypto majors and 4 XYZ assets.",
       "version": "2.0.0",
       "group": "contrarian-unwind",
+      "thesis": "You believe crowded trades reliably unwind and want to fade the exhausted crowd once price stops following.",
+      "tags": [
+        "degen-fader",
+        "macro-gate",
+        "min-score-9"
+      ],
       "archetype": "contrarian_fade",
       "archetype_label": "Contrarian Fade",
       "sub_style": "sm_crowding",
       "sub_style_label": "Sm Crowding",
       "asset_classes": [
-        "btc_eth",
-        "major_alts",
-        "universe_crypto"
+        "major_alts"
       ],
       "asset_scope": "universe",
       "assets": [],
@@ -1020,6 +1250,14 @@
       "belief_plain": "Trade pre-IPO companies as perpetuals on Hyperliquid XYZ.",
       "version": "1.0.0",
       "group": "xyz-specialist",
+      "thesis": "You want to trade one non-crypto market — oil, gold, an index, or pre-IPO names — on the 24/7 XYZ venue.",
+      "tags": [
+        "onboarding",
+        "ipop",
+        "auto-discover",
+        "tick-900s",
+        "24-7"
+      ],
       "archetype": "single_market",
       "archetype_label": "Single Market",
       "sub_style": "pre_ipo",
@@ -1054,11 +1292,20 @@
       "belief_plain": "Trades the moment a pre-IPO name goes public.",
       "version": "1.0.0",
       "group": "xyz-specialist",
+      "thesis": "You want to trade one non-crypto market — oil, gold, an index, or pre-IPO names — on the 24/7 XYZ venue.",
+      "tags": [
+        "ipop",
+        "conversion-event",
+        "momentum",
+        "wide-dsl",
+        "state-cache"
+      ],
       "archetype": "single_market",
       "archetype_label": "Single Market",
       "sub_style": "pre_ipo",
       "sub_style_label": "Pre Ipo",
       "asset_classes": [
+        "xyz_equities",
         "pre_ipo"
       ],
       "asset_scope": "single",
@@ -1086,14 +1333,18 @@
       "belief_plain": "Cross-asset lag detector that strikes the laggard alt when the leader has already moved.",
       "version": "6.0.0",
       "group": "volume-engine",
+      "thesis": "You believe BTC leads the alt market and want to systematically capture the laggard's catch-up.",
+      "tags": [
+        "btc-led",
+        "follow-rate",
+        "tick-60s"
+      ],
       "archetype": "structural_neutral",
       "archetype_label": "Structural Neutral",
       "sub_style": "market_making",
       "sub_style_label": "Market Making",
       "asset_classes": [
-        "btc_eth",
-        "major_alts",
-        "universe_crypto"
+        "major_alts"
       ],
       "asset_scope": "universe",
       "assets": [],
@@ -1120,14 +1371,23 @@
       "belief_plain": "When BTC moves, the crypto stocks (Coinbase, MicroStrategy, miners) lag on XYZ.",
       "version": "1.0.0",
       "group": "cross-asset-lag",
-      "archetype": "single_market",
-      "archetype_label": "Single Market",
-      "sub_style": "big_tech",
-      "sub_style_label": "Big Tech",
+      "thesis": "You believe BTC leads the alt market and want to systematically capture the laggard's catch-up.",
+      "tags": [
+        "cross-venue",
+        "xyz-equity",
+        "beta-gap",
+        "wide-dsl",
+        "self-computed"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "cross_asset_lag",
+      "sub_style_label": "Cross Asset Lag",
       "asset_classes": [
+        "btc_eth",
         "xyz_equities"
       ],
-      "asset_scope": "basket",
+      "asset_scope": "single",
       "assets": [
         "BTC"
       ],
@@ -1154,6 +1414,12 @@
       "belief_plain": "Reads the L2 order book — enters in the direction of resting-depth imbalance when momentum and Smart Money agree, then holds the move.",
       "version": "1.0.0",
       "group": "microstructure-order-flow",
+      "thesis": "You want an edge from microstructure — forced liquidations and order-book imbalance — not candle trend.",
+      "tags": [
+        "order-book",
+        "imbalance",
+        "momentum"
+      ],
       "archetype": "breakout_momentum",
       "archetype_label": "Breakout Momentum",
       "sub_style": "orderbook_pressure",
@@ -1188,13 +1454,17 @@
       "belief_plain": "The fleet's reference universe trend-follower: rank-jump detection on the HL leaderboard, single MCP call per scan, plugin-runtime exits.",
       "version": "4.0.0",
       "group": "striker-rank-jump",
+      "thesis": "You want to catch the inflection when smart-money interest suddenly spikes on a previously-quiet asset.",
+      "tags": [
+        "striker",
+        "vanilla-gen-1",
+        "first-jump"
+      ],
       "archetype": "breakout_momentum",
       "archetype_label": "Breakout Momentum",
       "sub_style": "rank_jump",
       "sub_style_label": "Rank Jump",
       "asset_classes": [
-        "btc_eth",
-        "major_alts",
         "universe_crypto"
       ],
       "asset_scope": "universe",
@@ -1222,6 +1492,10 @@
       "belief_plain": "Trades fresh leveraged positioning detected via 1h Open Interest velocity with price confirmation.",
       "version": "2.0.1",
       "group": "universe-trend-follower",
+      "thesis": "You want broad market coverage and entries only when multiple confirmations align across timeframes.",
+      "tags": [
+        "oi-velocity"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "rotation",
@@ -1256,6 +1530,12 @@
       "belief_plain": "Fades crowded crypto perps once exhaustion signals confirm the unwind.",
       "version": "8.0",
       "group": "contrarian-unwind",
+      "thesis": "You believe crowded trades reliably unwind and want to fade the exhausted crowd once price stops following.",
+      "tags": [
+        "crowding",
+        "tick-900s",
+        "6h-cooldown"
+      ],
       "archetype": "contrarian_fade",
       "archetype_label": "Contrarian Fade",
       "sub_style": "sm_crowding",
@@ -1290,6 +1570,12 @@
       "belief_plain": "Fades crowded perpetuals when funding stays elevated, collecting funding while waiting for the crowded side to capitulate.",
       "version": "3.0.0",
       "group": "funding-fade",
+      "thesis": "You believe persistent funding extremity precedes forced unwinds and want to fade the crowd at exhaustion.",
+      "tags": [
+        "funding-fade",
+        "tick-300s",
+        "quiet-hours"
+      ],
       "archetype": "contrarian_fade",
       "archetype_label": "Contrarian Fade",
       "sub_style": "funding_extreme",
@@ -1317,6 +1603,612 @@
       "branch": "main-synthetic"
     },
     {
+      "id": "camel",
+      "name": "Camel — Carry Hedge Fund",
+      "emoji": "🐫",
+      "tagline": "Harvests funding carry on two wallets: shorts the most-positive-funding names (short collects) and longs the most-negative-funding names (paid to hold), each gated to an exhausting crowd. The edge is carry — recurring funding income — not market direction.",
+      "belief_plain": "Harvests funding carry on two wallets: shorts the most-positive-funding names (short collects) and longs the most-negative-funding names (pa",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "Harvests funding carry on two wallets: shorts the most-positive-funding names (short collects) and longs the most-negative-funding names (paid to hold), each gated to an exhausting crowd. The edge is ",
+      "tags": [
+        "hedge-fund",
+        "two-wallet",
+        "funding"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 3,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "caracal",
+      "name": "Caracal — Volatility Hedge Fund",
+      "emoji": "🐱",
+      "tagline": "Trades volatility expansion, not direction: rides coiled-spring breakouts (low-vol squeeze -> range break -> surge) on two wallets — crypto and XYZ (oil / AI-infra / metals / indices), both long and short, 24/7.",
+      "belief_plain": "Trades volatility expansion, not direction: rides coiled-spring breakouts (low-vol squeeze -> range break -> surge) on two wallets — crypto ",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You want to harvest volatility expansion as a low-correlation, direction-agnostic return stream (convexity flavor).",
+      "tags": [
+        "volatility",
+        "compression-expansion",
+        "both-direction",
+        "two-universe",
+        "episodic",
+        "two-wallet"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 4,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "elephant",
+      "name": "Elephant — Global-Macro Hedge Fund",
+      "emoji": "🐘",
+      "tagline": "Trades the cross-asset macro complex — equity indices, metals, energy, FX (all on XYZ) + BTC — on two wallets: a trend book rides the durable macro direction, a fade book catches macro over-extensions reverting to regime. Both directions, 24/7.",
+      "belief_plain": "Trades the cross-asset macro complex — equity indices, metals, energy, FX (all on XYZ) + BTC — on two wallets: a trend book rides the durabl",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You want a low-correlation, regime-driven book across indices, metals, energy and FX — the global-macro lane, not crypto-only.",
+      "tags": [
+        "global-macro",
+        "cross-asset",
+        "trend-fade",
+        "both-direction",
+        "two-wallet",
+        "24-7"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "btc_eth",
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 5,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "wolf",
+      "name": "Wolf — Event-Driven / Regime-Rotation Hedge Fund",
+      "emoji": "🐺",
+      "tagline": "Trades the macro TURN. A shared cross-asset regime detector (equities + oil + gold + BTC + the dollar) decides which book works: a risk-on book longing beaten-down beta in a confirmed risk-on regime, a risk-off book longing defensives and shorting risk in a confirmed risk-off regime. Capital rotates to whichever regime is in force. Two wallets, 24/7.",
+      "belief_plain": "Trades the macro TURN.",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You want a vehicle that adapts to a headline-driven, risk-on/off whipsaw — taking the prevailing side and flipping as it turns.",
+      "tags": [
+        "hedge-fund",
+        "event-driven",
+        "regime-rotation",
+        "shared-brain",
+        "adaptive",
+        "two-wallet"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "btc_eth",
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 6,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "rhino",
+      "name": "Rhino — Tail-Risk / Crisis-Alpha Hedge Fund",
+      "emoji": "🦏",
+      "tagline": "Carries cheap convexity — bleeds a little in calm, pays big in shocks. An always-on hedge book holds a small long carry in crisis beneficiaries (gold/oil/dollar/yen); an escalation book sits in cash until a cross-asset stress detector confirms a shock, then fires hard — long the spiking crisis assets, short the cratering risk assets. Two wallets, 24/7.",
+      "belief_plain": "Carries cheap convexity — bleeds a little in calm, pays big in shocks.",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You want the portfolio hedge of a fund line-up — green on the days everything else is red — without having to hold a view.",
+      "tags": [
+        "hedge-fund",
+        "tail-risk",
+        "crisis-alpha",
+        "convexity",
+        "shared-brain",
+        "stress-gated",
+        "two-wallet"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "commodities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 7,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "ox",
+      "name": "Ox — Risk-Parity / All-Weather Hedge Fund",
+      "emoji": "🐂",
+      "tagline": "The all-weather core. Sizes every sleeve by INVERSE volatility so no asset class dominates risk (true risk parity) — a vol-balanced LONG basket across crypto majors, equity indices, metals, energy and FX, plus a defensive ballast (gold/dollar/yen) that scales up when the tape turns risk-off. Always invested, low leverage, low turnover. Two wallets, 24/7.",
+      "belief_plain": "The all-weather core.",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You want a diversified, lower-drawdown core to hold in any regime — balance over a directional view.",
+      "tags": [
+        "hedge-fund",
+        "risk-parity",
+        "all-weather",
+        "inverse-vol-sizing",
+        "core-holding",
+        "two-wallet"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "major_alts",
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "conservative",
+      "tier": "starter",
+      "leverage_max": 3,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 8,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "cougar",
+      "name": "Cougar — U.S. Equity Long/Short Hedge Fund",
+      "emoji": "🐆",
+      "tagline": "Trades the tokenized U.S. equity market on Hyperliquid (trade.xyz: NVDA, TSLA, AAPL, AMZN, …) cross-sectionally: longs the relative-strength leaders, shorts the laggards, ~market-neutral. Harvests EQUITY DISPERSION — the spread between the best and worst stocks, now at multi-decade extremes. Stock-selection alpha, not market direction. Two wallets, 24/7.",
+      "belief_plain": "Trades the tokenized U.S.",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You want the classic equity hedge-fund play — long the relative-strength leaders, short the laggards, ~beta-neutral — on tokenized US stocks.",
+      "tags": [
+        "hedge-fund",
+        "equity-long-short",
+        "dispersion",
+        "market-neutral",
+        "xyz-equities",
+        "two-wallet"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "universe_crypto",
+        "xyz_equities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:NVDA",
+        "xyz:TSLA",
+        "xyz:AAPL",
+        "xyz:AMZN"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 9,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "magpie",
+      "name": "Magpie — IPO / New-Listing Event Hedge Fund",
+      "emoji": "🐦",
+      "tagline": "Trades the new-listing event arc of tokenized equities on Hyperliquid (the SpaceX $1.4B-day-1 pattern). A pre-listing book auto-discovers pre-IPO perpetuals by their funding signature and rides the ramp into the IPO; a graduation book detects the IPOP→equity conversion (funding jumps ~100x, leverage cap lifts, price throttle comes off) and rides the explosive first-days price discovery. Event alpha, two wallets, 24/7.",
+      "belief_plain": "Trades the new-listing event arc of tokenized equities on Hyperliquid (the SpaceX $1.4B-day-1 pattern).",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You want the event alpha of new equity listings — riding pre-IPO ramps and the IPOP-to-equity conversion moment.",
+      "tags": [
+        "hedge-fund",
+        "event-driven",
+        "ipo",
+        "ipop",
+        "conversion-detection",
+        "two-wallet"
+      ],
+      "archetype": "single_market",
+      "archetype_label": "Single Market",
+      "sub_style": "pre_ipo",
+      "sub_style_label": "Pre Ipo",
+      "asset_classes": [
+        "xyz_equities",
+        "pre_ipo"
+      ],
+      "asset_scope": "single",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 10,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "lion",
+      "name": "Lion — Two-Speed-Market (K-Shaped) Cross-Asset Long/Short Hedge Fund",
+      "emoji": "🦁",
+      "tagline": "Bets on a K-shaped divergence: LONGS the structural winners — the full AI complex on Hyperliquid XYZ (NVDA, AMD, INTC, TSM, ASML, ARM, AVGO, CBRS, MU, CRWV, NBIS, GOOGL, MSFT, META, AMZN, ORCL, PLTR, SPCX/xAI, …) plus the crypto winners (HYPE large, SOL modest) — and SHORTS the laggards — the broad U.S. market via the SP500 index (the 'economy suffers' core) plus a gated basket of laggard crypto alts. Trend-confirmed, conviction-sized (HYPE big, SOL small, SP500 core). The edge is the DISPERSION between the two speeds, not market direction. Cross-asset (equities + crypto) on two wallets, net exposure an operator dial, 24/7.",
+      "belief_plain": "Bets on a K-shaped divergence: LONGS the structural winners — the full AI complex on Hyperliquid XYZ (NVDA, AMD, INTC, TSM, ASML, ARM, AVGO,",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You have a directional thematic view — one cohort booms, another suffers — and want it as a hedged cross-asset long/short.",
+      "tags": [
+        "hedge-fund",
+        "two-speed-market",
+        "k-shaped",
+        "thematic-long-short",
+        "cross-asset",
+        "conviction-sizing",
+        "ai",
+        "hype",
+        "two-wallet"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "major_alts",
+        "xyz_equities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "SOL",
+        "HYPE",
+        "xyz:NVDA",
+        "xyz:META",
+        "xyz:MSFT",
+        "xyz:GOOGL",
+        "xyz:AMZN",
+        "xyz:AMD",
+        "xyz:MU",
+        "xyz:INTC",
+        "xyz:TSM",
+        "xyz:ORCL",
+        "xyz:SP500",
+        "xyz:SPCX"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 11,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "cub",
+      "name": "Cub — Lion + Pre-IPO Hedge Fund",
+      "emoji": "🐾",
+      "tagline": "A variation of Lion that allocates ~90% to the Lion two-speed AI long/short engine (long the AI complex + HYPE/SOL, short the broad U.S. market via SP500 + laggard alts) and ~10% to a pre-IPO ramp satellite that auto-discovers pre-IPO perpetuals (IPOPs) by their funding signature and LONGS the ones ramping into their listing — the SpaceX/Cerebras pattern, catching the next AI winner before it converts to a standard equity. The 90/10 is the operator's funding split across three wallets, not a hardcoded constant. Trend-confirmed, conviction-sized, 24/7.",
+      "belief_plain": "A variation of Lion that allocates ~90% to the Lion two-speed AI long/short engine (long the AI complex + HYPE/SOL, short the broad U.S.",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You want a proven fund's core plus a small higher-optionality satellite sleeve under one strategy, mixed by a funding dial.",
+      "tags": [
+        "hedge-fund",
+        "composite-allocation",
+        "lion-variation",
+        "pre-ipo",
+        "ipop",
+        "satellite-sleeve",
+        "three-wallet"
+      ],
+      "archetype": "single_market",
+      "archetype_label": "Single Market",
+      "sub_style": "pre_ipo",
+      "sub_style_label": "Pre Ipo",
+      "asset_classes": [
+        "major_alts",
+        "xyz_equities",
+        "indices",
+        "pre_ipo"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "SOL",
+        "HYPE",
+        "xyz:SP500"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 12,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "eel",
+      "name": "Eel — Electrons vs Hydrocarbons Energy-Pair Hedge Fund",
+      "emoji": "⚡",
+      "tagline": "Bets that AI datacenters are a structural new source of ELECTRICITY demand. LONGS the AI-power complex on Hyperliquid XYZ (uranium URNM, gas-fired power NATGAS, grid copper COPPER, fuel cells BE, rare-earth USAR) and SHORTS crude oil (BRENTOIL + WTI) — the legacy transport fuel barely levered to AI. Both legs are energy, so an energy-wide move washes out and the P&L is the electrons-vs-barrels spread — an energy-sector-NEUTRAL pair, the cleanest hedge of the thesis-fund family. Conviction-sized, trend-confirmed, ~24/7.",
+      "belief_plain": "Bets that AI datacenters are a structural new source of ELECTRICITY demand.",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You have an opinionated macro divergence with a tradeable long AND short basket, expressed as a hedged long/short on the spread.",
+      "tags": [
+        "hedge-fund",
+        "thesis-fund",
+        "energy",
+        "ai-power",
+        "same-sector-pair",
+        "two-wallet"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:BRENTOIL",
+        "xyz:COPPER",
+        "xyz:NATGAS"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 13,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "mongoose",
+      "name": "Mongoose — On-Chain Finance vs Legacy Hedge Fund",
+      "emoji": "🪙",
+      "tagline": "Bets that money is migrating ON-CHAIN — stablecoins, crypto exchanges, and BTC treasuries eating legacy financial rails. LONGS the on-chain financial rails on Hyperliquid (HYPE the venue, Circle/CRCL stablecoins, Coinbase/COIN, Robinhood/HOOD, crypto treasuries MSTR/PURRDAT) and SHORTS legacy finance + broad financial-beta (Blackstone/BX + SP500). The P&L is the disruptor-vs-incumbent spread. Note: the hedge is cross-sector and the short universe is thin, so it leans on the index — looser than a same-sector pair. Conviction-sized, trend-confirmed.",
+      "belief_plain": "Bets that money is migrating ON-CHAIN — stablecoins, crypto exchanges, and BTC treasuries eating legacy financial rails.",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You have an opinionated macro divergence with a tradeable long AND short basket, expressed as a hedged long/short on the spread.",
+      "tags": [
+        "hedge-fund",
+        "thesis-fund",
+        "on-chain-finance",
+        "stablecoins",
+        "tokenization",
+        "two-wallet"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "universe_crypto",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "HYPE",
+        "xyz:SP500"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 14,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "boar",
+      "name": "Boar — Hard Money vs Paper (Debasement) Hedge Fund",
+      "emoji": "🥇",
+      "tagline": "Bets on currency DEBASEMENT under fiscal dominance: scarce real assets outperform fiat-denominated paper claims as deficits compound and the term premium rises. LONGS hard money (GOLD, BTC, SILVER, PLATINUM, PALLADIUM) and SHORTS the paper economy (SP500 + rate-sensitive long-duration growth RIVN/DKNG/HIMS). The P&L is the real-assets-beat-paper-claims spread. HONEST CAVEAT: the loosest hedge of the thesis-fund family — in a pure liquidity melt-up gold AND stocks rise together; the rate-sensitive short tilt tightens it but the hedge is imperfect. Best as a tilt, not market-neutral. Trend-confirmed.",
+      "belief_plain": "Bets on currency DEBASEMENT under fiscal dominance: scarce real assets outperform fiat-denominated paper claims as deficits compound and the",
+      "version": "1.0.0",
+      "group": "hedge-fund",
+      "thesis": "You have an opinionated macro divergence with a tradeable long AND short basket, expressed as a hedged long/short on the spread.",
+      "tags": [
+        "hedge-fund",
+        "thesis-fund",
+        "debasement",
+        "hard-money",
+        "gold",
+        "btc",
+        "two-wallet"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
+      "asset_classes": [
+        "btc_eth",
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "xyz:GOLD",
+        "xyz:SILVER",
+        "xyz:SP500"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 15,
+      "branch": "main-synthetic"
+    },
+    {
       "id": "piranha",
       "name": "Piranha — Liquidation-Cascade / Forced-Flow Hunter",
       "emoji": "🐟",
@@ -1324,14 +2216,19 @@
       "belief_plain": "Rides forced flow — OI unwinding fast + a violent move + a thinning book = a liquidation cascade.",
       "version": "1.0.0",
       "group": "microstructure-order-flow",
+      "thesis": "You want an edge from microstructure — forced liquidations and order-book imbalance — not candle trend.",
+      "tags": [
+        "oi-velocity",
+        "order-book",
+        "forced-flow"
+      ],
       "archetype": "breakout_momentum",
       "archetype_label": "Breakout Momentum",
       "sub_style": "orderbook_pressure",
       "sub_style_label": "Orderbook Pressure",
       "asset_classes": [
         "btc_eth",
-        "major_alts",
-        "universe_crypto"
+        "major_alts"
       ],
       "asset_scope": "universe",
       "assets": [
@@ -1363,6 +2260,12 @@
       "belief_plain": "Single-asset alpha hunter for ETH.",
       "version": "5.0.0",
       "group": "single-asset-alpha-hunter",
+      "thesis": "You have a thesis on one specific asset and want scoring + exits tuned to that asset's behavior.",
+      "tags": [
+        "eth",
+        "6-gate",
+        "single-slot"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "alpha_hunter",
@@ -1397,13 +2300,17 @@
       "belief_plain": "Multi-day LONG-biased trend holds on top-50 HL assets.",
       "version": "2.0.0",
       "group": "universe-trend-follower",
+      "thesis": "You want broad market coverage and entries only when multiple confirmations align across timeframes.",
+      "tags": [
+        "multi-day",
+        "mixed-sig",
+        "min-score-8"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "rotation",
       "sub_style_label": "Rotation",
       "asset_classes": [
-        "btc_eth",
-        "major_alts",
         "universe_crypto"
       ],
       "asset_scope": "universe",
@@ -1431,11 +2338,20 @@
       "belief_plain": "ONLY trades during the trade.xyz no-external-price weekend window (Fri 22:00 UTC → Mon 00:00 UTC).",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "onboarding",
+        "xyz-weekend",
+        "reconciliation",
+        "time-gated"
+      ],
       "archetype": "single_market",
       "archetype_label": "Single Market",
       "sub_style": "weekend_gap",
       "sub_style_label": "Weekend Gap",
       "asset_classes": [
+        "indices",
+        "commodities",
         "xyz_equities"
       ],
       "asset_scope": "basket",
@@ -1463,6 +2379,12 @@
       "belief_plain": "Follows weekly-winning ELITE/RELIABLE traders into their strongest current position.",
       "version": "4.0.0",
       "group": "trader-follower",
+      "thesis": "You'd rather copy proven alpha-generating traders than form your own technical view.",
+      "tags": [
+        "coat-tail",
+        "24h-cache",
+        "tick-60-180s"
+      ],
       "archetype": "copy_trading",
       "archetype_label": "Copy Trading",
       "sub_style": "arena_winners",
@@ -1495,6 +2417,12 @@
       "belief_plain": "Rank-jump explosion hunter that fires only on extreme upside breakouts.",
       "version": "3.0.1",
       "group": "striker-rank-jump",
+      "thesis": "You want to catch the inflection when smart-money interest suddenly spikes on a previously-quiet asset.",
+      "tags": [
+        "striker",
+        "first-jump",
+        "volume-floor"
+      ],
       "archetype": "breakout_momentum",
       "archetype_label": "Breakout Momentum",
       "sub_style": "rank_jump",
@@ -1529,6 +2457,14 @@
       "belief_plain": "Stand sentry, pop the instant something moves.",
       "version": "1.0.0",
       "group": "striker-rank-jump",
+      "thesis": "You want to catch the inflection when smart-money interest suddenly spikes on a previously-quiet asset.",
+      "tags": [
+        "momentum-event",
+        "tier-sniper",
+        "freshness-gate",
+        "wide-dsl",
+        "tick-120s"
+      ],
       "archetype": "breakout_momentum",
       "archetype_label": "Breakout Momentum",
       "sub_style": "rank_jump",
@@ -1563,6 +2499,12 @@
       "belief_plain": "Buy dips in uptrends, short rallies in downtrends.",
       "version": "1.0.0",
       "group": "multi-asset-whitelist",
+      "thesis": "You want to restrict to a known basket of majors, cutting low-cap noise, and trade the best-scoring of them.",
+      "tags": [
+        "onboarding",
+        "pullback",
+        "asymmetric-dsl"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "basket",
@@ -1596,12 +2538,17 @@
       "belief_plain": "Universe trend-follower hunting altcoin swarms across both crypto and XYZ DEX.",
       "version": "5.0.1",
       "group": "universe-trend-follower",
+      "thesis": "You want broad market coverage and entries only when multiple confirmations align across timeframes.",
+      "tags": [
+        "funding-backstop",
+        "cooldown",
+        "universe"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "rotation",
       "sub_style_label": "Rotation",
       "asset_classes": [
-        "btc_eth",
         "major_alts",
         "universe_crypto"
       ],
@@ -1629,13 +2576,21 @@
       "tagline": "AI/Tech-focused long book + a macro/majors long-short counter-trading book — two style legs, two wallets, one producer.",
       "belief_plain": "AI/Tech-focused long book + a macro/majors long-short counter-trading book — two style legs, two wallets, one producer.",
       "version": "5.1.1",
-      "group": "multi-asset-whitelist",
-      "archetype": "trend_following",
-      "archetype_label": "Trend Following",
-      "sub_style": "basket",
-      "sub_style_label": "Basket",
+      "group": "hedge-fund",
+      "thesis": "AI/Tech-focused long book + a macro/majors long-short counter-trading book — two style legs, two wallets, one producer.",
+      "tags": [
+        "two-leg",
+        "hedge-fund",
+        "ai-tech-long",
+        "macro-scalp",
+        "both-direction",
+        "dynamic-universe"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "multi_book",
+      "sub_style_label": "Multi Book",
       "asset_classes": [
-        "btc_eth",
         "major_alts"
       ],
       "asset_scope": "basket",
@@ -1652,7 +2607,7 @@
         1.0
       ],
       "max_slots": 3,
-      "sort_order": 46,
+      "sort_order": 1,
       "branch": "main-synthetic"
     },
     {
@@ -1663,6 +2618,13 @@
       "belief_plain": "Ride the whales you choose.",
       "version": "1.0.0",
       "group": "trader-follower",
+      "thesis": "You'd rather copy proven alpha-generating traders than form your own technical view.",
+      "tags": [
+        "whale-mirror",
+        "consensus",
+        "operator-picked",
+        "wide-dsl"
+      ],
       "archetype": "copy_trading",
       "archetype_label": "Copy Trading",
       "sub_style": "arena_winners",
@@ -1695,6 +2657,14 @@
       "belief_plain": "Let the best strategies do the work.",
       "version": "1.0.0",
       "group": "trader-follower",
+      "thesis": "You trust the platform's aggregate of best strategies more than any one trader or your own read.",
+      "tags": [
+        "meta-follower",
+        "copy-the-copiers",
+        "consensus",
+        "performance-weighted",
+        "user-scope-auth-required"
+      ],
       "archetype": "copy_trading",
       "archetype_label": "Copy Trading",
       "sub_style": "arena_winners",
@@ -1727,6 +2697,12 @@
       "belief_plain": "Run the volume play.",
       "version": "3.3.0",
       "group": "volume-engine",
+      "thesis": "You're not trading direction — you want to recycle builder fees and accrue volume credits.",
+      "tags": [
+        "volume-engine",
+        "two-wallet",
+        "builder-fee-recycle"
+      ],
       "archetype": "structural_neutral",
       "archetype_label": "Structural Neutral",
       "sub_style": "market_making",
@@ -1761,6 +2737,13 @@
       "belief_plain": "Trader-follower / hot-streak rider that holds winners for days across 25+ small/mid-cap Hyperliquid perps no other Senpi predator covers.",
       "version": "4.0.1",
       "group": "funding-fade",
+      "thesis": "You believe persistent funding extremity precedes forced unwinds and want to fade the crowd at exhaustion.",
+      "tags": [
+        "small-cap",
+        "long-tail",
+        "conviction-scaled",
+        "min-score-9"
+      ],
       "archetype": "contrarian_fade",
       "archetype_label": "Contrarian Fade",
       "sub_style": "funding_extreme",
@@ -1795,6 +2778,12 @@
       "belief_plain": "Single-asset alpha hunter for HYPE.",
       "version": "6.0.0",
       "group": "single-asset-alpha-hunter",
+      "thesis": "You have a thesis on one specific asset and want scoring + exits tuned to that asset's behavior.",
+      "tags": [
+        "hype",
+        "high-vol",
+        "sharp-moves"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
       "sub_style": "alpha_hunter",
@@ -1828,11 +2817,19 @@
       "tagline": "The simplest possible Senpi agent. Pick an asset, fire LONG once, hold with the widest DSL in any Senpi agent. For users whose entire thesis is \"I want to own BTC and have a safety net.\"",
       "belief_plain": "The simplest possible Senpi agent.",
       "version": "1.0.0",
-      "group": "single-asset-hunter",
+      "group": "single-asset-alpha-hunter",
+      "thesis": "You have a thesis on one specific asset and want scoring + exits tuned to that asset's behavior.",
+      "tags": [
+        "onboarding",
+        "hodl",
+        "fire-once",
+        "ultra-wide-dsl",
+        "no-scoring"
+      ],
       "archetype": "trend_following",
       "archetype_label": "Trend Following",
-      "sub_style": "hodl",
-      "sub_style_label": "Hodl",
+      "sub_style": "alpha_hunter",
+      "sub_style_label": "Alpha Hunter",
       "asset_classes": [
         "btc_eth"
       ],
@@ -1844,8 +2841,8 @@
       "risk_level": "conservative",
       "tier": "starter",
       "leverage_max": 3,
-      "time_horizon": "hodl",
-      "cadence_seconds": 86400,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
       "min_budget": 100,
       "instance_count": 1,
       "funding_split": [
@@ -1853,6 +2850,323 @@
       ],
       "max_slots": 3,
       "sort_order": 46,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "thesis-risk-off",
+      "name": "Risk-Off — Bet Against the Trump Economy",
+      "emoji": "🐻",
+      "tagline": "Bet against the Trump economy: long gold/metals, short US indices + BTC. Presses only as the move confirms; de-risks via DSL if it doesn't.",
+      "belief_plain": "Bet against the Trump economy: long gold/metals, short US indices + BTC.",
+      "version": "1.0.0",
+      "group": "thesis-fund",
+      "thesis": "Bet against the Trump economy: long gold/metals, short US indices + BTC. Presses only as the move confirms; de-risks via DSL if it doesn't.",
+      "tags": [
+        "thesis-fund",
+        "macro",
+        "view-based",
+        "risk",
+        "off"
+      ],
+      "archetype": "single_market",
+      "archetype_label": "Single Market",
+      "sub_style": "broad_index",
+      "sub_style_label": "Broad Index",
+      "asset_classes": [
+        "btc_eth",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 60,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "thesis-recovery",
+      "name": "U.S. Recovery — Risk-On",
+      "emoji": "🐂",
+      "tagline": "Bet on U.S. recovery (risk-on): long US indices + BTC, short gold. The mirror of Risk-Off.",
+      "belief_plain": "Bet on U.S.",
+      "version": "1.0.0",
+      "group": "thesis-fund",
+      "thesis": "Bet on U.S. recovery (risk-on): long US indices + BTC, short gold. The mirror of Risk-Off.",
+      "tags": [
+        "thesis-fund",
+        "macro",
+        "view-based",
+        "recovery"
+      ],
+      "archetype": "single_market",
+      "archetype_label": "Single Market",
+      "sub_style": "broad_index",
+      "sub_style_label": "Broad Index",
+      "asset_classes": [
+        "btc_eth",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 61,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "thesis-war-escalation",
+      "name": "War Escalation — Iran/US/Israel Quagmire",
+      "emoji": "🛢️",
+      "tagline": "Bet the Iran/US/Israel conflict deepens: long oil + gold, short equities + BTC.",
+      "belief_plain": "Bet the Iran/US/Israel conflict deepens: long oil + gold, short equities + BTC.",
+      "version": "1.0.0",
+      "group": "thesis-fund",
+      "thesis": "Bet the Iran/US/Israel conflict deepens: long oil + gold, short equities + BTC.",
+      "tags": [
+        "thesis-fund",
+        "macro",
+        "view-based",
+        "war",
+        "escalation"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "thesis_preset",
+      "sub_style_label": "Thesis Preset",
+      "asset_classes": [
+        "btc_eth",
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 62,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "thesis-war-recovery",
+      "name": "War De-escalation — Recovery",
+      "emoji": "🕊️",
+      "tagline": "Bet on de-escalation: short oil + gold, long equities + BTC.",
+      "belief_plain": "Bet on de-escalation: short oil + gold, long equities + BTC.",
+      "version": "1.0.0",
+      "group": "thesis-fund",
+      "thesis": "Bet on de-escalation: short oil + gold, long equities + BTC.",
+      "tags": [
+        "thesis-fund",
+        "macro",
+        "view-based",
+        "war",
+        "recovery"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "thesis_preset",
+      "sub_style_label": "Thesis Preset",
+      "asset_classes": [
+        "btc_eth",
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 63,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "thesis-hype-vs-market",
+      "name": "HYPE vs. the Rest of the Market",
+      "emoji": "⚡",
+      "tagline": "Bet HYPE keeps outrunning the majors: long HYPE, short the BTC/ETH/SOL basket. Roughly market-neutral.",
+      "belief_plain": "Bet HYPE keeps outrunning the majors: long HYPE, short the BTC/ETH/SOL basket.",
+      "version": "1.0.0",
+      "group": "thesis-fund",
+      "thesis": "Bet HYPE keeps outrunning the majors: long HYPE, short the BTC/ETH/SOL basket. Roughly market-neutral.",
+      "tags": [
+        "thesis-fund",
+        "macro",
+        "view-based",
+        "hype",
+        "vs",
+        "market",
+        "market-neutral"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "thesis_preset",
+      "sub_style_label": "Thesis Preset",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 64,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "thesis-gold-over-btc",
+      "name": "Gold over Bitcoin — Real Gold Wins",
+      "emoji": "🥇",
+      "tagline": "Bet real gold beats 'digital gold': long gold, short BTC.",
+      "belief_plain": "Bet real gold beats 'digital gold': long gold, short BTC.",
+      "version": "1.0.0",
+      "group": "thesis-fund",
+      "thesis": "Bet real gold beats 'digital gold': long gold, short BTC.",
+      "tags": [
+        "thesis-fund",
+        "macro",
+        "view-based",
+        "gold",
+        "over",
+        "btc"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "thesis_preset",
+      "sub_style_label": "Thesis Preset",
+      "asset_classes": [
+        "btc_eth",
+        "commodities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 65,
+      "branch": "main-synthetic"
+    },
+    {
+      "id": "thesis-btc-over-gold",
+      "name": "Bitcoin over Gold — Digital Gold Wins",
+      "emoji": "🟠",
+      "tagline": "Bet Bitcoin takes share from gold: long BTC, short gold.",
+      "belief_plain": "Bet Bitcoin takes share from gold: long BTC, short gold.",
+      "version": "1.0.0",
+      "group": "thesis-fund",
+      "thesis": "Bet Bitcoin takes share from gold: long BTC, short gold.",
+      "tags": [
+        "thesis-fund",
+        "macro",
+        "view-based",
+        "btc",
+        "over",
+        "gold"
+      ],
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural Neutral",
+      "sub_style": "thesis_preset",
+      "sub_style_label": "Thesis Preset",
+      "asset_classes": [
+        "btc_eth",
+        "commodities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "sort_order": 66,
       "branch": "main-synthetic"
     }
   ]
