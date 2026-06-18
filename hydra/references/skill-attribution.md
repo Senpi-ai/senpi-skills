@@ -30,8 +30,14 @@ the three heads as one coin-parameterized engine.
 
 ## Design decisions specific to Hydra
 
-- **Coin- AND leg-parameterized.** `HYDRA_COIN` × `HYDRA_LEG` → 3 wallets per coin;
-  ETH/SOL/HYPE = nine wallets, one engine. Extensible to any major.
+- **Named variants over one engine.** Shipped as **Hydra-ETH / Hydra-SOL /
+  Hydra-HYPE** — three self-contained catalog entries the picker recommends
+  directly (no parameterized-fund prompt needed), all sharing one producer +
+  runtimes. `HYDRA_COIN` × `HYDRA_LEG` → 3 wallets per variant; nine wallets total.
+  Each variant loads its own per-coin config set (`hydra-<coin>-<leg>-config.json`)
+  with **per-coin vol tuning** — the hedge `stressDropPct` widens for higher-vol
+  coins (ETH 8 / SOL 10 / HYPE 13) so it doesn't arm on normal swings. Extensible
+  to any major by adding a `hydra-<coin>-*` set.
 - **Regime-disjoint heads — the core design invariant.** core (any trend), dip
   (uptrends only), hedge (downtrends + stress only) are gated so the fund never
   holds opposing positions across its wallets: uptrend → core long + dip; downtrend

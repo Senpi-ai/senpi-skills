@@ -39,6 +39,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # ─── Leg + coin resolution ───────────────────────────────────
+# Hydra ships as named per-coin VARIANTS (Hydra-ETH / Hydra-SOL / Hydra-HYPE) over
+# ONE shared engine. A variant = a coin (HYDRA_COIN) + its three head wallets
+# (HYDRA_LEG ∈ core/dip/hedge), each loading its own pinned, per-coin-tuned config:
+#   config/hydra-<coin>-<leg>-config.json   (e.g. hydra-eth-core-config.json)
+# The coin is part of the config PATH, so each variant is self-contained — the
+# picker just recommends "Hydra-ETH" like any named strategy; no parameterized-
+# fund machinery needed in the picker/ops layer.
 LEG = (os.environ.get("HYDRA_LEG") or "core").strip().lower()
 if LEG not in ("core", "dip", "hedge"):
     raise RuntimeError(
@@ -46,28 +53,30 @@ if LEG not in ("core", "dip", "hedge"):
         "Set it on the runtime host before starting the producer daemon."
     )
 
-WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
-SKILL_DIR = Path(WORKSPACE) / "skills" / "hydra-strategy"
-CONFIG_PATH = SKILL_DIR / "config" / f"hydra-{LEG}-config.json"
-STATE_DIR = SKILL_DIR / "state"
-
-STATE_DIR.mkdir(parents=True, exist_ok=True)
-
 _WALLET_ENV = "HYDRA_WALLET"
 _STRATEGY_ENV = "HYDRA_STRATEGY_ID"
 _COIN_ENV = "HYDRA_COIN"
+
+# Coin drives the config path, so it resolves from the environment (default ETH) —
+# it cannot depend on the config file it is used to locate.
+_coin_raw = (os.environ.get(_COIN_ENV) or "ETH").strip()
+COIN = _coin_raw if _coin_raw.lower().startswith("xyz:") else _coin_raw.upper()
+COIN_SLUG = COIN.lower().replace("xyz:", "")
+
+WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")
+SKILL_DIR = Path(WORKSPACE) / "skills" / "hydra-strategy"
+CONFIG_PATH = SKILL_DIR / "config" / f"hydra-{COIN_SLUG}-{LEG}-config.json"
+STATE_DIR = SKILL_DIR / "state"
+
+STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 RECENT_SIGNAL_TTL_SEC = 180
 
 
 def resolve_coin():
-    """The asset this deployment trades. HYDRA_COIN env wins; else config.coin;
-    else ETH. Upper-cased; xyz: prefix preserved (lower) if present."""
-    c = (os.environ.get(_COIN_ENV) or "").strip()
-    if not c:
-        c = (load_config().get("coin") or "").strip()
-    c = c or "ETH"
-    return c if c.lower().startswith("xyz:") else c.upper()
+    """The asset this variant trades — set by HYDRA_COIN (env), default ETH.
+    Upper-cased; an xyz: prefix is preserved (lower-case) if present."""
+    return COIN
 
 
 # ─── senpi_runtime_helpers (lazy + auth-validated) ───
@@ -201,7 +210,7 @@ def get_positions(wallet):
 # ─── recent-signals cache (held-asset dedup race-fix) ─────────
 
 def _recent_path():
-    return STATE_DIR / f"recent-signals-{LEG}.json"
+    return STATE_DIR / f"recent-signals-{COIN_SLUG}-{LEG}.json"
 
 
 def _read_recent_signals():

@@ -46,18 +46,25 @@ positions at once:
 **Net:** a net-long bet on the coin that **presses harder on pullbacks** and
 **flips defensive with a fast hedge** when it breaks.
 
-## Deploy it per coin (ETH / SOL / HYPE / any major)
+## Shipped as named variants over ONE shared engine
 
-One engine, three wallets per coin — set `HYDRA_COIN` and `HYDRA_LEG` per wallet:
+Hydra is published as three **named variants** — **Hydra-ETH**, **Hydra-SOL**,
+**Hydra-HYPE** — each a self-contained, deployable fund the picker recommends
+directly (no "which coin?" prompt needed). They share ONE producer + runtimes;
+only the per-coin config sets differ. `HYDRA_COIN` selects the variant,
+`HYDRA_LEG` the head — three wallets per variant:
 
-| Coin | core | dip | hedge |
-|---|---|---|---|
-| ETH | `HYDRA_COIN=ETH HYDRA_LEG=core` | `…=ETH …=dip` | `…=ETH …=hedge` |
-| SOL | `HYDRA_COIN=SOL HYDRA_LEG=core` | `…=SOL …=dip` | `…=SOL …=hedge` |
-| HYPE | `HYDRA_COIN=HYPE HYDRA_LEG=core` | `…=HYPE …=dip` | `…=HYPE …=hedge` |
+| Variant | core | dip | hedge | Hedge stress threshold |
+|---|---|---|---|---|
+| **Hydra-ETH** | `HYDRA_COIN=ETH HYDRA_LEG=core` | `…=ETH …=dip` | `…=ETH …=hedge` | 8% (ETH-calibrated) |
+| **Hydra-SOL** | `HYDRA_COIN=SOL HYDRA_LEG=core` | `…=SOL …=dip` | `…=SOL …=hedge` | 10% (wider — SOL vol) |
+| **Hydra-HYPE** | `HYDRA_COIN=HYPE HYDRA_LEG=core` | `…=HYPE …=dip` | `…=HYPE …=hedge` | 13% (widest — HYPE vol) |
 
-Run all three coins = nine wallets, one codebase. (`HYDRA_COIN` accepts any
-main-DEX perp, or an `xyz:` name.)
+Each variant loads `config/hydra-<coin>-<leg>-config.json`. **Per-coin tuning is the
+point of the variant split** — higher-vol coins get a wider hedge `stressDropPct`
+so the hedge doesn't arm on normal swings. Run all three = nine wallets, one
+codebase. Extensible to any major — add a `hydra-<coin>-*` config set; `HYDRA_COIN`
+also accepts an `xyz:` name.
 
 ## How each head scores (producer-side, single asset)
 

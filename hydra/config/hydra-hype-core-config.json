@@ -1,0 +1,20 @@
+{
+  "_comment": "HYDRA v1.0 CORE head \u2014 the thesis bet. Single-coin (config.coin, or HYDRA_COIN env) trend-momentum: LONG when 4h structure is bullish, SHORT when bearish, sit out a neutral tape. Conviction-tiered leverage (apexScore -> maxLeverage, else stdLeverage). One position per wallet. This is one of three heads (core/dip/hedge) of a single-coin portfolio fund; pairs with the dip + hedge heads on SEPARATE wallets, all with the same HYDRA_COIN. Set wallet/strategyId/chatId (and HYDRA_COIN or coin). Runtime owns position tracking, caps, DSL via runtime-core.yaml. Producer launched with HYDRA_LEG=core.",
+  "coin": "HYPE",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "minScore": 5,
+  "marginPct": 0.2,
+  "maxLeverage": 5,
+  "stdLeverage": 3,
+  "apexScore": 7,
+  "rsiOverbought": 80,
+  "rsiOversold": 20,
+  "minNotionalPctOfEquity": 0.01,
+  "venueMinNotionalUsd": 10,
+  "tickSeconds": 300,
+  "_coin_note": "This is the Hydra-HYPE variant (HYDRA_COIN=HYPE). hedge stressDropPct 13 \u2014 widest, so the hedge doesn't arm on HYPE's normal 8%+ swings. maxLeverage is also clamped at HYPE's venue cap automatically. One of three head wallets (core/dip/hedge); all three share this HYDRA_COIN. Same engine across all coins.",
+  "_role_note": "CORE = the directional thesis spine. It is the only head that goes both ways (long the uptrend / short the downtrend) and the only one always-on. The dip head presses pullbacks (uptrends only); the hedge head shorts stress (downtrends only). Fund default sizing: core 50% / dip 25% / hedge 25% of the coin's combined budget (operator funding split across the three wallets).",
+  "_persona": "Single-coin thesis bet \u2014 conviction-tiered trend-momentum on one major, both directions, let-winners-run DSL, time-cuts off (single-asset standard). The spine of a Hydra single-coin portfolio fund."
+}
