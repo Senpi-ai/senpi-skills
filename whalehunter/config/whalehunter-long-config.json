@@ -1,0 +1,33 @@
+{
+  "_comment": "WHALEHUNTERHEDGE v1.0 LONG sleeve \u2014 patient-whale conviction copy. Watches traders tagged ELITE (consistency) AND PATIENT (activity) on Senpi Discover and mirrors their high-conviction LONG strikes: a NEW position whose marginUsed/accountValue (capital at risk as a share of THEIR balance) clears convictionPct. Sized to MY budget, conviction- and consensus-scaled; leverage capped (conviction shows in size, not leverage). Pairs with the short sleeve on a SEPARATE wallet so the book can hold conflicting positions on one asset at once (whale A long ETH + whale B short ETH => both held). Wide ride-the-whale DSL via runtime-long.yaml. Requires a USER-scoped SENPI_AUTH_TOKEN (discovery_* needs a user id). Set wallet/strategyId/chatId. Producer launched with WHALEHUNTER_LEG=long.",
+  "strategyId": "",
+  "wallet": "",
+  "chatId": "",
+  "consistencyTags": [
+    "ELITE"
+  ],
+  "activityTags": [
+    "PATIENT"
+  ],
+  "poolTimeFrame": "MONTHLY",
+  "poolSortBy": "GAIN_TO_PAIN_RATIO",
+  "poolOverfetch": 80,
+  "poolSize": 30,
+  "poolMinTraderAgeDays": 21,
+  "poolRefreshHours": 24,
+  "convictionPct": 0.25,
+  "maxEntryAgeSec": 21600,
+  "marginPct": 0.12,
+  "maxConvictionScale": 2.0,
+  "maxMarginPct": 0.25,
+  "maxLeverage": 5,
+  "stdLeverage": 3,
+  "maxSlots": 6,
+  "venueMinNotionalUsd": 10,
+  "minNotionalPctOfEquity": 0.01,
+  "tickSeconds": 300,
+  "_pool_note": "consistencyTags + activityTags are the gate. ELITE+PATIENT is intentionally STRICT (a small, pristine pool of consistent winners who rarely trade). If it's too thin to ever fire, widen activityTags to [\"PATIENT\",\"TACTICAL\"] \u2014 a one-line change, no rebuild. poolMinTraderAgeDays buffers survivorship.",
+  "_conviction_note": "convictionPct = the whale's marginUsed / accountValue on the NEW position \u2014 capital at risk as a share of THEIR balance (the truest read of conviction; not leverage-inflated notional). 0.25 = they put >=25% of their book in. Raise for an even sharper sniper; lower for more signals.",
+  "_sizing_note": "MY margin = account_value * marginPct, scaled up by their conviction and by pool consensus (more whales agreeing), capped at maxMarginPct of equity. Leverage is stdLeverage capped at maxLeverage then the venue max \u2014 conviction shows in SIZE, never inherited leverage. Nothing here is a hardcoded $ amount. Funding split across the two sleeves: default 50/50 (balanced long/short, no directional bias).",
+  "_persona": "Patient-whale conviction sniper \u2014 LONG sleeve. Shadows ELITE+PATIENT winners and strikes only their rare, big-conviction LONG bets, then rides on a wide DSL. One of two sleeves of WhaleHunterHedge; pairs with the opposite sleeve on a separate wallet so conflicting same-asset positions can coexist."
+}

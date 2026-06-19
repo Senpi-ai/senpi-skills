@@ -1,0 +1,165 @@
+name: whalehunter-short-tracker
+# Top-level `version` is the SCHEMA version (major=1). Skill version "WhaleHunterHedge
+# v1.0" lives in description + SKILL.md + _whalehunter_producer_version.
+version: 1.0.0
+description: >
+  WHALEHUNTERHEDGE v1.0 (SHORT sleeve) — patient-whale conviction copy.
+
+  Mirrors the high-conviction SHORT strikes of traders tagged ELITE (consistency)
+  AND PATIENT (activity) on Senpi Discover — winners who rarely trade, so when they
+  put a big share of their own balance into a NEW short, that is their highest-
+  conviction read. The producer gates on the three Discover signals (ELITE +
+  PATIENT + new position whose marginUsed/accountValue clears convictionPct) and
+  emits a copy signal; this runtime honors it and rides it on a WIDE DSL. Pairs
+  with the LONG sleeve on a SEPARATE wallet so conflicting same-asset positions
+  can coexist. Funding split default 50/50.
+
+  Execution envelope: up to 6 slots (a book of conviction copies), conviction-
+  scaled margin (producer sets marginUsd), 5x clamp then venue max. Taker-fallback
+  entries (copying a conviction strike must fill). WIDE ride-the-whale DSL — wide
+  disaster stop, weak_peak OFF, time-cuts OFF, Phase 2 does nothing until a big run.
+
+strategy:
+  wallet: "${WHALEHUNTER_SHORT_WALLET}"
+  # Producer sets per-signal marginUsd (conviction-scaled); margin_pct is advisory.
+  slots: 6
+  margin_pct: 12
+  trading_risk: moderate
+  enabled: true
+
+risk:
+  data_retention_hours: 168
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 6          # patient whales strike rarely; this is a generous ceiling
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_minutes: 60
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 360
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+  - name: whalehunter_short_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        direction: { type: string, required: true }
+        reasons: { type: array, required: false }
+        sourceTrader: { type: string, required: false }
+        sourceUsername: { type: string, required: false }
+        convictionPct: { type: number, required: false }
+        consensus: { type: number, required: false }
+        heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: whalehunter_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${WHALEHUNTER_DECISION_MODEL}"   # REQUIRED. Bare model name only — NO provider prefix.
+    scanners: [whalehunter_short_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true       # copying a conviction strike MUST fill — taker fallback
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: whalehunter_short_signals
+    decision_prompt: |
+      You are WhaleHunterHedge's SHORT-sleeve pass-through gate — a patient-whale
+      conviction copier. The producer confirmed a trader tagged ELITE + PATIENT on
+      Senpi Discover just opened a NEW high-conviction SHORT (a large share of their
+      own balance). Mirror it unless malformed.
+
+      SIGNAL:
+      {{signal_whalehunter_short_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+      1. asset MUST be copied from signal.asset EXACTLY (preserve any xyz: prefix).
+      2. direction MUST be "SHORT".
+      3. leverage MUST be copied from signal.data.leverage.
+      4. marginUsd MUST be copied from signal.data.marginUsd.
+      5. Every claim in reasoning MUST cite signal values.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+      - leverage <= 0 OR leverage > 5 (clamp breach) OR marginUsd <= 0
+      - direction != "SHORT"
+      - signal.asset already in signal.data.heldAssets (duplicate)
+      - reasons array empty
+
+      ## CONFIDENCE SCORING
+      - 9-10: convictionPct >= 0.40 OR consensus >= 2
+      - 7-8:  convictionPct 0.25-0.40
+      - 7:    convictionPct ~0.25 (producer floor) — the signal IS the validation
+      - <7:   producer floor not cleared (should never reach you)
+
+      ## OUTPUT FORMAT
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values (e.g. 'copy SOL SHORT 3x from ELITE+PATIENT whale, conviction 28% of their book, consensus 1')",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "SHORT",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "WHALEHUNTER_STRIKE — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — WIDE "ride the whale": wide disaster stop, let conviction run) ──
+# v1 ships the wide DSL as the sole exit. "Follow them out" (close when the source
+# whale closes) is the planned v1.1 producer-emitted invalidation exit.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 43200
+    weak_peak_cut:
+      enabled: false              # ride the conviction — don't cut a slow grind
+      interval_in_minutes: 1440
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 2880
+    phase1:
+      enabled: true
+      max_loss_pct: 30.0          # wide disaster stop
+      retrace_threshold: 18       # wide — normal volatility doesn't trail us out
+      consecutive_breaches_required: 2
+    phase2:
+      enabled: true
+      tiers:                      # do nothing until a real run, then bank only a fraction
+        - { trigger_pct: 60, lock_hw_pct: 0 }
+        - { trigger_pct: 120, lock_hw_pct: 45 }
+        - { trigger_pct: 220, lock_hw_pct: 65 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

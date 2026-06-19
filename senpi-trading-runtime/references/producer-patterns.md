@@ -1212,6 +1212,31 @@ margin = equity * baseRiskPct * (referenceVol / asset_ATR%)   # VOL PARITY: calm
 
 ---
 
+### 30. Patient-whale conviction copy (smart-money follower, long/short)
+
+A copy-follower with a **conviction gate** instead of copy-everything. Most follower agents (e.g. Jackal) mirror *every* new entry from top-ROI traders — noisy. This pattern fires only on the **single highest-conviction strike** of a **consistent + patient** winner: a trader who rarely trades, so when they finally commit a big slice of *their own* balance to a new position, it's their strongest read. The rarity is the alpha. Built on Senpi Discover's trader tags.
+
+```python
+# Pool (daily cache): discovery_get_top_traders(consistency=[ELITE], activity_labels=[PATIENT])
+# Per tick: discovery_get_trader_state(include_position_age=true) -> diff vs baseline
+strike if: new position in THIS sleeve's direction
+       and marginUsed / accountValue >= convictionPct      # big share of THEIR balance = conviction
+       and durationInSeconds < maxEntryAgeSec               # recently opened
+# mirror -> size to MY budget, conviction- + consensus-scaled, leverage capped -> WIDE DSL
+```
+
+**Three disciplines:** (1) **the conviction gate** — `marginUsed / accountValue` (capital at risk as a share of *their* book), not notional, is the truest conviction read; (2) **match hold-style to the DSL** — only follow PATIENT (not DEGEN) traders, because a *wide ride-it* DSL only makes sense behind a trader who themselves holds; (3) **baseline-seed guard** — never treat existing positions as new strikes on first run (Jackal's hard-learned bug). Consensus (multiple whales agreeing) scales the ONE position up, not into two (within-tick dedup). **Requires a USER-scoped auth token** — `discovery_*` needs a user id.
+
+**Two independent sleeves on SEPARATE wallets** — so different whales' *opposite* convictions on the same asset can both be held (long sleeve + short sleeve); funding default 50/50 makes it a balanced whale-conviction long/short hedge. The wide DSL is the v1 exit; "follow them out" (close when the source whale closes) is a planned v1.1 producer-emitted invalidation exit.
+
+**Agents in this family:**
+
+| Agent | Version | Source / Universe | Description | Tags |
+|---|---|---|---|---|
+| **WhaleHunterHedge** | v1.0 | ELITE + PATIENT Hyperliquid winners (Senpi Discover), two sleeves: long + short | **Patient-whale conviction copy.** Strikes only when a consistent+patient winner opens a new position ≥ convictionPct (default 25%) of their own balance; mirrors it long/short on separate wallets (conflicting same-asset positions allowed), conviction- + consensus-scaled margin, leverage-capped, ridden on a WIDE DSL. Funding 50/50. Daily-cached pool, baseline-seed guard. v1.1: follow-them-out exit + ALL_TIME durability cross-check. | Hedge-fund, Smart-money, Copy-trading, Conviction-gate, Patient, Two-sleeve, Wide-DSL |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.

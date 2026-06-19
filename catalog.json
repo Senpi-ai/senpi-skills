@@ -797,6 +797,20 @@
       "version": "1.0.0"
     },
     {
+      "id": "whalehunter",
+      "tracker_slug": "whalehunterhedge-v1-0-0",
+      "name": "WhaleHunterHedge \u2014 Patient-Whale Conviction Copy",
+      "emoji": "\ud83d\udc0b",
+      "tagline": "Follows the SINGLE highest-conviction trades of CONSISTENT + PATIENT Hyperliquid winners. It shadows traders tagged ELITE (consistency) AND PATIENT (activity) on Senpi Discover \u2014 winners who rarely trade \u2014 and strikes only when one opens a NEW position that's a large share of their OWN balance (their highest-conviction read), then mirrors it and rides it on a WIDE DSL. Two independent sleeves on SEPARATE wallets (long / short), so the book can hold conflicting positions on the same asset at once (different whales, opposite conviction). Funding split default 50/50 \u2014 a balanced whale-conviction long/short hedge, no directional bias. Requires a USER-scoped auth token (Discover needs a user id).",
+      "group": "hedge-fund",
+      "sort_order": 20,
+      "min_budget": 400,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "predators_url": "https://strategies.senpi.ai/bot/whalehunterhedge-v1-0-0",
+      "version": "1.0.0"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",
