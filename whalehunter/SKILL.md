@@ -1,20 +1,21 @@
 ---
 name: whalehunter-strategy
 description: >-
-  WHALEHUNTERHEDGE v1.0 — a long/short copy book that follows the SINGLE
-  highest-conviction trades of CONSISTENT + PATIENT Hyperliquid winners. It
-  watches traders tagged ELITE (consistency) AND PATIENT (activity) on Senpi
-  Discover — winners who rarely trade — and strikes only when one opens a NEW
-  position that is a large share of their OWN balance (their highest-conviction
-  read). Two INDEPENDENT sleeves on SEPARATE wallets (long / short), so the book
-  can hold conflicting positions on the same asset at once. Mirrors the strike,
-  sized to your budget (conviction- and consensus-scaled, leverage-capped), and
-  rides it on a WIDE DSL. Funding split default 50/50 (no directional bias). NOT a
-  blind copy-trader; runtime owns the LLM gate (pass-through), the wide DSL, risk.
+  WHALEHUNTERHEDGE v1.1 — a long/short copy book that follows the highest-conviction
+  trades of CONSISTENT + PATIENT Hyperliquid winners, sized by trader TIER. It
+  watches winners across four consistency×style tiers on Senpi Discover —
+  ELITE+PATIENT, ELITE+TACTICAL, RELIABLE+PATIENT, RELIABLE+TACTICAL (everything
+  else excluded) — and strikes only when one opens a NEW position that's a large
+  share of their OWN balance (their highest-conviction read). The mirror is sized
+  by the trader's tier (ELITE+PATIENT = highest margin, down to RELIABLE+TACTICAL),
+  conviction- and consensus-scaled, leverage-capped. Two INDEPENDENT sleeves on
+  SEPARATE wallets (long / short) so the book can hold conflicting positions on the
+  same asset at once. Rides on a WIDE DSL. Funding split default 50/50 (no
+  directional bias). NOT a blind copy-trader; runtime owns the LLM gate, DSL, risk.
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "1.0.0"
+  version: "1.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -49,24 +50,34 @@ is the alpha.** You're not copying their churn (they have none); you're copying 
 one big swing — and because they're patient, they hold it, which is exactly why a
 *wide* DSL fits: you ride as long as the conviction lasts.
 
-## Three gates before a strike (all from Senpi Discover)
+## The tiered pool + the conviction gate (all from Senpi Discover)
 
-1. **Consistent** — `consistency == ELITE` (`discovery_get_top_traders`).
-2. **Patient** — `activity == PATIENT` (same call). *(Both tags are config-driven;
-   widen to include `TACTICAL` if the strict pool is too thin to ever fire.)*
-3. **High-conviction size** — a **new** position (diffed vs baseline) whose
-   `marginUsed / accountValue` (capital at risk as a share of *their* balance) clears
-   `convictionPct` (default 25%), recently opened (`durationInSeconds < maxEntryAgeSec`).
+**Who's followed — four consistency×style tiers, each with a sizing weight** (the
+`tagWeights` matrix; every other tag pair — Streaky/Choppy, Degen/Active — is
+excluded). The pool is queried once per tier so each trader is tagged exactly:
 
-The pool refreshes daily (cross-checkable to ALL_TIME for durability); a **baseline-seed
-guard** prevents firing on pre-existing positions at startup.
+| Tier | Weight (margin use) |
+|---|---|
+| **ELITE + PATIENT** | **1.00** (highest) |
+| **ELITE + TACTICAL** | 0.75 |
+| **RELIABLE + PATIENT** | 0.50 |
+| **RELIABLE + TACTICAL** | 0.40 |
+
+**The strike gate (same across all tiers):** a **new** position (diffed vs baseline)
+in this sleeve's direction whose `marginUsed / accountValue` (capital at risk as a
+share of *their* balance) clears `convictionPct` (default 25%), recently opened
+(`durationInSeconds < maxEntryAgeSec`). The tier sets the **size**, not whether to
+follow. Pool refreshes daily; a **baseline-seed guard** prevents firing on
+pre-existing positions at startup.
 
 ## Mirror + ride
 
-- **Size to YOUR budget, conviction-scaled** — `margin = equity × marginPct`, scaled up
-  by how big *their* bet was and by **pool consensus** (more elite whales agreeing on
-  the same coin+direction = bigger size; agreement is consensus, **not** a second
-  position — within-tick dedup). Capped at `maxMarginPct` of equity.
+- **Size to YOUR budget, TIER- then conviction-scaled** — `margin = equity × marginPct
+  × tagWeight`, then scaled up by how big *their* bet was and by **pool consensus**
+  (agreement = bigger size, **not** a second position — within-tick dedup). The tier
+  weight scales **both** the base and the cap (`maxMarginPct × tagWeight`), so a higher
+  tier always has a higher ceiling — conviction/consensus only scale *within* a tier's
+  range. ELITE+PATIENT can reach the full cap; RELIABLE+TACTICAL tops out at 40% of it.
 - **Leverage capped** — conviction shows in *size*, not inherited leverage (clamp to
   `maxLeverage` then venue max; never copy a whale's 25×).
 - **Wide DSL** — wide disaster stop, `weak_peak` OFF, time-cuts OFF, Phase 2 does
@@ -99,9 +110,14 @@ A Claude session conversing with a user MUST NOT call `create_position`,
 `strategy_close*` tool against WhaleHunter's wallets. Entries are emitted only by the
 producer daemons; exits are owned only by the runtime DSL.
 
-## v1.0 — initial build
+## Versions
 
-The first **patient-whale conviction copier**. Gates on the three Discover signals
-(ELITE + PATIENT + conviction-as-%-of-their-balance), mirrors the rare big strike
-long/short on separate wallets, rides wide. v1.1 plans the "follow them out" exit
-(close when the source whale closes) and an ALL_TIME ∩ MONTHLY durability cross-check.
+- **v1.1 (current)** — **tiered sizing.** The pool widened from ELITE+PATIENT-only to
+  four consistency×style tiers, each with a `tagWeights` multiplier that scales both
+  the base margin and the cap (ELITE+PATIENT 1.0 → RELIABLE+TACTICAL 0.40). Solves the
+  thin-pool risk while keeping size proportional to trader quality.
+- **v1.0** — patient-whale conviction copier: ELITE+PATIENT only, conviction gate,
+  wide-DSL ride, long/short sleeves.
+
+Planned **v1.2:** the "follow them out" exit (close when the source whale closes) and
+an ALL_TIME ∩ MONTHLY durability cross-check on the pool.

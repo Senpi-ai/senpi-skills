@@ -51,16 +51,24 @@ import whalehunter_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 LEG = cfg.LEG  # "long" | "short"
 DIRECTION = "LONG" if LEG == "long" else "SHORT"
 SCANNER_NAME = f"whalehunter_{LEG}_signals"
 SIGNAL_TYPE = "WHALEHUNTER_STRIKE_LONG" if LEG == "long" else "WHALEHUNTER_STRIKE_SHORT"
 
 _DEFAULTS = {
-    # Pool — the consistent + patient winners we shadow.
-    "consistencyTags": ["ELITE"],
-    "activityTags": ["PATIENT"],
+    # Pool + tiered sizing — consistency x style. KEY = "<CONSISTENCY>+<STYLE>",
+    # VALUE = tier weight (scales BOTH base margin and the per-position cap, so a
+    # higher tier always has a higher ceiling). Only these combos are followed;
+    # every other combo (Streaky/Choppy, Degen/Active) is excluded entirely.
+    # The pool is queried once per combo so each trader is tagged exactly.
+    "tagWeights": {
+        "ELITE+PATIENT": 1.0,
+        "ELITE+TACTICAL": 0.75,
+        "RELIABLE+PATIENT": 0.50,
+        "RELIABLE+TACTICAL": 0.40,
+    },
     "poolTimeFrame": "MONTHLY",
     "poolSortBy": "GAIN_TO_PAIN_RATIO",
     "poolOverfetch": 80,
@@ -113,42 +121,57 @@ def refresh_pool(config, force=False):
     if not force and age_h < float(config.get("poolRefreshHours", _DEFAULTS["poolRefreshHours"])) and cached.get("traders"):
         return cached["traders"]
 
-    resp = cfg.mcp_call(
-        "discovery_get_top_traders",
-        time_frame=config.get("poolTimeFrame", _DEFAULTS["poolTimeFrame"]),
-        sort_by=config.get("poolSortBy", _DEFAULTS["poolSortBy"]),
-        consistency=config.get("consistencyTags", _DEFAULTS["consistencyTags"]),
-        activity_labels=config.get("activityTags", _DEFAULTS["activityTags"]),
-        open_position_filter=False,
-        limit=int(config.get("poolOverfetch", _DEFAULTS["poolOverfetch"])),
-    )
-    if not resp or not resp.get("success", True):
-        return cached.get("traders", [])
-    raw = resp.get("data", resp)
-    if isinstance(raw, dict):
-        raw = raw.get("traders", raw.get("data", []))
-    if not isinstance(raw, list):
-        return cached.get("traders", [])
-
+    weights = config.get("tagWeights", _DEFAULTS["tagWeights"])
     min_age = float(config.get("poolMinTraderAgeDays", _DEFAULTS["poolMinTraderAgeDays"]))
-    out = []
-    for t in raw:
-        if not isinstance(t, dict):
+    overfetch = int(config.get("poolOverfetch", _DEFAULTS["poolOverfetch"]))
+    by_addr, any_resp = {}, False
+    # One query per consistency+style combo so every trader is tagged exactly to
+    # its tier (don't depend on per-trader label field names). The combo's weight
+    # is the sizing tier; combos absent from tagWeights are never followed.
+    for combo, weight in weights.items():
+        try:
+            cons, style = (s.strip().upper() for s in combo.split("+"))
+        except ValueError:
             continue
-        addr = (t.get("address") or t.get("trader_address") or "").lower()
-        if not addr:
+        resp = cfg.mcp_call(
+            "discovery_get_top_traders",
+            time_frame=config.get("poolTimeFrame", _DEFAULTS["poolTimeFrame"]),
+            sort_by=config.get("poolSortBy", _DEFAULTS["poolSortBy"]),
+            consistency=[cons], activity_labels=[style],
+            open_position_filter=False, limit=overfetch,
+        )
+        if not resp or not resp.get("success", True):
             continue
-        age_days = _f(t, "trader_age_days", "traderAgeDays") or _f(t, "traderAgeSeconds") / 86400
-        if age_days < min_age:
+        any_resp = True
+        raw = resp.get("data", resp)
+        if isinstance(raw, dict):
+            raw = raw.get("traders", raw.get("data", []))
+        if not isinstance(raw, list):
             continue
-        out.append({
-            "address": addr,
-            "username": t.get("username") or t.get("userName") or "",
-            "gain_to_pain": _f(t, "gain_to_pain_ratio", "gainToPainRatio"),
-            "roi": _f(t, "return_on_investment", "returnOnInvestment", "roi"),
-            "win_rate": _f(t, "win_rate", "winRate"),
-            "age_days": round(age_days, 1),
-        })
+        for t in raw:
+            if not isinstance(t, dict):
+                continue
+            addr = (t.get("address") or t.get("trader_address") or "").lower()
+            if not addr:
+                continue
+            age_days = _f(t, "trader_age_days", "traderAgeDays") or _f(t, "traderAgeSeconds") / 86400
+            if age_days < min_age:
+                continue
+            if addr in by_addr and by_addr[addr]["tag_weight"] >= float(weight):
+                continue   # a trader has one tag pair; if seen, keep the higher tier
+            by_addr[addr] = {
+                "address": addr,
+                "username": t.get("username") or t.get("userName") or "",
+                "consistency": cons, "style": style, "combo": combo,
+                "tag_weight": float(weight),
+                "gain_to_pain": _f(t, "gain_to_pain_ratio", "gainToPainRatio"),
+                "roi": _f(t, "return_on_investment", "returnOnInvestment", "roi"),
+                "age_days": round(age_days, 1),
+            }
+    if not any_resp:
+        return cached.get("traders", [])
+    # rank by tier first, then risk-adjusted return
+    out = sorted(by_addr.values(), key=lambda x: (x["tag_weight"], x["gain_to_pain"]), reverse=True)
     out = out[:int(config.get("poolSize", _DEFAULTS["poolSize"]))]
     cfg.save_pool({"refreshed_at": now, "refreshed_iso": cfg.now_iso(),
                    "size": len(out), "traders": out})
@@ -253,13 +276,16 @@ def add_consensus(strikes, states):
 # ═══════════════════════════════════════════════════════════════
 
 def mirror_margin(account_value, strike, config):
-    """MY margin = base marginPct of MY equity, scaled by their conviction and by
-    pool consensus, capped. Conviction shows in SIZE, not leverage."""
-    base = float(config.get("marginPct", _DEFAULTS["marginPct"]))
+    """MY margin, tiered by the whale's tag pair then scaled by their conviction
+    and pool consensus. The TIER WEIGHT scales BOTH the base AND the cap, so a
+    higher tier (e.g. ELITE+PATIENT) always has a higher ceiling than a lower one
+    (e.g. RELIABLE+TACTICAL) — conviction/consensus only scale WITHIN a tier's
+    range. Conviction shows in SIZE, not leverage."""
+    tw = float(strike["trader"].get("tag_weight", 1.0))
+    base = float(config.get("marginPct", _DEFAULTS["marginPct"])) * tw
+    cap = float(config.get("maxMarginPct", _DEFAULTS["maxMarginPct"])) * tw
     conv_min = float(config.get("convictionPct", _DEFAULTS["convictionPct"]))
     smax = float(config.get("maxConvictionScale", _DEFAULTS["maxConvictionScale"]))
-    cap = float(config.get("maxMarginPct", _DEFAULTS["maxMarginPct"]))
-    # conviction ramp: 1.0 at the threshold -> toward smax as their bet doubles it
     conv = strike["conviction_pct"]
     conv_scale = 1.0 + min(1.0, max(0.0, (conv - conv_min) / max(conv_min, 1e-9)))  # +1.0 at 2x threshold
     cons_scale = 1.0 + min(0.5, 0.15 * strike.get("consensus", 0))                  # up to +0.5 from agreement
@@ -282,11 +308,14 @@ def push_signal(strike, margin_usd, leverage, held_assets):
         "leverage": leverage, "marginUsd": margin_usd, "direction": strike["direction"],
         "heldAssets": held_assets,
         "sourceTrader": tr["address"], "sourceUsername": tr.get("username", ""),
+        "sourceConsistency": tr.get("consistency"), "sourceStyle": tr.get("style"),
+        "tagTier": tr.get("combo"), "tagWeight": tr.get("tag_weight"),
         "sourceGainToPain": tr.get("gain_to_pain"), "sourceRoi": tr.get("roi"),
         "convictionPct": strike["conviction_pct"], "theirMarginUsd": strike["their_margin"],
         "consensus": strike.get("consensus", 0), "entryAgeSec": strike["age_sec"],
-        "reasons": [f"ELITE+PATIENT {tr.get('username') or tr['address'][:8]}",
+        "reasons": [f"{tr.get('combo', 'TIER')} {tr.get('username') or tr['address'][:8]}",
                     f"conviction {strike['conviction_pct']:.0%} of their book",
+                    f"tier weight {tr.get('tag_weight')}",
                     f"consensus {strike.get('consensus', 0)}"],
     }
     # confidence: conviction beyond the gate + consensus, normalized to 0..1

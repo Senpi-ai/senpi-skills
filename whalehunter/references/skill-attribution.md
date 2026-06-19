@@ -1,9 +1,20 @@
 # WhaleHunterHedge — Skill Attribution
 
-**Skill:** whalehunter-strategy v1.0.0
+**Skill:** whalehunter-strategy v1.1.0
 **Author:** jason-goldberg
 **License:** Apache-2.0
-**Created:** 2026-06-19
+**Created:** 2026-06-19 (v1.0) · 2026-06-19 (v1.1 tiered sizing)
+
+## v1.1 — tiered sizing
+
+The pool widened from ELITE+PATIENT-only to **four consistency×style tiers**, each
+with a `tagWeights` multiplier that scales **both** the base margin and the
+per-position cap (ELITE+PATIENT 1.0 / ELITE+TACTICAL 0.75 / RELIABLE+PATIENT 0.50 /
+RELIABLE+TACTICAL 0.40). A higher tier always has a higher ceiling; conviction +
+consensus scale within a tier's range. Solves the thin-pool risk (ELITE+PATIENT alone
+rarely fires) while keeping size proportional to trader quality. The pool is queried
+once per tier so each trader is tagged exactly (no reliance on per-trader label fields).
+Every other tag pair (Streaky/Choppy, Degen/Active) is excluded.
 
 ## What WhaleHunterHedge is
 

@@ -1,10 +1,19 @@
-# 🐋 WHALEHUNTERHEDGE v1.0 — Patient-Whale Conviction Copy (long/short)
+# 🐋 WHALEHUNTERHEDGE v1.1 — Patient-Whale Conviction Copy (long/short, tiered)
 
-Follow the **single biggest bet** of the patient winners. WhaleHunterHedge shadows
-traders tagged **ELITE** (consistency) + **PATIENT** (activity) on Senpi Discover and
-strikes only when one opens a **new position that's a large share of their own
-balance** — their highest-conviction read — then rides it wide. Two independent
+Follow the **biggest bet** of the consistent + patient winners, **sized by trader
+tier**. WhaleHunterHedge shadows winners across four consistency×style tiers on Senpi
+Discover and strikes only when one opens a **new position that's a large share of their
+own balance** — then mirrors it (sized by tier) and rides it wide. Two independent
 sleeves on separate wallets. See [SKILL.md](SKILL.md) for the full thesis.
+
+**Sizing tiers** (the `tagWeights` matrix — every other tag pair is excluded):
+
+| Tier | Margin use |
+|---|---|
+| ELITE + PATIENT | 1.00 (highest) |
+| ELITE + TACTICAL | 0.75 |
+| RELIABLE + PATIENT | 0.50 |
+| RELIABLE + TACTICAL | 0.40 |
 
 | Sleeve | Role | Direction | Wallet |
 |---|---|---|---|
@@ -78,9 +87,10 @@ your token likely isn't USER-scoped (the `discovery_*` calls need a user id).
 ---
 
 ## Notes
-- **Sparse by design.** ELITE + PATIENT is a small, pristine pool that rarely fires —
-  quality over quantity. Too thin to ever fire? Widen `activityTags` to
-  `["PATIENT","TACTICAL"]` in the config (one line, no rebuild).
+- **Tiered, not all-or-nothing.** Four tiers are followed (ELITE/RELIABLE × PATIENT/
+  TACTICAL), each sized by its `tagWeights` multiplier — wider net for more signals,
+  but size proportional to trader quality. Add/remove a tier by editing `tagWeights`
+  (one line, no rebuild). Streaky/Choppy and Degen/Active are excluded entirely.
 - **Conviction = capital at risk** — `marginUsed / accountValue` on the whale's *new*
   position, default ≥25% of their book. Raise for a sharper sniper, lower for more signals.
 - **Consensus, not duplication** — two whales on the same coin+direction size the ONE
