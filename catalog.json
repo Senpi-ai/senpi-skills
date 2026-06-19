@@ -777,6 +777,20 @@
       "version": "1.0.0"
     },
     {
+      "id": "caribou",
+      "tracker_slug": "caribou-v1-0-0",
+      "name": "Caribou — Cross-Asset Trend Fund (Managed Futures)",
+      "emoji": "🦌",
+      "tagline": "Trend-follows a maximally diversified universe spanning EVERY asset class on Hyperliquid — crypto, xyz stocks, indices, metals, energy — long the uptrends and short the downtrends, each position sized to EQUAL RISK (volatility parity) and capped per asset class. Two independent sleeves on SEPARATE wallets (long / short), so the fund can hold the same asset long in one and short in the other. Long uptrends + short downtrends across uncorrelated classes = net beta ~0 and crisis-positive (it shorts the fallers when markets break). The managed-futures hedge — and the structurally-correct, diversified version of a single-asset trend trader.",
+      "group": "hedge-fund",
+      "sort_order": 19,
+      "min_budget": 400,
+      "risk_level": "moderate",
+      "base_skill": null,
+      "predators_url": "https://strategies.senpi.ai/bot/caribou-v1-0-0",
+      "version": "1.0.0"
+    },
+    {
       "id": "piranha",
       "tracker_slug": "piranha",
       "name": "Piranha \u2014 Liquidation-Cascade / Forced-Flow Hunter",

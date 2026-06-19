@@ -1186,6 +1186,32 @@ hedge: if 4h bearish and fast_drawdown(coin): SHORT (capit-guard) # cushion, DOW
 
 ---
 
+### 29. Cross-asset trend fund (managed futures / CTA)
+
+The most-proven hedge-fund category, and the one whose **entire edge is cross-asset diversification.** Trend-follow a maximally diversified universe spanning EVERY asset class — crypto, xyz stocks, indices, metals, energy — long the uptrends and short the downtrends, each position sized to **equal risk (volatility parity)** and **capped per asset class** so the book can never collapse into one class. Trends appear in different markets at different times (when crypto chops, gold trends), so the more *uncorrelated* markets you follow, the smoother the curve — "use every asset class" is the thesis, not a bolt-on.
+
+```python
+# Per asset, time-series trend (asset vs its OWN history) — NOT cross-sectional:
+long sleeve:  if 4h_uptrend(asset):   LONG   # 4h hard gate + daily align + momentum + RSI blow-off guard
+short sleeve: if 4h_downtrend(asset): SHORT  # crisis-alpha engine — shorts the fallers when markets break
+margin = equity * baseRiskPct * (referenceVol / asset_ATR%)   # VOL PARITY: calm->more, wild->less; clamped
+# cap total margin per asset CLASS (crypto/equity/index/metal/energy) at classMarginCapPct of equity
+```
+
+**Two key disciplines:** (1) **volatility parity** — size each position inversely to its ATR so every position contributes ~equal risk (keeps a high-vol crypto from dominating a diversified book); (2) **per-class margin caps** — no single asset class may exceed ~40% of equity, which is what makes the equity curve smooth and the hedge real. Long uptrends + short downtrends across uncorrelated classes → **net beta ~0** and **crisis-positive** (the short sleeve shorts the fallers when everything bleeds — the reason institutions hold managed futures).
+
+**Two independent sleeves on SEPARATE wallets.** Chosen over one cross-margined book specifically so the fund is *not restricted* from holding the **same asset in opposite directions** — the short sleeve catches a new downtrend immediately while the long sleeve's DSL is still trailing out a stale long (clean trend-flip handling). **Asymmetric trend DSL** — tight Phase 1 (cut losers fast) + wide Phase 2 (let winners run to +150% before locking) + time-cuts OFF — the literal "cut losers short, let winners run." Taker-fallback entries (a trend-follower must catch the move; the opposite of a fader).
+
+**When to use this pattern:** a user wants a true, diversified portfolio hedge — uncorrelated to any single market and positive in sustained selloffs — rather than a directional or single-asset bet. It's also the structurally-correct answer to a single-asset trend trader getting chopped up: spread the same trend edge across 30+ uncorrelated markets with vol-parity sizing, and chop in one market is offset by trends in others.
+
+**Agents in this family:**
+
+| Agent | Version | Asset / Universe | Description | Tags |
+|---|---|---|---|---|
+| **Caribou** | v1.0 | every asset class on Hyperliquid (crypto / xyz stocks / indices / metals / energy), two sleeves: long (uptrends) + short (downtrends) | **Cross-Asset Trend Fund (managed futures / CTA).** Time-series trend per asset, vol-parity sizing (inverse-ATR), per-class margin cap (40%), up to 8 slots/sleeve. Two independent sleeves on separate wallets — may hold the same asset long + short. Net beta ~0, crisis-positive (short sleeve). 5x clamp + venue max; asymmetric trend DSL (cut losers fast, let winners run, time-cuts off). v1.0 price-action trend; correlation-aware netting + vol-target overlay planned v1.1. | Hedge-fund, Managed-futures, CTA, Cross-asset, Trend-following, Volatility-parity, Two-sleeve |
+
+---
+
 ## Decision tree — help a user pick their first strategy
 
 This is the guided path an **onboarding agent** walks a new user through. Start broad ("what kind of trader do you want your agent to be?"), narrow **one layer at a time**, and land on a single deployable strategy. Ask one question, show 2–6 options, let them pick, then go deeper. Each leaf names a **real, installable agent** — beginners are routed to the **onboarding tier** (simpler scoring, conservative sizing); the *level up* line is the full-fleet version for once they're comfortable.

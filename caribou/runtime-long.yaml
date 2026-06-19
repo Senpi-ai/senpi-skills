@@ -1,0 +1,174 @@
+name: caribou-long-tracker
+# Top-level `version` is the SCHEMA version (major=1). Skill version "Caribou
+# v1.0" lives in description + SKILL.md + _caribou_producer_version.
+version: 1.0.0
+description: >
+  CARIBOU v1.0 (LONG sleeve) — the long book of a cross-asset trend fund
+  (managed futures / CTA).
+
+  Trend-follows a maximally diversified universe across EVERY asset class on
+  Hyperliquid — crypto, xyz stocks, indices, metals, energy — opening LONGS on
+  assets in a confirmed UPTREND (4h structure bullish hard gate + daily align +
+  24h momentum + RSI blow-off guard). Positions sized to EQUAL RISK (volatility
+  parity) and capped per asset CLASS. Pairs with the SHORT sleeve on a SEPARATE
+  wallet; the two sleeves are independent, so the fund may hold the same asset
+  long here and short there. Diversification across uncorrelated trends is the
+  edge; net beta is near zero.
+
+  Scoring (producer-side): 4h uptrend (hard gate), daily-trend alignment, 24h
+  momentum, RSI blow-off guard; vol-parity margin; per-class margin cap.
+
+  Execution envelope: up to 8 slots (diversified), vol-parity margin (producer
+  sets marginUsd per signal), 5x clamp then venue max. Taker-fallback entries (a
+  trend-follower MUST catch the move). Asymmetric trend DSL — cut losers fast,
+  let winners RUN, time-cuts OFF.
+
+strategy:
+  wallet: "${CARIBOU_LONG_WALLET}"
+  # Producer sets per-signal marginUsd via volatility parity; margin_pct is the
+  # advisory baseline only (not runtime-enforced). slots = diversified book.
+  slots: 8
+  margin_pct: 10
+  trading_risk: moderate
+  enabled: true
+
+risk:
+  data_retention_hours: 168
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 8          # diversified book opens across classes; trend is slow, not churny
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 6       # trend-following takes many small losses before the big trend — don't halt on normal chop
+    cooldown_minutes: 60
+    drawdown_halt_pct: 22
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_minutes: 240
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval: 10s
+  - name: caribou_long_signals
+    type: external_scanner
+    outputs:
+      signals: true
+      context: false
+    config:
+      fields:
+        score: { type: number, required: true }
+        leverage: { type: number, required: true }
+        marginUsd: { type: number, required: true }
+        direction: { type: string, required: true }
+        reasons: { type: array, required: false }
+        assetClass: { type: string, required: false }
+        trend4h: { type: string, required: false }
+        volPct: { type: number, required: false }
+        heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: caribou_long_entry
+    action_type: OPEN_POSITION
+    decision_mode: llm
+    decision_model: "${CARIBOU_DECISION_MODEL}"   # REQUIRED. Bare model name only — NO provider prefix.
+    scanners: [caribou_long_signals]
+    min_confidence: 7
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true       # trend-follower MUST catch the move — taker fallback guarantees fill + DSL attach
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: caribou_long_signals
+    decision_prompt: |
+      You are Caribou's LONG-sleeve pass-through gate — a cross-asset trend
+      fund. The producer confirmed a real uptrend on this asset (4h structure
+      bullish, daily aligned, momentum positive) and vol-parity-sized it. Honor
+      the signal unless malformed.
+
+      SIGNAL:
+      {{signal_caribou_long_signals}}
+
+      ## STRICT OUTPUT RULES — DO NOT VIOLATE
+      1. asset MUST be copied from signal.asset EXACTLY (preserve any xyz: prefix).
+      2. direction MUST be "LONG".
+      3. leverage MUST be copied from signal.data.leverage.
+      4. marginUsd MUST be copied from signal.data.marginUsd.
+      5. Every claim in reasoning MUST cite signal values.
+
+      ## HARD SKIP CONDITIONS (output execute: false)
+      - score < 5 (producer floor; defensive)
+      - leverage <= 0 OR leverage > 5 (clamp breach) OR marginUsd <= 0
+      - direction != "LONG"
+      - signal.asset already in signal.data.heldAssets (duplicate)
+      - reasons array empty
+
+      ## CONFIDENCE SCORING
+      - 9-10: score >= 7 (apex trend) AND no malformed fields
+      - 7-8:  score 5.5-6.9
+      - 7:    score 5-5.4 (producer floor) — the signal IS the validation
+      - <7:   producer floor not cleared (should never reach you)
+
+      ## OUTPUT FORMAT
+      {
+        "execute": true OR false,
+        "actionType": "OPEN_POSITION",
+        "confidence": integer 1-10,
+        "reasoning": "concrete sentence citing signal values (e.g. 'score 7 GOLD LONG 5x, 4h+1d uptrend, mom +6.2% — apex trend, vol-parity sized')",
+        "payload": {
+          "signals": [
+            {
+              "asset": "copy signal.asset EXACTLY",
+              "direction": "LONG",
+              "leverage": "copy signal.data.leverage EXACTLY",
+              "marginUsd": "copy signal.data.marginUsd EXACTLY",
+              "reason": "CARIBOU_TREND — top reason"
+            }
+          ]
+        }
+      }
+
+# ── EXIT (DSL — ASYMMETRIC TREND PROFILE: cut losers fast, let winners RUN) ──
+# Time-cuts OFF — a trend fund must let a trend run for weeks. Tight Phase 1
+# (cut losers short) + a WIDE Phase 2 ladder (let winners run far before locking).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen — taker fallback is the safety floor
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 20160
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 720             # self-limiting only — cut a position that's gone nowhere for a long time
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 14.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 12, lock_hw_pct: 0 }
+        - { trigger_pct: 25, lock_hw_pct: 35 }
+        - { trigger_pct: 50, lock_hw_pct: 55 }
+        - { trigger_pct: 90, lock_hw_pct: 72 }
+        - { trigger_pct: 150, lock_hw_pct: 84 }
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
