@@ -4,20 +4,23 @@ name: hydra-core-tracker
 # SKILL.md + _hydra_producer_version.
 version: 1.0.0
 description: >
-  HYDRA v1.0 (CORE head) — the thesis bet of a single-coin portfolio fund.
+  HYDRA v2.0 (CORE head) — the long-term thesis of a single-coin conviction fund.
 
   Single-coin trend-momentum on HYDRA_COIN (set per deployment): LONG when 4h
   structure is bullish, SHORT when bearish, sit out a neutral tape. Conviction-
-  tiered leverage. One position. Pairs with the DIP and HEDGE heads on separate
-  wallets (same coin); the fund is net-long the coin, pressed on dips, cushioned
-  on breaks. The core is the always-on directional spine.
+  tiered leverage. One position. Pairs with the DIP (tactical add) and HEDGE
+  (cross-asset cushion) heads on separate wallets.
+
+  v2.0: the core is a LONG-TERM HOLD ridden on a CATASTROPHIC-ONLY DSL — a wide
+  disaster stop, weak_peak OFF (hold through consolidation), time-cuts OFF, and a
+  Phase 2 that does nothing until a moonshot. You ride normal volatility instead of
+  being shaken out; the cross-asset HEDGE sleeve cushions the interim drawdown.
 
   Scoring (producer-side): 4h trend (hard gate), 1h confirmation, RSI blow-off /
   capitulation guard, funding tailwind, conviction → leverage tier.
 
   Execution envelope: 1 slot, margin_pct 20, strict 5x clamp (then venue max).
-  Single-asset DSL — let winners run, time-cuts OFF (fleet single-asset standard),
-  weak_peak self-limiting ON.
+  Catastrophic-only DSL (see exit) — let the thesis run.
 
 strategy:
   wallet: "${HYDRA_WALLET}"
@@ -126,7 +129,12 @@ actions:
         }
       }
 
-# ── EXIT (DSL — let the thesis run; single-asset standard: time-cuts off) ────
+# ── EXIT (DSL — v2.0 CATASTROPHIC-ONLY: this is a LONG-TERM thesis HOLD) ──────
+# The core is a multi-month conviction position — you do NOT want to be shaken out
+# on normal volatility, and the cross-asset hedge sleeve (separate wallet) cushions
+# the interim drawdown. So: a WIDE disaster stop only, weak_peak OFF (hold through
+# consolidation), time-cuts OFF, and Phase 2 that does NOTHING until a moonshot
+# (+80%), then only locks a fraction so a huge run isn't fully round-tripped.
 exit:
   engine: dsl
   interval_seconds: 60
@@ -137,27 +145,24 @@ exit:
   dsl_preset:
     hard_timeout:
       enabled: false
-      interval_in_minutes: 10080
+      interval_in_minutes: 43200
     weak_peak_cut:
-      enabled: true
-      interval_in_minutes: 480
-      min_value: 2.0
+      enabled: false              # HOLD through flat periods — a long-term thesis consolidates
+      interval_in_minutes: 1440
     dead_weight_cut:
       enabled: false
-      interval_in_minutes: 960
+      interval_in_minutes: 2880
     phase1:
       enabled: true
-      max_loss_pct: 16.0
-      retrace_threshold: 10
-      consecutive_breaches_required: 1
+      max_loss_pct: 32.0          # catastrophic-only disaster stop (thesis-breaking)
+      retrace_threshold: 20       # wide — normal volatility never trail-stops the hold
+      consecutive_breaches_required: 2
     phase2:
       enabled: true
-      tiers:
-        - { trigger_pct: 10, lock_hw_pct: 0 }
-        - { trigger_pct: 20, lock_hw_pct: 40 }
-        - { trigger_pct: 35, lock_hw_pct: 60 }
-        - { trigger_pct: 60, lock_hw_pct: 78 }
-        - { trigger_pct: 100, lock_hw_pct: 88 }
+      tiers:                      # ride it; only bank a fraction of a genuine moonshot
+        - { trigger_pct: 80, lock_hw_pct: 0 }
+        - { trigger_pct: 150, lock_hw_pct: 50 }
+        - { trigger_pct: 250, lock_hw_pct: 70 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"

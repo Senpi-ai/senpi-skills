@@ -1,24 +1,26 @@
-"""HYDRA v1.0 — Shared config + MCP shim + helpers wrapper (COIN- + LEG-AWARE).
+"""HYDRA v2.0 — Shared config + MCP shim + helpers wrapper (COIN- + LEG-AWARE).
 
-HYDRA — Single-Coin Portfolio Fund. A complete book on ONE major: a directional
-thesis bet + a complementary dip-buyer + a stress-gated short hedge, each on its
-own wallet ("head"). ONE producer script, parameterized by TWO env vars:
+HYDRA — Single-Coin Conviction Fund with a CROSS-ASSET hedge. A long-term
+conviction book on ONE major (core trend-confirmed long-term hold + dip tactical
+add), cushioned by a diversified short of OTHER assets (the v2.0 hedge — it shorts
+other breaking assets, never the thesis coin). ONE producer script, two env vars:
 
-  HYDRA_COIN  — the asset this deployment trades (e.g. ETH, SOL, HYPE; any
+  HYDRA_COIN  — the THESIS asset this deployment trades (e.g. ETH, SOL, HYPE; any
                 main-DEX perp, or an xyz: name). Set per deployment.
   HYDRA_LEG   — which head this wallet runs:
-     core   -> the thesis bet. Trend-momentum, conviction-tiered, LONG the
-               uptrend / SHORT a confirmed downtrend.
-     dip    -> the complement. Buys PULLBACKS within a confirmed uptrend only
-               (stands down in downtrends — never knife-catches the hedge).
-     hedge  -> the hedge. Stress-gated SHORT — fires only when a confirmed
-               downtrend + a fast-drawdown signal agree; idle (tiny bleed) in
-               uptrends. Cushions the long heads during the flip.
+     core   -> the long-term thesis. Trend-confirmed, conviction-tiered, LONG the
+               uptrend / SHORT a confirmed downtrend. Ridden on a catastrophic-only
+               DSL (held through normal volatility).
+     dip    -> the tactical add. Buys PULLBACKS within a confirmed uptrend only.
+     hedge  -> the v2.0 CROSS-ASSET hedge. Shorts a diversified BLEND of OTHER
+               assets (hedgeUniverse minus the thesis coin) that are actually
+               breaking down — vol-parity sized, scaled up when the thesis coin is
+               breaking. Never shorts the thesis coin. Auto-scales with market stress.
 
 Deploy a fund for one coin = three wallets (core/dip/hedge), all with the same
-HYDRA_COIN. Run it for ETH, SOL, and HYPE = nine wallets, one codebase. The heads
-are gated to different regimes so they never take opposing positions at once;
-the fund is NET-LONG the coin, pressed on dips and cushioned on breaks.
+HYDRA_COIN. Run it for ETH, SOL, and HYPE = nine wallets, one codebase. The thesis
+rides long-term; the cross-asset hedge cushions market risk without betting against
+the thesis.
 
 This module owns: coin + leg resolution, config load, the senpi_runtime_helpers
 client, the MCP call shim, account/position pulls, and the per-(coin,leg)

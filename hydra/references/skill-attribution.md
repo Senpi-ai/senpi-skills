@@ -1,18 +1,24 @@
 # Hydra — Skill Attribution
 
-**Skill:** hydra-strategy v1.0.0
+**Skill:** hydra-strategy v2.0.0
 **Author:** jason-goldberg
 **License:** Apache-2.0
-**Created:** 2026-06-18
+**Created:** 2026-06-18 (v1.0) · 2026-06-19 (v2.0)
 
 ## What Hydra is
 
-The first **Single-Coin Portfolio Fund** — a complete book on ONE major (a
-directional thesis bet + a complementary dip-buyer + a stress-gated short hedge,
-each on its own wallet). It productizes the *portfolio / hedge-pairing* pattern
-(producer-patterns → *Running a portfolio*) into a single multi-wallet fund:
-instead of the operator hand-assembling Polar + a fader + a hedge, Hydra ships
-the three heads as one coin-parameterized engine.
+A **Single-Coin Conviction Fund with a cross-asset hedge** — a long-term conviction
+book on ONE major (core trend-confirmed long-term hold + dip tactical add),
+cushioned by a diversified short of OTHER assets. The hedge protects the market
+risk that would also hurt the thesis coin *without ever betting against the thesis*.
+
+**v2.0 redesign** (from the v1.0 single-coin portfolio fund): (1) the core became a
+long-term hold on a catastrophic-only DSL — you ride normal volatility instead of
+being shaken out; (2) the hedge changed from a *same-asset* stress short on the
+thesis coin to a **cross-asset blend short** — it shorts other assets actually
+breaking down (vol-parity sized, scaled by thesis stress), never the thesis coin.
+This fixes v1.0's same-asset hedge weaknesses (lag, V-recovery whipsaw, fighting
+the thesis) while keeping zero risk of shorting the coin you believe in.
 
 ## Lineage
 
@@ -23,8 +29,9 @@ the three heads as one coin-parameterized engine.
 - **Methods** — the **core** head is the Kodiak-family single-asset alpha hunter
   (Polar/Kodiak/Wolverine logic: 4h-trend + 1h confirm + RSI guard, conviction-
   tiered leverage); the **dip** head is a Salamander-style pullback-buyer gated to
-  uptrends; the **hedge** head is a Rhino-style stress-gated short, scoped to one
-  coin. All three on one asset, one codebase.
+  uptrends; the **hedge** head (v2.0) is a cross-asset blend short — it shorts a
+  diversified set of OTHER assets that are actually breaking down (trend-confirmed,
+  vol-parity sized, thesis-stress-scaled), never the thesis coin. All three on one asset, one codebase.
 - **Thesis** — a single coin deserves a *portfolio*, not one bet: ride the trend,
   press the dips, and carry a fast cushion for the break.
 

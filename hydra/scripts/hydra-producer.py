@@ -1,45 +1,45 @@
 #!/usr/bin/env python3
-# Senpi HYDRA Producer v1.0.0
+# Senpi HYDRA Producer v2.0.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""HYDRA v1.0.0 Producer — single-coin portfolio fund, three heads, one script.
+"""HYDRA v2.0.0 Producer — single-coin conviction fund with a CROSS-ASSET hedge.
 
-A complete book on ONE major (HYDRA_COIN): a directional thesis bet + a
-complementary dip-buyer + a stress-gated short hedge, each on its own wallet.
-HYDRA_LEG selects which head this wallet runs:
+A long-term conviction book on ONE major (HYDRA_COIN), hedged by a diversified
+short of OTHER assets — so the hedge cushions market risk WITHOUT betting against
+the thesis. HYDRA_LEG selects which head this wallet runs:
 
-  HYDRA_LEG=core   The thesis bet. Trend-momentum, conviction-tiered: LONG when
-                   4h structure is bullish, SHORT when it's bearish. Sits out a
-                   neutral/no-trend tape. The directional spine.
-  HYDRA_LEG=dip    The complement. LONG-only; buys a PULLBACK *within a confirmed
-                   4h uptrend* (1h dipped / RSI pulled back) — presses the thesis
-                   on the dips the breakout-core misses. Stands down whenever the
-                   4h isn't bullish, so it never knife-catches against the hedge.
-  HYDRA_LEG=hedge  The hedge. SHORT-only; fires only when a confirmed 4h DOWNTREND
-                   and a fast-drawdown signal agree. Idle (tiny bleed) in uptrends;
-                   cushions the long heads during the flip.
+  HYDRA_LEG=core   The thesis. Trend-confirmed LONG/SHORT on HYDRA_COIN, ridden
+                   on a LOOSE (catastrophic-only) DSL — a long-term hold you don't
+                   get shaken out of on normal volatility. (DSL lives in runtime.)
+  HYDRA_LEG=dip    The complement. LONG-only; buys a PULLBACK within a confirmed
+                   uptrend on HYDRA_COIN. Tactical add; moderate DSL.
+  HYDRA_LEG=hedge  The hedge — NOW CROSS-ASSET (v2.0). Shorts a diversified BLEND
+                   of OTHER assets (hedgeUniverse minus the thesis coin) — but only
+                   the ones in a CONFIRMED downtrend, vol-weighted, and sized UP
+                   when the thesis coin itself is breaking down. Never shorts the
+                   thesis coin. Auto-scales: light when little is breaking, heavy in
+                   a broad selloff. The crisis cushion.
 
-The heads are gated to different regimes, so across the fund's three wallets they
-never hold opposing positions at once: uptrend -> core long + dip adding, hedge
-idle; downtrend -> core short + hedge short, dip idle. The fund is NET-LONG the
-coin, pressed on dips and cushioned on breaks. One position per head (per wallet).
+v2.0 change vs v1.0: the hedge was a same-asset stress short on HYDRA_COIN; it is
+now a diversified cross-asset short blend, and the core thesis runs on a loose
+long-term-hold DSL. See SKILL.md.
 
-Deploy a fund for one coin = three wallets (core/dip/hedge), same HYDRA_COIN. Run
-ETH + SOL + HYPE = nine wallets, one codebase.
+Deploy a fund for one coin = three wallets (core/dip/hedge), same HYDRA_COIN.
 
 Each head pushes signals via SenpiClient.push_signal(); the runtime owns the LLM
 gate (pass-through), DSL exits, and all risk.guard_rails. NOT a copy-trader.
 
 Environment / config resolution:
   HYDRA_LEG           — REQUIRED. "core" | "dip" | "hedge".
-  HYDRA_COIN          — the asset (ETH/SOL/HYPE/…); env wins, else config.coin, else ETH.
+  HYDRA_COIN          — the thesis asset (ETH/SOL/HYPE/…); env wins, else config.coin, else ETH.
   HYDRA_WALLET        — this head's strategy wallet (or config.wallet)
   HYDRA_DECISION_MODEL— bare LLM model name; resolved into runtime.yaml
   SENPI_AUTH_TOKEN    — REQUIRED.
 """
 
 import hashlib
+import inspect
 import os
 import sys
 import time
@@ -50,7 +50,7 @@ import hydra_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "1.0.0"
+VERSION = "2.0.0"
 LEG = cfg.LEG  # "core" | "dip" | "hedge"
 COIN = cfg.resolve_coin()
 SCANNER_NAME = f"hydra_{LEG}_signals"
@@ -66,14 +66,27 @@ _DEFAULTS = {
     },
     "dip": {
         "minScore": 4, "marginPct": 0.18, "maxLeverage": 4, "stdLeverage": 3,
-        "dipRsiMax": 48,                 # 1h RSI at/below this = a real pullback
+        "dipRsiMax": 48,
         "venueMinNotionalUsd": 10, "minNotionalPctOfEquity": 0.01, "tickSeconds": 300,
     },
     "hedge": {
-        "minScore": 4, "marginPct": 0.15, "maxLeverage": 3, "stdLeverage": 3,
-        "stressDropPct": 8.0,            # fast drawdown over the lookback that arms the hedge
-        "stressLookback": 6,             # 4h candles to measure the drawdown over (~24h)
-        "rsiOversold": 18,               # capitulation guard — don't short an exhausted bottom
+        # v2.0 cross-asset hedge: short a diversified blend of OTHER assets.
+        "minScore": 4, "maxLeverage": 3, "stdLeverage": 3, "maxSlots": 5,
+        "stressDropPct": 8.0,            # per-asset fast drawdown that arms a short
+        "stressLookback": 6,             # 4h candles for the per-asset drawdown
+        "rsiOversold": 18,               # capitulation guard per asset
+        # vol-parity sizing for the hedge basket (inverse-ATR, normalized + clamped)
+        "hedgeRiskPct": 0.06,            # margin a reference-vol short gets, % of equity
+        "referenceVolPct": 3.0,
+        "minMarginPct": 0.02,
+        "maxMarginPct": 0.12,
+        "hedgeMaxTotalPct": 0.45,        # cap on TOTAL hedge margin deployed, % of equity
+        # thesis-stress multiplier: size the hedge UP when the THESIS coin is breaking
+        "thesisStressFullPct": 10.0,     # thesis-coin drawdown at which the multiplier maxes
+        "stressMultMax": 2.0,            # max sizing multiplier
+        # the diversified blend of OTHER assets to short (thesis coin auto-excluded)
+        "hedgeUniverse": ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "AVAX",
+                          "xyz:SP500", "xyz:NASDAQ"],
         "venueMinNotionalUsd": 10, "minNotionalPctOfEquity": 0.01, "tickSeconds": 300,
     },
 }[LEG]
@@ -134,7 +147,6 @@ def calc_rsi(closes, period=14):
 
 
 def drawdown_pct(closes, lookback):
-    """Peak-to-current drawdown over the last `lookback` closes, in %."""
     window = closes[-lookback:] if len(closes) >= lookback else closes
     if not window:
         return 0.0
@@ -143,14 +155,30 @@ def drawdown_pct(closes, lookback):
     return (peak - cur) / peak * 100.0 if peak > 0 else 0.0
 
 
+def atr_pct(candles, period=14):
+    if len(candles) < 3:
+        return None
+    trs = []
+    for i in range(1, len(candles)):
+        h, lo, pc = _high(candles[i]), _low(candles[i]), _close(candles[i - 1])
+        if h <= 0 or lo <= 0 or pc <= 0:
+            continue
+        trs.append(max(h - lo, abs(h - pc), abs(lo - pc)))
+    if not trs:
+        return None
+    atr = sum(trs[-period:]) / len(trs[-period:])
+    price = _close(candles[-1])
+    return atr / price * 100.0 if price > 0 else None
+
+
 def _dex_for(asset):
     return "xyz" if asset.lower().startswith("xyz:") else ""
 
 
-def fetch_asset(coin):
+def fetch_asset(coin, intervals=("1h", "4h"), include_funding=True):
     data = cfg.mcp_call(
-        "market_get_asset_data", asset=coin, candle_intervals=["1h", "4h"],
-        dex=_dex_for(coin), include_funding=True, include_order_book=False,
+        "market_get_asset_data", asset=coin, candle_intervals=list(intervals),
+        dex=_dex_for(coin), include_funding=include_funding, include_order_book=False,
     )
     if not data or not data.get("success", True):
         return None
@@ -165,31 +193,31 @@ def _funding(ctx):
         return 0.0
 
 
+def clamp_lev(desired, max_lev):
+    return max(1, min(int(desired), int(max_lev)))
+
+
 # ═══════════════════════════════════════════════════════════════
-# Per-leg scoring — one head's view on the coin
+# CORE / DIP — single-coin thesis scoring (unchanged from v1.0)
 # ═══════════════════════════════════════════════════════════════
 
-def score(md, config):
+def score_single(md, config):
     c1 = md["candles"].get("1h", [])
     c4 = md["candles"].get("4h", [])
     if len(c1) < 8 or len(c4) < 6:
         return None
     closes1 = [_close(c) for c in c1]
-    closes4 = [_close(c) for c in c4]
     price = closes1[-1]
     trend4, s4 = trend_structure(c4)
     trend1, s1 = trend_structure(c1)
     rsi = calc_rsi(closes1)
     fund = _funding(md["ctx"])
 
-    sc = 0
-    reasons = []
-    direction = None
-    leverage = int(config.get("stdLeverage", _DEFAULTS["stdLeverage"]))
+    sc, reasons, direction = 0, [], None
     max_lev = int(config.get("maxLeverage", _DEFAULTS["maxLeverage"]))
+    leverage = int(config.get("stdLeverage", _DEFAULTS["stdLeverage"]))
 
     if LEG == "core":
-        # ── thesis: ride the 4h trend either way; sit out a neutral tape ──
         if trend4 == "NEUTRAL":
             return None
         direction = "LONG" if trend4 == "BULLISH" else "SHORT"
@@ -209,24 +237,21 @@ def score(md, config):
         if direction == "SHORT" and rsi < os_:
             sc -= 2
             reasons.append(f"rsi_capitulation_{rsi:.0f}")
-        # funding tailwind: paying to be on the crowded side is a small penalty
         if direction == "LONG" and fund < 0:
             sc += 1; reasons.append("funding_pays_long")
         if direction == "SHORT" and fund > 0:
             sc += 1; reasons.append("funding_pays_short")
-        # conviction-tiered leverage
         leverage = max_lev if sc >= int(config.get("apexScore", _DEFAULTS["apexScore"])) else int(config.get("stdLeverage", _DEFAULTS["stdLeverage"]))
 
     elif LEG == "dip":
-        # ── complement: buy a pullback INSIDE a confirmed 4h uptrend only ──
         if trend4 != "BULLISH":
-            return None                       # never buy dips outside an uptrend
+            return None
         dip_rsi = float(config.get("dipRsiMax", _DEFAULTS["dipRsiMax"]))
         pulled_back = (trend1 != "BULLISH") or (rsi <= dip_rsi)
         if not pulled_back:
-            return None                       # no pullback to buy — that's core's job, not dip's
+            return None
         direction = "LONG"
-        sc += 2 + (1 if s4 >= 0.6 else 0)     # strength of the host uptrend
+        sc += 2 + (1 if s4 >= 0.6 else 0)
         reasons.append(f"4h_uptrend_{s4:.0%}")
         if rsi <= dip_rsi:
             sc += 2
@@ -234,51 +259,98 @@ def score(md, config):
         if trend1 == "BEARISH":
             sc += 1
             reasons.append("1h_pullback")
-        leverage = int(config.get("stdLeverage", _DEFAULTS["stdLeverage"]))
 
-    else:  # hedge
-        # ── hedge: SHORT only on a confirmed downtrend + a fast drawdown ──
-        if trend4 != "BEARISH":
-            return None                       # idle outside a confirmed downtrend
-        dd = drawdown_pct(closes4, int(config.get("stressLookback", _DEFAULTS["stressLookback"])))
-        stress = float(config.get("stressDropPct", _DEFAULTS["stressDropPct"]))
-        armed = (dd >= stress) or (trend1 == "BEARISH")
-        if not armed:
-            return None                       # downtrend but no stress yet — stay idle
-        os_ = float(config.get("rsiOversold", _DEFAULTS["rsiOversold"]))
-        if rsi < os_:
-            return None                       # capitulation guard — don't short an exhausted bottom
-        direction = "SHORT"
-        sc += 3
-        reasons.append(f"4h_bearish_{s4:.0%}")
-        if dd >= stress:
-            sc += 2
-            reasons.append(f"drawdown_{dd:.1f}%")
-        if trend1 == "BEARISH":
-            sc += 1
-            reasons.append("1h_breaking_down")
-        leverage = int(config.get("stdLeverage", _DEFAULTS["stdLeverage"]))
-
-    leverage = max(1, min(leverage, max_lev))
+    leverage = clamp_lev(leverage, max_lev)
     return {"coin": COIN, "direction": direction, "score": sc, "leverage": leverage,
             "reasons": reasons, "price": price, "rsi": rsi, "trend4h": trend4, "trend1h": trend1}
+
+
+# ═══════════════════════════════════════════════════════════════
+# HEDGE (v2.0) — cross-asset blend short
+# ═══════════════════════════════════════════════════════════════
+
+def thesis_stress_mult(config):
+    """Size the hedge UP when the THESIS coin itself is breaking down. Returns a
+    multiplier in [1.0, stressMultMax] from the thesis coin's drawdown."""
+    md = fetch_asset(COIN, intervals=["4h"], include_funding=False)
+    if not md:
+        return 1.0, 0.0
+    c4 = md["candles"].get("4h", [])
+    if len(c4) < 3:
+        return 1.0, 0.0
+    closes4 = [_close(c) for c in c4]
+    dd = drawdown_pct(closes4, int(config.get("stressLookback", _DEFAULTS["stressLookback"])))
+    full = float(config.get("thesisStressFullPct", _DEFAULTS["thesisStressFullPct"]))
+    mmax = float(config.get("stressMultMax", _DEFAULTS["stressMultMax"]))
+    frac = min(1.0, dd / full) if full > 0 else 0.0
+    return round(1.0 + frac * (mmax - 1.0), 3), round(dd, 2)
+
+
+def score_hedge_one(asset, md, config):
+    """Score ONE hedge-universe asset for a SHORT. Returns thesis (with vol_pct) or
+    None. 4h downtrend is the hard gate; a fast drawdown / 1h breakdown arms it;
+    capitulation-guarded."""
+    c1 = md["candles"].get("1h", [])
+    c4 = md["candles"].get("4h", [])
+    if len(c4) < 6:
+        return None
+    closes4 = [_close(c) for c in c4]
+    closes1 = [_close(c) for c in c1] if c1 else closes4
+    price = closes4[-1]
+    if price <= 0:
+        return None
+    trend4, s4 = trend_structure(c4)
+    if trend4 != "BEARISH":
+        return None                                   # only short what's actually breaking down
+    trend1, _ = trend_structure(c1) if len(c1) >= 6 else ("NEUTRAL", 0)
+    rsi = calc_rsi(closes1)
+    dd = drawdown_pct(closes4, int(config.get("stressLookback", _DEFAULTS["stressLookback"])))
+    stress = float(config.get("stressDropPct", _DEFAULTS["stressDropPct"]))
+    armed = (dd >= stress) or (trend1 == "BEARISH")
+    if not armed:
+        return None
+    if rsi < float(config.get("rsiOversold", _DEFAULTS["rsiOversold"])):
+        return None                                   # capitulation guard
+    vol = atr_pct(c4) or float(config.get("referenceVolPct", _DEFAULTS["referenceVolPct"]))
+
+    sc, reasons = 3, [f"4h_downtrend_{s4:.0%}"]
+    if dd >= stress:
+        sc += 2; reasons.append(f"drawdown_{dd:.1f}%")
+    if trend1 == "BEARISH":
+        sc += 1; reasons.append("1h_breaking_down")
+    return {"coin": asset, "direction": "SHORT", "score": sc, "reasons": reasons,
+            "price": price, "rsi": round(rsi, 1), "trend4h": trend4, "vol_pct": round(vol, 3)}
+
+
+def vol_parity_margin(account_value, vol_pct, config, mult=1.0):
+    base = float(config.get("hedgeRiskPct", _DEFAULTS["hedgeRiskPct"]))
+    ref = float(config.get("referenceVolPct", _DEFAULTS["referenceVolPct"]))
+    lo = float(config.get("minMarginPct", _DEFAULTS["minMarginPct"]))
+    hi = float(config.get("maxMarginPct", _DEFAULTS["maxMarginPct"]))
+    if vol_pct <= 0:
+        vol_pct = ref
+    pct = base * (ref / vol_pct) * mult
+    pct = max(lo, min(hi, pct))
+    return round(account_value * pct, 2)
 
 
 # ═══════════════════════════════════════════════════════════════
 # Emit
 # ═══════════════════════════════════════════════════════════════
 
-def push_signal(th, margin_usd, held_assets):
+def push_signal(th, margin_usd, leverage, held_assets, extra=None):
     if not STRATEGY_ADDRESS:
         cfg.log("ERROR: strategy wallet not resolved")
         return False
     if th["coin"].upper() in {h.upper() for h in held_assets}:
         return False
     data_block = {
-        "score": th["score"], "leverage": th["leverage"], "marginUsd": margin_usd,
+        "score": th["score"], "leverage": leverage, "marginUsd": margin_usd,
         "direction": th["direction"], "reasons": th["reasons"], "heldAssets": held_assets,
         "trend4h": th.get("trend4h"), "rsi": round(th.get("rsi", 0), 1),
     }
+    if extra:
+        data_block.update(extra)
     try:
         cfg._wrapper_client.push_signal(
             address=STRATEGY_ADDRESS, scanner=SCANNER_NAME, asset=th["coin"],
@@ -295,84 +367,151 @@ def push_signal(th, margin_usd, held_assets):
 
 
 # ═══════════════════════════════════════════════════════════════
-# MAIN — single tick. NO inner scanner_lock; daemon owns it.
+# MAIN
 # ═══════════════════════════════════════════════════════════════
+
+def single_main(config, account_value, positions, held_assets, run_start):
+    """core / dip — one position on the thesis coin."""
+    if COIN.upper() in {h.upper() for h in held_assets}:
+        cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "note": "position open — holding",
+                    "held_assets": held_assets, "_hydra_producer_version": VERSION})
+        return
+    if cfg.was_recently_signaled(COIN):
+        cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "note": "recently signaled — debounce",
+                    "_hydra_producer_version": VERSION})
+        return
+    min_score = config.get("minScore", _DEFAULTS["minScore"])
+    margin_pct = config.get("marginPct", _DEFAULTS["marginPct"])
+    min_notional = max(account_value * float(config.get("minNotionalPctOfEquity", 0.01)),
+                       float(config.get("venueMinNotionalUsd", 10)))
+    md = fetch_asset(COIN)
+    if not md:
+        cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "signals_pushed": 0,
+                    "note": "WAITING — no market data", "_hydra_producer_version": VERSION})
+        return
+    th = score_single(md, config)
+    note = {"core": "no confirmed trend", "dip": "no pullback in an uptrend"}[LEG]
+    if not th or th["score"] < min_score:
+        cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "signals_pushed": 0,
+                    "min_score": min_score, "note": f"WAITING — {note}",
+                    "elapsed_sec": round(time.time() - run_start, 2),
+                    "_hydra_producer_version": VERSION})
+        return
+    margin_usd = round(account_value * margin_pct, 2)
+    free_margin = max(0.0, account_value - sum(p.get("margin", 0) for p in positions))
+    notional = margin_usd * th["leverage"]
+    pushed, emitted = 0, []
+    if margin_usd > 0 and notional >= min_notional and margin_usd * 1.1 <= free_margin:
+        if push_signal(th, margin_usd, th["leverage"], held_assets):
+            pushed = 1
+            cfg.record_signal(COIN)
+            emitted.append({"coin": th["coin"], "direction": th["direction"], "score": th["score"],
+                            "leverage": th["leverage"], "margin_usd": margin_usd, "reasons": th["reasons"][:6]})
+    cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "signals_pushed": pushed, "emitted": emitted,
+                "direction": th["direction"], "score": th["score"], "account_value": round(account_value, 2),
+                "elapsed_sec": round(time.time() - run_start, 2), "_hydra_producer_version": VERSION})
+
+
+def hedge_main(config, account_value, positions, held_assets, run_start):
+    """v2.0 cross-asset hedge — short a diversified blend of OTHER assets that are
+    in a confirmed downtrend, vol-weighted, sized up when the thesis is breaking."""
+    held_set = {h.upper() for h in held_assets}
+    min_score = config.get("minScore", _DEFAULTS["minScore"])
+    max_slots = int(config.get("maxSlots", _DEFAULTS["maxSlots"]))
+    max_lev = int(config.get("maxLeverage", _DEFAULTS["maxLeverage"]))
+    std_lev = int(config.get("stdLeverage", _DEFAULTS["stdLeverage"]))
+    min_notional = max(account_value * float(config.get("minNotionalPctOfEquity", 0.01)),
+                       float(config.get("venueMinNotionalUsd", 10)))
+    total_cap = account_value * float(config.get("hedgeMaxTotalPct", _DEFAULTS["hedgeMaxTotalPct"]))
+
+    universe = [a for a in config.get("hedgeUniverse", _DEFAULTS["hedgeUniverse"])
+                if a.upper() != COIN.upper() and a.upper() not in held_set]
+    open_slots = max_slots - len(held_assets)
+    if open_slots <= 0:
+        cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "note": "hedge slots full",
+                    "held_assets": held_assets, "_hydra_producer_version": VERSION})
+        return
+
+    mult, thesis_dd = thesis_stress_mult(config)
+
+    candidates = []
+    scanned = 0
+    for asset in universe:
+        if cfg.was_recently_signaled(asset):
+            continue
+        md = fetch_asset(asset, intervals=["1h", "4h"], include_funding=False)
+        if not md:
+            continue
+        scanned += 1
+        th = score_hedge_one(asset, md, config)
+        if th and th["score"] >= min_score:
+            candidates.append(th)
+
+    if not candidates:
+        cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "scanned": scanned,
+                    "signals_pushed": 0, "thesis_drawdown_pct": thesis_dd, "stress_mult": mult,
+                    "note": "WAITING — nothing in the hedge blend is breaking down",
+                    "elapsed_sec": round(time.time() - run_start, 2),
+                    "_hydra_producer_version": VERSION})
+        return
+
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    free_margin = max(0.0, account_value - sum(p.get("margin", 0) for p in positions))
+    deployed = sum(p.get("margin", 0) for p in positions)
+
+    pushed, emitted = 0, []
+    slots_left = open_slots
+    for th in candidates:
+        if slots_left <= 0:
+            break
+        margin_usd = vol_parity_margin(account_value, th["vol_pct"], config, mult=mult)
+        leverage = clamp_lev(std_lev, max_lev)
+        notional = margin_usd * leverage
+        if notional < min_notional:
+            continue
+        if deployed + margin_usd > total_cap:          # cap TOTAL hedge margin
+            continue
+        if margin_usd * 1.1 > free_margin:
+            continue
+        if push_signal(th, margin_usd, leverage, held_assets,
+                       extra={"hedgeFor": COIN, "stressMult": mult, "volPct": th["vol_pct"]}):
+            pushed += 1
+            slots_left -= 1
+            free_margin -= margin_usd
+            deployed += margin_usd
+            cfg.record_signal(th["coin"])
+            emitted.append({"coin": th["coin"], "direction": "SHORT", "score": th["score"],
+                            "leverage": leverage, "margin_usd": margin_usd, "vol_pct": th["vol_pct"],
+                            "reasons": th["reasons"][:6]})
+
+    cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "scanned": scanned,
+                "candidates": len(candidates), "signals_pushed": pushed, "emitted": emitted,
+                "thesis_drawdown_pct": thesis_dd, "stress_mult": mult,
+                "hedge_deployed_usd": round(deployed, 2), "hedge_cap_usd": round(total_cap, 2),
+                "account_value": round(account_value, 2),
+                "elapsed_sec": round(time.time() - run_start, 2), "_hydra_producer_version": VERSION})
+
 
 def main():
     run_start = time.time()
     config = cfg.load_config()
-
     if not STRATEGY_ADDRESS:
         cfg.output({"status": "error", "reason": "no_wallet", "leg": LEG, "coin": COIN,
                     "_hydra_producer_version": VERSION})
         return
-
     account_value, positions = cfg.get_positions(STRATEGY_ADDRESS)
     held_assets = [p["coin"] for p in positions if p.get("coin")]
     if account_value <= 0:
         cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "note": "no account value",
                     "_hydra_producer_version": VERSION})
         return
-
-    # One position per head (per wallet). If this head already holds the coin, hold.
-    if COIN.upper() in {h.upper() for h in held_assets}:
-        cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "note": "position open — holding",
-                    "held_assets": held_assets, "_hydra_producer_version": VERSION})
-        return
-
-    if cfg.was_recently_signaled(COIN):
-        cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "note": "recently signaled — debounce",
-                    "_hydra_producer_version": VERSION})
-        return
-
-    min_score = config.get("minScore", _DEFAULTS["minScore"])
-    margin_pct = config.get("marginPct", _DEFAULTS["marginPct"])
-    min_notional = max(account_value * float(config.get("minNotionalPctOfEquity", 0.01)),
-                       float(config.get("venueMinNotionalUsd", 10)))  # scales with budget; floor = HL venue min
-
-    md = fetch_asset(COIN)
-    if not md:
-        cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "candidates": 0, "signals_pushed": 0,
-                    "note": "WAITING — no market data", "elapsed_sec": round(time.time() - run_start, 2),
-                    "_hydra_producer_version": VERSION})
-        return
-
-    th = score(md, config)
-    note = {"core": "no confirmed trend", "dip": "no pullback in an uptrend",
-            "hedge": "no confirmed downtrend + stress"}[LEG]
-    if not th or th["score"] < min_score:
-        cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "candidates": 0, "signals_pushed": 0,
-                    "min_score": min_score, "note": f"WAITING — {note}",
-                    "elapsed_sec": round(time.time() - run_start, 2),
-                    "_hydra_producer_version": VERSION})
-        return
-
-    margin_usd = round(account_value * margin_pct, 2)
-    free_margin = max(0.0, account_value - sum(p.get("margin", 0) for p in positions))
-    notional = margin_usd * th["leverage"]
-    pushed = 0
-    emitted = []
-    if margin_usd > 0 and notional >= min_notional and margin_usd * 1.1 <= free_margin:
-        if push_signal(th, margin_usd, held_assets):
-            pushed = 1
-            cfg.record_signal(COIN)
-            emitted.append({"coin": th["coin"], "direction": th["direction"], "score": th["score"],
-                            "leverage": th["leverage"], "margin_usd": margin_usd, "reasons": th["reasons"][:6]})
-
-    cfg.output({
-        "status": "ok", "leg": LEG, "coin": COIN, "candidates": 1, "signals_pushed": pushed,
-        "emitted": emitted, "direction": th["direction"], "score": th["score"],
-        "account_value": round(account_value, 2), "elapsed_sec": round(time.time() - run_start, 2),
-        "_hydra_producer_version": VERSION,
-    })
+    if LEG == "hedge":
+        hedge_main(config, account_value, positions, held_assets, run_start)
+    else:
+        single_main(config, account_value, positions, held_assets, run_start)
 
 
 if __name__ == "__main__":
-    # Long-lived daemon. producer_daemon owns the per-tick scanner_lock with stale-PID
-    # recovery. Lock id encodes coin + leg + wallet so a coin's three heads (and other
-    # coins' deployments) never collide. Signature-adaptive launch: pass wallet=/scanner=
-    # only if the installed helpers signature accepts them (old hosts omit; new hosts use).
-    import inspect
     _lock_id = hashlib.sha256(
         (f"{COIN}:{LEG}:" + (STRATEGY_ADDRESS or "")).lower().encode()
     ).hexdigest()[:12]

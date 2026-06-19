@@ -1,30 +1,33 @@
-# 🐉 HYDRA v1.0 — Single-Coin Portfolio Fund
+# 🐉 HYDRA v2.0 — Single-Coin Conviction Fund (cross-asset hedge)
 
-A **complete book on one coin** — the thesis bet + a complementary dip-buyer + a
-stress-gated short hedge, each on its own wallet ("head"). See [SKILL.md](SKILL.md)
-for the full thesis.
+A **long-term conviction book on one coin**, cushioned by a **diversified short of
+*other* assets** — protect against the market risk that would also hurt your coin,
+*without betting against your own thesis*. See [SKILL.md](SKILL.md) for the full thesis.
 
 **Shipped as named variants over ONE shared engine** — pick yours:
 
-| Variant | Coin | Hedge stress threshold | Notes |
-|---|---|---|---|
-| **Hydra-ETH** | ETH | 8% (ETH-calibrated) | the reference variant |
-| **Hydra-SOL** | SOL | 10% (wider) | SOL is more volatile |
-| **Hydra-HYPE** | HYPE | 13% (widest) | so it doesn't arm on HYPE's normal 8%+ swings ⚠️ |
+| Variant | Thesis coin |
+|---|---|
+| **Hydra-ETH** | ETH |
+| **Hydra-SOL** | SOL |
+| **Hydra-HYPE** | HYPE |
 
 Each variant = the same producer/runtimes + its own per-coin configs
-(`config/hydra-<coin>-<leg>-config.json`). `HYDRA_COIN` picks the variant,
-`HYDRA_LEG` picks the head.
+(`config/hydra-<coin>-<leg>-config.json`). `HYDRA_COIN` picks the thesis coin,
+`HYDRA_LEG` picks the head. In v2.0 the variants differ only by the thesis coin —
+the hedge shorts a blend of *other* assets (thesis coin auto-excluded), so its
+params are uniform.
 
-| Head | Role | Direction | Wallet |
+| Head | Role | Direction | DSL |
 |---|---|---|---|
-| `core` | thesis bet — trend-momentum | LONG up / SHORT down | one per variant |
-| `dip` | complement — buy pullbacks in an uptrend | LONG only | one per variant |
-| `hedge` | stress-gated short — cushions breaks | SHORT only | one per variant |
+| `core` | long-term thesis — trend-confirmed | LONG up / SHORT down | catastrophic-only (ride it) |
+| `dip` | tactical add — buy pullbacks in an uptrend | LONG only | moderate |
+| `hedge` | cross-asset cushion — short a blend of *other* breaking assets | SHORT only (never the thesis coin) | tight-ish |
 
-> **The heads are regime-gated so they never fight** (uptrend → core long + dip,
-> hedge idle; downtrend → core + hedge short, dip idle). Net-long the coin, pressed
-> on dips, cushioned on breaks. **Funding split is your dial** — default
+> **v2.0 in one line:** the thesis *rides* on a loose stop, and the hedge shorts a
+> diversified blend of *other* assets that are actually breaking down (vol-parity
+> sized, scaled up when the thesis coin is breaking). It auto-scales — light in a
+> calm uptrend, heavy in a broad selloff. **Funding split is your dial** — default
 > ~50 core / 25 dip / 25 hedge of the variant's budget.
 
 ---
