@@ -116,7 +116,10 @@ done
 ### Step 3 — Required env vars
 
 ```bash
-export VULTURE_WALLET_ADDRESS=<your-vulture-wallet>
+# Per fleet v2.0.9 rule: per-agent wallet env var (canonical name).
+# Legacy VULTURE_WALLET_ADDRESS still works as a fallback for older
+# launch scripts — both resolve to the same wallet.
+export VULTURE_WALLET=<your-vulture-wallet>
 export SENPI_AUTH_TOKEN=...
 export VULTURE_DECISION_MODEL=<your-preferred-model>
 ```
