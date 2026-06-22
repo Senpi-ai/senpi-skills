@@ -1,0 +1,517 @@
+#!/usr/bin/env python3
+"""senpi-strategy-discover engine — Data Layer + concrete Filter (hidden, deterministic).
+
+The agent (LLM) runs this via the OpenClaw `exec` tool with discrete flags; it reads the JSON on
+stdout, RANKS the returned set itself (on risk / belief / worldview / thesis), and narrates 2-3 cards.
+
+  python3 discover.py --assets btc_eth --direction long_only
+
+Contract (see docs/strategy-discover/discovery-architecture.md):
+- The SCRIPT only does CONCRETE set logic: it hard-rejects on the few unambiguous, explicitly-stated
+  constraints (cross-domain asset, named-asset unavailable, strict-opposite direction, explicit
+  exclusions) and returns ALL survivors — no relevance score, no top-N cut. A bad rank still contains
+  the right answer; a bad cut doesn't, so we never cut.
+- Survivors are neutral-ordered (asset-match desc, then name) — lossless ordering, never a filter.
+- Each record carries its full soft-rank surface (risk_level, belief_plain, THESIS, tags, horizon,
+  scope, direction, asset_classes, tier) + caveats + market_facts. The LLM does ALL soft/semantic
+  ranking — nothing it matches on requires a maintained glossary.
+- Fails open: unknown concrete values drop to "unstated" (widen, never dead-end); always valid JSON;
+  exit 0 for handled cases.
+"""
+# Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+import argparse
+import json
+import os
+import re
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+# ▼▼▼ TEMPORARY — real-agent testing only. Default to the SYNTHETIC full-fleet so the agent
+# recommends from the full roster instead of just spider/kodiak/polar. REVERT this to
+# `os.path.join(REPO_ROOT, "catalog.json")` before merging to strategy-v2. ▲▲▲
+_PROD_CATALOG = os.path.join(REPO_ROOT, "catalog.json")
+DEFAULT_CATALOG = os.path.join(HERE, "..", "tests", "fixtures", "catalog_fullfleet.json")
+
+# ---------------------------------------------------------------- vocabulary (concrete filters only)
+# A synonym map is kept ONLY because the SCRIPT acts on the field. risk/belief/horizon/scope/goal are
+# the LLM's job now (it ranks the returned set on them) — no flags, no maps for those.
+CLASS_TAGS = {"btc_eth", "major_alts", "universe_crypto", "xyz_equities", "commodities", "indices", "pre_ipo"}
+CRYPTO_CLASSES = {"btc_eth", "major_alts", "universe_crypto"}
+XYZ_CLASSES = {"xyz_equities", "commodities", "indices", "pre_ipo"}
+
+ASSET_SYN = {**{t: t for t in CLASS_TAGS},
+             "btc": "btc_eth", "eth": "btc_eth", "bitcoin": "btc_eth", "ethereum": "btc_eth", "btceth": "btc_eth",
+             "alts": "major_alts", "altcoins": "major_alts", "alt": "major_alts", "majors": "major_alts",
+             "everything": "universe_crypto", "scan": "universe_crypto", "all": "universe_crypto", "universe": "universe_crypto",
+             "stocks": "xyz_equities", "stock": "xyz_equities", "equities": "xyz_equities", "equity": "xyz_equities", "tech": "xyz_equities",
+             "oil": "commodities", "gold": "commodities", "silver": "commodities", "metals": "commodities", "commodity": "commodities",
+             "index": "indices", "sp500": "indices", "nasdaq": "indices",
+             "pre-ipo": "pre_ipo", "preipo": "pre_ipo", "ipo": "pre_ipo", "spacex": "pre_ipo"}
+DIRECTION_SYN = {"long_only": "long_only", "long-only": "long_only", "longonly": "long_only", "long": "long_only",
+                 "no-short": "long_only", "no-shorting": "long_only", "longs": "long_only",
+                 "short_only": "short_only", "short-only": "short_only", "shorts": "short_only", "short": "short_only",
+                 "any": "any", "both": "any"}
+# exclude token -> (dimension, canonical value)
+EXCLUDE_SYN = {
+    "copy": ("archetype", "copy_trading"), "copy_trading": ("archetype", "copy_trading"),
+    "copy-trading": ("archetype", "copy_trading"), "mirror": ("archetype", "copy_trading"),
+    "stocks": ("asset_class", "xyz_equities"), "equities": ("asset_class", "xyz_equities"),
+    "crypto": ("asset_class", "__crypto__"), "commodities": ("asset_class", "commodities"),
+    "oil": ("asset_class", "commodities"), "pre-ipo": ("asset_class", "pre_ipo"), "pre_ipo": ("asset_class", "pre_ipo"),
+    "dca": ("sub_style", "dca"), "shorting": ("direction", "no_short"), "shorts": ("direction", "no_short"),
+}
+
+
+# ---------------------------------------------------------------- normalizer (concrete inputs only)
+def _canon(value, synmap, warnings, field):
+    if value is None:
+        return None
+    key = str(value).strip().lower()
+    for cand in (key, key.replace(" ", "-"), key.replace(" ", "_"), key.replace(" ", "")):
+        if cand in synmap:
+            canon = synmap[cand]
+            if canon != key:
+                warnings.append(f"normalized {field} '{value}' -> '{canon}'")
+            return canon
+    warnings.append(f"dropped {field}='{value}' (unrecognized) -> unstated")
+    return None
+
+
+def _parse_budget(value, warnings):
+    if value is None:
+        return None
+    s = str(value).lower().replace(",", "").replace("$", "").replace("~", "")
+    s = s.replace("around", "").replace("about", "").strip()
+    nums = []
+    for tok in re.finditer(r"(\d+(?:\.\d+)?)(\s*[kK])?", s):
+        n = float(tok.group(1))
+        if tok.group(2):
+            n *= 1000
+        nums.append(n)
+    if not nums:
+        warnings.append(f"dropped budget='{value}' (no number) -> unstated")
+        return None
+    if len(nums) >= 2 and "-" in s:   # a range like "500-2000" -> midpoint
+        return (nums[0] + nums[1]) / 2.0
+    return nums[0]
+
+
+def _norm_assets(raw, warnings):
+    """Split csv; each token -> ('class', tag) or ('named', TICKER)."""
+    out = []
+    if not raw:
+        return out
+    for tok in str(raw).split(","):
+        t = tok.strip()
+        if not t:
+            continue
+        low = t.lower()
+        if low in ASSET_SYN:
+            cls = ASSET_SYN[low]
+            if ("class", cls) not in out:
+                out.append(("class", cls))
+        else:
+            named = t.upper()
+            if ("named", named) not in out:
+                out.append(("named", named))
+    return out
+
+
+def _norm_exclude(raw, warnings):
+    out = []
+    if not raw:
+        return out
+    for tok in str(raw).split(","):
+        t = tok.strip().lower()
+        if not t:
+            continue
+        if t in EXCLUDE_SYN:
+            pair = EXCLUDE_SYN[t]
+            if pair not in out:
+                out.append(pair)
+        else:
+            warnings.append(f"dropped exclude='{tok.strip()}' (unrecognized)")
+    return out
+
+
+def normalize_intent(args):
+    w = []
+    intent = {
+        "direction": _canon(getattr(args, "direction", None), DIRECTION_SYN, w, "direction"),
+        "budget": _parse_budget(getattr(args, "budget", None), w),
+        "assets": _norm_assets(getattr(args, "assets", None), w),
+        "exclude": _norm_exclude(getattr(args, "exclude", None), w),
+    }
+    if intent["direction"] == "any":
+        intent["direction"] = None
+    intent["_warnings"] = w
+    return intent
+
+
+# ---------------------------------------------------------------- helpers
+def domain_of(classes):
+    d = set()
+    if any(c in CRYPTO_CLASSES for c in classes):
+        d.add("crypto")
+    if any(c in XYZ_CLASSES for c in classes):
+        d.add("xyz")
+    return d
+
+
+def asset_matches(named, assets):
+    nu = named.upper().replace("XYZ:", "")
+    for a in (assets or []):
+        au = str(a).upper()
+        if au == nu or au == "XYZ:" + nu or au.split(":")[-1] == nu:
+            return True
+    return False
+
+
+def infer_class_for_named(named):
+    n = named.upper().replace("XYZ:", "")
+    if named.upper().startswith("XYZ:"):
+        return None  # xyz domain but sub-class unknown; broaden = no class constraint
+    if n in ("BTC", "ETH"):
+        return "btc_eth"
+    return "major_alts"
+
+
+# ---------------------------------------------------------------- matcher (pure: filter + return all)
+def _hard_reject(r, intent):
+    """The ONLY narrowing — reject on an explicitly-stated, unambiguous constraint. Nothing soft."""
+    user_classes = [v for k, v in intent["assets"] if k == "class"]
+    if user_classes:
+        ud, sd = domain_of(user_classes), domain_of(r.get("asset_classes") or [])
+        if ud and sd and ud.isdisjoint(sd):
+            return True
+    named = [v for k, v in intent["assets"] if k == "named"]
+    if named and not any(asset_matches(n, r.get("assets")) for n in named):
+        if not intent.get("_broadened_classes"):
+            return True
+        if not (set(intent["_broadened_classes"]) & set(r.get("asset_classes") or [])):
+            return True
+    d = intent["direction"]
+    if d == "long_only" and r.get("direction") == "short_only":
+        return True
+    if d == "short_only" and r.get("direction") == "long_only":
+        return True
+    for dim, val in intent["exclude"]:
+        if dim == "archetype" and r.get("archetype") == val:
+            return True
+        if dim == "asset_class":
+            acs = r.get("asset_classes") or []
+            if val == "__crypto__" and (set(acs) & CRYPTO_CLASSES):
+                return True
+            if val in acs:
+                return True
+        if dim == "sub_style" and r.get("sub_style") == val:
+            return True
+        if dim == "direction" and val == "no_short" and r.get("direction") in ("short_only", "long_short"):
+            return True
+    return False
+
+
+def _asset_match(r, intent):
+    """Neutral ORDERING key (not a filter): how many stated asset constraints this record satisfies."""
+    n = 0
+    user_classes = [v for k, v in intent["assets"] if k == "class"]
+    named = [v for k, v in intent["assets"] if k == "named"]
+    acs = set(r.get("asset_classes") or [])
+    if user_classes and (set(user_classes) & acs):
+        n += 1
+    if named and any(asset_matches(x, r.get("assets")) for x in named):
+        n += 1
+    return n
+
+
+def _caveats(r, intent):
+    """Fixed-string honesty caveats — concrete only (no soft scoring). Surfaced verbatim by the LLM."""
+    cav = []
+    user_classes = [v for k, v in intent["assets"] if k == "class"]
+    acs = set(r.get("asset_classes") or [])
+    if "btc_eth" in user_classes and "btc_eth" not in acs and (acs & CRYPTO_CLASSES):
+        cav.append("Trades alts beyond just BTC/ETH.")
+    if intent["direction"] == "long_only" and r.get("direction") == "long_short":
+        cav.append("Can also take short positions.")
+    if (r.get("instance_count") or 1) > 1 and (user_classes or [v for k, v in intent["assets"] if k == "named"]):
+        split = "/".join(str(s) for s in (r.get("funding_split") or []))
+        cav.append(f"Splits across {r['instance_count']} wallets ({split}); your assets may sit mainly in one leg.")
+    if intent["budget"] is not None and intent["budget"] < (r.get("min_budget") or 0):
+        cav.append(f"Needs ~${int(r['min_budget'])} to start; you mentioned ${int(intent['budget'])}.")
+    return cav
+
+
+def _suggested_budget(r, intent):
+    mb = r.get("min_budget") or 100
+    if intent["budget"] and intent["budget"] >= mb:
+        return int(intent["budget"])
+    return mb
+
+
+def _intent_echo(intent):
+    echo = {}
+    if intent.get("direction"):
+        echo["direction"] = intent["direction"]
+    if intent.get("budget") is not None:
+        v = intent["budget"]
+        echo["budget"] = int(v) if isinstance(v, float) and v.is_integer() else v
+    if intent["assets"]:
+        echo["assets"] = [v for _, v in intent["assets"]]
+    if intent["exclude"]:
+        echo["exclude"] = [f"{d}:{v}" for d, v in intent["exclude"]]
+    return echo
+
+
+def _active_constraints(intent):
+    c = []
+    if [v for k, v in intent["assets"] if k == "class"]:
+        c.append("asset-class")
+    if [v for k, v in intent["assets"] if k == "named"]:
+        c.append("named-asset")
+    if intent["direction"] in ("long_only", "short_only"):
+        c.append(f"direction:{intent['direction']}")
+    for dim, val in intent["exclude"]:
+        c.append(f"exclude:{dim}:{val}")
+    return c
+
+
+def _candidate(r, intent):
+    """A flat, labels-pre-inlined record — everything the LLM needs to rank + narrate, no extra context."""
+    cand = {
+        # identity + handoff
+        "id": r.get("id"), "version": r.get("version"), "name": r.get("name"),
+        "emoji": r.get("emoji"), "tagline": r.get("tagline"),
+        # soft-rank surface (the script never reads these — the LLM ranks on them)
+        "risk_level": r.get("risk_level"), "archetype_label": r.get("archetype_label"),
+        "belief_plain": r.get("belief_plain"), "thesis": r.get("thesis"), "tags": r.get("tags") or [],
+        "time_horizon": r.get("time_horizon"), "asset_scope": r.get("asset_scope"),
+        "direction": r.get("direction"), "asset_classes": r.get("asset_classes") or [],
+        "assets": r.get("assets") or [], "tier": r.get("tier"),
+        # narration
+        "suggested_budget": _suggested_budget(r, intent), "caveats": _caveats(r, intent),
+        "market_facts": [],
+    }
+    if r.get("tag_labels"):
+        cand["tag_labels"] = r.get("tag_labels")
+    if (r.get("instance_count") or 1) > 1:
+        cand["funding_split"] = r.get("funding_split")
+    return cand
+
+
+def match(intent, records, limit=None):
+    """Filter on the concrete constraints, return ALL survivors neutral-ordered. No score, no top-N."""
+    intent.setdefault("_broadened_classes", [])
+    survivors = [r for r in records if not _hard_reject(r, intent)]
+    widened = []
+
+    # The ONLY graceful degrade: a named asset nobody trades broadens to its class (never silent on
+    # cross-domain / direction / exclusions — those stay rejected; the conversation may offer widening).
+    named = [v for k, v in intent["assets"] if k == "named"]
+    if not survivors and named:
+        broadened = [c for c in (infer_class_for_named(n) for n in named) if c]
+        i2 = dict(intent)
+        i2["assets"] = [(k, v) for k, v in intent["assets"] if k != "named"]
+        i2["_broadened_classes"] = broadened
+        survivors = [r for r in records if not _hard_reject(r, i2)]
+        if survivors:
+            widened.append("named_asset")
+            intent = i2
+
+    build_custom = {"label": "Build a custom strategy", "route": "senpi-strategy-author"}
+    survivors.sort(key=lambda r: (-_asset_match(r, intent), r.get("name") or r.get("id") or ""))
+    eligible_total = len(survivors)
+    if limit:
+        survivors = survivors[:limit]
+
+    candidates = [_candidate(r, intent) for r in survivors]
+    meta = {"eligible_count": eligible_total, "returned_n": len(candidates),
+            "intent_echo": _intent_echo(intent), "warnings": intent.get("_warnings", [])}
+    if widened:
+        meta["widened"] = widened
+    if not candidates:
+        meta["unmet"] = _active_constraints(intent)
+    return {"candidates": candidates, "build_custom": build_custom, "meta": meta}
+
+
+# ---------------------------------------------------------------- data layer (guarded I/O)
+def load_catalog(path):
+    with open(path) as f:
+        return (json.load(f).get("skills") or [])
+
+
+def _get_client():
+    # self-contained MCP client shipped in this skill — no senpi_runtime_helpers dependency
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    from _mcp import MCPClient
+    return MCPClient()
+
+
+def _ok(resp):
+    """Unwrap an MCP response; None if it failed (mcp_call returns success:False, not an exception)."""
+    if isinstance(resp, dict):
+        if resp.get("success") is False:
+            return None
+        return resp.get("data", resp)
+    return resp
+
+
+def fetch_user_context(client):
+    ctx = {"budget": None, "holdings": [], "favored_assets": [], "favored_direction": None}
+    try:
+        data = _ok(client.mcp_call("account_get_portfolio", timeout=15))
+        if data:
+            ctx["budget"] = data.get("total_balance_usd") or data.get("total_usdc_in_hyperliquid")
+            for pos in (data.get("positions") or []):
+                sym = pos.get("coin") or pos.get("asset")
+                if sym:
+                    ctx["holdings"].append(sym)
+        else:
+            ctx["_unavailable"] = True
+    except Exception as e:  # noqa
+        ctx["_error"] = str(e)
+    return ctx
+
+
+def _pct(mark, prev):
+    try:
+        m, p = float(mark), float(prev)
+        return round((m - p) / p * 100, 2) if p else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _candle_trend(candles):
+    """Coarse 24h direction from 4h closes: 'up'/'down'/'flat'."""
+    try:
+        closes = [float(x["c"]) for x in candles if x.get("c")]
+        if len(closes) < 4:
+            return None
+        recent, past = closes[-1], closes[-min(7, len(closes))]  # ~24h on 4h candles
+        chg = (recent - past) / past * 100 if past else 0
+        return "up" if chg > 1.5 else ("down" if chg < -1.5 else "flat")
+    except (TypeError, ValueError, KeyError):
+        return None
+
+
+def _funding_sign(funding):
+    try:
+        f = float(funding)
+    except (TypeError, ValueError):
+        return None
+    return "positive" if f > 1e-6 else ("negative" if f < -1e-6 else "flat")
+
+
+def fetch_market_map(client, assets):
+    """One batched pass per UNIQUE asset -> a live 'why now' read. Bounded by asset count, not strategy
+    count. Built from asset_context (funding, 24h change) + candle trend, enriched with oi_trend +
+    market-wide funding_regime when available.
+    """
+    regime = None
+    try:
+        regime = (_ok(client.mcp_call("market_get_funding_regime", timeout=8)) or {}).get("regime")
+    except Exception:  # noqa
+        pass
+
+    uniq = []
+    for a in assets:
+        if a and a not in uniq:
+            uniq.append(a)
+    uniq = uniq[:24]   # cap the live fetch; ordered so asset-matched candidates' assets come first
+
+    def one(a):
+        kw = dict(asset=a, candle_intervals=["4h"], include_order_book=False,
+                  include_funding=False, timeout=12)
+        if str(a).startswith("xyz:"):
+            kw["dex"] = "xyz"  # HIP-3 assets require the dex param, else INVALID_ARGUMENT
+        try:
+            data = _ok(client.mcp_call("market_get_asset_data", **kw))
+            if not data:
+                return (a, {"asset": a})
+            ctx = data.get("asset_context") or {}
+            oiv = data.get("oi_velocity") or {}
+            candles = (data.get("candles") or {}).get("4h") or []
+            fact = {
+                "asset": a,
+                "price_change_24h_pct": _pct(ctx.get("markPx"), ctx.get("prevDayPx")),
+                "funding": _funding_sign(ctx.get("funding")),
+                "trend": _candle_trend(candles),
+                "oi_trend": oiv.get("oi_trend"),        # richer when authenticated
+                "funding_regime": regime,               # market-wide; when available
+            }
+            return (a, {k: v for k, v in fact.items() if v is not None or k == "asset"})
+        except Exception:  # noqa
+            return (a, {"asset": a})
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            pairs = [p for p in ex.map(one, uniq) if p]   # one(a) -> (a, fact); never raises
+    except Exception:  # noqa
+        pairs = [one(a) for a in uniq]
+    return dict(pairs), regime
+
+
+# ---------------------------------------------------------------- CLI
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="senpi strategy discovery engine (concrete filter)")
+    # CONCRETE filters only — risk/belief/horizon/scope/goal/experience are the LLM's job (it ranks
+    # the returned set on them), so they are deliberately NOT flags here.
+    ap.add_argument("--assets")
+    ap.add_argument("--direction")
+    ap.add_argument("--exclude")
+    ap.add_argument("--budget")
+    ap.add_argument("--limit", type=int, default=None, help="safety cap on returned candidates (default: all)")
+    ap.add_argument("--catalog", default=DEFAULT_CATALOG)
+    ap.add_argument("--no-market", action="store_true", help="skip the live market enrichment pass")
+    ap.add_argument("--context-only", action="store_true", help="return user context only, no match")
+    args = ap.parse_args(argv)
+
+    try:
+        records = load_catalog(args.catalog)
+    except Exception as e:  # noqa
+        print(json.dumps({"candidates": [], "build_custom": {"label": "Build a custom strategy",
+              "route": "senpi-strategy-author"}, "meta": {"error": f"catalog load failed: {e}"}}))
+        return 1
+
+    by_id = {r.get("id"): r for r in records}
+
+    if args.context_only:
+        try:
+            uc = fetch_user_context(_get_client())
+        except Exception as e:  # noqa
+            uc = {"_error": str(e)}
+        print(json.dumps({"user_context": uc}, ensure_ascii=False))
+        return 0
+
+    intent = normalize_intent(args)
+    result = match(intent, records, limit=args.limit)
+
+    # market enrichment (pass 2): ONE batched fetch over the union of survivors' chosen assets, in
+    # candidate order (asset-matched first), capped by unique-asset count inside fetch_market_map.
+    if not args.no_market and result["candidates"]:
+        user_named = [v for k, v in intent["assets"] if k == "named"]
+        per_cand, union = {}, []
+        for cand in result["candidates"]:
+            assets = by_id.get(cand["id"], {}).get("assets") or []
+            pref = [a for a in assets if any(asset_matches(n, [a]) for n in user_named)] or assets
+            per_cand[cand["id"]] = pref[:3]
+            for a in pref[:3]:
+                if a not in union:
+                    union.append(a)
+        try:
+            client = _get_client()
+            result["meta"]["user_context"] = fetch_user_context(client)
+            fact_map, _ = fetch_market_map(client, union)
+            for cand in result["candidates"]:
+                cand["market_facts"] = [fact_map[a] for a in per_cand[cand["id"]] if a in fact_map]
+        except Exception as e:  # noqa
+            result["meta"].setdefault("warnings", []).append(f"market enrichment unavailable: {e}")
+
+    print(json.dumps(result, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
