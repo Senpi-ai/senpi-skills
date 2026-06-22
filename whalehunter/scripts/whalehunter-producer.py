@@ -52,6 +52,11 @@ from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ign
 
 
 VERSION = "2.0.0"
+# Bump whenever the cohort-BUILDING logic changes (sampling, bucketing, paging) so a
+# stale on-disk cohorts.json from older logic is auto-invalidated on the next tick —
+# the daily cache must never outlive a code change to how cohorts are built.
+# v1 = single top-N pull ; v2 = paged-by-offset crowd sampling + per-cohort cap.
+COHORT_CACHE_VERSION = 2
 LEG = cfg.LEG  # "long" | "short"
 DIRECTION = "LONG" if LEG == "long" else "SHORT"
 SCANNER_NAME = f"whalehunter_{LEG}_signals"
@@ -386,6 +391,7 @@ def build_cohorts(config, force=False):
     cached = cfg.load_cohorts()
     now = time.time()
     if (not force and cached.get("smart")
+            and cached.get("cache_version") == COHORT_CACHE_VERSION   # busts a cache written by older cohort logic
             and (now - cached.get("refreshed_at", 0)) / 3600 < float(config.get("cohortRefreshHours", _DEFAULTS["cohortRefreshHours"]))):
         return cached.get("smart", []), cached.get("crowd", [])
     smin = float(config.get("smartMinRealizedUsd", _DEFAULTS["smartMinRealizedUsd"]))
@@ -429,6 +435,7 @@ def build_cohorts(config, force=False):
     if not smart and not crowd:
         return cached.get("smart", []), cached.get("crowd", [])
     cfg.save_cohorts({"refreshed_at": now, "refreshed_iso": cfg.now_iso(),
+                      "cache_version": COHORT_CACHE_VERSION,
                       "smart": smart, "crowd": crowd, "pages": pages})
     return smart, crowd
 
