@@ -55,8 +55,9 @@ VERSION = "2.0.0"
 # Bump whenever the cohort-BUILDING logic changes (sampling, bucketing, paging) so a
 # stale on-disk cohorts.json from older logic is auto-invalidated on the next tick —
 # the daily cache must never outlive a code change to how cohorts are built.
-# v1 = single top-N pull ; v2 = paged-by-offset crowd sampling + per-cohort cap.
-COHORT_CACHE_VERSION = 2
+# v1 = single top-N pull ; v2 = paged-by-offset crowd sampling + per-cohort cap ;
+# v3 = read realizedProfitAndLoss (was misreading total profitAndLoss) + robust floor-stop.
+COHORT_CACHE_VERSION = 3
 LEG = cfg.LEG  # "long" | "short"
 DIRECTION = "LONG" if LEG == "long" else "SHORT"
 SCANNER_NAME = f"whalehunter_{LEG}_signals"
@@ -374,8 +375,13 @@ def push_signal(strike, margin_usd, leverage, held_assets):
 # ═══════════════════════════════════════════════════════════════
 
 def _realized(t):
-    return _f(t, "profit_and_loss_realized", "realizedPnl", "realized_pnl",
-              "pnlRealized", "pnl", "profitAndLoss", "profit_and_loss", default=0.0)
+    # Senpi Discover returns LIFETIME realized PnL as `realizedProfitAndLoss`. Do NOT fall
+    # back to `profitAndLoss`/`pnl` — those are TOTAL (realized + unrealized), which is NOT
+    # monotonic with the realized-PnL sort, so bucketing on them mis-sorts the cohorts AND
+    # trips the paging floor-stop on page 0. If realized is absent, return 0 (exclude), never
+    # a total-PnL proxy.
+    return _f(t, "realizedProfitAndLoss", "realized_profit_and_loss",
+              "profit_and_loss_realized", "realizedPnl", "realized_pnl", default=0.0)
 
 
 def build_cohorts(config, force=False):
@@ -413,7 +419,7 @@ def build_cohorts(config, force=False):
         if not isinstance(raw, list) or not raw:
             break
         pages += 1
-        page_min = None
+        page_top = None      # LARGEST realized on this page (sorted desc => the page's first row)
         for t in raw:
             if not isinstance(t, dict):
                 continue
@@ -421,7 +427,7 @@ def build_cohorts(config, force=False):
             if not addr or addr in seen:
                 continue
             rp = _realized(t)
-            page_min = rp if page_min is None else min(page_min, rp)
+            page_top = rp if page_top is None else max(page_top, rp)
             if rp >= smin:
                 if len(smart) < cap:
                     smart.append(addr); seen.add(addr)
@@ -430,8 +436,10 @@ def build_cohorts(config, force=False):
                     crowd.append(addr); seen.add(addr)
         if len(smart) >= cap and len(crowd) >= cap:
             break                                  # both cohorts fully sampled
-        if page_min is not None and page_min < cmin:
-            break                                  # ranking dropped below the crowd floor — deeper pages are smaller
+        # Stop only when the WHOLE page is below the crowd floor (its largest realized < cmin) —
+        # robust to a stray missing-realized 0 that a min-based check would mistake for "past the floor".
+        if page_top is not None and page_top < cmin:
+            break
     if not smart and not crowd:
         return cached.get("smart", []), cached.get("crowd", [])
     cfg.save_cohorts({"refreshed_at": now, "refreshed_iso": cfg.now_iso(),
