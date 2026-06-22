@@ -491,7 +491,11 @@ def main():
     held_assets = [p["coin"] for p in positions if p.get("coin")]
     held_set = {h.upper() for h in held_assets}
     if account_value <= 0:
-        cfg.output({"status": "ok", "leg": LEG, "note": "no account value",
+        # Either a genuinely empty account OR a corrupt/inconsistent clearinghouse read
+        # (the $0 / margin-but-no-positions funding glitch). Skip the tick — never size or
+        # dedup off a bad read (that's what pyramided a name to 61% of book on 2026-06-22).
+        cfg.output({"status": "ok", "leg": LEG,
+                    "note": "skipping tick — non-positive / inconsistent clearinghouse read",
                     "_mongoose_producer_version": VERSION})
         return
 

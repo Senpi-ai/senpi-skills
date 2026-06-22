@@ -178,15 +178,20 @@ def get_positions(wallet):
     """
     ch = get_clearinghouse(wallet)
     if not ch:
-        return 0, []
+        return -1.0, []          # call failed -> non-positive => producer's guard skips the tick
     data = ch.get("data", ch)
-    positions, account_value = [], 0
+    positions, account_value, margin_in_use = [], 0, 0.0
     for section in ("main", "xyz"):
         s = data.get(section, {})
         if not isinstance(s, dict):
             continue
         ms = s.get("marginSummary", {})
         account_value = max(account_value, float(ms.get("accountValue", 0) or 0))
+        # Largest in-use margin / notional across the two views — used only as a
+        # read-consistency check below (NOT summed into account_value).
+        margin_in_use = max(margin_in_use,
+                            float(ms.get("totalMarginUsed", 0) or 0),
+                            abs(float(ms.get("totalNtlPos", 0) or 0)))
         for ap in s.get("assetPositions", []):
             pos = ap.get("position", ap)
             szi = float(pos.get("szi", 0) or 0)
@@ -200,6 +205,12 @@ def get_positions(wallet):
                 "entryPrice": float(pos.get("entryPx", 0) or 0),
                 "size": abs(szi),
             })
+    # READ-SANITY GUARD (platform funding/$0 glitch, June 2026): a corrupt clearinghouse
+    # read can report margin/notional IN USE while returning an EMPTY assetPositions list.
+    # Acting on that defeats the held-asset dedup (re-entry -> pyramiding) and mis-sizes.
+    # Signal "skip this tick" by returning a non-positive account_value (producer guards on <= 0).
+    if margin_in_use > 1.0 and not positions:
+        return -1.0, []
     return account_value, positions
 
 
