@@ -36,7 +36,10 @@ strategy:
 risk:
   data_retention_hours: 168
   guard_rails:
-    daily_loss_limit_pct: 10        # tighter — short squeezes are violent
+    # daily_loss_limit_pct DISABLED on multi-wallet funds: the runtime computes this gate's
+    # base off perp value (=$0 for an idle leg) and cross-charges a sibling leg's PnL, so an
+    # idle leg gets a "$0.00" limit and is permanently halted (Mongoose long book 2026-06-22).
+    # drawdown_halt (PnL-based) + DSL + cooldowns protect instead; re-enable once the engine fixes the base.
     max_entries_per_day: 8          # the hedge opens a basket across the blend
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 5

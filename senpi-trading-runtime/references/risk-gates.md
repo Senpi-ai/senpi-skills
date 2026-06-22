@@ -48,6 +48,8 @@ Tune per strategy class: faders/scalpers want a **lower** `per_asset_cooldown_mi
 
 **Fail-safe:** any risk MCP call that errors (network/timeout/missing snapshot) returns `CLOSED` for halt-class gates and `COOLDOWN` for asset checks — trading is suspended whenever risk state is unknown. There is no permissive fallback.
 
+> ⚠️ **Multi-wallet funds — do NOT set `daily_loss_limit_pct` (until the engine fix).** When one agent runs several strategy wallets (long/short sleeves, fund legs), the Daily-Loss-Halt gate computes its limit off the **perp** account value — which is `$0` for a leg that hasn't deployed margin yet — and cross-attributes a *sibling* leg's PnL. So an idle leg gets a `$0.00` limit charged a loss it never took, and is **permanently halted** (`"down $X, limit $0.00"`, re-tripping every day). Observed live: Mongoose's long book sat dead for 4 days, never opening a trade. Until the runtime computes the base/attribution **per strategy-wallet**, leave this gate OFF on multi-wallet funds and rely on `drawdown_halt_pct` (PnL-based, immune to this) + the DSL `max_loss_pct` + cooldowns. Single-wallet strategies are unaffected (their `delta_since_open` is their own).
+
 ## Gate 5 timestamp arithmetic
 
 `max_entries_per_day` is enforced by counting opens since UTC midnight. The MCP fields involved — `discovery_get_trader_history.openTime`/`closeTime` and `discovery_get_trader_state` position `startTime` — are **Unix epoch seconds**, and the runtime compares them against **UTC midnight expressed in seconds** (same unit end-to-end). Don't pass milliseconds anywhere in this path.
