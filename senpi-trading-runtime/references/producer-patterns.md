@@ -1212,28 +1212,31 @@ margin = equity * baseRiskPct * (referenceVol / asset_ATR%)   # VOL PARITY: calm
 
 ---
 
-### 30. Patient-whale conviction copy (smart-money follower, long/short)
+### 30. Smart-money-vs-crowd cohort divergence (long/short)
 
-A copy-follower with a **conviction gate** instead of copy-everything. Most follower agents (e.g. Jackal) mirror *every* new entry from top-ROI traders — noisy. This pattern fires only on the **single highest-conviction strike** of a **consistent + patient** winner: a trader who rarely trades, so when they finally commit a big slice of *their own* balance to a new position, it's their strongest read. The rarity is the alpha. Built on Senpi Discover's trader tags.
+A **positioning** engine, not a copy-follower. Copy-followers (Jackal) and conviction-copiers (the v1.x version of this agent) react to *individual* trades — which are sparse and noisy. This pattern measures the **net positioning of an entire cohort** defined by **lifetime realized gains**, and fires when the **smartest-money cohort diverges from the crowd** and is **adding to the divergence daily**. It's the closest Hyperliquid analog to a commitment-of-traders report: not one whale's bet, but where the weight of the people who've actually made money is sitting versus where the crowd is. The signal it's built to catch: *the >$1M-realized wallets went heavily short while the $10k–$100k crowd bought the rally — and the winners added to the short every day.*
 
 ```python
-# Pool (daily cache): discovery_get_top_traders(consistency=[ELITE], activity_labels=[PATIENT])
-# Per tick: discovery_get_trader_state(include_position_age=true) -> diff vs baseline
-strike if: new position in THIS sleeve's direction
-       and marginUsed / accountValue >= convictionPct      # big share of THEIR balance = conviction
-       and durationInSeconds < maxEntryAgeSec               # recently opened
-# mirror -> size to MY budget, conviction- + consensus-scaled, leverage capped -> WIDE DSL
+# 1. Cohorts (daily cache): one discovery_get_top_traders(sort_by=PROFIT_AND_LOSS_REALIZED, time_frame=ALL_TIME)
+#    bucket by lifetime realized $: smart = >= $1M ; crowd = $10k..$100k
+# 2. Net positioning: discovery_get_trader_state(cohort) -> per coin, bias = sum(signed_notional)/sum(|notional|) in [-1,+1]
+# 3. "Adding daily": a daily LEDGER of the smart cohort's net-per-coin; growth = today_net - earliest_snapshot_in_window
+# 4. Strike (this sleeve's direction):
+strike if: smart cohort net-directional past biasThreshold (>=0.50)   # they're heavily on this side
+       and smart cohort GROWING in our direction (requireGrowing)     # "adding every day" — the conviction
+       and score(strong bias >=0.7, growing, crowd net-OPPOSITE) >= cohortMinScore   # crowd divergence = booster
+# size to MY budget, score-scaled, leverage capped -> WIDE DSL ; ALSO emit a human-readable `insight` line
 ```
 
-**Three disciplines:** (1) **the conviction gate** — `marginUsed / accountValue` (capital at risk as a share of *their* book), not notional, is the truest conviction read; (2) **tier the sizing, not just the pool** — follow a few consistency×style tiers (ELITE/RELIABLE × PATIENT/TACTICAL) and size each strike by a tier weight that scales **both** base margin and cap, so a higher tier always has a higher ceiling (solves the thin-pool risk of a single strict tier while keeping size ∝ trader quality); only PATIENT/TACTICAL styles qualify because a *wide ride-it* DSL only makes sense behind a trader who themselves holds (never DEGEN); (3) **baseline-seed guard** — never treat existing positions as new strikes on first run (Jackal's hard-learned bug). Consensus (multiple whales agreeing) scales the ONE position up, not into two (within-tick dedup). **Requires a USER-scoped auth token** — `discovery_*` needs a user id.
+**Four disciplines:** (1) **cohorts by realized $, not tags** — lifetime realized gains is the cleanest "smart vs crowd" axis; the >$1M cohort's *aggregate lean* is far more robust than any single trader's tag; (2) **net positioning, not trade events** — `bias = net/gross ∈ [-1,+1]` per coin per cohort captures the *weight* of the cohort, and is always available (no waiting for a rare new entry — the failure mode that left the v1.x copier 0-trades-in-3-days); (3) **require growth, not just lopsidedness** — a statically-lopsided cohort can be a stale position; the daily ledger demands it's *being added to* (`requireGrowing`), which is the actual conviction. **~1-day warmup** — the growth gate needs ≥2 daily snapshots, so day 1 emits nothing by design; (4) **crowd divergence is a booster, not a trigger** — fade-the-crowd alone is unreliable, so "smart money" drives and "crowd net-opposite" only raises the score. **Surface the insight** — emit a readable `insight` line per top divergence each tick so the agent can *report what the smart money is doing*, not just trade it. **Requires a USER-scoped auth token** — `discovery_*` needs a user id (no scope → empty smart cohort → "cohort too small").
 
-**Two independent sleeves on SEPARATE wallets** — so different whales' *opposite* convictions on the same asset can both be held (long sleeve + short sleeve); funding default 50/50 makes it a balanced whale-conviction long/short hedge. The wide DSL is the current exit; "follow them out" (close when the source whale closes) is a planned producer-emitted invalidation exit (v1.2).
+**Two independent sleeves on SEPARATE wallets** — the smart cohort can be net-long one asset and net-short another simultaneously (long sleeve + short sleeve, no netting); funding default 50/50 makes it a balanced smart-money long/short hedge. The wide DSL is the current exit; the planned invalidation exit closes when the smart cohort **flips or unwinds** the position (smartBias crosses zero / growth reverses) — the mirror of the entry. The v1.x **per-whale conviction copier** (conviction gate on `marginUsed/accountValue`, tiered by consistency×style) is retained behind `enableIndividualCopy` (OFF by default) for agents that prefer trade-level copying.
 
 **Agents in this family:**
 
 | Agent | Version | Source / Universe | Description | Tags |
 |---|---|---|---|---|
-| **WhaleHunterHedge** | v1.1 | consistent+patient Hyperliquid winners across 4 tiers (Senpi Discover), two sleeves: long + short | **Patient-whale conviction copy, tiered.** Follows ELITE/RELIABLE × PATIENT/TACTICAL winners; strikes only when one opens a new position ≥ convictionPct (default 25%) of their own balance. Mirror sized by the trader's TIER weight (ELITE+PATIENT 1.0 → RELIABLE+TACTICAL 0.40; scales base + cap), then conviction- + consensus-scaled, leverage-capped, ridden on a WIDE DSL. Long/short on separate wallets (conflicting same-asset positions allowed), funding 50/50. Daily-cached pool (one query per tier), baseline-seed guard. v1.2: follow-them-out exit + ALL_TIME durability cross-check. | Hedge-fund, Smart-money, Copy-trading, Conviction-gate, Tiered-sizing, Patient, Two-sleeve, Wide-DSL |
+| **WhaleHunterHedge** | v2.0 | Hyperliquid traders cohorted by lifetime realized gains (Senpi Discover), two sleeves: long + short | **Smart-money-vs-crowd cohort divergence.** Cohorts by realized $: smart (>$1M) vs crowd ($10k–$100k). Aggregates each cohort's NET positioning per asset (bias ∈ [-1,+1]), tracks whether the smart cohort is ADDING daily via a cohort ledger, and strikes when the smart cohort is net-directional past biasThreshold (0.50) AND growing, with crowd-net-opposite as a score booster. Score-scaled margin, leverage-capped, WIDE DSL. Long/short on separate wallets, funding 50/50. Surfaces a readable divergence insight each tick. v1.x per-whale conviction copier retained behind a flag (OFF). | Hedge-fund, Smart-money, Cohort-divergence, Positioning, Crowd-fade, Realized-PnL, Two-sleeve, Wide-DSL |
 
 ---
 

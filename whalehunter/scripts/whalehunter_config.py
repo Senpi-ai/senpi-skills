@@ -54,6 +54,10 @@ STATE_DIR = SKILL_DIR / "state"
 # baseline is per-leg (each sleeve diffs only its own direction).
 POOL_PATH = STATE_DIR / "pool.json"
 LAST_SEEN_PATH = STATE_DIR / f"last-seen-{LEG}.json"
+# v2.0 cohort engine: smart/crowd membership (shared, daily) + the per-coin
+# net-positioning ledger (shared, one snapshot per UTC day) for the "adding daily" trend.
+COHORT_PATH = STATE_DIR / "cohorts.json"
+LEDGER_PATH = STATE_DIR / "cohort-ledger.json"
 
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -220,6 +224,39 @@ def load_last_seen():
 def save_last_seen(data):
     try:
         atomic_write(LAST_SEEN_PATH, data)
+    except OSError:
+        pass
+
+
+def _load_json(path):
+    if path.exists():
+        try:
+            with open(path) as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def load_cohorts():
+    return _load_json(COHORT_PATH)
+
+
+def save_cohorts(data):
+    try:
+        atomic_write(COHORT_PATH, data)
+    except OSError:
+        pass
+
+
+def load_ledger():
+    return _load_json(LEDGER_PATH)
+
+
+def save_ledger(data):
+    try:
+        atomic_write(LEDGER_PATH, data)
     except OSError:
         pass
 

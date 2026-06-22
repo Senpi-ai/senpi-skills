@@ -51,7 +51,7 @@ import whalehunter_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "1.2.0"
+VERSION = "2.0.0"
 LEG = cfg.LEG  # "long" | "short"
 DIRECTION = "LONG" if LEG == "long" else "SHORT"
 SCANNER_NAME = f"whalehunter_{LEG}_signals"
@@ -88,6 +88,20 @@ _DEFAULTS = {
     "venueMinNotionalUsd": 10,
     "minNotionalPctOfEquity": 0.01,
     "tickSeconds": 300,
+    # ── v2.0 COHORT-DIVERGENCE ENGINE (smart money vs the crowd) ──
+    "cohortEngine": True,            # v2.0 primary signal
+    "enableIndividualCopy": False,   # v1.x per-whale copy retained but OFF by default (superseded)
+    "smartMinRealizedUsd": 1_000_000,    # "smartest money" cohort: lifetime realized gains >= $1M
+    "crowdMinRealizedUsd": 10_000,       # "crowd" cohort: $10k ..
+    "crowdMaxRealizedUsd": 100_000,      #            .. $100k realized
+    "cohortFetchLimit": 1000,            # top_traders pull (by ALL_TIME realized) to bucket both cohorts
+    "cohortRefreshHours": 24,            # cohort MEMBERSHIP changes slowly — cache daily
+    "cohortMinMembers": 5,               # need at least this many in a cohort to trust its net bias
+    "biasThreshold": 0.50,               # smart cohort must be >= 50% net-directional on a coin to signal
+    "crowdDivergenceMin": 0.20,          # crowd >= 20% net-OPPOSITE = a confirmation booster (not required)
+    "requireGrowing": True,              # the smart net must be GROWING vs the ledger ("adding daily")
+    "ledgerLookbackDays": 3,             # compare today's smart net to ~this many days ago
+    "cohortMinScore": 4,                 # divergence score floor to emit
 }
 
 
@@ -346,10 +360,264 @@ def push_signal(strike, margin_usd, leverage, held_assets):
 
 
 # ═══════════════════════════════════════════════════════════════
-# MAIN
+# v2.0 COHORT-DIVERGENCE ENGINE — smart money vs the crowd
+# Define cohorts by lifetime realized gains, aggregate each cohort's NET
+# positioning per asset, track whether the smart cohort is ADDING daily, and
+# position WITH the smart money when it diverges from the crowd.
 # ═══════════════════════════════════════════════════════════════
 
+def _realized(t):
+    return _f(t, "profit_and_loss_realized", "realizedPnl", "realized_pnl",
+              "pnlRealized", "pnl", "profitAndLoss", "profit_and_loss", default=0.0)
+
+
+def build_cohorts(config, force=False):
+    """Smart cohort (lifetime realized >= smartMinRealizedUsd) + crowd cohort
+    (crowdMin..crowdMax). One ALL_TIME realized-PnL ranking, bucketed by $. Cached
+    daily — membership changes slowly."""
+    cached = cfg.load_cohorts()
+    now = time.time()
+    if (not force and cached.get("smart")
+            and (now - cached.get("refreshed_at", 0)) / 3600 < float(config.get("cohortRefreshHours", _DEFAULTS["cohortRefreshHours"]))):
+        return cached.get("smart", []), cached.get("crowd", [])
+    resp = cfg.mcp_call("discovery_get_top_traders", time_frame="ALL_TIME",
+                        sort_by="PROFIT_AND_LOSS_REALIZED", open_position_filter=False,
+                        limit=int(config.get("cohortFetchLimit", _DEFAULTS["cohortFetchLimit"])))
+    if not resp or not resp.get("success", True):
+        return cached.get("smart", []), cached.get("crowd", [])
+    raw = resp.get("data", resp)
+    if isinstance(raw, dict):
+        raw = raw.get("traders", raw.get("data", []))
+    if not isinstance(raw, list):
+        return cached.get("smart", []), cached.get("crowd", [])
+    smin = float(config.get("smartMinRealizedUsd", _DEFAULTS["smartMinRealizedUsd"]))
+    cmin = float(config.get("crowdMinRealizedUsd", _DEFAULTS["crowdMinRealizedUsd"]))
+    cmax = float(config.get("crowdMaxRealizedUsd", _DEFAULTS["crowdMaxRealizedUsd"]))
+    smart, crowd = [], []
+    for t in raw:
+        if not isinstance(t, dict):
+            continue
+        addr = (t.get("address") or t.get("trader_address") or "").lower()
+        if not addr:
+            continue
+        rp = _realized(t)
+        if rp >= smin:
+            smart.append(addr)
+        elif cmin <= rp <= cmax:
+            crowd.append(addr)
+    cfg.save_cohorts({"refreshed_at": now, "refreshed_iso": cfg.now_iso(),
+                      "smart": smart, "crowd": crowd})
+    return smart, crowd
+
+
+def _signed_notional(p):
+    szi = _f(p, "szi", "size")
+    val = _f(p, "positionValue", "notional", "position_value")
+    if val <= 0:
+        val = abs(szi) * _f(p, "entryPx", "markPx", "entry_price")
+    return (1.0 if szi > 0 else (-1.0 if szi < 0 else 0.0)) * abs(val)
+
+
+def cohort_net_bias(addrs):
+    """Aggregate a cohort's NET positioning per coin: bias = net/gross in [-1,+1]
+    (+1 = all long, -1 = all short), plus member counts. Batches of 50."""
+    per = {}
+    for i in range(0, len(addrs), 50):
+        resp = cfg.mcp_call("discovery_get_trader_state", trader_addresses=addrs[i:i + 50])
+        if not resp:
+            continue
+        data = resp.get("data", resp)
+        traders = data.get("traders", []) if isinstance(data, dict) else []
+        for t in traders:
+            for p in (t.get("openPositions") or t.get("open_positions") or []):
+                if not isinstance(p, dict):
+                    continue
+                coin = p.get("coin") or p.get("asset")
+                sn = _signed_notional(p) if coin else 0.0
+                if not coin or sn == 0:
+                    continue
+                d = per.setdefault(coin, {"net": 0.0, "gross": 0.0, "n_long": 0, "n_short": 0})
+                d["net"] += sn
+                d["gross"] += abs(sn)
+                d["n_long" if sn > 0 else "n_short"] += 1
+    for d in per.values():
+        d["bias"] = round(d["net"] / d["gross"], 3) if d["gross"] > 0 else 0.0
+    return per
+
+
+def _utc_day():
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def update_ledger_and_growth(smart_per, config):
+    """Append today's smart-cohort net-per-coin to the daily ledger; return the
+    growth vs the earliest snapshot in the window (the 'adding daily' signal).
+    Returns {} on day 1 (no prior snapshot) — requireGrowing then blocks until ~day 2."""
+    led = cfg.load_ledger()
+    days = led.get("days", {})
+    today = _utc_day()
+    days[today] = {c: round(d["net"], 2) for c, d in smart_per.items()}
+    for stale in sorted(days)[:-10]:        # keep ~10 days
+        days.pop(stale, None)
+    prior_dates = [d for d in sorted(days) if d < today]
+    growth = {}
+    if prior_dates:
+        prior = days[prior_dates[0]]        # earliest snapshot we hold (>= lookback ago once warmed)
+        for coin, net in days[today].items():
+            growth[coin] = round(net - float(prior.get(coin, 0.0)), 2)
+    cfg.save_ledger({"days": days, "updated": cfg.now_iso()})
+    return growth
+
+
+def cohort_signals(smart_per, crowd_per, growth, config):
+    """For THIS sleeve's direction: the smart cohort is net-directional past the
+    bias threshold, growing (adding), with the crowd ideally diverging. Score it."""
+    bt = float(config.get("biasThreshold", _DEFAULTS["biasThreshold"]))
+    cdiv = float(config.get("crowdDivergenceMin", _DEFAULTS["crowdDivergenceMin"]))
+    req_grow = bool(config.get("requireGrowing", _DEFAULTS["requireGrowing"]))
+    min_members = int(config.get("cohortMinMembers", _DEFAULTS["cohortMinMembers"]))
+    floor = int(config.get("cohortMinScore", _DEFAULTS["cohortMinScore"]))
+    want_long = (DIRECTION == "LONG")
+    out = []
+    for coin, sd in smart_per.items():
+        if sd["n_long"] + sd["n_short"] < min_members:
+            continue
+        bias = sd["bias"]
+        if (want_long and bias < bt) or (not want_long and bias > -bt):
+            continue                                    # smart cohort not net in our direction
+        g = growth.get(coin)
+        growing = (g is not None) and ((g > 0) if want_long else (g < 0))
+        if req_grow and not growing:
+            continue                                    # not "adding" — skip
+        crowd_bias = crowd_per.get(coin, {}).get("bias", 0.0)
+        crowd_div = (crowd_bias <= -cdiv) if want_long else (crowd_bias >= cdiv)
+        score = 3 + (1 if abs(bias) >= 0.7 else 0) + (1 if growing else 0) + (1 if crowd_div else 0)
+        if score < floor:
+            continue
+        n_confirm = sd["n_long"] if want_long else sd["n_short"]
+        out.append({"coin": coin, "direction": DIRECTION, "score": score,
+                    "smart_bias": bias, "crowd_bias": round(crowd_bias, 3),
+                    "growth": g, "n_confirm": n_confirm,
+                    "reasons": [f"smart cohort net {bias:+.2f} on {coin}",
+                                f"{'ADDING' if growing else 'flat'} (Δnet {g})",
+                                f"crowd {crowd_bias:+.2f}{' DIVERGES' if crowd_div else ''}",
+                                f"{n_confirm} smart whales {DIRECTION}"]})
+    out.sort(key=lambda s: (s["score"], abs(s["smart_bias"])), reverse=True)
+    return out
+
+
+def cohort_margin(account_value, score, config):
+    base = float(config.get("marginPct", _DEFAULTS["marginPct"]))
+    cap = float(config.get("maxMarginPct", _DEFAULTS["maxMarginPct"]))
+    smax = float(config.get("maxConvictionScale", _DEFAULTS["maxConvictionScale"]))
+    floor = int(config.get("cohortMinScore", _DEFAULTS["cohortMinScore"]))
+    scale = min(smax, 1.0 + 0.25 * max(0, score - floor))   # +25% per point above the floor
+    return round(min(account_value * base * scale, account_value * cap), 2)
+
+
+def push_cohort_signal(s, margin_usd, leverage, held_assets):
+    if not STRATEGY_ADDRESS or s["coin"].upper() in {h.upper() for h in held_assets}:
+        return False
+    data_block = {"leverage": leverage, "marginUsd": margin_usd, "direction": s["direction"],
+                  "heldAssets": held_assets, "signalKind": "COHORT_DIVERGENCE",
+                  "smartBias": s["smart_bias"], "crowdBias": s["crowd_bias"],
+                  "smartGrowth": s["growth"], "smartMembers": s["n_confirm"], "reasons": s["reasons"]}
+    conf = min(1.0, 0.5 + abs(s["smart_bias"]) * 0.4 + 0.05 * s["n_confirm"])
+    try:
+        cfg._wrapper_client.push_signal(address=STRATEGY_ADDRESS, scanner=SCANNER_NAME,
+                                        asset=s["coin"], direction=s["direction"], score=conf,
+                                        signal_type=SIGNAL_TYPE, data=data_block)
+        return True
+    except SenpiClientError as e:
+        cfg.log(f"INGEST_REJECTED {s['coin']}: {e}")
+        return False
+    except Exception as e:  # noqa: BLE001
+        cfg.log(f"INGEST_EXCEPTION {s['coin']}: {type(e).__name__}: {e}")
+        return False
+
+
+def cohort_main(config):
+    run_start = time.time()
+    if not STRATEGY_ADDRESS:
+        cfg.output({"status": "error", "reason": "no_wallet", "leg": LEG,
+                    "_whalehunter_producer_version": VERSION})
+        return
+    account_value, positions = cfg.get_positions(STRATEGY_ADDRESS)
+    held_assets = [p["coin"] for p in positions if p.get("coin")]
+    if account_value <= 0:
+        cfg.output({"status": "ok", "leg": LEG, "note": "no account value",
+                    "_whalehunter_producer_version": VERSION})
+        return
+    force = os.environ.get("REFRESH_POOL", "").lower() in ("1", "true", "yes")
+    smart, crowd = build_cohorts(config, force=force)
+    if len(smart) < int(config.get("cohortMinMembers", _DEFAULTS["cohortMinMembers"])):
+        cfg.output({"status": "ok", "leg": LEG, "smart_n": len(smart), "crowd_n": len(crowd),
+                    "note": "smart cohort too small (no >$1M-realized traders, or token lacks user scope)",
+                    "_whalehunter_producer_version": VERSION})
+        return
+    smart_per = cohort_net_bias(smart)
+    crowd_per = cohort_net_bias(crowd)
+    growth = update_ledger_and_growth(smart_per, config)
+    strikes = cohort_signals(smart_per, crowd_per, growth, config)
+
+    max_slots = int(config.get("maxSlots", _DEFAULTS["maxSlots"]))
+    open_slots = max_slots - len(held_assets)
+    min_notional = max(account_value * float(config.get("minNotionalPctOfEquity", 0.01)),
+                       float(config.get("venueMinNotionalUsd", 10)))
+    max_lev = int(config.get("maxLeverage", _DEFAULTS["maxLeverage"]))
+    std_lev = int(config.get("stdLeverage", _DEFAULTS["stdLeverage"]))
+    free_margin = max(0.0, account_value - sum(p.get("margin", 0) for p in positions))
+    pushed, emitted = 0, []
+    seen = {(h.upper(), DIRECTION) for h in held_assets}
+    slots_left = open_slots
+    for s in strikes:
+        if slots_left <= 0:
+            break
+        key = (s["coin"].upper(), s["direction"])
+        if key in seen:
+            continue
+        margin_usd = cohort_margin(account_value, s["score"], config)
+        leverage = clamp_lev(std_lev, max_lev)
+        if margin_usd * leverage < min_notional or margin_usd * 1.1 > free_margin:
+            continue
+        if push_cohort_signal(s, margin_usd, leverage, held_assets):
+            seen.add(key)
+            pushed += 1
+            slots_left -= 1
+            free_margin -= margin_usd
+            emitted.append({"coin": s["coin"], "direction": s["direction"], "score": s["score"],
+                            "smart_bias": s["smart_bias"], "crowd_bias": s["crowd_bias"],
+                            "growth": s["growth"], "margin_usd": margin_usd})
+    # Human-readable insight (top divergences this tick — surfaced even if not all emitted)
+    insight = [f"{s['coin']}: smart {s['smart_bias']:+.2f} vs crowd {s['crowd_bias']:+.2f}, Δ{s['growth']} → {s['direction']}"
+               for s in strikes[:5]]
+    cfg.output({"status": "ok", "leg": LEG, "engine": "cohort",
+                "smart_n": len(smart), "crowd_n": len(crowd),
+                "candidates": len(strikes), "signals_pushed": pushed, "emitted": emitted,
+                "insight": insight,
+                "note": (None if strikes else "WAITING — no smart/crowd divergence cleared the gate"),
+                "account_value": round(account_value, 2),
+                "elapsed_sec": round(time.time() - run_start, 2),
+                "_whalehunter_producer_version": VERSION})
+
+
 def main():
+    """v2.0 dispatcher: the cohort-divergence engine is primary; the v1.x per-whale
+    copy runs only if explicitly re-enabled (enableIndividualCopy)."""
+    config = cfg.load_config()
+    if config.get("cohortEngine", _DEFAULTS["cohortEngine"]):
+        cohort_main(config)
+    if config.get("enableIndividualCopy", _DEFAULTS["enableIndividualCopy"]):
+        individual_main()
+
+
+# ═══════════════════════════════════════════════════════════════
+# MAIN (v1.x per-whale copy — retained, OFF by default)
+# ═══════════════════════════════════════════════════════════════
+
+def individual_main():
+    """v1.x per-whale conviction copy. Retained but OFF by default in v2.0 (the
+    cohort-divergence engine supersedes it). Enable via config.enableIndividualCopy."""
     run_start = time.time()
     config = cfg.load_config()
     if not STRATEGY_ADDRESS:

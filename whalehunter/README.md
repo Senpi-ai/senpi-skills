@@ -1,29 +1,31 @@
-# 🐋 WHALEHUNTERHEDGE v1.1 — Patient-Whale Conviction Copy (long/short, tiered)
+# 🐋 WHALEHUNTERHEDGE v2.0 — Smart-Money-vs-Crowd Divergence (long/short)
 
-Follow the **biggest bet** of the consistent + patient winners, **sized by trader
-tier**. WhaleHunterHedge shadows winners across four consistency×style tiers on Senpi
-Discover and strikes only when one opens a **new position that's a large share of their
-own balance** — then mirrors it (sized by tier) and rides it wide. Two independent
-sleeves on separate wallets. See [SKILL.md](SKILL.md) for the full thesis.
+Position **with the smartest money, against the crowd.** WhaleHunterHedge segments
+Hyperliquid traders into cohorts by **lifetime realized gains** (smart money = >$1M,
+crowd = $10k–$100k), measures each cohort's **net positioning** per asset, tracks
+whether the smart cohort is **adding daily**, and strikes when the smart money diverges
+hard from the crowd — *e.g. the winners shorting a rally the crowd is buying*. Two
+independent sleeves on separate wallets. See [SKILL.md](SKILL.md) for the full thesis.
 
-**Sizing tiers** (the `tagWeights` matrix — every other tag pair is excluded):
+**The four-step engine** (all from Senpi Discover):
 
-| Tier | Margin use |
+| Step | What |
 |---|---|
-| ELITE + PATIENT | 1.00 (highest) |
-| ELITE + TACTICAL | 0.75 |
-| RELIABLE + PATIENT | 0.50 |
-| RELIABLE + TACTICAL | 0.40 |
+| 1. Cohorts | One ALL-TIME realized-PnL ranking, bucketed: smart ≥ $1M, crowd $10k–$100k |
+| 2. Net positioning | `bias = net/gross ∈ [-1,+1]` per asset, per cohort (+1 all long, -1 all short) |
+| 3. Adding daily | A daily ledger of the smart cohort's net per coin → growth (`requireGrowing`) |
+| 4. Divergence strike | Smart net-directional ≥ `biasThreshold` + growing, scored higher when the crowd's net-opposite |
 
 | Sleeve | Role | Direction | Wallet |
 |---|---|---|---|
-| `long` | mirror whales' high-conviction LONG strikes | LONG only | one |
-| `short` | mirror whales' high-conviction SHORT strikes | SHORT only | one |
+| `long` | assets the smart cohort is net-long + adding | LONG only | one |
+| `short` | assets the smart cohort is net-short + adding | SHORT only | one |
 
 > **Two wallets** → the book can hold the same asset **long in one sleeve and short in
-> the other** (different whales, opposite conviction). Funding default **50/50** — no
-> directional bias. **Requires a USER-scoped `SENPI_AUTH_TOKEN`** (the `discovery_*`
-> tools need a user id).
+> the other** (smart money net-long one asset, net-short another). Funding default
+> **50/50** — no directional bias. **Requires a USER-scoped `SENPI_AUTH_TOKEN`** (the
+> `discovery_*` tools need a user id). **~1-day warmup** — the growth gate needs ≥2 daily
+> ledger snapshots, so day 1 emits no divergence strikes by design.
 
 ---
 
@@ -78,27 +80,31 @@ lock makes a redundant relaunch a safe no-op.
 pgrep -af whalehunter-producer.py     # expect 2 daemons (long + short)
 tail -5 /tmp/whalehunter-*.log
 ```
-Each tick emits JSON with `pool_size`, `strikes`, `emitted` (with `from`,
-`conviction_pct`, `consensus`, `margin_usd`). Most ticks print `WAITING — no
-consistent+patient whale opened a high-conviction strike` — **that's expected**;
-patient whales rarely trade, so signals are sparse by design. If `pool_size` is 0,
+Each tick emits JSON with `engine: "cohort"`, `smart_n` / `crowd_n` (cohort sizes),
+`candidates`, `signals_pushed`, `emitted` (with `smart_bias`, `crowd_bias`, `growth`,
+`margin_usd`), and an `insight` array — the human-readable divergences (e.g.
+`"HYPE: smart -0.85 vs crowd +0.65, Δ-2100000 → SHORT"`). On day 1 (and most ticks)
+you'll see `WAITING — no smart/crowd divergence cleared the gate` — **expected** until
+the smart cohort is both lopsided *and* adding. If `smart_n` is 0 / "cohort too small",
 your token likely isn't USER-scoped (the `discovery_*` calls need a user id).
 
 ---
 
 ## Notes
-- **Tiered, not all-or-nothing.** Four tiers are followed (ELITE/RELIABLE × PATIENT/
-  TACTICAL), each sized by its `tagWeights` multiplier — wider net for more signals,
-  but size proportional to trader quality. Add/remove a tier by editing `tagWeights`
-  (one line, no rebuild). Streaky/Choppy and Degen/Active are excluded entirely.
-- **Conviction = capital at risk** — `marginUsed / accountValue` on the whale's *new*
-  position, default ≥25% of their book. Raise for a sharper sniper, lower for more signals.
-- **Consensus, not duplication** — two whales on the same coin+direction size the ONE
-  position up; they don't open two (within-tick dedup).
-- **Ride wide** — wide disaster stop, no early profit-locks, time-cuts off. Patient
-  whales hold; you hold with them. (v1.1: close when the whale closes.)
-- **You're inherently a bit late** — `trader_state` shows the entry after it's placed;
-  the conviction filter and a 6h freshness window keep it sane for slow patient trades.
+- **Cohorts by realized $, not tags.** Smart = lifetime realized ≥ `smartMinRealizedUsd`
+  ($1M); crowd = `crowdMinRealizedUsd`..`crowdMaxRealizedUsd` ($10k–$100k). Tune the
+  thresholds in config (one line, no rebuild).
+- **Net positioning is the signal** — `bias = net/gross ∈ [-1,+1]` per asset. The smart
+  cohort must clear `biasThreshold` (0.50) in this sleeve's direction. Always available
+  (no waiting on a rare individual trade).
+- **Require growth, not just lopsidedness** — `requireGrowing` demands the smart cohort
+  is *adding* to the position day over day (the daily ledger). That's the conviction.
+- **Crowd divergence is a booster** — fading the crowd alone is unreliable, so smart
+  money drives and "crowd net-opposite ≥ `crowdDivergenceMin`" only raises the score.
+- **Ride wide** — wide disaster stop, no early profit-locks, time-cuts off. You hold while
+  the smart cohort holds. (Planned: close when the smart cohort flips/unwinds.)
+- **Revivable v1.x copier** — the per-whale conviction copier (tiered by consistency×style)
+  is retained behind `enableIndividualCopy` (OFF by default).
 - The producer **only opens** positions; the DSL owns all exits.
 
 ## License

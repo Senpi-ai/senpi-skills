@@ -799,16 +799,16 @@
     {
       "id": "whalehunter",
       "tracker_slug": "whalehunterhedge-v1-0-0",
-      "name": "WhaleHunterHedge \u2014 Patient-Whale Conviction Copy",
+      "name": "WhaleHunterHedge \u2014 Smart-Money-vs-Crowd Divergence",
       "emoji": "\ud83d\udc0b",
-      "tagline": "Follows the highest-conviction trades of CONSISTENT + PATIENT Hyperliquid winners, SIZED BY TIER. It watches winners across four consistency\u00d7style tiers on Senpi Discover \u2014 ELITE+PATIENT (highest margin), ELITE+TACTICAL, RELIABLE+PATIENT, RELIABLE+TACTICAL (everything else excluded) \u2014 and strikes only when one opens a NEW position that's a large share of their OWN balance (their highest-conviction read), then mirrors it sized by the trader's tier and rides it on a WIDE DSL. Two independent sleeves on SEPARATE wallets (long / short), so the book can hold conflicting positions on one asset at once. Funding 50/50 \u2014 a balanced whale-conviction long/short hedge. Requires a USER-scoped auth token (Discover needs a user id).",
+      "tagline": "Positions WITH the smartest money on Hyperliquid and AGAINST the crowd. Segments traders into cohorts by LIFETIME REALIZED gains (smart money = >$1M, crowd = $10k\u2013$100k), aggregates each cohort's NET positioning per asset, and tracks whether the smart cohort is ADDING daily. Strikes when the smart cohort is heavily net-directional on an asset AND growing the position while the crowd leans the other way \u2014 e.g. the winners are shorting a rally the crowd is buying. Two independent sleeves on SEPARATE wallets (long / short), so the book can hold conflicting positions on one asset at once. Surfaces the divergence as a readable insight, not just a trade. Funding 50/50. Requires a USER-scoped auth token (Discover needs a user id).",
       "group": "hedge-fund",
       "sort_order": 20,
       "min_budget": 400,
       "risk_level": "moderate",
       "base_skill": null,
       "predators_url": "https://strategies.senpi.ai/bot/whalehunterhedge-v1-0-0",
-      "version": "1.2.0"
+      "version": "2.0.0"
     },
     {
       "id": "piranha",

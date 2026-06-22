@@ -1,21 +1,21 @@
 ---
 name: whalehunter-strategy
 description: >-
-  WHALEHUNTERHEDGE v1.1 — a long/short copy book that follows the highest-conviction
-  trades of CONSISTENT + PATIENT Hyperliquid winners, sized by trader TIER. It
-  watches winners across four consistency×style tiers on Senpi Discover —
-  ELITE+PATIENT, ELITE+TACTICAL, RELIABLE+PATIENT, RELIABLE+TACTICAL (everything
-  else excluded) — and strikes only when one opens a NEW position that's a large
-  share of their OWN balance (their highest-conviction read). The mirror is sized
-  by the trader's tier (ELITE+PATIENT = highest margin, down to RELIABLE+TACTICAL),
-  conviction- and consensus-scaled, leverage-capped. Two INDEPENDENT sleeves on
-  SEPARATE wallets (long / short) so the book can hold conflicting positions on the
-  same asset at once. Rides on a WIDE DSL. Funding split default 50/50 (no
-  directional bias). NOT a blind copy-trader; runtime owns the LLM gate, DSL, risk.
+  WHALEHUNTERHEDGE v2.0 — a long/short book that positions WITH the smartest money on
+  Hyperliquid and AGAINST the crowd. It segments traders into cohorts by LIFETIME
+  REALIZED gains (smart money = >$1M, crowd = $10k–$100k), aggregates each cohort's NET
+  positioning per asset (a bias in [-1,+1]), tracks whether the smart cohort is ADDING
+  daily, and strikes when the smart cohort is heavily net-directional on an asset AND
+  growing the position while the crowd leans the other way — a smart-money-vs-crowd
+  DIVERGENCE. It also surfaces that divergence as a human-readable insight. Two
+  INDEPENDENT sleeves on SEPARATE wallets (long / short) so the book can hold conflicting
+  positions on the same asset at once. Rides on a WIDE DSL. Funding split default 50/50.
+  The v1.x per-whale conviction copier is retained behind a flag (OFF by default). NOT a
+  blind copy-trader; runtime owns the LLM gate, DSL, risk.
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "1.2.0"
+  version: "2.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -23,66 +23,69 @@ metadata:
     - senpi_runtime_helpers
 ---
 
-# 🐋 WHALEHUNTERHEDGE v1.0 — Patient-Whale Conviction Copy (long/short)
+# 🐋 WHALEHUNTERHEDGE v2.0 — Smart-Money-vs-Crowd Divergence (long/short)
 
-Follow the **one big bet** of the patient winners. WhaleHunterHedge shadows traders
-tagged **ELITE** (consistency) and **PATIENT** (activity) on Senpi Discover, and
-strikes only when one of them makes a **high-conviction move** — a new position that's
-a large share of their own balance — then rides it wide.
+Position **with the smartest money, against the crowd.** WhaleHunterHedge measures what
+the cohort with the largest **lifetime realized gains** is *actually doing* — net long or
+net short, per asset, and whether they're **adding** — and fires when the smart money
+diverges hard from the crowd. The signal it's built to catch:
 
-| Sleeve | What it mirrors | Direction | Wallet |
+> *This week the most profitable wallets on Hyperliquid went heavily short while the crowd
+> piled into longs — and the winners added to that short every single day.* That's the
+> setup: **smart money net-short + adding, crowd net-long → short it with them.**
+
+| Sleeve | What it positions | Direction | Wallet |
 |---|---|---|---|
-| **long** | whales' high-conviction LONG strikes | LONG only | one |
-| **short** | whales' high-conviction SHORT strikes | SHORT only | one |
+| **long** | assets the smart cohort is net-long + adding | LONG only | one |
+| **short** | assets the smart cohort is net-short + adding | SHORT only | one |
 
-> **Two wallets, fully independent** — so the book can hold **conflicting positions on
-> the same asset** (one whale high-conviction long ETH + a *different* whale
-> high-conviction short ETH → long sleeve holds ETH-long, short sleeve holds
-> ETH-short, no netting). Funding default **50/50** — balanced, no directional bias.
+> **Two wallets, fully independent** — so the book can hold **conflicting positions on the
+> same asset** (smart money net-long ETH while net-short HYPE → long sleeve holds ETH,
+> short sleeve holds HYPE, no netting). Funding default **50/50** — no built-in directional bias.
 
-## Why patient + consistent is the edge
+## Why cohort divergence is the edge
 
-A trader who is both **ELITE** (consistently profitable — no losing 7-day-or-longer
-segments) and **PATIENT** (trades infrequently, holds long) has **almost no routine
-trades to copy**. So when one finally commits a big slice of their own book to a new
-position, that's not noise — it's their single highest-conviction read. **The rarity
-is the alpha.** You're not copying their churn (they have none); you're copying their
-one big swing — and because they're patient, they hold it, which is exactly why a
-*wide* DSL fits: you ride as long as the conviction lasts.
+A single whale's trade is noise. The **weight of the entire >$1M-realized cohort** is signal —
+it's the closest thing Hyperliquid has to a "commitment of the smartest traders." When that
+cohort is lopsided on an asset **and growing the position day over day**, while the crowd
+(the $10k–$100k wallets that are net buyers of every rally) is on the other side, you have a
+**positioning divergence** — the most durable read in the market. You're not chasing one bet;
+you're standing where the people who've actually made money are standing, and fading the
+people who haven't. Because it's a *positioning* signal (not a momentum one), a **wide DSL**
+fits: you hold while the smart cohort holds.
 
-## The tiered pool + the conviction gate (all from Senpi Discover)
+## The engine — four steps, all from Senpi Discover
 
-**Who's followed — four consistency×style tiers, each with a sizing weight** (the
-`tagWeights` matrix; every other tag pair — Streaky/Choppy, Degen/Active — is
-excluded). The pool is queried once per tier so each trader is tagged exactly:
+1. **Cohorts by lifetime realized gains.** One `discovery_get_top_traders` pull ranked by
+   ALL-TIME realized PnL, bucketed by `$`: **smart = ≥ `smartMinRealizedUsd` ($1M)**,
+   **crowd = `crowdMinRealizedUsd`..`crowdMaxRealizedUsd` ($10k–$100k)**. Membership is
+   cached daily (it changes slowly).
+2. **Net positioning per cohort, per asset.** `discovery_get_trader_state` across each cohort
+   → sum signed notional per coin → **bias = net / gross in [-1,+1]** (+1 = all long,
+   -1 = all short), plus member counts.
+3. **The "adding daily" trend.** A daily **cohort ledger** snapshots the smart cohort's net
+   per coin; today's net minus the earliest snapshot in the window = **growth**. The smart
+   cohort must be *growing* its position in the signal direction (`requireGrowing`).
+4. **The divergence strike.** For this sleeve's direction: the smart cohort is net-directional
+   past `biasThreshold` (default 0.50) **and** growing, scored higher when the bias is strong
+   (≥0.7), when it's adding, and when the **crowd diverges** (net-opposite by ≥`crowdDivergenceMin`).
+   Score ≥ `cohortMinScore` emits.
 
-| Tier | Weight (margin use) |
-|---|---|
-| **ELITE + PATIENT** | **1.00** (highest) |
-| **ELITE + TACTICAL** | 0.75 |
-| **RELIABLE + PATIENT** | 0.50 |
-| **RELIABLE + TACTICAL** | 0.40 |
+> **~1-day warmup:** the growth gate needs ≥2 daily ledger snapshots, so a fresh deploy
+> emits no divergence strikes on day 1 — it's building the baseline. This is by design.
 
-**The strike gate (same across all tiers):** a **new** position (diffed vs baseline)
-in this sleeve's direction whose `marginUsed / accountValue` (capital at risk as a
-share of *their* balance) clears `convictionPct` (default 25%), recently opened
-(`durationInSeconds < maxEntryAgeSec`). The tier sets the **size**, not whether to
-follow. Pool refreshes daily; a **baseline-seed guard** prevents firing on
-pre-existing positions at startup.
+## Mirror + ride + surface
 
-## Mirror + ride
-
-- **Size to YOUR budget, TIER- then conviction-scaled** — `margin = equity × marginPct
-  × tagWeight`, then scaled up by how big *their* bet was and by **pool consensus**
-  (agreement = bigger size, **not** a second position — within-tick dedup). The tier
-  weight scales **both** the base and the cap (`maxMarginPct × tagWeight`), so a higher
-  tier always has a higher ceiling — conviction/consensus only scale *within* a tier's
-  range. ELITE+PATIENT can reach the full cap; RELIABLE+TACTICAL tops out at 40% of it.
-- **Leverage capped** — conviction shows in *size*, not inherited leverage (clamp to
-  `maxLeverage` then venue max; never copy a whale's 25×).
-- **Wide DSL** — wide disaster stop, `weak_peak` OFF, time-cuts OFF, Phase 2 does
-  nothing until a big run. Ride the conviction. **v1.1 will add "follow them out"** —
-  close when the source whale closes (a producer-emitted invalidation exit).
+- **Size to YOUR budget, score-scaled** — `margin = equity × marginPct`, scaled up +25% per
+  point above the score floor, capped at `maxMarginPct`. No hardcoded `$`.
+- **Leverage capped** — conviction shows in *size*, not leverage (clamp to `maxLeverage` then
+  venue max).
+- **Surfaces the insight** — every tick the producer emits a human-readable `insight` line per
+  top divergence (`"HYPE: smart -0.85 vs crowd +0.65, Δ-$2.1M → SHORT"`), so the agent can
+  *report what the smart money is doing*, not just trade it.
+- **Wide DSL** — wide disaster stop, `weak_peak` OFF, time-cuts OFF, Phase 2 does nothing until
+  a big run. Ride the divergence. Planned invalidation exit: **close when the smart cohort
+  flips or unwinds** (the mirror of the entry).
 
 ## Deploy — two wallets
 
@@ -90,42 +93,37 @@ pre-existing positions at startup.
 WHALEHUNTER_LEG=long   WHALEHUNTER_LONG_WALLET=<wallet A>
 WHALEHUNTER_LEG=short  WHALEHUNTER_SHORT_WALLET=<wallet B>
 ```
-Fund **50/50** for a balanced whale-conviction long/short book. **Requires a
-USER-scoped `SENPI_AUTH_TOKEN`** — the `discovery_*` tools need a valid user id.
+Fund **50/50** for a balanced smart-money long/short book. **Requires a USER-scoped
+`SENPI_AUTH_TOKEN`** — the `discovery_*` tools need a valid user id (no user scope → the
+smart cohort comes back empty and the producer reports "cohort too small").
 
 ## Fleet-standard rules (enforced)
 
-- **Max leverage 5x** (clamp + venue). Conviction-scaled margin (no hardcoded $);
-  per-position cap `maxMarginPct`; up to `maxSlots` (6) per sleeve.
-- **Drawdown halt 25%**, daily loss 15%, baseline-seed guard, per-asset cooldown.
-- **Mandatory DSL**; entries + exits `FEE_OPTIMIZED_LIMIT` with taker fallback
-  (copying a conviction strike must fill).
+- **Max leverage 5x** (clamp + venue). Score-scaled margin (no hardcoded $); per-position cap
+  `maxMarginPct`; up to `maxSlots` (6) per sleeve.
+- **Drawdown halt 25%**, baseline-seed guard, per-asset cooldown. `daily_loss_limit_pct`
+  disabled on multi-wallet funds (perpDay base reads ~$0 → $0 limit; DSL + drawdown_halt protect).
+- **Mandatory DSL**; entries + exits `FEE_OPTIMIZED_LIMIT` with taker fallback (a confirmed
+  divergence must fill).
 - **Sizes off `max(main, xyz)` account value** — never the sum (cross-margin).
-- **Signature-adaptive daemon launch**; per-(leg,wallet) lock; daily-cached pool.
+- **Signature-adaptive daemon launch**; per-(leg,wallet) lock; daily-cached cohorts + daily ledger.
 
 ## Hard rule — user-conversation sessions are READ-ONLY
 
-A Claude session conversing with a user MUST NOT call `create_position`,
-`close_position`, `edit_position`, `ratchet_stop_*`, `cancel_order`, or any
-`strategy_close*` tool against WhaleHunter's wallets. Entries are emitted only by the
-producer daemons; exits are owned only by the runtime DSL.
+A Claude session conversing with a user MUST NOT call `create_position`, `close_position`,
+`edit_position`, `ratchet_stop_*`, `cancel_order`, or any `strategy_close*` tool against
+WhaleHunter's wallets. Entries are emitted only by the producer daemons; exits are owned only
+by the runtime DSL.
 
 ## Versions
 
-- **v1.2 (current)** — activity tune + observability, from the first live run (0 trades
-  in 3 days on a healthy 30-whale pool — no whale opened a ≥25%-of-book new position).
-  `convictionPct` 0.25 → **0.18** (18% of book is still real conviction) and `poolSize`
-  30 → **50**. Producer now logs **near-misses** each tick (`new_dir_positions`,
-  `max_conviction_seen`, `below_gate`) so the binding constraint — newness vs the
-  conviction gate — is visible and future tuning is data-driven.
-
-
-- **v1.1 (current)** — **tiered sizing.** The pool widened from ELITE+PATIENT-only to
-  four consistency×style tiers, each with a `tagWeights` multiplier that scales both
-  the base margin and the cap (ELITE+PATIENT 1.0 → RELIABLE+TACTICAL 0.40). Solves the
-  thin-pool risk while keeping size proportional to trader quality.
-- **v1.0** — patient-whale conviction copier: ELITE+PATIENT only, conviction gate,
-  wide-DSL ride, long/short sleeves.
-
-Planned **v1.2:** the "follow them out" exit (close when the source whale closes) and
-an ALL_TIME ∩ MONTHLY durability cross-check on the pool.
+- **v2.0 (current)** — **the cohort-divergence engine.** Pivots from per-whale copying to
+  measuring the NET positioning of the >$1M-realized cohort vs the $10k–$100k crowd, per asset,
+  with an "adding daily" growth gate and a crowd-divergence booster — and surfacing it as a
+  readable insight. Positions WITH the smart money against the crowd. The v1.x per-whale
+  conviction copier is retained behind `enableIndividualCopy` (OFF by default).
+- **v1.2** — activity tune + near-miss observability for the per-whale copier (convictionPct
+  0.25→0.18, poolSize 30→50) after it sat 0 trades in 3 days (patient whales rarely open a
+  ≥25%-of-book new position — the rarity that v2.0's cohort approach sidesteps).
+- **v1.1** — tiered sizing across four consistency×style tiers (`tagWeights`).
+- **v1.0** — patient-whale conviction copier (ELITE+PATIENT, conviction gate, wide-DSL ride).
