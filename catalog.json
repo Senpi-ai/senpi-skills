@@ -2,7 +2,7 @@
   "_version": "2.1",
   "_updated": "2026-06-17",
   "_generated": true,
-  "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
+  "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is a suggested comfortable starting size capped at 100 — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
     {
       "id": "spider",
@@ -14,8 +14,6 @@
       "thesis": null,
       "tags": [],
       "group": "multi-asset-whitelist",
-      "archetype": null,
-      "archetype_label": null,
       "sub_style": null,
       "sub_style_label": null,
       "asset_classes": [],
@@ -45,14 +43,13 @@
       "leverage_max": 10,
       "time_horizon": "scalp",
       "cadence_seconds": 60,
-      "min_budget": 200,
+      "min_budget": 100,
       "instance_count": 2,
       "funding_split": [
         0.6,
         0.4
       ],
       "max_slots": 4,
-      "branch": "strategy-v2",
       "sort_order": 1
     },
     {
@@ -65,8 +62,6 @@
       "thesis": null,
       "tags": [],
       "group": "single-asset-alpha-hunter",
-      "archetype": null,
-      "archetype_label": null,
       "sub_style": null,
       "sub_style_label": null,
       "asset_classes": [],
@@ -86,7 +81,6 @@
         1.0
       ],
       "max_slots": null,
-      "branch": "strategy-v2",
       "sort_order": 1
     },
     {
@@ -99,13 +93,13 @@
       "thesis": null,
       "tags": [],
       "group": "single-asset-alpha-hunter",
-      "archetype": null,
-      "archetype_label": null,
       "sub_style": null,
       "sub_style_label": null,
       "asset_classes": [],
       "asset_scope": null,
-      "assets": [],
+      "assets": [
+        "ETH"
+      ],
       "direction": null,
       "risk_level": "moderate",
       "tier": null,
@@ -118,7 +112,6 @@
         1.0
       ],
       "max_slots": null,
-      "branch": "strategy-v2",
       "sort_order": 2
     }
   ]

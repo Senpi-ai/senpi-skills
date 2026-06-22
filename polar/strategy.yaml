@@ -32,6 +32,7 @@ instances:
     tick_seconds: 300
     funding_share: 1.0
     params:                                # was polar-config.json
+      asset: ETH
       minScore: 14
       quietHours:
         startUtc: 0

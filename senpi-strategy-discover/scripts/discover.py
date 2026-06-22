@@ -27,11 +27,7 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
-# ▼▼▼ TEMPORARY — real-agent testing only. Default to the SYNTHETIC full-fleet so the agent
-# recommends from the full roster instead of just spider/kodiak/polar. REVERT this to
-# `os.path.join(REPO_ROOT, "catalog.json")` before merging to strategy-v2. ▲▲▲
-_PROD_CATALOG = os.path.join(REPO_ROOT, "catalog.json")
-DEFAULT_CATALOG = os.path.join(HERE, "..", "tests", "fixtures", "catalog_fullfleet.json")
+DEFAULT_CATALOG = os.path.join(REPO_ROOT, "catalog.json")
 
 # ---------------------------------------------------------------- vocabulary (concrete filters only)
 # A synonym map is kept ONLY because the SCRIPT acts on the field. risk/belief/horizon/scope/goal are
@@ -201,8 +197,12 @@ def _hard_reject(r, intent):
             return True
         if dim == "asset_class":
             acs = r.get("asset_classes") or []
-            if val == "__crypto__" and (set(acs) & CRYPTO_CLASSES):
-                return True
+            if val == "__crypto__":
+                if set(acs) & CRYPTO_CLASSES:
+                    return True
+                assets = r.get("assets") or []
+                if any(not str(a).upper().startswith("XYZ:") for a in assets if a):
+                    return True
             if val in acs:
                 return True
         if dim == "sub_style" and r.get("sub_style") == val:

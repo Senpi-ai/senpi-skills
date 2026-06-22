@@ -28,18 +28,18 @@ GLOSSARY_PATH = os.path.join(
 INSTRUCTIONS = (
     "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run "
     "senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover "
-    "(scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, "
+    "(scripts/discover.py). DECLARED fields (sub_style, asset_classes, asset_scope, "
     "risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED "
     "fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, "
     "max_slots) are computed from instances/params. Labels/glosses come from "
-    "senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor "
-    "(max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy "
-    "is a deployable package; install via senpi-strategy-ops."
+    "senpi-strategy-discover/references/glossary.yaml. 'min_budget' is a suggested comfortable "
+    "starting size capped at 100 — NOT a hard gate. A strategy is a deployable package; install "
+    "via senpi-strategy-ops."
 )
 
 # Declared fields the author should set; missing ones warn.
 DECLARED_REQUIRED = [
-    "archetype", "sub_style", "asset_classes", "asset_scope",
+    "sub_style", "asset_classes", "asset_scope",
     "risk_level", "tier", "belief_plain", "direction",
 ]
 
@@ -141,12 +141,11 @@ def derive_funding_split(instances):
 
 
 def derive_min_budget(declared, instance_count, sid):
-    effective = 100 * max(instance_count, 1)
     declared = declared if isinstance(declared, (int, float)) else None
-    if declared is not None and declared < effective:
-        warn(f"{sid}: declared min_budget {declared} is below the per-wallet floor "
-             f"(100 x {instance_count} = {effective}); using {effective}")
-    return max(declared or 0, effective)
+    if declared is not None and declared > 100:
+        warn(f"{sid}: declared min_budget {declared} exceeds fleet floor of 100; capping to 100")
+        return 100
+    return declared if declared is not None else 100
 
 
 # ---- glossary label inlining + enum validation ----
@@ -166,7 +165,7 @@ def validate_declared(glossary, catalog, sid):
         if catalog.get(field) in (None, "", []):
             warn(f"{sid}: missing declared `{field}` (author must set it in strategy.yaml `catalog:`)")
     # enum membership (single-valued)
-    for kind in ("archetype", "risk_level", "tier", "asset_scope", "direction"):
+    for kind in ("risk_level", "tier", "asset_scope", "direction"):
         v = catalog.get(kind)
         if v is not None and v not in (glossary.get(kind) or {}):
             warn(f"{sid}: {kind} '{v}' not in glossary.yaml allowed values")
@@ -203,8 +202,6 @@ def build(updated, branch):
             "tags": c.get("tags") or [],
             # thesis facets (declared) + inlined labels
             "group": c.get("group"),
-            "archetype": c.get("archetype"),
-            "archetype_label": label_for(glossary, "archetype", c.get("archetype"), sid),
             "sub_style": c.get("sub_style"),
             "sub_style_label": label_for(glossary, "sub_style", c.get("sub_style"), sid),
             # market (declared + derived)
@@ -223,8 +220,6 @@ def build(updated, branch):
             "instance_count": instance_count,
             "funding_split": derive_funding_split(instances),
             "max_slots": derive_max_slots(instances, c),
-            # registry
-            "branch": branch,
         })
 
     groups = defaultdict(list)
