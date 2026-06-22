@@ -459,6 +459,15 @@ def build_universe(config, meta_map):
         cand.append((name, vol))
     if not cand:
         return []
+    # The relative-to-median liquidity gate is for LARGE discovered cross-sections —
+    # on a SMALL CURATED whitelist it's harmful: it drops an intentionally-included
+    # but thinner name (e.g. xyz:BX at ~$200k vs xyz:SP500 at ~$236M => median = SP500
+    # => BX dropped => universe collapses to 1 => the book never trades). For a curated
+    # list below minUniverseForMedianGate, keep every live (vol>0) name — the curation
+    # IS the liquidity decision. (Mongoose short book, 2026-06-22.)
+    min_for_gate = int(config.get("minUniverseForMedianGate", 5))
+    if len(cand) < min_for_gate:
+        return [n for n, _ in cand]
     vols = sorted(v for _, v in cand)
     median = vols[len(vols) // 2]
     floor = pct * median
@@ -512,10 +521,14 @@ def main():
         if own is None:
             continue
         rs.append((name, own, meta))
-    if len(rs) < 2:
+    if len(rs) < 1:
+        # Cross-sectional relative strength is a TIEBREAKER (a score modifier), not a
+        # gate — the real gate is absolute trend inside score_thematic. So a 1-name
+        # universe still trades (excess vs mean = 0; it's scored on its own trend).
+        # Only a truly empty universe aborts. (was len < 2 — that bricked a 1-name book.)
         cfg.output({"status": "ok", "leg": LEG, "scanned": len(universe),
                     "candidates": 0, "signals_pushed": 0,
-                    "note": "WAITING — thematic universe too thin to evaluate",
+                    "note": "WAITING — no live names in the thematic universe",
                     "elapsed_sec": round(time.time() - run_start, 2),
                     "_mongoose_producer_version": VERSION})
         return

@@ -466,6 +466,12 @@ def build_universe(config, meta_map):
         cand.append((name, vol))
     if not cand:
         return []
+    # Small curated whitelists: skip the relative-median liquidity gate — on a tiny
+    # list it drops an intentionally-thinner name and can collapse the universe to 1,
+    # bricking the book (see Mongoose short, 2026-06-22). Below the threshold, keep
+    # every live (vol>0) name — the curation IS the liquidity decision.
+    if len(cand) < int(config.get("minUniverseForMedianGate", 5)):
+        return [n for n, _ in cand]
     vols = sorted(v for _, v in cand)
     median = vols[len(vols) // 2]
     floor = pct * median
@@ -519,7 +525,7 @@ def main():
         if own is None:
             continue
         rs.append((name, own, meta))
-    if len(rs) < 2:
+    if len(rs) < 1:
         cfg.output({"status": "ok", "leg": LEG, "scanned": len(universe),
                     "candidates": 0, "signals_pushed": 0,
                     "note": "WAITING — thematic universe too thin to evaluate",

@@ -40,8 +40,8 @@ risk:
   data_retention_hours: 72
   guard_rails:
     # daily_loss_limit_pct DISABLED on multi-wallet funds: the runtime computes this gate's
-    # base off perp value (=$0 for an idle leg) and cross-charges a sibling leg's PnL, so an
-    # idle leg gets a "$0.00" limit and is permanently halted (Mongoose long book 2026-06-22).
+    # limit off the perpDay base, which reads ~$0 for these wallets -> a "$0.00" limit that
+    # ANY real loss trips, permanently halting the book (Wolf/Hydra/Mongoose 2026-06-22).
     # drawdown_halt (PnL-based) + DSL + cooldowns protect instead; re-enable once the engine fixes the base.
     max_entries_per_day: 50
     bypass_max_entries_per_day_on_profit: true
