@@ -808,7 +808,7 @@
       "risk_level": "moderate",
       "base_skill": null,
       "predators_url": "https://strategies.senpi.ai/bot/whalehunterhedge-v1-0-0",
-      "version": "1.1.0"
+      "version": "1.2.0"
     },
     {
       "id": "piranha",

@@ -15,7 +15,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "1.1.0"
+  version: "1.2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -111,6 +111,14 @@ A Claude session conversing with a user MUST NOT call `create_position`,
 producer daemons; exits are owned only by the runtime DSL.
 
 ## Versions
+
+- **v1.2 (current)** — activity tune + observability, from the first live run (0 trades
+  in 3 days on a healthy 30-whale pool — no whale opened a ≥25%-of-book new position).
+  `convictionPct` 0.25 → **0.18** (18% of book is still real conviction) and `poolSize`
+  30 → **50**. Producer now logs **near-misses** each tick (`new_dir_positions`,
+  `max_conviction_seen`, `below_gate`) so the binding constraint — newness vs the
+  conviction gate — is visible and future tuning is data-driven.
+
 
 - **v1.1 (current)** — **tiered sizing.** The pool widened from ELITE+PATIENT-only to
   four consistency×style tiers, each with a `tagWeights` multiplier that scales both

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# Senpi WHALEHUNTERHEDGE Producer v1.0.0
+# Senpi WHALEHUNTERHEDGE Producer v1.2.0
 # Copyright 2026 Senpi (https://senpi.ai)
 # Licensed under Apache-2.0
 # Source: https://github.com/Senpi-ai/senpi-skills
-"""WHALEHUNTERHEDGE v1.0.0 Producer — patient-whale conviction copy, long/short.
+"""WHALEHUNTERHEDGE v1.2.0 Producer — patient-whale conviction copy, long/short.
 
 Follows the SINGLE highest-conviction trades of CONSISTENT + PATIENT winners on
 Senpi Discover and mirrors them on a wide DSL. The thesis: a trader tagged ELITE
@@ -51,7 +51,7 @@ import whalehunter_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 LEG = cfg.LEG  # "long" | "short"
 DIRECTION = "LONG" if LEG == "long" else "SHORT"
 SCANNER_NAME = f"whalehunter_{LEG}_signals"
@@ -72,11 +72,11 @@ _DEFAULTS = {
     "poolTimeFrame": "MONTHLY",
     "poolSortBy": "GAIN_TO_PAIN_RATIO",
     "poolOverfetch": 80,
-    "poolSize": 30,
+    "poolSize": 50,             # v1.2: 30->50 (more whales -> more chances one swings big)
     "poolMinTraderAgeDays": 21,
     "poolRefreshHours": 24,
     # Strike — the conviction gate.
-    "convictionPct": 0.25,          # new position's marginUsed / accountValue must clear this
+    "convictionPct": 0.18,   # v1.2: lowered 0.25->0.18 (18% of book is real conviction; 25% was rarely cleared)          # new position's marginUsed / accountValue must clear this
     "maxEntryAgeSec": 21600,        # 6h — patient whales aren't time-sensitive (baseline diff is the primary newness test)
     # Mirror sizing (MY budget, conviction-scaled).
     "marginPct": 0.12,              # base margin per strike, % of MY equity
@@ -216,6 +216,7 @@ def detect_strikes(pool, states, last_seen, config):
     conv_min = float(config.get("convictionPct", _DEFAULTS["convictionPct"]))
     max_age = float(config.get("maxEntryAgeSec", _DEFAULTS["maxEntryAgeSec"]))
     strikes = []
+    new_seen, below_gate, max_conv = 0, [], 0.0   # near-miss observability
     for tr in pool:
         addr = tr["address"]
         st = states.get(addr)
@@ -241,8 +242,16 @@ def detect_strikes(pool, states, last_seen, config):
                 continue                            # opened too long ago to chase
             margin = _f(p, "marginUsed", "margin_used")
             conv = margin / acct if acct > 0 else 0.0
+            new_seen += 1                            # a NEW, fresh, right-direction position (any conviction)
+            if conv > max_conv:
+                max_conv = conv
             if conv < conv_min:
-                continue                            # not high-conviction enough for them
+                # near-miss: a new position that didn't clear the conviction gate. Logged
+                # so we can see whether the throttle is the GATE (these pile up) or the
+                # NEWNESS (new_seen stays ~0 = patient whales just aren't opening anything).
+                below_gate.append({"coin": coin, "conviction_pct": round(conv, 4),
+                                   "from": tr.get("username") or addr[:8]})
+                continue
             strikes.append({
                 "trader": tr, "coin": coin, "direction": d,
                 "conviction_pct": round(conv, 4),
@@ -250,7 +259,9 @@ def detect_strikes(pool, states, last_seen, config):
                 "entry_price": _f(p, "entryPx", "entry_price"),
                 "age_sec": int(dur),
             })
-    return strikes
+    diag = {"new_dir_positions": new_seen, "max_conviction_seen": round(max_conv, 4),
+            "below_gate": below_gate[:8]}
+    return strikes, diag
 
 
 def add_consensus(strikes, states):
@@ -369,9 +380,9 @@ def main():
     # Baseline-seed guard: on first run (empty baseline) NEVER treat existing
     # positions as new strikes — just record the baseline and fire nothing.
     if not last_seen:
-        strikes = []
+        strikes, diag = [], {"new_dir_positions": 0, "max_conviction_seen": 0.0, "below_gate": [], "note": "baseline seed"}
     else:
-        strikes = detect_strikes(pool, states, last_seen, config)
+        strikes, diag = detect_strikes(pool, states, last_seen, config)
         strikes = add_consensus(strikes, states)
 
     # Persist current baseline (this sleeve's-direction positions per whale).
@@ -390,6 +401,9 @@ def main():
     if not strikes or open_slots <= 0:
         cfg.output({"status": "ok", "leg": LEG, "pool_size": len(pool),
                     "strikes": len(strikes), "open_slots": open_slots, "signals_pushed": 0,
+                    "new_dir_positions": diag.get("new_dir_positions"),
+                    "max_conviction_seen": diag.get("max_conviction_seen"),
+                    "below_gate": diag.get("below_gate"),
                     "note": "WAITING — no consistent+patient whale opened a high-conviction "
                             + DIRECTION + " strike" if not strikes else "slots full",
                     "elapsed_sec": round(time.time() - run_start, 2),
@@ -431,6 +445,9 @@ def main():
 
     cfg.output({"status": "ok", "leg": LEG, "pool_size": len(pool), "strikes": len(strikes),
                 "signals_pushed": pushed, "emitted": emitted,
+                "new_dir_positions": diag.get("new_dir_positions"),
+                "max_conviction_seen": diag.get("max_conviction_seen"),
+                "below_gate": diag.get("below_gate"),
                 "account_value": round(account_value, 2),
                 "elapsed_sec": round(time.time() - run_start, 2),
                 "_whalehunter_producer_version": VERSION})
