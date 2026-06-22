@@ -94,7 +94,9 @@ _DEFAULTS = {
     "smartMinRealizedUsd": 1_000_000,    # "smartest money" cohort: lifetime realized gains >= $1M
     "crowdMinRealizedUsd": 10_000,       # "crowd" cohort: $10k ..
     "crowdMaxRealizedUsd": 100_000,      #            .. $100k realized
-    "cohortFetchLimit": 1000,            # top_traders pull (by ALL_TIME realized) to bucket both cohorts
+    "cohortFetchLimit": 1000,            # top_traders page size (max 1000) — the ranking is PAGED by offset
+    "cohortMaxPages": 6,                 # page this deep into the realized-PnL ranking to REACH the crowd band
+    "cohortSampleCap": 250,              # cap EACH cohort's sample (bounds per-tick trader_state load)
     "cohortRefreshHours": 24,            # cohort MEMBERSHIP changes slowly — cache daily
     "cohortMinMembers": 5,               # need at least this many in a cohort to trust its net bias
     "biasThreshold": 0.50,               # smart cohort must be >= 50% net-directional on a coin to signal
@@ -373,40 +375,61 @@ def _realized(t):
 
 def build_cohorts(config, force=False):
     """Smart cohort (lifetime realized >= smartMinRealizedUsd) + crowd cohort
-    (crowdMin..crowdMax). One ALL_TIME realized-PnL ranking, bucketed by $. Cached
-    daily — membership changes slowly."""
+    (crowdMin..crowdMax), from the ALL_TIME realized-PnL ranking. Cached daily.
+
+    The ranking is sorted DESCENDING by realized PnL, so the smart cohort sits at the
+    top (well-sampled in page 0) but the $10k-$100k crowd lives thousands of ranks
+    DEEPER — a single top-N pull catches only the weak tail of the top page (the
+    inverted 'crowd << smart' symptom). So we PAGE by offset until the crowd is
+    representatively sampled or the ranking drops below the crowd floor, capping each
+    cohort to bound per-tick trader_state load."""
     cached = cfg.load_cohorts()
     now = time.time()
     if (not force and cached.get("smart")
             and (now - cached.get("refreshed_at", 0)) / 3600 < float(config.get("cohortRefreshHours", _DEFAULTS["cohortRefreshHours"]))):
         return cached.get("smart", []), cached.get("crowd", [])
-    resp = cfg.mcp_call("discovery_get_top_traders", time_frame="ALL_TIME",
-                        sort_by="PROFIT_AND_LOSS_REALIZED", open_position_filter=False,
-                        limit=int(config.get("cohortFetchLimit", _DEFAULTS["cohortFetchLimit"])))
-    if not resp or not resp.get("success", True):
-        return cached.get("smart", []), cached.get("crowd", [])
-    raw = resp.get("data", resp)
-    if isinstance(raw, dict):
-        raw = raw.get("traders", raw.get("data", []))
-    if not isinstance(raw, list):
-        return cached.get("smart", []), cached.get("crowd", [])
     smin = float(config.get("smartMinRealizedUsd", _DEFAULTS["smartMinRealizedUsd"]))
     cmin = float(config.get("crowdMinRealizedUsd", _DEFAULTS["crowdMinRealizedUsd"]))
     cmax = float(config.get("crowdMaxRealizedUsd", _DEFAULTS["crowdMaxRealizedUsd"]))
-    smart, crowd = [], []
-    for t in raw:
-        if not isinstance(t, dict):
-            continue
-        addr = (t.get("address") or t.get("trader_address") or "").lower()
-        if not addr:
-            continue
-        rp = _realized(t)
-        if rp >= smin:
-            smart.append(addr)
-        elif cmin <= rp <= cmax:
-            crowd.append(addr)
+    cap = int(config.get("cohortSampleCap", _DEFAULTS["cohortSampleCap"]))
+    page_size = int(config.get("cohortFetchLimit", _DEFAULTS["cohortFetchLimit"]))
+    max_pages = int(config.get("cohortMaxPages", _DEFAULTS["cohortMaxPages"]))
+    smart, crowd, seen, pages = [], [], set(), 0
+    for page in range(max_pages):
+        resp = cfg.mcp_call("discovery_get_top_traders", time_frame="ALL_TIME",
+                            sort_by="PROFIT_AND_LOSS_REALIZED", open_position_filter=False,
+                            limit=page_size, offset=page * page_size)
+        if not resp or not resp.get("success", True):
+            break
+        raw = resp.get("data", resp)
+        if isinstance(raw, dict):
+            raw = raw.get("traders", raw.get("data", []))
+        if not isinstance(raw, list) or not raw:
+            break
+        pages += 1
+        page_min = None
+        for t in raw:
+            if not isinstance(t, dict):
+                continue
+            addr = (t.get("address") or t.get("trader_address") or "").lower()
+            if not addr or addr in seen:
+                continue
+            rp = _realized(t)
+            page_min = rp if page_min is None else min(page_min, rp)
+            if rp >= smin:
+                if len(smart) < cap:
+                    smart.append(addr); seen.add(addr)
+            elif cmin <= rp <= cmax:
+                if len(crowd) < cap:
+                    crowd.append(addr); seen.add(addr)
+        if len(smart) >= cap and len(crowd) >= cap:
+            break                                  # both cohorts fully sampled
+        if page_min is not None and page_min < cmin:
+            break                                  # ranking dropped below the crowd floor — deeper pages are smaller
+    if not smart and not crowd:
+        return cached.get("smart", []), cached.get("crowd", [])
     cfg.save_cohorts({"refreshed_at": now, "refreshed_iso": cfg.now_iso(),
-                      "smart": smart, "crowd": crowd})
+                      "smart": smart, "crowd": crowd, "pages": pages})
     return smart, crowd
 
 

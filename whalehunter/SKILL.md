@@ -56,10 +56,14 @@ fits: you hold while the smart cohort holds.
 
 ## The engine — four steps, all from Senpi Discover
 
-1. **Cohorts by lifetime realized gains.** One `discovery_get_top_traders` pull ranked by
-   ALL-TIME realized PnL, bucketed by `$`: **smart = ≥ `smartMinRealizedUsd` ($1M)**,
-   **crowd = `crowdMinRealizedUsd`..`crowdMaxRealizedUsd` ($10k–$100k)**. Membership is
-   cached daily (it changes slowly).
+1. **Cohorts by lifetime realized gains.** The ALL-TIME realized-PnL ranking, **paged by
+   offset**, bucketed by `$`: **smart = ≥ `smartMinRealizedUsd` ($1M)**,
+   **crowd = `crowdMinRealizedUsd`..`crowdMaxRealizedUsd` ($10k–$100k)**. Paging matters:
+   the ranking is realized-descending, so the smart cohort sits at the top but the crowd
+   lives *thousands of ranks deeper* — a single top-N pull catches only a weak tail of the
+   crowd (the inverted "crowd ≪ smart" symptom). The walk pages down (`cohortMaxPages`)
+   until the crowd is representatively sampled or the ranking drops below the crowd floor,
+   capping each cohort (`cohortSampleCap`) to bound per-tick load. Membership cached daily.
 2. **Net positioning per cohort, per asset.** `discovery_get_trader_state` across each cohort
    → sum signed notional per coin → **bias = net / gross in [-1,+1]** (+1 = all long,
    -1 = all short), plus member counts.

@@ -1217,7 +1217,9 @@ margin = equity * baseRiskPct * (referenceVol / asset_ATR%)   # VOL PARITY: calm
 A **positioning** engine, not a copy-follower. Copy-followers (Jackal) and conviction-copiers (the v1.x version of this agent) react to *individual* trades — which are sparse and noisy. This pattern measures the **net positioning of an entire cohort** defined by **lifetime realized gains**, and fires when the **smartest-money cohort diverges from the crowd** and is **adding to the divergence daily**. It's the closest Hyperliquid analog to a commitment-of-traders report: not one whale's bet, but where the weight of the people who've actually made money is sitting versus where the crowd is. The signal it's built to catch: *the >$1M-realized wallets went heavily short while the $10k–$100k crowd bought the rally — and the winners added to the short every day.*
 
 ```python
-# 1. Cohorts (daily cache): one discovery_get_top_traders(sort_by=PROFIT_AND_LOSS_REALIZED, time_frame=ALL_TIME)
+# 1. Cohorts (daily cache): discovery_get_top_traders(sort_by=PROFIT_AND_LOSS_REALIZED, time_frame=ALL_TIME),
+#    PAGED by offset (realized-desc -> crowd ranks far below smart; a single top-N pull under-samples the
+#    crowd = the "crowd << smart" inversion). Page down until crowd representative / below floor; cap each cohort.
 #    bucket by lifetime realized $: smart = >= $1M ; crowd = $10k..$100k
 # 2. Net positioning: discovery_get_trader_state(cohort) -> per coin, bias = sum(signed_notional)/sum(|notional|) in [-1,+1]
 # 3. "Adding daily": a daily LEDGER of the smart cohort's net-per-coin; growth = today_net - earliest_snapshot_in_window

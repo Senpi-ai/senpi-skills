@@ -11,7 +11,7 @@ independent sleeves on separate wallets. See [SKILL.md](SKILL.md) for the full t
 
 | Step | What |
 |---|---|
-| 1. Cohorts | One ALL-TIME realized-PnL ranking, bucketed: smart ≥ $1M, crowd $10k–$100k |
+| 1. Cohorts | ALL-TIME realized-PnL ranking **paged by offset**, bucketed: smart ≥ $1M, crowd $10k–$100k (the crowd ranks far below the smart cohort, so it's paged to until representatively sampled; each cohort capped) |
 | 2. Net positioning | `bias = net/gross ∈ [-1,+1]` per asset, per cohort (+1 all long, -1 all short) |
 | 3. Adding daily | A daily ledger of the smart cohort's net per coin → growth (`requireGrowing`) |
 | 4. Divergence strike | Smart net-directional ≥ `biasThreshold` + growing, scored higher when the crowd's net-opposite |
