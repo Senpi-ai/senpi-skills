@@ -16,5 +16,7 @@
   "tickSeconds": 300,
   "_coin_note": "This is the Hydra-HYPE variant (HYDRA_COIN=HYPE). hedge stressDropPct 13 \u2014 widest, so the hedge doesn't arm on HYPE's normal 8%+ swings. maxLeverage is also clamped at HYPE's venue cap automatically. One of three head wallets (core/dip/hedge); all three share this HYDRA_COIN. Same engine across all coins.",
   "_role_note": "CORE = the directional thesis spine. It is the only head that goes both ways (long the uptrend / short the downtrend) and the only one always-on. The dip head presses pullbacks (uptrends only); the hedge head shorts stress (downtrends only). Fund default sizing: core 50% / dip 25% / hedge 25% of the coin's combined budget (operator funding split across the three wallets).",
-  "_persona": "Single-coin thesis bet \u2014 conviction-tiered trend-momentum on one major, both directions, let-winners-run DSL, time-cuts off (single-asset standard). The spine of a Hydra single-coin portfolio fund."
+  "_persona": "Single-coin thesis bet \u2014 conviction-tiered trend-momentum on one major, both directions, let-winners-run DSL, time-cuts off (single-asset standard). The spine of a Hydra single-coin portfolio fund.",
+  "requireDailyAlign": true,
+  "_v21_note": "v2.1: requireDailyAlign \u2014 only enter when the 1d trend confirms the 4h. Filters chop (don't buy the range-top); in a range the 1d is NEUTRAL so the core stands down. Pair with the loose catastrophic DSL: enter only on a confirmed 1d+4h trend, then ride it."
 }

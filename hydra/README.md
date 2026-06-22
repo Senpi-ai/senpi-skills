@@ -1,4 +1,10 @@
-# 🐉 HYDRA v2.0 — Single-Coin Conviction Fund (cross-asset hedge)
+# 🐉 HYDRA v2.1 — Single-Coin Conviction Fund (cross-asset hedge)
+
+> **v2.1** adds a **1d-alignment chop filter** on core/dip (only enter when the daily
+> confirms the 4h — stop buying the range-top in chop) and an opt-in **hybrid hedge**
+> (`hedgeIncludesThesis`, on for HYPE) that also shorts the thesis coin on a confirmed
+> coin-specific breakdown. **On upgrade, recreate the core runtime** or it keeps the
+> prior (tighter) DSL.
 
 A **long-term conviction book on one coin**, cushioned by a **diversified short of
 *other* assets** — protect against the market risk that would also hurt your coin,

@@ -50,7 +50,7 @@ import hydra_config as cfg
 from senpi_runtime_helpers import SenpiClientError, producer_daemon  # type: ignore  # noqa: E402
 
 
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 LEG = cfg.LEG  # "core" | "dip" | "hedge"
 COIN = cfg.resolve_coin()
 SCANNER_NAME = f"hydra_{LEG}_signals"
@@ -62,11 +62,13 @@ _DEFAULTS = {
     "core": {
         "minScore": 5, "marginPct": 0.20, "maxLeverage": 5, "stdLeverage": 3,
         "apexScore": 7, "rsiOverbought": 80, "rsiOversold": 20,
+        "requireDailyAlign": True,       # v2.1: only enter when the 1d trend confirms the 4h — filters CHOP (don't buy the range-top)
         "venueMinNotionalUsd": 10, "minNotionalPctOfEquity": 0.01, "tickSeconds": 300,
     },
     "dip": {
         "minScore": 4, "marginPct": 0.18, "maxLeverage": 4, "stdLeverage": 3,
-        "dipRsiMax": 48,
+        "dipRsiMax": 42,                 # v2.1: deeper, real RSI pullback (was 48) — not noise
+        "requireDailyAlign": True,       # v2.1: only dip-buy inside a 1d+4h confirmed uptrend (no knife-catching chop)
         "venueMinNotionalUsd": 10, "minNotionalPctOfEquity": 0.01, "tickSeconds": 300,
     },
     "hedge": {
@@ -84,8 +86,13 @@ _DEFAULTS = {
         # thesis-stress multiplier: size the hedge UP when the THESIS coin is breaking
         "thesisStressFullPct": 10.0,     # thesis-coin drawdown at which the multiplier maxes
         "stressMultMax": 2.0,            # max sizing multiplier
-        # the diversified blend of OTHER assets to short (thesis coin auto-excluded)
-        "hedgeUniverse": ["BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "AVAX",
+        # v2.1: HYBRID hedge. False (default, ETH/SOL) = pure cross-asset, never short
+        # the thesis coin. True (HYPE) = ALSO short the thesis coin when IT is the one
+        # breaking down — cushions an idiosyncratic move the cross-asset blend misses.
+        "hedgeIncludesThesis": False,
+        # the diversified blend to short. The thesis coin is auto-excluded UNLESS
+        # hedgeIncludesThesis is True (then a confirmed thesis-coin breakdown is shortable).
+        "hedgeUniverse": ["BTC", "ETH", "SOL", "HYPE", "BNB", "XRP", "DOGE", "AVAX",
                           "xyz:SP500", "xyz:NASDAQ"],
         "venueMinNotionalUsd": 10, "minNotionalPctOfEquity": 0.01, "tickSeconds": 300,
     },
@@ -175,7 +182,7 @@ def _dex_for(asset):
     return "xyz" if asset.lower().startswith("xyz:") else ""
 
 
-def fetch_asset(coin, intervals=("1h", "4h"), include_funding=True):
+def fetch_asset(coin, intervals=("1h", "4h", "1d"), include_funding=True):  # v2.1: 1d for the daily-align chop filter (core/dip)
     data = cfg.mcp_call(
         "market_get_asset_data", asset=coin, candle_intervals=list(intervals),
         dex=_dex_for(coin), include_funding=include_funding, include_order_book=False,
@@ -198,7 +205,7 @@ def clamp_lev(desired, max_lev):
 
 
 # ═══════════════════════════════════════════════════════════════
-# CORE / DIP — single-coin thesis scoring (unchanged from v1.0)
+# CORE / DIP — single-coin thesis scoring (v2.1: + 1d-alignment chop filter)
 # ═══════════════════════════════════════════════════════════════
 
 def score_single(md, config):
@@ -210,6 +217,9 @@ def score_single(md, config):
     price = closes1[-1]
     trend4, s4 = trend_structure(c4)
     trend1, s1 = trend_structure(c1)
+    cd = md["candles"].get("1d", [])
+    trendd, sd = trend_structure(cd) if len(cd) >= 6 else ("NEUTRAL", 0)
+    require_daily = bool(config.get("requireDailyAlign", True))
     rsi = calc_rsi(closes1)
     fund = _funding(md["ctx"])
 
@@ -221,8 +231,13 @@ def score_single(md, config):
         if trend4 == "NEUTRAL":
             return None
         direction = "LONG" if trend4 == "BULLISH" else "SHORT"
+        # v2.1 CHOP FILTER: the 1d must confirm the 4h direction. In a range the 1d
+        # is NEUTRAL -> no entry, so the core stops buying the top of a chop. (Fails
+        # open only if 1d data is unavailable.)
+        if require_daily and len(cd) >= 6 and trendd != ("BULLISH" if direction == "LONG" else "BEARISH"):
+            return None
         sc += 3
-        reasons.append(f"4h_{trend4.lower()}_{s4:.0%}")
+        reasons.append(f"4h_{trend4.lower()}_{s4:.0%}_1d_{trendd.lower()}")
         if (direction == "LONG" and trend1 == "BULLISH") or (direction == "SHORT" and trend1 == "BEARISH"):
             sc += 2
             reasons.append(f"1h_confirms_{trend1.lower()}")
@@ -246,8 +261,11 @@ def score_single(md, config):
     elif LEG == "dip":
         if trend4 != "BULLISH":
             return None
+        # v2.1: only dip-buy inside a 1d+4h CONFIRMED uptrend (no knife-catching chop).
+        if require_daily and len(cd) >= 6 and trendd != "BULLISH":
+            return None
         dip_rsi = float(config.get("dipRsiMax", _DEFAULTS["dipRsiMax"]))
-        pulled_back = (trend1 != "BULLISH") or (rsi <= dip_rsi)
+        pulled_back = (rsi <= dip_rsi)   # v2.1: require a REAL RSI pullback, not just a non-bullish 1h wiggle
         if not pulled_back:
             return None
         direction = "LONG"
@@ -413,19 +431,22 @@ def single_main(config, account_value, positions, held_assets, run_start):
 
 
 def hedge_main(config, account_value, positions, held_assets, run_start):
-    """v2.0 cross-asset hedge — short a diversified blend of OTHER assets that are
-    in a confirmed downtrend, vol-weighted, sized up when the thesis is breaking."""
+    """v2.1 cross-asset hedge — short a diversified blend of OTHER assets in a
+    confirmed downtrend, vol-weighted, sized up when the thesis is breaking. If
+    hedgeIncludesThesis is True (HYPE), the thesis coin is ALSO shortable when IT
+    is the one breaking down (hybrid — cushions an idiosyncratic move)."""
     held_set = {h.upper() for h in held_assets}
     min_score = config.get("minScore", _DEFAULTS["minScore"])
     max_slots = int(config.get("maxSlots", _DEFAULTS["maxSlots"]))
     max_lev = int(config.get("maxLeverage", _DEFAULTS["maxLeverage"]))
     std_lev = int(config.get("stdLeverage", _DEFAULTS["stdLeverage"]))
+    allow_thesis = bool(config.get("hedgeIncludesThesis", _DEFAULTS.get("hedgeIncludesThesis", False)))
     min_notional = max(account_value * float(config.get("minNotionalPctOfEquity", 0.01)),
                        float(config.get("venueMinNotionalUsd", 10)))
     total_cap = account_value * float(config.get("hedgeMaxTotalPct", _DEFAULTS["hedgeMaxTotalPct"]))
 
     universe = [a for a in config.get("hedgeUniverse", _DEFAULTS["hedgeUniverse"])
-                if a.upper() != COIN.upper() and a.upper() not in held_set]
+                if (allow_thesis or a.upper() != COIN.upper()) and a.upper() not in held_set]
     open_slots = max_slots - len(held_assets)
     if open_slots <= 0:
         cfg.output({"status": "ok", "leg": LEG, "coin": COIN, "note": "hedge slots full",
@@ -473,8 +494,12 @@ def hedge_main(config, account_value, positions, held_assets, run_start):
             continue
         if margin_usd * 1.1 > free_margin:
             continue
+        # hedgeFor drives the runtime's "never short the thesis coin" guard. When the
+        # hybrid is on (allow_thesis), leave it empty so a deliberate thesis-coin short
+        # isn't blocked; otherwise set it to COIN to keep the guard active.
         if push_signal(th, margin_usd, leverage, held_assets,
-                       extra={"hedgeFor": COIN, "stressMult": mult, "volPct": th["vol_pct"]}):
+                       extra={"hedgeFor": ("" if allow_thesis else COIN),
+                              "stressMult": mult, "volPct": th["vol_pct"]}):
             pushed += 1
             slots_left -= 1
             free_margin -= margin_usd

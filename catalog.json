@@ -736,7 +736,7 @@
       "tracker_slug": "hydra-eth-v1-0-0",
       "name": "Hydra-ETH \u2014 Single-Coin Portfolio Fund (ETH)",
       "emoji": "\ud83d\udc09",
-      "tagline": "A long-term conviction book on ETH, cushioned by a CROSS-ASSET hedge. core + dip ride ETH as a long-term thesis on a loose, catastrophic-only DSL (you're not shaken out by normal volatility); the hedge shorts a diversified BLEND of OTHER assets (BTC, other majors, indices, high-beta names) that are actually breaking down \u2014 vol-parity sized, scaled up when ETH itself is breaking \u2014 so it cushions market risk WITHOUT ever betting against the thesis. Never shorts ETH. Auto-scales: light in a calm uptrend, heavy in a broad selloff. Three wallets (core/dip/hedge), one shared engine. v2.0.",
+      "tagline": "A long-term conviction book on ETH, cushioned by a CROSS-ASSET hedge. core + dip ride ETH as a long-term thesis on a loose, catastrophic-only DSL (you're not shaken out by normal volatility); the hedge shorts a diversified BLEND of OTHER assets (BTC, other majors, indices, high-beta names) that are actually breaking down \u2014 vol-parity sized, scaled up when ETH itself is breaking \u2014 so it cushions market risk WITHOUT ever betting against the thesis. Never shorts ETH. Auto-scales: light in a calm uptrend, heavy in a broad selloff. Three wallets (core/dip/hedge), one shared engine. v2.1 (1d-alignment chop filter on core/dip; pure cross-asset hedge).",
       "group": "hedge-fund",
       "sort_order": 16,
       "min_budget": 300,
@@ -746,14 +746,14 @@
         "HYDRA_COIN": "ETH"
       },
       "predators_url": "https://strategies.senpi.ai/bot/hydra-eth-v1-0-0",
-      "version": "2.0.0"
+      "version": "2.1.0"
     },
     {
       "id": "hydra-sol",
       "tracker_slug": "hydra-sol-v1-0-0",
       "name": "Hydra-SOL \u2014 Single-Coin Portfolio Fund (SOL)",
       "emoji": "\ud83d\udc09",
-      "tagline": "A long-term conviction book on SOL, cushioned by a CROSS-ASSET hedge. core + dip ride SOL as a long-term thesis on a loose, catastrophic-only DSL; the hedge shorts a diversified BLEND of OTHER assets actually breaking down (vol-parity sized, scaled up when SOL is breaking) \u2014 cushioning market risk without betting against the thesis. Never shorts SOL. Auto-scales with how much of the market is breaking. Three wallets, one shared engine. v2.0.",
+      "tagline": "A long-term conviction book on SOL, cushioned by a CROSS-ASSET hedge. core + dip ride SOL as a long-term thesis on a loose, catastrophic-only DSL; the hedge shorts a diversified BLEND of OTHER assets actually breaking down (vol-parity sized, scaled up when SOL is breaking) \u2014 cushioning market risk without betting against the thesis. Never shorts SOL. Auto-scales with how much of the market is breaking. Three wallets, one shared engine. v2.1 (1d-alignment chop filter on core/dip; pure cross-asset hedge).",
       "group": "hedge-fund",
       "sort_order": 17,
       "min_budget": 300,
@@ -763,7 +763,7 @@
         "HYDRA_COIN": "SOL"
       },
       "predators_url": "https://strategies.senpi.ai/bot/hydra-sol-v1-0-0",
-      "version": "2.0.0"
+      "version": "2.1.0"
     },
     {
       "id": "hydra-hype",
@@ -780,7 +780,7 @@
         "HYDRA_COIN": "HYPE"
       },
       "predators_url": "https://strategies.senpi.ai/bot/hydra-hype-v1-0-0",
-      "version": "2.0.0"
+      "version": "2.1.0"
     },
     {
       "id": "caribou",

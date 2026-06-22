@@ -15,7 +15,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: jason-goldberg
-  version: "2.0.0"
+  version: "2.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -126,13 +126,20 @@ producer daemon; exits are owned only by the runtime DSL.
 
 ## Versions
 
-- **v2.0 (current)** — single-coin **conviction** fund: core/dip are a long-term
-  thesis hold on a catastrophic-only DSL; the hedge became a **cross-asset blend
-  short** (shorts other breaking assets, vol-parity sized, thesis-stress-scaled,
-  never the thesis coin). Fixes v1.0's same-asset hedge weaknesses (lag, V-recovery
-  whipsaw, fighting the thesis) and stops the core being shaken out by normal vol.
+- **v2.1 (current)** — two fixes from the first live run (HYPE chop):
+  (1) **1d-alignment chop filter** on core + dip — they only enter when the daily
+  trend confirms the 4h, so they stop buying the top of a range (in chop the 1d is
+  NEUTRAL → stand down); dip also requires a deeper RSI pullback (`dipRsiMax` 42).
+  (2) **Opt-in hybrid hedge** (`hedgeIncludesThesis`) — for an idiosyncratic coin
+  (HYPE), the hedge will ALSO short the thesis coin when IT is the one breaking down,
+  cushioning a coin-specific move the cross-asset blend misses. ETH/SOL stay pure
+  cross-asset (false). **NOTE:** the loose core DSL is a *runtime* file — recreate
+  the core runtime on upgrade or it keeps the tighter prior DSL (the v2.0→host gap).
+- **v2.0** — single-coin **conviction** fund: core/dip = long-term hold on a
+  catastrophic-only DSL; the hedge became a **cross-asset blend short** (vol-parity,
+  thesis-stress-scaled, never the thesis coin).
 - **v1.0** — single-coin portfolio fund: three regime-gated heads with a *same-asset*
   stress short hedge and a tighter ratcheting core DSL.
 
-v2.0 gates on price-action (trend / RSI / drawdown / ATR / funding); Smart-Money
-confirmation and a correlation-aware hedge-blend weighting are planned v2.1.
+Planned v2.2: Smart-Money confirmation; the "follow them out" exit isn't applicable
+here (it's a single-coin thesis, not a copy book).

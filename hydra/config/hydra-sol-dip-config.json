@@ -8,11 +8,13 @@
   "marginPct": 0.18,
   "maxLeverage": 4,
   "stdLeverage": 3,
-  "dipRsiMax": 48,
+  "dipRsiMax": 42,
   "minNotionalPctOfEquity": 0.01,
   "venueMinNotionalUsd": 10,
   "tickSeconds": 300,
   "_coin_note": "This is the Hydra-SOL variant (HYDRA_COIN=SOL). hedge stressDropPct 10 \u2014 wider than ETH (SOL is more volatile). One of three head wallets (core/dip/hedge); all three share this HYDRA_COIN. Same engine across all coins.",
   "_role_note": "DIP = the complement, gated to uptrends-only so it never opposes the hedge. It presses the thesis on the pullbacks the breakout-core misses; LONG only. dipRsiMax is the 1h-RSI threshold that counts as a real pullback. Fund default sizing: core 50% / dip 25% / hedge 25%.",
-  "_persona": "Single-coin dip-buyer \u2014 long-only pullback catcher inside a confirmed uptrend, rides the bounce, time-cuts off. The complement head of a Hydra single-coin portfolio fund."
+  "_persona": "Single-coin dip-buyer \u2014 long-only pullback catcher inside a confirmed uptrend, rides the bounce, time-cuts off. The complement head of a Hydra single-coin portfolio fund.",
+  "requireDailyAlign": true,
+  "_v21_note": "v2.1: requireDailyAlign (only dip-buy inside a 1d+4h confirmed uptrend) + dipRsiMax 42 (deeper, real RSI pullback, was 48). Stops the dip knife-catching chop."
 }

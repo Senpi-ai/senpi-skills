@@ -35,5 +35,7 @@
   "tickSeconds": 300,
   "_v2_note": "v2.0 changed the hedge from a SAME-ASSET stress short on the thesis coin to this CROSS-ASSET blend short. hedgeUniverse is the blend of OTHER assets to short; the producer auto-excludes the thesis coin at runtime. stressDropPct is now the PER-ASSET arming threshold for any name in the blend (not thesis-coin-specific). For a higher-vol thesis you can widen thesisStressFullPct so the multiplier ramps more gradually.",
   "_role_note": "HEDGE = the CROSS-ASSET cushion for the ETH thesis. It shorts the broad/high-beta names that are actually breaking down, so it profits in a market selloff that would also hurt ETH \u2014 WITHOUT shorting ETH itself. Trend-confirmation means it never bleeds shorting names that are rising, and it auto-scales with how much of the market is breaking. The thesis-stress multiplier adds cover exactly when ETH is also breaking. Sizing is vol-parity; total capped at hedgeMaxTotalPct of equity.",
-  "_persona": "Cross-asset crisis cushion for a single-coin ETH thesis \u2014 short-only, diversified blend of other assets, trend-confirmed, vol-parity sized, thesis-stress-scaled. The hedge head of a Hydra v2.0 single-coin conviction fund."
+  "_persona": "Cross-asset crisis cushion for a single-coin ETH thesis \u2014 short-only, diversified blend of other assets, trend-confirmed, vol-parity sized, thesis-stress-scaled. The hedge head of a Hydra v2.0 single-coin conviction fund.",
+  "hedgeIncludesThesis": false,
+  "_v21_note": "v2.1: hedgeIncludesThesis=false \u2014 pure cross-asset hedge (never shorts the thesis coin). ETH/SOL are correlated enough to the broad market that the cross-asset blend covers their risk; HYPE (idiosyncratic) sets this true."
 }
