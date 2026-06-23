@@ -1,0 +1,140 @@
+# ── SPIDER · SWING leg (v2 supervised) ──────────────────────────────
+# Tech & AI multi-day momentum, LONG only.
+#
+# Ported from senpi-skills/spider (producer v5.1.1, SPIDER_LEG=swing) to the
+# v2 supervised external-scanner contract. The producer daemon is gone: the
+# runtime supervises ./scanners/scan.py and calls scan(inputs, ctx) every
+# `interval_seconds`. All scoring thresholds preserved exactly; see scan.py.
+name: spider-swing
+version: 2.0.0
+group: spider                       # agent-facing handle (BOTH legs share it)
+description: >
+  SPIDER SWING — Tech & AI multi-day momentum, LONG only. Scores a dynamic
+  universe (curated tech/AI/space XYZ equities auto-rebuilt from the live
+  instrument board + a static crypto-alt pool) on 4h/1h trend structure, 24h
+  relative strength, RSI room, funding crowding, and smart-money consensus.
+  minScore 5; wide let-winners-run DSL, all time-cuts off, 7d staleness cap.
+  Paired with the SCALP leg on a separate wallet.
+
+strategy:
+  wallet: "${SPIDER_SWING_WALLET}"
+  slots: 3                          # source maxSlots 3
+  margin_pct: 28                    # source marginPct 0.28 → margin_usd = account_value * 0.28
+  default_leverage: 10              # source swingMaxLeverage cap (clamped per-asset to HL venue max in scan.py)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker          # built-in: feeds DSL exit engine
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: spider_swing_signals      # supervised external scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300           # source tickSeconds 300
+    timeout_seconds: 180            # source tick_timeout = min(180, max(30, tick-10))
+    default_signal_validity_seconds: 600   # 2x tick; LLM gate is pass-through so a fresh re-score arrives next tick
+    state_history_max_count: 200    # holds recent-signal dedup + xyz first-seen ledger records
+    inputs:
+      # ── universe knobs (from spider-swing-config.json) ──
+      cryptoAlts: ["SUI", "ONDO", "HYPE", "NIL", "GRASS", "ZEC"]
+      xyzIncludeSet: ["NVDA", "AMD", "INTC", "MRVL", "MU", "TSM", "ASML", "ARM", "SMSN", "SKHX", "DRAM", "SNDK", "DELL", "LITE", "CRWV", "PLTR", "ORCL", "GOOGL", "META", "MSFT", "AMZN", "AAPL", "NFLX", "IBM", "COIN", "MSTR", "CRCL", "HOOD", "SPCX", "RKLB", "CBRS"]
+      xyzExcludeSet: ["GOLD", "SILVER", "PLATINUM", "PALLADIUM", "COPPER", "CL", "BRENTOIL", "NATGAS", "URANIUM", "URNM", "EUR", "JPY", "GBP", "KRW", "DXY", "SP500", "JP225", "KR200", "NIFTY", "IBOV", "XYZ100", "EWY", "EWJ", "EWT", "EWZ", "XLE", "VIX", "PURRDAT", "BIRD"]
+      xyzVolFloorUsd: 5000000
+      xyzFreshDays: 21
+      xyzMaxNames: 20
+      allowedAssets: ["xyz:NVDA", "xyz:AMD", "xyz:INTC", "xyz:MRVL", "xyz:MU", "xyz:TSM", "SUI", "ONDO", "HYPE", "NIL", "GRASS", "ZEC"]
+      # ── scoring knobs ──
+      minScore: 5
+      marginPct: 0.28
+      maxLeverage: 10
+      maxSlots: 3
+      rsiMaxLong: 78
+      useSmBonus: true
+      venueMinNotionalUsd: 10
+      minNotionalPctOfEquity: 0.01
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      rs: { type: number, required: false }
+      smPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action   # rule-based lifecycle → DSL
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: spider_swing_entry        # OPEN_POSITION, rule mode (source LLM gate was pure pass-through)
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [spider_swing_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: spider_swing_signals
+
+# ── EXIT (DSL — wide let-winners-run; the style rides multi-day) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 10080    # 7d — matches source max hold
+    weak_peak_cut:
+      enabled: false                # patience leg
+      interval_in_minutes: 720
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                # patience leg
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 22.0            # source tolerates deep drawdowns
+      retrace_threshold: 12
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        # FIDELITY NOTE: the source had a 6th tier { trigger_pct: 150, lock_hw_pct: 90 }.
+        # The v2 DSL caps trigger_pct at <= 100 (src/dsl/config/parse-tiers.ts), so the
+        # +150% tier cannot be expressed. Dropped; the +100% tier (lock 80%) is now the
+        # top of the ladder. All tiers <= 100 are carried verbatim. This is the single
+        # threshold that does not map cleanly to the v2 schema.
+        - { trigger_pct: 15, lock_hw_pct: 0 }
+        - { trigger_pct: 30, lock_hw_pct: 45 }
+        - { trigger_pct: 60, lock_hw_pct: 68 }
+        - { trigger_pct: 100, lock_hw_pct: 80 }
+
+# ── RISK guard rails (from runtime-swing.yaml; minutes → seconds) ──
+risk:
+  data_retention_seconds: 604800    # 7d (was data_retention_hours 168)
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 12
+    bypass_max_entries_per_day_on_profit: true
+    max_consecutive_losses: 4
+    cooldown_seconds: 5400          # was cooldown_minutes 90
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400   # was per_asset_cooldown_minutes 240 (4h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
