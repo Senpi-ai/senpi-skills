@@ -17,9 +17,9 @@ import re
 from pathlib import Path
 
 try:
-    import yaml
-except ImportError:  # pragma: no cover
-    raise SystemExit("PyYAML required: pip install pyyaml")
+    import yaml  # prefer PyYAML when present
+except ImportError:
+    import _yaml as yaml  # vendored stdlib-only fallback — agent hosts may lack PyYAML / pip
 
 _VAR_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 

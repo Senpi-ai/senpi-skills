@@ -102,8 +102,9 @@ user: "deploy spider with $200"
 
 ### Host prerequisites
 `openclaw` + the `@senpi-ai/runtime` plugin running; `SENPI_AUTH_TOKEN` exported (the same token the
-MCP session uses); PyYAML available (`python3 -m pip install pyyaml` if missing). The package itself does
-**not** need to be pre-placed — it is fetched. Smoke `create`/`runtime` with `--dry-run` first.
+MCP session uses); **Python 3 only — no PyYAML/pip needed** (the scripts use PyYAML if present, else a
+vendored stdlib YAML loader). The package itself is fetched, not pre-placed. Smoke `create`/`runtime`
+with `--dry-run` first.
 
 ## Monitor — is it actually live?
 
