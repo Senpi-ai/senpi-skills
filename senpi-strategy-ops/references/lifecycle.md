@@ -12,40 +12,38 @@ time-boxed by `timeout_seconds`, restarting a crashed child itself. The old mode
 `nohup python3 … &` producer daemon that pushed signals over HTTP) is gone. Deploy = create a runtime;
 nothing else to keep alive.
 
-## `deploy.py <id> --budget N [--decision-model M] [--ref <branch>] [--no-fetch] [--dry-run] [--json]`
+## `deploy.py {create|runtime|verify|status} <id> …`
 
-**Fetch (step 0).** The agent host has the skills installed but not the strategy packages, so if
-`strategies/<id>/` isn't on local disk, `deploy.py` downloads it from the remote (`_fetch.py`: GitHub
-tree listing + raw file fetch from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default
-`Senpi-ai/senpi-skills`@`strategy-v2`; `--ref` overrides, `--no-fetch` disables). The rendered
-runtime.yaml is written **beside** the source so its relative `path: ./scanners` still resolves.
+Deploy is **three short, resumable steps**, not one blocking call — because wallet funding (CREATE →
+FUND → ACTIVE, incl. bridging) and the first scan tick (up to a leg's `interval_seconds`) are each
+multi-minute waits that blow the ~180s tool/session timeout. Each step is **bounded** (`--max-wait`,
+default 150s) and the agent **re-runs a step until it reports done**.
 
-**Pre-check.** Deploy always creates fresh wallets, so before creating anything it looks up every leg's
-runtime (`<id>-<instance>`) in `runtime list`; if **any** is already live it **refuses** ("already
-deployed — run close.py first") and creates **no** wallets. Redeploy = `close` then `deploy`.
+**Package fetch.** Any step fetches `strategies/<id>/` from the remote if it isn't on disk (`_fetch.py`:
+GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default `Senpi-ai/senpi-skills`@`strategy-v2`;
+`--ref` overrides).
 
-Per instance, in order:
+**State file** `<pkg>/.deploy-state.json` — `{instances: {name: {strategyId, wallet, status}}}`, status
+flowing `pending → creating → active → registered → live`. Every sub-action persists, so a kill mid-step
+just means re-run that step.
 
-1. **Wallet — always create new.** MCP `strategy_create_custom_strategy(initialBudget = max(100,
-   budget × funding_share), positions=[], skillName=<id>, skillVersion=<version>)`, then poll
-   `strategy_list` by `strategyId` until status **ACTIVE** → read `strategyWalletAddress`. (Async; the
-   submit uses a raised HTTP timeout, completion comes from the poll.) There is **no `--wallet` reuse**;
-   `--budget` is required for a real run.
-2. **Render.** Substitute `${wallet_env}` (+ the decision-model env iff the runtime has a
-   `decision_mode: llm` action) into the leg's `runtime.yaml` → `<pkg>/.build/<instance>.runtime.yaml`.
-   Asserts **zero unresolved `${...}`** before continuing. No telegram is injected (deprecated).
-3. **Create.** `openclaw senpi runtime create -p <rendered> --runtime-id <id>-<instance>`. Pinning
-   `--runtime-id` keeps the runtime id equal to the runtime.yaml `name` (else it derives from the build
-   filename), so verify/close lookups match.
-4. **Cross-verify.** Poll `runtime list --json` (present + running) → `state -r <id> --json` until the
-   `external_scanner` shows a completed tick (a positive run count) or the deadline
-   (`interval_seconds` + buffer) elapses. `live` only when a tick is confirmed; `registered` if the
-   runtime is up but no tick yet (not live — run Monitor); `failed` if create failed or the runtime never
-   ran.
+1. **`create <id> --budget N`** — per instance, `strategy_create_custom_strategy(skillName=<id>,
+   skillVersion=<version>, initialBudget=max(100, N×funding_share))`; the `strategyId` is recorded to the
+   state file **immediately** (before any polling) so a re-run **resumes instead of re-creating**. Then
+   poll `strategy_list` by `strategyId` to **ACTIVE** → record wallet. Bounded: not all ACTIVE within
+   `--max-wait` → exit **`creating`** (re-run to resume); all ACTIVE → **`wallets-ready`**.
+   **Anti-duplicate guard:** before creating, it lists `strategy_list` for `skillName==<id>`; if it finds
+   strategies **not** in the state file (an interrupted prior run), it **refuses** and says to `close.py
+   <id>` first — never blindly funds duplicates.
+2. **`runtime <id>`** — per instance: render the leg's `runtime.yaml` (substitute `${wallet_env}` + the
+   decision-model env iff a `decision_mode: llm` action) **beside the source** (so `path: ./scanners`
+   resolves) → `openclaw senpi runtime create -p <rendered> --runtime-id <id>-<instance>`. Idempotent:
+   skips a runtime that already exists. Requires wallets `active` (run `create` first). → `registered`.
+3. **`verify <id>`** — bounded poll of `openclaw senpi state -r <id>-<instance>` until each
+   `external_scanner` shows a completed tick. All ticked → **`live`**; deadline hit → **`registered`**
+   (re-run `verify`). `status <id>` prints the state file any time.
 
-There is **no `--reinstall`** (a fresh deploy always wants fresh wallets, so it can't reuse a live
-runtime's wallet). Redeploy in place = `close` then `deploy`. `--dry-run` validates + plans (renders in
-memory) with **no** side effects: no wallet creation, no create.
+There is **no `--reinstall`** and no wallet-reuse — redeploy = `close` then `create`/`runtime`/`verify`.
 
 ## `close.py <id> [--instance name] [--timeout S] [--dry-run] [--json]`
 

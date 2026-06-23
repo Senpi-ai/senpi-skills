@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Deploy a strategy PACKAGE — one shot: create wallets → render → runtime create → cross-verify.
+"""Deploy a strategy PACKAGE in three short, resumable steps (so no single call blocks past the
+tool/session timeout). The SCRIPT does the work deterministically — the agent just runs the steps
+in order and re-runs a step until it reports done.
 
-  python3 deploy.py <package-dir> --budget <total-usd>
-                    [--decision-model <bare-model>] [--dry-run] [--json]
+  python3 deploy.py create  <id> --budget <usd> [--max-wait S] [--dry-run] [--json]
+  python3 deploy.py runtime  <id> [--decision-model M] [--dry-run] [--json]
+  python3 deploy.py verify   <id> [--max-wait S] [--json]
+  python3 deploy.py status   <id> [--json]
 
-Lifecycle (per instance in strategy.yaml). Deploy ALWAYS creates fresh wallets:
-  0. PRE-CHECK — if any leg's runtime (<id>-<instance>) is already live, refuse and create NO wallets
-     ("already deployed — run close.py first"). Redeploy = close then deploy.
-  1. WALLET — create a NEW strategy wallet via MCP strategy_create_custom_strategy
-     (initialBudget = max($100, budget x funding_share), positions=[], skillName/skillVersion from
-     the manifest), then poll strategy_list by strategyId until ACTIVE → strategyWalletAddress.
-  2. RENDER — substitute ${wallet_env} (+ the decision-model env iff a runtime has a decision_mode:
-     llm action) into the leg's runtime.yaml → <pkg>/.build/<instance>.runtime.yaml. No telegram.
-  3. CREATE — openclaw senpi runtime create -p <rendered>. The runtime supervises scan() itself —
-     there is NO scanner daemon to launch.
-  4. VERIFY — poll runtime list/state until the external_scanner has actually ticked.
-     Report `live` only then; `registered` if the runtime is up but no tick confirmed before timeout.
+Step 1 `create`  — per instance: strategy_create_custom_strategy (records strategyId IMMEDIATELY),
+                   then poll strategy_list until ACTIVE, BOUNDED by --max-wait. Not all ACTIVE yet →
+                   exits `creating`; re-run `create` to RESUME (never re-creates). Refuses if it finds
+                   skillName==<id> strategies not in the state file (interrupted run → close first).
+Step 2 `runtime` — render each runtime.yaml with its wallet → openclaw senpi runtime create. Fast,
+                   idempotent (skips a runtime that already exists).
+Step 3 `verify`  — bounded poll until each external_scanner has ticked; resumable.
 
---dry-run validates + plans (renders in memory) with NO side effects: no wallet creation, no create.
+State lives in <pkg>/.deploy-state.json: per instance {strategyId, wallet, status}. Every sub-action
+is persisted, so a kill mid-step just means re-run that step. The package is fetched from the remote
+on first use if it isn't on disk.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -32,46 +33,203 @@ import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from _mcp import MCPClient, MCPError  # noqa: E402
 
-SUBMIT_TIMEOUT = 60        # HTTP timeout for the async create-wallet submit
-POLL_HTTP_TIMEOUT = 15     # HTTP timeout for fast read polls
-CREATE_DEADLINE = 600      # max seconds to wait for a new wallet to reach ACTIVE
-VERIFY_BUFFER = 120        # seconds added to interval_seconds for the first-tick wait
+SUBMIT_TIMEOUT = 60     # HTTP timeout for the async create submit
+POLL_HTTP_TIMEOUT = 15  # HTTP timeout for fast read polls
+DEFAULT_MAX_WAIT = 150  # per-call poll budget (s) — stays under the ~180s tool timeout
+VERIFY_BUFFER = 120
 POLL_EVERY = 10
+ORDER = ("pending", "creating", "active", "registered", "live")
+
+
+# ---------- package + state ----------
+
+def ensure_pkg(arg, ref, log):
+    try:
+        return _pkg.load(arg)
+    except _pkg.BadPackage as e:
+        sid = Path(arg).name
+        log(f"package not on disk — fetching {sid} from remote…")
+        try:
+            _fetch.fetch_package(sid, "strategies", ref=ref)
+            return _pkg.load(sid)
+        except (_fetch.FetchError, _pkg.BadPackage):
+            raise SystemExit(f"error: {e}")
+
+
+def _state_path(pkg):
+    return pkg.dir / ".deploy-state.json"
+
+
+def load_state(pkg):
+    p = _state_path(pkg)
+    if p.is_file():
+        try:
+            return json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"id": pkg.id, "version": pkg.version, "instances": {}}
+
+
+def save_state(pkg, st):
+    _state_path(pkg).write_text(json.dumps(st, indent=2) + "\n")
+
+
+def inst_state(st, name):
+    return st["instances"].setdefault(name, {"status": "pending"})
 
 
 def wallet_amount(budget, share):
     return max(100.0, round((budget or 0) * (share if share is not None else 1.0), 2))
 
 
-def create_wallet(mcp, pkg, inst, amount, log):
-    """Create a new strategy wallet via MCP, poll to ACTIVE. Returns (address, strategy_id)."""
-    log(f"  [{inst.name}] creating wallet (initialBudget=${amount:g}, skill={pkg.id}/{pkg.version})…")
-    res = mcp.mcp_call("strategy_create_custom_strategy", timeout=SUBMIT_TIMEOUT,
-                       initialBudget=amount, positions=[],
-                       skillName=pkg.id, skillVersion=pkg.version)
-    sid = _cli.strategy_id_of(res)  # unwraps data.strategy.id
-    if not sid:
-        raise RuntimeError(f"strategy_create_custom_strategy returned no strategyId (got: {res!r})")
-    deadline = time.time() + CREATE_DEADLINE
-    while time.time() < deadline:
-        matches = _cli.strategies_for(mcp, strategy_id=sid, timeout=POLL_HTTP_TIMEOUT)
-        s = matches[0] if matches else None
-        status = str(_cli.strategy_status(s) or "").upper()
-        addr = _cli.strategy_wallet(s)
-        if status == "ACTIVE" and addr:
-            log(f"  [{inst.name}] wallet ACTIVE: {addr}")
-            return addr, sid
-        log(f"  [{inst.name}] wallet {status or '…'} — waiting")
-        time.sleep(POLL_EVERY)
-    raise TimeoutError(f"wallet for {inst.name} (strategyId {sid}) not ACTIVE within {CREATE_DEADLINE}s")
+def report(pkg, st, overall, note=None, as_json=False):
+    insts = [{"instance": i, **st["instances"].get(i, {"status": "pending"})}
+             for i in [x for x in st["instances"]]]
+    out = {"strategy": pkg.id, "version": pkg.version, "status": overall, "instances": insts}
+    if as_json:
+        print(json.dumps(out, indent=2))
+    else:
+        print(f"\n{pkg.id} v{pkg.version}: {overall}")
+        for r in insts:
+            print(f"  - {r['instance']}: {r['status']}"
+                  + (f"  wallet={r['wallet']}" if r.get("wallet") else "")
+                  + (f"  ({r['error']})" if r.get("error") else ""))
+        if note:
+            print(f"\n{note}")
+    return out
 
+
+# ---------- step 1: create wallets ----------
+
+def cmd_create(pkg, a, log):
+    st = load_state(pkg)
+    st["budget"] = a.budget
+    if a.dry_run:
+        for inst in pkg.instances:
+            s = inst_state(st, inst.name)
+            s.setdefault("status", "pending")
+            s["plan"] = f"strategy_create_custom_strategy(${wallet_amount(a.budget, inst.funding_share):g}, skillName={pkg.id}, skillVersion={pkg.version})"
+        return report(pkg, st, "planned", as_json=a.json)
+    if a.budget is None:
+        raise SystemExit("error: --budget <total> is required for `create`")
+
+    mcp = MCPClient()
+    # Safety: refuse if there are skillName==id strategies we never recorded (interrupted run) — do
+    # NOT blindly fund duplicates. The operator must close the strays first.
+    recorded = {inst_state(st, i.name).get("strategyId") for i in pkg.instances}
+    recorded.discard(None)
+    existing = _cli.strategies_for(mcp, skill_name=pkg.id)
+    untracked = [s for s in existing if _cli.strategy_id_of(s) not in recorded]
+    need = [i for i in pkg.instances if not inst_state(st, i.name).get("strategyId")]
+    if untracked and need:
+        raise SystemExit(
+            f"error: found {len(untracked)} existing {pkg.id} strateg(y/ies) not in this deploy's state "
+            f"(likely an interrupted run). Close them first to avoid duplicate funded wallets:\n"
+            f"  python3 {Path(__file__).with_name('close.py')} {pkg.id}")
+
+    # create any instance that has no strategyId yet — record the id IMMEDIATELY (before polling),
+    # so an interrupted run resumes instead of re-creating.
+    for inst in pkg.instances:
+        s = inst_state(st, inst.name)
+        if s.get("strategyId"):
+            continue
+        amt = wallet_amount(a.budget, inst.funding_share)
+        log(f"  [{inst.name}] creating wallet (initialBudget=${amt:g})…")
+        try:
+            res = mcp.mcp_call("strategy_create_custom_strategy", timeout=SUBMIT_TIMEOUT,
+                               initialBudget=amt, positions=[], skillName=pkg.id, skillVersion=pkg.version)
+        except MCPError as e:
+            s["status"] = "pending"
+            s["error"] = f"create submit: {e}"
+            save_state(pkg, st)
+            return report(pkg, st, "failed", as_json=a.json)
+        sid = _cli.strategy_id_of(res)
+        if not sid:
+            s["error"] = f"create returned no strategyId: {res!r}"
+            save_state(pkg, st)
+            return report(pkg, st, "failed", as_json=a.json)
+        s.update(strategyId=sid, status="creating", error=None)
+        save_state(pkg, st)  # ← persist before any polling
+
+    # poll to ACTIVE, bounded by --max-wait (resume on re-run)
+    deadline = time.time() + a.max_wait
+    while True:
+        pending = []
+        for inst in pkg.instances:
+            s = inst_state(st, inst.name)
+            if s.get("status") in ("active", "registered", "live"):
+                continue
+            m = _cli.strategies_for(mcp, strategy_id=s["strategyId"], timeout=POLL_HTTP_TIMEOUT)
+            status = str(_cli.strategy_status(m[0]) if m else "").upper()
+            addr = _cli.strategy_wallet(m[0]) if m else None
+            if status == "ACTIVE" and addr:
+                s.update(wallet=addr, status="active")
+                save_state(pkg, st)
+            else:
+                pending.append(f"{inst.name}={status or '…'}")
+        if not pending:
+            return report(pkg, st, "wallets-ready", note="Next: deploy.py runtime " + pkg.id, as_json=a.json)
+        if time.time() >= deadline:
+            return report(pkg, st, "creating",
+                          note="Wallets still funding. Re-run `deploy.py create " + pkg.id + "` to resume.",
+                          as_json=a.json)
+        log(f"  waiting on {', '.join(pending)}…")
+        time.sleep(POLL_EVERY)
+
+
+# ---------- step 2: deploy runtimes ----------
+
+def cmd_runtime(pkg, a, log):
+    st = load_state(pkg)
+    not_ready = [i.name for i in pkg.instances
+                 if not inst_state(st, i.name).get("wallet")]
+    if not_ready:
+        raise SystemExit(f"error: wallets not ready for {', '.join(not_ready)} — run `deploy.py create {pkg.id}` first")
+    if pkg.any_needs_model and not a.decision_model and not a.dry_run:
+        raise SystemExit("error: a runtime has a decision_mode: llm action — pass --decision-model <bare-model>")
+
+    for inst in pkg.instances:
+        s = inst_state(st, inst.name)
+        wallet = s["wallet"]
+        build = inst.runtime_path.with_name(f"{inst.name}.deploy.runtime.yaml")
+        try:
+            text = inst.render(wallet, model_env=pkg.model_env, model=a.decision_model)
+        except _pkg.BadPackage as e:
+            s.update(status="active", error=str(e))
+            save_state(pkg, st)
+            continue
+        if a.dry_run:
+            s["plan"] = f"openclaw senpi runtime create -p {build} --runtime-id {inst.runtime_name}"
+            continue
+        if _cli.find_runtime(inst.runtime_name):           # idempotent — already deployed
+            s.update(status="registered", error=None)
+            save_state(pkg, st)
+            continue
+        build.write_text(text)
+        log(f"  [{inst.name}] runtime create…")
+        rc, _o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "create", "-p", str(build),
+                                    "--runtime-id", inst.runtime_name], timeout=120)
+        if rc != 0:
+            s.update(error=(err or "runtime create failed").strip()[:300])
+            save_state(pkg, st)
+            continue
+        s.update(status="registered", error=None)
+        save_state(pkg, st)
+
+    if a.dry_run:
+        return report(pkg, st, "planned", as_json=a.json)
+    failed = [i.name for i in pkg.instances if inst_state(st, i.name).get("error")]
+    overall = "failed" if failed else "registered"
+    return report(pkg, st, overall, note="Next: deploy.py verify " + pkg.id
+                  + "   (`registered` ≠ ticking yet)", as_json=a.json)
+
+
+# ---------- step 3: verify ticking ----------
 
 def _deep_find_scanner(obj, name):
-    """Walk a state/status JSON for a dict describing the named scanner."""
     if isinstance(obj, dict):
-        nm = _cli.dig(obj, "name", "scanner", "scannerName")
-        if nm == name and any(k.lower() in ("runcount", "lastrunfinishedat", "lastrunstartedat", "ticks")
-                               for k in obj):
+        if _cli.dig(obj, "name", "scanner", "scannerName") == name and any(
+                k.lower() in ("runcount", "lastrunfinishedat", "lastrunstartedat", "ticks") for k in obj):
             return obj
         for v in obj.values():
             r = _deep_find_scanner(v, name)
@@ -85,91 +243,70 @@ def _deep_find_scanner(obj, name):
     return None
 
 
-def verify(inst, deadline, log):
-    """Poll until the runtime is running AND its external_scanner has ticked. Returns a status str."""
-    name = inst.runtime_name
-    scanner = inst.external_scanner.get("name")
-    seen_running = False
-    while time.time() < deadline:
-        rt = _cli.find_runtime(name)
-        if rt and _cli.runtime_running(rt):
-            seen_running = True
-            state = _cli.cli_json(["openclaw", "senpi", "state", "-r", name, "--json"], POLL_HTTP_TIMEOUT)
-            sc = _deep_find_scanner(state, scanner) if state else None
+def cmd_verify(pkg, a, log):
+    st = load_state(pkg)
+    deadline = time.time() + a.max_wait
+    while True:
+        pending = []
+        for inst in pkg.instances:
+            s = inst_state(st, inst.name)
+            if s.get("status") == "live":
+                continue
+            rt = _cli.find_runtime(inst.runtime_name)
+            if not rt or not _cli.runtime_running(rt):
+                pending.append(f"{inst.name}=no-runtime")
+                continue
+            state = _cli.cli_json(["openclaw", "senpi", "state", "-r", inst.runtime_name, "--json"], POLL_HTTP_TIMEOUT)
+            sc = _deep_find_scanner(state, inst.external_scanner.get("name")) if state else None
             runs = _cli.dig(sc or {}, "runCount", "ticks", "runs", default=0) or 0
             if isinstance(runs, (int, float)) and runs > 0:
-                log(f"  [{inst.name}] live — scanner {scanner!r} ticked (runCount={runs})")
-                return "live"
-        log(f"  [{inst.name}] {'running, awaiting first tick' if seen_running else 'awaiting runtime'}…")
+                s["status"] = "live"
+                save_state(pkg, st)
+            else:
+                pending.append(f"{inst.name}=awaiting-tick")
+        if not pending:
+            return report(pkg, st, "live", as_json=a.json)
+        if time.time() >= deadline:
+            return report(pkg, st, "registered",
+                          note="Not all scanners have ticked yet (slow legs tick on their interval_seconds). "
+                               "Re-run `deploy.py verify " + pkg.id + "` to keep checking.", as_json=a.json)
+        log(f"  waiting on {', '.join(pending)}…")
         time.sleep(POLL_EVERY)
-    return "registered" if seen_running else "failed"
 
 
-def deploy_instance(inst, wallet, model_env, model, dry_run, log):
-    rec = {"instance": inst.name, "runtime_id": inst.runtime_name, "wallet": wallet}
-    # render (in memory always; write only for a real run). Write the rendered file BESIDE the source
-    # runtime.yaml so its relative `path: ./scanners` still resolves to this instance's scanners/.
-    text = inst.render(wallet, model_env=model_env, model=model)
-    build = inst.runtime_path.with_name(f"{inst.name}.deploy.runtime.yaml")
-    if dry_run:
-        rec["status"] = "planned"
-        rec["create_cmd"] = f"openclaw senpi runtime create -p {build} --runtime-id {inst.runtime_name}"
-        return rec
-    build.write_text(text)
-
-    # Safety guard — the all-legs pre-check should have refused already, but never clobber a live runtime.
-    if _cli.find_runtime(inst.runtime_name):
-        rec["status"] = "failed"
-        rec["error"] = f"runtime {inst.runtime_name!r} already exists — close it first"
-        return rec
-
-    log(f"  [{inst.name}] runtime create…")
-    # pin --runtime-id to the runtime.yaml `name` so it matches verify/close lookups
-    # (otherwise it derives from the build filename, e.g. "swing.runtime").
-    rc, _out, err = _cli.run_cli(["openclaw", "senpi", "runtime", "create", "-p", str(build),
-                                  "--runtime-id", inst.runtime_name], timeout=120)
-    if rc != 0:
-        rec["status"] = "failed"
-        rec["error"] = (err or "runtime create failed").strip()[:400]
-        return rec
-
-    interval = inst.interval_seconds or 300
-    deadline = time.time() + interval + VERIFY_BUFFER
-    rec["status"] = verify(inst, deadline, log)
-    return rec
-
+# ---------- cli ----------
 
 def main(argv):
-    ap = argparse.ArgumentParser(description="Deploy a strategy package (create wallets → deploy → verify).")
-    ap.add_argument("package", help="Strategy id (e.g. spider, as discover emits) or package dir (strategies/spider).")
-    ap.add_argument("--budget", type=float, default=None, help="Total USDC split across the new wallets by funding_share (required for a real run).")
-    ap.add_argument("--decision-model", default=None, help="Bare model name (only if a runtime has a decision_mode: llm action).")
-    ap.add_argument("--ref", default=None, help="Branch/ref to fetch the package from (default: env SENPI_SKILLS_REF or strategy-v2).")
-    ap.add_argument("--no-fetch", action="store_true", help="Do not fetch from remote; require the package on local disk.")
-    ap.add_argument("--dry-run", action="store_true", help="Validate + plan only; no wallet creation, no create.")
-    ap.add_argument("--json", action="store_true")
+    ap = argparse.ArgumentParser(description="Deploy a strategy package in resumable steps.")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    def common(p):
+        p.add_argument("package", help="Strategy id (e.g. spider) or package dir (strategies/spider).")
+        p.add_argument("--ref", default=None, help="Branch/ref to fetch the package from if not on disk.")
+        p.add_argument("--json", action="store_true")
+
+    pc = sub.add_parser("create", help="Step 1: create + fund the strategy wallet(s) (resumable).")
+    common(pc)
+    pc.add_argument("--budget", type=float, default=None, help="Total USDC split across wallets by funding_share.")
+    pc.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="Poll budget for this call (s).")
+    pc.add_argument("--dry-run", action="store_true")
+
+    pr = sub.add_parser("runtime", help="Step 2: render + create the runtime(s) on the ready wallet(s).")
+    common(pr)
+    pr.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
+    pr.add_argument("--dry-run", action="store_true")
+
+    pv = sub.add_parser("verify", help="Step 3: confirm each scanner is ticking (resumable).")
+    common(pv)
+    pv.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="Poll budget for this call (s).")
+
+    ps = sub.add_parser("status", help="Show the deploy state.")
+    common(ps)
+
     a = ap.parse_args(argv[1:])
+    log = (lambda m: None) if a.json else (lambda m: print(m))
 
-    msgs = []
-    log = (lambda m: msgs.append(m)) if a.json else (lambda m: print(m))
-
-    # Resolve the package: prefer local (repo checkout); otherwise fetch strategies/<id> from the remote.
-    # The agent host has the skills installed but NOT the strategy packages, so fetch-by-id is the norm.
-    try:
-        pkg = _pkg.load(a.package)
-    except _pkg.BadPackage as e:
-        if a.no_fetch:
-            raise SystemExit(f"error: {e}")
-        sid = Path(a.package).name
-        log(f"package not on disk — fetching {sid} from remote…")
-        try:
-            _fetch.fetch_package(sid, "strategies", ref=a.ref)
-        except _fetch.FetchError as fe:
-            raise SystemExit(f"error: {e}; remote fetch failed: {fe}")
-        try:
-            pkg = _pkg.load(sid)
-        except _pkg.BadPackage as e2:
-            raise SystemExit(f"error: fetched {sid} but it is not a valid package: {e2}")
+    pkg = ensure_pkg(a.package, a.ref, log)
     errs = _pkg.validate(pkg)
     if errs:
         print(f"✗ {pkg.id}: invalid package", file=sys.stderr)
@@ -177,54 +314,16 @@ def main(argv):
             print(f"    - {e}", file=sys.stderr)
         sys.exit(1)
 
-    if pkg.any_needs_model and not a.decision_model and not a.dry_run:
-        raise SystemExit("error: this strategy has a decision_mode: llm action — pass --decision-model <bare-model>")
-    model_env = pkg.model_env
+    if a.cmd == "create":
+        out = cmd_create(pkg, a, log)
+    elif a.cmd == "runtime":
+        out = cmd_runtime(pkg, a, log)
+    elif a.cmd == "verify":
+        out = cmd_verify(pkg, a, log)
+    else:  # status
+        out = report(pkg, load_state(pkg), "status", as_json=a.json)
 
-    if a.budget is None and not a.dry_run:
-        raise SystemExit("error: --budget <total> is required (deploy always creates new wallets)")
-
-    # Pre-check: deploy always creates fresh wallets, so refuse if any leg is already live —
-    # never create+fund a wallet only to collide on a fixed runtime id. (Skipped in dry-run.)
-    if not a.dry_run:
-        live = [i.runtime_name for i in pkg.instances if _cli.find_runtime(i.runtime_name)]
-        if live:
-            raise SystemExit(f"error: {pkg.id} already deployed ({', '.join(live)}) — run close.py first "
-                             f"(redeploy = close then deploy)")
-
-    mcp = None
-    results = []
-    for inst in pkg.instances:
-        try:
-            if a.dry_run:
-                wallet = f"<NEW ${inst.wallet_env} via strategy_create_custom_strategy(${wallet_amount(a.budget, inst.funding_share):g})>"
-            else:
-                mcp = mcp or MCPClient()
-                wallet, _sid = create_wallet(mcp, pkg, inst, wallet_amount(a.budget, inst.funding_share), log)
-            results.append(deploy_instance(inst, wallet, model_env, a.decision_model,
-                                           a.dry_run, log))
-        except (MCPError, RuntimeError, TimeoutError, _pkg.BadPackage) as e:
-            results.append({"instance": inst.name, "runtime_id": inst.runtime_name, "status": "failed",
-                            "error": str(e)})
-
-    statuses = {r["status"] for r in results}
-    overall = ("planned" if a.dry_run else
-               "failed" if "failed" in statuses else
-               "live" if statuses <= {"live"} else "registered")
-    report = {"strategy": pkg.id, "version": pkg.version, "status": overall,
-              "attribution": {"skillName": pkg.id, "skillVersion": pkg.version},
-              "instances": results}
-
-    if a.json:
-        print(json.dumps(report, indent=2))
-    else:
-        print(f"\n{pkg.id} v{pkg.version}: {overall}")
-        for r in results:
-            extra = f"  ({r['error']})" if r.get("error") else ""
-            print(f"  - {r['instance']}: {r['status']}  wallet={r.get('wallet','?')}{extra}")
-        if overall in ("registered", "live") and not a.dry_run:
-            print("\nNote: `registered` ≠ ticking. Confirm with: openclaw senpi status -r <runtime_id> --json")
-    sys.exit(2 if overall == "failed" else 0)
+    sys.exit(2 if out.get("status") == "failed" else 0)
 
 
 if __name__ == "__main__":

@@ -7,9 +7,9 @@ description: >-
   live?", "stop/close/uninstall polar". A strategy is a PACKAGE (strategy.yaml +
   one runtime.yaml per instance + scanners/); the runtime SUPERVISES each
   scanner's scan(inputs, ctx) in-process — there is NO scanner daemon to launch.
-  Two one-shot lifecycle commands own everything: deploy.py (always creates fresh
-  wallets, runs runtime create, cross-verifies) and close.py (stops the runtime,
-  then strategy_close, which flattens positions and returns funds). The strategy
+  deploy.py runs in three resumable steps (create wallets → runtime create →
+  verify ticking) and close.py tears down (stop runtime + strategy_close, which
+  flattens positions and returns funds). The strategy
   id (spider, polar, kodiak) is the package folder; match the user's word to a
   registry/catalog id. NOT for choosing WHICH strategy (senpi-strategy-discover)
   or building/editing one (senpi-strategy-author).
@@ -29,48 +29,54 @@ A strategy is a **package**: `strategy.yaml` (the deploy manifest) + one `runtim
 `<instance>/scanners/`. The runtime **spawns and supervises** each `scanners/scan.py`, calling
 `scan(inputs, ctx)` every `interval_seconds` and owning everything downstream — signal validation,
 sizing/execution, the two-phase DSL exit, risk guard-rails. **There is no separate scanner daemon, no
-`push_signal`.** Ops owns the deployed lifecycle as **two one-shot commands**:
+`push_signal`.** Ops owns the deployed lifecycle. Deploy is **three short, resumable steps** (each fits a
+tool call — wallet funding and the first scan tick are slow, so they must not block one long call):
 
 ```
-python3 senpi-strategy-ops/scripts/deploy.py <id> --budget <usd> [--decision-model <m>] [--dry-run]
-python3 senpi-strategy-ops/scripts/close.py  <id> [--instance <name>] [--dry-run]
+python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. create + fund wallet(s)
+python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. render + runtime create
+python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # 3. confirm scanners tick
+python3 senpi-strategy-ops/scripts/close.py          <id>                  # teardown
 ```
-Both scripts take a **strategy `id`** (exactly what `senpi-strategy-discover` hands over, e.g. `spider`)
-and resolve it to `strategies/<id>`; an explicit package path (`strategies/spider`) also works.
+Pass the **strategy `id`** (what `senpi-strategy-discover` hands over, e.g. `spider`); the package is
+fetched from the remote if not on disk. The scripts call MCP directly (`scripts/_mcp.py`, reads
+`SENPI_AUTH_TOKEN`) + drive `openclaw senpi runtime …`. Mechanics + state machine:
+[`references/lifecycle.md`](references/lifecycle.md). Manifest: [`references/strategy-yaml-schema.md`](references/strategy-yaml-schema.md).
 
-Both scripts call MCP directly (vendored stdlib client `scripts/_mcp.py`, reads `SENPI_AUTH_TOKEN`) and
-drive `openclaw senpi runtime …` — so each is a true single command. Mechanics:
-[`references/lifecycle.md`](references/lifecycle.md). Manifest schema:
-[`references/strategy-yaml-schema.md`](references/strategy-yaml-schema.md).
+## Deploy — three resumable steps
 
-## Deploy — create → run → verify (one command)
-
-**Step 0 — resolve which strategy.** The user's word ("spider", "the polar predator") is a strategy
-**`id`**. You do **not** need the package on disk first — `deploy.py <id>` fetches `strategies/<id>/`
-from the remote automatically. To confirm an id exists, check the registry:
+**Step 0 — resolve which strategy.** The user's word ("spider") is a strategy **`id`**. To confirm it
+exists, check the registry; no match → hand to **senpi-strategy-discover**:
 ```
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/strategy-v2/strategies/catalog.json
 ```
-No match → hand off to **senpi-strategy-discover** to pick one.
 
-**Step 1 — deploy (one command, pass the bare id).**
+**Step 1 — `create`** (one fresh wallet per instance; budget splits by `funding_share`, **min $100 each**
+— confirm with the user first):
 ```
-python3 scripts/deploy.py spider --budget 200
+python3 scripts/deploy.py create spider --budget 200
 ```
-`deploy.py` does the whole thing: **fetches** the package by id from the remote if it isn't on disk →
-per instance creates a fresh wallet via `strategy_create_custom_strategy(initialBudget=<share>,
-positions=[], skillName=<id>, skillVersion=<version>)`, polls `strategy_list` until **ACTIVE** → renders
-the leg's `runtime.yaml` → `openclaw senpi runtime create` → **cross-verifies** the `external_scanner`
-ticked. Budget splits by `funding_share`, **min $100 each** — confirm it with the user first. No
-wallet-reuse path: if already deployed it **refuses** ("close first"); redeploy = **close then deploy**.
-`--decision-model` is required **only** for a `decision_mode: llm` action (rule-mode strategies need none).
+Per instance it calls `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>)`, records
+the `strategyId`, and polls `strategy_list` to **ACTIVE** — **bounded** (~150s). If it prints
+**`creating`** (wallets still funding), just **re-run the same `create` command** — it resumes from the
+state file and **never re-creates** a wallet. It prints **`wallets-ready`** when done.
 
-> **Do NOT improvise.** A package strategy (spider, etc.) is a **runtime-supervised scanner** — deploy it
-> **only** via `deploy.py`. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy"
-> it: that creates an **empty** custom-position strategy, not the running scanner, and is the wrong thing.
-> Funding is **automatic** (Hyperliquid perps → HL spot → EVM bridge, in that order). If deploy reports
-> insufficient USDC / `available: 0`, the wallet genuinely lacks accessible funds (often locked in other
-> strategies) — tell the user to fund or free USDC, then **re-run `deploy.py`**. Do not switch tools.
+**Step 2 — `runtime`** (fast): `python3 scripts/deploy.py runtime spider` renders each leg's runtime.yaml
+with its wallet and runs `openclaw senpi runtime create`. Idempotent (skips an existing runtime). Prints
+`registered`. `--decision-model` only for a `decision_mode: llm` action (rule-mode strategies need none).
+
+**Step 3 — `verify`** (resumable): `python3 scripts/deploy.py verify spider` polls until each
+`external_scanner` has ticked (bounded). Prints `live`; if a slow leg hasn't ticked within its
+`interval_seconds`, it prints `registered` — **re-run `verify`** to keep checking. `deploy.py status
+<id>` shows current state any time.
+
+> **Do NOT improvise.** A package strategy is a **runtime-supervised scanner** — deploy it **only** via
+> these steps. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that
+> makes an **empty** custom-position strategy, not the running scanner. Funding is **automatic**
+> (Hyperliquid perps → HL spot → EVM bridge). If `create` reports insufficient USDC / `available: 0`, the
+> wallet genuinely lacks accessible funds (often locked in other strategies) — have the user fund/free
+> USDC, then **re-run `create`**. Do not switch tools. If `create` **refuses** with "existing strategies
+> not in deploy state", a prior run was interrupted — `close.py <id>` the strays first, then `create`.
 
 **Report** from the structured output, not raw logs:
 ```jsonc
@@ -79,24 +85,25 @@ wallet-reuse path: if already deployed it **refuses** ("close first"); redeploy 
   "instances":[ { "instance":"swing","runtime_id":"spider-swing","wallet":"0x…","status":"live" },
                 { "instance":"scalp","runtime_id":"spider-scalp","wallet":"0x…","status":"live" } ] }
 ```
-Per-instance status: `live` (runtime up **and** a scanner tick confirmed) · `registered` (runtime up,
-no tick confirmed before timeout — **not live yet**, run Monitor) · `failed`. **`registered` ≠ ticking.**
-Preview first with `--dry-run` (validates + plans; no wallet creation, no side effects).
+Overall status across the steps: `create` → `creating` (re-run) | `wallets-ready`; `runtime` →
+`registered`; `verify` → `live` (scanner ticked) | `registered` (re-run verify). Per-instance status
+flows `pending → creating → active → registered → live`. **`registered` ≠ ticking.** `create`/`runtime`
+take `--dry-run` (plan only; no side effects).
 
 ### Worked example — "install spider"
 ```
 user: "deploy spider with $200"
-1. resolve → id = spider (package spider/, two instances: swing 60% / scalp 40%)
-2. confirm budget ($200 → swing ~$120, scalp $100 min) → deploy:
-   python3 scripts/deploy.py spider --budget 200
-   → creates 2 wallets (attribution spider/6.0.0), runtime create spider-swing + spider-scalp, verifies
-3. report → status "live" once both external scanners have ticked
+1. resolve → id = spider (two instances: swing 60% / scalp 40%; $200 → swing ~$120, scalp $100 min)
+2. create → python3 scripts/deploy.py create spider --budget 200
+            → wallets-ready  (if "creating", re-run the same command until wallets-ready)
+3. runtime → python3 scripts/deploy.py runtime spider          → registered (spider-swing + spider-scalp)
+4. verify  → python3 scripts/deploy.py verify spider           → live  (re-run if a slow leg hasn't ticked)
 ```
 
 ### Host prerequisites
 `openclaw` + the `@senpi-ai/runtime` plugin running; `SENPI_AUTH_TOKEN` exported (the same token the
 MCP session uses); PyYAML available (`python3 -m pip install pyyaml` if missing). The package itself does
-**not** need to be pre-placed — `deploy.py` fetches it. Smoke with `--dry-run` first.
+**not** need to be pre-placed — it is fetched. Smoke `create`/`runtime` with `--dry-run` first.
 
 ## Monitor — is it actually live?
 

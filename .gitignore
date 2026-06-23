@@ -7,3 +7,4 @@ __pycache__/
 # rendered runtime specs from senpi-strategy-ops/scripts/deploy.py
 */.build/
 *.deploy.runtime.yaml
+.deploy-state.json
