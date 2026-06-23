@@ -32,6 +32,17 @@ def test_all_classes_present():
     assert g["crypto"]["avg_change_pct"] < 0  # the fixture is a down day for crypto
 
 
+def test_context_nested_quotes_extracted():
+    """Regression: live market_list_instruments nests markPx/prevDayPx under `context`.
+    The fixture uses that real shape; prices must still come through (not all-null)."""
+    g = _result()["groups"]
+    btc = next(r for r in g["crypto"]["rows"] if r["asset"] == "BTC")
+    assert btc["price"] == 62515 and btc["change_pct"] is not None
+    # xyz rows arrive `xyz:`-prefixed — the symbol must be normalized and matched
+    sp500 = next(r for r in g["indices"]["rows"] if r["asset"] == "SP500")
+    assert sp500["price"] == 7396
+
+
 def test_day_classified_risk_off():
     sig = _result()["signals"]
     assert sig["day_classification"]["label"] == "risk_off"

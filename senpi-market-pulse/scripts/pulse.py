@@ -19,10 +19,10 @@ Design contract (mirrors senpi-strategy-discover):
 - The script computes only CONCRETE signals (per-group averages, dispersion, the confirmation
   checklist, a coarse day-classification). The LLM owns the prose, the "why", and the CTAs.
 
-NOTE FOR REVIEW: the MCP field names below (markPx / prevDayPx / funding / dayNtlVlm, and the
-instruments-list shape) are taken from senpi-strategy-discover's live usage + the observed
-`market_*` responses. Verify against one live `market_list_instruments` / `market_get_asset_data`
-call before merge and adjust the `_field()` fallbacks if the schema differs.
+SCHEMA NOTE (verified against live MCP 2026-06-23): `market_list_instruments` nests the quote under a
+`context` sub-object — `{"name": "BTC", "context": {"markPx": "...", "prevDayPx": "...", ...}}` — not
+at the row top level. `fetch_instruments` folds `context` in before extraction. XYZ symbols come back
+`xyz:`-prefixed. Use `--dry` to dump the raw response for any future schema drift.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -140,8 +140,10 @@ def fetch_instruments(client, meta):
             if not sym:
                 continue
             sym = str(sym).upper().replace("XYZ:", "")
-            price = _num(_field(r, "markPx", "mark", "price", "midPx"))
-            prev = _num(_field(r, "prevDayPx", "prevDay", "prev"))
+            # live schema nests the quote under `context`; fall through to it if not at top level
+            ctx = r.get("context") if isinstance(r.get("context"), dict) else {}
+            price = _num(_field(r, "markPx", "mark", "price", "midPx")) or _num(_field(ctx, "markPx", "mark", "price", "midPx"))
+            prev = _num(_field(r, "prevDayPx", "prevDay", "prev")) or _num(_field(ctx, "prevDayPx", "prevDay", "prev"))
             out[sym] = {"price": price, "change_pct": _pct(price, prev)}
 
     pull(None)      # main (crypto)
@@ -158,7 +160,11 @@ def deep_pull_movers(client, movers, meta):
     """
     regime = None
     try:
-        regime = _field(_ok(client.mcp_call("market_get_funding_regime", timeout=8)) or {}, "regime")
+        resp = _ok(client.mcp_call("market_get_funding_regime", timeout=8))
+        if isinstance(resp, str):
+            regime = resp
+        else:
+            regime = _field(resp or {}, "regime", "funding_regime", "label", "state")
     except Exception:  # noqa
         pass
 
@@ -198,9 +204,9 @@ def fetch_smart_money(client, meta):
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"smart-money layer unavailable (status check: {e})")
         return None
-    healthy = bool(status) and _field(status, "healthy", "ok", default=True)
-    if not healthy:
-        meta.setdefault("warnings", []).append("smart-money layer unavailable (Hyperfeed unhealthy)")
+    # status is window metadata (timestamps, etc.), not a boolean flag — a non-None response IS health
+    if status is None:
+        meta.setdefault("warnings", []).append("smart-money layer unavailable (Hyperfeed unreachable)")
         return None
 
     sm = {"status": status}
@@ -339,7 +345,26 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="senpi market-pulse engine (cross-asset snapshot + signals)")
     ap.add_argument("--no-smart", action="store_true", help="skip the leaderboard / smart-money layer")
     ap.add_argument("--fixture", help="offline: path to a recorded MCP-response map (tests only)")
+    ap.add_argument("--dry", action="store_true",
+                    help="dump raw MCP responses (instruments both dexes + one asset) for schema debugging")
     args = ap.parse_args(argv)
+
+    if args.dry:
+        try:
+            client = _get_client()
+            dump = {
+                "market_list_instruments": client.mcp_call("market_list_instruments", timeout=12),
+                "market_list_instruments::xyz": client.mcp_call("market_list_instruments", dex="xyz", timeout=12),
+                "market_get_asset_data(BTC)": client.mcp_call("market_get_asset_data", asset="BTC",
+                                                              candle_intervals=["1h"], timeout=12),
+                "market_get_funding_regime": client.mcp_call("market_get_funding_regime", timeout=8),
+                "leaderboard_get_status": client.mcp_call("leaderboard_get_status", timeout=8),
+            }
+            print(json.dumps(dump, ensure_ascii=False, indent=2, default=str))
+            return 0
+        except Exception as e:  # noqa
+            print(json.dumps({"error": f"dry dump failed: {e}"}))
+            return 1
 
     if args.fixture:
         try:

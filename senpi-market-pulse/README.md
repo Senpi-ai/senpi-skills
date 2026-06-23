@@ -65,8 +65,10 @@ Env: `SENPI_AUTH_TOKEN`, `SENPI_MCP_URL` (defaults to prod).
 - **v1** per the scope: Senpi MCP + the deterministic framework. The catalyst web-search and the
   CTA-2 brief live in the SKILL (LLM) layer. Primary macro/FX feeds and holdings-personalization are
   v1.1 / v2 (see scope doc).
-- **Verify before merge:** the `market_*` field names in `pulse.py` (`markPx`/`prevDayPx`/`funding`/
-  `dayNtlVlm` and the `market_list_instruments` shape) are taken from `senpi-strategy-discover`'s
-  live usage + observed responses. Confirm against one live call and adjust the `_field()` fallbacks
-  if the schema differs — the engine is written defensively but a schema check is cheap insurance.
+- **Schema verified against live MCP (2026-06-23).** `market_list_instruments` nests the quote under
+  a `context` sub-object and XYZ symbols are `xyz:`-prefixed — both handled in `fetch_instruments`,
+  and the test fixture now uses the real nested shape so the regression is guarded. Run
+  `python3 scripts/pulse.py --dry` to dump raw responses if the schema ever drifts again.
+- The smart-money health gate treats any non-None `leaderboard_get_status` as healthy (the response
+  is window metadata, not a boolean flag).
 - The asset universe in `pulse.py` (`CRYPTO`, `XYZ_GROUPS`) is meant to be edited by the team.
