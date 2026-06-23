@@ -1,0 +1,39 @@
+{
+  "user_get_me": {"wallets": [
+    {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"},
+    {"walletType": "external", "walletAddress": "0xext0000000000000000000000000000000000ext"}
+  ]},
+  "account_get_portfolio": {
+    "total_balance_usd": 2933.28,
+    "total_allocated_in_strategy": 2931.77,
+    "total_withdrawable": 2301.65,
+    "total_usdc_in_hyperliquid": 0,
+    "total_spot_usd_in_hyperliquid": 0,
+    "token_balances": [{"symbol": "USDC", "chain": "Base", "usdValue": 1.51}]
+  },
+  "strategy_list": {"strategies": [
+    {"tradingStrategyName": "cub-long", "strategyWalletAddress": "0xlong0000000000000000000000000000000long", "status": "ACTIVE", "totalFunded": 1520.89, "totalWithdrawn": 0},
+    {"tradingStrategyName": "cub-short", "strategyWalletAddress": "0xshort000000000000000000000000000000shrt", "status": "ACTIVE", "totalFunded": 1300, "totalWithdrawn": 0},
+    {"tradingStrategyName": "cub-preipo", "strategyWalletAddress": "0xpreipo00000000000000000000000000000prei", "status": "ACTIVE", "totalFunded": 200.76, "totalWithdrawn": 0}
+  ]},
+  "strategy_get_clearinghouse_state::0xlong0000000000000000000000000000000long": {
+    "main": {"marginSummary": {"accountValue": "1520.89"}, "withdrawable": "1520.89", "assetPositions": []},
+    "xyz": {"marginSummary": {"accountValue": "0"}, "withdrawable": "0", "assetPositions": []}
+  },
+  "strategy_get_clearinghouse_state::0xshort000000000000000000000000000000shrt": {
+    "main": {"marginSummary": {"accountValue": "1210.12"}, "withdrawable": "580.00", "assetPositions": [
+      {"position": {"coin": "ETH", "szi": -0.5, "positionValue": 840, "marginUsed": 210, "entryPx": 1719.7, "unrealizedPnl": 25.25, "returnOnEquity": 0.119, "leverage": {"value": 4}, "liquidationPx": 2100}},
+      {"position": {"coin": "XRP", "szi": -700, "positionValue": 770, "marginUsed": 192, "entryPx": 1.1177, "unrealizedPnl": 7.18, "returnOnEquity": 0.033, "leverage": {"value": 4}, "liquidationPx": 1.45}}
+    ]},
+    "xyz": {"marginSummary": {"accountValue": "0"}, "withdrawable": "0", "assetPositions": [
+      {"position": {"coin": "SP500", "szi": -0.11, "positionValue": 815, "marginUsed": 210, "entryPx": 7471.9, "unrealizedPnl": 10.14, "returnOnEquity": 0.046, "leverage": {"value": 4}, "liquidationPx": 9000}}
+    ]}
+  },
+  "strategy_get_clearinghouse_state::0xpreipo00000000000000000000000000000prei": {
+    "main": {"marginSummary": {"accountValue": "200.76"}, "withdrawable": "200.76", "assetPositions": []},
+    "xyz": {"marginSummary": {"accountValue": "0"}, "withdrawable": "0", "assetPositions": []}
+  },
+  "market_get_asset_data::eth": {"asset_context": {"markPx": "1660", "prevDayPx": "1744"}},
+  "market_get_asset_data::xrp": {"asset_context": {"markPx": "1.10", "prevDayPx": "1.135"}},
+  "market_get_asset_data::sp500": {"asset_context": {"markPx": "7396", "prevDayPx": "7475"}}
+}
