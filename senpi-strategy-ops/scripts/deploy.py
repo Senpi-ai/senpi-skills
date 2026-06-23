@@ -199,8 +199,10 @@ def cmd_runtime(pkg, a, log):
             s.update(status="active", error=str(e))
             save_state(pkg, st)
             continue
+        s["error"] = None  # render succeeded — clear any stale error from a prior run
         if a.dry_run:
             s["plan"] = f"openclaw senpi runtime create -p {build} --runtime-id {inst.runtime_name}"
+            save_state(pkg, st)
             continue
         if _cli.find_runtime(inst.runtime_name):           # idempotent — already deployed
             s.update(status="registered", error=None)
