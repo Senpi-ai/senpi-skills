@@ -1,190 +1,89 @@
-# Senpi Skills — Open-Source AI Trading Skills for Hyperliquid
+# Senpi Skills — Open-Source AI Trading for Hyperliquid
 
-> ## 🛠 Building a strategy? Read one doc: [`senpi-trading-runtime/references/strategy-creation.md`](senpi-trading-runtime/references/strategy-creation.md)
-> It's self-contained — the full path, an inline producer skeleton, a complete `runtime.yaml`, DSL presets, an archetype→example map, and the gotchas, in a single fetch. **Start there; you should not need to browse the repo or fetch other files to build a working strategy.**
+Open-source **skills** and **strategy packages** for autonomous AI trading agents that operate on
+[Hyperliquid](https://hyperliquid.xyz) via the [Senpi](https://senpi.ai) platform.
 
-Every file in this repo is a self-contained, plug-and-play **skill** for an autonomous AI trading agent that operates on [Hyperliquid](https://hyperliquid.xyz) via the [Senpi](https://senpi.ai) platform.
+The repo is two things:
 
-The repo is two things stacked on top of each other:
+1. **Core skills** — the agent's lifecycle capabilities: discover a strategy, build one, deploy/run it,
+   and the runtime-engine contract they all share. Reusable, MIT-licensed.
+2. **Strategy packages** — deployable trading strategies, each a directory under `strategies/`. A
+   package embodies a market thesis and runs on its own funded wallet. Browse the catalog and pick one
+   with `senpi-strategy-discover`; deploy it with `senpi-strategy-ops`.
 
-1. **Capabilities** — the runtime (which bundles the Python Producer SDK), the exit engine, the onboarding flow. Reusable infrastructure that every trading strategy plugs into.
-2. **Trading Strategy Skills** — individual scanner + producer + runtime configs that embody a specific market thesis. Each skill is a directory you can pull, deploy, and run on its own funded wallet.
+> 🛠 **Building a strategy?** Start with **`senpi-strategy-author`** (how to build/edit a package) and
+> **`senpi-trading-runtime`** (the runtime contract your `scan()` runs under).
 
-Skills are versioned and MIT-licensed. Anyone can fork a skill, modify it, or build a new one from scratch using the capabilities below.
-
-**Platform:** [senpi.ai](https://senpi.ai) · **Live fleet tracker:** [strategies.senpi.ai](https://strategies.senpi.ai) · **Arena competition:** [senpi.ai/arena](https://senpi.ai/arena)
-
----
-
-## Architecture
-
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                            SENPI PLATFORM                                 │
-│   Hyperfeed data layer  ·  Top-trader scoring  ·  Hyperliquid execution   │
-└──────────────────────────────────┬───────────────────────────────────────┘
-                                   │
-┌──────────────────────────────────▼───────────────────────────────────────┐
-│                        SENPI MCP — 68 tools, 13 categories                │
-│                                                                            │
-│   Discovery (5)            Hyperfeed (6)        Strategy lifecycle (12)   │
-│   Strategy state (4)       Position (4)         Execution (4)             │
-│   Market data (6)          Ratchet Stop (6)     Arena (5)                 │
-│   Audit (3)                Account (2)          Treasury (2)              │
-│   User & rewards (7)       Documentation (2)                              │
-│                                                                            │
-│   Full table further down ↓                                                │
-└──────────────────────────────────┬───────────────────────────────────────┘
-                                   │
-┌──────────────────────────────────▼───────────────────────────────────────┐
-│                        CAPABILITIES (this repo)                           │
-│                                                                            │
-│   senpi-trading-runtime  ─── Plugin runtime + Python Producer SDK                 │
-│                              Consumes: Strategy state, Position,           │
-│                              Execution, Audit MCP categories               │
-│                                                                            │
-│   dsl-dynamic-stop-loss  ─── DSL exit engine                              │
-│                              Phase 1 (max-loss + retrace) +                │
-│                              Phase 2 (ratcheting trailing)                 │
-│                              Consumes: Strategy state, Position MCP        │
-│                                                                            │
-│                              (Python Producer SDK — senpi_runtime_helpers │
-│                              — ships inside this skill: SenpiClient,       │
-│                              producer_daemon, fcntl lock)                  │
-│                                                                            │
-│   fee-optimizer          ─── When to ALO vs MARKET                         │
-│   shared                 ─── Hyperfeed scoring primitives                  │
-│   opportunity-scanner    ─── 4-stage funnel: 500 perps → top               │
-│   emerging-movers        ─── SM market-rank acceleration                   │
-│   whale-index            ─── Top-trader notional aggregator                │
-│                              Consume: Discovery, Hyperfeed, Market data    │
-│                                                                            │
-│   senpi-entrypoint, senpi-onboard, senpi-getting-started-guide             │
-│                              Onboarding + setup flows                      │
-│                              Consume: User & rewards, Account, Docs        │
-└──────────────────────────────────┬───────────────────────────────────────┘
-                                   │
-┌──────────────────────────────────▼───────────────────────────────────────┐
-│                  TRADING STRATEGY SKILLS (this repo)                      │
-│                                                                            │
-│   26 production skills + 10 onboarding tier = 36 total, one per directory │
-│   Each: producer script + runtime.yaml + SKILL.md + config.json            │
-│                                                                            │
-│   Bucketed below into 11 producer archetypes (see                          │
-│   senpi-trading-runtime/references/producer-patterns.md).                  │
-│   Skills consume MCP via the runtime + helpers; never call MCP directly.   │
-└──────────────────────────────────┬───────────────────────────────────────┘
-                                   │
-                   ┌───────────────┴───────────────┐
-                   │      Strategy wallet(s)        │
-                   │ Isolated capital, on-chain     │
-                   │ Each skill = its own wallet    │
-                   └────────────────────────────────┘
-```
-
-The data flow is **upward-from-Hyperliquid, gated-downward-through-MCP**: market state and on-chain positions are read via MCP, capabilities turn those reads into actions (signals, decisions, exits), and the runtime pushes back through MCP to execute on Hyperliquid. Strategy skills produce signals; they do **not** call MCP directly — all MCP traffic goes through the runtime or its bundled Python SDK.
+**Platform:** [senpi.ai](https://senpi.ai) · **Live fleet tracker:** [strategies.senpi.ai](https://strategies.senpi.ai) · **Arena:** [senpi.ai/arena](https://senpi.ai/arena)
 
 ---
 
-# Capabilities
+## Core skills
 
-The infrastructure every trading skill plugs into. None of these are strategies — they're the substrate.
+Four skills cover the full strategy lifecycle. They consume the Senpi MCP surface; strategy code never
+calls MCP directly — it reads through the runtime.
 
-## At a glance
-
-Every capability is a thin layer over a specific slice of the Senpi MCP surface. The table below maps each capability to the MCP categories it depends on and the most-used tools within those categories.
-
-| Capability | MCP categories used | Key tools touched |
+| Skill | Role | What it owns |
 |---|---|---|
-| `senpi-trading-runtime` | Strategy state · Position · Execution · Audit · Ratchet Stop | `strategy_get_clearinghouse_state`, `create_position`, `edit_position`, `close_position`, `cancel_order`, `execution_get_open_position_details`, `audit_query`, `ratchet_stop_*` |
-| `dsl-dynamic-stop-loss` | Strategy state · Position · Ratchet Stop | `strategy_get_clearinghouse_state`, `ratchet_stop_add`, `ratchet_stop_edit`, `ratchet_stop_events`, `close_position` |
-| `senpi_runtime_helpers` (ships with `senpi-trading-runtime`) | ALL — the in-process client wraps every MCP tool | `mcp_call(tool, **params)` — generic dispatch over the full 68-tool surface |
-| `fee-optimizer` | Market data · Position | `market_get_asset_data`, `create_position` (FEE_OPTIMIZED_LIMIT params) |
-| `shared` (`hyperfeed_scoring`) | Hyperfeed · Discovery | `leaderboard_get_top`, `leaderboard_get_trader`, `discovery_get_top_traders` |
-| `opportunity-scanner` | Hyperfeed · Discovery · Market data | `leaderboard_get_markets`, `discovery_get_top_traders`, `market_get_asset_data`, `market_get_funding_regime` |
-| `emerging-movers` | Hyperfeed | `leaderboard_get_markets`, `leaderboard_get_momentum_events` |
-| `whale-index` | Hyperfeed · Discovery | `leaderboard_get_top`, `leaderboard_get_trader_positions`, `discovery_get_trader_state` |
-| `autonomous-trading` | Strategy lifecycle · Position · Account | `strategy_create_custom_strategy`, `strategy_top_up`, `account_get_portfolio`, `create_position`, `close_position` |
-| `senpi-entrypoint`, `senpi-onboard`, `senpi-getting-started-guide` | User & rewards · Account · Strategy lifecycle · Documentation | `user_get_me`, `account_get_portfolio`, `strategy_create`, `list_senpi_guides`, `read_senpi_guide` |
+| [`senpi-strategy-discover`](senpi-strategy-discover/) | **Find / recommend** | A conversational, analyst-style picker. Ranks the `strategies/catalog.json` registry against the user's goals ("what should I trade?"). |
+| [`senpi-strategy-author`](senpi-strategy-author/) | **Build / edit** | Create a new strategy package from scratch or clone/tune an existing one — `scan()` logic, `runtime.yaml`, DSL exits, risk gates. |
+| [`senpi-strategy-ops`](senpi-strategy-ops/) | **Deploy / monitor / close** | The lifecycle commands: `deploy.py <id>` (create wallets → deploy → verify) and `close.py <id>` (stop → close). |
+| [`senpi-trading-runtime`](senpi-trading-runtime/) | **Runtime contract** | The infra bundle: how `@senpi-ai/runtime` behaves — it supervises each package's `scan(inputs, ctx)`, validates/sizes/executes signals, and runs the two-phase DSL exits. The other three skills reference it. |
 
-Detail on each capability follows. The full tool surface is enumerated in the **Senpi MCP — Tool Reference** section below.
+The runtime package is **`@senpi-ai/runtime`** — what operators install on their Hyperliquid hosts.
 
-## `senpi-trading-runtime/` — Plugin Runtime
+---
 
-The OpenClaw plugin that owns the trading loop. Replaces the legacy Python cron + state file system.
+## Strategy packages
 
-Current release: **`@senpi-ai/runtime` 1.1.0** (live on prod since 2026-05-12). Every live strategy in this repo runs on 1.1.0. Features:
+A strategy is a **package**, not a skill — adopting it provisions a funded strategy wallet that trades
+its thesis. Packages live under `strategies/<id>/`:
 
-- In-process producer daemon (long-lived Python loop, no per-tick subprocess spawn)
-- Direct HTTPS to MCP and direct POST to runtime `/signals` (no `mcporter` / `openclaw` subprocess shell-out)
-- Declarative `risk.guard_rails` — daily caps, drawdown halt, consecutive-loss halt, per-asset cooldowns
-- Native FEE_OPTIMIZED_LIMIT on entries AND exits (~0.02–0.03% maker-fill savings per close vs MARKET)
-- Trade-chain DB telemetry — LIFECYCLE / DECISION_EXECUTED / ACTION_RESULT / DSL_CREATED / DSL_CLOSED per trade
-- `GET /state` daemon liveness probe + `{success, data, error}` envelope on `/signals` + `/audit`
+```
+strategies/
+├── catalog.json              ← the registry (GENERATED — never hand-edit)
+└── spider/                   ← a strategy package; <id> == dir name
+    ├── strategy.yaml         ← deploy manifest: id, version, catalog, instances[]
+    ├── swing/                ← one instance (multi-instance strategies have several, each its own wallet)
+    │   ├── runtime.yaml      ← self-contained runtime spec (scanners, actions, exit, risk)
+    │   └── scanners/
+    │       ├── scan.py       ← exports scan(inputs, ctx) -> list[dict] of signals
+    │       └── scoring.py    ← pure, unit-testable thesis math
+    └── scalp/  …
+```
 
-Two producer patterns are supported, both running on runtime 1.1.0:
+- **`strategy.yaml`** is the single source of truth for deploy + attribution (`id`, `version`,
+  `catalog`, `instances[]`). It bundles one or more `runtime.yaml` instances into one deployable unit.
+- **`runtime.yaml`** is the runtime's own self-contained spec. The runtime **spawns and supervises**
+  `scan()`, calling it every `interval_seconds` and owning everything downstream — signal validation,
+  sizing/execution (`FEE_OPTIMIZED_LIMIT`), slot accounting, `risk.guard_rails`, and the two-phase DSL
+  trailing-stop exits. **There is no separate scanner daemon.**
+- **`strategies/catalog.json`** is the registry index, generated from every `strategies/*/strategy.yaml`
+  via `senpi-trading-runtime/scripts/gen_catalog.py`. `senpi-strategy-discover` reads it.
 
-- **Helpers-native** — producer imports `senpi_runtime_helpers` (SDK bundled with the runtime skill). Default for new skills.
-- **Direct-MCP** — producer calls MCP directly via the wrapper client. Used by a handful of older or specialized skills (e.g. Turbine).
+### Lifecycle
 
-Runtime version is determined by which plugin is loaded on the operator's host, not by which features the YAML declares.
+```
+discover ──▶ author ──▶ ops
+  pick      (build/tune    deploy.py <id> --budget <usd>   → creates a fresh wallet per instance,
+ from        a package)    deploys, cross-verifies each scanner ticked
+catalog                    close.py <id>                   → stops runtimes, closes strategies
+```
 
-## `dsl-dynamic-stop-loss/` — DSL Exit Engine
+Deploy always provisions fresh wallets (one per instance, split by `funding_share`, ≥$100 each, with
+MCP attribution `skillName`/`skillVersion` = the package `id`/`version`); close always flattens positions
+and closes the strategy. Redeploy = `close` then `deploy`.
 
-Two-phase exit logic with no Python state files:
-
-- **Phase 1** — max-loss + consecutive-breach + retrace. Cuts losing trades early.
-- **Phase 2** — ratcheting trailing stop with tiered locks (e.g. +10%/35%, +20%/55%, +35%/70% of high-water margin ROE). Lets winners run while locking incremental gains.
-- **Optional time cuts** — hard_timeout, weak_peak_cut, dead_weight_cut. Single-asset agents typically disable time cuts to avoid the v1 DSL Phase 2 hard-timeout misfire.
-
-Used by every active trading skill in the repo.
-
-## `senpi_runtime_helpers` — Python Producer SDK (ships with `senpi-trading-runtime`)
-
-The Python SDK every helpers-native producer imports. Ships inside the `senpi-trading-runtime` skill (`senpi-trading-runtime/senpi_runtime_helpers/`) — installing the runtime skill installs the SDK.
-
-- `SenpiClient` — direct HTTPS to MCP (no `mcporter` / `openclaw` subprocess shell-out) and direct POST to runtime `/signals`.
-- `producer_daemon(fn, interval_seconds, name, tick_timeout)` — long-lived loop with built-in fcntl reentrancy guard, structured tick telemetry, signal-handled graceful shutdown.
-- `log_event` / `cache` / `parallel` — shared logging schema, simple TTL cache, parallel MCP fan-out.
-- `senpi-helpers` operator CLI — list / health / stats / stop / restart for producer daemons.
-
-## `fee-optimizer/` — Order-type Decision Skill
-
-When to use FEE_OPTIMIZED_LIMIT (ALO maker) vs MARKET orders on Hyperliquid. Standard params for entry / exit / take-profit. Loaded as a side skill at deploy time; most strategy skills already encode their choice in `runtime.yaml`.
-
-## `shared/` — Hyperfeed Scoring Primitives
-
-`hyperfeed_scoring.py` — reusable scoring components used by multiple strategy skills (rank-velocity, contribution-velocity, drawdown rejection). Pure stdlib.
-
-## `opportunity-scanner/` — Universe-narrowing Funnel
-
-Four-stage funnel that screens all 500+ Hyperliquid perps down to a top-N opportunity list. Scores 0–400 across Smart Money, market structure, technical setup, and fundamentals. Strategy skills can consume the output as one of multiple inputs.
-
-## `emerging-movers/` — SM Rank Acceleration
-
-Lightweight scanner that tracks Smart Money market-concentration rank changes across all Hyperliquid assets. Flags assets accelerating up the ranks before consensus solidifies.
-
-## `whale-index/` — Top-Trader Notional Aggregator
-
-Per-asset rollup of top-trader notional positioning. Useful as a confluence input for strategies that already have a primary signal.
-
-## Onboarding & setup
-
-- `senpi-entrypoint/` — Onboard an AI agent end-to-end (account, API key, MCP config, first skill install).
-- `senpi-getting-started-guide/` — Guides a user through their first trade (mirror or custom strategy).
-- `senpi-onboard/` — Account + API-key + MCP-server setup only.
-
-## `autonomous-trading/` — Budget/Target/Deadline Orchestrator
-
-Gives an agent a budget, a target, and a deadline; orchestrates DSL + Opportunity Scanner + Emerging Movers into a full lifecycle. Higher-level than any individual strategy skill.
+The full fleet (~50 strategies) is the `strategies/catalog.json` registry — **browse it with
+`senpi-strategy-discover` rather than a hand-maintained list here.**
 
 ---
 
 # Senpi MCP — Tool Reference
 
-Every capability and strategy skill in this repo ultimately calls into the **Senpi MCP** server. The MCP exposes ~65 tools that handle everything from trader discovery to position lifecycle to Arena standings.
-
-Each tool's full schema (params, types, response shape) is in the MCP server itself — load it via your MCP client, or call `list_senpi_guides` / `read_senpi_guide` for the curated reference docs.
+Every skill and strategy ultimately reads/acts through the **Senpi MCP** server. Each tool's full schema
+(params, types, response shape) lives in the MCP server — load it via your MCP client, or call
+`list_senpi_guides` / `read_senpi_guide`. Load `senpi://guides/senpi-overview` first if you're new.
 
 ### Discovery — find traders and strategies worth copying
 
@@ -222,7 +121,7 @@ Each tool's full schema (params, types, response shape) is in the MCP server its
 | `strategy_close_positions` | Close specific position(s) without closing the whole strategy |
 | `strategy_withdraw_funds` | Withdraw idle USDC from a strategy wallet |
 | `strategy_bridge_funds_from_hyperliquid_to_evm` | Bridge USDC from HL back to an EVM chain |
-| `estimate_custom_strategy_positions_opening` | Preview what a custom strategy would actually open at current prices (OG + MANUAL modes) |
+| `estimate_custom_strategy_positions_opening` | Preview what a custom strategy would open at current prices |
 
 ### Strategy state — wallet inspection (read-only)
 
@@ -246,7 +145,7 @@ Each tool's full schema (params, types, response shape) is in the MCP server its
 
 | Tool | Purpose |
 |---|---|
-| `execution_estimate_position_opening` | Copy-trading preview — what would mirroring a specific trade open, with skip categorization |
+| `execution_estimate_position_opening` | Copy-trading preview — what mirroring a specific trade would open, with skip categorization |
 | `execution_get_open_position_details` | Detailed live position state (entry, mark, funding accrued, unrealized PnL) |
 | `execution_get_closed_position_details` | Historical closed-trade fields with net-PnL breakdown |
 | `execution_get_order_status` | Status of a specific order ID (filled / resting / canceled) |
@@ -281,7 +180,6 @@ Each tool's full schema (params, types, response shape) is in the MCP server its
 | `arena_pool` | Current prize pool size for the active period |
 | `arena_prizes` | Historical prize payouts |
 | `arena_roe_chart` | ROE time-series for an Arena participant |
-| `arena_week_prizes` | Prize distribution detail for a specific week |
 
 ### Audit — full action history with reasoning
 
@@ -321,236 +219,8 @@ Each tool's full schema (params, types, response shape) is in the MCP server its
 
 | Tool | Purpose |
 |---|---|
-| `list_senpi_guides` | Enumerate all Senpi reference guides (load first if unsure which guide is relevant) |
+| `list_senpi_guides` | Enumerate all Senpi reference guides |
 | `read_senpi_guide` | Fetch the full text of one guide by `senpi://` URI |
-
-> Guides cover parameter semantics, calculation methodology, workflow patterns, and gotchas for the most-used tools — especially `discovery_get_top_traders`, `leaderboard_get_*`, `strategy_create*`, `create_position`, `audit_*`, and the Arena rules. Load `senpi://guides/senpi-overview` first if you're new to the platform.
-
----
-
-# Trading Strategy Skills
-
-The fleet — **44 skills across 16 producer archetypes**. Every skill targets runtime **1.1.0**. Bucketing matches [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md), the canonical archetype catalog.
-
-Each row links to the skill's directory.
-
-## 🎯 Onboarding tier — new to Senpi? Start here.
-
-Thirteen v1.0 strategies designed for first-time operators. Most share the same scaffold: **helpers-native producer + Smart-Money direction gate via `leaderboard_get_markets` + DSL Phase 1 floor + Phase 2 ratchet ladder + race-window dedup**, with simple scoring and runtime-owned exits. A few deliberately break that mold — **Sheep** is long-only triple-EMA-stack (no shorts), and **Tortoise** has no scoring at all (DCA cadence is the signal).
-
-Pick by what you want to trade. Each is its own self-contained skill directory at the repo root.
-
-### 🟢 Crypto Trend Followers — pick your coin (single-asset, SM-confirmed)
-
-| Skill | Asset | Description |
-|---|---|---|
-| [beaver](beaver/) | BTC | **Default first strategy.** 4h trend + Smart-Money direction gate. Wide Bison-pattern DSL (T0 lock 0 → T5 lock 85). |
-| [heron](heron/) | ETH | Same shape as Beaver, ETH. |
-| [hummingbird](hummingbird/) | HYPE | Same shape, HYPE. |
-| [sheep](sheep/) | BTC · ETH · SOL · HYPE | **Long-only triple-EMA-stack.** Fires LONG only when 15m + 1h + 4h EMAs are all stacked bullishly. Never shorts — for users who want trend exposure without learning what shorts are. |
-
-### 🔵 Diversified Crypto Basket
-
-| Skill | Assets | Description |
-|---|---|---|
-| [hedgehog](hedgehog/) | BTC + ETH + SOL | Equal-weight basket, each asset directional independently. BTC long + ETH short is allowed. Up to 3 simultaneous positions, per-position DSL. |
-
-### 🟤 Accumulation (no prediction, no scoring)
-
-| Skill | Assets | Description |
-|---|---|---|
-| [tortoise](tortoise/) | BTC + ETH + SOL | **DCA scheduler.** Buys a fixed % of budget on a strict 24h cadence. No price prediction, no scoring — most-overdue past interval wins. LONG only. The most accessible trade in crypto: zero prediction skill required. |
-| [koala](koala/) | Single asset (default BTC) | **Set-and-forget HODL.** Fires one LONG signal per lifetime and holds with the widest DSL in any Senpi agent (max_loss 30%, retrace 25, 90d hard_timeout). No scoring, no decisions after deploy. The simplest possible Senpi agent — for users whose entire trading thesis is "I want to own BTC and have a safety net." |
-
-### 🟣 Multi-week Arena Conviction Mirror
-
-| Skill | Source | Description |
-|---|---|---|
-| [albatross](albatross/) | Arena leaders | Mirrors trades from Arena leaders selected by composite ROE conviction (`0.3 × monthly + 0.7 × weekly_mean − 0.5 × weekly_stdev`). Rewards persistence, not lucky-week luck. **Requires user-scope auth token.** |
-
-### 🟡 Technical Patterns
-
-| Skill | Signal | Description |
-|---|---|---|
-| [hawk](hawk/) | 7d high/low breakout | Buy 4h breakouts above 7d high; short breakdowns below 7d low. **Tight DSL** (8% max_loss, lock at +5%) — failed breakouts get cut fast. |
-| [salamander](salamander/) | Pullback in trend | Buy 3-7% pullbacks in 4h uptrends; short rallies in downtrends. **Asymmetric DSL** — wider Phase 1, tight Phase 2. |
-
-### 🟠 XYZ Equities (Hyperliquid HIP-3 / trade.xyz, 23/5 trading)
-
-Senpi's distinctive moat — equity, commodity, and pre-IPO perps that retail can't trade anywhere else.
-
-| Skill | Universe | Description |
-|---|---|---|
-| [lemur](lemur/) | Pre-IPO Perpetuals (IPOPs) | **Auto-discovers IPOPs** via the trade.xyz funding signature (\|funding\| ≤ 1e-7 AND max_leverage ≤ 5). Today: xyz:SPCX. Auto-expands when ANTHROPIC / OPENAI / STRIPE list. |
-| [bobcat](bobcat/) | Big tech | NVDA / TSLA / AAPL / META / MSFT / GOOGL / AMZN / AMD / MU / INTC / TSM / ORCL. 4h trend + SM. 48h hard timeout for the weekend pricing gap. |
-| [raccoon](raccoon/) | All XYZ (excl. IPOPs) | **Weekend-only.** Fri 22:00 UTC → Mon 00:00 UTC. Captures the Mon-open reconciliation snap-back when trade.xyz external pricing resumes after the 50h internal-oracle window. |
-| [iguana](iguana/) | xyz:SP500 · xyz:XYZ100 | **Broad indices only — no stock-picking.** Trades whichever has the stronger 4-day move past 1.5%. The closest thing to an index fund, but 24/7 on Hyperliquid. |
-
----
-
-# The 16 production archetypes
-
-Below are the production-tier strategies sorted by their producer-pattern archetype. See [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md) for the canonical pattern catalog. The onboarding tier above maps into these same archetypes (Beaver/Heron/Hummingbird are single-asset; Hedgehog/Hawk/Salamander/Bobcat are multi-asset whitelist; Albatross is trader-follower; Lemur/Raccoon are XYZ specialist).
-
-## 1. Universe trend-follower
-
-Top-N universe scan, multi-TF + SM consensus, conviction-tiered leverage. Catches coordinated risk-on / risk-off moves across crypto majors.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [condor](condor/) | v3.0 | Top-50 HL liquid | Scans top-50 liquid assets every 180s. SM consensus + multi-TF alignment → conviction tiers. |
-| [cheetah](cheetah/) | v5.2 | Top-100 SM | Multi-signal confluence (SM + velocity + dual-price + volume + quality-trader). 15-point integer score. |
-| [python](python/) | v1.0 | Multi-tier universe | Mixed-signature scan with multi-day-hold thesis. Funding, volume, RSI extremes, move-exhaustion penalty. |
-| [scorpion](scorpion/) | v3.0 | Universe + funding | Universe scan with funding-regime backstop and post-close per-asset cooldown. |
-
-## 2. Single-asset alpha hunter (Kodiak family)
-
-One asset, six-gate entry validation, tight scoring, conviction-tiered leverage.
-
-| Skill | Version | Asset | Description |
-|---|---|---|---|
-| [kodiak](kodiak/) | v5.1 | SOL | The original template. Six-gate framework, SOL-tuned thresholds. |
-| [grizzly](grizzly/) | v5.3 | BTC | BTC-tuned thresholds — calmer regime, tighter sizing. |
-| [polar](polar/) | v3.0 | ETH | ETH-tuned thresholds, deep confluence required. |
-| [wolverine](wolverine/) | v3.0 | HYPE | HYPE-tuned thresholds for its high-vol native profile. |
-| [koala](koala/) | v1.0 | Operator-chosen (default BTC) | **Onboarding tier — state-trigger variant.** No scoring, no `market_get_asset_data` call. Fires ONE LONG signal per lifetime and holds with the widest DSL in any Senpi agent (max_loss 30%, retrace 25, 90d hard_timeout). For users whose entire trading thesis is "I want to own BTC and have a safety net." |
-
-## 3. Single-asset XYZ specialist
-
-Kodiak architecture applied to a single non-crypto XYZ asset.
-
-| Skill | Version | Asset | Description |
-|---|---|---|---|
-| [dire](dire/) | v1.0 | xyz:BRENTOIL | BRENTOIL specialist. Wider phase-1 loss tolerances, commodity-specific drawdown guardrails. |
-| [falcon](falcon/) | v1.0 | xyz: conversion events | **Event-detection layer.** Trades the IPOP→equity conversion itself: classifies every xyz instrument IPOP vs STANDARD by funding signature, caches it, and fires when one flips (funding jumps ~100x, throttle off → free price discovery). Rides post-conversion momentum. Wide DSL, 7d hard timeout. |
-
-## 4. Multi-asset whitelist
-
-Strict whitelist of 3–6 majors, best-of-N selection per tick.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [bison](bison/) | v1.0 | BTC · ETH · SOL | Iterates BTC / ETH / SOL per tick, fires the best-scoring above MIN_SCORE. Tick 300s. |
-| [badger](badger/) | v1.0 | BTC · ETH · SOL · HYPE | Takes a breakout only when **rising open interest** confirms it (new money, not a fakeout). OI-state cache. Wide "let winners run" DSL. |
-| [tortoise](tortoise/) | v1.0 | BTC · ETH · SOL | **Onboarding — DCA scheduler.** Buys a fixed % of budget on a strict 24h cadence. No price prediction, no scoring. Most-overdue past interval wins. LONG only. Wide DSL + 30d hard_timeout for compounding. |
-| [sheep](sheep/) | v1.0 | BTC · ETH · SOL · HYPE | **Onboarding — long-only triple-stack.** Fires LONG only when 15m + 1h + 4h EMAs are all stacked bullishly. Never shorts. Balanced DSL + `weak_peak_cut` 6h/3%. |
-| [iguana](iguana/) | v1.0 | xyz:SP500 · xyz:XYZ100 | **Onboarding — XYZ index basket.** The simplest XYZ exposure — just the broad indices. Picks whichever has the stronger 4-day move past 1.5% and trades its direction. Balanced DSL + 48h hard_timeout. |
-| [sailfish](sailfish/) | v1.0 | BTC · ETH · SOL · HYPE | **Relative-strength rotator.** Ranks the universe by ~2.7d RS each tick; longs the leader iff leader RS ≥ 1% AND beats runner-up by ≥ 1.5pp (no whipsaw). Rotation via DSL exit + re-entry. Balanced DSL + 96h hard_timeout. |
-| [stag](stag/) | v1.0 | BTC · ETH · SOL · HYPE (often single-asset) | **Parabolic-run hunter.** Entry-side pair for the new `parabolic_runner` DSL preset (widest in the catalog: max_loss 25%, retrace 18, 2 breaches required, 14d outer bound). Strict 5-gate filter (200-SMA + 7d ≥25% + vol surge + acceleration + SM ≥60% LONG). LONG only. Operator-driven — most ticks return empty by design. Reference: HYPE 2026-05 (+60% in 16 days). |
-| [spider](spider/) | v5.1.1 | AI/Tech XYZ equities + crypto alts (swing) · BTC · ETH · SOL · HYPE + xyz:BRENTOIL/CL (scalp) | **AI/Tech hedge fund.** Two style legs on two wallets, one producer: a LONG-only AI/Tech momentum book (dynamic XYZ-equity universe, auto-catches fresh IPO/pre-IPO listings, 10x, wide let-winners-run DSL) **plus** a both-directions macro/majors mean-reversion counter-trading book (strict 5x, tight fast-capture DSL). Each leg scores its own universe; runtime owns LLM gate, DSL exits, and risk. |
-
-## 5. Trader-follower / hot-streak
-
-Top-trader pool + conviction-gated coat-tail entries.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [raptor](raptor/) | v3.0 | Multi (top traders) | 24h-cached trader pool. Gates on reputation, position size, SM alignment, per-trader entry discipline. |
-| [jackal](jackal/) | v1.0 | Multi (top traders) | Active trader pool + new-entry detector. Enriches with TA + funding regime. |
-| [remora](remora/) | v1.0 | Operator-picked whale set | **Hand-picked mirror.** You name the whales; Remora mirrors each one's largest-notional position, with a consensus boost when ≥2 agree + an ELITE-tier bonus. Wide DSL, 120h staleness cap. |
-
-## 6. Striker / rank-jump
-
-Detect rank acceleration on the SM leaderboard. First-jump events, high-conviction-per-trade.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [jaguar](jaguar/) | v3.2 | Multi (rank-jumpers) | Detects 10+ rank jumps in one tick from mid-ranks (#25+). $3M+ notional, 50+ trader-count gates. |
-| [roach](roach/) | v1.0 | Multi (Strikers) | Striker-only emitter. FIRST_JUMP / IMMEDIATE_MOVER with volume floor. |
-| [roach](roach/) (roach-b instance) | v1.0 | Multi (Strikers) | Second wallet instance of the Roach producer. |
-| [orca](orca/) | v1.0 | Multi (Strikers) | Gen-1 vanilla Striker — FIRST_JUMP + volume + base scoring. |
-| [meerkat](meerkat/) | v1.0 | Multi (momentum-event feed) | **Event-feed variant.** Reads `leaderboard_get_momentum_events` directly and snipes the freshest (≤30min), highest-tier (3 ≥10% · 2 ≥5%) momentum events. Wide DSL + short 36h hard timeout. Tick 120s. |
-
-## 7. Funding-regime fade
-
-Persistent funding extremity → fade the crowd at exhaustion.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [pangolin](pangolin/) | v1.4 | Multi (OI > $3M) | Funding extremity + persistence + SM positioning + cooldowns. Quiet-hours gating (00–04 UTC). |
-| [dog](dog/) | v2.0 | 4-coin whitelist | Funding fade on 4-coin watchlist with regime hard-gate. |
-| [vulture](vulture/) | v2.3 | HYPE | HYPE funding-regime contrarian. Funding-history + held-position enrichment. |
-
-## 8. Contrarian crowding-unwind hunter
-
-Wait for crowd to overcommit AND exhaustion signals; enter opposite.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [owl](owl/) | v6.1 | Multi (OI > $3M) | Crowding persistence (1+ hour) + multi-signal exhaustion. Tick 900s. 6h per-asset cooldown. |
-| [lemon](lemon/) | v1.1 | Crypto majors + XYZ | Degen Fader — counter-trades CHOPPY/DEGEN consensus. MACRO_TREND_GATE blocks fades during strong BTC trends. |
-| [egret](egret/) | v1.0 | BTC · ETH · SOL · HYPE | SM-divergence fader — fades extreme Smart-Money crowding (≥70%) that price won't confirm. Tight DSL + maker-only entry + time-cuts on. |
-
-## 9. Cross-asset lag detector
-
-BTC leads alts on macro moves; capture the catch-up.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [mantis](mantis/) | v5.0 | Multi (BTC-led laggards) | BTC moves >2% in 4h → identifies laggard alts with follow-rate ≥0.8. Tick 60s. Often silent on quiet BTC days. |
-| [osprey](osprey/) | v1.0 | BTC → xyz: equity proxies | **Cross-VENUE variant.** When BTC moves, crypto-correlated XYZ equities (COIN/MSTR/miners) lag on the other venue. Self-computes the catch-up gap (`leader move × beta − proxy move`) from candles. Wide DSL, 96h hard timeout. |
-
-## 10. Multi-asset XYZ contrarian fader
-
-Multiple XYZ macro assets, contrarian direction flip on SM over-concentration.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [bald-eagle](bald-eagle/) | v1.0 | 6 XYZ macro | CL, BRENTOIL, GOLD, SILVER, SP500, XYZ100. Spread filter + 10-min stale-cancel auto-purge. |
-| [kestrel](kestrel/) | v1.1 | 13 XYZ macro | 13-asset XYZ macro universe with funding alignment. Broader variant of the XYZ contrarian thesis. |
-
-## 11. Volume engine / market-making (specialized)
-
-Not directional. Two-wallet pair recycling builder fees against a volume target.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [turbine](turbine/) | v3.2 | Two-wallet pair | High-frequency cancel + create cycle. Volume wallet + runner wallet. Daily top-ups; net bleed = mission cost rate. |
-
-## 12. Microstructure / order-flow
-
-Trade the order book + open-interest dynamics directly — forced flow and resting-depth skew as the edge.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [piranha](piranha/) | v1.0 | BTC · ETH · SOL · HYPE | Rides forced flow — OI unwinding fast + a violent move + a thin book ⇒ liquidation cascade. OI-velocity self-compute fallback. Wide DSL + 24h hard timeout. |
-| [marlin](marlin/) | v1.0 | BTC · ETH · SOL · HYPE | Order-book-imbalance momentum — bid/ask resting-depth skew as the entry-TIMING edge on a momentum thesis (not a scalper). Wide DSL + 24h hard timeout. |
-
-## 13. Relative-value / pairs
-
-Trade the spread between two correlated assets, not a single asset's direction.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [chameleon](chameleon/) | v1.0 | ETH/BTC · SOL/ETH · SOL/BTC | Ratio mean-reversion — trades the high-beta leg when a pair's ratio z-score extends past ~2σ and starts reverting. Single-position directional bet (not a two-leg spread). Mean-reversion DSL (tight ladder, 48h). |
-
-## 14. Meta-strategy follower / copy-the-copiers
-
-Follow not individual traders but the top-performing **strategies** — and trade their performance-weighted consensus.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [cuckoo](cuckoo/) | v1.0 | Top-strategy consensus | Auto-discovers the top-N strategies by performance and trades what ≥2 of them agree on most, weighted by each one's ROI (capped so one outlier can't dominate). Wide DSL + 96h staleness cap. **User-scope auth.** |
-
-## 15. Self-tuning / adaptive-threshold agent
-
-The first archetype where the agent **modifies its own behavior based on its own trade history.** The agent runs a normal scoring producer but on a scheduled cron pulls its own closed-trade telemetry (via `audit_query`), buckets trades by entry score, and auto-raises `MIN_SCORE` when bottom buckets bleed. Productizes the [Vulture v4.1 manual cull](https://github.com/Senpi-ai/senpi-skills/pull/337) as a first-class pattern.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [lynx](lynx/) | v1.0 | BTC · ETH · SOL · HYPE | Multi-asset momentum scorer with a 6h audit cron. Every audit: pull own closed trades, bucket by entry score, raise `MIN_SCORE` if any bucket at-or-above the floor has ≥8 samples averaging worse than -1% ROE. Caps at `maxMinScore: 7`. Logs every adjustment with bleeding-bucket evidence. **First fleet agent that modifies its own behavior based on its own track record.** |
-
-## 16. Regime classifier / meta-router
-
-Watches macro conditions and **classifies the market** into TREND_UP / TREND_DOWN / CHOP. Publishes the classification in every tick output — including ticks where no trade is taken. The "meta-router" framing is aspirational: future runtime work can let other agents subscribe to the regime channel as a gating input.
-
-| Skill | Version | Asset / Universe | Description |
-|---|---|---|---|
-| [coyote](coyote/) | v1.0 | BTC (positional) + universe (dispersion) | 3-regime classifier (TREND_UP / TREND_DOWN / CHOP) with vol-confirmation on the down side (crash = drop + vol spike, not slow grind). LONG BTC in TREND_UP, SHORT BTC in TREND_DOWN, no trade in CHOP. Regime + all 3 input metrics published on every tick. Balanced DSL. |
-
-For full archetype theses, distinguishing MCP signatures, and code snippets, see [`senpi-trading-runtime/references/producer-patterns.md`](senpi-trading-runtime/references/producer-patterns.md).
-
-> **Live fleet trackers:** [strategies.senpi.ai](https://strategies.senpi.ai) (all-time PnL) · [senpi.ai/arena](https://senpi.ai/arena) (weekly ROE). One agent — Sentinel — runs an in-house producer not published to this repo; it appears on the live trackers but has no source link here.
 
 ---
 
@@ -558,77 +228,44 @@ For full archetype theses, distinguishing MCP signatures, and code snippets, see
 
 ```
 senpi-skills/
-├── README.md                       ← this file
-├── CLAUDE.md                       ← repo conventions for Claude agents
-├── catalog.json                    ← skill registry
+├── README.md                   ← this file
+├── CLAUDE.md                   ← repo conventions for AI editors
 │
-├── senpi-trading-runtime/          ╮
-│   └── senpi_runtime_helpers/      │ ← Python Producer SDK bundled with runtime
-├── dsl-dynamic-stop-loss/          │
-├── fee-optimizer/                  │ Capabilities (see top of this README)
-├── shared/                         │
-├── opportunity-scanner/            │
-├── emerging-movers/                │
-├── whale-index/                    │
-├── autonomous-trading/             │
-├── senpi-entrypoint/               │
-├── senpi-getting-started-guide/    │
-└── senpi-onboard/                  ╯
+├── senpi-strategy-discover/    ← find / recommend a strategy (reads the catalog)
+├── senpi-strategy-author/      ← build / edit a strategy package
+├── senpi-strategy-ops/         ← deploy / monitor / close   (deploy.py, close.py)
+├── senpi-trading-runtime/      ← the @senpi-ai/runtime contract + gen_catalog.py
 │
-├── kodiak/  grizzly/  polar/  wolverine/      ╮
-├── condor/  cheetah/  python/  scorpion/      │
-├── jackal/  spider/   raptor/                 │
-├── pangolin/ dog/  vulture/                   │ 26 Trading Strategy Skills
-├── owl/  lemon/                               │ (live fleet)
-├── roach/   jaguar/  orca/                    │
-├── mantis/                                    │
-├── bison/   dire/  bald-eagle/  kestrel/      │
-└── turbine/                                   ╯
-```
-
-Roach-B is a second wallet instance of the `roach/` producer (no separate directory). Otter (`otter/`) is in the repo but currently paused; see git history for prior versions.
-
-Each strategy directory contains:
-
-```
-<skill>/
-├── README.md           ← what it does, parameters, install
-├── SKILL.md            ← agent instructions (frontmatter + thesis)
-├── runtime.yaml        ← runtime config (scanners, actions, risk, DSL)
-├── config/             ← operator-overridable defaults
-├── scripts/            ← producer / scanner Python
-├── state/              ← state files (wallet-isolated subdirs)
-└── references/         ← supporting docs
+├── strategies/                 ← strategy packages + the registry
+│   ├── catalog.json            ← GENERATED registry index
+│   └── <id>/                   ← one package per strategy (e.g. spider/)
+│       ├── strategy.yaml
+│       └── <instance>/{runtime.yaml, scanners/}
+│
+└── docs/                       ← design docs
 ```
 
 ---
 
 # Getting started
 
-1. Deploy an [OpenClaw](https://openclaw.ai) agent and configure Senpi MCP access.
-2. Pick a strategy skill from the buckets above. Read its `README.md`.
-3. Install the senpi-trading-runtime plugin per the skill's requirement. Producer-based skills additionally need the `senpi-trading-runtime` skill installed (`npx skills add … --skill senpi-trading-runtime -g -y`) — it ships the Python Producer SDK (`senpi_runtime_helpers`) the producer imports.
-4. Pull the skill's scripts + `runtime.yaml` from main into your host workspace.
-5. Set the required env vars (`<SKILL>_WALLET`, `SENPI_AUTH_TOKEN`, and optionally a `<SKILL>_DECISION_MODEL` for LLM-gated actions).
-6. Start the producer daemon per the skill's README.
+1. Onboard an [OpenClaw](https://openclaw.ai) agent and configure Senpi MCP access (`SENPI_AUTH_TOKEN`).
+   Install the runtime plugin: `openclaw plugins install @senpi-ai/runtime`.
+2. **Pick a strategy** — use `senpi-strategy-discover` (or read `strategies/catalog.json`) to choose one.
+3. **Deploy it** — `python3 senpi-strategy-ops/scripts/deploy.py <id> --budget <usd>`. This creates a
+   funded wallet per instance, deploys each `runtime.yaml`, and verifies the scanner is ticking.
+4. **Monitor** — `openclaw senpi status` / `state`; the strategy is live once its `external_scanner`
+   has a recent successful tick.
+5. **Close** — `python3 senpi-strategy-ops/scripts/close.py <id>` flattens positions and closes the
+   strategy, returning funds.
+
+To **build a new strategy**, start from `senpi-strategy-author` and the `senpi-trading-runtime` contract.
 
 ## Requirements
 
-- An [OpenClaw](https://openclaw.ai) agent host (Linux, Python 3.8+)
-- A funded Hyperliquid wallet per strategy (each skill is its own wallet — no shared capital)
-- [Senpi](https://senpi.ai) MCP access token
-
-## Contributing
-
-Each skill is self-contained. To build a new one:
-
-1. Start from a producer-based skill (`kodiak/`, `cheetah/`, or `roach/`) as a template.
-2. Replace the producer's signal-generation logic with your thesis.
-3. Tune `runtime.yaml` — universe, score thresholds, DSL config, risk guard-rails.
-4. Document in `SKILL.md` (frontmatter) and `README.md` (operator-facing).
-5. Submit a PR.
-
-Bucketing in this README is by thesis, not asset. New skills should add themselves to whichever bucket fits, or open a new one if the thesis is genuinely novel.
+- An [OpenClaw](https://openclaw.ai) agent host (Linux, Python 3.8+) with the `@senpi-ai/runtime` plugin
+- A funded Hyperliquid wallet per strategy instance (no shared capital)
+- A [Senpi](https://senpi.ai) MCP access token (`SENPI_AUTH_TOKEN`)
 
 # License
 

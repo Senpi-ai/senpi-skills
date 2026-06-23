@@ -8,7 +8,7 @@ each self-contained `runtime.yaml` (the runtime's own concept) — the manifest 
 ## Package layout
 
 ```
-<id>/
+strategies/<id>/                # all strategy packages live under strategies/
   strategy.yaml                 # this manifest
   <instance>/
     runtime.yaml                # the runtime's self-contained spec for this instance

@@ -35,6 +35,8 @@ sizing/execution, the two-phase DSL exit, risk guard-rails. **There is no separa
 python3 senpi-strategy-ops/scripts/deploy.py <id> --budget <usd> [--decision-model <m>] [--dry-run]
 python3 senpi-strategy-ops/scripts/close.py  <id> [--instance <name>] [--dry-run]
 ```
+Both scripts take a **strategy `id`** (exactly what `senpi-strategy-discover` hands over, e.g. `spider`)
+and resolve it to `strategies/<id>`; an explicit package path (`strategies/spider`) also works.
 
 Both scripts call MCP directly (vendored stdlib client `scripts/_mcp.py`, reads `SENPI_AUTH_TOKEN`) and
 drive `openclaw senpi runtime …` — so each is a true single command. Mechanics:
@@ -44,11 +46,12 @@ drive `openclaw senpi runtime …` — so each is a true single command. Mechani
 ## Deploy — create → run → verify (one command)
 
 **Step 0 — resolve which strategy.** The user's word ("spider", "the polar predator") is a strategy
-**`id`** = the package directory name (`spider/` = `id: spider`). Match it to an `id` in the registry:
+**`id`** = the package directory name under `strategies/` (`strategies/spider/` = `id: spider`). Match
+it to an `id` in the registry:
 ```
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/strategy-v2/catalog.json
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/strategy-v2/strategies/catalog.json
 ```
-(or `ls` the packages on the host). No match → hand off to **senpi-strategy-discover** to pick one.
+(or `ls strategies/` on the host). No match → hand off to **senpi-strategy-discover** to pick one.
 
 **Step 1 — deploy.** Deploy **always creates one fresh wallet per instance** (budget split by
 `funding_share`, **min $100 each**) via MCP — confirm the budget with the user first:

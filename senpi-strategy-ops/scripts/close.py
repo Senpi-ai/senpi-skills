@@ -103,7 +103,7 @@ def close_one(mcp, leg, sid, wallet, runtime_name, deadline, dry_run, log):
 
 def main(argv):
     ap = argparse.ArgumentParser(description="Close a strategy package (stop runtimes → close strategies).")
-    ap.add_argument("package")
+    ap.add_argument("package", help="Strategy id (e.g. spider) or package dir (strategies/spider).")
     ap.add_argument("--instance", default=None, help="Close only this leg.")
     ap.add_argument("--timeout", type=int, default=DEFAULT_DEADLINE, help="Overall per-leg deadline to confirm CLOSED (s).")
     ap.add_argument("--dry-run", action="store_true")

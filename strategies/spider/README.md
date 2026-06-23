@@ -32,10 +32,10 @@ Lifecycle is owned by **senpi-strategy-ops** (one command each):
 
 ```bash
 # create two fresh wallets (60/40 split), deploy both legs, cross-verify each scanner ticks
-python3 senpi-strategy-ops/scripts/deploy.py spider --budget 200
+python3 senpi-strategy-ops/scripts/deploy.py strategies/spider --budget 200
 
 # stop both runtimes and close both strategies (flattens positions, returns funds)
-python3 senpi-strategy-ops/scripts/close.py spider
+python3 senpi-strategy-ops/scripts/close.py strategies/spider
 ```
 
 Deploy **always** creates fresh wallets (refuses if already deployed); close **always** closes the

@@ -140,7 +140,7 @@ def deploy_instance(pkg, inst, wallet, model_env, model, dry_run, log):
 
 def main(argv):
     ap = argparse.ArgumentParser(description="Deploy a strategy package (create wallets → deploy → verify).")
-    ap.add_argument("package")
+    ap.add_argument("package", help="Strategy id (e.g. spider, as discover emits) or package dir (strategies/spider).")
     ap.add_argument("--budget", type=float, default=None, help="Total USDC split across the new wallets by funding_share (required for a real run).")
     ap.add_argument("--decision-model", default=None, help="Bare model name (only if a runtime has a decision_mode: llm action).")
     ap.add_argument("--dry-run", action="store_true", help="Validate + plan only; no wallet creation, no create.")

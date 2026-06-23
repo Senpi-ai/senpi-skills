@@ -10,7 +10,7 @@ This branch reorganizes the repo around the principle that **a trading strategy 
 package, not an agent skill**:
 
 ```
-<id>/                              # a strategy package (e.g. spider/, polar/, kodiak/)
+strategies/<id>/                   # a strategy package (e.g. strategies/spider/) — all packages live under strategies/
   scanner.py                       # signal producer — emits signals only, never executes/exits,
                                    #   never hardcodes a wallet; reads tunables via load_params()
   runtime.yaml (or runtime-*.yaml) # the deterministic runtime spec (one per instance)
@@ -34,7 +34,7 @@ package, not an agent skill**:
   daemon → verify). The CLI never creates wallets. Attribution is the MCP tool's **`skillName` /
   `skillVersion`** params, valued from `strategy.yaml` `id` + `version` (the "Skill Attribution"
   section below is superseded for strategies; `strategy.yaml.version` is the one source).
-- **`catalog.json` is GENERATED** from `*/strategy.yaml` via
+- **`strategies/catalog.json` is GENERATED** from `strategies/*/strategy.yaml` via
   `senpi-trading-runtime/scripts/gen_catalog.py` — never hand-edit it.
 - **Validate** a package with `senpi-strategy-author/scripts/validate_strategy.py <dir>`.
 

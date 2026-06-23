@@ -114,12 +114,26 @@ class Package:
         return any(i.needs_model for i in self.instances)
 
 
+def resolve_pkg_dir(arg):
+    """Accept a package PATH (strategies/spider) OR a bare strategy id (spider, as discover emits)
+    and return the directory that holds strategy.yaml. Tries the arg as-is, then strategies/<arg>."""
+    p = Path(arg)
+    if (p / "strategy.yaml").is_file():
+        return p
+    nested = Path("strategies") / arg
+    if (nested / "strategy.yaml").is_file():
+        return nested
+    return p  # let load() raise the BadPackage with the original arg
+
+
 def load(pkg_dir) -> Package:
-    """Parse strategy.yaml into a Package. Raises BadPackage if it can't be modelled at all."""
-    pkg = Path(pkg_dir).resolve()
+    """Parse strategy.yaml into a Package. Accepts a path or a bare id (resolved to strategies/<id>).
+    Raises BadPackage if it can't be modelled at all."""
+    pkg = resolve_pkg_dir(pkg_dir).resolve()
     man_path = pkg / "strategy.yaml"
     if not man_path.is_file():
-        raise BadPackage(f"{pkg}: no strategy.yaml (pass a strategy PACKAGE directory)")
+        raise BadPackage(f"{pkg_dir!r}: no strategy.yaml found (looked at {pkg_dir} and "
+                         f"strategies/{pkg_dir}) — pass a strategy id or package directory")
     try:
         man = yaml.safe_load(man_path.read_text())
     except yaml.YAMLError as e:

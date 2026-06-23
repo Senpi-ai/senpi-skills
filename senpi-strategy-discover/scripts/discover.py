@@ -29,8 +29,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 # ▼▼▼ TEMPORARY — real-agent testing only. Default to the SYNTHETIC full-fleet so the agent
 # recommends from the full roster instead of just spider/kodiak/polar. REVERT this to
-# `os.path.join(REPO_ROOT, "catalog.json")` before merging to strategy-v2. ▲▲▲
-_PROD_CATALOG = os.path.join(REPO_ROOT, "catalog.json")
+# `os.path.join(REPO_ROOT, "strategies", "catalog.json")` before merging to strategy-v2. ▲▲▲
+_PROD_CATALOG = os.path.join(REPO_ROOT, "strategies", "catalog.json")
 DEFAULT_CATALOG = os.path.join(HERE, "..", "tests", "fixtures", "catalog_fullfleet.json")
 
 # ---------------------------------------------------------------- vocabulary (concrete filters only)

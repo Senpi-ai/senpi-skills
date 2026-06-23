@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate catalog.json (the strategy registry index) from every */strategy.yaml.
+"""Generate strategies/catalog.json (the strategy registry index) from every strategies/*/strategy.yaml.
 
 The catalog is GENERATED — never hand-edit it. Run from the repo root:
     python3 senpi-trading-runtime/scripts/gen_catalog.py [--updated YYYY-MM-DD] [--branch NAME]
@@ -197,7 +197,7 @@ def validate_declared(glossary, catalog, sid):
 def build(updated, branch):
     glossary = load_glossary()
     skills = []
-    for man_path in sorted(glob.glob("*/strategy.yaml")):
+    for man_path in sorted(glob.glob("strategies/*/strategy.yaml")):
         m = yaml.safe_load(open(man_path)) or {}
         c = m.get("catalog", {}) or {}
         sid = m.get("id", os.path.dirname(man_path))
@@ -266,7 +266,7 @@ if __name__ == "__main__":
     ap.add_argument("--branch", default="strategy-v2")
     a = ap.parse_args()
     catalog = build(a.updated, a.branch)
-    with open("catalog.json", "w") as f:
+    with open("strategies/catalog.json", "w") as f:
         json.dump(catalog, f, ensure_ascii=False, indent=2)
         f.write("\n")
     print(f"wrote catalog.json — {len(catalog['skills'])} strategies")
