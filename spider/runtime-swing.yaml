@@ -59,10 +59,7 @@ risk:
   # they only catch a governor failure. Don't tighten them to do the governor's
   # job; tune the governor block in the config instead.
   guard_rails:
-    # daily_loss_limit_pct DISABLED on multi-wallet funds: the runtime computes this gate's
-    # limit off the perpDay base, which reads ~$0 for these wallets -> a "$0.00" limit that
-    # ANY real loss trips, permanently halting the book (Wolf/Hydra/Mongoose 2026-06-22).
-    # drawdown_halt (PnL-based) + DSL + cooldowns protect instead; re-enable once the engine fixes the base.
+    daily_loss_limit_pct: 25
     max_entries_per_day: 20       # backstop only — governor caps the real budget (baseEntries 3 → maxEntriesCap 8)
     bypass_max_entries_per_day_on_profit: false   # governor now owns green-day scaling (capped); no unlimited bypass
     max_consecutive_losses: 6     # backstop — governor's win-rate band handles streaks
