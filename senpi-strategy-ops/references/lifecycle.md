@@ -49,13 +49,18 @@ memory) with **no** side effects: no wallet creation, no create.
 
 ## `close.py <id> [--instance name] [--timeout S] [--dry-run] [--json]`
 
-Discovery is ledger-free: MCP `strategy_list` filtered by `skillName == <id>` gives the package's
-wallets (by attribution); `runtime list` maps each to its live runtime by wallet / `name == <id>-<instance>`.
+Discovery is ledger-free and **strategy-driven**: MCP `strategy_list` filtered by `skillName == <id>`
+gives the package's strategies, and **`strategyId` + wallet come straight from each strategy record** —
+NOT via the runtime. This is the key fix: close must not depend on a live runtime to resolve the id, or
+it can't clean up **orphaned** strategies (e.g. wallets a failed deploy created before `runtime create`).
+The runtime is used **only to stop** the strategy, found by wallet (`find_runtime_by_wallet`), if one is
+live. `--instance` scoping needs the live runtime to know which strategy is that leg (the strategy record
+has no leg label); if it's gone, omit `--instance` to close the whole strategy.
 
-Per leg, in order:
+Per strategy, in order:
 
-1. **Stop the runtime** — `openclaw senpi runtime delete --id <id>-<instance> --address <wallet>`, then
-   confirm it is gone from `runtime list` (so nothing re-opens a position while we close).
+1. **Stop the runtime if one is live** — match it by wallet, `openclaw senpi runtime delete --id <name>
+   --address <wallet>`, confirm gone. Orphans (no runtime) skip straight to step 2.
 2. **Close the strategy** — submit MCP `strategy_close(strategyId)`. `strategy_close` flattens **all**
    positions **and** closes the strategy (returns funds); there is **no** separate close-positions step.
 3. **Confirm (async!).** `strategy_close` returns before positions are actually flat on-chain. The submit

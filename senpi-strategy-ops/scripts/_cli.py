@@ -101,6 +101,18 @@ def find_runtime(name):
     return None
 
 
+def find_runtime_by_wallet(wallet):
+    """Find a live runtime bound to a wallet address (close maps strategy→runtime by wallet,
+    so it doesn't depend on the runtime name)."""
+    if not wallet:
+        return None
+    w = str(wallet).lower()
+    for rt in list_runtimes():
+        if str(runtime_wallet(rt) or "").lower() == w:
+            return rt
+    return None
+
+
 # ---- strategy lookups (MCP strategy_list) ----
 
 def list_strategies(mcp, timeout=15):

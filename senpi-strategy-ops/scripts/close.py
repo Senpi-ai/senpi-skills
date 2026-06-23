@@ -59,22 +59,32 @@ def wait_closed(mcp, sid, deadline, log, leg):
     return False, last or "UNKNOWN"
 
 
-def close_one(mcp, leg, sid, wallet, runtime_name, deadline, dry_run, log):
-    rec = {"instance": leg, "runtime_id": runtime_name, "wallet": wallet, "strategy_id": sid}
-    rt = _cli.find_runtime(runtime_name) if runtime_name else None
+def close_one(mcp, label, strat, deadline, dry_run, log):
+    # Resolve sid + wallet DIRECTLY from the strategy record (strategy_list metadata) — NOT via the
+    # runtime. The runtime is used only to STOP it, and only if one is live (orphans have none).
+    sid = _cli.strategy_id_of(strat)
+    wallet = _cli.strategy_wallet(strat)
+    rt = _cli.find_runtime_by_wallet(wallet)
+    rname = _cli.runtime_name(rt) if rt else None
+    rec = {"instance": label, "strategy_id": sid, "wallet": wallet, "runtime_id": rname}
 
     if dry_run:
-        rec["plan"] = ([f"runtime delete --id {runtime_name} --address {wallet}"] if rt else ["(no live runtime)"])
+        rec["plan"] = ([f"runtime delete --id {rname} --address {wallet}"] if rt else ["(no live runtime)"])
         rec["plan"] += [f"strategy_close({sid})  → poll until CLOSED"]
         rec["status"] = "planned"
         return rec
 
-    # 1. stop runtime
+    if not sid:
+        rec["status"] = "failed"
+        rec["error"] = "no strategyId on strategy record"
+        return rec
+
+    # 1. stop the runtime if one is live (so nothing re-opens while closing)
     if rt:
-        log(f"  [{leg}] stopping runtime {runtime_name!r}…")
-        rc, _o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", runtime_name,
+        log(f"  [{label}] stopping runtime {rname!r}…")
+        rc, _o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
                                     "--address", wallet or ""], timeout=60)
-        if rc != 0 or not confirm_runtime_gone(runtime_name):
+        if rc != 0 or not confirm_runtime_gone(rname):
             rec["status"] = "failed"
             rec["error"] = (err or "runtime delete failed / still present").strip()[:300]
             return rec
@@ -82,13 +92,8 @@ def close_one(mcp, leg, sid, wallet, runtime_name, deadline, dry_run, log):
     else:
         rec["runtime"] = "not_found"
 
-    if not sid:
-        rec["status"] = "failed"
-        rec["error"] = "no strategyId resolved (runtime gone? close manually via strategy_list)"
-        return rec
-
     # 2. submit close (async)
-    log(f"  [{leg}] strategy_close({sid})…")
+    log(f"  [{label}] strategy_close({sid})…")
     try:
         mcp.mcp_call("strategy_close", timeout=SUBMIT_TIMEOUT, strategyId=sid)
     except MCPError as e:
@@ -96,7 +101,7 @@ def close_one(mcp, leg, sid, wallet, runtime_name, deadline, dry_run, log):
         rec["error"] = f"strategy_close submit: {e}"
         return rec
     # 3. poll to confirmation
-    ok, status = wait_closed(mcp, sid, deadline, log, leg)
+    ok, status = wait_closed(mcp, sid, deadline, log, label)
     rec["status"] = "closed" if ok else "closing"
     rec["strategy_status"] = status
     return rec
@@ -126,24 +131,34 @@ def main(argv):
         except (_fetch.FetchError, _pkg.BadPackage):
             raise SystemExit(f"error: {e}")
 
-    legs = [i for i in pkg.instances if (a.instance is None or i.name == a.instance)]
-    if a.instance and not legs:
+    if a.instance and a.instance not in {i.name for i in pkg.instances}:
         raise SystemExit(f"error: no instance {a.instance!r} in {pkg.id} (have: {', '.join(i.name for i in pkg.instances)})")
 
     mcp = MCPClient()
-    # the package's strategies, by attribution; index by wallet (lowercased).
-    # Read-only lookups run even in --dry-run so the plan shows the real wallets/strategyIds.
+    # Discover the package's strategies DIRECTLY from strategy_list (by attribution skillName==id).
+    # sid + wallet come from the strategy record, NOT from a runtime — so close works even when the
+    # runtimes are gone (e.g. orphaned wallets from a deploy that failed before runtime create).
     strategies = _cli.strategies_for(mcp, skill_name=pkg.id)
-    by_wallet = {str(_cli.strategy_wallet(s) or "").lower(): s for s in strategies}
 
-    results = []
-    for inst in legs:
-        rt = _cli.find_runtime(inst.runtime_name)
-        wallet = _cli.runtime_wallet(rt) if rt else None
-        strat = by_wallet.get(str(wallet or "").lower()) if wallet else None
-        sid = _cli.strategy_id_of(strat) if strat else None
-        results.append(close_one(mcp, inst.name, sid, wallet, inst.runtime_name,
-                                 time.time() + a.timeout, a.dry_run, log))
+    if a.instance:
+        # Per-instance scoping needs the live runtime to know which strategy is this leg (the strategy
+        # record carries no leg label). Map by the runtime's wallet; if that runtime is gone, we can't
+        # disambiguate — tell the user to omit --instance to close the whole strategy.
+        rt = _cli.find_runtime(f"{pkg.id}-{a.instance}")
+        w = str(_cli.runtime_wallet(rt) or "").lower() if rt else None
+        targets = [(a.instance, s) for s in strategies if w and str(_cli.strategy_wallet(s) or "").lower() == w]
+        if not targets:
+            raise SystemExit(f"error: can't map instance {a.instance!r} to a strategy without its live "
+                             f"runtime ({pkg.id}-{a.instance}). Omit --instance to close all of {pkg.id}.")
+    else:
+        targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(strategies)]
+
+    if not targets and not a.dry_run:
+        print(f"{pkg.id}: no strategies found for skillName=={pkg.id} (already closed, or not yours).")
+        sys.exit(0)
+
+    results = [close_one(mcp, label, strat, time.time() + a.timeout, a.dry_run, log)
+               for label, strat in targets]
 
     statuses = {r["status"] for r in results}
     overall = ("planned" if a.dry_run else
