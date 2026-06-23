@@ -45,27 +45,25 @@ just means re-run that step.
 
 There is **no `--reinstall`** and no wallet-reuse — redeploy = `close` then `create`/`runtime`/`verify`.
 
-## `close.py <id> [--instance name] [--timeout S] [--dry-run] [--json]`
+## `close.py <id> [--instance name] [--dry-run] [--json]`
 
-Discovery is ledger-free and **strategy-driven**: MCP `strategy_list` filtered by `skillName == <id>`
-gives the package's strategies, and **`strategyId` + wallet come straight from each strategy record** —
-NOT via the runtime. This is the key fix: close must not depend on a live runtime to resolve the id, or
-it can't clean up **orphaned** strategies (e.g. wallets a failed deploy created before `runtime create`).
-The runtime is used **only to stop** the strategy, found by wallet (`find_runtime_by_wallet`), if one is
-live. `--instance` scoping needs the live runtime to know which strategy is that leg (the strategy record
-has no leg label); if it's gone, omit `--instance` to close the whole strategy.
+Like deploy, close **does not block** on the async flatten — it stops + triggers, returns `closing`, and
+hands polling to the agent (re-run `close.py <id>`). Discovery is ledger-free and **strategy-driven**:
+MCP `strategy_list` filtered by `skillName == <id>` gives the package's strategies, and **`strategyId` +
+wallet come straight from each strategy record** — NOT via the runtime, so close also cleans up
+**orphaned** strategies (wallets a failed deploy created before `runtime create`). The runtime is used
+**only to stop** the strategy, found by wallet (`find_runtime_by_wallet`). `--instance` needs the live
+runtime to identify a leg; if it's gone, omit it to close the whole strategy.
 
-Per strategy, in order:
+Per strategy:
 
-1. **Stop the runtime if one is live** — match it by wallet, `openclaw senpi runtime delete --id <name>
-   --address <wallet>`, confirm gone. Orphans (no runtime) skip straight to step 2.
-2. **Close the strategy** — submit MCP `strategy_close(strategyId)`. `strategy_close` flattens **all**
-   positions **and** closes the strategy (returns funds); there is **no** separate close-positions step.
-3. **Confirm (async!).** `strategy_close` returns before positions are actually flat on-chain. The submit
-   uses a raised HTTP timeout, then the script **polls `strategy_list` by `strategyId` until status
-   `CLOSED`** (or the strategy drops out of the list) under `--timeout` (default 300s). Reports `closed`
-   only when confirmed; `closing` (positions still flattening) — not a hang, not a false success — if the
-   deadline passes.
+1. **Stop the runtime if one is live** — by wallet, `runtime delete`, confirm gone. Orphans skip to 2.
+2. **Trigger `strategy_close(strategyId)`** — flattens **all** positions + closes the strategy (funds
+   returned). Submit **only**, no wait. Only submitted while status is `ACTIVE`, so a re-run won't
+   re-submit.
+3. **Return `closing` immediately.** The agent polls by **re-running `close.py <id>`** — idempotent
+   (runtime gone → skip; status closing/closed → skip re-submit) — which reports `closed` once the
+   strategy leaves the active set (or drops out of `strategy_list`).
 
 Close **always** closes the strategy (it never just stops the runtime). `--instance` scopes which leg(s)
 to close.

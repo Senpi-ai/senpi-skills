@@ -118,18 +118,19 @@ each instance's `external_scanner` has a recent successful tick. Verify with the
 carry `group: <id>`, so you can rediscover a deployed strategy's runtimes ledger-free via
 `openclaw senpi runtime list` matching `group == <id>`.
 
-## Close — stop → close (one command)
+## Close — stop → trigger → (agent polls)
 
 ```
-python3 scripts/close.py spider
+python3 scripts/close.py spider          # stop runtime(s) + trigger strategy_close, return immediately
+python3 scripts/close.py spider          # re-run = poll; reports `closed` once flattened
 ```
-Per leg: **stop the runtime** (`runtime delete`, confirm gone so nothing re-opens) → **`strategy_close`**,
-which flattens **all** positions and closes the strategy (funds returned). `strategy_close` is **async** —
-the script submits then **polls `strategy_list` until `CLOSED`** under a bounded deadline (`--timeout`),
-reporting `closed` only when confirmed and `closing` (positions still flattening) rather than hanging if
-the deadline passes. Close **always** closes the strategy. `--instance <name>` scopes which leg(s) to
-close. **Redeploy** = `close` then `deploy` (deploy always provisions fresh wallets — there is no
-in-place reinstall).
+Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (flattens **all** positions
++ closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —
+it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
+Re-runs are idempotent (runtime already gone → skip; already closing/closed → no re-submit). Strategies
+are discovered from `strategy_list` (`skillName==<id>`), so close also cleans up **orphaned** wallets
+that have no runtime. `--instance <name>` scopes a leg (needs its live runtime to map; else omit to close
+all). **Redeploy** = `close` then `create`/`runtime`/`verify`.
 
 ## Invariants
 
