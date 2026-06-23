@@ -39,9 +39,11 @@ just means re-run that step.
    decision-model env iff a `decision_mode: llm` action) **beside the source** (so `path: ./scanners`
    resolves) → `openclaw senpi runtime create -p <rendered> --runtime-id <id>-<instance>`. Idempotent:
    skips a runtime that already exists. Requires wallets `active` (run `create` first). → `registered`.
-3. **`verify <id>`** — bounded poll of `openclaw senpi state -r <id>-<instance>` until each
-   `external_scanner` shows a completed tick. All ticked → **`live`**; deadline hit → **`registered`**
-   (re-run `verify`). `status <id>` prints the state file any time.
+3. **`verify <id>`** — **fast single check** (`--max-wait 0` default) of `openclaw senpi state -r
+   <id>-<instance>` for a completed tick. It does **not** block: a scanner's first `scan()` only fires on
+   its `interval_seconds`, so blocking would just burn the tool budget. All ticked → **`live`**; else
+   **`registered`** with each leg's cadence — re-run `verify` after the interval. `--max-wait S` opts into
+   a bounded poll (handy for fast legs). `status <id>` prints the state file any time.
 
 There is **no `--reinstall`** and no wallet-reuse — redeploy = `close` then `create`/`runtime`/`verify`.
 

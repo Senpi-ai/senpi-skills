@@ -65,10 +65,11 @@ state file and **never re-creates** a wallet. It prints **`wallets-ready`** when
 with its wallet and runs `openclaw senpi runtime create`. Idempotent (skips an existing runtime). Prints
 `registered`. `--decision-model` only for a `decision_mode: llm` action (rule-mode strategies need none).
 
-**Step 3 — `verify`** (resumable): `python3 scripts/deploy.py verify spider` polls until each
-`external_scanner` has ticked (bounded). Prints `live`; if a slow leg hasn't ticked within its
-`interval_seconds`, it prints `registered` — **re-run `verify`** to keep checking. `deploy.py status
-<id>` shows current state any time.
+**Step 3 — `verify`** (fast single check): `python3 scripts/deploy.py verify spider` checks each
+`external_scanner` once. A scanner's **first `scan()` fires on its `interval_seconds`** (spider swing
+300s, scalp 60s), so right after `runtime` it will report `registered` with the per-leg cadence — that's
+expected, **not** a failure. **Re-run `verify` after the interval** to confirm `live`. (Add `--max-wait
+S` to poll for fast legs.) `deploy.py status <id>` shows current state any time.
 
 > **Do NOT improvise.** A package strategy is a **runtime-supervised scanner** — deploy it **only** via
 > these steps. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that

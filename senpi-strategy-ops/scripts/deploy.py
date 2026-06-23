@@ -246,34 +246,46 @@ def _deep_find_scanner(obj, name):
     return None
 
 
+def _check_ticks(pkg, st):
+    """One pass: mark each instance live if its external_scanner has ticked. Returns the list of
+    instances not yet live as (name, reason)."""
+    pending = []
+    for inst in pkg.instances:
+        s = inst_state(st, inst.name)
+        if s.get("status") == "live":
+            continue
+        rt = _cli.find_runtime(inst.runtime_name)
+        if not rt or not _cli.runtime_running(rt):
+            pending.append((inst.name, "no live runtime"))
+            continue
+        state = _cli.cli_json(["openclaw", "senpi", "state", "-r", inst.runtime_name, "--json"], POLL_HTTP_TIMEOUT)
+        sc = _deep_find_scanner(state, inst.external_scanner.get("name")) if state else None
+        runs = _cli.dig(sc or {}, "runCount", "ticks", "runs", default=0) or 0
+        if isinstance(runs, (int, float)) and runs > 0:
+            s["status"] = "live"
+            save_state(pkg, st)
+        else:
+            pending.append((inst.name, f"awaiting first tick (~{inst.interval_seconds or '?'}s cadence)"))
+    return pending
+
+
 def cmd_verify(pkg, a, log):
+    # Single fast check by default — the first scan() tick is gated by the scanner's interval_seconds
+    # (e.g. spider swing = 300s), so blocking here would just burn the tool budget. Report liveness or
+    # the expected cadence and let the agent re-run when it's worth re-checking. `--max-wait S` opts
+    # into a bounded poll for fast legs.
     st = load_state(pkg)
     deadline = time.time() + a.max_wait
     while True:
-        pending = []
-        for inst in pkg.instances:
-            s = inst_state(st, inst.name)
-            if s.get("status") == "live":
-                continue
-            rt = _cli.find_runtime(inst.runtime_name)
-            if not rt or not _cli.runtime_running(rt):
-                pending.append(f"{inst.name}=no-runtime")
-                continue
-            state = _cli.cli_json(["openclaw", "senpi", "state", "-r", inst.runtime_name, "--json"], POLL_HTTP_TIMEOUT)
-            sc = _deep_find_scanner(state, inst.external_scanner.get("name")) if state else None
-            runs = _cli.dig(sc or {}, "runCount", "ticks", "runs", default=0) or 0
-            if isinstance(runs, (int, float)) and runs > 0:
-                s["status"] = "live"
-                save_state(pkg, st)
-            else:
-                pending.append(f"{inst.name}=awaiting-tick")
+        pending = _check_ticks(pkg, st)
         if not pending:
             return report(pkg, st, "live", as_json=a.json)
         if time.time() >= deadline:
-            return report(pkg, st, "registered",
-                          note="Not all scanners have ticked yet (slow legs tick on their interval_seconds). "
-                               "Re-run `deploy.py verify " + pkg.id + "` to keep checking.", as_json=a.json)
-        log(f"  waiting on {', '.join(pending)}…")
+            note = "Not ticking yet — each leg's first scan() fires on its interval_seconds:\n  " + \
+                   "\n  ".join(f"{n}: {why}" for n, why in pending) + \
+                   f"\nRe-run `deploy.py verify {pkg.id}` after that to confirm `live`."
+            return report(pkg, st, "registered", note=note, as_json=a.json)
+        log(f"  waiting on {', '.join(n for n, _ in pending)}…")
         time.sleep(POLL_EVERY)
 
 
@@ -299,9 +311,11 @@ def main(argv):
     pr.add_argument("--decision-model", default=None, help="Bare model name (only for a decision_mode: llm action).")
     pr.add_argument("--dry-run", action="store_true")
 
-    pv = sub.add_parser("verify", help="Step 3: confirm each scanner is ticking (resumable).")
+    pv = sub.add_parser("verify", help="Step 3: confirm each scanner is ticking (fast single check; re-run as needed).")
     common(pv)
-    pv.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="Poll budget for this call (s).")
+    pv.add_argument("--max-wait", type=int, default=0,
+                    help="Default 0 = one fast check (first tick is gated by interval_seconds; re-run later). "
+                         ">0 keeps polling up to S seconds (useful for fast legs).")
 
     ps = sub.add_parser("status", help="Show the deploy state.")
     common(ps)
