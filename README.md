@@ -14,7 +14,7 @@ The repo is two things:
 > 🛠 **Building a strategy?** Start with **`senpi-strategy-author`** (how to build/edit a package) and
 > **`senpi-trading-runtime`** (the runtime contract your `scan()` runs under).
 
-**Platform:** [senpi.ai](https://senpi.ai) · **Live fleet tracker:** [strategies.senpi.ai](https://strategies.senpi.ai) · **Arena:** [senpi.ai/arena](https://senpi.ai/arena)
+**Platform:** [senpi.ai](https://senpi.ai) · **Arena:** [senpi.ai/arena](https://senpi.ai/arena)
 
 ---
 
