@@ -1,26 +1,18 @@
 ---
 name: senpi-trading-runtime
 description: >-
-  The runtime-knowledge bundle for the Senpi trading platform on Hyperliquid —
-  everything about how a strategy interacts with the Senpi trading runtime engine
-  (@senpi-ai/runtime). A strategy runs from a runtime.yaml that points at a Python
-  module exporting scan(inputs, ctx); the runtime spawns and supervises that module,
-  calls scan() every interval_seconds, and owns everything downstream — signal
-  validation, dedup, sizing/execution (FEE_OPTIMIZED_LIMIT), slot accounting,
-  risk guard_rails, two-phase DSL trailing-stop exits, and crash-safe position
-  reconcile. scan() reads through a read-only ctx.senpi_mcp, carries cross-tick
-  state in ctx.state, and returns a list of signal dicts. This skill is the
-  shared runtime contract the lifecycle skills reference — it explains how the
-  runtime behaves and how your code talks to it. It is NOT where you build,
-  install, or pick a strategy: build/edit → senpi-strategy-author;
-  install/monitor/uninstall → senpi-strategy-ops; find/recommend →
-  senpi-strategy-discover. Triggers on: runtime.yaml, scan(inputs, ctx),
-  external_scanner, ctx.senpi_mcp, ctx.state, signal_data_schema, trading
-  runtime, position_tracker, DSL exit engine, runtime-concepts, @senpi-ai/runtime.
+  How a Senpi trading strategy interacts with the runtime engine (@senpi-ai/runtime)
+  on Hyperliquid: a strategy runs from a runtime.yaml pointing at a Python module that
+  exports scan(inputs, ctx), which the runtime supervises and calls each interval, then
+  owns execution, risk guard_rails, and two-phase DSL trailing-stop exits. Use when
+  working with runtime.yaml, the scan(inputs, ctx) contract, external_scanner, ctx, or
+  the DSL exit engine — the shared runtime contract the lifecycle skills reference. NOT
+  for building, installing, or picking a strategy (→ senpi-strategy-author /
+  senpi-strategy-ops / senpi-strategy-discover).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "4.0.0"
+  version: "3.0.0"
   platform: senpi
   exchange: hyperliquid
 ---
