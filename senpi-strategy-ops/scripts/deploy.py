@@ -49,7 +49,7 @@ def create_wallet(mcp, pkg, inst, amount, log):
     res = mcp.mcp_call("strategy_create_custom_strategy", timeout=SUBMIT_TIMEOUT,
                        initialBudget=amount, positions=[],
                        skillName=pkg.id, skillVersion=pkg.version)
-    sid = _cli.strategy_id_of(res) or _cli.strategy_id_of(_cli.dig(res, "data") or {})
+    sid = _cli.strategy_id_of(res)  # unwraps data.strategy.id
     if not sid:
         raise RuntimeError(f"strategy_create_custom_strategy returned no strategyId (got: {res!r})")
     deadline = time.time() + CREATE_DEADLINE

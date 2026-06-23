@@ -111,20 +111,36 @@ def list_strategies(mcp, timeout=15):
     return find_list(res, "strategies")
 
 
+def strategy_obj(x):
+    """Unwrap the strategy dict from a response or list entry. strategy_create_custom_strategy nests
+    it at data.strategy; strategy_list entries may be flat or wrapped. Tries data.strategy → strategy
+    → data → x, returning the first dict that carries an id/status field."""
+    if not isinstance(x, dict):
+        return {}
+    for path in (("data", "strategy"), ("strategy",), ("data",)):
+        cur = x
+        for k in path:
+            cur = cur.get(k) if isinstance(cur, dict) else None
+        if isinstance(cur, dict) and (dig(cur, "strategyId", "id", "strategy_id")
+                                      or dig(cur, "status", "state")):
+            return cur
+    return x  # already the strategy object (flat)
+
+
 def strategy_id_of(s):
-    return dig(s, "strategyId", "id", "strategy_id")
+    return dig(strategy_obj(s), "strategyId", "id", "strategy_id")
 
 
 def strategy_status(s):
-    return dig(s, "status", "state")
+    return dig(strategy_obj(s), "status", "state")
 
 
 def strategy_wallet(s):
-    return dig(s, "strategyWalletAddress", "walletAddress", "wallet", "address")
+    return dig(strategy_obj(s), "strategyWalletAddress", "walletAddress", "wallet", "address")
 
 
 def strategy_skill(s):
-    return dig(s, "skillName", "skill_name", "skill")
+    return dig(strategy_obj(s), "skillName", "skill_name", "skill")
 
 
 def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15):
