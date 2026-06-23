@@ -140,6 +140,16 @@ def get_positions(wallet):
                 "entryPrice": float(pos.get("entryPx", 0)),
                 "size": abs(szi),
             })
+    # read-sanity guard (funding/$0 glitch 2026-06): a corrupt clearinghouse read can report
+    # margin/notional IN USE while returning an EMPTY positions list; sizing or running the
+    # held-asset dedup off that re-enters held names (pyramiding) and mis-sizes. Skip the tick.
+    _use = 0.0
+    for _sec in ("main", "xyz"):
+        _s = data.get(_sec, {}) if isinstance(data, dict) else {}
+        _ms = _s.get("marginSummary", {}) if isinstance(_s, dict) else {}
+        _use = max(_use, float(_ms.get("totalMarginUsed", 0) or 0), abs(float(_ms.get("totalNtlPos", 0) or 0)))
+    if _use > 1.0 and not positions:
+        return 0.0, []
     return account_value, positions
 
 
