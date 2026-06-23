@@ -173,12 +173,12 @@ def fetch_strategies(client, meta):
         except Exception as e:  # noqa
             meta.setdefault("warnings", []).append(f"clearinghouse {strat['wallet'][:8]} failed: {e}")
             return strat
-        acct_value, withdrawable, positions = 0.0, 0.0, []
+        dex_av, dex_wd, positions = {}, {}, []
         for dex in ("main", "xyz"):
             d = _field(ch, dex, default={}) if isinstance(ch, dict) else {}
             ms = _field(d, "marginSummary", "margin_summary", default={}) or {}
-            acct_value += _f(ms, "accountValue", "account_value", default=0.0)
-            withdrawable += _f(d, "withdrawable", default=0.0)
+            dex_av[dex] = _f(ms, "accountValue", "account_value", default=0.0)
+            dex_wd[dex] = _f(d, "withdrawable", default=0.0)
             for ap in (_field(d, "assetPositions", "asset_positions", default=[]) or []):
                 pos = _field(ap, "position", default=ap) or {}
                 szi = _f(pos, "szi", "size", default=0.0)
@@ -197,9 +197,16 @@ def fetch_strategies(client, meta):
                     "return_on_equity_pct": round(_f(pos, "returnOnEquity", "return_on_equity", default=0.0) * 100, 2),
                     "liq_px": _f(pos, "liquidationPx", "liquidation_px", default=None),
                 })
-        strat["account_value"] = round(acct_value, 2)
-        strat["idle_withdrawable"] = round(withdrawable, 2)        # free margin sitting in THIS strategy
-        strat["deployed"] = round(acct_value - withdrawable, 2)    # equity tied up in positions (margin + uPnL)
+        # CRITICAL — main and xyz are two VIEWS of ONE wallet, not separate pools. `withdrawable` is
+        # the SHARED idle collateral, mirrored identically in both views — count it ONCE (max == either).
+        # Each view's accountValue = shared idle + that DEX's own position equity (margin + uPnL), so:
+        #   wallet_value = main.av + xyz.av − shared_idle   (subtract the duplicated base exactly once)
+        # Summing av (or summing withdrawable) double-counts the shared collateral — the bug this fixes.
+        shared_idle = max(dex_wd.get("main", 0.0), dex_wd.get("xyz", 0.0))
+        deployed = sum(max(0.0, dex_av.get(dex, 0.0) - shared_idle) for dex in ("main", "xyz"))
+        strat["idle_withdrawable"] = round(shared_idle, 2)         # shared free margin (counted once)
+        strat["deployed"] = round(deployed, 2)                     # position equity across BOTH dexes
+        strat["account_value"] = round(shared_idle + deployed, 2)  # = main.av + xyz.av − shared_idle
         strat["position_margin"] = round(sum(p["margin"] for p in positions), 2)   # initial margin detail
         strat["positions"] = positions
         return strat

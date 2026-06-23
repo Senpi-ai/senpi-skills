@@ -40,6 +40,20 @@ def test_three_buckets_sum_to_total():
     assert abs(s - t["grand_total_usd"]) <= 2.0          # the three buckets reconcile to the total
 
 
+def test_shared_dex_collateral_not_double_counted():
+    """REGRESSION: `withdrawable` is shared/mirrored across the main+xyz views — count it ONCE.
+    cub-short raw: main.av 1149.42 / xyz.av 970.67 / shared withdrawable 740.32.
+    Correct wallet value = 1149.42 + 970.67 − 740.32 = 1379.77 (NOT 2120.09 summed, NOT 1149.42 max)."""
+    strat = {s["name"]: s for s in _result()["strategies"]}
+    short = strat["cub-short"]
+    assert short["idle_withdrawable"] == 740.32          # shared idle, counted once (not 1480.64)
+    assert short["account_value"] == 1379.77             # main.av + xyz.av − shared idle
+    assert short["deployed"] == 639.45                   # position equity across BOTH dexes (409.10 + 230.35)
+    # and the grand total reflects it — ~$3,103, not the double-counted ~$5,560
+    t = _result()["totals"]
+    assert 3050 <= t["grand_total_usd"] <= 3150
+
+
 def test_embedded_address_resolved():
     e = _result()["embedded_wallet"]
     assert e["address"] == "0xembed00000000000000000000000000000000ed"

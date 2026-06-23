@@ -40,6 +40,17 @@ Every dollar is in exactly one of **three buckets** — and the #1 mistake is co
 
 **`grand_total = idle_in_embedded + idle_in_strategies + deployed_in_positions`.**
 
+### Cross-DEX: main and xyz are ONE wallet, not two
+
+A strategy wallet's clearinghouse state has a `main` (crypto) view and an `xyz` (equities/metals)
+view. **These are two views of one wallet, not two separate pools.** The `withdrawable` (idle cash) is
+**shared** and reported *identically* in both views — so it is counted **once**, never summed. Each
+view's `accountValue` = that shared idle + only *that* DEX's position equity, so
+`wallet_value = main.av + xyz.av − shared_idle`. The engine already de-duplicates this; you just read
+`account_value` / `idle_withdrawable` / `deployed` per strategy. **Never add the two views' account
+values or withdrawables yourself** — that double-counts the shared collateral (the bug that inflated a
+$3.1K account to $5.6K).
+
 ### The trap you must never fall into
 
 `total_withdrawable` from the portfolio API is **idle-in-strategies** (bucket 2) — the unused margin
