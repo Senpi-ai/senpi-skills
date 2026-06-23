@@ -116,10 +116,27 @@ def derive_max_slots(instances, catalog):
     return catalog.get("max_slots")
 
 
-def derive_cadence_seconds(instances):
-    ts = [inst.get("tick_seconds") for inst in instances
-          if isinstance(inst.get("tick_seconds"), (int, float))]
-    return min(ts) if ts else None
+def derive_cadence_seconds(instances, pkg_dir):
+    """Min scan cadence. Prefer the legacy manifest `tick_seconds`; otherwise read each leg's
+    runtime.yaml external_scanner `interval_seconds` (the thin v2 manifest dropped tick_seconds)."""
+    vals = []
+    for inst in instances:
+        ts = inst.get("tick_seconds")
+        if isinstance(ts, (int, float)):
+            vals.append(ts)
+            continue
+        rt_rel = inst.get("runtime")
+        if not rt_rel:
+            continue
+        try:
+            rt = yaml.safe_load(open(os.path.join(pkg_dir, rt_rel))) or {}
+        except (FileNotFoundError, yaml.YAMLError):
+            continue
+        for s in rt.get("scanners", []) or []:
+            if (isinstance(s, dict) and s.get("type") == "external_scanner"
+                    and isinstance(s.get("interval_seconds"), (int, float))):
+                vals.append(s["interval_seconds"])
+    return min(vals) if vals else None
 
 
 def derive_time_horizon(cadence, catalog):
@@ -188,7 +205,7 @@ def build(updated, branch):
         instance_count = len(instances)
 
         validate_declared(glossary, c, sid)
-        cadence = derive_cadence_seconds(instances)
+        cadence = derive_cadence_seconds(instances, os.path.dirname(man_path))
 
         skills.append({
             # identity
