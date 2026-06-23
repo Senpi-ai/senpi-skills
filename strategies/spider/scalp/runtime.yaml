@@ -1,0 +1,128 @@
+# ── SPIDER · SCALP leg (v2 supervised) ──────────────────────────────
+# Macro & majors fast mean-reversion, BOTH directions.
+#
+# Ported from senpi-skills/spider (producer v5.1.1, SPIDER_LEG=scalp) to the
+# v2 supervised external-scanner contract. The producer daemon is gone: the
+# runtime supervises ./scanners/scan.py and calls scan(inputs, ctx) every
+# `interval_seconds`. All scoring thresholds preserved exactly; see scan.py.
+name: spider-scalp
+version: 2.0.0
+group: spider                       # agent-facing handle (BOTH legs share it)
+description: >
+  SPIDER SCALP — Macro & majors fast mean-reversion, BOTH directions. Scores a
+  fixed universe (BTC/ETH/SOL/HYPE + energy xyz:BRENTOIL/xyz:CL) on 15m RSI
+  extreme + stretch from a 20-bar MA, with a 1h trend filter to avoid fading a
+  strong trend. minScore 4; strict 5x; tight fast-capture DSL with dead_weight
+  + weak_peak cuts on, 2h staleness cap. Paired with the SWING leg on a
+  separate wallet.
+
+strategy:
+  wallet: "${SPIDER_SCALP_WALLET}"
+  slots: 4                          # source maxSlots 4
+  margin_pct: 15                    # source marginPct 0.15 → margin_usd = account_value * 0.15
+  default_leverage: 5               # source scalpMaxLeverage cap (clamped per-asset to HL venue max in scan.py)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker          # built-in: feeds DSL exit engine
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: spider_scalp_signals      # supervised external scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 60            # source tickSeconds 60
+    timeout_seconds: 50             # source tick_timeout = min(180, max(30, tick-10)) = 50
+    default_signal_validity_seconds: 120   # 2x tick; pass-through gate re-scores next tick
+    state_history_max_count: 200    # holds recent-signal dedup records
+    inputs:
+      allowedAssets: ["BTC", "ETH", "SOL", "HYPE", "xyz:BRENTOIL", "xyz:CL"]
+      minScore: 4
+      marginPct: 0.15
+      maxLeverage: 5
+      maxSlots: 4
+      rsiOversold: 30
+      rsiOverbought: 70
+      stretchThresholdPct: 0.8
+      venueMinNotionalUsd: 10
+      minNotionalPctOfEquity: 0.01
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend1h: { type: string, required: false }
+      rsi: { type: number, required: false }
+      stretchPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action   # rule-based lifecycle → DSL
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: spider_scalp_entry        # OPEN_POSITION, rule mode (source LLM gate was pure pass-through)
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [spider_scalp_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 20
+    context:
+      - type: signal
+        scanner: spider_scalp_signals
+
+# ── EXIT (DSL — tight fast-capture; the source flips in minutes) ──
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 20
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 120      # 2h — a scalp that lingers is dead
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 30       # if it hasn't moved in 30m, cut
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 25       # at/below break-even after 25m → cut
+    phase1:
+      enabled: true
+      max_loss_pct: 5.0
+      retrace_threshold: 3
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 3, lock_hw_pct: 35 }
+        - { trigger_pct: 6, lock_hw_pct: 55 }
+        - { trigger_pct: 12, lock_hw_pct: 70 }
+        - { trigger_pct: 25, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from runtime-scalp.yaml; minutes → seconds) ──
+risk:
+  data_retention_seconds: 259200    # 72h (was data_retention_hours 72)
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 18
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_seconds: 1800          # was cooldown_minutes 30
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 600     # was per_asset_cooldown_minutes 10
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

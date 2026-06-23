@@ -1,0 +1,46 @@
+# Spider — strategy package deploy manifest (single source of truth for deploy + attribution).
+# A strategy is a PACKAGE: this manifest + one self-contained runtime.yaml per instance +
+# <instance>/scanners/. The runtime SUPERVISES each scanner's scan(inputs, ctx) in-process —
+# there is no separate scanner daemon. Install/teardown: senpi-strategy-ops (deploy.py / close.py).
+schema_version: 1
+
+id: spider                  # == package dir name; == every leg's runtime.yaml `group`
+version: "6.0.0"            # single source for catalog + MCP attribution (skillName/skillVersion)
+
+catalog:                    # discovery surface. `group` here is the discovery TAXONOMY bucket —
+                            # distinct from each runtime.yaml's `group: spider` linkage key.
+  name: "Spider — AI/Tech Hedge Fund"
+  emoji: "🕷️"
+  tagline: "An AI/Tech momentum long book plus a macro/majors mean-reversion book — two legs, two wallets, one package."
+  belief_plain: "AI/tech equities and crypto majors trend over days, while majors and energy snap back from short-term extremes — run both books side by side."
+  group: multi-asset-whitelist
+  archetype: trend_following
+  sub_style: basket
+  asset_classes: [xyz_equities, major_alts, btc_eth, commodities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 10
+  max_slots: 7              # total concurrent across the book (swing 3 + scalp 4)
+  min_budget: 200           # two wallets, $100 floor each
+  assets: ["xyz:NVDA", "xyz:AMD", "xyz:INTC", "xyz:MRVL", "xyz:MU", "xyz:TSM", SUI, ONDO, HYPE, NIL, GRASS, ZEC, BTC, ETH, SOL, "xyz:BRENTOIL", "xyz:CL"]
+  tags: [ai, tech, equities, mean_reversion, momentum, two_leg]
+
+requires:
+  runtime: ">=2.0.0"        # @senpi-ai/runtime semver range
+
+defaults:                   # env VAR NAMES only — never values. (Rule-mode: no decision_model_env.
+                            # No telegram — deprecated.)
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: swing
+    runtime: swing/runtime.yaml       # → runtime name spider-swing, group spider
+    wallet_env: SPIDER_SWING_WALLET    # bound as ${SPIDER_SWING_WALLET} in swing/runtime.yaml
+    funding_share: 0.60
+  - name: scalp
+    runtime: scalp/runtime.yaml        # → runtime name spider-scalp, group spider
+    wallet_env: SPIDER_SCALP_WALLET
+    funding_share: 0.40
