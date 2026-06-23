@@ -12,7 +12,13 @@ time-boxed by `timeout_seconds`, restarting a crashed child itself. The old mode
 `nohup python3 … &` producer daemon that pushed signals over HTTP) is gone. Deploy = create a runtime;
 nothing else to keep alive.
 
-## `deploy.py <id> --budget N [--decision-model M] [--dry-run] [--json]`
+## `deploy.py <id> --budget N [--decision-model M] [--ref <branch>] [--no-fetch] [--dry-run] [--json]`
+
+**Fetch (step 0).** The agent host has the skills installed but not the strategy packages, so if
+`strategies/<id>/` isn't on local disk, `deploy.py` downloads it from the remote (`_fetch.py`: GitHub
+tree listing + raw file fetch from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default
+`Senpi-ai/senpi-skills`@`strategy-v2`; `--ref` overrides, `--no-fetch` disables). The rendered
+runtime.yaml is written **beside** the source so its relative `path: ./scanners` still resolves.
 
 **Pre-check.** Deploy always creates fresh wallets, so before creating anything it looks up every leg's
 runtime (`<id>-<instance>`) in `runtime list`; if **any** is already live it **refuses** ("already

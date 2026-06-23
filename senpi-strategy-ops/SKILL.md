@@ -46,25 +46,31 @@ drive `openclaw senpi runtime …` — so each is a true single command. Mechani
 ## Deploy — create → run → verify (one command)
 
 **Step 0 — resolve which strategy.** The user's word ("spider", "the polar predator") is a strategy
-**`id`** = the package directory name under `strategies/` (`strategies/spider/` = `id: spider`). Match
-it to an `id` in the registry:
+**`id`**. You do **not** need the package on disk first — `deploy.py <id>` fetches `strategies/<id>/`
+from the remote automatically. To confirm an id exists, check the registry:
 ```
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/strategy-v2/strategies/catalog.json
 ```
-(or `ls strategies/` on the host). No match → hand off to **senpi-strategy-discover** to pick one.
+No match → hand off to **senpi-strategy-discover** to pick one.
 
-**Step 1 — deploy.** Deploy **always creates one fresh wallet per instance** (budget split by
-`funding_share`, **min $100 each**) via MCP — confirm the budget with the user first:
+**Step 1 — deploy (one command, pass the bare id).**
 ```
 python3 scripts/deploy.py spider --budget 200
 ```
-The script, per instance: `strategy_create_custom_strategy(initialBudget=<share>, positions=[],
-skillName=<id>, skillVersion=<version>)` → polls `strategy_list` by `strategyId` until **ACTIVE** →
-renders the leg's `runtime.yaml` with its wallet → `openclaw senpi runtime create` → **cross-verifies**
-the `external_scanner` actually ticked. There is **no wallet-reuse path**: if the strategy is already
-deployed, deploy **refuses** ("already deployed — close first") and creates no wallets; redeploy =
-**close then deploy**. `--decision-model <bare-model>` is required **only** if a `runtime.yaml` has a
-`decision_mode: llm` action (rule-mode strategies like spider need none).
+`deploy.py` does the whole thing: **fetches** the package by id from the remote if it isn't on disk →
+per instance creates a fresh wallet via `strategy_create_custom_strategy(initialBudget=<share>,
+positions=[], skillName=<id>, skillVersion=<version>)`, polls `strategy_list` until **ACTIVE** → renders
+the leg's `runtime.yaml` → `openclaw senpi runtime create` → **cross-verifies** the `external_scanner`
+ticked. Budget splits by `funding_share`, **min $100 each** — confirm it with the user first. No
+wallet-reuse path: if already deployed it **refuses** ("close first"); redeploy = **close then deploy**.
+`--decision-model` is required **only** for a `decision_mode: llm` action (rule-mode strategies need none).
+
+> **Do NOT improvise.** A package strategy (spider, etc.) is a **runtime-supervised scanner** — deploy it
+> **only** via `deploy.py`. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy"
+> it: that creates an **empty** custom-position strategy, not the running scanner, and is the wrong thing.
+> Funding is **automatic** (Hyperliquid perps → HL spot → EVM bridge, in that order). If deploy reports
+> insufficient USDC / `available: 0`, the wallet genuinely lacks accessible funds (often locked in other
+> strategies) — tell the user to fund or free USDC, then **re-run `deploy.py`**. Do not switch tools.
 
 **Report** from the structured output, not raw logs:
 ```jsonc
@@ -88,8 +94,9 @@ user: "deploy spider with $200"
 ```
 
 ### Host prerequisites
-`openclaw` + the `@senpi-ai/runtime` plugin running; `SENPI_AUTH_TOKEN` exported; PyYAML available; the
-strategy package on disk (repo/registry checkout). Smoke with `--dry-run` first.
+`openclaw` + the `@senpi-ai/runtime` plugin running; `SENPI_AUTH_TOKEN` exported (the same token the
+MCP session uses); PyYAML available (`python3 -m pip install pyyaml` if missing). The package itself does
+**not** need to be pre-placed — `deploy.py` fetches it. Smoke with `--dry-run` first.
 
 ## Monitor — is it actually live?
 

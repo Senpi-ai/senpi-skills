@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
+import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from _mcp import MCPClient, MCPError  # noqa: E402
 
@@ -104,16 +105,16 @@ def verify(inst, deadline, log):
     return "registered" if seen_running else "failed"
 
 
-def deploy_instance(pkg, inst, wallet, model_env, model, dry_run, log):
+def deploy_instance(inst, wallet, model_env, model, dry_run, log):
     rec = {"instance": inst.name, "runtime_id": inst.runtime_name, "wallet": wallet}
-    # render (in memory always; write only for a real run)
+    # render (in memory always; write only for a real run). Write the rendered file BESIDE the source
+    # runtime.yaml so its relative `path: ./scanners` still resolves to this instance's scanners/.
     text = inst.render(wallet, model_env=model_env, model=model)
-    build = pkg.dir / ".build" / f"{inst.name}.runtime.yaml"
+    build = inst.runtime_path.with_name(f"{inst.name}.deploy.runtime.yaml")
     if dry_run:
         rec["status"] = "planned"
         rec["create_cmd"] = f"openclaw senpi runtime create -p {build} --runtime-id {inst.runtime_name}"
         return rec
-    build.parent.mkdir(parents=True, exist_ok=True)
     build.write_text(text)
 
     # Safety guard — the all-legs pre-check should have refused already, but never clobber a live runtime.
@@ -143,6 +144,8 @@ def main(argv):
     ap.add_argument("package", help="Strategy id (e.g. spider, as discover emits) or package dir (strategies/spider).")
     ap.add_argument("--budget", type=float, default=None, help="Total USDC split across the new wallets by funding_share (required for a real run).")
     ap.add_argument("--decision-model", default=None, help="Bare model name (only if a runtime has a decision_mode: llm action).")
+    ap.add_argument("--ref", default=None, help="Branch/ref to fetch the package from (default: env SENPI_SKILLS_REF or strategy-v2).")
+    ap.add_argument("--no-fetch", action="store_true", help="Do not fetch from remote; require the package on local disk.")
     ap.add_argument("--dry-run", action="store_true", help="Validate + plan only; no wallet creation, no create.")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
@@ -150,10 +153,23 @@ def main(argv):
     msgs = []
     log = (lambda m: msgs.append(m)) if a.json else (lambda m: print(m))
 
+    # Resolve the package: prefer local (repo checkout); otherwise fetch strategies/<id> from the remote.
+    # The agent host has the skills installed but NOT the strategy packages, so fetch-by-id is the norm.
     try:
         pkg = _pkg.load(a.package)
     except _pkg.BadPackage as e:
-        raise SystemExit(f"error: {e}")
+        if a.no_fetch:
+            raise SystemExit(f"error: {e}")
+        sid = Path(a.package).name
+        log(f"package not on disk — fetching {sid} from remote…")
+        try:
+            _fetch.fetch_package(sid, "strategies", ref=a.ref)
+        except _fetch.FetchError as fe:
+            raise SystemExit(f"error: {e}; remote fetch failed: {fe}")
+        try:
+            pkg = _pkg.load(sid)
+        except _pkg.BadPackage as e2:
+            raise SystemExit(f"error: fetched {sid} but it is not a valid package: {e2}")
     errs = _pkg.validate(pkg)
     if errs:
         print(f"✗ {pkg.id}: invalid package", file=sys.stderr)
@@ -185,7 +201,7 @@ def main(argv):
             else:
                 mcp = mcp or MCPClient()
                 wallet, _sid = create_wallet(mcp, pkg, inst, wallet_amount(a.budget, inst.funding_share), log)
-            results.append(deploy_instance(pkg, inst, wallet, model_env, a.decision_model,
+            results.append(deploy_instance(inst, wallet, model_env, a.decision_model,
                                            a.dry_run, log))
         except (MCPError, RuntimeError, TimeoutError, _pkg.BadPackage) as e:
             results.append({"instance": inst.name, "runtime_id": inst.runtime_name, "status": "failed",

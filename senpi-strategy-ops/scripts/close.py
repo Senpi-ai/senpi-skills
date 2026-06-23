@@ -25,6 +25,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
+import _fetch  # noqa: E402
 import _pkg  # noqa: E402
 from _mcp import MCPClient, MCPError  # noqa: E402
 
@@ -105,6 +106,7 @@ def main(argv):
     ap = argparse.ArgumentParser(description="Close a strategy package (stop runtimes → close strategies).")
     ap.add_argument("package", help="Strategy id (e.g. spider) or package dir (strategies/spider).")
     ap.add_argument("--instance", default=None, help="Close only this leg.")
+    ap.add_argument("--ref", default=None, help="Branch/ref to fetch the package manifest from if not on disk.")
     ap.add_argument("--timeout", type=int, default=DEFAULT_DEADLINE, help="Overall per-leg deadline to confirm CLOSED (s).")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
@@ -116,7 +118,13 @@ def main(argv):
     try:
         pkg = _pkg.load(a.package)
     except _pkg.BadPackage as e:
-        raise SystemExit(f"error: {e}")
+        # package not on local disk — fetch the manifest from the remote (same as deploy)
+        sid = Path(a.package).name
+        try:
+            _fetch.fetch_package(sid, "strategies", ref=a.ref)
+            pkg = _pkg.load(sid)
+        except (_fetch.FetchError, _pkg.BadPackage):
+            raise SystemExit(f"error: {e}")
 
     legs = [i for i in pkg.instances if (a.instance is None or i.name == a.instance)]
     if a.instance and not legs:
