@@ -119,7 +119,8 @@ def cmd_create(pkg, a, log):
     recorded = {inst_state(st, i.name).get("strategyId") for i in pkg.instances}
     recorded.discard(None)
     existing = _cli.strategies_for(mcp, skill_name=pkg.id)
-    untracked = [s for s in existing if _cli.strategy_id_of(s) not in recorded]
+    # only OPEN, unrecorded strategies indicate an interrupted run — closed/failed history is harmless
+    untracked = [s for s in existing if _cli.strategy_open(s) and _cli.strategy_id_of(s) not in recorded]
     need = [i for i in pkg.instances if not inst_state(st, i.name).get("strategyId")]
     if untracked and need:
         raise SystemExit(

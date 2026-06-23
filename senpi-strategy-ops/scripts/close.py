@@ -124,7 +124,9 @@ def main(argv):
     # Discover the package's strategies DIRECTLY from strategy_list (by attribution skillName==id).
     # sid + wallet come from the strategy record, NOT from a runtime — so close works even when the
     # runtimes are gone (e.g. orphaned wallets from a deploy that failed before runtime create).
-    strategies = _cli.strategies_for(mcp, skill_name=pkg.id)
+    all_for_skill = _cli.strategies_for(mcp, skill_name=pkg.id)
+    strategies = [s for s in all_for_skill if _cli.strategy_open(s)]   # ignore CLOSED/FAILED history
+    closed_n = len(all_for_skill) - len(strategies)
 
     if a.instance:
         # Per-instance scoping needs the live runtime to know which strategy is this leg (the strategy
@@ -140,7 +142,8 @@ def main(argv):
         targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(strategies)]
 
     if not targets and not a.dry_run:
-        print(f"{pkg.id}: no strategies found for skillName=={pkg.id} (already closed, or not yours).")
+        print(f"{pkg.id}: no OPEN strategies for skillName=={pkg.id} "
+              f"(nothing to close; {closed_n} already closed/failed in history).")
         sys.exit(0)
 
     results = [close_one(mcp, label, strat, a.dry_run, log) for label, strat in targets]

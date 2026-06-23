@@ -152,7 +152,23 @@ def strategy_wallet(s):
 
 
 def strategy_skill(s):
-    return dig(strategy_obj(s), "skillName", "skill_name", "skill")
+    """The package id a strategy was created under. Lives in strategyMetadata.skillName (set by
+    strategy_create_custom_strategy's skillName arg); falls back to tradingStrategyName."""
+    o = strategy_obj(s)
+    meta = dig(o, "strategyMetadata", "metadata")
+    if isinstance(meta, dict):
+        sk = dig(meta, "skillName", "skill_name")
+        if sk:
+            return sk
+    return dig(o, "skillName", "skill_name", "skill") or dig(o, "tradingStrategyName", "name")
+
+
+# strategies in these states are done — never close them again, and they must NOT block a new deploy.
+DEAD_STATUSES = ("CLOSED", "FAILED", "INACTIVE", "TERMINATED", "CLOSING_DONE")
+
+
+def strategy_open(s):
+    return str(strategy_status(s) or "").upper() not in DEAD_STATUSES
 
 
 def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15):
