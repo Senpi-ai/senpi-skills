@@ -44,10 +44,15 @@ who's worth copying, and is *this* trader's record real or a hot streak. Two job
 
 ## How to run the engine
 
+**Default (no flags) = FIND mode** — ranks the top traders; **no address needed.** Add `--trader
+<addr>` *only* to vet one specific wallet. ("best traders this month" / "who should I copy" → run with
+no `--trader`.)
+
 ```
-python3 scripts/research.py [--time-frame MONTHLY|WEEKLY|ALL_TIME] [--sort-by ...] [--limit N]
-python3 scripts/research.py --trader 0xABC…       # due-diligence dossier on one trader
-python3 scripts/research.py --strategies          # top copy-trading (mirror) strategies
+python3 scripts/research.py                        # FIND mode (default): rank top traders — NO address
+python3 scripts/research.py --time-frame MONTHLY --sort-by RETURN_ON_INVESTMENT --limit 15   # FIND, tuned
+python3 scripts/research.py --trader 0xABC…        # VET mode: due-diligence dossier on ONE trader
+python3 scripts/research.py --strategies           # top copy-trading (mirror) strategies
 ```
 
 - **Find** → `candidates[]`: `short`, `roi_pct`, `pnl_usd`, `win_rate_pct`, `max_drawdown_pct`,
