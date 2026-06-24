@@ -91,6 +91,28 @@ For each: ask the question, offer the options as plain choices, then map the ans
    tiny deploy → confirm the runtime **accepted** a signal (`openclaw senpi state -r <id>-<inst>
    --json`), not just that it ticked. **Green = `scan` → signal → runtime-accepted, end to end.**
 
+## Wallets & concurrency — a new strategy NEVER blocks an existing one
+
+Every strategy (and every instance) runs on its **own isolated sub-wallet.** Deploying a new strategy
+**creates a fresh wallet** and funds it from the user's embedded wallet — it does **not** reuse, pause,
+or shut down anything the user is already running. So:
+
+- **Default to running it alongside.** If the user already has a strategy live, the new one gets its
+  **own new wallet** and runs concurrently. **Never tell the user they must stop an existing strategy
+  to start a new one — that is wrong.** "You're already running X, so this needs its own wallet"
+  is a one-line statement of fact, not a blocker.
+- **Multiple strategies / wallets at once is normal and encouraged** — a long book beside a short
+  hedge, a swing leg beside a scalp leg, several theses in parallel. Each is fully isolated (its own
+  wallet, slots, risk gates); they don't share margin or interfere. A "fund" that is one long
+  strategy + one short hedge is just **two instances / two wallets**, deployed and running together.
+- **Funding the new wallet** ($100/instance floor) comes from the embedded wallet at deploy. If the
+  embedded wallet is short on USDC because funds are in other strategies, **offer options** — deposit
+  more, or `strategy_withdraw_funds` from an existing strategy (it keeps running) and fund the new
+  one. Present these; never frame it as "shut down X first."
+
+The wallet creation + funding happens in the deploy step (`senpi-strategy-ops` `deploy.py create`
+makes one new wallet per instance). Authoring just designs the package; **concurrency is automatic.**
+
 ## Invariants (every guess in this system fails silently — hold these)
 
 - **`scan(inputs, ctx)` is read-only, pure, single-pass.** Return `[]` on any error. No daemon, no
