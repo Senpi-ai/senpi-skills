@@ -1,71 +1,121 @@
 ---
 name: senpi-strategy-author
 description: >-
-  Build or edit a Senpi trading strategy PACKAGE (scanner.py + runtime.yaml(s)
-  + strategy.yaml). Use when the user wants to create a new autonomous strategy
-  from scratch, clone/adapt an existing one, or tune an existing strategy's
-  scanner logic, runtime config, DSL exits, risk gates, or params. NOT for
-  installing/running a strategy (that's senpi-strategy-ops) or picking one to
-  install (that's senpi-strategy-discover).
+  Build a Senpi trading strategy from scratch — interactively, ONE decision at a
+  time. Use when the user wants to create, design, or build a new autonomous
+  strategy: "build a strategy", "help me build a trading strategy", "create a
+  strategy from scratch", "walk me through building a strategy", "design a
+  strategy", "I have a trading idea". DEFAULT behavior: ask the 7 design
+  decisions one question at a time, reflect each answer back, then assemble +
+  smoke-test the package. Also edits existing strategies. NOT for installing
+  (senpi-strategy-ops) or picking one to run (senpi-strategy-discover).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "2.0.0"
   platform: senpi
   exchange: hyperliquid
   requires:
     - senpi-trading-runtime
 ---
 
-# Senpi Strategy Author — build & edit strategy packages
+# Senpi Strategy Author — build a strategy *with* the user, one decision at a time
 
-A **strategy is a package**, not a skill:
+You build a strategy **by interviewing the user**, not by lecturing them. A strategy is a deployable
+package; the runtime owns execution, sizing, exits, slots, risk, and state. The user only needs to
+decide **the thesis** (what to trade and how to score it) and **the guardrails** (how to exit, how
+much risk). Your job is to draw those out, one question at a time, and compile them.
 
-```
-<id>/
-  scanner.py        # signal producer — emits signals only, never executes/exits, never hardcodes a wallet
-  runtime.yaml      # the deterministic runtime spec (one per instance): scanners, actions, DSL, risk
-  strategy.yaml     # the deploy declaration (single source of truth): id, version, catalog, instances[], params
-```
+## ▶ DEFAULT behavior — the rules of this conversation (do this every time)
 
-The `scanner.py` is authored against the `senpi_runtime_helpers` SDK (shipped in the
-`senpi-trading-runtime` infra skill): `SenpiClient`, `producer_daemon`, `push_signal`, and
-**`load_params()`** — the scanner reads every tunable from `strategy.yaml` `params`, and reads its
-wallet address from the env the installer injects. Never hand-roll MCP/daemon/loops; never read a
-`config/*.json` (that pattern is retired — `strategy.yaml params` is the only tunable source).
+1. **One question at a time. Never dump all 7 decisions, never paste the guide.** Ask → wait for the
+   answer → reflect it back → ask the next. A wall of seven questions is the failure mode this skill
+   exists to prevent.
+2. **Mine the opening ask first.** When the user states their idea, extract every decision they
+   *already* gave — including throwaway details ("rotate the cohort every 3 days" → that's the
+   **Memory** decision, a 3-day cohort cache). Pre-fill those; only ask what's still open. **Losing a
+   constraint from the first sentence is the #1 mistake** — write each one down as you hear it.
+3. **Reflect every answer in plain language + name what it implies** ("Derived/copy strategy → we'll
+   build the cohort from `discovery_get_top_traders`"). This confirms you understood and teaches the
+   user what their choice means.
+4. **Before writing any code, replay the FULL captured spec** (all 7 decisions + every opening
+   constraint) and get an explicit "yes." This is the checkpoint that catches a dropped detail — do
+   not skip it.
+5. **Then assemble → unit-test the math → smoke-test.** Only after the user confirms.
 
-## Build a new strategy (fast path)
+Deep mechanics, code skeletons, and a full worked example live in
+[`references/creating-a-strategy.md`](references/creating-a-strategy.md) — read it, but **drive the
+conversation from the script below**, don't read the guide *to* the user.
 
-1. **Pick an archetype** → `references/producer-patterns.md` (clone the named example package).
-2. **Read the build guide** → `references/strategy-creation.md` (the self-contained flow).
-3. **Write the package**: `scanner.py` (from the SDK skeleton) + `runtime.yaml` (per instance) +
-   `strategy.yaml`. Schemas:
-   - `strategy.yaml` → `references/strategy-yaml-schema.md`
-   - `runtime.yaml` → `references/yaml-schema.md`
-   - DSL exits → `references/dsl-configuration.md` + `references/dsl-presets.yaml`
-   - risk gates → `references/risk-gates.md`
-   - signal wire format → `references/signal-schema.md`
-   - worked examples → `references/strategy-examples.md`, `references/momentum-guarded-strategy.md`
-4. **Validate** → `python3 senpi-strategy-author/scripts/validate_strategy.py <package-dir>` (0 errors).
-5. **Install** is a separate step owned by **senpi-strategy-ops** (`install_strategy`).
+## The 7 decisions — your question script (ask in order, ONE at a time)
 
-## Edit / improve an existing strategy
+For each: ask the question, offer the options as plain choices, then map the answer to the package.
 
-Editing draws on the same references as authoring. Common edits:
-- **Tune thresholds / asset sets / leverage** → change `strategy.yaml` `params` (the scanner reads
-  them via `load_params()`; no code change). Re-validate.
-- **Change exits** → `runtime.yaml` `dsl_preset` (see `references/dsl-configuration.md`).
-- **Change risk caps** → `runtime.yaml` `risk.guard_rails` (see `references/risk-gates.md`).
-- **Change signal logic** → `scanner.py` (the algorithm; keep it signal-only).
+1. **Universe — "What should it watch and trade?"**
+   A) one asset · B) a fixed basket you name · C) dynamic (scan everything, filter by volume) ·
+   D) derived (trade what the best traders / a cohort hold). → sets how `scan()` builds its list.
+2. **Data — "What does it read to decide?"**
+   candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · smart-money
+   (`leaderboard_*` / `discovery_*`) · cross-asset flow. → the `call_tool`s in `scan()`.
+3. **Edge — "What's the actual signal?"**
+   trend-follow · mean-revert · breakout · relative-strength · copy/follow · **cohort-divergence**
+   (smart money vs the crowd) · event/new-listing · macro-thesis. → the math in `scoring.py`.
+4. **Shape — "Long, short, or both?"**
+   long-only / short-only / mixed-on-one-wallet = **1 instance**; independent long + short books or
+   different cadences = **multiple instances** (each its own wallet + `funding_share`).
+5. **Cardinality — "One best trade at a time, or several?"**
+   single best pick (`slots: 1`) · a gated portfolio (`slots: 3–6`, runtime caps it). Add
+   `max_entries_per_day` if they want a pace limit.
+6. **Memory — "Does it need to remember anything between scans?"**
+   none · signal-dedup (don't re-fire the same name) · first-seen ledger (catch new listings) ·
+   rolling history · **pool/cohort cache with a refresh cadence** ← *this is where "rotate every N
+   days" lives* — a cached cohort in `ctx.state`, rebuilt every N days. Always ask this if the idea
+   involved a cohort, leaderboard, or "rotate/refresh."
+7. **Exit & Risk — "How should it exit, and what's the risk appetite?"** Offer the DSL presets:
+   `let_winners_run` (wide; rides to +100%, protect both sides) · `balanced` (default) ·
+   `mean_reversion` (tight, locks early — for faders) · `scalp` (HFT) · `parabolic_runner` (scalpel).
+   Then set guard rails (`drawdown_halt_pct`, `daily_loss_limit_pct`) sized to the style, and cadence
+   (`interval_seconds`). **Never hand-roll stops — copy a preset from `references/dsl-presets.yaml`.**
 
-After any edit, run the validator, then re-run `install_strategy` (idempotent) via senpi-strategy-ops.
+## After the 7 — confirm, assemble, smoke-test
 
-## Invariants (the validator enforces these)
+1. **Replay the full spec** (name + thesis + all 7 + opening constraints) → get a "yes." *("You said
+   rotate the cohort every 3 days — that's in.")*
+2. **Assemble the package** — match the idea to an archetype row in `references/creating-a-strategy.md`,
+   then write: `scoring.py` (pure math) · `<instance>/scanners/scan.py` (read-only, emits `marginPct`
+   intent) · `runtime.yaml` (inputs, entry action, DSL preset, risk gates) · `strategy.yaml` (catalog
+   facets from the glossary).
+3. **Unit-test `scoring.py`** on sample candles (it's pure — no mocks needed).
+4. **Validate** → `python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>` (0 errors).
+5. **Smoke-test (hand to `senpi-strategy-ops`):** dry-run → run `scan()` once on live read-only MCP →
+   tiny deploy → confirm the runtime **accepted** a signal (`openclaw senpi state -r <id>-<inst>
+   --json`), not just that it ticked. **Green = `scan` → signal → runtime-accepted, end to end.**
 
-- A strategy is a package; it is **not** a skill and carries no `SKILL.md` / attribution file.
-- `strategy.yaml` `id` == package directory name; `version` is the single source for catalog +
-  attribution (`strategy_id` / `strategy_version`).
-- Each instance's `scanner.name` matches an `external_scanner` in its `runtime.yaml`; its `wallet_env`
-  appears as `${…}` in that `runtime.yaml`.
-- `params` is the only tunable source — the scanner reads it via `load_params()`; no second copy.
-- The runtime package is **`@senpi-ai/runtime`** (with `-ai`) — never `@senpi/runtime`.
+## Invariants (every guess in this system fails silently — hold these)
+
+- **`scan(inputs, ctx)` is read-only, pure, single-pass.** Return `[]` on any error. No daemon, no
+  `push_signal`, no `sleep`, no file writes, no wallet hardcoding.
+- **Emit a `marginPct` *intent*, not dollars** — top-level, not inside `data{}`. The runtime sizes the
+  dollars off the live account; don't read the clearinghouse to size.
+- **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests.
+- **Memory = `ctx.state`** (`.last()/.recent()/.append()`); set `state_history_max_count` > 0. Cohort
+  rotation, dedup, and first-seen ledgers all live here.
+- **Exits = a named DSL preset**, copied from `references/dsl-presets.yaml`, change ≤1 field.
+  `max_loss_pct`/`retrace_threshold` are **ROE % (margin), not price %**.
+- **Catalog facets from the glossary** (`senpi-strategy-discover/references/glossary.yaml`):
+  `archetype` is a closed set of 6; `asset_classes` is the one field the engine hard-filters on; the
+  free-text **`thesis`** is the only worldview hook (how "run me a hedge fund" finds the strategy).
+- **Anchor every `call_tool` on the published MCP I/O reference** — a guessed tool name, interval
+  string, or output field is a scanner that ticks clean and emits nothing.
+
+## Editing an existing strategy
+
+Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thresholds/sizing), swap
+the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then
+re-smoke-test if you touched `scan.py`/`runtime.yaml`.
+
+## Handoff
+
+Authoring produces the package only. **Deploy/monitor/close is `senpi-strategy-ops`** — hand off the
+`id` once the smoke test is green. Attribution (`skillName`/`skillVersion`) is set by ops from
+`strategy.yaml` `id`/`version`.
