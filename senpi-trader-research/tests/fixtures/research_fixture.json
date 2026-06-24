@@ -1,0 +1,17 @@
+{
+  "discovery_get_top_traders": {"traders": [
+    {"address": "0xpro", "shortAddress": "0xpro…aaaa", "returnOnInvestment": 62.0, "profitAndLoss": 12000, "winRate": 58.0, "maxDrawdown": -18.0, "totalTrades": 140, "activeDays": 90, "consistency": "ELITE", "risk": "BALANCED", "activity": "TACTICAL"},
+    {"address": "0xstreak", "shortAddress": "0xstr…bbbb", "returnOnInvestment": 210.0, "profitAndLoss": 8000, "winRate": 66.0, "maxDrawdown": -40.0, "totalTrades": 6, "activeDays": 4, "consistency": "STREAKY", "risk": "SNIPER", "activity": "DEGEN"},
+    {"address": "0xsolid", "shortAddress": "0xsol…cccc", "returnOnInvestment": 31.0, "profitAndLoss": 4000, "winRate": 54.0, "maxDrawdown": -12.0, "totalTrades": 80, "activeDays": 45, "consistency": "RELIABLE", "risk": "CONSERVATIVE", "activity": "PATIENT"}
+  ]},
+  "discovery_get_trader_state::0xpro": {"traders": [
+    {"marginPercentage": 84, "crossMarginSummary": {"accountValue": "20000"}, "openPositions": [
+      {"coin": "BTC", "szi": 0.8, "positionValue": 50000, "unrealizedPnl": 1200, "returnOnEquity": 0.10},
+      {"coin": "ETH", "szi": -2, "positionValue": 3000, "unrealizedPnl": -100, "returnOnEquity": -0.03}
+    ]}
+  ]},
+  "leaderboard_get_trader::0xpro": {"rank": 12, "deltaPnl": 850, "activePositions": 2},
+  "discovery_get_top_strategies": {"strategies": [
+    {"strategyWalletAddress": "0xstrat", "traderAddress": "0xogtrader", "totalPnl": 5000, "realizedPnl": 3000, "returnPercentage": 25.0, "followers": 40, "ageDays": 60}
+  ]}
+}
