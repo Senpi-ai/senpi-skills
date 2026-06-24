@@ -262,12 +262,11 @@ def cmd_runtime(pkg, a, log):
         # and recreate. Self-heals the "already exists" / "wallet CLOSED" collisions.
         existing = _cli.find_runtime(inst.runtime_name)
         if existing:
-            rt_wallet = str(_cli.runtime_wallet(existing) or "").lower()
-            if rt_wallet == str(wallet).lower():
+            if _cli.wallet_match(_cli.runtime_wallet(existing), wallet):
                 s.update(status="registered", error=None)
                 save_state(pkg, st)
                 continue
-            log(f"  [{inst.name}] stale runtime {inst.runtime_name!r} (wallet {rt_wallet[:8] or '?'}…) — deleting")
+            log(f"  [{inst.name}] stale runtime {inst.runtime_name!r} (wallet mismatch) — deleting")
             _cli.run_cli(["openclaw", "senpi", "runtime", "delete", inst.runtime_name], timeout=60)
         build.write_text(text)
         log(f"  [{inst.name}] runtime create…")

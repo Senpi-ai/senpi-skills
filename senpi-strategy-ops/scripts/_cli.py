@@ -8,6 +8,7 @@ spellings and degrades gracefully (returns None / []) rather than throwing on a 
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import json
 import os
+import re
 import subprocess
 
 
@@ -95,13 +96,55 @@ def find_list(obj, *wrapper_keys):
 
 # ---- runtime lookups (openclaw senpi runtime ...) ----
 
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+
+
+def _strip_ansi(s):
+    return _ANSI.sub("", s)
+
+
+def wallet_match(a, b):
+    """Compare two wallet strings, tolerating the truncated `0xabc…wxyz` / `0xabc...wxyz` form that
+    `runtime list` prints in a TTY (full addresses when piped). Case-insensitive."""
+    if not a or not b:
+        return False
+    a, b = str(a).strip().lower(), str(b).strip().lower()
+    if a == b:
+        return True
+    for x, y in ((a, b), (b, a)):
+        for sep in ("...", "…"):
+            if sep in x:
+                pre, _, suf = x.partition(sep)
+                if pre and suf and y.startswith(pre) and y.endswith(suf):
+                    return True
+    return False
+
+
 def list_runtimes():
-    """Running runtimes, via `senpi status --json` → statuses[]. NOTE: `runtime list` has no --json on
-    runtime v3 (it's human-text only), and `status` lists exactly the RUNNING runtimes — which is what
-    every caller here wants (idempotency, close-stop, fleet health). `state --json` is the heavier
-    fallback shape."""
-    obj = cli_json(["openclaw", "senpi", "status", "--json"])
-    return find_list(obj, "statuses", "runtimes")
+    """All runtimes (running AND stopped) by parsing `runtime list` text. NOTE on runtime v3: `runtime
+    list` has no --json (human text only), and `status --json` is *flaky* — it transiently returns an
+    empty `statuses[]` even while runtimes are running — so it is NOT a reliable inventory. The text
+    table (id / wallet / source / status) is authoritative; use `status -r <id>` only for health."""
+    rc, out, _err = run_cli(["openclaw", "senpi", "runtime", "list"])
+    if rc != 0:
+        return []
+    rows, seen_header = [], False
+    for line in out.splitlines():
+        line = _strip_ansi(line).strip()
+        if not line:
+            continue
+        low = line.lower()
+        if not seen_header:
+            if low.startswith("id") and "status" in low and "wallet" in low:
+                seen_header = True
+            continue
+        if "no runtimes" in low:
+            break
+        parts = [p for p in re.split(r"\s{2,}|\t+", line) if p]
+        if len(parts) >= 2:
+            rows.append({"name": parts[0], "wallet": parts[1],
+                         "source": parts[2] if len(parts) > 2 else None, "status": parts[-1]})
+    return rows
 
 
 def runtime_name(rt):
@@ -109,7 +152,9 @@ def runtime_name(rt):
 
 
 def runtime_wallet(rt):
-    return dig(rt, "address", "wallet", "walletAddress", "strategyWalletAddress", "strategyWallet")
+    # text-list entries carry "wallet" directly; `status -r` entries nest it under components — deep search.
+    w = dig(rt, "wallet", "address", "walletAddress", "strategyWalletAddress", "strategyWallet")
+    return w or _deep_first(rt, ["address", "wallet", "walletAddress", "strategyWalletAddress"])
 
 
 def runtime_running(rt):
@@ -119,10 +164,7 @@ def runtime_running(rt):
     s = str(st).lower()
     if s in ("running", "active", "live", "ok", "true", "healthy", "degraded"):
         return True
-    if s in ("stopped", "inactive", "unhealthy", "failed", "down", "false"):
-        return False
-    # `status --json` only ever lists RUNNING runtimes — if it carries a runtime id, treat it as running.
-    return runtime_name(rt) is not None
+    return False
 
 
 def find_runtime(name):
@@ -133,13 +175,12 @@ def find_runtime(name):
 
 
 def find_runtime_by_wallet(wallet):
-    """Find a live runtime bound to a wallet address (close maps strategy→runtime by wallet,
-    so it doesn't depend on the runtime name)."""
+    """Find a runtime bound to a wallet address (close maps strategy→runtime by wallet,
+    so it doesn't depend on the runtime name). Tolerates truncated TTY wallets."""
     if not wallet:
         return None
-    w = str(wallet).lower()
     for rt in list_runtimes():
-        if str(runtime_wallet(rt) or "").lower() == w:
+        if wallet_match(runtime_wallet(rt), wallet):
             return rt
     return None
 
@@ -163,8 +204,14 @@ def _deep_first(obj, keys):
 
 
 def runtime_status(name, timeout=15):
-    """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None)."""
-    return cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
+    """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None).
+    The gateway intermittently returns an empty statuses[] for a running runtime, so retry a few times."""
+    obj = None
+    for _ in range(4):
+        obj = cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
+        if obj and find_list(obj, "statuses"):
+            return obj
+    return obj
 
 
 def health_verdict(status_json):
@@ -187,6 +234,8 @@ def active_positions(status_json):
     if isinstance(n, bool):
         return None
     if isinstance(n, (int, float)):
+        return int(n)
+    if isinstance(n, str) and n.strip().lstrip("-").isdigit():  # the gateway stringifies numbers
         return int(n)
     if isinstance(n, list):
         return len(n)

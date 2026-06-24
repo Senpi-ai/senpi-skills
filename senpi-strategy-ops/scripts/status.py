@@ -46,17 +46,16 @@ def _funded(strat):
 def build(mcp, only_pkg=None, deep=True):
     opens = [s for s in _cli.list_strategies(mcp) if _cli.strategy_open(s)]
     runtimes = _cli.list_runtimes()
-    rt_by_wallet = {str(_cli.runtime_wallet(r) or "").lower(): r for r in runtimes}
-    matched = set()
+    matched_rt = set()  # runtime names already matched to a strategy
     rows = []
     for s in opens:
         skill = _cli.strategy_skill(s)
         if only_pkg and skill != only_pkg:
             continue
         wallet = str(_cli.strategy_wallet(s) or "")
-        rt = rt_by_wallet.get(wallet.lower())
+        rt = next((r for r in runtimes if _cli.wallet_match(_cli.runtime_wallet(r), wallet)), None)
         if rt:
-            matched.add(wallet.lower())
+            matched_rt.add(_cli.runtime_name(rt))
         # A strategy with no runtime is NOT inherently broken — it's just not an autonomous runtime
         # strategy. Explain it by type: copy-trading (follows a trader, run by the copy engine) or manual
         # (managed in the app). Only an autonomous PACKAGE strategy (skillName, no trader) is expected to
@@ -83,7 +82,7 @@ def build(mcp, only_pkg=None, deep=True):
     # runtimes with no matching OPEN strategy (orphans — trading nothing / on a gone wallet)
     orphans = [{"runtime": _cli.runtime_name(r), "wallet": _cli.runtime_wallet(r),
                 "running": _cli.runtime_running(r)}
-               for r in runtimes if str(_cli.runtime_wallet(r) or "").lower() not in matched
+               for r in runtimes if _cli.runtime_name(r) not in matched_rt
                and (not only_pkg or str(_cli.runtime_name(r) or "").startswith(only_pkg + "-"))]
     return rows, orphans
 
