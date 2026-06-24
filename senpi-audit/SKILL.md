@@ -3,8 +3,8 @@ name: senpi-audit
 description: >-
   Answer "what happened?" — review the user's recent Senpi activity, a single
   strategy's change history, or investigate failures. Use for "what did my
-  strategy do", "what happened yesterday", "show my activity", "why did that
-  fail", "audit my account", "what trades were made", "recent actions". A
+  strategy do", "change history for my strategy", "what happened yesterday",
+  "show my activity", "why did that fail", "what trades were made". A
   hidden engine (scripts/audit.py) pulls and normalizes the audit trail; you
   summarize it. Requires a USER-scoped Senpi token. Not for live positions
   (senpi-portfolio) or market data (senpi-market-pulse).
@@ -37,8 +37,15 @@ strategy) did, and why, with failures surfaced.
 ## How to run
 
 ```
-python3 scripts/audit.py [--strategy <id>] [--failures] [--tool <name>]
+python3 scripts/audit.py                     # recent activity (default)
+python3 scripts/audit.py --strategy <id>     # one strategy's change/mutation history
+python3 scripts/audit.py --failures          # only failed operations (debugging)
+python3 scripts/audit.py --tool <name>       # filter to one tool
 ```
+
+> **"Change history for my *named* strategy"** ("cub-short", "the long book") → `--strategy <id>`. The
+> user names it; **resolve the name to its `strategyId` first via `strategy_list`**, then pass that id
+> to `--strategy`. ("history of my strategy", "what did cub-short do", "audit my strategy" all → this.)
 
 Returns `{entries, summary, meta}`:
 - `entries[]` — `time`, `action_type` (read/create/update/delete), `tool`, `success`, `resource`,
