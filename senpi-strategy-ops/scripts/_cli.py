@@ -204,14 +204,20 @@ def _deep_first(obj, keys):
 
 
 def runtime_status(name, timeout=15):
-    """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None).
-    The gateway intermittently returns an empty statuses[] for a running runtime, so retry a few times."""
-    obj = None
-    for _ in range(4):
-        obj = cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
-        if obj and find_list(obj, "statuses"):
-            return obj
-    return obj
+    """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None)."""
+    return cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
+
+
+def runtime_health_map(timeout=15):
+    """Health for ALL running runtimes in ONE `status --json` call, keyed by runtime name. One CLI
+    invocation regardless of fleet size (each openclaw call pays ~2-3s plugin-load startup, so per-runtime
+    calls are the slow path). The gateway is flaky-empty, so retry the single call twice."""
+    for _ in range(2):
+        obj = cli_json(["openclaw", "senpi", "status", "--json"], timeout)
+        sts = find_list(obj, "statuses") if obj else []
+        if sts:
+            return {runtime_name(e): e for e in sts}
+    return {}
 
 
 def health_verdict(status_json):
@@ -244,9 +250,12 @@ def active_positions(status_json):
 
 # ---- strategy lookups (MCP strategy_list) ----
 
-def list_strategies(mcp, timeout=15):
+def list_strategies(mcp, timeout=15, statuses=None):
+    """strategy_list. Pass `statuses` to filter server-side (much smaller payload than fetching a long
+    closed/failed history — strategy_list with no filter can return many dozens of records)."""
+    args = {"status": statuses} if statuses else {}
     try:
-        res = mcp.mcp_call("strategy_list", timeout=timeout)
+        res = mcp.mcp_call("strategy_list", timeout=timeout, **args)
     except Exception:  # noqa: BLE001 — degrade to empty on transport error
         return []
     return find_list(res, "strategies")

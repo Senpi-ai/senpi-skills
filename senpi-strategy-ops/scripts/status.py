@@ -43,9 +43,16 @@ def _funded(strat):
     return f"${float(v):g}" if isinstance(v, (int, float)) else "?"
 
 
+# Live (non-terminal) statuses — filtered server-side so we don't pull a long closed/failed history.
+_LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZE_POSITIONS",
+                  "SUBSCRIBE_TRADER", "CLOSING_POSITIONS"]
+
+
 def build(mcp, only_pkg=None, deep=True):
-    opens = [s for s in _cli.list_strategies(mcp) if _cli.strategy_open(s)]
+    opens = [s for s in _cli.list_strategies(mcp, statuses=_LIVE_STATUSES) if _cli.strategy_open(s)]
     runtimes = _cli.list_runtimes()
+    # ONE status --json for the whole fleet — only when runtimes actually exist (skip the flaky call otherwise)
+    health_by_name = _cli.runtime_health_map() if (deep and runtimes) else {}
     matched_rt = set()  # runtime names already matched to a strategy
     rows = []
     for s in opens:
@@ -63,10 +70,10 @@ def build(mcp, only_pkg=None, deep=True):
         positions = None
         if rt and _cli.runtime_running(rt):
             health = "running"
-            if deep:  # upgrade process-level "running" to the runtime's own verdict (+ positions)
-                sj = _cli.runtime_status(_cli.runtime_name(rt))
-                health = _cli.health_verdict(sj) or "running"
-                positions = _cli.active_positions(sj)
+            entry = health_by_name.get(_cli.runtime_name(rt))  # from the single fleet-wide status --json
+            if entry:  # upgrade process-level "running" to the runtime's own verdict (+ positions)
+                health = _cli.health_verdict(entry) or "running"
+                positions = _cli.active_positions(entry)
         elif rt:
             health = "runtime-stopped"
         elif _cli.strategy_trader(s):
