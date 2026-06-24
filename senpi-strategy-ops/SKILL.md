@@ -122,11 +122,13 @@ with `--dry-run` first.
 
 **"What strategies am I running?" / "list my strategies" / "is my fleet healthy?"** →
 `python3 scripts/status.py` (add `<id>` to filter). It's the single source of truth: it reads live
-`strategy_list` ∪ `runtime list` (NOT the ephemeral deploy state) and classifies every OPEN strategy —
-**running** (ACTIVE + live runtime), **no-runtime** (ACTIVE package strategy with NO runtime → funded but
-idle, with the fix command), **runtime-stopped**, or **external** (copy/manual strategy, no runtime
-expected) — and flags **orphan runtimes**. `--json` for a machine-readable view. Do **not** answer this by
-hand-composing raw `strategy_list` — use `status.py` so the package grouping + runtime health are consistent.
+`strategy_list` ∪ `runtime list` (NOT the ephemeral deploy state), and for each running leg calls
+`openclaw senpi status -r <id>` to upgrade process-level "running" to the runtime's **own health verdict**
+(**healthy / degraded / unhealthy**) plus **active-position count**. Classes: healthy/degraded/unhealthy,
+**no-runtime** (ACTIVE package strategy with NO runtime → funded but idle, with the fix command),
+**runtime-stopped**, **external** (copy/manual strategy, no runtime expected) — plus a list of **orphan
+runtimes**. `--fast` skips the per-runtime health call (just running/stopped); `--json` for machine output.
+Do **not** answer this by hand-composing raw `strategy_list` — use `status.py`.
 
 Do **not** trust "runtime: running" alone. A strategy is **live** only when its runtime is running AND
 each instance's `external_scanner` has a recent successful tick (`status.py` reports `running`; confirm a

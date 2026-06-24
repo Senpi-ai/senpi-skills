@@ -7,11 +7,14 @@
 
 Reads live truth (MCP strategy_list ∪ openclaw runtime list) — NOT the ephemeral deploy state. For each
 OPEN strategy it classifies the runtime:
-  running          — ACTIVE strategy + a live runtime (actually trading)
+  healthy/degraded/unhealthy — ACTIVE strategy + live runtime, upgraded from process-level "running" to
+                               the runtime's OWN verdict via `openclaw senpi status -r <id>` (+ position
+                               count). `--fast` skips this per-runtime call and just reports `running`.
   runtime-stopped  — ACTIVE strategy + runtime exists but not running
   no-runtime       — ACTIVE strategy with NO runtime → funded but IDLE (orphaned, or never `runtime`'d)
-and separately flags orphan runtimes (a runtime with no open strategy). `running` ≠ ticking — use
-`deploy.py verify <id>` to confirm scanners have fired.
+  external         — copy/manual strategy (no skillName); no runtime expected, not flagged
+and separately flags orphan runtimes (a runtime with no open strategy). `healthy` ≠ a confirmed scanner
+tick — use `deploy.py verify <id>` for that.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -24,7 +27,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
 from _mcp import MCPClient  # noqa: E402
 
-_ICON = {"running": "✅", "runtime-stopped": "⚠", "no-runtime": "⚠", "external": "·"}
+_ICON = {"healthy": "✅", "running": "✅", "degraded": "⚠", "unhealthy": "❌",
+         "runtime-stopped": "⚠", "no-runtime": "⚠", "external": "·"}
+_OK = ("healthy", "running")
 
 
 def _funded(strat):
@@ -32,7 +37,7 @@ def _funded(strat):
     return f"${float(v):g}" if isinstance(v, (int, float)) else "?"
 
 
-def build(mcp, only_pkg=None):
+def build(mcp, only_pkg=None, deep=True):
     opens = [s for s in _cli.list_strategies(mcp) if _cli.strategy_open(s)]
     runtimes = _cli.list_runtimes()
     rt_by_wallet = {str(_cli.runtime_wallet(r) or "").lower(): r for r in runtimes}
@@ -48,17 +53,22 @@ def build(mcp, only_pkg=None):
             matched.add(wallet.lower())
         # Only PACKAGE strategies (skillName set) run on a Senpi runtime; a copy/manual strategy with no
         # runtime is normal ("external"), NOT idle/broken.
+        positions = None
         if not skill:
             health = "external"
         elif not rt:
             health = "no-runtime"
         elif _cli.runtime_running(rt):
             health = "running"
+            if deep:  # upgrade process-level "running" to the runtime's own health verdict (+ positions)
+                sj = _cli.runtime_status(_cli.runtime_name(rt))
+                health = _cli.health_verdict(sj) or "running"
+                positions = _cli.active_positions(sj)
         else:
             health = "runtime-stopped"
         rows.append({"package": skill or "(copy / manual)", "is_pkg": bool(skill),
                      "strategyId": _cli.strategy_id_of(s), "wallet": wallet,
-                     "status": _cli.strategy_status(s), "funded": _funded(s),
+                     "status": _cli.strategy_status(s), "funded": _funded(s), "positions": positions,
                      "runtime": _cli.runtime_name(rt) if rt else None, "health": health})
     # runtimes with no matching OPEN strategy (orphans — trading nothing / on a gone wallet)
     orphans = [{"runtime": _cli.runtime_name(r), "wallet": _cli.runtime_wallet(r),
@@ -71,10 +81,12 @@ def build(mcp, only_pkg=None):
 def main(argv):
     ap = argparse.ArgumentParser(description="List the strategies you're running + their runtime health.")
     ap.add_argument("package", nargs="?", help="Filter to one strategy id (e.g. spider).")
+    ap.add_argument("--fast", action="store_true",
+                    help="Skip the per-runtime health check (status -r) — just running/stopped from the list.")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
 
-    rows, orphans = build(MCPClient(), a.package)
+    rows, orphans = build(MCPClient(), a.package, deep=not a.fast)
 
     if a.json:
         print(json.dumps({"strategies": rows, "orphan_runtimes": orphans}, indent=2))
@@ -87,10 +99,13 @@ def main(argv):
     by_pkg = defaultdict(list)
     for r in rows:
         by_pkg[r["package"]].append(r)
-    running = sum(1 for r in rows if r["health"] == "running")
+    running = sum(1 for r in rows if r["health"] in _OK)
     idle = [r for r in rows if r["health"] == "no-runtime"]
+    sick = [r for r in rows if r["health"] in ("degraded", "unhealthy", "runtime-stopped")]
     ext = sum(1 for r in rows if r["health"] == "external")
     bits = [f"{running} running"]
+    if sick:
+        bits.append(f"{len(sick)} degraded")
     if idle:
         bits.append(f"{len(idle)} funded-but-idle")
     if ext:
@@ -100,8 +115,14 @@ def main(argv):
         print(f"\n{pkg}")
         for r in by_pkg[pkg]:
             rt = r["runtime"] or "(none)"
+            pos = f"  {r['positions']} pos" if isinstance(r.get("positions"), int) else ""
             print(f"  {_ICON.get(r['health'], ' ')} {r['health']:<15} {rt:<16} "
-                  f"{r['wallet'][:10]}…  {r['funded']:>8}  [{(r['strategyId'] or '')[:8]}]")
+                  f"{r['wallet'][:10]}…  {r['funded']:>8}  [{(r['strategyId'] or '')[:8]}]{pos}")
+    if sick:
+        print("\n⚠ Degraded (runtime up but not operating cleanly):")
+        for r in sick:
+            print(f"  - {r['package']} {r['runtime'] or ''} → "
+                  f"`openclaw senpi status -r {r['runtime']}` / `deploy.py verify {r['package']}` to triage")
     if idle:
         print("\n⚠ Funded but NOT trading (ACTIVE strategy, no runtime):")
         for r in idle:

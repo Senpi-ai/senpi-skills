@@ -134,6 +134,55 @@ def find_runtime_by_wallet(wallet):
     return None
 
 
+def _deep_first(obj, keys):
+    """Deep-search a nested obj for the first value under any of `keys` (case-insensitive)."""
+    if isinstance(obj, dict):
+        v = dig(obj, *keys)
+        if v is not None:
+            return v
+        for x in obj.values():
+            r = _deep_first(x, keys)
+            if r is not None:
+                return r
+    elif isinstance(obj, list):
+        for x in obj:
+            r = _deep_first(x, keys)
+            if r is not None:
+                return r
+    return None
+
+
+def runtime_status(name, timeout=15):
+    """`openclaw senpi status -r <name> --json` — lightweight per-runtime health (or None)."""
+    return cli_json(["openclaw", "senpi", "status", "-r", name, "--json"], timeout)
+
+
+def health_verdict(status_json):
+    """Map a `senpi status` payload to healthy | degraded | unhealthy | None (shape-tolerant)."""
+    h = _deep_first(status_json, ["overallHealth", "health", "overall", "status"])
+    h = str(h).lower() if h is not None else None
+    if h in ("healthy", "ok", "running", "live", "true"):
+        return "healthy"
+    if h in ("degraded", "warn", "warning"):
+        return "degraded"
+    if h in ("unhealthy", "failed", "error", "down", "false"):
+        return "unhealthy"
+    return None
+
+
+def active_positions(status_json):
+    """Best-effort active-position count from a `senpi status` payload (None if not found)."""
+    n = _deep_first(status_json, ["activePositions", "activePositionCount", "openPositions",
+                                  "positionCount", "numPositions", "positions"])
+    if isinstance(n, bool):
+        return None
+    if isinstance(n, (int, float)):
+        return int(n)
+    if isinstance(n, list):
+        return len(n)
+    return None
+
+
 # ---- strategy lookups (MCP strategy_list) ----
 
 def list_strategies(mcp, timeout=15):

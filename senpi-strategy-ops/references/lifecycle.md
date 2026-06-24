@@ -84,21 +84,24 @@ Per strategy:
 Close **always** closes the strategy (it never just stops the runtime). `--instance` scopes which leg(s)
 to close.
 
-## `status.py [<id>] [--json]` — "what am I running?"
+## `status.py [<id>] [--fast] [--json]` — "what am I running?"
 
 The single source of truth for the running fleet. Reads **live** `strategy_list` ∪ `openclaw runtime
-list` (never the ephemeral deploy state), matches strategies to runtimes **by wallet**, and classifies
-each OPEN strategy:
+list` (never the ephemeral deploy state), matches strategies to runtimes **by wallet**, and for each
+running leg calls **`openclaw senpi status -r <id>`** to upgrade process-level "running" to the runtime's
+own verdict + active-position count. Classes:
 
-- **running** — ACTIVE strategy + a live runtime (confirm a scanner tick with `deploy.py verify <id>`).
+- **healthy / degraded / unhealthy** — ACTIVE strategy + live runtime, per the runtime's `status` health
+  (`healthy` ≠ a confirmed scanner tick — use `deploy.py verify <id>` for that; degraded prints a triage hint).
 - **no-runtime** — ACTIVE *package* strategy (has `skillName`) with **no runtime** → funded but idle;
   printed with the fix (`deploy.py runtime <id>` to start, or `close.py <id>` to recover funds).
 - **runtime-stopped** — ACTIVE + runtime exists but not running.
 - **external** — copy/manual strategy (no `skillName`); no runtime expected, so it is **not** flagged.
 
-It also lists **orphan runtimes** (a runtime with no OPEN strategy → safe to `runtime delete`). Grouped by
-package; `<id>` filters to one. Answer "what strategies am I running / list my strategies / is my fleet
-healthy" with this, not by hand-composing `strategy_list`.
+`--fast` skips the per-runtime `status` call (one per running leg) and reports plain `running`. It also
+lists **orphan runtimes** (a runtime with no OPEN strategy → safe to `runtime delete`). Grouped by
+package; `<id>` filters. Answer "what am I running / list my strategies / is my fleet healthy" with this,
+not by hand-composing `strategy_list`.
 
 ## Runtime CLI surface used (from `senpi-trading-runtime/references/runtime-cli.md`)
 
