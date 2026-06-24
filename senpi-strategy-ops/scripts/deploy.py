@@ -38,6 +38,8 @@ POLL_HTTP_TIMEOUT = 15  # HTTP timeout for fast read polls
 DEFAULT_MAX_WAIT = 150  # per-call poll budget (s) — stays under the ~180s tool timeout
 VERIFY_BUFFER = 120
 POLL_EVERY = 10
+FEE_BUFFER = 1.5        # USDC reserved per wallet for the creation fee (observed ~$1)
+MIN_WALLET = 100.0      # platform minimum per strategy wallet
 ORDER = ("pending", "creating", "active", "registered", "live")
 
 
@@ -74,12 +76,43 @@ def save_state(pkg, st):
     _state_path(pkg).write_text(json.dumps(st, indent=2) + "\n")
 
 
+def delete_state(pkg):
+    """Remove the ephemeral deploy state — called once a deploy is fully live, or on close."""
+    p = _state_path(pkg)
+    try:
+        p.unlink()
+    except OSError:
+        pass
+
+
 def inst_state(st, name):
     return st["instances"].setdefault(name, {"status": "pending"})
 
 
-def wallet_amount(budget, share):
-    return max(100.0, round((budget or 0) * (share if share is not None else 1.0), 2))
+def available_usd(mcp):
+    """Free USDC the create call funds from (Hyperliquid perps). None if unreadable → caller falls
+    back to the requested budget."""
+    try:
+        res = mcp.mcp_call("account_get_portfolio", timeout=POLL_HTTP_TIMEOUT)
+    except MCPError:
+        return None
+    port = _cli.dig(_cli.dig(res, "data", default={}) or {}, "portfolio", default={}) or {}
+    avail = _cli.dig(port, "total_in_hyperliquid", "total_withdrawable")
+    return float(avail) if isinstance(avail, (int, float)) else None
+
+
+def plan_funding(need, budget, available):
+    """Per-instance initialBudget for the instances still needing a wallet. Splits the requested
+    budget by funding_share, but caps the TOTAL at the live available balance minus a per-wallet fee
+    buffer (so sequential funding + creation fees can't leave a later leg $1 short). Floors at MIN_WALLET."""
+    raw = {i.name: max(MIN_WALLET, round((budget or 0) * (i.funding_share or (1.0 / len(need))), 2)) for i in need}
+    total = sum(raw.values())
+    if available is not None:
+        cap = max(0.0, available - FEE_BUFFER * len(need))
+        if total > cap and total > 0:
+            scale = cap / total
+            raw = {n: max(MIN_WALLET, round(a * scale, 2)) for n, a in raw.items()}
+    return raw
 
 
 def report(pkg, st, overall, note=None, as_json=False):
@@ -108,12 +141,28 @@ def cmd_create(pkg, a, log):
         for inst in pkg.instances:
             s = inst_state(st, inst.name)
             s.setdefault("status", "pending")
-            s["plan"] = f"strategy_create_custom_strategy(${wallet_amount(a.budget, inst.funding_share):g}, skillName={pkg.id}, skillVersion={pkg.version})"
+            intended = max(MIN_WALLET, round((a.budget or 0) * (inst.funding_share or 1.0), 2))
+            s["plan"] = f"strategy_create_custom_strategy(~${intended:g} capped to live balance, skillName={pkg.id}, skillVersion={pkg.version})"
         return report(pkg, st, "planned", as_json=a.json)
     if a.budget is None:
         raise SystemExit("error: --budget <total> is required for `create`")
 
     mcp = MCPClient()
+
+    # Reconcile recorded strategies against the backend — drop any that aren't ACTIVE so we never
+    # reuse a CLOSED wallet or get stuck on a FAILED one. Self-heals stale state; no manual editing.
+    for inst in pkg.instances:
+        s = inst_state(st, inst.name)
+        sid = s.get("strategyId")
+        if not sid:
+            continue
+        m = _cli.strategies_for(mcp, strategy_id=sid, timeout=POLL_HTTP_TIMEOUT)
+        status = str(_cli.strategy_status(m[0]) if m else "").upper()
+        if status != "ACTIVE":
+            log(f"  [{inst.name}] recorded strategy {sid[:8]} is {status or 'gone'} — discarding, will recreate")
+            st["instances"][inst.name] = {"status": "pending"}
+    save_state(pkg, st)
+
     # Safety: refuse if there are skillName==id strategies we never recorded (interrupted run) — do
     # NOT blindly fund duplicates. The operator must close the strays first.
     recorded = {inst_state(st, i.name).get("strategyId") for i in pkg.instances}
@@ -128,13 +177,17 @@ def cmd_create(pkg, a, log):
             f"(likely an interrupted run). Close them first to avoid duplicate funded wallets:\n"
             f"  python3 {Path(__file__).with_name('close.py')} {pkg.id}")
 
+    # size the to-create instances against the LIVE available balance (minus a per-wallet fee buffer),
+    # so sequential funding + creation fees can't leave a later leg short.
+    amounts = plan_funding(need, a.budget, available_usd(mcp)) if need else {}
+
     # create any instance that has no strategyId yet — record the id IMMEDIATELY (before polling),
     # so an interrupted run resumes instead of re-creating.
     for inst in pkg.instances:
         s = inst_state(st, inst.name)
         if s.get("strategyId"):
             continue
-        amt = wallet_amount(a.budget, inst.funding_share)
+        amt = amounts.get(inst.name, max(MIN_WALLET, round((a.budget or 0) * (inst.funding_share or 1.0), 2)))
         log(f"  [{inst.name}] creating wallet (initialBudget=${amt:g})…")
         try:
             res = mcp.mcp_call("strategy_create_custom_strategy", timeout=SUBMIT_TIMEOUT,
@@ -204,10 +257,18 @@ def cmd_runtime(pkg, a, log):
             s["plan"] = f"openclaw senpi runtime create -p {build} --runtime-id {inst.runtime_name}"
             save_state(pkg, st)
             continue
-        if _cli.find_runtime(inst.runtime_name):           # idempotent — already deployed
-            s.update(status="registered", error=None)
-            save_state(pkg, st)
-            continue
+        # Reconcile an existing runtime of this id: same+correct wallet → already deployed (skip);
+        # stale (wallet differs, or its wallet is CLOSED — e.g. orphaned by a prior close) → delete it
+        # and recreate. Self-heals the "already exists" / "wallet CLOSED" collisions.
+        existing = _cli.find_runtime(inst.runtime_name)
+        if existing:
+            rt_wallet = str(_cli.runtime_wallet(existing) or "").lower()
+            if rt_wallet == str(wallet).lower():
+                s.update(status="registered", error=None)
+                save_state(pkg, st)
+                continue
+            log(f"  [{inst.name}] stale runtime {inst.runtime_name!r} (wallet {rt_wallet[:8] or '?'}…) — deleting")
+            _cli.run_cli(["openclaw", "senpi", "runtime", "delete", inst.runtime_name], timeout=60)
         build.write_text(text)
         log(f"  [{inst.name}] runtime create…")
         rc, _o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "create", "-p", str(build),
@@ -279,7 +340,9 @@ def cmd_verify(pkg, a, log):
     while True:
         pending = _check_ticks(pkg, st)
         if not pending:
-            return report(pkg, st, "live", as_json=a.json)
+            out = report(pkg, st, "live", as_json=a.json)
+            delete_state(pkg)  # deploy complete → state is ephemeral; next deploy starts clean
+            return out
         if time.time() >= deadline:
             note = "Not ticking yet — each leg's first scan() fires on its interval_seconds:\n  " + \
                    "\n  ".join(f"{n}: {why}" for n, why in pending) + \

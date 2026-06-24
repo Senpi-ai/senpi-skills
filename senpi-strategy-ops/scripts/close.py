@@ -2,6 +2,7 @@
 """Close a strategy PACKAGE — stop the runtime(s), TRIGGER strategy_close, return immediately.
 
   python3 close.py <id> [--instance <name>] [--dry-run] [--json]
+  python3 close.py --all                       # close EVERY open strategy + delete their runtimes
 
 Does NOT wait for the on-chain flatten — it hands off to the agent to poll. Per strategy (discovered
 from strategy_list by attribution skillName == manifest id; sid + wallet read from the strategy record,
@@ -95,55 +96,60 @@ def close_one(mcp, label, strat, dry_run, log):
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(description="Close a strategy package (stop runtimes → close strategies).")
-    ap.add_argument("package", help="Strategy id (e.g. spider) or package dir (strategies/spider).")
-    ap.add_argument("--instance", default=None, help="Close only this leg.")
+    ap = argparse.ArgumentParser(description="Close strategies: stop runtime(s) → trigger strategy_close (no wait).")
+    ap.add_argument("package", nargs="?", help="Strategy id (e.g. spider). Omit with --all.")
+    ap.add_argument("--all", action="store_true",
+                    help="Close EVERY open strategy (all packages) and delete their runtimes.")
+    ap.add_argument("--instance", default=None, help="Close only this leg of <package>.")
     ap.add_argument("--ref", default=None, help="Branch/ref to fetch the package manifest from if not on disk.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
+    if not a.package and not a.all:
+        raise SystemExit("error: pass a strategy id, or --all to close every open strategy.")
 
     msgs = []
     log = (lambda m: msgs.append(m)) if a.json else (lambda m: print(m))
-
-    try:
-        pkg = _pkg.load(a.package)
-    except _pkg.BadPackage as e:
-        # package not on local disk — fetch the manifest from the remote (same as deploy)
-        sid = Path(a.package).name
-        try:
-            _fetch.fetch_package(sid, "strategies", ref=a.ref)
-            pkg = _pkg.load(sid)
-        except (_fetch.FetchError, _pkg.BadPackage):
-            raise SystemExit(f"error: {e}")
-
-    if a.instance and a.instance not in {i.name for i in pkg.instances}:
-        raise SystemExit(f"error: no instance {a.instance!r} in {pkg.id} (have: {', '.join(i.name for i in pkg.instances)})")
-
     mcp = MCPClient()
-    # Discover the package's strategies DIRECTLY from strategy_list (by attribution skillName==id).
-    # sid + wallet come from the strategy record, NOT from a runtime — so close works even when the
-    # runtimes are gone (e.g. orphaned wallets from a deploy that failed before runtime create).
-    all_for_skill = _cli.strategies_for(mcp, skill_name=pkg.id)
-    strategies = [s for s in all_for_skill if _cli.strategy_open(s)]   # ignore CLOSED/FAILED history
-    closed_n = len(all_for_skill) - len(strategies)
+    pkg = None
 
-    if a.instance:
-        # Per-instance scoping needs the live runtime to know which strategy is this leg (the strategy
-        # record carries no leg label). Map by the runtime's wallet; if that runtime is gone, we can't
-        # disambiguate — tell the user to omit --instance to close the whole strategy.
-        rt = _cli.find_runtime(f"{pkg.id}-{a.instance}")
-        w = str(_cli.runtime_wallet(rt) or "").lower() if rt else None
-        targets = [(a.instance, s) for s in strategies if w and str(_cli.strategy_wallet(s) or "").lower() == w]
-        if not targets:
-            raise SystemExit(f"error: can't map instance {a.instance!r} to a strategy without its live "
-                             f"runtime ({pkg.id}-{a.instance}). Omit --instance to close all of {pkg.id}.")
+    if a.all:
+        # Close every OPEN strategy across all packages — for "close all strategies / return funds".
+        # sid + wallet come from each strategy record; close_one stops the matching runtime (by wallet)
+        # and triggers strategy_close, so package runtimes are never stranded.
+        opens = [s for s in _cli.list_strategies(mcp) if _cli.strategy_open(s)]
+        targets = [((_cli.strategy_skill(s) or "strategy") + ":" + str(_cli.strategy_id_of(s))[:8], s)
+                   for s in opens]
+        hdr = "all open strategies"
     else:
-        targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(strategies)]
+        try:
+            pkg = _pkg.load(a.package)
+        except _pkg.BadPackage as e:
+            sid = Path(a.package).name
+            try:
+                _fetch.fetch_package(sid, "strategies", ref=a.ref)
+                pkg = _pkg.load(sid)
+            except (_fetch.FetchError, _pkg.BadPackage):
+                raise SystemExit(f"error: {e}")
+        if a.instance and a.instance not in {i.name for i in pkg.instances}:
+            raise SystemExit(f"error: no instance {a.instance!r} in {pkg.id} (have: {', '.join(i.name for i in pkg.instances)})")
+        all_for_skill = _cli.strategies_for(mcp, skill_name=pkg.id)
+        opens = [s for s in all_for_skill if _cli.strategy_open(s)]   # ignore CLOSED/FAILED history
+        closed_n = len(all_for_skill) - len(opens)
+        if a.instance:
+            rt = _cli.find_runtime(f"{pkg.id}-{a.instance}")
+            w = str(_cli.runtime_wallet(rt) or "").lower() if rt else None
+            targets = [(a.instance, s) for s in opens if w and str(_cli.strategy_wallet(s) or "").lower() == w]
+            if not targets:
+                raise SystemExit(f"error: can't map instance {a.instance!r} to a strategy without its live "
+                                 f"runtime ({pkg.id}-{a.instance}). Omit --instance to close all of {pkg.id}.")
+        else:
+            targets = [(f"{pkg.id}[{i + 1}]", s) for i, s in enumerate(opens)]
+        hdr = f"{pkg.id} v{pkg.version}"
 
     if not targets and not a.dry_run:
-        print(f"{pkg.id}: no OPEN strategies for skillName=={pkg.id} "
-              f"(nothing to close; {closed_n} already closed/failed in history).")
+        extra = f" ({closed_n} already closed/failed in history)" if not a.all else ""
+        print(f"{hdr}: no OPEN strategies to close{extra}.")
         sys.exit(0)
 
     results = [close_one(mcp, label, strat, a.dry_run, log) for label, strat in targets]
@@ -153,19 +159,26 @@ def main(argv):
                "failed" if "failed" in statuses else
                "closing" if "closing" in statuses else
                "closed" if statuses <= {"closed"} else "partial")
-    report = {"strategy": pkg.id, "version": pkg.version, "status": overall, "instances": results}
+    out = {"strategy": (pkg.id if pkg else "ALL"), "status": overall, "instances": results}
 
     if a.json:
-        print(json.dumps(report, indent=2))
+        print(json.dumps(out, indent=2))
     else:
-        print(f"\n{pkg.id} v{pkg.version}: {overall}")
+        print(f"\n{hdr}: {overall}")
         for r in results:
             extra = f"  ({r['error']})" if r.get("error") else ""
             print(f"  - {r['instance']}: {r['status']}{extra}")
         if overall == "closing":
+            poll = f"close.py {pkg.id}" if pkg else "close.py --all"
             print(f"\nClose triggered (runtimes stopped). strategy_close is async — positions flatten "
-                  f"on-chain over time. Poll until closed by re-running: close.py {pkg.id}  "
-                  f"(reports `closed` when done; or check strategy_list status).")
+                  f"on-chain. Poll until closed by re-running: {poll}  (or check strategy_list status).")
+
+    # state is ephemeral: once a package is torn down, clear its deploy state so the next deploy is clean
+    if pkg and not a.dry_run:
+        try:
+            (pkg.dir / ".deploy-state.json").unlink()
+        except OSError:
+            pass
     sys.exit(2 if overall in ("failed", "partial") else 0)
 
 

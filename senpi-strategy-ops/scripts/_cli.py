@@ -7,15 +7,20 @@ spellings and degrades gracefully (returns None / []) rather than throwing on a 
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import json
+import os
 import subprocess
 
 
 # ---- openclaw CLI ----
 
 def run_cli(args, timeout=60):
-    """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout."""
+    """Run a CLI command; return (returncode, stdout, stderr). rc=-1 on spawn failure/timeout.
+
+    Suppresses the senpi plugin's info logs (which it prints to STDOUT and which otherwise corrupt
+    `--json` output) by forcing SENPI_LOG_LEVEL=error in the child env."""
+    env = dict(os.environ, SENPI_LOG_LEVEL="error")
     try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout)
+        p = subprocess.run(args, capture_output=True, text=True, timeout=timeout, env=env)
         return p.returncode, p.stdout, p.stderr
     except FileNotFoundError:
         return -1, "", f"command not found: {args[0]}"
@@ -23,22 +28,38 @@ def run_cli(args, timeout=60):
         return -1, "", f"timed out after {timeout}s: {' '.join(args)}"
 
 
+def _extract_json(text):
+    """Recover a JSON object/array from output that may be polluted with leading/trailing log lines
+    (e.g. `[plugins] [senpi-runtime] …` printed to stdout). Tries a clean parse, then raw_decode at
+    every `{`/`[` offset and returns the LARGEST successful parse (the real payload, not a log line)."""
+    text = text.strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    dec = json.JSONDecoder()
+    best = None
+    best_len = -1
+    for i, ch in enumerate(text):
+        if ch not in "{[":
+            continue
+        try:
+            obj, end = dec.raw_decode(text, i)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, (dict, list)) and (end - i) > best_len:
+            best, best_len = obj, end - i
+    return best
+
+
 def cli_json(args, timeout=60):
     """Run a CLI command expected to emit JSON on stdout; return the parsed object or None."""
     rc, out, _err = run_cli(args, timeout)
     if rc != 0 or not out.strip():
         return None
-    try:
-        return json.loads(out)
-    except json.JSONDecodeError:
-        # tolerate a leading log line or two before the JSON body
-        for i, ch in enumerate(out):
-            if ch in "[{":
-                try:
-                    return json.loads(out[i:])
-                except json.JSONDecodeError:
-                    break
-        return None
+    return _extract_json(out)
 
 
 # ---- tolerant extraction ----

@@ -2,17 +2,17 @@
 name: senpi-strategy-ops
 description: >-
   Deploy / monitor / close a NAMED Senpi trading strategy (a.k.a. a "predator").
-  Use when the user names a strategy to run, e.g. "install spider", "deploy the
-  polar strategy", "set up kodiak", "run the spider strategy", "is my strategy
-  live?", "stop/close/uninstall polar". A strategy is a PACKAGE (strategy.yaml +
-  one runtime.yaml per instance + scanners/); the runtime SUPERVISES each
-  scanner's scan(inputs, ctx) in-process — there is NO scanner daemon to launch.
-  deploy.py runs in three resumable steps (create wallets → runtime create →
-  verify ticking) and close.py tears down (stop runtime + strategy_close, which
-  flattens positions and returns funds). The strategy
-  id (spider, polar, kodiak) is the package folder; match the user's word to a
-  registry/catalog id. NOT for choosing WHICH strategy (senpi-strategy-discover)
-  or building/editing one (senpi-strategy-author).
+  Use when the user names a strategy to run — "install spider", "deploy polar",
+  "set up kodiak", "run the spider strategy", "is my strategy live?",
+  "stop/close/uninstall polar" — and for teardown like "close all strategies",
+  "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
+  down via close.py, never a raw strategy_close (that strands the runtime). A
+  strategy is a PACKAGE (strategy.yaml + one runtime.yaml per instance + scanners/)
+  the runtime supervises in-process — no scanner daemon. deploy.py runs three
+  resumable steps (create→runtime→verify); close.py tears down (stop runtime +
+  strategy_close → flattens positions, returns funds). The id (spider, polar,
+  kodiak) is the package folder. NOT for choosing WHICH strategy
+  (senpi-strategy-discover) or building/editing one (senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
@@ -36,8 +36,12 @@ tool call — wallet funding and the first scan tick are slow, so they must not 
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. create + fund wallet(s)
 python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. render + runtime create
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # 3. confirm scanners tick
-python3 senpi-strategy-ops/scripts/close.py          <id>                  # teardown
+python3 senpi-strategy-ops/scripts/close.py          <id>                  # teardown one strategy
+python3 senpi-strategy-ops/scripts/close.py          --all                 # teardown EVERY open strategy
 ```
+**Always tear down through `close.py`** (one `<id>` or `--all`) — it deletes the runtime *and* closes the
+strategy. A raw `strategy_close` MCP call closes the strategy but **leaves the runtime registered**, which
+collides on the next deploy. "close all strategies / return funds to main" → `close.py --all`.
 Pass the **strategy `id`** (what `senpi-strategy-discover` hands over, e.g. `spider`); the package is
 fetched from the remote if not on disk. The scripts call MCP directly (`scripts/_mcp.py`, reads
 `SENPI_AUTH_TOKEN`) + drive `openclaw senpi runtime …`. Mechanics + state machine:
@@ -58,12 +62,17 @@ python3 scripts/deploy.py create spider --budget 200
 ```
 Per instance it calls `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>)`, records
 the `strategyId`, and polls `strategy_list` to **ACTIVE** — **bounded** (~150s). If it prints
-**`creating`** (wallets still funding), just **re-run the same `create` command** — it resumes from the
-state file and **never re-creates** a wallet. It prints **`wallets-ready`** when done.
+**`creating`** (wallets still funding), just **re-run the same `create` command** — it resumes and
+**never re-creates** a wallet. It prints **`wallets-ready`** when done. `create` is **self-healing**: it
+reconciles recorded wallets against the backend (drops any CLOSED/FAILED and recreates) and **sizes each
+wallet to your live balance minus a fee buffer**. So **never hand-edit `.deploy-state.json` and never
+lower `--budget` to dodge a rounding/funding error** — just re-run `create`.
 
 **Step 2 — `runtime`** (fast): `python3 scripts/deploy.py runtime spider` renders each leg's runtime.yaml
-with its wallet and runs `openclaw senpi runtime create`. Idempotent (skips an existing runtime). Prints
-`registered`. `--decision-model` only for a `decision_mode: llm` action (rule-mode strategies need none).
+with its wallet and runs `openclaw senpi runtime create`. **Self-healing**: if a runtime already exists on
+the right ACTIVE wallet it's skipped; if it's stale (different/CLOSED wallet, e.g. orphaned by an earlier
+close) it's deleted and recreated. Prints `registered`. `--decision-model` only for a `decision_mode: llm`
+action (rule-mode strategies need none).
 
 **Step 3 — `verify`** (fast single check): `python3 scripts/deploy.py verify spider` checks each
 `external_scanner` once. A scanner's **first `scan()` fires on its `interval_seconds`** (spider swing
@@ -125,6 +134,7 @@ carry `group: <id>`, so you can rediscover a deployed strategy's runtimes ledger
 ```
 python3 scripts/close.py spider          # stop runtime(s) + trigger strategy_close, return immediately
 python3 scripts/close.py spider          # re-run = poll; reports `closed` once flattened
+python3 scripts/close.py --all           # close EVERY open strategy (all packages) + delete runtimes
 ```
 Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (flattens **all** positions
 + closes the strategy, funds returned). `strategy_close` is **async**, so the script **does not wait** —

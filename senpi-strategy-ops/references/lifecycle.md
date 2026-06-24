@@ -27,35 +27,49 @@ GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default `Senpi-ai
 flowing `pending → creating → active → registered → live`. Every sub-action persists, so a kill mid-step
 just means re-run that step.
 
-1. **`create <id> --budget N`** — per instance, `strategy_create_custom_strategy(skillName=<id>,
-   skillVersion=<version>, initialBudget=max(100, N×funding_share))`; the `strategyId` is recorded to the
-   state file **immediately** (before any polling) so a re-run **resumes instead of re-creating**. Then
-   poll `strategy_list` by `strategyId` to **ACTIVE** → record wallet. Bounded: not all ACTIVE within
-   `--max-wait` → exit **`creating`** (re-run to resume); all ACTIVE → **`wallets-ready`**.
-   **Anti-duplicate guard:** before creating, it lists `strategy_list` for `skillName==<id>`; if it finds
-   strategies **not** in the state file (an interrupted prior run), it **refuses** and says to `close.py
-   <id>` first — never blindly funds duplicates.
+1. **`create <id> --budget N`** —
+   - **Reconcile first:** for each recorded `strategyId`, re-fetch its backend status; if **not `ACTIVE`**
+     (CLOSED / FAILED / gone) the entry is **discarded** so it gets recreated. This is the durable fix for
+     stale `.deploy-state.json` (reusing a CLOSED wallet, or getting stuck on a FAILED leg) — **no manual
+     state editing**.
+   - **Anti-duplicate guard:** if `strategy_list` shows **OPEN** `skillName==<id>` strategies not in the
+     state file (an interrupted run), refuse and point at `close.py <id>` (closed/failed history is ignored).
+   - **Fund to live balance:** sizes the to-create wallets from `account_get_portfolio`
+     (`total_in_hyperliquid`) minus a per-wallet fee buffer, split by `funding_share` and capped to
+     available — so sequential funding + creation fees can't leave a leg $1 short. **Never lower `--budget`
+     to dodge rounding; just re-run.**
+   - Per instance: `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>, initialBudget=…)`,
+     record `strategyId` **immediately**, poll `strategy_list` to **ACTIVE** (bounded by `--max-wait`).
+     Not all ACTIVE → **`creating`** (re-run to resume); all ACTIVE → **`wallets-ready`**.
 2. **`runtime <id>`** — per instance: render the leg's `runtime.yaml` (substitute `${wallet_env}` + the
    decision-model env iff a `decision_mode: llm` action) **beside the source** (so `path: ./scanners`
-   resolves) → `openclaw senpi runtime create -p <rendered> --runtime-id <id>-<instance>`. Idempotent:
-   skips a runtime that already exists. Requires wallets `active` (run `create` first). → `registered`.
+   resolves) → `openclaw senpi runtime create … --runtime-id <id>-<instance>`. **Self-healing:** an existing
+   runtime on the right ACTIVE wallet is skipped; a stale one (different/CLOSED wallet — e.g. orphaned by an
+   earlier close) is **deleted and recreated** (fixes the "already exists" / "wallet CLOSED" collisions).
+   Requires wallets `active`. → `registered`.
 3. **`verify <id>`** — **fast single check** (`--max-wait 0` default) of `openclaw senpi state -r
    <id>-<instance>` for a completed tick. It does **not** block: a scanner's first `scan()` only fires on
    its `interval_seconds`, so blocking would just burn the tool budget. All ticked → **`live`**; else
    **`registered`** with each leg's cadence — re-run `verify` after the interval. `--max-wait S` opts into
    a bounded poll (handy for fast legs). `status <id>` prints the state file any time.
 
-There is **no `--reinstall`** and no wallet-reuse — redeploy = `close` then `create`/`runtime`/`verify`.
+**Ephemeral state.** `.deploy-state.json` exists only to resume an in-progress deploy. `verify` **deletes
+it once all instances are `live`** (a partial `registered` keeps it). So a completed deploy leaves no
+state → the next deploy (e.g. after a close) starts clean and can't reuse stale wallets. `verify`/`status`
+work without it (runtime ids derive from the manifest). `create`'s reconcile is the safety net for partial
+state. There is **no `--reinstall`** and no wallet-reuse — redeploy = `close` then `create`/`runtime`/`verify`.
 
-## `close.py <id> [--instance name] [--dry-run] [--json]`
+## `close.py [<id>] [--all] [--instance name] [--dry-run] [--json]`
 
 Like deploy, close **does not block** on the async flatten — it stops + triggers, returns `closing`, and
-hands polling to the agent (re-run `close.py <id>`). Discovery is ledger-free and **strategy-driven**:
-MCP `strategy_list` filtered by `skillName == <id>` gives the package's strategies, and **`strategyId` +
-wallet come straight from each strategy record** — NOT via the runtime, so close also cleans up
-**orphaned** strategies (wallets a failed deploy created before `runtime create`). The runtime is used
-**only to stop** the strategy, found by wallet (`find_runtime_by_wallet`). `--instance` needs the live
-runtime to identify a leg; if it's gone, omit it to close the whole strategy.
+hands polling to the agent (re-run). Discovery is ledger-free and **strategy-driven**: MCP `strategy_list`
+filtered by `skillName == <id>` (resolved from `strategyMetadata.skillName`) gives the package's OPEN
+strategies; **`strategyId` + wallet come straight from each strategy record** — NOT via the runtime, so
+close also cleans up **orphaned** strategies (wallets a failed deploy created before `runtime create`). The
+runtime is used **only to stop** the strategy, found by wallet (`find_runtime_by_wallet`).
+**`--all`** closes **every** OPEN strategy across all packages (for "close all strategies / return funds")
+and deletes their runtimes. `--instance` needs the live runtime to identify a leg; if it's gone, omit it.
+After a real package close, the package's `.deploy-state.json` is deleted (state is ephemeral).
 
 Per strategy:
 
