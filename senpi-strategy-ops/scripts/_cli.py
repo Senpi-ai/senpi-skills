@@ -237,6 +237,16 @@ def strategy_skill(s):
 DEAD_STATUSES = ("CLOSED", "FAILED", "INACTIVE", "TERMINATED", "CLOSING_DONE")
 
 
+def strategy_trader(s):
+    """The trader a COPY strategy follows (None for custom/manual). Distinguishes copy-trading
+    (managed by the copy engine, no runtime) from autonomous custom strategies."""
+    return dig(strategy_obj(s), "traderAddress", "trader")
+
+
+def strategy_type(s):
+    return dig(strategy_obj(s), "strategyType", "type")
+
+
 def strategy_open(s):
     return str(strategy_status(s) or "").upper() not in DEAD_STATUSES
 

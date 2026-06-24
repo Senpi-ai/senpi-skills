@@ -11,10 +11,13 @@ OPEN strategy it classifies the runtime:
                                the runtime's OWN verdict via `openclaw senpi status -r <id>` (+ position
                                count). `--fast` skips this per-runtime call and just reports `running`.
   runtime-stopped  — ACTIVE strategy + runtime exists but not running
-  no-runtime       — ACTIVE strategy with NO runtime → funded but IDLE (orphaned, or never `runtime`'d)
-  external         — copy/manual strategy (no skillName); no runtime expected, not flagged
-and separately flags orphan runtimes (a runtime with no open strategy). `healthy` ≠ a confirmed scanner
-tick — use `deploy.py verify <id>` for that.
+  no-runtime       — autonomous PACKAGE strategy (skillName, no trader) with NO runtime → funded but not
+                     running (likely an interrupted deploy); the only no-runtime case that's an anomaly
+  copy             — copy-trading strategy (follows a traderAddress) — run by Senpi's copy engine, no runtime
+  manual           — manual / app-managed strategy — you manage it in the app, no runtime
+and separately flags orphan runtimes (a runtime with no open strategy). A strategy off the runtime is NOT
+broken — it's just not autonomous; status.py says how it's managed. `healthy` ≠ a confirmed scanner tick —
+use `deploy.py verify <id>` for that.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -28,8 +31,11 @@ import _cli  # noqa: E402
 from _mcp import MCPClient  # noqa: E402
 
 _ICON = {"healthy": "✅", "running": "✅", "degraded": "⚠", "unhealthy": "❌",
-         "runtime-stopped": "⚠", "no-runtime": "⚠", "external": "·"}
+         "runtime-stopped": "⚠", "no-runtime": "⚠", "copy": "·", "manual": "·"}
 _OK = ("healthy", "running")
+_OFF_RUNTIME = ("copy", "manual")  # managed outside the runtime — not autonomous, not flagged
+_MANAGED = {"copy": "copy-trading — followed by Senpi's copy engine (no runtime)",
+            "manual": "manual — positions you manage in the app (no runtime)"}
 
 
 def _funded(strat):
@@ -51,22 +57,26 @@ def build(mcp, only_pkg=None, deep=True):
         rt = rt_by_wallet.get(wallet.lower())
         if rt:
             matched.add(wallet.lower())
-        # Only PACKAGE strategies (skillName set) run on a Senpi runtime; a copy/manual strategy with no
-        # runtime is normal ("external"), NOT idle/broken.
+        # A strategy with no runtime is NOT inherently broken — it's just not an autonomous runtime
+        # strategy. Explain it by type: copy-trading (follows a trader, run by the copy engine) or manual
+        # (managed in the app). Only an autonomous PACKAGE strategy (skillName, no trader) is expected to
+        # have a runtime — a missing one there is the real anomaly.
         positions = None
-        if not skill:
-            health = "external"
-        elif not rt:
-            health = "no-runtime"
-        elif _cli.runtime_running(rt):
+        if rt and _cli.runtime_running(rt):
             health = "running"
-            if deep:  # upgrade process-level "running" to the runtime's own health verdict (+ positions)
+            if deep:  # upgrade process-level "running" to the runtime's own verdict (+ positions)
                 sj = _cli.runtime_status(_cli.runtime_name(rt))
                 health = _cli.health_verdict(sj) or "running"
                 positions = _cli.active_positions(sj)
-        else:
+        elif rt:
             health = "runtime-stopped"
-        rows.append({"package": skill or "(copy / manual)", "is_pkg": bool(skill),
+        elif _cli.strategy_trader(s):
+            health = "copy"           # copy-trading: managed by the copy engine, no runtime expected
+        elif skill:
+            health = "no-runtime"     # autonomous package strategy that SHOULD have a runtime but doesn't
+        else:
+            health = "manual"         # manual / app-managed position, no runtime expected
+        rows.append({"package": skill or "(not on runtime)", "is_pkg": bool(skill),
                      "strategyId": _cli.strategy_id_of(s), "wallet": wallet,
                      "status": _cli.strategy_status(s), "funded": _funded(s), "positions": positions,
                      "runtime": _cli.runtime_name(rt) if rt else None, "health": health})
@@ -102,14 +112,14 @@ def main(argv):
     running = sum(1 for r in rows if r["health"] in _OK)
     idle = [r for r in rows if r["health"] == "no-runtime"]
     sick = [r for r in rows if r["health"] in ("degraded", "unhealthy", "runtime-stopped")]
-    ext = sum(1 for r in rows if r["health"] == "external")
-    bits = [f"{running} running"]
+    off = [r for r in rows if r["health"] in _OFF_RUNTIME]
+    bits = [f"{running} autonomous (on runtime)"]
     if sick:
         bits.append(f"{len(sick)} degraded")
     if idle:
         bits.append(f"{len(idle)} funded-but-idle")
-    if ext:
-        bits.append(f"{ext} copy/manual")
+    if off:
+        bits.append(f"{len(off)} managed off-runtime")
     print(f"\nYou have {len(rows)} open strateg{'y' if len(rows) == 1 else 'ies'} ({', '.join(bits)}):")
     for pkg in sorted(by_pkg):
         print(f"\n{pkg}")
@@ -124,10 +134,14 @@ def main(argv):
             print(f"  - {r['package']} {r['runtime'] or ''} → "
                   f"`openclaw senpi status -r {r['runtime']}` / `deploy.py verify {r['package']}` to triage")
     if idle:
-        print("\n⚠ Funded but NOT trading (ACTIVE strategy, no runtime):")
+        print("\n⚠ Autonomous strategy with NO runtime (funded but not running — likely an interrupted deploy):")
         for r in idle:
             print(f"  - {r['package']} {r['wallet'][:10]}… ({r['funded']}) → "
                   f"`deploy.py runtime {r['package']}` to start it, or `close.py {r['package']}` to recover funds")
+    if off:
+        print("\nℹ Not on a runtime — managed outside autonomous trading (this is normal):")
+        for r in off:
+            print(f"  - {r['package']} {r['wallet'][:10]}… ({r['funded']}): {_MANAGED.get(r['health'], r['health'])}")
     if orphans:
         print("\n⚠ Orphan runtimes (no active strategy — safe to delete):")
         for o in orphans:

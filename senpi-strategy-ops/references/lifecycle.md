@@ -93,10 +93,16 @@ own verdict + active-position count. Classes:
 
 - **healthy / degraded / unhealthy** — ACTIVE strategy + live runtime, per the runtime's `status` health
   (`healthy` ≠ a confirmed scanner tick — use `deploy.py verify <id>` for that; degraded prints a triage hint).
-- **no-runtime** — ACTIVE *package* strategy (has `skillName`) with **no runtime** → funded but idle;
-  printed with the fix (`deploy.py runtime <id>` to start, or `close.py <id>` to recover funds).
 - **runtime-stopped** — ACTIVE + runtime exists but not running.
-- **external** — copy/manual strategy (no `skillName`); no runtime expected, so it is **not** flagged.
+- **no-runtime** — autonomous *package* strategy (`skillName`, no `traderAddress`) with **no runtime** →
+  the only no-runtime anomaly (funded but not running, likely an interrupted deploy); printed with the fix
+  (`deploy.py runtime <id>` to start, or `close.py <id>` to recover funds).
+- **copy** — copy-trading strategy (follows a `traderAddress`) → run by Senpi's copy engine, no runtime.
+- **manual** — manual / app-managed strategy → you manage it in the app, no runtime.
+
+A strategy off the runtime is **not broken** — copy/manual are managed elsewhere by design; `status.py`
+prints *how* each is managed (an info line, not a warning). Only `no-runtime` (autonomous, missing runtime)
+is flagged.
 
 `--fast` skips the per-runtime `status` call (one per running leg) and reports plain `running`. It also
 lists **orphan runtimes** (a runtime with no OPEN strategy → safe to `runtime delete`). Grouped by

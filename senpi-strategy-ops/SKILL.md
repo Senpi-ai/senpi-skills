@@ -124,11 +124,14 @@ with `--dry-run` first.
 `python3 scripts/status.py` (add `<id>` to filter). It's the single source of truth: it reads live
 `strategy_list` ∪ `runtime list` (NOT the ephemeral deploy state), and for each running leg calls
 `openclaw senpi status -r <id>` to upgrade process-level "running" to the runtime's **own health verdict**
-(**healthy / degraded / unhealthy**) plus **active-position count**. Classes: healthy/degraded/unhealthy,
-**no-runtime** (ACTIVE package strategy with NO runtime → funded but idle, with the fix command),
-**runtime-stopped**, **external** (copy/manual strategy, no runtime expected) — plus a list of **orphan
-runtimes**. `--fast` skips the per-runtime health call (just running/stopped); `--json` for machine output.
-Do **not** answer this by hand-composing raw `strategy_list` — use `status.py`.
+(**healthy / degraded / unhealthy**) plus **active-position count**. A strategy with **no runtime is not
+"broken"** — it's just not autonomous, and `status.py` says how it's managed: **copy** (follows a
+`traderAddress`, run by Senpi's copy engine) or **manual** (you manage it in the app). The *only*
+no-runtime anomaly is an **autonomous package strategy** (skillName, no trader) missing its runtime →
+flagged **no-runtime** with the fix (likely an interrupted deploy). Also **runtime-stopped**, plus a list
+of **orphan runtimes**. `--fast` skips the per-runtime health call; `--json` for machine output. **Tell the
+user the management mode for off-runtime strategies — do not call them idle.** Don't hand-compose
+`strategy_list` — use `status.py`.
 
 Do **not** trust "runtime: running" alone. A strategy is **live** only when its runtime is running AND
 each instance's `external_scanner` has a recent successful tick (`status.py` reports `running`; confirm a
