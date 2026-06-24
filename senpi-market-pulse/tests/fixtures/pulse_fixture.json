@@ -1,0 +1,53 @@
+{
+  "market_list_instruments": {
+    "instruments": [
+      {"name": "BTC", "context": {"markPx": "62515", "prevDayPx": "64802"}},
+      {"name": "ETH", "context": {"markPx": "1660", "prevDayPx": "1744"}},
+      {"name": "SOL", "context": {"markPx": "68.88", "prevDayPx": "71.7"}},
+      {"name": "HYPE", "context": {"markPx": "62.37", "prevDayPx": "64.3"}},
+      {"name": "XRP", "context": {"markPx": "1.10", "prevDayPx": "1.135"}},
+      {"name": "AVAX", "context": {"markPx": "6.37", "prevDayPx": "6.70"}},
+      {"name": "DOGE", "context": {"markPx": "0.079", "prevDayPx": "0.084"}}
+    ]
+  },
+  "market_list_instruments::xyz": {
+    "instruments": [
+      {"name": "xyz:MU", "context": {"markPx": "1092", "prevDayPx": "1180"}},
+      {"name": "xyz:SNDK", "context": {"markPx": "2009", "prevDayPx": "2301"}},
+      {"name": "xyz:SKHX", "context": {"markPx": "1718", "prevDayPx": "1924"}},
+      {"name": "xyz:DRAM", "context": {"markPx": "71.35", "prevDayPx": "79.73"}},
+      {"name": "xyz:WDC", "context": {"markPx": "675", "prevDayPx": "750"}},
+      {"name": "xyz:ASML", "context": {"markPx": "1787", "prevDayPx": "1902"}},
+      {"name": "xyz:TSM", "context": {"markPx": "443", "prevDayPx": "470"}},
+      {"name": "xyz:ARM", "context": {"markPx": "371", "prevDayPx": "408"}},
+      {"name": "xyz:NVDA", "context": {"markPx": "203", "prevDayPx": "210"}},
+      {"name": "xyz:AMD", "context": {"markPx": "525", "prevDayPx": "538"}},
+      {"name": "xyz:AMZN", "context": {"markPx": "235", "prevDayPx": "234"}},
+      {"name": "xyz:MSFT", "context": {"markPx": "373", "prevDayPx": "371"}},
+      {"name": "xyz:META", "context": {"markPx": "565", "prevDayPx": "563"}},
+      {"name": "xyz:GOOGL", "context": {"markPx": "347", "prevDayPx": "347"}},
+      {"name": "xyz:AAPL", "context": {"markPx": "298", "prevDayPx": "301"}},
+      {"name": "xyz:MSTR", "context": {"markPx": "106", "prevDayPx": "112"}},
+      {"name": "xyz:COIN", "context": {"markPx": "160", "prevDayPx": "166"}},
+      {"name": "xyz:TSLA", "context": {"markPx": "384", "prevDayPx": "408"}},
+      {"name": "xyz:SP500", "context": {"markPx": "7396", "prevDayPx": "7475"}},
+      {"name": "xyz:XYZ100", "context": {"markPx": "29571", "prevDayPx": "30262"}},
+      {"name": "xyz:JP225", "context": {"markPx": "69241", "prevDayPx": "72743"}},
+      {"name": "xyz:KR200", "context": {"markPx": "1346", "prevDayPx": "1505"}},
+      {"name": "xyz:VIX", "context": {"markPx": "20.0", "prevDayPx": "18.5"}},
+      {"name": "xyz:GOLD", "context": {"markPx": "4136", "prevDayPx": "4186"}},
+      {"name": "xyz:SILVER", "context": {"markPx": "62.27", "prevDayPx": "65.51"}},
+      {"name": "xyz:COPPER", "context": {"markPx": "6.22", "prevDayPx": "6.42"}},
+      {"name": "xyz:BRENTOIL", "context": {"markPx": "76.81", "prevDayPx": "77.19"}},
+      {"name": "xyz:NATGAS", "context": {"markPx": "3.23", "prevDayPx": "3.30"}},
+      {"name": "xyz:DXY", "context": {"markPx": "97.15", "prevDayPx": "97.20"}}
+    ]
+  },
+  "market_get_funding_regime": {"regime": "neutral"},
+  "market_get_asset_data": {"context": {"dayNtlVlm": "500000000", "funding": "-0.0000051"}},
+  "market_get_asset_data::xyz": {"context": {"dayNtlVlm": "417000000", "funding": "0.0"}},
+  "leaderboard_get_status": {"window": "4h", "updated_at": "2026-06-23T15:00:00Z"},
+  "leaderboard_get_markets": {"concentration": [{"asset": "HYPE", "direction": "short", "pct_of_gains": 19}]},
+  "leaderboard_get_top": {"traders": [{"wallet": "0xabc", "delta_pnl": 120000}]},
+  "leaderboard_get_momentum_events": {"events": [{"asset": "HYPE", "type": "scale_in", "direction": "short"}]}
+}
