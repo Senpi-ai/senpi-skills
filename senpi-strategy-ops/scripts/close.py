@@ -20,7 +20,7 @@ not the runtime, so orphans close too):
 import argparse
 import json
 import sys
-import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -31,24 +31,20 @@ from _mcp import MCPClient, MCPError  # noqa: E402
 
 SUBMIT_TIMEOUT = 60        # HTTP timeout for the strategy_close submit
 _CLOSED = ("CLOSED", "INACTIVE", "CLOSING_DONE", "TERMINATED")
+# Live (non-terminal) statuses — filter server-side so discovery doesn't pull a long closed history.
+LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZE_POSITIONS",
+                 "SUBSCRIBE_TRADER", "CLOSING_POSITIONS"]
 
 
-def confirm_runtime_gone(name, tries=6):
-    for _ in range(tries):
-        if _cli.find_runtime(name) is None:
-            return True
-        time.sleep(2)
-    return _cli.find_runtime(name) is None
-
-
-def close_one(mcp, label, strat, dry_run, log):
-    """Stop the runtime + TRIGGER strategy_close, then return immediately — NO waiting for on-chain
-    flatten. Idempotent: re-running close.py is the poll (runtime already gone → skip; status already
-    closing/closed → skip re-submit). sid + wallet come from the strategy record, not the runtime."""
+def close_one(label, strat, runtimes, dry_run, log):
+    """Stop the runtime (FIRE — no confirm-wait) + TRIGGER strategy_close, then return immediately. The
+    agent polls by re-running close.py (idempotent: runtime already gone → skip; status closing/closed →
+    skip re-submit). Thread-safe: uses the pre-fetched `runtimes` list and its OWN MCP client, so legs
+    run in parallel. sid + wallet come from the strategy record, not the runtime."""
     sid = _cli.strategy_id_of(strat)
     wallet = _cli.strategy_wallet(strat)
     status0 = str(_cli.strategy_status(strat) or "").upper()
-    rt = _cli.find_runtime_by_wallet(wallet)
+    rt = next((r for r in runtimes if _cli.wallet_match(_cli.runtime_wallet(r), wallet)), None)
     rname = _cli.runtime_name(rt) if rt else None
     rec = {"instance": label, "strategy_id": sid, "wallet": wallet, "runtime_id": rname,
            "strategy_status": status0 or None}
@@ -68,25 +64,26 @@ def close_one(mcp, label, strat, dry_run, log):
         rec["status"] = "closed"
         return rec
 
-    # 1. stop the runtime if one is live (so nothing re-opens) — idempotent across re-runs
+    # 1. stop the runtime if one is live — FIRE only, no confirm poll (the re-run poll confirms via
+    #    strategy_list status; blocking here cost ~30s/leg). Idempotent across re-runs.
     if rt:
         log(f"  [{label}] stopping runtime {rname!r}…")
         rc, _o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
                                     "--address", wallet or ""], timeout=60)
-        if rc != 0 or not confirm_runtime_gone(rname):
+        if rc != 0:
             rec["status"] = "failed"
-            rec["error"] = (err or "runtime delete failed / still present").strip()[:300]
+            rec["error"] = (err or "runtime delete failed").strip()[:300]
             return rec
         rec["runtime"] = "stopped"
     else:
         rec["runtime"] = "not_found"
 
-    # 2. TRIGGER close (no wait). Only submit if the strategy is still ACTIVE — once triggered it leaves
-    #    ACTIVE, so a re-run won't re-submit. Tolerate a benign "already closing" error.
+    # 2. TRIGGER close (no wait). Only submit while still ACTIVE — once triggered it leaves ACTIVE, so a
+    #    re-run won't re-submit. Own MCP client → safe to run legs concurrently.
     if status0 == "ACTIVE" or not status0:
         log(f"  [{label}] strategy_close({sid}) — triggered, not waiting")
         try:
-            mcp.mcp_call("strategy_close", timeout=SUBMIT_TIMEOUT, strategyId=sid)
+            MCPClient().mcp_call("strategy_close", timeout=SUBMIT_TIMEOUT, strategyId=sid)
         except MCPError as e:
             rec["status"] = "failed"
             rec["error"] = f"strategy_close submit: {e}"
@@ -117,7 +114,7 @@ def main(argv):
         # Close every OPEN strategy across all packages — for "close all strategies / return funds".
         # sid + wallet come from each strategy record; close_one stops the matching runtime (by wallet)
         # and triggers strategy_close, so package runtimes are never stranded.
-        opens = [s for s in _cli.list_strategies(mcp) if _cli.strategy_open(s)]
+        opens = [s for s in _cli.list_strategies(mcp, statuses=LIVE_STATUSES) if _cli.strategy_open(s)]
         targets = [((_cli.strategy_skill(s) or "strategy") + ":" + str(_cli.strategy_id_of(s))[:8], s)
                    for s in opens]
         hdr = "all open strategies"
@@ -133,13 +130,12 @@ def main(argv):
                 raise SystemExit(f"error: {e}")
         if a.instance and a.instance not in {i.name for i in pkg.instances}:
             raise SystemExit(f"error: no instance {a.instance!r} in {pkg.id} (have: {', '.join(i.name for i in pkg.instances)})")
-        all_for_skill = _cli.strategies_for(mcp, skill_name=pkg.id)
-        opens = [s for s in all_for_skill if _cli.strategy_open(s)]   # ignore CLOSED/FAILED history
-        closed_n = len(all_for_skill) - len(opens)
+        opens = [s for s in _cli.strategies_for(mcp, skill_name=pkg.id, statuses=LIVE_STATUSES)
+                 if _cli.strategy_open(s)]
         if a.instance:
             rt = _cli.find_runtime(f"{pkg.id}-{a.instance}")
-            w = str(_cli.runtime_wallet(rt) or "").lower() if rt else None
-            targets = [(a.instance, s) for s in opens if w and str(_cli.strategy_wallet(s) or "").lower() == w]
+            w = _cli.runtime_wallet(rt) if rt else None
+            targets = [(a.instance, s) for s in opens if w and _cli.wallet_match(w, _cli.strategy_wallet(s))]
             if not targets:
                 raise SystemExit(f"error: can't map instance {a.instance!r} to a strategy without its live "
                                  f"runtime ({pkg.id}-{a.instance}). Omit --instance to close all of {pkg.id}.")
@@ -148,11 +144,17 @@ def main(argv):
         hdr = f"{pkg.id} v{pkg.version}"
 
     if not targets and not a.dry_run:
-        extra = f" ({closed_n} already closed/failed in history)" if not a.all else ""
-        print(f"{hdr}: no OPEN strategies to close{extra}.")
+        print(f"{hdr}: no OPEN strategies to close.")
         sys.exit(0)
 
-    results = [close_one(mcp, label, strat, a.dry_run, log) for label, strat in targets]
+    # stop runtime + trigger strategy_close per leg — in PARALLEL (each leg uses its own MCP client),
+    # then hand off to the agent to poll. runtime list fetched ONCE and shared (legs target distinct ids).
+    runtimes = _cli.list_runtimes()
+    if a.dry_run or len(targets) == 1:
+        results = [close_one(label, strat, runtimes, a.dry_run, log) for label, strat in targets]
+    else:
+        with ThreadPoolExecutor(max_workers=min(8, len(targets))) as ex:
+            results = list(ex.map(lambda t: close_one(t[0], t[1], runtimes, a.dry_run, log), targets))
 
     statuses = {r["status"] for r in results}
     overall = ("planned" if a.dry_run else

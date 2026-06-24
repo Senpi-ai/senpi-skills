@@ -319,10 +319,12 @@ def strategy_open(s):
     return str(strategy_status(s) or "").upper() not in DEAD_STATUSES
 
 
-def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15):
-    """Return strategies matching any provided filter (skill_name / strategyId / wallet)."""
+def strategies_for(mcp, skill_name=None, strategy_id=None, wallet=None, timeout=15, statuses=None):
+    """Return strategies matching any provided filter (skill_name / strategyId / wallet). Pass `statuses`
+    to filter server-side (faster; e.g. close only needs live ones). Leave None when you must also see
+    CLOSED/FAILED (e.g. create's reconcile checks a recorded id's terminal state)."""
     out = []
-    for s in list_strategies(mcp, timeout):
+    for s in list_strategies(mcp, timeout, statuses=statuses):
         if strategy_id is not None and strategy_id_of(s) != strategy_id:
             continue
         if skill_name is not None and strategy_skill(s) != skill_name:
