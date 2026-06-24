@@ -25,7 +25,7 @@ on its own wallet** (a runtime binds to exactly one wallet).
 
 ```yaml
 schema_version: 1
-id: spider                  # REQUIRED. == package dir name; == every leg's runtime.yaml `group`
+id: spider                  # REQUIRED. == package dir name; == every instance's runtime.yaml `group`
 version: "6.0.0"            # REQUIRED. Single source for catalog + MCP attribution (skillName/skillVersion)
 
 catalog:                    # discovery surface (read by senpi-strategy-discover via catalog.json)
@@ -56,7 +56,7 @@ defaults:                   # env VAR NAMES only — never values
 
 instances:                  # REQUIRED, non-empty. Each entry = one runtime.yaml + one wallet.
   - name: swing                       # REQUIRED. Instance id.
-    runtime: swing/runtime.yaml       # REQUIRED. Path to this leg's runtime.yaml.
+    runtime: swing/runtime.yaml       # REQUIRED. Path to this instance's runtime.yaml.
     wallet_env: SPIDER_SWING_WALLET   # REQUIRED. Bound as ${SPIDER_SWING_WALLET} in that runtime.yaml.
     funding_share: 0.60               # REQUIRED. Budget split; must sum to 1.0 across instances.
   - name: scalp
@@ -74,10 +74,10 @@ in the runtime.yaml or gone.)
 Forward and reverse mapping between the manifest and the running runtimes is **ledger-free**, guaranteed
 by two rules `deploy.py` validates:
 
-- every leg's `runtime.yaml` has **`group: <strategy id>`** (e.g. `group: spider`)
-- every leg's `runtime.yaml` has **`name: <id>-<instance>`** (e.g. `spider-swing`)
+- every instance's `runtime.yaml` has **`group: <strategy id>`** (e.g. `group: spider`)
+- every instance's `runtime.yaml` has **`name: <id>-<instance>`** (e.g. `spider-swing`)
 
-So: **forward** = `instances[].runtime` path → the leg's spec; **reverse** (monitor/close, no state file)
+So: **forward** = `instances[].runtime` path → the instance's spec; **reverse** (monitor/close, no state file)
 = `openclaw senpi runtime list` rows where `group == <id>`, or MCP `strategy_list` rows where
 `skillName == <id>`. The manifest's `wallet_env` must appear as `${WALLET_ENV}` in that runtime.yaml.
 

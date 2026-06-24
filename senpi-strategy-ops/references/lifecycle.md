@@ -15,7 +15,7 @@ nothing else to keep alive.
 ## `deploy.py {create|runtime|verify|status} <id> …`
 
 Deploy is **three short, resumable steps**, not one blocking call — because wallet funding (CREATE →
-FUND → ACTIVE, incl. bridging) and the first scan tick (up to a leg's `interval_seconds`) are each
+FUND → ACTIVE, incl. bridging) and the first scan tick (up to an instance's `interval_seconds`) are each
 multi-minute waits that blow the ~180s tool/session timeout. Each step is **bounded** (`--max-wait`,
 default 150s) and the agent **re-runs a step until it reports done**.
 
@@ -30,28 +30,31 @@ just means re-run that step.
 1. **`create <id> --budget N`** —
    - **Reconcile first:** for each recorded `strategyId`, re-fetch its backend status; if **not `ACTIVE`**
      (CLOSED / FAILED / gone) the entry is **discarded** so it gets recreated. This is the durable fix for
-     stale `.deploy-state.json` (reusing a CLOSED wallet, or getting stuck on a FAILED leg) — **no manual
+     stale `.deploy-state.json` (reusing a CLOSED wallet, or getting stuck on a FAILED instance) — **no manual
      state editing**.
    - **Anti-duplicate guard:** if `strategy_list` shows **OPEN** `skillName==<id>` strategies not in the
      state file (an interrupted run), refuse and point at `close.py <id>` (closed/failed history is ignored).
    - **Fund to live balance:** sizes the to-create wallets from `account_get_portfolio`
      (`total_in_hyperliquid`) minus a per-wallet fee buffer, split by `funding_share` and capped to
-     available — so sequential funding + creation fees can't leave a leg $1 short. **Never lower `--budget`
+     available — so sequential funding + creation fees can't leave an instance $1 short. **Never lower `--budget`
      to dodge rounding; just re-run.**
    - Per instance: `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>, initialBudget=…)`,
      record `strategyId` **immediately**, poll `strategy_list` to **ACTIVE** (bounded by `--max-wait`).
      Not all ACTIVE → **`creating`** (re-run to resume); all ACTIVE → **`wallets-ready`**.
-2. **`runtime <id>`** — per instance: render the leg's `runtime.yaml` (substitute `${wallet_env}` + the
+2. **`runtime <id>`** — per instance: render the instance's `runtime.yaml` (substitute `${wallet_env}` + the
    decision-model env iff a `decision_mode: llm` action) **beside the source** (so `path: ./scanners`
    resolves) → `openclaw senpi runtime create … --runtime-id <id>-<instance>`. **Self-healing:** an existing
    runtime on the right ACTIVE wallet is skipped; a stale one (different/CLOSED wallet — e.g. orphaned by an
    earlier close) is **deleted and recreated** (fixes the "already exists" / "wallet CLOSED" collisions).
-   Requires wallets `active`. → `registered`.
-3. **`verify <id>`** — **fast single check** (`--max-wait 0` default) of `openclaw senpi state -r
-   <id>-<instance>` for a completed tick. It does **not** block: a scanner's first `scan()` only fires on
-   its `interval_seconds`, so blocking would just burn the tool budget. All ticked → **`live`**; else
-   **`registered`** with each leg's cadence — re-run `verify` after the interval. `--max-wait S` opts into
-   a bounded poll (handy for fast legs). `status <id>` prints the state file any time.
+   Requires wallets `active`. → `registered`. **After this, deployment is DONE** — the strategy is live and
+   trading autonomously; it scans on its own `interval_seconds` and opens positions when its signals fire.
+   Do **not** wait/poll for the first tick as part of deploy.
+3. **`verify <id>` — OPTIONAL** (only when the user asks "is it actually scanning yet?"). **Fast single
+   check** (`--max-wait 0` default) of `openclaw senpi state -r <id>-<instance>` for a completed tick. It
+   does **not** block: a scanner's first `scan()` only fires on its `interval_seconds`. Right after
+   `runtime` it reports `registered` (not ticked yet) — expected; re-run after the interval to see `live`.
+   `--max-wait S` opts into a bounded poll. `status <id>` prints the state file any time. Never `sleep`
+   then `verify` as a default step.
 
 **Ephemeral state.** `.deploy-state.json` exists only to resume an in-progress deploy. `verify` **deletes
 it once all instances are `live`** (a partial `registered` keeps it). So a completed deploy leaves no
@@ -68,7 +71,7 @@ strategies; **`strategyId` + wallet come straight from each strategy record** �
 close also cleans up **orphaned** strategies (wallets a failed deploy created before `runtime create`). The
 runtime is used **only to stop** the strategy, found by wallet (`find_runtime_by_wallet`).
 **`--all`** closes **every** OPEN strategy across all packages (for "close all strategies / return funds")
-and deletes their runtimes. `--instance` needs the live runtime to identify a leg; if it's gone, omit it.
+and deletes their runtimes. `--instance` needs the live runtime to identify an instance; if it's gone, omit it.
 After a real package close, the package's `.deploy-state.json` is deleted (state is ephemeral).
 
 Per strategy:
@@ -81,14 +84,14 @@ Per strategy:
    (runtime gone → skip; status closing/closed → skip re-submit) — which reports `closed` once the
    strategy leaves the active set (or drops out of `strategy_list`).
 
-Close **always** closes the strategy (it never just stops the runtime). `--instance` scopes which leg(s)
+Close **always** closes the strategy (it never just stops the runtime). `--instance` scopes which instance(s)
 to close.
 
 ## `status.py [<id>] [--fast] [--json]` — "what am I running?"
 
 The single source of truth for the running fleet. Reads **live** `strategy_list` ∪ `openclaw runtime
 list` (never the ephemeral deploy state), matches strategies to runtimes **by wallet**, and for each
-running leg calls **`openclaw senpi status -r <id>`** to upgrade process-level "running" to the runtime's
+running instance calls **`openclaw senpi status -r <id>`** to upgrade process-level "running" to the runtime's
 own verdict + active-position count. Classes:
 
 - **healthy / degraded / unhealthy** — ACTIVE strategy + live runtime, per the runtime's `status` health
@@ -104,7 +107,7 @@ A strategy off the runtime is **not broken** — copy/manual are managed elsewhe
 prints *how* each is managed (an info line, not a warning). Only `no-runtime` (autonomous, missing runtime)
 is flagged.
 
-`--fast` skips the per-runtime `status` call (one per running leg) and reports plain `running`. It also
+`--fast` skips the per-runtime `status` call (one per running instance) and reports plain `running`. It also
 lists **orphan runtimes** (a runtime with no OPEN strategy → safe to `runtime delete`). Grouped by
 package; `<id>` filters. Answer "what am I running / list my strategies / is my fleet healthy" with this,
 not by hand-composing `strategy_list`.

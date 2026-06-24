@@ -8,13 +8,14 @@ in order and re-runs a step until it reports done.
   python3 deploy.py verify   <id> [--max-wait S] [--json]
   python3 deploy.py status   <id> [--json]
 
-Step 1 `create`  — per instance: strategy_create_custom_strategy (records strategyId IMMEDIATELY),
-                   then poll strategy_list until ACTIVE, BOUNDED by --max-wait. Not all ACTIVE yet →
-                   exits `creating`; re-run `create` to RESUME (never re-creates). Refuses if it finds
-                   skillName==<id> strategies not in the state file (interrupted run → close first).
-Step 2 `runtime` — render each runtime.yaml with its wallet → openclaw senpi runtime create. Fast,
-                   idempotent (skips a runtime that already exists).
-Step 3 `verify`  — bounded poll until each external_scanner has ticked; resumable.
+Step 1 `create`  — creating wallets & funding them: per instance strategy_create_custom_strategy (records
+                   strategyId IMMEDIATELY), then poll strategy_list until ACTIVE, BOUNDED by --max-wait.
+                   Not all ACTIVE yet → exits `creating`; re-run `create` to RESUME (never re-creates).
+                   Refuses if it finds skillName==<id> strategies not in the state file (close first).
+Step 2 `runtime` — setting up the autonomous trading strategy: render each runtime.yaml with its wallet →
+                   openclaw senpi runtime create. Fast, self-healing. AFTER THIS, DEPLOY IS DONE — the
+                   strategy trades autonomously (scans on its own interval). Do NOT wait for the first tick.
+`verify`         — OPTIONAL, only if asked "is it scanning yet?": one non-blocking check that a scan fired.
 
 State lives in <pkg>/.deploy-state.json: per instance {strategyId, wallet, status}. Every sub-action
 is persisted, so a kill mid-step just means re-run that step. The package is fetched from the remote
@@ -104,7 +105,7 @@ def available_usd(mcp):
 def plan_funding(need, budget, available):
     """Per-instance initialBudget for the instances still needing a wallet. Splits the requested
     budget by funding_share, but caps the TOTAL at the live available balance minus a per-wallet fee
-    buffer (so sequential funding + creation fees can't leave a later leg $1 short). Floors at MIN_WALLET."""
+    buffer (so sequential funding + creation fees can't leave a later instance $1 short). Floors at MIN_WALLET."""
     raw = {i.name: max(MIN_WALLET, round((budget or 0) * (i.funding_share or (1.0 / len(need))), 2)) for i in need}
     total = sum(raw.values())
     if available is not None:
@@ -178,7 +179,7 @@ def cmd_create(pkg, a, log):
             f"  python3 {Path(__file__).with_name('close.py')} {pkg.id}")
 
     # size the to-create instances against the LIVE available balance (minus a per-wallet fee buffer),
-    # so sequential funding + creation fees can't leave a later leg short.
+    # so sequential funding + creation fees can't leave a later instance short.
     amounts = plan_funding(need, a.budget, available_usd(mcp)) if need else {}
 
     # create any instance that has no strategyId yet — record the id IMMEDIATELY (before polling),
@@ -283,8 +284,11 @@ def cmd_runtime(pkg, a, log):
         return report(pkg, st, "planned", as_json=a.json)
     failed = [i.name for i in pkg.instances if inst_state(st, i.name).get("error")]
     overall = "failed" if failed else "registered"
-    return report(pkg, st, overall, note="Next: deploy.py verify " + pkg.id
-                  + "   (`registered` ≠ ticking yet)", as_json=a.json)
+    note = ("Some instances failed to register — see errors above." if failed else
+            "Done — " + pkg.id + " is deployed and trading autonomously (it scans on its own cadence and "
+            "opens positions when its signals fire). No need to wait for the first tick. "
+            "Optional: `deploy.py verify " + pkg.id + "` only if you want to confirm a scan has fired.")
+    return report(pkg, st, overall, note=note, as_json=a.json)
 
 
 # ---------- step 3: verify ticking ----------
@@ -333,7 +337,7 @@ def cmd_verify(pkg, a, log):
     # Single fast check by default — the first scan() tick is gated by the scanner's interval_seconds
     # (e.g. spider swing = 300s), so blocking here would just burn the tool budget. Report liveness or
     # the expected cadence and let the agent re-run when it's worth re-checking. `--max-wait S` opts
-    # into a bounded poll for fast legs.
+    # into a bounded poll for fast instances.
     st = load_state(pkg)
     deadline = time.time() + a.max_wait
     while True:
@@ -343,7 +347,7 @@ def cmd_verify(pkg, a, log):
             delete_state(pkg)  # deploy complete → state is ephemeral; next deploy starts clean
             return out
         if time.time() >= deadline:
-            note = "Not ticking yet — each leg's first scan() fires on its interval_seconds:\n  " + \
+            note = "Not ticking yet — each instance's first scan() fires on its interval_seconds:\n  " + \
                    "\n  ".join(f"{n}: {why}" for n, why in pending) + \
                    f"\nRe-run `deploy.py verify {pkg.id}` after that to confirm `live`."
             return report(pkg, st, "registered", note=note, as_json=a.json)
@@ -377,7 +381,7 @@ def main(argv):
     common(pv)
     pv.add_argument("--max-wait", type=int, default=0,
                     help="Default 0 = one fast check (first tick is gated by interval_seconds; re-run later). "
-                         ">0 keeps polling up to S seconds (useful for fast legs).")
+                         ">0 keeps polling up to S seconds (useful for fast instances).")
 
     ps = sub.add_parser("status", help="Show the deploy state.")
     common(ps)

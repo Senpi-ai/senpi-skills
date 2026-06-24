@@ -14,7 +14,7 @@ not the runtime, so orphans close too):
     (runtime already gone → skip; status already closing/closed → skip re-submit) and reports `closed`
     once the strategy leaves the active set.
 
---instance scopes which leg(s) to close; --dry-run prints the plan with no side effects.
+--instance scopes which instance(s) to close; --dry-run prints the plan with no side effects.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -39,7 +39,7 @@ LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZE
 def close_one(label, strat, runtimes, dry_run, log):
     """Stop the runtime (FIRE — no confirm-wait) + TRIGGER strategy_close, then return immediately. The
     agent polls by re-running close.py (idempotent: runtime already gone → skip; status closing/closed →
-    skip re-submit). Thread-safe: uses the pre-fetched `runtimes` list and its OWN MCP client, so legs
+    skip re-submit). Thread-safe: uses the pre-fetched `runtimes` list and its OWN MCP client, so instances
     run in parallel. sid + wallet come from the strategy record, not the runtime."""
     sid = _cli.strategy_id_of(strat)
     wallet = _cli.strategy_wallet(strat)
@@ -65,7 +65,7 @@ def close_one(label, strat, runtimes, dry_run, log):
         return rec
 
     # 1. stop the runtime if one is live — FIRE only, no confirm poll (the re-run poll confirms via
-    #    strategy_list status; blocking here cost ~30s/leg). Idempotent across re-runs.
+    #    strategy_list status; blocking here cost ~30s/instance). Idempotent across re-runs.
     if rt:
         log(f"  [{label}] stopping runtime {rname!r}…")
         rc, _o, err = _cli.run_cli(["openclaw", "senpi", "runtime", "delete", "--id", rname,
@@ -79,7 +79,7 @@ def close_one(label, strat, runtimes, dry_run, log):
         rec["runtime"] = "not_found"
 
     # 2. TRIGGER close (no wait). Only submit while still ACTIVE — once triggered it leaves ACTIVE, so a
-    #    re-run won't re-submit. Own MCP client → safe to run legs concurrently.
+    #    re-run won't re-submit. Own MCP client → safe to run instances concurrently.
     if status0 == "ACTIVE" or not status0:
         log(f"  [{label}] strategy_close({sid}) — triggered, not waiting")
         try:
@@ -97,7 +97,7 @@ def main(argv):
     ap.add_argument("package", nargs="?", help="Strategy id (e.g. spider). Omit with --all.")
     ap.add_argument("--all", action="store_true",
                     help="Close EVERY open strategy (all packages) and delete their runtimes.")
-    ap.add_argument("--instance", default=None, help="Close only this leg of <package>.")
+    ap.add_argument("--instance", default=None, help="Close only this instance of <package>.")
     ap.add_argument("--ref", default=None, help="Branch/ref to fetch the package manifest from if not on disk.")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--json", action="store_true")
@@ -147,8 +147,8 @@ def main(argv):
         print(f"{hdr}: no OPEN strategies to close.")
         sys.exit(0)
 
-    # stop runtime + trigger strategy_close per leg — in PARALLEL (each leg uses its own MCP client),
-    # then hand off to the agent to poll. runtime list fetched ONCE and shared (legs target distinct ids).
+    # stop runtime + trigger strategy_close per instance — in PARALLEL (each instance uses its own MCP client),
+    # then hand off to the agent to poll. runtime list fetched ONCE and shared (instances target distinct ids).
     runtimes = _cli.list_runtimes()
     if a.dry_run or len(targets) == 1:
         results = [close_one(label, strat, runtimes, a.dry_run, log) for label, strat in targets]

@@ -34,9 +34,9 @@ sizing/execution, the two-phase DSL exit, risk guard-rails. **There is no separa
 tool call — wallet funding and the first scan tick are slow, so they must not block one long call):
 
 ```
-python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. create + fund wallet(s)
-python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. render + runtime create
-python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # 3. confirm scanners tick
+python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. create wallets & fund them
+python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. set up autonomous trading (DONE after this)
+python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # optional: confirm a scan fired (only if asked)
 python3 senpi-strategy-ops/scripts/status.py                               # what am I running? (+ health)
 python3 senpi-strategy-ops/scripts/close.py          <id>                  # teardown one strategy
 python3 senpi-strategy-ops/scripts/close.py          --all                 # teardown EVERY open strategy
@@ -49,7 +49,7 @@ fetched from the remote if not on disk. The scripts call MCP directly (`scripts/
 `SENPI_AUTH_TOKEN`) + drive `openclaw senpi runtime …`. Mechanics + state machine:
 [`references/lifecycle.md`](references/lifecycle.md). Manifest: [`references/strategy-yaml-schema.md`](references/strategy-yaml-schema.md).
 
-## Deploy — three resumable steps
+## Deploy — two steps (then it's autonomously trading; `verify` is optional)
 
 **Step 0 — resolve which strategy.** The user's word ("spider") is a strategy **`id`**. To confirm it
 exists, check the registry; no match → hand to **senpi-strategy-discover**:
@@ -57,8 +57,8 @@ exists, check the registry; no match → hand to **senpi-strategy-discover**:
 curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/strategy-v2/strategies/catalog.json
 ```
 
-**Step 1 — `create`** (one fresh wallet per instance; budget splits by `funding_share`, **min $100 each**
-— confirm with the user first):
+**Step 1 — creating wallets & funding them** (`create`; one fresh wallet per instance; budget splits by
+`funding_share`, **min $100 each** — confirm with the user first):
 ```
 python3 scripts/deploy.py create spider --budget 200
 ```
@@ -70,17 +70,22 @@ reconciles recorded wallets against the backend (drops any CLOSED/FAILED and rec
 wallet to your live balance minus a fee buffer**. So **never hand-edit `.deploy-state.json` and never
 lower `--budget` to dodge a rounding/funding error** — just re-run `create`.
 
-**Step 2 — `runtime`** (fast): `python3 scripts/deploy.py runtime spider` renders each leg's runtime.yaml
-with its wallet and runs `openclaw senpi runtime create`. **Self-healing**: if a runtime already exists on
-the right ACTIVE wallet it's skipped; if it's stale (different/CLOSED wallet, e.g. orphaned by an earlier
-close) it's deleted and recreated. Prints `registered`. `--decision-model` only for a `decision_mode: llm`
-action (rule-mode strategies need none).
+**Step 2 — setting up the autonomous trading strategy** (`runtime`, fast): `python3 scripts/deploy.py
+runtime spider` renders each instance's runtime.yaml with its wallet and runs `openclaw senpi runtime create`.
+**Self-healing**: if a runtime already exists on the right ACTIVE wallet it's skipped; if it's stale
+(different/CLOSED wallet, e.g. orphaned by an earlier close) it's deleted and recreated. Prints
+`registered`. `--decision-model` only for a `decision_mode: llm` action (rule-mode strategies need none).
 
-**Step 3 — `verify`** (fast single check): `python3 scripts/deploy.py verify spider` checks each
-`external_scanner` once. A scanner's **first `scan()` fires on its `interval_seconds`** (spider swing
-300s, scalp 60s), so right after `runtime` it will report `registered` with the per-leg cadence — that's
-expected, **not** a failure. **Re-run `verify` after the interval** to confirm `live`. (Add `--max-wait
-S` to poll for fast legs.) `deploy.py status <id>` shows current state any time.
+**Once Step 2 prints `registered`, deployment is DONE — the strategy is live and trading autonomously.**
+It scans on its own schedule and opens positions when *its* signals fire (spider swing ~300s, scalp ~60s
+cadence). Tell the user it's set up and running; **do NOT sleep/poll waiting for the first scan tick** —
+that's normal strategy behavior, not part of deploy.
+
+**Optional — `verify`** (only if the user asks "is it actually scanning / live yet?"): `python3
+scripts/deploy.py verify spider` checks each `external_scanner` once. The first `scan()` only fires on its
+`interval_seconds`, so right after `runtime` it reports `registered` (not ticked yet) — expected, not a
+failure; re-run after the interval to see `live`. `deploy.py status <id>` shows current state any time.
+Do not run `verify` (and never `sleep` then verify) as a default step.
 
 > **Do NOT improvise.** A package strategy is a **runtime-supervised scanner** — deploy it **only** via
 > these steps. Never substitute a raw `strategy_create_custom_strategy` MCP call to "deploy" it: that
@@ -109,7 +114,7 @@ user: "deploy spider with $200"
 2. create → python3 scripts/deploy.py create spider --budget 200
             → wallets-ready  (if "creating", re-run the same command until wallets-ready)
 3. runtime → python3 scripts/deploy.py runtime spider          → registered (spider-swing + spider-scalp)
-4. verify  → python3 scripts/deploy.py verify spider           → live  (re-run if a slow leg hasn't ticked)
+4. verify  → python3 scripts/deploy.py verify spider           → live  (re-run if a slow instance hasn't ticked)
 ```
 
 ### Host prerequisites
@@ -122,7 +127,7 @@ with `--dry-run` first.
 
 **"What strategies am I running?" / "list my strategies" / "is my fleet healthy?"** →
 `python3 scripts/status.py` (add `<id>` to filter). It's the single source of truth: it reads live
-`strategy_list` ∪ `runtime list` (NOT the ephemeral deploy state), and for each running leg calls
+`strategy_list` ∪ `runtime list` (NOT the ephemeral deploy state), and for each running instance calls
 `openclaw senpi status -r <id>` to upgrade process-level "running" to the runtime's **own health verdict**
 (**healthy / degraded / unhealthy**) plus **active-position count**. A strategy with **no runtime is not
 "broken"** — it's just not autonomous, and `status.py` says how it's managed: **copy** (follows a
@@ -141,7 +146,7 @@ tick with `deploy.py verify <id>`). Verify with the runtime CLI:
 - DSL / action / position troubleshooting → `openclaw senpi dsl|action …` (see lifecycle.md) and the
   engine mental model in `senpi-trading-runtime/references/runtime-concepts.md`
 
-`runtime_id` = each leg's `runtime.yaml` top-level `name` (`spider-swing`, `spider-scalp`); they all
+`runtime_id` = each instance's `runtime.yaml` top-level `name` (`spider-swing`, `spider-scalp`); they all
 carry `group: <id>`, so you can rediscover a deployed strategy's runtimes ledger-free via
 `openclaw senpi runtime list` matching `group == <id>`.
 
@@ -157,7 +162,7 @@ Per strategy: **stop the runtime** (if live) → **trigger `strategy_close`** (f
 it returns `closing` and hands polling to you: **re-run `close.py spider`** until it reports `closed`.
 Re-runs are idempotent (runtime already gone → skip; already closing/closed → no re-submit). Strategies
 are discovered from `strategy_list` (`skillName==<id>`), so close also cleans up **orphaned** wallets
-that have no runtime. `--instance <name>` scopes a leg (needs its live runtime to map; else omit to close
+that have no runtime. `--instance <name>` scopes an instance (needs its live runtime to map; else omit to close
 all). **Redeploy** = `close` then `create`/`runtime`/`verify`.
 
 ## Invariants

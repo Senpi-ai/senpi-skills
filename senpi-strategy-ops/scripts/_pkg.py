@@ -6,7 +6,7 @@ per instance + `<instance>/scanners/`. `strategy.yaml` is a thin deploy manifest
 `runtime.yaml` owns everything the runtime needs (scanners, actions, exit, risk).
 
 Linkage convention (validator-enforced, enables ledger-free reverse lookup):
-  - every leg's runtime.yaml has  `group: <strategy id>`  and  `name: <id>-<instance>`
+  - every instance's runtime.yaml has  `group: <strategy id>`  and  `name: <id>-<instance>`
   - the manifest's `instances[].wallet_env` is bound as `${WALLET_ENV}` in that runtime.yaml
 
 Render substitutes ONLY `${wallet_env}` (+ the decision-model env iff a runtime has an
@@ -29,7 +29,7 @@ class BadPackage(Exception):
 
 
 class Instance:
-    """One deployable leg = one manifest entry + its runtime.yaml."""
+    """One deployable instance = one manifest entry + its runtime.yaml."""
 
     def __init__(self, manifest_entry, pkg_dir):
         e = manifest_entry if isinstance(manifest_entry, dict) else {}
