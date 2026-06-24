@@ -1,9 +1,64 @@
 {
   "_version": "2.1",
-  "_updated": "2026-06-17",
+  "_updated": "2026-06-24",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
+    {
+      "id": "asia-ai",
+      "name": "Asia AI — Hedged Sector Long",
+      "emoji": "🌏",
+      "tagline": "Long the Asian AI/semiconductor complex (TSMC, Samsung, SK Hynix, ARM, ASML) with a broad/US-tech short hedge that strips out market beta.",
+      "belief_plain": "Buys the Asian AI chipmakers while they're trending up, and shorts the broad US/tech index when it rolls over — so the bet is on Asia AI outperforming, not just the market going up.",
+      "version": "1.0.0",
+      "thesis": "You think the AI buildout is increasingly an Asia story — Taiwan and Korea fabs, the chip supply chain — and you want a long on that sector with market beta hedged out, not a naked tech long.",
+      "tags": [
+        "ai",
+        "semiconductors",
+        "asia",
+        "taiwan",
+        "korea",
+        "hedged",
+        "sector",
+        "long_short"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
+      "asset_classes": [
+        "xyz_equities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:TSM",
+        "xyz:SMSN",
+        "xyz:SKHX",
+        "xyz:ARM",
+        "xyz:ASML",
+        "xyz:NASDAQ",
+        "xyz:SP500",
+        "xyz:NVDA",
+        "xyz:AMD"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 3,
+      "time_horizon": "position",
+      "cadence_seconds": 900,
+      "min_budget": 200,
+      "instance_count": 2,
+      "funding_split": [
+        0.65,
+        0.35
+      ],
+      "max_slots": 9,
+      "branch": "curator",
+      "sort_order": 1
+    },
     {
       "id": "spider",
       "name": "Spider — AI/Tech Hedge Fund",
@@ -64,8 +119,8 @@
         0.4
       ],
       "max_slots": 7,
-      "branch": "strategy-v2",
-      "sort_order": 1
+      "branch": "curator",
+      "sort_order": 2
     }
   ]
 }
