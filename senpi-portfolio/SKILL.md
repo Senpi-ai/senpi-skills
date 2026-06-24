@@ -1,14 +1,11 @@
 ---
 name: senpi-portfolio
 description: >-
-  Analyze the user's portfolio across all wallets — the main embedded wallet,
-  every strategy sub-wallet, and what's deployed in positions vs sitting idle —
-  with real-time balances and genuine analysis (not a flat data dump). Use when
-  the user asks "analyze my portfolio", "how am I doing", "show me my positions",
-  "what's my balance across all wallets", "how much do I have idle", "portfolio
-  breakdown", "how are my strategies positioned". A hidden engine (scripts/
-  portfolio.py) does the real-time multi-wallet pull + the balance taxonomy; you
-  do the analysis and narration. Requires a USER-scoped Senpi MCP token.
+  Analyze the user's portfolio across all wallets — main embedded wallet, strategy sub-wallets,
+  deployed vs idle — with real-time balances and real analysis, not a flat dump. Use for "analyze
+  my portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is
+  idle". A hidden engine (scripts/portfolio.py) does the multi-wallet pull and taxonomy; you
+  narrate. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
