@@ -1,15 +1,11 @@
 ---
 name: senpi-account-status
 description: >-
-  Show the user's standing across Senpi's programs — Senpi points + rank,
-  loyalty tier + fee discount, Agents Arena position + prize context, referral
-  earnings, and shareable wins. Use when the user asks "how many points do I
-  have?", "what's my rank?", "what tier am I?", "what are my fees?", "how am I
-  doing in the Arena?", "what have I earned from referrals?", "show my best
-  trades / wins". A hidden engine (scripts/status.py) pulls all of it in one
-  real-time call; you present the standing and the next milestone. Requires a
-  USER-scoped Senpi MCP token. For fleet-wide fee tiers (not the user's own),
-  call get_loyalty_tiers; for live market/portfolio data use the other skills.
+  Show the user's standing across Senpi programs — points and rank, loyalty tier and fees, Agents
+  Arena position, referral earnings, and shareable wins. Use for "how many points do I have?",
+  "what's my rank/tier?", "what are my fees?", "how am I doing in the Arena?", "my referral
+  rewards", "show my wins". A hidden engine (scripts/status.py) pulls it all in one call. Requires
+  a USER-scoped Senpi token.
 license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
