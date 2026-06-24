@@ -198,7 +198,7 @@ Discovery matches your strategy to users by the `catalog:` block. **Validation o
   - `tags` — free keywords.
 - **Derived by `gen_catalog.py` (don't duplicate):** `assets`, `leverage_max`, `funding_split`, `cadence_seconds`/`time_horizon` (from cadence), `instance_count`, `max_slots`, `min_budget` (= `max(declared, 100 × instance_count)`).
 
-## 9. Validate, deploy, confirm it *operates*
+## 9. Validate, smoke-test, deploy, confirm it *operates*
 
 ```
 python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>      # 0 errors
@@ -209,6 +209,17 @@ python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                       
 ```
 **"running" ≠ "operating."** Don't trust `status: running`. Confirm the scanner has a **positive run count + a fresh `lastRunFinishedAt`** (`openclaw senpi state -r <id>-<instance> --json`), and that it **emits a non-empty set on a tick where it should** — `verify` proves it *ticked*, not that it produced a signal. This is an **agent-side check** — run it yourself; never ask the user "is it working?".
 
+### The first smoke test — run it yourself, once, before you scale
+
+The desk checks above catch *your* bugs. The first time the **live openclaw runtime runs your scanner** catches a different, higher-value class: the **contract / language mismatches between the authoring agent and the runtime** — a `runtime.yaml` key the runtime silently ignores, a `data{}` field it rejects, an MCP tool name/arg that doesn't exist, a `marginPct`/`leverage` the sizer reads differently. These surface *only* when the runtime itself executes your code, and they fail **silently**. So for every new strategy (and every new archetype), do this deliberately, by hand:
+
+1. **Dry-run the plan** — `deploy.py create <id> --dry-run` + `deploy.py runtime <id> --dry-run`. Catches manifest / linkage / render errors with zero side effects (no wallet, no funds).
+2. **Run `scan()` once against the live read-only MCP** — confirm it returns a **non-empty, correctly-shaped** list (right tool names, right field reads). Catches the MCP language gap at the desk.
+3. **Deploy tiny, then read the runtime's OWN view of the first tick** — `create --budget <one-instance min>` → `runtime` → `openclaw senpi state -r <id>-<instance> --json`. Confirm the scanner **ran** *and the runtime **accepted** its signal* — not rejected for an undeclared `data{}` key, a non-positive `marginPct`, or a schema mismatch. The runtime reports those rejections in its state — **that is where a Claude↔openclaw language mismatch shows up loud** instead of as a silent `[]`.
+4. **Green smoke test = one strategy went `scan` → signal → runtime-*accepted* → action, end to end.** A clean dry-run is **not** a green smoke test. Only after that do you scale — more budget, more instances, or porting siblings.
+
+If anything mismatches, fix the **contract** (the field name, the `signal_data_schema`, the key the runtime expects), re-run the smoke test, *then* proceed. Budget time for this on every new strategy: **the first agent-run smoke test is where the contract meets reality.**
+
 ## 10. The author's checklist (the silent-failure guards)
 
 - `scan()` single-pass + sync; read-only MCP only; `return []` on any error.
@@ -218,6 +229,7 @@ python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                       
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
 - Linkage: `group: <id>`, `name: <id>-<instance>`, `wallet_env` bound, `funding_share` sums to 1.0, package is `@senpi-ai/runtime`.
 - Validate (0 errors) → deploy → **confirm it emits/operates**, not just "ticked."
+- **Smoke-test the first deploy by hand** — dry-run → `scan()` once on live MCP → tiny deploy → confirm the runtime **accepted** a live signal (not just ticked) — *before* scaling. This is what catches the authoring-agent↔runtime language mismatches.
 
 ---
 
