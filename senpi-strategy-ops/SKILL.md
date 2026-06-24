@@ -3,7 +3,8 @@ name: senpi-strategy-ops
 description: >-
   Deploy / monitor / close a NAMED Senpi trading strategy (a.k.a. a "predator").
   Use when the user names a strategy to run — "install spider", "deploy polar",
-  "set up kodiak", "run the spider strategy", "is my strategy live?",
+  "set up kodiak", "run the spider strategy", "is my strategy live?", "what am I
+  running", "list my strategies" (→ status.py),
   "stop/close/uninstall polar" — and for teardown like "close all strategies",
   "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
   down via close.py, never a raw strategy_close (that strands the runtime). A
@@ -36,6 +37,7 @@ tool call — wallet funding and the first scan tick are slow, so they must not 
 python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. create + fund wallet(s)
 python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. render + runtime create
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # 3. confirm scanners tick
+python3 senpi-strategy-ops/scripts/status.py                               # what am I running? (+ health)
 python3 senpi-strategy-ops/scripts/close.py          <id>                  # teardown one strategy
 python3 senpi-strategy-ops/scripts/close.py          --all                 # teardown EVERY open strategy
 ```
@@ -116,10 +118,19 @@ MCP session uses); **Python 3 only — no PyYAML/pip needed** (the scripts use P
 vendored stdlib YAML loader). The package itself is fetched, not pre-placed. Smoke `create`/`runtime`
 with `--dry-run` first.
 
-## Monitor — is it actually live?
+## Monitor — what am I running? / is it actually live?
+
+**"What strategies am I running?" / "list my strategies" / "is my fleet healthy?"** →
+`python3 scripts/status.py` (add `<id>` to filter). It's the single source of truth: it reads live
+`strategy_list` ∪ `runtime list` (NOT the ephemeral deploy state) and classifies every OPEN strategy —
+**running** (ACTIVE + live runtime), **no-runtime** (ACTIVE package strategy with NO runtime → funded but
+idle, with the fix command), **runtime-stopped**, or **external** (copy/manual strategy, no runtime
+expected) — and flags **orphan runtimes**. `--json` for a machine-readable view. Do **not** answer this by
+hand-composing raw `strategy_list` — use `status.py` so the package grouping + runtime health are consistent.
 
 Do **not** trust "runtime: running" alone. A strategy is **live** only when its runtime is running AND
-each instance's `external_scanner` has a recent successful tick. Verify with the runtime CLI:
+each instance's `external_scanner` has a recent successful tick (`status.py` reports `running`; confirm a
+tick with `deploy.py verify <id>`). Verify with the runtime CLI:
 - `openclaw senpi status -r <runtime_id> --json` / `openclaw senpi state -r <runtime_id> --json`
 - field-level liveness decision tree → [`references/liveness-verification.md`](references/liveness-verification.md)
 - DSL / action / position troubleshooting → `openclaw senpi dsl|action …` (see lifecycle.md) and the
