@@ -96,23 +96,33 @@ def find_list(obj, *wrapper_keys):
 # ---- runtime lookups (openclaw senpi runtime ...) ----
 
 def list_runtimes():
-    obj = cli_json(["openclaw", "senpi", "runtime", "list", "--json"])
-    return find_list(obj, "runtimes")
+    """Running runtimes, via `senpi status --json` → statuses[]. NOTE: `runtime list` has no --json on
+    runtime v3 (it's human-text only), and `status` lists exactly the RUNNING runtimes — which is what
+    every caller here wants (idempotency, close-stop, fleet health). `state --json` is the heavier
+    fallback shape."""
+    obj = cli_json(["openclaw", "senpi", "status", "--json"])
+    return find_list(obj, "statuses", "runtimes")
 
 
 def runtime_name(rt):
-    return dig(rt, "name", "id", "runtime_id", "runtimeId")
+    return dig(rt, "name", "id", "runtime_id", "runtimeId", "runtimeName")
 
 
 def runtime_wallet(rt):
-    return dig(rt, "address", "wallet", "walletAddress", "strategyWalletAddress")
+    return dig(rt, "address", "wallet", "walletAddress", "strategyWalletAddress", "strategyWallet")
 
 
 def runtime_running(rt):
-    st = dig(rt, "status", "state", "running")
+    st = dig(rt, "status", "state", "running", "health", "overallHealth")
     if isinstance(st, bool):
         return st
-    return str(st).lower() in ("running", "active", "live", "ok", "true")
+    s = str(st).lower()
+    if s in ("running", "active", "live", "ok", "true", "healthy", "degraded"):
+        return True
+    if s in ("stopped", "inactive", "unhealthy", "failed", "down", "false"):
+        return False
+    # `status --json` only ever lists RUNNING runtimes — if it carries a runtime id, treat it as running.
+    return runtime_name(rt) is not None
 
 
 def find_runtime(name):
