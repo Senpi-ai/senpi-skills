@@ -52,10 +52,10 @@ risk:
     max_entries_per_day: 6
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
-    cooldown_minutes: 90
+    cooldown_seconds: 5400
     drawdown_halt_pct: 20
     drawdown_reset_on_day_rollover: false
-    per_asset_cooldown_minutes: 45
+    per_asset_cooldown_seconds: 2700
 
 scanners:
   - name: position_tracker

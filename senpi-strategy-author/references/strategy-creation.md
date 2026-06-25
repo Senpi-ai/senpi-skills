@@ -279,9 +279,9 @@ risk:
     daily_loss_limit_pct: 4
     max_entries_per_day: 6
     max_consecutive_losses: 3
-    cooldown_minutes: 90
+    cooldown_seconds: 5400
     drawdown_halt_pct: 20
-    per_asset_cooldown_minutes: 45
+    per_asset_cooldown_seconds: 2700
 ```
 
 ## Step 4 — DSL presets (pick one; default `balanced`)

@@ -40,6 +40,15 @@ confirm the runtime *accepted* a signal). Full method + worked example:
 [`../senpi-strategy-author/references/creating-a-strategy.md`](../senpi-strategy-author/references/creating-a-strategy.md).
 **Do not duplicate the build logic here.** Proceed to publish only once the smoke test is green.
 
+> ⛔ **Never guess syntax — get it from the source.** The author skill's first rule applies doubly here,
+> because the curator *publishes to real users*. You are an LLM; every identifier you emit from memory
+> (a ticker, a `runtime.yaml` field/unit, an MCP arg, an enum) is a **silent failure** — it ticks clean
+> and trades nothing. Copy each from its source, never recall it: **tickers** → `market_list_instruments`
+> (+ `validate_universe.py`); **`runtime.yaml` fields/units** → `senpi-trading-runtime/references/runtime-yaml.md`
+> (the runtime's own schema outranks every helper doc); **DSL** → `dsl-presets.yaml`; **MCP** → call it
+> once and inspect; **facets** → the discovery `glossary.yaml`. Source beats memory — when you can't find
+> the source, **stop and ask**. (Both shipped bugs — `xyz:NASDAQ`, `cooldown_minutes` — were plausible guesses.)
+
 ## Step 2 — The discovery surface IS the product. Gate it strictly.
 
 For a *private* strategy the `catalog:` facets are cosmetic; for a *published* one they are the entire
