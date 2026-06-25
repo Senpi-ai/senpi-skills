@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-06-24",
+  "_updated": "2026-06-25",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -38,7 +38,7 @@
         "xyz:SKHX",
         "xyz:ARM",
         "xyz:ASML",
-        "xyz:NASDAQ",
+        "xyz:XYZ100",
         "xyz:SP500"
       ],
       "direction": "long_short",

@@ -3,7 +3,7 @@ name: asia-ai-hedge
 group: asia-ai
 version: 3.0.0
 description: >
-  ASIA-AI HEDGE — shorts the broad US/tech index (NASDAQ, SP500) when it confirms a
+  ASIA-AI HEDGE — shorts the broad US/tech index (XYZ100, SP500) when it confirms a
   downtrend on BOTH 4h and 1d. A pure beta hedge: only broad indices, no single names —
   shorting NVDA/AMD would be a pairs trade against MAIN's own supply chain (and rallies
   in a Taiwan/export-control shock, the one tail that threatens the long book), not a
@@ -32,7 +32,7 @@ scanners:
     default_signal_validity_seconds: 1800
     state_history_max_count: 100
     inputs:
-      universe: ["xyz:NASDAQ", "xyz:SP500"]
+      universe: ["xyz:XYZ100", "xyz:SP500"]
       direction: "SHORT"
       wantTrend: "DOWN"
       minScore: 5
