@@ -1,0 +1,114 @@
+# ── KODIAK · single instance — SOL alpha hunter (Runtime 3.0 port of v2 Kodiak v7.0.0) ──
+name: kodiak-main
+group: kodiak
+version: 3.0.0
+description: >
+  KODIAK — single-asset SOL alpha hunter. Enters only when 4h structure (>=0.75) and
+  1h agree, 15m momentum confirms, and a multi-factor composite (smart-money lean,
+  funding, BTC correlation, RSI room) clears score 10. Conviction-tiered leverage:
+  5x standard, 6x at >=11, 7x apex at >=13. DSL is the ONLY exit (asymmetry-optimized:
+  cut losers fast/cheap, ride winners hard). Faithful port of the v2 producer thesis.
+
+strategy:
+  wallet: "${KODIAK_WALLET}"
+  slots: 1                                # single asset, single position
+  default_leverage: 5                     # fallback; scan emits per-signal 5/6/7 by score
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: kodiak_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                  # v2 producer cadence (3 min)
+    timeout_seconds: 150                   # 3 MCP reads/tick; v2 WARN_OVER_180S budget
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # signal-dedup map
+    inputs:
+      asset: "SOL"
+      dex: ""
+      macroAsset: "BTC"                    # "" disables the BTC-correlation factor (xyz ports)
+      minScore: 10
+      marginPct: 0.20
+      minTrendStrength4h: 0.75
+      minMom15mPct: 0.1
+      rsiMaxLong: 72
+      rsiMinShort: 28
+      leverageTiers: [[13, 7], [11, 6], [10, 5]]
+      recentSignalTtlSeconds: 14400        # 240m — mirror the per-asset cooldown
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      trend4h: { type: string, required: false }
+      trendStrength4h: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      mom15mPct: { type: number, required: false }
+      mom1hPct: { type: number, required: false }
+      mom4hPct: { type: number, required: false }
+      fundingRate: { type: number, required: false }
+      oiTrend: { type: string, required: false }
+      btcMom1hPct: { type: number, required: false }
+      rsi: { type: number, required: false }
+      smPctOfTopTraders: { type: number, required: false }
+      smTraderCount: { type: number, required: false }
+      smCc15m: { type: number, required: false }
+      smAligned: { type: boolean, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: kodiak_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter
+    scanners: [kodiak_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a conviction strike must fill — taker fallback at 60s
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: kodiak_main_signals
+
+# EXIT — DSL, asymmetry-optimized (ported verbatim from v2): cut losers fast/cheap,
+# ride winners hard. Time cuts OFF — single-asset patience.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 5
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 20 }
+        - { trigger_pct: 18, lock_hw_pct: 40 }
+        - { trigger_pct: 30, lock_hw_pct: 60 }
+        - { trigger_pct: 45, lock_hw_pct: 75 }
+        - { trigger_pct: 75, lock_hw_pct: 88 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: true
+    max_consecutive_losses: 4
+    cooldown_minutes: 60
+    per_asset_cooldown_minutes: 240
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
