@@ -39,9 +39,7 @@
         "xyz:ARM",
         "xyz:ASML",
         "xyz:NASDAQ",
-        "xyz:SP500",
-        "xyz:NVDA",
-        "xyz:AMD"
+        "xyz:SP500"
       ],
       "direction": "long_short",
       "risk_level": "moderate",
@@ -55,8 +53,8 @@
         0.65,
         0.35
       ],
-      "max_slots": 9,
-      "branch": "curator",
+      "max_slots": 7,
+      "branch": "strategy/asia-ai",
       "sort_order": 1
     },
     {
@@ -119,7 +117,7 @@
         0.4
       ],
       "max_slots": 7,
-      "branch": "curator",
+      "branch": "strategy/asia-ai",
       "sort_order": 2
     }
   ]

@@ -22,9 +22,9 @@ catalog:
   tier: advanced
   time_horizon: position
   leverage_max: 3
-  max_slots: 9
+  max_slots: 7
   min_budget: 200
-  assets: ["xyz:TSM", "xyz:SMSN", "xyz:SKHX", "xyz:ARM", "xyz:ASML", "xyz:NASDAQ", "xyz:SP500", "xyz:NVDA", "xyz:AMD"]
+  assets: ["xyz:TSM", "xyz:SMSN", "xyz:SKHX", "xyz:ARM", "xyz:ASML", "xyz:NASDAQ", "xyz:SP500"]
   tags: [ai, semiconductors, asia, taiwan, korea, hedged, sector, long_short]
 
 requires:

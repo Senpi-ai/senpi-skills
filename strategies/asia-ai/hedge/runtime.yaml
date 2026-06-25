@@ -3,15 +3,18 @@ name: asia-ai-hedge
 group: asia-ai
 version: 3.0.0
 description: >
-  ASIA-AI HEDGE — shorts the broad / US-AI complex (NASDAQ, SP500, NVDA, AMD) when it
-  confirms a downtrend on BOTH 4h and 1d. Its job is to offset the market beta in the
-  MAIN long book so the fund expresses "Asia AI OUTPERFORMS", not "tech goes up".
+  ASIA-AI HEDGE — shorts the broad US/tech index (NASDAQ, SP500) when it confirms a
+  downtrend on BOTH 4h and 1d. A pure beta hedge: only broad indices, no single names —
+  shorting NVDA/AMD would be a pairs trade against MAIN's own supply chain (and rallies
+  in a Taiwan/export-control shock, the one tail that threatens the long book), not a
+  hedge. Its job is to offset the market beta in the MAIN long book so the fund
+  expresses "Asia AI OUTPERFORMS", not "tech goes up".
   Smaller funding share than MAIN — a cushion, not a second directional bet. Runs on a
   separate wallet so it can hold shorts while MAIN holds longs.
 
 strategy:
   wallet: "${ASIA_AI_HEDGE_WALLET}"
-  slots: 4
+  slots: 2
   default_leverage: 3
   trading_risk: moderate
   enabled: true
@@ -29,7 +32,7 @@ scanners:
     default_signal_validity_seconds: 1800
     state_history_max_count: 100
     inputs:
-      universe: ["xyz:NASDAQ", "xyz:SP500", "xyz:NVDA", "xyz:AMD"]
+      universe: ["xyz:NASDAQ", "xyz:SP500"]
       direction: "SHORT"
       wantTrend: "DOWN"
       minScore: 5
