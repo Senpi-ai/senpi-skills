@@ -1,0 +1,21 @@
+{
+  "user_get_me": {"user": {"senpiUserId": "u123", "wallets": [
+    {"walletType": "embedded", "walletAddress": "0xme"},
+    {"walletType": "external", "walletAddress": "0xext"}
+  ]}},
+  "user_get_senpi_points": {"totalPoints": 15000, "basePoints": 5000, "perpPoints": 10000, "loyaltyMultiplier": 1.5, "rank": 42, "rankChange": 3, "loyaltyTier": "Silver", "feeBps": 4.5, "feeDiscount": 10, "nextTier": "Gold", "pointsToNextTier": 5000, "found": true},
+  "user_get_referral_rewards": {"wallet_address": "0xme", "balance_usdc": "12.50", "balance_raw": "12500000"},
+  "arena_leaderboard": {"entries": [
+    {"senpiUserId": "other", "rank": 1, "roePct": "44.2", "totalPnl": "910", "qualified": true},
+    {"senpiUserId": "u123", "rank": 5, "roePct": "18.5", "totalPnl": "320", "tradeCount": 40, "notionalVolume": "60000", "qualified": true}
+  ]},
+  "arena_pool": {"currentWeekPool": 5000, "nextWeekPool": 5500},
+  "arena_prizes": {"totalPool": "5000", "entries": [
+    {"rank": 1, "sharePct": 40, "prizeAmount": "2000"},
+    {"rank": 5, "sharePct": 8, "prizeAmount": "400"}
+  ]},
+  "get_share_your_wins": {"wins": [
+    {"coin": "ETH", "realizedPnl": 25.25, "returnPercentage": 11.5},
+    {"coin": "BTC", "realizedPnl": 40.0, "returnPercentage": 8.0}
+  ]}
+}
