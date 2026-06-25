@@ -54,6 +54,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   hot_streak:    { gloss: "Copies whoever is hot in the live window." }
   named_whales:  { gloss: "Mirrors specific hand-picked whales." }
   copy_the_copiers: { gloss: "Follows the best-performing strategies automatically." }
+  cohort_divergence: { gloss: "Positions with the smart-money cohort (high lifetime realized PnL) and against the crowd, by net positioning — not by copying any one trader." }
   # single_market
   pre_ipo:       { gloss: "Trades pre-IPO perpetuals (IPOPs) before the company lists." }
   ipo_moment:    { gloss: "Trades the IPO conversion moment." }

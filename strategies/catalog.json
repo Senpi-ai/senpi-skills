@@ -162,6 +162,49 @@
       "max_slots": 1,
       "branch": "curator",
       "sort_order": 1
+    },
+    {
+      "id": "whalehunter",
+      "name": "WhaleHunter — Smart-Money Cohort Divergence",
+      "emoji": "🐋",
+      "tagline": "Buckets Hyperliquid traders by lifetime realized PnL into a smart-money cohort and a crowd, then positions WITH the smartest money — and against the crowd — wherever the smart cohort is heavily net-directional and adding to it daily.",
+      "belief_plain": "Looks at where the most profitable traders on Hyperliquid are putting their money as a group, and copies that lean — going long what they're loading up on and short what they're dumping, especially when the average crowd is on the other side.",
+      "version": "1.0.0",
+      "thesis": "You trust the aggregate of proven winners over any single guru or your own read. When the >$1M-realized crowd is piling into a coin day after day while the small accounts fade it, that divergence is the edge — so follow the smart cohort, not one whale, and hedge the book with a separate short sleeve.",
+      "tags": [
+        "smart-money",
+        "cohort",
+        "divergence",
+        "copy-trading",
+        "long-short",
+        "crowd-fade",
+        "hedged"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "cohort_divergence",
+      "sub_style_label": "Positions with the smart-money cohort (high lifetime realized PnL) and against the crowd, by net positioning — not by copying any one trader.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 6,
+      "branch": "curator",
+      "sort_order": 1
     }
   ]
 }
