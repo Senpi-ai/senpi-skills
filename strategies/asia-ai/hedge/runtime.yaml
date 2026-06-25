@@ -15,6 +15,7 @@ description: >
 strategy:
   wallet: "${ASIA_AI_HEDGE_WALLET}"
   slots: 2
+  margin_pct: 10                       # % of account per slot (runtime sizes the dollars)
   default_leverage: 3
   trading_risk: moderate
   enabled: true
@@ -36,7 +37,6 @@ scanners:
       direction: "SHORT"
       wantTrend: "DOWN"
       minScore: 5
-      marginPct: 0.10
       rsiMin: 25
       recentSignalTtlSeconds: 1800
     signal_data_schema:

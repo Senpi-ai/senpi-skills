@@ -3,7 +3,7 @@
 Direction-parametrized: the `main` instance passes direction=LONG / wantTrend=UP
 (long the Asian AI semis); the `hedge` instance passes direction=SHORT /
 wantTrend=DOWN (short the broad/US-AI complex when it rolls over, to strip market
-beta). Read-only, pure, single-pass — emits a `marginPct` intent; the runtime sizes."""
+beta). Read-only, pure, single-pass — emits asset+direction signals only."""
 
 import sys
 import time
@@ -18,7 +18,6 @@ def scan(inputs, ctx):
     direction = (inputs.get("direction", "LONG") or "LONG").upper()
     want = (inputs.get("wantTrend", "UP") or "UP").upper()
     min_score = int(inputs.get("minScore", 5))
-    margin_pct = float(inputs.get("marginPct", 0.12))
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     now = time.time()
 
@@ -44,9 +43,8 @@ def scan(inputs, ctx):
         out.append({
             "asset": asset,
             "direction": direction,
-            "marginPct": margin_pct,          # SIZING INTENT — the runtime sizes the dollars
             "data": {"score": th["score"], "direction": direction, "reasons": th["reasons"]},
-        })
+        })        
         recent[au] = now
 
     if ctx.state is not None:
