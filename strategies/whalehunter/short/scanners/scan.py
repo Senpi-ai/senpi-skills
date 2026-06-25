@@ -9,7 +9,7 @@ the cohort cache + daily ledger are per-sleeve (the v2 daemon shared them on dis
 Per tick: refresh the smart/crowd cohorts (cached daily in ctx.state), aggregate each
 cohort's net positioning (discovery_get_trader_state), update the daily ledger to get
 the 'adding daily' growth, score the divergences for THIS direction, and emit a
-conviction-scaled marginUsd (pct of max()-collapsed account equity; runtime owns slots/dedup, trails DSL).
+conviction-scaled marginPct INTENT (the runtime sizes, owns slots/dedup, trails DSL).
 Read-only, single-pass. Derived universe — the coins come from the cohort's positions,
 not a fixed list. NOTE: ~1 UTC-day warmup before requireGrowing can pass."""
 
@@ -88,35 +88,12 @@ def _fetch_states(ctx, addrs):
     return traders
 
 
-def _account_value(ctx):
-    """max()-collapsed account equity from strategy_get_clearinghouse_state. main/xyz
-    are TWO VIEWS of ONE cross-margin wallet — take max(), never sum (summing doubles
-    the equity and 2x every position size). The dex holding a position reports full
-    equity; the other reports free collateral, so max() yields the true equity."""
-    try:
-        ch = ctx.senpi_mcp.call_tool("strategy_get_clearinghouse_state",
-                                     {"strategy_wallet": ctx.wallet})
-    except Exception:
-        return 0.0
-    data = ch.get("data", ch) if isinstance(ch, dict) else ch
-    if not isinstance(data, dict):
-        return 0.0
-    av = 0.0
-    for section in ("main", "xyz"):
-        s = data.get(section, {})
-        if isinstance(s, dict):
-            ms = s.get("marginSummary", {})
-            av = max(av, float(ms.get("accountValue", 0) or 0))
-    return av
-
-
 def scan(inputs, ctx):
     direction = (inputs.get("direction", "LONG") or "LONG").upper()
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     std_lev = int(inputs.get("stdLeverage", 3))
     max_lev = int(inputs.get("maxLeverage", 5))
     min_members = int(inputs.get("cohortMinMembers", 5))
-    venue_min_notional = float(inputs.get("venueMinNotionalUsd", 10))
     now = time.time()
     today = time.strftime("%Y-%m-%d", time.gmtime(now))
 
@@ -145,29 +122,16 @@ def scan(inputs, ctx):
     strikes = scoring.cohort_signals(smart_per, crowd_per, growth, direction, inputs)
 
     leverage = min(std_lev, max_lev)
-    account_value = _account_value(ctx)
-    if account_value <= 0:                                   # can't size — emit nothing this tick
-        print("[whalehunter.scan] WARNING: account value unavailable; no signals emitted",
-              file=sys.stderr)
-        _persist()
-        return []
-
     out = []
     for s in strikes:
         cu = s["coin"].upper()
         if recent.get(cu) is not None and (now - recent[cu]) < ttl:   # signal-dedup
             continue
-        # marginUsd = equity x conviction-scaled fraction from the `customMarginPct` input.
-        # `customMarginPct` is a per-signal producer tunable — do NOT confuse it with the
-        # runtime's strategy.margin_pct config field (a different sizing mechanism).
-        margin_usd = round(account_value * scoring.margin_pct_for(s["score"], inputs), 2)
-        if margin_usd * leverage < venue_min_notional:        # below venue min notional — skip
-            continue
         out.append({
             "asset": s["coin"],
             "direction": direction,
-            "marginUsd": margin_usd,                          # conviction-scaled USD; runtime opens it
-            "leverage": leverage,                             # std, runtime clamps to venue max
+            "marginPct": scoring.margin_pct_for(s["score"], inputs),  # conviction-scaled INTENT
+            "leverage": leverage,                                     # std, runtime clamps to venue max
             "data": {
                 "score": s["score"], "direction": direction, "signalKind": "COHORT_DIVERGENCE",
                 "smartBias": s["smart_bias"], "crowdBias": s["crowd_bias"],

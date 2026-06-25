@@ -128,11 +128,9 @@ def cohort_signals(smart_per, crowd_per, growth, direction, config):
 
 
 def margin_pct_for(score, config):
-    """Conviction-scaled margin fraction: base `customMarginPct` scaled +25% per point
-    above the floor, capped at maxMarginPct. scan.py multiplies this by account equity to
-    get marginUsd. `customMarginPct` is a per-signal producer input — NOT the runtime's
-    strategy.margin_pct config field."""
-    base = float(config.get("customMarginPct", 0.12))
+    """Conviction-scaled marginPct INTENT (not dollars — the runtime sizes). Scales
+    +25% per point above the floor, capped at maxMarginPct."""
+    base = float(config.get("marginPct", 0.12))
     cap = float(config.get("maxMarginPct", 0.25))
     smax = float(config.get("maxConvictionScale", 2.0))
     floor = int(config.get("cohortMinScore", 4))
