@@ -22,7 +22,9 @@ Reads → run the skill (it carries the data tools internally):
 
 Act now → first-class tools:
 - wallet / quick balance / quick price / list strategies → user_get_me / account_get_portfolio /
-  market_get_prices / strategy_list
+  market_get_prices / strategy_list — **"current / my strategies" = ACTIVE only: call
+  `strategy_list(status: ["ACTIVE"])`; never present CLOSED/PAUSED as current. Treat active strategies
+  as known state, not a fresh discovery.**
 - open / close / resize a position → create_position / close_position / edit_position
 - create / top-up / close a strategy → strategy_create_custom_strategy / strategy_top_up / strategy_close
 - withdraw / move funds / set a stop / cancel an order → the matching tool (may need enabling)
