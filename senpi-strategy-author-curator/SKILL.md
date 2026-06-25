@@ -58,6 +58,19 @@ add it to `glossary.yaml` with a gloss) or when there's no real **`thesis`** (th
 how "run me a hedge fund" / "bet on a war" finds the strategy; add one unless the strategy is purely
 mechanical). **Fix every error.** A published strategy with a bad surface is worse than no strategy.
 
+**Also run the hard UNIVERSE gate** (any hardcoded ticker must be a live Hyperliquid instrument — a fake
+ticker silently no-trades, `market_get_asset_data` 500s and the scan skips it). `deploy.py create` runs
+this preflight automatically and refuses to fund a bad universe, but run it at publish time too:
+
+```
+python3 senpi-strategy-ops/scripts/validate_universe.py strategies/<id>
+```
+
+It exits non-zero on any ticker not in the live HL `meta` (main dex) / `meta dex=xyz`. Derived-universe
+strategies (no `inputs.universe`/`inputs.asset`/`catalog.assets`) pass trivially. **Never hardcode a
+ticker you didn't verify against the live list** — it's the canonical "every guess fails silently" trap
+(caught live on asia-ai: `xyz:NASDAQ` doesn't exist; the broad index is `xyz:XYZ100`).
+
 ## Step 3 — Confirm, then publish
 
 Publishing is **outward-facing** — the strategy becomes a user-visible product. So:

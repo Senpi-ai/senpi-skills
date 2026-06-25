@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
 import _fetch  # noqa: E402
 import _pkg  # noqa: E402
+import validate_universe  # noqa: E402
 from _mcp import MCPClient, MCPError  # noqa: E402
 
 SUBMIT_TIMEOUT = 60     # HTTP timeout for the async create submit
@@ -104,6 +105,19 @@ def report(pkg, st, overall, note=None, as_json=False):
 def cmd_create(pkg, a, log):
     st = load_state(pkg)
     st["budget"] = a.budget
+    # Preflight: every hardcoded ticker must be a LIVE Hyperliquid instrument. A fake
+    # ticker silently no-trades (market_get_asset_data 500s, the scan skips it) — so we
+    # refuse to fund a package with an unverifiable universe. Confirmed-missing → abort;
+    # transient fetch failure → warn + proceed (deploy needs HL anyway). Runs in dry-run too.
+    try:
+        bad = validate_universe.unknown_tickers(pkg.dir)
+        if bad:
+            raise SystemExit(
+                "error: these universe tickers are NOT live Hyperliquid instruments: "
+                + ", ".join(bad) + f"\n  Fix {pkg.id}'s runtime.yaml/strategy.yaml universe, "
+                "then re-run. (check: validate_universe.py strategies/" + pkg.id + ")")
+    except validate_universe.FetchError as e:
+        log(f"  [warn] could not verify universe vs live HL instruments ({e}); proceeding")
     if a.dry_run:
         for inst in pkg.instances:
             s = inst_state(st, inst.name)
