@@ -45,11 +45,12 @@ scanners:
       crowdDivergenceMin: 0.2
       requireGrowing: true
       cohortMinScore: 4
-      marginPct: 0.12
+      customMarginPct: 0.12                 # per-signal sizing base (NOT strategy.margin_pct)
       maxMarginPct: 0.25
       maxConvictionScale: 2.0
       stdLeverage: 3
       maxLeverage: 5
+      venueMinNotionalUsd: 10
       recentSignalTtlSeconds: 3600
     signal_data_schema:
       score: { type: number }
