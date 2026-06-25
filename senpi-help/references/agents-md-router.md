@@ -3,8 +3,11 @@
 This is the **compact, always-in-context** version of the `senpi-help` directory. Put it in the
 agent's `AGENTS.md` so the intent→skill map is present every turn — the agent never has to *decide to
 look it up*. (`senpi-help` remains the full directory, loaded on demand for edge cases.) Cost: ~150
-tokens/turn, against the ~24K saved by collapsing tools — a trivial trade that removes the "did the
-agent consult help?" risk.
+tokens/turn — cheap insurance that the agent routes to the right skill (or tool) first.
+
+**No tools are denied or removed.** Routing is about *order of preference*, not access: prefer a skill
+because it's faster and cheaper, but every underlying tool stays reachable via Tool Search (step 3).
+Whether we later collapse any tool schemas to save context is a separate decision — not assumed here.
 
 ```markdown
 ## Senpi capabilities — routing (check before saying "I can't")
@@ -14,8 +17,9 @@ agent consult help?" risk.
    SKILL.md and use it.
 2. **Then `senpi-help`.** No clear skill? Read the `senpi-help` skill — its directory maps the intent to
    the right skill or tool.
-3. **Then tool search.** Still nothing? Search your available tools for a direct match (a tool may need
-   enabling).
+3. **Then Tool Search.** Still nothing? Use Tool Search to pull up the exact tool by name and call it
+   directly. Every tool stays reachable this way — nothing is hidden; a skill is just the preferred,
+   cheaper route when one fits.
 4. **Cap it at ~5 attempts — do NOT keep cycling.** Don't grind for 10–20 minutes retrying the same
    thing. If you're still stuck after ~5 tries, **stop**: tell the user what you tried and suggest
    another path (an external source, a different framing, or one clarifying question). A clear "here's
@@ -38,7 +42,8 @@ Act now → first-class tools:
   as known state, not a fresh discovery.**
 - open / close / resize a position → create_position / close_position / edit_position
 - create / top-up / close a strategy → strategy_create_custom_strategy / strategy_top_up / strategy_close
-- withdraw / move funds / set a stop / cancel an order → the matching tool (may need enabling)
+- withdraw / move funds / set a stop / cancel an order → the matching tool (Tool Search if it's not
+  already in your list)
 
 Pick / build / deploy a strategy → senpi-strategy-discover / -author / -ops
 Anything else, or unsure which → read **senpi-help**.
