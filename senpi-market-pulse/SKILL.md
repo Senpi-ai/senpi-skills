@@ -3,7 +3,8 @@ name: senpi-market-pulse
 description: >-
   Answer "what's happening in the markets today?" with structured cross-asset analysis, not just
   "BTC is up." Use for "what's moving", "market overview", "market update", "give me a read on
-  today", or any open-ended market read. A hidden engine (scripts/pulse.py) pulls all asset
+  today", or any open-ended market read. Use this instead of pulling market_get_prices +
+  web_fetch/web_search by hand. A hidden engine (scripts/pulse.py) pulls all asset
   classes (crypto, equities, indices, commodities, macro) and computes the signals; you narrate.
   Requires Senpi MCP.
 license: Apache-2.0

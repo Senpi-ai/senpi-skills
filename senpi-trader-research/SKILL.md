@@ -3,8 +3,9 @@ name: senpi-trader-research
 description: >-
   Research Hyperliquid traders to copy — rank the best track records and vet a specific trader
   before mirroring. Use for "who should I copy?", "find good traders", "is this trader any good?",
-  "should I copy 0x…?", "best traders this month", "top copy strategies". A hidden engine
-  (scripts/research.py) pulls track record, current positions, and 4h momentum; you make the call.
+  "should I copy 0x…?", "best traders this month", "top copy strategies". Use this instead of
+  piecing together discovery_get_trader_history / discovery_get_trader_state + leaderboard yourself.
+  A hidden engine (scripts/research.py) pulls track record, current positions, and 4h momentum; you make the call.
   Requires a USER-scoped Senpi token.
 license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code

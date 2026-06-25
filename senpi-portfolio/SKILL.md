@@ -4,7 +4,8 @@ description: >-
   Analyze the user's portfolio across all wallets — main embedded wallet, strategy sub-wallets,
   deployed vs idle — with real-time balances and real analysis, not a flat dump. Use for "analyze
   my portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is
-  idle". A hidden engine (scripts/portfolio.py) does the multi-wallet pull and taxonomy; you
+  idle". Use this instead of raw strategy_get_clearinghouse_state / account_get_portfolio dumps.
+  A hidden engine (scripts/portfolio.py) does the multi-wallet pull and taxonomy; you
   narrate. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code

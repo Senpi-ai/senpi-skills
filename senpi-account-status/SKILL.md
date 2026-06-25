@@ -4,7 +4,8 @@ description: >-
   Show the user's standing across Senpi programs — points and rank, loyalty tier and fees, Agents
   Arena position, referral earnings, and shareable wins. Use for "how many points do I have?",
   "what's my rank/tier?", "what are my fees?", "how am I doing in the Arena?", "my referral
-  rewards", "show my wins". A hidden engine (scripts/status.py) pulls it all in one call. Requires
+  rewards", "show my wins". Use this instead of calling user_get_senpi_points + get_loyalty_tiers
+  + arena_* one by one. A hidden engine (scripts/status.py) pulls it all in one call. Requires
   a USER-scoped Senpi token.
 license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code

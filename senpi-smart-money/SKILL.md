@@ -3,7 +3,8 @@ name: senpi-smart-money
 description: >-
   Answer "where is smart money moving?" — show where the most-profitable Hyperliquid wallets are
   positioned, where they diverge from the crowd, and the near-term flow. Use for "where's smart
-  money", "what are the whales doing", "smart money vs the crowd", "follow the smart money". A
+  money", "what are the whales doing", "smart money vs the crowd", "follow the smart money". Use
+  this instead of stitching discovery_get_top_traders + leaderboard calls by hand. A
   hidden engine (scripts/smartmoney.py) builds the cohorts and finds the divergences; you analyze.
   Requires a USER-scoped Senpi token.
 license: Apache-2.0
