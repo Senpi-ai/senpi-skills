@@ -54,6 +54,9 @@ For each: ask the question, offer the options as plain choices, then map the ans
 1. **Universe — "What should it watch and trade?"**
    A) one asset · B) a fixed basket you name · C) dynamic (scan everything, filter by volume) ·
    D) derived (trade what the best traders / a cohort hold). → sets how `scan()` builds its list.
+   **Verify every ticker the user names (A/B) against `market_list_instruments` before it enters the
+   package — a ticker that isn't a live instrument silently no-trades. The broad index is `xyz:XYZ100`,
+   not `xyz:NASDAQ`; check, don't assume.**
 2. **Data — "What does it read to decide?"**
    candles (`market_get_asset_data`) · funding/OI (`market_get_funding_*`) · smart-money
    (`leaderboard_*` / `discovery_*`) · cross-asset flow. → the `call_tool`s in `scan()`.
@@ -86,7 +89,10 @@ For each: ask the question, offer the options as plain choices, then map the ans
    intent) · `runtime.yaml` (inputs, entry action, DSL preset, risk gates) · `strategy.yaml` (catalog
    facets from the glossary).
 3. **Unit-test `scoring.py`** on sample candles (it's pure — no mocks needed).
-4. **Validate** → `python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>` (0 errors).
+4. **Validate** → `python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>` (0 errors),
+   then the **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py strategies/<id>`
+   — every hardcoded ticker must be a live HL instrument (`deploy.py create` also runs this as a
+   preflight and refuses to fund a bad universe). Derived-universe strategies pass trivially.
 5. **Smoke-test (hand to `senpi-strategy-ops`):** dry-run → run `scan()` once on live read-only MCP →
    tiny deploy → confirm the runtime **accepted** a signal (`openclaw senpi state -r <id>-<inst>
    --json`), not just that it ticked. **Green = `scan` → signal → runtime-accepted, end to end.**
@@ -129,6 +135,9 @@ makes one new wallet per instance). Authoring just designs the package; **concur
   free-text **`thesis`** is the only worldview hook (how "run me a hedge fund" finds the strategy).
 - **Anchor every `call_tool` on the published MCP I/O reference** — a guessed tool name, interval
   string, or output field is a scanner that ticks clean and emits nothing.
+- **Never hardcode a ticker you didn't verify.** Every static `universe`/`asset`/`catalog.assets`
+  entry must be a live HL instrument (`validate_universe.py`) — a fake ticker 500s on
+  `market_get_asset_data` and the scan skips it: no error, no trade. `xyz:XYZ100`, not `xyz:NASDAQ`.
 
 ## Editing an existing strategy
 
