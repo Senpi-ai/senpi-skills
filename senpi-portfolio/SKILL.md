@@ -74,6 +74,14 @@ sitting in strategy wallets waiting for signals." They are not the same money an
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
+- **"Current / my strategies" = ACTIVE only — never CLOSED.** The engine already filters
+  `strategy_list(status=["ACTIVE"])`, so closed strategies are excluded by construction. If you ever
+  reach for `strategy_list` directly, pass `status: ["ACTIVE"]` — a bare call returns CLOSED/PAUSED too
+  and they must not be presented as current. Mention PAUSED strategies only if relevant, clearly
+  labeled "paused," never as active.
+- **Present active strategies as known state, not a fresh discovery.** Pull the data quietly and state
+  what's running as established fact ("Your two active strategies are…"). Don't narrate the lookup
+  ("let me check… oh, I see you have…") — that reads like you didn't already know your own book.
 - **Always end with the two CTAs** (below), verbatim.
 
 ## How to run the engine
