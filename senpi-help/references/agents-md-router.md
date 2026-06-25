@@ -16,6 +16,27 @@ because it keeps every tool reachable.)
 ```markdown
 ## Senpi capabilities — routing (check before saying "I can't")
 
+**Skill-first — the default reflex, before you touch any tool.** For ANY Senpi question that involves
+*reading or analyzing data* — markets, portfolio, positions, smart money, traders, points/fees,
+history — your FIRST move is to scan the "Reads → skill" map below. If your intent matches a skill,
+**that skill is mandatory**: read its SKILL.md and run it. This is not a suggestion or a fallback — it
+is the required first step.
+
+Three rules that close the gap that makes agents skip skills:
+- **A visible tool is NOT a reason to use it.** `market_get_prices`, `discovery_*`, `account_*`,
+  `audit_*`, `web_fetch`, `web_search` sitting in your tool list does not make them the right call. If
+  a skill covers the intent, the skill wins — every time. The tool feeling "more immediately
+  actionable" is the exact trap.
+- **The multi-tool tell.** If you're about to call **two or more** read tools — or **any** `web_fetch`
+  / `web_search` — to assemble an answer, STOP. That is the signal a skill already does it, in one
+  correct pass, better than you can hand-rolling it. Hand-pulling data a skill's engine would gather is
+  always inferior.
+- **Don't self-diagnose mid-answer.** Don't answer with raw tools and then offer to "re-run it through
+  the skill." Check the map first; run the skill the first time.
+
+A raw tool beats a skill ONLY for the **"Act now"** one-shots below — a single price, a single balance,
+or a mutation. Everything analytical → skill first.
+
 **Find the capability in this order — then stop, don't cycle:**
 1. **Senpi skill first.** Scan the skills index for one that matches the request; if it fits, read its
    SKILL.md and use it.
@@ -32,7 +53,7 @@ because it keeps every tool reachable.)
 
 **Never tell a user a Senpi request is impossible without going through steps 1–3 first.**
 
-Reads → run the skill (it carries the data tools internally):
+Reads → run the skill — MANDATORY, not the raw tools (the skill carries the data tools internally):
 - portfolio / balances / positions / idle-vs-deployed → **senpi-portfolio**
 - market read / what's moving / cross-asset / "the tape" → **senpi-market-pulse**
 - smart money / whales vs the crowd / divergence → **senpi-smart-money**
@@ -40,7 +61,7 @@ Reads → run the skill (it carries the data tools internally):
 - points / tier / fees / Arena / referrals / wins → **senpi-account-status**
 - what happened / history / why it failed → **senpi-audit** (`--strategy <id>` for one strategy)
 
-Act now → first-class tools:
+Act now → first-class tools (the ONLY place a raw tool leads — single lookups + mutations):
 - wallet / quick balance / quick price / list strategies → user_get_me / account_get_portfolio /
   market_get_prices / strategy_list — **"current / my strategies" = ACTIVE only: call
   `strategy_list(status: ["ACTIVE"])`; never present CLOSED/PAUSED as current. Treat active strategies
