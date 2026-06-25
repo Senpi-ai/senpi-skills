@@ -9,8 +9,19 @@ agent consult help?" risk.
 ```markdown
 ## Senpi capabilities — routing (check before saying "I can't")
 
-Match the request, then use the skill or tool. If unsure, read the `senpi-help` skill (full
-directory). **Never tell a user a Senpi request is impossible without checking first.**
+**Find the capability in this order — then stop, don't cycle:**
+1. **Senpi skill first.** Scan the skills index for one that matches the request; if it fits, read its
+   SKILL.md and use it.
+2. **Then `senpi-help`.** No clear skill? Read the `senpi-help` skill — its directory maps the intent to
+   the right skill or tool.
+3. **Then tool search.** Still nothing? Search your available tools for a direct match (a tool may need
+   enabling).
+4. **Cap it at ~5 attempts — do NOT keep cycling.** Don't grind for 10–20 minutes retrying the same
+   thing. If you're still stuck after ~5 tries, **stop**: tell the user what you tried and suggest
+   another path (an external source, a different framing, or one clarifying question). A clear "here's
+   what I tried, here's another way" beats grinding silently.
+
+**Never tell a user a Senpi request is impossible without going through steps 1–3 first.**
 
 Reads → run the skill (it carries the data tools internally):
 - portfolio / balances / positions / idle-vs-deployed → **senpi-portfolio**
