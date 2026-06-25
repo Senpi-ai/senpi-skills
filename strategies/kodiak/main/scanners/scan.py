@@ -3,9 +3,9 @@
 Single-asset. Reads SOL candles (5m/15m/1h/4h) + funding/OI, a macro driver
 (BTC 1h momentum), and smart-money positioning (leaderboard_get_markets); scores
 via the pure `scoring.build_thesis`; and emits ONE conviction-tiered signal when
-the composite clears `minScore`. Read-only + single-pass — emits a `marginPct`
-intent plus a per-signal `leverage` (5/6/7 by score); the runtime sizes the dollars,
-owns the cooldowns/risk gates, and trails the DSL exit. No daemon, no push_signal."""
+the composite clears `minScore`. Read-only + single-pass — emits a per-signal
+`leverage` (5/6/7 by score); the runtime sizes the dollars, owns the cooldowns/risk
+gates, and trails the DSL exit. No daemon, no push_signal."""
 
 import sys
 import time
@@ -86,7 +86,6 @@ def scan(inputs, ctx):
     dex = _dex_for(asset, inputs)
     macro_asset = inputs.get("macroAsset", "BTC")     # "" disables the BTC factor (e.g. xyz ports)
     min_score = float(inputs.get("minScore", 10))
-    margin_pct = float(inputs.get("marginPct", 0.20))
     tiers = inputs.get("leverageTiers", _DEFAULT_TIERS)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     now = time.time()
@@ -126,7 +125,6 @@ def scan(inputs, ctx):
     out = [{
         "asset": asset,
         "direction": th["direction"],
-        "marginPct": margin_pct,          # SIZING INTENT — runtime sizes the dollars
         "leverage": leverage,             # conviction-tiered (5/6/7); runtime applies it
         "data": {
             "score": th["score"], "leverage": leverage, "direction": th["direction"],

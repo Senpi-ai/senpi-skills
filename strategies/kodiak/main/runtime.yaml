@@ -12,6 +12,7 @@ description: >
 strategy:
   wallet: "${KODIAK_WALLET}"
   slots: 1                                # single asset, single position
+  margin_pct: 20                          # % of account per slot (runtime sizes the dollars)
   default_leverage: 5                     # fallback; scan emits per-signal 5/6/7 by score
   trading_risk: aggressive
   enabled: true
@@ -33,7 +34,6 @@ scanners:
       dex: ""
       macroAsset: "BTC"                    # "" disables the BTC-correlation factor (xyz ports)
       minScore: 10
-      marginPct: 0.20
       minTrendStrength4h: 0.75
       minMom15mPct: 0.1
       rsiMaxLong: 72
