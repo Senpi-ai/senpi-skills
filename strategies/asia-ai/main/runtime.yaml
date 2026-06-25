@@ -11,6 +11,7 @@ description: >
 strategy:
   wallet: "${ASIA_AI_MAIN_WALLET}"
   slots: 5
+  margin_pct: 12                       # % of account per slot (runtime sizes the dollars)
   default_leverage: 3
   trading_risk: moderate
   enabled: true
@@ -32,7 +33,6 @@ scanners:
       direction: "LONG"
       wantTrend: "UP"
       minScore: 5
-      marginPct: 0.12
       rsiMax: 75
       recentSignalTtlSeconds: 1800
     signal_data_schema:
