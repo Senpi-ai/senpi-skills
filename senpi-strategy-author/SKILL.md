@@ -26,6 +26,26 @@ package; the runtime owns execution, sizing, exits, slots, risk, and state. The 
 decide **the thesis** (what to trade and how to score it) and **the guardrails** (how to exit, how
 much risk). Your job is to draw those out, one question at a time, and compile them.
 
+## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
+
+You are an LLM. **Every identifier you emit from memory or plausibility is a silent failure** — a wrong
+ticker, field name, enum value, unit, MCP tool/arg, or output key compiles fine, ticks clean, and trades
+**nothing**, with no error to tell you. Two live incidents proved it — both plausible, both silent:
+`xyz:NASDAQ` (doesn't exist; the index is `xyz:XYZ100`) and `cooldown_minutes` (the runtime uses
+`cooldown_seconds`). **Copy each of these from its source; never recall it from training:**
+
+| What you're writing | Source of truth — copy from here, don't remember |
+|---|---|
+| Asset tickers | `market_list_instruments` (live). Verify EVERY hardcoded ticker → `senpi-strategy-ops/scripts/validate_universe.py`. |
+| `runtime.yaml` fields & units (risk gates, scanner config, actions) | `senpi-trading-runtime/references/runtime-yaml.md` — the **runtime's own** schema. If any other doc disagrees, **the runtime wins** (the helper docs have been wrong before). |
+| DSL exit fields | `references/dsl-presets.yaml` — copy a preset, change ≤1 field. |
+| MCP tool names / args / output keys | the published MCP I/O reference — and **call the tool once, inspect the real response, then extract**. |
+| Catalog facets & enums | `senpi-strategy-discover/references/glossary.yaml`. |
+
+**The rule: source beats memory. When they conflict, source wins. When you can't find the source, STOP
+and ask — never paper over the gap with a plausible value.** This is not optional polish; it is the
+single most common way a strategy silently does nothing.
+
 ## ▶ DEFAULT behavior — the rules of this conversation (do this every time)
 
 1. **One question at a time. Never dump all 7 decisions, never paste the guide.** Ask → wait for the
