@@ -54,7 +54,7 @@
         0.35
       ],
       "max_slots": 7,
-      "branch": "strategy/asia-ai",
+      "branch": "curator",
       "sort_order": 1
     },
     {
@@ -117,7 +117,7 @@
         0.4
       ],
       "max_slots": 7,
-      "branch": "strategy/asia-ai",
+      "branch": "curator",
       "sort_order": 2
     }
   ]
