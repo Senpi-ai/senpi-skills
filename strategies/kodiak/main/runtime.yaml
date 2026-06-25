@@ -108,7 +108,7 @@ risk:
     drawdown_halt_pct: 25
     drawdown_reset_on_day_rollover: true
     max_consecutive_losses: 4
-    cooldown_minutes: 60
-    per_asset_cooldown_minutes: 240
+    cooldown_seconds: 3600
+    per_asset_cooldown_seconds: 14400
     max_entries_per_day: 8
     bypass_max_entries_per_day_on_profit: false
