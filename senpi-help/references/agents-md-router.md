@@ -6,10 +6,12 @@ look it up*. (`senpi-help` remains the full directory, loaded on demand for edge
 tokens/turn — cheap insurance that the agent routes to the right skill (or tool) first.
 
 **No tools are denied or removed.** Routing is about *order of preference*, not access: prefer a skill
-because it's cleaner and does the multi-step work for you, but every tool is already in your list and
-directly callable. Whether we later remove (deny) any tool schemas to save context is a separate
-decision — not assumed here. (This runtime loads all tool schemas every turn; there is no on-demand
-"tool search" — a tool is either in your list or it isn't.)
+because it's cleaner and does the multi-step work for you, but every tool stays reachable. If this
+runtime has **Tool Search** enabled (`tools.toolSearch` — `tool_search` / `tool_describe` /
+`tool_call`, or `tool_search_code`), you discover and call any catalog tool on demand; if it isn't,
+the tool is already in your list. Either way nothing is hidden. (How we reduce per-turn context —
+enabling Tool Search vs. denying tools — is a separate decision; Tool Search is the lower-risk lever
+because it keeps every tool reachable.)
 
 ```markdown
 ## Senpi capabilities — routing (check before saying "I can't")
@@ -19,9 +21,10 @@ decision — not assumed here. (This runtime loads all tool schemas every turn; 
    SKILL.md and use it.
 2. **Then `senpi-help`.** No clear skill? Read the `senpi-help` skill — its directory maps the intent to
    the right skill or tool.
-3. **Then the tool directly.** Still nothing? The matching tool is already in your list — find its
-   name in `senpi-help` (or scan your tools) and call it. A skill is just the preferred route when one
-   fits; nothing is hidden.
+3. **Then Tool Search (or the tool directly).** Still nothing? If Tool Search is enabled, use it —
+   `tool_search` to find the tool, `tool_describe` to load its schema, `tool_call` to run it (or the
+   `tool_search_code` bridge). If it isn't, the matching tool is already in your list — find its name
+   in `senpi-help` and call it. Nothing is hidden either way.
 4. **Cap it at ~5 attempts — do NOT keep cycling.** Don't grind for 10–20 minutes retrying the same
    thing. If you're still stuck after ~5 tries, **stop**: tell the user what you tried and suggest
    another path (an external source, a different framing, or one clarifying question). A clear "here's
