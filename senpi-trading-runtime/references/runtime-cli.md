@@ -75,6 +75,15 @@ openclaw senpi runtime delete --id iguana-tracker  # tear down
 |---|---|---|
 | `audit` | Backend trade trail: MCP tool calls with success, duration, and AI reasoning. Compact table by default. | `-r, --runtime <id>` (required) · `--tool <name>` · `--action-type <read\|create\|update\|delete>` · `--success <bool>` · `--since <iso>` · `--until <iso>` · `-l, --limit <n>` (default 50) · `--json` |
 
+## `senpi events` / `senpi explain` — local domain-event log
+
+The trade narrative (position/dsl/order/signal/runtime events) is persisted to a per-strategy on-disk ring, queryable locally without the collector. Every event is stored as its body + capped scalars; only the redacted free-text slot (LLM reasoning, venue errors) stays collector-only. Because signal processing is strictly serial, the time-ordered window already reflects causal order.
+
+| Command | What it does | Options |
+|---|---|---|
+| `events` | The domain-event log as a table (time, level, event, asset, narrative). | `-r, --runtime <id>` (required) · `-a, --address <addr>` · `--name <event>` · `--asset <symbol>` · `--level <debug\|info\|warn\|error>` · `--since <iso>` · `--until <iso>` · `-l, --limit <n>` (default 200) · `--json` |
+| `explain <asset>` | Stitch one asset's position lifecycle (opened → dsl transitions → close+reason) into a chronological narrative tagged by position id. | `-r, --runtime <id>` (required) · `-a, --address <addr>` · `-l, --limit <n>` (events to scan, default 500) · `--json` |
+
 ## `senpi status` / `senpi state` — runtime health
 
 | Command | What it does | Options |
