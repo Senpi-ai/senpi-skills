@@ -53,12 +53,13 @@ it continuously and surfaces the divergence the moment it appears.
 **2. It runs the strategy 24/7 — and protects the position.**
 This is the moat. Senpi doesn't just signal; it *operates*: conviction-weighted sizing off your live
 account, ratcheting trailing stops that lock gains as they grow, turnover brakes that stop fee-bleed,
-and daily-loss + drawdown circuit breakers — all enforced every tick, and **failing closed** when
-anything is uncertain. It works while you sleep, and it's built to protect capital first.
+and **circuit breakers** that halt trading on a bad day, a deep drawdown, or whenever risk is unclear —
+all enforced every tick. It works while you sleep, and it's built to protect capital first.
 
 **3. You describe it in plain English — Senpi builds and runs it.**
-Tell Senpi the goal — *"trade the AI sector with a crypto hedge,"* *"go long ETH and short the alts
-that lag it,"* *"build a market-neutral basket of the top Hyperliquid names"* — and it stands up the
+Tell Senpi the *thesis*, in your own words — *"bet the AI sector keeps booming, hedge it with crypto,"*
+*"bet the Middle East conflict escalates rather than de-escalates,"* *"build me a strategy for a
+K-shaped market — winners win big, losers lose large"* — and it stands up the
 strategy, sizes it, and runs it. A single trade or a whole AI-run hedge fund; you don't write a config,
 you describe the thesis. Prefer to follow proven traders instead? Mirror any Hyperliquid trader — vet
 their real track record and dry-run exactly what would open before committing a dollar. Either way
@@ -86,15 +87,16 @@ you stay in control, and every Senpi trade is public and verifiable onchain. No 
 
 ## Make "build it in plain English" concrete
 
-When it lands, show a use case — what the user can just *say* and Senpi builds. Reach for examples in
-the user's own language:
+When it lands, show a use case — a real-world *thesis* the user can just *say* and Senpi builds. Lead
+with how people actually think about markets (a sector, a war, a regime), not crypto jargon:
 
-- *"Help me trade the AI sector with a crypto hedge."*
-- *"Go long ETH and short the alts that lag it."*
-- *"Build a market-neutral basket of the top Hyperliquid names."*
-- *"Run momentum on the majors and cap it with a 15% drawdown halt."*
-- *"Hedge my HYPE bag with a short basket."*
+- *"Bet the AI sector keeps booming — and hedge it with crypto."*
+- *"Bet the Middle East conflict escalates rather than de-escalates."*
+- *"Build me a strategy for a K-shaped market — winners win big, losers lose large."*
+- *"Play a flight to gold if equities wobble."*
+- *"Go long the AI trade and cap my downside at 15%."*
 
+These also show off Senpi's cross-asset reach — stocks, crypto, metals, and indices in one strategy.
 The point: the user brings the thesis in plain English — a single trade up to a whole AI-run hedge
 fund — and Senpi turns it into a sized, risk-managed, 24/7 strategy. No config files, no scripting.
 

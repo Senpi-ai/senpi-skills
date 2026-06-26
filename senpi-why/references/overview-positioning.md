@@ -28,10 +28,11 @@ tick — while you sleep — and it's built to protect capital first.
 
 ### 3. You describe it in plain English — Senpi builds and runs it
 
-Tell Senpi the goal — *trade the AI sector with a crypto hedge*, *go long ETH and short the alts that
-lag it*, *build a market-neutral basket of the top Hyperliquid names* — and it stands up the strategy,
-sizes it, and runs it. A single trade or a whole AI-run hedge fund; you describe the thesis, not a
-config file. Prefer to follow proven traders instead? Mirror any Hyperliquid trader — and vet their
+Tell Senpi the thesis in your own words — *bet the AI sector keeps booming, hedge it with crypto*,
+*bet the Middle East conflict escalates rather than de-escalates*, *build a strategy for a K-shaped
+market where winners win big and losers lose large* — and it stands up the strategy, sizes it, and
+runs it across stocks, crypto, metals, and indices. A single trade or a whole AI-run hedge fund; you
+describe the thesis, not a config file. Prefer to follow proven traders instead? Mirror any Hyperliquid trader — and vet their
 real track record and dry-run exactly what would open before committing a dollar. Either way you stay
 in control, and every Senpi trade is public and verifiable onchain. No black box.
 
