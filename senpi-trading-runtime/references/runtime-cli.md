@@ -61,6 +61,7 @@ openclaw senpi runtime delete --id iguana-tracker  # tear down
 | Command | What it does | Options |
 |---|---|---|
 | `risk` | Whether the runtime is allowed to trade (eligibility OPEN/COOLDOWN/CLOSED), gate totals, and per-gate status/reason — plus the evaluation faults (`failureKind`, fallback applied) the `status` summary hides. | `-r, --runtime <id>` · `--json` |
+| `risk audit` | Per-wallet gate-check audit log — the decision *history* behind the live `risk` view, as a digest (time, source, `guardrail=result` with reasons). Renders "No risk audit." until the first gate check runs. | `-r, --runtime <id>` (required) · `-a, --address <addr>` · `--since <iso>` · `-l, --limit <n>` (default 100) · `--json` |
 
 ## `senpi scanner` — per-scanner supervisor health
 
