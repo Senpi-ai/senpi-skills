@@ -22,6 +22,17 @@ CACHE_VERSION = 1     # bump if the cohort-BUILDING logic changes (busts a stale
 _DEFAULT_TTL = 3600   # 60m signal-dedup: don't re-fire a coin while a signal is in flight
 
 
+def _read(ctx, name, args):
+    """Guarded MCP read: a transient/permission error on a read must NOT roll back the
+    whole tick. Returns None on failure so the existing degrade paths apply (cohort
+    falls back to its daily cache; a failed state batch is skipped)."""
+    try:
+        return ctx.senpi_mcp.call_tool(name, args)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[whalehunter.scan] {name} read failed: {exc!r}", file=sys.stderr)
+        return None
+
+
 def _build_cohorts(ctx, cached, inputs, now):
     """Smart cohort (lifetime realized >= smartMinRealizedUsd) + crowd cohort
     (crowdMin..crowdMax) from the ALL_TIME realized-PnL ranking, PAGED by offset to
@@ -38,7 +49,7 @@ def _build_cohorts(ctx, cached, inputs, now):
     max_pages = int(inputs.get("cohortMaxPages", 6))
     smart, crowd, seen = [], [], set()
     for page in range(max_pages):
-        resp = ctx.senpi_mcp.call_tool("discovery_get_top_traders", {
+        resp = _read(ctx, "discovery_get_top_traders", {
             "time_frame": "ALL_TIME", "sort_by": "PROFIT_AND_LOSS_REALIZED",
             "open_position_filter": False, "limit": page_size, "offset": page * page_size})
         if not resp:
@@ -78,7 +89,7 @@ def _fetch_states(ctx, addrs):
     """discovery_get_trader_state in batches of 50 -> flat list of trader-state dicts."""
     traders = []
     for i in range(0, len(addrs), 50):
-        resp = ctx.senpi_mcp.call_tool("discovery_get_trader_state",
+        resp = _read(ctx, "discovery_get_trader_state",
                                        {"trader_addresses": addrs[i:i + 50]})
         if not resp:
             continue
