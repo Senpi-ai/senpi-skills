@@ -56,10 +56,13 @@ account, ratcheting trailing stops that lock gains as they grow, turnover brakes
 and daily-loss + drawdown circuit breakers — all enforced every tick, and **failing closed** when
 anything is uncertain. It works while you sleep, and it's built to protect capital first.
 
-**3. You stay in control — copy, build, or just watch.**
-Mirror a proven Hyperliquid trader, build your own strategy in plain English, or just watch the smart
-money rotate. Before committing a dollar you can vet any trader's real track record and dry-run
-exactly what would open. Every Senpi trade is public and verifiable onchain. No black box.
+**3. You describe it in plain English — Senpi builds and runs it.**
+Tell Senpi the goal — *"trade the AI sector with a crypto hedge,"* *"go long ETH and short the alts
+that lag it,"* *"build a market-neutral basket of the top Hyperliquid names"* — and it stands up the
+strategy, sizes it, and runs it. A single trade or a whole AI-run hedge fund; you don't write a config,
+you describe the thesis. Prefer to follow proven traders instead? Mirror any Hyperliquid trader — vet
+their real track record and dry-run exactly what would open before committing a dollar. Either way
+you stay in control, and every Senpi trade is public and verifiable onchain. No black box.
 
 ## Supporting facts (proof, not the lead — only after the pillars)
 
@@ -81,16 +84,31 @@ exactly what would open. Every Senpi trade is public and verifiable onchain. No 
 - **Concrete nouns** — strategy, trades, positions, portfolio, book, protection, onchain. Avoid "AI
   layer," "trading intelligence platform," "runs your Hyperliquid."
 
+## Make "build it in plain English" concrete
+
+When it lands, show a use case — what the user can just *say* and Senpi builds. Reach for examples in
+the user's own language:
+
+- *"Help me trade the AI sector with a crypto hedge."*
+- *"Go long ETH and short the alts that lag it."*
+- *"Build a market-neutral basket of the top Hyperliquid names."*
+- *"Run momentum on the majors and cap it with a 15% drawdown halt."*
+- *"Hedge my HYPE bag with a short basket."*
+
+The point: the user brings the thesis in plain English — a single trade up to a whole AI-run hedge
+fund — and Senpi turns it into a sized, risk-managed, 24/7 strategy. No config files, no scripting.
+
 ## How to answer
 
 - **Default shape:** 1–2 sentence category difference → the three pillars (one tight line each) →
   offer to go deeper or set one up. Keep it crisp; expand a pillar only if asked.
+- **Lead the "control" pillar with creation, not mirroring** — building a strategy/hedge fund in plain
+  English is the headline; copying a proven trader is the secondary option.
 - **"Senpi vs `<competitor>`":** contrast the *category* (an operator that runs it vs a UI you click),
   not a checkbox war.
 - **Exact live numbers** (current fee tier, market count): call the existing tools
   (`get_loyalty_tiers`, `market_list_instruments`) — don't hardcode them.
-- **Close with a next step:** *"Want me to recommend a strategy and set it up?"* or *"Want to see
-  who's profiting right now?"*
+- **Close with a next step:** *"Want to see who's profiting right now, or set up a strategy?"*
 
 The full consumer-facing positioning prose — ready to sync into the overview guide — is in
 [references/overview-positioning.md](references/overview-positioning.md).

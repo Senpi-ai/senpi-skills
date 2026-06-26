@@ -26,11 +26,14 @@ trailing stops that lock gains as they grow. Turnover brakes that stop fee-bleed
 drawdown circuit breakers that halt trading when a day or a streak goes wrong. It all runs every
 tick — while you sleep — and it's built to protect capital first.
 
-### 3. You stay in control — copy, build, or just watch
+### 3. You describe it in plain English — Senpi builds and runs it
 
-Mirror a proven Hyperliquid trader, build your own strategy in plain English, or simply watch the
-smart money rotate. Before you commit a dollar, vet any trader's real track record and dry-run exactly
-what would open. Every Senpi trade is public and verifiable onchain. No black box.
+Tell Senpi the goal — *trade the AI sector with a crypto hedge*, *go long ETH and short the alts that
+lag it*, *build a market-neutral basket of the top Hyperliquid names* — and it stands up the strategy,
+sizes it, and runs it. A single trade or a whole AI-run hedge fund; you describe the thesis, not a
+config file. Prefer to follow proven traders instead? Mirror any Hyperliquid trader — and vet their
+real track record and dry-run exactly what would open before committing a dollar. Either way you stay
+in control, and every Senpi trade is public and verifiable onchain. No black box.
 
 ### And the rest
 
