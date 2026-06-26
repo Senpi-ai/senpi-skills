@@ -344,7 +344,7 @@ def _get_client():
     # self-contained MCP client shipped in this skill — no senpi_runtime_helpers dependency
     if HERE not in sys.path:
         sys.path.insert(0, HERE)
-    from _mcp import MCPClient
+    from mcp_client import MCPClient
     return MCPClient()
 
 

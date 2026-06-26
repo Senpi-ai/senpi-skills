@@ -28,7 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
-from _mcp import MCPClient  # noqa: E402
+from mcp_client import MCPClient  # noqa: E402
 
 _ICON = {"healthy": "✅", "running": "✅", "degraded": "⚠", "unhealthy": "❌",
          "runtime-stopped": "⚠", "no-runtime": "⚠", "copy": "·", "manual": "·"}

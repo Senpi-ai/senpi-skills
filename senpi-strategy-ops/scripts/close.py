@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
 import _fetch  # noqa: E402
 import _pkg  # noqa: E402
-from _mcp import MCPClient, MCPError  # noqa: E402
+from mcp_client import MCPClient, MCPError  # noqa: E402
 
 SUBMIT_TIMEOUT = 60        # HTTP timeout for the strategy_close submit
 _CLOSED = ("CLOSED", "INACTIVE", "CLOSING_DONE", "TERMINATED")
