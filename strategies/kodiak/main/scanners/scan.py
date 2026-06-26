@@ -119,10 +119,22 @@ def scan(inputs, ctx):
         candles.get("5m", []), candles.get("15m", []), candles.get("1h", []), candles.get("4h", []),
         funding, oi, btc_mom_1h, sm, hour, inputs,
     )
-    if not th or th["score"] < min_score:
+    if not th:
+        t4, s4 = scoring.trend_structure(candles.get("4h", []))
+        t1, _ = scoring.trend_structure(candles.get("1h", []))
+        m15 = scoring.mom(candles.get("15m", []), 1)
+        print(f"[kodiak.scan] {asset} HOLD (gate): 4h={t4} {s4:.0%} (need>=75% & directional) | "
+              f"1h={t1} | 15m={m15:+.2f}%", file=sys.stderr)
+        return []
+    if th["score"] < min_score:
+        print(f"[kodiak.scan] {asset} HOLD: score={th['score']}/{min_score:.0f} {th['direction']} | "
+              f"4h={th['trend_4h']} {th['trend_strength_4h']:.0%} rsi={th['rsi']} | {th['reasons']}",
+              file=sys.stderr)
         return []
 
     leverage = scoring.get_leverage(th["score"], tiers)
+    print(f"[kodiak.scan] {asset} EMIT: score={th['score']} {th['direction']} {leverage}x | {th['reasons']}",
+          file=sys.stderr)
     out = [{
         "asset": asset,
         "direction": th["direction"],
