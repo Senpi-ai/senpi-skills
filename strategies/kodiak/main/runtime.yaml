@@ -33,7 +33,7 @@ scanners:
       dex: ""
       macroAsset: "BTC"                    # "" disables the BTC-correlation factor (xyz ports)
       minScore: 10
-      marginPct: 0.20
+      marginPct: 20                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
       minTrendStrength4h: 0.75
       minMom15mPct: 0.1
       rsiMaxLong: 72

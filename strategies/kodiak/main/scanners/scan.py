@@ -86,7 +86,7 @@ def scan(inputs, ctx):
     dex = _dex_for(asset, inputs)
     macro_asset = inputs.get("macroAsset", "BTC")     # "" disables the BTC factor (e.g. xyz ports)
     min_score = float(inputs.get("minScore", 10))
-    margin_pct = float(inputs.get("marginPct", 0.20))
+    margin_pct = float(inputs.get("marginPct", 20))   # PERCENT of withdrawable (0,100], not a fraction
     tiers = inputs.get("leverageTiers", _DEFAULT_TIERS)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     now = time.time()
