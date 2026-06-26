@@ -60,6 +60,7 @@ Reads → run the skill — MANDATORY, not the raw tools (the skill carries the 
 - find or vet traders to copy → **senpi-trader-research** (default = FIND; `--trader <addr>` to vet one)
 - points / tier / fees / Arena / referrals / wins → **senpi-account-status**
 - what happened / history / why it failed → **senpi-audit** (`--strategy <id>` for one strategy)
+- why Senpi / what makes it different / Senpi vs other apps → **senpi-why** (positioning, lead with value)
 
 Act now → first-class tools (the ONLY place a raw tool leads — single lookups + mutations):
 - wallet / quick balance / quick price / list strategies → user_get_me / account_get_portfolio /

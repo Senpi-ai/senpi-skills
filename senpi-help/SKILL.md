@@ -38,6 +38,7 @@ a skill or a tool you may not have in your current tool list.
 | Find good traders to copy / vet a specific trader before mirroring | **`senpi-trader-research`** |
 | Points, rank, loyalty tier, fees, Arena standing, referrals, wins | **`senpi-account-status`** |
 | "What happened" — recent activity, strategy history, why something failed | **`senpi-audit`** |
+| Why Senpi / what makes it different / Senpi vs other apps — the positioning answer | **`senpi-why`** |
 
 ## Pick / build / deploy a strategy — run the lifecycle skill
 
