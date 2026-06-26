@@ -1,0 +1,44 @@
+# Asia AI — hedged sector long. A PACKAGE: this manifest + two self-contained runtime.yaml
+# instances (main = long Asia-AI semis, hedge = short broad/US-AI beta) + scanners/.
+# Install/teardown via senpi-strategy-ops. Published to the catalog via senpi-strategy-author-curator.
+schema_version: 1
+
+id: asia-ai
+version: "1.0.0"
+
+catalog:
+  name: "Asia AI — Hedged Sector Long"
+  emoji: "🌏"
+  tagline: "Long the Asian AI/semiconductor complex (TSMC, Samsung, SK Hynix, ARM, ASML) with a broad/US-tech short hedge that strips out market beta."
+  belief_plain: "Buys the Asian AI chipmakers while they're trending up, and shorts the broad US/tech index when it rolls over — so the bet is on Asia AI outperforming, not just the market going up."
+  thesis: "You think the AI buildout is increasingly an Asia story — Taiwan and Korea fabs, the chip supply chain — and you want a long on that sector with market beta hedged out, not a naked tech long."
+  group: multi-asset-whitelist
+  archetype: trend_following
+  sub_style: basket
+  asset_classes: [xyz_equities, indices]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 3
+  max_slots: 7
+  min_budget: 200
+  assets: ["xyz:TSM", "xyz:SMSN", "xyz:SKHX", "xyz:ARM", "xyz:ASML", "xyz:XYZ100", "xyz:SP500"]
+  tags: [ai, semiconductors, asia, taiwan, korea, hedged, sector, long_short]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: ASIA_AI_MAIN_WALLET
+    funding_share: 0.65
+  - name: hedge
+    runtime: hedge/runtime.yaml
+    wallet_env: ASIA_AI_HEDGE_WALLET
+    funding_share: 0.35

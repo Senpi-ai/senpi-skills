@@ -1,0 +1,40 @@
+# Kodiak — SOL alpha hunter. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
+# Kodiak (SKILL.md v7.0.0): multi-factor conviction scoring on one asset (SOL),
+# conviction-tiered leverage, DSL-only exits. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: kodiak
+version: "1.0.0"
+
+catalog:
+  name: "Kodiak — SOL Alpha Hunter"
+  emoji: "🐻"
+  tagline: "A single-asset SOL specialist: enters only when 4h and 1h trend structure agree, 15m momentum confirms, and smart-money lean, funding, and BTC all line up — then sizes leverage to conviction (5/6/7x) and lets the DSL ride the winner."
+  belief_plain: "Trades only SOL. It waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the best traders to be leaning the same way — then goes in harder when more of those line up, and trails a stop instead of guessing the exit."
+  thesis: "You want one coin done really well, not a scattergun across the market. SOL has the liquidity and the moves, and an agent that watches only SOL can read its structure, smart-money flow, and funding far more tightly than a broad universe scanner ever could."
+  group: single-asset
+  archetype: single_market
+  sub_style: alpha_hunter
+  asset_classes: [major_alts]
+  asset_scope: single
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  leverage_max: 7
+  max_slots: 1
+  min_budget: 200
+  assets: ["SOL"]
+  tags: [sol, single-asset, momentum, smart-money, conviction-leverage, alpha-hunter]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: KODIAK_WALLET
+    funding_share: 1.0

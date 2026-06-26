@@ -1,0 +1,44 @@
+# WhaleHunter — smart-money-vs-crowd cohort divergence. A two-instance PACKAGE: this
+# manifest + two self-contained runtime.yaml sleeves (long / short on SEPARATE wallets,
+# so conflicting same-coin positions can coexist) + shared scanners/. A faithful Runtime
+# 3.0 port of the v2 WhaleHunter v2.0 cohort engine. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: whalehunter
+version: "1.0.0"
+
+catalog:
+  name: "WhaleHunter — Smart-Money Cohort Divergence"
+  emoji: "🐋"
+  tagline: "Buckets Hyperliquid traders by lifetime realized PnL into a smart-money cohort and a crowd, then positions WITH the smartest money — and against the crowd — wherever the smart cohort is heavily net-directional and adding to it daily."
+  belief_plain: "Looks at where the most profitable traders on Hyperliquid are putting their money as a group, and copies that lean — going long what they're loading up on and short what they're dumping, especially when the average crowd is on the other side."
+  thesis: "You trust the aggregate of proven winners over any single guru or your own read. When the >$1M-realized crowd is piling into a coin day after day while the small accounts fade it, that divergence is the edge — so follow the smart cohort, not one whale, and hedge the book with a separate short sleeve."
+  group: smart-money
+  archetype: copy_trading
+  sub_style: cohort_divergence
+  asset_classes: [universe_crypto]
+  asset_scope: follows_traders
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 5
+  max_slots: 6
+  min_budget: 400
+  assets: []
+  tags: [smart-money, cohort, divergence, copy-trading, long-short, crowd-fade, hedged]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: long
+    runtime: long/runtime.yaml
+    wallet_env: WHALEHUNTER_LONG_WALLET
+    funding_share: 0.5
+  - name: short
+    runtime: short/runtime.yaml
+    wallet_env: WHALEHUNTER_SHORT_WALLET
+    funding_share: 0.5

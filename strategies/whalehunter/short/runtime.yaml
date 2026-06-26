@@ -1,0 +1,112 @@
+# ── WHALEHUNTER · SHORT sleeve — position WITH a net-short smart-money cohort ──
+name: whalehunter-short
+group: whalehunter
+version: 3.0.0
+description: >
+  WHALEHUNTER SHORT — smart-money-vs-crowd cohort divergence (Runtime 3.0 port of v2.0).
+  Segments Hyperliquid traders into a SMART cohort (lifetime realized >= $1M) and a
+  CROWD cohort ($10k-$100k), aggregates each cohort's NET positioning per coin, and
+  emits a SHORT when the smart cohort is heavily net-short a coin AND adding to it daily
+  while the crowd is buying it (e.g. the crowd piling into a rally the winners are
+  selling). Derived universe (coins come from the cohort's positions). Rides a WIDE
+  conviction DSL. Pairs with the LONG sleeve on a separate wallet so conflicting
+  same-coin positions can coexist. ~1-day warmup before requireGrowing can pass.
+
+strategy:
+  wallet: "${WHALEHUNTER_SHORT_WALLET}"
+  slots: 6
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: whalehunter_short_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300
+    timeout_seconds: 180
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 12
+    inputs:
+      direction: "SHORT"
+      smartMinRealizedUsd: 1000000
+      crowdMinRealizedUsd: 10000
+      crowdMaxRealizedUsd: 100000
+      cohortFetchLimit: 1000
+      cohortMaxPages: 6
+      cohortSampleCap: 250
+      cohortRefreshHours: 24
+      cohortMinMembers: 5
+      biasThreshold: 0.5
+      crowdDivergenceMin: 0.2
+      requireGrowing: true
+      cohortMinScore: 4
+      marginPct: 12                        # PERCENT of withdrawable (0,100], not a fraction
+      maxMarginPct: 25                      # conviction-scale cap, percent of withdrawable
+      maxConvictionScale: 2.0
+      stdLeverage: 3
+      maxLeverage: 5
+      recentSignalTtlSeconds: 3600
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      signalKind: { type: string, required: false }
+      smartBias: { type: number, required: false }
+      crowdBias: { type: number, required: false }
+      smartGrowth: { type: number, required: false }
+      smartMembers: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: whalehunter_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [whalehunter_short_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: whalehunter_short_signals
+
+# EXIT — WIDE "ride the conviction" DSL (ported verbatim from v2). Time cuts OFF.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 30.0
+      retrace_threshold: 18
+      consecutive_breaches_required: 2
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 60, lock_hw_pct: 0 }
+        - { trigger_pct: 120, lock_hw_pct: 45 }
+        - { trigger_pct: 220, lock_hw_pct: 65 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 15
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: true
+    max_consecutive_losses: 5
+    cooldown_seconds: 3600
+    per_asset_cooldown_seconds: 21600
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false

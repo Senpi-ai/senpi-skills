@@ -1,0 +1,86 @@
+# ── ASIA-AI · MAIN leg — LONG the Asian AI/semiconductor complex ──
+name: asia-ai-main
+group: asia-ai
+version: 3.0.0
+description: >
+  ASIA-AI MAIN — long the Asian AI/semiconductor complex (TSMC, Samsung, SK Hynix,
+  ARM, ASML). Accumulates a name only when it confirms an uptrend on BOTH the 4h and
+  1d timeframes with RSI room (accumulate, don't chase). Rides wide (let_winners_run).
+  Paired with the HEDGE leg on a separate wallet that shorts broad/US-tech beta.
+
+strategy:
+  wallet: "${ASIA_AI_MAIN_WALLET}"
+  slots: 5
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: asia_ai_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900                # multi-day sector thesis — slow cadence
+    timeout_seconds: 180
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100         # signal-dedup map
+    inputs:
+      universe: ["xyz:TSM", "xyz:SMSN", "xyz:SKHX", "xyz:ARM", "xyz:ASML"]
+      direction: "LONG"
+      wantTrend: "UP"
+      minScore: 5
+      marginPct: 12          # percent of withdrawable (runtime sizes (marginPct/100)*withdrawable)
+      rsiMax: 75
+      recentSignalTtlSeconds: 1800
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: asia_ai_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [asia_ai_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: asia_ai_main_signals
+
+# EXIT — let_winners_run (ride the sector thesis; copied from dsl-presets.yaml)
+exit:
+  engine: dsl
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0 }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+risk:
+  guard_rails:
+    drawdown_halt_pct: 22
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 6
+    cooldown_seconds: 3600
+    drawdown_reset_on_day_rollover: true
