@@ -1,7 +1,7 @@
 ---
 name: senpi-strategy-ops
 description: >-
-  Deploy / monitor / close a NAMED Senpi trading strategy (a.k.a. a "predator").
+  Deploy / monitor / close a NAMED Senpi trading strategy.
   Use when the user names a strategy to run — "install spider", "deploy polar",
   "set up kodiak", "run the spider strategy", "is my strategy live?", "what am I
   running", "list my strategies" (→ status.py),

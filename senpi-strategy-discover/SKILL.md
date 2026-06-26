@@ -1,9 +1,9 @@
 ---
 name: senpi-strategy-discover
 description: >-
-  Help a user choose a Senpi trading strategy (a.k.a. "predator") to deploy — a
+  Help a user choose a Senpi trading strategy to deploy — a
   conversational, analyst-style picker. Use when the user asks "what should I
-  trade?", "recommend a strategy", "help me pick a strategy/predator", "what's
+  trade?", "recommend a strategy", "help me pick a strategy", "what's
   winning?", "set me up", "I have a view on the world (a war, the economy, one
   coin winning) — trade it", "run a hedge fund / all-weather / tail-risk book",
   or wants a strategy but has NOT named a specific one. You talk and RANK; a
