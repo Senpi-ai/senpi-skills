@@ -136,7 +136,8 @@ def _prune_signaled(signaled, ttl, now):
 def scan(inputs, ctx):
     now = time.time()
     min_score = inputs.get("minScore", 4)
-    margin_pct = float(inputs.get("marginPct", 0.15))
+    # Per-signal size as a PERCENT of withdrawable, domain (0,100].
+    margin_pct = float(inputs.get("marginPct", 15))
     leg_max_lev = inputs.get("maxLeverage", 5)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
     venue_min_notional = float(inputs.get("venueMinNotionalUsd", 10))
@@ -149,7 +150,9 @@ def scan(inputs, ctx):
         return []
 
     min_notional = max(account_value * min_notional_pct, venue_min_notional)
-    margin_usd = round(account_value * margin_pct, 2)
+    # Margin the runtime will allocate per signal (marginPct of withdrawable),
+    # used only to apply the venue-min-notional gate below.
+    margin_usd = round(account_value * (margin_pct / 100), 2)
 
     signaled = _prune_signaled(_load_signaled(ctx), ttl, now)
 
@@ -187,7 +190,7 @@ def scan(inputs, ctx):
         out.append({
             "asset": th["coin"],
             "direction": th["direction"],
-            "marginUsd": margin_usd,
+            "marginPct": margin_pct,
             "leverage": leverage,
             "data": {
                 "score": th["score"],
