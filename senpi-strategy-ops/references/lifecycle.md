@@ -1,7 +1,7 @@
 # Lifecycle internals — what `deploy.py` and `close.py` actually do
 
 Both scripts live in `senpi-strategy-ops/scripts/`, share `_pkg.py` (package model) + `_cli.py`
-(openclaw CLI + tolerant JSON digging) + `_mcp.py` (vendored stdlib HTTP MCP client, reads
+(openclaw CLI + tolerant JSON digging) + `mcp_client.py` (vendored stdlib HTTP MCP client, reads
 `SENPI_AUTH_TOKEN` / `SENPI_MCP_URL`). They are stdlib-only (plus PyYAML). No daemons, no `push_signal`.
 
 ## Why there is no scanner daemon anymore
@@ -122,7 +122,7 @@ not by hand-composing `strategy_list`.
 | `openclaw senpi status -r <id> [--json]` / `state -r <id> [--json]` | verify + Monitor (scanner ticked) |
 | `openclaw senpi dsl positions\|inspect\|closes` · `action list\|history\|decisions` | troubleshooting |
 
-## MCP tools used (via `_mcp.py`)
+## MCP tools used (via `mcp_client.py`)
 
 `strategy_create_custom_strategy` (create wallet) · `strategy_list` (poll ACTIVE/CLOSED, reverse lookup) ·
 `strategy_close` (flatten + close) · optionally `strategy_get` / `strategy_get_clearinghouse_state` to
