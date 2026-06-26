@@ -88,8 +88,8 @@ The trade narrative (position/dsl/order/signal/runtime events) is persisted to a
 
 | Command | What it does | Options |
 |---|---|---|
-| `status` | Lightweight runtime health for running runtimes. | `-r, --runtime <id>` · `--json` |
-| `state` | Full runtime state for running runtimes. | `-r` · `--json` |
+| `status` | Lightweight runtime health digest for running runtimes: overall health, scanner summary (with a degraded-scanner count), DSL monitor liveness (running/stopped, tick-in-flight, next tick, last tick error), and — when risk is enabled — trade eligibility (OPEN/COOLDOWN/CLOSED) and the per-gate table. | `-r, --runtime <id>` · `--json` |
+| `state` | Full runtime state for running runtimes — the escape hatch when the `status` digest isn't enough. | `-r` · `--json` |
 
 ## `senpi skills` — manage Senpi skills
 
