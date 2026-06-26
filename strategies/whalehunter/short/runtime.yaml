@@ -45,8 +45,8 @@ scanners:
       crowdDivergenceMin: 0.2
       requireGrowing: true
       cohortMinScore: 4
-      marginPct: 0.12
-      maxMarginPct: 0.25
+      marginPct: 12                        # PERCENT of withdrawable (0,100], not a fraction
+      maxMarginPct: 25                      # conviction-scale cap, percent of withdrawable
       maxConvictionScale: 2.0
       stdLeverage: 3
       maxLeverage: 5
