@@ -1,9 +1,62 @@
 {
   "_version": "2.1",
-  "_updated": "2026-06-17",
+  "_updated": "2026-06-26",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
+    {
+      "id": "asia-ai",
+      "name": "Asia AI — Hedged Sector Long",
+      "emoji": "🌏",
+      "tagline": "Long the Asian AI/semiconductor complex (TSMC, Samsung, SK Hynix, ARM, ASML) with a broad/US-tech short hedge that strips out market beta.",
+      "belief_plain": "Buys the Asian AI chipmakers while they're trending up, and shorts the broad US/tech index when it rolls over — so the bet is on Asia AI outperforming, not just the market going up.",
+      "version": "1.0.0",
+      "thesis": "You think the AI buildout is increasingly an Asia story — Taiwan and Korea fabs, the chip supply chain — and you want a long on that sector with market beta hedged out, not a naked tech long.",
+      "tags": [
+        "ai",
+        "semiconductors",
+        "asia",
+        "taiwan",
+        "korea",
+        "hedged",
+        "sector",
+        "long_short"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
+      "asset_classes": [
+        "xyz_equities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:TSM",
+        "xyz:SMSN",
+        "xyz:SKHX",
+        "xyz:ARM",
+        "xyz:ASML",
+        "xyz:XYZ100",
+        "xyz:SP500"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 3,
+      "time_horizon": "position",
+      "cadence_seconds": 900,
+      "min_budget": 200,
+      "instance_count": 2,
+      "funding_split": [
+        0.65,
+        0.35
+      ],
+      "max_slots": 7,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
     {
       "id": "spider",
       "name": "Spider — AI/Tech Hedge Fund",
@@ -64,6 +117,92 @@
         0.4
       ],
       "max_slots": 7,
+      "branch": "strategy-v2",
+      "sort_order": 2
+    },
+    {
+      "id": "kodiak",
+      "name": "Kodiak — SOL Alpha Hunter",
+      "emoji": "🐻",
+      "tagline": "A single-asset SOL specialist: enters only when 4h and 1h trend structure agree, 15m momentum confirms, and smart-money lean, funding, and BTC all line up — then sizes leverage to conviction (5/6/7x) and lets the DSL ride the winner.",
+      "belief_plain": "Trades only SOL. It waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the best traders to be leaning the same way — then goes in harder when more of those line up, and trails a stop instead of guessing the exit.",
+      "version": "1.0.0",
+      "thesis": "You want one coin done really well, not a scattergun across the market. SOL has the liquidity and the moves, and an agent that watches only SOL can read its structure, smart-money flow, and funding far more tightly than a broad universe scanner ever could.",
+      "tags": [
+        "sol",
+        "single-asset",
+        "momentum",
+        "smart-money",
+        "conviction-leverage",
+        "alpha-hunter"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "alpha_hunter",
+      "sub_style_label": "Multi-factor conviction scoring on one asset, with tiered leverage.",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "SOL"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 7,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
+      "id": "whalehunter",
+      "name": "WhaleHunter — Smart-Money Cohort Divergence",
+      "emoji": "🐋",
+      "tagline": "Buckets Hyperliquid traders by lifetime realized PnL into a smart-money cohort and a crowd, then positions WITH the smartest money — and against the crowd — wherever the smart cohort is heavily net-directional and adding to it daily.",
+      "belief_plain": "Looks at where the most profitable traders on Hyperliquid are putting their money as a group, and copies that lean — going long what they're loading up on and short what they're dumping, especially when the average crowd is on the other side.",
+      "version": "1.0.0",
+      "thesis": "You trust the aggregate of proven winners over any single guru or your own read. When the >$1M-realized crowd is piling into a coin day after day while the small accounts fade it, that divergence is the edge — so follow the smart cohort, not one whale, and hedge the book with a separate short sleeve.",
+      "tags": [
+        "smart-money",
+        "cohort",
+        "divergence",
+        "copy-trading",
+        "long-short",
+        "crowd-fade",
+        "hedged"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "cohort_divergence",
+      "sub_style_label": "Cohort Divergence",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 6,
       "branch": "strategy-v2",
       "sort_order": 1
     }
