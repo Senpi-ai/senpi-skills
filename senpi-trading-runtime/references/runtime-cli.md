@@ -1,6 +1,6 @@
 # Runtime CLI — `openclaw senpi …`
 
-The complete command surface for interacting with the Senpi trading runtime (`@senpi-ai/runtime` 2.x).
+The complete command surface for interacting with the Senpi trading runtime (`@senpi-ai/runtime`).
 The plugin registers a `senpi` command group on the OpenClaw gateway, so every command is invoked as
 **`openclaw senpi <group> <subcommand>`**. Most read commands accept `--json` to print the raw
 gateway payload, and `-r/--runtime <id>` / `-a/--address <wallet>` to filter to one runtime.
@@ -55,6 +55,18 @@ openclaw senpi runtime delete --id iguana-tracker  # tear down
 | `action inspect <actionName>` | Show the persisted latest state for one action (name from the runtime.yaml). | `-r` (required when multiple runtimes run) · `-a` (defaults to the runtime wallet) · `--json` |
 | `action history [actionName]` | Rolling execution history with decision audit fields. Omit the name to merge all actions for the runtime. | `-r` · `-a` · `-l, --limit <n>` (default 50) · `--json` |
 | `action decisions [actionName]` | History rows where the decision engine ran (reasoning in JSON). | `-r` · `-a` · `-l` (default 50) · `--json` |
+
+## `senpi risk` — risk eligibility
+
+| Command | What it does | Options |
+|---|---|---|
+| `risk` | Whether the runtime is allowed to trade (eligibility OPEN/COOLDOWN/CLOSED), gate totals, and per-gate status/reason — plus the evaluation faults (`failureKind`, fallback applied) the `status` summary hides. | `-r, --runtime <id>` · `--json` |
+
+## `senpi audit` — backend trade-audit trail
+
+| Command | What it does | Options |
+|---|---|---|
+| `audit` | Backend trade trail: MCP tool calls with success, duration, and AI reasoning. Compact table by default. | `-r, --runtime <id>` (required) · `--tool <name>` · `--action-type <read\|create\|update\|delete>` · `--success <bool>` · `--since <iso>` · `--until <iso>` · `-l, --limit <n>` (default 50) · `--json` |
 
 ## `senpi status` / `senpi state` — runtime health
 
