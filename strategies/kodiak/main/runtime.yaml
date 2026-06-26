@@ -27,7 +27,7 @@ scanners:
     interval_seconds: 180                  # v2 producer cadence (3 min)
     timeout_seconds: 150                   # 3 MCP reads/tick; v2 WARN_OVER_180S budget
     default_signal_validity_seconds: 1800
-    state_history_max_count: 100           # signal-dedup map
+    state_history_max_count: 100           # dedup map + per-tick scan-results history (~5h @180s)
     inputs:
       asset: "SOL"
       dex: ""

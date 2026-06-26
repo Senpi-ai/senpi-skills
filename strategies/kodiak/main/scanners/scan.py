@@ -119,43 +119,57 @@ def scan(inputs, ctx):
         candles.get("5m", []), candles.get("15m", []), candles.get("1h", []), candles.get("4h", []),
         funding, oi, btc_mom_1h, sm, hour, inputs,
     )
+    # ── per-tick result record → scan-results history (ctx.state, bounded by
+    #    state_history_max_count). Read back with ctx.state.recent(n); persists to state.json. ──
+    out = []
     if not th:
         t4, s4 = scoring.trend_structure(candles.get("4h", []))
         t1, _ = scoring.trend_structure(candles.get("1h", []))
         m15 = scoring.mom(candles.get("15m", []), 1)
+        result = {"ts": now, "asset": asset, "emitted": False, "gate": "blocked", "score": None,
+                  "direction": None, "trend4h": t4, "ts4h": round(s4, 3), "trend1h": t1,
+                  "mom15m": round(m15, 3)}
         print(f"[kodiak.scan] {asset} HOLD (gate): 4h={t4} {s4:.0%} (need>=75% & directional) | "
               f"1h={t1} | 15m={m15:+.2f}%", file=sys.stderr)
-        return []
-    if th["score"] < min_score:
+    elif th["score"] < min_score:
+        result = {"ts": now, "asset": asset, "emitted": False, "gate": "pass", "score": th["score"],
+                  "direction": th["direction"], "trend4h": th["trend_4h"], "ts4h": th["trend_strength_4h"],
+                  "trend1h": th["trend_1h"], "mom15m": th["mom_15m"], "rsi": th["rsi"],
+                  "reasons": th["reasons"]}
         print(f"[kodiak.scan] {asset} HOLD: score={th['score']}/{min_score:.0f} {th['direction']} | "
               f"4h={th['trend_4h']} {th['trend_strength_4h']:.0%} rsi={th['rsi']} | {th['reasons']}",
               file=sys.stderr)
-        return []
+    else:
+        leverage = scoring.get_leverage(th["score"], tiers)
+        recent[au] = now
+        result = {"ts": now, "asset": asset, "emitted": True, "gate": "pass", "score": th["score"],
+                  "direction": th["direction"], "leverage": leverage, "trend4h": th["trend_4h"],
+                  "ts4h": th["trend_strength_4h"], "trend1h": th["trend_1h"], "mom15m": th["mom_15m"],
+                  "rsi": th["rsi"], "reasons": th["reasons"]}
+        print(f"[kodiak.scan] {asset} EMIT: score={th['score']} {th['direction']} {leverage}x | {th['reasons']}",
+              file=sys.stderr)
+        out = [{
+            "asset": asset,
+            "direction": th["direction"],
+            "marginPct": margin_pct,          # SIZING INTENT — runtime sizes the dollars
+            "leverage": leverage,             # conviction-tiered (5/6/7); runtime applies it
+            "data": {
+                "score": th["score"], "leverage": leverage, "direction": th["direction"],
+                "trend4h": th["trend_4h"], "trendStrength4h": th["trend_strength_4h"], "trend1h": th["trend_1h"],
+                "mom15mPct": th["mom_15m"], "mom1hPct": th["mom_1h"], "mom4hPct": th["mom_4h"],
+                "fundingRate": th["funding"], "oiTrend": "rising" if th["oi"] > 0 else "unknown",
+                "btcMom1hPct": th["btc_mom_1h"], "rsi": th["rsi"],
+                "smPctOfTopTraders": th["sm_pct"], "smTraderCount": th["sm_traders"],
+                "smCc15m": th["sm_cc15m"], "smAligned": th["sm_aligned"],
+                "reasons": th["reasons"],
+            },
+        }]
 
-    leverage = scoring.get_leverage(th["score"], tiers)
-    print(f"[kodiak.scan] {asset} EMIT: score={th['score']} {th['direction']} {leverage}x | {th['reasons']}",
-          file=sys.stderr)
-    out = [{
-        "asset": asset,
-        "direction": th["direction"],
-        "marginPct": margin_pct,          # SIZING INTENT — runtime sizes the dollars
-        "leverage": leverage,             # conviction-tiered (5/6/7); runtime applies it
-        "data": {
-            "score": th["score"], "leverage": leverage, "direction": th["direction"],
-            "trend4h": th["trend_4h"], "trendStrength4h": th["trend_strength_4h"], "trend1h": th["trend_1h"],
-            "mom15mPct": th["mom_15m"], "mom1hPct": th["mom_1h"], "mom4hPct": th["mom_4h"],
-            "fundingRate": th["funding"], "oiTrend": "rising" if th["oi"] > 0 else "unknown",
-            "btcMom1hPct": th["btc_mom_1h"], "rsi": th["rsi"],
-            "smPctOfTopTraders": th["sm_pct"], "smTraderCount": th["sm_traders"],
-            "smCc15m": th["sm_cc15m"], "smAligned": th["sm_aligned"],
-            "reasons": th["reasons"],
-        },
-    }]
-
-    recent[au] = now
+    # ── persist dedup map + this tick's result EVERY tick (was emit-only); self-trims
+    #    at state_history_max_count. Read the history via ctx.state.recent(n). ──
     if ctx.state is not None:
         try:
-            ctx.state.append({"recent": recent})
+            ctx.state.append({"recent": recent, "result": result})
         except Exception as exc:  # noqa: BLE001
             print(f"[kodiak.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
     return out
