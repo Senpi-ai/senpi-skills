@@ -20,7 +20,7 @@ answer, every time.
 ```
 scripts/pulse.py     hidden engine — parallel multi-class pull, prevDayPx resilience,
                      smart-money (leaderboard) layer (health-gated), deterministic signals → JSON
-scripts/_mcp.py      self-contained streamable-HTTP MCP client (stdlib only; read-only)
+scripts/mcp_client.py      self-contained streamable-HTTP MCP client (stdlib only; read-only)
 SKILL.md             the analyst — golden rules, top-down output contract, the two CTAs
 references/analysis-framework.md   the cross-asset reasoning (dispersion, confirmation checklist, K-shape)
 tests/               offline fixture test for the engine (no network)

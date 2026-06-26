@@ -87,3 +87,10 @@ App-scoped → no user resolves and `meta.degraded`; say so rather than reportin
 
 Guide/analysis skill — it *reads* the user's standing; it does not mutate anything (claiming referral
 rewards is a separate explicit action via `user_claim_referral_rewards`, which this skill never calls).
+
+
+## Install — both scripts are required
+
+The engine is **two files** in `scripts/`: `status.py` (the engine) and `mcp_client.py` (its vendored
+MCP helper, imported at runtime). **Install the whole `scripts/` directory** — copying `status.py`
+alone fails with `No module named 'mcp_client'`. Stdlib only, no other runtime dependencies.

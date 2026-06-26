@@ -128,3 +128,10 @@ bias with its member count — conviction is the whole point.
 Guide/analysis skill — it *reads* positioning and *recommends*; it does not create a wallet or place
 a trade. Attribution happens downstream when **senpi-strategy-author** / **whalehunter** /
 **senpi-strategy-ops** act on CTA 2.
+
+
+## Install — both scripts are required
+
+The engine is **two files** in `scripts/`: `smartmoney.py` (the engine) and `mcp_client.py` (its vendored
+MCP helper, imported at runtime). **Install the whole `scripts/` directory** — copying `smartmoney.py`
+alone fails with `No module named 'mcp_client'`. Stdlib only, no other runtime dependencies.

@@ -78,3 +78,10 @@ USER-scoped `SENPI_AUTH_TOKEN` (defaults to the authenticated user). App-scoped 
 ## Skill Attribution
 
 Guide/analysis skill — read-only; it reviews history, it does not act.
+
+
+## Install — both scripts are required
+
+The engine is **two files** in `scripts/`: `audit.py` (the engine) and `mcp_client.py` (its vendored
+MCP helper, imported at runtime). **Install the whole `scripts/` directory** — copying `audit.py`
+alone fails with `No module named 'mcp_client'`. Stdlib only, no other runtime dependencies.

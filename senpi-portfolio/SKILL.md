@@ -151,3 +151,10 @@ books). Show strategy wallet addresses in short form (`0x35d1...acb1`) unless as
 
 Guide/analysis skill — it *reads* the account and *recommends*; it does not place a trade or move
 funds. Attribution happens downstream when the execution tools / strategy skills act on a CTA.
+
+
+## Install — both scripts are required
+
+The engine is **two files** in `scripts/`: `portfolio.py` (the engine) and `mcp_client.py` (its vendored
+MCP helper, imported at runtime). **Install the whole `scripts/` directory** — copying `portfolio.py`
+alone fails with `No module named 'mcp_client'`. Stdlib only, no other runtime dependencies.

@@ -102,3 +102,10 @@ Formatting: short addresses, `Δ%`, labels as given; emoji sparingly.
 
 Guide/analysis skill — it *researches* and *recommends*; it does not create a wallet or place a trade.
 Attribution happens downstream when **`strategy_create`** sets up the copy strategy on CTA 1.
+
+
+## Install — both scripts are required
+
+The engine is **two files** in `scripts/`: `research.py` (the engine) and `mcp_client.py` (its vendored
+MCP helper, imported at runtime). **Install the whole `scripts/` directory** — copying `research.py`
+alone fails with `No module named 'mcp_client'`. Stdlib only, no other runtime dependencies.

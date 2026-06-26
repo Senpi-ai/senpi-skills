@@ -27,7 +27,7 @@ but as a one-shot *read* instead of a running trader.
 scripts/smartmoney.py   hidden engine — cohort build (paged discovery_get_top_traders) +
                         bias aggregation (discovery_get_trader_state) + divergence detection +
                         health-gated Leaderboard/Hyperfeed near-term layer → JSON
-scripts/_mcp.py         self-contained streamable-HTTP MCP client (stdlib only; read-only)
+scripts/mcp_client.py         self-contained streamable-HTTP MCP client (stdlib only; read-only)
 SKILL.md                the analyst — lead-with-divergence output contract + the two CTAs
 references/analysis-framework.md   bias×members, divergence, all-time vs near-term, early-not-wrong
 tests/                  offline fixture test (no network)

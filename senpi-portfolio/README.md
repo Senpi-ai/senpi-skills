@@ -38,7 +38,7 @@ grand_total = idle_in_embedded      (HL USDC + EVM USDC in the main wallet — t
 scripts/portfolio.py   hidden engine — user_get_me (embedded addr) + account_get_portfolio
                        (forceFetch) + strategy_list + per-wallet strategy_get_clearinghouse_state +
                        per-asset market_get_asset_data → three-bucket taxonomy + exposure + signals
-scripts/_mcp.py        self-contained streamable-HTTP MCP client (stdlib only; read-only)
+scripts/mcp_client.py        self-contained streamable-HTTP MCP client (stdlib only; read-only)
 SKILL.md               the analyst — wallet model + bucket contract + position-vs-market + 2 CTAs
 references/analysis-framework.md   the money map, position-vs-market, exposure/concentration/idle-drag
 tests/                 offline fixture test (no network) — guards the conflation bug

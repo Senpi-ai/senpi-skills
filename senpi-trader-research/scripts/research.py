@@ -81,7 +81,7 @@ def _rows(data, *keys):
 def _get_client():
     if HERE not in sys.path:
         sys.path.insert(0, HERE)
-    from _mcp import MCPClient
+    from mcp_client import MCPClient
     return MCPClient()
 
 

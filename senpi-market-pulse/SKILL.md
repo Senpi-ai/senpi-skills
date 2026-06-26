@@ -125,3 +125,10 @@ Always end every market read with exactly these two offers:
 This is a guide/analysis skill (it *reads* the market and *recommends*; it does not create a
 strategy wallet or place a trade), so it has no `references/skill-attribution.md` wallet flow.
 Attribution happens downstream when **senpi-strategy-author** / **senpi-strategy-ops** act on CTA 2.
+
+
+## Install — both scripts are required
+
+The engine is **two files** in `scripts/`: `pulse.py` (the engine) and `mcp_client.py` (its vendored
+MCP helper, imported at runtime). **Install the whole `scripts/` directory** — copying `pulse.py`
+alone fails with `No module named 'mcp_client'`. Stdlib only, no other runtime dependencies.
