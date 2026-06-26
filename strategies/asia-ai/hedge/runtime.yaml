@@ -36,7 +36,7 @@ scanners:
       direction: "SHORT"
       wantTrend: "DOWN"
       minScore: 5
-      marginPct: 0.10
+      marginPct: 10          # percent of withdrawable (runtime sizes (marginPct/100)*withdrawable)
       rsiMin: 25
       recentSignalTtlSeconds: 1800
     signal_data_schema:
