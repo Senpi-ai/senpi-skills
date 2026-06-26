@@ -223,7 +223,7 @@ exit:
     phase1:
       enabled: true
       max_loss_pct: 35.0                         # wide — contrarian entries retrace hard before working
-      retrace_threshold: 15
+      retrace_threshold: 8
       consecutive_breaches_required: 1
     phase2:
       enabled: true

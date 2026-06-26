@@ -158,16 +158,16 @@ exit:
     phase1:
       enabled: true
       max_loss_pct: 30.0              # 30% margin loss tolerated
-      retrace_threshold: 25           # huge room from peak
+      retrace_threshold: 10           # trail into profit (was 25)
       consecutive_breaches_required: 3  # 3 confirmations before the catastrophic stop trips
     phase2:
       enabled: true
       tiers:
-        - { trigger_pct: 20,  lock_hw_pct: 0  }   # no lock until +20%
-        - { trigger_pct: 50,  lock_hw_pct: 30 }
-        - { trigger_pct: 100, lock_hw_pct: 50 }
-        - { trigger_pct: 200, lock_hw_pct: 70 }
-        - { trigger_pct: 500, lock_hw_pct: 85 }   # apex — only locks in late-stage
+        - { trigger_pct: 12,  lock_hw_pct: 35 }   # first lock reachable (was 20/0)
+        - { trigger_pct: 25,  lock_hw_pct: 55 }
+        - { trigger_pct: 50,  lock_hw_pct: 68 }
+        - { trigger_pct: 120, lock_hw_pct: 80 }
+        - { trigger_pct: 300, lock_hw_pct: 88 }   # still rides a big runner
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"

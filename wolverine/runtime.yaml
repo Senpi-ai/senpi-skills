@@ -260,7 +260,7 @@ exit:
       # into the hard stop. Structural stop-width-vs-volatility fix —
       # independent of the thin v6.0.0 sample. Isolated change so the
       # 40-50 trade expectancy re-measurement attributes cleanly.
-      retrace_threshold: 15
+      retrace_threshold: 8
       consecutive_breaches_required: 1
     phase2:
       enabled: true

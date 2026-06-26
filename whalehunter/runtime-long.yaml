@@ -159,14 +159,16 @@ exit:
     phase1:
       enabled: true
       max_loss_pct: 30.0          # wide disaster stop
-      retrace_threshold: 18       # wide — normal volatility doesn't trail us out
+      retrace_threshold: 10       # trail a winner into profit (was 18)
       consecutive_breaches_required: 2
     phase2:
       enabled: true
       tiers:                      # do nothing until a real run, then bank only a fraction
-        - { trigger_pct: 60, lock_hw_pct: 0 }
-        - { trigger_pct: 120, lock_hw_pct: 45 }
-        - { trigger_pct: 220, lock_hw_pct: 65 }
+        - { trigger_pct: 15, lock_hw_pct: 40 }   # first lock reachable (was 60/0 — never armed)
+        - { trigger_pct: 25, lock_hw_pct: 55 }
+        - { trigger_pct: 45, lock_hw_pct: 65 }
+        - { trigger_pct: 90, lock_hw_pct: 78 }
+        - { trigger_pct: 180, lock_hw_pct: 88 }
 
 notifications:
   telegram_chat_id: "${TELEGRAM_CHAT_ID}"
