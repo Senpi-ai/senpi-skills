@@ -28,14 +28,14 @@ One instance binds to one wallet. A long book + a short book, or a swing + a sca
 | **You own** | **Runtime 3.0 owns** |
 |---|---|
 | Universe, signal, score | Scheduling + supervising `scan()` (restarts a crashed child) |
-| Sizing **intent** (`marginPct` / weight) | Converting intent → **dollars** off the live (reconciled) account |
+| Sizing **intent** — a `marginPct` **percent** | Converting `(marginPct/100) × max(main,xyz)` account → **dollars** |
 | Exit shape (a named DSL preset) | Execution, slot caps, position dedup |
 | Risk limits (guard rails) | State durability (transactional), retries |
 | Catalog facets | **Read-only enforcement** — any mutating tool raises `PermissionError` |
 
 Two invariants fall out of this:
 1. **`scan()` is read-only + pure + single-pass.** On *any* error, `return []` — never crash.
-2. **You emit a sizing *intent* (`marginPct`/weight), not dollars.** The runtime computes `marginUsd` from the reconciled account value. Do **not** read the clearinghouse to size — that's the runtime's job in 3.0.
+2. **You emit a `marginPct` — a PERCENT `(0,100]`, NOT a fraction** (`12` = 12%; `0.12` = 0.12% = dust). Two paths: a *uniform* strategy sets `strategy.margin_pct` in config; a *conviction* strategy emits `marginPct` per signal (signal overrides config — `signal.marginPct > config.margin_pct`). The runtime sizes `(marginPct/100) × max(main,xyz)` account and does **not** score-scale, so the scan emits the *final* conviction-adjusted percent. **Never read the clearinghouse to size.** `leverage` may also be emitted per signal (tiers).
 
 ## 4. The design space — the 7 decisions that define *any* strategy
 
@@ -105,7 +105,7 @@ def scan(inputs, ctx):
     out = [{
         "asset": p["asset"],
         "direction": p["direction"],                 # REQUIRED: LONG | SHORT
-        "marginPct": inputs.get("marginPct", 0.10),  # SIZING INTENT — runtime makes it dollars
+        "marginPct": inputs.get("marginPct", 10),    # PERCENT (0,100] — runtime sizes (pct/100)*account
         "data": {                                    # must match signal_data_schema exactly
             "score": p["score"], "direction": p["direction"], "reasons": p["reasons"],
         },
@@ -118,7 +118,7 @@ def scan(inputs, ctx):
     return out
 ```
 - **`ctx` is frozen:** `ctx.senpi_mcp.call_tool(name, args)` (read-only), `ctx.state` (`.last()/.recent(n)/.append()/len()`), `ctx.wallet`, `ctx.scanner_name`, `ctx.interval_seconds`. No logging handle — `print(..., file=sys.stderr)`.
-- **Signal dict keys:** `asset`✅, `direction`✅ (LONG/SHORT), `marginPct` (intent), `leverage` (optional), `data{}` (validated against `signal_data_schema`), optional `valid_for_seconds` / `signal_id`. The scaffold owns `produced_at`/`valid_until`/dedup — don't set them.
+- **Signal dict keys:** `asset`✅, `direction`✅ (LONG/SHORT), `marginPct` (PERCENT 0-100; omit to use `config.margin_pct`), `leverage` (optional, per-signal), `data{}` (validated against `signal_data_schema`), optional `valid_for_seconds` / `signal_id`. The scaffold owns `produced_at`/`valid_until`/dedup — don't set them.
 - **Anchor every `call_tool` on the published MCP I/O reference** (`read_senpi_guide`). A guessed tool name, interval string, or output field = a silent dead scanner.
 
 ### `runtime.yaml` — the deterministic spec
@@ -225,7 +225,7 @@ If anything mismatches, fix the **contract** (the field name, the `signal_data_s
 - `scan()` single-pass + sync; read-only MCP only; `return []` on any error.
 - Pure scoring in `scoring.py`; MCP + state in `scan.py`.
 - **Never hardcode a ticker you didn't verify against the live list.** Every static `universe`/`asset`/`catalog.assets` entry must be a live HL instrument — a fake ticker silently no-trades (`market_get_asset_data` 500s, the scan skips it). Gate it: `validate_universe.py strategies/<id>` (and `deploy.py create` runs it as a preflight). Real index = `xyz:XYZ100`, *not* `xyz:NASDAQ`.
-- Emit a **`marginPct` intent**, not dollars; `marginPct`/`leverage` top-level, not in `data{}`.
+- Emit `marginPct` as a **PERCENT (0,100]** (not a fraction), top-level not in `data{}`; per-signal `marginPct` overrides `config.margin_pct`. Conviction scaling happens in the scan (runtime does NOT score-scale). `leverage` may be per-signal.
 - Declare every `data{}` key in `signal_data_schema`.
 - **Anchor on the references:** MCP fields → I/O guide; exit → a named preset; catalog facets → the glossary.
 - Linkage: `group: <id>`, `name: <id>-<instance>`, `wallet_env` bound, `funding_share` sums to 1.0, package is `@senpi-ai/runtime`.
@@ -280,7 +280,7 @@ scanners:
       universe: ["xyz:SP500","xyz:NASDAQ","xyz:NVDA","xyz:AMD","xyz:MSFT","xyz:JPM","xyz:CAT","BTC","ETH"]
       minScore: 5
       breadthMin: 4
-      marginPct: 0.10
+      marginPct: 10
       rsiMaxLong: 72
       horizonEndIso: "2026-10-01T00:00:00Z"
     signal_data_schema:
@@ -338,7 +338,7 @@ def scan(inputs, ctx):
     universe    = inputs.get("universe", [])
     min_score   = int(inputs.get("minScore", 5))
     breadth_min = int(inputs.get("breadthMin", 4))
-    base_pct    = float(inputs.get("marginPct", 0.10))
+    base_pct    = float(inputs.get("marginPct", 10))   # PERCENT (0,100]
 
     confirmers = []
     for asset in universe:
