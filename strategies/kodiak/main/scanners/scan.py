@@ -24,13 +24,17 @@ def _dex_for(asset, inputs):
 
 
 def _asset_data(ctx, asset, dex, intervals, funding):
-    md = ctx.senpi_mcp.call_tool("market_get_asset_data", {
-        "asset": asset,
-        "candle_intervals": intervals,
-        "include_funding": funding,
-        "include_order_book": False,
-        "dex": dex,
-    })
+    try:
+        md = ctx.senpi_mcp.call_tool("market_get_asset_data", {
+            "asset": asset,
+            "candle_intervals": intervals,
+            "include_funding": funding,
+            "include_order_book": False,
+            "dex": dex,
+        })
+    except Exception as exc:  # noqa: BLE001 — a read error must not roll back the whole tick
+        print(f"[kodiak.scan] market_get_asset_data({asset}) read failed: {exc!r}", file=sys.stderr)
+        return None
     if not md:
         return None
     return md.get("data", md) if isinstance(md, dict) else None
@@ -39,7 +43,11 @@ def _asset_data(ctx, asset, dex, intervals, funding):
 def _sm_for_asset(ctx, asset):
     """Port of v2 get_sol_sm_signal: net smart-money lean for `asset` from
     leaderboard_get_markets. Returns {direction, pct, traders, cc_15m} or None."""
-    raw = ctx.senpi_mcp.call_tool("leaderboard_get_markets", {"limit": 100})
+    try:
+        raw = ctx.senpi_mcp.call_tool("leaderboard_get_markets", {"limit": 100})
+    except Exception as exc:  # noqa: BLE001 — smart-money is optional; never crash the tick on it
+        print(f"[kodiak.scan] leaderboard_get_markets read failed (smart-money -> neutral): {exc!r}", file=sys.stderr)
+        return None
     if not raw:
         return None
     data = raw.get("data", raw) if isinstance(raw, dict) else raw
