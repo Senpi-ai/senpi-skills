@@ -72,8 +72,9 @@ openclaw senpi runtime list                     # id, source, status (running/st
 Beyond `runtime create/list/delete`, the CLI exposes the runtime's live state — `senpi dsl
 positions|inspect|closes` (the exit engine), `senpi action list|inspect|history|decisions` (the
 decision layer), `senpi risk` (am I allowed to trade, and why not), `senpi audit` (backend trade
-trail with AI reasoning), `senpi status`/`senpi state` (health), and `senpi guide …` (in-shell
-reference). Full surface with every option → `references/runtime-cli.md`.
+trail with AI reasoning), `senpi scanner` (per-scanner health, liveness, and barren detection),
+`senpi status`/`senpi state` (health), and `senpi guide …` (in-shell reference). Full surface with
+every option → `references/runtime-cli.md`.
 
 ## The reference set
 

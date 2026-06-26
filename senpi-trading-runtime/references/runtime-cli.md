@@ -62,6 +62,12 @@ openclaw senpi runtime delete --id iguana-tracker  # tear down
 |---|---|---|
 | `risk` | Whether the runtime is allowed to trade (eligibility OPEN/COOLDOWN/CLOSED), gate totals, and per-gate status/reason — plus the evaluation faults (`failureKind`, fallback applied) the `status` summary hides. | `-r, --runtime <id>` · `--json` |
 
+## `senpi scanner` — per-scanner supervisor health
+
+| Command | What it does | Options |
+|---|---|---|
+| `scanner` | Per-scanner health: schedule mode, run/error/consecutive-error counts, next-run time, in-flight, cumulative `signals` produced, and external-scanner `alive` (heartbeat from the intake liveness clock; `n/a` for interval scanners). Flags a `BARREN` scanner — alive and has run but produced no signals. Reuses the `state` RPC. | `-r, --runtime <id>` · `--json` |
+
 ## `senpi audit` — backend trade-audit trail
 
 | Command | What it does | Options |
