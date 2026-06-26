@@ -130,6 +130,29 @@ raises `PermissionError` (loud, fail-fast — never a silent `None`).
 The allowlist is scaffold-owned in source and **empty by default** — there is no env/operator/author
 knob. As an author: **assume you cannot mutate anything.** Produce signals; the runtime executes.
 
+### Reads can fail — guard the optional ones
+
+`call_tool` **propagates** read errors (auth, rate-limit, network, a 5xx). With the clean-tick rule
+above, an unguarded read that raises **kills the whole tick** — state rolls back and you emit nothing,
+*every* time it errors. So decide per read:
+
+- **Required reads** (no candles ⇒ no thesis): let a failure return `[]` for the tick — there's
+  nothing to score. Still wrap it so the failure is *logged*, not a bare traceback.
+- **Optional reads** (a secondary signal that only *adds* to the score — smart-money, cross-asset
+  flow, a discovery lookup): **wrap in `try/except` and degrade to neutral**. One flaky or
+  permissioned read must never silently zero the agent out — a capped score is recoverable; a dead
+  tick every cycle is not.
+
+```python
+def _smart_money(ctx, asset):
+    try:
+        raw = ctx.senpi_mcp.call_tool("leaderboard_get_markets", {"limit": 100})
+    except Exception as exc:  # optional signal — never crash the whole tick on it
+        print(f"[scan] leaderboard read failed (smart-money -> neutral): {exc!r}", file=sys.stderr)
+        return None
+    # ... parse; on any shape problem also return None (degrade), don't raise
+```
+
 ---
 
 ## The signal dict (return value)
