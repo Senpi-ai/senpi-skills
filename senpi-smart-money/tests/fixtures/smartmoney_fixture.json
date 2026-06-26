@@ -1,0 +1,34 @@
+{
+  "discovery_get_top_traders": {
+    "traders": [
+      {"address": "0xsmart1", "realizedProfitAndLoss": 1500000},
+      {"address": "0xsmart2", "realizedProfitAndLoss": 1200000},
+      {"address": "0xcrowd1", "realizedProfitAndLoss": 50000},
+      {"address": "0xcrowd2", "realizedProfitAndLoss": 35000}
+    ]
+  },
+  "discovery_get_trader_state::0xsmart1": {
+    "traders": [
+      {"openPositions": [{"coin": "HYPE", "szi": -120, "positionValue": 9000, "entryPx": 62}, {"coin": "BTC", "szi": 1.0, "positionValue": 60000, "entryPx": 62000}]},
+      {"openPositions": [{"coin": "HYPE", "szi": -90, "positionValue": 7000, "entryPx": 63}, {"coin": "BTC", "szi": 0.8, "positionValue": 48000, "entryPx": 62500}]},
+      {"openPositions": [{"coin": "HYPE", "szi": -150, "positionValue": 11000, "entryPx": 61}, {"coin": "BTC", "szi": 1.2, "positionValue": 72000, "entryPx": 61500}]},
+      {"openPositions": [{"coin": "HYPE", "szi": -60, "positionValue": 5000, "entryPx": 62}, {"coin": "BTC", "szi": 0.5, "positionValue": 31000, "entryPx": 62000}]},
+      {"openPositions": [{"coin": "HYPE", "szi": -110, "positionValue": 8500, "entryPx": 62}, {"coin": "BTC", "szi": 0.9, "positionValue": 54000, "entryPx": 62000}]},
+      {"openPositions": [{"coin": "HYPE", "szi": -80, "positionValue": 6200, "entryPx": 62}, {"coin": "BTC", "szi": 0.7, "positionValue": 42000, "entryPx": 62000}]}
+    ]
+  },
+  "discovery_get_trader_state::0xcrowd1": {
+    "traders": [
+      {"openPositions": [{"coin": "HYPE", "szi": 100, "positionValue": 5000, "entryPx": 62}]},
+      {"openPositions": [{"coin": "HYPE", "szi": 80, "positionValue": 4000, "entryPx": 63}]},
+      {"openPositions": [{"coin": "HYPE", "szi": 120, "positionValue": 6000, "entryPx": 61}]},
+      {"openPositions": [{"coin": "HYPE", "szi": 60, "positionValue": 3000, "entryPx": 62}]},
+      {"openPositions": [{"coin": "HYPE", "szi": 90, "positionValue": 4500, "entryPx": 62}]},
+      {"openPositions": [{"coin": "HYPE", "szi": 70, "positionValue": 3500, "entryPx": 62}]}
+    ]
+  },
+  "leaderboard_get_status": {"window": "4h", "updated_at": "2026-06-23T15:00:00Z"},
+  "leaderboard_get_markets": {"concentration": [{"asset": "HYPE", "direction": "short", "pct_of_gains": 19}]},
+  "leaderboard_get_top": {"traders": [{"wallet": "0xhot", "delta_pnl": 80000}]},
+  "leaderboard_get_momentum_events": {"events": [{"asset": "HYPE", "type": "scale_in", "direction": "short"}]}
+}
