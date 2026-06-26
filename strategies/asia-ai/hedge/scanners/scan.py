@@ -30,11 +30,15 @@ def scan(inputs, ctx):
         last = recent.get(au)
         if last is not None and (now - last) < ttl:        # signal-dedup
             continue
-        md = ctx.senpi_mcp.call_tool("market_get_asset_data", {
-            "asset": asset,
-            "candle_intervals": ["4h", "1d"],
-            "dex": "xyz" if asset.lower().startswith("xyz:") else "",
-        })
+        try:
+            md = ctx.senpi_mcp.call_tool("market_get_asset_data", {
+                "asset": asset,
+                "candle_intervals": ["4h", "1d"],
+                "dex": "xyz" if asset.lower().startswith("xyz:") else "",
+            })
+        except Exception as exc:  # noqa: BLE001 — one bad/illiquid name must not roll back the whole universe tick
+            print(f"[asia-ai.scan] {asset} read failed, skipping: {exc!r}", file=sys.stderr)
+            continue
         if not md:
             continue
         c = (md.get("data", md) or {}).get("candles", {}) if isinstance(md, dict) else {}
