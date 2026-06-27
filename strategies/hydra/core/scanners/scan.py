@@ -1,0 +1,159 @@
+"""HYDRA CORE — supervised scanner (Runtime 3.0 port of v2 hydra-producer.py single_main,
+LEG=core). Single-asset. Reads the thesis coin's 1h/4h/1d candles + funding, scores via
+the pure `scoring.score_core`, and emits ONE conviction-tiered signal (LONG the uptrend /
+SHORT the downtrend) when the composite clears minScore. Read-only + single-pass — emits a
+`marginPct` intent plus a per-signal `leverage` (std/apex); the runtime sizes the dollars,
+owns the cooldowns/risk gates, and trails the catastrophic-only DSL exit. No daemon.
+
+PER-COIN PARAMETERIZATION: the thesis coin is inputs.coin (mirrors v2 HYDRA_COIN env).
+"""
+
+import sys
+import time
+
+import scoring
+
+_DEFAULT_TTL = 240            # ~4m signal-dedup debounce (v2 RECENT_SIGNAL_TTL window)
+
+
+def _dex_for(asset, inputs):
+    dex = inputs.get("dex")
+    if dex is not None and dex != "":
+        return dex
+    return "xyz" if str(asset).lower().startswith("xyz:") else ""
+
+
+def _read(ctx, name, args):
+    """Guarded MCP read: a transient/permission error must NOT roll back the whole tick.
+    Returns None on failure so the existing WAITING degrade path applies (never crash)."""
+    try:
+        return ctx.senpi_mcp.call_tool(name, args)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[hydra-core.scan] {name} read failed: {exc!r}", file=sys.stderr)
+        return None
+
+
+def _account_value(ctx):
+    """max(main, xyz) account value — two views of ONE cross-margined wallet (v2
+    get_positions: never sum). Returns (account_value, held_assets, deployed_margin)."""
+    ch = _read(ctx, "strategy_get_clearinghouse_state", {"strategy_wallet": ctx.wallet})
+    if not ch:
+        return 0.0, [], 0.0
+    data = ch.get("data", ch) if isinstance(ch, dict) else {}
+    account_value, held, deployed = 0.0, [], 0.0
+    use = 0.0
+    has_pos = False
+    for section in ("main", "xyz"):
+        s = data.get(section, {}) if isinstance(data, dict) else {}
+        if not isinstance(s, dict):
+            continue
+        ms = s.get("marginSummary", {}) if isinstance(s.get("marginSummary"), dict) else {}
+        account_value = max(account_value, float(ms.get("accountValue", 0) or 0))
+        use = max(use, float(ms.get("totalMarginUsed", 0) or 0),
+                  abs(float(ms.get("totalNtlPos", 0) or 0)))
+        for ap in s.get("assetPositions", []) or []:
+            pos = ap.get("position", ap) if isinstance(ap, dict) else {}
+            szi = float(pos.get("szi", 0) or 0)
+            if szi == 0:
+                continue
+            has_pos = True
+            held.append(pos.get("coin", ""))
+            deployed += float(pos.get("marginUsed", 0) or 0)
+    # read-sanity guard (v2 funding/$0 glitch): margin IN USE but EMPTY positions -> skip
+    if use > 1.0 and not has_pos:
+        return 0.0, [], 0.0
+    return account_value, [h for h in held if h], deployed
+
+
+def scan(inputs, ctx):
+    coin = str(inputs.get("coin", "ETH"))
+    dex = _dex_for(coin, inputs)
+    min_score = float(inputs.get("minScore", 5))
+    margin_pct = float(inputs.get("marginPct", 20))     # PERCENT of withdrawable (0,100]
+    ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
+    min_notional_pct = float(inputs.get("minNotionalPctOfEquity", 0.01))
+    venue_min_notional = float(inputs.get("venueMinNotionalUsd", 10))
+    now = time.time()
+
+    cu = coin.upper()
+    recent = (ctx.state.last() or {}).get("recent", {}) if ctx.state else {}
+
+    def _persist(extra=None):
+        if ctx.state is None:
+            return
+        rec = {"recent": recent}
+        if extra:
+            rec.update(extra)
+        try:
+            ctx.state.append(rec)
+        except Exception as exc:  # noqa: BLE001
+            print(f"[hydra-core.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
+
+    # signal-dedup debounce (defence-in-depth alongside the runtime's cooldown gate)
+    last = recent.get(cu)
+    if last is not None and (now - last) < ttl:
+        _persist()
+        return []
+
+    account_value, held, deployed = _account_value(ctx)
+    if account_value <= 0:
+        _persist({"result": {"ts": now, "coin": coin, "emitted": False, "note": "no account value"}})
+        return []
+    # already holding the thesis coin -> hold (runtime also dedups, defence-in-depth)
+    if cu in {h.upper() for h in held}:
+        _persist({"result": {"ts": now, "coin": coin, "emitted": False, "note": "position open — holding"}})
+        return []
+
+    md = _read(ctx, "market_get_asset_data", {
+        "asset": coin, "candle_intervals": ["1h", "4h", "1d"],
+        "dex": dex, "include_funding": True, "include_order_book": False,
+    })
+    if not md:
+        _persist({"result": {"ts": now, "coin": coin, "emitted": False, "note": "no market data"}})
+        return []
+    d = md.get("data", md) if isinstance(md, dict) else {}
+    candles = d.get("candles", {}) or {}
+    ctx_block = d.get("asset_context", {}) or {}
+
+    th = scoring.score_core(candles.get("1h", []), candles.get("4h", []), candles.get("1d", []),
+                            ctx_block, inputs)
+    if not th or th["score"] < min_score:
+        result = {"ts": now, "coin": coin, "emitted": False, "gate": "blocked",
+                  "score": (th["score"] if th else None), "note": "no confirmed trend"}
+        print(f"[hydra-core.scan] {coin} HOLD: {result}", file=sys.stderr)
+        _persist({"result": result})
+        return []
+
+    # sizing/notional sanity (v2 single_main): margin_pct*equity must clear the budget-scaling
+    # notional floor and fit free margin. The runtime sizes the dollars from marginPct, but we
+    # mirror the v2 floor so a tiny account doesn't emit a sub-min-notional signal.
+    margin_usd = round(account_value * (margin_pct / 100.0), 2)
+    free_margin = max(0.0, account_value - deployed)
+    min_notional = max(account_value * min_notional_pct, venue_min_notional)
+    notional = margin_usd * th["leverage"]
+    if not (margin_usd > 0 and notional >= min_notional and margin_usd * 1.1 <= free_margin):
+        result = {"ts": now, "coin": coin, "emitted": False, "gate": "sizing",
+                  "score": th["score"], "note": "below notional floor or insufficient free margin"}
+        print(f"[hydra-core.scan] {coin} HOLD (sizing): {result}", file=sys.stderr)
+        _persist({"result": result})
+        return []
+
+    recent[cu] = now
+    result = {"ts": now, "coin": coin, "emitted": True, "gate": "pass", "score": th["score"],
+              "direction": th["direction"], "leverage": th["leverage"], "trend4h": th["trend4h"],
+              "reasons": th["reasons"]}
+    print(f"[hydra-core.scan] {coin} EMIT: score={th['score']} {th['direction']} {th['leverage']}x | {th['reasons']}",
+          file=sys.stderr)
+    out = [{
+        "asset": coin,
+        "direction": th["direction"],
+        "marginPct": margin_pct,            # SIZING INTENT — runtime sizes the dollars
+        "leverage": th["leverage"],         # conviction-tiered (std/apex); runtime clamps to venue max
+        "data": {
+            "score": th["score"], "leverage": th["leverage"], "direction": th["direction"],
+            "trend4h": th["trend4h"], "trend1h": th["trend1h"], "rsi": round(th.get("rsi", 0), 1),
+            "reasons": th["reasons"],
+        },
+    }]
+    _persist({"result": result})
+    return out

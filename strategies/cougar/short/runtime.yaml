@@ -1,0 +1,119 @@
+# ── COUGAR · SHORT book — short the relative-strength LAGGARDS of the equity cross-section ──
+name: cougar-short
+group: cougar
+version: 3.0.0
+description: >
+  COUGAR SHORT — U.S. equity long/short, market-neutral dispersion fund (Runtime 3.0 port
+  of v2 Cougar v1.0). This book ranks the tokenized U.S. equity universe on Hyperliquid XYZ
+  (HIP-3) by 24h RELATIVE STRENGTH and SHORTS the weakest names (largest negative excess
+  return) — but only when absolute trend confirms (4h structure bearish + negative own
+  momentum), with a capitulation guard so it never shorts an oversold bottom. Pairs with
+  the LONG book on a separate, equally-funded wallet; the two net to ~beta-neutral. The
+  edge is EQUITY DISPERSION (leaders minus laggards), not market direction. Tokenized
+  equities trade 24/7 on Hyperliquid — no market-hours gating.
+
+strategy:
+  wallet: "${COUGAR_SHORT_WALLET}"
+  slots: 4
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: cougar_short_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds — equity dispersion cadence
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map
+    inputs:
+      leg: "short"
+      # ── VALIDATED xyz equity universe (live HL xyz board, authoring time) ──
+      # v2 listed 22 names; xyz:CRM, xyz:SMCI, xyz:UBER, xyz:SHOP are NOT on the live
+      # HL xyz board and were DROPPED (asia-ai NASDAQ-bug class — a fake ticker silently
+      # fails its candle fetch and would skew/kill the cross-section). 18 live names remain.
+      equities: ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL", "xyz:NFLX", "xyz:AVGO", "xyz:COIN", "xyz:MSTR", "xyz:PLTR", "xyz:SPCX"]
+      minScore: 5
+      marginPct: 20          # PERCENT of withdrawable (0,100]; runtime sizes (marginPct/100)*withdrawable
+      maxLeverage: 5         # strict clamp, then each name's HL venue max (per-name, in-scan)
+      maxSlots: 4
+      rankPoolSize: 8
+      rsThresholdPct: 3.0
+      rsiOversold: 20        # capitulation guard — don't short an oversold bottom
+      volFloorPctOfMedian: 0.2
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: cougar_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # the scan already applied RS rank + trend + clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [cougar_short_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: cougar_short_signals
+
+# ── EXIT (DSL — moderate dispersion management, equity rhythm; ported verbatim from v2) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 10080          # 7d — equities trend longer than crypto
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h — cut a laggard short that peaked then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 960            # 16h — recycle a position going nowhere into a fresher laggard
+    phase1:
+      enabled: true
+      max_loss_pct: 14.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,   lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 18,  lock_hw_pct: 40 }   # first LOCK — reachable (never +60-80%)
+        - { trigger_pct: 35,  lock_hw_pct: 60 }
+        - { trigger_pct: 60,  lock_hw_pct: 78 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_hours: 168
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600                # v2 cooldown_minutes 60
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400     # v2 per_asset_cooldown_minutes 240

@@ -1,0 +1,49 @@
+# Thesis Fund — one configurable engine, many one-tap macro bets. A single-instance
+# PACKAGE: this manifest + one self-contained runtime.yaml + scanners/. A faithful
+# Runtime 3.0 port of the v2 Thesis Fund (SKILL.md v1.0.0): one wallet holds a
+# long/short basket that expresses a chosen macro VIEW, but PRESSES each name only when
+# the market confirms the thesis direction (4h/1h trend + 24h momentum); the DSL +
+# drawdown gate de-risk when it doesn't. The active preset's baskets live in the
+# instance's `inputs.longBasket` / `inputs.shortBasket` — swap them to express a
+# different view (see main/scanners/presets.md). Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: thesis-fund
+version: "1.0.0"
+
+catalog:
+  name: "Thesis Fund — Bet Your Macro View"
+  emoji: "🎯"
+  tagline: "One wallet expresses a macro view as a long/short basket — but it only presses a name when the market is confirming that direction (4h/1h trend + 24h momentum aligned), and the DSL + drawdown gate de-risk when the thesis stops working. Default preset: risk_off (long gold/silver, short SP500/XYZ100/BTC). Swap the basket inputs to express recovery, war_escalation/war_recovery, hype_vs_market, gold_over_btc/btc_over_gold."
+  belief_plain: "You pick what you think will happen — say, a risk-off shock — and the fund holds the basket that expresses it: long the assets that win, short the ones that lose. But it doesn't blindly hold: it only buys a name while the market is actually moving its way, and trails a stop to cut names that stop working."
+  thesis: "You bring the market VIEW; the fund expresses it with discipline. Instead of picking a trading style, you pick what you believe will happen — and one wallet trades the long/short basket that expresses it, pressing each name only when the tape confirms the thesis direction rather than fighting it."
+  group: multi-asset-whitelist
+  archetype: macro_thesis
+  sub_style: basket
+  asset_classes: [crypto_majors, indices, metals, energy]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 6
+  min_budget: 200
+  # Default preset = risk_off. The full basket vocabulary across all presets
+  # (any of these can appear in inputs depending on the chosen view).
+  assets: ["xyz:GOLD", "xyz:SILVER", "xyz:SP500", "xyz:XYZ100", "BTC", "xyz:BRENTOIL", "xyz:CL", "HYPE", "ETH", "SOL"]
+  tags: [macro, thesis, basket, long_short, gold, oil, indices, risk-off, configurable]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# Single-wallet fund: ONE wallet holds the whole long/short thesis basket — a single
+# coherent bet. funding_share 1.0 (no second book).
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: THESIS_WALLET
+    funding_share: 1.0

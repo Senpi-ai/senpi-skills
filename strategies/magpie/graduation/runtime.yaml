@@ -1,0 +1,109 @@
+# ── MAGPIE · GRADUATION book — ride the IPOP->equity conversion momentum ──
+name: magpie-graduation
+group: magpie
+version: 3.0.0
+description: >
+  MAGPIE GRADUATION — IPOP->equity conversion momentum (Runtime 3.0 port of the
+  v2 Magpie GRADUATION leg). One of two books. DYNAMIC UNIVERSE + STATE: each
+  tick it classifies every LIVE xyz instrument IPOP-vs-STANDARD by funding
+  signature, compares to the prior-tick class cache (held in ctx.state) to detect
+  the IPOP->STANDARD CONVERSION flip (funding jumps ~100x, the leverage cap lifts,
+  the trade.xyz price throttle comes off — opening free price discovery), stamps
+  it into a conversion-eligibility window, and rides the explosive post-conversion
+  momentum in its direction — the SpaceX $1.4B-day-1 pattern. BOTH directions.
+  Pairs with the PRE-LISTING book on a separate wallet. Price discovery can trend
+  hard -> WIDE let-winners-run DSL.
+
+strategy:
+  wallet: "${MAGPIE_GRADUATION_WALLET}"
+  slots: 3
+  default_leverage: 5                       # post-conversion the venue cap lifts; scan clamps per-instrument
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: magpie_graduation_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 600                    # v2 graduation tick cadence (10 min)
+    timeout_seconds: 240
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 12              # holds class_state + conversion-window + dedup map
+    inputs:
+      minScore: 5
+      marginPct: 15                          # PERCENT of withdrawable (0,100], not a fraction
+      maxLeverage: 5                          # post-conversion cap; clamped to venue max
+      ipopFundingMaxAbs: 1.0e-7              # IPOP classification funding ceiling
+      ipopMaxLeverageCap: 5                  # IPOP classification leverage ceiling
+      momentumLookbackBars: 6
+      minMomentumPct: 3.0
+      strongMomentumPct: 8.0
+      conversionWindowHours: 72              # stay eligible for days post-flip, not just the flip tick
+      smTiltMinPct: 55
+      smStrongTiltPct: 70
+      recentSignalTtlSeconds: 720
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      leverage: { type: number, required: false }
+      conversionEvent: { type: boolean, required: false }
+      momentumPct: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: magpie_graduation_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                      # the scan already applied conversion + momentum + SM gates
+    scanners: [magpie_graduation_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true      # a confirmed conversion-momentum entry must fill — taker fallback
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: magpie_graduation_signals
+
+# EXIT — WIDE let-the-discovery-run DSL (ported from v2 runtime-graduation.yaml).
+# Post-conversion price discovery can trend hard for days (throttle off), so ride it.
+# First lock tier is REACHABLE (+12% -> lock 40%) — new listings are volatile, keep stops sane.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0
+      retrace_threshold: 9
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 12, lock_hw_pct: 40 }   # first lock reachable (v2 was 12->0, never armed)
+        - { trigger_pct: 28, lock_hw_pct: 50 }
+        - { trigger_pct: 55, lock_hw_pct: 65 }
+        - { trigger_pct: 100, lock_hw_pct: 80 }
+        - { trigger_pct: 160, lock_hw_pct: 90 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 4                    # conversions are rare events
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 5400                    # 90 min
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 21600         # 360 min

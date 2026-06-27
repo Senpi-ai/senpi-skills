@@ -1,0 +1,57 @@
+# Ox — Risk-Parity / All-Weather hedge fund. A PACKAGE: this manifest + two self-contained
+# runtime.yaml instances (core = vol-balanced all-weather LONG basket; ballast = defensive LONG
+# overlay scaled up on risk-off) + per-instance scanners/. Two books on two wallets, one shared
+# inverse-volatility sizing engine. Install/teardown via senpi-strategy-ops. Published to the
+# catalog via senpi-strategy-author-curator.
+#
+# Faithful Runtime 3.0 port of the v2 Ox (SKILL.md "Ox v1.0", producer ox-producer.py). The v2
+# OX_LEG=core / OX_LEG=ballast books map 1:1 to the `core` / `ballast` instances below. Each book's
+# distinctive mechanic — INVERSE-VOLATILITY position sizing (w_i = (1/vol_i)/sum(1/vol_j) over the
+# whole basket), so a low-vol sleeve carries more notional than a high-vol one and no single asset
+# class dominates portfolio risk — is ported VERBATIM into scanners/scoring.py (marked # v2-quirk
+# where the v2 math is reproduced exactly). scan.py emits per-sleeve top-level `marginUsd` (the
+# risk-parity weight) + per-signal clamped `leverage`; the runtime sizes/executes/exits.
+schema_version: 1
+
+id: ox
+version: "1.0.0"
+
+catalog:
+  name: "Ox — Risk-Parity / All-Weather"
+  emoji: "🐂"
+  tagline: "A vol-balanced all-weather LONG basket across asset classes (crypto majors + equity indices + metals + energy + FX), each sleeve sized by inverse realized volatility so no single class dominates risk — plus a defensive ballast book that scales up when the tape turns risk-off."
+  belief_plain: "Holds a steady, always-invested basket spread across crypto, stock indices, gold, oil and currencies, and quietly puts more weight on the calm assets and less on the wild ones so nothing can blow up the whole book. A second smaller book buys defensives (gold, yen) and doubles up when markets get nervous."
+  thesis: "You want a low-drama core holding to sit under your more aggressive bets — always invested, diversified across asset classes, and risk-balanced by volatility rather than a directional view. Not a market-timing bet; a steady, all-weather core with a built-in defensive cushion."
+  group: multi-asset-whitelist
+  archetype: trend_following
+  sub_style: basket
+  asset_classes: [btc_eth, major_alts, indices, commodities, xyz_equities]
+  asset_scope: basket
+  direction: long
+  risk_level: conservative
+  tier: advanced
+  time_horizon: position
+  leverage_max: 3
+  max_slots: 14            # core 10 + ballast 4 — the whole all-weather + defensive book
+  min_budget: 200          # two wallets, $100 floor each
+  assets: ["BTC", "ETH", "SOL", "xyz:SP500", "xyz:XYZ100", "xyz:GOLD", "xyz:COPPER", "xyz:BRENTOIL", "xyz:DXY", "xyz:JPY", "xyz:SILVER"]
+  tags: [risk_parity, all_weather, inverse_volatility, diversified, defensive, two_book, hedge_fund, low_turnover]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:                  # env VAR NAMES only — never values. Rule-mode entry: no decision_model_env.
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# ── FUNDING SPLIT DEFAULT: CORE 70% / BALLAST 30% of the combined pool ──
+# The core IS the all-weather holding and carries the larger share; the ballast is the smaller
+# defensive overlay. funding_share is an operator funding dial (sums to 1.0), NOT a runtime field.
+instances:
+  - name: core
+    runtime: core/runtime.yaml          # -> runtime name ox-core, group ox
+    wallet_env: OX_CORE_WALLET           # bound as ${OX_CORE_WALLET} in core/runtime.yaml
+    funding_share: 0.70
+  - name: ballast
+    runtime: ballast/runtime.yaml        # -> runtime name ox-ballast, group ox
+    wallet_env: OX_BALLAST_WALLET
+    funding_share: 0.30
