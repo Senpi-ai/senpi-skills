@@ -1,0 +1,46 @@
+# Cougar — U.S. equity long/short dispersion fund. A two-instance PACKAGE: this manifest
+# + two self-contained runtime.yaml books (long / short on SEPARATE wallets, so the long
+# leaders and short laggards can coexist) + shared scanners/. A faithful Runtime 3.0 port
+# of the v2 Cougar v1.0 cross-sectional relative-strength engine over the tokenized U.S.
+# equity universe on Hyperliquid XYZ (HIP-3). Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: cougar
+version: "1.0.0"
+
+catalog:
+  name: "Cougar — U.S. Equity Long/Short"
+  emoji: "🐆"
+  tagline: "Ranks the tokenized U.S. equity cross-section on Hyperliquid XYZ by 24h relative strength, then LONGS the strongest names (long book) and SHORTS the weakest (short book) — both trend-confirmed — on two equally-funded wallets so the pair is ~market-neutral and harvests equity dispersion."
+  belief_plain: "Buys the strongest tokenized U.S. stocks and shorts the weakest at the same time, on two separate wallets, so it makes money on the GAP between winners and losers rather than on the market going up or down."
+  thesis: "You want the classic equity hedge-fund play — long the leaders, short the laggards, market-neutral — but on-chain. The spread between the best and worst U.S. stocks is at a multi-decade extreme, and that dispersion is the edge: stock selection, not market direction. Tokenized equities trade 24/7 on Hyperliquid, so the book never has to wait for a market open."
+  group: multi-asset-whitelist
+  archetype: structural_neutral   # market-neutral L/S — net beta ~0 by construction
+  sub_style: pairs_rv             # cross-sectional relative-value (leaders vs laggards dispersion)
+  asset_classes: [xyz_equities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 8
+  min_budget: 400
+  assets: ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL", "xyz:NFLX", "xyz:AVGO", "xyz:COIN", "xyz:MSTR", "xyz:PLTR", "xyz:SPCX"]
+  tags: [equities, us-stocks, hedge-fund, long-short, market-neutral, dispersion, relative-strength, xyz]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: long
+    runtime: long/runtime.yaml
+    wallet_env: COUGAR_LONG_WALLET
+    funding_share: 0.5
+  - name: short
+    runtime: short/runtime.yaml
+    wallet_env: COUGAR_SHORT_WALLET
+    funding_share: 0.5

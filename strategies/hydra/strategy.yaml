@@ -1,0 +1,63 @@
+# Hydra — single-coin conviction fund with a CROSS-ASSET hedge. A THREE-instance PACKAGE:
+# this manifest + three self-contained runtime.yaml sleeves (core = thesis/breakout,
+# dip = pullback-buyer, hedge = cross-asset cushion) on THREE separate wallets + per-sleeve
+# scanners/. A faithful Runtime 3.0 port of the v2 Hydra v2.1 engine (hydra-producer.py +
+# runtime-core/dip/hedge.yaml on origin/main). Install/teardown via senpi-strategy-ops.
+#
+# PER-COIN PARAMETERIZATION — the thesis coin is a DEPLOY-TIME config, NOT a code change.
+# The v2 engine read HYDRA_COIN (env) and loaded config/hydra-<coin>-<leg>-config.json. In
+# 3.0 the coin lives in each sleeve runtime's `inputs.coin` (default ETH). To deploy
+# Hydra-SOL / Hydra-HYPE, set `inputs.coin` to SOL / HYPE in all THREE sleeve runtimes
+# (and, for an idiosyncratic coin like HYPE, set the hedge's `inputs.hedgeIncludesThesis:
+# true`). ONE package, ONE codebase, any major — exactly the v2 "named variants over one
+# shared engine" model. Default deployment = Hydra-ETH.
+schema_version: 1
+
+id: hydra
+version: "1.0.0"
+
+catalog:
+  name: "Hydra — Single-Coin Conviction Fund (cross-asset hedge)"
+  emoji: "🐉"
+  tagline: "A long-term conviction book on ONE major (the thesis coin: ETH/SOL/HYPE), ridden through volatility on a catastrophic-only stop, plus a tactical dip-buyer that presses the pullbacks — cushioned by a diversified short of OTHER assets that are actually breaking down, so the hedge protects market risk without ever betting against your thesis."
+  belief_plain: "Holds one major you believe in for the long haul and adds on its dips, while shorting a basket of other coins/indices whenever they roll over — so a market selloff that would hurt your coin is offset by profits on the short side, and you never short the coin you're bullish on."
+  thesis: "You have a high-conviction long-term view on one major and want to ride it through normal volatility instead of being stopped out — but you still want a real cushion in a broad selloff. So you hold the thesis on a wide disaster-only stop, press its dips, and hedge by shorting OTHER assets that are confirmed breaking down (vol-parity sized, sized up when your own coin is breaking too). Long the conviction, short the carnage elsewhere."
+  group: single-asset-conviction
+  archetype: trend_following
+  sub_style: conviction_hold_hedged
+  asset_classes: [universe_crypto, indices]
+  asset_scope: single_plus_hedge_basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 7            # core 1 + dip 1 + hedge up to 5 (the cross-asset blend basket)
+  min_budget: 600         # 3 wallets; core ~50% / dip ~25% / hedge ~25% — each needs working size
+  assets: ["ETH", "SOL", "HYPE", "BTC", "BNB", "XRP", "DOGE", "AVAX", "xyz:SP500", "xyz:XYZ100"]
+  tags: [conviction, single-coin, hedged, cross-asset-hedge, long-term-hold, dip-buyer, vol-parity, ride-the-thesis]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# THREE sleeves on THREE separate wallets (so the cross-asset SHORT hedge can hold while
+# the core/dip hold the thesis LONG). Default funding split mirrors the v2 SKILL.md
+# operator default: core ~50% / dip ~25% / hedge ~25% of the coin's combined budget —
+# net-long the thesis with a real cushion. Fund only core+dip to drop the hedge; raise the
+# hedge share for more protection.
+instances:
+  - name: core
+    runtime: core/runtime.yaml
+    wallet_env: HYDRA_CORE_WALLET
+    funding_share: 0.50
+  - name: dip
+    runtime: dip/runtime.yaml
+    wallet_env: HYDRA_DIP_WALLET
+    funding_share: 0.25
+  - name: hedge
+    runtime: hedge/runtime.yaml
+    wallet_env: HYDRA_HEDGE_WALLET
+    funding_share: 0.25

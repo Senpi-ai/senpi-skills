@@ -1,0 +1,129 @@
+# ── OX · CORE book — all-weather risk-parity core (LONG only) ──
+name: ox-core
+group: ox
+version: 3.0.0
+description: >
+  OX CORE — the fund line's all-weather core holding. A vol-balanced LONG basket across
+  asset-class sleeves (crypto majors + equity indices + metals + energy + FX), each sleeve
+  sized by INVERSE realized volatility (w_i = (1/vol_i)/sum(1/vol_j) over the whole basket)
+  so no single class dominates portfolio risk — true risk parity. Always invested, low
+  leverage (3x), low turnover (600s rebalance). Only declines to ADD a sleeve in a hard 4h
+  downtrend (knife guard); the DSL holds existing sleeves through normal drawdowns. Paired
+  with the BALLAST book on a separate wallet. The edge is RISK BALANCING + diversification,
+  not a directional bet.
+
+  Sizing (scanner-side): each sleeve's marginUsd is the inverse-vol risk-parity weight, emitted
+  per-signal (top-level marginUsd) — NOT a flat margin_pct. The runtime honors per-signal
+  marginUsd; strategy.margin_pct below is only a fallback cap.
+
+strategy:
+  wallet: "${OX_CORE_WALLET}"
+  slots: 10                  # holds the whole sleeve basket
+  margin_pct: 6              # fallback cap only — scanner emits per-sleeve marginUsd
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: ox_core_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 600                 # LOW turnover — rebalance slowly (v2 tickSeconds)
+    timeout_seconds: 180
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100          # signal-dedup map + per-tick result history
+    inputs:
+      book: "core"
+      # All-Weather sleeve basket — risk sleeves (crypto/equities/energy/metal) AND defensive
+      # sleeves (gold/dollar/yen). xyz:DXY is currently DELISTED on HL and is silently dropped
+      # by the live-board intersection (v2 behavior); kept in the list for faithful parity +
+      # auto-rejoin if it relists. No fake tickers — every name validated against the live HL board.
+      sleeves: ["BTC", "ETH", "SOL", "xyz:SP500", "xyz:XYZ100", "xyz:GOLD", "xyz:COPPER", "xyz:BRENTOIL", "xyz:DXY", "xyz:JPY"]
+      portfolioBudgetPct: 0.60     # gross deployed; risk parity runs moderate gross + cash buffer
+      maxWeightPct: 0.22           # cap any single (low-vol) sleeve at 22% of equity
+      maxLeverage: 3               # LOW — a core, not a bet; inverse-vol controls risk
+      maxSlots: 10
+      volBars: 30                  # 1h bars for the realized-vol estimate
+      minScore: 5
+      venueMinNotionalUsd: 10
+      minNotionalPctOfEquity: 0.01
+      recentSignalTtlSeconds: 21600   # 6h per-sleeve anti-re-fire (mirrors per_asset_cooldown)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      weightPct: { type: number, required: false }
+      vol: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: ox_core_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule              # scan() owns filtering; no LLM gate (v2 gate was pass-through)
+    scanners: [ox_core_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: ox_core_signals
+
+# ── EXIT (DSL — wide, hold the core) ──
+# A risk-parity core is held through drawdowns and rebalanced, not stopped out on noise: wide
+# phase1, ALL time-cuts OFF, only a 14d hard_timeout staleness backstop. Sizing (inverse-vol,
+# low leverage) is the primary risk control; the DSL is the backstop. First phase2 lock tier
+# 12% is REACHABLE. Ported verbatim from v2 runtime-core.yaml.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 20160        # 14d staleness cap
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 720
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 16.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 12, lock_hw_pct: 0 }
+        - { trigger_pct: 25, lock_hw_pct: 45 }
+        - { trigger_pct: 50, lock_hw_pct: 65 }
+        - { trigger_pct: 90, lock_hw_pct: 80 }
+
+# ── RISK (per-instance guard rails; v2 risk.guard_rails ported, durations -> seconds) ──
+risk:
+  data_retention_seconds: 604800       # 168h
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 12            # builds the basket on deploy, then rebalances slowly
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_seconds: 3600             # 60m
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 21600  # 360m — don't re-add the same sleeve within 6h

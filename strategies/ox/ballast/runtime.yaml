@@ -1,0 +1,134 @@
+# ── OX · BALLAST book — defensive all-weather overlay (LONG only) ──
+name: ox-ballast
+group: ox
+version: 3.0.0
+description: >
+  OX BALLAST — the active downside cushion. A vol-balanced LONG basket of defensives
+  (gold / silver / dollar / yen), inverse-vol weighted to a SMALL base budget that SCALES UP
+  (~2x) when a light cross-asset risk-off lean confirms (equities soft + gold/dollar bid).
+  Always-on, LONG only, never shorts and never fully to cash. Paired with the CORE book on a
+  separate wallet. The edge is RISK BALANCING — owning ballast at all times, more of it when
+  the tape turns defensive.
+
+  Sizing (scanner-side): each defensive's marginUsd is the (scaled) inverse-vol risk-parity
+  weight, emitted per-signal (top-level marginUsd) — NOT a flat margin_pct. The runtime honors
+  per-signal marginUsd; strategy.margin_pct below is only a fallback cap.
+
+strategy:
+  wallet: "${OX_BALLAST_WALLET}"
+  slots: 4
+  margin_pct: 5              # fallback cap only — scanner emits per-sleeve marginUsd
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: ox_ballast_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 600
+    timeout_seconds: 180
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100
+    inputs:
+      book: "ballast"
+      # Defensive basket — gold/silver/dollar/yen. xyz:DXY is currently DELISTED on HL and is
+      # silently dropped by the live-board intersection (v2 behavior); xyz:JPY (yen) and
+      # xyz:GOLD/xyz:SILVER carry the defensive book until DXY relists. No fake tickers.
+      sleeves: ["xyz:GOLD", "xyz:SILVER", "xyz:DXY", "xyz:JPY"]
+      portfolioBudgetPct: 0.18     # small base — the always-on cushion
+      maxWeightPct: 0.30
+      maxLeverage: 3
+      maxSlots: 4
+      volBars: 30
+      minScore: 5
+      venueMinNotionalUsd: 10
+      minNotionalPctOfEquity: 0.01
+      recentSignalTtlSeconds: 21600   # 6h per-sleeve anti-re-fire (mirrors per_asset_cooldown)
+      # Risk-off budget scaler (NOT a hard gate): each probe votes risk-off on its 4h trend;
+      # votes >= riskOffThreshold scales the defensive budget up x riskOffMultiplier (cap 0.6 gross).
+      riskOffThreshold: 1          # light lean: 1 probe is enough to scale up
+      riskOffMultiplier: 2.0       # double the defensive budget when risk-off confirms
+      riskOffProbes:
+        - { asset: "xyz:XYZ100", fallback: "xyz:SP500", risk_off_when: "BEARISH", label: "equities" }
+        - { asset: "xyz:GOLD", fallback: null, risk_off_when: "BULLISH", label: "gold" }
+        - { asset: "xyz:DXY", fallback: null, risk_off_when: "BULLISH", label: "dollar" }
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      weightPct: { type: number, required: false }
+      vol: { type: number, required: false }
+      riskOff: { type: boolean, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: ox_ballast_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule              # scan() owns filtering; no LLM gate (v2 gate was pass-through)
+    scanners: [ox_ballast_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: ox_ballast_signals
+
+# ── EXIT (DSL — wide, hold the ballast) ──
+# Defensives are held as protection, not stopped out on noise: wide phase1, ALL time-cuts OFF,
+# 10d hard_timeout backstop. First phase2 lock tier 10% is REACHABLE. Ported verbatim from v2
+# runtime-ballast.yaml.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 14400        # 10d staleness cap
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 720
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 14.0
+      retrace_threshold: 9
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 22, lock_hw_pct: 45 }
+        - { trigger_pct: 45, lock_hw_pct: 65 }
+        - { trigger_pct: 80, lock_hw_pct: 80 }
+
+# ── RISK (per-instance guard rails; v2 risk.guard_rails ported, durations -> seconds) ──
+risk:
+  data_retention_seconds: 604800       # 168h
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 5400             # 90m
+    drawdown_halt_pct: 16
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 21600  # 360m

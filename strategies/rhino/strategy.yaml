@@ -1,0 +1,46 @@
+# Rhino — Tail-Risk / Crisis-Alpha Hedge Fund. A MULTI-INSTANCE PACKAGE: this manifest +
+# two self-contained runtime.yaml instances (hedge = always-on long defensives carry,
+# escalation = stress-gated long-crisis + short-risk convexity) on two wallets, sharing one
+# verbatim scan.py + scoring.py (the shared STRESS detector is the brain). A faithful
+# Runtime 3.0 port of the v2 Rhino (SKILL.md v1.0.0). Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: rhino
+version: "1.0.0"
+
+catalog:
+  name: "Rhino — Tail-Risk / Crisis-Alpha Hedge Fund"
+  emoji: "🦏"
+  tagline: "Carries cheap convexity across two books: an always-on small LONG carry in the crisis-beneficiary complex (gold / oil / dollar / yen), plus a dormant, stress-gated leveraged add that goes LONG the spiking crisis assets and SHORT the cratering risk assets the moment a shared cross-asset stress detector confirms a shock — then banks the spike."
+  belief_plain: "Built to lose a little in calm and win big in a crisis. One book quietly holds gold/oil/dollar/yen as standing insurance whenever they're trending up. The other sits in cash until a shock hits — oil spiking, stocks breaking down, Bitcoin rolling over — then piles into the crisis winners and shorts the risky stuff, and takes profit fast because crises reverse hard."
+  thesis: "You want the part of the portfolio that's green on the days everything else is red. Not a fixed war bet you switch on, and not a macro trend-follower — Rhino is always-on insurance that self-activates a leveraged convex leg on a measured stress signal, with no view required."
+  group: multi-asset-whitelist
+  archetype: tail_risk
+  sub_style: crisis_alpha
+  asset_classes: [xyz_commodities, xyz_metals, xyz_fx, indices, major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 6
+  min_budget: 400
+  assets: ["xyz:GOLD", "xyz:SILVER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:DXY", "xyz:JPY", "BTC", "ETH", "SOL", "HYPE", "SUI", "xyz:XYZ100", "xyz:SP500"]
+  tags: [tail-risk, crisis-alpha, convexity, hedge, gold, oil, stress-detector, long_short, two-book]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: hedge
+    runtime: hedge/runtime.yaml
+    wallet_env: RHINO_HEDGE_WALLET
+    funding_share: 0.5
+  - name: escalation
+    runtime: escalation/runtime.yaml
+    wallet_env: RHINO_ESCALATION_WALLET
+    funding_share: 0.5

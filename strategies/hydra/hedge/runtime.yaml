@@ -1,0 +1,141 @@
+# ── HYDRA · HEDGE sleeve — the CROSS-ASSET cushion of a single-coin conviction fund ──
+# Runtime 3.0 port of v2 runtime-hedge.yaml (origin/main, Hydra v2.1). Shorts a
+# diversified BLEND of OTHER assets (hedgeUniverse minus the thesis coin) — only the ones
+# in a confirmed 4h downtrend, capitulation-guarded — VOL-PARITY sized (the scan computes
+# per-signal marginUsd dollars), sized UP by a thesis-stress multiplier when the thesis
+# coin itself is breaking, total margin capped at hedgeMaxTotalPct. Never shorts the
+# thesis coin (unless hedgeIncludesThesis = true, the HYPE hybrid). DSL preserved EXACTLY.
+name: hydra-hedge
+group: hydra
+version: 3.0.0
+description: >
+  HYDRA HEDGE (cross-asset) — short-only basket. Scans hedgeUniverse (a blend of OTHER
+  assets, thesis coin auto-excluded) and shorts only the names in a confirmed 4h
+  downtrend (per-asset drawdown over stressLookback >= stressDropPct, OR a 1h breakdown),
+  capitulation-guarded. Vol-parity sized (margin inversely ∝ each asset's ATR%, clamped)
+  and multiplied UP by a thesis-stress factor when the thesis coin (inputs.coin) is
+  breaking down. A basket (up to maxSlots), total margin capped at hedgeMaxTotalPct.
+  Auto-scales: ~nothing to short in a calm uptrend, heavy in a broad selloff. Cushions
+  the market risk that would also hurt the thesis WITHOUT betting against it. Pairs with
+  the CORE + DIP thesis-long sleeves on separate wallets.
+
+strategy:
+  wallet: "${HYDRA_HEDGE_WALLET}"
+  slots: 5                                  # the blend basket (maxSlots)
+  default_leverage: 3                       # short squeezes are violent — strict 3x
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hydra_hedge_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300
+    timeout_seconds: 180                    # scans the whole hedge blend (≤10 reads/tick + thesis read)
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100
+    inputs:
+      # ── PER-COIN PARAMETERIZATION: set `coin` per deployment (mirrors v2 HYDRA_COIN). ──
+      # The thesis coin is auto-excluded from the blend UNLESS hedgeIncludesThesis is true.
+      coin: "ETH"                           # thesis asset; SOL / HYPE for the other variants
+      leg: "hedge"
+      minScore: 4
+      maxLeverage: 3
+      stdLeverage: 3
+      maxSlots: 5
+      stressDropPct: 8.0                    # per-asset fast drawdown that arms a short
+      stressLookback: 6                     # 4h candles for the per-asset drawdown
+      rsiOversold: 18                       # capitulation guard per asset
+      # vol-parity sizing for the hedge basket (inverse-ATR, normalized + clamped)
+      hedgeRiskPct: 0.06                    # margin a reference-vol short gets, fraction of equity
+      referenceVolPct: 3.0
+      minMarginPct: 0.02                    # vol-parity clamp lo (fraction of equity)
+      maxMarginPct: 0.12                    # vol-parity clamp hi (fraction of equity)
+      hedgeMaxTotalPct: 0.45                # cap on TOTAL hedge margin deployed, fraction of equity
+      # thesis-stress multiplier: size the hedge UP when the THESIS coin is breaking
+      thesisStressFullPct: 10.0             # thesis-coin drawdown at which the multiplier maxes
+      stressMultMax: 2.0                    # max sizing multiplier
+      # HYBRID hedge: false (default, ETH/SOL) = pure cross-asset, never short the thesis
+      # coin. true (HYPE) = ALSO short the thesis coin when IT is the one breaking down.
+      hedgeIncludesThesis: false
+      # the diversified blend to short (thesis coin auto-excluded unless hybrid is on):
+      hedgeUniverse: ["BTC", "ETH", "SOL", "HYPE", "BNB", "XRP", "DOGE", "AVAX", "xyz:SP500", "xyz:XYZ100"]
+      venueMinNotionalUsd: 10
+      minNotionalPctOfEquity: 0.01
+      recentSignalTtlSeconds: 240
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      rsi: { type: number, required: false }
+      hedgeFor: { type: string, required: false }
+      stressMult: { type: number, required: false }
+      volPct: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hydra_hedge_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [hydra_hedge_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: hydra_hedge_signals
+
+# ── EXIT (DSL — bank the cushion, but let it run in a sustained selloff; VERBATIM from main) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 7200
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 360
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 720
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 6, lock_hw_pct: 30 }    # lock earlier — hedge winners top out small (+4-10%)
+        - { trigger_pct: 12, lock_hw_pct: 50 }
+        - { trigger_pct: 25, lock_hw_pct: 68 }
+        - { trigger_pct: 50, lock_hw_pct: 82 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 8                   # the hedge opens a basket across the blend
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_seconds: 5400                   # v2 cooldown_minutes 90
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400        # v2 per_asset_cooldown_minutes 240

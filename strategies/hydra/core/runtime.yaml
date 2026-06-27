@@ -1,0 +1,122 @@
+# ── HYDRA · CORE sleeve — the LONG-TERM THESIS of a single-coin conviction fund ──
+# Runtime 3.0 port of v2 runtime-core.yaml (origin/main, Hydra v2.1). DSL preserved
+# EXACTLY: catastrophic-only — a wide disaster stop, weak_peak OFF, time-cuts OFF,
+# and a Phase 2 whose FIRST lock is reachable (+12%, the retuned ladder — NOT the old
+# +80% that never armed). You ride normal volatility; the cross-asset HEDGE sleeve
+# (separate wallet) cushions the interim drawdown.
+name: hydra-core
+group: hydra
+version: 3.0.0
+description: >
+  HYDRA CORE — single-coin trend-momentum on the thesis coin (inputs.coin; default ETH,
+  set per deployment). LONG when 4h structure is bullish, SHORT when bearish, sit out a
+  neutral tape. The 1d must confirm the 4h (v2.1 chop filter — don't buy the range-top).
+  Conviction-tiered leverage: stdLeverage standard, maxLeverage at apexScore. One
+  position. Ridden on a CATASTROPHIC-ONLY DSL (long-term hold). Pairs with the DIP
+  (tactical add) and HEDGE (cross-asset cushion) sleeves on separate wallets.
+
+strategy:
+  wallet: "${HYDRA_CORE_WALLET}"
+  slots: 1                                 # single asset, single position
+  default_leverage: 3                      # fallback; scan emits per-signal 3 (std) / 5 (apex) by score
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hydra_core_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                   # v2 producer cadence (tickSeconds 300)
+    timeout_seconds: 150                    # 1 asset read/tick (1h/4h/1d + funding)
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100            # dedup map + per-tick scan-results history
+    inputs:
+      # ── PER-COIN PARAMETERIZATION: set `coin` per deployment (mirrors v2 HYDRA_COIN). ──
+      coin: "ETH"                           # thesis asset; SOL / HYPE for the other variants
+      dex: ""                               # "" main DEX; "xyz" for an xyz: thesis coin
+      leg: "core"
+      minScore: 5
+      marginPct: 20                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      maxLeverage: 5
+      stdLeverage: 3
+      apexScore: 7
+      rsiOverbought: 80
+      rsiOversold: 20
+      requireDailyAlign: true               # v2.1: only enter when the 1d trend confirms the 4h (chop filter)
+      recentSignalTtlSeconds: 240           # 4m signal-dedup debounce (v2 RECENT_SIGNAL_TTL ~180-240s)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      trend1h: { type: string, required: false }
+      rsi: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hydra_core_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every gate (pass-through in v2)
+    scanners: [hydra_core_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: hydra_core_signals
+
+# ── EXIT (DSL — v2 CATASTROPHIC-ONLY, ported VERBATIM from runtime-core.yaml on main) ──
+# A long-term thesis HOLD: WIDE disaster stop only, weak_peak OFF (hold through
+# consolidation), time-cuts OFF, Phase 2 does nothing until a real run — but the FIRST
+# lock is REACHABLE (+12% → lock 35%), the retuned ladder. Do NOT regress to +60-80%.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 43200
+    weak_peak_cut:
+      enabled: false                        # HOLD through flat periods — a long-term thesis consolidates
+      interval_in_minutes: 1440
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 2880
+    phase1:
+      enabled: true
+      max_loss_pct: 32.0                     # catastrophic-only disaster stop (thesis-breaking)
+      retrace_threshold: 10                  # tightened (was 20) — trail a winner into profit
+      consecutive_breaches_required: 2
+    phase2:
+      enabled: true
+      tiers:                                 # lock medium winners early, still ride a real moonshot
+        - { trigger_pct: 12, lock_hw_pct: 35 }   # first lock REACHABLE (retuned; was 80 — never armed)
+        - { trigger_pct: 25, lock_hw_pct: 55 }
+        - { trigger_pct: 50, lock_hw_pct: 68 }
+        - { trigger_pct: 120, lock_hw_pct: 80 }
+        - { trigger_pct: 250, lock_hw_pct: 88 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 7200                   # v2 cooldown_minutes 120
+    drawdown_halt_pct: 22
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400        # v2 per_asset_cooldown_minutes 240

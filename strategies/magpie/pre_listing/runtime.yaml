@@ -1,0 +1,108 @@
+# ── MAGPIE · PRE-LISTING book — accumulate pre-IPO perpetuals (IPOPs) into the IPO ──
+name: magpie-pre-listing
+group: magpie
+version: 3.0.0
+description: >
+  MAGPIE PRE-LISTING — pre-IPO accumulation (Runtime 3.0 port of the v2 Magpie
+  PRE-LISTING leg). One of two books. DYNAMIC UNIVERSE: each tick it discovers
+  IPOPs (pre-IPO perpetuals) off the LIVE xyz instrument board by their funding
+  signature (|funding| <= cap, max_leverage <= cap, min daily volume — the
+  trade.xyz pre-listing structure) and rides the pre-listing trend into the IPO:
+  4h structure sets direction, 1h + Smart-Money confirm (sparse pre-listing ->
+  trend-only fallback). BOTH directions. Pairs with the GRADUATION book on a
+  SEPARATE wallet, which trades the conversion event. The edge is EVENT alpha on
+  the pre-IPO ramp. IPOPs are price-throttled by Discovery Bounds, so the DSL is
+  moderate (not catastrophic). Today the live board typically has NO IPOPs (the
+  marquee names have already converted) — the book waits for the next listing.
+
+strategy:
+  wallet: "${MAGPIE_PRE_LISTING_WALLET}"
+  slots: 3
+  default_leverage: 3                      # IPOP discovery-bounds regime; scan clamps per-instrument
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: magpie_pre_listing_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900                   # v2 pre-listing tick cadence (15 min)
+    timeout_seconds: 180
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 12             # holds the signal-dedup map + per-tick result
+    inputs:
+      minScore: 5
+      marginPct: 12                         # PERCENT of withdrawable (0,100], not a fraction
+      maxLeverage: 3                        # IPOP discovery-bounds regime; clamped to venue max
+      ipopFundingMaxAbs: 1.0e-7             # IPOP funding-signature ceiling
+      ipopMaxLeverageCap: 5                 # IPOP leverage-cap ceiling
+      ipopMinDailyVolUsd: 100000            # pre-listing min daily volume floor
+      smTiltMinPct: 55
+      smStrongTiltPct: 70
+      recentSignalTtlSeconds: 720
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      leverage: { type: number, required: false }
+      ipopFlag: { type: boolean, required: false }
+      trend4h: { type: string, required: false }
+      smTilt: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: magpie_pre_listing_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every gate (IPOP signature + trend + SM)
+    scanners: [magpie_pre_listing_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: magpie_pre_listing_signals
+
+# EXIT — MODERATE multi-day pre-listing discovery DSL (ported from v2 runtime-pre_listing.yaml).
+# Discovery Bounds throttle IPOP velocity, so moves are multi-day and not catastrophic.
+# First lock tier is REACHABLE (+10% -> lock 40%) — new listings are volatile, keep stops sane.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 10.0
+      retrace_threshold: 7
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 40 }   # first lock reachable (v2 was 10->0, never armed)
+        - { trigger_pct: 22, lock_hw_pct: 50 }
+        - { trigger_pct: 45, lock_hw_pct: 65 }
+        - { trigger_pct: 80, lock_hw_pct: 80 }
+        - { trigger_pct: 130, lock_hw_pct: 90 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 4                  # few IPOPs exist; turns over slowly
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 5400                  # 90 min
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 21600       # 360 min
