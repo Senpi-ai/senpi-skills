@@ -58,6 +58,69 @@
       "sort_order": 1
     },
     {
+      "id": "cougar",
+      "name": "Cougar — U.S. Equity Long/Short",
+      "emoji": "🐆",
+      "tagline": "Ranks the tokenized U.S. equity cross-section on Hyperliquid XYZ by 24h relative strength, then LONGS the strongest names (long book) and SHORTS the weakest (short book) — both trend-confirmed — on two equally-funded wallets so the pair is ~market-neutral and harvests equity dispersion.",
+      "belief_plain": "Buys the strongest tokenized U.S. stocks and shorts the weakest at the same time, on two separate wallets, so it makes money on the GAP between winners and losers rather than on the market going up or down.",
+      "version": "1.0.0",
+      "thesis": "You want the classic equity hedge-fund play — long the leaders, short the laggards, market-neutral — but on-chain. The spread between the best and worst U.S. stocks is at a multi-decade extreme, and that dispersion is the edge: stock selection, not market direction. Tokenized equities trade 24/7 on Hyperliquid, so the book never has to wait for a market open.",
+      "tags": [
+        "equities",
+        "us-stocks",
+        "hedge-fund",
+        "long-short",
+        "market-neutral",
+        "dispersion",
+        "relative-strength",
+        "xyz"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural / Neutral",
+      "sub_style": "pairs_rv",
+      "sub_style_label": "Trades a pair's ratio back to its mean (relative value).",
+      "asset_classes": [
+        "xyz_equities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:NVDA",
+        "xyz:TSLA",
+        "xyz:AAPL",
+        "xyz:META",
+        "xyz:MSFT",
+        "xyz:GOOGL",
+        "xyz:AMZN",
+        "xyz:AMD",
+        "xyz:MU",
+        "xyz:INTC",
+        "xyz:TSM",
+        "xyz:ORCL",
+        "xyz:NFLX",
+        "xyz:AVGO",
+        "xyz:COIN",
+        "xyz:MSTR",
+        "xyz:PLTR",
+        "xyz:SPCX"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 8,
+      "branch": "strategy-v2",
+      "sort_order": 2
+    },
+    {
       "id": "spider",
       "name": "Spider — AI/Tech Hedge Fund",
       "emoji": "🕷️",
@@ -118,7 +181,7 @@
       ],
       "max_slots": 7,
       "branch": "strategy-v2",
-      "sort_order": 2
+      "sort_order": 3
     },
     {
       "id": "beaver",
