@@ -1,0 +1,142 @@
+# ── KESTREL · single instance — XYZ Macro Breakout Rider (Runtime 3.0 port of v2 KESTREL v2.0.0 / producer v3.0.4) ──
+# Multi-asset, non-crypto XYZ universe (12 names, Hyperliquid HIP-3 DEX): commodities
+# (CL, BRENTOIL), metals (GOLD), indices (SP500, XYZ100), mega-cap equities (AAPL, NVDA,
+# GOOGL, TSLA, AMZN, META, MSFT). A >=1.5% 1H breakout HARD GATE + 4H trend alignment +
+# move-exhaustion penalty + volume surge + XYZ-dex smart-money + spread gate + funding,
+# summed into a breakout score. Score-tiered leverage (3x/5x), fixed 30% margin, a
+# 2-position macro book. DSL-only exits. dex = "xyz", macroAsset = "" (no BTC factor).
+# XYZ trades 24/7 incl weekends — NO market-hours gate anywhere.
+name: kestrel-main
+group: kestrel
+version: 3.0.0
+description: >
+  KESTREL — multi-asset XYZ (HIP-3) macro breakout rider. Scans a 12-name non-crypto
+  universe (oil, gold, S&P/Nasdaq indices, mega-cap tech) for a >=1.5% 1H breakout HARD
+  GATE, then weights the 1H magnitude heaviest (+3/+4/+5) and adds 4H trend alignment,
+  a move-exhaustion penalty (relaxed 6%/4% thresholds), a volume surge, XYZ-dex
+  smart-money confirmation, a spread gate (relaxed 0.35% for wide XYZ spreads) and
+  funding alignment. Floor minScore 5. Emits the single strongest candidate per tick;
+  slots: 2 lets the runtime own the 2-position macro book. Score-tiered leverage: 3x
+  standard, 5x at score >= 9. Fixed 30% margin. DSL is the ONLY exit (early T0 lock at
+  +5% ROE guards macro false-breakout reversals; later tiers ride news/geopolitical
+  trends). No BTC-correlation factor (these are not crypto perps). Faithful port of the
+  v2 producer thesis — scoring preserved verbatim. 24/7 incl weekends — NO market-hours gate.
+
+strategy:
+  wallet: "${KESTREL_WALLET}"
+  slots: 2                                # 2-position macro book (v2 MAX_POSITIONS)
+  default_leverage: 3                     # fallback; scan emits per-signal 3x/5x by score
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: kestrel_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 240                   # 1 clearinghouse + 1 leaderboard + up to 12 asset reads/tick; v2 tick_timeout 240s
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      universe: ["xyz:CL", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SP500", "xyz:XYZ100", "xyz:AAPL", "xyz:NVDA", "xyz:GOOGL", "xyz:TSLA", "xyz:AMZN", "xyz:META", "xyz:MSFT"]
+      dex: "xyz"                           # HIP-3 DEX — the "xyz:" prefix is mandatory on every read
+      macroAsset: ""                       # "" DISABLES the BTC-correlation factor (these are not crypto)
+      minScore: 5                          # v2 MIN_SCORE_DEFAULT (was 6 pre-v2.0)
+      marginPct: 30                        # PERCENT of withdrawable (0,100] — v2 MARGIN_PCT 0.30; runtime sizes (marginPct/100)*withdrawable
+      maxPositions: 2                      # v2 MAX_POSITIONS — 2-position macro book
+      # score-tiered leverage — list-of-pairs [minScore, leverage], high-to-low (v2 LEVERAGE_TIERS)
+      leverageTiers: [[9, 5], [5, 3]]
+      defaultLeverage: 3                   # v2 DEFAULT_LEVERAGE
+      # scoring thresholds — PRODUCER code constants (preferred over config.json per the port directive)
+      breakoutThreshold1h: 1.5             # v2 BREAKOUT_THRESHOLD_1H — mandatory 1H hard gate
+      breakoutThreshold4h: 3.0             # v2 BREAKOUT_THRESHOLD_4H — strong 4H alignment
+      exhaustionThreshold: 6.0             # v2 EXHAUSTION_THRESHOLD (relaxed from 4.0 in v2.0)
+      tiringThreshold: 4.0                 # v2 TIRING_THRESHOLD (relaxed from 2.5 in v2.0)
+      spreadMax: 0.0035                    # v2 SPREAD_MAX (relaxed 0.002 -> 0.0035 for wide XYZ spreads)
+      recentSignalTtlSeconds: 10800        # 180m — mirror the v2 ASSET_COOLDOWN_MINUTES (anti re-fire)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      marginPct: { type: number, required: false }
+      direction: { type: string }
+      rawAsset: { type: string, required: false }
+      pct1h: { type: number, required: false }
+      pct4h: { type: number, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      smDir: { type: string, required: false }
+      fundingRate: { type: number, required: false }
+      spreadPct: { type: number, required: false }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: kestrel_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every quantitative filter (Kodiak-family convention)
+    scanners: [kestrel_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # breakout entry must fill — taker fallback at 60s (v2 ensure_execution_as_taker:true)
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: kestrel_main_signals
+
+# EXIT — DSL, preserved verbatim from v2 (exit.dsl_preset). Macro breakouts continue
+# 1-3h then mature; the FIRST lock tier is aggressive and REACHABLE: T0 fires at +5% ROE
+# and locks 35% of the high-water (well inside the +10-15% reachable band — never
+# +60-80%). Later tiers ride parabolic news/geopolitical extensions. Dead-weight cut
+# catches false breakouts within 45min; weak-peak cut and an 8h hard timeout are the v2
+# fail-safes (multi-asset book — kept enabled, NOT the single-asset time-cut-OFF pattern).
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 480             # v2 — 8h fail-safe
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 60              # v2
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 45              # v2 — catches false breakouts
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0                   # v2
+      retrace_threshold: 8                 # v2
+      consecutive_breaches_required: 1     # v2
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 35 }   # T0 — early lock guards false-breakout reversals (REACHABLE)
+        - { trigger_pct: 10, lock_hw_pct: 50 }   # T1
+        - { trigger_pct: 20, lock_hw_pct: 65 }   # T2
+        - { trigger_pct: 35, lock_hw_pct: 80 }   # T3
+        - { trigger_pct: 50, lock_hw_pct: 90 }   # T4 — parabolic news/geopolitical extension
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10               # v2
+    max_entries_per_day: 12                # v2 upper bound (producer dynamic-cap is gone; runtime owns this)
+    bypass_max_entries_per_day_on_profit: false   # v2
+    max_consecutive_losses: 3              # v2
+    cooldown_seconds: 1800                 # v2 cooldown_minutes: 30
+    drawdown_halt_pct: 25                  # v2
+    drawdown_reset_on_day_rollover: false  # v2 — Roach Sat-Sun bleed lesson
+    per_asset_cooldown_seconds: 10800      # v2 per_asset_cooldown_minutes: 180 — 3h between same-asset entries
