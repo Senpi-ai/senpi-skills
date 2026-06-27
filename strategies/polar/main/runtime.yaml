@@ -1,0 +1,127 @@
+# ── POLAR · single instance — ETH alpha hunter (Runtime 3.0 port of v2 Polar v4.2.0 / SKILL v5.0.0) ──
+name: polar-main
+group: polar
+version: 3.0.0
+description: >
+  POLAR — single-asset ETH alpha hunter (SM-LED hybrid). Smart-money concentration
+  picks the side FIRST (pct>=5, traders>=30, cc_15m>=0.3 accel), then 4h structure
+  (>=0.75) must agree, 1h confirms, 15m momentum aligns, RSI in [26,74], and a
+  multi-factor composite (SM tiers, funding, OI velocity, BTC 15m+1h, RSI room,
+  4h momentum) clears score 12. Conviction-tiered leverage: 5x standard (>=14),
+  7x conviction (>=15), 10x apex (>=17). DSL is the ONLY exit (time-cuts off;
+  cut losers fast, ride winners). Faithful port of the v2 producer thesis.
+
+strategy:
+  wallet: "${POLAR_WALLET}"
+  slots: 1                                # single asset, single position
+  default_leverage: 5                     # fallback; scan emits per-signal 5/7/10 by score
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: polar_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                  # v2 producer cadence (3 min)
+    timeout_seconds: 150                   # 3 MCP reads/tick (ETH data + BTC + leaderboard)
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick scan-results history (~5h @180s)
+    inputs:
+      asset: "ETH"
+      dex: ""
+      macroAsset: "BTC"                    # "" disables the BTC-correlation factor (xyz ports)
+      minScore: 12                         # v4.2 restore (v4.0/v4.1 regressed to 14; over-strict)
+      marginPct: 50                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      minTrendStrength4h: 0.75
+      minMom15mPct: 0.1
+      minSmConcentration: 5.0              # v2 MIN_SM_CONCENTRATION — hard SM gate (pct_of_top_traders_gain)
+      minSmTraderCount: 30                 # v2 MIN_SM_TRADER_COUNT — hard SM depth gate
+      minSmAccelPct: 0.3                   # v2 MIN_SM_ACCEL_PCT — cc_15m velocity hard gate
+      rsiMaxLong: 74                        # v2 polar RSI band 26-74 (NOT kodiak 72/28)
+      rsiMinShort: 26
+      leverageTiers: [[17, 10], [15, 7], [14, 5]]
+      quietHoursStartUtc: 0                # FP-001 low-liquidity window; start==end disables
+      quietHoursEndUtc: 4
+      quietHoursApexBypassScore: 17        # apex setups fire any hour
+      recentSignalTtlSeconds: 14400        # 240m — mirror the per-asset cooldown
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      tier: { type: string, required: false }
+      trend4h: { type: string, required: false }
+      trendStrength4h: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      mom15mPct: { type: number, required: false }
+      mom1hPct: { type: number, required: false }
+      mom4hPct: { type: number, required: false }
+      mom5mPct: { type: number, required: false }
+      fundingRate: { type: number, required: false }
+      oiChange1h: { type: number, required: false }
+      btcMom15mPct: { type: number, required: false }
+      btcMom1hPct: { type: number, required: false }
+      rsi: { type: number, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      smCc15m: { type: number, required: false }
+      smCc1h: { type: number, required: false }
+      smCc4h: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: polar_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter
+    scanners: [polar_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a conviction strike must fill — taker fallback at 60s
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: polar_main_signals
+
+# EXIT — DSL, ported VERBATIM from v2 Polar v4.2.0 (v4.1.0 ratchet patch ladder):
+# T0 lock 35 @ +8%, T1 trigger 12 — closes the T0->T1 dead zone that leaked
+# mid-range winners. Time cuts OFF (v3.0.4/5/6 sweep) — single-asset patience.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 25.0                   # v2 polar Phase 1 (NOT kodiak 15)
+      retrace_threshold: 8                 # v2 polar (NOT kodiak 5)
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 35 }   # REACHABLE first lock (+8% ROE)
+        - { trigger_pct: 12, lock_hw_pct: 50 }
+        - { trigger_pct: 25, lock_hw_pct: 65 }
+        - { trigger_pct: 35, lock_hw_pct: 80 }
+        - { trigger_pct: 50, lock_hw_pct: 85 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false  # v2 polar set false (NOT kodiak true)
+    max_consecutive_losses: 3              # v2 polar (NOT kodiak 4)
+    cooldown_seconds: 3600                 # v2 cooldown_minutes: 60
+    per_asset_cooldown_seconds: 14400      # v2 per_asset_cooldown_minutes: 240 (sniper cadence)
+    max_entries_per_day: 4                 # v2 polar (NOT kodiak 8)
+    bypass_max_entries_per_day_on_profit: false

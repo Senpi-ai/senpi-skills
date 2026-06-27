@@ -1,0 +1,109 @@
+# ── HERON · single instance — ETH onboarding trend follower (Runtime 3.0 port of v2 Heron v1.0.0) ──
+name: heron-main
+group: heron
+version: 3.0.0
+description: >
+  HERON — single-asset ETH trend follower with a Smart-Money direction gate.
+  Onboarding tier. Enters only when 4h candle structure is directional (not NEUTRAL)
+  AND the smart-money leaderboard agrees with that side at >=60% tilt; scores 5
+  components (4h trend +3, 1h confirms +2, SM aligned +2, SM strong +1, volume rising
+  +1; max ~9) and clears score 5. FIXED 5x leverage (NO conviction tiering — this is
+  the simple onboarding port; kodiak/polar tier, heron does not). DSL is the ONLY exit
+  (Bison-pattern wide ladder; time cuts off — winning trends ride multi-day). Faithful
+  port of the v2 producer thesis.
+
+strategy:
+  wallet: "${HERON_WALLET}"
+  slots: 1                                # single asset, single position
+  default_leverage: 5                     # heron is FIXED 5x — scan emits leverage:5 every signal
+  trading_risk: balanced
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: heron_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 150                   # 2 MCP reads/tick (ETH 1h+4h data + leaderboard)
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick scan-results history (~8h @300s)
+    inputs:
+      asset: "ETH"
+      dex: ""
+      minScore: 5                          # v2 MIN_SCORE_DEFAULT — onboarding floor (out of ~9)
+      marginPct: 25                        # PERCENT of withdrawable (0,100] — v2 margin_pct 0.25 fraction -> 25%
+      leverage: 5                          # v2 DEFAULT_LEVERAGE / MAX_LEVERAGE — FIXED, no tiering
+      smTiltMinPct: 60                     # v2 SM_TILT_MIN_PCT_DEFAULT — hard SM gate
+      smStrongTiltPct: 70                  # v2 SM_STRONG_TILT_PCT_DEFAULT — +1 bonus threshold
+      recentSignalTtlSeconds: 14400        # 240m — mirror the per-asset cooldown (NOT v2's 240s race cache)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      trend4h: { type: string, required: false }
+      trend4hStrength: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      volumeTrendPct: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: heron_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [heron_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # 2026-05-21 HYPE lesson: momentum entries must fill — taker fallback at 30s
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: heron_main_signals
+
+# EXIT — DSL, Bison-pattern wide ladder (ported VERBATIM from v2 Heron v1.0.0):
+# Phase 1 max_loss 20% catastrophic floor; Phase 2 T0 +10%/lock 0 (room to develop),
+# first REAL lock at T1 +20%/lock 25 — reachable, far below the +60-80% antipattern.
+# Time cuts ALL OFF — single-asset trend patience.
+exit:
+  engine: dsl
+  interval_seconds: 60                     # 60s — Bison v3.0.1 REDUCE_ONLY-spam mitigation
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen — taker fallback is the safety floor
+    execution_timeout_seconds: 30
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0                    # v2 heron Phase 1 (NOT kodiak 15)
+      retrace_threshold: 8                  # v2 heron (NOT kodiak 5)
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0  }   # confirms working, no lock yet
+        - { trigger_pct: 20,  lock_hw_pct: 25 }   # FIRST REAL LOCK (+20% ROE) — reachable
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # apex; multi-day winners ratchet here
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 15               # v2 heron daily_loss_limit_pct
+    drawdown_halt_pct: 20                  # v2 heron runtime guard_rails (NOT SKILL.md table's 25)
+    drawdown_reset_on_day_rollover: false  # v2 heron set false
+    max_consecutive_losses: 3              # v2 heron
+    cooldown_seconds: 3600                 # v2 heron cooldown_minutes: 60
+    per_asset_cooldown_seconds: 14400      # v2 heron per_asset_cooldown_minutes: 240 (4h between ETH attempts)
+    max_entries_per_day: 2                 # v2 heron onboarding: fewer-stronger
+    bypass_max_entries_per_day_on_profit: false

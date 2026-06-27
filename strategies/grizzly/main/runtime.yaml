@@ -1,0 +1,138 @@
+# ── GRIZZLY · single instance — BTC alpha hunter (Runtime 3.0 port of v2 Grizzly v7.0.0) ──
+name: grizzly-main
+group: grizzly
+version: 3.0.0
+description: >
+  GRIZZLY — single-asset BTC alpha hunter. Enters only when 4h structure (>=0.75)
+  and 1h agree, 15m momentum confirms, the base-tech floor holds, the v5.5 macro
+  V-recovery gate passes (no fade within 1.25% of the 24h extreme), smart money does
+  NOT oppose, RSI is in band (70 LONG / 30 SHORT), and a multi-factor composite
+  (SM lean, funding + regime + persistence, volume, OI velocity, RSI room) clears
+  score 12. FP-001 quiet hours (00-04 UTC unless apex score 14+) and FP-003
+  require-all-confirmations are preserved. Conviction-tiered leverage: 7x default,
+  10x conviction at >=12, 10x apex at >=14. DSL is the ONLY exit (time cuts OFF,
+  single-asset patience). Faithful port of the v2 producer thesis.
+
+strategy:
+  wallet: "${GRIZZLY_WALLET}"
+  slots: 1                                # single asset, single position
+  default_leverage: 7                     # fallback; scan emits per-signal 7/10/10 by score
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: grizzly_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                  # v2 producer cadence (3 min)
+    timeout_seconds: 150                   # up to 4 MCP reads/tick; v2 240s tick_timeout budget
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick scan-results history (~5h @180s)
+    inputs:
+      asset: "BTC"
+      dex: ""                              # BTC is a main-DEX perp (never xyz/HIP-3)
+      minScore: 12                         # v2 producer MIN_SCORE_DEFAULT + config.json (SKILL.md prose says 10; producer/config win)
+      marginPct: 50                        # PERCENT of withdrawable (0,100] — mirrors v2 margin_pct: 50
+      # BTC-tuned thresholds — ported verbatim from v2 producer constants
+      minTrendStrength4h: 0.75             # MIN_4H_STRUCTURE
+      minMom15mPct: 0.05                   # MIN_MOM_15M (BTC ~3x slower than SOL)
+      rsiMaxLong: 70                       # RSI_MAX_LONG
+      rsiMinShort: 30                      # RSI_MIN_SHORT
+      strong4hPct: 2.0                     # STRONG_4H_PCT
+      moveExhaustionPct: 2.5               # MOVE_EXHAUSTION_PCT
+      moveTiringPct: 1.5                   # MOVE_TIRING_PCT
+      minVolRatio: 1.1                     # MIN_VOL_RATIO
+      fundingCrowded: 0.003                # FUNDING_CROWDED
+      # MACRO V-RECOVERY GATE (v5.5) — block fades within this % of the 24h extreme
+      macroVrecoveryDistancePct: 1.25      # MACRO_VRECOVERY_DISTANCE_PCT
+      # FP-001 quiet hours
+      quietHoursStartUtc: 0
+      quietHoursEndUtc: 4
+      quietHoursApexBypassScore: 14
+      # FP-003 require-all-confirmations gate (default true)
+      requireAllConfirmations: true
+      leverageTiers: [[14, 10], [12, 10]]  # apex / conviction; default 7 below 12
+      defaultLeverage: 7
+      recentSignalTtlSeconds: 3600         # 60m — mirror the v2 per-asset cooldown
+    signal_data_schema:
+      score: { type: number }
+      tier: { type: string, required: false }
+      leverage: { type: number }
+      direction: { type: string }
+      trend4h: { type: string, required: false }
+      trendStrength4h: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      rsi: { type: number, required: false }
+      funding: { type: number, required: false }
+      fundingRegime: { type: string, required: false }
+      fundingPersistenceHours: { type: number, required: false }
+      oiChange1h: { type: number, required: false }
+      vol1h: { type: number, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      smCc15m: { type: number, required: false }
+      priceChange5m: { type: number, required: false }
+      priceChange15m: { type: number, required: false }
+      priceChange1h: { type: number, required: false }
+      priceChange4h: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: grizzly_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every gate (incl. macro V-recovery + FP-001/003)
+    scanners: [grizzly_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a conviction strike must fill — taker fallback at 60s
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: grizzly_main_signals
+
+# EXIT — DSL, ported VERBATIM from v2 grizzly runtime.yaml (v5.9 ratchet ladder).
+# Time cuts ALL DISABLED (single-asset family pattern — reference_dsl_time_cuts_single_asset).
+# Phase 1 + Phase 2 own all exits via price action. First Phase 2 lock tier is REACHABLE
+# (+5% trigger / lock 35% HW), never +60-80%.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0                   # v5.1: more room for bull-rally drawdowns on BTC
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 35 }   # v5.9: T0 lock 25->35 (T0/T1 dead-zone fix) — first lock, reachable
+        - { trigger_pct: 8,  lock_hw_pct: 45 }   # v5.9: trigger 10->8
+        - { trigger_pct: 15, lock_hw_pct: 65 }
+        - { trigger_pct: 20, lock_hw_pct: 80 }
+        - { trigger_pct: 30, lock_hw_pct: 90 }   # apex lock — Apr 30 winner exited at this tier
+        - { trigger_pct: 50, lock_hw_pct: 94 }   # monster-winner trail
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    drawdown_halt_pct: 25                   # v5.8 explicit -25% HARD STOP
+    drawdown_reset_on_day_rollover: false   # avoid the next-day reset leak
+    max_consecutive_losses: 3
+    cooldown_seconds: 1800                  # v2 cooldown_minutes: 30
+    per_asset_cooldown_seconds: 3600        # v2 per_asset_cooldown_minutes: 60
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false

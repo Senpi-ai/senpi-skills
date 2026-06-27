@@ -1,0 +1,41 @@
+# Beaver — BTC onboarding trend follower. A single-instance PACKAGE: this manifest
+# + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the
+# v2 Beaver (SKILL.md v1.0.0): 5-component trend score on one asset (BTC) with a
+# hard Smart-Money direction gate, flat 5x leverage, DSL-only exits.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: beaver
+version: "1.0.0"
+
+catalog:
+  name: "Beaver — BTC Trend Follower"
+  emoji: "🦫"
+  tagline: "An onboarding-tier BTC specialist: enters only when the 4h candle structure is trending AND Senpi's Smart-Money leaderboard agrees with that direction — then takes one flat-5x position and lets a wide DSL ladder ride the trend."
+  belief_plain: "Trades only BTC. It asks two questions — is BTC trending on the 4-hour chart, and does smart money agree? If both are yes it opens one position and trails a stop instead of guessing the exit. Built for first-time users."
+  thesis: "New users want one clean answer, not a scattergun across the market. BTC is the most liquid, most legible asset on Hyperliquid; 'is it trending and does smart money agree?' is the simplest honest edge — and a wide trailing stop lets a real trend run multi-day without micromanagement."
+  group: single-asset
+  archetype: single_market
+  sub_style: trend_follower
+  asset_classes: [majors]
+  asset_scope: single
+  direction: long_short
+  risk_level: balanced
+  tier: onboarding
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 100
+  assets: ["BTC"]
+  tags: [btc, single-asset, trend-following, smart-money, onboarding, beginner]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: BEAVER_WALLET
+    funding_share: 1.0

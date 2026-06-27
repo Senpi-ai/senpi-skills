@@ -1,0 +1,109 @@
+# ── BEAVER · single instance — BTC trend follower (Runtime 3.0 port of v2 Beaver v1.0.0) ──
+name: beaver-main
+group: beaver
+version: 3.0.0
+description: >
+  BEAVER — single-asset BTC trend follower with a hard Smart-Money direction gate.
+  Onboarding tier. Enters only when 4h candle structure is trending (non-NEUTRAL),
+  1h optionally confirms, and Senpi's Smart-Money leaderboard agrees with the 4h
+  direction at >=60% tilt. Simple 5-component score (max ~9), floor 5. Flat 5x
+  leverage (no conviction tiers — faithful to v2). DSL is the ONLY exit (wide
+  Bison-pattern ladder so winning trends ride multi-day). Faithful port of the v2
+  producer thesis.
+
+strategy:
+  wallet: "${BEAVER_WALLET}"
+  slots: 1                                # single asset, single position
+  default_leverage: 5                     # flat; scan also emits leverage=5 per signal
+  trading_risk: balanced
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: beaver_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # 2 MCP reads/tick; v2 tick_timeout=180
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick scan-results history (~8h @300s)
+    inputs:
+      asset: "BTC"
+      minScore: 5
+      marginPct: 25                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      smTiltMinPct: 60                     # SM gate floor (hard)
+      smStrongTiltPct: 70                  # +1 score when SM tilt >= this
+      recentSignalTtlSeconds: 14400        # 240m — mirror the 4h per-asset cooldown
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      trend4hStrength: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      volumeTrendPct: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: beaver_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter
+    scanners: [beaver_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # 2026-05-21 lesson: momentum entries must fill — taker fallback at 30s
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: beaver_main_signals
+
+# EXIT — DSL, wide Bison-pattern ladder (ported from v2): catastrophic-floor Phase 1
+# + a wide Phase 2 ladder so winning trends ride multi-day. Time cuts OFF.
+#
+# DEVIATION (reviewed): v2 T0 was {trigger 10, lock 0} — a 0% "lock" doesn't lock,
+# so the first REACHABLE lock was effectively v2's T1 at +20%. The Runtime 3.0
+# requirement is a real first lock at ~+10-15% ROE, so T0 here locks 15% at +10%.
+# The wide upper ladder (40/60/75/85 @ 20/30/50/75/100) is preserved verbatim.
+exit:
+  engine: dsl
+  interval_seconds: 60                     # v2 60s (REDUCE_ONLY-spam mitigation)
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 15 }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 15
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600                  # v2 cooldown_minutes: 60 (post-loss)
+    per_asset_cooldown_seconds: 14400       # v2 per_asset_cooldown_minutes: 240 (4h)
+    max_entries_per_day: 2                  # onboarding: fewer-stronger
+    bypass_max_entries_per_day_on_profit: false

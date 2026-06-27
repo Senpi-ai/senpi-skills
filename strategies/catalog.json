@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-06-26",
+  "_updated": "2026-06-17",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -121,6 +121,225 @@
       "sort_order": 2
     },
     {
+      "id": "beaver",
+      "name": "Beaver — BTC Trend Follower",
+      "emoji": "🦫",
+      "tagline": "An onboarding-tier BTC specialist: enters only when the 4h candle structure is trending AND Senpi's Smart-Money leaderboard agrees with that direction — then takes one flat-5x position and lets a wide DSL ladder ride the trend.",
+      "belief_plain": "Trades only BTC. It asks two questions — is BTC trending on the 4-hour chart, and does smart money agree? If both are yes it opens one position and trails a stop instead of guessing the exit. Built for first-time users.",
+      "version": "1.0.0",
+      "thesis": "New users want one clean answer, not a scattergun across the market. BTC is the most liquid, most legible asset on Hyperliquid; 'is it trending and does smart money agree?' is the simplest honest edge — and a wide trailing stop lets a real trend run multi-day without micromanagement.",
+      "tags": [
+        "btc",
+        "single-asset",
+        "trend-following",
+        "smart-money",
+        "onboarding",
+        "beginner"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "trend_follower",
+      "sub_style_label": "Trend Follower",
+      "asset_classes": [
+        "majors"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "BTC"
+      ],
+      "direction": "long_short",
+      "risk_level": "balanced",
+      "tier": "onboarding",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
+      "id": "dire",
+      "name": "Dire — BRENTOIL Oil Specialist",
+      "emoji": "🦡",
+      "tagline": "A single-asset Brent crude (xyz:BRENTOIL) specialist: enters only when 5m/15m/1h/4h trend all agree AND smart-money (mark/oracle premium) leans the same way, then stacks OI velocity, volume spikes and price cleanliness into a conviction score — sizing leverage to conviction (3/5/7/10x) and letting the DSL ride the news move.",
+      "belief_plain": "Trades only Brent crude oil. It waits until every timeframe from 5 minutes to 4 hours is pointing the same way and order flow agrees, then goes in harder when more signals line up — and trails a stop instead of guessing the exit. Oil trades around the clock, weekends included.",
+      "version": "1.0.0",
+      "thesis": "Oil moves on discrete news — OPEC decisions, geopolitics, inventory releases — with sharp 2-5% directional bursts and violent reversals after overshoot. An agent that watches only Brent can read its 4-timeframe structure, order-flow premium, OI and volume far more tightly than a broad scanner, catch the clean move early, and lock profit before the snap-back.",
+      "tags": [
+        "oil",
+        "brentoil",
+        "xyz",
+        "commodities",
+        "single-asset",
+        "news-driven",
+        "4tf",
+        "conviction-leverage",
+        "24-7"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "news_momentum",
+      "sub_style_label": "News Momentum",
+      "asset_classes": [
+        "xyz_commodities"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "xyz:BRENTOIL"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 2
+    },
+    {
+      "id": "grizzly",
+      "name": "Grizzly — BTC Alpha Hunter",
+      "emoji": "🐻",
+      "tagline": "A single-asset BTC specialist: enters only when 4h and 1h trend structure agree, 15m momentum confirms, smart money leans the same way, and a macro V-recovery gate proves the move isn't a fade right off the 24h extreme — then sizes leverage to conviction (7/10/10x) and lets the DSL ride the winner.",
+      "belief_plain": "Trades only BTC. It waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the best traders to be leaning the same way — and it refuses to short right off a 24h low (or long right off a 24h high) because those fades whipsaw. It goes in harder when more factors line up, and trails a stop instead of guessing the exit.",
+      "version": "1.0.0",
+      "thesis": "BTC has the deepest liquidity on Hyperliquid and the cleanest trend structure. An agent that watches only BTC can read its multi-timeframe structure, smart-money flow, and funding far more tightly than a broad scanner — and BTC's 4h structure metric lags V-recoveries, so a distance-from-24h-extreme gate stops it from fading a reversal that the candle structure hasn't caught up to yet.",
+      "tags": [
+        "btc",
+        "single-asset",
+        "momentum",
+        "smart-money",
+        "conviction-leverage",
+        "alpha-hunter",
+        "macro-gate"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "alpha_hunter",
+      "sub_style_label": "Multi-factor conviction scoring on one asset, with tiered leverage.",
+      "asset_classes": [
+        "btc_eth"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "BTC"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 3
+    },
+    {
+      "id": "heron",
+      "name": "Heron — ETH Trend Follower",
+      "emoji": "🐦",
+      "tagline": "An onboarding-tier single-asset ETH trend follower: enters only when the 4h candle structure is trending AND Senpi's Smart-Money leaderboard agrees with that direction — then holds one position at a fixed 5x and lets a wide DSL ladder ride the trend for multi-day moves.",
+      "belief_plain": "Trades only ETH. It asks two simple questions — is ETH trending on the 4-hour chart, and do the best traders agree with that direction? If both say yes it opens one position and trails a stop instead of guessing the exit. Built for first-time users.",
+      "version": "1.0.0",
+      "thesis": "New users want one clean question answered well, not a scattergun across the market. ETH has the liquidity and the smart-money depth, and a simple agent that watches only ETH — checking 4h structure and the leaderboard's net lean — gives a beginner a clear directional position without funding-rate math or multi-asset tuning.",
+      "tags": [
+        "eth",
+        "single-asset",
+        "trend-following",
+        "smart-money",
+        "onboarding",
+        "beginner"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "trend_follower",
+      "sub_style_label": "Trend Follower",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "ETH"
+      ],
+      "direction": "long_short",
+      "risk_level": "balanced",
+      "tier": "beginner",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 4
+    },
+    {
+      "id": "hummingbird",
+      "name": "Hummingbird — HYPE Trend Follower",
+      "emoji": "🪶",
+      "tagline": "An onboarding-tier single-asset HYPE specialist: enters only when the 4h trend structure is directional AND Senpi's Smart-Money leaderboard agrees with that direction (tilt >= 60%) — then holds one flat-5x position and lets a wide DSL ladder ride the trend.",
+      "belief_plain": "Trades only HYPE. It asks two simple questions — is HYPE trending on the 4-hour chart, and do the best traders agree with that direction? If both are yes, it opens one position and trails a wide stop instead of guessing the exit, so winning trends can run for days.",
+      "version": "1.0.0",
+      "thesis": "New users want one clean decision, not a scattergun across the market. HYPE has the liquidity and the moves, and a one-asset, one-direction strategy with a Smart-Money confirmation gate is the simplest honest answer to 'I'm new to Senpi, where do I start?'",
+      "tags": [
+        "hype",
+        "single-asset",
+        "trend-follower",
+        "smart-money",
+        "onboarding",
+        "beginner"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "trend_follower",
+      "sub_style_label": "Trend Follower",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "HYPE"
+      ],
+      "direction": "long_short",
+      "risk_level": "balanced",
+      "tier": "beginner",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 5
+    },
+    {
       "id": "kodiak",
       "name": "Kodiak — SOL Alpha Hunter",
       "emoji": "🐻",
@@ -161,7 +380,96 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 1
+      "sort_order": 6
+    },
+    {
+      "id": "polar",
+      "name": "Polar — ETH Alpha Hunter",
+      "emoji": "🧊",
+      "tagline": "A single-asset ETH specialist: smart-money concentration picks the side first, then 4h and 1h trend structure must agree, 15m momentum confirms, and funding, open interest, BTC and RSI all add conviction — then sizes leverage to score (5/7/10x) and lets the DSL ride the winner.",
+      "belief_plain": "Trades only ETH. It first looks at which way the best traders are leaning hard, then only takes it if the 4-hour and 1-hour trend agree and momentum confirms — going in harder when more factors line up, and trailing a stop instead of guessing the exit.",
+      "version": "1.0.0",
+      "thesis": "You want one coin done really well, not a scattergun across the market. ETH has the liquidity and smart-money depth, and a hybrid agent that watches only ETH can read the leaderboard's net lean, candle structure, funding and open interest far more tightly than a broad universe scanner ever could.",
+      "tags": [
+        "eth",
+        "single-asset",
+        "smart-money",
+        "hyperfeed",
+        "momentum",
+        "conviction-leverage",
+        "alpha-hunter"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "alpha_hunter",
+      "sub_style_label": "Multi-factor conviction scoring on one asset, with tiered leverage.",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "ETH"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 7
+    },
+    {
+      "id": "wolverine",
+      "name": "Wolverine — HYPE Alpha Hunter",
+      "emoji": "🦡",
+      "tagline": "A single-asset HYPE specialist: six-gate trend entry (4h structure, 1h non-opposition, 15m momentum, base-tech floor, 4h magnitude) layered with a market-wide funding-regime + funding-persistence macro gate and a smart-money HARD BLOCK — then sizes leverage to conviction (3/5x) and lets the DSL ride the winner.",
+      "belief_plain": "Trades only HYPE. It waits for the 4-hour trend to be strong, the 1-hour to not be fighting it, and short-term momentum to confirm — then checks the broader funding 'crowding' regime and refuses to trade when the best traders are leaning the other way. It goes in harder when more factors line up, and trails a stop instead of guessing the exit.",
+      "version": "1.0.0",
+      "thesis": "HYPE is one of the highest-volatility majors on Hyperliquid. A specialist that watches only HYPE can read its trend structure, smart-money flow, funding regime and persistence far more tightly than a broad scanner — and the macro funding-regime gate keeps it out of crowded, liquidation-prone setups that single-asset momentum alone would walk into.",
+      "tags": [
+        "hype",
+        "single-asset",
+        "momentum",
+        "smart-money",
+        "funding-regime",
+        "macro-gate",
+        "conviction-leverage",
+        "alpha-hunter"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "alpha_hunter",
+      "sub_style_label": "Multi-factor conviction scoring on one asset, with tiered leverage.",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "HYPE"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 8
     },
     {
       "id": "whalehunter",
