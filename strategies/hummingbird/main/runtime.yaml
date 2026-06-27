@@ -1,0 +1,108 @@
+# ── HUMMINGBIRD · single instance — HYPE trend follower w/ Smart-Money gate ──
+#    (Runtime 3.0 port of v2 Hummingbird v1.0.0, SKILL.md v1.0.0) ──
+name: hummingbird-main
+group: hummingbird
+version: 3.0.0
+description: >
+  HUMMINGBIRD — onboarding-tier single-asset HYPE trend follower. Enters only when
+  the 4h trend structure is non-neutral AND Senpi's Smart-Money leaderboard agrees
+  with that direction (tilt >= 60%). 5-component score (max ~9): 4h trend +3, 1h
+  confirms +2, SM aligned +2, SM strongly tilted +1, volume rising +1. Floor minScore 5.
+  Flat 5x leverage (NOT conviction-tiered — onboarding sizing). DSL is the ONLY exit
+  (Bison-pattern wide Phase 2 ladder so winning trends can ride multi-day; time-cuts
+  all disabled). Faithful port of the v2 producer thesis.
+
+strategy:
+  wallet: "${HUMMINGBIRD_WALLET}"
+  slots: 1                                # single asset, single position
+  default_leverage: 5                     # v2 DEFAULT==MAX==5; scan emits the same flat 5x
+  trading_risk: balanced                  # v2 trading_risk: balanced (onboarding tier)
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hummingbird_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # 2 MCP reads/tick; v2 tick_timeout=180
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick scan-results history (~8h @300s)
+    inputs:
+      asset: "HYPE"
+      minScore: 5                          # v2 MIN_SCORE_DEFAULT / config floor
+      marginPct: 25                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable; v2 default 0.25
+      leverage: 5                          # flat; v2 DEFAULT_LEVERAGE (capped at MAX_LEVERAGE 5)
+      smTiltMinPct: 60                      # v2 SM_TILT_MIN_PCT_DEFAULT — hard direction gate
+      smStrongTiltPct: 70                   # v2 SM_STRONG_TILT_PCT_DEFAULT — +1 bonus
+      recentSignalTtlSeconds: 14400         # 240m — mirror the per-asset cooldown
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      trend4hStrength: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      volumeTrendPct: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hummingbird_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (4h trend + SM gate)
+    scanners: [hummingbird_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # 2026-05-21 HYPE lesson: momentum entries must fill — taker fallback ON
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: hummingbird_main_signals
+
+# EXIT — DSL, Bison-pattern wide ladder (ported verbatim from v2): Phase 1 max_loss
+# 20% catastrophic floor; Phase 2 wide ladder so winning trends ride multi-day moves.
+# Time cuts OFF — single-asset patience. First lock engages at +10% (lock 0 confirms
+# the move is working), real lock begins at +20% (lock 25%) — REACHABLE, not +60-80%.
+exit:
+  engine: dsl
+  interval_seconds: 60                     # v2: 60s mirrors REDUCE_ONLY-spam mitigation
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0  }   # confirms working, no lock yet (v2 Bison pattern)
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # apex; multi-day winners ratchet here
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 15               # v2 onboarding: cap a bad day
+    drawdown_halt_pct: 20                  # v2 runtime.yaml authoritative (SKILL.md said 25)
+    drawdown_reset_on_day_rollover: false  # v2: no grace at midnight
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600                 # v2 cooldown_minutes 60 (post-loss cool-off)
+    per_asset_cooldown_seconds: 14400      # v2 per_asset_cooldown_minutes 240 (4h between HYPE attempts)
+    max_entries_per_day: 2                 # v2 onboarding: fewer-stronger
+    bypass_max_entries_per_day_on_profit: false
