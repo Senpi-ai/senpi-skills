@@ -1,0 +1,127 @@
+# ── RHINO · HEDGE book — always-on tail-risk carry (LONG defensives only) ──
+name: rhino-hedge
+group: rhino
+version: 3.0.0
+description: >
+  RHINO HEDGE — the always-on standing insurance. One of two books. Carries a SMALL,
+  persistent LONG position in the crisis-beneficiary complex (gold / oil / dollar / yen),
+  entered only when a defensive is actually trending up (no falling-knife hedges: a
+  defensive must be 4h BULLISH + 1h confirm + 24h momentum + RSI room). Held through calm
+  so you already OWN the crisis trade when the shock hits. NOT stress-gated (it runs the
+  shared stress read for telemetry only). Paired with the ESCALATION book on a separate
+  wallet, which adds leveraged convexity the moment stress confirms. Small position size
+  is the cost control; the DSL is WIDE so a crisis winner runs. LONG-only.
+
+strategy:
+  wallet: "${RHINO_HEDGE_WALLET}"
+  slots: 3
+  default_leverage: 5                     # fallback; scan emits a flat per-signal 5x clamped to venue max
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: rhino_hedge_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds 300
+    timeout_seconds: 180
+    default_signal_validity_seconds: 600
+    state_history_max_count: 100          # dedup map + per-tick result history
+    inputs:
+      book: "hedge"                       # selects the always-on, LONG-only, NOT-stress-gated path
+      defensives: ["xyz:GOLD", "xyz:BRENTOIL", "xyz:DXY", "xyz:JPY"]
+      crisisLongs: []
+      riskAssets: []
+      minScore: 5
+      marginPct: 10                       # SMALL — percent of withdrawable (runtime sizes (marginPct/100)*withdrawable)
+      maxLeverage: 5                      # flat clamp (v2 strict 5x), then each asset's HL venue max
+      maxSlots: 3
+      momThresholdPct: 1.0
+      rsiOverbought: 80
+      rsiOversold: 20
+      # stress params — fed only for HEDGE telemetry (this book is NOT stress-gated)
+      stressThreshold: 2
+      breakoutBars: 20
+      baseBars: 30
+      recentBars: 10
+      surgeMod: 1.3
+      volSurge: 1.5
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      own24h: { type: number, required: false }
+      rsi: { type: number, required: false }
+      stress: { type: boolean, required: false }
+      stressFired: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: rhino_hedge_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [rhino_hedge_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: rhino_hedge_signals
+
+# EXIT — WIDE let-it-run (hold the insurance; v2 runtime-hedge dsl_preset, verbatim).
+# Small position size is the cost control, not the DSL: wide phase1, ALL time-cuts OFF,
+# and only a 10d hard_timeout staleness backstop. First phase2 lock tier 12% -> 0 (early
+# and reachable; never +60-80%).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 14400          # 10d staleness cap
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 720
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 16.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 12,  lock_hw_pct: 0 }
+        - { trigger_pct: 25,  lock_hw_pct: 45 }
+        - { trigger_pct: 50,  lock_hw_pct: 65 }
+        - { trigger_pct: 90,  lock_hw_pct: 80 }
+        - { trigger_pct: 140, lock_hw_pct: 90 }
+
+risk:
+  data_retention_hours: 168
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 3                # the hedge turns over slowly
+    max_consecutive_losses: 4
+    cooldown_seconds: 7200               # 120m
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 21600    # 360m
