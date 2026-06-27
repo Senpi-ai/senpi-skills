@@ -1,0 +1,47 @@
+# MAGPIE — IPO / New-Listing Event hedge fund. A two-instance PACKAGE: this manifest
+# + two self-contained runtime.yaml books (pre_listing / graduation) on SEPARATE wallets
+# + per-book scanners/. A faithful Runtime 3.0 port of the v2 Magpie v1.0 two-book fund
+# (magpie-producer.py, MAGPIE_LEG-driven). The universe is DYNAMIC — newly-listed
+# Hyperliquid XYZ instruments discovered each tick by their funding signature, NOT a fixed
+# whitelist. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: magpie
+version: "1.0.0"
+
+catalog:
+  name: "Magpie — IPO / New-Listing Event Fund"
+  emoji: "🐦"
+  tagline: "Trades the full pre-IPO → listing → graduation arc of tokenized equities on Hyperliquid XYZ: a pre-listing book accumulates pre-IPO perpetuals (IPOPs) into the IPO, and a graduation book rides the explosive post-conversion price discovery — the SpaceX $1.4B-day-1 pattern."
+  belief_plain: "Auto-finds brand-new pre-IPO contracts (like a SpaceX-before-it-lists perp) by their tell-tale tiny funding and low leverage cap, rides the trend into the IPO, then detects the moment they convert to a full equity perp and rides the fireworks of the first few days of free price discovery."
+  thesis: "You think the biggest, most repeatable edge on Hyperliquid right now is the new-listing EVENT itself, not the ongoing equity market. Pre-IPO perpetuals trade throttled and quiet; the instant they graduate to a standard equity perp the funding jumps ~100x, the leverage cap lifts and price discovery goes vertical. Capture both halves of that arc with two books on two wallets so the slow accumulation and the explosive pop never fight over the same margin."
+  group: event-driven
+  archetype: trend_following
+  sub_style: new_listing_event
+  asset_classes: [xyz_equities]
+  asset_scope: dynamic_discovered
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 6
+  min_budget: 400
+  assets: []
+  tags: [ipo, new-listing, event-driven, xyz, equities, ipop, graduation, conversion, spacex, long-short, hedge-fund]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: pre_listing
+    runtime: pre_listing/runtime.yaml
+    wallet_env: MAGPIE_PRE_LISTING_WALLET
+    funding_share: 0.5
+  - name: graduation
+    runtime: graduation/runtime.yaml
+    wallet_env: MAGPIE_GRADUATION_WALLET
+    funding_share: 0.5
