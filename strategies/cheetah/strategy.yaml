@@ -1,0 +1,43 @@
+# Cheetah — multi-signal confluence sniper. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
+# Cheetah (SKILL.md v7.2.0): a UNIVERSE scanner that scores the top-100 smart-money
+# leaderboard markets on a 7-component confluence model, picks the single strongest
+# candidate, and sizes leverage to score (3/5/7/8x). DSL-only exits, "let winners run".
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: cheetah
+version: "1.0.0"
+
+catalog:
+  name: "Cheetah — Multi-Signal Confluence Sniper"
+  emoji: "🐆"
+  tagline: "A patient universe sniper: scans the top-100 smart-money markets every tick and refuses to fire unless smart-money consensus, velocity, acceleration, dual-price confirmation, volume, quality-trader alignment, and rank-climb all line up — then takes ONE position, sized 3-8x by conviction, and lets the DSL ride the winner."
+  belief_plain: "Watches where the best traders are crowding across the whole market, but waits for everything to agree at once — the smart money, the price, the volume, the speed of the move — before taking a single, high-conviction bet. Most of the time it does nothing; that patience is the point."
+  thesis: "Any one signal is noise. Real edge shows up only when smart-money consensus, momentum, acceleration, price, volume, and proven-trader alignment all confirm the same direction on the same coin at the same moment. That confluence is rare, so the right move is to sit on one slot, wait for it, strike once at conviction-scaled leverage, and let a ratcheting trailing stop — not a fixed target — decide the exit so the rare big trend pays for the quiet weeks."
+  group: smart-money
+  archetype: momentum
+  sub_style: confluence_sniper
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 8
+  max_slots: 1
+  min_budget: 200
+  assets: []                # derived universe — coins come from the top-100 SM leaderboard each tick, not a fixed list
+  tags: [smart-money, momentum, confluence, universe-scanner, sniper, conviction-leverage, single-slot]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: CHEETAH_WALLET
+    funding_share: 1.0

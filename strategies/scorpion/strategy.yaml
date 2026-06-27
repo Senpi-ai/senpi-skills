@@ -1,0 +1,41 @@
+# Scorpion — multi-market momentum trader. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
+# Scorpion (producer v5.0.0 / runtime v4.1.2): smart-money-concentration + 4H-trend
+# scoring across a curated crypto + XYZ basket, asymmetric MIN_SCORE (crypto 11 / XYZ 9),
+# maker-optimized FEE_OPTIMIZED_LIMIT exits, DSL-managed. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: scorpion
+version: "1.0.0"
+
+catalog:
+  name: "Scorpion — Multi-Market Momentum Trader"
+  emoji: "🦂"
+  tagline: "Hunts trend-following entries across a curated crypto + XYZ basket (BTC/ETH/majors, mid-caps, plus crude oil, Brent, gold and the S&P): enters only when smart money is concentrated in a direction AND 4h price agrees, scores SM dominance + multi-timeframe momentum, and rides maker-optimized exits with a let-winners-run trailing ladder."
+  belief_plain: "Trades a hand-picked set of coins and commodities/indices. It only acts when the best traders are crowded on one side and the 4-hour price is already moving that way, then trails a profit-locking stop and pays cheaper maker fees on the way out."
+  thesis: "The strongest, lowest-noise trends show up where smart-money concentration and 4h price direction agree — across BOTH crypto and the XYZ commodities/indices that most agents ignore. Score that agreement, gate hard on it, and let the DSL ride the winners while maker-preferred exits claw back the fee drag that kills high-turnover active traders."
+  group: multi-asset-whitelist
+  archetype: trend_following
+  sub_style: basket
+  asset_classes: [btc_eth, major_alts, commodities, indices]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 5
+  max_slots: 2
+  min_budget: 200
+  assets: ["BTC", "ETH", "SOL", "HYPE", "ZEC", "LIT", "GRASS", "FARTCOIN", "TAO", "ONDO", "SUI", "ARB", "WLD", "DOGE", "AVAX", "xyz:CL", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SP500"]
+  tags: [momentum, trend-following, smart-money, multi-asset, xyz, commodities, indices, maker-exit, long-short]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: SCORPION_WALLET
+    funding_share: 1.0

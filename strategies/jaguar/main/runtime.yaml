@@ -1,0 +1,125 @@
+# ── JAGUAR · single instance — Striker rank-jump detector (Runtime 3.0 port of v2 JAGUAR v4.0.2) ──
+name: jaguar-main
+group: jaguar
+version: 3.0.0
+description: >
+  JAGUAR — multi-asset Striker. A derived-universe rank-jump detector: reads the live
+  smart-money concentration feed (leaderboard_get_markets) every 3 min, compares it tick-
+  over-tick, and fires only on a violent FIRST_JUMP — an asset rocketing from rank 20+ into
+  the top 10 with a >=10 rank jump while 15m SM contribution velocity is actively building and
+  4h price is aligned with the SM direction. "One amazing trade per day." Conviction-tiered
+  leverage (7x conviction / 10x apex), MIN_SCORE 9, $3M day-notional liquidity floor, XYZ ban.
+  Entry FEE_OPTIMIZED_LIMIT with taker fallback (a violent jump must fill). DSL is the only
+  exit. Faithful port of the v2 producer thesis (detect-then-append contract preserved).
+
+strategy:
+  wallet: "${JAGUAR_WALLET}"
+  slots: 2                                  # v2 RULE 3: max 2 concurrent positions
+  default_leverage: 7                       # fallback; scan emits per-signal 7/10 by score
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: jaguar_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                   # v2 producer cadence (3 min)
+    timeout_seconds: 150                    # 1 markets read + held/account reads per tick
+    default_signal_validity_seconds: 600    # striker signals are short-lived violent jumps
+    state_history_max_count: 60             # scan-history (replaces v2 scan-history.json, MAX_SCAN_HISTORY=60)
+    inputs:
+      marketLimit: 100                      # leaderboard_get_markets top-N traders to aggregate
+      minScore: 9                           # v2 MIN_SCORE entry floor
+      marginPct: 50                         # PERCENT of withdrawable (0,100] — v2 MARGIN_PCT 0.50 as a percent
+      leverageTiers: [[10, 10], [9, 7]]     # per-signal conviction tiers: >=10 -> 10x apex, >=9 -> 7x conviction
+      scanHistoryLen: 60                    # how many prior snapshots to compare velocity across
+    signal_data_schema:
+      score: { type: number }
+      tier: { type: string, required: false }
+      leverage: { type: number }
+      marginPct: { type: number, required: false }
+      reasons: { type: array }
+      mode: { type: string, required: false }
+      direction: { type: string, required: false }
+      currentRank: { type: number, required: false }
+      rankJump: { type: number }
+      isFirstJump: { type: boolean, required: false }
+      contribVelocity: { type: number, required: false }
+      contrib15m: { type: number, required: false }
+      contrib1h: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      priceChange4hPct: { type: number, required: false }
+      dayNotionalUsd: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: jaguar_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied EVERY filter (v2 LLM gate was a pass-through)
+    scanners: [jaguar_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # a violent striker jump MUST fill — taker fallback at 30s (false would rest)
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: jaguar_main_signals
+
+# EXIT — DSL (ported verbatim from v2 v4.0.2). Striker trades are violent short-term
+# explosions: wide Phase 1 for volatility, reachable Phase 2 first lock, time cuts that
+# give a rank-jump room to accelerate before chopping it.
+#   v4.0.2: dead_weight_cut relaxed 12 -> 30min (12min chopped flat-but-not-failed trades).
+#   v3.0+: maker-preferred FEE_OPTIMIZED_LIMIT exits (HL maker 0.015% vs taker 0.045%).
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 45
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 25
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 30               # v4.0.2: 12 -> 30
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 7,  lock_hw_pct: 40 }   # first lock reachable at +7%
+        - { trigger_pct: 12, lock_hw_pct: 55 }
+        - { trigger_pct: 15, lock_hw_pct: 75 }
+        - { trigger_pct: 20, lock_hw_pct: 85 }
+
+# RISK — guard_rails ported verbatim from v2 v3.7 (cap losers, ride winners).
+risk:
+  data_retention_hours: 72
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 3                   # hard cap when day is RED
+    bypass_max_entries_per_day_on_profit: true   # no cap when GREEN — let the hot hand ride
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600                    # v2 cooldown_minutes 60
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 7200          # v2 per_asset_cooldown_minutes 120

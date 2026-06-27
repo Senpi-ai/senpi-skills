@@ -5,6 +5,48 @@
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
     {
+      "id": "pangolin",
+      "name": "Pangolin — Funding-Rate Fader",
+      "emoji": "🦔",
+      "tagline": "Scans every liquid perp for funding that has stayed extreme for hours — the crowd piled onto one side and is paying to hold it — then fades that crowd at exhaustion, collecting funding while the over-stretched position mean-reverts.",
+      "belief_plain": "When everyone crowds the same side of a trade and keeps paying a steep funding fee to stay there for hours, that crowd usually unwinds. Pangolin waits for the crowding to actually persist, checks the smartest traders aren't on the crowd's side, then takes the OTHER side and gets paid funding while it waits for the snap-back.",
+      "version": "1.0.0",
+      "thesis": "Persistent extreme funding is a crowding signal, not noise. A fresh funding spike means nothing — but funding that stays extreme for 3+ hours means real positioning that has to unwind. Fade the crowd only once the regime confirms (or is at least neutral), size conservatively because crowded unwinds are violent, and let the funding you collect pay you to be patient through a 24-48h mean reversion.",
+      "tags": [
+        "funding-fade",
+        "contrarian",
+        "crowd-exhaustion",
+        "mean-reversion",
+        "universe",
+        "smart-money",
+        "funding-carry"
+      ],
+      "group": "contrarian",
+      "archetype": "funding_fade",
+      "archetype_label": "Funding Fade",
+      "sub_style": "crowd_exhaustion",
+      "sub_style_label": "Crowd Exhaustion",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "conservative",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
       "id": "magpie",
       "name": "Magpie — IPO / New-Listing Event Fund",
       "emoji": "🐦",
@@ -48,6 +90,137 @@
         0.5
       ],
       "max_slots": 6,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
+      "id": "bison",
+      "name": "Bison — Conviction Momentum Holder",
+      "emoji": "🦬",
+      "tagline": "A patient multi-asset momentum holder on liquid majors (BTC/ETH/SOL): enters only when a 9-factor composite (4h/1h trend structure, 1h/4h momentum, smart-money lean, funding, volume, OI proxy, RSI) clears a high conviction floor, then sizes margin to conviction (25/31/37%) and lets a wide DSL ratchet ride the move for days.",
+      "belief_plain": "Trades only the big, liquid coins (BTC, ETH, SOL). It waits until the 4-hour and 1-hour trend, momentum, the best traders, and funding all line up the same way before entering, bets bigger when more of them agree, and then trails a wide stop so a real move can run for days instead of getting chopped out early.",
+      "version": "1.0.0",
+      "thesis": "You want few, high-conviction trades on coins deep enough to size into, not a scattergun across thin small-caps. Restricting to BTC/ETH/SOL kills the small-cap-volume-spike failure mode (a thin coin spiking into the universe and consuming a slot), and a demanding multi-factor floor means the agent only acts when a real directional thesis exists — then it holds, because the edge is in the tail of the move, not the entry.",
+      "tags": [
+        "btc",
+        "eth",
+        "sol",
+        "multi-asset",
+        "momentum",
+        "conviction",
+        "smart-money",
+        "conviction-margin",
+        "let-winners-run"
+      ],
+      "group": "momentum",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "conviction_holder",
+      "sub_style_label": "Conviction Holder",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "whitelist",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
+      "id": "condor",
+      "name": "Condor — One Amazing Trade per Day",
+      "emoji": "🦅",
+      "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, smart money is >=70% leaning the same way, and the move isn't a runaway counter-trend. Sizes margin to conviction (50/70/80%) at 10x, then rides a wide DSL.",
+      "belief_plain": "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the best traders all pointing the same direction at once. Then it takes a single, well-sized swing and trails a stop instead of guessing the top.",
+      "version": "1.0.0",
+      "thesis": "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the smart-money leaderboard is heavily lopsided (>=70%) in that same direction — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h.",
+      "tags": [
+        "momentum",
+        "trend-continuation",
+        "universe",
+        "smart-money",
+        "apex-sniper",
+        "one-trade-per-day",
+        "conviction-sizing"
+      ],
+      "group": "momentum",
+      "archetype": "universe_scanner",
+      "archetype_label": "Universe Scanner",
+      "sub_style": "trend_continuation",
+      "sub_style_label": "Trend Continuation",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 2
+    },
+    {
+      "id": "jaguar",
+      "name": "Jaguar — Striker Rank-Jump Detector",
+      "emoji": "🐆",
+      "tagline": "A patient momentum sniper across the whole crypto market: it watches the smart-money leaderboard tick-over-tick and pounces only on a violent rank explosion — an asset rocketing from rank 20+ into the top 10 in one move while 15m smart-money flow is actively building and 4h price agrees — then sizes leverage to conviction (7/10x) and trails a DSL stop.",
+      "belief_plain": "Most of the time it does nothing. It only acts when an asset suddenly leaps up the smart-money rankings — from far down into the top 10 in a single step — with fresh money still piling in and price moving the same way. One amazing trade per day, not a stream of mediocre ones.",
+      "version": "1.0.0",
+      "thesis": "The best traders rotate violently. When a coin jumps from rank 20+ into the top 10 in one tick with 15m contribution still accelerating, that's smart money piling in fast — a rare, high-conviction setup worth a concentrated strike. Chasing every hot coin bleeds fees; waiting for the violent first jump is the edge.",
+      "tags": [
+        "momentum",
+        "smart-money",
+        "rank-jump",
+        "striker",
+        "conviction-leverage",
+        "multi-asset"
+      ],
+      "group": "multi-asset",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "rank_jump",
+      "sub_style_label": "Catches leaderboard rank-jumps early.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "intraday",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
       "branch": "strategy-v2",
       "sort_order": 1
     },
@@ -168,6 +341,66 @@
       "sort_order": 2
     },
     {
+      "id": "kestrel",
+      "name": "Kestrel — XYZ Macro Breakout Rider",
+      "emoji": "🦅",
+      "tagline": "A multi-asset non-crypto XYZ breakout rider: scans 12 macro names (oil, gold, S&P/Nasdaq, mega-cap tech) for a >=1.5% 1H breakout, confirms with 4H trend, volume surge, smart-money lean and funding, then sizes leverage to score (3x/5x) and rides the move with a DSL trailing exit. Holds up to 2 positions; trades 24/7 incl weekends.",
+      "belief_plain": "Watches a basket of macro markets — crude and Brent oil, gold, the S&P and Nasdaq, and the biggest US tech stocks — and pounces when one breaks out more than 1.5% in an hour with volume behind it. It goes in harder (5x vs 3x) on the cleanest breakouts and trails a stop instead of guessing the exit. These markets trade around the clock, weekends included, so there's no market-hours gate.",
+      "version": "1.0.0",
+      "thesis": "Macro assets move on discrete catalysts — an inventory print, a Fed headline, an earnings beat — and a sharp 1H breakout with volume confirmation usually continues for one to three hours before the move matures. A scanner watching a focused 12-name macro universe can catch that breakout early across commodities, indices and mega-cap equities, weight the 1H magnitude heaviest, confirm with the 4H trend, smart-money lean and funding, and let a trailing DSL lock the move before it fades.",
+      "tags": [
+        "xyz",
+        "macro",
+        "breakout",
+        "oil",
+        "gold",
+        "indices",
+        "equities",
+        "multi-asset",
+        "24-7",
+        "conviction-leverage"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "breakout",
+      "sub_style_label": "Breakout",
+      "asset_classes": [
+        "xyz_commodities",
+        "xyz_equities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:CL",
+        "xyz:BRENTOIL",
+        "xyz:GOLD",
+        "xyz:SP500",
+        "xyz:XYZ100",
+        "xyz:AAPL",
+        "xyz:NVDA",
+        "xyz:GOOGL",
+        "xyz:TSLA",
+        "xyz:AMZN",
+        "xyz:META",
+        "xyz:MSFT"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "intraday",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 3
+    },
+    {
       "id": "ox",
       "name": "Ox — Risk-Parity / All-Weather",
       "emoji": "🐂",
@@ -225,7 +458,7 @@
       ],
       "max_slots": 14,
       "branch": "strategy-v2",
-      "sort_order": 3
+      "sort_order": 4
     },
     {
       "id": "rhino",
@@ -289,7 +522,74 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 4
+      "sort_order": 5
+    },
+    {
+      "id": "scorpion",
+      "name": "Scorpion — Multi-Market Momentum Trader",
+      "emoji": "🦂",
+      "tagline": "Hunts trend-following entries across a curated crypto + XYZ basket (BTC/ETH/majors, mid-caps, plus crude oil, Brent, gold and the S&P): enters only when smart money is concentrated in a direction AND 4h price agrees, scores SM dominance + multi-timeframe momentum, and rides maker-optimized exits with a let-winners-run trailing ladder.",
+      "belief_plain": "Trades a hand-picked set of coins and commodities/indices. It only acts when the best traders are crowded on one side and the 4-hour price is already moving that way, then trails a profit-locking stop and pays cheaper maker fees on the way out.",
+      "version": "1.0.0",
+      "thesis": "The strongest, lowest-noise trends show up where smart-money concentration and 4h price direction agree — across BOTH crypto and the XYZ commodities/indices that most agents ignore. Score that agreement, gate hard on it, and let the DSL ride the winners while maker-preferred exits claw back the fee drag that kills high-turnover active traders.",
+      "tags": [
+        "momentum",
+        "trend-following",
+        "smart-money",
+        "multi-asset",
+        "xyz",
+        "commodities",
+        "indices",
+        "maker-exit",
+        "long-short"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE",
+        "ZEC",
+        "LIT",
+        "GRASS",
+        "FARTCOIN",
+        "TAO",
+        "ONDO",
+        "SUI",
+        "ARB",
+        "WLD",
+        "DOGE",
+        "AVAX",
+        "xyz:CL",
+        "xyz:BRENTOIL",
+        "xyz:GOLD",
+        "xyz:SP500"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "scalp",
+      "cadence_seconds": 60,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 6
     },
     {
       "id": "spider",
@@ -352,7 +652,7 @@
       ],
       "max_slots": 7,
       "branch": "strategy-v2",
-      "sort_order": 5
+      "sort_order": 7
     },
     {
       "id": "thesis-fund",
@@ -410,7 +710,78 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 6
+      "sort_order": 8
+    },
+    {
+      "id": "vulture",
+      "name": "Vulture — Small-Cap Momentum Rider",
+      "emoji": "🦅",
+      "tagline": "Scans a whitelist of ~25 small/mid-cap Hyperliquid perps that no other agent covers (majors and XYZ are banned), and enters when smart-money concentration aligns with a fresh 4h trend, the 1h confirms it isn't a false breakout, and 15m velocity is accelerating — then sizes leverage to conviction (5x, 7x apex), cuts losers fast and rides the right-tail winners for days on a trailing stop.",
+      "belief_plain": "Hunts the small coins the rest of the fleet ignores. It only buys (or shorts) one when the best traders are crowding in, the 4-hour trend agrees, the 1-hour isn't already rolling over, and short-term momentum is building — then goes in harder on the strongest setups and trails a stop. Most trades are tiny losses cut fast; the occasional big winner pays for everything.",
+      "version": "1.0.0",
+      "thesis": "The biggest blind spot on Hyperliquid is the small/mid-cap long tail — every other agent is locked to the majors or a single asset, so nobody is reading smart-money flow on HEMI, WLD, XPL, AIXBT and the rest. Small caps have a thicker trader-count signal-to-noise ratio than the majors: when smart-money concentration on one aligns with a fresh 4h trend and accelerating 15m velocity, that's a momentum entry with a long right tail. A low win rate is fine when the winners are several times the size of the losers.",
+      "tags": [
+        "small-cap",
+        "momentum",
+        "smart-money",
+        "long-tail",
+        "whitelist",
+        "conviction-leverage",
+        "multi-asset"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
+      "asset_classes": [
+        "major_alts",
+        "universe_crypto"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "HYPE",
+        "HEMI",
+        "WLD",
+        "MON",
+        "XPL",
+        "AIXBT",
+        "ARB",
+        "ASTER",
+        "POLYX",
+        "LDO",
+        "APT",
+        "DYDX",
+        "ONDO",
+        "SUI",
+        "kBONK",
+        "kPEPE",
+        "TAO",
+        "GRASS",
+        "ZEC",
+        "LIT",
+        "FARTCOIN",
+        "MORPHO",
+        "NEAR",
+        "INJ",
+        "AVAX",
+        "LINK",
+        "DOGE"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 7,
+      "time_horizon": "swing",
+      "cadence_seconds": 60,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 9
     },
     {
       "id": "wolf",
@@ -471,7 +842,7 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 7
+      "sort_order": 10
     },
     {
       "id": "beaver",
@@ -780,6 +1151,54 @@
       "sort_order": 7
     },
     {
+      "id": "stag",
+      "name": "Stag — Parabolic-Run Hunter",
+      "emoji": "🦌",
+      "tagline": "Watches a small whitelist of large-cap crypto for a real parabolic setup — established uptrend, a 7-day move of 25%+ on surging volume that's still accelerating, with smart money piled long — then goes long and hands the trade to the widest stop in the catalog so it can ride the whole run through the violent intraday pullbacks.",
+      "belief_plain": "Only buys when a coin is genuinely going parabolic, not just trending. It waits for a big multi-week move that's still speeding up on heavy volume with the best traders leaning long, then uses a very loose trailing stop so the position survives the 5-8% dips that would shake out a normal trend trade.",
+      "version": "1.0.0",
+      "thesis": "The hard part of a parabolic run isn't entering — it's not getting chopped out. A standard trend trail makes local-volatility decisions and exits on the first 5-8% pullback, missing the rest of a +60% move. Stag pairs a strict entry filter (so it only fires on a real parabolic) with the deliberately wide parabolic_runner DSL (so the trade survives the gyrations). The trade-off is honest: it bleeds in chop, which is exactly why the filter is strict.",
+      "tags": [
+        "parabolic",
+        "momentum",
+        "runner",
+        "smart-money",
+        "long-only",
+        "wide-dsl",
+        "regime-selective",
+        "large-cap"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "parabolic_runner",
+      "sub_style_label": "Parabolic Runner",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "multi",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE"
+      ],
+      "direction": "long",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 600,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 8
+    },
+    {
       "id": "wolverine",
       "name": "Wolverine — HYPE Alpha Hunter",
       "emoji": "🦡",
@@ -822,7 +1241,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "hydra",
@@ -882,6 +1301,89 @@
       "sort_order": 1
     },
     {
+      "id": "cheetah",
+      "name": "Cheetah — Multi-Signal Confluence Sniper",
+      "emoji": "🐆",
+      "tagline": "A patient universe sniper: scans the top-100 smart-money markets every tick and refuses to fire unless smart-money consensus, velocity, acceleration, dual-price confirmation, volume, quality-trader alignment, and rank-climb all line up — then takes ONE position, sized 3-8x by conviction, and lets the DSL ride the winner.",
+      "belief_plain": "Watches where the best traders are crowding across the whole market, but waits for everything to agree at once — the smart money, the price, the volume, the speed of the move — before taking a single, high-conviction bet. Most of the time it does nothing; that patience is the point.",
+      "version": "1.0.0",
+      "thesis": "Any one signal is noise. Real edge shows up only when smart-money consensus, momentum, acceleration, price, volume, and proven-trader alignment all confirm the same direction on the same coin at the same moment. That confluence is rare, so the right move is to sit on one slot, wait for it, strike once at conviction-scaled leverage, and let a ratcheting trailing stop — not a fixed target — decide the exit so the rare big trend pays for the quiet weeks.",
+      "tags": [
+        "smart-money",
+        "momentum",
+        "confluence",
+        "universe-scanner",
+        "sniper",
+        "conviction-leverage",
+        "single-slot"
+      ],
+      "group": "smart-money",
+      "archetype": "momentum",
+      "archetype_label": "Momentum",
+      "sub_style": "confluence_sniper",
+      "sub_style_label": "Confluence Sniper",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 8,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
+      "id": "raptor",
+      "name": "Raptor — Hot-Streak Follower",
+      "emoji": "🦅",
+      "tagline": "Hunts ELITE/RELIABLE traders who are winning big this week, reads the single bet driving their streak, confirms the smart-money crowd agrees and the asset hasn't already run away from the whale's entry, then piggybacks the same trade — sizing leverage to conviction (7/8/10x).",
+      "belief_plain": "Finds the traders who are crushing it right now AND have a proven track record, figures out which position is making them the money, checks the smart-money crowd is leaning the same way, and copies that trade — but skips it if the price already ran too far past where the whale got in.",
+      "version": "1.0.0",
+      "thesis": "A trader who is both proven (ELITE/RELIABLE) and hot right now is the best signal you can ride. Don't average a cohort and don't chase one-week wonders — find the quality account on a live streak, isolate the conviction bet driving it, confirm the smart-money crowd and recent price action agree, and follow only if you can still get in near the whale's entry.",
+      "tags": [
+        "smart-money",
+        "copy-trading",
+        "hot-streak",
+        "quality-first",
+        "conviction-leverage",
+        "whale-discipline"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "hot_streak",
+      "sub_style_label": "Copies whoever is hot in the live window.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 2
+    },
+    {
       "id": "whalehunter",
       "name": "WhaleHunter — Smart-Money Cohort Divergence",
       "emoji": "🐋",
@@ -922,7 +1424,7 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 1
+      "sort_order": 3
     }
   ]
 }

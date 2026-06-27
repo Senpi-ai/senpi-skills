@@ -1,0 +1,146 @@
+# ── BISON · single instance — multi-asset conviction momentum holder ──────────
+# Runtime 3.0 port of the v2 Bison (SKILL.md v3.0.1). Liquid-majors whitelist
+# (BTC/ETH/SOL), 9-component conviction scoring, conviction-tiered margin
+# (25/31/37%), 7-10x leverage, DSL-only exits (time-cuts off, wide ratchet for
+# multi-day conviction holds). Faithful port of the v2 producer thesis — see
+# scanners/scoring.py (math reproduced verbatim, v2-quirks flagged).
+name: bison-main
+group: bison
+version: 3.0.0
+description: >
+  BISON — multi-asset conviction momentum holder on liquid majors (BTC/ETH/SOL).
+  Enters only when a 9-factor composite (4h/1h trend structure, 1h/4h momentum,
+  smart-money lean, funding, volume trend, OI proxy, RSI) clears score 11 via a
+  direction waterfall (4h trend -> SM -> 1h momentum). Conviction-scaled margin:
+  25% base, 31% at score >=10, 37% at score >=12. Leverage 7-10x (default 10).
+  DSL is the ONLY exit — time-cuts disabled, wide ratchet ladder (first lock at
+  +10% ROE) so a real directional thesis runs multiple days into the move.
+  Faithful port of the v2 Bison v3.0.1 thesis (all scoring/thresholds verbatim).
+
+strategy:
+  wallet: "${BISON_WALLET}"
+  slots: 3                                # v2 maxPositions 3
+  margin_pct: 25                          # baseline %; scan emits the conviction-tier marginPct per signal
+  default_leverage: 10                    # fallback; scan emits 7-10x per signal
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: bison_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # v2 tick_timeout=180; up to ~1 read/asset + sm + account
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      allowedAssets: ["BTC", "ETH", "SOL"] # v2.1 whitelist (validated live on HL main DEX 2026-06-27)
+      minScore: 11                         # v2.1 MIN_SCORE (raised 8 -> 11: real conviction)
+      marginPctBase: 25                    # PERCENT of withdrawable (0,100]; tiered x1.25/x1.5 by score
+      leverageDefault: 10                  # clamped to [7,10] in scan.py (MIN_LEVERAGE/MAX_LEVERAGE)
+      minVolTrendPct: 10                   # v2 entry.minVolTrendPct
+      rsiMaxLong: 72                       # v2 entry.rsiMaxLong
+      rsiMinShort: 28                      # v2 entry.rsiMinShort
+      recentSignalTtlSeconds: 180          # v3.0.1 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      directionSource: { type: string, required: false }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      trend1h: { type: string, required: false }
+      momentum1hPct: { type: number, required: false }
+      momentum4hPct: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smPct: { type: number, required: false }
+      funding: { type: number, required: false }
+      rsi: { type: number, required: false }
+      volumeTrendPct: { type: number, required: false }
+      oiProxyPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: bison_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [bison_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # 2026-05-21 fix: was maker-only; maker-only entries rest and
+                                           # silently fail to open during fast moves (CREATE_ORDER_RESTING).
+                                           # A conviction momentum holder cannot afford to miss the entry —
+                                           # taker fallback guarantees fill + DSL attach.
+        execution_timeout_seconds: 30      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: bison_main_signals
+
+# ── EXIT (DSL — preserved VERBATIM from v2.1/v3.0.1) ──────────────────────────
+# Time-cuts DISABLED per the single-asset/conviction pattern: hard_timeout +
+# dead_weight_cut off (v1 DSL fires hard_timeout in Phase 2 incorrectly).
+# weak_peak_cut KEPT (self-limiting: fires only if peak ROE never exceeds 3.0
+# within 60min — thesis-validity check, not a clock-cut). Phase 1 max_loss 30%.
+# Phase 2 wide-by-design (T0 +10%/0% lock through T5 +100%/85% lock) so winners
+# breathe. order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
+# interval_seconds 60 (v3.0.1: REDUCE_ONLY-spam mitigation when runtime position
+# state lags HL).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: false                       # v2.1: DISABLED — conviction holds run until DSL retrace
+      interval_in_minutes: 120
+    weak_peak_cut:
+      enabled: true                        # v2.1: KEPT — self-limiting
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                       # v2.1: DISABLED — multi-day thesis tolerates flat windows
+      interval_in_minutes: 45
+    phase1:
+      enabled: true
+      max_loss_pct: 30.0                    # v2.1: wide floor for conviction
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # wide-by-design; FIRST lock at +10% ROE (NOT +60-80%)
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 25 }
+        - { trigger_pct: 30, lock_hw_pct: 40 }
+        - { trigger_pct: 50, lock_hw_pct: 60 }
+        - { trigger_pct: 75, lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # 72h (was data_retention_hours 72)
+  guard_rails:
+    daily_loss_limit_pct: 10               # v2 risk.maxDailyLossPct
+    max_entries_per_day: 3                  # v3.0: static cap (dropped v2.1 PnL-aware dynamic slots)
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 risk.maxConsecutiveLosses
+    cooldown_seconds: 1800                 # post-loss cooldown 30m (fleet-standard)
+    drawdown_halt_pct: 25                  # v2 risk.maxDrawdownPct
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 7200       # v2 risk.cooldownMinutes 120 -> 7200s (2h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

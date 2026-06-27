@@ -1,0 +1,141 @@
+# ── CHEETAH · single instance — multi-signal confluence sniper (Runtime 3.0 port of v2 Cheetah v7.2.0) ──
+name: cheetah-main
+group: cheetah
+version: 3.0.0
+description: >
+  CHEETAH — universe confluence sniper. Scans the top-100 smart-money leaderboard markets
+  (leaderboard_get_markets) every tick, scores each on a 7-component confluence model
+  (max 15: SM consensus, velocity, acceleration, dual-price, volume, quality-trader
+  alignment, rank-climb), and emits ONE signal for the single strongest candidate that
+  clears score 10. Score-scaled leverage: 3x @10, 5x @11, 7x @12, 8x @14+. XYZ banned,
+  one slot, 30% margin. DSL is the ONLY exit ("let winners run": T0 +10% / lock 0, the
+  rare +50-100% mover pays for the quiet weeks). Faithful port of the v2 producer thesis.
+
+strategy:
+  wallet: "${CHEETAH_WALLET}"
+  slots: 1                                # 1-slot sniper, not a scalper (v2 MAX_POSITIONS=1)
+  default_leverage: 5                     # fallback; scan emits per-signal 3/5/7/8 by score (v2 DEFAULT_LEVERAGE=5)
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: cheetah_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 240                   # up to ~26 leaderboard reads/tick (markets + 25 trader pos); v2 WARN_OVER_120S budget
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup/cooldown maps + held set + scan-rank history (20 scans) + quality cache
+    inputs:
+      minScore: 10                         # v2 MIN_SCORE_DEFAULT (v6.0 restored from v5.2's 11)
+      marginPct: 30                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable.
+                                           # v2 producer MARGIN_PCT=0.30 (30%); v2 runtime.yaml had margin_pct:25 — producer wins per port rule.
+      maxPositions: 1                      # producer-side held/slot guard (mirrors slots:1)
+      xyzBanned: true                      # v2 XYZ_BANNED — drop dex==xyz markets
+      leaderboardLimit: 100                # v2 fetch_sm_markets limit=100
+      # ── score-component thresholds (v2 producer constants, verbatim) ──
+      smMinPct: 10.0
+      smMinTraders: 25
+      velMin15m: 1.0
+      velMin1h: 3.0
+      priceMin4h: 2.0
+      volMinRatio: 2.0
+      rankClimbMin: 5
+      rankClimbTopN: 15
+      # ── quality-trader pool (v7.1.0 widened filter, verbatim) ──
+      qtPoolSize: 25
+      qtTimeframe: "MONTHLY"
+      qtConsistency: ["ELITE", "RELIABLE", "STREAKY"]
+      qtCacheSeconds: 900                  # v2 QT_CACHE_MINUTES=15
+      # ── leverage tiers (v2 LEVERAGE_TIERS, verbatim): [min_score, leverage] desc ──
+      leverageTiers: [[14, 8], [12, 7], [11, 5], [10, 3]]
+      # ── cooldowns (v2 producer-side backstops; runtime per-asset gate is primary) ──
+      emitCooldownSeconds: 14400           # v2 ASSET_COOLDOWN_MINUTES=240 (post-emit anti-spam)
+      postCloseCooldownSeconds: 14400      # v2 POST_CLOSE_COOLDOWN_MINUTES=240 (post-close backstop)
+      recentSignalTtlSeconds: 14400        # signal-dedup TTL (mirrors emit cooldown)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: string, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      rank: { type: number, required: false }
+      contrib15m: { type: number, required: false }
+      contrib1h: { type: number, required: false }
+      priceChg4hPct: { type: number, required: false }
+      priceChg1hPct: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      qualityAlign: { type: number, required: false }
+      rankClimb: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: cheetah_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [cheetah_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a confluence strike must fill — taker fallback at 60s
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: cheetah_main_signals
+
+# EXIT — DSL, "let winners run" (ported verbatim from v2 v7.2.0): time cuts OFF except the
+# 12h hard-timeout fail-safe (the one cut that captured the two big HYPE wins). Phase 2 first
+# lock is REACHABLE at +10% (lock 0 — let a +10% mover retrace fully before any profit lock so
+# the rare +50-100% trend isn't capped); the right tail pays for the quiet weeks.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 720             # 12h fail-safe — the ONLY time cut left (v7.2.0)
+    weak_peak_cut:
+      enabled: false                       # v7.2.0: disabled — was chopping winners-in-waiting
+      interval_in_minutes: 90
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                       # v7.2.0: disabled — forced exits before trenders accelerate
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 10                # v2: raised 6->10 to avoid firing on normal 2-3% pullbacks in strong trends
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # v2 v7.2.0 "let winners run" ladder (verbatim)
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 25 }
+        - { trigger_pct: 30, lock_hw_pct: 40 }
+        - { trigger_pct: 50, lock_hw_pct: 60 }
+        - { trigger_pct: 75, lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 25               # v2 daily_loss_limit_pct
+    max_entries_per_day: 8                 # v2 max_entries_per_day (v5.2 dynamic cap upper bound)
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 max_consecutive_losses
+    cooldown_seconds: 1800                 # v2 cooldown_minutes:30
+    drawdown_halt_pct: 25                  # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false  # v2: avoid the next-day reset leak
+    per_asset_cooldown_seconds: 14400      # v2 per_asset_cooldown_minutes:240 (4h)

@@ -1,0 +1,146 @@
+# ── VULTURE · single instance — Long-Tail Momentum Rider (Runtime 3.0 port of v2 vulture v4.2.0) ──
+name: vulture-main
+group: vulture
+version: 3.0.0
+description: >
+  VULTURE — multi-asset small-cap momentum rider. Scans a 27-coin whitelist of
+  small/mid-cap Hyperliquid perps that no other predator covers (BTC/ETH/SOL + XYZ
+  banned) via leaderboard_get_markets, and enters when smart-money concentration
+  ALIGNS with a fresh 4h trend, the 1h confirms (the v2.4 false-breakout gate), and
+  15m velocity is accelerating. LONG_TAIL_MOMENTUM scoring with conviction-scaled
+  leverage (5x at score 10, 7x apex at >=11). Cut losers fast (90m dead_weight),
+  ride winners for days (7-day hard_timeout). DSL is the ONLY exit. Faithful port of
+  the v2 producer thesis (v4.2.0): ~38% WR with a long right tail pays for everything.
+
+strategy:
+  wallet: "${VULTURE_WALLET}"
+  slots: 2                                 # v2 ran 2 concurrent positions
+  margin_pct: 45                           # v2 per-slot margin % (scales with budget)
+  default_leverage: 5                      # fallback; scan emits per-signal 5/7 by score
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: vulture_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 60                    # v2 producer cadence (60s)
+    timeout_seconds: 120                    # v2 tick_timeout; whitelist enrichment fans out reads
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100            # dedup map + per-tick scan-results history
+    inputs:
+      # whitelist — 27 small/mid-cap perps (all validated live in the HL main DEX
+      # universe 2026-06-26 via {"type":"meta"}; zero dropped). Case preserved for
+      # kBONK/kPEPE. BTC/ETH/SOL hard-banned in scoring; XYZ banned via xyzBanned.
+      whitelist:
+        ["HYPE", "HEMI", "WLD", "MON", "XPL", "AIXBT", "ARB", "ASTER",
+         "POLYX", "LDO", "APT", "DYDX", "ONDO", "SUI", "kBONK", "kPEPE",
+         "TAO", "GRASS", "ZEC", "LIT", "FARTCOIN", "MORPHO", "NEAR", "INJ",
+         "AVAX", "LINK", "DOGE"]
+      xyzBanned: true
+      # MIN_SCORE 10 — the v4.2.0 PRODUCER floor (culled 9->10 after a 100-trade
+      # analysis: every bucket >=10 net-positive, every bucket <=9 net-negative).
+      # Ported verbatim from the producer source; producer thresholds win over the
+      # config / brief (the brief said "9").
+      minScore: 10
+      minSmPct: 3.0                         # v2 MIN_SM_PCT
+      minSmTraders: 15                      # v2 MIN_SM_TRADERS
+      min4hAlignedPct: 1.0                  # v2 MIN_4H_ALIGNED_PCT
+      min1hAlignedPct: 0.1                  # v2 MIN_1H_ALIGNED_PCT (the v2.4 false-breakout gate)
+      min15mVelocity: 0.3                   # v2 MIN_15M_VELOCITY
+      marginPct: 45                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      # conviction-scaled leverage — v2 SIZING_TIERS (v4.2.0). [min_score, leverage, label]
+      leverageTiers:
+        - { min_score: 11, leverage: 7, label: apex }
+        - { min_score: 10, leverage: 5, label: conviction }
+      # FP-001 quiet hours — 00:00-04:00 UTC; apex score >=11 bypasses. start==end disables.
+      quietStartUtc: 0
+      quietEndUtc: 4
+      apexBypassScore: 11
+      recentSignalTtlSeconds: 14400         # 240m — mirror the v2 per-asset cooldown
+    signal_data_schema:
+      score: { type: number }
+      tier: { type: string, required: false }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      priceChange4hPct: { type: number, required: false }
+      priceChange1hPct: { type: number, required: false }
+      priceChange15mPct: { type: number, required: false }
+      contribChange15m: { type: number, required: false }
+      contribChange1h: { type: number, required: false }
+      contribChange4h: { type: number, required: false }
+      fundingRegime: { type: string, required: false }
+      persistenceHours: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: vulture_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [vulture_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # 60s ALO then taker fallback (v2 setting)
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: vulture_main_signals
+
+# EXIT — DSL, ported verbatim from v2 (v2.3 ladder, v3.1 ratchet patch). Maker-preferred
+# exits via FEE_OPTIMIZED_LIMIT. Tight T0 catches tiny winners early; T1-T4 ramp protection
+# on actual runners. First lock is REACHABLE (+15% trigger -> 35% lock) — never +60-80%.
+# Time cuts kept (multi-asset momentum, unlike single-asset ports): 90m dead_weight cuts
+# losers fast, 180m weak_peak, 7-day hard_timeout lets small-cap winners hold for days.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 10080            # 7 days — small-cap winners hold for days
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 180              # 3h
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 90               # 90min — fast cut on no-movement
+    phase1:
+      enabled: true
+      max_loss_pct: 25.0                    # 25% margin loss = ~5% price at 5x; small-cap volatility
+      retrace_threshold: 10                 # v2 value; <= the ~10 cap (first lock stays reachable)
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 15,  lock_hw_pct: 35 }   # Tier 0 — reachable first lock (v3.1: lock 20->35)
+        - { trigger_pct: 25,  lock_hw_pct: 60 }   # Tier 1 — v3.1: trigger 30->25
+        - { trigger_pct: 40,  lock_hw_pct: 75 }   # Tier 2 — pre-armed (v2.3)
+        - { trigger_pct: 75,  lock_hw_pct: 75 }   # Tier 3 — runner protection
+        - { trigger_pct: 100, lock_hw_pct: 85 }   # Tier 4 — apex
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 1800                  # 30m (v2 cooldown_minutes: 30)
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400       # 4h — preserves v2 sniper cadence (v2 per_asset_cooldown_minutes: 240)

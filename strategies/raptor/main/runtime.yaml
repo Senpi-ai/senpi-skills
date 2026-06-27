@@ -1,0 +1,139 @@
+# ── RAPTOR · single instance — hot-streak follower (Runtime 3.0 port of v2 Raptor v4.0.0) ──
+name: raptor-main
+group: raptor
+version: 3.0.0
+description: >
+  RAPTOR — quality-first hot-streak follower. Pulls ELITE/RELIABLE traders winning the
+  WEEKLY window (discovery_get_top_traders, unrealized >= $500k), isolates each one's
+  strongest open position, confirms a smart-money lean in the same direction
+  (leaderboard_get_markets, >= 2% of top-trader gain, >= 10 traders), applies whale
+  entry-price discipline (skip if price already ran > 5% past the whale's entry in the
+  whale's favor), scores, and follows ONLY the single best candidate. Conviction-tiered
+  leverage: 7x base, 8x at score >= 8, 10x apex at >= 10; conviction-scaled margin (25%
+  base, 35% at score >= 10). Derived universe (XYZ banned). Faithful port of the v2
+  producer thesis — scoring reproduced verbatim.
+
+strategy:
+  wallet: "${RAPTOR_WALLET}"
+  slots: 2                                 # v2 maxPositions: 2
+  default_leverage: 7                      # fallback; scan emits per-signal 7/8/10 by score
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: raptor_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                   # v2 producer cadence (3 min)
+    timeout_seconds: 150                    # up to ~13 MCP reads/tick (1 top + 1 SM + up to 10 positions + price)
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100            # event-dedup map (4h) + per-tick scan-result history
+    inputs:
+      # ── hotStreak (quality-trader pool + position selection) — verbatim from v2 ──
+      qualityPoolSize: 20
+      positionsFetchLimit: 10
+      minDeltaPnl: 500000                   # min trader unrealized PnL to consider (USD)
+      tier2Threshold: 1500000               # scoring tier-2 trader-delta floor (USD)
+      tier3Threshold: 3000000               # scoring tier-3 trader-delta floor (USD)
+      minConcentration: 0.35                # min |pnl| concentration of the strongest position
+      minPositionPnl: 100000                # min |delta_pnl| on the strongest position (USD)
+      # ── smAlignment (smart-money confirmation) — verbatim from v2 ──
+      minSmPct: 2.0                         # min pct_of_top_traders_gain on the asset
+      minSmTraders: 10                      # min trader_count on the asset
+      requireDirectionMatch: true
+      xyzBanned: true                       # drop xyz: assets / xyz dex (derived-universe filter)
+      maxPriceRunPctFromWhaleEntry: 5.0     # v3.3 whale entry-discipline threshold (%)
+      # ── dedupe ──
+      eventDedupeHours: 4                   # per-(trader,asset) re-fire window
+      # ── entry / sizing ──
+      minScore: 6                           # score floor to fire
+      marginPctBase: 25                     # PERCENT of withdrawable (0,100] — v2 fraction 0.25 -> 25
+      marginPctHighConv: 35                 # PERCENT, used at score >= highConvScore — v2 0.35 -> 35
+      highConvScore: 10                     # score at/above which marginPctHighConv applies
+      # ── leverage tiers (conviction-scaled) — verbatim from v2 config ──
+      leverageTiers: [[10, 10], [8, 8], [6, 7]]
+      defaultLeverage: 7
+      recentSignalTtlSeconds: 14400         # 240m — mirror the per-asset cooldown (anti re-fire)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      tcs: { type: string, required: false }
+      traderId: { type: string, required: false }
+      traderDeltaPnl: { type: number, required: false }
+      positionDeltaPnl: { type: number, required: false }
+      concentration: { type: number, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      priceChg4h: { type: number, required: false }
+      priceChg1h: { type: number, required: false }
+      whaleEntryPx: { type: number, required: false }
+      currentPx: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: raptor_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every filter
+    scanners: [raptor_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # a confirmed hot-streak follow must fill — taker fallback
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: raptor_main_signals
+
+# EXIT — follow-the-streak DSL (ported VERBATIM from v2 runtime.yaml): wide disaster
+# stop, let winners compound, first lock already reachable at +8%.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 360
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 60
+      min_value: 2.5
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 40
+    phase1:
+      enabled: true
+      max_loss_pct: 25.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 25 }   # first lock reachable at +8%
+        - { trigger_pct: 15, lock_hw_pct: 50 }
+        - { trigger_pct: 25, lock_hw_pct: 65 }
+        - { trigger_pct: 40, lock_hw_pct: 80 }
+        - { trigger_pct: 60, lock_hw_pct: 88 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 15
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 1800                  # v2 cooldown_minutes: 30
+    per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes: 120
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
