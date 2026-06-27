@@ -1,0 +1,128 @@
+# ── CONDOR · single instance — One Amazing Trade per Day (Runtime 3.0 port of v2 CONDOR v4.0.1) ──
+name: condor-main
+group: condor
+version: 3.0.0
+description: >
+  CONDOR — multi-asset trend-continuation apex sniper ("One Amazing Trade per Day").
+  Scans the top 50 HL crypto assets by 24h notional volume and fires ONLY when 4h +
+  1h + 15m momentum are perfectly aligned, smart-money consensus is >=70% in that same
+  direction, OI >= $1M and trader depth >= 50, and the move isn't a runaway counter-trend
+  (MACRO_TREND_GATE). Score-scaled sizing (50%/70%/80% margin) at a 10x leverage cap;
+  one position at a time; a wide DSL lets apex setups breathe. Faithful port of the v2
+  producer thesis (XYZ + stablecoins banned). NOTE: XYZ is filtered by the 'XYZ:' name
+  prefix (the live combined instruments response has no dex field — see scan.py).
+
+strategy:
+  wallet: "${CONDOR_WALLET}"
+  slots: 1                                # one amazing trade per day — single position
+  default_leverage: 10                    # fallback; scan emits per-score 10x (auto-clamped to venue max)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: condor_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                  # v2 producer cadence (3 min)
+    timeout_seconds: 120                   # v2 tick_timeout; 3 universe-level MCP reads/tick
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick scan-results history (~5h @180s)
+    inputs:
+      universeSize: 50                     # top N HL crypto by 24h notional volume
+      minOiUsd: 1000000                    # OI >= $1M hard floor
+      smLimit: 100                         # leaderboard_get_markets aggregation depth
+      minScore: 12                         # v2 MIN_SCORE (v3.4 calibration)
+      marginPct: 50                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      maxPositions: 1                      # "one amazing trade per day"
+      minSmConsensusPct: 70                # SM consensus hard gate
+      minTraderCount: 50                   # trader-depth hard gate
+      min4hMagnitude: 1.0                  # 3TF alignment floors
+      min1hMagnitude: 0.3
+      min15mVelocity: 0.1
+      macroGateThresholdPct: 10.0          # MACRO_TREND_GATE (no counter-trend >10%)
+      stronglyTiltedPct: 80                # SM consensus scoring tier
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
+      # leverageTiers: per-score [min_score, leverage, marginPct(PERCENT)]; omit -> scoring defaults
+      leverageTiers: [[15, 10, 80], [13, 10, 70], [11, 10, 50]]
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      priceChange4hPct: { type: number, required: false }
+      priceChange1hPct: { type: number, required: false }
+      contribChange15m: { type: number, required: false }
+      smConsensusPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      oiUsd: { type: number, required: false }
+      funding: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: condor_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every hard gate + score floor
+    scanners: [condor_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # trend-continuation cannot miss the entry — taker fallback
+        execution_timeout_seconds: 30      # v2 entry timeout
+    context:
+      - type: signal
+        scanner: condor_main_signals
+
+# EXIT — DSL, ported VERBATIM from v2 v4.0.1. Wide so apex setups breathe through
+# normal wicks: Phase 1 max_loss 20% (retrace 12), Phase 2 6-tier ladder (Kodiak SOL
+# empirical). weak_peak_cut DISABLED (apex thesis needs 4-8h). FEE_OPTIMIZED_LIMIT
+# close with taker fallback. First phase2 lock REACHABLE at +8% (lock 30%).
+exit:
+  engine: dsl
+  interval_seconds: 60                     # v2 v4.0.1: 30 -> 60 (REDUCE_ONLY spam mitigation)
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 1440            # 24h — one trade per day discipline
+    weak_peak_cut:
+      enabled: false                       # v2 v3.3: DISABLED. Apex thesis needs 4-8h to develop.
+      interval_in_minutes: 120
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 60              # 60 min no movement = dead
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 12                # v2: raised 8 -> 12 (don't pre-exit the one amazing trade)
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,   lock_hw_pct: 30 }   # first lock reachable at +8% (Kodiak mid-beta Tier 1)
+        - { trigger_pct: 15,  lock_hw_pct: 50 }
+        - { trigger_pct: 25,  lock_hw_pct: 70 }   # Kodiak's #3 exit tier
+        - { trigger_pct: 40,  lock_hw_pct: 85 }   # Kodiak's #1/#2 exit tier
+        - { trigger_pct: 60,  lock_hw_pct: 90 }   # infinite trail
+        - { trigger_pct: 100, lock_hw_pct: 94 }   # monster winners
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 1                  # one amazing trade per day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 7200                  # v2 cooldown_minutes 120 (2h post-loss freeze)
+    drawdown_halt_pct: 25                   # HARD STOP circuit breaker
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes 120 (2h)
