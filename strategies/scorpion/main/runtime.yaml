@@ -1,0 +1,144 @@
+# ── SCORPION · single instance — multi-market momentum trader (Runtime 3.0 port of v2 Scorpion v4.1.2 / producer v5.0.0) ──
+name: scorpion-main
+group: scorpion
+version: 3.0.0
+description: >
+  SCORPION — multi-market trend-follower across a curated crypto + XYZ basket. Each tick
+  scores live smart-money concentration (leaderboard_get_markets) gated on 4h price
+  alignment, with asymmetric MIN_SCORE (crypto 11 / XYZ 9), enriches with BTC macro +
+  funding regime, and emits ALL qualifying candidates (runtime owns the slot ceiling).
+  Held-asset dedup + post-close cooldown + recent-signal dedup run in-scan (the v2 LLM
+  gate's deterministic skips are ported into scoring — no llm rubber-stamp). Maker-optimized
+  FEE_OPTIMIZED_LIMIT entries AND exits (v2's biggest high-turnover win). Faithful port of
+  the v2 producer thesis + DSL.
+
+strategy:
+  wallet: "${SCORPION_WALLET}"
+  slots: 2                                # v2 strategy.slots: 2
+  default_leverage: 5                     # v2 had no per-signal leverage tiers; single moderate default
+  trading_risk: moderate                  # v2 trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: scorpion_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 60                   # v2 producer_daemon interval_seconds: 60
+    timeout_seconds: 50                    # v2 WARN_OVER_60S budget; markets + 3 enrich reads/tick
+    default_signal_validity_seconds: 120   # 2x tick; a fresh re-score arrives next tick
+    state_history_max_count: 200           # recent-signal dedup + previously-held + last-closed ledgers
+    inputs:
+      # ── universe (v2 CRYPTO_ASSETS + XYZ_ASSETS; SPX→SP500 fidelity fix, see scoring.py) ──
+      cryptoAssets: ["BTC", "ETH", "SOL", "HYPE", "ZEC", "LIT", "GRASS", "FARTCOIN", "TAO", "ONDO", "SUI", "ARB", "WLD", "DOGE", "AVAX"]
+      xyzAssets: ["CL", "BRENTOIL", "GOLD", "SP500"]
+      # ── scoring knobs (v2 producer thresholds) ──
+      minScoreCrypto: 11                   # v2 MIN_SCORE_CRYPTO (raised 9→11; score-9 crypto bled)
+      minScoreXyz: 9                       # v2 MIN_SCORE_XYZ (held — let the rubric prove out)
+      min4hAlignedPctCrypto: 1.0           # v2 MIN_4H_ALIGNED_PCT_CRYPTO
+      min4hAlignedPctXyz: 0.5              # v2 MIN_4H_ALIGNED_PCT_XYZ
+      minTraders: 5                        # v2 hard gate: traders < 5 → reject
+      # ── sizing ──
+      marginPct: 25                        # PERCENT of withdrawable (0,100] — v2 strategy.margin_pct: 25. runtime sizes (marginPct/100)*withdrawable
+      # ── dedup / cooldown (v2 producer + runtime intent) ──
+      postCloseCooldownSeconds: 600        # v2 POST_CLOSE_COOLDOWN_MINUTES: 10 (serial-reentry backstop)
+      recentSignalTtlSeconds: 60           # don't re-emit a coin within one tick window while a signal is in flight
+    signal_data_schema:
+      score: { type: number }
+      isXyz: { type: boolean }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      priceChange4hPct: { type: number, required: false }
+      priceChange1hPct: { type: number, required: false }
+      contribChange15m: { type: number, required: false }
+      contribChange1h: { type: number, required: false }
+      contribChange4h: { type: number, required: false }
+      btcMacroDirection: { type: string, required: false }
+      btcMacro24hPct: { type: number, required: false }
+      fundingRegime: { type: string, required: false }
+      heldAssets: { type: array, required: false }
+      xyzPeerMomentum: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: scorpion_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan applied every filter (v2 LLM gate's deterministic skips ported into scan)
+    scanners: [scorpion_main_signals]
+    params:
+      # v4.0 KEY WIN — maker-preferred entries. v4.0.2: 15s → 60s timeout
+      # (controlled test landed maker fill at 60s vs taker at 30s).
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # maker first; fall back to taker on no-fill
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: scorpion_main_signals
+
+# ── EXIT — DSL, maker-optimized (ported verbatim from v2 runtime v4.1.2). ──
+# v4.0 KEY WIN: FEE_OPTIMIZED_LIMIT on EXITS — HL taker 0.045% vs maker 0.015%,
+# saves ~0.030% on every maker-filled exit. The single biggest P&L lever for a
+# high-turnover multi-asset active trader. Time cuts KEPT (multi-asset, multi-slot:
+# rotation opportunity cost is real, unlike the single-asset ports).
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60          # v4.0.2: 15 → 60 (maker-fill window)
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 720             # 12h forced rotation ceiling
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 90              # v4.1: 60 → 90 (let XYZ grind)
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 60              # v4.1: 30 → 60 (oil consolidates 1h+ before moving)
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 10                # v2 2026-05-14: 6 → 10 (was firing on normal 2-3% pullbacks)
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        # v2 2026-05-21 Bison "let winners run" ladder. T0 lock=0 gives room before
+        # any profit lock — first NON-ZERO lock reachable at +20% (lock 25%). First
+        # tier triggers at a reachable +10% (NOT +60-80%).
+        - { trigger_pct: 10,  lock_hw_pct: 0 }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (v2 runtime v4.1.2; minutes → seconds) ──
+risk:
+  data_retention_seconds: 259200           # 72h (was data_retention_hours: 72)
+  guard_rails:
+    daily_loss_limit_pct: 5
+    max_entries_per_day: 5
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 5400                  # was cooldown_minutes: 90
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 7200        # was per_asset_cooldown_minutes: 120
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
