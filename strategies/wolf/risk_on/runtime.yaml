@@ -1,0 +1,121 @@
+# ── WOLF · RISK-ON book — LONG beaten-down beta in a confirmed RISK-ON regime ──
+name: wolf-risk-on
+group: wolf
+version: 3.0.0
+description: >
+  WOLF RISK-ON — regime-rotation long-beta. One of two rotation books. Trades ONLY when
+  Wolf's shared cross-asset regime detector confirms RISK-ON (equities up + oil down + gold
+  soft + BTC up + dollar soft, net votes >= regimeThreshold). It then goes LONG beaten-down
+  beta that is turning up — crypto majors / high-beta alts + growth indices — riding the
+  relief-rally rotation. When the regime is RISK-OFF or NEUTRAL this book STANDS DOWN
+  (emits no signals) and the RISK-OFF book carries. The edge is trading the macro TURN, not
+  a fixed view and not per-asset trend.
+  Scoring (scan-side): regime gate (RISK-ON required), then 4h trend backbone + 1h
+  confirmation + 24h momentum + RSI room. LONG only. Strict 5x clamp, then each asset's HL
+  venue max. WIDE let-it-run DSL — a relief rally can run.
+
+strategy:
+  wallet: "${WOLF_RISK_ON_WALLET}"
+  slots: 3
+  default_leverage: 5                     # fallback; scan emits per-signal venue-clamped leverage
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: wolf_risk_on_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min) — regime rotations are infrequent
+    timeout_seconds: 180                   # up to ~12 guarded MCP reads/tick (5 probes + universe)
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick regime/scan-results history
+    inputs:
+      myRegime: "RISK_ON"                  # ROTATION GATE — this book fires ONLY in RISK_ON
+      riskAssets: ["BTC", "ETH", "SOL", "HYPE", "SUI", "xyz:XYZ100", "xyz:SP500"]
+      defensives: []                       # risk_on longs the risk complex only
+      minScore: 5
+      marginPct: 20                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      maxLeverage: 5                       # strict clamp, then each asset's live HL venue max
+      regimeThreshold: 2                   # net cross-asset votes to declare a regime
+      momThresholdPct: 1.0
+      rsiOverbought: 78
+      rsiOversold: 22
+      recentSignalTtlSeconds: 180          # mirror v2 RECENT_SIGNAL_TTL_SEC anti re-fire race
+    signal_data_schema:
+      score: { type: number }
+      rawScore: { type: number, required: false }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      regime: { type: string, required: false }
+      regimeNet: { type: number, required: false }
+      own24h: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: wolf_risk_on_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied the regime gate + every filter
+    scanners: [wolf_risk_on_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: wolf_risk_on_signals
+
+# EXIT — DSL, WIDE let-the-rotation-run (ported from v2 runtime-risk_on.yaml). A confirmed
+# risk-on rotation can run for days, so ride it: wide phase1, time-cuts OFF, 5d staleness
+# backstop. First phase2 lock tier is REACHABLE (+12% ROE → locks 25%) — never +60-80%.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 7200            # 5d staleness cap (ported verbatim)
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 720
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 14.0
+      retrace_threshold: 9
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 12, lock_hw_pct: 25 }   # first lock REACHABLE at +12% ROE (v2 had 12→0; lock made real)
+        - { trigger_pct: 25, lock_hw_pct: 45 }
+        - { trigger_pct: 45, lock_hw_pct: 65 }
+        - { trigger_pct: 80, lock_hw_pct: 80 }
+        - { trigger_pct: 130, lock_hw_pct: 90 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 5                 # regime rotations are infrequent → few entries/day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 5400                 # 90m (ported from v2 cooldown_minutes: 90)
+    drawdown_halt_pct: 22
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400      # 240m (ported from v2 per_asset_cooldown_minutes: 240)

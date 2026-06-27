@@ -1,0 +1,120 @@
+# ── WOLF · RISK-OFF book — LONG defensives + SHORT risk in a confirmed RISK-OFF regime ──
+name: wolf-risk-off
+group: wolf
+version: 3.0.0
+description: >
+  WOLF RISK-OFF — regime-rotation defensives + short-risk. One of two rotation books.
+  Trades ONLY when Wolf's shared cross-asset regime detector confirms RISK-OFF (equities
+  down + oil up + gold bid + BTC down + dollar bid, net votes <= -regimeThreshold). It then
+  goes LONG defensives trending up (gold / silver / oil / dollar / yen) and SHORT risk
+  assets rolling over (crypto majors / growth indices). When the regime is RISK-ON or
+  NEUTRAL this book STANDS DOWN (emits no signals) and the RISK-ON book carries. The edge
+  is trading the macro TURN, not a fixed view and not per-asset trend.
+  Scoring (scan-side): regime gate (RISK-OFF required), then 4h trend backbone + 1h
+  confirmation + 24h momentum + RSI room — LONG defensives, SHORT risk. Strict 5x clamp,
+  then each asset's HL venue max. TIGHTER DSL — risk-off moves are sharp and reverse fast.
+
+strategy:
+  wallet: "${WOLF_RISK_OFF_WALLET}"
+  slots: 3
+  default_leverage: 5                     # fallback; scan emits per-signal venue-clamped leverage
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: wolf_risk_off_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # up to ~17 guarded MCP reads/tick (5 probes + universe)
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick regime/scan-results history
+    inputs:
+      myRegime: "RISK_OFF"                 # ROTATION GATE — this book fires ONLY in RISK_OFF
+      riskAssets: ["BTC", "ETH", "SOL", "HYPE", "SUI", "xyz:XYZ100", "xyz:SP500"]   # SHORT candidates
+      defensives: ["xyz:GOLD", "xyz:SILVER", "xyz:BRENTOIL", "xyz:DXY", "xyz:JPY"]  # LONG candidates
+      minScore: 5
+      marginPct: 18                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      maxLeverage: 5                       # strict clamp, then each asset's live HL venue max
+      regimeThreshold: 2                   # net cross-asset votes to declare a regime
+      momThresholdPct: 1.0
+      rsiOverbought: 78
+      rsiOversold: 22
+      recentSignalTtlSeconds: 180          # mirror v2 RECENT_SIGNAL_TTL_SEC anti re-fire race
+    signal_data_schema:
+      score: { type: number }
+      rawScore: { type: number, required: false }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      regime: { type: string, required: false }
+      regimeNet: { type: number, required: false }
+      own24h: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: wolf_risk_off_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied the regime gate + every filter
+    scanners: [wolf_risk_off_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: wolf_risk_off_signals
+
+# EXIT — DSL, TIGHTER (ported from v2 runtime-risk_off.yaml). Risk-off rallies in defensives
+# and drops in risk reverse fast on a headline, so bank gains quicker: tighter phase1, earlier
+# profit-lock ladder, stall-cuts ON, 3d timeout. First phase2 lock tier is REACHABLE (+8% ROE → 35%).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 4320            # 3d (ported verbatim)
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 240             # 4h (ported verbatim)
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 480             # 8h (ported verbatim)
+    phase1:
+      enabled: true
+      max_loss_pct: 10.0
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8, lock_hw_pct: 35 }    # first lock REACHABLE at +8% ROE (ported verbatim)
+        - { trigger_pct: 15, lock_hw_pct: 55 }
+        - { trigger_pct: 30, lock_hw_pct: 70 }
+        - { trigger_pct: 50, lock_hw_pct: 85 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 8                 # risk-off is sharper / shorter → turns over faster
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600                 # 60m (ported from v2 cooldown_minutes: 60)
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 10800      # 180m (ported from v2 per_asset_cooldown_minutes: 180)

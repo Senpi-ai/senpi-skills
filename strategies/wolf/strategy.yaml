@@ -1,0 +1,53 @@
+# Wolf — Event-Driven / Regime-Rotation Hedge Fund. A multi-instance PACKAGE: this
+# manifest + two self-contained runtime.yaml instances (risk_on = long beaten-down
+# beta in a confirmed RISK-ON regime; risk_off = long defensives + short risk in a
+# confirmed RISK-OFF regime) + per-book scanners/. Both books read the SAME shared
+# cross-asset REGIME detector and a book only fires when the regime AGREES with its
+# mandate — so capital rotates to whichever book the prevailing macro regime favors.
+# Faithful Runtime 3.0 port of the v2 wolf (SKILL.md v1.0.0, WOLF_LEG-selected producer).
+# Install/teardown via senpi-strategy-ops. Published to the catalog via senpi-strategy-author-curator.
+schema_version: 1
+
+id: wolf
+version: "1.0.0"
+
+catalog:
+  name: "Wolf — Regime-Rotation Hedge Fund"
+  emoji: "🐺"
+  tagline: "Two books on two wallets that read one shared cross-asset regime (equities, oil, gold, BTC, the dollar). The RISK-ON book longs beaten-down beta in a confirmed risk-on regime; the RISK-OFF book longs defensives and shorts risk in a confirmed risk-off regime — capital rotates to whichever the macro favors."
+  belief_plain: "Watches the whole macro complex — stocks, oil, gold, BTC, the dollar — and waits for them to agree on which way the wind is blowing. When it's risk-on it buys the beaten-down risk assets that are turning up; when it's risk-off it buys safe havens and shorts risk. No single asset can flip it; the whole complex has to lean one way."
+  thesis: "You think the edge is in trading the macro TURN, not a fixed view and not per-asset trend. You want a fund that detects which way the regime is shifting across the whole cross-asset complex and rotates its two books to that side, standing down entirely when nothing agrees."
+  group: multi-asset-whitelist
+  archetype: trend_following
+  sub_style: rotation
+  asset_classes: [universe_crypto, commodities, indices, xyz_equities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 6
+  min_budget: 400
+  assets: ["BTC", "ETH", "SOL", "HYPE", "SUI", "xyz:XYZ100", "xyz:SP500", "xyz:GOLD", "xyz:SILVER", "xyz:BRENTOIL", "xyz:DXY", "xyz:JPY"]
+  tags: [regime, rotation, macro, hedge-fund, cross-asset, risk-on, risk-off, long_short, defensives]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  # ── FUNDING SPLIT: RISK_ON 50% / RISK_OFF 50% of the combined pool ──
+  # Wolf rotates — usually only ONE book is active at a time (the one the regime
+  # favors). A 50/50 split gives each regime equal firepower since you can't know
+  # which will dominate the period. funding_share sums to 1.0.
+  - name: risk_on
+    runtime: risk_on/runtime.yaml
+    wallet_env: WOLF_RISK_ON_WALLET
+    funding_share: 0.5
+  - name: risk_off
+    runtime: risk_off/runtime.yaml
+    wallet_env: WOLF_RISK_OFF_WALLET
+    funding_share: 0.5
