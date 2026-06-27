@@ -1,0 +1,127 @@
+# ── PYTHON · single instance — wide-universe multi-day-hold "Patience Hunter"
+#    (Runtime 3.0 port of v2 Python v2.0.0) ──
+name: python-main
+group: python
+version: 3.0.0
+description: >
+  PYTHON — The Patience Hunter. Scans the top ~50 HL crypto perps by 24h volume
+  every 10 min, enters only when 4h structure and 1h agree, 15m momentum
+  confirms, a MACRO/REGIME GATE clears (no counter-trend vs a runaway >10% 4h
+  move), smart-money does NOT oppose (hard block), and a multi-factor composite
+  (4h strength, 1h/1d momentum, LONG-bias, funding, volume, RSI) clears score 8.
+  Holds up to 2 concurrent positions for DAYS. Conviction-tiered: 3x/25% std,
+  5x/30% at >=10, 7x/40% apex at >=12 (clamped to venue max). DSL is the ONLY
+  exit, tuned for patience: loose-early locks, 96h hard timeout. Faithful port of
+  the v2 producer thesis (v1.2 scoring preserved verbatim).
+
+strategy:
+  wallet: "${PYTHON_WALLET}"
+  slots: 2                                # MAX 2 concurrent — wider than single-asset specialists
+  margin_pct: 25                          # PERCENT fallback; scan emits per-signal marginUsd (25/30/40% of equity)
+  default_leverage: 3                     # fallback; scan emits per-signal 3/5/7 by score
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: python_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 600                  # v2 producer cadence (10 min — patience, not rotation)
+    timeout_seconds: 300                   # v2 tick_timeout; up to ~50 candle reads/tick over the universe
+    default_signal_validity_seconds: 1200  # 2x tick; a fresh re-score arrives next tick
+    state_history_max_count: 200           # per-coin signaled-cooldown map + per-tick result history
+    inputs:
+      universeSize: 50                     # top 50 HL crypto perps by 24h volume
+      minOiUsd: 1000000                    # OI > $1M (v2 MIN_OI_USD)
+      minVolUsd: 1000000                   # 24h notional vol > $1M
+      minTraderCount: 30                   # smart-money trader floor (v2 MIN_TRADER_COUNT)
+      minScore: 8                          # v2 MIN_SCORE
+      maxLeverage: 7                       # v2 MAX_LEVERAGE family cap (then clamped to venue max)
+      recentSignalTtlSeconds: 43200        # 12h per-asset cooldown (v2 ASSET_COOLDOWN_MINUTES 720)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      marginUsd: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      trend1h: { type: string, required: false }
+      mom1h: { type: number, required: false }
+      mom4h: { type: number, required: false }
+      mom1d: { type: number, required: false }
+      funding: { type: number, required: false }
+      rsi: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: python_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter
+    scanners: [python_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        # v2 2026-05-21 lesson: maker-only entries silently die during fast moves
+        # (CREATE_ORDER_RESTING) — exactly the trends we want. Cross as taker at the
+        # timeout so the position opens with DSL attached.
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: python_main_signals
+
+# EXIT — DSL, patience profile (ported verbatim from v2): the whole point of
+# Python is to NOT exit early. Loose-early locks let the rare monster winner run;
+# time cuts kept (multi-asset, not single-asset) — 96h hard timeout, 24h dead-weight.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 5760            # 96h = 4 days (pr0br000 max hold 114h)
+    weak_peak_cut:
+      enabled: false                       # v1.2 DISABLED — multi-day patience thesis
+      interval_in_minutes: 2880
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 1440            # 24h no movement
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 10                # <= 10 per review
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # ascending by trigger_pct; first lock REACHABLE at +5% ROE
+        - { trigger_pct: 5,   lock_hw_pct: 15 }
+        - { trigger_pct: 12,  lock_hw_pct: 35 }
+        - { trigger_pct: 25,  lock_hw_pct: 60 }
+        - { trigger_pct: 50,  lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 94 }
+
+risk:
+  data_retention_seconds: 259200           # 72h (v2 data_retention_hours 72)
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 7200                 # 120 min (v2 cooldown_minutes)
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 43200      # 720 min / 12h (v2 per_asset_cooldown_minutes)

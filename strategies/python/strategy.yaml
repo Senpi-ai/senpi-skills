@@ -1,0 +1,44 @@
+# Python — The Patience Hunter. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
+# Python (SKILL.md v2.0.0): a wide-universe multi-day-hold momentum agent that
+# scans the top HL crypto perps by 24h volume, scores each on a multi-factor
+# build_thesis WITH a macro/regime gate, holds up to 2 concurrent positions for
+# days, sizes leverage/margin to conviction, and lets the DSL ride winners.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: python
+version: "1.0.0"
+
+catalog:
+  name: "Python — The Patience Hunter"
+  emoji: "🐍"
+  tagline: "A wide-universe, multi-day-hold momentum agent: scans the top crypto perps by volume, enters only when 4h and 1h trend structure agree, 15m momentum confirms, and smart-money does NOT oppose — then holds up to 2 positions for days, sizing leverage (3/5/7x) and margin (25/30/40%) to conviction and letting a loose-early DSL ride the rare monster winner."
+  belief_plain: "The snake doesn't chase. It waits for the right meal to wander into range across the whole market, then holds tight for days. Don't try to win every trade — try to NOT MISS the one big multi-day winner."
+  thesis: "Every other predator scans fast, strikes, and rotates out within hours. None hold for days — that's a blind spot. Modeled on pr0br000's Arena run (36% win rate, 3:1 win/loss ratio, top-5 winners held 20-114h and drove 90% of profit), Python casts a wide net over the top-50 HL perps, takes a LONG-biased multi-day position when structure and smart-money line up, and refuses to exit early so the rare tail winner can run."
+  group: multi-asset-universe
+  archetype: trend_following
+  sub_style: patience_hunter
+  asset_classes: [major_alts, btc_eth]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 7
+  max_slots: 2
+  min_budget: 200
+  assets: []                         # dynamic universe — top HL crypto perps by 24h volume (no fixed list)
+  tags: [universe, multi-day-hold, momentum, smart-money, conviction-leverage, long-bias, patience-hunter]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PYTHON_WALLET
+    funding_share: 1.0
