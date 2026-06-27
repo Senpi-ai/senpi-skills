@@ -1,0 +1,42 @@
+# Jaguar — Striker rank-jump detector. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 Jaguar
+# (SKILL.md v4.0.2): a derived-universe momentum detector that fires only on violent
+# FIRST_JUMP rank explosions in the smart-money concentration feed, conviction-tiered
+# leverage, DSL-only exits. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: jaguar
+version: "1.0.0"
+
+catalog:
+  name: "Jaguar — Striker Rank-Jump Detector"
+  emoji: "🐆"
+  tagline: "A patient momentum sniper across the whole crypto market: it watches the smart-money leaderboard tick-over-tick and pounces only on a violent rank explosion — an asset rocketing from rank 20+ into the top 10 in one move while 15m smart-money flow is actively building and 4h price agrees — then sizes leverage to conviction (7/10x) and trails a DSL stop."
+  belief_plain: "Most of the time it does nothing. It only acts when an asset suddenly leaps up the smart-money rankings — from far down into the top 10 in a single step — with fresh money still piling in and price moving the same way. One amazing trade per day, not a stream of mediocre ones."
+  thesis: "The best traders rotate violently. When a coin jumps from rank 20+ into the top 10 in one tick with 15m contribution still accelerating, that's smart money piling in fast — a rare, high-conviction setup worth a concentrated strike. Chasing every hot coin bleeds fees; waiting for the violent first jump is the edge."
+  group: multi-asset
+  archetype: breakout_momentum
+  sub_style: rank_jump
+  asset_classes: [universe_crypto]
+  asset_scope: universe           # universe comes from the smart-money leaderboard, not a fixed list (derived)
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: intraday
+  leverage_max: 10
+  max_slots: 2
+  min_budget: 200
+  assets: []                      # derived universe (leaderboard_get_markets); main-DEX crypto only (XYZ banned)
+  tags: [momentum, smart-money, rank-jump, striker, conviction-leverage, multi-asset]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: JAGUAR_WALLET
+    funding_share: 1.0

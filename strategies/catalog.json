@@ -52,6 +52,47 @@
       "sort_order": 1
     },
     {
+      "id": "jaguar",
+      "name": "Jaguar — Striker Rank-Jump Detector",
+      "emoji": "🐆",
+      "tagline": "A patient momentum sniper across the whole crypto market: it watches the smart-money leaderboard tick-over-tick and pounces only on a violent rank explosion — an asset rocketing from rank 20+ into the top 10 in one move while 15m smart-money flow is actively building and 4h price agrees — then sizes leverage to conviction (7/10x) and trails a DSL stop.",
+      "belief_plain": "Most of the time it does nothing. It only acts when an asset suddenly leaps up the smart-money rankings — from far down into the top 10 in a single step — with fresh money still piling in and price moving the same way. One amazing trade per day, not a stream of mediocre ones.",
+      "version": "1.0.0",
+      "thesis": "The best traders rotate violently. When a coin jumps from rank 20+ into the top 10 in one tick with 15m contribution still accelerating, that's smart money piling in fast — a rare, high-conviction setup worth a concentrated strike. Chasing every hot coin bleeds fees; waiting for the violent first jump is the edge.",
+      "tags": [
+        "momentum",
+        "smart-money",
+        "rank-jump",
+        "striker",
+        "conviction-leverage",
+        "multi-asset"
+      ],
+      "group": "multi-asset",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "rank_jump",
+      "sub_style_label": "Catches leaderboard rank-jumps early.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "intraday",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
       "id": "asia-ai",
       "name": "Asia AI — Hedged Sector Long",
       "emoji": "🌏",
