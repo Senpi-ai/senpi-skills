@@ -1,0 +1,133 @@
+# ── PANGOLIN · single instance — extreme funding-rate fader (Runtime 3.0 port of v2 Pangolin) ──
+name: pangolin-main
+group: pangolin
+version: 3.0.0
+description: >
+  PANGOLIN — multi-asset funding-rate fader. Scans every liquid perp (OI > $3M, derived
+  live from market_list_instruments) for funding that has been EXTREME (>= 0.0000228/hr,
+  ~20% annualized) and PERSISTENT (>= 3h) — the crowd is one-sided and paying to hold it.
+  Fades the crowd (enters OPPOSITE the funding-payer side) only when the market funding
+  regime confirms the fade OR is neutral/unavailable, and the smart-money lean isn't
+  fighting the fade. Composite score (funding extremity + persistence + trend + regime +
+  smart-money + sticky-OI + price-reversal) must clear 9. Conservative leverage (3x default,
+  5x at score >= 13 — crowded unwinds are violent). Quiet-hours gate: no entries 00-04 UTC.
+  Collects funding hourly while the crowded position mean-reverts (24-48h thesis). DSL-only
+  exits with a reachable first profit-lock. Faithful port of the v2 producer thesis (v2.2.0);
+  the funding-persistence + exhaustion + fade scoring is reproduced VERBATIM in scoring.py.
+
+strategy:
+  wallet: "${PANGOLIN_WALLET}"
+  slots: 2                                 # v2 strategy.slots = 2
+  default_leverage: 3                      # crowded unwinds are violent; scan emits 3/5 by score
+  trading_risk: conservative               # funding fade is patient — no aggression
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: pangolin_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                   # v2 producer cadence (5 min — funding doesn't move fast)
+    timeout_seconds: 240                    # universe scan + 1 funding-history read per candidate; v2 WARN_OVER_300S budget
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100            # dedup map (emit + post-close) + per-tick scan-result history
+    inputs:
+      dex: ""                               # main DEX only; xyz: names are banned in scan (no funding thesis on equities)
+      minScore: 9                           # v1.4 floor (raised from 7 for persistence + regime points)
+      minFundingRate: 0.0000228             # ~20% annualized floor (HL funding is HOURLY: rate * 8760 * 100). v3.0.1 recalibration.
+      minOiUsd: 3000000                     # liquidity floor — TASK SPEC OI>$3M (v2 producer was 1_000_000; see fidelity note)
+      minPersistenceHours: 3                # hard gate against fresh spikes (v1.4)
+      marginPct: 25                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable. v2 margin_pct=25.
+      leverageTiers: [[13, 5], [9, 3]]      # v1.4 carryover: score>=13 -> 5x, else 3x
+      defaultLeverage: 3
+      quietHoursStartUtc: 0                 # quiet-hours gate (TASK SPEC): no entries 00:00-04:00 UTC
+      quietHoursEndUtc: 4
+      recentSignalTtlSeconds: 14400         # 240m post-EMIT cooldown (v1 ASSET_COOLDOWN_MINUTES)
+      postCloseCooldownSeconds: 14400       # 240m post-CLOSE cooldown (v2.1.2 thrash-cycle guard)
+    signal_data_schema:
+      mode: { type: string }                              # always "FUNDING_FADE"
+      score: { type: number }                             # producer composite (>=9 floor)
+      funding: { type: number }                           # raw funding rate (e.g. 0.0003)
+      annualizedPct: { type: number }                     # annualized funding %
+      persistenceHours: { type: number }                  # how long funding has been extreme
+      leverage: { type: number }                          # producer-asserted (3 or 5 by score)
+      crowdDirection: { type: string, required: false }   # LONG / SHORT
+      regime: { type: string, required: false }           # LONG_CROWDED / SHORT_CROWDED / NEUTRAL / UNKNOWN
+      regimeConfirms: { type: boolean, required: false }  # regime supports the fade?
+      trend: { type: string, required: false }            # INCREASING / DECREASING / STABLE
+      smPctOfTopTraders: { type: number, required: false }
+      smTraderCount: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      priceChg4hPct: { type: number, required: false }
+      oiUsd: { type: number, required: false }
+      oiTurnover: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: pangolin_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                      # the scan already applied every filter (v2 LLM gate was a pass-through rubber-stamp)
+    scanners: [pangolin_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false     # v1 ENTRY patience preserved: cancel-and-skip, don't take. Funding fade isn't urgent.
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: pangolin_main_signals
+
+# EXIT — DSL with maker-exit recovery, ported VERBATIM from v2.2.0.
+#   hard_timeout 720m — funding fade takes 24-48h; 12h cap is the absolute fail-safe
+#   weak_peak DISABLED — time cuts pre-empt the thesis (v1.6 decision)
+#   dead_weight 480m — one full funding cycle (8h); cuts trades that get no funding payment
+#   phase1 max_loss 30% / retrace 10 / 1-breach — 10% price buffer at 3x for funding-induced spikes
+#   phase2 ladder T0 8/50 (FIRST LOCK reachable at ~2.7% price move at 3x), 16/65, 30/85, 50/92
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true          # exits MUST happen — taker fallback is the safety floor at Phase 1 stop
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 720               # 12h fail-safe
+    weak_peak_cut:
+      enabled: false                         # v1.6 disabled — funding fade takes 24-48h
+      interval_in_minutes: 180
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 480               # 8h = one full funding cycle
+    phase1:
+      enabled: true
+      max_loss_pct: 30.0                      # 10% price buffer at 3x
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 50 }   # v2.2: FIRST LOCK at +8% margin ROE (~2.7% price at 3x) — reachable, catches the 6.7-9.7% ZEREBRO peaks
+        - { trigger_pct: 16, lock_hw_pct: 65 }
+        - { trigger_pct: 30, lock_hw_pct: 85 }
+        - { trigger_pct: 50, lock_hw_pct: 92 }   # monster funding-unwind trail
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10                 # v1 implicit via dynamic cap; this is the hard halt
+    drawdown_halt_pct: 25                     # v1 implicit via dynamic cap going to 0 at -25%
+    drawdown_reset_on_day_rollover: true
+    max_consecutive_losses: 5                 # funding fade has long loss streaks; widen
+    cooldown_seconds: 60                      # min cooldown between any two entries; producer manages real per-asset cooldowns
+    per_asset_cooldown_seconds: 14400         # v1 COOLDOWN_MINUTES = 240
+    max_entries_per_day: 12                   # upper bound of v1's dynamic cap (12 at +5% PnL)
+    bypass_max_entries_per_day_on_profit: false

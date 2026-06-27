@@ -1,0 +1,44 @@
+# Kestrel — XYZ Macro Breakout Rider. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 Kestrel
+# (SKILL.md v2.0.0 / producer v3.0.4): a 1H macro-breakout rider across a 12-name
+# non-crypto XYZ universe (Hyperliquid HIP-3 DEX) — commodities (CL, BRENTOIL),
+# precious metals (GOLD), indices (SP500, XYZ100), and high-volume equities (AAPL, NVDA,
+# GOOGL, TSLA, AMZN, META, MSFT). Score-tiered leverage (3x/5x), fixed 30% margin, a
+# 2-position macro book, DSL-only exits. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: kestrel
+version: "1.0.0"
+
+catalog:
+  name: "Kestrel — XYZ Macro Breakout Rider"
+  emoji: "🦅"
+  tagline: "A multi-asset non-crypto XYZ breakout rider: scans 12 macro names (oil, gold, S&P/Nasdaq, mega-cap tech) for a >=1.5% 1H breakout, confirms with 4H trend, volume surge, smart-money lean and funding, then sizes leverage to score (3x/5x) and rides the move with a DSL trailing exit. Holds up to 2 positions; trades 24/7 incl weekends."
+  belief_plain: "Watches a basket of macro markets — crude and Brent oil, gold, the S&P and Nasdaq, and the biggest US tech stocks — and pounces when one breaks out more than 1.5% in an hour with volume behind it. It goes in harder (5x vs 3x) on the cleanest breakouts and trails a stop instead of guessing the exit. These markets trade around the clock, weekends included, so there's no market-hours gate."
+  thesis: "Macro assets move on discrete catalysts — an inventory print, a Fed headline, an earnings beat — and a sharp 1H breakout with volume confirmation usually continues for one to three hours before the move matures. A scanner watching a focused 12-name macro universe can catch that breakout early across commodities, indices and mega-cap equities, weight the 1H magnitude heaviest, confirm with the 4H trend, smart-money lean and funding, and let a trailing DSL lock the move before it fades."
+  group: multi-asset-whitelist
+  archetype: trend_following
+  sub_style: breakout
+  asset_classes: [xyz_commodities, xyz_equities, indices]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: intraday
+  leverage_max: 5
+  max_slots: 2
+  min_budget: 200
+  assets: ["xyz:CL", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SP500", "xyz:XYZ100", "xyz:AAPL", "xyz:NVDA", "xyz:GOOGL", "xyz:TSLA", "xyz:AMZN", "xyz:META", "xyz:MSFT"]
+  tags: [xyz, macro, breakout, oil, gold, indices, equities, multi-asset, 24-7, conviction-leverage]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: KESTREL_WALLET
+    funding_share: 1.0

@@ -1,0 +1,41 @@
+# Condor — One Amazing Trade per Day. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 Condor
+# (SKILL.md v4.0.1): a multi-asset trend-continuation apex sniper that scans the top 50 HL
+# crypto assets and fires at most one position at a time, score-tiered sizing, DSL-only
+# exits. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: condor
+version: "1.0.0"
+
+catalog:
+  name: "Condor — One Amazing Trade per Day"
+  emoji: "🦅"
+  tagline: "Scans the top 50 Hyperliquid crypto assets by volume and fires at most one position at a time — only when 4h, 1h and 15m momentum all align, smart money is >=70% leaning the same way, and the move isn't a runaway counter-trend. Sizes margin to conviction (50/70/80%) at 10x, then rides a wide DSL."
+  belief_plain: "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the best traders all pointing the same direction at once. Then it takes a single, well-sized swing and trails a stop instead of guessing the top."
+  thesis: "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the smart-money leaderboard is heavily lopsided (>=70%) in that same direction — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h."
+  group: momentum
+  archetype: universe_scanner
+  sub_style: trend_continuation
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  leverage_max: 10
+  max_slots: 1
+  min_budget: 200
+  assets: []
+  tags: [momentum, trend-continuation, universe, smart-money, apex-sniper, one-trade-per-day, conviction-sizing]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: CONDOR_WALLET
+    funding_share: 1.0

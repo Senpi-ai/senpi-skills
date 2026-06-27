@@ -1,0 +1,42 @@
+# Pangolin — extreme funding-rate fader. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
+# Pangolin (SKILL.md v3.0.2 / producer thesis v2.2.0): a MULTI-ASSET universe scanner
+# that detects persistent extreme funding (the crowd one-sided for hours) then FADES the
+# crowd at exhaustion. Derived universe — coins come live from market_list_instruments
+# (perps with OI > $3M), never a hardcoded list. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: pangolin
+version: "1.0.0"
+
+catalog:
+  name: "Pangolin — Funding-Rate Fader"
+  emoji: "🦔"
+  tagline: "Scans every liquid perp for funding that has stayed extreme for hours — the crowd piled onto one side and is paying to hold it — then fades that crowd at exhaustion, collecting funding while the over-stretched position mean-reverts."
+  belief_plain: "When everyone crowds the same side of a trade and keeps paying a steep funding fee to stay there for hours, that crowd usually unwinds. Pangolin waits for the crowding to actually persist, checks the smartest traders aren't on the crowd's side, then takes the OTHER side and gets paid funding while it waits for the snap-back."
+  thesis: "Persistent extreme funding is a crowding signal, not noise. A fresh funding spike means nothing — but funding that stays extreme for 3+ hours means real positioning that has to unwind. Fade the crowd only once the regime confirms (or is at least neutral), size conservatively because crowded unwinds are violent, and let the funding you collect pay you to be patient through a 24-48h mean reversion."
+  group: contrarian
+  archetype: funding_fade
+  sub_style: crowd_exhaustion
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: conservative
+  tier: advanced
+  leverage_max: 5
+  max_slots: 2
+  min_budget: 200
+  assets: []
+  tags: [funding-fade, contrarian, crowd-exhaustion, mean-reversion, universe, smart-money, funding-carry]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PANGOLIN_WALLET
+    funding_share: 1.0

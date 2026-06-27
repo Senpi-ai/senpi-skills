@@ -1,0 +1,121 @@
+# ── STAG · single instance — Parabolic-Run Hunter (Runtime 3.0 port of v2 Stag v1.0.0) ──
+name: stag-main
+group: stag
+version: 3.0.0
+description: >
+  STAG — Parabolic-Run Hunter. The entry-side pair for the parabolic_runner DSL preset.
+  Each tick scans a small large-cap whitelist (BTC/ETH/SOL/HYPE) and fires LONG only when
+  ALL FIVE gates pass for an asset: structural trend (close > 200-bar 4h SMA AND 7d high
+  within last 48h), strength (7d move >= 25% — the parabolic threshold), volume surge
+  (recent 6 4h bars / trailing 42 bars >= 1.5x), acceleration (4d move >= 7d move / 2),
+  and Smart Money aligned LONG >= 60%. LONG only. Emits the single highest-scoring
+  candidate. Then the WIDEST DSL in the catalog (parabolic_runner, ported VERBATIM) holds
+  the position through the 5-8% intraday gyrations that would chop out a normal trend
+  trail. Most ticks return empty by design — deploy operator-driven on a forming parabolic.
+  Faithful port of the v2 stag-producer thesis.
+
+strategy:
+  wallet: "${STAG_WALLET}"
+  slots: 1                                # v2 holds 1 position; emits the single best candidate
+  default_leverage: 4                     # v2 DEFAULT_LEVERAGE; runtime clamps to venue + maxLeverage(5)
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: stag_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 600                  # v2 producer cadence (10 min — parabolics don't form in 5min)
+    timeout_seconds: 240                   # v2 tick_timeout; 4 candle reads + 1 SM read/tick
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # per-asset dedup map + per-tick scan-results history
+    inputs:
+      whitelist: ["BTC", "ETH", "SOL", "HYPE"]
+      smaPeriod: 200                       # structural trend filter (~33 days @ 4h)
+      trendLookbackBars: 42                # 7 days @ 4h
+      accelLookbackBars: 24                # 4 days @ 4h
+      freshHighBars: 12                    # 48h — 7d high must be within last 48h
+      minTrendPct: 25.0                    # the "parabolic" threshold
+      strongTrendPct: 40.0                 # +2 score bonus
+      volRecentBars: 6                     # 24h
+      volBaselineBars: 42                  # 7d
+      volSurgeRatio: 1.5                   # gate; >=2.0x adds +1 to score
+      smTiltMinPct: 60                     # SM aligned LONG gate
+      minScore: 5                          # floor (base 3 + bonuses up to ~7)
+      marginPct: 25                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable. v2 fraction 0.25
+      maxLeverage: 5                       # v2 MAX_LEVERAGE; default_leverage 4 unless raised
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      trendPct: { type: number, required: false }
+      shortStrengthPct: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      highBarsAgo: { type: number, required: false }
+      smTiltPct: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: stag_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied all five gates
+    scanners: [stag_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a confirmed parabolic must fill — taker fallback
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: stag_main_signals
+
+# EXIT — DSL `parabolic_runner` preset, the WIDEST in the catalog, ported VERBATIM from
+# the v2 Stag pairing. Late first lock (+15%, no early tier), light early ratchet, wide
+# retrace (18), 2 consecutive breaches required (one bad bar doesn't trip Phase 1), 14d
+# hard_timeout outer bound. weak_peak_cut + dead_weight_cut DELIBERATELY OFF — consolidations
+# are NORMAL here. This wide DSL is INTENTIONAL and is the whole point of Stag — do NOT tighten.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 20160           # 14d — parabolic runs can extend 2-3 weeks
+    # weak_peak_cut + dead_weight_cut deliberately OFF — consolidations are NORMAL here
+    phase1:
+      enabled: true
+      max_loss_pct: 25.0                    # accept deeper initial drawdown to stay on the bus
+      retrace_threshold: 18                 # accommodate 5-8% intraday gyrations
+      consecutive_breaches_required: 2      # one bad bar doesn't trip
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 15,  lock_hw_pct: 0  }   # don't lock anything until +15% — let it build (INTENTIONALLY late)
+        - { trigger_pct: 30,  lock_hw_pct: 30 }   # light early lock
+        - { trigger_pct: 60,  lock_hw_pct: 55 }
+        - { trigger_pct: 120, lock_hw_pct: 72 }
+        - { trigger_pct: 250, lock_hw_pct: 85 }   # apex — only late lock takes most off the table
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 15
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: true
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600
+    per_asset_cooldown_seconds: 86400      # v2 "24h per-asset cooldown after a bad take"
+    max_entries_per_day: 1                 # v2 "1 max entry/day" — aggressive, regime-selective
+    bypass_max_entries_per_day_on_profit: false
