@@ -1,0 +1,41 @@
+# Dire — BRENTOIL XYZ specialist. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 Dire
+# (SKILL.md v2.0.0): news-driven multi-factor scoring on one non-crypto XYZ instrument
+# (xyz:BRENTOIL, Hyperliquid HIP-3 DEX), conviction-tiered leverage, DSL-only exits.
+# First non-crypto port of the Kodiak family. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: dire
+version: "1.0.0"
+
+catalog:
+  name: "Dire — BRENTOIL Oil Specialist"
+  emoji: "🦡"
+  tagline: "A single-asset Brent crude (xyz:BRENTOIL) specialist: enters only when 5m/15m/1h/4h trend all agree AND smart-money (mark/oracle premium) leans the same way, then stacks OI velocity, volume spikes and price cleanliness into a conviction score — sizing leverage to conviction (3/5/7/10x) and letting the DSL ride the news move."
+  belief_plain: "Trades only Brent crude oil. It waits until every timeframe from 5 minutes to 4 hours is pointing the same way and order flow agrees, then goes in harder when more signals line up — and trails a stop instead of guessing the exit. Oil trades around the clock, weekends included."
+  thesis: "Oil moves on discrete news — OPEC decisions, geopolitics, inventory releases — with sharp 2-5% directional bursts and violent reversals after overshoot. An agent that watches only Brent can read its 4-timeframe structure, order-flow premium, OI and volume far more tightly than a broad scanner, catch the clean move early, and lock profit before the snap-back."
+  group: single-asset
+  archetype: single_market
+  sub_style: news_momentum
+  asset_classes: [xyz_commodities]
+  asset_scope: single
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 10
+  max_slots: 1
+  min_budget: 200
+  assets: ["xyz:BRENTOIL"]
+  tags: [oil, brentoil, xyz, commodities, single-asset, news-driven, 4tf, conviction-leverage, 24-7]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: DIRE_WALLET
+    funding_share: 1.0
