@@ -1,0 +1,47 @@
+# Vulture — strategy package deploy manifest (single source of truth for deploy + attribution).
+# A strategy is a PACKAGE: this manifest + one self-contained runtime.yaml + main/scanners/.
+# The runtime SUPERVISES the scanner's scan(inputs, ctx) in-process — there is no separate
+# scanner daemon. A faithful Runtime 3.0 port of the v2 Vulture producer (v4.2.0):
+# LONG_TAIL_MOMENTUM scoring over a 27-coin small-cap whitelist, conviction-scaled leverage,
+# DSL-only exits. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: vulture                  # == package dir name; == the instance runtime.yaml `group`
+version: "1.0.0"             # single source for catalog + MCP attribution (skillName/skillVersion)
+
+catalog:                     # discovery surface. `group` here is the discovery TAXONOMY bucket.
+  name: "Vulture — Small-Cap Momentum Rider"
+  emoji: "🦅"
+  tagline: "Scans a whitelist of ~25 small/mid-cap Hyperliquid perps that no other agent covers (majors and XYZ are banned), and enters when smart-money concentration aligns with a fresh 4h trend, the 1h confirms it isn't a false breakout, and 15m velocity is accelerating — then sizes leverage to conviction (5x, 7x apex), cuts losers fast and rides the right-tail winners for days on a trailing stop."
+  belief_plain: "Hunts the small coins the rest of the fleet ignores. It only buys (or shorts) one when the best traders are crowding in, the 4-hour trend agrees, the 1-hour isn't already rolling over, and short-term momentum is building — then goes in harder on the strongest setups and trails a stop. Most trades are tiny losses cut fast; the occasional big winner pays for everything."
+  thesis: "The biggest blind spot on Hyperliquid is the small/mid-cap long tail — every other agent is locked to the majors or a single asset, so nobody is reading smart-money flow on HEMI, WLD, XPL, AIXBT and the rest. Small caps have a thicker trader-count signal-to-noise ratio than the majors: when smart-money concentration on one aligns with a fresh 4h trend and accelerating 15m velocity, that's a momentum entry with a long right tail. A low win rate is fine when the winners are several times the size of the losers."
+  group: multi-asset-whitelist
+  archetype: trend_following
+  sub_style: basket
+  asset_classes: [major_alts, universe_crypto]
+  asset_scope: basket
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 7
+  max_slots: 2
+  min_budget: 200
+  assets:
+    ["HYPE", "HEMI", "WLD", "MON", "XPL", "AIXBT", "ARB", "ASTER",
+     "POLYX", "LDO", "APT", "DYDX", "ONDO", "SUI", "kBONK", "kPEPE",
+     "TAO", "GRASS", "ZEC", "LIT", "FARTCOIN", "MORPHO", "NEAR", "INJ",
+     "AVAX", "LINK", "DOGE"]
+  tags: [small-cap, momentum, smart-money, long-tail, whitelist, conviction-leverage, multi-asset]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:                    # env VAR NAMES only — never values. Rule-mode: no decision_model_env.
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml       # → runtime name vulture-main, group vulture
+    wallet_env: VULTURE_WALLET        # bound as ${VULTURE_WALLET} in main/runtime.yaml
+    funding_share: 1.0
