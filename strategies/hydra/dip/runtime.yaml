@@ -1,0 +1,117 @@
+# ── HYDRA · DIP sleeve — the TACTICAL ADD of a single-coin conviction fund ──
+# Runtime 3.0 port of v2 runtime-dip.yaml (origin/main, Hydra v2.1). LONG-only pullback
+# buyer inside a confirmed 1d+4h uptrend. DSL preserved EXACTLY: tighter entry-stop than
+# core (the dip can keep falling), then ride the bounce; weak_peak self-limiting ON,
+# time-cuts OFF; FIRST lock reachable (+6% → 30%, the retuned ladder).
+name: hydra-dip
+group: hydra
+version: 3.0.0
+description: >
+  HYDRA DIP — single-coin, LONG-only on the thesis coin (inputs.coin; default ETH, set
+  per deployment): buys a PULLBACK within a confirmed 4h uptrend (1h RSI <= dipRsiMax),
+  then rides the resumed move. Stands down whenever the 4h isn't bullish (and, v2.1, when
+  the 1d doesn't confirm) — so it never knife-catches against the HEDGE sleeve. One
+  position. Pairs with the CORE and HEDGE sleeves on separate wallets; it presses the
+  thesis on the pullbacks the breakout-core misses.
+
+strategy:
+  wallet: "${HYDRA_DIP_WALLET}"
+  slots: 1
+  default_leverage: 3                       # fallback; scan emits per-signal leverage (std 3, clamp 4)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hydra_dip_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300
+    timeout_seconds: 150
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100
+    inputs:
+      # ── PER-COIN PARAMETERIZATION: set `coin` per deployment (mirrors v2 HYDRA_COIN). ──
+      coin: "ETH"                           # thesis asset; SOL / HYPE for the other variants
+      dex: ""
+      leg: "dip"
+      minScore: 4
+      marginPct: 18                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      maxLeverage: 4
+      stdLeverage: 3
+      dipRsiMax: 42                         # v2.1: deeper, real RSI pullback (was 48) — not noise
+      requireDailyAlign: true               # v2.1: only dip-buy inside a 1d+4h confirmed uptrend
+      recentSignalTtlSeconds: 240
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      trend1h: { type: string, required: false }
+      rsi: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hydra_dip_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [hydra_dip_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: hydra_dip_signals
+
+# ── EXIT (DSL — tighter entry-stop, then ride the bounce; ported VERBATIM from main) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 10080
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 360
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 720
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 6, lock_hw_pct: 30 }    # lock earlier — winners here run small (retuned first lock)
+        - { trigger_pct: 12, lock_hw_pct: 50 }
+        - { trigger_pct: 25, lock_hw_pct: 65 }
+        - { trigger_pct: 50, lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 7200                   # v2 cooldown_minutes 120
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400        # v2 per_asset_cooldown_minutes 240
