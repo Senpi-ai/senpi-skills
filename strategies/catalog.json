@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-06-26",
+  "_updated": "2026-06-17",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -121,6 +121,50 @@
       "sort_order": 2
     },
     {
+      "id": "grizzly",
+      "name": "Grizzly — BTC Alpha Hunter",
+      "emoji": "🐻",
+      "tagline": "A single-asset BTC specialist: enters only when 4h and 1h trend structure agree, 15m momentum confirms, smart money leans the same way, and a macro V-recovery gate proves the move isn't a fade right off the 24h extreme — then sizes leverage to conviction (7/10/10x) and lets the DSL ride the winner.",
+      "belief_plain": "Trades only BTC. It waits for the 4-hour and 1-hour trend to agree, momentum to confirm, and the best traders to be leaning the same way — and it refuses to short right off a 24h low (or long right off a 24h high) because those fades whipsaw. It goes in harder when more factors line up, and trails a stop instead of guessing the exit.",
+      "version": "1.0.0",
+      "thesis": "BTC has the deepest liquidity on Hyperliquid and the cleanest trend structure. An agent that watches only BTC can read its multi-timeframe structure, smart-money flow, and funding far more tightly than a broad scanner — and BTC's 4h structure metric lags V-recoveries, so a distance-from-24h-extreme gate stops it from fading a reversal that the candle structure hasn't caught up to yet.",
+      "tags": [
+        "btc",
+        "single-asset",
+        "momentum",
+        "smart-money",
+        "conviction-leverage",
+        "alpha-hunter",
+        "macro-gate"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "alpha_hunter",
+      "sub_style_label": "Multi-factor conviction scoring on one asset, with tiered leverage.",
+      "asset_classes": [
+        "btc_eth"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "BTC"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
       "id": "kodiak",
       "name": "Kodiak — SOL Alpha Hunter",
       "emoji": "🐻",
@@ -161,7 +205,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 1
+      "sort_order": 2
     },
     {
       "id": "whalehunter",
