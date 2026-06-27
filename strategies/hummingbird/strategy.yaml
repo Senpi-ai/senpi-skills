@@ -1,0 +1,41 @@
+# Hummingbird — HYPE onboarding-tier trend follower. A single-instance PACKAGE:
+# this manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime
+# 3.0 port of the v2 Hummingbird (SKILL.md v1.0.0): 4h trend structure + Senpi
+# Smart-Money direction gate on one asset (HYPE), flat 5x leverage, DSL-only exits
+# with a Bison-pattern wide ladder. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: hummingbird
+version: "1.0.0"
+
+catalog:
+  name: "Hummingbird — HYPE Trend Follower"
+  emoji: "🪶"
+  tagline: "An onboarding-tier single-asset HYPE specialist: enters only when the 4h trend structure is directional AND Senpi's Smart-Money leaderboard agrees with that direction (tilt >= 60%) — then holds one flat-5x position and lets a wide DSL ladder ride the trend."
+  belief_plain: "Trades only HYPE. It asks two simple questions — is HYPE trending on the 4-hour chart, and do the best traders agree with that direction? If both are yes, it opens one position and trails a wide stop instead of guessing the exit, so winning trends can run for days."
+  thesis: "New users want one clean decision, not a scattergun across the market. HYPE has the liquidity and the moves, and a one-asset, one-direction strategy with a Smart-Money confirmation gate is the simplest honest answer to 'I'm new to Senpi, where do I start?'"
+  group: single-asset
+  archetype: single_market
+  sub_style: trend_follower
+  asset_classes: [major_alts]
+  asset_scope: single
+  direction: long_short
+  risk_level: balanced
+  tier: beginner
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 200
+  assets: ["HYPE"]
+  tags: [hype, single-asset, trend-follower, smart-money, onboarding, beginner]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: HUMMINGBIRD_WALLET
+    funding_share: 1.0

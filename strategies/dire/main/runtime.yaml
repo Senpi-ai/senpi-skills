@@ -1,0 +1,142 @@
+# ── DIRE · single instance — BRENTOIL XYZ specialist (Runtime 3.0 port of v2 DIRE v2.0.0) ──
+# First non-crypto Kodiak-family port. One asset: xyz:BRENTOIL (Hyperliquid HIP-3 DEX).
+# News-driven oil: 4TF alignment + smart-money (mark/oracle premium proxy) + OI velocity
+# + volume spike + price cleanliness, summed into a 0..13 composite. Conviction-tiered
+# leverage/margin. DSL-only exits. xyz:BRENTOIL trades 24/7 incl weekends — NO market-hours
+# gate (FP-001 quiet-hours is a thin-liquidity filter only, apex bypasses).
+name: dire-main
+group: dire
+version: 3.0.0
+description: >
+  DIRE — single-asset BRENTOIL XYZ (HIP-3) specialist. Enters only when 5m/15m/1h/4h
+  ALL agree on direction (4TF hard gate) AND the mark/oracle premium (smart-money proxy)
+  points the same way (SM hard block), then adds OI-velocity, volume-spike, SM-conviction
+  and price-cleanliness to a 0..13 composite. Floor minScore 11; FP-003 requires all four
+  soft confirmations to fire; FP-001 skips the 00-04 UTC thin-liquidity window unless apex
+  (score >= 12). Conviction-tiered sizing: 3x/20% cautious, 5x/25% standard, 7x/30%
+  conviction, 10x/30% apex (capped at 10x = 50% of HL's 20x BRENTOIL max). DSL is the ONLY
+  exit (early T0 lock at +5% ROE guards oil's V-reversals; later tiers ride geopolitical
+  trends). No BTC correlation (oil is not crypto-correlated). Faithful port of the v2 thesis.
+
+strategy:
+  wallet: "${DIRE_WALLET}"
+  slots: 1                                # single asset, single position
+  default_leverage: 5                     # fallback; scan emits per-signal 3/5/7/10 by score
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: dire_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                  # v2 producer cadence (3 min)
+    timeout_seconds: 150                   # 2 MCP reads/tick (asset_data + clearinghouse)
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick scan-results history (~5h @180s)
+    inputs:
+      asset: "xyz:BRENTOIL"
+      dex: "xyz"                           # HIP-3 DEX — prefix mandatory
+      macroAsset: ""                       # "" DISABLES the BTC-correlation factor (oil is not crypto)
+      minScore: 11                         # v1.6 "hit fewer, win bigger" floor
+      marginPct: 25                        # PERCENT of withdrawable (0,100] — default; scan emits per-tier 20/25/30
+      maxLeverage: 10                      # 50% of HL's 20x BRENTOIL max
+      requireAllConfirmations: true        # FP-003 — all four soft confirmations must fire >= +1
+      quietHoursStartUtc: 0                # FP-001 thin-liquidity window (NOT a market-hours gate)
+      quietHoursEndUtc: 4
+      quietHoursApexBypassScore: 12        # apex setups bypass quiet hours
+      # SM premium thresholds = PRODUCER code defaults (v2 config.json overrode to
+      # 0.0001/0.0003/0.001 — producer defaults preferred per the port directive).
+      smAmbiguousPremiumAbsPct: 0.0001     # below this |premium| -> SM ambiguous -> HARD BLOCK
+      smPremiumModerateAbsPct: 0.001       # |premium| > this -> SM +1
+      smPremiumStrongAbsPct: 0.003         # |premium| > this -> SM +2
+      volumeSpikeThreshold: 2.5            # 15m/1h ratio -> +1
+      volumeSpikeStrongThreshold: 5.0      # 15m/1h ratio -> +2
+      priceCleanlinessMaxWickPct: 1.5      # adverse 5m wick threshold
+      priceCleanlinessLookbackMinutes: 30
+      # sizing tiers — leverage AND margin scale with conviction. marginPct here is a
+      # FRACTION (v2 sizingTiers shape); scan.py multiplies by 100 to emit a PERCENT.
+      sizingTiers:
+        - { minScore: 9,  leverage: 3,  marginPct: 0.20, label: cautious }
+        - { minScore: 10, leverage: 5,  marginPct: 0.25, label: standard }
+        - { minScore: 11, leverage: 7,  marginPct: 0.30, label: conviction }
+        - { minScore: 12, leverage: 10, marginPct: 0.30, label: apex }
+      recentSignalTtlSeconds: 7200         # 120m — mirror the per-asset cooldown
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      marginPct: { type: number, required: false }
+      tier: { type: string, required: false }
+      direction: { type: string }
+      trend4h: { type: string, required: false }
+      trend1h: { type: string, required: false }
+      trend15m: { type: string, required: false }
+      trend5m: { type: string, required: false }
+      smPremiumAbsPct: { type: number, required: false }
+      smDetail: { type: string, required: false }
+      oiChange1h: { type: number, required: false }
+      markPx: { type: number, required: false }
+      priceChange5m: { type: number, required: false }
+      priceChange15m: { type: number, required: false }
+      priceChange1h: { type: number, required: false }
+      priceChange4h: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: dire_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter
+    scanners: [dire_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # trend entry must fill — taker fallback (xyz spreads narrow)
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: dire_main_signals
+
+# EXIT — DSL, preserved verbatim from v2 (v1.7 T0/T1 patch). Oil reverses hard on news
+# overshoot, so the FIRST lock tier is aggressive and REACHABLE: T0 fires at +5% ROE and
+# locks 35% of the high-water (well inside the +10-15% reachable band — never +60-80%).
+# Later tiers capture parabolic geopolitical extensions. Time cuts ALL DISABLED
+# (single-asset family pattern — Phase 1 + Phase 2 own all exits via price action).
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0                   # tighter than Kodiak's 25% — oil tail risk
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 35 }   # T0 — early lock guards V-reversals (REACHABLE)
+        - { trigger_pct: 8,  lock_hw_pct: 50 }   # T1 (v1.7 trigger 10->8, closes T0->T1 dead zone)
+        - { trigger_pct: 20, lock_hw_pct: 70 }   # T2
+        - { trigger_pct: 35, lock_hw_pct: 80 }   # T3
+        - { trigger_pct: 50, lock_hw_pct: 90 }   # T4 — parabolic geopolitical extension
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    drawdown_halt_pct: 15                   # v1.x drawdownGatePct — oil tail risk
+    drawdown_reset_on_day_rollover: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600                  # v2 cooldown_minutes: 60
+    per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes: 120 — BRENTOIL re-entry
+    max_entries_per_day: 2                  # v1.x dailyEntryCap
+    bypass_max_entries_per_day_on_profit: false

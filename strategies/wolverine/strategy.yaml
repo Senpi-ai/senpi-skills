@@ -1,0 +1,42 @@
+# Wolverine — HYPE alpha hunter with a macro/regime gate. A single-instance
+# PACKAGE: this manifest + one self-contained runtime.yaml + scanners/. A faithful
+# Runtime 3.0 port of the v2 Wolverine (SKILL.md v6.1.0): six-gate trend entry on one
+# asset (HYPE) LAYERED with a market-wide funding-regime + funding-persistence gate,
+# a smart-money HARD BLOCK on opposing direction, conviction-tiered leverage, and
+# DSL-only exits. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: wolverine
+version: "1.0.0"
+
+catalog:
+  name: "Wolverine — HYPE Alpha Hunter"
+  emoji: "🦡"
+  tagline: "A single-asset HYPE specialist: six-gate trend entry (4h structure, 1h non-opposition, 15m momentum, base-tech floor, 4h magnitude) layered with a market-wide funding-regime + funding-persistence macro gate and a smart-money HARD BLOCK — then sizes leverage to conviction (3/5x) and lets the DSL ride the winner."
+  belief_plain: "Trades only HYPE. It waits for the 4-hour trend to be strong, the 1-hour to not be fighting it, and short-term momentum to confirm — then checks the broader funding 'crowding' regime and refuses to trade when the best traders are leaning the other way. It goes in harder when more factors line up, and trails a stop instead of guessing the exit."
+  thesis: "HYPE is one of the highest-volatility majors on Hyperliquid. A specialist that watches only HYPE can read its trend structure, smart-money flow, funding regime and persistence far more tightly than a broad scanner — and the macro funding-regime gate keeps it out of crowded, liquidation-prone setups that single-asset momentum alone would walk into."
+  group: single-asset
+  archetype: single_market
+  sub_style: alpha_hunter
+  asset_classes: [major_alts]
+  asset_scope: single
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 200
+  assets: ["HYPE"]
+  tags: [hype, single-asset, momentum, smart-money, funding-regime, macro-gate, conviction-leverage, alpha-hunter]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: WOLVERINE_WALLET
+    funding_share: 1.0

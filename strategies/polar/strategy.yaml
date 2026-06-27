@@ -1,0 +1,42 @@
+# Polar — ETH alpha hunter. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
+# Polar (SKILL.md v5.0.0 / thesis v4.2.0): SM-LED hybrid hunter on one asset (ETH)
+# — smart-money concentration drives direction, structural gates veto, multi-factor
+# conviction scoring, conviction-tiered leverage, DSL-only exits. Install/teardown
+# via senpi-strategy-ops.
+schema_version: 1
+
+id: polar
+version: "1.0.0"
+
+catalog:
+  name: "Polar — ETH Alpha Hunter"
+  emoji: "🧊"
+  tagline: "A single-asset ETH specialist: smart-money concentration picks the side first, then 4h and 1h trend structure must agree, 15m momentum confirms, and funding, open interest, BTC and RSI all add conviction — then sizes leverage to score (5/7/10x) and lets the DSL ride the winner."
+  belief_plain: "Trades only ETH. It first looks at which way the best traders are leaning hard, then only takes it if the 4-hour and 1-hour trend agree and momentum confirms — going in harder when more factors line up, and trailing a stop instead of guessing the exit."
+  thesis: "You want one coin done really well, not a scattergun across the market. ETH has the liquidity and smart-money depth, and a hybrid agent that watches only ETH can read the leaderboard's net lean, candle structure, funding and open interest far more tightly than a broad universe scanner ever could."
+  group: single-asset
+  archetype: single_market
+  sub_style: alpha_hunter
+  asset_classes: [major_alts]
+  asset_scope: single
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  leverage_max: 10
+  max_slots: 1
+  min_budget: 200
+  assets: ["ETH"]
+  tags: [eth, single-asset, smart-money, hyperfeed, momentum, conviction-leverage, alpha-hunter]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: POLAR_WALLET
+    funding_share: 1.0
