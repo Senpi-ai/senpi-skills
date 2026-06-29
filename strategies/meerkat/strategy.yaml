@@ -1,0 +1,44 @@
+# Meerkat — momentum-event sniper. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the
+# v2 Meerkat (SKILL.md v1.0.0): an EVENT-DRIVEN scanner that reads the Senpi
+# momentum-event feed (leaderboard_get_momentum_events), classifies each event's
+# tier + freshness, picks the single best fresh high-tier event, and sizes 15%
+# margin at 4x. DSL-only exits, "let winners run" with a short 36h hard_timeout.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: meerkat
+version: "1.0.0"
+
+catalog:
+  name: "Meerkat — Momentum-Event Sniper"
+  emoji: "🦦"
+  tagline: "A sentry that watches the momentum-event feed and snipes the freshest, highest-tier move the instant it fires: tier (event magnitude) + freshness gate the entry, smart-money alignment and rising volume add conviction, then it takes ONE position in the momentum direction and lets a wide DSL ride the burst."
+  belief_plain: "Watches a live feed of coins that just made a sharp move in the last few hours, and pounces only on the strongest, freshest ones — before the move is widely known. It sizes one bet in the direction of the move and trails a wide stop so a real burst can keep running, but cuts it loose after about a day and a half if it stalls."
+  thesis: "Fresh momentum is the earliest, cleanest edge, and it decays fast — an event that's already 30+ minutes old is half-known and somebody else's trade. So the whole job is speed plus selectivity: only the strongest tiers, only while they're fresh, one position at a time. Smart-money lean and rising volume are confirmation bonuses, not gates, because the event fires faster than that data updates — waiting for confirmation forfeits the edge. A momentum burst pays out fast or it's stale, so a short hard timeout cuts a trade that hasn't moved."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: momentum_event
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 10
+  max_slots: 1
+  min_budget: 200
+  assets: []                # derived universe — coins come from the momentum-event feed each tick, not a fixed list
+  tags: [momentum, momentum-event, sniper, freshness, tier, smart-money, universe-scanner, single-slot, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: MEERKAT_WALLET
+    funding_share: 1.0

@@ -1,0 +1,141 @@
+# ── MEERKAT · single instance — momentum-event sniper (Runtime 3.0 port of v2 Meerkat v1.0.1) ──
+# EVENT-DRIVEN scanner. Reads the Senpi momentum-event feed
+# (leaderboard_get_momentum_events — the 4h rolling-window momentum / rank-jump
+# events), classifies each event's tier (|momentum| magnitude) + freshness,
+# scores tier + freshness + SM alignment + rising volume, and emits ONE signal
+# for the best fresh, high-tier event in the momentum direction. DSL is the ONLY
+# exit (let-winners-run, short 36h hard_timeout). Faithful port of the v2 thesis
+# — see scanners/scoring.py (math reproduced verbatim, v2-quirks flagged).
+name: meerkat-main
+group: meerkat
+version: 3.0.0
+description: >
+  MEERKAT — momentum-event sniper. Watches the Senpi momentum-event feed
+  (leaderboard_get_momentum_events) and snipes the FRESHEST, HIGHEST-TIER events
+  the instant they fire, entering in the momentum direction before the move is
+  broadly known. Tier (event magnitude: 3 >= 10%, 2 >= 5%) + freshness (age <=
+  30min) gate the entry; smart-money alignment + rising 1h volume are score
+  bonuses (not gates). Emits ONE signal/tick for the best event clearing score 4
+  (a fresh tier-2 event), sized 15% margin at 4x. DSL is the ONLY exit:
+  let-winners-run (T0 +10% / lock 0, max_loss 18%) with a SHORT 36h hard_timeout
+  (a momentum burst pays out fast or it is stale) and no weak_peak_cut. Faithful
+  port of the v2 Meerkat v1.0.1 thesis (all scoring/thresholds verbatim).
+
+strategy:
+  wallet: "${MEERKAT_WALLET}"
+  slots: 1                                  # 1-slot sniper (v2 slots: 1)
+  margin_pct: 15                            # baseline %; scan emits the per-signal marginPct (15%)
+  default_leverage: 4                       # fallback; scan emits 1-10x per signal (v2 DEFAULT_LEVERAGE=4)
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: meerkat_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 120                   # v2 producer cadence (2 min — momentum is time-sensitive)
+    timeout_seconds: 90                     # v2 tick_timeout=90; events feed + per-candidate sm + 1h-volume reads
+    default_signal_validity_seconds: 240    # 2x tick; a fresh momentum event re-scores next tick
+    state_history_max_count: 100            # dedup map + per-tick scan-results history
+    inputs:
+      minTier: 2                            # v2 minTier — snipe tier 2+ (set 3 for a pure tier-3 sniper)
+      tier2MinPct: 5.0                      # v2 tier2MinPct — |momentum| for tier 2
+      tier3MinPct: 10.0                     # v2 tier3MinPct — |momentum| for tier 3
+      maxEventAgeMinutes: 30.0              # v2 maxEventAgeMinutes — freshness gate
+      smTiltMinPct: 55                      # v2 smTiltMinPct — SM alignment bonus floor
+      smStrongTiltPct: 70                   # v2 smStrongTiltPct — +1 strong-SM bonus floor
+      minScore: 4                           # v2 minScore — producer floor (fresh tier-2 clears)
+      marginPct: 15                         # PERCENT of withdrawable (0,100]. v2 config marginPct=0.15 (FRACTION) ×100.
+                                            # v2 runtime.yaml had margin_pct:20 — producer/config win per port rule.
+      leverage: 4                           # v2 leverage default; scan clamps to MAX_LEVERAGE=10
+      recentSignalTtlSeconds: 240           # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      tier: { type: number, required: false }
+      magnitudePct: { type: number, required: false }
+      ageMin: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      volRising: { type: boolean, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: meerkat_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [meerkat_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # snipe the move NOW — a maker order that rests (CREATE_ORDER_RESTING)
+                                            # misses a fast momentum burst (v2 entry param, verbatim)
+        execution_timeout_seconds: 30       # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: meerkat_main_signals
+
+# ── EXIT (DSL — let-winners-run preset, ported VERBATIM from v2 v1.0.1) ──
+# A fresh momentum burst can extend, so let it run: wide ladder (T0 +10% / lock 0,
+# REACHABLE), max_loss 18%. But momentum is time-bounded — a burst that hasn't
+# paid out within ~36h is stale, so a SHORT hard_timeout cuts it. No weak_peak_cut
+# (it would churn a burst consolidating before extending). dead_weight_cut off.
+exit:
+  engine: dsl
+  interval_seconds: 60                      # v2 exit interval_seconds
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true         # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30           # v2 exit execution_timeout_seconds
+  dsl_preset:
+    hard_timeout:
+      enabled: true                         # v2: ENABLED — momentum is time-bounded
+      interval_in_minutes: 2160             # v2: 36h — a momentum burst pays out fast or it is stale
+    weak_peak_cut:
+      enabled: false                        # v2: DISABLED — would churn a consolidating burst
+      interval_in_minutes: 360
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                        # v2: DISABLED
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0                     # v2: max_loss 18%
+      retrace_threshold: 10                  # v2 retrace_threshold
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                 # v2 v1.0.1 let-winners-run ladder (verbatim); FIRST lock at +10% (REACHABLE)
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 45 }
+        - { trigger_pct: 35, lock_hw_pct: 65 }
+        - { trigger_pct: 55, lock_hw_pct: 78 }
+        - { trigger_pct: 90, lock_hw_pct: 88 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 172800            # v2 data_retention_hours 48 -> 48*3600 (within [3600, 604800])
+  guard_rails:
+    daily_loss_limit_pct: 15                 # v2 daily_loss_limit_pct
+    max_entries_per_day: 4                   # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3                # v2 max_consecutive_losses
+    cooldown_seconds: 2700                   # v2 cooldown_minutes 45 -> 2700s
+    drawdown_halt_pct: 22                    # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400        # v2 per_asset_cooldown_minutes 240 -> 14400s (4h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

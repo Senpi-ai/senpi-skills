@@ -1,0 +1,151 @@
+# ── LEMUR · single instance — Pre-IPO Perpetual (IPOP) trend follower ─────────
+# Runtime 3.0 port of the v2 LEMUR (SKILL.md v1.0.0 / lemur-producer.py v1.0.1).
+# Auto-discovers IPOPs on Hyperliquid XYZ via the structural funding signature
+# (abs(funding) <= 1e-7 = ~100x smaller than standard XYZ perps) + a pre-listing
+# leverage cap (<=5x) + a $100k liquidity floor. Today's universe: [xyz:SPCX].
+# Long OR short on 4h trend structure + Smart-Money agreement. Moderate DSL —
+# Discovery Bounds throttle IPOP velocity so positions don't snap as fast as
+# normal perps. Faithful port of the v2 producer thesis — see scanners/scoring.py
+# (IPOP filter + scoring reproduced verbatim, v2-quirks flagged).
+#
+# NOTE (runtime.yaml-vs-producer mismatch in v2): the v2 lemur/runtime.yaml was a
+# STALE BTC single-asset template (its description, decision_prompt, slots and
+# `volumeTrendPct` schema field all describe a BTC trend follower). The producer +
+# config/lemur-config.json + SKILL.md are unanimous that LEMUR is an XYZ IPOP
+# universe scanner. Per the port spec, producer+config+SKILL are source-of-truth;
+# this runtime.yaml reflects the IPOP thesis. Only the v2 runtime's DSL + risk
+# guard-rails are carried over (they already matched the SKILL.md IPOP tuning).
+name: lemur-main
+group: lemur
+version: 3.0.0
+description: >
+  LEMUR — Pre-IPO Perpetual (IPOP) trend follower on Hyperliquid XYZ.
+  Auto-discovers IPOPs from the live xyz: instrument list via the trade.xyz
+  structural funding signature (1% funding multiplier => abs(funding) <= 1e-7,
+  ~100x smaller than standard XYZ perps) + a pre-listing leverage cap (<=5x) +
+  a $100k daily-volume floor; XYZ names only, delisted dropped. Today that
+  returns [xyz:SPCX] (SpaceX); it auto-expands when trade.xyz lists more IPOPs
+  and auto-drops a name once it IPOs. Long OR short on 4h trend structure with a
+  Smart-Money direction gate (4-component score, max ~9, minScore 5). Leverage
+  auto-capped to each IPOP's own max_leverage (min of config 3x and the venue 5x
+  cap). One position at a time; a moderate DSL lets multi-day IPOP theses breathe
+  (Phase 1 max_loss 10%, wide Phase 2 ladder, time-cuts disabled — IPOPs trade
+  24/7). Faithful port of the v2 LEMUR v1.0.0 thesis.
+
+strategy:
+  wallet: "${LEMUR_WALLET}"
+  slots: 2                                 # SKILL.md: 2 (small IPOP universe today)
+  margin_pct: 15                           # baseline %; scan emits the marginPct intent per signal
+  default_leverage: 3                      # fallback; scan emits min(config, instrument cap, 5)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: lemur_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900                   # v2 producer cadence (15 min — IPOPs move slower)
+    timeout_seconds: 240                    # v2 tick_timeout; universe + per-asset + sm + account reads
+    default_signal_validity_seconds: 1800   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100            # dedup map + per-tick scan-results history
+    inputs:
+      minScore: 5                           # v2 DEFAULT_MIN_SCORE
+      leverage: 3                           # v2 config default; capped to instrument max + 5x venue cap
+      marginPct: 15                         # PERCENT of withdrawable (0,100]; v2 stored 0.15 fraction
+      smTiltMinPct: 55                      # v2 smTiltMinPct (SM agreement gate)
+      smStrongTiltPct: 70                   # v2 smStrongTiltPct (+1 scoring tier)
+      ipopFundingMaxAbs: 1.0e-7             # IPOP funding signature (abs funding <= 1e-7)
+      ipopMaxLeverageCap: 5                 # IPOP pre-listing leverage cap
+      ipopMinDailyVolUsd: 100000            # IPOP liquidity floor ($100k/day)
+      recentSignalTtlSeconds: 240           # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      trend4hStrength: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+      ipopFlag: { type: boolean, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: lemur_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every gate (v2 LLM gate was pass-through)
+    scanners: [lemur_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # 2026-05-21 lesson: maker-only entries can rest unfilled — taker fallback ON
+        execution_timeout_seconds: 30       # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: lemur_main_signals
+
+# ── EXIT (DSL — ported VERBATIM from v2 lemur/runtime.yaml IPOP block) ─────────
+# Moderate, IPOP-tuned. Time-cuts all DISABLED (IPOPs trade 24/7, multi-day
+# theses welcome). Phase 1 max_loss 10% (Discovery Bounds limit downside
+# velocity). Phase 2 Bison-pattern wide ladder: first lock REACHABLE at +10% ROE
+# (lock 0), through +100% (lock 85). FEE_OPTIMIZED_LIMIT close with taker fallback.
+# interval_seconds 60 (REDUCE_ONLY-spam mitigation).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true         # exit closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: false                        # DISABLED — IPOPs trade 24/7, multi-day theses welcome
+      interval_in_minutes: 1440
+    weak_peak_cut:
+      enabled: false                        # DISABLED
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                        # DISABLED
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 10.0                     # v2: moderate floor (Discovery Bounds limit velocity)
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                # wide-by-design; FIRST lock at +10% ROE (reachable)
+        - { trigger_pct: 10,  lock_hw_pct: 0  }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 lemur/runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200            # v2 data_retention_hours 72 -> 259200s (within [3600,604800])
+  guard_rails:
+    daily_loss_limit_pct: 15                # v2 daily_loss_limit_pct
+    max_entries_per_day: 3                   # v2/SKILL onboarding: fewer-stronger
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3               # v2 max_consecutive_losses
+    cooldown_seconds: 3600                   # v2 cooldown_minutes 60 -> 3600s (post-loss freeze)
+    drawdown_halt_pct: 20                    # v2 drawdown_halt_pct (HARD STOP circuit breaker)
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 21600        # v2 per_asset_cooldown_minutes 360 -> 21600s (6h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

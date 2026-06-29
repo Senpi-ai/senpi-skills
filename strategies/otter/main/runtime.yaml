@@ -1,0 +1,133 @@
+# ── OTTER · single instance — Open Interest Velocity Hunter (Runtime 3.0 port of v2 OTTER v2.0.0) ──
+name: otter-main
+group: otter
+version: 3.0.0
+description: >
+  OTTER — Open Interest Velocity Hunter. The first fleet agent to trade OI delta
+  OVER TIME (not as a snapshot filter). Maintains a rolling 5h OI history per HL
+  crypto perp and fires ONLY when 1h OI delta >= 5% AND 1h price moves >= 0.5% in
+  the same direction — the TOP-LEFT (longs entering) or TOP-RIGHT (shorts entering)
+  quadrant of the OI/price matrix: fresh leveraged positioning with directional
+  conviction. 4h OI must not be net unwinding; OI >= $1M; spread <= 5 bps;
+  per-asset 240min cooldown. Multi-factor confluence scoring (OI tier + 4h confirm
+  + price magnitude + smart-money alignment + spread + time-of-day); MIN_SCORE 9
+  to fire. Score-scaled leverage (5/7/10) at 25% margin; rides 1-3h then a tight
+  DSL locks profit early. Faithful port of the v2 producer thesis (XYZ banned).
+  NOTE: XYZ is filtered by the 'xyz:' name prefix (the live combined instruments
+  response has no dex field — see scan.py).
+
+strategy:
+  wallet: "${OTTER_WALLET}"
+  slots: 2                                 # max 2 concurrent positions (v2 strategy.slots)
+  default_leverage: 5                       # fallback; scan emits per-score 5/7/10 (auto-clamped to venue max)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: otter_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                   # v2 producer cadence (5 min) — defines the OI-history sampling rate
+    timeout_seconds: 240                    # v2 tick_timeout; universe + SM + top-N spread reads/tick
+    default_signal_validity_seconds: 900    # OI velocity decays fast; 15min TTL
+    state_history_max_count: 100            # rolling OI history + cooldowns + dedup map carried tick-to-tick
+    inputs:
+      minScore: 9                           # v2 MIN_SCORE floor
+      minOiDelta1hPct: 5.0                  # v2 MIN_OI_DELTA_1H_PCT — primary signal floor
+      minPriceAlignPct: 0.5                 # v2 MIN_PRICE_ALIGN_PCT — price/OI alignment floor
+      minOiUsd: 1000000                     # v2 MIN_OI_USD — liquidity floor
+      maxSpreadBps: 5                       # v2 MAX_SPREAD_BPS — entry quality gate
+      assetCooldownMinutes: 240             # v2 ASSET_COOLDOWN_MINUTES (defense-in-depth)
+      minSamplesToFire: 12                  # v2 MIN_SAMPLES_TO_FIRE (12 samples = 1h @ 5min)
+      smLimit: 100                          # leaderboard_get_markets aggregation depth
+      spreadCheckTopN: 3                    # v2 main() spread-checked the top 3 eligible
+      marginPct: 25                         # PERCENT of withdrawable (v2 fraction 0.25 ×100); runtime sizes (marginPct/100)*withdrawable
+      recentSignalTtlSeconds: 240           # per-tick race-window dedup
+      # leverageTiers: per-score [min_score, leverage]; omit -> scoring defaults (5/7/10)
+      leverageTiers: [[13, 10], [11, 7], [9, 5]]
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      oiDelta1hPct: { type: number }              # primary signal — 1h OI growth %
+      priceDelta1hPct: { type: number }           # 1h price move %
+      oiUsd: { type: number }                     # current OI in USD
+      oiDelta4hPct: { type: number, required: false }
+      priceDelta4hPct: { type: number, required: false }
+      spreadBps: { type: number, required: false }
+      smAligned: { type: boolean, required: false }
+      smPctOfTopTraders: { type: number, required: false }
+      markPx: { type: number, required: false }
+      samplesInHistory: { type: number, required: false }
+      reasons: { type: string, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: otter_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                      # the scan already applied every hard gate + score floor (v2 LLM was a pass-through rubber-stamp)
+    scanners: [otter_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false     # ENTRIES: cancel-and-skip if maker can't fill in 60s. OI velocity isn't urgent — taker fees would erase the edge.
+        execution_timeout_seconds: 60        # v2 Jackal/Roach standard
+    context:
+      - type: signal
+        scanner: otter_main_signals
+
+# EXIT — DSL, ported VERBATIM from v2 otter runtime.yaml. Otter is short-hold
+# (30-180min typical, 240min hard cap), so the DSL locks profit earlier than
+# long-hold strategies. Phase 2 first lock REACHABLE at +5% ROE (1% price move
+# at 5x — above wick noise, below typical OI-flow follow-through). Phase 1
+# max_loss 12% (~2.4% price stop at 5x). FEE_OPTIMIZED_LIMIT close with taker
+# fallback (flow can reverse violently if leveraged positions unwind).
+exit:
+  engine: dsl
+  interval_seconds: 30                       # v2 exit.interval_seconds
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true          # EXITS: taker fallback as safety floor on Phase 1 stops
+    execution_timeout_seconds: 60            # v2 Jackal/Roach standard
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 240               # 4h positioning thesis horizon
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 60                # if HW ROE < 1.5% in first hour, flow isn't translating
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 90                # flat positions = thesis expired
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                      # ~2.4% price stop at 5x — clean cut on flow reversal
+      retrace_threshold: 5
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 30 }   # +5% ROE = 1% price move at 5x — early profit lock (REACHABLE)
+        - { trigger_pct: 10, lock_hw_pct: 55 }
+        - { trigger_pct: 15, lock_hw_pct: 75 }
+        - { trigger_pct: 20, lock_hw_pct: 85 }   # monster flow continuation (rare but happens)
+
+risk:
+  data_retention_seconds: 259200             # v2 data_retention_hours 72 ×3600 (within [3600, 604800])
+  guard_rails:
+    daily_loss_limit_pct: 8                   # v2 daily_loss_limit_pct
+    max_entries_per_day: 8                    # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4                 # v2 max_consecutive_losses
+    cooldown_seconds: 0                        # v2 cooldown_minutes 0 — scan manages per-asset cooldowns
+    drawdown_halt_pct: 20                      # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400          # v2 per_asset_cooldown_minutes 240 ×60

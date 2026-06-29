@@ -1,0 +1,46 @@
+# Salamander — pullback catcher within an established trend, with a Smart-Money
+# direction gate. A single-instance PACKAGE: this manifest + one self-contained
+# runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 Salamander
+# (SKILL.md v1.0.0): a liquid-majors basket (BTC/ETH/SOL) that LONGs a 3-7% dip
+# inside a bullish 4h trend / SHORTs a 3-7% rally inside a bearish 4h trend, gated
+# by the Senpi smart-money leaderboard, with an asymmetric DSL (wide Phase 1 so a
+# pullback has room to develop, wide Phase 2 to let the resumed trend run).
+# Salamander is the pullback half of the Hawk(breakouts)/Salamander(pullbacks)
+# technical-pattern pair. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: salamander
+version: "1.0.0"
+
+catalog:
+  name: "Salamander — Pullback Catcher"
+  emoji: "🦎"
+  tagline: "An onboarding-grade pullback trader on the liquid majors (BTC/ETH/SOL): buys a 3-7% dip inside an established bullish 4h trend (and shorts a 3-7% rally inside a bearish one) only when the smart-money leaderboard agrees with the trend direction, then gives the entry room on a wide Phase 1 while a wide Phase 2 ratchet lets the resumed trend run."
+  belief_plain: "Watches BTC, ETH and SOL. When one is in a clear up-trend on the 4-hour chart and dips 3-7% on the 1-hour chart while the best traders are still leaning long, it buys the dip; in a down-trend it shorts a 3-7% bounce. It needs all three to line up — trend, dip-in-the-band, and smart money agreeing — then it gives the trade room to work and trails a wide stop so the trend can keep running."
+  thesis: "Pullbacks inside an established trend are one of the highest-edge setups: the trend has already proved itself, the counter-move offers a better entry, and a smart-money agreement filter screens out trend-break risk. The 3-7% band is the sweet spot — shallower is noise, deeper means the trend may be breaking, so you don't catch a falling knife. Because a resolved pullback resumes a trend that can run far, the exit is asymmetric: a wide Phase 1 floor lets the dip develop without a premature cut, and a wide Phase 2 ratchet (first lock only at +10% ROE) keeps the continuation that pays for the quiet weeks."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: pullback
+  asset_classes: [major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: starter
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 200
+  assets: ["BTC", "ETH", "SOL"]
+  tags: [btc, eth, sol, multi-asset, pullback, buy-the-dip, short-the-rally, smart-money, trend-continuation, onboarding, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: SALAMANDER_WALLET
+    funding_share: 1.0

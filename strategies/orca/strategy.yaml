@@ -1,0 +1,43 @@
+# Orca — Gen-1 Vanilla Striker. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 ORCA
+# (SKILL.md / producer v4.0.1): a UNIVERSE scanner that watches the top-50 smart-money
+# leaderboard markets, detects fresh FIRST_JUMP / IMMEDIATE_MOVER rank explosions, and
+# strikes ONCE at a fixed 7x. DSL-only exits, "let winners run".
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: orca
+version: "1.0.0"
+
+catalog:
+  name: "Orca — Gen-1 Vanilla Striker"
+  emoji: "🐋"
+  tagline: "A universe rank-jump sniper: watches the top-50 smart-money leaderboard every tick and fires only on a fresh FIRST_JUMP — a coin exploding 15+ ranks out of the deep field with 4h trend, 15m freshness, and a volume spike all confirming — then strikes ONE position at a fixed 7x and lets the DSL ride the breakout."
+  belief_plain: "Watches which coins the best traders are suddenly piling into and only acts when a name rockets up the leaderboard from deep in the pack — a fresh jump, not an already-crowded top name. It wants the move to be young (climbing fast in the last 15 minutes), going the same way the price is, and backed by a real volume spike before it takes a single shot."
+  thesis: "The edge is in the FIRST jump, not the established leader. By the time a coin sits at the top of the smart-money board the move is priced in; the asymmetric entry is the moment a name explodes 15+ ranks out of the deep field (prev-rank >= 25) while its 4h trend, 15m contribution velocity, and 24h volume all confirm the same direction at once. That confluence is rare and decays fast, so the right move is to scan often (90s), strike once at a fixed 7x the instant it fires, skip the already-top names, and let a ratcheting DSL — not a fixed target — decide the exit so the occasional big breakout pays for the quiet weeks."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: rank_jump
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 7
+  max_slots: 3
+  min_budget: 200
+  assets: []                # derived universe — coins come from the top-50 SM leaderboard each tick, not a fixed list
+  tags: [smart-money, momentum, breakout, rank-jump, first-jump, striker, universe-scanner, fixed-leverage]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: ORCA_WALLET
+    funding_share: 1.0

@@ -1,0 +1,42 @@
+# Owl — Pure Contrarian Crowding-Unwind Hunter. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 Owl
+# (SKILL.md v8.0.1 / producer v8.0.1, thesis frozen at v7.1): counter-trade crowded crypto
+# perps once crowding persists >=1h AND exhaustion confluence fires, fade the crowd, MACRO
+# gate, conviction-scaled leverage (7/8/10), DSL-only exits. Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: owl
+version: "1.0.0"
+
+catalog:
+  name: "Owl — Contrarian Crowding-Unwind Hunter"
+  emoji: "🦉"
+  tagline: "Scans every liquid Hyperliquid crypto perp (OI > $3M) for one-sided crowding — extreme funding + lopsided smart money + concentrated OI — then waits for that crowding to persist 1h+ AND for exhaustion to fire (volume fading, price stalling, RSI divergence) before fading the crowd. Conviction-scaled leverage (7/8/10) at 25% margin, with a macro gate that stands down when BTC's 4h move is extreme."
+  belief_plain: "The crowd is wrong at the extremes. When everyone piles onto one side of a coin — paying punishing funding, the best traders all leaning the same way, open interest stacking up — and the price then stops following through, the unwind is violent and predictable. Owl waits for both the crowded state AND the exhaustion trigger, then takes the other side. Most days it does nothing, because most days one or both is missing."
+  thesis: "Crowded trades unwind violently. Owl's edge is timing the unwind: it never fades on crowding alone (which can persist and grind), it waits for crowding to PERSIST 1h+ and for distinct exhaustion signals (declining volume under extreme funding, price stalling against the crowd, capitulation wicks, 4h RSI divergence) to confirm the move is dying. Mean reversion fails in trending macro, so a hard gate blocks all fades when |BTC 4h| > 3%. XYZ banned — the funding/smart-money scoring is calibrated on crypto data shape."
+  group: contrarian
+  archetype: contrarian_fade
+  sub_style: sm_crowding
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 10
+  max_slots: 2
+  min_budget: 200
+  assets: []
+  tags: [contrarian, fade, crowding, funding-extreme, smart-money, exhaustion, mean-reversion, universe, macro-gate]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: OWL_WALLET
+    funding_share: 1.0

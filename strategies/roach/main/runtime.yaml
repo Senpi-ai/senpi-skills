@@ -1,0 +1,149 @@
+# ── ROACH · single instance — Striker-only smart-money rank-jump sniper ──────
+# Runtime 3.0 port of the v2 Roach (SKILL.md v3.0.0 / runtime.yaml v1.3.0). A
+# UNIVERSE scanner over the top-50 smart-money leaderboard markets: detects violent
+# FIRST_JUMP / IMMEDIATE_MOVER rank-jump explosions, gated by 4h-trend alignment,
+# 1h price confirmation, cc_15m >= 0.5 freshness, score >= 10 (4+ reasons), and
+# 1.5x volume confirmation. XYZ banned at scan level. Stalker mode permanently
+# disabled. Long stretches of silence are EXPECTED and correct — the patience is
+# the edge. Faithful port of the v2 producer thesis — see scanners/scoring.py
+# (detection math reproduced verbatim, v2-quirks flagged).
+name: roach-main
+group: roach
+version: 3.0.0
+description: >
+  ROACH — Striker-only smart-money rank-jump sniper. Scans the top-50 smart-money
+  leaderboard markets (leaderboard_get_markets) every tick, detects violent
+  FIRST_JUMP from #25+ (rank jump >= 15 OR contribVelocity >= 15) and IMMEDIATE_MOVER
+  explosions, then gates on a hard 4h-trend block, cc_15m >= 0.5 freshness, 1h price
+  alignment >= 0.1%, composite score >= 10 with 4+ reasons, and 1.5x volume
+  confirmation. XYZ equities banned at scan level. Stalker mode permanently disabled.
+  Fixed sizing: 25% margin, 7x leverage. DSL exits with maker-first FEE_OPTIMIZED_LIMIT
+  (fee recovery): Phase 1 max_loss 18% / 3-retrace, Phase 2 ratchet (5/40, 10/55,
+  15/75, 20/85), hard_timeout 120min, weak_peak 45min, dead_weight 25min. Faithful
+  port of the v2 Roach v3.0.0 thesis (all detection thresholds verbatim).
+
+strategy:
+  wallet: "${ROACH_WALLET}"
+  slots: 2                                # v2 strategy.slots = 2 (v2 reopened from v1.3 lockdown of 1)
+  margin_pct: 25                          # baseline %; scan emits marginPct per signal (v2 marginUsd $250 == 25% of design budget)
+  default_leverage: 7                     # v2 default_leverage 7 (v1.1 ceiling; fallback, scan emits 7 per signal)
+  trading_risk: moderate                  # v2 strategy.trading_risk = moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: roach_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 90                   # v2 producer cadence (90s tick)
+    timeout_seconds: 180                   # v2 tick_timeout=180 (markets + up to ~N per-asset volume reads)
+    default_signal_validity_seconds: 270   # 3x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # scan-history (60 scans) + per-asset cooldown map + per-tick result
+    inputs:
+      topN: 50                             # v2 TOP_N (markets scored per scan)
+      leaderboardLimit: 100                # v2 fetch_markets limit=100
+      maxHistoryScans: 60                  # v2 MAX_HISTORY_SCANS (rank-jump history depth)
+      assetCooldownSeconds: 7200           # v2 ASSET_COOLDOWN_MINUTES=120 -> 7200s (producer-side emit suppression)
+      leverage: 7                          # v2 DEFAULT_LEVERAGE (ROACH_LEVERAGE)
+      marginPct: 25                        # PERCENT of withdrawable (0,100]; v2 marginUsd $250 == 25% of design budget
+      minVolRatio: 1.5                     # v2 MIN_VOL_RATIO (v1.1 loosened from 2.0)
+    signal_data_schema:
+      mode: { type: string }                                       # always "STRIKER" (Stalker disabled)
+      score: { type: number }                                      # composite score (>=10 in v1.1+)
+      rankJump: { type: number }                                   # current vs previous scan rank delta
+      currentRank: { type: number }                               # rank at signal time
+      prevRank: { type: number, required: false }
+      contribVelocity: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      priceChg4h: { type: number, required: false }
+      priceChg1h: { type: number, required: false }
+      cc15m: { type: number, required: false }
+      traders: { type: number, required: false }
+      contribution: { type: number, required: false }
+      isFirstJump: { type: boolean, required: false }
+      isContribExplosion: { type: boolean, required: false }
+      reasons: { type: string, required: false }                  # joined " | " (array won't pass strict schema)
+      leverage: { type: number }                                  # producer-asserted; runtime enforces
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: roach_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [roach_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # Roach is breakout-thesis: an invalidated breakout that can't maker-fill
+                                           # is more dangerous than a saved fee (v2 entry rationale, verbatim).
+        execution_timeout_seconds: 60      # v2 entry execution_timeout_seconds (15s/30s fall to taker; 60s lands maker)
+    context:
+      - type: signal
+        scanner: roach_main_signals
+
+# ── EXIT (DSL — ported VERBATIM from v2 runtime.yaml v1.3.0 / SKILL.md v3.0.0) ──
+# v1 used MARKET orders for SL/TP (every close took the HL taker fee). v2 switches to
+# FEE_OPTIMIZED_LIMIT with maker-first + 60s + taker fallback — expected recovery
+# ~50-70% of HL exit fees. Taker fallback preserved: an invalidated striker breakout
+# that can't maker-fill is more dangerous than a saved fee.
+# DSL preset numbers preserved from v1.2 + v2.1 ratchet patch:
+#   hard_timeout 120min  (v1.1: 25 -> 120, strikers need runway)
+#   weak_peak_cut 45min @ min 3.0 (v1.1 widening)
+#   dead_weight_cut 25min (v1.1: 8 -> 25)
+#   phase1 max_loss 18% / retrace 3 / 1 breach (preserved)
+#   phase2 tiers v2.1 ratchet (T0 5/40, T1 10/55, 15/75, 20/85) — first lock REACHABLE
+#     at +5% ROE (NOT +40% — well within reach of realistic Striker winners).
+exit:
+  engine: dsl
+  interval_seconds: 30                     # v2 exit.interval_seconds
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # Roach exits MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60          # v2 exit execution_timeout_seconds (gives ALO a real chance)
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 120             # v1.1: 25 -> 120 (strikers need runway)
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 45              # v1.1: 12 -> 45
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 25              # v1.1: 8 -> 25
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0
+      retrace_threshold: 3
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # v2.1 fleet-wide DSL ratchet patch (verbatim)
+        - { trigger_pct: 5,  lock_hw_pct: 40 }   # v2.1: trigger 7 -> 5
+        - { trigger_pct: 10, lock_hw_pct: 55 }   # v2.1: trigger 12 -> 10
+        - { trigger_pct: 15, lock_hw_pct: 75 }
+        - { trigger_pct: 20, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml v1.3.0; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # v2 data_retention_hours 72 -> 259200s
+  guard_rails:
+    daily_loss_limit_pct: 10               # v2 daily_loss_limit_pct
+    max_entries_per_day: 6                  # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false  # v2 bypass_max_entries_per_day_on_profit
+    max_consecutive_losses: 3              # v2 max_consecutive_losses
+    cooldown_seconds: 1800                 # v2 cooldown_minutes 30 -> 1800s (post-loss freeze)
+    drawdown_halt_pct: 25                  # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: true   # v2 drawdown_reset_on_day_rollover
+    per_asset_cooldown_seconds: 7200       # v2 per_asset_cooldown_minutes 120 -> 7200s (matches producer-side filter)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false             # v2 dsl_notify_sl_updates
+  action_lifecycle: true

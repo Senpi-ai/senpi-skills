@@ -1,0 +1,126 @@
+# ── FALCON · single instance — Conversion-Event Momentum (Runtime 3.0 port of v2 FALCON v1.0.1) ──
+name: falcon-main
+group: falcon
+version: 3.0.0
+description: >
+  FALCON — Conversion-Event Momentum (XYZ Pre-IPO -> equity). A Pre-IPO Perpetual
+  (IPOP) carries a structural funding signature (|funding| <= ~1e-7, max_leverage <= 5)
+  and is price-throttled by trade.xyz Discovery Bounds. When the company IPOs the
+  product CONVERTS to a standard equity perp — funding jumps ~100x, the leverage cap
+  lifts, the throttle is removed — opening a window of free price discovery. Each tick
+  Falcon classifies every xyz instrument IPOP vs STANDARD, detects IPOP->STANDARD flips
+  against a class cache, stamps flips into a conversionWindowHours eligibility window,
+  and emits the single highest-scoring name with confirmed post-conversion momentum.
+  Wide let-winners-run DSL (7d hard_timeout); one position at a time. Faithful port of
+  the v2 producer thesis. Distinct from Lemur, which trades the IPOP basket itself.
+
+strategy:
+  wallet: "${FALCON_WALLET}"
+  slots: 1                                # one conversion trade at a time
+  default_leverage: 4                     # v2 DEFAULT_LEVERAGE; scan emits clamped per-instrument cap (auto-clamped to venue max)
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: falcon_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 600                  # v2 producer cadence (10 min — conversions are rare, a window lasts days)
+    timeout_seconds: 240                   # v2 tick_timeout; universe scan + per-candidate candle/SM reads
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # class cache + conversion window + dedup map + per-tick results
+    inputs:
+      ipopFundingMaxAbs: 1.0e-7            # |funding| <= this -> IPOP funding signature
+      ipopMaxLeverageCap: 5                # AND max_leverage <= this -> IPOP
+      conversionWindowHours: 72            # eligibility window after a detected flip
+      momentumLookbackBars: 6              # 1h bars for the post-conversion momentum read
+      minMomentumPct: 3.0                  # |move| floor to call a discovery trend
+      strongMomentumPct: 8.0               # |move| for the strong-momentum score bonus
+      smTiltMinPct: 55                     # SM tilt for the agreement bonus
+      smStrongTiltPct: 70                  # SM tilt for the strong-SM bonus
+      minScore: 5                          # v2 minScore floor (max score ~8)
+      marginPct: 15                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      leverage: 4                          # v2 DEFAULT_LEVERAGE; clamped to per-instrument cap and 10x in scan
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      momentumPct: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      volumeTrendPct: { type: number, required: false }
+      conversionEvent: { type: boolean, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: falcon_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan applied the conversion gate + momentum gate + score floor; v2 LLM gate was pass-through
+    scanners: [falcon_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # enter the discovery move — a resting maker (CREATE_ORDER_RESTING) misses the post-conversion run
+        execution_timeout_seconds: 30      # v2 entry timeout
+    context:
+      - type: signal
+        scanner: falcon_main_signals
+
+# EXIT — DSL, ported VERBATIM from v2 falcon runtime.yaml (let-winners-run preset).
+# Post-conversion price discovery can trend for days as a real spot reference arrives
+# and the leverage cap lifts. Wide ladder (T0 +10% / lock 0), max_loss 20%, time-cuts
+# OFF except a 7d hard_timeout. Phase 1 retrace trailing only. NO weak_peak_cut /
+# dead_weight_cut — they would churn a slow-developing discovery trend.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 10080           # 7d — a conversion discovery trend can run for days
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 360
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 12
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0 }
+        - { trigger_pct: 20,  lock_hw_pct: 40 }
+        - { trigger_pct: 35,  lock_hw_pct: 60 }
+        - { trigger_pct: 60,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+risk:
+  data_retention_seconds: 345600           # v2 data_retention_hours 96 (×3600); within [3600, 604800]
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 2                  # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 7200                  # v2 cooldown_minutes 120 (2h post-loss freeze)
+    drawdown_halt_pct: 25
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 43200       # v2 per_asset_cooldown_minutes 720 (12h)

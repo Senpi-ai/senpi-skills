@@ -1,0 +1,142 @@
+# ── PIRANHA · single instance — liquidation-cascade / forced-flow hunter ──────
+# Runtime 3.0 port of the v2 Piranha (SKILL.md v1.0.0, producer v1.0.1). Crypto-
+# majors whitelist (BTC/ETH/SOL/HYPE), forced-flow scoring (OI unwind + violent
+# move + ongoing 5m + thin book + volume spike + SM align, max ~9), flat 15%
+# margin, 1-5x leverage (default 4), DSL exits (wide ratchet + 24h hard_timeout —
+# forced flow is short-horizon). Faithful port of the v2 producer thesis — see
+# scanners/scoring.py (math reproduced verbatim).
+name: piranha-main
+group: piranha
+version: 3.0.0
+description: >
+  PIRANHA — liquidation-cascade / forced-flow hunter on crypto majors
+  (BTC/ETH/SOL/HYPE). Enters when open interest is unwinding fast (positions
+  force-closing, >=3% over 1h) AND price is moving violently (>=2% over 1h) AND
+  the 5m candle is still moving the same way — riding the forced flow: OI down +
+  price up = shorts squeezed -> LONG; OI down + price down = longs liquidated ->
+  SHORT. Thin book on the move side + volume spike + smart-money alignment add
+  conviction (max ~9). Flat 15% margin, 1-5x leverage (default 4). DSL is the
+  ONLY exit — wide ratchet ladder (first lock at +10% ROE) so a squeeze can run,
+  with a 24h hard_timeout outer bound (forced flow resolves fast). Faithful port
+  of the v2 Piranha v1.0.1 thesis (all scoring/thresholds verbatim).
+
+strategy:
+  wallet: "${PIRANHA_WALLET}"
+  slots: 1                                 # v2 strategy.slots 1
+  margin_pct: 15                           # baseline %; scan emits the flat marginPct per signal
+  default_leverage: 4                      # fallback; scan emits 1-5x per signal (default 4)
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: piranha_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                   # v2 producer cadence (3 min — forced-flow windows are short)
+    timeout_seconds: 150                    # v2 tick_timeout=150; up to ~1 read/asset + sm + account
+    default_signal_validity_seconds: 360    # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100            # dedup map + OI cache + per-tick scan-results history
+    inputs:
+      universe: ["BTC", "ETH", "SOL", "HYPE"] # v2 universe (validated live on HL main DEX 2026-06-29)
+      minScore: 5                           # v2 minScore (producer floor)
+      oiDropMinPct: 3.0                      # v2 oiDropMinPct — OI must fall >= this % (1h) to confirm forced flow
+      oiDropStrongPct: 6.0                   # v2 oiDropStrongPct — strong-unwind bonus threshold
+      priceMoveMinPct: 2.0                   # v2 priceMoveMinPct — 1h move magnitude that marks "violent"
+      volSpikePct: 50.0                      # v2 volSpikePct — 5m volume-spike bonus threshold
+      marginPct: 15                          # PERCENT of withdrawable (0,100]; flat (v2 marginPct 0.15 -> 15)
+      leverage: 4                            # clamped to <= 5 in scan.py (MAX_LEVERAGE)
+      recentSignalTtlSeconds: 240            # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      oiChangePct: { type: number, required: false }
+      oiSource: { type: string, required: false }
+      move1hPct: { type: number, required: false }
+      move5mPct: { type: number, required: false }
+      bidDepth: { type: number, required: false }
+      askDepth: { type: number, required: false }
+      volumeTrendPct: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: piranha_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                      # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [piranha_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true      # forced-flow entries must fill NOW — a maker order would rest
+                                             # and miss the move (CREATE_ORDER_RESTING). Taker fallback on.
+        execution_timeout_seconds: 30        # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: piranha_main_signals
+
+# ── EXIT (DSL — ported VERBATIM from v2 runtime.yaml) ─────────────────────────
+# A squeeze can extend far, so let it run; but forced flow is short-horizon, so a
+# 24h hard_timeout is the outer bound. Phase 1 max_loss 18% cuts a cascade that
+# reverses on you (V-shaped). weak_peak_cut / dead_weight_cut off. Phase 2 first
+# lock at +10% ROE (reachable — NOT the unreachable +40% case). order_type
+# FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true          # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30            # v2 exit execution_timeout_seconds
+  dsl_preset:
+    hard_timeout:
+      enabled: true                          # v2: ENABLED — forced flow resolves fast; 24h outer bound
+      interval_in_minutes: 1440              # 24h
+    weak_peak_cut:
+      enabled: false                         # v2: DISABLED
+      interval_in_minutes: 120
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                         # v2: DISABLED
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0                      # v2 phase1 max_loss_pct
+      retrace_threshold: 8                    # v2 phase1 retrace_threshold
+      consecutive_breaches_required: 1        # v2 phase1 consecutive_breaches_required
+    phase2:
+      enabled: true
+      tiers:                                  # v2 phase2 ladder verbatim; FIRST lock at +10% ROE (reachable)
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 25 }
+        - { trigger_pct: 30, lock_hw_pct: 40 }
+        - { trigger_pct: 50, lock_hw_pct: 60 }
+        - { trigger_pct: 75, lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200             # v2 data_retention_hours 72 -> 72h
+  guard_rails:
+    daily_loss_limit_pct: 15                  # v2 daily_loss_limit_pct
+    max_entries_per_day: 4                     # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false  # v2 bypass_max_entries_per_day_on_profit
+    max_consecutive_losses: 3                 # v2 max_consecutive_losses
+    cooldown_seconds: 3600                     # v2 cooldown_minutes 60 -> 3600s
+    drawdown_halt_pct: 22                      # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false      # v2 drawdown_reset_on_day_rollover
+    per_asset_cooldown_seconds: 10800          # v2 per_asset_cooldown_minutes 180 -> 10800s (3h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

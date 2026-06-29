@@ -1,0 +1,145 @@
+# ── ORCA · single instance — Gen-1 Vanilla Striker (Runtime 3.0 port of v2 ORCA v4.0.1) ──
+# UNIVERSE scanner. Scans the top-50 smart-money leaderboard markets (leaderboard_get_markets)
+# every tick, detects FIRST_JUMP / IMMEDIATE_MOVER rank explosions (rank-jump >= 15 off a
+# prev-rank >= 25), scores the base Striker model (score >= 9 with a 4-reason floor: first-jump,
+# immediate, contrib-explosion, velocity, deep-climber, climbing, US-session), confirms the 15m
+# freshness gate + volume (>=1.5x), and emits ONE signal for the single strongest candidate at a
+# FIXED 7x and 18% margin. XYZ banned, max 3 positions, 120-min per-asset cooldown. DSL is the
+# ONLY exit ("let winners run"). Faithful port of the v2 producer thesis — see scanners/scoring.py
+# (math reproduced verbatim, v2-quirks flagged).
+name: orca-main
+group: orca
+version: 3.0.0
+description: >
+  ORCA — Gen-1 Vanilla Striker. Universe rank-jump sniper: scans the top-50 smart-money
+  leaderboard markets every tick and fires only on a fresh FIRST_JUMP / IMMEDIATE_MOVER
+  explosion (rank-jump >= 15 off a prev-rank >= 25, 4h-aligned, 15m-fresh, volume >=1.5x)
+  that clears the base Striker score 9 with a 4-reason floor. Emits ONE signal for the single
+  strongest candidate at a FIXED 7x and 18% margin. XYZ banned, max 3 positions. DSL is the
+  ONLY exit ("let winners run": T0 +10% / lock 0, the rare big mover pays for the quiet weeks).
+  Faithful port of the v2 ORCA v4.0.1 thesis (all scoring/thresholds verbatim).
+
+strategy:
+  wallet: "${ORCA_WALLET}"
+  slots: 3                                 # v2 MAX_POSITIONS=3
+  margin_pct: 18                           # baseline %; scan emits the marginPct intent per signal
+  default_leverage: 7                      # v2 fixed 7x (MIN==MAX==DEFAULT); scan venue-clamps
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: orca_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 90                    # v2 producer_daemon interval_seconds=90
+    timeout_seconds: 120                    # v2 tick_timeout=120 (markets + per-candidate volume/limits reads)
+    default_signal_validity_seconds: 180    # 2x tick; a fresh re-score arrives next tick (rule action)
+    state_history_max_count: 100            # rank-history window (5 scans) + emit-cooldown/dedup maps
+    inputs:
+      minScore: 9                           # v2 STRIKER_MIN_SCORE
+      maxPositions: 3                       # v2 MAX_POSITIONS (producer-side held/slot guard; mirrors slots:3)
+      topN: 50                              # v2 TOP_N — score only the top-50 SM markets
+      leaderboardLimit: 100                 # v2 fetch_markets limit=100
+      leverageDefault: 7                    # v2 DEFAULT_LEVERAGE/MIN_LEVERAGE/MAX_LEVERAGE (fixed 7), venue-clamped in scan.py
+      marginPct: 18                         # PERCENT of withdrawable (0,100]; v2 MARGIN_PCT=0.18 (fraction) -> 18%
+      minVolRatio: 1.5                      # v2 STRIKER_MIN_VOL_RATIO (volume confirmation)
+      xyzBanned: true                       # v2 XYZ_BANNED — drop dex==xyz / xyz: markets
+      # ── cooldowns (v2 assetCooldownMinutes=120; runtime per-asset gate is primary) ──
+      perAssetCooldownSeconds: 7200         # v2 assetCooldownMinutes=120 -> 7200s (emit-time analogue)
+      recentSignalTtlSeconds: 7200          # signal-dedup TTL (mirrors per-asset cooldown)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      mode: { type: string, required: false }
+      currentRank: { type: number, required: false }
+      rankJump: { type: number, required: false }
+      isFirstJump: { type: boolean, required: false }
+      isContribExplosion: { type: boolean, required: false }
+      contribVelocity: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      contribution: { type: number, required: false }
+      traders: { type: number, required: false }
+      priceChg4h: { type: number, required: false }
+      reasons: { type: string, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: orca_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [orca_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT       # v2 entry order_type
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # v2: a fresh-jump strike must fill — taker fallback at 60s
+        execution_timeout_seconds: 60       # v2 execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: orca_main_signals
+
+# ── EXIT (DSL — ported VERBATIM from v2 runtime.yaml v4.0.1) ──────────────────
+# v2 v4.0.1 "let winners run" ladder. Phase 2 FIRST lock is REACHABLE at +10% (lock 0)
+# — let a +10% mover retrace fully before any profit lock so the rare +50-100% trend
+# isn't capped (the HYPE post-mortem migrated Orca to the Bison ladder). Phase 1
+# max_loss 20%, retrace 8 (raised 3->8 in the 2026-05-21 HYPE post-mortem). Time cuts
+# preserved verbatim from v2 (hard_timeout 45m, weak_peak_cut 25m/3.0, dead_weight 15m).
+# order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
+exit:
+  engine: dsl
+  interval_seconds: 30                      # v2 exit interval_seconds=30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true                         # v2: enabled, 45m
+      interval_in_minutes: 45
+    weak_peak_cut:
+      enabled: true                         # v2: enabled, 25m / min_value 3.0
+      interval_in_minutes: 25
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: true                         # v2: enabled, 15m
+      interval_in_minutes: 15
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0                     # v2 phase1.max_loss_pct
+      retrace_threshold: 8                   # v2: raised 3->8 (HYPE post-mortem) to give trends room
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                 # v2 v4.0.1 "let winners run" ladder (verbatim)
+        - { trigger_pct: 10,  lock_hw_pct: 0 }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200            # v2 data_retention_hours 72 -> 259200s (within [3600, 604800])
+  guard_rails:
+    daily_loss_limit_pct: 15                # v2 guard_rails.daily_loss_limit_pct
+    max_entries_per_day: 6                  # v2 guard_rails.max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3               # v2 guard_rails.max_consecutive_losses
+    cooldown_seconds: 1800                  # v2 cooldown_minutes:30 -> 1800s (post-loss cooldown)
+    drawdown_halt_pct: 25                   # v2 guard_rails.drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false   # v2: avoid the next-day reset leak
+    per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes:120 -> 7200s (2h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

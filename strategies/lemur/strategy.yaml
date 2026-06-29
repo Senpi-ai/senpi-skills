@@ -1,0 +1,43 @@
+# Lemur — Pre-IPO Perpetual (IPOP) trend follower. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port
+# of the v2 Lemur (SKILL.md v1.0.0): auto-discovers IPOPs on Hyperliquid XYZ via the
+# trade.xyz funding signature (~100x smaller funding) + a <=5x pre-listing leverage cap
+# + a $100k liquidity floor, then trades 4h trend structure with a Smart-Money gate.
+# Today's universe is [xyz:SPCX]; long OR short; moderate DSL-only exits. Install/teardown
+# via senpi-strategy-ops.
+schema_version: 1
+
+id: lemur
+version: "1.0.0"
+
+catalog:
+  name: "Lemur — Pre-IPO Perpetual Trend Follower"
+  emoji: "🦤"
+  tagline: "Trades pre-IPO companies as perpetuals on Hyperliquid XYZ — today just SpaceX (xyz:SPCX). Auto-discovers IPOPs via the trade.xyz funding signature (~100x smaller funding) plus a <=5x pre-listing leverage cap and a $100k liquidity floor, then goes long or short when the 4h trend structure and Smart-Money lean agree. Leverage auto-caps to each name's own ceiling; a moderate DSL lets multi-day theses ride."
+  belief_plain: "Hyperliquid XYZ is one of the only places retail can trade private companies (like SpaceX) as perpetuals before they IPO. Lemur watches those pre-IPO names, waits for the 4-hour trend and the best traders to point the same way, then takes a single directional position and trails a stop. When a company actually goes public it stops qualifying and Lemur drops it automatically."
+  thesis: "Pre-IPO perpetuals (IPOPs) are a structurally distinct product — a 0.005 funding multiplier (vs 0.5 for standard XYZ perps) and Discovery Bounds that throttle price velocity. That structural funding signature reliably identifies them with no hardcoded ticker list, so the universe future-proofs itself as trade.xyz lists new names and de-qualifies any that IPO. On those slow-moving names, a clean 4h trend confirmed by Smart-Money direction is enough edge to hold a directional swing and let a wide DSL ratchet capture the multi-day move."
+  group: momentum
+  archetype: single_market
+  sub_style: pre_ipo
+  asset_classes: [pre_ipo]
+  asset_scope: single
+  direction: long_short
+  risk_level: moderate
+  tier: starter
+  leverage_max: 5
+  max_slots: 2
+  min_budget: 200
+  assets: ["xyz:SPCX"]
+  tags: [pre-ipo, ipop, spacex, xyz, equities, trend-following, smart-money, auto-discovery, hyperliquid]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: LEMUR_WALLET
+    funding_share: 1.0
