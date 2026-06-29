@@ -4,7 +4,11 @@
 The agent (LLM) runs this via the OpenClaw `exec` tool with discrete flags; it reads the JSON on
 stdout, RANKS the returned set itself (on risk / belief / worldview / thesis), and narrates 2-3 cards.
 
-  python3 discover.py --assets btc_eth --direction long_only
+`exec` runs from the workspace, NOT this skill dir — `cd` into the skill first (or use an absolute
+path) so the relative invocation resolves:
+
+  cd "$OPENCLAW_STATE_DIR/skills/senpi-strategy-discover" && \
+    python3 scripts/discover.py --assets btc_eth --direction long_only
 
 Contract (see docs/strategy-discover/discovery-architecture.md):
 - The SCRIPT only does CONCRETE set logic: it hard-rejects on the few unambiguous, explicitly-stated
