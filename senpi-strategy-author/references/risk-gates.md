@@ -32,7 +32,7 @@ Every signal that reaches `open-position` triggers a real-time gate check via MC
 
 ```yaml
 risk:
-  data_retention_hours: 72
+  data_retention_seconds: 259200    # 72h
   guard_rails:
     daily_loss_limit_pct: 15          # halt new entries after a -15% day
     drawdown_halt_pct: 25             # circuit breaker on a -25% PnL drawdown from peak

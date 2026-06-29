@@ -1,0 +1,43 @@
+# Sailfish — relative-strength rotator (crypto majors). A single-instance PACKAGE:
+# this manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0
+# port of the v2 Sailfish (SKILL.md v1.0.0 / producer v1.0.1): ranks BTC/ETH/SOL/HYPE
+# by ~2.7d 4h relative strength each tick and longs the leader, gated by a
+# leader-RS floor + margin-vs-runner-up to avoid whipsaw. Single-position; producer
+# never closes — DSL-mediated rotation (held leader exits via the DSL trail, next
+# tick re-enters the new leader). Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: sailfish
+version: "1.0.0"
+
+catalog:
+  name: "Sailfish — Relative-Strength Rotator"
+  emoji: "🐠"
+  tagline: "Always hold the strongest major: ranks BTC/ETH/SOL/HYPE by ~2.7-day relative strength each tick and longs the leader, with a leader-RS floor and a margin-vs-runner-up gate to avoid whipsaw on tight races. Single-position; when the held leader exits via the DSL trail, the next tick re-evaluates and enters the new leader — that's the rotation."
+  belief_plain: "Trades only the big, liquid coins (BTC, ETH, SOL, HYPE). Each cycle it measures which one has been strongest over the last few days and buys that one — but only if it is clearly ahead of the next-best, not in a photo finish. It never sells on its own; a trailing stop manages the exit, and when one leader is done, the next-strongest takes its place."
+  thesis: "Among the majors, leadership tends to persist — when one decisively outperforms the others it usually keeps doing so for days. Rotating into the strongest captures that persistence, while the margin-vs-runner-up gate keeps the agent out of tight, whipsaw-prone races where 'the leader' flips every tick. Rotation is realized through the DSL exit (not a mid-position close), so leadership changes only cost a fill when the old leader is genuinely finished — never on noise."
+  group: momentum
+  archetype: trend_following
+  sub_style: relative_strength_rotation
+  asset_classes: [major_alts]
+  asset_scope: whitelist
+  direction: long_only
+  risk_level: balanced
+  tier: advanced
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 200
+  assets: ["BTC", "ETH", "SOL", "HYPE"]
+  tags: [btc, eth, sol, hype, multi-asset, momentum, relative-strength, rotation, single-position, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: SAILFISH_WALLET
+    funding_share: 1.0

@@ -46,7 +46,7 @@ strategy:
   enabled: true
 
 risk:
-  data_retention_hours: 72
+  data_retention_seconds: 259200    # 72h
   guard_rails:
     daily_loss_limit_pct: 4
     max_entries_per_day: 6

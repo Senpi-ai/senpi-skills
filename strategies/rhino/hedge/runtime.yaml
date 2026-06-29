@@ -116,7 +116,7 @@ exit:
         - { trigger_pct: 140, lock_hw_pct: 90 }
 
 risk:
-  data_retention_hours: 168
+  data_retention_seconds: 604800       # 168h (was data_retention_hours: 168)
   guard_rails:
     daily_loss_limit_pct: 8
     max_entries_per_day: 3                # the hedge turns over slowly

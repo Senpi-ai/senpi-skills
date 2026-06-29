@@ -72,7 +72,7 @@ Risk gates are checked before every trade entry. If any gate is not "OPEN", the 
 
 ```yaml
 risk:
-  data_retention_hours: 72    # How long to keep PnL history (max 168 = 7 days)
+  data_retention_seconds: 259200    # PnL history retention; integer 3600-604800 (1h-7d)
   guard_rails:
     daily_loss_limit_pct: 4           # Stop if daily loss exceeds 4%
     max_entries_per_day: 6            # Max 6 entries per UTC day

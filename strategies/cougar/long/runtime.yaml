@@ -107,7 +107,7 @@ exit:
         - { trigger_pct: 100, lock_hw_pct: 88 }
 
 risk:
-  data_retention_hours: 168
+  data_retention_seconds: 604800       # 168h (was data_retention_hours: 168)
   guard_rails:
     daily_loss_limit_pct: 12
     max_entries_per_day: 6                # basket rotation as equity leadership shifts
