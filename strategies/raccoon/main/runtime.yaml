@@ -1,0 +1,124 @@
+# ── RACCOON · single instance — Weekend XYZ Reconciliation (Runtime 3.0 port of v2 RACCOON v1.0.1) ──
+name: raccoon-main
+group: raccoon
+version: 3.0.0
+description: >
+  RACCOON — weekend XYZ reconciliation trader. ONLY fires during the trade.xyz
+  no-external-price window (Fri 22:00 UTC -> Mon 00:00 UTC) when XYZ runs on its
+  internal 30-min EWMA oracle. Scans the live XYZ universe (non-delisted, 24h vol
+  >= $1M, max_leverage >= 10 to exclude 5x IPOPs which are Lemur's territory),
+  detects a >= 2% 48h directional move with volume confirmation + smart-money
+  agreement (tilt >= 55%), and positions in that direction to capture the Monday-
+  open snap-back when external pricing resumes. Emits ONE best candidate at 15%
+  margin / 3x (5x cap). Tight DSL: Phase 1 12% max_loss, Phase 2 locks fast at
+  +5%, hard_timeout 48h forces a Monday-open exit. Faithful port of the v2 thesis.
+  NOTE: the v2 runtime.yaml was a STALE BTC-trend template; the producer + config
+  + SKILL define the weekend-XYZ thesis above — this port follows those.
+
+strategy:
+  wallet: "${RACCOON_WALLET}"
+  slots: 3                                 # SKILL.md slots 3
+  default_leverage: 3                       # fallback; scan emits 3x (5x cap; auto-clamped to venue max)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: raccoon_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                   # v2 producer cadence (5 min)
+    timeout_seconds: 180                    # v2 tick_timeout; universe-sized per-asset MCP reads/tick
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100            # dedup map + per-tick scan-results history
+    inputs:
+      minVolUsd: 1000000                    # universe liquidity floor (24h notional)
+      minMaxLeverage: 10                    # excludes 5x IPOPs (Lemur's territory)
+      minScore: 5                           # v2 DEFAULT_MIN_SCORE / config minScore
+      minMoveAbsPct: 2.0                    # 48h directional-move gate
+      smTiltMinPct: 55                      # SM-agreement floor (gate)
+      smStrongTiltPct: 70                   # SM strongly-tilted scoring bonus
+      marginPct: 15                         # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+      leverage: 3                           # v2 DEFAULT_LEVERAGE (clamped to 5 in scan)
+      recentSignalTtlSeconds: 240           # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      movePct: { type: number, required: false }
+      volRatio: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      weekendWindow: { type: boolean, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: raccoon_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every hard gate (weekend window, move, SM agreement + tilt) + score floor
+    scanners: [raccoon_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false    # ALO patience on entry (v2 entry)
+        execution_timeout_seconds: 30       # v2 entry timeout
+    context:
+      - type: signal
+        scanner: raccoon_main_signals
+
+# EXIT — DSL, ported VERBATIM from the v2 runtime.yaml exit block (consistent with
+# SKILL.md's weekend-tuned DSL table). Tight: Phase 1 12% max_loss (retrace 8),
+# Phase 2 locks FAST at +5% (lock 30%) to bank the reconciliation snap, hard_timeout
+# 48h forces a Monday-open exit so positions don't camp through the next week. Time
+# cuts (weak_peak/dead_weight) DISABLED. FEE_OPTIMIZED_LIMIT close with taker fallback.
+exit:
+  engine: dsl
+  interval_seconds: 60                      # v2: 60s (REDUCE_ONLY spam mitigation)
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true         # exit closes MUST happen — taker fallback is the floor
+    execution_timeout_seconds: 30           # v2 exit timeout
+  dsl_preset:
+    hard_timeout:
+      enabled: true                         # 48h — forces Monday-open exit
+      interval_in_minutes: 2880
+    weak_peak_cut:
+      enabled: false                        # DISABLED (v2)
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                        # DISABLED (v2)
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,   lock_hw_pct: 30 }    # lock fast on the reconciliation snap (REACHABLE)
+        - { trigger_pct: 10,  lock_hw_pct: 50 }
+        - { trigger_pct: 20,  lock_hw_pct: 65 }
+        - { trigger_pct: 35,  lock_hw_pct: 75 }
+        - { trigger_pct: 60,  lock_hw_pct: 85 }
+
+risk:
+  data_retention_seconds: 259200            # v2 data_retention_hours 72 -> 72*3600
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 4                   # v2 onboarding cap
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600                   # v2 cooldown_minutes 60
+    drawdown_halt_pct: 20                    # HARD STOP circuit breaker
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 28800        # v2 per_asset_cooldown_minutes 480 (8h)

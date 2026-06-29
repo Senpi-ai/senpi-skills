@@ -1,0 +1,44 @@
+# Piranha — liquidation-cascade / forced-flow hunter. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of
+# the v2 Piranha (SKILL.md v1.0.0, producer v1.0.1): a crypto-majors whitelist scanner
+# (BTC/ETH/SOL/HYPE) that rides forced flow — OI unwinding fast + a violent price move +
+# an ongoing 5m candle — scores it (max ~9), picks the single strongest candidate, and
+# sizes flat 15% margin at 1-5x. DSL-only exits, wide ratchet + 24h hard_timeout.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: piranha
+version: "1.0.0"
+
+catalog:
+  name: "Piranha — Liquidation-Cascade / Forced-Flow Hunter"
+  emoji: "🐟"
+  tagline: "Rides forced flow on crypto majors (BTC/ETH/SOL/HYPE): when open interest is unwinding fast (positions being force-closed) AND price is moving violently AND the 5-minute candle is still pushing the same way, it takes ONE position in the direction of the flow, sized 1-5x, and lets a wide DSL ratchet ride the squeeze with a 24h outer bound."
+  belief_plain: "A liquidation cascade is the cleanest momentum in crypto — it's forced flow, not opinion. When lots of positions are being force-closed at once, price gets shoved hard in one direction and the move feeds on itself until the leverage is flushed. Piranha reads the order flow underneath price (open-interest velocity + order-book depth) to confirm the move is forced, then rides it: OI down + price up = shorts squeezed, go long; OI down + price down = longs liquidated, go short."
+  thesis: "Most agents react to price; the edge is reading the forced flow beneath it. Open interest dropping fast means positions are closing under duress, and when that coincides with a violent move and a thinning book on the side price is running into, there is little resistance left and the cascade continues. That signature is short-horizon and self-resolving, so the right move is one conviction entry in the flow direction, a wide ratchet that lets a squeeze extend, and a 24h hard timeout because if the cascade hasn't paid in a day it's over."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: liquidation_cascade
+  asset_classes: [major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 200
+  assets: ["BTC", "ETH", "SOL", "HYPE"]
+  tags: [btc, eth, sol, hype, multi-asset, momentum, liquidation-cascade, forced-flow, open-interest, order-flow, microstructure, single-slot]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: PIRANHA_WALLET
+    funding_share: 1.0

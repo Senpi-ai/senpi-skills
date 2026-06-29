@@ -1,0 +1,136 @@
+# ── SHEEP · single instance — long-only triple-EMA-stacked trend follower ─────
+# Runtime 3.0 port of the v2 Sheep (SKILL.md v1.0.0, producer v1.0.1). Crypto-
+# majors whitelist (BTC/ETH/SOL/HYPE), fires LONG only when fast EMA > slow EMA
+# on ALL THREE timeframes (15m + 1h + 4h). Never shorts. Score boosts from 4h/1h
+# spread magnitude + smart-money tilt (SM is a bonus, never a gate). Balanced
+# DSL, ONBOARDING TIER. Faithful port — see scanners/scoring.py (math verbatim).
+name: sheep-main
+group: sheep
+version: 1.0.0
+description: >
+  SHEEP — long-only triple-EMA-stacked trend follower on crypto majors
+  (BTC/ETH/SOL/HYPE). Fires LONG only when the fast EMA is above the slow EMA on
+  ALL THREE timeframes (15m + 1h + 4h) for a whitelisted asset. Never shorts — a
+  triple-timeframe stack is a visual rule a beginner can sanity-check on any
+  chart. Score = 3 (full stack) + bonuses for wider 4h spread (>=1%), wider 1h
+  spread (>=0.5%), and aligned smart-money lean (>=55%, +1 strong >=70%); floor
+  minScore 4. Single best emit/tick, 20% margin, 3x (cap 5x). DSL is the ONLY
+  exit (balanced preset: max_loss 12%, 72h hard_timeout, weak_peak_cut at 6h/3%,
+  laddered phase-2 lock). Faithful port of the v2 Sheep v1.0.0 thesis. ONBOARDING.
+
+strategy:
+  wallet: "${SHEEP_WALLET}"
+  slots: 1                                 # v2 strategy.slots 1
+  margin_pct: 20                           # baseline %; scan emits the per-signal marginPct
+  default_leverage: 3                      # fallback; scan emits 3x (cap 5x) per signal
+  trading_risk: conservative
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: sheep_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # v2 tick_timeout=180; ~1 read/asset + sm + account
+    default_signal_validity_seconds: 600   # 2x tick; a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      whitelist: ["BTC", "ETH", "SOL", "HYPE"]  # v2 whitelist (validated live on HL main DEX 2026-06-29)
+      emaFast: 9                           # v2 emaFast / DEFAULT_EMA_FAST
+      emaSlow: 21                          # v2 emaSlow / DEFAULT_EMA_SLOW
+      minStackedFrames: 3                  # v2 minStackedFrames (3 = require all three timeframes)
+      smTiltMinPct: 55                     # v2 smTiltMinPct / DEFAULT_SM_TILT_MIN (SM bonus floor)
+      smStrongTiltPct: 70                  # v2 smStrongTiltPct / DEFAULT_SM_STRONG (+1 strong bonus)
+      minScore: 4                          # v2 minScore / DEFAULT_MIN_SCORE (floor)
+      marginPct: 20                        # PERCENT of withdrawable (0,100]; v2 fraction 0.20 -> 20
+      leverage: 3                          # clamped to [1,5] in scan.py (MAX_LEVERAGE=5)
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      spread4hPct: { type: number, required: false }
+      spread1hPct: { type: number, required: false }
+      stackScore: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: sheep_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [sheep_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # ride the trend NOW — a maker order that rests
+                                           # (CREATE_ORDER_RESTING) misses extension (v2 entry param).
+        execution_timeout_seconds: 30      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: sheep_main_signals
+
+# ── EXIT (DSL — balanced preset, ported VERBATIM from v2 runtime.yaml) ─────────
+# Trends extend; Sheep participates in extension while protecting against
+# reversal. Balanced ladder + max_loss 12% + weak_peak_cut to bail from
+# flat-but-tired positions. Phase-2 first lock at +8% ROE (reachable on real
+# winners). interval_seconds 60 (fleet-standard REDUCE_ONLY-spam mitigation).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 4320            # 72h — trends can develop over days
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 360             # 6h
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # first lock at +8% ROE (reachable)
+        - { trigger_pct: 8,  lock_hw_pct: 0 }
+        - { trigger_pct: 15, lock_hw_pct: 40 }
+        - { trigger_pct: 25, lock_hw_pct: 60 }
+        - { trigger_pct: 40, lock_hw_pct: 75 }
+        - { trigger_pct: 70, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # 72h (was data_retention_hours 72)
+  guard_rails:
+    daily_loss_limit_pct: 12               # v2 risk.daily_loss_limit_pct
+    max_entries_per_day: 3                  # v2 risk.max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 risk.max_consecutive_losses
+    cooldown_seconds: 3600                 # v2 risk.cooldown_minutes 60 -> 3600s
+    drawdown_halt_pct: 20                  # v2 risk.drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400      # v2 risk.per_asset_cooldown_minutes 240 -> 14400s (4h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

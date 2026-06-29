@@ -1,0 +1,45 @@
+# Roach — Striker-only smart-money rank-jump sniper. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of
+# the v2 Roach (SKILL.md v3.0.0): a UNIVERSE scanner over the top-50 smart-money
+# leaderboard markets that detects violent FIRST_JUMP / IMMEDIATE_MOVER rank-jump
+# explosions, gates them hard (4h trend, 1h price, cc_15m freshness, score >= 10 w/ 4+
+# reasons, 1.5x volume), and emits at fixed 25% margin / 7x leverage. Stalker mode
+# permanently disabled. DSL-only exits with maker-first fee recovery. "Silence is correct."
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: roach
+version: "1.0.0"
+
+catalog:
+  name: "Roach — Striker Rank-Jump Sniper"
+  emoji: "🪳"
+  tagline: "A patient striker: watches the top-50 smart-money leaderboard and fires only on violent FIRST_JUMP / IMMEDIATE_MOVER rank explosions confirmed by 4h trend, 1h price, fresh 15m velocity, and a 1.5x volume spike — then sizes one bet and lets a tight ratchet ride it. Long silences are expected and correct."
+  belief_plain: "Cockroaches survive by not moving when there's nothing to chase. Roach watches which coins the best traders are suddenly piling into — a coin violently jumping up the leaderboard — and only buys when that rank-jump is backed by the 4-hour trend, the last hour's price, fresh momentum, and a real volume spike all agreeing. Most of the time it does nothing; the patience is the edge."
+  thesis: "Most leaderboard movement is noise. Real edge is a violent, fresh rank-jump — a coin exploding from #25+ into the top of the smart-money board in a single scan — but only when it's confirmed by trend, price, fresh velocity, and volume at the same instant. Those explosions are rare, so the right move is to ban equities, demand a high composite score with multiple confirmations, take the few that qualify at fixed 7x sizing, and let a ratcheting DSL stop bank the move. Stalker-style accumulation entries were removed — fewer, higher-quality strikes beat more, mixed ones."
+  group: smart-money
+  archetype: breakout_momentum
+  sub_style: rank_jump
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 7
+  max_slots: 2
+  min_budget: 200
+  assets: []                # derived universe — coins come from the top-50 SM leaderboard each tick, not a fixed list
+  tags: [smart-money, breakout, rank-jump, first-jump, immediate-mover, universe-scanner, striker, volume-confirmed, patient]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: ROACH_WALLET
+    funding_share: 1.0

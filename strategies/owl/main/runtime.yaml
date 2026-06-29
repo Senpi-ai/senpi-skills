@@ -1,0 +1,141 @@
+# ── OWL · single instance — Pure Contrarian Crowding-Unwind Hunter (Runtime 3.0 port of v2 OWL v8.0.1) ──
+name: owl-main
+group: owl
+version: 3.0.0
+description: >
+  OWL — pure contrarian crowding-unwind hunter. Scans EVERY liquid HL crypto perp
+  (OI > $3M, no top-N truncation; XYZ banned) for one-sided crowding (extreme funding +
+  lopsided smart money + concentrated OI), waits for crowding to PERSIST >=1h AND for
+  exhaustion confluence to fire (volume declining, price stalling vs the crowd, capitulation
+  wick, 4h RSI divergence), then fades the crowd. Combined score >=12 to fire; conviction-
+  scaled leverage (7/8/10 by score) at 25% margin. MACRO_TREND_GATE blocks all fades when
+  |BTC 4h move| > 3% (mean reversion fails in trending regimes). One emit/tick; the runtime
+  sizes, owns cooldowns/risk gates/slots, and trails the DSL exit. Faithful port of the v2
+  producer thesis (frozen at v7.1). NOTE: XYZ is filtered by the 'XYZ:' name prefix (the live
+  combined instruments response carries no dex field — see scan.py).
+
+strategy:
+  wallet: "${OWL_WALLET}"
+  slots: 2                                 # v2 strategy.slots: 2
+  default_leverage: 8                      # fallback; scan emits per-score 7/8/10 (auto-clamped to venue max)
+  trading_risk: moderate                   # v2 trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: owl_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900                   # v2 producer cadence (15 min)
+    timeout_seconds: 600                    # v2 tick_timeout 600; universe scan does many per-asset MCP reads
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100            # crowding persistence ledger + cooldown map + per-tick result history
+    inputs:
+      minOiUsd: 3000000                     # v2 MIN_OI_USD — $3M liquidity floor; ALL perps above it (no top-N)
+      smLimit: 200                          # v2 leaderboard_get_markets limit=200
+      minCrowdingScore: 6                   # v2 MIN_CROWDING_SCORE (v6.2)
+      minPersistHours: 1                    # v2 MIN_PERSIST_HOURS (v6.0)
+      belowThresholdTolerance: 2            # v2 BELOW_THRESHOLD_TOLERANCE (v5.3 noise-tick guard)
+      minExhaustionScore: 5                 # v2 MIN_EXHAUSTION_SCORE
+      minExhaustionSignals: 2               # v2 MIN_EXHAUSTION_SIGNALS
+      minCombinedScore: 12                  # v2 MIN_COMBINED_SCORE (v6.0)
+      minFundingAnnualizedPct: 12           # v2 MIN_FUNDING_ANNUALIZED_PCT (v5.2)
+      macroGateBtc4hPct: 3.0                # v2 MACRO_GATE_BTC_4H_PCT (v7.1)
+      assetCooldownMinutes: 360             # v2 ASSET_COOLDOWN_MINUTES — 6h post-emit per-asset cooldown
+      marginPct: 25                         # PERCENT of withdrawable (0,100]; v2 MARGIN_PCT 0.25 (fraction) x100
+      # leverageTiers: per-score [min_score, leverage]; omit -> scoring defaults (7/8/10 by score)
+      leverageTiers: [[16, 10], [14, 8], [12, 7]]
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      crowdDirection: { type: string }
+      crowdingScore: { type: number }
+      exhaustionScore: { type: number }
+      persistenceHours: { type: number }
+      fundingAnnualizedPct: { type: number, required: false }
+      smTilt: { type: number, required: false }
+      smLongPct: { type: number, required: false }
+      oiUsd: { type: number, required: false }
+      priceChg4hPct: { type: number, required: false }
+      rsi4h: { type: number, required: false }
+      peakCrowdingScore: { type: number, required: false }
+      exhaustionSignals: { type: string, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: owl_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every hard gate + score floor + cooldown
+    scanners: [owl_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false    # ENTRIES: cancel-and-skip if maker can't fill in 60s. Contrarian unwinds aren't urgent at detection.
+        execution_timeout_seconds: 60       # v2 owl_entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: owl_main_signals
+
+# EXIT — DSL, ported VERBATIM from the v2 v8.0.1 dsl_preset block. Owl is patient on
+# entries (1h persistence) but contrarian entries retrace hard before working: Phase 1
+# max_loss 35% gives the thesis room; Phase 2 starts at +5% (Lemon-pattern first-leg
+# capture) because the unwind's first leg is reliable but 50%+ extensions are rare.
+# FIDELITY: the v2 runtime DESCRIPTION prose said "retrace 15, 3 breaches" but the v2
+# dsl_preset BLOCK had retrace_threshold 8 / consecutive_breaches_required 1 — the
+# structured block wins (source-of-truth order); flagged in the port report.
+exit:
+  engine: dsl
+  interval_seconds: 30                      # v2 exit.interval_seconds 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true         # EXITS: taker fallback as safety floor. Phase 1 stops at 35% ROE = real trouble; exits MUST happen.
+    execution_timeout_seconds: 60           # v2 exit execution_timeout_seconds
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 480              # 8h max — contrarian thesis unwind window
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 120
+      min_value: 2.0                        # peak ROE floor; below this in 2h = thesis failed
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 30               # v6.0 Lemon-pattern fast loser cut
+    phase1:
+      enabled: true
+      max_loss_pct: 35.0                     # wide — contrarian entries retrace hard before working
+      retrace_threshold: 8                   # v2 dsl_preset block value (NOT the "15" in the prose)
+      consecutive_breaches_required: 1       # v2 dsl_preset block value (NOT the "3" in the prose)
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 20 }   # v6.0 first-leg capture (Lemon-pattern). REACHABLE.
+        - { trigger_pct: 10, lock_hw_pct: 35 }
+        - { trigger_pct: 20, lock_hw_pct: 50 }
+        - { trigger_pct: 35, lock_hw_pct: 65 }
+        - { trigger_pct: 50, lock_hw_pct: 78 }
+        - { trigger_pct: 75, lock_hw_pct: 88 }   # rare but happens — full unwind cascade
+
+# RISK GUARDRAILS — declarative; runtime enforces. v2 risk fields converted to seconds.
+# The producer's PnL-aware dynamic daily cap + post-loss asset cooldown were defense-in-depth;
+# the runtime guard_rails now own enforcement (per v2 config _runtime_owns). The scanner ALSO
+# keeps a per-asset emit cooldown in ctx.state (belt-and-suspenders) and the crowding-
+# persistence ledger that gates the thesis.
+risk:
+  data_retention_seconds: 259200            # v2 data_retention_hours 72 -> 72*3600
+  guard_rails:
+    daily_loss_limit_pct: 10                # v2 daily_loss_limit_pct (contrarian tolerates short-term losses)
+    max_entries_per_day: 4                  # v2 upper bound of dynamicSlots (4 at +$400 PnL)
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4               # v2 max_consecutive_losses
+    cooldown_seconds: 0                      # v2 cooldown_minutes 0 — scanner manages cooldowns
+    drawdown_halt_pct: 25                    # v2 drawdown_halt_pct — explicit -25% HARD STOP
+    drawdown_reset_on_day_rollover: true     # v2 drawdown_reset_on_day_rollover
+    per_asset_cooldown_seconds: 21600        # v2 per_asset_cooldown_minutes 360 -> 360*60 (6h post-loss)

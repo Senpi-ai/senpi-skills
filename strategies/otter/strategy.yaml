@@ -1,0 +1,42 @@
+# Otter — Open Interest Velocity Hunter. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
+# Otter (otter-producer.py v2.0.0 / SKILL.md v2.0.1): the first fleet agent to trade
+# OI delta OVER TIME — maintains a rolling 5h OI history per HL crypto perp and fires
+# the single best TOP-quadrant (fresh leveraged flow) candidate, score-tiered sizing,
+# DSL-only exits. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: otter
+version: "1.0.0"
+
+catalog:
+  name: "Otter — Open Interest Velocity Hunter"
+  emoji: "🦦"
+  tagline: "Watches the rate of change of open interest across every liquid Hyperliquid crypto perp and fires at most a couple of positions — only when 1h OI jumps >=5% while price moves >=0.5% the same way (fresh leveraged money entering with conviction), 4h isn't unwinding, and the spread is tight. Sizes margin to conviction at 5/7/10x, then rides the flow 1-3h on a tight DSL."
+  belief_plain: "Open interest only grows when new leveraged money enters a perp. When that money piles in fast (OI up 5%+ in an hour) AND price moves the same direction, that's real conviction — not just a wick. Otter rides that fresh flow for an hour or three, then trails a tight stop. It does nothing on the much more common days when no coin shows that burst, and it never trades unwinds."
+  thesis: "OI velocity — the delta of open interest over time — is a perp-native conviction signal nobody else in the fleet trades (others read OI only as a static size filter). Fresh OI growth aligned with price (the top two quadrants of the OI/price matrix) is new leveraged positioning with direction; unwinds (the bottom two) are exhaustion and get skipped. Confluence scoring (OI tier, 4h confirmation, price magnitude, smart-money lean, spread, time-of-day) at a high floor keeps it a sniper, and a tight DSL locks profit early because the flow edge is in the first 1-3 hours."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: oi_confirmed
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  leverage_max: 10
+  max_slots: 2
+  min_budget: 200
+  assets: []
+  tags: [open-interest, oi-velocity, momentum, universe, flow, smart-money, conviction-sizing, short-hold, crypto]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: OTTER_WALLET
+    funding_share: 1.0

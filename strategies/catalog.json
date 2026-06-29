@@ -173,6 +173,50 @@
       "sort_order": 2
     },
     {
+      "id": "owl",
+      "name": "Owl — Contrarian Crowding-Unwind Hunter",
+      "emoji": "🦉",
+      "tagline": "Scans every liquid Hyperliquid crypto perp (OI > $3M) for one-sided crowding — extreme funding + lopsided smart money + concentrated OI — then waits for that crowding to persist 1h+ AND for exhaustion to fire (volume fading, price stalling, RSI divergence) before fading the crowd. Conviction-scaled leverage (7/8/10) at 25% margin, with a macro gate that stands down when BTC's 4h move is extreme.",
+      "belief_plain": "The crowd is wrong at the extremes. When everyone piles onto one side of a coin — paying punishing funding, the best traders all leaning the same way, open interest stacking up — and the price then stops following through, the unwind is violent and predictable. Owl waits for both the crowded state AND the exhaustion trigger, then takes the other side. Most days it does nothing, because most days one or both is missing.",
+      "version": "1.0.0",
+      "thesis": "Crowded trades unwind violently. Owl's edge is timing the unwind: it never fades on crowding alone (which can persist and grind), it waits for crowding to PERSIST 1h+ and for distinct exhaustion signals (declining volume under extreme funding, price stalling against the crowd, capitulation wicks, 4h RSI divergence) to confirm the move is dying. Mean reversion fails in trending macro, so a hard gate blocks all fades when |BTC 4h| > 3%. XYZ banned — the funding/smart-money scoring is calibrated on crypto data shape.",
+      "tags": [
+        "contrarian",
+        "fade",
+        "crowding",
+        "funding-extreme",
+        "smart-money",
+        "exhaustion",
+        "mean-reversion",
+        "universe",
+        "macro-gate"
+      ],
+      "group": "contrarian",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "sm_crowding",
+      "sub_style_label": "Fades the crowded smart-money side once price stops following.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "position",
+      "cadence_seconds": 900,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 3
+    },
+    {
       "id": "pangolin",
       "name": "Pangolin — Funding-Rate Fader",
       "emoji": "🦔",
@@ -212,7 +256,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 3
+      "sort_order": 4
     },
     {
       "id": "tortoise",
@@ -452,6 +496,49 @@
       "sort_order": 3
     },
     {
+      "id": "falcon",
+      "name": "Falcon — Conversion-Event Momentum",
+      "emoji": "🦅",
+      "tagline": "Watches every Hyperliquid XYZ pre-IPO perpetual and fires the moment one converts to a normal equity perp — when the company IPOs, funding jumps ~100x, the leverage cap lifts and the price throttle comes off, opening a window of free price discovery. Falcon catches that flip and rides the post-conversion momentum with a wide let-winners-run stop (7d).",
+      "belief_plain": "A pre-IPO name on Hyperliquid is deliberately pinned — its price can barely move. The instant the company goes public the brakes come off all at once and the name often trends hard for days. Falcon detects that exact handover from a tell in the funding rate, then takes a single position in the direction it's already running and trails a wide stop so a real move can run.",
+      "version": "1.0.0",
+      "thesis": "The IPOP->equity conversion is a detectable regime change: funding normalizes ~100x, the max-leverage cap lifts, and the trade.xyz Discovery-Bounds price throttle is removed. The first hours-to-days after conversion are pure price discovery, which often trends in one direction. The edge is catching that flip from the instrument's funding/leverage signature, confirming directional momentum, and letting the discovery move run rather than fading it.",
+      "tags": [
+        "xyz",
+        "pre-ipo",
+        "ipo-conversion",
+        "conversion-event",
+        "momentum",
+        "price-discovery",
+        "let-winners-run",
+        "universe-scanner"
+      ],
+      "group": "momentum",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "ipo_moment",
+      "sub_style_label": "Trades the IPO conversion moment.",
+      "asset_classes": [
+        "pre_ipo"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 600,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 4
+    },
+    {
       "id": "hedgehog",
       "name": "Hedgehog — Major Crypto Basket",
       "emoji": "🦔",
@@ -498,7 +585,53 @@
       ],
       "max_slots": 3,
       "branch": "strategy-v2",
-      "sort_order": 4
+      "sort_order": 5
+    },
+    {
+      "id": "lemur",
+      "name": "Lemur — Pre-IPO Perpetual Trend Follower",
+      "emoji": "🦤",
+      "tagline": "Trades pre-IPO companies as perpetuals on Hyperliquid XYZ — today just SpaceX (xyz:SPCX). Auto-discovers IPOPs via the trade.xyz funding signature (~100x smaller funding) plus a <=5x pre-listing leverage cap and a $100k liquidity floor, then goes long or short when the 4h trend structure and Smart-Money lean agree. Leverage auto-caps to each name's own ceiling; a moderate DSL lets multi-day theses ride.",
+      "belief_plain": "Hyperliquid XYZ is one of the only places retail can trade private companies (like SpaceX) as perpetuals before they IPO. Lemur watches those pre-IPO names, waits for the 4-hour trend and the best traders to point the same way, then takes a single directional position and trails a stop. When a company actually goes public it stops qualifying and Lemur drops it automatically.",
+      "version": "1.0.0",
+      "thesis": "Pre-IPO perpetuals (IPOPs) are a structurally distinct product — a 0.005 funding multiplier (vs 0.5 for standard XYZ perps) and Discovery Bounds that throttle price velocity. That structural funding signature reliably identifies them with no hardcoded ticker list, so the universe future-proofs itself as trade.xyz lists new names and de-qualifies any that IPO. On those slow-moving names, a clean 4h trend confirmed by Smart-Money direction is enough edge to hold a directional swing and let a wide DSL ratchet capture the multi-day move.",
+      "tags": [
+        "pre-ipo",
+        "ipop",
+        "spacex",
+        "xyz",
+        "equities",
+        "trend-following",
+        "smart-money",
+        "auto-discovery",
+        "hyperliquid"
+      ],
+      "group": "momentum",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "pre_ipo",
+      "sub_style_label": "Trades pre-IPO perpetuals (IPOPs) before the company lists.",
+      "asset_classes": [
+        "pre_ipo"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "xyz:SPCX"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 900,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 6
     },
     {
       "id": "lynx",
@@ -549,7 +682,234 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 5
+      "sort_order": 7
+    },
+    {
+      "id": "meerkat",
+      "name": "Meerkat — Momentum-Event Sniper",
+      "emoji": "🦦",
+      "tagline": "A sentry that watches the momentum-event feed and snipes the freshest, highest-tier move the instant it fires: tier (event magnitude) + freshness gate the entry, smart-money alignment and rising volume add conviction, then it takes ONE position in the momentum direction and lets a wide DSL ride the burst.",
+      "belief_plain": "Watches a live feed of coins that just made a sharp move in the last few hours, and pounces only on the strongest, freshest ones — before the move is widely known. It sizes one bet in the direction of the move and trails a wide stop so a real burst can keep running, but cuts it loose after about a day and a half if it stalls.",
+      "version": "1.0.0",
+      "thesis": "Fresh momentum is the earliest, cleanest edge, and it decays fast — an event that's already 30+ minutes old is half-known and somebody else's trade. So the whole job is speed plus selectivity: only the strongest tiers, only while they're fresh, one position at a time. Smart-money lean and rising volume are confirmation bonuses, not gates, because the event fires faster than that data updates — waiting for confirmation forfeits the edge. A momentum burst pays out fast or it's stale, so a short hard timeout cuts a trade that hasn't moved.",
+      "tags": [
+        "momentum",
+        "momentum-event",
+        "sniper",
+        "freshness",
+        "tier",
+        "smart-money",
+        "universe-scanner",
+        "single-slot",
+        "let-winners-run"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "momentum_event",
+      "sub_style_label": "Snipes fresh momentum events the instant they fire.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 120,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 8
+    },
+    {
+      "id": "orca",
+      "name": "Orca — Gen-1 Vanilla Striker",
+      "emoji": "🐋",
+      "tagline": "A universe rank-jump sniper: watches the top-50 smart-money leaderboard every tick and fires only on a fresh FIRST_JUMP — a coin exploding 15+ ranks out of the deep field with 4h trend, 15m freshness, and a volume spike all confirming — then strikes ONE position at a fixed 7x and lets the DSL ride the breakout.",
+      "belief_plain": "Watches which coins the best traders are suddenly piling into and only acts when a name rockets up the leaderboard from deep in the pack — a fresh jump, not an already-crowded top name. It wants the move to be young (climbing fast in the last 15 minutes), going the same way the price is, and backed by a real volume spike before it takes a single shot.",
+      "version": "1.0.0",
+      "thesis": "The edge is in the FIRST jump, not the established leader. By the time a coin sits at the top of the smart-money board the move is priced in; the asymmetric entry is the moment a name explodes 15+ ranks out of the deep field (prev-rank >= 25) while its 4h trend, 15m contribution velocity, and 24h volume all confirm the same direction at once. That confluence is rare and decays fast, so the right move is to scan often (90s), strike once at a fixed 7x the instant it fires, skip the already-top names, and let a ratcheting DSL — not a fixed target — decide the exit so the occasional big breakout pays for the quiet weeks.",
+      "tags": [
+        "smart-money",
+        "momentum",
+        "breakout",
+        "rank-jump",
+        "first-jump",
+        "striker",
+        "universe-scanner",
+        "fixed-leverage"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "rank_jump",
+      "sub_style_label": "Catches leaderboard rank-jumps early.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 7,
+      "time_horizon": "swing",
+      "cadence_seconds": 90,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "branch": "strategy-v2",
+      "sort_order": 9
+    },
+    {
+      "id": "otter",
+      "name": "Otter — Open Interest Velocity Hunter",
+      "emoji": "🦦",
+      "tagline": "Watches the rate of change of open interest across every liquid Hyperliquid crypto perp and fires at most a couple of positions — only when 1h OI jumps >=5% while price moves >=0.5% the same way (fresh leveraged money entering with conviction), 4h isn't unwinding, and the spread is tight. Sizes margin to conviction at 5/7/10x, then rides the flow 1-3h on a tight DSL.",
+      "belief_plain": "Open interest only grows when new leveraged money enters a perp. When that money piles in fast (OI up 5%+ in an hour) AND price moves the same direction, that's real conviction — not just a wick. Otter rides that fresh flow for an hour or three, then trails a tight stop. It does nothing on the much more common days when no coin shows that burst, and it never trades unwinds.",
+      "version": "1.0.0",
+      "thesis": "OI velocity — the delta of open interest over time — is a perp-native conviction signal nobody else in the fleet trades (others read OI only as a static size filter). Fresh OI growth aligned with price (the top two quadrants of the OI/price matrix) is new leveraged positioning with direction; unwinds (the bottom two) are exhaustion and get skipped. Confluence scoring (OI tier, 4h confirmation, price magnitude, smart-money lean, spread, time-of-day) at a high floor keeps it a sniper, and a tight DSL locks profit early because the flow edge is in the first 1-3 hours.",
+      "tags": [
+        "open-interest",
+        "oi-velocity",
+        "momentum",
+        "universe",
+        "flow",
+        "smart-money",
+        "conviction-sizing",
+        "short-hold",
+        "crypto"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "oi_confirmed",
+      "sub_style_label": "Enters a breakout only when open interest confirms (new money).",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 10
+    },
+    {
+      "id": "piranha",
+      "name": "Piranha — Liquidation-Cascade / Forced-Flow Hunter",
+      "emoji": "🐟",
+      "tagline": "Rides forced flow on crypto majors (BTC/ETH/SOL/HYPE): when open interest is unwinding fast (positions being force-closed) AND price is moving violently AND the 5-minute candle is still pushing the same way, it takes ONE position in the direction of the flow, sized 1-5x, and lets a wide DSL ratchet ride the squeeze with a 24h outer bound.",
+      "belief_plain": "A liquidation cascade is the cleanest momentum in crypto — it's forced flow, not opinion. When lots of positions are being force-closed at once, price gets shoved hard in one direction and the move feeds on itself until the leverage is flushed. Piranha reads the order flow underneath price (open-interest velocity + order-book depth) to confirm the move is forced, then rides it: OI down + price up = shorts squeezed, go long; OI down + price down = longs liquidated, go short.",
+      "version": "1.0.0",
+      "thesis": "Most agents react to price; the edge is reading the forced flow beneath it. Open interest dropping fast means positions are closing under duress, and when that coincides with a violent move and a thinning book on the side price is running into, there is little resistance left and the cascade continues. That signature is short-horizon and self-resolving, so the right move is one conviction entry in the flow direction, a wide ratchet that lets a squeeze extend, and a 24h hard timeout because if the cascade hasn't paid in a day it's over.",
+      "tags": [
+        "btc",
+        "eth",
+        "sol",
+        "hype",
+        "multi-asset",
+        "momentum",
+        "liquidation-cascade",
+        "forced-flow",
+        "open-interest",
+        "order-flow",
+        "microstructure",
+        "single-slot"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "liquidation_cascade",
+      "sub_style_label": "Rides liquidation cascades / forced flow.",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 180,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 11
+    },
+    {
+      "id": "python",
+      "name": "Python — The Patience Hunter",
+      "emoji": "🐍",
+      "tagline": "Scans the top 50 Hyperliquid crypto assets by volume and waits for one multi-day setup — 4h trend with macro direction, 1h agreeing, 15m confirming, smart money not opposing, RSI not extreme — then takes a single LONG-biased swing at 3-7x, sizes margin to conviction (25/30/40%), and holds for days behind a wide DSL (96h cap).",
+      "belief_plain": "Watches every liquid coin on Hyperliquid and does nothing until one setup lines up across the 4-hour, 1-hour and 15-minute timeframes with the best traders on the same side. Then it takes one well-sized, mostly-long swing and holds it for days behind a wide trailing stop, because the money is in the rare multi-day winner — not in trading often.",
+      "version": "1.0.0",
+      "thesis": "Every other agent strikes and rotates within hours; none hold for days, and that's the blind spot. The edge isn't a high win rate — it's NOT MISSING the one big multi-day move: a low win rate with a 3:1 win/loss ratio beats a high win rate with a thin one. So scan broadly, demand a real macro trend confirmed across three timeframes (never fighting a runaway counter-trend or a crowded smart-money side), tilt LONG, size to conviction, and let a wide DSL ride the move for days instead of getting chopped out early.",
+      "tags": [
+        "momentum",
+        "trend-following",
+        "universe",
+        "multi-day-hold",
+        "patience",
+        "smart-money",
+        "long-biased",
+        "conviction-margin",
+        "let-winners-run"
+      ],
+      "group": "momentum",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "trend_continuation",
+      "sub_style_label": "Trend Continuation",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 7,
+      "time_horizon": "swing",
+      "cadence_seconds": 600,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 12
     },
     {
       "id": "sailfish",
@@ -599,7 +959,110 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 6
+      "sort_order": 13
+    },
+    {
+      "id": "salamander",
+      "name": "Salamander — Pullback Catcher",
+      "emoji": "🦎",
+      "tagline": "An onboarding-grade pullback trader on the liquid majors (BTC/ETH/SOL): buys a 3-7% dip inside an established bullish 4h trend (and shorts a 3-7% rally inside a bearish one) only when the smart-money leaderboard agrees with the trend direction, then gives the entry room on a wide Phase 1 while a wide Phase 2 ratchet lets the resumed trend run.",
+      "belief_plain": "Watches BTC, ETH and SOL. When one is in a clear up-trend on the 4-hour chart and dips 3-7% on the 1-hour chart while the best traders are still leaning long, it buys the dip; in a down-trend it shorts a 3-7% bounce. It needs all three to line up — trend, dip-in-the-band, and smart money agreeing — then it gives the trade room to work and trails a wide stop so the trend can keep running.",
+      "version": "1.0.0",
+      "thesis": "Pullbacks inside an established trend are one of the highest-edge setups: the trend has already proved itself, the counter-move offers a better entry, and a smart-money agreement filter screens out trend-break risk. The 3-7% band is the sweet spot — shallower is noise, deeper means the trend may be breaking, so you don't catch a falling knife. Because a resolved pullback resumes a trend that can run far, the exit is asymmetric: a wide Phase 1 floor lets the dip develop without a premature cut, and a wide Phase 2 ratchet (first lock only at +10% ROE) keeps the continuation that pays for the quiet weeks.",
+      "tags": [
+        "btc",
+        "eth",
+        "sol",
+        "multi-asset",
+        "pullback",
+        "buy-the-dip",
+        "short-the-rally",
+        "smart-money",
+        "trend-continuation",
+        "onboarding",
+        "let-winners-run"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "pullback",
+      "sub_style_label": "Buys the dip within an uptrend.",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 14
+    },
+    {
+      "id": "sheep",
+      "name": "Sheep — Triple-EMA Trend Follower",
+      "emoji": "🐑",
+      "tagline": "A long-only trend follower for beginners: buys a crypto major (BTC/ETH/SOL/HYPE) only when its fast EMA is above its slow EMA on all three timeframes (15m, 1h, 4h) at once, never shorts, and trails a balanced stop so a clean uptrend can run.",
+      "belief_plain": "Only buys when a coin is clearly going up by any chart reader's standard — the fast moving average has to be above the slow one on the 15-minute, 1-hour, AND 4-hour chart simultaneously. It never shorts (so there's no 'what's a short?' to learn), bets a little bigger when the trend is wider and the best traders agree, and then trails a stop so a real uptrend can keep running.",
+      "version": "1.0.0",
+      "thesis": "Most trend agents pick a single timeframe; Sheep insists on agreement across three before firing. That is a stricter filter (fewer trades) but each entry is 'obviously up' to any chart reader, which is exactly the property a beginner needs to trust the agent. Long-only by design removes the cognitive load of shorting, making this the onboarding-grade entry point into the fleet.",
+      "tags": [
+        "btc",
+        "eth",
+        "sol",
+        "hype",
+        "multi-asset",
+        "trend",
+        "ema-stack",
+        "triple-timeframe",
+        "long-only",
+        "onboarding",
+        "smart-money",
+        "let-winners-run"
+      ],
+      "group": "momentum",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE"
+      ],
+      "direction": "long_only",
+      "risk_level": "conservative",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 15
     },
     {
       "id": "jaguar",
@@ -2206,6 +2669,50 @@
       "sort_order": 5
     },
     {
+      "id": "roach",
+      "name": "Roach — Striker Rank-Jump Sniper",
+      "emoji": "🪳",
+      "tagline": "A patient striker: watches the top-50 smart-money leaderboard and fires only on violent FIRST_JUMP / IMMEDIATE_MOVER rank explosions confirmed by 4h trend, 1h price, fresh 15m velocity, and a 1.5x volume spike — then sizes one bet and lets a tight ratchet ride it. Long silences are expected and correct.",
+      "belief_plain": "Cockroaches survive by not moving when there's nothing to chase. Roach watches which coins the best traders are suddenly piling into — a coin violently jumping up the leaderboard — and only buys when that rank-jump is backed by the 4-hour trend, the last hour's price, fresh momentum, and a real volume spike all agreeing. Most of the time it does nothing; the patience is the edge.",
+      "version": "1.0.0",
+      "thesis": "Most leaderboard movement is noise. Real edge is a violent, fresh rank-jump — a coin exploding from #25+ into the top of the smart-money board in a single scan — but only when it's confirmed by trend, price, fresh velocity, and volume at the same instant. Those explosions are rare, so the right move is to ban equities, demand a high composite score with multiple confirmations, take the few that qualify at fixed 7x sizing, and let a ratcheting DSL stop bank the move. Stalker-style accumulation entries were removed — fewer, higher-quality strikes beat more, mixed ones.",
+      "tags": [
+        "smart-money",
+        "breakout",
+        "rank-jump",
+        "first-jump",
+        "immediate-mover",
+        "universe-scanner",
+        "striker",
+        "volume-confirmed",
+        "patient"
+      ],
+      "group": "smart-money",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "rank_jump",
+      "sub_style_label": "Catches leaderboard rank-jumps early.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 7,
+      "time_horizon": "swing",
+      "cadence_seconds": 90,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 6
+    },
+    {
       "id": "whalehunter",
       "name": "WhaleHunter — Smart-Money Cohort Divergence",
       "emoji": "🐋",
@@ -2246,7 +2753,53 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 6
+      "sort_order": 7
+    },
+    {
+      "id": "raccoon",
+      "name": "Raccoon — Weekend XYZ Reconciliation",
+      "emoji": "🦝",
+      "tagline": "Trades only the weekend, only on tokenized stocks & commodities (XYZ): while the underlying markets are closed and XYZ runs on an internal oracle, Raccoon positions in the direction sentiment has been pushing the price — and captures the snap-back when real external pricing resumes Monday open. Sizes 15% / 3x and rides a tight DSL with a 48h Monday-exit cap.",
+      "belief_plain": "From Friday evening to Sunday evening the real stock and commodity markets are closed, so tokenized versions on XYZ drift on an internal estimate instead of a live price. When trading resumes Monday, that estimate snaps to the true market price. Raccoon bets in the direction the weekend drift (plus the best traders) is leaning, and exits into that Monday snap — and only ever runs on the weekend.",
+      "version": "1.0.0",
+      "thesis": "Fri 17:00 ET -> Sun 18:00 ET, trade.xyz has no external price feed for equities/commodities and runs a 30-min EWMA internal oracle that drifts on impact-price activity. Accumulated weekend sentiment (>= 2% move + volume + smart-money agreement) shows up as directional oracle drift; when external pricing resumes Sunday evening the implied price reconciles to the real value. Positioning into that gap and exiting at the Monday-open snap is the edge — and confining all activity to the weekend window avoids weekday false signals and Lemur's 24/7 IPOP territory.",
+      "tags": [
+        "xyz",
+        "equities",
+        "commodities",
+        "weekend",
+        "reconciliation",
+        "oracle-gap",
+        "smart-money",
+        "snap-back",
+        "hard-timeout"
+      ],
+      "group": "xyz",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "weekend_gap",
+      "sub_style_label": "Trades the weekend stock-gap reconciliation.",
+      "asset_classes": [
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "starter",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "branch": "strategy-v2",
+      "sort_order": 1
     }
   ]
 }

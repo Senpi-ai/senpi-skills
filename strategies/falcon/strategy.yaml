@@ -1,0 +1,42 @@
+# Falcon — Conversion-Event Momentum (XYZ Pre-IPO -> equity). A single-instance PACKAGE:
+# this manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port
+# of the v2 Falcon (falcon-producer.py v1.0.1 / SKILL.md v1.0.0): scans every Hyperliquid
+# XYZ instrument, classifies IPOP vs STANDARD by funding signature, detects the IPOP->equity
+# conversion flip, and rides the post-conversion price-discovery momentum with a wide DSL.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: falcon
+version: "1.0.0"
+
+catalog:
+  name: "Falcon — Conversion-Event Momentum"
+  emoji: "🦅"
+  tagline: "Watches every Hyperliquid XYZ pre-IPO perpetual and fires the moment one converts to a normal equity perp — when the company IPOs, funding jumps ~100x, the leverage cap lifts and the price throttle comes off, opening a window of free price discovery. Falcon catches that flip and rides the post-conversion momentum with a wide let-winners-run stop (7d)."
+  belief_plain: "A pre-IPO name on Hyperliquid is deliberately pinned — its price can barely move. The instant the company goes public the brakes come off all at once and the name often trends hard for days. Falcon detects that exact handover from a tell in the funding rate, then takes a single position in the direction it's already running and trails a wide stop so a real move can run."
+  thesis: "The IPOP->equity conversion is a detectable regime change: funding normalizes ~100x, the max-leverage cap lifts, and the trade.xyz Discovery-Bounds price throttle is removed. The first hours-to-days after conversion are pure price discovery, which often trends in one direction. The edge is catching that flip from the instrument's funding/leverage signature, confirming directional momentum, and letting the discovery move run rather than fading it."
+  group: momentum
+  archetype: single_market
+  sub_style: ipo_moment
+  asset_classes: [pre_ipo]
+  asset_scope: universe
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  leverage_max: 10
+  max_slots: 1
+  min_budget: 200
+  assets: []
+  tags: [xyz, pre-ipo, ipo-conversion, conversion-event, momentum, price-discovery, let-winners-run, universe-scanner]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: FALCON_WALLET
+    funding_share: 1.0
