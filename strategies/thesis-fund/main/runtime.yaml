@@ -118,7 +118,7 @@ exit:
 
 # ── RISK (per instance) — ported from v2 risk.guard_rails ──
 risk:
-  data_retention_hours: 168
+  data_retention_seconds: 604800       # 168h (was data_retention_hours: 168)
   guard_rails:
     daily_loss_limit_pct: 12
     max_entries_per_day: 8

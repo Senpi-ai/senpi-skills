@@ -113,7 +113,7 @@ exit:
 
 # RISK — guard_rails ported verbatim from v2 v3.7 (cap losers, ride winners).
 risk:
-  data_retention_hours: 72
+  data_retention_seconds: 259200       # 72h (was data_retention_hours: 72)
   guard_rails:
     daily_loss_limit_pct: 10
     max_entries_per_day: 3                   # hard cap when day is RED

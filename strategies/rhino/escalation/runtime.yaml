@@ -116,7 +116,7 @@ exit:
         - { trigger_pct: 60, lock_hw_pct: 88 }
 
 risk:
-  data_retention_hours: 96
+  data_retention_seconds: 345600       # 96h (was data_retention_hours: 96)
   guard_rails:
     daily_loss_limit_pct: 14
     max_entries_per_day: 8                # stress arrives in bursts -> deploy fast when it does
