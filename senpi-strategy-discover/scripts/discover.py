@@ -177,6 +177,19 @@ def infer_class_for_named(named):
     return "major_alts"
 
 
+def _record_trades_named(r, named):
+    """True if record r could trade ticker `named` — by an explicit fixed-asset match OR as an
+    in-domain universe scanner. A broad scanner (asset_scope 'universe') ships no fixed `assets`
+    list but WILL trade any name in its domain (a crypto-universe scanner trades SOL; an xyz-universe
+    scanner trades NVDA), so naming a ticker must NOT exclude it."""
+    if asset_matches(named, r.get("assets")):
+        return True
+    if r.get("asset_scope") == "universe":
+        ndom = {"xyz"} if str(named).upper().startswith("XYZ:") else {"crypto"}
+        return bool(ndom & domain_of(r.get("asset_classes") or []))
+    return False
+
+
 # ---------------------------------------------------------------- matcher (pure: filter + return all)
 def _hard_reject(r, intent):
     """The ONLY narrowing — reject on an explicitly-stated, unambiguous constraint. Nothing soft."""
@@ -186,7 +199,7 @@ def _hard_reject(r, intent):
         if ud and sd and ud.isdisjoint(sd):
             return True
     named = [v for k, v in intent["assets"] if k == "named"]
-    if named and not any(asset_matches(n, r.get("assets")) for n in named):
+    if named and not any(_record_trades_named(r, n) for n in named):
         if not intent.get("_broadened_classes"):
             return True
         if not (set(intent["_broadened_classes"]) & set(r.get("asset_classes") or [])):
@@ -220,7 +233,7 @@ def _asset_match(r, intent):
     acs = set(r.get("asset_classes") or [])
     if user_classes and (set(user_classes) & acs):
         n += 1
-    if named and any(asset_matches(x, r.get("assets")) for x in named):
+    if named and any(_record_trades_named(r, x) for x in named):
         n += 1
     return n
 
@@ -239,6 +252,9 @@ def _caveats(r, intent):
         cav.append(f"Splits across {r['instance_count']} wallets ({split}); your assets may sit mainly in one leg.")
     if intent["budget"] is not None and intent["budget"] < (r.get("min_budget") or 0):
         cav.append(f"Needs ~${int(r['min_budget'])} to start; you mentioned ${int(intent['budget'])}.")
+    named_tickers = [v for k, v in intent["assets"] if k == "named"]
+    if named_tickers and r.get("asset_scope") == "universe":
+        cav.append(f"Scans the whole universe — trades {', '.join(named_tickers)} among many names, not exclusively.")
     return cav
 
 
