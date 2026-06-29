@@ -17,12 +17,12 @@ catalog:
   thesis: "Some users do not want a market-reading agent at all — they just want to own one asset and have a safety net. Koala is that answer in code: one asset, one entry, one stop. Fire-once by default (a true buy-and-forget), with an optional re-entry cycle for operators who want 'buy / DSL-exits / buy again' on a long cooldown."
   group: single-asset
   archetype: single_market
-  sub_style: buy_and_hold
+  sub_style: hodl
   asset_classes: [major_alts]
   asset_scope: single
   direction: long_only
   risk_level: conservative
-  tier: onboarding
+  tier: starter
   leverage_max: 3
   max_slots: 1
   min_budget: 100

@@ -10,7 +10,7 @@
 # appears. gen_catalog warns (never fails) on a value missing from this file.
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 
-archetype:        # the market belief; what `--belief` matches against (closed set of 6)
+archetype:        # the market belief; what `--belief` matches against (extend deliberately)
   trend_following:
     label: "Trend-Follower"
     gloss: "Rides assets while they're trending and steps out when they stall."
@@ -35,6 +35,22 @@ archetype:        # the market belief; what `--belief` matches against (closed s
     label: "Structural / Neutral"
     gloss: "Earns from market structure (pairs, lag, market-making), not from picking a direction."
     user_signals: ["market-neutral", "trade the spread", "not a directional bet"]
+  tail_risk:
+    label: "Tail-Risk / Crisis-Alpha"
+    gloss: "Positioned to profit from tail events, vol spikes, and regime breaks rather than calm trends — a convex hedge."
+    user_signals: ["hedge a crash", "crisis alpha", "protect against a selloff", "tail risk"]
+  macro_thesis:
+    label: "Macro Thesis"
+    gloss: "Expresses a top-down macro view (rates, debasement, geopolitics) as a confirmed long/short basket."
+    user_signals: ["macro view", "play the macro", "long gold short stocks", "debasement"]
+  event_driven:
+    label: "Event-Driven"
+    gloss: "Trades discrete catalysts — IPOs, new listings, conversions — around the event window."
+    user_signals: ["ipo plays", "new listings", "trade the catalyst", "event driven"]
+  risk_parity:
+    label: "Risk-Parity / All-Weather"
+    gloss: "Balances risk across uncorrelated sleeves for all-weather returns, not a single directional bet."
+    user_signals: ["all weather", "risk parity", "balanced portfolio", "diversified"]
 
 sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with a gloss)
   # trend_following
@@ -45,15 +61,20 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   oi_confirmed:  { gloss: "Enters a breakout only when open interest confirms (new money)." }
   adaptive:      { gloss: "Self-tunes its thresholds from its own track record." }
   alpha_hunter:  { gloss: "Multi-factor conviction scoring on one asset, with tiered leverage." }
+  conviction_holder: { gloss: "High-conviction multi-factor holder; sizes up as more signals agree, then holds the move." }
+  conviction_hold_hedged: { gloss: "Single-asset conviction hold paired with a basket hedge sleeve." }
+  trend_continuation: { gloss: "Enters in the direction of an established, still-intact trend." }
   # contrarian_fade
   sm_crowding:   { gloss: "Fades the crowded smart-money side once price stops following." }
   funding_extreme: { gloss: "Fades extreme funding rates." }
   xyz_overextended: { gloss: "Fades overextended stocks/commodities." }
+  crowd_exhaustion: { gloss: "Fades a crowded one-sided move once it shows exhaustion." }
   # copy_trading
   arena_winners: { gloss: "Copies multi-week arena winners, not one-week wonders." }
   hot_streak:    { gloss: "Copies whoever is hot in the live window." }
   named_whales:  { gloss: "Mirrors specific hand-picked whales." }
   copy_the_copiers: { gloss: "Follows the best-performing strategies automatically." }
+  cohort_divergence: { gloss: "Acts when a smart-money cohort diverges from price." }
   # single_market
   pre_ipo:       { gloss: "Trades pre-IPO perpetuals (IPOPs) before the company lists." }
   ipo_moment:    { gloss: "Trades the IPO conversion moment." }
@@ -62,6 +83,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   commodity:     { gloss: "Trades a commodity (oil/metals)." }
   weekend_gap:   { gloss: "Trades the weekend stock-gap reconciliation." }
   crypto_major:  { gloss: "Specializes in one crypto major." }
+  news_momentum: { gloss: "Rides sharp news-driven directional bursts (events, headlines)." }
   # breakout_momentum
   range_break:   { gloss: "Buys/sells the break of a multi-day range." }
   pullback:      { gloss: "Buys the dip within an uptrend." }
@@ -69,19 +91,27 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   momentum_event: { gloss: "Snipes fresh momentum events the instant they fire." }
   liquidation_cascade: { gloss: "Rides liquidation cascades / forced flow." }
   orderbook_pressure: { gloss: "Trades order-book depth skew." }
+  breakout:      { gloss: "Enters on a clean breakout of structure." }
+  confluence_sniper: { gloss: "Fires only when multiple timeframes/factors line up." }
+  parabolic_runner: { gloss: "Rides parabolic runs with a very wide let-winners-run exit." }
   # structural_neutral
   cross_asset_lag: { gloss: "Trades an alt that lags a BTC move." }
   cross_venue_lag: { gloss: "Trades crypto-stocks that lag a BTC move." }
   market_making: { gloss: "Volume / market-making, not directional." }
   pairs_rv:      { gloss: "Trades a pair's ratio back to its mean (relative value)." }
   dca:           { gloss: "Dollar-cost-averages on a schedule; predicts nothing." }
+  # tail_risk
+  crisis_alpha:  { gloss: "Convex crisis hedge that pays off in tail / vol events." }
+  # event_driven
+  new_listing_event: { gloss: "Trades new-listing / IPO-conversion events around the listing." }
 
 asset_classes:    # declared per strategy; same vocabulary normalizes user-named assets
   btc_eth:        { label: "BTC & ETH", gloss: "BTC and/or ETH — the bluest chips.", user_signals: ["btc","eth","bitcoin","ethereum"] }
   major_alts:     { label: "Major alts", gloss: "Established large-cap alts beyond BTC/ETH (SOL, HYPE, …).", user_signals: ["alts","altcoins","sol","hype"] }
   universe_crypto: { label: "Crypto universe", gloss: "Scans the broad crypto universe, not a fixed list.", user_signals: ["everything","scan the market","all coins"] }
   xyz_equities:   { label: "Equities", gloss: "Tokenized equities (NVDA, TSLA, …) on the XYZ DEX, 24/7.", user_signals: ["stocks","equities","tech stocks"] }
-  commodities:    { label: "Commodities", gloss: "Commodities/metals/FX (oil, gold, …) on the XYZ DEX.", user_signals: ["oil","gold","silver","commodities","metals"] }
+  commodities:    { label: "Commodities", gloss: "Commodities & metals (oil, gold, silver, copper, …) on the XYZ DEX.", user_signals: ["oil","gold","silver","commodities","metals","energy"] }
+  fx:             { label: "FX / Rates", gloss: "Currencies & rates (EUR, JPY, GBP, DXY) on the XYZ DEX.", user_signals: ["fx","forex","currencies","dollar","dxy"] }
   indices:        { label: "Indices", gloss: "Broad indices (SP500, XYZ100, …).", user_signals: ["index","indices","sp500","nasdaq"] }
   pre_ipo:        { label: "Pre-IPO", gloss: "Pre-IPO perpetuals (IPOPs) like SpaceX, tradeable before listing.", user_signals: ["pre-ipo","spacex","pre ipo names"] }
   none:           { label: "—", gloss: "No fixed assets (e.g. copy-trading follows traders)." }

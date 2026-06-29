@@ -20,8 +20,8 @@ catalog:
   archetype: single_market
   sub_style: parabolic_runner
   asset_classes: [universe_crypto]
-  asset_scope: multi
-  direction: long
+  asset_scope: basket
+  direction: long_only
   risk_level: aggressive
   tier: advanced
   leverage_max: 5

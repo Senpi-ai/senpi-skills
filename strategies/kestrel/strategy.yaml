@@ -19,7 +19,7 @@ catalog:
   group: multi-asset-whitelist
   archetype: trend_following
   sub_style: breakout
-  asset_classes: [xyz_commodities, xyz_equities, indices]
+  asset_classes: [commodities, xyz_equities, indices]
   asset_scope: basket
   direction: long_short
   risk_level: moderate

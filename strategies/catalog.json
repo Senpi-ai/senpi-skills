@@ -279,10 +279,10 @@
         "funding-carry"
       ],
       "group": "contrarian",
-      "archetype": "funding_fade",
-      "archetype_label": "Funding Fade",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
       "sub_style": "crowd_exhaustion",
-      "sub_style_label": "Crowd Exhaustion",
+      "sub_style_label": "Fades a crowded one-sided move once it shows exhaustion.",
       "asset_classes": [
         "universe_crypto"
       ],
@@ -417,15 +417,15 @@
         "btc_eth",
         "major_alts"
       ],
-      "asset_scope": "whitelist",
+      "asset_scope": "basket",
       "assets": [
         "BTC",
         "ETH",
         "SOL"
       ],
-      "direction": "long",
+      "direction": "long_only",
       "risk_level": "conservative",
-      "tier": "onboarding",
+      "tier": "starter",
       "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 1800,
@@ -460,14 +460,14 @@
         "hedge-fund"
       ],
       "group": "event-driven",
-      "archetype": "trend_following",
-      "archetype_label": "Trend-Follower",
+      "archetype": "event_driven",
+      "archetype_label": "Event-Driven",
       "sub_style": "new_listing_event",
-      "sub_style_label": "New Listing Event",
+      "sub_style_label": "Trades new-listing / IPO-conversion events around the listing.",
       "asset_classes": [
         "xyz_equities"
       ],
-      "asset_scope": "dynamic_discovered",
+      "asset_scope": "universe",
       "assets": [],
       "direction": "long_short",
       "risk_level": "moderate",
@@ -542,7 +542,7 @@
       ],
       "direction": "long_short",
       "risk_level": "moderate",
-      "tier": null,
+      "tier": "advanced",
       "leverage_max": 5,
       "time_horizon": "position",
       "cadence_seconds": 300,
@@ -684,11 +684,11 @@
       "archetype": "trend_following",
       "archetype_label": "Trend-Follower",
       "sub_style": "conviction_holder",
-      "sub_style_label": "Conviction Holder",
+      "sub_style_label": "High-conviction multi-factor holder; sizes up as more signals agree, then holds the move.",
       "asset_classes": [
         "major_alts"
       ],
-      "asset_scope": "whitelist",
+      "asset_scope": "basket",
       "assets": [
         "BTC",
         "ETH",
@@ -780,10 +780,10 @@
         "conviction-sizing"
       ],
       "group": "momentum",
-      "archetype": "universe_scanner",
-      "archetype_label": "Universe Scanner",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
       "sub_style": "trend_continuation",
-      "sub_style_label": "Trend Continuation",
+      "sub_style_label": "Enters in the direction of an established, still-intact trend.",
       "asset_classes": [
         "universe_crypto"
       ],
@@ -1199,7 +1199,7 @@
       "archetype": "trend_following",
       "archetype_label": "Trend-Follower",
       "sub_style": "trend_continuation",
-      "sub_style_label": "Trend Continuation",
+      "sub_style_label": "Enters in the direction of an established, still-intact trend.",
       "asset_classes": [
         "universe_crypto"
       ],
@@ -1243,12 +1243,12 @@
       "group": "momentum",
       "archetype": "trend_following",
       "archetype_label": "Trend-Follower",
-      "sub_style": "relative_strength_rotation",
-      "sub_style_label": "Relative Strength Rotation",
+      "sub_style": "rotation",
+      "sub_style_label": "Always holds the strongest of a basket; rotates as leadership changes.",
       "asset_classes": [
         "major_alts"
       ],
-      "asset_scope": "whitelist",
+      "asset_scope": "basket",
       "assets": [
         "BTC",
         "ETH",
@@ -1256,7 +1256,7 @@
         "HYPE"
       ],
       "direction": "long_only",
-      "risk_level": "balanced",
+      "risk_level": "moderate",
       "tier": "advanced",
       "leverage_max": 5,
       "time_horizon": "swing",
@@ -1720,8 +1720,8 @@
       "group": "multi-asset-whitelist",
       "archetype": "trend_following",
       "archetype_label": "Trend-Follower",
-      "sub_style": "trend_follower",
-      "sub_style_label": "Trend Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
       "asset_classes": [
         "universe_crypto",
         "commodities",
@@ -1889,9 +1889,9 @@
       "archetype": "trend_following",
       "archetype_label": "Trend-Follower",
       "sub_style": "breakout",
-      "sub_style_label": "Breakout",
+      "sub_style_label": "Enters on a clean breakout of structure.",
       "asset_classes": [
-        "xyz_commodities",
+        "commodities",
         "xyz_equities",
         "indices"
       ],
@@ -2089,8 +2089,8 @@
         "low_turnover"
       ],
       "group": "multi-asset-whitelist",
-      "archetype": "trend_following",
-      "archetype_label": "Trend-Follower",
+      "archetype": "risk_parity",
+      "archetype_label": "Risk-Parity / All-Weather",
       "sub_style": "basket",
       "sub_style_label": "Holds a whitelist basket of majors.",
       "asset_classes": [
@@ -2114,7 +2114,7 @@
         "xyz:JPY",
         "xyz:SILVER"
       ],
-      "direction": "long",
+      "direction": "long_only",
       "risk_level": "conservative",
       "tier": "advanced",
       "leverage_max": 3,
@@ -2151,13 +2151,12 @@
       ],
       "group": "multi-asset-whitelist",
       "archetype": "tail_risk",
-      "archetype_label": "Tail Risk",
+      "archetype_label": "Tail-Risk / Crisis-Alpha",
       "sub_style": "crisis_alpha",
-      "sub_style_label": "Crisis Alpha",
+      "sub_style_label": "Convex crisis hedge that pays off in tail / vol events.",
       "asset_classes": [
-        "xyz_commodities",
-        "xyz_metals",
-        "xyz_fx",
+        "commodities",
+        "fx",
         "indices",
         "major_alts"
       ],
@@ -2349,10 +2348,9 @@
       "sub_style": "basket",
       "sub_style_label": "Holds a whitelist basket of majors.",
       "asset_classes": [
-        "crypto_majors",
+        "major_alts",
         "indices",
-        "metals",
-        "energy"
+        "commodities"
       ],
       "asset_scope": "basket",
       "assets": [
@@ -2628,18 +2626,19 @@
       "group": "single-asset",
       "archetype": "single_market",
       "archetype_label": "Single-Market Specialist",
-      "sub_style": "trend_follower",
-      "sub_style_label": "Trend Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
       "asset_classes": [
-        "majors"
+        "btc_eth",
+        "major_alts"
       ],
       "asset_scope": "single",
       "assets": [
         "BTC"
       ],
       "direction": "long_short",
-      "risk_level": "balanced",
-      "tier": "onboarding",
+      "risk_level": "moderate",
+      "tier": "starter",
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
@@ -2734,9 +2733,9 @@
       "archetype": "single_market",
       "archetype_label": "Single-Market Specialist",
       "sub_style": "news_momentum",
-      "sub_style_label": "News Momentum",
+      "sub_style_label": "Rides sharp news-driven directional bursts (events, headlines).",
       "asset_classes": [
-        "xyz_commodities"
+        "commodities"
       ],
       "asset_scope": "single",
       "assets": [
@@ -2820,8 +2819,8 @@
       "group": "single-asset",
       "archetype": "single_market",
       "archetype_label": "Single-Market Specialist",
-      "sub_style": "trend_follower",
-      "sub_style_label": "Trend Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
       "asset_classes": [
         "major_alts"
       ],
@@ -2830,8 +2829,8 @@
         "ETH"
       ],
       "direction": "long_short",
-      "risk_level": "balanced",
-      "tier": "beginner",
+      "risk_level": "moderate",
+      "tier": "starter",
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
@@ -2863,8 +2862,8 @@
       "group": "single-asset",
       "archetype": "single_market",
       "archetype_label": "Single-Market Specialist",
-      "sub_style": "trend_follower",
-      "sub_style_label": "Trend Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
       "asset_classes": [
         "major_alts"
       ],
@@ -2873,8 +2872,8 @@
         "HYPE"
       ],
       "direction": "long_short",
-      "risk_level": "balanced",
-      "tier": "beginner",
+      "risk_level": "moderate",
+      "tier": "starter",
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
@@ -2910,19 +2909,19 @@
       "group": "single-asset",
       "archetype": "trend_following",
       "archetype_label": "Trend-Follower",
-      "sub_style": "index_trend",
-      "sub_style_label": "Index Trend",
+      "sub_style": "broad_index",
+      "sub_style_label": "Trades broad indices (SP500, XYZ100).",
       "asset_classes": [
-        "xyz_indices"
+        "indices"
       ],
-      "asset_scope": "whitelist",
+      "asset_scope": "basket",
       "assets": [
         "xyz:SP500",
         "xyz:XYZ100"
       ],
       "direction": "long_short",
       "risk_level": "moderate",
-      "tier": "onboarding",
+      "tier": "starter",
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
@@ -2956,8 +2955,8 @@
       "group": "single-asset",
       "archetype": "single_market",
       "archetype_label": "Single-Market Specialist",
-      "sub_style": "buy_and_hold",
-      "sub_style_label": "Buy And Hold",
+      "sub_style": "hodl",
+      "sub_style_label": "Set-and-forget single holding; widest exit.",
       "asset_classes": [
         "major_alts"
       ],
@@ -2967,7 +2966,7 @@
       ],
       "direction": "long_only",
       "risk_level": "conservative",
-      "tier": "onboarding",
+      "tier": "starter",
       "leverage_max": 3,
       "time_horizon": "position",
       "cadence_seconds": 1800,
@@ -3089,18 +3088,18 @@
       "archetype": "single_market",
       "archetype_label": "Single-Market Specialist",
       "sub_style": "parabolic_runner",
-      "sub_style_label": "Parabolic Runner",
+      "sub_style_label": "Rides parabolic runs with a very wide let-winners-run exit.",
       "asset_classes": [
         "universe_crypto"
       ],
-      "asset_scope": "multi",
+      "asset_scope": "basket",
       "assets": [
         "BTC",
         "ETH",
         "SOL",
         "HYPE"
       ],
-      "direction": "long",
+      "direction": "long_only",
       "risk_level": "aggressive",
       "tier": "advanced",
       "leverage_max": 5,
@@ -3182,12 +3181,12 @@
       "archetype": "trend_following",
       "archetype_label": "Trend-Follower",
       "sub_style": "conviction_hold_hedged",
-      "sub_style_label": "Conviction Hold Hedged",
+      "sub_style_label": "Single-asset conviction hold paired with a basket hedge sleeve.",
       "asset_classes": [
         "universe_crypto",
         "indices"
       ],
-      "asset_scope": "single_plus_hedge_basket",
+      "asset_scope": "basket",
       "assets": [
         "ETH",
         "SOL",
@@ -3235,10 +3234,10 @@
         "single-slot"
       ],
       "group": "smart-money",
-      "archetype": "momentum",
-      "archetype_label": "Momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
       "sub_style": "confluence_sniper",
-      "sub_style_label": "Confluence Sniper",
+      "sub_style_label": "Fires only when multiple timeframes/factors line up.",
       "asset_classes": [
         "universe_crypto"
       ],
@@ -3394,7 +3393,7 @@
       ],
       "direction": "long_short",
       "risk_level": "moderate",
-      "tier": null,
+      "tier": "advanced",
       "leverage_max": 5,
       "time_horizon": "swing",
       "cadence_seconds": 300,
@@ -3606,7 +3605,7 @@
       "archetype": "copy_trading",
       "archetype_label": "Copy-Trader",
       "sub_style": "cohort_divergence",
-      "sub_style_label": "Cohort Divergence",
+      "sub_style_label": "Acts when a smart-money cohort diverges from price.",
       "asset_classes": [
         "universe_crypto"
       ],

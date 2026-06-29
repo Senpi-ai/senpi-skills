@@ -16,10 +16,10 @@ catalog:
   belief_plain: "Auto-finds brand-new pre-IPO contracts (like a SpaceX-before-it-lists perp) by their tell-tale tiny funding and low leverage cap, rides the trend into the IPO, then detects the moment they convert to a full equity perp and rides the fireworks of the first few days of free price discovery."
   thesis: "You think the biggest, most repeatable edge on Hyperliquid right now is the new-listing EVENT itself, not the ongoing equity market. Pre-IPO perpetuals trade throttled and quiet; the instant they graduate to a standard equity perp the funding jumps ~100x, the leverage cap lifts and price discovery goes vertical. Capture both halves of that arc with two books on two wallets so the slow accumulation and the explosive pop never fight over the same margin."
   group: event-driven
-  archetype: trend_following
+  archetype: event_driven
   sub_style: new_listing_event
   asset_classes: [xyz_equities]
-  asset_scope: dynamic_discovered
+  asset_scope: universe
   direction: long_short
   risk_level: moderate
   tier: advanced

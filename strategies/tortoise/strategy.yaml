@@ -19,10 +19,10 @@ catalog:
   archetype: structural_neutral
   sub_style: dca
   asset_classes: [btc_eth, major_alts]
-  asset_scope: whitelist
-  direction: long
+  asset_scope: basket
+  direction: long_only
   risk_level: conservative
-  tier: onboarding
+  tier: starter
   leverage_max: 3
   max_slots: 3
   min_budget: 100

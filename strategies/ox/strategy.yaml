@@ -23,11 +23,11 @@ catalog:
   belief_plain: "Holds a steady, always-invested basket spread across crypto, stock indices, gold, oil and currencies, and quietly puts more weight on the calm assets and less on the wild ones so nothing can blow up the whole book. A second smaller book buys defensives (gold, yen) and doubles up when markets get nervous."
   thesis: "You want a low-drama core holding to sit under your more aggressive bets — always invested, diversified across asset classes, and risk-balanced by volatility rather than a directional view. Not a market-timing bet; a steady, all-weather core with a built-in defensive cushion."
   group: multi-asset-whitelist
-  archetype: trend_following
+  archetype: risk_parity
   sub_style: basket
   asset_classes: [btc_eth, major_alts, indices, commodities, xyz_equities]
   asset_scope: basket
-  direction: long
+  direction: long_only
   risk_level: conservative
   tier: advanced
   time_horizon: position

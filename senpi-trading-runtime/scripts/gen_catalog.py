@@ -81,7 +81,10 @@ def derive_assets(instances, catalog, sid):
         if a not in seen:
             seen.add(a)
             out.append(a)
-    if not out:
+    # Universe scanners + cohort/copy-traders legitimately have no fixed asset list
+    # (they scan the live board or follow traders), so named-asset matching not applying
+    # is by-design, not a defect — don't warn for those scopes.
+    if not out and catalog.get("asset_scope") not in ("universe", "follows_traders"):
         warn(f"{sid}: could not derive `assets` (no allowedAssets/asset param, no declared "
              f"catalog.assets) — named-asset matching will not work for this strategy")
     return out

@@ -16,12 +16,12 @@ catalog:
   thesis: "New users want one clean decision, not a scattergun across the market. HYPE has the liquidity and the moves, and a one-asset, one-direction strategy with a Smart-Money confirmation gate is the simplest honest answer to 'I'm new to Senpi, where do I start?'"
   group: single-asset
   archetype: single_market
-  sub_style: trend_follower
+  sub_style: basket
   asset_classes: [major_alts]
   asset_scope: single
   direction: long_short
-  risk_level: balanced
-  tier: beginner
+  risk_level: moderate
+  tier: starter
   leverage_max: 5
   max_slots: 1
   min_budget: 200

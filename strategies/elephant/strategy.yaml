@@ -24,6 +24,7 @@ catalog:
   asset_scope: basket
   direction: long_short
   risk_level: moderate
+  tier: advanced
   time_horizon: position
   leverage_max: 5
   max_slots: 3

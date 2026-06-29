@@ -18,7 +18,7 @@ catalog:
   thesis: "You want the most-proven hedge-fund category — managed futures (CTA) — on-chain. Its entire edge is cross-asset diversification: trends show up in different markets at different times, so the more uncorrelated markets you trend-follow, the smoother the curve. Long the uptrends and short the downtrends across uncorrelated classes nets to ~zero market beta and is crisis-positive (the short sleeve shorts the fallers when everything bleeds). Each asset is judged against its OWN history (time-series trend), sized to equal risk, and capped by class."
   group: multi-asset-whitelist
   archetype: trend_following     # time-series trend follower across every class
-  sub_style: trend_follower      # cross-asset CTA / managed-futures trend following
+  sub_style: basket  # cross-asset CTA / managed-futures trend following
   asset_classes: [universe_crypto, commodities, indices, xyz_equities]
   asset_scope: universe          # scans the whole live instrument board, no fixed whitelist
   direction: long_short          # long sleeve + short sleeve on separate wallets

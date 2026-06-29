@@ -17,7 +17,7 @@ catalog:
   group: multi-asset-whitelist
   archetype: tail_risk
   sub_style: crisis_alpha
-  asset_classes: [xyz_commodities, xyz_metals, xyz_fx, indices, major_alts]
+  asset_classes: [commodities, fx, indices, major_alts]
   asset_scope: basket
   direction: long_short
   risk_level: moderate

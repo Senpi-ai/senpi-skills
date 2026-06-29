@@ -16,7 +16,7 @@ catalog:
   belief_plain: "Watches where the best traders are crowding across the whole market, but waits for everything to agree at once — the smart money, the price, the volume, the speed of the move — before taking a single, high-conviction bet. Most of the time it does nothing; that patience is the point."
   thesis: "Any one signal is noise. Real edge shows up only when smart-money consensus, momentum, acceleration, price, volume, and proven-trader alignment all confirm the same direction on the same coin at the same moment. That confluence is rare, so the right move is to sit on one slot, wait for it, strike once at conviction-scaled leverage, and let a ratcheting trailing stop — not a fixed target — decide the exit so the rare big trend pays for the quiet weeks."
   group: smart-money
-  archetype: momentum
+  archetype: breakout_momentum
   sub_style: confluence_sniper
   asset_classes: [universe_crypto]
   asset_scope: universe

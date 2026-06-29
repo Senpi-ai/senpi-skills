@@ -26,7 +26,7 @@ catalog:
   archetype: trend_following
   sub_style: conviction_hold_hedged
   asset_classes: [universe_crypto, indices]
-  asset_scope: single_plus_hedge_basket
+  asset_scope: basket
   direction: long_short
   risk_level: moderate
   tier: advanced

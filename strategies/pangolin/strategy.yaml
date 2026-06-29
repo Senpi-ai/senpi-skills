@@ -16,7 +16,7 @@ catalog:
   belief_plain: "When everyone crowds the same side of a trade and keeps paying a steep funding fee to stay there for hours, that crowd usually unwinds. Pangolin waits for the crowding to actually persist, checks the smartest traders aren't on the crowd's side, then takes the OTHER side and gets paid funding while it waits for the snap-back."
   thesis: "Persistent extreme funding is a crowding signal, not noise. A fresh funding spike means nothing — but funding that stays extreme for 3+ hours means real positioning that has to unwind. Fade the crowd only once the regime confirms (or is at least neutral), size conservatively because crowded unwinds are violent, and let the funding you collect pay you to be patient through a 24-48h mean reversion."
   group: contrarian
-  archetype: funding_fade
+  archetype: contrarian_fade
   sub_style: crowd_exhaustion
   asset_classes: [universe_crypto]
   asset_scope: universe

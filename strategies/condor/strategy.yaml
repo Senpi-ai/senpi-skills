@@ -15,7 +15,7 @@ catalog:
   belief_plain: "Watches every liquid coin on Hyperliquid and waits, doing nothing until ONE setup is near-perfect: the trend, the momentum and the best traders all pointing the same direction at once. Then it takes a single, well-sized swing and trails a stop instead of guessing the top."
   thesis: "The biggest swings happen when 4h + 1h + 15m momentum are perfectly unified AND the smart-money leaderboard is heavily lopsided (>=70%) in that same direction — a runaway trend's continuation, not a reversal. One amazing trade a day beats a scattergun: scan broadly, fire rarely, size to conviction, and never fight a trend already up >10% on the 4h."
   group: momentum
-  archetype: universe_scanner
+  archetype: breakout_momentum
   sub_style: trend_continuation
   asset_classes: [universe_crypto]
   asset_scope: universe
