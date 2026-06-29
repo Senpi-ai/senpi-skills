@@ -47,6 +47,56 @@
       "sort_order": 1
     },
     {
+      "id": "tortoise",
+      "name": "Tortoise — DCA Scheduler",
+      "emoji": "🐢",
+      "tagline": "A time-triggered dollar-cost-averaging scheduler on a small basket (BTC/ETH/SOL): no price prediction, no scoring, no timing — each tick it buys a fixed % of budget on whichever asset is most overdue past its DCA interval, always LONG, and lets a wide DSL ratchet ride the accumulation for days.",
+      "belief_plain": "Buys a fixed slice of your budget on a strict schedule — by default every 24 hours, one of BTC, ETH or SOL at a time. It predicts nothing; it just keeps accumulating on cadence and trails a wide stop so the position can run instead of getting churned. The most-overdue coin goes first.",
+      "version": "1.0.0",
+      "thesis": "Dollar-cost averaging is the single most accessible trade in crypto and needs zero prediction skill. Every other agent makes a directional call; Tortoise makes none — it buys on a clock. Cadence IS the signal: when an asset has gone longer than the interval since its last buy it is due, never-bought assets are always due, and the most-overdue wins. A very wide let-winners-run DSL (30d hard_timeout) lets the accumulated longs compound while Phase-2 locks bank gains gradually.",
+      "tags": [
+        "btc",
+        "eth",
+        "sol",
+        "multi-asset",
+        "dca",
+        "dollar-cost-averaging",
+        "time-trigger",
+        "always-long",
+        "onboarding",
+        "let-winners-run"
+      ],
+      "group": "dca",
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural / Neutral",
+      "sub_style": "dca",
+      "sub_style_label": "Dollar-cost-averages on a schedule; predicts nothing.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "whitelist",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL"
+      ],
+      "direction": "long",
+      "risk_level": "conservative",
+      "tier": "onboarding",
+      "leverage_max": 3,
+      "time_horizon": "position",
+      "cadence_seconds": 1800,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
       "id": "magpie",
       "name": "Magpie — IPO / New-Listing Event Fund",
       "emoji": "🐦",
@@ -182,6 +232,56 @@
       "max_slots": 1,
       "branch": "strategy-v2",
       "sort_order": 2
+    },
+    {
+      "id": "sailfish",
+      "name": "Sailfish — Relative-Strength Rotator",
+      "emoji": "🐠",
+      "tagline": "Always hold the strongest major: ranks BTC/ETH/SOL/HYPE by ~2.7-day relative strength each tick and longs the leader, with a leader-RS floor and a margin-vs-runner-up gate to avoid whipsaw on tight races. Single-position; when the held leader exits via the DSL trail, the next tick re-evaluates and enters the new leader — that's the rotation.",
+      "belief_plain": "Trades only the big, liquid coins (BTC, ETH, SOL, HYPE). Each cycle it measures which one has been strongest over the last few days and buys that one — but only if it is clearly ahead of the next-best, not in a photo finish. It never sells on its own; a trailing stop manages the exit, and when one leader is done, the next-strongest takes its place.",
+      "version": "1.0.0",
+      "thesis": "Among the majors, leadership tends to persist — when one decisively outperforms the others it usually keeps doing so for days. Rotating into the strongest captures that persistence, while the margin-vs-runner-up gate keeps the agent out of tight, whipsaw-prone races where 'the leader' flips every tick. Rotation is realized through the DSL exit (not a mid-position close), so leadership changes only cost a fill when the old leader is genuinely finished — never on noise.",
+      "tags": [
+        "btc",
+        "eth",
+        "sol",
+        "hype",
+        "multi-asset",
+        "momentum",
+        "relative-strength",
+        "rotation",
+        "single-position",
+        "let-winners-run"
+      ],
+      "group": "momentum",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "relative_strength_rotation",
+      "sub_style_label": "Relative Strength Rotation",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "whitelist",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE"
+      ],
+      "direction": "long_only",
+      "risk_level": "balanced",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 3
     },
     {
       "id": "jaguar",
@@ -1064,6 +1164,99 @@
       "sort_order": 5
     },
     {
+      "id": "iguana",
+      "name": "Iguana — XYZ Macro Index Trend",
+      "emoji": "🦎",
+      "tagline": "A broad-index trend-follower on the XYZ equity indices (xyz:SP500 + xyz:XYZ100): each tick measures the 4-day move of each index, picks the stronger one past the trend floor, and rides it in that direction — no stock-picking, no commodities. The closest thing to an index fund, but 24/7 on Hyperliquid.",
+      "belief_plain": "Trades only the two broad stock-market indices (S&P 500 and the XYZ 100). Every few minutes it checks which index has the bigger 4-day move; if that move is large enough it goes that way (up = long, down = short), bets bigger when the move is strong and volume is rising, and then trails a stop. The simplest stock-market exposure on Hyperliquid — no individual stocks.",
+      "version": "1.0.0",
+      "thesis": "You want broad stock-market exposure on Hyperliquid without picking individual stocks, commodities, or pre-IPO names. Two liquid index instruments, one decision per tick: trend-follow whichever index has the clearer 4-day direction. The edge is in the slow index drift, so a wide DSL rides it for days and a 48h hard-timeout caps the XYZ weekend pricing-gap risk.",
+      "tags": [
+        "sp500",
+        "xyz100",
+        "xyz",
+        "indices",
+        "index-fund",
+        "trend-following",
+        "macro",
+        "onboarding",
+        "24-7",
+        "two-asset"
+      ],
+      "group": "single-asset",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "index_trend",
+      "sub_style_label": "Index Trend",
+      "asset_classes": [
+        "xyz_indices"
+      ],
+      "asset_scope": "whitelist",
+      "assets": [
+        "xyz:SP500",
+        "xyz:XYZ100"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "onboarding",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 6
+    },
+    {
+      "id": "koala",
+      "name": "Koala — Set-and-Forget Trail HODL",
+      "emoji": "🐨",
+      "tagline": "The simplest agent in the catalog: pick one asset (default BTC), fire LONG once on deploy, then hold with an ultra-wide DSL trail (max_loss 30%, retrace, 90-day timeout). No scoring, no scheduling — the choice to deploy Koala IS the bet.",
+      "belief_plain": "Trades only the one coin you pick (BTC by default). It buys once when you turn it on, then just holds — never adding, never trading around it — with a very wide safety stop that only releases on a catastrophic reversal or after three months. The whole idea is to own the coin and have a net under it.",
+      "version": "1.0.0",
+      "thesis": "Some users do not want a market-reading agent at all — they just want to own one asset and have a safety net. Koala is that answer in code: one asset, one entry, one stop. Fire-once by default (a true buy-and-forget), with an optional re-entry cycle for operators who want 'buy / DSL-exits / buy again' on a long cooldown.",
+      "tags": [
+        "btc",
+        "single-asset",
+        "hodl",
+        "buy-and-hold",
+        "set-and-forget",
+        "wide-dsl",
+        "onboarding",
+        "long-only"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "buy_and_hold",
+      "sub_style_label": "Buy And Hold",
+      "asset_classes": [
+        "major_alts"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "BTC"
+      ],
+      "direction": "long_only",
+      "risk_level": "conservative",
+      "tier": "onboarding",
+      "leverage_max": 3,
+      "time_horizon": "position",
+      "cadence_seconds": 1800,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 7
+    },
+    {
       "id": "kodiak",
       "name": "Kodiak — SOL Alpha Hunter",
       "emoji": "🐻",
@@ -1104,7 +1297,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 6
+      "sort_order": 8
     },
     {
       "id": "polar",
@@ -1148,7 +1341,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 7
+      "sort_order": 9
     },
     {
       "id": "stag",
@@ -1196,7 +1389,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 8
+      "sort_order": 10
     },
     {
       "id": "wolverine",
@@ -1241,7 +1434,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 9
+      "sort_order": 11
     },
     {
       "id": "hydra",

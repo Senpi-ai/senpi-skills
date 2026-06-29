@@ -1,0 +1,42 @@
+# Koala — Set-and-Forget Trail HODL. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 Koala
+# (SKILL.md v1.0.0 / producer VERSION 1.0.1): the simplest agent in the catalog — pick
+# one asset (default BTC), fire LONG once on deploy, hold with an ultra-wide DSL trail.
+# No scoring, no multi-timeframe analysis, no SM gates. Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: koala
+version: "1.0.0"
+
+catalog:
+  name: "Koala — Set-and-Forget Trail HODL"
+  emoji: "🐨"
+  tagline: "The simplest agent in the catalog: pick one asset (default BTC), fire LONG once on deploy, then hold with an ultra-wide DSL trail (max_loss 30%, retrace, 90-day timeout). No scoring, no scheduling — the choice to deploy Koala IS the bet."
+  belief_plain: "Trades only the one coin you pick (BTC by default). It buys once when you turn it on, then just holds — never adding, never trading around it — with a very wide safety stop that only releases on a catastrophic reversal or after three months. The whole idea is to own the coin and have a net under it."
+  thesis: "Some users do not want a market-reading agent at all — they just want to own one asset and have a safety net. Koala is that answer in code: one asset, one entry, one stop. Fire-once by default (a true buy-and-forget), with an optional re-entry cycle for operators who want 'buy / DSL-exits / buy again' on a long cooldown."
+  group: single-asset
+  archetype: single_market
+  sub_style: buy_and_hold
+  asset_classes: [major_alts]
+  asset_scope: single
+  direction: long_only
+  risk_level: conservative
+  tier: onboarding
+  leverage_max: 3
+  max_slots: 1
+  min_budget: 100
+  assets: ["BTC"]
+  tags: [btc, single-asset, hodl, buy-and-hold, set-and-forget, wide-dsl, onboarding, long-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: KOALA_WALLET
+    funding_share: 1.0

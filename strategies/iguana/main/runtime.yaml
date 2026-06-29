@@ -1,0 +1,131 @@
+# ── IGUANA · single instance — XYZ macro index trend (Runtime 3.0 port of v2 IGUANA producer v1.0.1) ──
+# Two-asset broad-index trend-follower on the Hyperliquid XYZ (HIP-3) DEX: xyz:SP500 +
+# xyz:XYZ100. One decision per tick — compute each index's 4-day move (% change over
+# trendLookbackBars 4h candles, default 24 = 4 days), pick the stronger past minTrendPct
+# (1.5%), and emit in that direction. Score = 3 (base) +2 strong-trend (>= strongTrendPct
+# 4%) +1 rising-volume (>15%); floor minScore 4. Flat margin (20%) + leverage clamp (<=5x).
+# DSL ported VERBATIM from v2 (balanced preset + 48h hard_timeout for XYZ weekend pricing-gap
+# risk + 8h weak_peak_cut). ONBOARDING TIER. xyz indices trade 24/7 incl weekends.
+name: iguana-main
+group: iguana
+version: 3.0.0
+description: >
+  IGUANA — two-asset XYZ macro index trend-follower (xyz:SP500 + xyz:XYZ100, HIP-3 DEX).
+  Each tick computes the 4-day trend strength (% change over the last trendLookbackBars
+  4h candles) for each index, picks the stronger move past minTrendPct, and emits in its
+  direction. Score 3 base + 2 if |trend| >= strongTrendPct + 1 if 4h volume rising > 15%;
+  floor minScore 4. Held-asset and recent-signal dedup. Flat sizing: marginPct 20% of
+  withdrawable, leverage clamped to maxLeverage (5x). DSL is the ONLY exit (balanced
+  Phase 1 + Phase 2 ratchet; first lock tier REACHABLE at +5% ROE; 48h hard_timeout for
+  XYZ weekend pricing-gap risk; 8h weak_peak_cut bails flat-but-tired positions before the
+  weekend gap). The simplest possible XYZ equity exposure — closest thing to an index fund,
+  but 24/7. Faithful port of the v2 thesis. ONBOARDING TIER.
+
+strategy:
+  wallet: "${IGUANA_WALLET}"
+  slots: 1                                # two assets, ONE decision/position per tick (emit-one)
+  default_leverage: 3                     # v2 DEFAULT_LEVERAGE; scan emits per-signal leverage (clamped <=5)
+  trading_risk: conservative
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: iguana_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # v2 tick_timeout; up to 3 MCP reads/tick (clearinghouse + 2 index candles)
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100           # dedup map + per-tick scan-results history (~8h @300s)
+    inputs:
+      whitelist: ["xyz:SP500", "xyz:XYZ100"]   # v2 DEFAULT_WHITELIST — broad XYZ indices only
+      dex: "xyz"                           # HIP-3 DEX — prefix mandatory on xyz: tickers
+      trendLookbackBars: 24                # 24 x 4h bars = 4 days (v2 DEFAULT_TREND_LOOKBACK)
+      minTrendPct: 1.5                     # minimum |4-day move| to call it a trend (v2 DEFAULT_MIN_TREND_PCT)
+      strongTrendPct: 4.0                  # |move| >= this -> score +2 (v2 DEFAULT_STRONG_TREND_PCT)
+      minScore: 4                          # producer floor (v2 DEFAULT_MIN_SCORE)
+      marginPct: 20                        # PERCENT of withdrawable (0,100] — runtime sizes (marginPct/100)*withdrawable
+                                           #   v2 stored marginPct 0.20 as a FRACTION; ported to 20 PERCENT
+      leverage: 3                          # v2 DEFAULT_LEVERAGE (config leverage)
+      maxLeverage: 5                       # v2 MAX_LEVERAGE clamp
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC — race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      marginPct: { type: number, required: false }
+      direction: { type: string }
+      trendPct: { type: number, required: false }
+      volumeTrendPct: { type: number, required: false }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: iguana_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every gate (v2 LLM gate was pass-through)
+    scanners: [iguana_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # ride the trend NOW — a resting maker order misses extension (v2)
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: iguana_main_signals
+
+# EXIT — DSL, ported VERBATIM from v2 iguana runtime.yaml (balanced + XYZ-tuned).
+# Index trends extend over days/weeks; the 48h hard_timeout accommodates the weekend
+# pricing-gap risk on XYZ, and weak_peak_cut bails from flat-but-tired positions before
+# the weekend gap. First Phase-2 lock tier fires at +5% ROE — REACHABLE (not >+40%), so
+# no flag. NOTE: unlike the single-asset Kodiak family (time cuts disabled), iguana KEEPS
+# its time cuts per the v2 thesis (XYZ weekend gap) — preserved verbatim, not redesigned.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 2880           # 48h — XYZ weekend pricing-gap risk
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 5,  lock_hw_pct: 0 }    # REACHABLE first lock (+5% ROE)
+        - { trigger_pct: 10, lock_hw_pct: 40 }
+        - { trigger_pct: 18, lock_hw_pct: 60 }
+        - { trigger_pct: 30, lock_hw_pct: 75 }
+        - { trigger_pct: 50, lock_hw_pct: 85 }
+
+risk:
+  data_retention_seconds: 345600       # 96h (was data_retention_hours: 96)
+  guard_rails:
+    daily_loss_limit_pct: 12               # v2 daily_loss_limit_pct
+    max_entries_per_day: 2                 # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 max_consecutive_losses
+    cooldown_seconds: 5400                 # v2 cooldown_minutes: 90
+    drawdown_halt_pct: 20                  # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false  # v2 drawdown_reset_on_day_rollover
+    per_asset_cooldown_seconds: 21600      # v2 per_asset_cooldown_minutes: 360

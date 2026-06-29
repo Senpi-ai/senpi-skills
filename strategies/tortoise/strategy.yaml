@@ -1,0 +1,42 @@
+# Tortoise — DCA scheduler. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
+# Tortoise (SKILL.md v1.0.0): time-triggered dollar-cost averaging on a small
+# basket (BTC/ETH/SOL), no price prediction — the oldest-overdue asset wins each
+# tick, sized at a fixed margin %, always LONG, let-winners-run DSL with a 30d
+# hard_timeout so accumulation compounds. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: tortoise
+version: "1.0.0"
+
+catalog:
+  name: "Tortoise — DCA Scheduler"
+  emoji: "🐢"
+  tagline: "A time-triggered dollar-cost-averaging scheduler on a small basket (BTC/ETH/SOL): no price prediction, no scoring, no timing — each tick it buys a fixed % of budget on whichever asset is most overdue past its DCA interval, always LONG, and lets a wide DSL ratchet ride the accumulation for days."
+  belief_plain: "Buys a fixed slice of your budget on a strict schedule — by default every 24 hours, one of BTC, ETH or SOL at a time. It predicts nothing; it just keeps accumulating on cadence and trails a wide stop so the position can run instead of getting churned. The most-overdue coin goes first."
+  thesis: "Dollar-cost averaging is the single most accessible trade in crypto and needs zero prediction skill. Every other agent makes a directional call; Tortoise makes none — it buys on a clock. Cadence IS the signal: when an asset has gone longer than the interval since its last buy it is due, never-bought assets are always due, and the most-overdue wins. A very wide let-winners-run DSL (30d hard_timeout) lets the accumulated longs compound while Phase-2 locks bank gains gradually."
+  group: dca
+  archetype: structural_neutral
+  sub_style: dca
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: whitelist
+  direction: long
+  risk_level: conservative
+  tier: onboarding
+  leverage_max: 3
+  max_slots: 3
+  min_budget: 100
+  assets: ["BTC", "ETH", "SOL"]
+  tags: [btc, eth, sol, multi-asset, dca, dollar-cost-averaging, time-trigger, always-long, onboarding, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: TORTOISE_WALLET
+    funding_share: 1.0

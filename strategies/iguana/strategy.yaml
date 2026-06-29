@@ -1,0 +1,43 @@
+# Iguana — XYZ macro index trend. A single-instance PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 Iguana
+# (producer v1.0.1 / SKILL.md v1.0.0): a two-asset broad-index trend-follower on the
+# XYZ indices (xyz:SP500 + xyz:XYZ100, Hyperliquid HIP-3 DEX), one decision per tick —
+# picks the stronger 4-day move past the trend floor and rides it. ONBOARDING TIER.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: iguana
+
+version: "1.0.0"
+
+catalog:
+  name: "Iguana — XYZ Macro Index Trend"
+  emoji: "🦎"
+  tagline: "A broad-index trend-follower on the XYZ equity indices (xyz:SP500 + xyz:XYZ100): each tick measures the 4-day move of each index, picks the stronger one past the trend floor, and rides it in that direction — no stock-picking, no commodities. The closest thing to an index fund, but 24/7 on Hyperliquid."
+  belief_plain: "Trades only the two broad stock-market indices (S&P 500 and the XYZ 100). Every few minutes it checks which index has the bigger 4-day move; if that move is large enough it goes that way (up = long, down = short), bets bigger when the move is strong and volume is rising, and then trails a stop. The simplest stock-market exposure on Hyperliquid — no individual stocks."
+  thesis: "You want broad stock-market exposure on Hyperliquid without picking individual stocks, commodities, or pre-IPO names. Two liquid index instruments, one decision per tick: trend-follow whichever index has the clearer 4-day direction. The edge is in the slow index drift, so a wide DSL rides it for days and a 48h hard-timeout caps the XYZ weekend pricing-gap risk."
+  group: single-asset
+  archetype: trend_following
+  sub_style: index_trend
+  asset_classes: [xyz_indices]
+  asset_scope: whitelist
+  direction: long_short
+  risk_level: moderate
+  tier: onboarding
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 100
+  assets: ["xyz:SP500", "xyz:XYZ100"]
+  tags: [sp500, xyz100, xyz, indices, index-fund, trend-following, macro, onboarding, 24-7, two-asset]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: IGUANA_WALLET
+    funding_share: 1.0

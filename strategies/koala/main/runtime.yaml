@@ -1,0 +1,140 @@
+# ── KOALA · single instance — Set-and-Forget Trail HODL (Runtime 3.0 port of v2 KOALA) ──
+# The simplest agent in the catalog. ONE asset (default BTC). Fire LONG ONCE on deploy,
+# then hold with an ultra-wide DSL trail. No scoring, no multi-timeframe analysis, no SM
+# gates — the only decision the operator makes is "which asset?". Fire-once mode by default
+# (lifetime one-shot); operators who want a cycling deploy set fireOnceMode=false with a
+# reEntryCooldownHours. Producer NEVER closes — the wide DSL is the entire exit logic.
+# Faithful port of the v2 Koala (SKILL.md v1.0.0 / producer VERSION 1.0.1). The state-machine
+# entry logic (should_enter / record_entry / record_exit) is reproduced VERBATIM in
+# scanners/scoring.py; scan.py does the MCP reads + ctx.state. DSL preserved verbatim from
+# the v2 runtime.yaml.
+name: koala-main
+group: koala
+version: 3.0.0
+description: >
+  KOALA — single-asset Set-and-Forget Trail HODL. Pick one asset (default BTC), fire
+  LONG ONCE on deploy, then hold with an ultra-wide DSL trail. No scoring, no
+  multi-timeframe analysis, no smart-money gates — the choice to deploy Koala IS the bet.
+  Fire-once mode by default (lifetime one-shot): even after the DSL eventually exits, the
+  scanner stays silent forever. Operators wanting a cycle set fireOnceMode=false with a
+  reEntryCooldownHours (default 168h / 7d) — Koala then re-enters once the cooldown has
+  elapsed since the last detected exit. Fixed sizing: marginPct 50% of withdrawable,
+  leverage 2x (clamped to MAX_LEVERAGE 3x — Koala is HODL, not gambling). The widest DSL
+  in the catalog is the ONLY exit (max_loss 30%, 90d hard_timeout) — it deliberately does
+  NOT cut on ordinary corrections. Faithful port of the v2 Koala thesis (state machine +
+  DSL verbatim).
+
+strategy:
+  wallet: "${KOALA_WALLET}"
+  slots: 1                                # single asset, single position
+  margin_pct: 50                          # baseline %; scan emits the per-signal marginPct (50% default)
+  default_leverage: 2                     # fallback; scan emits 2x (clamped to MAX_LEVERAGE 3x)
+  trading_risk: conservative
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: koala_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 1800                 # v2 producer cadence (30 min — Koala has no urgency)
+    timeout_seconds: 120                   # v2 tick_timeout=120; 1 MCP read/tick (clearinghouse)
+    default_signal_validity_seconds: 3600  # 2x tick; one-shot entry, state owns re-fire suppression
+    state_history_max_count: 100           # koala state machine + dedup map + per-tick scan-results history
+    inputs:
+      asset: "BTC"                         # v2 config default (validated live on HL main DEX 2026-06-29)
+      dex: ""                              # main DEX; an xyz:NAME asset would set dex="xyz"
+      fireOnceMode: true                   # v2 DEFAULT_FIRE_ONCE — lifetime one-shot (recommended posture)
+      reEntryCooldownHours: 168            # v2 DEFAULT_RE_ENTRY_COOLDOWN_HOURS (7d) — only used if fireOnceMode=false
+      marginPct: 50                        # PERCENT of withdrawable (0,100] — v2 DEFAULT_MARGIN_PCT 0.50 (fraction) -> 50
+      leverage: 2                          # v2 DEFAULT_LEVERAGE; clamped to maxLeverage in scan.py
+      maxLeverage: 3                       # v2 MAX_LEVERAGE (hardcoded — Koala is HODL, not gambling)
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC — race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+      firstEntryAt: { type: number, required: false }
+      totalEntries: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: koala_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied the state-machine decision (v2 LLM gate was pass-through)
+    scanners: [koala_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false   # v2: Koala is patient — let it rest as maker, save fees
+        execution_timeout_seconds: 60      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: koala_main_signals
+
+# ── EXIT (DSL — preserved VERBATIM from the v2 Koala runtime.yaml) ─────────────
+# The widest DSL in any Senpi agent. max_loss 30% (accepts a 30% margin drawdown
+# before the catastrophic stop), retrace_threshold 10 on Phase 1 (trail into profit),
+# 90d hard_timeout (3 months — set-and-forget means a long horizon), NO weak_peak_cut,
+# NO dead_weight_cut, super-late Phase 2 ladder. Phase 1 needs 3 consecutive breaches
+# before the catastrophic stop trips. Built to NOT cut on ordinary corrections — only
+# releases on catastrophic reversal or 3-month timeout. The Phase 2 FIRST lock is
+# REACHABLE (+12% ROE / lock 35% — the v2 runtime.yaml inline comment notes this was
+# corrected from an unreachable +20/0). interval_seconds 60 (v2).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: false       # v2: patient maker exit, save fees
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 129600          # 90d — set-and-forget
+    weak_peak_cut:
+      enabled: false                       # v2: DISABLED
+      interval_in_minutes: 360
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                       # v2: DISABLED
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 30.0                    # 30% margin loss tolerated
+      retrace_threshold: 10                 # v2: trail into profit (was 25)
+      consecutive_breaches_required: 3      # 3 confirmations before the catastrophic stop trips
+    phase2:
+      enabled: true
+      tiers:                                # v2 ladder — first lock REACHABLE (+12% ROE)
+        - { trigger_pct: 12,  lock_hw_pct: 35 }
+        - { trigger_pct: 25,  lock_hw_pct: 55 }
+        - { trigger_pct: 50,  lock_hw_pct: 68 }
+        - { trigger_pct: 120, lock_hw_pct: 80 }
+        - { trigger_pct: 300, lock_hw_pct: 88 }   # still rides a big runner
+
+# ── RISK guard rails (from the v2 Koala runtime.yaml; minutes -> seconds) ──
+risk:
+  data_retention_seconds: 604800       # clamped to 3.0 max (7d); v2 intent 90d exceeds cap
+  guard_rails:
+    daily_loss_limit_pct: 20               # v2 — very permissive (Koala is meant to ride drawdowns)
+    max_entries_per_day: 1                  # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 2              # v2 max_consecutive_losses
+    cooldown_seconds: 3600                 # v2 cooldown_minutes: 60
+    drawdown_halt_pct: 35                  # v2 drawdown_halt_pct (tolerates a 35% margin drawdown)
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 3600       # v2 per_asset_cooldown_minutes: 60
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
