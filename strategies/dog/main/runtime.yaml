@@ -1,0 +1,140 @@
+# ── DOG · single instance — multi-asset contrarian SM-exhaustion fader ────────
+# Runtime 3.0 port of the v2 Dog (dog-producer.py v3.0.0, thesis frozen at v2.5).
+# Basket of liquid majors (BTC/ETH/SOL/HYPE), scored off the top-100 smart-money
+# leaderboard each tick. CONTRARIAN FLIP: scores the SM direction, emits the
+# OPPOSITE. 3.0% exhaustion gate, 15m freshness gate, regime hard-gate,
+# MIN_SCORE 8, conservative leverage (7x base, 10x at score >=10). FLAT 30%
+# margin. Wide DSL so reversals develop. Faithful port of the v2 thesis — see
+# scanners/scoring.py (math reproduced verbatim).
+name: dog-main
+group: dog
+version: 3.0.0
+description: >
+  DOG — multi-asset contrarian fader on liquid majors (BTC/ETH/SOL/HYPE).
+  Scores the top-100 smart-money leaderboard each tick, then FADES the crowded,
+  exhausted side: hard gates require 4H price moved >=3.0% in the SM direction,
+  15m SM contribution still building (>0), >=30 traders, and the market-wide
+  funding regime must not contradict the fade. Composite score (SM concentration
+  + trader depth + 4H alignment + INVERTED move-exhaustion bonus + 15m freshness
+  + 1h acceleration + funding-pays + regime confirmation + persistence + US
+  session) must clear 8. CONTRARIAN FLIP emits the opposite of SM. Conservative
+  leverage 7x base, 10x at score >=10 (clamped to the per-asset venue cap). Flat
+  30% margin. Wide DSL (hard_timeout 6h, first lock +5%/20%) so reversals develop.
+  Faithful port of the v2 Dog v3.0.0 thesis (all scoring/thresholds verbatim).
+
+strategy:
+  wallet: "${DOG_WALLET}"
+  slots: 1                                # v2 strategy.slots 1
+  margin_pct: 30                          # FLAT %; scan emits the same marginPct per signal (v2 30, a PERCENT)
+  default_leverage: 7                     # fallback; scan emits 7-10x per signal
+  trading_risk: conservative              # v2 strategy.trading_risk
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: dog_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                  # v2 producer cadence (3 min)
+    timeout_seconds: 120                   # v2 tick_timeout=120; account + leaderboard + regime + per-asset funding/history
+    default_signal_validity_seconds: 360   # 2x tick; a fresh re-score arrives next tick
+    state_history_max_count: 100           # per-tick scan-result history (observability)
+    inputs:
+      assets: ["BTC", "ETH", "SOL", "HYPE"]  # v2.5 ASSETS (validated live on HL main DEX 2026-06-29)
+      minScore: 8                          # v2.5 MIN_SCORE (contrarian floor)
+      marginPct: 30                        # PERCENT of withdrawable (0,100]; flat (v2 did not tier margin)
+      leaderboardLimit: 100                # v2 leaderboard_get_markets limit
+    signal_data_schema:
+      score: { type: number }
+      smDirection: { type: string }
+      leverage: { type: number }
+      reasons: { type: array, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      priceChange4hPct: { type: number, required: false }
+      priceChange1hPct: { type: number, required: false }
+      contribChange15m: { type: number, required: false }
+      contribChange1h: { type: number, required: false }
+      contribChange4h: { type: number, required: false }
+      fundingRegime: { type: string, required: false }
+      persistenceHours: { type: number, required: false }
+      crowdingTrend: { type: string, required: false }
+      assetFunding: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: dog_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [dog_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # taker fallback — a fade entry that rests and never fills misses the unwind
+        execution_timeout_seconds: 60      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: dog_signals
+
+# ── EXIT (DSL — preserved VERBATIM from v2.5 runtime.yaml) ─────────────────────
+# Wide for contrarian fades — reversals take time to develop, let winners run.
+# hard_timeout 6h, weak_peak_cut 90m/2.0, dead_weight_cut 60m (v2.4: 30->60).
+# Phase 1 max_loss 15% (tighter than fleet 25% — contrarian losses small).
+# Phase 2 first lock +5%/20% (well within realistic range — no unreachable trigger).
+# order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
+exit:
+  engine: dsl
+  interval_seconds: 30                     # v2 exit.interval_seconds
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true                        # v2.5: ON — reversals take time but 6h is the ceiling
+      interval_in_minutes: 360
+    weak_peak_cut:
+      enabled: true                        # v2.5: ON — cut if peak ROE < 2.0 in 90m
+      interval_in_minutes: 90
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true                        # v2.5: ON — v2.4 loosened 30 -> 60 (let fades develop)
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0                    # v2.5: tighter than fleet 25% — contrarian losses small
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # verbatim from v2.5
+        - { trigger_pct: 5,  lock_hw_pct: 20 }
+        - { trigger_pct: 10, lock_hw_pct: 40 }
+        - { trigger_pct: 15, lock_hw_pct: 60 }
+        - { trigger_pct: 20, lock_hw_pct: 75 }
+        - { trigger_pct: 30, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # 72h (was data_retention_hours 72); within [3600, 604800]
+  guard_rails:
+    daily_loss_limit_pct: 15               # v2 risk.daily_loss_limit_pct
+    max_entries_per_day: 3                  # v2 risk.max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 risk.max_consecutive_losses
+    cooldown_seconds: 3600                 # v2 risk.cooldown_minutes 60 -> 3600s
+    drawdown_halt_pct: 25                  # v2 risk.drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false  # v2 risk.drawdown_reset_on_day_rollover
+    per_asset_cooldown_seconds: 7200       # v2 risk.per_asset_cooldown_minutes 120 -> 7200s (2h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false             # v2 notifications.dsl_notify_sl_updates
+  action_lifecycle: true

@@ -1,0 +1,146 @@
+# ── BOBCAT · single instance — Big Tech equity-perp trend follower (Runtime 3.0 port) ──
+# Faithful port of v2 Bobcat (SKILL.md v1.0.0 + bobcat-producer.py v1.0.1 + bobcat-config.json).
+# 12-name big-tech whitelist on Hyperliquid XYZ (HIP-3 DEX): NVDA/TSLA/AAPL/META/MSFT/GOOGL/
+# AMZN/AMD/MU/INTC/TSM/ORCL. LONG OR SHORT on 4h-trend (gate) + Smart-Money direction (gate,
+# tilt >= 55%). Flat 20% margin / 5x. Emits the single strongest setup per tick (v2 main()
+# emitted only `best`). DSL exits — Phase 1 15% max_loss, Phase 2 standard ladder, hard_timeout
+# 48h (equities have weekend pricing gaps). xyz: prefix mandatory for the HIP-3 DEX.
+#
+# CAUTION: the v2 runtime.yaml prose described a STALE single-asset-BTC template that contradicts
+# the real strategy. The thesis/universe below is reconstructed from producer + config + SKILL
+# (all three agree on the 12-name big-tech basket). The DSL + risk guard-rails ARE ported from
+# the v2 runtime.yaml two-phase block, which is universe-agnostic and matches the SKILL big-tech
+# spec (48h hard_timeout, Phase1 15%, the exact T0..T5 ladder, 4h cooldown, 4 entries/day).
+name: bobcat-main
+group: bobcat
+version: 1.0.0
+description: >
+  BOBCAT — Big Tech equity-perp trend follower on Hyperliquid XYZ. A 12-name whitelist
+  (NVDA/TSLA/AAPL/META/MSFT/GOOGL/AMZN/AMD/MU/INTC/TSM/ORCL). Per tick it scores every
+  non-held, non-recently-signaled name and emits the single strongest setup whose 4h trend
+  is non-neutral AND whose Smart-Money direction agrees (tilt >= 55%). Score (max ~9):
+  +3 4h trend, +2 1h confirms, +2 SM aligned, +1 SM strongly tilted (>= 70%); floor minScore 5.
+  Flat sizing: 20% margin / 5x. DSL is the ONLY exit — Phase 1 15% max_loss, Phase 2
+  Bison-pattern wide ladder (T0 +10%/lock 0 through T5 +100%/lock 85), hard_timeout 48h
+  (equity perps have a weekend pricing gap — internal-oracle drift accumulates Fri-Sun).
+  Onboarding-tier. Faithful port of the v2 Bobcat v1.0.0 thesis.
+
+strategy:
+  wallet: "${BOBCAT_WALLET}"
+  slots: 3                                # v2 SKILL "Slots: 3"
+  margin_pct: 20                          # baseline %; scan emits the flat marginPct per signal (v2 0.20 FRACTION -> 20 PERCENT)
+  default_leverage: 5                     # fallback; scan emits 5x per signal (v2 DEFAULT_LEVERAGE/MAX_LEVERAGE)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: bobcat_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # v2 tick_timeout=180; ~1 read/asset + SM (shared) + account
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      universe: ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL"]  # validated live vs HL xyz meta 2026-06-29
+      dex: "xyz"                           # HIP-3 DEX — xyz: prefix mandatory
+      minScore: 5                          # v2 DEFAULT_MIN_SCORE / config minScore
+      smTiltMinPct: 55                     # v2 DEFAULT_SM_TILT_MIN / config smTiltMinPct (gate)
+      smStrongTiltPct: 70                  # v2 DEFAULT_SM_STRONG / config smStrongTiltPct (+1 bonus)
+      marginPct: 20                        # PERCENT of withdrawable (0,100]; v2 config marginPct 0.20 (FRACTION) -> 20
+      leverage: 5                          # v2 DEFAULT_LEVERAGE; clamped to MAX_LEVERAGE 5 in scan.py
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      trend4hStrength: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: bobcat_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [bobcat_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # v2: momentum entries must fill — maker-only rests unfilled (CREATE_ORDER_RESTING)
+        execution_timeout_seconds: 30      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: bobcat_main_signals
+
+# ── EXIT (DSL — ported VERBATIM from the v2 runtime.yaml two-phase block) ──────
+# Standard preset per SKILL v1.0.0: Phase 1 max_loss 15% + retrace 8; Phase 2 Bison-pattern
+# wide ladder (T0 +10%/lock 0 through T5 +100%/lock 85) so winning trends ride multi-day moves;
+# weak_peak_cut + dead_weight_cut DISABLED. hard_timeout ENABLED at 48h (2880 min) — INTENTIONAL
+# for equities: the post-Friday-close -> pre-Sunday-reopen window is where internal-oracle drift
+# accumulates without external price discovery, so positions must not camp through the full gap.
+# (This differs from the crypto single-asset family pattern where hard_timeout is OFF; equities
+# justify it via the weekend pricing gap — see SKILL RULE 2. Ported verbatim, not changed.)
+# order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen). interval_seconds 60
+# (v2: REDUCE_ONLY-spam mitigation when runtime position state lags HL).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true                        # 48h cap — equities have weekend pricing gaps (SKILL RULE 2)
+      interval_in_minutes: 2880
+    weak_peak_cut:
+      enabled: false                       # DISABLED (v2)
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                       # DISABLED (v2)
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0                    # v2 / SKILL Phase 1 max_loss_pct
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # wide-by-design; FIRST lock at +10% ROE (NOT +60-80%)
+        - { trigger_pct: 10,  lock_hw_pct: 0  }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # v2 data_retention_hours 72 -> 72*3600 (in [3600,604800])
+  guard_rails:
+    daily_loss_limit_pct: 15               # v2 risk.daily_loss_limit_pct
+    max_entries_per_day: 4                  # v2 / SKILL max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 risk.max_consecutive_losses
+    cooldown_seconds: 3600                 # v2 cooldown_minutes 60 -> 3600s
+    drawdown_halt_pct: 20                  # v2 risk.drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400      # v2 per_asset_cooldown_minutes 240 -> 14400s (4h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

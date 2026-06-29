@@ -1,0 +1,138 @@
+# ── COYOTE · single instance — regime classifier / single-asset BTC bet ──────
+# Runtime 3.0 port of the v2 Coyote (coyote-producer.py v1.0.1 / SKILL.md v1.0.0).
+# Coyote classifies the macro regime from BTC 7d trend + annualized realized vol
+# (+ informational cross-asset dispersion) into TREND_UP / TREND_DOWN / CHOP and
+# takes a single positional BTC bet: LONG in TREND_UP, SHORT in TREND_DOWN, out in
+# CHOP. The regime view is published to scanner state on EVERY tick (incl no-trade)
+# for operator visibility. DSL-only exits (balanced preset). Faithful port — see
+# scanners/scoring.py (regime math reproduced verbatim).
+name: coyote-main
+group: coyote
+version: 3.0.0
+description: >
+  COYOTE — regime classifier / single-asset BTC bet. Each tick computes BTC 7d
+  move + annualized realized vol over 4h candles (+ cross-asset dispersion across
+  BTC/ETH/SOL/HYPE, informational only) and classifies the market: TREND_UP
+  (BTC 7d >= +5% AND vol <= 80%) -> LONG BTC; TREND_DOWN (BTC 7d <= -5% AND
+  vol >= 60%) -> SHORT BTC; CHOP otherwise -> no trade. Regimes are persistent —
+  15min cadence, 6h per-asset cooldown, max 2 entries/day, so it doesn't churn on
+  noise. DSL is the ONLY exit (balanced ladder: first lock at +10% ROE, weak-peak
+  cut at 8h). Faithful port of the v2 Coyote v1.0.1 thesis (regime math verbatim).
+
+strategy:
+  wallet: "${COYOTE_WALLET}"
+  slots: 1                                # single regime bet on BTC
+  margin_pct: 25                          # baseline %; scan emits marginPct per signal
+  default_leverage: 3                     # fallback; scan emits 1-5x per signal (clamped to 5)
+  trading_risk: balanced
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: coyote_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900                  # v2 producer cadence (15min — regimes don't flip in 5min)
+    timeout_seconds: 180                   # v2 tick_timeout=180; account + 1 read/universe asset (4)
+    default_signal_validity_seconds: 1800  # 2x tick; rule action re-scores next tick
+    state_history_max_count: 100           # dedup map + per-tick regime-view history (~25h @900s)
+    inputs:
+      btcAsset: "BTC"                      # validated live on HL main DEX 2026-06-29
+      dispersionUniverse: ["BTC", "ETH", "SOL", "HYPE"]  # dispersion only (informational; SKILL RULE 3)
+      trendLookbackBars: 42                # 7d on 4h bars
+      volLookbackBars: 42                  # 7d realized vol
+      dispersionLookbackBars: 24           # 4d dispersion
+      trendUpThresholdPct: 5.0             # TREND_UP: BTC 7d >= this
+      trendDownThresholdPct: 5.0           # TREND_DOWN: BTC 7d <= -this
+      maxVolForTrendPct: 80.0              # annualized vol cap for TREND_UP
+      minVolForCrashPct: 60.0              # vol floor for TREND_DOWN (panic-crash, not slow grind)
+      marginPct: 25                        # PERCENT of withdrawable (0,100] (v2 fraction 0.25 * 100)
+      leverage: 3                          # clamped to MAX 5 in scan.py
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      marginPct: { type: number, required: false }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      regime: { type: string, required: false }
+      btc7dMovePct: { type: number, required: false }
+      realizedVolPct: { type: number, required: false }
+      dispersionPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: coyote_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # scan already classified + filtered (v2 LLM gate was pass-through)
+    scanners: [coyote_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # regime is established; enter NOW (v2 entry param)
+        execution_timeout_seconds: 30      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: coyote_main_signals
+
+# ── EXIT (DSL — preserved VERBATIM from v2 runtime.yaml, balanced preset) ──────
+# Regime trades hold for the duration of the regime. Balanced ladder + weak_peak_cut
+# so a stalled regime trade gets cut. hard_timeout 5d (regimes can run days/weeks);
+# weak_peak_cut 8h/min 3.0; phase1 max_loss 15%; phase2 first lock at +10% ROE
+# (REACHABLE — not +60-80%). interval_seconds 60 + taker fallback (closes MUST happen).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 7200            # 5d
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480             # 8h
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0 }
+        - { trigger_pct: 20,  lock_hw_pct: 30 }
+        - { trigger_pct: 35,  lock_hw_pct: 50 }
+        - { trigger_pct: 60,  lock_hw_pct: 70 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; hours/minutes -> seconds) ──
+risk:
+  data_retention_seconds: 604800           # v2 data_retention_hours 168 -> 604800 (7d, clamp ceiling)
+  guard_rails:
+    daily_loss_limit_pct: 15               # v2 risk.daily_loss_limit_pct
+    max_entries_per_day: 2                  # v2: regimes are persistent — don't churn
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 risk.max_consecutive_losses
+    cooldown_seconds: 21600                # v2 cooldown_minutes 360 -> 21600 (6h)
+    drawdown_halt_pct: 22                  # v2 risk.drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 21600      # v2 per_asset_cooldown_minutes 360 -> 21600 (6h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

@@ -1,0 +1,146 @@
+# ── LEMON · single instance — Degen Fader (Runtime 3.0 port of v2 Lemon v2.0.1) ──
+# Counter-trades a crowded, EXHAUSTING smart-money consensus on a fixed basket of 12
+# crypto majors + 4 XYZ commodity/index names. Emits the OPPOSITE direction to the SM
+# crowd (fade). Two-gate trend filter (MACRO_TREND_GATE crypto-only |BTC 4h|>3%,
+# PER_ASSET_TREND_GATE |asset 4h|>5%), MIN_SCORE 9, conviction leverage 5/7/10x capped
+# at 10x, MARGIN_PCT 30%. DSL is the ONLY exit — wide tiers give the reversal time to
+# mean-revert. Faithful port of the v2 producer thesis (all scoring/thresholds verbatim).
+name: lemon-main
+group: lemon
+version: 3.0.0
+description: >
+  LEMON — Degen Fader. Filters the smart-money leaderboard board to a fixed basket
+  (12 crypto majors + BRENTOIL/CL/GOLD/SP500) and fades a crowded consensus once it
+  starts exhausting (15m contribution <= 0.1, ideally collapsing). Scores the fade on
+  SM concentration, 15m/1h/4h velocity fade, 4h overextension, 1h reversal, funding,
+  and US-session; two trend gates block fading a real run (crypto MACRO |BTC 4h|>3%,
+  per-asset |4h|>5%). Emits ONE fade (opposite the crowd) at score >=9, leverage
+  5/7/10x by conviction (capped 10x), 30% margin, one slot. DSL is the ONLY exit (wide
+  tiers, first lock +5%/20%). Faithful port of the v2 Lemon v2.0.1 thesis.
+
+strategy:
+  wallet: "${LEMON_WALLET}"
+  slots: 1                                  # v2 slots:1 (1-slot fader)
+  margin_pct: 30                            # baseline %; scan emits the per-signal marginPct
+  default_leverage: 5                       # fallback; scan emits 5/7/10x per signal (v2 DEFAULT_LEVERAGE=5)
+  trading_risk: moderate                    # v2 runtime.yaml trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: lemon_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                    # v2 producer cadence (5 min)
+    timeout_seconds: 120                     # v2 tick_timeout=120; markets board + 1 funding read/candidate
+    default_signal_validity_seconds: 600     # 2x tick; a fresh re-score arrives next tick
+    state_history_max_count: 100             # per-asset cooldown map + per-tick scan results
+    inputs:
+      # ── universe (v2 TRACKED_CRYPTO + TRACKED_XYZ; v2 "SPX" -> live HL "SP500") ──
+      trackedCrypto: ["BTC", "ETH", "SOL", "HYPE", "AVAX", "DOGE", "LINK", "XRP", "ADA", "NEAR", "UNI", "AAVE"]
+      trackedXyz: ["BRENTOIL", "CL", "GOLD", "SP500"]
+      minScore: 9                            # v2 MIN_SCORE
+      marginPct: 30                          # PERCENT of withdrawable (0,100]; v2 MARGIN_PCT=0.30 (30%)
+      maxPositions: 1                        # producer-side held/slot guard (mirrors slots:1)
+      xyzBanned: false                       # v2 XYZ_BANNED=False — XYZ commodity/index names ARE faded
+      leaderboardLimit: 100                  # v2 fetch_sm_data limit=100
+      # ── fade gates / thresholds (v2 producer constants, verbatim) ──
+      minSmPct: 3.0                          # v2 MIN_SM_PCT
+      minSmTraders: 20                       # v2 MIN_SM_TRADERS
+      macroGateBtc4hPct: 3.0                 # v2 MACRO_GATE_BTC_4H_PCT (crypto-only)
+      perAssetGate4hPct: 5.0                 # v2 PER_ASSET_GATE_4H_PCT (2026-05-14 HYPE post-mortem)
+      # ── leverage (v2 LEVERAGE_TIERS [min_score, leverage] desc; MAX_LEVERAGE=10) ──
+      leverageTiers: [[13, 10], [11, 7], [9, 5]]
+      maxLeverage: 10                        # v2 MAX_LEVERAGE hard clamp
+      # ── per-asset cooldown (v2 producer backstop; runtime gate is primary) ──
+      perAssetCooldownSeconds: 7200          # v2 is_asset_cooled_down 120 min -> 7200s
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      isXyz: { type: boolean, required: false }
+      smDirection: { type: string, required: false }
+      smPct: { type: number, required: false }
+      smTraders: { type: number, required: false }
+      priceChg4h: { type: number, required: false }
+      contrib15m: { type: number, required: false }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: lemon_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                      # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [lemon_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT        # v2 entry order_type
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true      # v2 entry ensure_execution_as_taker
+        execution_timeout_seconds: 60        # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: lemon_main_signals
+
+# ── EXIT (DSL — ported VERBATIM from v2 runtime.yaml) ─────────────────────────
+# Wide-by-design so a fade has time to mean-revert. hard_timeout 480m (8h), tighter
+# Phase-1 floor (15%, "fades fail fast") than the fleet 25%, and a graduated Phase-2
+# ladder whose FIRST lock at +5%/20% is REACHABLE (not >+40%) — no unreachable-DSL
+# flag needed. weak_peak_cut + dead_weight_cut KEPT as in v2 (basket fader, not a
+# single-asset agent — the time-cut-off rule applies to single-asset agents only).
+exit:
+  engine: dsl
+  interval_seconds: 30                       # v2 exit interval_seconds
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 480               # 8h — mean reversion can take hours (v2)
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 60
+      min_value: 2.0                         # cut if peak ROE never breaks 2% in 60m (v2)
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 45                # cut early stallers (v2)
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0                      # v2: tighter than fleet 25% — fades fail fast
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                 # v2 ladder (verbatim); first lock +5%/20% (reachable)
+        - { trigger_pct: 5,  lock_hw_pct: 20 }
+        - { trigger_pct: 10, lock_hw_pct: 40 }
+        - { trigger_pct: 15, lock_hw_pct: 60 }
+        - { trigger_pct: 20, lock_hw_pct: 75 }
+        - { trigger_pct: 30, lock_hw_pct: 85 }
+        - { trigger_pct: 50, lock_hw_pct: 92 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200             # v2 data_retention_hours 72 -> 259200s (within [3600, 604800])
+  guard_rails:
+    daily_loss_limit_pct: 15                 # v2 daily_loss_limit_pct
+    max_entries_per_day: 3                    # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false   # v2
+    max_consecutive_losses: 3                # v2 max_consecutive_losses
+    cooldown_seconds: 3600                    # v2 cooldown_minutes 60 -> 3600s
+    drawdown_halt_pct: 25                     # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false     # v2
+    per_asset_cooldown_seconds: 7200          # v2 per_asset_cooldown_minutes 120 -> 7200s
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

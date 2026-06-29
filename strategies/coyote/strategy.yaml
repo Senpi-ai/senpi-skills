@@ -1,0 +1,43 @@
+# Coyote — regime classifier / single-asset BTC bet. A single-instance PACKAGE:
+# this manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0
+# port of the v2 Coyote (coyote-producer.py v1.0.1 / SKILL.md v1.0.0): classifies the
+# macro regime from BTC 7d trend + annualized realized vol (+ informational cross-asset
+# dispersion) into TREND_UP / TREND_DOWN / CHOP and takes a single positional BTC bet —
+# LONG in TREND_UP, SHORT in TREND_DOWN, out in CHOP. DSL-only exits.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: coyote
+version: "1.0.0"
+
+catalog:
+  name: "Coyote — Regime Classifier (BTC)"
+  emoji: "🐺"
+  tagline: "A single-asset BTC bet driven by a macro-regime read: each tick it measures BTC's 7-day trend strength and annualized realized volatility (plus cross-asset dispersion for context) and classifies the market into TREND_UP, TREND_DOWN or CHOP — going long BTC in a calm uptrend, short BTC in a high-vol crash, and staying out otherwise, then letting a balanced DSL ride the regime."
+  belief_plain: "Coyote first asks 'what kind of market are we in?' It looks at how far Bitcoin has moved over the last week and how violent that move has been. A steady 5%+ climb with calm volatility means uptrend — it goes long BTC. A sharp 5%+ drop with a volatility spike means a panic crash — it goes short BTC. Anything in between is chop, so it stays out. Real regimes last days, so it trades rarely and lets the trend run."
+  thesis: "Most agents re-implement their own 'should I be active right now?' check; Coyote makes the macro regime a first-class decision. BTC's 7-day move sets the direction and realized vol confirms the character — demanding HIGH vol for a short distinguishes a panic crash worth fading-with from an orderly grind-down that's really just chop. Because regimes are persistent, the right behavior is a slow cadence, a 6h cooldown and a max of 2 entries/day so it never churns on noise, then a wide DSL trail so a real regime move runs for days."
+  group: regime
+  archetype: single_market
+  sub_style: crypto_major
+  asset_classes: [btc_eth]
+  asset_scope: single
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 200
+  assets: ["BTC"]
+  tags: [btc, single-asset, regime, macro, trend, realized-vol, dispersion, balanced-dsl, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: COYOTE_WALLET
+    funding_share: 1.0

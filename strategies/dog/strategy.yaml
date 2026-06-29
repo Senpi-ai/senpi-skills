@@ -1,0 +1,43 @@
+# Dog — multi-asset contrarian SM-exhaustion fader. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port
+# of the v2 Dog (dog-producer.py v3.0.0, thesis frozen at v2.5): a BASKET fader on the
+# four liquid majors (BTC/ETH/SOL/HYPE) that scores the top-100 smart-money leaderboard,
+# then trades AGAINST the crowded, exhausted side. Conservative leverage, wide DSL.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: dog
+version: "1.0.0"
+
+catalog:
+  name: "Dog — Contrarian Pup (SM Exhaustion Fader)"
+  emoji: "🐕"
+  tagline: "A patient contrarian on BTC/ETH/SOL/HYPE: waits for a major to move 3%+ in 4h while smart money piles in heavily, then fades the crowded, exhausted side — but only when the funding regime confirms the unwind and the move is still fresh. Conservative 7-10x leverage, wide DSL to let the reversal develop."
+  belief_plain: "When a big coin runs hard and the best traders are all crowded onto the same side, the crowd is maximum exposed and the unwind is the trade. Dog bets against that exhausted consensus on BTC, ETH, SOL and HYPE — but only when the move has genuinely overextended, the crowding is still building, and market-wide funding shows the crowd really is one-sided. Most of the time it waits."
+  thesis: "Hyperliquid is dominated by leverage traders chasing momentum. When a major moves 3%+ in four hours and smart-money consensus piles in 15%+, the late entrants are maximally exposed and funding pressure plus mean reversion force the unwind. Dog's edge is being on the unwind side before capitulation accelerates — so it scores the smart-money direction, hard-gates on exhaustion (>=3% 4h move), freshness (15m contribution still rising), trader depth (>=30), and a funding regime that confirms the crowd is one-sided, then emits the OPPOSITE direction at conservative leverage and lets a wide ratcheting stop ride the reversal rather than banking too early."
+  group: smart-money
+  archetype: contrarian_fade
+  sub_style: sm_crowding
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: conservative
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 10
+  max_slots: 1
+  min_budget: 200
+  assets: ["BTC", "ETH", "SOL", "HYPE"]
+  tags: [smart-money, contrarian, fade, exhaustion, funding-regime, multi-asset, btc, eth, sol, hype, conservative, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: DOG_WALLET
+    funding_share: 1.0

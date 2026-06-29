@@ -1,0 +1,151 @@
+# ── CHAMELEON · single instance — relative-value / pairs (ratio mean-reversion) ──
+# Runtime 3.0 port of the v2 Chameleon (SKILL.md v1.0.0 / producer v1.0.1).
+# Correlated-pair basket (ETH/BTC, SOL/ETH, SOL/BTC) -> trades the high-beta leg
+# (ETH or SOL). Per tick: z-score the latest price RATIO vs its mean/std over
+# lookbackBars 1h candles; when |z| >= zEntryMin AND the reversion is starting,
+# take a directional bet on the leg in the snap-back direction. Single slot,
+# 4x (cap 5x), mean-reversion DSL (tight "bank the snapback" ladder, 48h
+# hard_timeout + weak_peak_cut). Faithful port of the v2 producer thesis — see
+# scanners/scoring.py (ratio math reproduced verbatim, v2-quirks flagged).
+name: chameleon-main
+group: chameleon
+version: 1.0.0
+description: >
+  CHAMELEON — relative-value / pairs (ratio mean-reversion). For each correlated
+  pair (ETH/BTC, SOL/ETH, SOL/BTC) it computes the latest price RATIO's z-score
+  vs its mean/std over lookbackBars (48) 1h candles. When |z| >= zEntryMin (2.0)
+  and the reversion is starting, it trades the high-beta leg (ETH or SOL) in the
+  direction that profits as the ratio reverts: z high (numerator rich) -> SHORT
+  the leg if leg==numerator, LONG if leg==denominator; mirror for z low. The
+  runtime is single-position, so this is a directional relative-value bet, not a
+  two-leg market-neutral spread. Score (max ~7): +2 |z|>=zEntryMin, +2 |z|>=zStrong,
+  +1 ratio turning, +1 smart-money confirms the leg, +1 leg volume rising. Floor
+  minScore 4. Emits the single most-extended reversion candidate per tick at 4x
+  (cap 5x), 15% margin. DSL is the ONLY exit — mean-reversion preset (tight ladder,
+  first lock 30% at +5% ROE, 48h hard_timeout + weak_peak_cut). Faithful port of
+  the v2 Chameleon v1.0.0 thesis (all scoring/thresholds verbatim).
+
+strategy:
+  wallet: "${CHAMELEON_WALLET}"
+  slots: 1                                # v2 single-position
+  margin_pct: 15                          # baseline %; scan emits marginPct per signal (v2 config marginPct 0.15 -> 15%)
+  default_leverage: 4                     # v2 DEFAULT_LEVERAGE; scan emits 4x clamped to <=5x per signal
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: chameleon_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # v2 tick_timeout=180; candles per unique asset + sm + account
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      pairs:                               # v2 DEFAULT_PAIRS / config.pairs (numerator/denominator + high-beta leg)
+        - { numerator: "ETH", denominator: "BTC", leg: "ETH" }
+        - { numerator: "SOL", denominator: "ETH", leg: "SOL" }
+        - { numerator: "SOL", denominator: "BTC", leg: "SOL" }
+      minScore: 4                          # v2 DEFAULT_MIN_SCORE / config.minScore
+      lookbackBars: 48                     # v2 DEFAULT_LOOKBACK_BARS — 1h bars (~2 days) for ratio mean/std
+      zEntryMin: 2.0                       # v2 DEFAULT_Z_ENTRY_MIN — |z| to consider the ratio extended
+      zStrong: 3.0                         # v2 DEFAULT_Z_STRONG — |z| for the extreme bonus
+      smTiltMinPct: 55                     # v2 DEFAULT_SM_TILT_MIN — smart-money tilt floor for the +1
+      marginPct: 15                        # PERCENT of withdrawable (0,100] (v2 config marginPct 0.15 -> 15%)
+      leverage: 4                          # v2 DEFAULT_LEVERAGE; clamped to <=5 (MAX_LEVERAGE) in scan.py
+      maxLeverage: 5                       # v2 MAX_LEVERAGE
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      pair: { type: string, required: false }
+      zscore: { type: number, required: false }
+      ratio: { type: number, required: false }
+      ratioMean: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      legVolumeTrendPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: chameleon_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [chameleon_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # enter at the extreme — a maker order that rests
+                                           # (CREATE_ORDER_RESTING) misses the reversion window.
+        execution_timeout_seconds: 30      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: chameleon_signals
+
+# ── EXIT (DSL — preserved VERBATIM from v2 runtime.yaml, mean-reversion preset) ──
+# A ratio reversion is a BOUNDED move — bank it. Tight ladder (first lock 30% at
+# +5% ROE), 48h hard_timeout + weak_peak_cut (a reversion resolves quickly or the
+# thesis failed). dead_weight_cut disabled. Phase 1 max_loss 15%. NOTE: time-cuts
+# are KEPT ON here (mean-reversion class), unlike the single-asset/conviction
+# pattern which disables them — verbatim from v2, which is a multi-pair RV agent,
+# not a single-asset conviction hold. interval_seconds 60 (REDUCE_ONLY-spam
+# mitigation when runtime position state lags HL).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30          # v2 exit execution_timeout_seconds
+  dsl_preset:
+    hard_timeout:
+      enabled: true                        # v2: ON — reversion resolves or the thesis failed
+      interval_in_minutes: 2880            # 48h
+    weak_peak_cut:
+      enabled: true                        # v2: ON
+      interval_in_minutes: 120
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false                       # v2: DISABLED
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0                    # v2 Phase 1 max_loss
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # v2 mean-reversion ladder; FIRST lock at +5% ROE (reachable)
+        - { trigger_pct: 5,  lock_hw_pct: 30 }
+        - { trigger_pct: 10, lock_hw_pct: 50 }
+        - { trigger_pct: 15, lock_hw_pct: 65 }
+        - { trigger_pct: 25, lock_hw_pct: 80 }
+        - { trigger_pct: 40, lock_hw_pct: 90 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # 72h (was data_retention_hours 72)
+  guard_rails:
+    daily_loss_limit_pct: 15               # v2 daily_loss_limit_pct
+    max_entries_per_day: 3                  # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 max_consecutive_losses
+    cooldown_seconds: 3600                 # v2 cooldown_minutes 60 -> 3600s
+    drawdown_halt_pct: 20                  # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 21600      # v2 per_asset_cooldown_minutes 360 -> 21600s (6h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

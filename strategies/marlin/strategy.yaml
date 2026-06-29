@@ -1,0 +1,44 @@
+# Marlin — order-book imbalance momentum on liquid majors. A single-instance PACKAGE:
+# this manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0
+# port of the v2 Marlin (SKILL.md v1.0.0): a 4-name basket (BTC/ETH/SOL/HYPE) that uses
+# the L2 order-book depth imbalance as the entry-TIMING edge on a momentum thesis —
+# fires only when book imbalance, 15m momentum, and smart-money direction all agree —
+# then holds the move with a wide "let winners run" DSL + a 24h short-horizon outer
+# bound. NOT a scalper. DSL-only exits. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: marlin
+version: "1.0.0"
+
+catalog:
+  name: "Marlin — Order-Book Imbalance Momentum"
+  emoji: "🐟"
+  tagline: "Reads the L2 order book on BTC/ETH/SOL/HYPE — when resting depth is lopsided (bids far heavier than asks, or the reverse) that's directional pressure, but it only fires when 15m momentum and smart money agree, then hands the position to a wide DSL and lets the move run (it does not scalp)."
+  belief_plain: "Looks at how much resting buy vs sell interest is stacked in the order book of the big, liquid coins. A heavily one-sided book signals pressure in that direction — but a lopsided book alone is noise, so it only acts when short-term price momentum and the best traders are pointing the same way. Then it holds the trade with a wide trailing stop instead of flipping in and out."
+  thesis: "Order-book imbalance is a genuine microstructure edge, but trading it as a per-tick scalp just bleeds fees. Marlin uses the imbalance differently — as the entry-timing signal on a momentum thesis: the book says which side has pressure right now, momentum and smart money confirm the move is real, and then you hold it with a wide ratchet and let it work. Restricting the universe to four liquid majors keeps the imbalance reading reliable (thin books give garbage ratios), and a 24h hard timeout caps the short-horizon thesis without choking a real run."
+  group: smart-money
+  archetype: breakout_momentum
+  sub_style: orderbook_pressure
+  asset_classes: [major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 100
+  assets: ["BTC", "ETH", "SOL", "HYPE"]
+  tags: [btc, eth, sol, hype, order-book, imbalance, microstructure, momentum, smart-money, let-winners-run, single-slot]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: MARLIN_WALLET
+    funding_share: 1.0

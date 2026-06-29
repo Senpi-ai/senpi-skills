@@ -1,0 +1,144 @@
+# ── HAWK · single instance — breakout buyer / breakdown seller (basket) ───────
+# Runtime 3.0 port of the v2 Hawk (SKILL.md v1.0.0 / hawk-producer.py v1.0.1).
+# Liquid-majors basket (BTC/ETH/SOL): LONG a break above the 7d high / SHORT a
+# break below the 7d low, GATED by the smart-money leaderboard (net >= 55% in the
+# breakout direction). 5-component breakout score (max ~9, floor 5), flat 20%
+# margin / 5x leverage. Asymmetric DSL — TIGHT Phase 1 (max_loss 8%, retrace 5)
+# cuts failed breakouts fast; WIDE Phase 2 ladder (first lock at +10% ROE) lets a
+# real breakout run. hard_timeout 24h. Faithful port — see scanners/scoring.py
+# (math reproduced verbatim, v2-quirks flagged).
+name: hawk-main
+group: hawk
+version: 1.0.0
+description: >
+  HAWK — breakout buyer / breakdown seller on the liquid majors (BTC/ETH/SOL).
+  Goes LONG when the latest 1h close breaks ABOVE the prior 7-day (168h) high AND
+  the Senpi smart-money leaderboard is net long in the same direction at >= 55%;
+  SHORT on a break below the 7-day low with SM net short. The breakout and the
+  SM-direction agreement are HARD GATES; 4h-trend alignment and a volume-spike
+  confirm are score contributors (5 components, max ~9, floor 5). Flat sizing:
+  20% margin, 5x leverage (clamped to 5x max). Asymmetric DSL — tight Phase 1
+  (max_loss 8%) cuts failed breakouts fast, while a wide Phase 2 ratchet (first
+  lock at +10% ROE) lets a real breakout run; hard_timeout 24h kills a breakout
+  that never works. Onboarding-grade. Faithful port of the v2 Hawk v1.0.0 thesis
+  (all scoring/thresholds verbatim).
+
+strategy:
+  wallet: "${HAWK_WALLET}"
+  slots: 1                                 # v2 strategy.slots 1
+  margin_pct: 20                           # baseline %; scan emits the flat marginPct per signal
+  default_leverage: 5                      # fallback; scan emits 5x per signal (clamped to MAX 5)
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hawk_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                   # v2 producer cadence (5 min)
+    timeout_seconds: 180                    # v2 tick_timeout=180; ~1 read/asset + sm + account
+    default_signal_validity_seconds: 600    # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100            # dedup map + per-tick scan-results history
+    inputs:
+      universe: ["BTC", "ETH", "SOL"]       # v1 DEFAULT_UNIVERSE (validated live on HL main DEX 2026-06-29)
+      minScore: 5                           # v1 DEFAULT_MIN_SCORE / config.minScore
+      marginPct: 20                         # PERCENT of withdrawable (0,100]; flat (no conviction tiers)
+      leverage: 5                           # clamped to MAX_LEVERAGE 5 in scan.py
+      smTiltMinPct: 55                      # v1 DEFAULT_SM_TILT_MIN — SM-agreement gate
+      smStrongTiltPct: 70                   # v1 DEFAULT_SM_STRONG — +1 "strongly tilted" component
+      breakoutLookbackHours: 168            # v1 DEFAULT_BREAKOUT_LOOKBACK_HOURS (7 days)
+      recentSignalTtlSeconds: 240           # v1 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      breakoutPct: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      trend4h: { type: string, required: false }
+      volumeRatio: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hawk_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [hawk_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # 2026-05-21 HYPE lesson: momentum/breakout entries must fill —
+                                            # maker-only can rest unfilled (CREATE_ORDER_RESTING). Taker
+                                            # fallback guarantees fill + DSL attach.
+        execution_timeout_seconds: 30       # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: hawk_main_signals
+
+# ── EXIT (DSL — preserved VERBATIM from the v2 hawk runtime.yaml) ──────────────
+# Asymmetric "breakout" profile: TIGHT Phase 1 (max_loss 8%, retrace 5) cuts a
+# failed breakout fast; WIDE Phase 2 ladder lets a real one run. hard_timeout 24h
+# kills a breakout that never works; weak_peak_cut 60min/3% kills stale chop;
+# dead_weight_cut DISABLED. Phase 2 FIRST lock at +10% ROE (reachable on realistic
+# winners — NOT the unreachable >+40% pattern). order_type FEE_OPTIMIZED_LIMIT,
+# taker fallback on (closes MUST happen). interval_seconds 60 (v2: REDUCE_ONLY-spam
+# mitigation when runtime position state lags HL).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true         # exit closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30           # v2: kept the maker attempt under the server connection window
+  dsl_preset:
+    hard_timeout:
+      enabled: true                         # v2: 24h cap — failed breakouts get cut
+      interval_in_minutes: 1440
+    weak_peak_cut:
+      enabled: true                         # v2: 60min/3% — stale breakouts cut (self-limiting)
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                        # v2: DISABLED
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 8.0                      # v2: TIGHT floor — failed breakouts must be cut fast
+      retrace_threshold: 5
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                # wide-by-design; FIRST lock at +10% ROE (NOT >+40%)
+        - { trigger_pct: 10,  lock_hw_pct: 0  }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200            # 72h (was data_retention_hours 72)
+  guard_rails:
+    daily_loss_limit_pct: 15                # v2 daily_loss_limit_pct
+    max_entries_per_day: 2                  # v2 onboarding: fewer-stronger
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 max_consecutive_losses
+    cooldown_seconds: 3600                 # v2 cooldown_minutes 60 -> 3600s (post-loss)
+    drawdown_halt_pct: 20                   # v2 drawdown_halt_pct (hard circuit breaker)
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400       # v2 per_asset_cooldown_minutes 240 -> 14400s (4h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

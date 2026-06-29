@@ -1,0 +1,42 @@
+# Lemon — the Degen Fader. A single-instance PACKAGE: this manifest + one self-contained
+# runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2 Lemon (lemon-producer.py
+# v2.0.1): filters the smart-money leaderboard board to a fixed basket (12 crypto majors +
+# 4 XYZ commodity/index names) and FADES a crowded consensus once it starts exhausting,
+# entering OPPOSITE the crowd. MIN_SCORE 9, two trend gates, conviction leverage 5/7/10x,
+# 30% margin, one slot, DSL-only exits. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: lemon
+version: "1.0.0"
+
+catalog:
+  name: "Lemon — Degen Fader"
+  emoji: "🍋"
+  tagline: "Watches where the worst, most crowded traders are piling in across a fixed basket of 12 crypto majors and 4 commodity/index names — and once that one-sided crowd stops following through (its 15-minute momentum rolls over), takes the OTHER side at conviction-scaled leverage and lets a wide ratcheting stop ride the snap-back."
+  belief_plain: "When a lot of low-quality traders crowd hard onto one side of a coin and the move starts running out of steam, that crowd usually gets unwound. Lemon waits for the crowding to actually start fading on the 15-minute clock, blocks the trade if it's really a genuine trend (big BTC move or the asset itself ripping), then bets the OPPOSITE direction and trails a wide stop while the over-stretched move mean-reverts."
+  thesis: "Hyperliquid is full of high-leverage retail that piles into exhausted moves. A crowded smart-money consensus is only a fade setup once it STOPS following through — so Lemon gates on 15m exhaustion, not just crowding, and refuses to fade a real run (crypto MACRO gate on |BTC 4h|>3%, per-asset gate on |4h|>5%) because fading genuine trend is how a contrarian dies. Concentration + velocity-fade + overextension + reversal compound into a score; it fires the single best fade at score >=9, sizes leverage to conviction, and lets a wide DSL ride the mean reversion since reversals take hours, not minutes."
+  group: contrarian
+  archetype: contrarian_fade
+  sub_style: sm_crowding
+  asset_classes: [major_alts, commodities, indices]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 10
+  max_slots: 1
+  min_budget: 100
+  assets: ["BTC", "ETH", "SOL", "HYPE", "AVAX", "DOGE", "LINK", "XRP", "ADA", "NEAR", "UNI", "AAVE", "xyz:BRENTOIL", "xyz:CL", "xyz:GOLD", "xyz:SP500"]
+  tags: [degen-fader, contrarian, smart-money, crowd-exhaustion, mean-reversion, fade, basket, conviction-leverage, single-slot, xyz]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: LEMON_WALLET
+    funding_share: 1.0
