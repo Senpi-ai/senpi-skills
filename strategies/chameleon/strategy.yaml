@@ -1,0 +1,44 @@
+# Chameleon — relative-value / pairs (ratio mean-reversion). A single-instance PACKAGE:
+# this manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port
+# of the v2 Chameleon (SKILL.md v1.0.0): for each correlated pair (ETH/BTC, SOL/ETH,
+# SOL/BTC) it z-scores the latest price RATIO vs its mean/std over lookbackBars 1h candles,
+# then takes a DIRECTIONAL bet on the high-beta leg in the direction that profits as the
+# ratio reverts to its mean (single-position runtime -> not a two-leg market-neutral spread).
+# Mean-reversion DSL (tight "bank the snapback" ladder, 48h hard_timeout + weak_peak_cut).
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: chameleon
+version: "1.0.0"
+
+catalog:
+  name: "Chameleon — Relative-Value / Pairs"
+  emoji: "🦎"
+  tagline: "A relative-value pairs trader on correlated crypto majors: for each pair (ETH/BTC, SOL/ETH, SOL/BTC) it z-scores the latest price ratio vs its 48-bar (1h) mean, and when the ratio stretches >=2 sigma AND starts reverting, it takes a directional bet on the high-beta leg in the snap-back direction — sizing one slot and letting a tight mean-reversion DSL bank the reversion."
+  belief_plain: "Trades the spread between two coins, not the market. When ETH gets expensive relative to BTC (or SOL vs ETH), the ratio stretches far from its usual level — and ratios snap back more reliably than outright prices. Chameleon measures how stretched a pair is, waits until the ratio starts turning back, then bets on the high-beta coin (ETH or SOL) in the direction that profits from the snap-back, and trails a tight stop to bank the reversion."
+  thesis: "Correlated majors trade as a pack, but their ratios oscillate around a mean. A 3-sigma ETH/BTC extension is a cleaner edge than guessing ETH's absolute direction — the pair's correlation does the work. The Senpi runtime is single-position, so instead of a two-leg market-neutral spread Chameleon takes a directional bet on the high-beta leg; it captures most of the reversion edge without spread-level position management, and the move is bounded, so a tight ladder banks the snap-back rather than holding for a trend."
+  group: relative-value
+  archetype: structural_neutral
+  sub_style: pairs_rv
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 200
+  assets: ["ETH", "SOL"]
+  tags: [eth, sol, btc, pairs, relative-value, ratio, z-score, mean-reversion, market-neutral-leg, structural]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: CHAMELEON_WALLET
+    funding_share: 1.0

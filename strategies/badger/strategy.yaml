@@ -1,0 +1,43 @@
+# Badger — OI-divergence breakout anticipator. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port
+# of the v2 Badger (SKILL.md v1.0.0): a liquid-majors whitelist (BTC/ETH/SOL/HYPE)
+# breakout scorer gated on RISING open interest + smart-money agreement, single-best
+# emit, wide "let winners run" DSL ladder, DSL-only exits.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: badger
+version: "1.0.0"
+
+catalog:
+  name: "Badger — OI-Divergence Breakout Anticipator"
+  emoji: "🦡"
+  tagline: "Only takes the breakout the order flow confirms: enters a prior-24h range break on BTC/ETH/SOL/HYPE only when open interest is RISING (new money committing) AND smart money agrees with the break — then sizes 20% / 5x and lets a wide DSL ratchet ride the move for days."
+  belief_plain: "Most price breakouts fail. The single best filter for whether a breakout will follow through is open interest: if price breaks its prior 24-hour high (or low) while open interest is rising, new money is committing and the move has conviction. If open interest is flat or falling, it's just stops and short-covering — a fakeout — and Badger skips it. It also checks that the best traders are leaning the same way before it commits."
+  thesis: "Open interest is the fuel of a breakout. A price push beyond the recent range confirmed by rising OI = new positions opening in the breakout direction = real follow-through; a breakout on flat/declining OI is shorts covering or stops triggering, with no new money behind it. Gating breakouts on OI velocity (plus smart-money agreement) filters the fakeouts that kill a naive breakout buyer, and a wide let-winners-run exit ladder means the rare confirmed breakout that runs far pays for the ones that don't."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: oi_confirmed
+  asset_classes: [major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 200
+  assets: ["BTC", "ETH", "SOL", "HYPE"]
+  tags: [btc, eth, sol, hype, breakout, open-interest, oi-confirmed, smart-money, momentum, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: BADGER_WALLET
+    funding_share: 1.0

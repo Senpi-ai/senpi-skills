@@ -1,0 +1,44 @@
+# Hawk — breakout buyer / breakdown seller with a Smart-Money direction gate. A
+# single-instance PACKAGE: this manifest + one self-contained runtime.yaml + scanners/.
+# A faithful Runtime 3.0 port of the v2 Hawk (SKILL.md v1.0.0): a liquid-majors basket
+# (BTC/ETH/SOL) that LONGs a break above the 7-day high / SHORTs a break below the 7-day
+# low, gated by the Senpi smart-money leaderboard, with an asymmetric DSL (tight Phase 1
+# to cut failed breakouts, wide Phase 2 to let real ones run). Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: hawk
+version: "1.0.0"
+
+catalog:
+  name: "Hawk — Breakout Buyer / Breakdown Seller"
+  emoji: "🦅"
+  tagline: "An onboarding-grade breakout trader on the liquid majors (BTC/ETH/SOL): goes LONG when price breaks above its 7-day high AND smart-money is net long, SHORT when it breaks below the 7-day low AND smart-money is net short, then cuts failed breakouts fast (tight 8% Phase 1) while letting a real one run on a wide Phase 2 ratchet."
+  belief_plain: "Watches BTC, ETH and SOL. When one of them breaks above its highest price of the last week and the best traders are also leaning long, it buys; when one breaks below its weekly low and the best traders are leaning short, it sells short. A fake breakout gets cut quickly, but a real one is given lots of room to run."
+  thesis: "Most breakout strategies lose because they fight the trend, chase fake breakouts into stop-hunts, or hold failed breakouts too long. Hawk requires three things at once — a genuine break of the 7-day range, the 4h trend pointing the same way, and the smart-money leaderboard net in the breakout direction — so it only fires on confirmed breaks. Then the asymmetry does the work: an 8% Phase 1 floor cuts a breakout that fails immediately, while a wide Phase 2 ladder (first lock only at +10% ROE) keeps the rare breakout that runs, because that tail pays for the quiet weeks."
+  group: breakout
+  archetype: breakout_momentum
+  sub_style: range_break
+  asset_classes: [major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: starter
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 200
+  assets: ["BTC", "ETH", "SOL"]
+  tags: [btc, eth, sol, multi-asset, breakout, breakdown, smart-money, range-break, onboarding, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: HAWK_WALLET
+    funding_share: 1.0

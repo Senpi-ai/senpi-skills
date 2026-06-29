@@ -1,0 +1,42 @@
+# Egret — Smart-Money Divergence Fader. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
+# Egret (SKILL.md v1.0.0 / producer v1.0.1): fades an exhausted Smart-Money crowd on
+# a liquid-majors whitelist (BTC/ETH/SOL/HYPE) when extreme one-sided crowding is NOT
+# confirmed by price (divergence). Flat 15% margin, leverage <=5, TIGHT fader DSL,
+# maker-only entry. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: egret
+version: "1.0.0"
+
+catalog:
+  name: "Egret — Smart-Money Divergence Fader"
+  emoji: "🐦"
+  tagline: "Fades an exhausted crowd: when 70%+ of top traders are piled onto one side of BTC/ETH/SOL/HYPE but price refuses to follow (it stalls or rolls over against the crowd), the crowded side is out of fuel — Egret takes the other side, sized flat at 15% / <=5x, and banks the bounded snapback with a tight ratchet."
+  belief_plain: "When almost everyone good is leaning the same way on a coin but the price won't move with them, the trade is crowded and out of buyers (or sellers). Egret bets on the snap-back the other way, and because that bounce is small and quick, it locks in profit fast instead of holding for a big trend."
+  thesis: "Smart-money concentration is usually a confirmation signal — but at an extreme, with price refusing to confirm, it flips contrarian: a maximally-crowded side with no one left to push has only one way to resolve, the unwind. The edge is the bounded snapback, so the right design is the inverse of a momentum holder: maker-only non-urgent entry, a tight ratchet that banks the bounce, and time-cuts that exit a fade that didn't resolve quickly."
+  group: smart-money
+  archetype: contrarian_fade
+  sub_style: sm_crowding
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 1
+  min_budget: 200
+  assets: ["BTC", "ETH", "SOL", "HYPE"]
+  tags: [btc, eth, sol, hype, smart-money, contrarian, fade, mean-reversion, divergence, rsi, maker-only, tight-ratchet]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: EGRET_WALLET
+    funding_share: 1.0

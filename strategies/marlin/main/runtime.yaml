@@ -1,0 +1,145 @@
+# ── MARLIN · single instance — order-book imbalance momentum (BTC/ETH/SOL/HYPE) ──
+# Runtime 3.0 port of the v2 Marlin (SKILL.md v1.0.0). Liquid-majors basket, L2
+# order-book depth imbalance as the entry-TIMING edge on a momentum thesis: fires
+# only when book imbalance, 15m momentum, and smart-money direction all agree on the
+# same side. NOT a scalper — wide "let winners run" DSL + a 24h hard_timeout outer
+# bound (microstructure is short-horizon). Faithful port of the v2 producer thesis —
+# see scanners/scoring.py (math reproduced verbatim, v2-quirks flagged).
+name: marlin-main
+group: marlin
+version: 1.0.0
+description: >
+  MARLIN — order-book imbalance momentum on liquid majors (BTC/ETH/SOL/HYPE).
+  A persistent resting-depth imbalance in the L2 book is a near-term pressure tell:
+  bids >> asks = buy pressure (LONG), asks >> bids = sell pressure (SHORT). Three
+  hard gates, all required: book imbalance >= imbalanceMin on one side, 15m momentum
+  confirms that side (>= momMinPct), and smart-money direction agrees with tilt
+  >= smTiltMinPct (default 55%). Composite score (max ~9) with strong-imbalance,
+  5m-momentum, strong-SM, and volume-rising bonuses; floor minScore 5. Emits the
+  single highest-scoring candidate per tick. Fixed margin 15% of withdrawable,
+  leverage 4x (clamped to 5x max). DSL is the ONLY exit — wide ratchet ladder
+  (first lock at +10% ROE) + a 24h hard_timeout (the short-horizon outer bound).
+  Faithful port of the v2 Marlin v1.0.0 thesis (all scoring/thresholds verbatim).
+
+strategy:
+  wallet: "${MARLIN_WALLET}"
+  slots: 1                                # v2 emitted exactly one signal (best)
+  margin_pct: 15                          # baseline %; scan emits the fixed marginPct per signal
+  default_leverage: 4                     # fallback; scan emits 4x (clamped to 5x max) per signal
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: marlin_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 180                  # v2 producer cadence (3 min)
+    timeout_seconds: 150                   # v2 tick_timeout=150; ~1 asset_data read/asset + sm + account
+    default_signal_validity_seconds: 360   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      universe: ["BTC", "ETH", "SOL", "HYPE"]  # v2 universe (validated live on HL main DEX 2026-06-29)
+      minScore: 5                          # v2 minScore / DEFAULT_MIN_SCORE
+      levelsN: 10                          # v2 levelsN — top N book levels per side summed
+      imbalanceMin: 1.5                    # v2 imbalanceMin — bid/ask depth ratio to call a side
+      imbalanceStrong: 2.5                 # v2 imbalanceStrong — strongly-imbalanced bonus
+      momMinPct: 0.1                       # v2 momMinPct — 15m momentum magnitude that confirms the side
+      smTiltMinPct: 55                     # v2 smTiltMinPct — smart-money tilt floor
+      marginPct: 15                        # PERCENT of withdrawable (v2 0.15 fraction -> 15 percent)
+      leverage: 4                          # clamped to [1,5] in scan.py (MAX_LEVERAGE=5)
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      imbalanceRatio: { type: number, required: false }
+      bidDepth: { type: number, required: false }
+      askDepth: { type: number, required: false }
+      mom15mPct: { type: number, required: false }
+      mom5mPct: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      volumeTrendPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: marlin_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [marlin_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # momentum entry must fill — maker-only can rest unfilled
+                                           # (CREATE_ORDER_RESTING) and miss the move. Taker fallback
+                                           # guarantees fill + DSL attach. (v2 marlin_entry param.)
+        execution_timeout_seconds: 30      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: marlin_main_signals
+
+# ── EXIT (DSL — preserved VERBATIM from v2 marlin runtime.yaml) ───────────────
+# Wide "let winners run" ladder (first lock at +10% ROE) + a 24h hard_timeout as the
+# only time-based exit — the order-book/microstructure thesis is short-horizon, but
+# the move itself is given room. weak_peak_cut / dead_weight_cut DISABLED (verbatim).
+# Phase 1 max_loss 18%. order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes
+# MUST happen). interval_seconds 60 (v2).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true                        # v2: ENABLED — 24h short-horizon outer bound
+      interval_in_minutes: 1440            # 24h — book-imbalance momentum is short-horizon
+    weak_peak_cut:
+      enabled: false                       # v2: DISABLED
+      interval_in_minutes: 120
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                       # v2: DISABLED
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0                    # v2 phase1.max_loss_pct
+      retrace_threshold: 8                  # v2 phase1.retrace_threshold
+      consecutive_breaches_required: 1      # v2 phase1.consecutive_breaches_required
+    phase2:
+      enabled: true
+      tiers:                               # wide-by-design; FIRST lock at +10% ROE (reachable)
+        - { trigger_pct: 10,  lock_hw_pct: 0  }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # 72h (v2 data_retention_hours 72 -> x3600)
+  guard_rails:
+    daily_loss_limit_pct: 15               # v2 risk.daily_loss_limit_pct
+    max_entries_per_day: 4                  # v2 risk.max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 risk.max_consecutive_losses
+    cooldown_seconds: 3600                 # v2 cooldown_minutes 60 -> 3600s
+    drawdown_halt_pct: 22                  # v2 risk.drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 10800      # v2 per_asset_cooldown_minutes 180 -> 10800s (3h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

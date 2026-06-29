@@ -1,0 +1,140 @@
+# ── EGRET · single instance — Smart-Money Divergence Fader ────────────────────
+# Runtime 3.0 port of the v2 Egret (SKILL.md v1.0.0 / producer v1.0.1). Multi-asset
+# whitelist (BTC/ETH/SOL/HYPE). Two hard gates: SM concentration >= 70% AND price
+# NOT confirming the crowd (divergence). Fades the exhausted crowd; RSI exhaustion
+# adds conviction. FLAT margin (15%), leverage clamped <=5. TIGHT fader DSL (T0
+# +5% / lock 30 — bank the bounded snapback) + ENABLED time-cuts + MAKER-ONLY entry.
+# Faithful port of the v2 producer thesis — see scanners/scoring.py (math verbatim).
+name: egret-main
+group: egret
+version: 3.0.0
+description: >
+  EGRET — multi-asset Smart-Money Divergence Fader (BTC/ETH/SOL/HYPE). When the
+  Smart-Money crowd is extremely concentrated one way (>= crowdingMinPct, default
+  70%) but price is NOT confirming over the recent window (it has stalled or rolled
+  over against the crowd), the crowded side is exhausted and the unwind is the edge —
+  Egret fades it. Crowded LONG + price stalled -> FADE SHORT; crowded SHORT + price
+  stalled -> FADE LONG. RSI exhaustion adds conviction (score max ~9, floor 5).
+  This is a mean-reversion / unwind play, tuned OPPOSITE the momentum agents:
+  TIGHT DSL ladder (first lock at +5% — bank the bounded snapback fast), MAKER-ONLY
+  entry (a fade is non-urgent and fee-sensitive), time-cuts ENABLED (a fade resolves
+  quickly or the thesis failed). Flat 15% margin, leverage <=5. DSL owns all exits.
+  Faithful port of the v2 Egret v1.0.1 thesis (all scoring/thresholds verbatim).
+
+strategy:
+  wallet: "${EGRET_WALLET}"
+  slots: 1                                # v2 slots 1
+  margin_pct: 15                          # flat baseline %; scan emits the same marginPct per signal
+  default_leverage: 4                     # fallback; scan emits 4x (clamped <=5) per signal
+  trading_risk: moderate                  # v2 trading_risk "balanced" -> moderate (canonical)
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10                   # v2 position_tracker interval 10s
+  - name: egret_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # v2 tick_timeout=180
+    default_signal_validity_seconds: 600   # 2x tick; a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      universe: ["BTC", "ETH", "SOL", "HYPE"]  # v2 universe (validated live on HL main DEX 2026-06-29)
+      minScore: 5                          # v2 DEFAULT_MIN_SCORE / config minScore
+      crowdingMinPct: 70                   # v2 DEFAULT_CROWDING_MIN_PCT — GATE 1
+      crowdingExtremePct: 80               # v2 DEFAULT_CROWDING_EXTREME_PCT — ultra-crowded bonus
+      confirmMaxPct: 0.5                   # v2 DEFAULT_CONFIRM_MAX_PCT — divergence threshold (GATE 2)
+      divergenceLookbackHours: 4           # v2 DEFAULT_DIVERGENCE_LOOKBACK — 1h bars
+      marginPct: 15                        # PERCENT of withdrawable (0,100]; flat (NOT tiered)
+      leverage: 4                          # clamped to <=5 in scan.py (MAX_LEVERAGE)
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      smCrowdDirection: { type: string, required: false }
+      smCrowdPct: { type: number, required: false }
+      priceMomentumPct: { type: number, required: false }
+      rsi: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: egret_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [egret_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: false   # FADER: maker-only is correct. A fade is non-urgent and
+                                           # fee-sensitive — if the maker can't fill, the trade wasn't
+                                           # ripe. (Verbatim from v2; the taker-fallback rule is for
+                                           # MOMENTUM agents that must catch a move; a fader is the opposite.)
+        execution_timeout_seconds: 30      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: egret_main_signals
+
+# ── EXIT (DSL — TIGHT fader profile, preserved VERBATIM from v2) ──────────────
+# A fade is a BOUNDED unwind — bank the snapback fast, don't hold for a trend.
+# Tight Phase 2 ladder (first lock at +5% ROE) + ENABLED time-cuts (a fade resolves
+# quickly or the thesis failed). Intentionally the OPPOSITE of the momentum agents'
+# wide "let winners run" ladder. order_type FEE_OPTIMIZED_LIMIT, taker fallback on
+# (exit closes MUST happen).
+exit:
+  engine: dsl
+  interval_seconds: 60                     # v2 exit interval_seconds 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true                        # v2: ENABLED — a fade resolves quickly or the thesis failed
+      interval_in_minutes: 2880            # v2 48h outer bound
+    weak_peak_cut:
+      enabled: true                        # v2: ENABLED — cut a stale fade
+      interval_in_minutes: 120             # v2 weak_peak_cut interval 120min
+      min_value: 2.0                       # v2 weak_peak_cut min_value 2.0
+    dead_weight_cut:
+      enabled: false                       # v2: DISABLED
+      interval_in_minutes: 90
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0                    # v2 phase1 max_loss_pct 15
+      retrace_threshold: 6                  # v2 phase1 retrace_threshold 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # TIGHT — bank the snapback; FIRST lock at +5% ROE
+        - { trigger_pct: 5,  lock_hw_pct: 30 }
+        - { trigger_pct: 10, lock_hw_pct: 50 }
+        - { trigger_pct: 15, lock_hw_pct: 65 }
+        - { trigger_pct: 25, lock_hw_pct: 80 }
+        - { trigger_pct: 40, lock_hw_pct: 90 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # v2 data_retention_hours 72 -> 259200s (within [3600,604800])
+  guard_rails:
+    daily_loss_limit_pct: 12               # v2 daily_loss_limit_pct 12
+    max_entries_per_day: 3                  # v2 max_entries_per_day 3
+    bypass_max_entries_per_day_on_profit: false   # v2 bypass_max_entries_per_day_on_profit false
+    max_consecutive_losses: 3              # v2 max_consecutive_losses 3
+    cooldown_seconds: 5400                 # v2 cooldown_minutes 90 -> 5400s
+    drawdown_halt_pct: 18                  # v2 drawdown_halt_pct 18
+    drawdown_reset_on_day_rollover: false  # v2 drawdown_reset_on_day_rollover false
+    per_asset_cooldown_seconds: 21600      # v2 per_asset_cooldown_minutes 360 -> 21600s (6h)
+
+notifications:
+  dsl_lifecycle: true                      # v2 dsl_lifecycle true
+  dsl_notify_sl_updates: false             # v2 dsl_notify_sl_updates false
+  action_lifecycle: true                   # v2 action_lifecycle true

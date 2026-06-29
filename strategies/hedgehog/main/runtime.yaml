@@ -1,0 +1,136 @@
+# ── HEDGEHOG · single instance — equal-weight BTC/ETH/SOL directional basket ──
+# Runtime 3.0 port of the v2 HEDGEHOG (hedgehog-producer.py v1.0.1 / SKILL.md
+# v1.0.0). Onboarding-tier major-crypto basket: each of BTC/ETH/SOL evaluated
+# INDEPENDENTLY (long OR short) on a HARD-GATED 4h trend + Smart-Money direction
+# thesis. Up to 3 simultaneous positions, flat 10% margin per leg, 5x leverage,
+# per-position DSL exits. Faithful port — see scanners/scoring.py (math verbatim).
+name: hedgehog-main
+group: hedgehog
+version: 3.0.0
+description: >
+  HEDGEHOG — equal-weight major-crypto basket (BTC + ETH + SOL), each leg
+  independently directional. Per asset: HARD GATES (4h trend non-neutral +
+  Smart-Money direction agrees with the 4h direction + SM tilt >= 55%), then a
+  simple 4-component score (max ~9): +3 4h trend, +2 1h confirm, +2 SM aligned,
+  +1 SM strongly tilted (>=70%). Emits the single highest-scoring unheld leg per
+  tick; the basket fills to 3 slots over ticks. Flat 10% margin per leg (max 30%
+  committed), 5x leverage. Per-position DSL — one leg going wrong doesn't drag
+  the others. Onboarding-tier: the diversification answer for "I want exposure to
+  crypto majors without picking one." Faithful port of v2 HEDGEHOG v1.0.0.
+
+strategy:
+  wallet: "${HEDGEHOG_WALLET}"
+  slots: 3                                # v2 strategy.slots 3 (one per asset)
+  margin_pct: 10                          # baseline %; scan emits the flat per-leg marginPct per signal
+  default_leverage: 5                     # fallback; scan emits 5x per signal
+  trading_risk: conservative
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hedgehog_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # v2 tick_timeout=180; ~1 market read + 1 sm read per asset + account
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      universe: ["BTC", "ETH", "SOL"]      # v2 config universe (validated live on HL main DEX 2026-06-29)
+      minScore: 5                          # v2 minScore (DEFAULT_MIN_SCORE) — easy directional-confluence floor
+      smTiltMinPct: 55                     # v2 smTiltMinPct (DEFAULT_SM_TILT_MIN) — SM agreement gate
+      smStrongTiltPct: 70                  # v2 smStrongTiltPct (DEFAULT_SM_STRONG) — +1 strong-tilt bonus
+      marginPct: 10                        # PERCENT of withdrawable (0,100]; flat per leg (v2 0.10 fraction x100)
+      leverage: 5                          # clamped to [1,5] in scan.py (MAX_LEVERAGE)
+      recentSignalTtlSeconds: 240          # v1.0.1 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      trend4hStrength: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hedgehog_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every gate (v2 LLM gate was pass-through)
+    scanners: [hedgehog_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # v2: maker-only entries rest and silently fail to open during fast
+                                           # moves (CREATE_ORDER_RESTING). Taker fallback guarantees fill + DSL attach.
+        execution_timeout_seconds: 30      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: hedgehog_main_signals
+
+# ── EXIT (DSL — ported VERBATIM from v2 runtime.yaml) ─────────────────────────
+# hard_timeout ENABLED (48h cap, v2 interval_in_minutes 2880). weak_peak_cut and
+# dead_weight_cut DISABLED (v2). Phase 1 max_loss 15% (per position). Phase 2
+# Bison-pattern wide ladder: FIRST lock at +10% ROE (reachable; NOT +40-80%), up
+# to T5 +100%/85% lock so multi-day winners ratchet. order_type FEE_OPTIMIZED_LIMIT,
+# taker fallback on (closes MUST happen). interval_seconds 60 (REDUCE_ONLY-spam
+# mitigation when runtime position state lags HL).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30          # v2 exit execution_timeout_seconds (60->30)
+  dsl_preset:
+    hard_timeout:
+      enabled: true                        # v2: ENABLED — 48h cap
+      interval_in_minutes: 2880
+    weak_peak_cut:
+      enabled: false                       # v2: DISABLED
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                       # v2: DISABLED
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0                    # v2: per-position catastrophic floor
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # wide-by-design; FIRST lock at +10% ROE (reachable)
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 25 }
+        - { trigger_pct: 30, lock_hw_pct: 40 }
+        - { trigger_pct: 50, lock_hw_pct: 60 }
+        - { trigger_pct: 75, lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # v2 data_retention_hours 72 -> 259200s (within [3600, 604800])
+  guard_rails:
+    daily_loss_limit_pct: 15               # v2 daily_loss_limit_pct
+    max_entries_per_day: 4                  # v2 max_entries_per_day (onboarding cap)
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 max_consecutive_losses
+    cooldown_seconds: 3600                 # v2 cooldown_minutes 60 -> 3600s
+    drawdown_halt_pct: 20                  # v2 drawdown_halt_pct (circuit breaker)
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400      # v2 per_asset_cooldown_minutes 240 -> 14400s (4h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

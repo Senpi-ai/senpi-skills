@@ -1,0 +1,45 @@
+# Bobcat — Big Tech equity-perp trend follower. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port
+# of the v2 Bobcat (SKILL.md v1.0.0 + bobcat-producer.py v1.0.1 + bobcat-config.json):
+# a 12-name big-tech whitelist on Hyperliquid XYZ (NVDA/TSLA/AAPL/META/MSFT/GOOGL/
+# AMZN/AMD/MU/INTC/TSM/ORCL), 4h-trend + Smart-Money-direction confluence, flat 20%
+# margin / 5x, DSL exits with a 48h hard_timeout (equities have weekend pricing gaps).
+# NOTE: the v2 runtime.yaml prose is a STALE single-asset-BTC template — the REAL
+# strategy is the big-tech basket per producer + config + SKILL. Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: bobcat
+version: "1.0.0"
+
+catalog:
+  name: "Bobcat — Big Tech Trend Follower"
+  emoji: "🐈"
+  tagline: "A big-tech equity-perp trend follower on Hyperliquid XYZ (NVDA/TSLA/AAPL/META/MSFT/GOOGL/AMZN/AMD/MU/INTC/TSM/ORCL): enters the single strongest name when its 4h trend is non-neutral AND smart-money leans the same way (tilt >= 55%), sizes a flat 20% margin at 5x, and lets a wide DSL ratchet ride the move — with a 48h cap so positions don't camp through the weekend pricing gap."
+  belief_plain: "Trades the big tech stocks you already know — NVDA, TSLA, AAPL and nine more — as perps on Hyperliquid XYZ, 23/5. It only enters when a stock's 4-hour trend and the best traders are pointing the same way, holds the single strongest setup, and trails a stop so a real move can run — but caps each hold at 48 hours so it never sits through the Friday-to-Sunday gap when these names have no external price."
+  thesis: "Big tech is the most-traded equity sector, and Hyperliquid XYZ surfaces these names as leveraged perps with 23/5 hours. A clean trend + smart-money confluence on the highest-liquidity XYZ equities catches directional moves without the small-cap noise of a broad scanner. The 48h hard_timeout is intentional: equity perps reconcile against an internal oracle over the weekend gap, where drift accumulates without external price discovery — so winners are let to run on the 4h timescale but never held through the full Fri-Sun window."
+  group: single-asset
+  archetype: single_market
+  sub_style: big_tech
+  asset_classes: [xyz_equities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: starter
+  leverage_max: 5
+  max_slots: 3
+  min_budget: 200
+  assets: ["xyz:NVDA", "xyz:TSLA", "xyz:AAPL", "xyz:META", "xyz:MSFT", "xyz:GOOGL", "xyz:AMZN", "xyz:AMD", "xyz:MU", "xyz:INTC", "xyz:TSM", "xyz:ORCL"]
+  tags: [big-tech, equities, xyz, nvda, tsla, aapl, trend-following, smart-money, basket, onboarding, 23-5]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: BOBCAT_WALLET
+    funding_share: 1.0

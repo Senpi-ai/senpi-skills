@@ -1,0 +1,43 @@
+# Bald Eagle — XYZ macro Contrarian Fader. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
+# Bald Eagle (SKILL.md v5.0.0): contrarian fade of smart-money consensus on a fixed
+# 6-asset XYZ macro basket (CL, BRENTOIL, GOLD, SILVER, SP500, XYZ100; Hyperliquid
+# HIP-3 DEX), conviction-scaled leverage, spread hard-gate, wide DSL-only exits.
+# The only Senpi agent trading commodities + indices + equities macro. Install/teardown
+# via senpi-strategy-ops.
+schema_version: 1
+
+id: bald-eagle
+version: "1.0.0"
+
+catalog:
+  name: "Bald Eagle — XYZ Macro Fader"
+  emoji: "🦅"
+  tagline: "A contrarian fader on the 6 deepest XYZ macro markets (oil, brent, gold, silver, SP500, XYZ100): when smart money is piled into one side AND the 4h move is exhausting, it takes the OPPOSITE side and lets a wide DSL ride the mean-reversion for hours."
+  belief_plain: "Trades only macro markets — oil, gold, silver, and the big stock indices — that run around the clock. When the best traders have all crowded into one direction and the move over the last few hours is already stretched, it bets on the snap-back the other way, sizes up when more signals agree, and trails a wide stop so a slow reversal has hours to play out."
+  thesis: "Macro assets on Hyperliquid attract directional momentum traders who load up after a clean 1-3% intraday move. By the time smart-money concentration crosses 10-20% on a 4h-extended move, the trade is usually exhausted — mean reversion is the positive-edge play. Bald Eagle scores SM crowding + contribution velocity + move exhaustion, hard-gates on tight book spread, fades the crowd, and gives commodities the wide exit they need to revert."
+  group: contrarian
+  archetype: contrarian_fade
+  sub_style: xyz_overextended
+  asset_classes: [commodities, indices]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 7
+  max_slots: 2
+  min_budget: 200
+  assets: ["xyz:CL", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SILVER", "xyz:SP500", "xyz:XYZ100"]
+  tags: [xyz, commodities, indices, oil, gold, silver, sp500, contrarian, fade, smart-money, mean-reversion, 24-7]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: BALD_EAGLE_WALLET
+    funding_share: 1.0
