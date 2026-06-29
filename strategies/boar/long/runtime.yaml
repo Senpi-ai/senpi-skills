@@ -1,0 +1,131 @@
+# ── BOAR · LONG book — the HARD-MONEY leg (LONG scarce real assets) ──
+name: boar-long
+group: boar
+version: 3.0.0
+description: >
+  BOAR LONG — Hard Money vs Paper (debasement) thesis fund, the LONG leg (Runtime 3.0 port
+  of v2 Boar v1.0). This book LONGS scarce real assets — GOLD, BTC (digital gold), SILVER,
+  PLATINUM, PALLADIUM — what holds up when fiat is debased under fiscal dominance, but only
+  when ABSOLUTE trend confirms (4h structure not bearish + positive own momentum), with an
+  RSI blow-off guard. Cross-sectional relative strength tilts ranking/size but never benches
+  a genuinely-trending name. Per-name size = account_value * marginPct * conviction weight
+  (GOLD/BTC the 1.2x cores; thinner precious sized down). Pairs with the SHORT "paper" book
+  on a separate wallet; the P&L is the real-assets-beat-paper-claims spread. CAVEAT: the
+  loosest hedge of the family — in a liquidity melt-up gold AND stocks can rise together.
+  Metals/BTC trade 24/7 on Hyperliquid — no market-hours gating.
+
+strategy:
+  wallet: "${BOAR_LONG_WALLET}"
+  # ── FUNDING DEFAULT: net-long-hard-money tilt (the split is an OPERATOR decision set by
+  #    wallet funding, NOT a runtime field). This hard-money book defaults larger than the
+  #    paper book; fund 50/50 for a tighter (still imperfect) hedge. ──
+  slots: 4
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: boar_long_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds — debasement-trend cadence
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map
+    inputs:
+      leg: "long"
+      # ── Curated HARD-MONEY universe (validated against the live HL board, authoring time):
+      #    precious metals on XYZ + BTC on the main DEX. All 5 names confirmed live. ──
+      universe: ["xyz:GOLD", "BTC", "xyz:SILVER", "xyz:PLATINUM", "xyz:PALLADIUM"]
+      sizingWeights:
+        GOLD: 1.2          # core hard money
+        BTC: 1.2           # co-core (digital gold)
+        SILVER: 1.0
+        PLATINUM: 0.7      # thinner precious
+        PALLADIUM: 0.6     # thinner precious
+        _default: 1.0
+      minScore: 5
+      marginPct: 18          # PERCENT of withdrawable (0,100]; runtime sizes (marginPct/100 * weight)*withdrawable
+      maxLeverage: 5         # strict clamp, then each name's HL venue max (metals/BTC clamp lower, in-scan)
+      maxSlots: 4
+      rankPoolSize: 12       # small hard-money basket — score it all each tick
+      rsThresholdPct: 3.0
+      rsiOverbought: 84      # blow-off guard — don't chase an overbought have (v2 long-config)
+      volFloorPctOfMedian: 0.2
+      minUniverseForMedianGate: 5   # 5-name basket -> skip the median gate (Mongoose-bricking note)
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      weight: { type: number, required: false }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: boar_long_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # the scan already applied the universe + absolute-trend gate + RS tiebreaker + conviction size + venue clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [boar_long_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: boar_long_signals
+
+# ── EXIT (DSL — moderate; let the debasement trend run, cut reversers; ported VERBATIM from v2 runtime-long.yaml) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 10080          # 7d — the debasement trend persists; let winners run
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h — cut a winner that peaked then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 960            # 16h — recycle a position going nowhere
+    phase1:
+      enabled: true
+      max_loss_pct: 16.0                  # BTC vol in the metals basket
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 20,  lock_hw_pct: 40 }   # first LOCK — reachable
+        - { trigger_pct: 35,  lock_hw_pct: 60 }
+        - { trigger_pct: 60,  lock_hw_pct: 78 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 604800       # 168h (was data_retention_hours: 168)
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 6                # basket rotation as leadership shifts
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600                # v2 cooldown_minutes 60
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400     # v2 per_asset_cooldown_minutes 240

@@ -1,0 +1,147 @@
+# ── CARIBOU · SHORT sleeve — the short book of a cross-asset trend fund, and its crisis-alpha engine ──
+name: caribou-short
+group: caribou
+version: 3.0.0
+description: >
+  CARIBOU SHORT — the short book of a cross-asset trend fund (managed futures / CTA), and its
+  crisis-alpha engine. Runtime 3.0 port of v2 Caribou v1.0.0 (CARIBOU_LEG=short). Trend-follows
+  the WHOLE Hyperliquid instrument board across every asset class — crypto, xyz stocks, indices,
+  metals, energy — opening SHORTS on assets in a confirmed DOWNTREND (4h structure bearish is the
+  hard gate; the daily aligns; 24h momentum confirms; an RSI capitulation guard refines). When
+  markets break, this sleeve is short the fallers across every class — that is the managed-futures
+  hedge. Each asset is judged against its OWN history (time-series trend). Positions are sized to
+  EQUAL RISK by volatility parity and capped per asset CLASS at 40% of equity, so the book stays
+  diversified across uncorrelated classes — the CTA edge. Pairs with the LONG sleeve on a SEPARATE
+  wallet; the two are independent, so the fund may hold the same asset short here and long there.
+  The producer-side LLM gate was a pass-through, so the scan applies the trend gate + vol-parity
+  sizing + class cap + dedup and the entry runs rule-mode.
+
+strategy:
+  wallet: "${CARIBOU_SHORT_WALLET}"
+  slots: 8                                # diversified book across classes
+  default_leverage: 3                     # baseLeverage; scan bumps apex trends to maxLeverage then venue-clamps
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: caribou_short_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 tickSeconds — cross-asset trend cadence
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50            # signal-dedup map + per-tick result
+    inputs:
+      leg: "short"
+      # ── trend gate / scoring (v2 caribou-short-config.json, verbatim) ──
+      minScore: 5
+      apexScore: 7                         # apex trend -> maxLeverage
+      strongMomPct: 5.0                    # 24h move for the extra momentum point
+      rsiOversold: 20                      # capitulation guard — don't short a capitulation
+      # ── vol-parity sizing (FRACTIONS of equity; scan emits the PERCENT marginPct) ──
+      baseRiskPct: 0.08                    # margin a REFERENCE-vol asset gets, as fraction of equity
+      referenceVolPct: 3.0                 # "typical" daily ATR% — the vol-parity anchor
+      minMarginPct: 0.03                   # floor per position (fraction of equity)
+      maxMarginPct: 0.15                   # cap per position (fraction of equity)
+      classMarginCapPct: 0.40              # max total margin per asset CLASS (fraction of equity)
+      # ── leverage / book ──
+      baseLeverage: 3
+      maxLeverage: 5                       # strict sleeve clamp, then each name's HL venue max (per-name, in-scan)
+      maxSlots: 8
+      # ── universe ranking / liquidity (instrument-board context, no candle fetch) ──
+      perClassMaxNames: 12                 # liquidity-cap per class before ranking
+      rankPerClass: 6                      # top movers per class to confirm with candles
+      volFloorPctOfMedian: 0.2             # within-class relative liquidity gate (no $ floor)
+      recentSignalTtlSeconds: 180          # v2 RECENT_SIGNAL_TTL_SEC — race-window dedup
+      # ── asset-class map (classification reference data; xyz: names not in metals/energy/
+      #    indices fall through to "equity"; non-xyz names are "crypto") — verbatim v2 ──
+      classMetals: ["GOLD", "SILVER", "PLATINUM", "PALLADIUM", "COPPER"]
+      classEnergy: ["BRENTOIL", "CL", "WTI", "NATGAS", "GAS", "HEATOIL", "GASOLINE", "URNM"]
+      classIndices: ["SP500", "NASDAQ", "NDX", "US500", "US100", "DJIA", "US30", "RUSSELL", "RUT", "VIX"]
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      assetClass: { type: string, required: false }
+      trend4h: { type: string, required: false }
+      trend1d: { type: string, required: false }
+      volPct: { type: number, required: false }
+      own24h: { type: number, required: false }
+      rsi: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: caribou_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # v2 LLM gate was pass-through; scan already applied trend gate + vol-parity + class cap + dedup
+    scanners: [caribou_short_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # a trend-follower MUST catch the move — taker fallback guarantees fill + DSL attach
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: caribou_short_signals
+
+# ── EXIT (DSL — ASYMMETRIC TREND PROFILE: cut losers fast, let winners RUN; ported VERBATIM
+#    from v2 runtime-short.yaml). Time-cuts OFF — a trend fund must let a trend run for weeks.
+#    Tight Phase 1 + a WIDE Phase 2 ladder (first LOCK at +25% -> 35%, reachable). ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen — taker fallback is the safety floor
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: false
+      interval_in_minutes: 20160
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 720             # self-limiting only — cut a position that's gone nowhere for a long time
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 14.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 12, lock_hw_pct: 0 }     # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 25, lock_hw_pct: 35 }    # first LOCK — reachable
+        - { trigger_pct: 50, lock_hw_pct: 55 }
+        - { trigger_pct: 90, lock_hw_pct: 72 }
+        - { trigger_pct: 150, lock_hw_pct: 84 }
+
+risk:
+  data_retention_seconds: 604800           # 168h (was data_retention_hours: 168)
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 8                  # diversified book opens across classes; trend is slow, not churny
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 6               # trend takes many small losses before the big trend — don't halt on normal chop
+    cooldown_seconds: 3600                  # v2 cooldown_minutes 60
+    drawdown_halt_pct: 22
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400       # v2 per_asset_cooldown_minutes 240
+
+notifications:
+  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

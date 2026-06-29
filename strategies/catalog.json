@@ -54,6 +54,51 @@
       "sort_order": 1
     },
     {
+      "id": "camel",
+      "name": "Camel — Funding Carry Hedge Fund",
+      "emoji": "🐫",
+      "tagline": "Harvests funding carry across the liquid main-DEX crypto cross-section: the HARVEST book SHORTS the most-positive-funding names (longs pay shorts → short collects) and the PAYOUT book LONGS the most-negative-funding names (shorts pay longs → paid to hold) — both gated to EXHAUSTING crowds (4h trend + RSI confirmation) so price doesn't fight the carry — on two equally-funded wallets that net the fund slightly market-neutral.",
+      "belief_plain": "On Hyperliquid you get paid (or pay) funding every hour for holding a perp. Camel always takes the side that COLLECTS that payment — it shorts coins where longs are paying through the nose, and longs coins where shorts are paying — but only on crowds that are running out of steam, so the price doesn't move against it while it banks the funding.",
+      "version": "1.0.0",
+      "thesis": "Funding is a recurring, structural inefficiency: when a trade gets too crowded, the funding rate blows out and the collecting side gets paid to hold. The edge is that carry, not market direction — so Camel ranks the whole liquid crypto board by funding and takes the most-extreme collecting side, but only when the crowded trade is exhausting (4h rolling over for shorts / capitulating for longs, RSI confirming) so price doesn't fight the carry. Taking some shorts and some longs also skews the fund net-neutral as a by-product.",
+      "tags": [
+        "funding",
+        "carry",
+        "basis",
+        "market-neutral",
+        "hedge-fund",
+        "contrarian",
+        "exhaustion",
+        "universe-crypto",
+        "two-book"
+      ],
+      "group": "carry",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "funding_extreme",
+      "sub_style_label": "Fades extreme funding rates.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 8,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
       "id": "bald-eagle",
       "name": "Bald Eagle — XYZ Macro Fader",
       "emoji": "🦅",
@@ -356,6 +401,77 @@
       "sort_order": 1
     },
     {
+      "id": "elephant",
+      "name": "Elephant — Global-Macro Hedge Fund",
+      "emoji": "🐘",
+      "tagline": "Trades the cross-asset macro complex — equity indices, precious metals, energy, FX (all on XYZ) plus BTC — on two books and two wallets: the TREND book rides the durable multi-timeframe macro trend (both directions); the FADE book fades short-TF over-extensions back to regime (both directions, with a knife guard). The edge is GLOBAL MACRO — the complex moves on regime, not crypto noise.",
+      "belief_plain": "Trades the big global markets — stock indices, gold/silver/copper, oil and gas, the major currencies, and Bitcoin. One book rides the slow, durable trends (buying things going up, shorting things going down); a second book on a separate wallet bets on stretched moves snapping back. It only fades a snap-back when the bigger trend isn't fighting it.",
+      "version": "1.0.0",
+      "thesis": "Crypto-only funds all crowd the same coins; the cross-asset macro complex (indices / metals / energy / FX) moves on macro regime — oil on geopolitics, indices on the AI-equity bid, metals on risk-off — and is uncorrelated with crypto noise. Running a trend book AND a mean-reversion book on the same macro whitelist, on two wallets, harvests both the durable direction and the over-extensions without the two conflicting. These markets trade 24/7 on Hyperliquid XYZ, so the fund never has to wait for a market open.",
+      "tags": [
+        "macro",
+        "global-macro",
+        "cross-asset",
+        "indices",
+        "metals",
+        "energy",
+        "fx",
+        "btc",
+        "xyz",
+        "trend",
+        "mean-reversion",
+        "contrarian-fade",
+        "two-book",
+        "long-short"
+      ],
+      "group": "macro",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
+      "asset_classes": [
+        "indices",
+        "commodities",
+        "btc_eth"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "xyz:SP500",
+        "xyz:XYZ100",
+        "xyz:JP225",
+        "xyz:KR200",
+        "xyz:NIFTY",
+        "xyz:IBOV",
+        "xyz:GOLD",
+        "xyz:SILVER",
+        "xyz:PLATINUM",
+        "xyz:COPPER",
+        "xyz:BRENTOIL",
+        "xyz:CL",
+        "xyz:NATGAS",
+        "xyz:EUR",
+        "xyz:JPY",
+        "xyz:GBP",
+        "xyz:DXY"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": null,
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.6,
+        0.4
+      ],
+      "max_slots": 3,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
       "id": "badger",
       "name": "Badger — OI-Divergence Breakout Anticipator",
       "emoji": "🦡",
@@ -454,6 +570,59 @@
       "sort_order": 2
     },
     {
+      "id": "caracal",
+      "name": "Caracal — Volatility Hedge Fund",
+      "emoji": "🐱",
+      "tagline": "Two volatility books on two wallets — one scans liquid crypto, the other scans tokenized stocks/commodities/indices (XYZ) — for names coiled in a low-volatility squeeze that break their recent range with an expansion surge, then rides the break direction (LONG up / SHORT down). It trades MOVEMENT, not a view: the edge is that compression precedes expansion.",
+      "belief_plain": "Watches the market for coins and stocks that have gone quiet (price barely moving), then pounces the moment one breaks out of its quiet range with a big jump — going long if it breaks up, short if it breaks down. It runs two separate pots: one for crypto, one for tokenized stocks and commodities. The bet is on the size of the move, not its direction.",
+      "version": "1.0.0",
+      "thesis": "Volatility is the edge. A breakout FROM a low-volatility coil has far higher follow-through than a breakout in already-volatile tape — compression precedes expansion. Caracal only fires when a name has been coiling (recent ATR << baseline ATR) AND breaks its range AND the breakout bar is an outsized move, then rides whichever way it broke. Splitting crypto (breakout book) from tokenized stocks/commodities/indices (catalyst book) lets it capture oil-geopolitics and AI-infra moves 24/7 alongside crypto vol, on two separately-funded wallets that net to a direction-agnostic volatility harvester.",
+      "tags": [
+        "volatility",
+        "breakout",
+        "compression-expansion",
+        "coiled-spring",
+        "atr-squeeze",
+        "range-break",
+        "crypto",
+        "xyz",
+        "equities",
+        "commodities",
+        "indices",
+        "long-short",
+        "two-book",
+        "market-neutral-vol"
+      ],
+      "group": "momentum",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "range_break",
+      "sub_style_label": "Buys/sells the break of a multi-day range.",
+      "asset_classes": [
+        "universe_crypto",
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 6,
+      "branch": "strategy-v2",
+      "sort_order": 3
+    },
+    {
       "id": "condor",
       "name": "Condor — One Amazing Trade per Day",
       "emoji": "🦅",
@@ -493,7 +662,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 3
+      "sort_order": 4
     },
     {
       "id": "falcon",
@@ -536,7 +705,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 4
+      "sort_order": 5
     },
     {
       "id": "hedgehog",
@@ -585,7 +754,7 @@
       ],
       "max_slots": 3,
       "branch": "strategy-v2",
-      "sort_order": 5
+      "sort_order": 6
     },
     {
       "id": "lemur",
@@ -631,7 +800,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 6
+      "sort_order": 7
     },
     {
       "id": "lynx",
@@ -682,7 +851,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "meerkat",
@@ -726,7 +895,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "orca",
@@ -769,7 +938,7 @@
       ],
       "max_slots": 3,
       "branch": "strategy-v2",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "otter",
@@ -813,7 +982,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "piranha",
@@ -865,7 +1034,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "python",
@@ -909,7 +1078,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "sailfish",
@@ -959,7 +1128,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "salamander",
@@ -1009,7 +1178,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "sheep",
@@ -1062,7 +1231,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "jaguar",
@@ -1102,6 +1271,128 @@
         1.0
       ],
       "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
+      "id": "cub",
+      "name": "Cub — Two-Speed-Market Long/Short + Pre-IPO",
+      "emoji": "🐅",
+      "tagline": "Longs the structural winners of a K-shaped world (the AI complex on Hyperliquid XYZ + crypto winners HYPE/SOL) and shorts the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) — both trend-confirmed on separate wallets — plus a ~10% pre-IPO ramp satellite that auto-discovers pre-IPO perpetuals (IPOPs) and rides them into their listing.",
+      "belief_plain": "The world is splitting into haves and have-nots: AI companies and crypto's winners keep booming while the broad economy and the rest of crypto struggle. Cub buys the booming side and shorts the struggling side at the same time on separate wallets, so it makes money on the GAP between the two — and keeps a small slice aimed at the next SpaceX before it goes public.",
+      "version": "1.0.0",
+      "thesis": "The edge is K-shaped DISPERSION, not market direction. Long the AI complex + HYPE/SOL only while they're actually trending up; short SP500 + laggard alts only while they're actually rolling over; the P&L is the spread between the two speeds. A ~10% pre-IPO sleeve adds optionality — it discovers IPOPs by their funding signature and longs the ones ramping into their listing. Tokenized equities trade 24/7 on Hyperliquid, so the book never waits for a market open.",
+      "tags": [
+        "k-shaped",
+        "two-speed",
+        "ai-complex",
+        "hedge-fund",
+        "long-short",
+        "dispersion",
+        "xyz",
+        "equities",
+        "crypto",
+        "pre-ipo",
+        "ipop",
+        "hype",
+        "sp500"
+      ],
+      "group": "multi-asset-thematic",
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural / Neutral",
+      "sub_style": "pairs_rv",
+      "sub_style_label": "Trades a pair's ratio back to its mean (relative value).",
+      "asset_classes": [
+        "xyz_equities",
+        "major_alts",
+        "indices",
+        "pre_ipo"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:NVDA",
+        "xyz:AMD",
+        "xyz:MRVL",
+        "xyz:ARM",
+        "xyz:AVGO",
+        "xyz:TSM",
+        "xyz:ASML",
+        "xyz:MU",
+        "xyz:CRWV",
+        "xyz:GOOGL",
+        "xyz:MSFT",
+        "xyz:META",
+        "xyz:AMZN",
+        "xyz:ORCL",
+        "xyz:PLTR",
+        "xyz:SPCX",
+        "HYPE",
+        "SOL",
+        "xyz:SP500",
+        "ETH",
+        "XRP",
+        "DOGE",
+        "AVAX",
+        "LINK"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 600,
+      "instance_count": 3,
+      "funding_split": [
+        0.55,
+        0.35,
+        0.1
+      ],
+      "max_slots": 12,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
+      "id": "octopus",
+      "name": "Octopus — Market-Neutral Crypto Long/Short",
+      "emoji": "🐙",
+      "tagline": "Ranks the live liquid main-DEX crypto cross-section by 24h relative strength every tick, then LONGS the strongest names (long book) and SHORTS the weakest (short book) — both trend-confirmed — on two equally-funded wallets so the pair is ~market-neutral and harvests crypto dispersion.",
+      "belief_plain": "Buys the strongest crypto coins and shorts the weakest at the same time, on two separate wallets, so it makes money on the GAP between winners and losers instead of betting on the whole market going up or down.",
+      "version": "1.0.0",
+      "thesis": "The edge is dispersion, not direction. In a HYPE-dominates / alts-crushed regime the long book gravitates to the leaders and the short book to the carnage, and the two equally-funded notionals offset market beta — so the return is driven by the spread between strong and weak names. The universe is the live liquid board, not a fixed list, so it always ranks whatever is actually trading and liquid right now.",
+      "tags": [
+        "crypto",
+        "hedge-fund",
+        "long-short",
+        "market-neutral",
+        "dispersion",
+        "relative-strength",
+        "universe",
+        "cross-sectional"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural / Neutral",
+      "sub_style": "pairs_rv",
+      "sub_style_label": "Trades a pair's ratio back to its mean (relative value).",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 8,
       "branch": "strategy-v2",
       "sort_order": 1
     },
@@ -1157,6 +1448,117 @@
       "max_slots": 7,
       "branch": "strategy-v2",
       "sort_order": 1
+    },
+    {
+      "id": "boar",
+      "name": "Boar — Hard Money vs Paper",
+      "emoji": "🥇",
+      "tagline": "Bets on currency debasement: LONGS scarce real assets (GOLD, BTC, SILVER, PLATINUM, PALLADIUM) on the hard-money wallet and SHORTS the paper economy (SP500 + rate-sensitive growth RIVN/DKNG/HIMS) on the paper wallet — each leg trend-confirmed and conviction-sized. The P&L is the real-assets-beat-paper-claims spread.",
+      "belief_plain": "Buys gold, bitcoin and other scarce real assets while shorting the broad stock market and rate-sensitive growth stocks at the same time, on two separate wallets, betting that as governments run big deficits and rates stay high, hard money beats paper claims.",
+      "version": "1.0.0",
+      "thesis": "Fiscal dominance / currency debasement: as deficits compound and the term premium rises, scarce real assets (gold, BTC, silver) outperform fiat-denominated financial claims. Express it as a long/short — long hard money, short paper — so the edge is the spread, not market direction. Each name only trades when its own absolute 4h/1h trend confirms (cross-sectional relative strength only tilts ranking and size). HONEST CAVEAT: the loosest hedge of the family — in a pure liquidity melt-up gold AND stocks can rise together; the short tilts to rate-sensitive names to tighten it. Best deployed as a tilt, not a market-neutral bet.",
+      "tags": [
+        "debasement",
+        "hard-money",
+        "gold",
+        "btc",
+        "silver",
+        "metals",
+        "sp500",
+        "hedge-fund",
+        "long-short",
+        "thematic",
+        "trend-confirmed",
+        "conviction-sizing",
+        "xyz"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "basket",
+      "sub_style_label": "Holds a whitelist basket of majors.",
+      "asset_classes": [
+        "commodities",
+        "btc_eth",
+        "indices",
+        "xyz_equities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:GOLD",
+        "BTC",
+        "xyz:SILVER",
+        "xyz:PLATINUM",
+        "xyz:PALLADIUM",
+        "xyz:SP500",
+        "xyz:RIVN",
+        "xyz:DKNG",
+        "xyz:HIMS"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 8,
+      "branch": "strategy-v2",
+      "sort_order": 2
+    },
+    {
+      "id": "caribou",
+      "name": "Caribou — Cross-Asset Trend Fund",
+      "emoji": "🦌",
+      "tagline": "Trend-follows the WHOLE Hyperliquid board across every asset class (crypto, tokenized stocks, indices, metals, energy): longs the confirmed uptrends and shorts the confirmed downtrends on two separate wallets, sizes every position to EQUAL RISK by volatility parity, and caps each asset class at 40% of equity so the book stays diversified. Managed futures, on-chain.",
+      "belief_plain": "Follows the trend everywhere at once — crypto, stocks, gold, oil, indices — buying what's going up and shorting what's going down, on two separate wallets. It bets the SAME risk on each position (smaller on wild assets, bigger on calm ones) and never lets any one type of market take over the book, so the curve stays smooth and it can make money even when stocks are crashing.",
+      "version": "1.0.0",
+      "thesis": "You want the most-proven hedge-fund category — managed futures (CTA) — on-chain. Its entire edge is cross-asset diversification: trends show up in different markets at different times, so the more uncorrelated markets you trend-follow, the smoother the curve. Long the uptrends and short the downtrends across uncorrelated classes nets to ~zero market beta and is crisis-positive (the short sleeve shorts the fallers when everything bleeds). Each asset is judged against its OWN history (time-series trend), sized to equal risk, and capped by class.",
+      "tags": [
+        "managed-futures",
+        "cta",
+        "trend-following",
+        "cross-asset",
+        "vol-parity",
+        "equal-risk",
+        "crisis-alpha",
+        "long-short",
+        "diversified",
+        "hedge-fund"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "trend_follower",
+      "sub_style_label": "Trend Follower",
+      "asset_classes": [
+        "universe_crypto",
+        "commodities",
+        "indices",
+        "xyz_equities"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 8,
+      "branch": "strategy-v2",
+      "sort_order": 3
     },
     {
       "id": "cougar",
@@ -1219,7 +1621,63 @@
       ],
       "max_slots": 8,
       "branch": "strategy-v2",
-      "sort_order": 2
+      "sort_order": 4
+    },
+    {
+      "id": "eel",
+      "name": "Eel — Electrons vs Hydrocarbons",
+      "emoji": "⚡",
+      "tagline": "Bets AI datacenters are a structural new source of electricity demand: LONGS the AI-power complex on Hyperliquid XYZ (uranium, gas-fired power, grid copper, fuel cells, rare-earth) and SHORTS crude oil — both trend-confirmed, on two separate wallets — so the pair is energy-sector-neutral and harvests the electrons-vs-barrels spread.",
+      "belief_plain": "Buys the things that make electricity for AI datacenters (uranium, natural gas, copper, fuel cells, rare-earth) and shorts crude oil at the same time, on two separate wallets, so it makes money on power BEATING oil rather than on energy going up or down.",
+      "version": "1.0.0",
+      "thesis": "AI datacenter electricity demand is a structural new bid for the power complex, while crude oil is the legacy transport fuel barely levered to AI. Both legs are energy, so a broad energy move washes out and the P&L is the dispersion — power outperforming oil. Each book only acts when ABSOLUTE trend confirms (long power on a non-bearish 4h; short oil on a non-bullish 4h, with a capitulation guard), with cross-sectional relative strength as a size/rank tiebreaker. Commodities trade ~24/7 on Hyperliquid, so the book never waits for a market open.",
+      "tags": [
+        "energy",
+        "power",
+        "uranium",
+        "natgas",
+        "copper",
+        "crude-oil",
+        "ai-datacenter",
+        "long-short",
+        "market-neutral",
+        "dispersion",
+        "xyz",
+        "commodities"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural / Neutral",
+      "sub_style": "pairs_rv",
+      "sub_style_label": "Trades a pair's ratio back to its mean (relative value).",
+      "asset_classes": [
+        "commodities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:URNM",
+        "xyz:NATGAS",
+        "xyz:COPPER",
+        "xyz:BE",
+        "xyz:USAR",
+        "xyz:BRENTOIL",
+        "xyz:CL"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.55,
+        0.45
+      ],
+      "max_slots": 6,
+      "branch": "strategy-v2",
+      "sort_order": 5
     },
     {
       "id": "kestrel",
@@ -1279,7 +1737,152 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 3
+      "sort_order": 6
+    },
+    {
+      "id": "lion",
+      "name": "Lion — Two-Speed-Market Cross-Asset L/S",
+      "emoji": "🦁",
+      "tagline": "Bets on a K-shaped divergence: LONGS the structural winners (the AI complex on Hyperliquid XYZ + the crypto winners HYPE/SOL) on the 'haves' wallet, and SHORTS the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) on the 'have-nots' wallet. Both trend-confirmed on absolute structure, with relative strength as a tiebreaker and per-name conviction sizing (HYPE big, SOL small, SP500 core). The edge is the DISPERSION between the two speeds, not market direction.",
+      "belief_plain": "Buys the booming AI stocks and crypto winners while shorting the broad stock market and the alts losing ground, each on its own wallet — so it makes money on the GAP between the world's fast lane and slow lane rather than on the market going up or down. It only buys names actually trending up and only shorts names actually rolling over, and bets bigger on its highest-conviction picks.",
+      "version": "1.0.0",
+      "thesis": "The world is splitting into two speeds: the AI complex and HYPE/SOL keep booming while the broad U.S. economy and the rest of crypto struggle. Express it as one thematic long/short book — long the haves, short the have-nots — and the P&L is the dispersion between the two, not the market's direction. The hard gate is ABSOLUTE trend (never long a downtrend, never short an uptrend, even for a thesis name); cross-sectional relative strength only tilts size and ranking. Net exposure is the operator's dial (default modest net-long), set by how much capital each wallet holds.",
+      "tags": [
+        "k-shaped",
+        "two-speed",
+        "ai-complex",
+        "long-short",
+        "cross-asset",
+        "dispersion",
+        "conviction-sizing",
+        "hedge-fund",
+        "xyz",
+        "hype"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "rotation",
+      "sub_style_label": "Always holds the strongest of a basket; rotates as leadership changes.",
+      "asset_classes": [
+        "xyz_equities",
+        "major_alts",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:NVDA",
+        "xyz:AMD",
+        "xyz:MRVL",
+        "xyz:ARM",
+        "xyz:AVGO",
+        "xyz:INTC",
+        "xyz:TSM",
+        "xyz:ASML",
+        "xyz:CBRS",
+        "xyz:MU",
+        "xyz:SMSN",
+        "xyz:SKHX",
+        "xyz:SNDK",
+        "xyz:CRWV",
+        "xyz:NBIS",
+        "xyz:DELL",
+        "xyz:LITE",
+        "xyz:GOOGL",
+        "xyz:MSFT",
+        "xyz:META",
+        "xyz:AMZN",
+        "xyz:ORCL",
+        "xyz:PLTR",
+        "xyz:NOW",
+        "xyz:IBM",
+        "xyz:SPCX",
+        "xyz:QNT",
+        "HYPE",
+        "SOL",
+        "xyz:SP500",
+        "ETH",
+        "XRP",
+        "DOGE",
+        "AVAX",
+        "LINK",
+        "ADA",
+        "LTC",
+        "NEAR",
+        "APT"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.6,
+        0.4
+      ],
+      "max_slots": 9,
+      "branch": "strategy-v2",
+      "sort_order": 7
+    },
+    {
+      "id": "mongoose",
+      "name": "Mongoose — On-Chain Finance vs Legacy",
+      "emoji": "🪙",
+      "tagline": "Bets money is migrating on-chain: LONGS the on-chain financial rails (HYPE the venue + Circle/CRCL + Coinbase/COIN + Robinhood/HOOD + BTC treasuries MSTR/PURRDAT) on one wallet and SHORTS legacy finance + broad financial-beta (Blackstone/BX + SP500) on another — both trend-confirmed on absolute 4h/1h structure — so the P&L is the disruptor-vs-incumbent spread.",
+      "belief_plain": "Buys the companies and tokens that are pulling finance on-chain (the crypto exchange, the stablecoin issuer, the BTC treasuries) and at the same time shorts the old-finance incumbents and the broad market, on two separate wallets. It only buys names that are actually trending up and only shorts names actually rolling over, and it bets bigger on its highest-conviction picks (HYPE and Circle).",
+      "version": "1.0.0",
+      "thesis": "Money is migrating on-chain — stablecoins, crypto exchanges and BTC treasuries are eating legacy financial rails. You want to own the disruptors and short the incumbents so the return is the GAP between them, not the direction of the market. HONEST CAVEAT: the hedge is cross-sector and the short universe is thin (few pure legacy-finance names list on the venue yet), so the short leg leans on the broad index — it nets down market beta rather than perfectly isolating the pair, and the long book is the strong, high-conviction side.",
+      "tags": [
+        "on-chain-finance",
+        "hedge-fund",
+        "long-short",
+        "disruptor-vs-incumbent",
+        "hype",
+        "stablecoins",
+        "crypto-treasuries",
+        "conviction-sizing",
+        "xyz",
+        "thematic"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural / Neutral",
+      "sub_style": "pairs_rv",
+      "sub_style_label": "Trades a pair's ratio back to its mean (relative value).",
+      "asset_classes": [
+        "xyz_equities",
+        "indices",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "HYPE",
+        "xyz:CRCL",
+        "xyz:COIN",
+        "xyz:HOOD",
+        "xyz:MSTR",
+        "xyz:PURRDAT",
+        "xyz:BX",
+        "xyz:SP500"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 300,
+      "min_budget": 400,
+      "instance_count": 2,
+      "funding_split": [
+        0.65,
+        0.35
+      ],
+      "max_slots": 7,
+      "branch": "strategy-v2",
+      "sort_order": 8
     },
     {
       "id": "ox",
@@ -1339,7 +1942,7 @@
       ],
       "max_slots": 14,
       "branch": "strategy-v2",
-      "sort_order": 4
+      "sort_order": 9
     },
     {
       "id": "rhino",
@@ -1403,7 +2006,7 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 5
+      "sort_order": 10
     },
     {
       "id": "scorpion",
@@ -1470,7 +2073,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 6
+      "sort_order": 11
     },
     {
       "id": "spider",
@@ -1533,7 +2136,7 @@
       ],
       "max_slots": 7,
       "branch": "strategy-v2",
-      "sort_order": 7
+      "sort_order": 12
     },
     {
       "id": "thesis-fund",
@@ -1591,7 +2194,7 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 8
+      "sort_order": 13
     },
     {
       "id": "vulture",
@@ -1662,7 +2265,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 9
+      "sort_order": 14
     },
     {
       "id": "wolf",
@@ -1723,7 +2326,7 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 10
+      "sort_order": 15
     },
     {
       "id": "coyote",

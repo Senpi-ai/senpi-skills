@@ -1,0 +1,46 @@
+# Octopus — market-neutral crypto long/short dispersion fund. A two-instance PACKAGE: this
+# manifest + two self-contained runtime.yaml books (long / short on SEPARATE wallets, so the
+# long leaders and short laggards can coexist) + shared scanners/. A faithful Runtime 3.0 port
+# of the v2 Octopus v1.0 cross-sectional relative-strength engine over the LIVE liquid main-DEX
+# crypto universe on Hyperliquid (no fixed whitelist — the board is ranked every tick).
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: octopus
+version: "1.0.0"
+
+catalog:
+  name: "Octopus — Market-Neutral Crypto Long/Short"
+  emoji: "🐙"
+  tagline: "Ranks the live liquid main-DEX crypto cross-section by 24h relative strength every tick, then LONGS the strongest names (long book) and SHORTS the weakest (short book) — both trend-confirmed — on two equally-funded wallets so the pair is ~market-neutral and harvests crypto dispersion."
+  belief_plain: "Buys the strongest crypto coins and shorts the weakest at the same time, on two separate wallets, so it makes money on the GAP between winners and losers instead of betting on the whole market going up or down."
+  thesis: "The edge is dispersion, not direction. In a HYPE-dominates / alts-crushed regime the long book gravitates to the leaders and the short book to the carnage, and the two equally-funded notionals offset market beta — so the return is driven by the spread between strong and weak names. The universe is the live liquid board, not a fixed list, so it always ranks whatever is actually trading and liquid right now."
+  group: multi-asset-universe
+  archetype: structural_neutral   # market-neutral L/S — net beta ~0 by construction
+  sub_style: pairs_rv             # cross-sectional relative-value (leaders vs laggards dispersion)
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 8
+  min_budget: 400
+  tags: [crypto, hedge-fund, long-short, market-neutral, dispersion, relative-strength, universe, cross-sectional]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: long
+    runtime: long/runtime.yaml
+    wallet_env: OCTOPUS_LONG_WALLET
+    funding_share: 0.5
+  - name: short
+    runtime: short/runtime.yaml
+    wallet_env: OCTOPUS_SHORT_WALLET
+    funding_share: 0.5

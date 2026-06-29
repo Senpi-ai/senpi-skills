@@ -1,0 +1,134 @@
+# ── MONGOOSE · ON-CHAIN (LONG) book — long the on-chain financial rails ──
+name: mongoose-long
+group: mongoose
+version: 3.0.0
+description: >
+  MONGOOSE ON-CHAIN (LONG) — On-Chain Finance vs Legacy thesis fund (Runtime 3.0 port of
+  v2 Mongoose v1.0.0). This book LONGS the on-chain financial rails — HYPE (the venue),
+  CRCL (Circle/stablecoins), COIN (Coinbase), HOOD (Robinhood), MSTR + PURRDAT (crypto
+  treasuries) — the disruptors eating legacy finance, but only when ABSOLUTE trend confirms
+  (4h structure not bearish + positive momentum), with an RSI blow-off guard. Cross-sectional
+  relative strength tilts size/ranking but never benches a genuinely-trending name. Per-name
+  size scales with account value AND a conviction weight (HYPE 1.3x, CRCL 1.2x; MSTR/PURRDAT
+  sized down). Pairs with the SHORT legacy book on a separate wallet; the P&L is the
+  disruptor-vs-incumbent spread. LONG only.
+
+strategy:
+  wallet: "${MONGOOSE_LONG_WALLET}"
+  slots: 5
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: mongoose_long_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds — on-chain-finance basket cadence
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map + per-tick result
+    inputs:
+      leg: "long"
+      # ── VALIDATED on-chain-finance universe (live HL board — main + xyz — authoring time) ──
+      # HYPE on the main DEX; the rest are xyz: (HIP-3) equities. All 6 confirmed live on the
+      # HL meta at authoring time (curl type:meta + type:meta dex:xyz). The per-asset read-guard
+      # is the backstop if any goes thin/delists between authoring and a live tick.
+      universe: ["HYPE", "xyz:CRCL", "xyz:COIN", "xyz:HOOD", "xyz:MSTR", "xyz:PURRDAT"]
+      # Per-NAME conviction sizing weights (multiply the marginPct intent). Bare tickers;
+      # '_default' fallback; clamped [0.1, 3.0] in scoring.sizing_weight.
+      sizingWeights:
+        HYPE: 1.3            # the on-chain venue + token — the core of the thesis
+        CRCL: 1.2            # stablecoin leader — the clearest on-chain-finance winner
+        COIN: 1.0
+        HOOD: 1.0
+        MSTR: 0.7            # levered BTC proxy — double-count risk, sized down
+        PURRDAT: 0.6         # small / levered HYPE proxy
+        _default: 1.0
+      minScore: 5
+      marginPct: 18          # PERCENT of withdrawable (0,100]; runtime sizes (marginPct/100 * weight)*withdrawable
+      maxLeverage: 5         # strict clamp, then each name's HL venue max (per-name, in-scan)
+      maxSlots: 5
+      rankPoolSize: 12       # small on-chain-finance basket — score it all each tick
+      rsThresholdPct: 3.0
+      rsiOverbought: 84      # blow-off guard — crypto-finance equities run hot; loosen
+      volFloorPctOfMedian: 0.2
+      minUniverseForMedianGate: 5   # curated small list -> keep all live names (curation IS the liquidity call)
+      minNotionalPctOfEquity: 0.01
+      venueMinNotionalUsd: 10       # HL physical minimum order value
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      weight: { type: number, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: mongoose_long_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # the scan already applied the curated universe, the absolute-trend gate, the RS tiebreaker, conviction sizing, the leverage clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [mongoose_long_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: mongoose_long_signals
+
+# ── EXIT (DSL — moderate; let the disruptors run, cut reversers; ported VERBATIM from v2) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 10080          # 7d — the trend persists; let winners run
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h — cut a winner that peaked then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 960            # 16h — recycle a position going nowhere
+    phase1:
+      enabled: true
+      max_loss_pct: 16.0                  # slightly wider than equity-only (HYPE vol in basket)
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 20,  lock_hw_pct: 40 }   # first LOCK — reachable
+        - { trigger_pct: 35,  lock_hw_pct: 60 }
+        - { trigger_pct: 60,  lock_hw_pct: 78 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 604800       # 168h (was data_retention_hours: 168)
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 6                # basket rotation as leadership shifts
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600                # v2 cooldown_minutes 60
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400     # v2 per_asset_cooldown_minutes 240

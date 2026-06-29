@@ -1,0 +1,122 @@
+# ── OCTOPUS · SHORT book — short the relative-strength LAGGARDS of the live crypto cross-section ──
+name: octopus-short
+group: octopus
+version: 3.0.0
+description: >
+  OCTOPUS SHORT — market-neutral crypto long/short dispersion fund (Runtime 3.0 port of v2
+  Octopus v1.0). This book ranks the LIVE liquid main-DEX crypto cross-section (top
+  universeMaxNames by 24h volume, then a relative liquidity floor — NO fixed whitelist) by
+  24h RELATIVE WEAKNESS (negative excess return vs the universe mean) and SHORTS the weakest
+  names — but only when absolute trend confirms (4h structure bearish + negative own
+  momentum), with an RSI capitulation guard, so it never shorts a relative outperformer
+  that's still rising. Pairs with the LONG book on a separate, equally-funded wallet; the two
+  net to ~beta-neutral. The edge is CRYPTO DISPERSION (leaders minus laggards), not market
+  direction. In an alts-crushed regime this book gravitates to the carnage.
+
+strategy:
+  wallet: "${OCTOPUS_SHORT_WALLET}"
+  slots: 4
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: octopus_short_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds — crypto dispersion cadence
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map + per-tick result observability
+    inputs:
+      leg: "short"
+      # ── Universe is the LIVE liquid main-DEX crypto board (no fixed whitelist) ──
+      # XYZ equities excluded (Octopus ranks crypto dispersion). Top universeMaxNames by
+      # 24h volume, then a relative-to-market liquidity floor (NO hardcoded $).
+      minScore: 5
+      marginPct: 20          # PERCENT of withdrawable (0,100]; runtime sizes (marginPct/100)*withdrawable. v2 fraction 0.20 -> 20
+      maxLeverage: 5         # strict clamp, then each name's HL venue max (per-name, in-scan)
+      maxSlots: 4
+      universeMaxNames: 40   # cap the cross-section to the most-liquid majors
+      rankPoolSize: 12       # bottom-N by RS that get candles pulled for confirmation
+      rsThresholdPct: 3.0
+      rsiOversold: 20        # capitulation guard — don't short an oversold bottom
+      volFloorPctOfMedian: 0.2
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: octopus_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # the scan already applied RS rank + trend + clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [octopus_short_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: octopus_short_signals
+
+# ── EXIT (DSL — moderate dispersion management, crypto rhythm; ported VERBATIM from v2) ──
+# A dispersion leg rides a relative trend. Cut squeezes, lock profit as the relative move
+# extends, and exit stalled positions (the spread mean-reverted). Stall-cuts are ON — a
+# short that stops working should be recycled into a fresher laggard.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 5760           # 4d staleness cap
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 360            # 6h — cut a laggard-short that peaked then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 720            # 12h — recycle a position going nowhere
+    phase1:
+      enabled: true
+      max_loss_pct: 14.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,   lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 18,  lock_hw_pct: 40 }   # first LOCK — reachable on a real dispersion winner
+        - { trigger_pct: 35,  lock_hw_pct: 60 }
+        - { trigger_pct: 60,  lock_hw_pct: 78 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 432000        # v2 data_retention_hours 120 (x3600)
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 6                # basket rotation as weakness shifts
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600                # v2 cooldown_minutes 60
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true  # dispersion winners spike then settle; don't let a closed laggard-short's peak halt next-day entries while net green
+    per_asset_cooldown_seconds: 10800     # v2 per_asset_cooldown_minutes 180

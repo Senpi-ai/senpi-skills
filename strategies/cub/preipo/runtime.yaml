@@ -1,0 +1,125 @@
+# ── CUB · PREIPO satellite — the ~10% pre-IPO ramp sleeve (Lemur IPOP-discovery method) ──
+name: cub-preipo
+group: cub
+version: 3.0.0
+description: >
+  CUB PREIPO (satellite) — the ~10% pre-IPO ramp sleeve of the Cub combined fund (~90% Lion
+  two-speed AI long/short + ~10% pre-IPO). Runtime 3.0 port of v2 Cub v1.0.0, CUB_LEG=preipo. This
+  book auto-DISCOVERS pre-IPO perpetuals (IPOPs) on Hyperliquid XYZ by their structural funding
+  signature (|funding| <= ipopFundingMaxAbs AND venue max_leverage <= ipopMaxLeverageCap — the
+  throttled pre-listing state) and LONGS the ones with a confirming absolute 4h/1h uptrend, riding
+  the pre-listing ramp (the SpaceX / Cerebras pattern). No static universe — discovered every tick,
+  so the next IPOP auto-joins on listing. Blow-off guard loosened (pre-IPO names run hot). LONG only.
+  Episodic by design — most ticks may find 0-2 IPOPs. The IPOP liquidity floor is BUDGET-RELATIVE
+  (no hardcoded $). Runs on its OWN wallet, funded with ~10% of Cub's combined pool (allocation =
+  the operator's funding split across the three book wallets, NOT a runtime field). Pairs with the
+  LONG "haves" + SHORT "have-nots" books that carry the ~90% Lion engine.
+
+strategy:
+  wallet: "${CUB_PREIPO_WALLET}"
+  # ALLOCATION ~10% of Cub's combined pool — an OPERATOR funding decision, NOT runtime-enforced.
+  slots: 3
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: cub_preipo_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50
+    inputs:
+      # NO static universe — IPOPs are DISCOVERED each tick by the funding+leverage signature below.
+      sizingWeights:
+        _default: 1.0
+      minScore: 4             # pre-IPO data is sparse — slightly lower bar
+      marginPct: 15           # PERCENT of withdrawable (0,100]; × conviction weight per name
+      maxLeverage: 5          # IPOPs are venue-capped at 5x anyway; clamp then each name's HL venue max
+      maxSlots: 3
+      rankPoolSize: 16
+      ipopFundingMaxAbs: 1.0e-7   # IPOP funding signature (throttled pre-listing)
+      ipopMaxLeverageCap: 5       # IPOP leverage signature
+      ipopLiqVolMultiple: 30      # budget-relative IPOP liquidity floor (× position notional)
+      rsThresholdPct: 3.0
+      rsiOverbought: 88       # pre-IPO ramps run hot; loosen the blow-off guard
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+      weight: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: cub_preipo_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # scan already applied IPOP discovery + abs-trend gate + budget-relative liquidity floor + clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [cub_preipo_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: cub_preipo_signals
+
+# ── EXIT (DSL — let the ramp run; slightly tighter max-loss than haves; ported VERBATIM from v2) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 7200           # 5d — ride the ramp, but pre-IPO theses are time-boxed to the listing
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h — cut a ramp that peaked then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 960            # 16h
+    phase1:
+      enabled: true
+      max_loss_pct: 14.0                  # tighter than haves (16) — pre-IPO gaps on news
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 40 }
+        - { trigger_pct: 35, lock_hw_pct: 60 }
+        - { trigger_pct: 60, lock_hw_pct: 78 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 604800       # v2 data_retention_hours 168 -> 604800s (7d cap)
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 4
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 5400               # v2 cooldown_minutes 90
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400    # v2 per_asset_cooldown_minutes 240

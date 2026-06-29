@@ -1,0 +1,128 @@
+# ── CARACAL · CATALYST book — XYZ event/catalyst volatility expansion (Runtime 3.0 port of v2 Caracal v1.0, LEG=catalyst) ──
+name: caracal-catalyst
+group: caracal
+version: 3.0.0
+description: >
+  CARACAL CATALYST — XYZ event/catalyst volatility compression->expansion (Runtime 3.0
+  port of the v2 caracal-producer.py, CARACAL_LEG=catalyst). One of two volatility books.
+  Same compression->expansion engine as the BREAKOUT book, but on the XYZ DEX (equities /
+  energy / metals / indices): scans the liquid XYZ universe (top universeMaxNames by 24h
+  volume) for coiled names breaking their range with an expansion surge, and rides the
+  break direction — LONG up, SHORT down. Captures oil-geopolitics and AI-infra moves as
+  direction-agnostic volatility events, 24/7 (XYZ trades through weekends — NO market-hours
+  gating). BOTH directions. Pairs with the BREAKOUT book (crypto, ../breakout) on a
+  SEPARATE wallet. The edge is VOLATILITY, not a directional view. slots 3, marginPct 18,
+  strict 5x clamp then each name's HL venue max; tight fast-capture DSL. The scan applied
+  breakout + coil + surge + 4h scoring, the 5x clamp, and held-asset dedup — so the entry
+  action is rule-mode (v2 LLM gate was pass-through).
+
+strategy:
+  wallet: "${CARACAL_CATALYST_WALLET}"
+  slots: 3
+  default_leverage: 5                     # fallback; scan emits per-name venue-clamped <=5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: caracal_catalyst_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 tickSeconds (5 min)
+    timeout_seconds: 180                   # universe-level: 1 instrument-board read + per-name candle fetches
+    default_signal_validity_seconds: 900
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      minScore: 5                          # v2 minScore (producer floor)
+      marginPct: 18                        # PERCENT of withdrawable (0,100]; v2 stored 0.18 FRACTION -> ×100
+      maxLeverage: 5                       # strict clamp, then each name's HL venue max (in-scan)
+      maxSlots: 3
+      universeMaxNames: 15                 # bounds per-tick candle fetches (thinner XYZ board)
+      volFloorPctOfMedian: 0.2             # relative-to-market liquidity gate (NO hardcoded $; adapts to thin XYZ)
+      breakoutBars: 20                     # prior-range lookback for the break
+      recentBars: 10                       # ATR window — recent vol
+      baseBars: 30                         # ATR window — baseline vol
+      squeezeTight: 0.70                   # recent/baseline ATR <= this = tight coil (+2)
+      squeezeLoose: 0.90                   # ... <= this = mild coil (+1)
+      surgeStrong: 2.0                     # breakout-bar TR / baseline ATR >= this (+2)
+      surgeMod: 1.3                        # ... >= this (+1)
+      minNotionalPctOfEquity: 0.01         # min notional floor scales with budget
+      venueMinNotionalUsd: 10              # HL venue minimum order value floor
+      recentSignalTtlSeconds: 180          # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      squeeze: { type: number, required: false }
+      surge: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: caracal_catalyst_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # scan applied breakout test + coil/surge scoring + 5x clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [caracal_catalyst_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # breakouts need timely fills — taker fallback
+        execution_timeout_seconds: 30      # v2 entry timeout
+    context:
+      - type: signal
+        scanner: caracal_catalyst_signals
+
+# ── EXIT (DSL — tight vol-breakout capture; ported VERBATIM from v2 runtime-catalyst.yaml) ──
+# A failed breakout reverses fast, so cut quickly and lock gains as the expansion runs.
+# Stall-cuts ON. 2d hard_timeout — vol events resolve fast. First phase2 lock REACHABLE at +8%.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 2880            # 2d
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 180             # 3h
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 360             # 6h
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0
+      retrace_threshold: 7
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,   lock_hw_pct: 30 }
+        - { trigger_pct: 18,  lock_hw_pct: 50 }
+        - { trigger_pct: 35,  lock_hw_pct: 68 }
+        - { trigger_pct: 60,  lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 90 }
+
+risk:
+  data_retention_seconds: 259200           # 72h (was data_retention_hours: 72)
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_seconds: 2700                  # v2 cooldown_minutes 45
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes 120

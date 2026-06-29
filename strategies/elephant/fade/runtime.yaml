@@ -1,0 +1,120 @@
+# ── ELEPHANT · FADE book — global-macro mean-reversion (Runtime 3.0 port of v2 Elephant v1.0, ELEPHANT_LEG=fade) ──
+name: elephant-fade
+group: elephant
+version: 3.0.0
+description: >
+  ELEPHANT FADE — global-macro mean-reversion book (Runtime 3.0 port of v2 Elephant v1.0).
+  One of two macro books. Fades short-TF over-extensions on the cross-asset macro complex
+  (XYZ equity indices / metals / energy / FX + BTC) back toward the mean: it picks the
+  more-extreme side (oversold->LONG, overbought->SHORT) from 1h RSI extreme + stretch from
+  the 20-bar 1h MA, with a 4h regime filter (knife guard: +1 fading WITH the higher-TF bias,
+  -2 against a strong macro trend) so it never fades a strong macro trend. BOTH directions.
+  Pairs with the TREND book (trend/runtime.yaml) on a separate, larger-funded wallet — a
+  name in a macro uptrend can still print a short-term overbought fade. The edge is GLOBAL
+  MACRO over-extension reverting to regime. Macro whitelist intersected with the live board
+  each tick; per-name venue leverage clamp; strict 5x. XYZ trades 24/7 — no market-hours gating.
+
+strategy:
+  wallet: "${ELEPHANT_FADE_WALLET}"
+  slots: 3
+  default_leverage: 5                       # fallback; scan emits per-name venue-clamped 5x
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: elephant_fade_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                    # v2 tickSeconds
+    timeout_seconds: 180                     # v2 tick_timeout; universe-level per-asset reads
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100             # recent-signals dedup map + per-tick result history
+    inputs:
+      # ── Macro whitelist (config.allowedAssets). XYZ indices / metals / energy / FX + BTC.
+      #    Validated against the live HL meta at authoring time (2026-06-29): all 18 names live. ──
+      allowedAssets: ["BTC", "xyz:SP500", "xyz:XYZ100", "xyz:JP225", "xyz:KR200", "xyz:NIFTY", "xyz:IBOV", "xyz:GOLD", "xyz:SILVER", "xyz:PLATINUM", "xyz:COPPER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:EUR", "xyz:JPY", "xyz:GBP", "xyz:DXY"]
+      minScore: 4                            # v2 fade minScore
+      marginPct: 15                          # PERCENT of withdrawable (0,100); v2 0.15 fraction x100
+      maxLeverage: 5                         # strict clamp, then each name's HL venue max (per-name, in-scan)
+      maxSlots: 3
+      rsiOversold: 30
+      rsiOverbought: 70
+      stretchThresholdPct: 1.0               # macro stretch from the 20-bar 1h MA
+      recentSignalTtlSeconds: 180            # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      stretchPct: { type: number, required: false }
+      rsi: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: elephant_fade_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                      # the scan already applied RSI/stretch scoring + knife guard + clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [elephant_fade_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: elephant_fade_signals
+
+# ── EXIT (DSL — tight fast-capture mean-reversion; ported VERBATIM from v2 runtime-fade.yaml) ──
+# A reversion resolves fast or the thesis failed: tight phase1, lock the snapback quickly,
+# stall-cuts ON, 2d hard_timeout. First phase2 LOCK is at 4% -> 35% (reachable on a snapback).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 2880             # 2d
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 240              # 4h
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 480              # 8h
+    phase1:
+      enabled: true
+      max_loss_pct: 8.0
+      retrace_threshold: 5
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 4, lock_hw_pct: 35 }
+        - { trigger_pct: 8, lock_hw_pct: 55 }
+        - { trigger_pct: 15, lock_hw_pct: 70 }
+        - { trigger_pct: 28, lock_hw_pct: 85 }
+
+risk:
+  data_retention_seconds: 345600            # v2 data_retention_hours 96 -> 96*3600 = 345600
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 12                  # mean-reversion turns over faster
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 5
+    cooldown_seconds: 2700                   # v2 cooldown_minutes 45
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 7200         # v2 per_asset_cooldown_minutes 120

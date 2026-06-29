@@ -1,0 +1,124 @@
+# ── CAMEL · PAYOUT book — LONG the most-negative-funding names (long gets paid to hold) ──
+name: camel-payout
+group: camel
+version: 3.0.0
+description: >
+  CAMEL PAYOUT — funding-carry hedge fund, LONG book (Runtime 3.0 port of v2 Camel v1.0).
+  This book ranks the liquid main-DEX crypto cross-section by FUNDING ascending and LONGS the
+  most-negative-funding names (shorts pay longs -> the long gets PAID to hold), gated so it
+  never longs a fresh 4h downtrend (don't catch a knife) — it prefers crowded shorts that are
+  capitulating (4h bullish/neutral, RSI oversold, 24h bouncing). Pairs with the HARVEST book
+  on a separate, equally-funded wallet; the two skew the fund slightly net-neutral. The edge
+  is CARRY (a recurring funding inefficiency), with trend/RSI as exhaustion confirmation +
+  risk control — NOT market direction. LONG only.
+
+strategy:
+  wallet: "${CAMEL_PAYOUT_WALLET}"
+  slots: 4
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: camel_payout_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds — carry cadence (keep turnover modest)
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map (recent-signals.json -> ctx.state)
+    inputs:
+      leg: "payout"
+      minScore: 4
+      marginPct: 18          # PERCENT of withdrawable (0,100]; runtime sizes (marginPct/100)*withdrawable. v2 fraction 0.18 -> 18
+      maxLeverage: 5         # strict clamp, then each name's HL venue max (per-name, in-scan)
+      maxSlots: 4
+      rankPoolSize: 12       # only the bottom-12 by funding get candles for confirmation
+      universeMaxNames: 60   # cap the liquid main-DEX crypto cohort to the top 60 by 24h vol
+      volFloorPctOfMedian: 0.2
+      minNotionalPctOfEquity: 0.01
+      venueMinNotionalUsd: 10
+      # Funding entry floor + tiers (HOURLY decimal). 0.00003/hr ~= 26%/yr (magnitude).
+      fundingFloorHourly: 0.00003
+      fundingTier2Hourly: 0.00006        # ~53%/yr
+      fundingTier3Hourly: 0.0001         # ~88%/yr
+      rsiOversold: 30                    # capitulation confirmation for longs
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      fundingAnnPct: { type: number, required: false }
+      own24h: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: camel_payout_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # scan already applied funding rank + 4h/RSI gate + clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [camel_payout_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: camel_payout_signals
+
+# ── EXIT (DSL — carry management, tighter than a momentum leg; ported VERBATIM from v2) ──
+# Carry P&L per period is small, so a price loss must be cut before it dwarfs the funding
+# collected. Tight phase1; lock funding gains as the bounce works; stall-cuts ON (a flat
+# carry position is recycled into a fresher extreme); 3d timeout (funding regimes decay).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 4320           # 3d — funding regimes decay
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 240            # 4h
+      min_value: 1.5
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h — recycle a flat carry position
+    phase1:
+      enabled: true
+      max_loss_pct: 10.0
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 6, lock_hw_pct: 0 }     # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 14, lock_hw_pct: 45 }   # first LOCK — reachable
+        - { trigger_pct: 28, lock_hw_pct: 65 }
+        - { trigger_pct: 50, lock_hw_pct: 80 }
+        - { trigger_pct: 90, lock_hw_pct: 90 }
+
+risk:
+  data_retention_seconds: 345600       # 96h (was data_retention_hours: 96)
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600                # v2 cooldown_minutes 60
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 10800     # v2 per_asset_cooldown_minutes 180

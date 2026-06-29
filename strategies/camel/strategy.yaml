@@ -1,0 +1,48 @@
+# Camel — funding-carry hedge fund. A two-instance PACKAGE: this manifest + two
+# self-contained runtime.yaml books (harvest SHORT / payout LONG on SEPARATE wallets,
+# so the positive-funding shorts and negative-funding longs coexist) + per-instance
+# scanners/. A faithful Runtime 3.0 port of the v2 Camel v1.0 funding-carry engine: one
+# producer ranked the live liquid main-DEX crypto cross-section by funding and took the
+# side that COLLECTS the funding, gated to exhausting crowds. Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: camel
+version: "1.0.0"
+
+catalog:
+  name: "Camel — Funding Carry Hedge Fund"
+  emoji: "🐫"
+  tagline: "Harvests funding carry across the liquid main-DEX crypto cross-section: the HARVEST book SHORTS the most-positive-funding names (longs pay shorts → short collects) and the PAYOUT book LONGS the most-negative-funding names (shorts pay longs → paid to hold) — both gated to EXHAUSTING crowds (4h trend + RSI confirmation) so price doesn't fight the carry — on two equally-funded wallets that net the fund slightly market-neutral."
+  belief_plain: "On Hyperliquid you get paid (or pay) funding every hour for holding a perp. Camel always takes the side that COLLECTS that payment — it shorts coins where longs are paying through the nose, and longs coins where shorts are paying — but only on crowds that are running out of steam, so the price doesn't move against it while it banks the funding."
+  thesis: "Funding is a recurring, structural inefficiency: when a trade gets too crowded, the funding rate blows out and the collecting side gets paid to hold. The edge is that carry, not market direction — so Camel ranks the whole liquid crypto board by funding and takes the most-extreme collecting side, but only when the crowded trade is exhausting (4h rolling over for shorts / capitulating for longs, RSI confirming) so price doesn't fight the carry. Taking some shorts and some longs also skews the fund net-neutral as a by-product."
+  group: carry
+  archetype: contrarian_fade      # collects extreme funding on exhausting (one-sided, stalling) crowds
+  sub_style: funding_extreme      # the carry edge IS extreme funding
+  asset_classes: [universe_crypto]
+  asset_scope: universe
+  direction: long_short           # harvest book short_only, payout book long_only; the PACKAGE is both
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 8                    # 4 per book × 2 books
+  min_budget: 400
+  assets: []                      # dynamic universe — the live liquid main-DEX crypto board, ranked by funding
+  tags: [funding, carry, basis, market-neutral, hedge-fund, contrarian, exhaustion, universe-crypto, two-book]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: harvest
+    runtime: harvest/runtime.yaml
+    wallet_env: CAMEL_HARVEST_WALLET
+    funding_share: 0.5
+  - name: payout
+    runtime: payout/runtime.yaml
+    wallet_env: CAMEL_PAYOUT_WALLET
+    funding_share: 0.5

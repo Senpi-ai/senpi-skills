@@ -1,0 +1,128 @@
+# ── CUB · SHORT "have-nots" book — short the laggards of a two-speed (K-shaped) world ──
+name: cub-short
+group: cub
+version: 3.0.0
+description: >
+  CUB SHORT ("have-nots" book) — two-speed-market (K-shaped) cross-asset long/short fund (Runtime
+  3.0 port of v2 Cub v1.0.0, CUB_LEG=short). This book SHORTS the laggards of a K-shaped world: the
+  broad U.S. market via the SP500 index product (the "economy suffers" core) PLUS a curated, gated
+  basket of laggard crypto majors/alts (the "rest of crypto struggles" bet) — but only when ABSOLUTE
+  trend confirms (4h structure bearish + negative momentum), with a CAPITULATION guard so it never
+  shorts an exhausted bottom. Cross-sectional relative weakness tilts size/ranking. Per-name size
+  scales with account value and a conviction weight (SP500 1.2x core, alts 0.7x — alts squeeze).
+  Pairs with the LONG "haves" book on a separate wallet. Longing AI names while shorting SP500
+  (which contains them) isolates the AI-vs-broad-market spread by design. Tokenized equities trade
+  24/7 on Hyperliquid — no market-hours gating.
+
+strategy:
+  wallet: "${CUB_SHORT_WALLET}"
+  # NET-EXPOSURE DEFAULT: modest NET-LONG tilt (~60/40) — an OPERATOR decision, NOT runtime-enforced.
+  # This book defaults smaller (slots 4, margin_pct 15, 4x cap) than the long book — short squeezes
+  # are violent and the thesis is directionally bullish-AI/HYPE.
+  slots: 4
+  default_leverage: 4
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: cub_short_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50
+    inputs:
+      # curated "have-nots" thematic universe (SP500 macro core + laggard alts) — all 10 names
+      # validated against the live HL meta (main + xyz DEX) at authoring time. BTC deliberately
+      # omitted (too reflexive to short cleanly).
+      universe: ["xyz:SP500", "ETH", "XRP", "DOGE", "AVAX", "LINK", "ADA", "LTC", "NEAR", "APT"]
+      sizingWeights:                       # SP500 core weight, laggard alts small (squeeze)
+        SP500: 1.2
+        _default: 0.7
+      minScore: 5
+      marginPct: 15           # PERCENT of withdrawable (0,100]; baked × conviction weight per name
+      maxLeverage: 4          # 4x clamp (short squeezes are violent), then each name's HL venue max
+      maxSlots: 4
+      rankPoolSize: 16
+      rsThresholdPct: 3.0
+      rsiOversold: 18         # capitulation guard — never short an exhausted bottom
+      volFloorPctOfMedian: 0.2
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+      weight: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: cub_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # scan already applied universe + abs-downtrend gate + capitulation guard + RS + clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [cub_short_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: cub_short_signals
+
+# ── EXIT (DSL — tighter; short theses decay faster, squeezes are violent; ported VERBATIM from v2) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 7200           # 5d — shorter than the long book
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 360            # 6h — cut a short that bottomed then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 720            # 12h — recycle a short going nowhere
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                  # tighter than long book — squeeze protection
+      retrace_threshold: 7
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8, lock_hw_pct: 0 }
+        - { trigger_pct: 18, lock_hw_pct: 45 }
+        - { trigger_pct: 35, lock_hw_pct: 65 }
+        - { trigger_pct: 60, lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 604800       # v2 data_retention_hours 168 -> 604800s (7d cap)
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 5
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 5400               # v2 cooldown_minutes 90
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 18000    # v2 per_asset_cooldown_minutes 300

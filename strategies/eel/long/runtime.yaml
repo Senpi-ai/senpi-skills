@@ -1,0 +1,131 @@
+# ── EEL · LONG book ("POWER") — long the AI-power complex on Hyperliquid XYZ ──
+name: eel-long
+group: eel
+version: 3.0.0
+description: >
+  EEL LONG (POWER book) — Electrons vs Hydrocarbons energy-pair thesis fund (Runtime 3.0
+  port of v2 Eel v1.0). The LONG leg of an energy-sector-neutral pair. This book LONGS the
+  AI-power complex on Hyperliquid XYZ — uranium (URNM), gas-fired power (NATGAS), the grid
+  metal (COPPER), on-site fuel cells (BE), rare-earth (USAR) — the electrons AI datacenters
+  need — but only when ABSOLUTE trend confirms (4h structure not bearish + positive own
+  momentum), with an RSI blow-off guard. Cross-sectional relative strength tilts size/ranking
+  but never benches a genuinely-trending name. Per-name size scales with account value and a
+  conviction weight (URNM 1.2x, COPPER 1.1x, BE 0.6x). Pairs with the SHORT crude-oil book
+  (short/runtime.yaml) on a separate wallet; both legs are energy, so an energy-wide move
+  washes out and the P&L is the electrons-vs-hydrocarbons spread. Commodities trade ~24/7.
+
+strategy:
+  wallet: "${EEL_LONG_WALLET}"
+  # ── FUNDING DEFAULT: slight long-power tilt (~55/45 long:short) ── the split is an
+  # OPERATOR decision (config _hedge_note in v2) set by the power/oil wallet funding; this
+  # power book defaults a touch larger (slots 4, margin_pct 18) than the oil book.
+  slots: 4
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: eel_long_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds — energy-trend cadence
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map + per-tick result
+    inputs:
+      leg: "long"
+      # ── VALIDATED thematic POWER universe (live HL xyz board, authoring time) ──
+      # All 5 names present on the live HL xyz board, none delisted (validated 2026-06-29).
+      universe: ["xyz:URNM", "xyz:NATGAS", "xyz:COPPER", "xyz:BE", "xyz:USAR"]
+      sizingWeights:
+        URNM: 1.2          # uranium — the purest AI-power play
+        COPPER: 1.1        # the electrification / grid metal
+        NATGAS: 1.0
+        USAR: 0.7          # smaller-cap rare-earth
+        BE: 0.6            # speculative fuel-cell
+        _default: 1.0
+      minScore: 5
+      marginPct: 18          # PERCENT of withdrawable (0,100]; per-name = marginPct × sizingWeight; runtime sizes the $
+      maxLeverage: 5         # strict clamp, then each name's HL venue max (per-name, in-scan)
+      maxSlots: 4
+      rankPoolSize: 12       # small power complex — score all of it each tick
+      rsThresholdPct: 3.0
+      rsiOverbought: 82      # blow-off guard — don't chase an overbought leader
+      volFloorPctOfMedian: 0.2
+      minUniverseForMedianGate: 5   # small-list bypass (Mongoose-short fix) — don't median-gate a tiny curated list
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      weight: { type: number, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: eel_long_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # the scan already applied the power universe + 4h/1h absolute-trend gate + RS tiebreaker + conviction size + venue clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [eel_long_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: eel_long_signals
+
+# ── EXIT (DSL — moderate; let energy winners run, cut reversers; ported verbatim from v2) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 10080          # 7d — energy/power trends persist; let winners run
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h — cut a name that peaked then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 960            # 16h — recycle a position going nowhere
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 20,  lock_hw_pct: 40 }   # first LOCK — reachable
+        - { trigger_pct: 35,  lock_hw_pct: 60 }
+        - { trigger_pct: 60,  lock_hw_pct: 78 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 604800       # 168h (was data_retention_hours: 168)
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 6                # basket rotation as power-complex leadership shifts
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600                # v2 cooldown_minutes 60
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400     # v2 per_asset_cooldown_minutes 240

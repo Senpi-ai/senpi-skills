@@ -1,0 +1,48 @@
+# Boar — Hard Money vs Paper (debasement) long/short thesis fund. A two-instance PACKAGE:
+# this manifest + two self-contained runtime.yaml books (long "hard money" / short "paper"
+# on SEPARATE wallets, so the longs and shorts can coexist) + per-instance scanners/ (the
+# scan.py + scoring.py are shared verbatim; direction is parametrized by inputs.leg). A
+# faithful Runtime 3.0 port of the v2 Boar v1.0 thematic absolute-trend engine over a curated
+# hard-money basket (LONG) and paper basket (SHORT) on Hyperliquid (XYZ + main DEX).
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: boar
+version: "1.0.0"
+
+catalog:
+  name: "Boar — Hard Money vs Paper"
+  emoji: "🥇"
+  tagline: "Bets on currency debasement: LONGS scarce real assets (GOLD, BTC, SILVER, PLATINUM, PALLADIUM) on the hard-money wallet and SHORTS the paper economy (SP500 + rate-sensitive growth RIVN/DKNG/HIMS) on the paper wallet — each leg trend-confirmed and conviction-sized. The P&L is the real-assets-beat-paper-claims spread."
+  belief_plain: "Buys gold, bitcoin and other scarce real assets while shorting the broad stock market and rate-sensitive growth stocks at the same time, on two separate wallets, betting that as governments run big deficits and rates stay high, hard money beats paper claims."
+  thesis: "Fiscal dominance / currency debasement: as deficits compound and the term premium rises, scarce real assets (gold, BTC, silver) outperform fiat-denominated financial claims. Express it as a long/short — long hard money, short paper — so the edge is the spread, not market direction. Each name only trades when its own absolute 4h/1h trend confirms (cross-sectional relative strength only tilts ranking and size). HONEST CAVEAT: the loosest hedge of the family — in a pure liquidity melt-up gold AND stocks can rise together; the short tilts to rate-sensitive names to tighten it. Best deployed as a tilt, not a market-neutral bet."
+  group: multi-asset-whitelist
+  archetype: trend_following      # absolute trend is the HARD gate per leg; wide let-winners-run DSL
+  sub_style: basket               # curated thematic whitelist baskets (hard money / paper), conviction-weighted
+  asset_classes: [commodities, btc_eth, indices, xyz_equities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 8
+  min_budget: 400
+  assets: ["xyz:GOLD", "BTC", "xyz:SILVER", "xyz:PLATINUM", "xyz:PALLADIUM", "xyz:SP500", "xyz:RIVN", "xyz:DKNG", "xyz:HIMS"]
+  tags: [debasement, hard-money, gold, btc, silver, metals, sp500, hedge-fund, long-short, thematic, trend-confirmed, conviction-sizing, xyz]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: long
+    runtime: long/runtime.yaml
+    wallet_env: BOAR_LONG_WALLET
+    funding_share: 0.5
+  - name: short
+    runtime: short/runtime.yaml
+    wallet_env: BOAR_SHORT_WALLET
+    funding_share: 0.5

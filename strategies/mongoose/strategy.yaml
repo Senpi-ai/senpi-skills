@@ -1,0 +1,53 @@
+# Mongoose — On-Chain Finance vs Legacy hedge fund. A two-instance PACKAGE: this manifest
+# + two self-contained runtime.yaml books (long / short on SEPARATE wallets, so the on-chain
+# longs and the legacy shorts can coexist) + per-instance scanners/. A faithful Runtime 3.0
+# port of the v2 Mongoose v1.0.0 — ONE producer (mongoose-producer.py) driven by MONGOOSE_LEG
+# into two books, each scoring its OWN curated thematic universe on ABSOLUTE trend with
+# cross-sectional relative strength as a tiebreaker, per-name conviction sizing weights.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: mongoose
+version: "1.0.0"
+
+catalog:
+  name: "Mongoose — On-Chain Finance vs Legacy"
+  emoji: "🪙"
+  tagline: "Bets money is migrating on-chain: LONGS the on-chain financial rails (HYPE the venue + Circle/CRCL + Coinbase/COIN + Robinhood/HOOD + BTC treasuries MSTR/PURRDAT) on one wallet and SHORTS legacy finance + broad financial-beta (Blackstone/BX + SP500) on another — both trend-confirmed on absolute 4h/1h structure — so the P&L is the disruptor-vs-incumbent spread."
+  belief_plain: "Buys the companies and tokens that are pulling finance on-chain (the crypto exchange, the stablecoin issuer, the BTC treasuries) and at the same time shorts the old-finance incumbents and the broad market, on two separate wallets. It only buys names that are actually trending up and only shorts names actually rolling over, and it bets bigger on its highest-conviction picks (HYPE and Circle)."
+  thesis: "Money is migrating on-chain — stablecoins, crypto exchanges and BTC treasuries are eating legacy financial rails. You want to own the disruptors and short the incumbents so the return is the GAP between them, not the direction of the market. HONEST CAVEAT: the hedge is cross-sector and the short universe is thin (few pure legacy-finance names list on the venue yet), so the short leg leans on the broad index — it nets down market beta rather than perfectly isolating the pair, and the long book is the strong, high-conviction side."
+  group: multi-asset-whitelist
+  archetype: structural_neutral   # long disruptors / short incumbents — a (loose, cross-sector) spread pair
+  sub_style: pairs_rv             # relative-value: the disruptor-vs-incumbent spread is the edge
+  asset_classes: [xyz_equities, indices, major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 7                    # long book 5 + short book 2
+  min_budget: 400                 # two wallets, ~$200 floor each
+  assets: ["HYPE", "xyz:CRCL", "xyz:COIN", "xyz:HOOD", "xyz:MSTR", "xyz:PURRDAT", "xyz:BX", "xyz:SP500"]
+  tags: [on-chain-finance, hedge-fund, long-short, disruptor-vs-incumbent, hype, stablecoins, crypto-treasuries, conviction-sizing, xyz, thematic]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# ── FUNDING SPLIT DEFAULT: net-long tilt (the thesis is bullish the disruptors) ──
+# The split is an OPERATOR funding dial (sums to 1.0), set across the two wallets — NOT a
+# runtime-enforced field. The on-chain (long) book defaults larger (5 slots / 18% / 5x) than
+# the legacy (short) hedge book (2 slots / 15% / 4x). Fund 50/50 for a tighter (still
+# cross-sector) hedge. See config _hedge_note in the v2 source.
+instances:
+  - name: long
+    runtime: long/runtime.yaml          # -> runtime name mongoose-long, group mongoose
+    wallet_env: MONGOOSE_LONG_WALLET     # bound as ${MONGOOSE_LONG_WALLET} in long/runtime.yaml
+    funding_share: 0.65
+  - name: short
+    runtime: short/runtime.yaml         # -> runtime name mongoose-short, group mongoose
+    wallet_env: MONGOOSE_SHORT_WALLET
+    funding_share: 0.35
