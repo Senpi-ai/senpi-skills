@@ -8,6 +8,7 @@ relies on. Exit 0 = all packages valid; exit 1 = at least one error.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import ast
+import re
 import sys
 from pathlib import Path
 
@@ -39,7 +40,6 @@ def validate(pkg: Path) -> list:
     for inst in man.get("instances", []):
         name = inst.get("name", "?")
         rt_rel = inst.get("runtime")
-        scn = (inst.get("scanner") or {})
         wenv = inst.get("wallet_env")
 
         rt = pkg / rt_rel if rt_rel else None
@@ -48,23 +48,39 @@ def validate(pkg: Path) -> list:
             continue
         rt_text = rt.read_text()
 
-        if scn.get("name") not in rt_text:
-            errs.append(f"instance {name}: scanner.name {scn.get('name')!r} not an external_scanner in {rt_rel}")
-        ep = pkg / "scripts" / scn.get("entrypoint", "scanner.py")
-        if not (pkg / scn.get("entrypoint", "scanner.py")).is_file() and not ep.is_file():
-            errs.append(f"instance {name}: scanner.entrypoint {scn.get('entrypoint')!r} not found")
+        # data_retention: Runtime 3.0 uses data_retention_seconds (integer 3600–604800);
+        # the v2 data_retention_hours field is deprecated. (See senpi-trading-runtime/references/runtime-yaml.md.)
+        if re.search(r"^\s*data_retention_hours\s*:", rt_text, re.M):
+            errs.append(f"instance {name}: {rt_rel} uses deprecated 'data_retention_hours' — "
+                        f"use 'data_retention_seconds' (integer 3600-604800; hours x 3600)")
+        m = re.search(r"^\s*data_retention_seconds\s*:\s*([0-9]+)", rt_text, re.M)
+        if m and not (3600 <= int(m.group(1)) <= 604800):
+            errs.append(f"instance {name}: {rt_rel} data_retention_seconds {m.group(1)} "
+                        f"out of range [3600, 604800] (1h-7d)")
+
+        # Runtime 3.0 scanner package: <runtime_dir>/scanners/scan.py exports scan(inputs, ctx);
+        # the thesis math is a sibling scanners/scoring.py imported as `import scoring` (NO __init__.py).
+        scn_dir = rt.parent / "scanners"
+        scan_py = scn_dir / "scan.py"
+        scoring_py = scn_dir / "scoring.py"
+        if not scan_py.is_file():
+            errs.append(f"instance {name}: missing {scan_py.relative_to(pkg)} (Runtime 3.0 scan() entrypoint)")
+        elif "def scan(" not in scan_py.read_text():
+            errs.append(f"instance {name}: {scan_py.relative_to(pkg)} does not define scan(inputs, ctx)")
+        if not scoring_py.is_file():
+            errs.append(f"instance {name}: missing sibling {scoring_py.relative_to(pkg)} ('import scoring' will fail)")
+        if (scn_dir / "__init__.py").is_file():
+            errs.append(f"instance {name}: {(scn_dir / '__init__.py').relative_to(pkg)} present — remove it (sibling-import model)")
         if not wenv or ("${%s}" % wenv) not in rt_text:
             errs.append(f"instance {name}: wallet_env {wenv!r} not bound as ${{{wenv}}} in {rt_rel}")
         seen_wallet_envs.add(wenv)
-        if inst.get("params") is None:
-            errs.append(f"instance {name}: missing params block")
 
     # multi-instance must use distinct wallets
     if len(man.get("instances", [])) > 1 and len(seen_wallet_envs) < len(man["instances"]):
         errs.append("multi-instance strategy must declare a distinct wallet_env per instance")
 
     # scanner present + parses; no '@senpi/runtime' without -ai anywhere
-    for py in (pkg / "scripts").glob("*.py"):
+    for py in pkg.rglob("*.py"):
         try:
             ast.parse(py.read_text())
         except SyntaxError as e:
