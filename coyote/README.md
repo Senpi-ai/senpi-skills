@@ -2,7 +2,7 @@
 
 **The agent that asks "what kind of market are we in?" before anything else.** Coyote watches macro conditions and classifies the market into TREND_UP / TREND_DOWN / CHOP. Takes LONG BTC in TREND_UP, SHORT BTC in TREND_DOWN, stays out in CHOP. Publishes the regime view on every tick.
 
-Part of [Senpi Trading Skills](https://github.com/Senpi-ai/skills).
+Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 ## Thesis
 

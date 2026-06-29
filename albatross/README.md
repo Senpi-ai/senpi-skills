@@ -2,7 +2,7 @@
 
 Mirror the **consistent winners** from the Senpi Arena, not the lucky-week winners. Albatross pulls 4 weekly leaderboards + the current monthly leaderboard, computes a composite conviction score, and mirrors trades from the top-N traders by that score.
 
-Part of [Senpi Trading Skills](https://github.com/Senpi-ai/skills).
+Part of [Senpi Trading Skills](https://github.com/Senpi-ai/senpi-skills).
 
 ## Thesis
 
