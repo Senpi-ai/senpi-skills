@@ -1,0 +1,141 @@
+# ── LION · LONG "haves" book — long the structural winners of a two-speed (K-shaped) world ──
+name: lion-long
+group: lion
+version: 3.0.0
+description: >
+  LION LONG ("haves" book) — two-speed-market (K-shaped) cross-asset long/short fund
+  (Runtime 3.0 port of v2 Lion v1.0.0). This book LONGS the structural winners of a
+  K-shaped world: the AI complex on Hyperliquid XYZ (NVDA, AMD, MRVL, TSM, ASML, ARM,
+  AVGO, CRWV, PLTR, ORCL, …) PLUS the crypto winners (HYPE large, SOL modest) — but only
+  when ABSOLUTE trend confirms (4h structure not bearish + positive own momentum), with
+  an RSI blow-off guard. Cross-sectional relative strength tilts size/ranking but NEVER
+  benches a genuinely-trending winner. Per-name size = marginPct(18) × conviction weight
+  (HYPE 1.5×, SOL 0.6×, AI equities 1.0×), capped at 25%. Pairs with the SHORT "have-nots"
+  book on a SEPARATE wallet; the P&L is the DISPERSION between the two speeds, not market
+  direction. Tokenized equities trade 24/7 on Hyperliquid — no market-hours gating.
+
+strategy:
+  wallet: "${LION_LONG_WALLET}"
+  # ── NET-EXPOSURE DEFAULT: modest NET-LONG tilt (~60/40) ──
+  # Net exposure is an OPERATOR decision (set by the long/short wallet funding split +
+  # per-leg knobs), NOT a runtime-enforced field. This book defaults larger (slots 5,
+  # margin_pct 18, 5x) than the short book to express the directional AI/HYPE conviction.
+  slots: 5
+  default_leverage: 5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: lion_long_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds — two-speed cross-asset cadence
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map + per-tick observability
+    inputs:
+      leg: "long"
+      # ── Curated thematic "haves" universe (validated against the live HL board) ──
+      # AI chips / memory / infra / software/hyperscalers + frontier compute + crypto
+      # winners. All 29 names confirmed live (HL meta main + xyz, 2026-06-29). New AI
+      # listings auto-join once added here and live on the board.
+      universe: ["xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:ARM", "xyz:AVGO", "xyz:INTC", "xyz:TSM", "xyz:ASML", "xyz:CBRS", "xyz:MU", "xyz:SMSN", "xyz:SKHX", "xyz:SNDK", "xyz:CRWV", "xyz:NBIS", "xyz:DELL", "xyz:LITE", "xyz:GOOGL", "xyz:MSFT", "xyz:META", "xyz:AMZN", "xyz:ORCL", "xyz:PLTR", "xyz:NOW", "xyz:IBM", "xyz:SPCX", "xyz:QNT", "HYPE", "SOL"]
+      sizingWeights:
+        HYPE: 1.5
+        SOL: 0.6
+        SPCX: 0.6
+        QNT: 0.5
+        CBRS: 0.7
+        NBIS: 0.7
+        _default: 1.0
+      minScore: 5
+      marginPctBase: 18      # PERCENT of withdrawable (0,100]; per-name = marginPctBase × conviction weight
+      marginPctCap: 25       # fleet <=25% per-position cap (binds HYPE: 18×1.5=27 -> 25)
+      maxLeverage: 5         # strict clamp, then each name's HL venue max (per-name, in-scan)
+      maxSlots: 5
+      rankPoolSize: 30       # large AI universe — score the whole complex each tick
+      rsThresholdPct: 3.0
+      rsiOverbought: 82      # blow-off guard — don't chase an overbought winner
+      volFloorPctOfMedian: 0.2
+      minUniverseForMedianGate: 5
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+      weight: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: lion_long_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # the scan already applied the thematic universe, the 4h/1h
+                                          # absolute-trend gate, the RS tiebreaker, conviction sizing,
+                                          # the 5x clamp + venue clamp, and held/recent dedup (v2 LLM
+                                          # gate was pass-through)
+    scanners: [lion_long_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: lion_long_signals
+
+# ── EXIT (DSL — moderate; let two-speed winners run, cut reversers; ported verbatim) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 10080          # 7d — the AI trend persists; let winners run
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480            # 8h — cut a winner that peaked then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 960            # 16h — recycle a position going nowhere
+    phase1:
+      enabled: true
+      max_loss_pct: 16.0                  # slightly wider than equity-only (HYPE vol in basket)
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10,  lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 20,  lock_hw_pct: 40 }   # first LOCK — reachable
+        - { trigger_pct: 35,  lock_hw_pct: 60 }
+        - { trigger_pct: 60,  lock_hw_pct: 78 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 604800       # 168h (was data_retention_hours: 168)
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 6                # basket rotation as leadership shifts
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 3600                # v2 cooldown_minutes 60
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 14400     # v2 per_asset_cooldown_minutes 240

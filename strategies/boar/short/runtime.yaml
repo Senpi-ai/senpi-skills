@@ -1,0 +1,128 @@
+# ── BOAR · SHORT book — the PAPER leg (the hedge: SHORT the paper economy) ──
+name: boar-short
+group: boar
+version: 3.0.0
+description: >
+  BOAR SHORT — Hard Money vs Paper (debasement) thesis fund, the SHORT leg / the hedge
+  (Runtime 3.0 port of v2 Boar v1.0). This book SHORTS the "paper" economy — the broad
+  market via the SP500 index PLUS rate-sensitive long-duration growth (RIVN, DKNG, HIMS) —
+  the fiat-denominated financial claims that lose most as the term premium rises under
+  fiscal dominance, but only when ABSOLUTE trend confirms (4h structure not bullish +
+  negative own momentum), with a CAPITULATION guard so it never shorts an exhausted bottom.
+  Per-name size = account_value * marginPct * conviction weight (SP500 1.2x anchor; growth
+  names 0.6x — small + squeeze-prone). Pairs with the LONG hard-money book on a separate
+  wallet; the P&L is the real-assets-beat-paper-claims spread. The rate-sensitive tilt
+  tightens the debasement hedge vs a pure index short. Tokenized equities/indices trade
+  24/7 on Hyperliquid — no market-hours gating.
+
+strategy:
+  wallet: "${BOAR_SHORT_WALLET}"
+  # ── FUNDING DEFAULT: net-long-hard-money tilt (the split is an OPERATOR decision set by
+  #    wallet funding, NOT a runtime field). This paper book defaults the same slots (4) but
+  #    lower leverage (4x) than the hard-money book; fund 50/50 for a tighter hedge. ──
+  slots: 4
+  default_leverage: 4
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: boar_short_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds — debasement-trend cadence
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map
+    inputs:
+      leg: "short"
+      # ── Curated PAPER universe (validated against the live HL board, authoring time):
+      #    SP500 broad-market anchor + rate-sensitive growth on XYZ. All 4 names confirmed live. ──
+      universe: ["xyz:SP500", "xyz:RIVN", "xyz:DKNG", "xyz:HIMS"]
+      sizingWeights:
+        SP500: 1.2         # broad paper-claims anchor
+        _default: 0.6      # rate-sensitive growth — small + squeeze-prone
+      minScore: 5
+      marginPct: 15          # PERCENT of withdrawable (0,100]; runtime sizes (marginPct/100 * weight)*withdrawable
+      maxLeverage: 4         # strict clamp (short squeezes are violent), then each name's HL venue max (in-scan)
+      maxSlots: 4
+      rankPoolSize: 8        # v2 short-config rankPoolSize
+      rsThresholdPct: 3.0
+      rsiOversold: 18        # capitulation guard — never short an exhausted bottom
+      volFloorPctOfMedian: 0.2
+      minUniverseForMedianGate: 5   # 4-name basket -> skip the median gate (Mongoose-bricking note)
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      weight: { type: number, required: false }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: boar_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # the scan already applied the universe + absolute-downtrend gate + capitulation guard + RS tiebreaker + conviction size + venue clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [boar_short_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: boar_short_signals
+
+# ── EXIT (DSL — tighter; short theses decay faster, squeezes are violent; ported VERBATIM from v2 runtime-short.yaml) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 7200           # 5d — shorter than the long book
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 360            # 6h — cut a short that bottomed then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 720            # 12h — recycle a short going nowhere
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                  # tighter than long book — squeeze protection
+      retrace_threshold: 7
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,   lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 18,  lock_hw_pct: 45 }   # first LOCK — reachable
+        - { trigger_pct: 35,  lock_hw_pct: 65 }
+        - { trigger_pct: 60,  lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 604800       # 168h (was data_retention_hours: 168)
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 5
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 5400                # v2 cooldown_minutes 90
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 18000     # v2 per_asset_cooldown_minutes 300

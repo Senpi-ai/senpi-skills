@@ -1,0 +1,60 @@
+# Cub — Two-speed-market (K-shaped) cross-asset long/short fund + pre-IPO satellite.
+# A THREE-instance PACKAGE: this manifest + three self-contained runtime.yaml sleeves on
+# THREE separate wallets (long "haves" / short "have-nots" / preipo pre-IPO ramp) + per-sleeve
+# scanners/. A faithful Runtime 3.0 port of the v2 Cub v1.0.0 engine (cub-producer.py driven by
+# CUB_LEG into long / short / preipo books, on origin/main). Cub is a variation of Lion: ~90%
+# to the two-speed AI long/short engine (long + short) and ~10% to the pre-IPO ramp satellite.
+# Install/teardown via senpi-strategy-ops.
+#
+# NET EXPOSURE + 90/10 ALLOCATION ARE OPERATOR DECISIONS, not runtime-enforced fields — set by
+# how much capital is funded into each of the three wallets (plus per-leg slots / margin_pct /
+# sizingWeights). Default = modest NET-LONG tilt across long+short (~60/40) + ~10% preipo.
+schema_version: 1
+
+id: cub
+version: "1.0.0"
+
+catalog:
+  name: "Cub — Two-Speed-Market Long/Short + Pre-IPO"
+  emoji: "🐅"
+  tagline: "Longs the structural winners of a K-shaped world (the AI complex on Hyperliquid XYZ + crypto winners HYPE/SOL) and shorts the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) — both trend-confirmed on separate wallets — plus a ~10% pre-IPO ramp satellite that auto-discovers pre-IPO perpetuals (IPOPs) and rides them into their listing."
+  belief_plain: "The world is splitting into haves and have-nots: AI companies and crypto's winners keep booming while the broad economy and the rest of crypto struggle. Cub buys the booming side and shorts the struggling side at the same time on separate wallets, so it makes money on the GAP between the two — and keeps a small slice aimed at the next SpaceX before it goes public."
+  thesis: "The edge is K-shaped DISPERSION, not market direction. Long the AI complex + HYPE/SOL only while they're actually trending up; short SP500 + laggard alts only while they're actually rolling over; the P&L is the spread between the two speeds. A ~10% pre-IPO sleeve adds optionality — it discovers IPOPs by their funding signature and longs the ones ramping into their listing. Tokenized equities trade 24/7 on Hyperliquid, so the book never waits for a market open."
+  group: multi-asset-thematic
+  archetype: structural_neutral   # cross-asset L/S dispersion — net beta set by operator funding split
+  sub_style: pairs_rv             # cross-sectional relative-value (haves vs have-nots dispersion)
+  asset_classes: [xyz_equities, major_alts, indices, pre_ipo]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 12           # long 5 + short 4 + preipo 3
+  min_budget: 600         # 3 wallets; ~90% across long+short / ~10% preipo — each needs working size
+  assets: ["xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:ARM", "xyz:AVGO", "xyz:TSM", "xyz:ASML", "xyz:MU", "xyz:CRWV", "xyz:GOOGL", "xyz:MSFT", "xyz:META", "xyz:AMZN", "xyz:ORCL", "xyz:PLTR", "xyz:SPCX", "HYPE", "SOL", "xyz:SP500", "ETH", "XRP", "DOGE", "AVAX", "LINK"]
+  tags: [k-shaped, two-speed, ai-complex, hedge-fund, long-short, dispersion, xyz, equities, crypto, pre-ipo, ipop, hype, sp500]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+# THREE sleeves on THREE separate wallets (so the long haves + short have-nots can coexist and
+# the preipo ramp runs its own book). Default funding split mirrors the v2 config notes: ~90%
+# across the Lion two-speed engine (long ~60% / short ~30% — the modest net-long tilt) and ~10%
+# to the preipo satellite. Fund only long+short to drop the pre-IPO sleeve.
+instances:
+  - name: long
+    runtime: long/runtime.yaml
+    wallet_env: CUB_LONG_WALLET
+    funding_share: 0.55
+  - name: short
+    runtime: short/runtime.yaml
+    wallet_env: CUB_SHORT_WALLET
+    funding_share: 0.35
+  - name: preipo
+    runtime: preipo/runtime.yaml
+    wallet_env: CUB_PREIPO_WALLET
+    funding_share: 0.10

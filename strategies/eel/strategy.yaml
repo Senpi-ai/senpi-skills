@@ -1,0 +1,47 @@
+# Eel — Electrons vs Hydrocarbons energy-pair thesis fund. A two-instance PACKAGE: this
+# manifest + two self-contained runtime.yaml books (long "power" / short "oil" on SEPARATE
+# wallets, so the long power complex and the short crude book coexist) + per-instance
+# scanners/. A faithful Runtime 3.0 port of the v2 Eel v1.0 producer — the curated thematic
+# universe + ABSOLUTE-trend gate (RS tiebreaker) + per-group conviction sizing is preserved
+# exactly. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: eel
+version: "1.0.0"
+
+catalog:
+  name: "Eel — Electrons vs Hydrocarbons"
+  emoji: "⚡"
+  tagline: "Bets AI datacenters are a structural new source of electricity demand: LONGS the AI-power complex on Hyperliquid XYZ (uranium, gas-fired power, grid copper, fuel cells, rare-earth) and SHORTS crude oil — both trend-confirmed, on two separate wallets — so the pair is energy-sector-neutral and harvests the electrons-vs-barrels spread."
+  belief_plain: "Buys the things that make electricity for AI datacenters (uranium, natural gas, copper, fuel cells, rare-earth) and shorts crude oil at the same time, on two separate wallets, so it makes money on power BEATING oil rather than on energy going up or down."
+  thesis: "AI datacenter electricity demand is a structural new bid for the power complex, while crude oil is the legacy transport fuel barely levered to AI. Both legs are energy, so a broad energy move washes out and the P&L is the dispersion — power outperforming oil. Each book only acts when ABSOLUTE trend confirms (long power on a non-bearish 4h; short oil on a non-bullish 4h, with a capitulation guard), with cross-sectional relative strength as a size/rank tiebreaker. Commodities trade ~24/7 on Hyperliquid, so the book never waits for a market open."
+  group: multi-asset-whitelist
+  archetype: structural_neutral   # energy-sector-neutral L/S pair — paid on dispersion, not direction
+  sub_style: pairs_rv             # relative-value pair (power complex vs crude oil)
+  asset_classes: [commodities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 6
+  min_budget: 400
+  assets: ["xyz:URNM", "xyz:NATGAS", "xyz:COPPER", "xyz:BE", "xyz:USAR", "xyz:BRENTOIL", "xyz:CL"]
+  tags: [energy, power, uranium, natgas, copper, crude-oil, ai-datacenter, long-short, market-neutral, dispersion, xyz, commodities]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: long
+    runtime: long/runtime.yaml
+    wallet_env: EEL_LONG_WALLET
+    funding_share: 0.55
+  - name: short
+    runtime: short/runtime.yaml
+    wallet_env: EEL_SHORT_WALLET
+    funding_share: 0.45

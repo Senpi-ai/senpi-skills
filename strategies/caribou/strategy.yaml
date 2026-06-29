@@ -1,0 +1,48 @@
+# Caribou — Cross-Asset Trend Fund (managed futures / CTA). A two-instance PACKAGE: this
+# manifest + two self-contained runtime.yaml books (long / short on SEPARATE wallets, so the
+# fund may hold the SAME asset long in one sleeve and short in the other) + per-book scanners/.
+# A faithful Runtime 3.0 port of the v2 Caribou v1.0.0 (CARIBOU_LEG-selected producer): a
+# time-series trend follower over the WHOLE Hyperliquid instrument board (crypto + xyz stocks,
+# indices, metals, energy), bucketed by asset class, vol-parity (equal-risk) sized, capped per
+# class so the book can never collapse into one class. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: caribou
+version: "1.0.0"
+
+catalog:
+  name: "Caribou — Cross-Asset Trend Fund"
+  emoji: "🦌"
+  tagline: "Trend-follows the WHOLE Hyperliquid board across every asset class (crypto, tokenized stocks, indices, metals, energy): longs the confirmed uptrends and shorts the confirmed downtrends on two separate wallets, sizes every position to EQUAL RISK by volatility parity, and caps each asset class at 40% of equity so the book stays diversified. Managed futures, on-chain."
+  belief_plain: "Follows the trend everywhere at once — crypto, stocks, gold, oil, indices — buying what's going up and shorting what's going down, on two separate wallets. It bets the SAME risk on each position (smaller on wild assets, bigger on calm ones) and never lets any one type of market take over the book, so the curve stays smooth and it can make money even when stocks are crashing."
+  thesis: "You want the most-proven hedge-fund category — managed futures (CTA) — on-chain. Its entire edge is cross-asset diversification: trends show up in different markets at different times, so the more uncorrelated markets you trend-follow, the smoother the curve. Long the uptrends and short the downtrends across uncorrelated classes nets to ~zero market beta and is crisis-positive (the short sleeve shorts the fallers when everything bleeds). Each asset is judged against its OWN history (time-series trend), sized to equal risk, and capped by class."
+  group: multi-asset-whitelist
+  archetype: trend_following     # time-series trend follower across every class
+  sub_style: trend_follower      # cross-asset CTA / managed-futures trend following
+  asset_classes: [universe_crypto, commodities, indices, xyz_equities]
+  asset_scope: universe          # scans the whole live instrument board, no fixed whitelist
+  direction: long_short          # long sleeve + short sleeve on separate wallets
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 8
+  min_budget: 400
+  assets: []                     # dynamic universe — bucketed from the live instrument board
+  tags: [managed-futures, cta, trend-following, cross-asset, vol-parity, equal-risk, crisis-alpha, long-short, diversified, hedge-fund]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: long
+    runtime: long/runtime.yaml
+    wallet_env: CARIBOU_LONG_WALLET
+    funding_share: 0.5
+  - name: short
+    runtime: short/runtime.yaml
+    wallet_env: CARIBOU_SHORT_WALLET
+    funding_share: 0.5

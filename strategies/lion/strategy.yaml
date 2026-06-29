@@ -1,0 +1,48 @@
+# Lion — Two-Speed-Market (K-shaped) cross-asset long/short hedge fund. A two-instance
+# PACKAGE: this manifest + two self-contained runtime.yaml books (long "haves" / short
+# "have-nots" on SEPARATE wallets, so the AI winners and the laggard shorts can coexist on
+# a net-long tilt) + per-instance scanners/. A faithful Runtime 3.0 port of the v2 Lion
+# v1.0.0 thematic dispersion engine spanning tokenized U.S. equities (Hyperliquid XYZ) +
+# main-DEX crypto on one cross-margined wallet per book. Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: lion
+version: "1.0.0"
+
+catalog:
+  name: "Lion — Two-Speed-Market Cross-Asset L/S"
+  emoji: "🦁"
+  tagline: "Bets on a K-shaped divergence: LONGS the structural winners (the AI complex on Hyperliquid XYZ + the crypto winners HYPE/SOL) on the 'haves' wallet, and SHORTS the laggards (the broad U.S. market via SP500 + a gated basket of laggard alts) on the 'have-nots' wallet. Both trend-confirmed on absolute structure, with relative strength as a tiebreaker and per-name conviction sizing (HYPE big, SOL small, SP500 core). The edge is the DISPERSION between the two speeds, not market direction."
+  belief_plain: "Buys the booming AI stocks and crypto winners while shorting the broad stock market and the alts losing ground, each on its own wallet — so it makes money on the GAP between the world's fast lane and slow lane rather than on the market going up or down. It only buys names actually trending up and only shorts names actually rolling over, and bets bigger on its highest-conviction picks."
+  thesis: "The world is splitting into two speeds: the AI complex and HYPE/SOL keep booming while the broad U.S. economy and the rest of crypto struggle. Express it as one thematic long/short book — long the haves, short the have-nots — and the P&L is the dispersion between the two, not the market's direction. The hard gate is ABSOLUTE trend (never long a downtrend, never short an uptrend, even for a thesis name); cross-sectional relative strength only tilts size and ranking. Net exposure is the operator's dial (default modest net-long), set by how much capital each wallet holds."
+  group: multi-asset-whitelist
+  archetype: trend_following     # both legs ride ABSOLUTE-trend-confirmed thematic names; net-long tilt (not market-neutral)
+  sub_style: rotation            # holds the strongest of a curated basket per leg; rotates as leadership shifts
+  asset_classes: [xyz_equities, major_alts, indices]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 9                   # 5 long + 4 short across the two books
+  min_budget: 400
+  assets: ["xyz:NVDA", "xyz:AMD", "xyz:MRVL", "xyz:ARM", "xyz:AVGO", "xyz:INTC", "xyz:TSM", "xyz:ASML", "xyz:CBRS", "xyz:MU", "xyz:SMSN", "xyz:SKHX", "xyz:SNDK", "xyz:CRWV", "xyz:NBIS", "xyz:DELL", "xyz:LITE", "xyz:GOOGL", "xyz:MSFT", "xyz:META", "xyz:AMZN", "xyz:ORCL", "xyz:PLTR", "xyz:NOW", "xyz:IBM", "xyz:SPCX", "xyz:QNT", "HYPE", "SOL", "xyz:SP500", "ETH", "XRP", "DOGE", "AVAX", "LINK", "ADA", "LTC", "NEAR", "APT"]
+  tags: [k-shaped, two-speed, ai-complex, long-short, cross-asset, dispersion, conviction-sizing, hedge-fund, xyz, hype]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: long
+    runtime: long/runtime.yaml
+    wallet_env: LION_LONG_WALLET
+    funding_share: 0.6           # modest net-long tilt (~60/40); operator's dial
+  - name: short
+    runtime: short/runtime.yaml
+    wallet_env: LION_SHORT_WALLET
+    funding_share: 0.4

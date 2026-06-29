@@ -1,0 +1,48 @@
+# Elephant — global-macro hedge fund. A two-instance PACKAGE: this manifest + two
+# self-contained runtime.yaml books (trend / fade on SEPARATE wallets, so a name in a
+# macro uptrend can still print a short-term overbought fade) + per-instance scanners/.
+# A faithful Runtime 3.0 port of the v2 Elephant v1.0 cross-asset macro complex —
+# equity indices, precious metals, energy, FX (all on XYZ) plus BTC as the macro risk
+# asset. The TREND book rides the medium-term multi-timeframe macro trend (both
+# directions); the FADE book fades short-TF macro over-extensions back to regime (both
+# directions, with a 4h knife guard). Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: elephant
+version: "1.0.0"
+
+catalog:
+  name: "Elephant — Global-Macro Hedge Fund"
+  emoji: "🐘"
+  tagline: "Trades the cross-asset macro complex — equity indices, precious metals, energy, FX (all on XYZ) plus BTC — on two books and two wallets: the TREND book rides the durable multi-timeframe macro trend (both directions); the FADE book fades short-TF over-extensions back to regime (both directions, with a knife guard). The edge is GLOBAL MACRO — the complex moves on regime, not crypto noise."
+  belief_plain: "Trades the big global markets — stock indices, gold/silver/copper, oil and gas, the major currencies, and Bitcoin. One book rides the slow, durable trends (buying things going up, shorting things going down); a second book on a separate wallet bets on stretched moves snapping back. It only fades a snap-back when the bigger trend isn't fighting it."
+  thesis: "Crypto-only funds all crowd the same coins; the cross-asset macro complex (indices / metals / energy / FX) moves on macro regime — oil on geopolitics, indices on the AI-equity bid, metals on risk-off — and is uncorrelated with crypto noise. Running a trend book AND a mean-reversion book on the same macro whitelist, on two wallets, harvests both the durable direction and the over-extensions without the two conflicting. These markets trade 24/7 on Hyperliquid XYZ, so the fund never has to wait for a market open."
+  group: macro
+  archetype: trend_following      # package-level: the dominant (60%-funded) book is the directional macro trend engine; the FADE book is contrarian_fade (see fade/runtime.yaml)
+  sub_style: basket               # curated macro whitelist intersected with the live board
+  asset_classes: [indices, commodities, btc_eth]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 3
+  min_budget: 400
+  assets: ["BTC", "xyz:SP500", "xyz:XYZ100", "xyz:JP225", "xyz:KR200", "xyz:NIFTY", "xyz:IBOV", "xyz:GOLD", "xyz:SILVER", "xyz:PLATINUM", "xyz:COPPER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:EUR", "xyz:JPY", "xyz:GBP", "xyz:DXY"]
+  tags: [macro, global-macro, cross-asset, indices, metals, energy, fx, btc, xyz, trend, mean-reversion, contrarian-fade, two-book, long-short]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: trend
+    runtime: trend/runtime.yaml
+    wallet_env: ELEPHANT_TREND_WALLET
+    funding_share: 0.6
+  - name: fade
+    runtime: fade/runtime.yaml
+    wallet_env: ELEPHANT_FADE_WALLET
+    funding_share: 0.4

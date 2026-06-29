@@ -1,0 +1,129 @@
+# ── MONGOOSE · LEGACY (SHORT) book — short legacy finance + broad financial-beta (the hedge) ──
+name: mongoose-short
+group: mongoose
+version: 3.0.0
+description: >
+  MONGOOSE LEGACY (SHORT) — On-Chain Finance vs Legacy thesis fund (Runtime 3.0 port of v2
+  Mongoose v1.0.0). The SHORT leg (the hedge). This book SHORTS legacy finance + broad
+  financial-beta — BX (Blackstone) + SP500 — the incumbents being disrupted by on-chain
+  finance, but only when ABSOLUTE trend confirms (4h structure not bullish + negative
+  momentum), with a CAPITULATION guard so it never shorts an exhausted bottom. Pairs with the
+  LONG on-chain book on a separate wallet; the P&L is the disruptor-vs-incumbent spread. NOTE:
+  a CROSS-SECTOR hedge with a thin short universe (few pure legacy-finance names list on the
+  venue), so it leans on the broad index — looser than a same-sector pair, nets down market
+  beta. SHORT only. Runs tighter than the long book (lower leverage, tighter max-loss, faster
+  stall-cuts) — short squeezes are violent.
+
+strategy:
+  wallet: "${MONGOOSE_SHORT_WALLET}"
+  slots: 2
+  default_leverage: 4
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: mongoose_short_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map + per-tick result
+    inputs:
+      leg: "short"
+      # ── VALIDATED legacy-finance universe (live HL xyz board, authoring time) ──
+      # Both confirmed live on the HL meta (curl type:meta dex:xyz). Deliberately THIN — few
+      # pure legacy-finance names list yet, so the hedge leans on SP500 (broad financial-beta)
+      # plus the one liquid legacy name (BX). Add more incumbents as they list to sharpen the pair.
+      universe: ["xyz:BX", "xyz:SP500"]
+      sizingWeights:
+        SP500: 1.2           # broad financial-beta (the incumbent market) — the core of the hedge
+        BX: 0.8              # Blackstone — legacy alternative-asset finance
+        _default: 1.0
+      minScore: 5
+      marginPct: 15          # PERCENT of withdrawable (0,100]; runtime sizes (marginPct/100 * weight)*withdrawable
+      maxLeverage: 4         # strict 4x clamp (short squeezes are violent), then each name's HL venue max
+      maxSlots: 2
+      rankPoolSize: 8        # v2 config override (config JSON wins over the producer _DEFAULTS)
+      rsThresholdPct: 3.0
+      rsiOversold: 18        # capitulation guard — never short an exhausted bottom
+      volFloorPctOfMedian: 0.2
+      minUniverseForMedianGate: 5   # curated 2-name list -> keep both live names (median gate would collapse it to 1)
+      minNotionalPctOfEquity: 0.01
+      venueMinNotionalUsd: 10       # HL physical minimum order value
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      weight: { type: number, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: mongoose_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # the scan already applied the curated universe, the absolute-downtrend gate, the capitulation guard, conviction sizing, the 4x clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [mongoose_short_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: mongoose_short_signals
+
+# ── EXIT (DSL — tighter; short theses decay faster, squeezes are violent; ported VERBATIM from v2) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 7200           # 5d — shorter than the long book
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 360            # 6h — cut a short that bottomed then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 720            # 12h — recycle a short going nowhere
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                  # tighter than long book — squeeze protection
+      retrace_threshold: 7
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,   lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 18,  lock_hw_pct: 45 }   # first LOCK — reachable
+        - { trigger_pct: 35,  lock_hw_pct: 65 }
+        - { trigger_pct: 60,  lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 604800       # 168h (was data_retention_hours: 168)
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 5
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 5400                # v2 cooldown_minutes 90
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 18000     # v2 per_asset_cooldown_minutes 300

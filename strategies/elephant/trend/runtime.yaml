@@ -1,0 +1,121 @@
+# ── ELEPHANT · TREND book — global-macro trend (Runtime 3.0 port of v2 Elephant v1.0, ELEPHANT_LEG=trend) ──
+name: elephant-trend
+group: elephant
+version: 3.0.0
+description: >
+  ELEPHANT TREND — global-macro trend book (Runtime 3.0 port of v2 Elephant v1.0). One of
+  two macro books. Scores the cross-asset macro complex (XYZ equity indices / metals /
+  energy / FX + BTC) on its medium-term multi-timeframe trend — LONG clean uptrends, SHORT
+  clean downtrends. The 4h structure is the macro backbone (BULLISH->LONG, BEARISH->SHORT,
+  NEUTRAL->skip), confirmed by 1h structure + 24h momentum + RSI room. BOTH directions.
+  Pairs with the FADE book (fade/runtime.yaml) on a separate, larger-funded wallet. The edge
+  is GLOBAL MACRO: the complex moves on macro regime, and macro trends (oil on geopolitics,
+  indices on the AI-equity bid, metals on risk-off) are slow and clean. Macro whitelist
+  intersected with the live board each tick; per-name venue leverage clamp; strict 5x.
+  XYZ trades 24/7 — no market-hours gating.
+
+strategy:
+  wallet: "${ELEPHANT_TREND_WALLET}"
+  slots: 3
+  default_leverage: 5                       # fallback; scan emits per-name venue-clamped 5x
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: elephant_trend_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                    # v2 tickSeconds — macro is slow
+    timeout_seconds: 180                     # v2 tick_timeout; universe-level per-asset reads
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 100             # recent-signals dedup map + per-tick result history
+    inputs:
+      # ── Macro whitelist (config.allowedAssets). XYZ indices / metals / energy / FX + BTC.
+      #    Validated against the live HL meta at authoring time (2026-06-29): all 18 names live. ──
+      allowedAssets: ["BTC", "xyz:SP500", "xyz:XYZ100", "xyz:JP225", "xyz:KR200", "xyz:NIFTY", "xyz:IBOV", "xyz:GOLD", "xyz:SILVER", "xyz:PLATINUM", "xyz:COPPER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:EUR", "xyz:JPY", "xyz:GBP", "xyz:DXY"]
+      minScore: 5                            # v2 trend minScore
+      marginPct: 18                          # PERCENT of withdrawable (0,100); v2 0.18 fraction x100
+      maxLeverage: 5                         # strict clamp, then each name's HL venue max (per-name, in-scan)
+      maxSlots: 3
+      momThresholdPct: 1.5                   # 24h move for momentum confirmation (macro is slow)
+      rsiOverbought: 75
+      rsiOversold: 25
+      recentSignalTtlSeconds: 180            # v2 RECENT_SIGNAL_TTL_SEC race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      own24h: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: elephant_trend_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                      # the scan already applied 4h/1h scoring + clamp + dedup (v2 LLM gate was pass-through)
+    scanners: [elephant_trend_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: elephant_trend_signals
+
+# ── EXIT (DSL — wide let-macro-trends-run; ported VERBATIM from v2 runtime-trend.yaml) ──
+# Macro trends are slow and persistent, so ride them: wide phase1, ALL time cuts OFF, and
+# only a 7d hard_timeout staleness backstop. First phase2 tier (12% -> lock 0) primes the
+# trail; first LOCK is at 25% -> 45% (reachable on a real macro trend).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 10080            # 7d staleness cap
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 720
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 1440
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 12, lock_hw_pct: 0 }
+        - { trigger_pct: 25, lock_hw_pct: 45 }
+        - { trigger_pct: 45, lock_hw_pct: 65 }
+        - { trigger_pct: 75, lock_hw_pct: 80 }
+        - { trigger_pct: 120, lock_hw_pct: 90 }
+
+risk:
+  data_retention_seconds: 604800            # v2 data_retention_hours 168 -> 168*3600 = 604800 (= 7d max)
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 4                   # macro trends are slow -> few new entries/day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 5400                   # v2 cooldown_minutes 90
+    drawdown_halt_pct: 22
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 21600        # v2 per_asset_cooldown_minutes 360

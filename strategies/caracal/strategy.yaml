@@ -1,0 +1,48 @@
+# Caracal — Volatility Hedge Fund. A two-instance PACKAGE: this manifest + two
+# self-contained runtime.yaml books (breakout = crypto / catalyst = XYZ, on SEPARATE
+# wallets, ~equally funded) + per-book scanners/. A faithful Runtime 3.0 port of the v2
+# Caracal v1.0 volatility compression->expansion engine (caracal-producer.py, one script
+# driven by CARACAL_LEG into two books). It trades MOVEMENT, not a directional view: each
+# book takes the breakout LONG or SHORT, whichever way a coiled name breaks. Install/
+# teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: caracal
+version: "1.0.0"
+
+catalog:
+  name: "Caracal — Volatility Hedge Fund"
+  emoji: "🐱"
+  tagline: "Two volatility books on two wallets — one scans liquid crypto, the other scans tokenized stocks/commodities/indices (XYZ) — for names coiled in a low-volatility squeeze that break their recent range with an expansion surge, then rides the break direction (LONG up / SHORT down). It trades MOVEMENT, not a view: the edge is that compression precedes expansion."
+  belief_plain: "Watches the market for coins and stocks that have gone quiet (price barely moving), then pounces the moment one breaks out of its quiet range with a big jump — going long if it breaks up, short if it breaks down. It runs two separate pots: one for crypto, one for tokenized stocks and commodities. The bet is on the size of the move, not its direction."
+  thesis: "Volatility is the edge. A breakout FROM a low-volatility coil has far higher follow-through than a breakout in already-volatile tape — compression precedes expansion. Caracal only fires when a name has been coiling (recent ATR << baseline ATR) AND breaks its range AND the breakout bar is an outsized move, then rides whichever way it broke. Splitting crypto (breakout book) from tokenized stocks/commodities/indices (catalyst book) lets it capture oil-geopolitics and AI-infra moves 24/7 alongside crypto vol, on two separately-funded wallets that net to a direction-agnostic volatility harvester."
+  group: momentum
+  archetype: breakout_momentum
+  sub_style: range_break
+  asset_classes: [universe_crypto, xyz_equities, commodities, indices]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 6
+  min_budget: 400
+  assets: []
+  tags: [volatility, breakout, compression-expansion, coiled-spring, atr-squeeze, range-break, crypto, xyz, equities, commodities, indices, long-short, two-book, market-neutral-vol]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: breakout
+    runtime: breakout/runtime.yaml
+    wallet_env: CARACAL_BREAKOUT_WALLET
+    funding_share: 0.5
+  - name: catalyst
+    runtime: catalyst/runtime.yaml
+    wallet_env: CARACAL_CATALYST_WALLET
+    funding_share: 0.5

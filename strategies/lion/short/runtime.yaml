@@ -1,0 +1,137 @@
+# ── LION · SHORT "have-nots" book — short the laggards of a two-speed (K-shaped) world ──
+name: lion-short
+group: lion
+version: 3.0.0
+description: >
+  LION SHORT ("have-nots" book) — two-speed-market (K-shaped) cross-asset long/short fund
+  (Runtime 3.0 port of v2 Lion v1.0.0). This book SHORTS the laggards of a K-shaped world:
+  the broad U.S. market via the SP500 index product (the "economy suffers" core) PLUS a
+  curated, gated basket of laggard crypto majors/alts (the "rest of crypto struggles" bet)
+  — but only when ABSOLUTE trend confirms (4h structure not bullish + negative momentum),
+  with a CAPITULATION guard so it never shorts an exhausted bottom. Cross-sectional relative
+  weakness tilts size/ranking. Per-name size = marginPct(15) × conviction weight (SP500
+  1.2× core, alts 0.7×), capped at 25%. Pairs with the LONG "haves" book on a SEPARATE
+  wallet. Longing AI names while shorting SP500 (which contains them) isolates the
+  AI-vs-broad-market spread by design. Tokenized equities trade 24/7 — no market-hours gating.
+
+strategy:
+  wallet: "${LION_SHORT_WALLET}"
+  # ── NET-EXPOSURE DEFAULT: modest NET-LONG tilt (~60/40) ──
+  # Net exposure is an OPERATOR decision (set by the long/short wallet funding split +
+  # per-leg knobs), NOT a runtime-enforced field. This book defaults smaller (slots 4,
+  # margin_pct 15, 4x cap) than the long book to express the directional AI/HYPE conviction
+  # and to respect that short squeezes are violent.
+  slots: 4
+  default_leverage: 4
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: lion_short_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                 # v2 tickSeconds — two-speed cross-asset cadence
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 50           # signal-dedup map + per-tick observability
+    inputs:
+      leg: "short"
+      # ── Curated thematic "have-nots" universe (validated against the live HL board) ──
+      # The broad U.S. market (SP500 index) + a curated basket of laggard crypto
+      # majors/alts. All 10 names confirmed live (HL meta main + xyz, 2026-06-29). BTC is
+      # deliberately omitted (too reflexive to short cleanly) — add only with intent.
+      universe: ["xyz:SP500", "ETH", "XRP", "DOGE", "AVAX", "LINK", "ADA", "LTC", "NEAR", "APT"]
+      sizingWeights:
+        SP500: 1.2
+        _default: 0.7
+      minScore: 5
+      marginPctBase: 15      # PERCENT of withdrawable (0,100]; per-name = marginPctBase × conviction weight
+      marginPctCap: 25       # fleet <=25% per-position cap (SP500: 15×1.2=18, never binds here)
+      maxLeverage: 4         # strict clamp (short squeezes are violent), then HL venue max
+      maxSlots: 4
+      rankPoolSize: 16
+      rsThresholdPct: 3.0
+      rsiOversold: 18        # capitulation guard — never short an exhausted bottom
+      volFloorPctOfMedian: 0.2
+      minUniverseForMedianGate: 5
+      recentSignalTtlSeconds: 180
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      trend4h: { type: string, required: false }
+      excess: { type: number, required: false }
+      own24h: { type: number, required: false }
+      weight: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: lion_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                   # the scan already applied the thematic universe, the 4h/1h
+                                          # absolute-downtrend gate, the capitulation guard, the RS
+                                          # tiebreaker, conviction sizing, the 4x clamp + venue clamp,
+                                          # and held/recent dedup (v2 LLM gate was pass-through)
+    scanners: [lion_short_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 45
+    context:
+      - type: signal
+        scanner: lion_short_signals
+
+# ── EXIT (DSL — tighter; short theses decay faster, squeezes are violent; ported verbatim) ──
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 45
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 7200           # 5d — shorter than the long book
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 360            # 6h — cut a short that bottomed then stalled
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: true
+      interval_in_minutes: 720            # 12h — recycle a short going nowhere
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                  # tighter than long book — squeeze protection
+      retrace_threshold: 7
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,   lock_hw_pct: 0 }    # priming tier (arms the trail; no lock yet)
+        - { trigger_pct: 18,  lock_hw_pct: 45 }   # first LOCK — reachable
+        - { trigger_pct: 35,  lock_hw_pct: 65 }
+        - { trigger_pct: 60,  lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 88 }
+
+risk:
+  data_retention_seconds: 604800       # 168h (was data_retention_hours: 168)
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 5
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 5400                # v2 cooldown_minutes 90
+    drawdown_halt_pct: 18
+    drawdown_reset_on_day_rollover: true
+    per_asset_cooldown_seconds: 18000     # v2 per_asset_cooldown_minutes 300
