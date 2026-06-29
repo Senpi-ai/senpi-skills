@@ -1,0 +1,160 @@
+# ── JACKAL · single instance — the Smart Stalker (copy-trader / trader-follower) ──
+# Runtime 3.0 port of the v2 Jackal v3.0.1 producer thesis. Maintains a daily-refreshed,
+# quality-scored pool of top-ROI Hyperliquid traders (discovery_get_top_traders), watches
+# for FRESH pool-member entries (< 10 min old) via a per-trader position diff, enriches
+# with pool consensus + multi-timeframe TA + funding regime + BTC macro, and mirrors the
+# entry with its OWN wide DSL. Faithful port of the v2 producer thesis — see
+# scanners/scoring.py (math reproduced verbatim, v2 quirks flagged). The v2 LLM gate
+# (decision_mode: llm, min_confidence 7) is replaced by decision_mode: rule: the producer
+# already applied every hard filter, and the v2 prompt's soft skip-conditions are
+# reproduced as deterministic rule gates inside scan.py (applySoftGates).
+name: jackal-main
+group: jackal
+version: 3.0.0
+description: >
+  JACKAL — the Smart Stalker. A copy-trader that keeps a daily-refreshed pool of the
+  top-ROI Hyperliquid traders (win-rate + age + 30d-ROI filtered, quality-scored toward
+  tail-winner trend-followers: ROI 35% / gain-to-pain 25% / age 15% / win-rate 10%),
+  detects the moment a pool member opens a FRESH position (< 10 min old), confirms it
+  with pool consensus + independent 15m/1h/4h TA + funding regime, and mirrors the entry
+  in the same direction with our OWN wide DSL. Long/short, derived universe (coins come
+  from what pool members enter). Faithful port of the v2 Jackal v3.0.1 thesis — all
+  pool/scoring/diff logic verbatim; LLM gate -> deterministic rule gates.
+
+strategy:
+  wallet: "${JACKAL_WALLET}"
+  slots: 2                                 # v2 strategy.slots 2
+  margin_pct: 30                           # v2 strategy.margin_pct 30 (flat; scan emits the per-signal marginPct)
+  default_leverage: 5                      # v2 strategy.default_leverage 5; scan emits std/max-clamped leverage
+  trading_risk: moderate                   # v2 strategy.trading_risk moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: jackal_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 60                    # v2 producer_daemon 60s tick
+    timeout_seconds: 120                    # v2 tick_timeout=120; pool fetch + per-member state + per-candidate TA
+    default_signal_validity_seconds: 120    # 2x tick; fresh-entry alpha decays fast, a re-detect re-fires
+    state_history_max_count: 24             # cohort cache + last-seen baseline + dedup map + per-tick result
+    inputs:
+      # ── pool (discovery_get_top_traders, cached ~24h) ──
+      poolSize: 25                          # v2 POOL_SIZE
+      poolMinWinRate: 0.50                  # v2 POOL_MIN_WIN_RATE (note: v2 compared vs a 0-100 % field, see scoring)
+      poolMinRoi30d: 10.0                   # v2 POOL_MIN_ROI_30D (%)
+      poolMinTraderAgeDays: 14              # v2 POOL_MIN_TRADER_AGE_DAYS
+      poolFetchLimit: 60                    # v2 overfetch-then-filter limit
+      poolRefreshHours: 24                  # v2 refresh_pool daily cadence
+      # ── fresh-entry detection ──
+      maxEntryAgeSeconds: 600               # v2 MAX_ENTRY_AGE_SECONDS (10 min)
+      recentSignalTtlSeconds: 600           # signal-dedup window (don't re-fire a coin+dir while in flight)
+      applySoftGates: true                  # reproduce v2 LLM hard-skip conditions as rule gates
+      qualityFloor: 55                      # v2 prompt: sourceQualityScore < 55 -> skip
+      # ── sizing ──
+      marginPct: 30                         # PERCENT of withdrawable (0,100]; flat = v2 sizing (runtime sized off margin_pct: 30)
+      maxMarginPct: 30                      # cap == base => flat (no producer-side conviction scaling, as v2)
+      qualityMarginScale: 0.0               # 0 => faithful flat; >0 opts into quality-scaled margin
+      stdLeverage: 5                        # v2 default_leverage 5
+      maxLeverage: 5                        # venue/strategy clamp
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      sourceTraderAddress: { type: string }
+      sourceTraderUserId: { type: string, required: false }
+      sourceTraderUsername: { type: string, required: false }
+      sourceQualityScore: { type: number }
+      sourceWinRate: { type: number, required: false }
+      sourceRoi30d: { type: number, required: false }
+      sourceConsecutiveWins: { type: number, required: false }
+      entryTimestamp: { type: number }
+      sourceLeverage: { type: number, required: false }
+      sizeUsd: { type: number, required: false }
+      entryPrice: { type: number, required: false }
+      poolConsensusCount: { type: number }
+      poolConsensusAssetCount: { type: number }
+      trend4h: { type: string, required: false }
+      trend1h: { type: string, required: false }
+      trend15m: { type: string, required: false }
+      priceChange4hPct: { type: number, required: false }
+      fundingRegime: { type: string, required: false }
+      fundingAnnualizedPct: { type: number, required: false }
+      btcMacroDirection: { type: string, required: false }
+      btcMacro24hPct: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: jackal_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # scan applied every filter (v2 LLM gate was a pass-through rubber-stamp;
+                                            # its soft skip-conditions are reproduced as rule gates in scan.py)
+    scanners: [jackal_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # v2 entry ensure_execution_as_taker: true
+        execution_timeout_seconds: 60       # v2.0.6 entry execution_timeout_seconds 60 (maker fill window)
+    context:
+      - type: signal
+        scanner: jackal_main_signals
+
+# ── EXIT (DSL — ported VERBATIM from v2 runtime.yaml) ─────────────────────────
+# Jackal's thesis is patience — consensus signals take time to develop. Wide Phase 1
+# (22% max_loss), loose-but-REACHABLE early Phase 2 locks (first lock at +6% ROE, NOT
+# +40%). Hard timeout 72h lets multi-day holds breathe. weak_peak_cut 4h @ 3% (self-
+# limiting). dead_weight_cut DISABLED (Jackal is patient; no time-based loss cuts).
+exit:
+  engine: dsl
+  interval_seconds: 30                       # v2 exit.interval_seconds 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true          # closes MUST happen — taker fallback (v2)
+    execution_timeout_seconds: 60            # v2.0.6 exit execution_timeout_seconds 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true                          # v2: enabled
+      interval_in_minutes: 4320              # v2: 72h
+    weak_peak_cut:
+      enabled: true                          # v2: enabled
+      interval_in_minutes: 240               # v2: 4h of stale peak before cut
+      min_value: 3.0                         # v2: 3.0
+    dead_weight_cut:
+      enabled: false                         # v2: disabled — Jackal is patient
+      interval_in_minutes: 240
+    phase1:
+      enabled: true
+      max_loss_pct: 22.0                      # v2: 22%
+      retrace_threshold: 10                   # v2: 10
+      consecutive_breaches_required: 1        # v2: 1
+    phase2:
+      enabled: true
+      tiers:                                  # ported verbatim (first lock at +6% ROE — reachable)
+        - { trigger_pct: 6,   lock_hw_pct: 20 }
+        - { trigger_pct: 14,  lock_hw_pct: 40 }
+        - { trigger_pct: 28,  lock_hw_pct: 62 }
+        - { trigger_pct: 50,  lock_hw_pct: 80 }
+        - { trigger_pct: 100, lock_hw_pct: 94 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200             # v2 data_retention_hours 72 -> 72*3600 (within [3600, 604800])
+  guard_rails:
+    daily_loss_limit_pct: 5                   # v2 daily_loss_limit_pct 5
+    max_entries_per_day: 4                    # v2 max_entries_per_day 4
+    bypass_max_entries_per_day_on_profit: false  # v2: false
+    max_consecutive_losses: 3                 # v2 max_consecutive_losses 3
+    cooldown_seconds: 7200                    # v2 cooldown_minutes 120 -> 7200s
+    drawdown_halt_pct: 20                     # v2 drawdown_halt_pct 20
+    drawdown_reset_on_day_rollover: false     # v2: false
+    per_asset_cooldown_seconds: 14400         # v2 per_asset_cooldown_minutes 240 -> 14400s
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

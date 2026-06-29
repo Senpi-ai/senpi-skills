@@ -1,0 +1,44 @@
+# Osprey — cross-venue lag catcher (crypto leader -> XYZ equity proxy). A single-
+# instance PACKAGE: this manifest + one self-contained runtime.yaml + scanners/. A
+# faithful Runtime 3.0 port of the v2 Osprey (SKILL.md v1.0.0 / producer v1.0.1):
+# when a crypto leader (BTC) makes a strong move, crypto-correlated equities on
+# Hyperliquid XYZ (COIN/MSTR) tend to follow with a lag; Osprey self-computes each
+# proxy's catch-up gap (leader move x beta - proxy move) from 1h candles and trades
+# the proxy in the leader's direction when it still owes a gap. Let-winners-run DSL.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: osprey
+version: "1.0.0"
+
+catalog:
+  name: "Osprey — Cross-Venue Lag (Crypto -> XYZ Equity)"
+  emoji: "🦅"
+  tagline: "When BTC moves hard, crypto-correlated equities on Hyperliquid XYZ (Coinbase, MicroStrategy) follow late: Osprey self-computes each proxy's catch-up gap (leader move x its beta minus the move it has actually made), and when a proxy still owes a gap in the leader's direction it enters the proxy that way and lets a wide DSL ride the catch-up."
+  belief_plain: "When Bitcoin makes a big move, the crypto-flavored stocks on the XYZ exchange (Coinbase, MicroStrategy) usually move the same way — but a beat late, because they are priced on a different venue. Osprey works out how far behind each one is and bets it catches up, then trails a wide stop so the catch-up can run for a day or two."
+  thesis: "A crypto-correlated equity has a known beta to BTC (COIN ~1.8x, MSTR ~2.5x), so a BTC move implies an expected proxy move. But XYZ pricing trails spot crypto around its reference windows, so the proxy's actual move lags — a measurable, tradeable gap. Trading the lag (not the leader) means entering in the leader's confirmed direction only when the proxy still owes catch-up, which sidesteps the chase-the-leader failure mode and lets the structural pricing lag, not a directional guess, be the edge."
+  group: structural
+  archetype: structural_neutral
+  sub_style: cross_venue_lag
+  asset_classes: [xyz_equities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 10
+  max_slots: 1
+  min_budget: 200
+  assets: ["xyz:COIN", "xyz:MSTR"]
+  tags: [xyz, coin, mstr, cross-venue-lag, cross-asset-lag, btc-proxy, crypto-equities, catch-up, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: OSPREY_WALLET
+    funding_share: 1.0

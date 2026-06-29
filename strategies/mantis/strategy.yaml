@@ -1,0 +1,44 @@
+# Mantis — cross-asset lag / catchup hunter. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0
+# port of the v2 Mantis Slipstream (SKILL.md v6.0.0): monitors
+# market_get_cross_asset_flows (BTC-only pre-computed lag data), strikes the
+# highest-confidence correlated alt that lags a confirmed BTC 4h move, sized by
+# the tool's confidence score (conviction tiers), DSL-only exits.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: mantis
+version: "1.0.0"
+
+catalog:
+  name: "Mantis — Cross-Asset Catchup Hunter"
+  emoji: "🦎"
+  tagline: "Watches BTC's 4-hour move via market_get_cross_asset_flows and strikes the highest-confidence correlated alt that historically follows BTC but hasn't caught up yet — entering the alt in BTC's direction, sized to the tool's confidence score, with a stop that trails the catchup."
+  belief_plain: "When Bitcoin makes a big 4-hour move, certain alts that usually follow it lag behind for a while before catching up. Mantis spots those laggards (only the ones that follow Bitcoin reliably, with smart money already starting to rotate in) and buys the gap, betting it closes — bigger when it's more confident, with a stop that trails the move."
+  thesis: "The edge is a statistical lag, not a directional view: alts with an 85%+ historical follow-rate and tight timing variance tend to catch up to a confirmed leader move within their typical lag window. Restricting the leader to BTC (the only asset with pre-computed lag data) and requiring smart-money rotation plus a meaningful gap keeps it to high-probability catchups; sizing scales with the tool's confidence, and a dynamic timeout calibrated to each alt's lag distribution backstops trades where the catchup never materialises."
+  group: multi-asset-universe
+  archetype: structural_neutral   # earns from a cross-asset lag relationship, not a directional bet
+  sub_style: cross_asset_lag      # trades an alt that lags a BTC move
+  asset_classes: [universe_crypto]
+  asset_scope: universe           # laggards are surfaced dynamically by the flow tool — no fixed list
+  direction: long_short           # follows the leader's sign: +BTC -> LONG alt, -BTC -> SHORT alt
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 8
+  max_slots: 2
+  min_budget: 200
+  assets: ["BTC"]                 # BTC is the leader (signal source); the traded laggards are dynamic
+  tags: [crypto, cross-asset, lag, catchup, slipstream, btc-leader, smart-money, conviction-margin, statistical-edge]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: MANTIS_WALLET
+    funding_share: 1.0

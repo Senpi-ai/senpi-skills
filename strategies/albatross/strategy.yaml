@@ -1,0 +1,44 @@
+# Albatross — multi-week Arena conviction copy-trader. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of
+# the v2 Albatross (SKILL.md v1.0.0): builds a top-N pool of Arena leaders by a composite
+# conviction score (0.3 monthly_roe + 0.7 mean(weekly_roe) - 0.5 stdev(weekly_roe)) across
+# the last 4 weekly leaderboards + the current month, then mirrors each NEW position a
+# pooled leader opens. Derived universe (assets come from the leaders, not a fixed list).
+# DSL-only exits. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: albatross
+version: "1.0.0"
+
+catalog:
+  name: "Albatross — Multi-week Arena Conviction Mirror"
+  emoji: "🐦‍⬛"
+  tagline: "Mirrors trades from Senpi Arena participants whose ROE has been consistently strong across the last 4 weekly periods AND the current month — a composite conviction score (0.3 monthly + 0.7 weekly_mean - 0.5 weekly_stdev) picks the persistent winners over the one-week wonders, and the producer mirrors each new position they open."
+  belief_plain: "The Arena resets every Thursday, so a trader can top the board with one lucky +98% week and three flat ones. Albatross looks back over four weeks plus the month and copies the traders who have been steadily winning the whole time, not the ones who got lucky once — then it opens what they open and rides it on its own wide stop."
+  thesis: "Single-week Arena mirroring is a survivor-bias trap: it copies whoever spiked, who is then most likely to mean-revert. Selecting on a multi-week composite that rewards persistence and penalizes weekly variance corrects for that — a steady +22%/week-for-4-weeks trader scores far above an identical-mean trader who got there on one +98% week. You copy the proven hand, cap their leverage, size fixed, and exit on your own DSL because you can't see when they will."
+  group: copy-trading
+  archetype: copy_trading
+  sub_style: arena_winners
+  asset_classes: [universe_crypto]
+  asset_scope: follows_traders
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 3
+  min_budget: 200
+  assets: []
+  tags: [arena, copy-trading, multi-week, conviction, mirror, long-short, persistence]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: ALBATROSS_WALLET
+    funding_share: 1.0

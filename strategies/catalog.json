@@ -304,6 +304,91 @@
       "sort_order": 4
     },
     {
+      "id": "albatross",
+      "name": "Albatross — Multi-week Arena Conviction Mirror",
+      "emoji": "🐦‍⬛",
+      "tagline": "Mirrors trades from Senpi Arena participants whose ROE has been consistently strong across the last 4 weekly periods AND the current month — a composite conviction score (0.3 monthly + 0.7 weekly_mean - 0.5 weekly_stdev) picks the persistent winners over the one-week wonders, and the producer mirrors each new position they open.",
+      "belief_plain": "The Arena resets every Thursday, so a trader can top the board with one lucky +98% week and three flat ones. Albatross looks back over four weeks plus the month and copies the traders who have been steadily winning the whole time, not the ones who got lucky once — then it opens what they open and rides it on its own wide stop.",
+      "version": "1.0.0",
+      "thesis": "Single-week Arena mirroring is a survivor-bias trap: it copies whoever spiked, who is then most likely to mean-revert. Selecting on a multi-week composite that rewards persistence and penalizes weekly variance corrects for that — a steady +22%/week-for-4-weeks trader scores far above an identical-mean trader who got there on one +98% week. You copy the proven hand, cap their leverage, size fixed, and exit on your own DSL because you can't see when they will.",
+      "tags": [
+        "arena",
+        "copy-trading",
+        "multi-week",
+        "conviction",
+        "mirror",
+        "long-short",
+        "persistence"
+      ],
+      "group": "copy-trading",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "arena_winners",
+      "sub_style_label": "Copies multi-week arena winners, not one-week wonders.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 3,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
+      "id": "jackal",
+      "name": "Jackal — The Smart Stalker",
+      "emoji": "🐺",
+      "tagline": "Maintains a daily-refreshed pool of the top-ROI Hyperliquid traders (win-rate + age + 30d-ROI filtered, quality-scored toward tail-winner trend-followers), watches for the moment a pool member opens a fresh position, and mirrors only the freshest entries (< 10 min old) when pool consensus and independent TA confirm — sized to the source trader's quality and ridden on its own wide DSL.",
+      "belief_plain": "Keeps a shortlist of the most profitable traders on Hyperliquid and refreshes it every day. The instant one of them opens a new trade, Jackal copies that trade in the same direction — but only if the entry is brand new, other shortlisted traders are leaning the same way, and the chart agrees. It bets a bit more behind the highest-quality traders and then trails a wide stop so a good copy can run for days.",
+      "version": "1.0.0",
+      "thesis": "High-quality traders telegraph alpha, but naive copy-trading loses because winners regress, signals lag, and style mismatches amplify risk. Jackal only copies the freshest entries (< 10 min, before the alpha is public) from a pool ranked toward tail-winner trend-followers (ROI 35% / gain-to-pain 25% / age 15% / win-rate 10% — deliberately NOT high-win-rate scalpers), and confirms each copy with pool consensus + independent multi-timeframe TA + funding regime before sizing to the source's quality and riding its OWN DSL rather than the source trader's.",
+      "tags": [
+        "copy-trading",
+        "smart-money",
+        "trader-pool",
+        "consensus",
+        "fresh-entry",
+        "quality-score",
+        "long-short",
+        "let-winners-run"
+      ],
+      "group": "copy-trading",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "hot_streak",
+      "sub_style_label": "Copies whoever is hot in the live window.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "scalp",
+      "cadence_seconds": 60,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 2
+    },
+    {
       "id": "tortoise",
       "name": "Tortoise — DCA Scheduler",
       "emoji": "🐢",
@@ -468,6 +553,61 @@
         0.4
       ],
       "max_slots": 3,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
+      "id": "turbine",
+      "name": "Turbine — Volume / Market-Making Engine",
+      "emoji": "🌪️",
+      "tagline": "A two-wallet volume engine: it rotates funding-fade entries across a tight liquid universe to generate notional volume at minimum fee cost (builder-fee recycling), not to take a directional view — one wallet churns fast, the other lets the rare winner run.",
+      "belief_plain": "This isn't a bet on prices going up or down. It opens and closes a steady stream of small, balanced positions across a handful of the deepest, tightest-spread markets (BTC/ETH/SOL/HYPE plus oil, gold, and the S&P 500 on the XYZ DEX) to rack up trading volume as cheaply as possible. It leans against crowded funding (shorts the crowded-long side, longs the crowded-short side) so the average position is roughly neutral. One wallet force-cuts every position on a 10-minute clock for pure volume; the second wallet runs the exact same entries but gives the occasional real move room to ratchet up before exiting.",
+      "version": "3.2.2",
+      "thesis": "Volume itself is the product: high notional throughput on Hyperliquid recycles builder fees, and on a tight, deep universe the maker-rebate math can net out roughly breakeven-to-slightly-positive before the volume reward. Concentrating on the few markets with the tightest spreads (XYZ books weighted 80%) keeps the per-$1M cost low. Funding-fade direction selection keeps the book structurally neutral rather than exposed. Splitting into a fast-rotation wallet and a patient-DSL wallet captures the asymmetry that pure rotation gives up — most positions exit flat either way, but the ~5% that catch a real directional move ride to a much larger realized PnL on the runners wallet instead of being force-cut at 10 minutes.",
+      "tags": [
+        "volume",
+        "market-making",
+        "builder-fee",
+        "funding-fade",
+        "two-wallet",
+        "rotation",
+        "structural-neutral",
+        "maker"
+      ],
+      "group": "market-neutral",
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural / Neutral",
+      "sub_style": "market_making",
+      "sub_style_label": "Volume / market-making, not directional.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE",
+        "xyz:BRENTOIL",
+        "xyz:GOLD",
+        "xyz:SP500"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "scalp",
+      "cadence_seconds": 60,
+      "min_budget": 200,
+      "instance_count": 2,
+      "funding_split": [
+        0.675,
+        0.325
+      ],
+      "max_slots": 9,
       "branch": "strategy-v2",
       "sort_order": 1
     },
@@ -1353,6 +1493,52 @@
       "sort_order": 1
     },
     {
+      "id": "mantis",
+      "name": "Mantis — Cross-Asset Catchup Hunter",
+      "emoji": "🦎",
+      "tagline": "Watches BTC's 4-hour move via market_get_cross_asset_flows and strikes the highest-confidence correlated alt that historically follows BTC but hasn't caught up yet — entering the alt in BTC's direction, sized to the tool's confidence score, with a stop that trails the catchup.",
+      "belief_plain": "When Bitcoin makes a big 4-hour move, certain alts that usually follow it lag behind for a while before catching up. Mantis spots those laggards (only the ones that follow Bitcoin reliably, with smart money already starting to rotate in) and buys the gap, betting it closes — bigger when it's more confident, with a stop that trails the move.",
+      "version": "1.0.0",
+      "thesis": "The edge is a statistical lag, not a directional view: alts with an 85%+ historical follow-rate and tight timing variance tend to catch up to a confirmed leader move within their typical lag window. Restricting the leader to BTC (the only asset with pre-computed lag data) and requiring smart-money rotation plus a meaningful gap keeps it to high-probability catchups; sizing scales with the tool's confidence, and a dynamic timeout calibrated to each alt's lag distribution backstops trades where the catchup never materialises.",
+      "tags": [
+        "crypto",
+        "cross-asset",
+        "lag",
+        "catchup",
+        "slipstream",
+        "btc-leader",
+        "smart-money",
+        "conviction-margin",
+        "statistical-edge"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural / Neutral",
+      "sub_style": "cross_asset_lag",
+      "sub_style_label": "Trades an alt that lags a BTC move.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "universe",
+      "assets": [
+        "BTC"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 8,
+      "time_horizon": "swing",
+      "cadence_seconds": 60,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 1
+    },
+    {
       "id": "octopus",
       "name": "Octopus — Market-Neutral Crypto Long/Short",
       "emoji": "🐙",
@@ -1394,7 +1580,7 @@
       ],
       "max_slots": 8,
       "branch": "strategy-v2",
-      "sort_order": 1
+      "sort_order": 2
     },
     {
       "id": "asia-ai",
@@ -3074,6 +3260,48 @@
       "sort_order": 1
     },
     {
+      "id": "cuckoo",
+      "name": "Cuckoo — Copy-the-Copiers",
+      "emoji": "🐦",
+      "tagline": "Auto-discovers the platform's top-performing strategies, then trades the asset + direction they agree on most — performance-weighted, so a stronger strategy gets more say (capped so one outlier can't dominate).",
+      "belief_plain": "Lets the best strategies on the platform do the work. Every few minutes it finds the top performers, looks at what they're holding right now, and copies whatever the most (and best) of them are piling into together — going long what they're long and short what they're short.",
+      "version": "1.0.0",
+      "thesis": "Following one trader or one leaderboard is one layer; Cuckoo is a layer above it. The strategies it follows are themselves copy/algo/trader-following strategies, so it captures the consensus of the consensus. When the best strategies independently pile into the same asset+direction, that agreement is a strong, self-cleaning signal — underperformers fall out of the top-N automatically, so the pool refreshes toward whatever is working.",
+      "tags": [
+        "copy-trading",
+        "copy-the-copiers",
+        "meta-strategy",
+        "consensus",
+        "performance-weighted",
+        "follows-strategies",
+        "let-winners-run"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "copy_the_copiers",
+      "sub_style_label": "Follows the best-performing strategies automatically.",
+      "asset_classes": [
+        "none"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 600,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 2
+    },
+    {
       "id": "dog",
       "name": "Dog — Contrarian Pup (SM Exhaustion Fader)",
       "emoji": "🐕",
@@ -3124,7 +3352,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 2
+      "sort_order": 3
     },
     {
       "id": "egret",
@@ -3177,7 +3405,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 3
+      "sort_order": 4
     },
     {
       "id": "marlin",
@@ -3228,7 +3456,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 4
+      "sort_order": 5
     },
     {
       "id": "raptor",
@@ -3269,7 +3497,49 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 5
+      "sort_order": 6
+    },
+    {
+      "id": "remora",
+      "name": "Remora — Whale Single-Position Mirror",
+      "emoji": "🐟",
+      "tagline": "Rides a small, hand-picked set of whale traders the way a remora fish rides a shark: each tick it takes each whale's highest-conviction open position and mirrors the strongest, leaning hardest when several whales pile into the same trade (consensus) or when a whale is ELITE/RELIABLE tier.",
+      "belief_plain": "You name a few whale traders you trust. Remora watches their open positions, finds each one's biggest bet, and copies the single strongest one — betting bigger when several of your whales are in the same trade and one of them has an elite track record. Then it trails a wide stop so the trade can run.",
+      "version": "1.0.0",
+      "thesis": "The broad trader-followers scan a leaderboard and synthesize an opaque pick. Remora is the opposite: YOU choose whom to ride. Mirroring one whale's single highest-conviction position keeps your exposure tracking specific traders you trust, and the consensus multiplier means it leans hardest exactly when those whales independently agree — one whale can be wrong, three agreeing is a much stronger signal. Whales hold winners, so the exit lets the mirror run and only caps staleness.",
+      "tags": [
+        "whale",
+        "mirror",
+        "copy-trading",
+        "named-whales",
+        "consensus",
+        "let-winners-run",
+        "follows-traders"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "named_whales",
+      "sub_style_label": "Mirrors specific hand-picked whales.",
+      "asset_classes": [
+        "universe_crypto"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 7
     },
     {
       "id": "roach",
@@ -3313,7 +3583,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 6
+      "sort_order": 8
     },
     {
       "id": "whalehunter",
@@ -3356,7 +3626,54 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 7
+      "sort_order": 9
+    },
+    {
+      "id": "osprey",
+      "name": "Osprey — Cross-Venue Lag (Crypto -> XYZ Equity)",
+      "emoji": "🦅",
+      "tagline": "When BTC moves hard, crypto-correlated equities on Hyperliquid XYZ (Coinbase, MicroStrategy) follow late: Osprey self-computes each proxy's catch-up gap (leader move x its beta minus the move it has actually made), and when a proxy still owes a gap in the leader's direction it enters the proxy that way and lets a wide DSL ride the catch-up.",
+      "belief_plain": "When Bitcoin makes a big move, the crypto-flavored stocks on the XYZ exchange (Coinbase, MicroStrategy) usually move the same way — but a beat late, because they are priced on a different venue. Osprey works out how far behind each one is and bets it catches up, then trails a wide stop so the catch-up can run for a day or two.",
+      "version": "1.0.0",
+      "thesis": "A crypto-correlated equity has a known beta to BTC (COIN ~1.8x, MSTR ~2.5x), so a BTC move implies an expected proxy move. But XYZ pricing trails spot crypto around its reference windows, so the proxy's actual move lags — a measurable, tradeable gap. Trading the lag (not the leader) means entering in the leader's confirmed direction only when the proxy still owes catch-up, which sidesteps the chase-the-leader failure mode and lets the structural pricing lag, not a directional guess, be the edge.",
+      "tags": [
+        "xyz",
+        "coin",
+        "mstr",
+        "cross-venue-lag",
+        "cross-asset-lag",
+        "btc-proxy",
+        "crypto-equities",
+        "catch-up",
+        "let-winners-run"
+      ],
+      "group": "structural",
+      "archetype": "structural_neutral",
+      "archetype_label": "Structural / Neutral",
+      "sub_style": "cross_venue_lag",
+      "sub_style_label": "Trades crypto-stocks that lag a BTC move.",
+      "asset_classes": [
+        "xyz_equities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "xyz:COIN",
+        "xyz:MSTR"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "strategy-v2",
+      "sort_order": 1
     },
     {
       "id": "raccoon",

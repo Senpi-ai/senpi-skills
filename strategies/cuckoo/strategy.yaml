@@ -1,0 +1,45 @@
+# Cuckoo — copy-the-copiers meta-strategy follower. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port
+# of the v2 Cuckoo (SKILL.md v1.0.0 / producer v1.0.1): auto-discovers the top
+# strategies by realized performance (discovery_get_top_strategies), builds a
+# performance-weighted consensus across their positions, and follows the asset+direction
+# they agree on most. Let-winners-run DSL with a 96h staleness cap. Derived universe —
+# coins come from the followed strategies' positions, not a fixed list.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: cuckoo
+version: "1.0.0"
+
+catalog:
+  name: "Cuckoo — Copy-the-Copiers"
+  emoji: "🐦"
+  tagline: "Auto-discovers the platform's top-performing strategies, then trades the asset + direction they agree on most — performance-weighted, so a stronger strategy gets more say (capped so one outlier can't dominate)."
+  belief_plain: "Lets the best strategies on the platform do the work. Every few minutes it finds the top performers, looks at what they're holding right now, and copies whatever the most (and best) of them are piling into together — going long what they're long and short what they're short."
+  thesis: "Following one trader or one leaderboard is one layer; Cuckoo is a layer above it. The strategies it follows are themselves copy/algo/trader-following strategies, so it captures the consensus of the consensus. When the best strategies independently pile into the same asset+direction, that agreement is a strong, self-cleaning signal — underperformers fall out of the top-N automatically, so the pool refreshes toward whatever is working."
+  group: smart-money
+  archetype: copy_trading
+  sub_style: copy_the_copiers
+  asset_classes: [none]
+  asset_scope: follows_traders
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 10
+  max_slots: 1
+  min_budget: 200
+  assets: []
+  tags: [copy-trading, copy-the-copiers, meta-strategy, consensus, performance-weighted, follows-strategies, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: CUCKOO_WALLET
+    funding_share: 1.0

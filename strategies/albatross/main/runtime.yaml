@@ -1,0 +1,148 @@
+# ── ALBATROSS · single instance — multi-week Arena conviction mirror ──────────
+# Runtime 3.0 port of the v2 Albatross (SKILL.md v1.0.0). Builds a top-N pool of
+# Arena leaders by a composite conviction score across the last 4 weekly
+# leaderboards + the current month, then mirrors each NEW position a pooled leader
+# opens. Derived universe (assets come from the leaders). DSL-only exits — wide
+# ladder, 96h hard-timeout cap. Faithful port of the v2 producer thesis — see
+# scanners/scoring.py (pool math reproduced verbatim, v2-quirks flagged in scan.py).
+#
+# REQUIRES USER-SCOPE AUTH TOKEN. strategy_list + discovery_get_trader_state gate
+# on user identity — a service token cannot resolve other users' wallets/positions.
+# Operators must provide a Privy-issued Senpi user token via SENPI_AUTH_TOKEN.
+name: albatross-main
+group: albatross
+version: 3.0.0
+description: >
+  ALBATROSS — multi-week Arena conviction mirror. Pulls the last 4 Arena weekly
+  leaderboards + the current monthly leaderboard, scores each trader by a composite
+  that rewards persistence and penalizes weekly variance
+  (0.3 monthly_roe + 0.7 mean(weekly_roe) - 0.5 stdev(weekly_roe)), and mirrors each
+  NEW position the top-N pool opens. A steady +22%/week-for-4-weeks trader beats an
+  identical-mean trader who got there on one +98% week. Pool refreshes every 4h
+  (cached in ctx.state). Asset+direction copied from the leader; leverage capped at
+  5x; fixed 15% margin. DSL is the only exit (wide ratchet, 96h cap) — we don't have
+  visibility into the leader's exit logic. Faithful port of v2 Albatross v1.0.x.
+
+strategy:
+  wallet: "${ALBATROSS_WALLET}"
+  slots: 3                                  # v2 runtime slots 3
+  margin_pct: 15                            # baseline %; scan emits a fixed 15% marginPct INTENT per signal
+  default_leverage: 5                       # fallback; scan emits leverage capped at 5x per signal
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: albatross_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                   # v2 producer cadence (5 min)
+    timeout_seconds: 180                    # v2 tick_timeout=180; pool refresh = 5 arena reads, then ~2/leader
+    default_signal_validity_seconds: 600    # 2x tick; rule action, a fresh diff arrives next tick
+    state_history_max_count: 24             # holds the pool cache + per-leader snapshots + dedup map
+    inputs:
+      leaderPoolSize: 5                     # v2 leaderPoolSize / DEFAULT_POOL_SIZE
+      leaderRefreshHours: 4                 # v2 leaderRefreshHours (pool cache TTL)
+      minWeeksTraded: 3                     # v2 minWeeksTraded (persistence floor)
+      minWeeklyVolumeUsd: 50000             # v2 minWeeklyVolumeUsd (no toy accounts)
+      convictionWeights:
+        monthlyRoe: 0.3                     # v2 convictionWeights.monthlyRoe
+        weeklyRoeMean: 0.7                  # v2 convictionWeights.weeklyRoeMean
+        weeklyRoeStdevPenalty: 0.5         # v2 convictionWeights.weeklyRoeStdevPenalty
+      excludeXHandles: ["betashop"]         # v2 excludeXHandles (no Senpi-fleet self-mirror)
+      marginPct: 15                         # PERCENT of withdrawable (0,100] — v2 stored 0.15 FRACTION; ported x100
+      leverage: 5                           # capped at 5x in scan.py (MAX_LEVERAGE) — we don't follow into 25x
+      recentSignalTtlSeconds: 240           # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      direction: { type: string }
+      signalKind: { type: string, required: false }
+      leaderUsername: { type: string, required: false }
+      leaderXHandle: { type: string, required: false }
+      leaderConvictionScore: { type: number, required: false }
+      leaderWeeksTraded: { type: number, required: false }
+      leaderWeeklyRoeMean: { type: number, required: false }
+      leaderMonthlyRoe: { type: number, required: false }
+      leaderEntryPrice: { type: number, required: false }
+      leaderLeverage: { type: number, required: false }
+      reasons: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: albatross_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [albatross_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # a confirmed mirror must fill — maker-only can rest unfilled (CREATE_ORDER_RESTING)
+        execution_timeout_seconds: 30       # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: albatross_main_signals
+
+# ── EXIT (DSL — ported VERBATIM from v2 runtime.yaml) ─────────────────────────
+# Mirrored trades inherit direction from the source leader; we don't know when
+# they'll close, so we run our OWN DSL. Phase 1 max_loss 20% = catastrophic floor.
+# Phase 2 wide ladder (FIRST lock reachable at +10% ROE) so winning mirrors ride.
+# weak_peak_cut KEPT (self-limiting thesis-validity check). hard_timeout 96h (4d)
+# caps the slot since we lack visibility into the leader's exit rules.
+# order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30           # v2: maker attempt kept comfortably under the server connection window
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 5760             # v2: 96h (4d) cap
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 90               # v2 weak_peak_cut
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                        # v2: disabled
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0                     # v2 phase1 floor
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                # v2 wide ladder; FIRST lock reachable at +10% ROE
+        - { trigger_pct: 10,  lock_hw_pct: 0  }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200            # 72h (was data_retention_hours 72)
+  guard_rails:
+    daily_loss_limit_pct: 15                # v2 daily_loss_limit_pct
+    max_entries_per_day: 5                  # v2 max_entries_per_day (multiple leaders fire)
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4               # v2 max_consecutive_losses
+    cooldown_seconds: 1800                  # v2 cooldown_minutes 30 -> 1800s
+    drawdown_halt_pct: 20                   # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false   # v2: no grace
+    per_asset_cooldown_seconds: 7200        # v2 per_asset_cooldown_minutes 120 -> 7200s (2h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

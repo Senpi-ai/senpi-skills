@@ -1,0 +1,44 @@
+# Jackal — the Smart Stalker: a copy-trader that watches a quality-scored pool of top
+# Hyperliquid traders and mirrors their FRESH entries (< 10 min old) with its own DSL.
+# A single-instance PACKAGE: this manifest + one self-contained runtime.yaml + scanners/.
+# A faithful Runtime 3.0 port of the v2 Jackal v3.0.1 producer thesis (TRADER-FOLLOWER /
+# COHORT): discovery_get_top_traders cohort cached ~24h, diff per-trader open positions
+# for new entries, enrich with pool consensus + per-asset TA + funding regime + BTC macro,
+# emit the fresh entry sized by the source trader's quality score. Read-guarded everywhere
+# (stale cohort cache / neutral regime, never crash). Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: jackal
+version: "1.0.0"
+
+catalog:
+  name: "Jackal — The Smart Stalker"
+  emoji: "🐺"
+  tagline: "Maintains a daily-refreshed pool of the top-ROI Hyperliquid traders (win-rate + age + 30d-ROI filtered, quality-scored toward tail-winner trend-followers), watches for the moment a pool member opens a fresh position, and mirrors only the freshest entries (< 10 min old) when pool consensus and independent TA confirm — sized to the source trader's quality and ridden on its own wide DSL."
+  belief_plain: "Keeps a shortlist of the most profitable traders on Hyperliquid and refreshes it every day. The instant one of them opens a new trade, Jackal copies that trade in the same direction — but only if the entry is brand new, other shortlisted traders are leaning the same way, and the chart agrees. It bets a bit more behind the highest-quality traders and then trails a wide stop so a good copy can run for days."
+  thesis: "High-quality traders telegraph alpha, but naive copy-trading loses because winners regress, signals lag, and style mismatches amplify risk. Jackal only copies the freshest entries (< 10 min, before the alpha is public) from a pool ranked toward tail-winner trend-followers (ROI 35% / gain-to-pain 25% / age 15% / win-rate 10% — deliberately NOT high-win-rate scalpers), and confirms each copy with pool consensus + independent multi-timeframe TA + funding regime before sizing to the source's quality and riding its OWN DSL rather than the source trader's."
+  group: copy-trading
+  archetype: copy_trading
+  sub_style: hot_streak
+  asset_classes: [universe_crypto]
+  asset_scope: follows_traders
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  leverage_max: 5
+  max_slots: 2
+  min_budget: 200
+  assets: []
+  tags: [copy-trading, smart-money, trader-pool, consensus, fresh-entry, quality-score, long-short, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: JACKAL_WALLET
+    funding_share: 1.0
