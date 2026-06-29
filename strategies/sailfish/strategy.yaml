@@ -18,11 +18,11 @@ catalog:
   thesis: "Among the majors, leadership tends to persist — when one decisively outperforms the others it usually keeps doing so for days. Rotating into the strongest captures that persistence, while the margin-vs-runner-up gate keeps the agent out of tight, whipsaw-prone races where 'the leader' flips every tick. Rotation is realized through the DSL exit (not a mid-position close), so leadership changes only cost a fill when the old leader is genuinely finished — never on noise."
   group: momentum
   archetype: trend_following
-  sub_style: relative_strength_rotation
+  sub_style: rotation
   asset_classes: [major_alts]
-  asset_scope: whitelist
+  asset_scope: basket
   direction: long_only
-  risk_level: balanced
+  risk_level: moderate
   tier: advanced
   leverage_max: 5
   max_slots: 1

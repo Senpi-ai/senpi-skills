@@ -18,7 +18,7 @@ catalog:
   archetype: trend_following
   sub_style: conviction_holder
   asset_classes: [major_alts]
-  asset_scope: whitelist
+  asset_scope: basket
   direction: long_short
   risk_level: aggressive
   tier: advanced

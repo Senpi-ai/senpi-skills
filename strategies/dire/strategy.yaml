@@ -17,7 +17,7 @@ catalog:
   group: single-asset
   archetype: single_market
   sub_style: news_momentum
-  asset_classes: [xyz_commodities]
+  asset_classes: [commodities]
   asset_scope: single
   direction: long_short
   risk_level: moderate

@@ -20,7 +20,7 @@ catalog:
   group: multi-asset-whitelist
   archetype: macro_thesis
   sub_style: basket
-  asset_classes: [crypto_majors, indices, metals, energy]
+  asset_classes: [major_alts, indices, commodities]
   asset_scope: basket
   direction: long_short
   risk_level: moderate

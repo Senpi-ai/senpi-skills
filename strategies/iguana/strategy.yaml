@@ -18,12 +18,12 @@ catalog:
   thesis: "You want broad stock-market exposure on Hyperliquid without picking individual stocks, commodities, or pre-IPO names. Two liquid index instruments, one decision per tick: trend-follow whichever index has the clearer 4-day direction. The edge is in the slow index drift, so a wide DSL rides it for days and a 48h hard-timeout caps the XYZ weekend pricing-gap risk."
   group: single-asset
   archetype: trend_following
-  sub_style: index_trend
-  asset_classes: [xyz_indices]
-  asset_scope: whitelist
+  sub_style: broad_index
+  asset_classes: [indices]
+  asset_scope: basket
   direction: long_short
   risk_level: moderate
-  tier: onboarding
+  tier: starter
   leverage_max: 5
   max_slots: 1
   min_budget: 100

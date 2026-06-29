@@ -18,12 +18,12 @@ catalog:
   thesis: "New users want one clean question answered well, not a scattergun across the market. ETH has the liquidity and the smart-money depth, and a simple agent that watches only ETH — checking 4h structure and the leaderboard's net lean — gives a beginner a clear directional position without funding-rate math or multi-asset tuning."
   group: single-asset
   archetype: single_market
-  sub_style: trend_follower
+  sub_style: basket
   asset_classes: [major_alts]
   asset_scope: single
   direction: long_short
-  risk_level: balanced
-  tier: beginner
+  risk_level: moderate
+  tier: starter
   leverage_max: 5
   max_slots: 1
   min_budget: 200

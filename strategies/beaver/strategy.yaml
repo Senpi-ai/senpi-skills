@@ -16,12 +16,12 @@ catalog:
   thesis: "New users want one clean answer, not a scattergun across the market. BTC is the most liquid, most legible asset on Hyperliquid; 'is it trending and does smart money agree?' is the simplest honest edge — and a wide trailing stop lets a real trend run multi-day without micromanagement."
   group: single-asset
   archetype: single_market
-  sub_style: trend_follower
-  asset_classes: [majors]
+  sub_style: basket
+  asset_classes: [btc_eth, major_alts]
   asset_scope: single
   direction: long_short
-  risk_level: balanced
-  tier: onboarding
+  risk_level: moderate
+  tier: starter
   leverage_max: 5
   max_slots: 1
   min_budget: 100
