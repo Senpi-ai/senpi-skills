@@ -1,0 +1,152 @@
+# ── OSPREY · single instance — cross-venue lag (crypto leader -> XYZ equity) ──
+# Runtime 3.0 port of the v2 Osprey (SKILL.md v1.0.0 / producer v1.0.1). When a
+# crypto leader (BTC) makes a strong move, crypto-correlated XYZ equities
+# (xyz:COIN/xyz:MSTR) tend to FOLLOW but on a different venue, with a lag. Osprey
+# self-computes each proxy's catch-up gap (leader move x beta - proxy move) from
+# 1h candles and trades the proxy in the leader's direction when it still owes a
+# gap. Let-winners-run DSL (a catch-up move can extend across XYZ pricing windows).
+# Faithful port of the v2 producer thesis — see scanners/scoring.py (math verbatim).
+name: osprey-main
+group: osprey
+version: 3.0.0
+description: >
+  OSPREY — cross-VENUE lag catcher (crypto leader -> XYZ equity proxy). Each tick
+  measures the leader's (BTC's) move over moveLookbackBars 1h candles; if
+  |move| >= minLeaderMovePct it scores each proxy's catch-up gap
+  (leader move x beta - the proxy's own move). When |gap| >= minGapPct AND the gap
+  shares the leader's sign (the proxy still owes catch-up in the leader's
+  direction), it trades the proxy in that direction. Smart-money on the proxy
+  (leaderboard_get_markets) is a SCORE BONUS, not a gate (SM is sparse on XYZ
+  equities). market_get_cross_asset_flows is read (read-guarded) as an independent
+  confirmation of the leader move only — it never gates. Default proxies
+  xyz:COIN (beta 1.8) / xyz:MSTR (beta 2.5), operator-tunable. DSL is the ONLY
+  exit: let-winners-run preset (wide ladder, T0 +10% / lock 0, max_loss 18%,
+  time-cuts OFF except a 96h hard_timeout). Faithful port of the v2 Osprey v1.0.0.
+
+strategy:
+  wallet: "${OSPREY_WALLET}"
+  slots: 1                                # v2 emitted exactly one signal (best); single slot
+  margin_pct: 15                          # baseline %; scan emits marginPct (PERCENT) per signal
+  default_leverage: 4                     # fallback; scan emits clamped <=10x per signal
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: osprey_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # v2 producer cadence (5 min)
+    timeout_seconds: 180                   # v2 tick_timeout=180; leader + per-proxy candles + sm + flows + account
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      leader: "BTC"                        # v2 leader (main DEX) — validated live on HL meta 2026-06-29
+      proxies:                             # v2 DEFAULT_PROXIES — operator-tunable crypto-correlated XYZ equities
+        - { proxy: "xyz:COIN", beta: 1.8 } # validated live on HL xyz meta 2026-06-29
+        - { proxy: "xyz:MSTR", beta: 2.5 } # validated live on HL xyz meta 2026-06-29
+      moveLookbackBars: 4                  # v2 moveLookbackBars — 1h bars for the recent-move window (both legs)
+      minLeaderMovePct: 2.0                # v2 minLeaderMovePct — leader must move at least this %
+      minGapPct: 2.0                       # v2 minGapPct — proxy must still owe at least this % of catch-up
+      strongGapPct: 5.0                    # v2 strongGapPct — |gap| >= this -> +2 score
+      smTiltMinPct: 55                     # v2 smTiltMinPct — SM confirm bonus floor
+      smStrongTiltPct: 70                  # v2 smStrongTiltPct — SM strong bonus
+      minScore: 4                          # v2 minScore floor
+      marginPct: 15                        # PERCENT of withdrawable (0,100] (v2 fraction 0.15 -> 15%)
+      leverage: 4                          # v2 leverage; clamped to <=10 (MAX_LEVERAGE) in scan.py
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      leader: { type: string, required: false }
+      leaderMovePct: { type: number, required: false }
+      proxyMovePct: { type: number, required: false }
+      gapPct: { type: number, required: false }
+      beta: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      volumeTrendPct: { type: number, required: false }
+      leaderConfirmed: { type: boolean, required: false }
+      leaderFlowDir: { type: string, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: osprey_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [osprey_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # enter while the gap is open — a maker order that rests
+                                           # (CREATE_ORDER_RESTING) misses the catch-up
+        execution_timeout_seconds: 30      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: osprey_main_signals
+
+# ── EXIT (DSL — let-winners-run preset, preserved VERBATIM from v2) ───────────
+# A catch-up move can extend well past the modeled gap once the proxy starts
+# tracking the leader. Let it run: wide ladder (T0 +10% / lock 0), max_loss 18%,
+# time-cuts OFF except a long hard_timeout. NO weak_peak_cut — XYZ proxies can
+# develop slowly across pricing windows. First Phase-2 lock at +10% ROE (REACHABLE,
+# not +40%+) — no unreachable-DSL concern. interval_seconds 60 (REDUCE_ONLY-spam
+# mitigation when runtime position state lags HL).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 5760            # 96h — the lag can take days to close across XYZ pricing windows
+    weak_peak_cut:
+      enabled: false                       # v2: DISABLED — XYZ proxies develop slowly
+      interval_in_minutes: 360
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false                       # v2: DISABLED
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # wide-by-design; FIRST lock at +10% ROE (reachable)
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 45 }
+        - { trigger_pct: 35, lock_hw_pct: 65 }
+        - { trigger_pct: 55, lock_hw_pct: 78 }
+        - { trigger_pct: 90, lock_hw_pct: 88 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # 72h (was data_retention_hours 72)
+  guard_rails:
+    daily_loss_limit_pct: 15               # v2 daily_loss_limit_pct
+    max_entries_per_day: 3                  # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 max_consecutive_losses
+    cooldown_seconds: 5400                 # v2 cooldown_minutes 90 -> 5400s
+    drawdown_halt_pct: 22                  # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 21600      # v2 per_asset_cooldown_minutes 360 -> 21600s (6h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

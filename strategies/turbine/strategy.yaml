@@ -1,0 +1,47 @@
+# Turbine — two-wallet VOLUME / market-making engine. A multi-instance PACKAGE: this
+# manifest + two self-contained runtime.yaml files (volume + runners) + scanners/. A
+# faithful Runtime 3.0 port of the v2 Turbine (turbine-producer.py v3.2.2): the same
+# funding-fade volume-rotation alpha is emitted to BOTH wallets; the wallet boundary
+# only selects the DSL exit profile. NOT a directional strategy — it churns notional
+# volume for builder-fee recycling. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: turbine
+version: "3.2.2"
+
+catalog:
+  name: "Turbine — Volume / Market-Making Engine"
+  emoji: "🌪️"
+  tagline: "A two-wallet volume engine: it rotates funding-fade entries across a tight liquid universe to generate notional volume at minimum fee cost (builder-fee recycling), not to take a directional view — one wallet churns fast, the other lets the rare winner run."
+  belief_plain: "This isn't a bet on prices going up or down. It opens and closes a steady stream of small, balanced positions across a handful of the deepest, tightest-spread markets (BTC/ETH/SOL/HYPE plus oil, gold, and the S&P 500 on the XYZ DEX) to rack up trading volume as cheaply as possible. It leans against crowded funding (shorts the crowded-long side, longs the crowded-short side) so the average position is roughly neutral. One wallet force-cuts every position on a 10-minute clock for pure volume; the second wallet runs the exact same entries but gives the occasional real move room to ratchet up before exiting."
+  thesis: "Volume itself is the product: high notional throughput on Hyperliquid recycles builder fees, and on a tight, deep universe the maker-rebate math can net out roughly breakeven-to-slightly-positive before the volume reward. Concentrating on the few markets with the tightest spreads (XYZ books weighted 80%) keeps the per-$1M cost low. Funding-fade direction selection keeps the book structurally neutral rather than exposed. Splitting into a fast-rotation wallet and a patient-DSL wallet captures the asymmetry that pure rotation gives up — most positions exit flat either way, but the ~5% that catch a real directional move ride to a much larger realized PnL on the runners wallet instead of being force-cut at 10 minutes."
+  group: market-neutral
+  archetype: structural_neutral
+  sub_style: market_making
+  asset_classes: [btc_eth, major_alts, commodities, indices]
+  asset_scope: basket
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: scalp
+  leverage_max: 5
+  max_slots: 9                 # volume 7 + runners 2
+  min_budget: 200              # two wallets, $100 floor each
+  assets: ["BTC", "ETH", "SOL", "HYPE", "xyz:BRENTOIL", "xyz:GOLD", "xyz:SP500"]
+  tags: [volume, market-making, builder-fee, funding-fade, two-wallet, rotation, structural-neutral, maker]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: volume
+    runtime: volume/runtime.yaml      # → runtime turbine-volume, group turbine
+    wallet_env: TURBINE_VOLUME_WALLET
+    funding_share: 0.675              # v2 budget split: $5400 vol / ($5400 + $2600) ≈ 0.675
+  - name: runners
+    runtime: runners/runtime.yaml     # → runtime turbine-runners, group turbine
+    wallet_env: TURBINE_RUNNERS_WALLET
+    funding_share: 0.325              # $2600 runners / $8000 total ≈ 0.325

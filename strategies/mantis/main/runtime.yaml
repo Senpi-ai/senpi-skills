@@ -1,0 +1,147 @@
+# ── MANTIS · single instance — cross-asset lag / catchup hunter ───────────────
+# Runtime 3.0 port of the v2 Mantis Slipstream (SKILL.md v6.0.0 / producer v6.0.1).
+# CROSS-ASSET LAG archetype: monitors market_get_cross_asset_flows (BTC-only
+# pre-computed lag data), strikes the highest-confidence correlated alt that
+# lags a confirmed BTC 4h move, in the direction the leader moved, sized by the
+# tool's confidence score (conviction tiers). DSL-only exit (the v2 producer-side
+# leader-reversal veto is a MUTATION read-only scan() cannot perform — DROPPED;
+# see scanners/scan.py FIDELITY NOTES). Entry filters/tiers verbatim from v2.
+name: mantis-main
+group: mantis
+version: 6.0.0
+description: >
+  MANTIS — Slipstream cross-asset catchup hunter. Every tick it reads
+  market_get_cross_asset_flows for each leader (BTC — the only asset with
+  pre-computed lag data), surfacing correlated alts that historically follow the
+  leader's 4h move but haven't responded yet. Filters laggards by follow_rate
+  >= 0.85, confidence >= 0.75, |gap| >= 1.5%, sm_starting_to_rotate true,
+  lag_stddev <= 90min; picks the highest-confidence non-held alt; emits ONE strike
+  in the leader's direction, sized by conviction tier (confidence 0.92+ -> 75%
+  margin/8x, 0.85+ -> 50%/7x, 0.75+ -> 25%/5x). Dynamic hard_timeout (avg_lag x
+  1.5, clamped [30,240]min) is surfaced in signal data; the DSL exit (240min
+  ceiling + Phase1/Phase2 ladder + weak_peak_cut) owns exits. Faithful port of
+  the v2 Mantis v6.0.0 thesis (filters/tiers/direction/timeout verbatim).
+
+strategy:
+  wallet: "${MANTIS_WALLET}"
+  slots: 2                                # v2 MAX_CONCURRENT_POSITIONS / runtime.yaml slots 2
+  margin_pct: 25                          # baseline %; scan emits the conviction-tier marginPct per signal
+  default_leverage: 5                     # fallback; scan emits 5/7/8x per confidence tier
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: mantis_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 60                   # v2 producer_daemon interval_seconds=60
+    timeout_seconds: 90                    # v2 tick_timeout=90
+    default_signal_validity_seconds: 120   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      leaderUniverse: ["BTC"]              # only BTC has pre-computed lag data (v1 cross-asset flow tool)
+      minFollowRate: 0.85                  # v2 MIN_FOLLOW_RATE
+      minConfidence: 0.75                  # v2 MIN_CONFIDENCE
+      minGapPct: 1.5                       # v2 MIN_GAP_PCT (abs)
+      requireSmRotation: true              # v2 REQUIRE_SM_ROTATION
+      maxLagStddevMinutes: 90              # v2 MAX_LAG_STDDEV_MINUTES
+      maxLeverage: 8                       # v2 MAX_LEVERAGE
+      hardTimeoutLagMultiplier: 1.5        # v2 HARD_TIMEOUT_LAG_MULTIPLIER
+      hardTimeoutFloorMinutes: 30          # v2 HARD_TIMEOUT_FLOOR_MINUTES
+      hardTimeoutCeilingMinutes: 240       # v2 HARD_TIMEOUT_CEILING_MINUTES
+      sizingTiers:                         # v2 SIZING_TIERS (margin_pct PERCENT, conviction-scaled)
+        - { confidence_min: 0.92, margin_pct: 75, leverage: 8 }
+        - { confidence_min: 0.85, margin_pct: 50, leverage: 7 }
+        - { confidence_min: 0.75, margin_pct: 25, leverage: 5 }
+      recentSignalTtlSeconds: 240          # race-window dedup (runtime per_asset_cooldown is authoritative)
+    signal_data_schema:
+      score: { type: number }                                # 0..1 confidence
+      leverage: { type: number }
+      direction: { type: string }
+      hardTimeoutMinutes: { type: number, required: false }
+      gapPct: { type: number, required: false }
+      followRate: { type: number, required: false }
+      avgLagMinutes: { type: number, required: false }
+      lagStddevMinutes: { type: number, required: false }
+      smStartingToRotate: { type: boolean, required: false }
+      leaderAsset: { type: string, required: false }
+      leaderMovePct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: mantis_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter (v2 LLM gate was pass-through)
+    scanners: [mantis_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # taker fallback guarantees fill + DSL attach (catchups are time-sensitive)
+        execution_timeout_seconds: 60      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: mantis_main_signals
+
+# ── EXIT (DSL — preserved VERBATIM from v2 runtime.yaml dsl_preset) ────────────
+# v2 Mantis had THREE exit layers: (1) producer-side leader-reversal veto
+# [DROPPED — close_position is a mutation read-only scan() cannot perform; the
+# runtime cannot model "close if a separate asset's 4h move reverses"], (2)
+# dynamic per-trade hard_timeout [surfaced in signal data.hardTimeoutMinutes for
+# observability], (3) the DSL preset below. With the veto + dynamic timeout
+# dropped/advisory, the DSL preset is now the PRIMARY exit authority. Ported
+# verbatim; first Phase-2 lock at +5% ROE (reachable — NOT >+40%). order_type
+# FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
+exit:
+  engine: dsl
+  interval_seconds: 30                     # v2 exit.interval_seconds 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60          # v2 exit execution_timeout_seconds
+  dsl_preset:
+    hard_timeout:
+      enabled: true                        # v2: 240min absolute ceiling (the catchup either happens or it doesn't)
+      interval_in_minutes: 240
+    weak_peak_cut:
+      enabled: true                        # v2: 20min / 1.5% min_value
+      interval_in_minutes: 20
+      min_value: 1.5
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                    # v2 phase1.max_loss_pct
+      retrace_threshold: 5                  # v2 phase1.retrace_threshold
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # v2 phase2.tiers — first lock at +5% ROE (reachable)
+        - { trigger_pct: 5,  lock_hw_pct: 30 }
+        - { trigger_pct: 10, lock_hw_pct: 60 }
+        - { trigger_pct: 15, lock_hw_pct: 75 }
+        - { trigger_pct: 25, lock_hw_pct: 85 }
+
+# ── RISK guard rails (from v2 runtime.yaml; hours/minutes -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # v2 data_retention_hours 72 -> 72*3600 (in [3600,604800])
+  guard_rails:
+    daily_loss_limit_pct: 10               # v2 daily_loss_limit_pct
+    max_entries_per_day: 6                 # v2 max_entries_per_day / MAX_DAILY_ENTRIES
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 max_consecutive_losses
+    cooldown_seconds: 3600                 # v2 cooldown_minutes 60 -> 3600s (post-loss)
+    drawdown_halt_pct: 20                  # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400      # v2 per_asset_cooldown_minutes 240 -> 14400s (4h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true

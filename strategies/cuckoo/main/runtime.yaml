@@ -1,0 +1,139 @@
+# ── CUCKOO · single instance — copy-the-copiers meta-strategy follower ────────
+# Runtime 3.0 port of the v2 Cuckoo (SKILL.md v1.0.0 / producer v1.0.1).
+# Auto-discovers the top strategies by realized performance
+# (discovery_get_top_strategies), builds a performance-weighted consensus across
+# their positions (leaderboard_get_trader_positions), and follows the single
+# highest weighted-consensus (asset, direction) that >= minStrategies agree on.
+# Derived universe (coins come from the followed strategies' positions). Producer
+# enters only — DSL owns exits (let-winners-run + 96h staleness cap). Faithful
+# port of the v2 thesis — see scanners/scoring.py (math reproduced verbatim).
+name: cuckoo-main
+group: cuckoo
+version: 3.0.0
+description: >
+  CUCKOO — copy-the-copiers meta-strategy follower. Auto-discovers the top
+  strategies by realized performance (discovery_get_top_strategies), pulls each
+  one's current positions, and trades the asset + direction the top performers
+  agree on most — PERFORMANCE-WEIGHTED, so a stronger strategy gets more say
+  (capped at weightCap so one outlier can't dominate). Because the strategies it
+  follows are themselves copy/algo strategies, Cuckoo copies the copiers. Entry
+  requires >= minStrategies top strategies in agreement at/above minScore; emits
+  the single best weighted-consensus candidate per tick. DSL is the ONLY exit —
+  let-winners-run preset (wide ladder, first lock at +10% ROE) with time-cuts off
+  except a 96h hard_timeout staleness cap (the consensus EXIT is not yet mirrored).
+  Faithful port of the v2 Cuckoo v1.0.0 thesis (all scoring/thresholds verbatim).
+
+strategy:
+  wallet: "${CUCKOO_WALLET}"
+  slots: 1                                # v2 slots 1 (emits the single best consensus)
+  margin_pct: 15                          # baseline %; scan emits marginPct per signal (v2 0.15 fraction ×100)
+  default_leverage: 4                     # v2 DEFAULT_LEVERAGE; scan emits 1-10x per signal
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: cuckoo_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 600                  # v2 producer cadence (10 min — consensus drifts slowly)
+    timeout_seconds: 240                   # v2 tick_timeout=240; up to ~1 read/strategy + account
+    default_signal_validity_seconds: 1200  # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 24            # cohort cache + dedup map + per-tick scan-results history
+    inputs:
+      topN: 12                             # v2 DEFAULT_TOP_N — how many top strategies to follow
+      minStrategies: 2                     # v2 DEFAULT_MIN_STRATEGIES — min agreeing to enter
+      minNotionalUsd: 2000                 # v2 DEFAULT_MIN_NOTIONAL_USD — per-position notional floor for a vote
+      weightCap: 3.0                       # v2 DEFAULT_WEIGHT_CAP — max per-strategy weight (outlier guard)
+      highWeight: 6.0                      # v2 DEFAULT_HIGH_WEIGHT — aggregate weight that earns the bonus point
+      minScore: 4                          # v2 DEFAULT_MIN_SCORE — consensus-score floor
+      marginPct: 15                        # PERCENT of withdrawable (0,100] (v2 0.15 fraction ×100)
+      leverage: 4                          # v2 DEFAULT_LEVERAGE; clamped to <= 10 (MAX_LEVERAGE) in scan.py
+      recentSignalTtlSeconds: 240          # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      strategyCount: { type: number, required: false }
+      consensusWeight: { type: number, required: false }
+      strategiesFollowed: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: cuckoo_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan applied every filter (v2 LLM gate was pass-through — "Honor the signal")
+    scanners: [cuckoo_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # follow the live consensus now — a maker order that rests (CREATE_ORDER_RESTING) drifts from the top strategies' exposure
+        execution_timeout_seconds: 30      # v2 entry execution_timeout_seconds
+    context:
+      - type: signal
+        scanner: cuckoo_main_signals
+
+# ── EXIT (DSL — let-winners-run preset, ported VERBATIM from v2) ──────────────
+# The top strategies hold conviction positions, so let the consensus run: wide
+# ladder (T0 +10% / lock 0 — reachable, first lock NOT > +40%), max_loss 18%,
+# time-cuts OFF except a 96h hard_timeout staleness cap (Cuckoo re-evaluates the
+# consensus each tick but does not yet MIRROR an EXIT, so the timeout prevents
+# holding a stale consensus forever). NO weak_peak_cut. order_type
+# FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 5760            # 96h — staleness cap (consensus EXIT not yet mirrored)
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 360
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # first lock at +10% ROE (reachable)
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 45 }
+        - { trigger_pct: 35, lock_hw_pct: 65 }
+        - { trigger_pct: 55, lock_hw_pct: 78 }
+        - { trigger_pct: 90, lock_hw_pct: 88 }
+
+# ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 345600           # 96h (was data_retention_hours 96); within [3600, 604800]
+  guard_rails:
+    daily_loss_limit_pct: 15               # v2 daily_loss_limit_pct
+    max_entries_per_day: 3                  # v2 max_entries_per_day
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3              # v2 max_consecutive_losses
+    cooldown_seconds: 5400                 # v2 cooldown_minutes 90 -> 5400s
+    drawdown_halt_pct: 22                  # v2 drawdown_halt_pct
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 28800      # v2 per_asset_cooldown_minutes 480 -> 28800s (8h)
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
