@@ -135,7 +135,7 @@ risk:
     max_entries_per_day: 4                  # v2 upper bound of dynamicSlots (4 at +$400 PnL)
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 4               # v2 max_consecutive_losses
-    cooldown_seconds: 0                      # v2 cooldown_minutes 0 — scanner manages cooldowns
+    cooldown_seconds: 60                     # runtime guard_rails min 60 (scan manages the real per-asset cooldown)
     drawdown_halt_pct: 25                    # v2 drawdown_halt_pct — explicit -25% HARD STOP
     drawdown_reset_on_day_rollover: true     # v2 drawdown_reset_on_day_rollover
     per_asset_cooldown_seconds: 21600        # v2 per_asset_cooldown_minutes 360 -> 360*60 (6h post-loss)

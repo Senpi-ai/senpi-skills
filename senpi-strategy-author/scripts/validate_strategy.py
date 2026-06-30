@@ -58,6 +58,14 @@ def validate(pkg: Path) -> list:
             errs.append(f"instance {name}: {rt_rel} data_retention_seconds {m.group(1)} "
                         f"out of range [3600, 604800] (1h-7d)")
 
+        # guard_rails cooldowns: the runtime REJECTS below-minimum values at registration
+        # (cooldown_seconds >= 60, per_asset_cooldown_seconds >= 300) — a 0 fails to register.
+        # (See senpi-trading-runtime/references/runtime-yaml.md.)
+        for _field, _lo in (("cooldown_seconds", 60), ("per_asset_cooldown_seconds", 300)):
+            cm = re.search(rf"^\s*{_field}\s*:\s*([0-9]+)", rt_text, re.M)
+            if cm and int(cm.group(1)) < _lo:
+                errs.append(f"instance {name}: {rt_rel} {_field} {cm.group(1)} below runtime min {_lo}")
+
         # Runtime 3.0 scanner package: <runtime_dir>/scanners/scan.py exports scan(inputs, ctx);
         # the thesis math is a sibling scanners/scoring.py imported as `import scoring` (NO __init__.py).
         scn_dir = rt.parent / "scanners"
