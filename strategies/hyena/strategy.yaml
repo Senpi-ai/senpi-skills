@@ -1,0 +1,46 @@
+# Hyena — risk-off crypto SHORT hedge sleeve. A single-instance PACKAGE: this manifest
+# + one self-contained runtime.yaml + scanners/. A NET-NEW Runtime 3.0 strategy (no v2
+# predecessor): the fleet's first dedicated SHORT-biased crypto/crypto-proxy agent. It
+# shorts the crypto block ONLY when risk-off conditions confirm (funding regime
+# LONG_CROWDED + smart money rotating OUT + price confirming down) and otherwise idles.
+# SHORT_ONLY by design — a hedge sleeve that pairs with long crypto exposure. Parsing for
+# market_get_funding_regime + leaderboard_get_markets copied from the Dog gold template;
+# account read-guard from Bison/Bobcat; dex-aware fetch from Bobcat. Install/teardown via
+# senpi-strategy-ops.
+schema_version: 1
+
+id: hyena
+version: "1.0.0"
+
+catalog:
+  name: "Hyena — Risk-Off Crypto Short (Hedge Sleeve)"
+  emoji: "🐺"
+  tagline: "A short-only crypto defense sleeve on majors (BTC/ETH/SOL/HYPE) plus crypto-proxy equities (xyz:MSTR/COIN/CRCL): shorts the block ONLY when risk-off confirms — the market-wide funding regime is LONG_CROWDED (crowded longs = squeeze fuel), smart money is rotating OUT of the name, and the 4h trend is breaking down. Conservative 4x, tight short-side DSL, 30h cap because squeezes resolve fast. CAVEAT: this is a hedge that pairs with long crypto exposure — it idles and emits nothing whenever risk-off conditions are not met."
+  belief_plain: "Most of the time the safe trade on crypto is no trade. But when the best traders are all crowded long, smart money starts rotating out, and price begins rolling over together, that crowded long is fuel for a squeeze to the downside. Hyena bets against that exhausted crowd — short only — on Bitcoin, Ether, Solana, HYPE, and the crypto-proxy stocks MicroStrategy, Coinbase and Circle. It is a defense sleeve you run alongside your long crypto bets to cushion a downturn; when the risk-off picture is not there, it does nothing and waits."
+  thesis: "The fleet has no dedicated short-biased crypto agent — every directional engine is long-or-long/short, so there is no clean defensive sleeve for a risk-off turn. Hyena fills that gap. It treats the market-wide funding regime as a master gate: it only opens new shorts when funding shows the crowd is one-sided LONG (LONG_CROWDED), because a crowded long is the squeeze that a short monetizes. On top of that gate it requires, per name, that smart money is net-SHORT (rotating out) AND that the 4h structure is making lower highs (price confirming the unwind). All three must agree, so it sits idle in normal markets and only acts on genuine risk-off confluence. It is short_only by design — a hedge meant to be paired with long crypto exposure, sized conservatively (15% margin, 4x) with a tight short-side DSL and a 30h hold cap because short squeezes resolve fast."
+  group: smart-money
+  archetype: contrarian_fade
+  sub_style: risk_off_rotation
+  asset_classes: [btc_eth, major_alts, xyz_equities]
+  asset_scope: basket
+  direction: short_only
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 2
+  min_budget: 200
+  assets: ["BTC", "ETH", "SOL", "HYPE", "xyz:MSTR", "xyz:COIN", "xyz:CRCL"]
+  tags: [short-only, hedge, risk-off, defense, funding-regime, smart-money, rotation, contrarian, crypto-proxy, btc, eth, sol, hype, mstr, coin, crcl, idles-when-uncertain]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: HYENA_WALLET
+    funding_share: 1.0

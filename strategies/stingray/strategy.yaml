@@ -1,0 +1,44 @@
+# Stingray — cross-asset smart-money rotation. A single-instance PACKAGE: this manifest +
+# one self-contained runtime.yaml + scanners/. A NET-NEW Runtime 3.0 strategy (not a port):
+# instead of following smart money per asset, it reads the WHOLE smart-money board, ranks
+# every asset by net SM conviction (tilt x notional/breadth), and trades the rotation —
+# LONG the assets SM is crowding into, SHORT the ones SM is fleeing. Cross-asset by design
+# (universe crypto + xyz equities/commodities/indices), price-gated, DSL-only exits.
+# Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: stingray
+version: "1.0.0"
+
+catalog:
+  name: "Stingray — Cross-Asset Smart-Money Rotation"
+  emoji: "🐠"
+  tagline: "Reads the entire smart-money board every tick, ranks every asset by net smart-money conviction (tilt x notional x breadth), then rides the rotation — LONG the assets the best traders are crowding into and SHORT the ones they're fleeing, gated by price so it never fights a hard trend. Captures days like 'long semis/indices, short the crypto block'."
+  belief_plain: "Most copy-trading bots ask 'are the best traders long this one coin?'. Stingray instead looks at the whole market at once and asks 'what are the best traders rotating INTO, and what are they rotating OUT OF?'. It buys the crowd's new favorites and sells the ones they're abandoning — but only when the price chart isn't already screaming the other way — then trails a wide stop so a real rotation can run for days."
+  thesis: "Smart money doesn't just pick coins, it rotates capital across the whole board — out of one asset class and into another. Per-asset copy-traders miss this because they evaluate each market in isolation; they can't see that the SAME flow leaving crypto is funding the bid in indices. Stingray ranks the entire board by net tilt (long_ratio - 50) weighted by notional and trader breadth, so a strong, deep, widely-held lean outranks a thin spike, then takes BOTH sides at once — long the inflows, short the outflows — for a market-neutral-ish rotation book. A price-confirmation gate (no longs into a hard 4h downtrend, no shorts into a hard uptrend) keeps it from fighting price, and a DSL ratchet lets the winning legs run while cutting the losers."
+  group: smart-money
+  archetype: copy_trading
+  sub_style: sm_rotation
+  asset_classes: [universe_crypto, xyz_equities, commodities, indices]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 4
+  min_budget: 200
+  assets: []                # derived universe — assets come from the smart-money board each tick, not a fixed list
+  tags: [smart-money, rotation, cross-asset, copy-trading, long-short, universe-scanner, net-tilt, conviction-weight, let-winners-run]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: STINGRAY_WALLET
+    funding_share: 1.0

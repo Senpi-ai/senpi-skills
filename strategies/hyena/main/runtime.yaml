@@ -1,0 +1,147 @@
+# ── HYENA · single instance — risk-off crypto SHORT hedge sleeve (NET-NEW Runtime 3.0) ──
+# The fleet's dedicated SHORT-biased crypto/crypto-proxy agent. SHORT_ONLY by design:
+# it shorts the crypto block ONLY when risk-off conditions confirm on three axes —
+#   (1) market-wide funding regime LONG_CROWDED (master gate; crowded longs = squeeze
+#       fuel), (2) smart money net-SHORT the name (rotating OUT), (3) 4h downtrend
+#       (lower-highs) confirming. ALL three must agree. NEVER goes long.
+# It IDLES (emits nothing, WAITING) the rest of the time — a hedge that pairs with long
+# crypto exposure, not a standalone return engine. Universe: BTC/ETH/SOL/HYPE (main DEX)
+# + xyz:MSTR/xyz:COIN/xyz:CRCL (XYZ DEX crypto-proxy equities), all validated live on HL
+# meta 2026-06-30. Parsing for funding_regime + smart-money is copied from the Dog gold
+# template; account read-guard from Bison/Bobcat; dex-aware fetch from Bobcat.
+name: hyena-main
+group: hyena
+version: 1.0.0
+description: >
+  HYENA — risk-off crypto SHORT hedge sleeve. SHORT_ONLY: shorts the crypto block
+  (BTC/ETH/SOL/HYPE + xyz crypto-proxies MSTR/COIN/CRCL) ONLY when risk-off
+  confirms — master gate: market-wide funding regime LONG_CROWDED (or a per-asset
+  crowded-long funding fallback); per name: smart money net-SHORT AND a 4h
+  downtrend (lower-highs). Scores regime crowding + SM short tilt + downtrend
+  strength + funding squeeze; emits the top 1-2 SHORTs per tick. Conservative
+  margin (15% base) at low leverage (4x, clamped [1,5] then to the venue cap).
+  Short-side DSL ladder — Phase 1 max_loss 12%, Phase 2 first lock reachable at
+  +8%, hard_timeout 30h (squeezes resolve fast). NEVER goes long; idles (WAITING)
+  whenever risk-off conditions are not met. A defense sleeve, not a return engine.
+
+strategy:
+  wallet: "${HYENA_WALLET}"
+  slots: 2                                 # emits top 1-2 shorts; runtime owns the ceiling
+  margin_pct: 15                           # baseline %; scan emits the same flat marginPct per signal
+  default_leverage: 4                      # fallback; scan emits 4x clamped [1,5] then venue cap
+  trading_risk: aggressive                 # short-biased leverage carries squeeze risk
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hyena_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                   # 5 min cadence
+    timeout_seconds: 180                    # account + regime + leaderboard + per-asset candles/funding
+    default_signal_validity_seconds: 600    # 2x tick; a fresh re-score arrives next tick
+    state_history_max_count: 100            # dedup map + per-tick scan-result history
+    inputs:
+      universe: ["BTC", "ETH", "SOL", "HYPE", "xyz:MSTR", "xyz:COIN", "xyz:CRCL"]  # validated live vs HL meta 2026-06-30
+      minScore: 5                           # SHORT-eligibility floor (regime+SM+downtrend baseline)
+      marginPct: 15                         # PERCENT of withdrawable (0,100]; flat
+      leverage: 4                           # clamped to [leverageMin,leverageMax] then venue cap in scan.py
+      leverageMin: 1
+      leverageMax: 5
+      leaderboardLimit: 100                 # leaderboard_get_markets aggregation depth
+      maxEmit: 2                            # emit top 1-2 shorts
+      smShortTiltMinPct: 55                 # SM must be net-SHORT with >=55% tilt (gate)
+      smStrongTiltPct: 70                   # strong-short tilt (+1 bonus)
+      crowdedLongFundingThreshold: 0.0002   # per-asset crowded-long funding fallback/bonus
+      recentSignalTtlSeconds: 240           # race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      downStrength: { type: number, required: false }
+      priceChange4hPct: { type: number, required: false }
+      fundingRegime: { type: string, required: false }
+      assetFunding: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hyena_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                     # the scan already applied every risk-off filter
+    scanners: [hyena_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true     # a short into a breaking-down market must fill; maker-only rests (CREATE_ORDER_RESTING)
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: hyena_signals
+
+# ── EXIT (DSL — short-side ladder) ────────────────────────────────────────────
+# Short squeezes resolve FAST, so the hold is capped (hard_timeout 30h) and the
+# first profit lock is reachable EARLY (+8% ROE). Phase 1 max_loss 12% (a crowded
+# long unwinding can squeeze hard against a short — tighter floor than the
+# trend-follower family). Phase 2 wide-enough ladder so a real risk-off cascade
+# rides multi-bar. weak_peak_cut KEPT (self-limiting: a short that never works in
+# 90m is a failed thesis). order_type FEE_OPTIMIZED_LIMIT, taker fallback on
+# (closes MUST happen — a stuck short is unbounded risk). interval_seconds 60.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true         # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true                         # 30h cap — squeezes resolve fast; don't camp a stale short
+      interval_in_minutes: 1800
+    weak_peak_cut:
+      enabled: true                         # cut if peak ROE < 2.0 in 90m — failed short thesis
+      interval_in_minutes: 90
+      min_value: 2.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                     # tight — an unwinding crowded long can squeeze a short hard
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                 # first lock reachable EARLY (+8%); then breathe for a cascade
+        - { trigger_pct: 8,  lock_hw_pct: 0  }
+        - { trigger_pct: 15, lock_hw_pct: 30 }
+        - { trigger_pct: 25, lock_hw_pct: 50 }
+        - { trigger_pct: 40, lock_hw_pct: 65 }
+        - { trigger_pct: 60, lock_hw_pct: 80 }
+
+# ── RISK guard rails (seconds) ──
+risk:
+  data_retention_seconds: 259200            # 72h; within [3600, 604800]
+  guard_rails:
+    daily_loss_limit_pct: 12                # short-biased squeeze risk -> conservative daily cap
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600                   # post-loss cooldown 60m
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 7200         # 2h per-asset cooldown
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
