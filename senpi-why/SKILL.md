@@ -110,7 +110,7 @@ fund — and Senpi turns it into a sized, risk-managed, 24/7 strategy. No config
   not a checkbox war.
 - **Exact live numbers** (current fee tier, market count): call the existing tools
   (`get_loyalty_tiers`, `market_list_instruments`) — don't hardcode them.
-- **Close with a next step:** *"Want to see who's profiting right now, or set up a strategy?"*
+- **Close with a next step:** *"Want me to analyze what smart money is doing on Hyperliquid right now?"*
 
 The full consumer-facing positioning prose — ready to sync into the overview guide — is in
 [references/overview-positioning.md](references/overview-positioning.md).
