@@ -1,35 +1,41 @@
-# ── REMORA · single instance — whale single-position mirror ───────────────────
-# Runtime 3.0 port of the v2 Remora (SKILL.md v1.0.0 / remora-producer.py v1.0.1).
-# TRADER-FOLLOWER: mirrors a small, hand-picked set of whale traders (NOT a
-# leaderboard universe). Each tick pulls each whale's open positions, takes their
-# highest-conviction (largest-notional) position, aggregates across whales into
-# (asset, direction) candidates, and emits the strongest — boosting score when
+# ── REMORA · single instance — autonomous smart-money whale mirror ────────────
+# Runtime 3.0 strategy. AUTONOMOUS OUT OF THE BOX: with no config it auto-builds a
+# cohort of proven top traders (WhaleHunter's smart-money cohort engine —
+# discovery_get_top_traders, ALL_TIME realized-PnL ranking, cached daily in
+# ctx.state, degrade-to-cached on a failed refresh) and mirrors their
+# highest-conviction positions. Optionally name specific whales via inputs.whales
+# to mirror exactly those (the override — Remora's named-whale identity).
+# Per tick: resolve the whale set, pull each whale's open positions, take their
+# highest-conviction (largest-notional) position, aggregate across whales into
+# (asset, direction) candidates, and emit the strongest 1-2 — boosting score when
 # multiple whales agree (consensus) and when a whale is ELITE/RELIABLE tier.
 # Let-winners-run DSL with a 120h hard_timeout staleness cap (whales hold winners;
-# the whale-exit mirror is a future enhancement). Faithful port — see
-# scanners/scoring.py (mirror math reproduced verbatim).
+# the whale-exit mirror is a future enhancement). Mirror math reproduced verbatim
+# from the v2 Remora producer; cohort engine reused from WhaleHunter — see
+# scanners/scoring.py + scanners/scan.py.
 name: remora-main
 group: remora
-version: 1.0.0
+version: 1.1.0
 description: >
-  REMORA — whale single-position mirror. Rides a small, hand-picked set of whale
-  traders: each tick it pulls each whale's open positions (leaderboard_get_trader_positions),
+  REMORA — autonomous smart-money whale mirror. By default it auto-builds a cohort
+  of proven top traders (discovery_get_top_traders, ranked by all-time realized PnL,
+  cached daily) and mirrors their highest-conviction positions — so it trades out of
+  the box with no config. Optionally name specific whales via inputs.whales to mirror
+  exactly those. Each tick it pulls each whale's open positions (leaderboard_get_trader_positions),
   takes their highest-conviction (largest-notional) position above minNotionalUsd,
   aggregates across whales into (asset, direction) candidates, scores by consensus
   (how many whales agree) + whale quality (discovery_get_trader_state ELITE/RELIABLE/
-  PROFITABLE tier when useWhaleQuality), and mirrors the strongest — sized by
-  Remora's own marginPct (default 15%), leverage clamped to 10x. Distinct from the
-  broad trader-followers (Raptor/Jackal/Spider) that scan a leaderboard universe;
-  Remora mirrors whales YOU choose (set inputs.whales). Producer enters only — the
-  DSL owns exits: let-winners-run preset (wide ladder, first lock at +10% ROE,
-  max_loss 18%) with a 120h hard_timeout staleness cap. Faithful port of the v2
-  Remora v1.0.0 thesis (all scoring/thresholds verbatim).
+  PROFITABLE tier when useWhaleQuality), and mirrors the strongest 1-2 — sized by
+  Remora's own marginPct (default 15%), leverage clamped to [1,10]. Producer enters
+  only — the DSL owns exits: let-winners-run preset (wide ladder, first lock at +10%
+  ROE, max_loss 18%) with a 120h hard_timeout staleness cap. Mirror scoring verbatim
+  from the v2 Remora producer; smart-money cohort engine reused from WhaleHunter.
 
 strategy:
   wallet: "${REMORA_WALLET}"
-  slots: 1                                  # v2 mirror emits exactly one best candidate
+  slots: 2                                  # auto-cohort mode emits up to 2 strongest mirrors
   margin_pct: 15                            # baseline %; scan emits the marginPct intent per signal
-  default_leverage: 4                       # v2 DEFAULT_LEVERAGE; scan emits leverage (clamped <=10x)
+  default_leverage: 4                       # v2 DEFAULT_LEVERAGE; scan emits leverage (clamped [1,10])
   trading_risk: moderate
   enabled: true
 
@@ -41,20 +47,30 @@ scanners:
     type: external_scanner
     path: ./scanners
     entrypoint: scan.py
-    interval_seconds: 600                    # v2 producer cadence (10 min — whale positions change slowly)
-    timeout_seconds: 240                     # v2 tick_timeout=240; up to ~2 reads/whale + account
+    interval_seconds: 600                    # whale positions change slowly (10 min); cohort cached daily
+    timeout_seconds: 240                     # up to ~2 reads/whale + account + (daily) cohort paging
     default_signal_validity_seconds: 1200    # 2x tick; rule action, a fresh re-score arrives next tick
-    state_history_max_count: 50              # dedup map + per-tick scan-results history
+    state_history_max_count: 50              # dedup map + cohort cache + per-tick scan-results history
     inputs:
-      whales: []                             # SET to your hand-picked trader_ids/wallets, e.g.
+      # ── whale source ──────────────────────────────────────────────────────
+      whales: []                             # OVERRIDE: name your own traders, e.g.
                                              #   [ { trader_id: "0x..." }, { trader_id: "0x..." } ]
-                                             # v2 config.whales default was placeholder; empty -> WAITING
-      useWhaleQuality: true                  # v2 config.useWhaleQuality — ELITE/RELIABLE/PROFITABLE bonus
+                                             # EMPTY (default) -> auto-build a smart-money cohort
+                                             # (Remora trades out of the box; never WAITING-on-config).
+      # ── auto-cohort engine (used only when whales is empty) ───────────────
+      cohortSize: 10                         # top N proven traders to mirror by default
+      cohortRefreshHours: 24                 # rebuild the cohort once a day; degrade-to-cached on failure
+      cohortMinRealizedUsd: 0                # 0 = no floor (rank purely by all-time realized PnL)
+      cohortFetchLimit: 1000                 # discovery_get_top_traders page size
+      cohortMaxPages: 6                      # paging cap to reach a deep, stable ranking
+      # ── mirror scoring (v2 Remora — verbatim) ─────────────────────────────
+      useWhaleQuality: true                  # ELITE/RELIABLE/PROFITABLE bonus (discovery_get_trader_state)
       minNotionalUsd: 5000                   # v2 DEFAULT_MIN_NOTIONAL_USD — skip dust positions
       minScore: 4                            # v2 DEFAULT_MIN_SCORE — producer floor
+      emitTopN: 2                            # emit the strongest 1-2 mirrors per tick (clamped 1..2)
       marginPct: 15                          # PERCENT of withdrawable (0,100]; v2 stored fraction 0.15 -> 15%
-      leverage: 4                            # v2 config.leverage default; clamped to <=10x in scan.py
-      recentSignalTtlSeconds: 240            # v2 RECENT_SIGNAL_TTL_SEC (race-window dedup)
+      leverage: 4                            # v2 config.leverage default; clamped to [1,10] in scan.py
+      recentSignalTtlSeconds: 240            # race-window dedup (re-fire suppression per coin)
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
@@ -63,6 +79,7 @@ scanners:
       whaleCount: { type: number, required: false }
       maxNotionalUsd: { type: number, required: false }
       eliteTier: { type: boolean, required: false }
+      whaleSource: { type: string, required: false }
       whales: { type: array, required: false }
       heldAssets: { type: array, required: false }
 
@@ -125,17 +142,19 @@ exit:
         - { trigger_pct: 90, lock_hw_pct: 88 }
 
 # ── RISK guard rails (from v2 runtime.yaml; minutes/hours -> seconds) ──
+# Cooldowns must be >= the scanner interval (600s): cooldown_seconds 5400 (90m) and
+# per_asset_cooldown_seconds 28800 (8h) both clear that floor.
 risk:
-  data_retention_seconds: 345600             # 96h (was data_retention_hours 96); in [3600, 604800], no clamp
+  data_retention_seconds: 345600             # 96h; in [3600, 604800], no clamp
   guard_rails:
     daily_loss_limit_pct: 15                 # v2 risk.daily_loss_limit_pct
     max_entries_per_day: 3                   # v2 risk.max_entries_per_day
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3                # v2 risk.max_consecutive_losses
-    cooldown_seconds: 5400                   # v2 cooldown_minutes 90 -> 5400s
+    cooldown_seconds: 5400                   # 90m; >= scanner interval (600s)
     drawdown_halt_pct: 22                    # v2 risk.drawdown_halt_pct
     drawdown_reset_on_day_rollover: false
-    per_asset_cooldown_seconds: 28800        # v2 per_asset_cooldown_minutes 480 -> 28800s (8h)
+    per_asset_cooldown_seconds: 28800        # 8h; >= scanner interval (600s)
 
 notifications:
   dsl_lifecycle: true

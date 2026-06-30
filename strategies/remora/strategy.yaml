@@ -1,22 +1,25 @@
-# Remora — whale single-position mirror. A single-instance PACKAGE: this manifest +
-# one self-contained runtime.yaml + scanners/. A faithful Runtime 3.0 port of the v2
-# Remora (SKILL.md v1.0.0): mirrors a small, hand-picked set of whale traders — takes
-# each whale's highest-conviction (largest-notional) open position, aggregates across
-# whales into (asset, direction) candidates, scores by consensus + whale quality, and
-# mirrors the strongest. Let-winners-run DSL with a 120h staleness cap. No fixed
-# universe — the assets come from whatever the configured whales hold. Install/teardown
-# via senpi-strategy-ops.
+# Remora — autonomous smart-money whale mirror. A single-instance PACKAGE: this
+# manifest + one self-contained runtime.yaml + scanners/. Runtime 3.0. AUTONOMOUS
+# OUT OF THE BOX: with no config it auto-builds a cohort of proven top traders and
+# mirrors their highest-conviction positions; optionally name specific whales via
+# inputs.whales to mirror exactly those. Each tick it takes each whale's
+# highest-conviction (largest-notional) open position, aggregates across whales into
+# (asset, direction) candidates, scores by consensus + whale quality, and mirrors the
+# strongest 1-2. Let-winners-run DSL with a 120h staleness cap. No fixed universe —
+# the assets come from whatever the resolved whales hold. Mirror math verbatim from
+# the v2 Remora producer; cohort engine reused from WhaleHunter. Install/teardown via
+# senpi-strategy-ops.
 schema_version: 1
 
 id: remora
-version: "1.0.0"
+version: "1.1.0"
 
 catalog:
-  name: "Remora — Whale Single-Position Mirror"
+  name: "Remora — Autonomous Smart-Money Whale Mirror"
   emoji: "🐟"
-  tagline: "Rides a small, hand-picked set of whale traders the way a remora fish rides a shark: each tick it takes each whale's highest-conviction open position and mirrors the strongest, leaning hardest when several whales pile into the same trade (consensus) or when a whale is ELITE/RELIABLE tier."
-  belief_plain: "You name a few whale traders you trust. Remora watches their open positions, finds each one's biggest bet, and copies the single strongest one — betting bigger when several of your whales are in the same trade and one of them has an elite track record. Then it trails a wide stop so the trade can run."
-  thesis: "The broad trader-followers scan a leaderboard and synthesize an opaque pick. Remora is the opposite: YOU choose whom to ride. Mirroring one whale's single highest-conviction position keeps your exposure tracking specific traders you trust, and the consensus multiplier means it leans hardest exactly when those whales independently agree — one whale can be wrong, three agreeing is a much stronger signal. Whales hold winners, so the exit lets the mirror run and only caps staleness."
+  tagline: "Autonomous smart-money whale mirror — auto-builds a top-trader cohort and mirrors their highest-conviction positions; optionally mirror specific whales you name via inputs.whales. Like a remora fish riding a shark, it leans hardest when several whales pile into the same trade (consensus) or when a whale is ELITE/RELIABLE tier."
+  belief_plain: "Out of the box, Remora finds the most proven traders on Hyperliquid, watches their open positions, and copies the strongest bets — betting bigger when several of them are in the same trade and one has an elite track record. Prefer to ride specific traders you trust? Name them and Remora mirrors exactly those instead. Either way it trails a wide stop so the trade can run."
+  thesis: "Riding the highest-conviction position of proven traders keeps your exposure tracking real smart money, and the consensus multiplier means it leans hardest exactly when those traders independently agree — one whale can be wrong, three agreeing is a much stronger signal. By default Remora is autonomous: it auto-builds a top-trader cohort (all-time realized PnL, refreshed daily) so it always has whales to mirror — no config required. Name your own whales to make it ride exactly the traders you choose. Whales hold winners, so the exit lets the mirror run and only caps staleness."
   group: smart-money
   archetype: copy_trading
   sub_style: named_whales
@@ -26,10 +29,10 @@ catalog:
   risk_level: moderate
   tier: advanced
   leverage_max: 10
-  max_slots: 1
+  max_slots: 2
   min_budget: 100
   assets: []
-  tags: [whale, mirror, copy-trading, named-whales, consensus, let-winners-run, follows-traders]
+  tags: [whale, mirror, copy-trading, named-whales, smart-money, autonomous, consensus, let-winners-run, follows-traders]
 
 requires:
   runtime: ">=3.0.0"
