@@ -1,17 +1,23 @@
 """REMORA — pure whale-mirror math (no I/O, no MCP, no clock).
 
 A faithful Runtime 3.0 port of the v2 Remora producer's pure mirror logic
-(remora-producer.py v1.0.1). Every function here is reproduced VERBATIM from the
-v2 producer so a fidelity harness can diff this against v2 on the same whale
-position snapshot. These are the functions v2 unit-tested in tests/test_signal.py:
-position_notional, mirror_direction, position_asset, top_position,
-consensus_bonus, plus the candidate aggregation/scoring.
+(remora-producer.py v1.0.1). The mirror functions here are reproduced VERBATIM
+from the v2 producer so a fidelity harness can diff this against v2 on the same
+whale position snapshot. These are the functions v2 unit-tested in
+tests/test_signal.py: position_notional, mirror_direction, position_asset,
+top_position, consensus_bonus, plus the candidate aggregation/scoring.
 
-Remora rides a small, hand-picked set of whale traders: take each whale's
-highest-conviction (largest-notional) open position, aggregate across whales into
-(asset, direction) candidates, and score by consensus (how many whales agree) +
-whale quality. The MCP fetches (whale positions, whale tier) are done by the
-caller (scan.py) and passed in, so this module stays pure and unit-testable.
+Remora rides a set of whale traders: take each whale's highest-conviction
+(largest-notional) open position, aggregate across whales into (asset, direction)
+candidates, and score by consensus (how many whales agree) + whale quality. The
+whale set is EITHER the operator's hand-picked override (inputs.whales) OR — by
+default — an auto-built smart-money cohort. The cohort PARSING helper below
+(`realized`, used by the scan's cohort builder) is reused VERBATIM from
+WhaleHunter's scoring module so the two strategies bucket top traders
+identically; the discovery shapes are token-gated, so the field accessors are
+copied, not invented. The MCP fetches (top-trader pages, whale positions, whale
+tier) are done by the caller (scan.py) and passed in, so this module stays pure
+and unit-testable.
 """
 
 # Whale-quality tiers that earn the discovery_get_trader_state bonus
@@ -24,6 +30,12 @@ DEFAULT_LEVERAGE = 4
 DEFAULT_MIN_SCORE = 4
 DEFAULT_MIN_NOTIONAL_USD = 5000   # ignore dust positions
 
+# Auto-cohort defaults (mirror WhaleHunter's smart-money cohort engine). Used by
+# scan._build_cohort when inputs.whales is empty so Remora is autonomous OOTB.
+DEFAULT_COHORT_SIZE = 10          # top N proven traders to mirror by default
+DEFAULT_COHORT_REFRESH_HOURS = 24
+COHORT_CACHE_VERSION = 1          # bump if cohort-BUILDING logic changes (busts a stale cache)
+
 
 def safe_float(v, default=0.0):
     """Verbatim from v2 safe_float."""
@@ -31,6 +43,36 @@ def safe_float(v, default=0.0):
         return float(v if v is not None else default)
     except (TypeError, ValueError):
         return default
+
+
+# ── cohort-build parsing (reused VERBATIM from WhaleHunter/scoring.py) ──
+
+def realized(t):
+    """LIFETIME realized PnL for a top-trader dict — reused VERBATIM from
+    WhaleHunter's scoring.realized so Remora ranks the auto-cohort identically.
+    Never falls back to total PnL (realized+unrealized), which is not monotonic
+    with the realized-PnL sort and mis-ranks the cohort. Token-gated discovery
+    shape — accessors copied, not invented."""
+    def _f(x, *keys, default=0.0):
+        if not isinstance(x, dict):
+            return default
+        for k in keys:
+            if x.get(k) is not None:
+                try:
+                    return float(x[k])
+                except (TypeError, ValueError):
+                    continue
+        return default
+    return _f(t, "realizedProfitAndLoss", "realized_profit_and_loss",
+              "profit_and_loss_realized", "realizedPnl", "realized_pnl", default=0.0)
+
+
+def trader_address(t):
+    """Lower-cased wallet/trader address from a top-trader dict, or "" — reused
+    VERBATIM from WhaleHunter's cohort-build accessor (token-gated shape)."""
+    if not isinstance(t, dict):
+        return ""
+    return (t.get("address") or t.get("trader_address") or "").lower()
 
 
 def position_notional(pos):

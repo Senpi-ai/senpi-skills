@@ -3725,17 +3725,19 @@
     },
     {
       "id": "remora",
-      "name": "Remora — Whale Single-Position Mirror",
+      "name": "Remora — Autonomous Smart-Money Whale Mirror",
       "emoji": "🐟",
-      "tagline": "Rides a small, hand-picked set of whale traders the way a remora fish rides a shark: each tick it takes each whale's highest-conviction open position and mirrors the strongest, leaning hardest when several whales pile into the same trade (consensus) or when a whale is ELITE/RELIABLE tier.",
-      "belief_plain": "You name a few whale traders you trust. Remora watches their open positions, finds each one's biggest bet, and copies the single strongest one — betting bigger when several of your whales are in the same trade and one of them has an elite track record. Then it trails a wide stop so the trade can run.",
-      "version": "1.0.0",
-      "thesis": "The broad trader-followers scan a leaderboard and synthesize an opaque pick. Remora is the opposite: YOU choose whom to ride. Mirroring one whale's single highest-conviction position keeps your exposure tracking specific traders you trust, and the consensus multiplier means it leans hardest exactly when those whales independently agree — one whale can be wrong, three agreeing is a much stronger signal. Whales hold winners, so the exit lets the mirror run and only caps staleness.",
+      "tagline": "Autonomous smart-money whale mirror — auto-builds a top-trader cohort and mirrors their highest-conviction positions; optionally mirror specific whales you name via inputs.whales. Like a remora fish riding a shark, it leans hardest when several whales pile into the same trade (consensus) or when a whale is ELITE/RELIABLE tier.",
+      "belief_plain": "Out of the box, Remora finds the most proven traders on Hyperliquid, watches their open positions, and copies the strongest bets — betting bigger when several of them are in the same trade and one has an elite track record. Prefer to ride specific traders you trust? Name them and Remora mirrors exactly those instead. Either way it trails a wide stop so the trade can run.",
+      "version": "1.1.0",
+      "thesis": "Riding the highest-conviction position of proven traders keeps your exposure tracking real smart money, and the consensus multiplier means it leans hardest exactly when those traders independently agree — one whale can be wrong, three agreeing is a much stronger signal. By default Remora is autonomous: it auto-builds a top-trader cohort (all-time realized PnL, refreshed daily) so it always has whales to mirror — no config required. Name your own whales to make it ride exactly the traders you choose. Whales hold winners, so the exit lets the mirror run and only caps staleness.",
       "tags": [
         "whale",
         "mirror",
         "copy-trading",
         "named-whales",
+        "smart-money",
+        "autonomous",
         "consensus",
         "let-winners-run",
         "follows-traders"
@@ -3761,7 +3763,7 @@
       "funding_split": [
         1.0
       ],
-      "max_slots": 1,
+      "max_slots": 2,
       "branch": "strategy-v2",
       "sort_order": 9
     },
