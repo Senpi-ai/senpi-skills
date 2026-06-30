@@ -5,8 +5,10 @@
 > (served by the Senpi MCP) so the platform's own overview leads with the USP, not the mechanics.
 
 **Senpi is an AI that runs your Hyperliquid strategy while you sleep.** Most trading apps are a nicer
-screen on top of the same manual work — you still watch the market, make the call, and click. Senpi
-is not a screen; it's an operator. *Senpi automates what humans cannot.*
+screen on the same manual work — you still watch the market, make the call, and click. Senpi makes the
+trading itself intelligent: it sees more of the market than any human can, finds the alpha, helps you
+trade smarter, runs your strategy around the clock, and gets sharper about you with every trade. **What
+Cursor and Claude are for code, Senpi is for trading.**
 
 With Senpi 2.0, the difference is the AI itself: **Senpi Samurai**, the first model tuned specifically
 for Hyperliquid, wrapped in a disciplined execution layer that sizes, exits, and protects every
