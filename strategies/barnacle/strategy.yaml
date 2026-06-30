@@ -1,0 +1,46 @@
+# Barnacle — Index-inclusion / passive-flow front-runner. A single-instance PACKAGE:
+# this manifest + one self-contained runtime.yaml + scanners/. A NET-NEW Runtime 3.0
+# strategy (NOT a port). Thesis: when a stock is announced for ADD to a major index
+# (S&P 500 / Nasdaq-100 / Russell), index funds are FORCED to buy it by the rebalance
+# effective date — a predictable passive-buying wave that lifts price INTO the date.
+# Barnacle rides that flow on Hyperliquid XYZ equity perps and EXITS before the
+# rebalance (the pop fades once forced buying completes); DELETE events mirror as
+# shorts. The universe is CONFIG-DRIVEN (inputs.events) — there is no MCP feed for
+# index rebalances. Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: barnacle
+version: "1.0.0"
+
+catalog:
+  name: "Barnacle — Index-Inclusion Front-Runner"
+  emoji: "🦪"
+  tagline: "Front-runs index-rebalance flow on Hyperliquid XYZ equity perps: when a stock is announced for addition to the S&P 500 / Nasdaq-100 / Russell, index funds are FORCED to buy it by the effective date — Barnacle rides that predictable passive-buying wave into the date and sells into the inclusion before the rebalance completes. Index deletions mirror as shorts."
+  belief_plain: "When a company is announced for addition to a big index like the S&P 500, every index fund has to buy it before a set date — that forced buying reliably lifts the price into the date. Barnacle gets in early on the stock (as a perp on Hyperliquid XYZ), rides the run-up, and gets out just before the rebalance, because the pop usually fades once the forced buying is done. Index removals work the same way in reverse, as shorts. You give it the list of upcoming index changes; it trades only those names."
+  thesis: "Index-inclusion is one of the most-documented predictable flows in equities: passive funds tracking the S&P 500 / Nasdaq-100 / Russell MUST buy an added name by the rebalance effective date, regardless of price, producing an anticipatory run-up that front-runners capture and that fades after the forced buying completes. Hyperliquid XYZ lists these equities as leveraged perps, so the flow is tradeable both directions (additions long, deletions short). There is no market data feed for index events, so the universe is operator-supplied (inputs.events); the agent only trades the configured names, only inside the anticipation window, only when the passive-flow signature confirms, and it deliberately exits BEFORE the effective date rather than holding through the rebalance."
+  group: event-driven
+  archetype: event_driven
+  sub_style: index_inclusion
+  asset_classes: [xyz_equities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 3
+  min_budget: 200
+  assets: ["xyz:SPCX"]
+  tags: [index-inclusion, index-rebalance, passive-flow, front-running, sp500, nasdaq100, russell, event-driven, xyz, equities, long-short, calendar]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: BARNACLE_WALLET
+    funding_share: 1.0

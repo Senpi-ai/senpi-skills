@@ -94,6 +94,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   breakout:      { gloss: "Enters on a clean breakout of structure." }
   confluence_sniper: { gloss: "Fires only when multiple timeframes/factors line up." }
   parabolic_runner: { gloss: "Rides parabolic runs with a very wide let-winners-run exit." }
+  sector_momentum: { gloss: "Rides a whole sector / supply chain only when its breadth confirms; won't chase a lone name." }
   # structural_neutral
   cross_asset_lag: { gloss: "Trades an alt that lags a BTC move." }
   cross_venue_lag: { gloss: "Trades crypto-stocks that lag a BTC move." }
@@ -104,6 +105,7 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   crisis_alpha:  { gloss: "Convex crisis hedge that pays off in tail / vol events." }
   # event_driven
   new_listing_event: { gloss: "Trades new-listing / IPO-conversion events around the listing." }
+  index_inclusion: { gloss: "Front-runs index additions/deletions for the forced passive-fund flow into the rebalance effective date." }
 
 asset_classes:    # declared per strategy; same vocabulary normalizes user-named assets
   btc_eth:        { label: "BTC & ETH", gloss: "BTC and/or ETH — the bluest chips.", user_signals: ["btc","eth","bitcoin","ethereum"] }

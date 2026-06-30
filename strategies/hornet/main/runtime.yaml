@@ -1,0 +1,170 @@
+# ── HORNET · single instance — semiconductor / AI-capex supply-chain momentum ──
+# Net-new Runtime 3.0 strategy (NOT a port). A 16-name semis basket on Hyperliquid
+# XYZ (HIP-3 DEX) grouped into supply-chain sub-groups (equipment / logic / memory).
+# THE EDGE: requires the SECTOR to confirm as a COMPLEX before taking any name —
+# "the chain bids together or not at all." A cross-asset BREADTH GATE (fraction of
+# the universe whose 4h trend is bullish) decides LONG-only / SHORT-only / WAIT;
+# only then are names scored in the gate direction. Flat 18% margin / 4x. DSL exits
+# — Phase 1 15% max_loss, Phase 2 wide ladder, hard_timeout 48h (equity perps have
+# a weekend pricing gap). Every market read passes dex="xyz".
+name: hornet-main
+group: hornet
+version: 1.0.0
+description: >
+  HORNET — semiconductor / AI-capex supply-chain momentum on Hyperliquid XYZ. A
+  16-name semis basket grouped into equipment (ASML/AMAT/MRVL), logic (NVDA/AMD/
+  AVGO/TSM/QCOM/ARM/INTC/SMH) and memory (MU/SNDK/SMSN/SKHX/WDC). The edge over a
+  per-name momentum agent: it requires the sector to confirm as a complex first.
+  Each tick it computes sector breadth (fraction of the universe whose 4h trend is
+  bullish) and applies a breadth gate: breadth >= 0.55 -> only LONGs eligible;
+  breadth <= 0.35 -> only SHORTs eligible; chop in between -> emit nothing. Eligible
+  names are scored in the gate direction (base 3 + 4h trend + 1h confirm + |momentum|
+  tier + smart-money agreement + a supply-chain-gradient bonus when the equipment
+  sub-group leads — early-cycle confirmation); floor minScore 5. Emits the top 1-2.
+  Flat sizing 18% margin / 4x. DSL is the ONLY exit — Phase 1 15% max_loss, Phase 2
+  wide ladder (first lock at +10% ROE), hard_timeout 48h (equity perps reconcile
+  against an internal oracle over the Fri-Sun gap where drift accumulates).
+
+strategy:
+  wallet: "${HORNET_WALLET}"
+  slots: 3
+  margin_pct: 18                          # baseline %; scan emits the flat marginPct per signal
+  default_leverage: 4                     # fallback; scan emits 4x (clamped [1,5]) per signal
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: hornet_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # 5-min cadence
+    timeout_seconds: 240                   # ~1 candle read/name (16) + per-candidate SM + account
+    default_signal_validity_seconds: 600   # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
+    inputs:
+      universe: ["xyz:ASML", "xyz:AMAT", "xyz:MRVL", "xyz:NVDA", "xyz:AMD", "xyz:AVGO", "xyz:TSM", "xyz:QCOM", "xyz:ARM", "xyz:INTC", "xyz:SMH", "xyz:MU", "xyz:SNDK", "xyz:SMSN", "xyz:SKHX", "xyz:WDC"]  # validated live vs HL xyz meta 2026-06-30
+      subGroups:                           # name -> supply-chain sub-group (drives the gradient bonus)
+        "xyz:ASML": equipment
+        "xyz:AMAT": equipment
+        "xyz:MRVL": equipment
+        "xyz:NVDA": logic
+        "xyz:AMD": logic
+        "xyz:AVGO": logic
+        "xyz:TSM": logic
+        "xyz:QCOM": logic
+        "xyz:ARM": logic
+        "xyz:INTC": logic
+        "xyz:SMH": logic
+        "xyz:MU": memory
+        "xyz:SNDK": memory
+        "xyz:SMSN": memory
+        "xyz:SKHX": memory
+        "xyz:WDC": memory
+      dex: "xyz"                           # HIP-3 DEX — xyz: prefix mandatory on every read
+      minScore: 5                          # per-name score floor
+      longBreadthPct: 0.55                 # breadth >= -> LONG-only eligible (the core gate)
+      shortBreadthPct: 0.35                # breadth <= -> SHORT-only eligible
+      momStrongPct: 1.0                    # |1h momentum| tier: strong (+2)
+      momModeratePct: 0.5                  # |1h momentum| tier: moderate (+1)
+      marginPctBase: 18                    # PERCENT of withdrawable (0,100]; flat
+      leverage: 4                          # clamped to [1,5] in scan.py
+      maxEmit: 2                           # emit the top 1-2 by score
+      recentSignalTtlSeconds: 240          # race-window dedup
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      subGroup: { type: string, required: false }
+      reasons: { type: array, required: false }
+      sectorBreadth: { type: number, required: false }
+      gateDir: { type: string, required: false }
+      equipmentLeading: { type: boolean, required: false }
+      trend4h: { type: string, required: false }
+      trend4hStrength: { type: number, required: false }
+      trend1h: { type: string, required: false }
+      momentum1hPct: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smTiltPct: { type: number, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: hornet_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied breadth gate + scoring + dedup
+    scanners: [hornet_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # momentum entries must fill — maker-only rests unfilled (CREATE_ORDER_RESTING)
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: hornet_main_signals
+
+# ── EXIT (DSL — the ONLY exit) ────────────────────────────────────────────────
+# Equity two-phase shape (matches bobcat): Phase 1 max_loss 15% + retrace 8; Phase 2
+# wide-by-design ladder (T0 +10%/lock 0 through T5 +100%/lock 85) so a real sector
+# move rides multi-day; weak_peak_cut + dead_weight_cut DISABLED. hard_timeout ENABLED
+# at 48h (2880 min) — INTENTIONAL for equities: the post-Friday-close -> pre-Sunday-
+# reopen window is where internal-oracle drift accumulates without external price
+# discovery, so positions must not camp through the full gap.
+# order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST happen). interval 60s
+# (REDUCE_ONLY-spam mitigation when runtime position state lags HL).
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # exit closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 30
+  dsl_preset:
+    hard_timeout:
+      enabled: true                        # 48h cap — equities have weekend pricing gaps
+      interval_in_minutes: 2880
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 60
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # wide-by-design; FIRST lock at +10% ROE
+        - { trigger_pct: 10,  lock_hw_pct: 0  }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
+
+# ── RISK guard rails (minutes/hours -> seconds) ──
+risk:
+  data_retention_seconds: 259200           # 72h (in [3600,604800])
+  guard_rails:
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 4
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 3600                  # 60m post-loss cooldown
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400       # 4h per-asset cooldown
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
