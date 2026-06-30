@@ -3525,6 +3525,68 @@
       "sort_order": 4
     },
     {
+      "id": "hyena",
+      "name": "Hyena — Risk-Off Crypto Short (Hedge Sleeve)",
+      "emoji": "🐺",
+      "tagline": "A short-only crypto defense sleeve on majors (BTC/ETH/SOL/HYPE) plus crypto-proxy equities (xyz:MSTR/COIN/CRCL): shorts the block ONLY when risk-off confirms — the market-wide funding regime is LONG_CROWDED (crowded longs = squeeze fuel), smart money is rotating OUT of the name, and the 4h trend is breaking down. Conservative 4x, tight short-side DSL, 30h cap because squeezes resolve fast. CAVEAT: this is a hedge that pairs with long crypto exposure — it idles and emits nothing whenever risk-off conditions are not met.",
+      "belief_plain": "Most of the time the safe trade on crypto is no trade. But when the best traders are all crowded long, smart money starts rotating out, and price begins rolling over together, that crowded long is fuel for a squeeze to the downside. Hyena bets against that exhausted crowd — short only — on Bitcoin, Ether, Solana, HYPE, and the crypto-proxy stocks MicroStrategy, Coinbase and Circle. It is a defense sleeve you run alongside your long crypto bets to cushion a downturn; when the risk-off picture is not there, it does nothing and waits.",
+      "version": "1.0.0",
+      "thesis": "The fleet has no dedicated short-biased crypto agent — every directional engine is long-or-long/short, so there is no clean defensive sleeve for a risk-off turn. Hyena fills that gap. It treats the market-wide funding regime as a master gate: it only opens new shorts when funding shows the crowd is one-sided LONG (LONG_CROWDED), because a crowded long is the squeeze that a short monetizes. On top of that gate it requires, per name, that smart money is net-SHORT (rotating out) AND that the 4h structure is making lower highs (price confirming the unwind). All three must agree, so it sits idle in normal markets and only acts on genuine risk-off confluence. It is short_only by design — a hedge meant to be paired with long crypto exposure, sized conservatively (15% margin, 4x) with a tight short-side DSL and a 30h hold cap because short squeezes resolve fast.",
+      "tags": [
+        "short-only",
+        "hedge",
+        "risk-off",
+        "defense",
+        "funding-regime",
+        "smart-money",
+        "rotation",
+        "contrarian",
+        "crypto-proxy",
+        "btc",
+        "eth",
+        "sol",
+        "hype",
+        "mstr",
+        "coin",
+        "crcl",
+        "idles-when-uncertain"
+      ],
+      "group": "smart-money",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "risk_off_rotation",
+      "sub_style_label": "Shorts the crypto block when smart money rotates out and longs are crowded — a risk-off hedge.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE",
+        "xyz:MSTR",
+        "xyz:COIN",
+        "xyz:CRCL"
+      ],
+      "direction": "short_only",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 5
+    },
+    {
       "id": "marlin",
       "name": "Marlin — Order-Book Imbalance Momentum",
       "emoji": "🐟",
@@ -3573,7 +3635,52 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 5
+      "sort_order": 6
+    },
+    {
+      "id": "oxpecker",
+      "name": "Oxpecker — Elite-Conviction Concentrated Mirror",
+      "emoji": "🐦",
+      "tagline": "Maintains a daily-refreshed pool of the most consistent (ELITE/RELIABLE) Hyperliquid traders, reads each one's open book, and mirrors ONLY their single highest-conviction bet — and only when that one position dominates their whole book (e.g. ~98% of capital in one 3x position). Leans hardest when several elite traders independently pile into the same concentrated trade.",
+      "belief_plain": "Looks past the leaderboard noise and keeps a shortlist of the steadiest, most-proven traders on Hyperliquid. Instead of copying everything they do, Oxpecker copies only the trade they're betting their whole book on — the one position that makes up most of their capital. When more than one of those proven traders is all-in on the same trade in the same direction, it bets harder, then trails a wide stop so the conviction can run.",
+      "version": "1.0.0",
+      "thesis": "A proven trader's signal is loudest exactly when they concentrate. Cohort copiers average a pool and whale mirrors ride a fixed name list; Oxpecker does neither — it screens for the highest consistency tier (ELITE/RELIABLE) and then, within that elite set, only acts on positions that represent real conviction: where one bet is the overwhelming majority of the trader's book. A reliable trader with ~98% of their capital in one short is telling you something an opaque cohort average buries. Quality-tier x position-concentration is the whole edge — consensus across multiple elite traders on the same concentrated trade is the strongest signal there is, and the wide let-winners-run DSL respects that conviction rather than scalping it.",
+      "tags": [
+        "copy-trading",
+        "smart-money",
+        "elite",
+        "conviction",
+        "concentration",
+        "consensus",
+        "quality-tier",
+        "follows-traders",
+        "let-winners-run",
+        "long-short"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "elite_conviction",
+      "sub_style_label": "Mirrors only top-tier (elite/reliable) traders' concentrated, high-conviction positions.",
+      "asset_classes": [
+        "none"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 7
     },
     {
       "id": "raptor",
@@ -3614,7 +3721,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 6
+      "sort_order": 8
     },
     {
       "id": "remora",
@@ -3656,7 +3763,7 @@
       ],
       "max_slots": 1,
       "branch": "strategy-v2",
-      "sort_order": 7
+      "sort_order": 9
     },
     {
       "id": "roach",
@@ -3700,7 +3807,54 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 8
+      "sort_order": 10
+    },
+    {
+      "id": "stingray",
+      "name": "Stingray — Cross-Asset Smart-Money Rotation",
+      "emoji": "🐠",
+      "tagline": "Reads the entire smart-money board every tick, ranks every asset by net smart-money conviction (tilt x notional x breadth), then rides the rotation — LONG the assets the best traders are crowding into and SHORT the ones they're fleeing, gated by price so it never fights a hard trend. Captures days like 'long semis/indices, short the crypto block'.",
+      "belief_plain": "Most copy-trading bots ask 'are the best traders long this one coin?'. Stingray instead looks at the whole market at once and asks 'what are the best traders rotating INTO, and what are they rotating OUT OF?'. It buys the crowd's new favorites and sells the ones they're abandoning — but only when the price chart isn't already screaming the other way — then trails a wide stop so a real rotation can run for days.",
+      "version": "1.0.0",
+      "thesis": "Smart money doesn't just pick coins, it rotates capital across the whole board — out of one asset class and into another. Per-asset copy-traders miss this because they evaluate each market in isolation; they can't see that the SAME flow leaving crypto is funding the bid in indices. Stingray ranks the entire board by net tilt (long_ratio - 50) weighted by notional and trader breadth, so a strong, deep, widely-held lean outranks a thin spike, then takes BOTH sides at once — long the inflows, short the outflows — for a market-neutral-ish rotation book. A price-confirmation gate (no longs into a hard 4h downtrend, no shorts into a hard uptrend) keeps it from fighting price, and a DSL ratchet lets the winning legs run while cutting the losers.",
+      "tags": [
+        "smart-money",
+        "rotation",
+        "cross-asset",
+        "copy-trading",
+        "long-short",
+        "universe-scanner",
+        "net-tilt",
+        "conviction-weight",
+        "let-winners-run"
+      ],
+      "group": "smart-money",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "sm_rotation",
+      "sub_style_label": "Follows where smart money is rotating across asset classes — long the crowded-into, short the fled.",
+      "asset_classes": [
+        "universe_crypto",
+        "xyz_equities",
+        "commodities",
+        "indices"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 4,
+      "branch": "strategy-v2",
+      "sort_order": 11
     },
     {
       "id": "whalehunter",
@@ -3743,7 +3897,7 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 9
+      "sort_order": 12
     },
     {
       "id": "osprey",

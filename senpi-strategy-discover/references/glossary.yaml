@@ -70,12 +70,15 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   funding_extreme: { gloss: "Fades extreme funding rates." }
   xyz_overextended: { gloss: "Fades overextended stocks/commodities." }
   crowd_exhaustion: { gloss: "Fades a crowded one-sided move once it shows exhaustion." }
+  risk_off_rotation: { gloss: "Shorts the crypto block when smart money rotates out and longs are crowded — a risk-off hedge." }
   # copy_trading
   arena_winners: { gloss: "Copies multi-week arena winners, not one-week wonders." }
   hot_streak:    { gloss: "Copies whoever is hot in the live window." }
   named_whales:  { gloss: "Mirrors specific hand-picked whales." }
   copy_the_copiers: { gloss: "Follows the best-performing strategies automatically." }
   cohort_divergence: { gloss: "Acts when a smart-money cohort diverges from price." }
+  sm_rotation: { gloss: "Follows where smart money is rotating across asset classes — long the crowded-into, short the fled." }
+  elite_conviction: { gloss: "Mirrors only top-tier (elite/reliable) traders' concentrated, high-conviction positions." }
   # single_market
   pre_ipo:       { gloss: "Trades pre-IPO perpetuals (IPOPs) before the company lists." }
   ipo_moment:    { gloss: "Trades the IPO conversion moment." }

@@ -1,0 +1,162 @@
+# ── OXPECKER · single instance — elite-conviction concentrated mirror ─────────
+# NET-NEW Runtime 3.0 strategy (NOT a v2 port). COPY-TRADER / TRADER-FOLLOWER.
+# Maintains a daily-refreshed pool of the most consistent Hyperliquid traders
+# (discovery_get_top_traders, consistency ELITE/RELIABLE, cached ~24h in ctx.state
+# like Jackal), reads each pooled trader's open book (discovery_get_trader_state),
+# takes their LARGEST-notional position, and mirrors ONLY positions whose
+# concentration (largest notional / total notional) >= minConcentration. Aggregates
+# into (asset, direction) candidates weighted by trader quality x concentration
+# (consensus across multiple elite traders = stronger), emits the top 1-2. Direction
+# comes from the mirrored position; leverage mirror-capped to [1,5]. Let-winners-run
+# DSL with a 72h hard_timeout staleness cap (the whale-exit mirror is a future
+# enhancement). decision_mode: rule — the scan already applied every filter.
+name: oxpecker-main
+group: oxpecker
+version: 1.0.0
+description: >
+  OXPECKER — elite-conviction concentrated mirror. A copy-trader that keeps a
+  daily-refreshed pool of the most consistent Hyperliquid traders (ELITE/RELIABLE
+  via discovery_get_top_traders consistency filter), reads each pooled trader's open
+  positions (discovery_get_trader_state), takes their single largest-notional
+  position, and mirrors ONLY the ones where that position dominates the trader's
+  whole book (concentration = largest notional / total notional >= minConcentration,
+  default 0.5). Aggregates into (asset, direction) candidates weighted by trader
+  quality x concentration — consensus across multiple elite traders on the same
+  concentrated trade is the strongest signal — and emits the top 1-2 highest-
+  conviction mirrors. Direction mirrored from the position; leverage clamped to
+  [1,5]. Long/short, derived universe (coins come from what elite traders hold).
+  Producer enters only — the DSL owns exits: let-winners-run preset (wide ladder,
+  first lock at +10% ROE, max_loss 20%) with a 72h hard_timeout staleness cap.
+
+strategy:
+  wallet: "${OXPECKER_WALLET}"
+  slots: 2                                  # emit up to 2 highest-conviction mirrors
+  margin_pct: 15                            # baseline %; scan emits the conviction-scaled marginPct per signal
+  default_leverage: 3                       # fallback; scan emits the mirror-capped leverage [1,5]
+  trading_risk: aggressive
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: oxpecker_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                    # elite-conviction positions change slowly (5 min)
+    timeout_seconds: 180                     # pool fetch (cached) + batched trader-state reads + account
+    default_signal_validity_seconds: 600     # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 50              # cohort cache + dedup map + per-tick scan-results history
+    inputs:
+      # ── pool (discovery_get_top_traders, consistency ELITE/RELIABLE, cached ~24h) ──
+      poolSize: 30                           # keep top-N quality traders in the pool
+      poolFetchLimit: 60                     # overfetch then filter to ELITE/RELIABLE
+      poolRefreshHours: 24                   # daily refresh cadence (cached in ctx.state)
+      poolTimeFrame: "MONTHLY"               # discovery_get_top_traders time_frame
+      poolSortBy: "RETURN_ON_INVESTMENT"     # discovery_get_top_traders sort_by
+      qualityTiers: ["ELITE", "RELIABLE"]    # consistency (TCS) filter — only the top quality tiers
+      minQualityScore: 0.0                   # optional numeric tcsValue floor (0 => tier label is the gate)
+      # ── concentration gate ──
+      minConcentration: 0.5                  # largest position notional / total notional >= this (default 0.5)
+      minNotionalUsd: 5000                   # ignore dust positions when ranking the largest
+      # ── scoring / dedup ──
+      minScore: 4                            # producer floor (base 3 + concentration/consensus/tier bonuses)
+      maxEmit: 2                             # emit up to the top-N highest-conviction mirrors
+      recentSignalTtlSeconds: 300            # race-window dedup: don't re-fire a coin+dir while in flight
+      # ── sizing ──
+      marginPct: 15                          # PERCENT of withdrawable (0,100]; conviction-scaled by score
+      maxMarginPct: 25                       # cap for conviction scaling
+      convictionMarginScale: 0.0             # 0 => flat base marginPct; >0 opts into score-scaled margin
+      leverage: 3                            # mirror default; clamped to [1,5] in scan.py
+      minLeverage: 1                         # MIN_LEVERAGE clamp
+      maxLeverage: 5                         # MAX_LEVERAGE clamp (also venue-capped by the runtime)
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      concentration: { type: number, required: false }
+      maxConcentration: { type: number, required: false }
+      traderCount: { type: number, required: false }
+      maxNotionalUsd: { type: number, required: false }
+      eliteTier: { type: boolean, required: false }
+      qualityScore: { type: number, required: false }
+      sourceTraders: { type: array, required: false }
+      heldAssets: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: oxpecker_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                      # the scan already applied every filter (quality + concentration + score)
+    scanners: [oxpecker_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true      # mirror the elite trader's live exposure now — a maker order that
+                                             # rests (CREATE_ORDER_RESTING) drifts from the conviction entry
+        execution_timeout_seconds: 30
+    context:
+      - type: signal
+        scanner: oxpecker_main_signals
+
+# ── EXIT (DSL — let-winners-run preset) ───────────────────────────────────────
+# Elite traders concentrate into winners and hold them, so the mirror must breathe:
+# wide ladder (T0 +10% / lock 0), max_loss 20%, time-cuts OFF except a hard_timeout
+# staleness cap. Oxpecker does not yet mirror the trader's EXIT, so the 72h timeout
+# prevents holding a stale concentrated mirror indefinitely (a trader-exit mirror is
+# a future enhancement). NO weak_peak_cut / dead_weight_cut. First Phase-2 lock at
+# +10% ROE (reachable — not the >+40% unreachable pattern). phase2.tiers present.
+exit:
+  engine: dsl
+  interval_seconds: 60
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true          # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    hard_timeout:
+      enabled: true
+      interval_in_minutes: 4320              # 72h staleness cap (trader's exit is not yet mirrored)
+    weak_peak_cut:
+      enabled: false
+      interval_in_minutes: 360
+      min_value: 3.0
+    dead_weight_cut:
+      enabled: false
+      interval_in_minutes: 60
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 10
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                                 # wide-by-design; FIRST lock at +10% ROE (reachable)
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 45 }
+        - { trigger_pct: 35, lock_hw_pct: 65 }
+        - { trigger_pct: 55, lock_hw_pct: 78 }
+        - { trigger_pct: 90, lock_hw_pct: 88 }
+
+# ── RISK guard rails (seconds) ──
+risk:
+  data_retention_seconds: 259200             # 72h (within [3600, 604800])
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 4
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 5400                    # post-loss cooldown 90m
+    drawdown_halt_pct: 22
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 14400         # 4h per-asset cooldown
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
