@@ -11,7 +11,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.0.1"
+  version: "1.0.2"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -48,25 +48,22 @@ fees, builder-fee bps, or a bulleted feature catalog.
 ## The three proof pillars (in this order)
 
 **1. It reads the whole market — and finds alpha humans miss.**
-Senpi watches the entire book in real time: which traders are actually profiting right now (a live
-"who's making money" view), where the most-profitable wallets are positioned versus the crowd, and
-which markets smart money is rotating into. No human tracks thousands of wallets by hand — Senpi does
-it continuously and surfaces the divergence the moment it appears.
+Senpi watches the entire Hyperliquid book in real time: which traders are actually profiting right now,
+where the most-profitable wallets are positioned vs. the crowd, and where smart money is rotating. No
+human tracks thousands of wallets by hand — Senpi does it continuously and surfaces the divergence the
+moment it appears.
 
 **2. It runs the strategy 24/7 — and protects the position.**
-This is the moat. Senpi doesn't just signal; it *operates*: conviction-weighted sizing off your live
-account, ratcheting trailing stops that lock gains as they grow, turnover brakes that stop fee-bleed,
-and **circuit breakers** that halt trading on a bad day, a deep drawdown, or whenever risk is unclear —
-all enforced every tick. It works while you sleep, and it's built to protect capital first.
+This is the moat. Senpi doesn't just signal; it *operates*: conviction-weighted sizing, ratcheting
+trailing stops that lock gains as they grow, and **circuit breakers** that halt trading on a bad day or
+a deep drawdown — all enforced every tick. Built to protect capital first.
 
-**3. You describe it in plain English — Senpi builds and runs it.**
-Tell Senpi the *thesis*, in your own words — *"bet the AI sector keeps booming, hedge it with crypto,"*
-*"bet the Middle East conflict escalates rather than de-escalates,"* *"build me a strategy for a
-K-shaped market — winners win big, losers lose large"* — and it stands up the
-strategy, sizes it, and runs it. A single trade or a whole AI-run hedge fund; you don't write a config,
-you describe the thesis. Prefer to follow proven traders instead? Mirror any Hyperliquid trader — vet
-their real track record and dry-run exactly what would open before committing a dollar. Either way
-you stay in control, and every Senpi trade is public and verifiable onchain. No black box.
+**3. You describe the thesis in plain English — Senpi builds and runs it.**
+Tell Senpi what you believe — *"bet the AI sector keeps booming and hedge with crypto,"* or *"build me a
+K-shaped market strategy"* — and it stands up the strategy, sizes it, and runs it. No config files, no
+scripting. Prefer to follow proven traders instead? Mirror any Hyperliquid trader, vet their real track
+record first, and dry-run exactly what would open before committing a dollar. Either way, every trade is
+public and verifiable onchain — no black box.
 
 ## Supporting facts (proof, not the lead — only after the pillars)
 
