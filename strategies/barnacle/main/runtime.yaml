@@ -1,36 +1,41 @@
-# ── BARNACLE · single instance — index-inclusion / passive-flow front-runner ──
-# NET-NEW Runtime 3.0 strategy (NOT a port). Thesis: when a stock is announced for
-# ADD to a major index (S&P 500 / Nasdaq-100 / Russell), index funds are FORCED to
-# buy it by the rebalance effective date — a predictable passive-buying wave that
-# lifts price INTO the date. Barnacle rides that anticipatory flow on Hyperliquid XYZ
-# equity perps from detection up to ~the effective date, then EXITS before the
-# rebalance (sell into the inclusion; the pop often fades once forced buying
-# completes). DELETE events mirror as SHORTS (forced selling into the date).
+# ── BARNACLE · single instance — autonomous stealth-accumulation / decoupler ──
+# AUTONOMOUS detector — NO operator calendar, NO event feed. Index inclusions, M&A
+# targets, and catalyst run-ups all leave the SAME fingerprint visible in the tape
+# WITHOUT knowing the catalyst: a name DECOUPLING from the broad market on
+# persistent, rising volume with shallow (bought) dips — relentless accumulation,
+# not a one-bar spike. Barnacle detects that footprint from market data alone and
+# rides it; the DSL owns the exit (no event date needed). LONG up-accumulation,
+# SHORT down-distribution.
 #
-# CONFIG-DRIVEN UNIVERSE: there is no MCP feed for index-rebalance events, so the
-# operator supplies them in scanners.inputs.events as {asset, effectiveDate, side,
-# index}. The default events list is an EXAMPLE — replace it with the live schedule.
-# The scan trades ONLY the names in inputs.events. xyz: prefix mandatory (HIP-3 DEX).
+# Universe = the LIVE Hyperliquid xyz board (market_list_instruments(dex="xyz")),
+# filtered to liquid names (24h notional volume >= minVolUsd) with the broad-market
+# benchmark (xyz:XYZ100) excluded. Per tick: read the benchmark once, score every
+# non-held candidate's decoupling footprint, emit the top 1-2 by score. xyz: prefix
+# mandatory for the HIP-3 DEX. benchmarkAsset xyz:XYZ100 validated live vs HL xyz
+# meta 2026-06-30 (max_leverage 30, not delisted, dayNtlVlm ~$361M); fallback
+# xyz:SP500 also validated live (max_leverage 50).
 name: barnacle-main
 group: barnacle
 version: 1.0.0
 description: >
-  BARNACLE — index-inclusion / passive-flow front-runner on Hyperliquid XYZ equity
-  perps. Config-driven event universe (inputs.events: {asset, effectiveDate, side
-  add|delete, index}) — there is no MCP feed for index rebalances, the operator
-  supplies the schedule. Per tick it computes hours-to-effective-date for each
-  in-window event, rides ADDs LONG / DELETEs SHORT when the passive-anticipation
-  signature confirms (4h trend in-direction + rising 4h volume), sizes marginPct
-  scaled UP by proximity to the date (base 12% -> max 20%), leverage 4x (clamped
-  [1,5] + venue max). It STOPS emitting once within exitBufferHours (24h) of the
-  date — sell into the inclusion before the rebalance completes. DSL is the exit:
-  time-bounded hard_timeout covers the event window (~6d), Phase 1 12% max_loss,
-  Phase 2 first lock reachable (+8%). Net-new — sub_style index_inclusion.
+  BARNACLE — autonomous stealth-accumulation / decoupler on Hyperliquid XYZ
+  equity/commodity/index perps. NO operator calendar: it detects the catalyst
+  FOOTPRINT directly from market data — a name decoupling from the broad xyz
+  market (excess return vs xyz:XYZ100) on persistent rising 4h volume with shallow
+  (bought) dips, a relentless-accumulation grind rather than a one-bar spike. Per
+  tick it scans the live liquid xyz board, reads the benchmark once, and scores
+  each name: +excess tier (|name return - benchmark| >= 3%, sign sets direction),
+  +volume persistence, +shallow-dip grind, +4h/1h trend structure, +/- smart-money
+  nudge; floor minScore 5. Emits the top 1-2 by score. LONG up-accumulation, SHORT
+  down-distribution. Flat 15% margin / 4x (clamped [1,5] + venue max). DSL is the
+  ONLY exit — trend-following let-winners-run ladder (first lock at +10%),
+  hard_timeout 48h (equity perps have a weekend pricing gap). Net-new — sub_style
+  accumulation.
 
 strategy:
   wallet: "${BARNACLE_WALLET}"
-  slots: 3                                 # a few concurrent index events at once
-  margin_pct: 12                           # baseline %; scan emits the proximity-scaled marginPct per signal
+  slots: 3                                 # a few concurrent decouplers at once
+  margin_pct: 15                           # baseline %; scan emits the flat marginPct per signal
   default_leverage: 4                      # fallback; scan emits 4x (clamped [1,5] + venue max) per signal
   trading_risk: moderate
   enabled: true
@@ -43,37 +48,42 @@ scanners:
     type: external_scanner
     path: ./scanners
     entrypoint: scan.py
-    interval_seconds: 900                  # 15 min — event windows are days long; no need for fast cadence
-    timeout_seconds: 180                   # ~1 read/event + account read
-    default_signal_validity_seconds: 1800  # 2x tick; a fresh re-score arrives next tick
-    state_history_max_count: 50            # dedup map + per-tick scan-results history
+    interval_seconds: 600                  # 10 min — accumulation footprints build over days; no fast cadence
+    timeout_seconds: 180                   # account + 1 universe read + 1 benchmark + ~1 read/candidate + SM
+    default_signal_validity_seconds: 1200  # 2x tick; a fresh re-score arrives next tick
+    state_history_max_count: 100           # dedup map + per-tick scan-results history
     inputs:
-      # EXAMPLE events — operators REPLACE this with the live rebalance schedule.
-      # asset must be a live HL xyz instrument; effectiveDate is ISO date / ISO
-      # datetime / epoch; side is "add" (LONG) or "delete" (SHORT). xyz:SPCX
-      # validated live vs HL xyz meta 2026-06-30 (max_leverage 20, not delisted).
-      events:
-        - { asset: "xyz:SPCX", effectiveDate: "2026-07-07", side: "add", index: "russell+ndx100" }
       dex: "xyz"                           # HIP-3 DEX — xyz: prefix mandatory
-      exitBufferHours: 24                  # stop emitting (sell into the inclusion) this long before the date
-      windowHours: 168                     # 7d tradeable anticipation window before the date
-      marginPctBase: 12                    # PERCENT of withdrawable (0,100] at window start
-      marginPctMax: 20                     # PERCENT near the exit buffer (proximity-scaled UP)
-      leverage: 4                          # clamped to [1,5] and to the instrument venue max
-      minVolTrendPct: 10                   # 4h volume-trend floor for the anticipation confirmation
-      recentSignalTtlSeconds: 1800         # 30m signal-dedup (don't re-fire while in flight)
+      benchmarkAsset: "xyz:XYZ100"         # broad-xyz market index (validated live vs HL xyz meta 2026-06-30)
+      fallbackBenchmarkAsset: "xyz:SP500"  # used only if the primary benchmark read fails/short (validated live)
+      minVolUsd: 5000000                   # 24h notional-volume liquidity floor (drops thin/delisted tail)
+      universeMaxNames: 50                 # cap candidate set by 24h volume (cost bound)
+      minScore: 5                          # floor for an emit
+      excessBars: 24                       # 24 * 4h = ~4 days for the decoupling/benchmark window
+      minExcessPct: 3                      # |name return - benchmark return| floor — the decoupling must exist
+      minVolTrendPct: 10                   # 4h volume-persistence floor (rising, not flat)
+      shallowDipMaxPct: 4                  # deepest adverse pullback this shallow => bought dips (grind bonus)
+      dipLookbackBars: 24                  # window for the deepest-dip scan (matches excessBars)
+      marginPct: 15                        # PERCENT of withdrawable (0,100]; flat per signal
+      leverage: 4                          # clamped to [1,5] and to the instrument venue max in scan.py
+      maxEmit: 2                           # emit the top 1-2 by score per tick
+      recentSignalTtlSeconds: 240          # 4min signal-dedup (don't re-fire a name in flight)
     signal_data_schema:
-      side: { type: string }
-      index: { type: string, required: false }
+      score: { type: number }
+      leverage: { type: number }
       direction: { type: string }
-      leverage: { type: number, required: false }
-      hoursToEffective: { type: number, required: false }
-      effectiveEpoch: { type: number, required: false }
+      reasons: { type: array, required: false }
+      excess: { type: number, required: false }
+      nameRet: { type: number, required: false }
+      benchmarkRet: { type: number, required: false }
+      benchmark: { type: string, required: false }
       trend4h: { type: string, required: false }
       trend4hStrength: { type: number, required: false }
       trend1h: { type: string, required: false }
       volTrend4hPct: { type: number, required: false }
-      reasons: { type: array, required: false }
+      deepestDipPct: { type: number, required: false }
+      smDirection: { type: string, required: false }
+      smPct: { type: number, required: false }
       heldAssets: { type: array, required: false }
 
 actions:
@@ -83,28 +93,31 @@ actions:
     scanners: [position_tracker]
   - name: barnacle_main_entry
     action_type: OPEN_POSITION
-    decision_mode: rule                    # the scan already applied every gate (in-window + confirm + dedup)
+    decision_mode: rule                    # the scan already applied every gate (decoupling + footprint + dedup)
     scanners: [barnacle_main_signals]
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
-        ensure_execution_as_taker: true    # anticipation entries must fill — maker-only rests unfilled (CREATE_ORDER_RESTING)
+        ensure_execution_as_taker: true    # accumulation entries must fill — maker-only rests unfilled (CREATE_ORDER_RESTING)
         execution_timeout_seconds: 30
     context:
       - type: signal
         scanner: barnacle_main_signals
 
-# ── EXIT (DSL — TIME-BOUNDED for a bounded event window) ──────────────────────
-# Unlike the crypto single-asset family (hard_timeout OFF), Barnacle's edge is a
-# CALENDAR event with a known expiry: the rebalance effective date. The position
-# should never camp past the event window, so hard_timeout is ENABLED at ~6d
-# (8640 min) — it covers the full tradeable window (windowHours 168 = 7d) minus
-# the exit buffer, a backstop in case the scan's exit-buffer cutoff is somehow not
-# reached (e.g. event removed from config mid-hold). Phase 1 max_loss 12%; Phase 2
-# FIRST lock reachable at +8% (forced-flow pops are modest and fade post-rebalance,
-# so lock gains early). weak_peak_cut KEPT (self-limiting thesis-validity check):
-# if the anticipation pop never materializes, cut. order_type FEE_OPTIMIZED_LIMIT,
-# taker fallback on (closes MUST happen). interval_seconds 60.
+# ── EXIT (DSL — trend-following let-winners-run, equity shape) ─────────────────
+# Barnacle rides a relentless GRIND, so the DSL must let winners run (bobcat equity
+# shape): Phase 1 ~15% max_loss + retrace; Phase 2 wide ladder with the FIRST lock
+# REACHABLE at +10% ROE (lock gains as the grind extends, but let it breathe).
+# hard_timeout ENABLED at 48h (2880 min) — INTENTIONAL for equities: the
+# post-Friday-close -> pre-Sunday-reopen window is where internal-oracle drift
+# accumulates without external price discovery, so positions must not camp through
+# the full weekend gap. (This differs from the crypto single-asset family where
+# hard_timeout is OFF; equity/index perps justify it via the weekend pricing gap.)
+# weak_peak_cut KEPT (self-limiting thesis-validity check): if the accumulation pop
+# never materializes, cut. dead_weight_cut DISABLED (a multi-day grind tolerates
+# flat windows). order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST
+# happen). interval_seconds 60 (REDUCE_ONLY-spam mitigation when runtime position
+# state lags HL).
 exit:
   engine: dsl
   interval_seconds: 60
@@ -114,41 +127,42 @@ exit:
     execution_timeout_seconds: 30
   dsl_preset:
     hard_timeout:
-      enabled: true                        # event window is bounded — never camp past the rebalance
-      interval_in_minutes: 8640            # ~6d (windowHours 168 minus the 24h exit buffer), a backstop
+      enabled: true                        # 48h cap — equity/index perps have a weekend pricing gap
+      interval_in_minutes: 2880
     weak_peak_cut:
-      enabled: true                        # self-limiting: cut if the anticipation pop never appears
+      enabled: true                        # self-limiting: cut if the accumulation pop never appears
       interval_in_minutes: 90
       min_value: 3.0
     dead_weight_cut:
-      enabled: false                       # DISABLED — a multi-day anticipation ramp tolerates flat windows
+      enabled: false                       # DISABLED — a multi-day grind tolerates flat windows
       interval_in_minutes: 60
     phase1:
       enabled: true
-      max_loss_pct: 12.0                    # modest floor — passive-flow theses don't justify deep drawdown
+      max_loss_pct: 15.0                    # protective floor for a moderate-risk equity grind
       retrace_threshold: 8
       consecutive_breaches_required: 1
     phase2:
       enabled: true
-      tiers:                               # FIRST lock REACHABLE at +8% — forced-flow pops are modest + fade
-        - { trigger_pct: 8,  lock_hw_pct: 0  }
-        - { trigger_pct: 14, lock_hw_pct: 35 }
-        - { trigger_pct: 22, lock_hw_pct: 50 }
-        - { trigger_pct: 35, lock_hw_pct: 65 }
-        - { trigger_pct: 55, lock_hw_pct: 80 }
+      tiers:                               # wide-by-design; FIRST lock REACHABLE at +10% ROE (ride the grind)
+        - { trigger_pct: 10,  lock_hw_pct: 0  }
+        - { trigger_pct: 20,  lock_hw_pct: 25 }
+        - { trigger_pct: 30,  lock_hw_pct: 40 }
+        - { trigger_pct: 50,  lock_hw_pct: 60 }
+        - { trigger_pct: 75,  lock_hw_pct: 75 }
+        - { trigger_pct: 100, lock_hw_pct: 85 }
 
 # ── RISK guard rails (all durations in SECONDS) ──
 risk:
   data_retention_seconds: 259200           # 72h (in [3600,604800])
   guard_rails:
-    daily_loss_limit_pct: 12
-    max_entries_per_day: 3                  # index events are infrequent; turns over slowly
+    daily_loss_limit_pct: 15
+    max_entries_per_day: 4                  # decouplers are infrequent; turns over slowly
     bypass_max_entries_per_day_on_profit: false
     max_consecutive_losses: 3
     cooldown_seconds: 3600                  # post-loss cooldown 60m
-    drawdown_halt_pct: 18
+    drawdown_halt_pct: 20
     drawdown_reset_on_day_rollover: false
-    per_asset_cooldown_seconds: 21600       # 6h — one event per name, don't re-enter the same inclusion
+    per_asset_cooldown_seconds: 14400       # 4h — don't re-enter the same name immediately
 
 notifications:
   dsl_lifecycle: true

@@ -1,28 +1,28 @@
-# Barnacle — Index-inclusion / passive-flow front-runner. A single-instance PACKAGE:
+# Barnacle — autonomous stealth-accumulation / decoupler. A single-instance PACKAGE:
 # this manifest + one self-contained runtime.yaml + scanners/. A NET-NEW Runtime 3.0
-# strategy (NOT a port). Thesis: when a stock is announced for ADD to a major index
-# (S&P 500 / Nasdaq-100 / Russell), index funds are FORCED to buy it by the rebalance
-# effective date — a predictable passive-buying wave that lifts price INTO the date.
-# Barnacle rides that flow on Hyperliquid XYZ equity perps and EXITS before the
-# rebalance (the pop fades once forced buying completes); DELETE events mirror as
-# shorts. The universe is CONFIG-DRIVEN (inputs.events) — there is no MCP feed for
-# index rebalances. Install/teardown via senpi-strategy-ops.
+# strategy (NOT a port). Thesis: index inclusions, M&A targets, and catalyst run-ups
+# all leave the SAME fingerprint visible in the tape WITHOUT knowing the catalyst — a
+# name DECOUPLING from the broad market on persistent, rising volume with shallow
+# (bought) dips, i.e. relentless accumulation rather than a one-bar spike. Barnacle
+# detects that footprint AUTONOMOUSLY from market data (no operator calendar, no event
+# feed) across the live Hyperliquid xyz board and rides it; the DSL owns the exit. LONG
+# up-accumulation, SHORT down-distribution. Install/teardown via senpi-strategy-ops.
 schema_version: 1
 
 id: barnacle
 version: "1.0.0"
 
 catalog:
-  name: "Barnacle — Index-Inclusion Front-Runner"
+  name: "Barnacle — Stealth Accumulation Detector"
   emoji: "🦪"
-  tagline: "Front-runs index-rebalance flow on Hyperliquid XYZ equity perps: when a stock is announced for addition to the S&P 500 / Nasdaq-100 / Russell, index funds are FORCED to buy it by the effective date — Barnacle rides that predictable passive-buying wave into the date and sells into the inclusion before the rebalance completes. Index deletions mirror as shorts."
-  belief_plain: "When a company is announced for addition to a big index like the S&P 500, every index fund has to buy it before a set date — that forced buying reliably lifts the price into the date. Barnacle gets in early on the stock (as a perp on Hyperliquid XYZ), rides the run-up, and gets out just before the rebalance, because the pop usually fades once the forced buying is done. Index removals work the same way in reverse, as shorts. You give it the list of upcoming index changes; it trades only those names."
-  thesis: "Index-inclusion is one of the most-documented predictable flows in equities: passive funds tracking the S&P 500 / Nasdaq-100 / Russell MUST buy an added name by the rebalance effective date, regardless of price, producing an anticipatory run-up that front-runners capture and that fades after the forced buying completes. Hyperliquid XYZ lists these equities as leveraged perps, so the flow is tradeable both directions (additions long, deletions short). There is no market data feed for index events, so the universe is operator-supplied (inputs.events); the agent only trades the configured names, only inside the anticipation window, only when the passive-flow signature confirms, and it deliberately exits BEFORE the effective date rather than holding through the rebalance."
-  group: event-driven
-  archetype: event_driven
-  sub_style: index_inclusion
-  asset_classes: [xyz_equities]
-  asset_scope: basket
+  tagline: "An autonomous decoupler on Hyperliquid XYZ equity/commodity/index perps: it finds names quietly DECOUPLING from the broad market — outperforming the xyz index on persistent rising volume with shallow, bought dips (relentless accumulation, not a one-bar spike) — and rides the grind. No calendar, no event feed: the catalyst footprint is read straight from the tape. LONG up-accumulation, SHORT down-distribution; a wide DSL ratchet lets winners run."
+  belief_plain: "Big catalysts — a stock getting added to an index, a buyout brewing, a sector run-up — all leave the same tell in the chart before anyone needs to know the news: the name starts beating the broad market on steady, rising volume, and every dip gets bought instead of selling off. That is accumulation, and Barnacle hunts for it automatically across the stocks, commodities and indices on Hyperliquid XYZ. It doesn't need you to feed it a calendar — it reads the footprint itself, goes long the quiet climbers (or short the quiet bleeders), and trails a stop so a real move can run for days."
+  thesis: "You don't need to know WHY a name is being accumulated to trade the accumulation. Index inclusions, M&A targets, and catalyst run-ups share one observable signature: the name decouples from its benchmark (positive excess return vs the broad xyz market) on PERSISTENT rising volume, and the largest pullback within the move stays shallow because the dips are bought — a grind, not a volatile breakout. Barnacle measures exactly that footprint from market data: excess return vs xyz:XYZ100 sets direction and conviction, 4h volume persistence and a shallow-deepest-dip confirm it's accumulation not noise, 4h/1h trend structure confirms the path, and a smart-money lean nudges the score. Because the edge is read from the tape rather than an event date, the agent needs no operator calendar and the DSL owns the exit — a wide let-winners-run ratchet rides the grind, with a 48h cap so equity/index perps don't camp through the weekend pricing gap."
+  group: momentum
+  archetype: trend_following
+  sub_style: accumulation
+  asset_classes: [xyz_equities, commodities, indices]
+  asset_scope: universe
   direction: long_short
   risk_level: moderate
   tier: advanced
@@ -30,8 +30,8 @@ catalog:
   leverage_max: 5
   max_slots: 3
   min_budget: 200
-  assets: ["xyz:SPCX"]
-  tags: [index-inclusion, index-rebalance, passive-flow, front-running, sp500, nasdaq100, russell, event-driven, xyz, equities, long-short, calendar]
+  assets: []
+  tags: [accumulation, decoupler, relative-strength, excess-return, smart-money, volume-persistence, xyz, equities, commodities, indices, trend-following, long-short, autonomous, universe]
 
 requires:
   runtime: ">=3.0.0"
