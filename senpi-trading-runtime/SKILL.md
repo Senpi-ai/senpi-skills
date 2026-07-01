@@ -12,7 +12,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.0.0"
+  version: "3.0.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -74,6 +74,10 @@ positions|inspect|closes` (the exit engine), `senpi action list|inspect|history|
 decision layer), `senpi status`/`senpi state` (health), and `senpi guide …` (in-shell reference).
 Full surface with every option → `references/runtime-cli.md`.
 
+**To confirm open positions are actually stop-loss protected** (a position with no DSL shows up as an
+*absence* in `dsl positions`, so it's easy to miss) → the verdict procedure in
+`references/dsl-protection-check.md`.
+
 ## The reference set
 
 | Read this | For |
@@ -82,6 +86,7 @@ Full surface with every option → `references/runtime-cli.md`.
 | `references/runtime-yaml.md` | The `runtime.yaml` schema — every section, the `external_scanner` fields, the risk guard-rails |
 | `references/scan-contract.md` | The author contract in depth: `scan(inputs, ctx)`, the `ctx` surface, the signal shape, and `scoring.py` |
 | `references/runtime-cli.md` | The full `openclaw senpi …` command surface — runtime, dsl, action, status/state, skills, guide |
+| `references/dsl-protection-check.md` | **Verify open positions are DSL-protected** — the PROTECTED / UNPROTECTED / STOP-NOT-ON-VENUE verdict + the open-vs-tracked reconciliation |
 
 ## Package naming (load-bearing)
 

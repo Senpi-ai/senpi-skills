@@ -47,6 +47,10 @@ openclaw senpi runtime delete --id iguana-tracker  # tear down
 | `dsl inspect <asset>` | Show the full DSL state for an open position by asset symbol (e.g. `SOL`, `BTC`, `xyz:GOLD`). | `-r` · `-a` · `--json` |
 | `dsl closes` | List archived (closed) DSL positions with close reason and ROE. | `-r` · `-a` · `-l, --limit <n>` (max rows after merge) · `--json` |
 
+**"Are my open positions actually protected by DSL?"** → the step-by-step verdict (PROTECTED /
+UNPROTECTED / STOP-NOT-ON-VENUE), incl. the open-vs-tracked reconciliation an unprotected position hides
+behind: **`references/dsl-protection-check.md`**.
+
 ## `senpi action` — inspect the action layer
 
 | Command | What it does | Options |
