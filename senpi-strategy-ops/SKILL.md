@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.0.1"
+  version: "2.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -62,8 +62,13 @@ curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/strat
 ```
 python3 scripts/deploy.py create spider --budget 200
 ```
-Per instance it calls `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>)`, records
-the `strategyId`, and polls `strategy_list` to **ACTIVE** — **bounded** (~150s). If it prints
+Per instance it calls `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>,
+strategyName=<id>-<instance>)` — **every wallet is named for its role in the strategy** (e.g. a
+WhaleHunter deploy with two sub-wallets creates `whalehunter-long` and `whalehunter-short`), **never
+left as a bare `0x…` address**, so the user can tell a strategy's wallets apart in the app, balances,
+and notifications. Naming is best-effort: if the backend rejects a name (conflict/format), that wallet
+is still created (unnamed) rather than failing the deploy. It records the `strategyId`, and polls
+`strategy_list` to **ACTIVE** — **bounded** (~150s). If it prints
 **`creating`** (wallets still funding), just **re-run the same `create` command** — it resumes and
 **never re-creates** a wallet. It prints **`wallets-ready`** when done. `create` is **self-healing**: it
 reconciles recorded wallets against the backend (drops any CLOSED/FAILED and recreates) and **sizes each
