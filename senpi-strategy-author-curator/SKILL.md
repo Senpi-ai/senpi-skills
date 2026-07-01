@@ -88,19 +88,25 @@ Publishing is **outward-facing** — the strategy becomes a user-visible product
    `asset_classes`, `risk_level`, `tier`, `direction` — and get an explicit **"yes."**
 2. **Commit the package** `strategies/<id>/` to the **published branch** (default `strategy-v2`; switch
    to `main` once v2 ships — confirm the target each time).
-3. **Regenerate the catalog (never hand-edit `catalog.json`):**
+3. **Regenerate the catalog — `gen_catalog.py` is the ONE write path; never hand-edit `catalog.json`:**
    ```
    python3 senpi-trading-runtime/scripts/gen_catalog.py --updated <YYYY-MM-DD> --branch <published>
    ```
-   This re-reads **every** `strategies/*/strategy.yaml` and rewrites `strategies/catalog.json` — so the
-   package must be committed first.
-4. **Commit `strategies/catalog.json`.** Discover reads it off the published branch → the strategy is
-   now discoverable and installable by any user.
+   It re-reads **every** `strategies/*/strategy.yaml` (so the package must be committed first) and emits
+   **both** catalog copies in one atomic run: `strategies/catalog.json` (source of truth) **and**
+   `senpi-strategy-discover/catalog.json` (the copy bundled with the discover skill, so the catalog
+   travels on a standalone install where `../../strategies/` doesn't exist). Because one command writes
+   both, they cannot drift — **as long as every catalog change goes through `gen_catalog.py`. Never
+   hand-edit either file, and never regenerate just one.**
+4. **Commit BOTH** `strategies/catalog.json` **and** `senpi-strategy-discover/catalog.json`. Discover
+   reads the bundled copy off the published branch → the strategy is now discoverable and installable by
+   any user.
 
 ## Un-publish (deprecate)
 
 The catalog is exactly the set of packages on the branch. To pull a strategy from discovery: remove
-`strategies/<id>/` from the published branch, re-run `gen_catalog.py`, commit `catalog.json`. Confirm
+`strategies/<id>/` from the published branch, re-run `gen_catalog.py`, commit **both** `catalog.json`
+files (repo + discover-skill copy). Confirm
 first — it's outward-facing, and it stops users from finding a strategy they may already run (their
 deployed instances keep running; only discovery changes).
 
