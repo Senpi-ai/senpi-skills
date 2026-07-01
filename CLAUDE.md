@@ -35,7 +35,10 @@ strategies/<id>/                   # a strategy package (e.g. strategies/spider/
   `skillVersion`** params, valued from `strategy.yaml` `id` + `version` (the "Skill Attribution"
   section below is superseded for strategies; `strategy.yaml.version` is the one source).
 - **`strategies/catalog.json` is GENERATED** from `strategies/*/strategy.yaml` via
-  `senpi-trading-runtime/scripts/gen_catalog.py` — never hand-edit it.
+  `senpi-trading-runtime/scripts/gen_catalog.py` — never hand-edit it. `gen_catalog.py` writes it to **two
+  places**: the repo `strategies/catalog.json` (source of truth) AND `senpi-strategy-discover/catalog.json`
+  (bundled with the discover skill, so the catalog travels with it when installed standalone — where
+  `../../strategies/` doesn't exist). Keep both in sync by re-running `gen_catalog.py`; never hand-edit either.
 - **Validate** a package with `senpi-strategy-author/scripts/validate_strategy.py <dir>`.
 
 The sections below predate v2; where they say "strategy = skill", read it through this model.

@@ -269,10 +269,17 @@ if __name__ == "__main__":
     ap.add_argument("--branch", default="strategy-v2")
     a = ap.parse_args()
     catalog = build(a.updated, a.branch)
-    with open("strategies/catalog.json", "w") as f:
-        json.dump(catalog, f, ensure_ascii=False, indent=2)
-        f.write("\n")
-    print(f"wrote catalog.json — {len(catalog['skills'])} strategies")
+    blob = json.dumps(catalog, ensure_ascii=False, indent=2) + "\n"
+    # Write BOTH: the repo copy (source of truth, next to the packages) AND the discover skill's local
+    # copy, so the catalog travels with the skill when it's installed standalone (no ../../strategies/).
+    targets = [
+        os.path.join(REPO_ROOT, "strategies", "catalog.json"),
+        os.path.join(REPO_ROOT, "senpi-strategy-discover", "catalog.json"),
+    ]
+    for t in targets:
+        with open(t, "w") as f:
+            f.write(blob)
+    print(f"wrote catalog.json to {len(targets)} locations — {len(catalog['skills'])} strategies")
     if _WARNINGS:
         print(f"\n{len(_WARNINGS)} warning(s):", file=sys.stderr)
         for w in _WARNINGS:
