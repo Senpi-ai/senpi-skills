@@ -24,6 +24,7 @@ on first use if it isn't on disk.
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
 import json
+import re
 import sys
 import time
 from pathlib import Path
@@ -189,15 +190,39 @@ def cmd_create(pkg, a, log):
         if s.get("strategyId"):
             continue
         amt = amounts.get(inst.name, max(MIN_WALLET, round((a.budget or 0) * (inst.funding_share or 1.0), 2)))
-        log(f"  [{inst.name}] creating wallet (initialBudget=${amt:g})…")
+        # Name each wallet for its role in the strategy (matches the pkg-instance runtime naming),
+        # so wallets are legible in the app / balances / notifications instead of a bare 0x address.
+        # e.g. a WhaleHunter deploy → "whalehunter-long", "whalehunter-short". Sanitized to the
+        # strategyName rules: 3-40 chars, no whitespace (-> '-'), [A-Za-z0-9_-] only.
+        multi = len(pkg.instances) > 1
+        sname = f"{pkg.id}-{inst.name}" if (multi and inst.name) else str(pkg.id)
+        sname = re.sub(r"[^A-Za-z0-9_-]", "", re.sub(r"\s+", "-", sname.strip())).strip("-_")[:40] or str(pkg.id)[:40]
+        log(f"  [{inst.name}] creating wallet {sname!r} (initialBudget=${amt:g})…")
+
+        def _create(name=None):
+            kw = dict(initialBudget=amt, positions=[], skillName=pkg.id, skillVersion=pkg.version)
+            if name:
+                kw["strategyName"] = name
+            return mcp.mcp_call("strategy_create_custom_strategy", timeout=SUBMIT_TIMEOUT, **kw)
+
         try:
-            res = mcp.mcp_call("strategy_create_custom_strategy", timeout=SUBMIT_TIMEOUT,
-                               initialBudget=amt, positions=[], skillName=pkg.id, skillVersion=pkg.version)
+            res = _create(sname)
         except MCPError as e:
-            s["status"] = "pending"
-            s["error"] = f"create submit: {e}"
-            save_state(pkg, st)
-            return report(pkg, st, "failed", as_json=a.json)
+            # Naming is best-effort — a name conflict/format rejection must never block the deploy.
+            if any(c in str(e) for c in ("SERR055", "SERR056", "SERR058")) or "name" in str(e).lower():
+                log(f"  [{inst.name}] name {sname!r} rejected ({e}); creating without a custom name")
+                try:
+                    res = _create()
+                except MCPError as e2:
+                    s["status"] = "pending"
+                    s["error"] = f"create submit: {e2}"
+                    save_state(pkg, st)
+                    return report(pkg, st, "failed", as_json=a.json)
+            else:
+                s["status"] = "pending"
+                s["error"] = f"create submit: {e}"
+                save_state(pkg, st)
+                return report(pkg, st, "failed", as_json=a.json)
         sid = _cli.strategy_id_of(res)
         if not sid:
             s["error"] = f"create returned no strategyId: {res!r}"

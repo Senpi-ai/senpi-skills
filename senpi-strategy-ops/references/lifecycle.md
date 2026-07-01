@@ -38,8 +38,10 @@ just means re-run that step.
      (`total_in_hyperliquid`) minus a per-wallet fee buffer, split by `funding_share` and capped to
      available — so sequential funding + creation fees can't leave an instance $1 short. **Never lower `--budget`
      to dodge rounding; just re-run.**
-   - Per instance: `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>, initialBudget=…)`,
-     record `strategyId` **immediately**, poll `strategy_list` to **ACTIVE** (bounded by `--max-wait`).
+   - Per instance: `strategy_create_custom_strategy(skillName=<id>, skillVersion=<version>, initialBudget=…,
+     strategyName=<id>-<instance>)` — names the wallet for its role (e.g. `whalehunter-short`), never a bare
+     address; best-effort (falls back to unnamed if the name is rejected). Record `strategyId` **immediately**,
+     poll `strategy_list` to **ACTIVE** (bounded by `--max-wait`).
      Not all ACTIVE → **`creating`** (re-run to resume); all ACTIVE → **`wallets-ready`**.
 2. **`runtime <id>`** — per instance: render the instance's `runtime.yaml` (substitute `${wallet_env}` + the
    decision-model env iff a `decision_mode: llm` action) **beside the source** (so `path: ./scanners`
