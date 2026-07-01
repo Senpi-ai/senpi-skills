@@ -5,6 +5,7 @@ description: >-
   Use when the user names a strategy to run — "install spider", "deploy polar",
   "set up kodiak", "run the spider strategy", "is my strategy live?", "what am I
   running", "list my strategies" (→ status.py),
+  "are my positions protected? / do they have a stop-loss (DSL)?",
   "stop/close/uninstall polar" — and for teardown like "close all strategies",
   "return funds to main", "tear everything down" (→ close.py --all). ALWAYS tear
   down via close.py, never a raw strategy_close (that strands the runtime). A
@@ -17,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.1.0"
+  version: "2.1.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -142,6 +143,11 @@ flagged **no-runtime** with the fix (likely an interrupted deploy). Also **runti
 of **orphan runtimes**. `--fast` skips the per-runtime health call; `--json` for machine output. **Tell the
 user the management mode for off-runtime strategies — do not call them idle.** Don't hand-compose
 `strategy_list` — use `status.py`.
+
+**"Are my open positions protected? / do they have a stop-loss?"** → the DSL coverage verdict
+(PROTECTED / UNPROTECTED / STOP-NOT-ON-VENUE). Key trap: an unprotected position shows up as an
+**absence** in `senpi dsl positions`, so you must reconcile open positions against the tracked set — full
+procedure in [`senpi-trading-runtime/references/dsl-protection-check.md`](../senpi-trading-runtime/references/dsl-protection-check.md).
 
 Do **not** trust "runtime: running" alone. A strategy is **live** only when its runtime is running AND
 each instance's `external_scanner` has a recent successful tick (`status.py` reports `running`; confirm a
