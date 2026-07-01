@@ -4,7 +4,7 @@
 schema_version: 1
 
 id: asia-ai
-version: "1.0.0"
+version: "1.0.1"
 
 catalog:
   name: "Asia AI — Hedged Sector Long"

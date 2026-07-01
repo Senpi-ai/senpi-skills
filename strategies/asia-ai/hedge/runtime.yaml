@@ -35,7 +35,8 @@ scanners:
       universe: ["xyz:XYZ100", "xyz:SP500"]
       direction: "SHORT"
       wantTrend: "DOWN"
-      minScore: 5
+      minScore: 4          # see main/runtime.yaml — 5 was the unreachable max (a >6% down-move AND RSI-room
+                           # are anti-correlated) → ~0.3% emit → no trades. 4 = confirmed downtrend + one confirmation.
       marginPct: 10          # percent of withdrawable (runtime sizes (marginPct/100)*withdrawable)
       rsiMin: 25
       recentSignalTtlSeconds: 1800

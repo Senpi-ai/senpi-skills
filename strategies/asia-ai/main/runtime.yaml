@@ -31,7 +31,9 @@ scanners:
       universe: ["xyz:TSM", "xyz:SMSN", "xyz:SKHX", "xyz:ARM", "xyz:ASML"]
       direction: "LONG"
       wantTrend: "UP"
-      minScore: 5
+      minScore: 4          # max score is 5 (dual-trend base 3 + strength + RSI-room); reaching 5 needs BOTH
+                           # bonuses, which are anti-correlated (a >6% move lifts RSI out of "room") → fired
+                           # ~0.3% of ticks → no trades. 4 = confirmed dual-timeframe trend + one confirmation.
       marginPct: 12          # percent of withdrawable (runtime sizes (marginPct/100)*withdrawable)
       rsiMax: 75
       recentSignalTtlSeconds: 1800
