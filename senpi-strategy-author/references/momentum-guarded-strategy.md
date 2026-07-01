@@ -1,79 +1,105 @@
-# Momentum-Guarded Strategy — Quick Start
+# Momentum-Guarded Strategy — Quick Start (Runtime 3.0)
 
-End-to-end example strategy that exercises every major feature of the senpi-trading-runtime plugin:
+End-to-end example package that exercises the major features of a Runtime 3.0 strategy:
 
-- `position_tracker` scanner for tracking your own positions on Hyperliquid and have DSL feature support
-- `external_scanner` receiving pushed `MOMENTUM_BREAKOUT` signals from the shipped momentum producer
-- LLM-gated `OPEN_POSITION` action (`decision_mode: llm` with `min_confidence`)
-- Risk guard rails (daily loss, max entries/day, consecutive-losses cooldown, drawdown halt, per-asset cooldown)
-- DSL exit engine with two-phase trailing stops + time-based cuts
-- Telegram lifecycle notifications
+- a `position_tracker` scanner (feeds the DSL exit engine on your Hyperliquid positions)
+- an `external_scanner` running a supervised `scan(inputs, ctx)` that detects momentum breakouts and
+  emits candidate signals — the runtime spawns and ticks it; **no producer daemon**
+- a rule-mode `OPEN_POSITION` action (the scan already applied every filter; the runtime sizes + executes)
+- risk guard rails (daily loss, max entries/day, consecutive-losses cooldown, drawdown halt, per-asset cooldown)
+- the DSL exit engine with two-phase trailing stops + time-based cuts
 
-Use it as a starting point for your own strategies. The YAML below is production-ready; tune values to taste.
+Use it as a starting point for your own strategies. Tune values to taste.
 
-For schema details see [yaml-schema.md](yaml-schema.md). For the generic producer-ops pattern (custom producers, alternative schedulers), see [external-producers.md](external-producers.md).
+For the `runtime.yaml` schema see [yaml-schema.md](yaml-schema.md) (and the runtime's own schema,
+[`../../senpi-trading-runtime/references/runtime-yaml.md`](../../senpi-trading-runtime/references/runtime-yaml.md),
+which outranks it). For the `scan(inputs, ctx)` contract see
+[`../../senpi-trading-runtime/references/scan-contract.md`](../../senpi-trading-runtime/references/scan-contract.md).
 
 ---
 
-## 1. Install the trading strategy in the Senpi runtime
+## 1. Package layout
 
-Each trading strategy is defined by a YAML file. Save the YAML below as `momentum-guarded.yaml`, then:
+A strategy is a **package**, not a single YAML. This example is single-instance (`main`):
 
-```bash
-openclaw senpi runtime create --path ./momentum-guarded.yaml
+```
+momentum-guarded/
+  strategy.yaml                     # deploy manifest (id, version, requires.runtime: ">=3.0.0", instances[])
+  main/
+    runtime.yaml                    # the runtime spec below
+    scanners/
+      scan.py                       # exports scan(inputs, ctx) -> list[dict] (read-only, single-pass)
+      scoring.py                    # pure momentum math (no I/O/MCP); sibling import, NO __init__.py
 ```
 
-## 2. Strategy YAML
+## 2. `strategy.yaml` (deploy manifest)
 
 ```yaml
-name: momentum-guarded
-version: 1.0.0
-description: >
-  Risk-managed external momentum strategy. An out-of-process producer
-  pushes MOMENTUM_BREAKOUT signals into the runtime; an LLM gauntlet
-  decides which breakouts deserve capital; risk gates protect against
-  daily loss, drawdown, and over-trading; the DSL exit engine manages
-  trailing exits on accepted fills.
+schema_version: 1
+id: momentum-guarded
+version: "1.0.0"
+catalog:
+  name: "Momentum-Guarded"
+  emoji: "🚀"
+  tagline: "Risk-managed momentum breakouts with a two-phase DSL trailing exit."
+  group: momentum
+  risk_level: moderate
+  min_budget: 100
+requires:
+  runtime: ">=3.0.0"
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+instances:
+  - name: main
+    runtime: main/runtime.yaml
+    wallet_env: MOMENTUM_WALLET
+    funding_share: 1.0
+```
 
-notifications:
-  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
+## 3. `main/runtime.yaml`
+
+```yaml
+name: momentum-guarded-main
+group: momentum-guarded
+version: 3.0.0
+description: >
+  Risk-managed momentum strategy. A supervised scan.py gates breakout candidates
+  (move magnitude, direction, liquidity, score) and emits conviction-sized signals;
+  the runtime sizes + executes them; risk gates protect against daily loss, drawdown,
+  and over-trading; the DSL exit engine trails accepted fills.
 
 strategy:
-  wallet: "${STRATEGY_WALLET_ADDRESS}"
+  wallet: "${MOMENTUM_WALLET}"      # bound by deploy.py from the manifest wallet_env
   slots: 3
-  margin_pct: 25            # % of account budget per slot — scales with any budget (prefer over fixed margin_per_slot)
+  margin_pct: 25                    # % of account per slot — scales with any budget
   trading_risk: moderate
   enabled: true
-
-risk:
-  data_retention_seconds: 259200    # 72h
-  guard_rails:
-    daily_loss_limit_pct: 4
-    max_entries_per_day: 6
-    bypass_max_entries_per_day_on_profit: false
-    max_consecutive_losses: 3
-    cooldown_minutes: 90
-    drawdown_halt_pct: 20
-    drawdown_reset_on_day_rollover: false
-    per_asset_cooldown_minutes: 45
 
 scanners:
   - name: position_tracker
     type: position_tracker
-    interval: 10s
+    interval_seconds: 10            # built-in scanner (integer seconds, floored at 7)
 
-  - name: external_momentum
+  - name: momentum_signals
     type: external_scanner
-    outputs:
-      signals: true
-      context: false
-    config:
-      fields:
-        sourceScannerId: { type: string, required: true }
-        sourceSignalType: { type: string, required: true }
-        sourceTimestamp: { type: number, required: true }
-        sourceFactors: { type: object, required: true }
-        sourceMeta: { type: object, required: true }
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300           # per-thesis cadence (5 min) — NOT the 10s supervisor loop
+    timeout_seconds: 180
+    default_signal_validity_seconds: 900
+    state_history_max_count: 100
+    inputs:                         # author tunables → scan()'s first arg, read via inputs.get(...)
+      timeframe: "1h"
+      minMovePct: 1.5
+      minDayVolume: 1000000
+      minScore: 0.2
+      marginPct: 25
+    signal_data_schema:             # validates each emitted signal's data{} map
+      score: { type: number }
+      direction: { type: string }
+      movePct: { type: number, required: false }
+      timeframe: { type: string, required: false }
+      reasons: { type: array, required: false }
 
 actions:
   - name: position_tracker_action
@@ -83,10 +109,8 @@ actions:
 
   - name: momentum_entry
     action_type: OPEN_POSITION
-    decision_mode: llm
-    decision_model: claude-sonnet-4-20250514
-    scanners: [external_momentum]
-    min_confidence: 7
+    decision_mode: rule             # the scan already applied every filter
+    scanners: [momentum_signals]
     params:
       order_type: FEE_OPTIMIZED_LIMIT
       fee_optimized_limit_options:
@@ -94,27 +118,19 @@ actions:
         execution_timeout_seconds: 15
     context:
       - type: signal
-        scanner: external_momentum
-    decision_prompt: |
-      You are a trade-decisioning evaluator. Given a MOMENTUM_BREAKOUT
-      signal, decide whether to open a position or skip.
+        scanner: momentum_signals
 
-      SIGNAL DATA:
-      {{signal_external_momentum}}
-
-      Evaluate: move magnitude, direction, liquidity, leverage, score.
-      Respond with a JSON object:
-      {
-        "execute": true|false,
-        "actionType": "OPEN_POSITION",
-        "confidence": 1-10,
-        "reasoning": "one sentence",
-        "payload": {
-          "signals": [
-            { "asset": "<ticker>", "direction": "LONG"|"SHORT", "reason": "..." }
-          ]
-        }
-      }
+risk:
+  data_retention_seconds: 259200    # 72h
+  guard_rails:
+    daily_loss_limit_pct: 4
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 5400          # 90m pause after consecutive losses (min 60)
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: false
+    per_asset_cooldown_seconds: 2700  # 45m no re-entry on same asset (min 300)
 
 exit:
   engine: dsl
@@ -148,104 +164,110 @@ exit:
         - { trigger_pct: 20, lock_hw_pct: 85 }
 ```
 
-## 3. Build a momentum producer with the Python SDK
+## 4. The scanner — `main/scanners/scan.py`
 
-Without a producer, the `external_momentum` scanner stays silent. Build the producer on the [Python Producer SDK](../SKILL.md#python-producer-sdk) bundled with this skill. A minimal momentum producer:
+The momentum thesis lives in a supervised `scan(inputs, ctx)`. It is **single-pass, synchronous, and
+read-only** — it fetches data via `ctx.senpi_mcp.call_tool(...)`, scores with the sibling `scoring.py`,
+and **returns** a `list[dict]` of candidate signals. The runtime sizes + executes them and manages the
+DSL exit. Copy the skeleton from
+[`../../senpi-trading-runtime/references/scan-contract.md`](../../senpi-trading-runtime/references/scan-contract.md).
+Sketch:
 
 ```python
-# scripts/momentum-producer.py
-import os, sys
-from pathlib import Path
+# main/scanners/scan.py
+import sys
+import scoring  # pure momentum math, no I/O — unit-tested separately
 
-_sdk_candidates = [
-    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
-    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
-]
-_sdk_path = next(
-    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
-    _sdk_candidates[0],
-)
-if _sdk_path not in sys.path:
-    sys.path.insert(0, _sdk_path)
+def scan(inputs, ctx):
+    tf = inputs.get("timeframe", "1h")
+    min_move = float(inputs.get("minMovePct", 1.5))
+    min_score = float(inputs.get("minScore", 0.2))
+    margin_pct = float(inputs.get("marginPct", 25))
 
-from senpi_runtime_helpers import SenpiClient, scanner_lock, tick_cache, producer_daemon
+    # 1) READ — read-only MCP only (a mutation tool raises PermissionError)
+    try:
+        markets = ctx.senpi_mcp.call_tool("leaderboard_get_markets", {"limit": 100})
+    except Exception as exc:                         # never crash the tick
+        print(f"[momentum.scan] read failed: {exc!r}", file=sys.stderr)
+        return []
 
-WALLET = os.environ["STRATEGY_WALLET_ADDRESS"]
-SCANNER_NAME = "external_momentum"
-LOCK_NAME = f"momentum-{WALLET[2:10]}"
+    # 2) STATE — cross-tick dedup (optional; guard on ctx.state)
+    seen = (ctx.state.last() or {}).get("seen", {}) if ctx.state is not None else {}
 
-TIMEFRAME = os.environ.get("TIMEFRAME", "1h")
-MIN_MOVE_PCT = float(os.environ.get("MIN_MOVE_PCT", "1.5"))
-MIN_DAY_VOLUME = float(os.environ.get("MIN_DAY_VOLUME", "1000000"))
-MIN_SIGNAL_SCORE = float(os.environ.get("MIN_SIGNAL_SCORE", "0.2"))
+    # 3) SCORE — pure functions decide which breakouts qualify
+    picks = scoring.qualifying_breakouts(markets, tf, min_move, min_score)
 
-client = SenpiClient()
-mcp = tick_cache(client)
+    # 4) EMIT — plain dicts; marginPct/leverage top-level, everything else in data{}
+    out = [{
+        "asset": p["asset"],
+        "direction": p["direction"],                 # "LONG" | "SHORT"
+        "marginPct": margin_pct,                      # PERCENT of withdrawable (fleet standard)
+        "leverage": p["leverage"],
+        "data": {"score": p["score"], "direction": p["direction"],
+                 "movePct": p["move_pct"], "timeframe": tf, "reasons": p["reasons"]},
+    } for p in picks]
 
-def run_one_tick():
-    with scanner_lock(LOCK_NAME):
-        markets = mcp("leaderboard_get_markets", limit=100)
-        # ... your candle / momentum gating using mcp("market_get_asset_data", ...) ...
-        for candidate in qualifying_candidates:
-            client.push_signal(
-                address=WALLET, scanner=SCANNER_NAME,
-                asset=candidate["asset"],
-                direction=candidate["direction"],          # "LONG" or "SHORT"
-                score=candidate["score"],                  # 0..1
-                signal_type="MOMENTUM_BREAKOUT",
-                data={"move_pct": candidate["move_pct"], "timeframe": TIMEFRAME},
-            )
-
-if __name__ == "__main__":
-    producer_daemon(
-        fn=run_one_tick,
-        interval_seconds=300,
-        name=LOCK_NAME,
-        wallet=WALLET,
-        scanner=SCANNER_NAME,
-    )
+    # 5) PERSIST next-tick state (rolled back automatically on a failed tick)
+    if ctx.state is not None:
+        try:
+            ctx.state.append({"seen": seen})
+        except Exception as exc:
+            print(f"[momentum.scan] state append failed: {exc!r}", file=sys.stderr)
+    return out
 ```
 
-### Required environment variables
+Keep the numeric thesis (move %, volume gate, score) in a pure `main/scanners/scoring.py` with **no I/O,
+no MCP, no daemon** so it is unit-testable on sample candles.
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `SENPI_AUTH_TOKEN` | **yes** | Senpi MCP bearer token used by `SenpiClient` |
-| `STRATEGY_WALLET_ADDRESS` | **yes** | Must match the wallet in your strategy YAML |
-| `SENPI_MCP_URL` | no | MCP server URL (default: `https://mcp.prod.senpi.ai/mcp`) |
-| `OPENCLAW_WORKSPACE` | no | Workspace root (default `/data/workspace`); the SDK import shim probes `~/.openclaw/skills/senpi-trading-runtime/` first and falls back to `${OPENCLAW_WORKSPACE}/skills/senpi-trading-runtime/` |
-
-### Momentum-specific tuning variables (read by the script above)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TIMEFRAME` | `1h` | Candle timeframe to analyze |
-| `MIN_MOVE_PCT` | `1.5` | Minimum % move to trigger a signal |
-| `MIN_DAY_VOLUME` | `1000000` | Minimum daily notional volume |
-| `MIN_SIGNAL_SCORE` | `0.2` | Minimum score threshold to push |
-
-## 4. Launch the producer daemon
+## 5. Validate
 
 ```bash
-SENPI_AUTH_TOKEN=<your-token> \
-STRATEGY_WALLET_ADDRESS=0x... \
-TIMEFRAME=1h MIN_MOVE_PCT=1.5 \
-  nohup python3 -u ./scripts/momentum-producer.py \
-  > /tmp/momentum-producer.log 2>&1 &
+python3 senpi-strategy-author/scripts/validate_strategy.py strategies/momentum-guarded    # 0 errors
 ```
 
-The daemon stays alive across ticks. `senpi-helpers list` / `senpi-helpers health momentum-<wallet-suffix>` manage it from then on.
+Unit-test `scoring.py` directly (it's pure — no mocks).
 
-## 5. Verify the strategy is live
+## 6. Deploy — via senpi-strategy-ops (no daemon to launch)
+
+A strategy package is deployed by **`senpi-strategy-ops` `deploy.py`**, which creates & funds the wallet,
+renders `runtime.yaml` with that wallet, and registers the runtime. **The runtime supervises the scanner
+in-process — you never launch a producer or daemon yourself.** Three short, resumable steps:
 
 ```bash
-openclaw senpi runtime list                        # Runtime should show status: running
-openclaw senpi status                              # Lightweight health check
-senpi-helpers list                                  # Producer daemon visible with recent LAST_TICK
-senpi-helpers health momentum-<wallet-suffix>      # Exit 0 = healthy
-openclaw senpi action history momentum_entry      # See LLM decisions as they arrive
-openclaw senpi action decisions momentum_entry    # Inspect the LLM reasoning JSON
-openclaw senpi dsl positions                       # Positions the DSL is tracking
+python3 senpi-strategy-ops/scripts/deploy.py create  momentum-guarded --budget 200   # 1. create + fund the wallet
+python3 senpi-strategy-ops/scripts/deploy.py runtime momentum-guarded                # 2. register the autonomous runtime (DONE after this)
+python3 senpi-strategy-ops/scripts/deploy.py verify  momentum-guarded                # optional: confirm a scan tick fired
 ```
 
-If `action history` shows no rows after several producer ticks, check `senpi-helpers stats momentum-<wallet-suffix> --hours 1` for error histograms or tail the producer log. Confirm the scanner `name` in your YAML matches what the producer pushes to (`external_momentum` here).
+- **`create`** creates one fresh wallet per instance, funds it (budget splits by `funding_share`, min
+  $100 each), and polls to ACTIVE. If it prints `creating`, re-run the same command — it resumes and
+  never re-creates a wallet. Prints `wallets-ready`.
+- **`runtime`** renders each instance's `runtime.yaml` with its wallet and runs `openclaw senpi runtime
+  create`. Rule-mode strategies need no `--decision-model`. **Once it prints `registered`, deployment is
+  DONE — the strategy is live and scans on its own `interval_seconds`.** Do not sleep/poll for the first
+  tick; that's normal strategy behavior, not part of deploy.
+- **`verify`** (only if asked "is it scanning yet?") checks the `external_scanner` once. Right after
+  `runtime` it reports `registered` (not ticked yet) — expected; re-run after the interval to see `live`.
+
+Teardown is always through `close.py` (never a raw `strategy_close`), which stops the runtime **and**
+closes the strategy (flattens positions, returns funds):
+
+```bash
+python3 senpi-strategy-ops/scripts/close.py momentum-guarded
+```
+
+## 7. Verify the strategy is live
+
+```bash
+python3 senpi-strategy-ops/scripts/status.py                       # what am I running? (+ health)
+openclaw senpi runtime list                                         # runtime shows status: running
+openclaw senpi status -r momentum-guarded-main --json              # per-runtime health verdict
+openclaw senpi state  -r momentum-guarded-main --json              # last successful scan tick
+openclaw senpi dsl positions                                        # positions the DSL is tracking
+```
+
+A strategy is **live** only when its runtime is running AND its `external_scanner` has a recent
+successful tick (`deploy.py verify` confirms it, or `openclaw senpi state -r <name>`). If no positions
+open after several ticks, the scan may simply have found no qualifying breakouts — check the scanner's
+stderr in the runtime logs and confirm `inputs` thresholds aren't too tight. Full liveness procedure:
+`senpi-strategy-ops/references/liveness-verification.md`.

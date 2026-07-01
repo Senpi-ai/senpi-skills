@@ -1,8 +1,18 @@
-# Strategy YAML Reference
+# `runtime.yaml` Schema Reference (Runtime 3.0)
 
-Schema reference for the runtime YAML file. Defines every top-level section, every field, wiring rules, template variables, and validation errors.
+Schema reference for a Runtime 3.0 `runtime.yaml` (one file = one wallet's strategy). Defines every
+top-level section, every field, wiring rules, template variables, and validation errors.
 
-Install a YAML file with `openclaw senpi runtime create --path /path/to/your.yaml`. For a complete end-to-end strategy example, see [momentum-guarded-strategy.md](momentum-guarded-strategy.md). For DSL exit engine details, see [dsl-configuration.md](dsl-configuration.md). For ready-to-use position-tracker variants, see [strategy-examples.md](strategy-examples.md).
+> **The runtime's own schema outranks this doc.** When this page and
+> [`../../senpi-trading-runtime/references/runtime-yaml.md`](../../senpi-trading-runtime/references/runtime-yaml.md)
+> disagree, the runtime schema wins — copy field names/units from there, never from memory.
+
+A `runtime.yaml` is deployed by `senpi-strategy-ops` `deploy.py` (which renders the wallet env and runs
+`openclaw senpi runtime create`) — you do not launch anything yourself. For a complete end-to-end example
+see [momentum-guarded-strategy.md](momentum-guarded-strategy.md). For DSL exit-engine details see
+[dsl-configuration.md](dsl-configuration.md). For ready-to-use position-tracker variants see
+[strategy-examples.md](strategy-examples.md). For the `scan(inputs, ctx)` author contract see
+[`../../senpi-trading-runtime/references/scan-contract.md`](../../senpi-trading-runtime/references/scan-contract.md).
 
 ---
 
@@ -10,18 +20,19 @@ Install a YAML file with `openclaw senpi runtime create --path /path/to/your.yam
 
 | Key | Required | Purpose |
 |-----|----------|---------|
-| `name` | yes | Runtime name (human-readable identifier). |
-| `version` | no | Runtime version (integer or string). The major version must be supported by the runtime (currently `[1]`). |
+| `name` | yes | Runtime id (unique; used in logs/state/telemetry). |
+| `version` | no | Passthrough metadata, **accepted but never validated**. Use `3.0.0` by convention; the package major version is the real boundary. |
+| `group` | no | Optional label tying a package's runtimes together; stamped on telemetry. |
 | `description` | no | Free-form description. |
 | `strategy` | yes | Wallet, slots, risk profile, leverage — see [Define Your Strategy](#define-your-strategy). |
 | `scanners` | conditional | At least one scanner is required when any action depends on one. See [Connect Your Signal Source](#connect-your-signal-source). |
-| `actions` | no | Trade entry and lifecycle actions. See [Define How Trades Are Entered](#define-how-trades-are-entered). |
+| `actions` | conditional | Trade entry and lifecycle actions. Required when signal-driven. See [Define How Trades Are Entered](#define-how-trades-are-entered). |
 | `exit` | no | DSL exit engine config. See [Configure Exit Management](#configure-exit-management). |
 | `risk` | no | Guard-rail gates. See [Configure Risk Protection](#configure-risk-protection). |
 | `notifications` | no | Telegram notifications. See [Set Up Notifications](#set-up-notifications). |
-| `health` | no | Health-check configuration (passthrough record). |
-| `hooks` | no | Lifecycle hooks (array; passthrough). |
-| `advanced` | no | Advanced runtime options (passthrough record). |
+
+> The schema is **passthrough** — unknown keys are accepted but ignored. Use `strategy:` (singular);
+> plural `strategies:` is rejected.
 
 ---
 
@@ -46,29 +57,21 @@ The `strategy` block tells the runtime which wallet to trade and how much capita
 
 ### Set Up Notifications
 
-Get Telegram alerts for position opens, closes, stop-loss updates, and errors.
-
-```yaml
-notifications:
-  telegram_chat_id: "${TELEGRAM_CHAT_ID}"
-```
-
-| Field | What it does | Default |
-|-------|-------------|---------|
-| `telegram_chat_id` | Your Telegram chat ID | — |
-| `dsl_lifecycle` | Notify on DSL position open/close | `true` |
-| `dsl_notify_sl_updates` | Notify on stop-loss level changes | `false` |
-| `action_lifecycle` | Notify on action execution (open/close) | `true` |
-| `gateway_url` | Override the OpenClaw gateway URL for delivery | `http://127.0.0.1:18789` |
-| `gateway_token` | Override the OpenClaw gateway auth token | `process.env.OPENCLAW_GATEWAY_TOKEN` |
-
-> **Field name caveat:** The `notifications` block currently accepts unknown keys without erroring, so a typo like `action_lifecycle_notifications` is silently ignored and the default takes effect. Use the exact key shown above.
-
-**Requirement:** Telegram delivery needs an OpenClaw gateway token — either `OPENCLAW_GATEWAY_TOKEN` in the runtime's environment, or `gateway_token` in this block.
+The `notifications` block toggles Telegram alerts for position opens, closes, stop-loss updates, and
+errors. It is **optional** — most packages omit it and let the operator wire delivery at deploy time.
+For the exact field set (`dsl_lifecycle`, `dsl_notify_sl_updates`, `action_lifecycle_notifications`,
+`gateway_url`, `gateway_token`, and the chat-id field) and defaults, copy from the runtime schema:
+[`../../senpi-trading-runtime/references/runtime-yaml.md`](../../senpi-trading-runtime/references/runtime-yaml.md#notifications-block)
+(the `notifications` section). The block is passthrough, so a typo'd key is silently ignored — use the
+exact names shown there. Delivery over the HTTP gateway needs `OPENCLAW_GATEWAY_TOKEN` (or the block's
+`gateway_token`) or notifications are dropped silently.
 
 ### Configure Risk Protection
 
 Risk gates are checked before every trade entry. If any gate is not "OPEN", the entry is skipped.
+
+All `risk` durations are in **seconds** (the `*_minutes`/`*_hours` forms were removed in 3.0). Copy
+field names/bounds from the runtime schema — do not emit a `_minutes` field, it will be silently ignored.
 
 ```yaml
 risk:
@@ -78,10 +81,10 @@ risk:
     max_entries_per_day: 6            # Max 6 entries per UTC day
     bypass_max_entries_per_day_on_profit: false  # At cap: allow more if today_snapshot.pnl.delta_since_open > 0
     max_consecutive_losses: 3         # Pause after 3 losers in a row
-    cooldown_minutes: 90              # Pause duration after consecutive losses
+    cooldown_seconds: 5400            # Pause duration after consecutive losses (min 60)
     drawdown_halt_pct: 20             # Stop if drawdown from peak exceeds 20%
     drawdown_reset_on_day_rollover: false  # Keep drawdown tracking across days
-    per_asset_cooldown_minutes: 45    # No re-entry on same asset for 45 min
+    per_asset_cooldown_seconds: 2700  # No re-entry on same asset for 45 min (min 300)
 ```
 
 `max_entries_per_day` is enforced using MCP trade and position times as **Unix seconds** vs UTC midnight in seconds (see [`risk-gates.md`](risk-gates.md)). With `bypass_max_entries_per_day_on_profit: true`, at the cap the runtime consults `today_snapshot.pnl.delta_since_open` (shared with daily-loss snapshot when configured, else one lazy MCP call).
@@ -90,74 +93,101 @@ All guard rail fields are optional — only configure the gates you want active.
 
 ### Connect Your Signal Source
 
-Scanners detect trading opportunities. For an external momentum strategy, you need two scanners:
+Scanners detect trading opportunities. A signal-driven strategy needs two scanners: a `position_tracker`
+(feeds the DSL exit engine) and an `external_scanner` (your supervised `scan(inputs, ctx)`).
 
-**Position tracker** (required for exit management):
+**Position tracker** (required whenever `exit.dsl_preset` is set):
 ```yaml
 - name: position_tracker
   type: position_tracker
-  interval: 10s
+  interval_seconds: 10       # built-in scanners take integer seconds (floored at 7)
 ```
 
-**External scanner** (receives pushed signals from your producer):
+**External scanner** — the runtime spawns a scaffold that calls your `scan(inputs, ctx)` every
+`interval_seconds` and delivers the returned signals. **There is no push/ingest model and no producer
+daemon** — the runtime does the scheduling. Example (from `strategies/kodiak/main/runtime.yaml`):
 ```yaml
-- name: external_momentum
+- name: kodiak_main_signals
   type: external_scanner
-  outputs:
-    signals: true
-    context: false
-  config:
-    fields:
-      sourceScannerId: { type: string, required: true }
-      sourceSignalType: { type: string, required: true }
-      sourceTimestamp: { type: number, required: true }
-      sourceFactors: { type: object, required: true }
-      sourceMeta: { type: object, required: true }
+  path: ./scanners             # dir holding the scan module, resolved vs the runtime.yaml dir
+  entrypoint: scan.py          # module exporting scan(inputs, ctx)
+  interval_seconds: 180        # tick cadence — per-thesis (e.g. 300/900s), NOT the 10s supervisor loop
+  timeout_seconds: 150         # per-tick wall-clock budget (default = interval_seconds)
+  default_signal_validity_seconds: 1800   # REQUIRED — fallback signal TTL
+  state_history_max_count: 100 # ctx.state bound (0/unset = history disabled)
+  inputs:                      # author tunables → scan()'s first arg; read via inputs.get(...)
+    asset: "SOL"
+    minScore: 10
+    marginPct: 20
+    leverageTiers: [[13, 7], [11, 6], [10, 5]]
+  signal_data_schema:          # REQUIRED — validates each signal's data{} map
+    score: { type: number }
+    leverage: { type: number }
+    direction: { type: string }
+    reasons: { type: array, required: false }
 ```
+
+| Field | Required | Notes |
+|---|---|---|
+| `path` | yes | scan-module directory, resolved against the `runtime.yaml` dir |
+| `entrypoint` | yes | module file exporting `scan(inputs, ctx)` (e.g. `scan.py`) |
+| `interval_seconds` | no (default 30) | integer, positive; per-thesis tick cadence |
+| `timeout_seconds` | no (default = `interval_seconds`) | integer, positive; per-tick budget |
+| `default_signal_validity_seconds` | yes | integer, positive; fallback signal TTL (no magic default) |
+| `state_history_max_count` | no (default 0) | integer ≥ 0; `ctx.state` bound |
+| `inputs` | no | author tunables → the scan's first arg (this is where thresholds/universe/leverage live, **not** in `strategy.yaml`) |
+| `signal_data_schema` | yes | non-empty map; per-`data`-key `{ type, required? }`, `type` ∈ `string`/`number`/`boolean`/`object`/`array` |
 
 Rules for external scanners:
-- Do NOT set `interval` (it's push-driven, not polled)
-- Must enable at least one of `outputs.signals` or `outputs.context`
-- Must define `config.fields` with at least one field
-- Each field needs a `type`: `string`, `number`, `boolean`, `object`, or `array`
+- Set an integer `interval_seconds` (the runtime polls; there is no `interval` duration-string form).
+- Provide non-empty `path` **and** `entrypoint`.
+- Provide `default_signal_validity_seconds` and a non-empty `signal_data_schema`.
+- Tunables go under `inputs:`; output shape goes under `signal_data_schema:`. **The retired v2 keys
+  (`outputs`, the old `config` field map, `depends_on`) were removed** — they load-error on an
+  `external_scanner`.
 
 ### Define How Trades Are Entered
 
-Actions decide what to do with signals. For LLM-driven entries:
+Actions decide what to do with the signals the scanner emits. The **fleet-standard** entry is
+`decision_mode: rule` — the `scan()` already applied every filter, so the runtime just sizes and executes
+each emitted signal (no LLM). From `strategies/kodiak/main/runtime.yaml`:
 
 ```yaml
-- name: momentum_entry
+- name: kodiak_main_entry
   action_type: OPEN_POSITION
-  decision_mode: llm
-  decision_model: claude-sonnet-4-20250514
-  scanners: [external_momentum]
-  min_confidence: 7
+  decision_mode: rule                    # the scan already applied every filter
+  scanners: [kodiak_main_signals]
   params:
     order_type: FEE_OPTIMIZED_LIMIT
     fee_optimized_limit_options:
       ensure_execution_as_taker: true
-      execution_timeout_seconds: 15
+      execution_timeout_seconds: 60
   context:
     - type: signal
-      scanner: external_momentum
-  decision_prompt: |
-    Your prompt here...
-    {{signal_external_momentum}}
+      scanner: kodiak_main_signals
 ```
+
+`decision_mode: llm` is available for LLM-gated entries; it adds `decision_model`, `min_confidence`, and
+a `decision_prompt` with `{{placeholder}}` tokens. Most packages don't use it — the thesis lives in
+`scoring.py`, not a prompt.
 
 | Field | What it does |
 |-------|-------------|
-| `name` | Action identifier (required) |
+| `name` | Action identifier (required; unique — keys telemetry pairing + per-action state) |
 | `action_type` | Registered action type (required): `OPEN_POSITION`, `CLOSE_POSITION`, or `POSITION_TRACKER` |
-| `decision_mode` | `llm` (AI decides), `rule` (automatic), or `none` (disabled) |
-| `decision_model` | Which LLM model to use. **Bare model name only — no provider prefix.** See [Model name format](#model-name-format). |
+| `decision_mode` | `rule` (execute emitted signals — the fleet default), `llm` (an LLM decides), or `no_decision` (disabled) |
 | `scanners` | Which scanner(s) trigger this action |
-| `min_confidence` | Minimum LLM confidence (1-10) to execute the trade |
-| `params.order_type` | `MARKET` or `FEE_OPTIMIZED_LIMIT` |
-| `context` | What data to inject into the prompt |
-| `decision_prompt` | The prompt template with `{{placeholders}}` |
+| `params.order_type` | `MARKET` or `FEE_OPTIMIZED_LIMIT` (+ `fee_optimized_limit_options`) |
+| `context` | Context entries injected as `{{placeholders}}` — see [Template Variables](#template-variables) |
+| `decision_model` | (llm mode) LLM model id. **Bare model name only — no provider prefix.** See [Model name format](#model-name-format). |
+| `min_confidence` | (llm mode) minimum LLM confidence (0–10) to execute (default 1) |
+| `decision_prompt` | (llm mode) prompt template with `{{placeholders}}` |
 
-#### Model name format
+The runtime picks the LLM backend at boot; the package YAML never pins a provider. For a `decision_mode:
+llm` action the operator supplies the model at deploy time (`deploy.py runtime <id> --decision-model M`) —
+rule-mode strategies need none.
+
+#### Model name format (llm mode only)
 
 Pass the **bare** model name to `decision_model`. The runtime forwards it to the OpenClaw `llm-task` gateway, which adds its own provider prefix when routing. Passing a prefixed name causes a double-prefix and the gateway responds with `500 Unknown model`.
 
@@ -165,8 +195,6 @@ Pass the **bare** model name to `decision_model`. The runtime forwards it to the
 |---|---|
 | Valid | `gemini-2.5-pro`, `claude-sonnet-4-20250514`, `gemini-3.1-pro-preview` |
 | Invalid | `google/gemini-2.5-pro`, `anthropic/claude-sonnet-4-20250514` |
-
-**Provider selection is not configured here.** The runtime auto-detects the backend at boot: if `ANTHROPIC_API_KEY` is set in the runtime's environment, it uses the Anthropic SDK directly; otherwise it routes through the OpenClaw gateway (which requires `OPENCLAW_GATEWAY_TOKEN`). The bare-name rule applies to the gateway path — the default in production.
 
 ### Configure Exit Management
 
@@ -209,7 +237,7 @@ Tiers must be listed in ascending order by `trigger_pct`.
 
 ## Template Variables
 
-In your `decision_prompt`, use `{{placeholder}}` to inject data. The placeholder name is derived from your `context` entries:
+These apply to `decision_mode: llm` actions. In a `decision_prompt`, use `{{placeholder}}` to inject data. The placeholder name is derived from your `context` entries:
 
 | Context entry | Placeholder name | What it contains |
 |---------------|-----------------|------------------|
@@ -218,7 +246,7 @@ In your `decision_prompt`, use `{{placeholder}}` to inject data. The placeholder
 | `{ type: strategy, value: "X" }` | `{{strategy_X}}` | Strategy-level parameter X |
 | `{ type: asset-trend, value: "X" }` | `{{asset_trend_X}}` | Asset trend data for X |
 
-Additionally, any key in `params` is available as a placeholder (e.g. `params: { my_val: "hello" }` → `{{my_val}}`).
+Additionally, any key under an action's execution `params` map is available as a placeholder (e.g. a `my_val: "hello"` entry → `{{my_val}}`).
 
 Every `{{placeholder}}` in your prompt **must** resolve to a declared context entry or param key. If it doesn't, the YAML will fail validation.
 
@@ -230,12 +258,12 @@ Use `${VAR}` or `${VAR:-default}` in any string value to reference environment v
 
 ```yaml
 strategy:
-  wallet: "${WALLET_ADDRESS}"              # Required: resolves from env
-notifications:
-  telegram_chat_id: "${TELEGRAM_CHAT_ID}"  # Resolves from env
+  wallet: "${KODIAK_WALLET}"               # Required: bound by deploy.py from the manifest wallet_env
 ```
 
-If the env var is not set, `${VAR}` resolves to an empty string. Use `${VAR:-fallback}` to provide a default.
+The wallet env name **must match** the instance's `wallet_env` in `strategy.yaml` — `deploy.py runtime`
+renders the fresh wallet into it. If the env var is not set, `${VAR}` resolves to an empty string; use
+`${VAR:-fallback}` to provide a default.
 
 ---
 
@@ -249,15 +277,17 @@ These are hard requirements — if you violate them, the YAML will fail to load:
 
 2. **If you have an `OPEN_POSITION` action, you must have a `scanners` block** with at least one scanner defined.
 
-3. **External scanners must NOT have `interval` or `depends_on`** — they are push-driven.
+3. **`external_scanner` requires `path` + `entrypoint` + `default_signal_validity_seconds` + a non-empty `signal_data_schema`.** It must NOT carry the retired v2 keys (`outputs`, the old `config` field map, `depends_on`) or a duration-string `interval` — those were removed and load-error.
 
-4. **Scanner names must be unique** across the entire YAML.
+4. **Scanner names AND action names must be unique** across the entire YAML.
 
 5. **Every `{{placeholder}}` in a decision_prompt must resolve** to a context entry or params key.
 
 6. **Phase 2 tiers must be sorted ascending** by `trigger_pct`.
 
 7. **`max_loss_pct` is required** when phase1 is enabled — set it in `dsl_preset.phase1.max_loss_pct` or at the preset root.
+
+8. **Every `data{}` key the scan emits must be declared in `signal_data_schema`** — an undeclared key is a loud reject.
 
 ---
 
@@ -268,14 +298,12 @@ These are hard requirements — if you violate them, the YAML will fail to load:
 | "name is required at the top" | Missing `name` field | Add `name: my-strategy` at top level |
 | "strategy must have a wallet" | Missing or empty wallet | Add `strategy: { wallet: "0x..." }` |
 | "when using actions that depend on scanners, you must also add a non-empty 'scanners:' block" | OPEN_POSITION action but no scanners | Add a `scanners:` block with at least one scanner |
-| "Duplicate scanner name(s)" | Two scanners have the same name | Rename one of them |
-| "external_scanner does not allow interval" | You set `interval` on an external scanner | Remove the `interval` field |
-| "external_scanner does not support depends_on" | You set `depends_on` on an external scanner | Remove `depends_on`; declare it on the consuming scanner instead |
-| "external_scanner must enable at least one of outputs.signals or outputs.context" | Both outputs are `false` (or `outputs` is missing) | Set at least one of `outputs.signals` / `outputs.context` to `true` |
-| "external_scanner requires a non-empty config.fields map" | Missing field definitions | Add `config: { fields: { ... } }` |
-| "DSL requires at least one position-tracker scanner" | Exit management without position tracking | Add a `position_tracker` scanner |
-| "DSL requires a POSITION_TRACKER action" | Exit management without tracker action | Add a `POSITION_TRACKER` action |
-| "Action decision_prompt references names with no matching context entry or param" | `{{placeholder}}` doesn't match any context entry | Check that your context entries match your placeholders |
+| "Duplicate scanner name(s)" / action names | Two scanners (or actions) share a name | Rename the duplicate |
+| "`interval` (duration string) was replaced by `interval_seconds`" | Duration-string `interval` on a scanner | Use integer `interval_seconds` |
+| "external_scanner requires a non-empty path / entrypoint" | Missing `path` or `entrypoint` | Add both |
+| "external_scanner requires a non-empty signal_data_schema map" | Missing the output schema | Add the per-`data`-key `signal_data_schema` |
+| "external_scanner requires default_signal_validity_seconds" | Missing the fallback TTL | Add `default_signal_validity_seconds` |
+| "`config` / `outputs` …" on external_scanner | You set retired v2 keys | Move tunables to `inputs`, output shape to `signal_data_schema`; delete `outputs` |
+| "DSL requires … position-tracker scanner / POSITION_TRACKER action" | Exit management without a tracker | Add the `position_tracker` scanner **and** the `POSITION_TRACKER` action |
 | "max_loss_pct is required" | Phase1 enabled without max_loss_pct | Add `max_loss_pct` to phase1 or preset root |
-| "exit / DSL preset validation failed" | Invalid DSL preset structure | Check tier sort order and required fields |
-| "Unsupported version" | Major version not in `SUPPORTED_RUNTIME_VERSIONS` | Use `version: 1` or omit the field |
+| "'strategies' (plural) is no longer supported" | You used `strategies:` | Use `strategy:` (singular) |

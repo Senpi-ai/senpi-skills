@@ -1,177 +1,106 @@
-# Python Producer SDK reference
+# The `scan()` model — there is no producer SDK
 
-The runtime ships `senpi_runtime_helpers`, a stdlib-only Python package for writing external-scanner producers. It is the canonical client for the runtime's `/signals` endpoint and replaces the legacy `mcporter` subprocess and `openclaw senpi external-scanner ingest` CLI patterns.
+Runtime 3.0 has **no Python SDK to import**. There is no client class, no daemon, no ingest wrapper —
+the module that used to be documented here does not exist in the repo. An author writes **one function**,
+`scan(inputs, ctx)`, against the frozen `ctx` surface the runtime hands in, returns a `list[dict]` of
+candidate signals, and the runtime does everything else: it schedules the scanner, sizes the position,
+executes the order, manages the DSL exit, dedups, reconciles, and delivers the signal internally. You
+never open a network connection, never POST anything, never run a loop.
 
-The lede + rules live in [SKILL.md → Python Producer SDK](../SKILL.md#python-producer-sdk). This reference is the depth: import shim, full skeleton, batch + parallel recipes, errors, operator CLI, env var table.
-
----
-
-## Import shim
-
-The SDK ships inside this skill. Where the skill lives on disk depends on the host:
-
-- Global install (`skills add … --skill senpi-trading-runtime -g`) lands the runtime skill under `~/.openclaw/skills/` — e.g. `/data/.openclaw/skills/senpi-trading-runtime/` on Railway.
-- Some setups put user skills under `${OPENCLAW_WORKSPACE}/skills/` instead.
-
-Probe both, then add whichever holds the package to `sys.path`:
-
-```python
-import os, sys
-from pathlib import Path
-
-_sdk_candidates = [
-    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
-    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
-]
-_sdk_path = next(
-    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
-    _sdk_candidates[0],
-)
-if _sdk_path not in sys.path:
-    sys.path.insert(0, _sdk_path)
-
-from senpi_runtime_helpers import (
-    SenpiClient, SenpiClientError,
-    scanner_lock, tick_cache, parallel, producer_daemon,
-)
-```
-
-`SenpiClient()` reads `SENPI_MCP_URL`, `SENPI_AUTH_TOKEN`, `SENPI_RUNTIME_API_HOST`, `SENPI_RUNTIME_API_PORT` from env.
+**Authoritative contract:** [`senpi-trading-runtime/references/scan-contract.md`](../../senpi-trading-runtime/references/scan-contract.md).
+Copy from it; do not author `scan()` from memory. This file is only the lede + the minimal skeleton.
 
 ---
 
-## New producer skeleton
+## What replaced what
 
-```python
-# scripts/<skill>-producer.py
-import os, sys
-from pathlib import Path
-
-_sdk_candidates = [
-    str(Path.home() / ".openclaw" / "skills" / "senpi-trading-runtime"),
-    str(Path(os.environ.get("OPENCLAW_WORKSPACE", "/data/workspace")) / "skills" / "senpi-trading-runtime"),
-]
-_sdk_path = next(
-    (p for p in _sdk_candidates if (Path(p) / "senpi_runtime_helpers").is_dir()),
-    _sdk_candidates[0],
-)
-if _sdk_path not in sys.path:
-    sys.path.insert(0, _sdk_path)
-
-from senpi_runtime_helpers import (
-    SenpiClient, scanner_lock, tick_cache, producer_daemon,
-)
-
-WALLET = os.environ["<SKILL>_WALLET"]
-SCANNER_NAME = "<scanner_name>"           # matches runtime.yaml
-LOCK_NAME = f"<skill>-{WALLET[2:10]}"     # per-wallet — multi-wallet host safe
-
-client = SenpiClient()
-mcp = tick_cache(client)                  # per-tick TTL memoization
-
-def run_one_tick():
-    with scanner_lock(LOCK_NAME):
-        ch = mcp("strategy_get_clearinghouse_state", strategy_wallet=WALLET)
-        markets = mcp("leaderboard_get_markets", limit=100)
-        # ... gating ...
-        if signal_ready:
-            client.push_signal(
-                address=WALLET, scanner=SCANNER_NAME,
-                asset="BTC", direction="LONG",
-                score=0.85,
-                signal_type="MOMENTUM",
-                data={"funding_bps": 18},
-            )
-
-if __name__ == "__main__":
-    producer_daemon(
-        fn=run_one_tick,
-        interval_seconds=300,
-        name=LOCK_NAME,
-        wallet=WALLET,                    # daemon self-terminates if the
-        scanner=SCANNER_NAME,             # runtime is deleted OR scanner renamed
-    )
-```
-
-The daemon stays alive across ticks; tick failures log and continue; SIGTERM / SIGINT drain gracefully. After any container restart relaunch manually: `nohup python3 -u <producer>.py …` with the skill's required env vars. The daemon records argv + cwd in `boot.json`; `senpi-helpers restart` handles subsequent restarts.
-
----
-
-## Batch and parallel
-
-Batch ingest — runtime is not atomic; successful items are ingested even on partial failure:
-
-```python
-client.push_signals([
-    {"address": w, "scanner": "my_signals", "asset": "BTC", "direction": "LONG", "data": {...}},
-    {"address": w, "scanner": "my_signals", "asset": "ETH", "direction": "LONG", "data": {...}},
-])
-```
-
-Parallel MCP fan-out — concurrency-capped at `SENPI_HELPERS_MAX_CONCURRENT` (default 8); excess calls queue, never reject:
-
-```python
-results = parallel([
-    lambda: mcp("strategy_get_clearinghouse_state", strategy_wallet=WALLET),
-    lambda: mcp("leaderboard_get_markets", limit=100),
-])
-ch_ok, ch = results[0]
-```
-
----
-
-## Errors → fixes (most common)
-
-| Error contains | Fix |
+| Old v2 mental model | Runtime 3.0 reality |
 |---|---|
-| `signal_post: … code=INVALID_REQUEST` | Most common: `asset`/`direction` inside `data`. Move to top-level kwargs; verify `data` keys against `runtime.yaml` `config.fields`. |
-| `signal_post: … code=NOT_FOUND` | Verify runtime install (`openclaw senpi runtime list`); confirm `scanner` matches `runtime.yaml`. |
-| `signal_post: unexpected envelope shape` | Runtime is on the legacy envelope; bump the runtime plugin (id: `runtime`, npm package: `@senpi-ai/runtime`) to `>= 1.1.0`. |
-| `signal_post: HTTP 400 … Exceeded api.maxItemsPerSignalsRequest=10` | Batch too large; split batch (default cap 10). |
-| `MCP error: …` from `mcp_call` | Check tool name + arguments against `senpi-hyperliquid-mcp` schema. |
-| `lock_recovered_after_crash` | Previous holder crashed; auto-recovered — no action needed. |
+| Import a client, construct it from env | Nothing to import — the runtime injects `ctx` |
+| A long-lived producer daemon looping every N seconds | A **single-pass, synchronous** `scan()` the runtime calls every `interval_seconds` — no `while True`, no `sleep`, no daemon |
+| Push signals to an HTTP endpoint | **Return** a `list[dict]`; the runtime delivers them internally |
+| Construct + manage an MCP client yourself | `ctx.senpi_mcp.call_tool(name, args)` — injected, **read-only** |
+| Hand-rolled lockfile / tick cache / restart recipe | The supervisor owns liveness, dedup, reconcile, and rollback |
+| Read params from a params file at boot | The recipe's `inputs:` map arrives as the first arg — `scan(inputs, ctx)` |
 
-Full per-item error codes and validation rules: [`signal-schema.md`](signal-schema.md).
+The single job of the author is: **read data, score it, return signals.** Sizing and execution are the
+runtime's job, and every money/state-mutating MCP tool raises `PermissionError` if a scan tries to call
+it (read-only boundary — see the contract).
 
 ---
 
-## Operator CLI: `senpi-helpers`
+## Minimal `scan.py` skeleton
 
-Bundled with the SDK. Reads `pid.json` / `boot.json` / `heartbeat.json` under `$SENPI_HELPERS_STATE_DIR`; sends signals to control running daemons.
+Copied from [`scan-contract.md`](../../senpi-trading-runtime/references/scan-contract.md). Keep the
+thesis math in a sibling **pure `scoring.py`** (no I/O, no MCP) so it is unit-testable; `scan.py` does
+the reads + state, `scoring.py` does the numbers.
 
-```bash
-~/.openclaw/skills/senpi-trading-runtime/senpi-helpers <subcommand>
+```python
+# scanners/scan.py
+import scoring  # pure logic, no I/O — unit-tested separately
+
+def scan(inputs, ctx):
+    # 1) READ — read-only MCP only (market / account / leaderboard / discovery / …)
+    ch = ctx.senpi_mcp.call_tool("strategy_get_clearinghouse_state",
+                                 {"strategy_wallet": ctx.wallet})
+    candles = ctx.senpi_mcp.call_tool("market_get_asset_data",
+                                      {"asset": "xyz:SP500", "candle_intervals": ["4h"]})
+
+    # 2) STATE — cross-tick dedup / rotation (transactional)
+    recent = (ctx.state.last() or {}).get("recent", {}) if ctx.state else {}
+
+    # 3) SCORE — pure functions
+    picks = scoring.build_signals(inputs, candles, ch, recent)
+
+    # 4) EMIT — plain dicts; the runtime sizes + executes them
+    out = [{
+        "asset": p["coin"],            # REQUIRED
+        "direction": p["direction"],   # REQUIRED — "LONG" | "SHORT"
+        "marginPct": p["margin_pct"],  # top-level PERCENT of withdrawable (fleet standard)
+        "leverage": p["leverage"],     # top-level
+        "data": {                      # validated against signal_data_schema
+            "score": p["score"], "direction": p["direction"], "reasons": p["reasons"],
+        },
+        # "valid_for_seconds": 600,    # OPTIONAL per-signal TTL; else default_signal_validity_seconds
+        # "signal_id": "...",          # OPTIONAL stable id; else the scaffold mints a uuid
+    } for p in picks]
+
+    # 5) PERSIST next-tick state (rolled back automatically if this tick errors/times out)
+    if ctx.state is not None:
+        ctx.state.append({"recent": recent})
+    return out
 ```
 
-| Subcommand | Purpose |
+**Signature is exactly two args: `scan(inputs, ctx)`.** On any failure, return `[]` (or a partial list)
+— don't crash; the scaffold rolls back state and captures your stderr (use `print(..., file=sys.stderr)`,
+there is no logging handle). For a full working example see the gold template at
+`strategies/kodiak/main/scanners/scan.py`.
+
+---
+
+## The `ctx` surface (summary)
+
+`ctx` is **frozen** — exactly these attributes, none settable/addable. Full detail in the contract.
+
+| Member | What it is |
 |---|---|
-| `list`    | All daemons on this host |
-| `health`  | One daemon's health; non-zero exit on degraded |
-| `stats`   | Hourly UTC bucket aggregation from the daemon's log (default 72h) |
-| `stop`    | SIGTERM, poll, escalate to SIGKILL on timeout |
-| `restart` | Stop + re-exec from `boot.json` |
+| `ctx.senpi_mcp.call_tool(name, args)` | Senpi MCP client, **read-only**. The only way to fetch data. |
+| `ctx.state` | Transactional history store (or `None` when history is disabled). `.last()` / `.recent(n)` / `.append(dict)` / `len(...)`. |
+| `ctx.wallet` | The runtime's wallet address (pass to `strategy_get_clearinghouse_state`, etc.) |
+| `ctx.scanner_name` | This scanner's name (from the recipe) |
+| `ctx.interval_seconds` | This scanner's tick cadence |
 
-`start` is not a subcommand — first launch goes through the `nohup python3 -u <producer>.py …` recipe above. Full subcommand reference, exit codes, JSON envelopes: [`senpi-helpers-cli.md`](senpi-helpers-cli.md).
-
----
-
-## Logging
-
-JSON lines to **stderr** prefixed `[senpi_helpers]`. Stdout stays clean. Filter logs by `[senpi_helpers]`.
+`inputs` (the first arg) is the recipe's `inputs:` map as a plain dict — read with `.get(...)` and your
+own defaults. There is no `ctx.inputs`.
 
 ---
 
-## SDK-tuning environment variables
+## Where to go next
 
-These knobs default sensibly for every host shipped today. Override only with a measured reason.
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `SENPI_HELPERS_STATE_DIR` | `/data/.openclaw/senpi-helpers` | Where the daemon writes `pid.json` / `boot.json` / `heartbeat.json`. |
-| `SENPI_HELPERS_MCP_TIMEOUT` | `30.0` | Per-call MCP timeout in seconds. |
-| `SENPI_HELPERS_SIGNAL_TIMEOUT` | `5.0` | Per-call `/signals` POST timeout in seconds. |
-| `SENPI_HELPERS_MAX_CONCURRENT` | `8` | `parallel(...)` concurrency cap. Excess calls queue, never reject. |
-| `SENPI_HELPERS_QUEUE_WARN_DEPTH` | `50` | Warn when `parallel(...)` queue hits this depth (soft, no rejection). |
-| `SENPI_HELPERS_TICK_CACHE_TTL` | `120.0` | Per-tick MCP cache TTL in seconds. |
-| `SENPI_HELPERS_TICK_CACHE_MAX_ENTRIES` | `512` | Tick cache hard cap (LRU eviction). |
-| `SENPI_HELPERS_LOCK_DIR` | `/tmp` | Lock file directory used by `scanner_lock`. |
+| You need | Read |
+|---|---|
+| The full `scan()` + `ctx` contract, read-only MCP boundary, emit-one vs emit-all | [`scan-contract.md`](../../senpi-trading-runtime/references/scan-contract.md) |
+| The signal dict you return (required keys, `data{}` vs `signal_data_schema`) | [`signal-schema.md`](signal-schema.md) |
+| The `runtime.yaml` fields that feed `scan()` (`inputs`, `signal_data_schema`, `default_signal_validity_seconds`) | [`runtime-yaml.md`](../../senpi-trading-runtime/references/runtime-yaml.md) |
+| The lifecycle around `scan()` (supervision, dedup, reconcile, state rollback) | [`runtime-concepts.md`](../../senpi-trading-runtime/references/runtime-concepts.md) |
+| The build workflow for a whole strategy package | [`strategy-creation.md`](strategy-creation.md) |

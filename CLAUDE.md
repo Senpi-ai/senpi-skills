@@ -50,7 +50,7 @@ The sections below predate v2; where they say "strategy = skill", read it throug
 The word "strategy" is overloaded in Senpi and the wrong path is the most common silent failure. Two paths, opposite code:
 
 - **Operational** — "Buy me HYPE 10x", "Open a short on BTC", "Copy this trader". The user named the position or trader. **Execute via MCP `strategy_create_custom_strategy`** (multi-asset positions) **or `strategy_create`** (copy-trader). Purely functional — no recommendation, no template, no producer code.
-- **Strategic** — "Help me pick a strategy", "What should I trade?", "Build a trading strategy", "Recommend a strategy". The user wants help deciding. **Template-first picker:** recommend 2–3 fits from `catalog.json` + `senpi-trading-runtime/references/producer-patterns.md`, install via `install_skill`. **Fallback** (only if no template fits): author a new one via `senpi-trading-runtime/references/strategy-creation.md`.
+- **Strategic** — "Help me pick a strategy", "What should I trade?", "Build a trading strategy", "Recommend a strategy". The user wants help deciding. **Template-first picker:** recommend 2–3 fits from `catalog.json` + the archetype → gold-template table in `senpi-strategy-author/references/strategy-creation.md`, install via `install_skill`. **Fallback** (only if no template fits): author a new one via `senpi-strategy-author/references/strategy-creation.md`.
 - **Ambiguous** — ask the user before acting. A single disambiguation question costs nothing.
 
 **The canonical router with the full picker flow and the what-never-to-do list:** [`senpi-entrypoint/references/strategy-intent-routing.md`](senpi-entrypoint/references/strategy-intent-routing.md). Every surface points there.
@@ -67,7 +67,7 @@ Do **not** improvise a strategy from scratch. **Read one doc first: [`senpi-trad
 
 The deep references below are for edge cases only — `strategy-creation.md` links to them when needed:
 
-- **`senpi-trading-runtime/references/producer-patterns.md`** — full archetype catalog (each links a working example agent to clone).
+- **`senpi-strategy-author/references/strategy-creation.md`** — its Step 1 holds the full archetype → gold-template table (each row names a real package to clone).
 - **`senpi-trading-runtime/references/python-producer-sdk.md`** — full SDK (batch, parallel, cache, errors). Never hand-roll MCP calls or the daemon loop.
 - **`senpi-trading-runtime/references/yaml-schema.md`** + **`risk-gates.md`** + **`dsl-configuration.md`** + **`dsl-presets.yaml`** — every `runtime.yaml` field, the risk guard-rails, and the DSL exit.
 - **`senpi-trading-runtime/references/senpi-helpers-cli.md`** — verify the daemon is alive + ticking.
