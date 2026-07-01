@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.0.1"
+  version: "2.0.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -80,6 +80,17 @@ runtime spider` renders each instance's runtime.yaml with its wallet and runs `o
 It scans on its own schedule and opens positions when *its* signals fire (spider swing ~300s, scalp ~60s
 cadence). Tell the user it's set up and running; **do NOT sleep/poll waiting for the first scan tick** —
 that's normal strategy behavior, not part of deploy.
+
+**Say what's protecting it (in every deploy summary).** A template strategy deploys **already
+risk-managed** — the runtime runs a built-in two-phase **DSL trailing stop-loss** on every position plus
+**risk guard-rails** (daily-loss + drawdown circuit breakers), enforced each tick. Put this in the
+"it's live" summary — e.g. *"Spider is live and trading. It's protecting every position automatically —
+trailing stop-loss + daily-loss/drawdown circuit breakers — so you don't need to set a manual stop."*
+**Never tell the user to add a manual stop-loss (e.g. a 10–15% `strategy_update` SL) to a
+template-deployed strategy — it already has one.** The only unprotected holdings are a **manual
+Hyperliquid position** or a **raw `strategy_create_custom_strategy`** with no runtime; if the user wants
+*tighter* limits than the built-in, that's a DSL / `risk.guard_rails` config change (via
+senpi-strategy-author), not a missing stop.
 
 **Optional — `verify`** (only if the user asks "is it actually scanning / live yet?"): `python3
 scripts/deploy.py verify spider` checks each `external_scanner` once. The first `scan()` only fires on its

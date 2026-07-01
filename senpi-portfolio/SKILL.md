@@ -11,7 +11,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.0.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -83,6 +83,15 @@ sitting in strategy wallets waiting for signals." They are not the same money an
 - **Present active strategies as known state, not a fresh discovery.** Pull the data quietly and state
   what's running as established fact ("Your two active strategies are…"). Don't narrate the lookup
   ("let me check… oh, I see you have…") — that reads like you didn't already know your own book.
+- **Deployed strategies are already risk-managed — never prescribe a stop-loss they already have.** Every
+  strategy deployed from a Senpi template runs a built-in **DSL exit** (a two-phase trailing stop-loss on
+  every position) plus **risk guard-rails** (daily-loss / drawdown circuit breakers), enforced by the
+  runtime every tick. When you flag a position's risk, say what's *already protecting* it — "it trails a
+  stop, and the strategy halts on a drawdown circuit breaker" — and **never** recommend "set a 10–15% SL
+  on all active strategies via `strategy_update`"; that's redundant and reads as not knowing your own
+  book. Only a **naked** holding — a manual Hyperliquid position, or a raw custom strategy with no runtime
+  — needs a stop you add. If the user wants *tighter* limits than the built-in, that's a DSL / guard-rail
+  change (via senpi-strategy-author), not a missing stop.
 - **Always end with the two CTAs** (below), verbatim.
 
 ## How to run the engine
@@ -131,7 +140,9 @@ books). Show strategy wallet addresses in short form (`0x35d1...acb1`) unless as
 > **2. Want me to put the idle capital to work in a new strategy?**
 
 - **CTA 1 → position management.** Route to the execution tools (`edit_position` / `close_position` /
-  `strategy_update`) for the specific position — confirm before any change; never trade unprompted.
+  `strategy_update`) for the specific position — confirm before any change; never trade unprompted. For a
+  **deployed** strategy, "adjust risk" means its built-in DSL / guard-rails — don't add a redundant manual
+  stop (see the risk-managed golden rule above).
 - **CTA 2 → deploy idle.** If there's meaningful idle capital (lead from `signals.idle_drag_pct`),
   offer to hand it to **senpi-strategy-discover** / **senpi-strategy-author** — fund a new strategy
   from the embedded idle, or top up an existing one from `strategy_top_up`. Propose; never deploy

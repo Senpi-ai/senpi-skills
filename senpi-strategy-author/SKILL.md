@@ -10,7 +10,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.0.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -69,3 +69,8 @@ After any edit, run the validator, then re-run `install_strategy` (idempotent) v
   appears as `${…}` in that `runtime.yaml`.
 - `params` is the only tunable source — the scanner reads it via `load_params()`; no second copy.
 - The runtime package is **`@senpi-ai/runtime`** (with `-ai`) — never `@senpi/runtime`.
+- **Protection is built in, not optional.** Every instance ships a **DSL exit** + **risk guard-rails** in
+  its `runtime.yaml`, so downstream (senpi-portfolio / senpi-strategy-ops) treats a deployed strategy as
+  **risk-managed, never a naked position**. Don't ship an instance without a DSL exit — the only path that
+  produces an *unprotected* strategy is a raw `strategy_create_custom_strategy` (no runtime), which is out
+  of scope for authored packages.
