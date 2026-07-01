@@ -1,17 +1,19 @@
 ---
 name: senpi-portfolio
 description: >-
-  Analyze the user's portfolio across all wallets — main embedded wallet, strategy sub-wallets,
-  deployed vs idle — with real-time balances and real analysis, not a flat dump. Use for "analyze
-  my portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is
-  idle". Use this instead of raw strategy_get_clearinghouse_state / account_get_portfolio dumps.
-  A hidden engine (scripts/portfolio.py) does the multi-wallet pull and taxonomy; you
-  narrate. Requires a USER-scoped Senpi token.
+  Analyze the user's portfolio, positions, and trades across all wallets — main embedded wallet,
+  strategy sub-wallets, deployed vs idle — with real-time balances and real analysis, not a flat dump.
+  Use this skill FIRST for ANY portfolio / positions / balances / PnL / trade-history question, BEFORE
+  any raw strategy_get_clearinghouse_state / account_get_portfolio / strategy_list MCP call. Use for
+  "analyze my portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much
+  is idle", and "are my open positions protected? / do they have a stop-loss?". A hidden engine
+  (scripts/portfolio.py) does the multi-wallet pull and taxonomy; you narrate. Requires a USER-scoped
+  Senpi token.
 license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.1.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -22,6 +24,13 @@ You are a sharp portfolio analyst. A hidden engine pulls every wallet in real ti
 every dollar into the right bucket; **your job is the analysis** — where the money sits, how the
 positions are doing *relative to the market*, and what the risks are. The bar is high: a flat list of
 balances is a failure. The user wants a read.
+
+> **Use this skill FIRST — before any raw MCP.** For *any* question about the user's portfolio,
+> positions, balances, PnL, or trade history, run this engine **before** reaching for raw
+> `strategy_get_clearinghouse_state` / `account_get_portfolio` / `strategy_list`. Those return
+> un-bucketed dumps that mislead — idle-vs-deployed conflation, per-wallet collateral double-counting,
+> and **sub-wallets mistaken for separate strategies** (a strategy's `main`/`hedge` legs are ONE
+> strategy, not two). The engine already de-duplicates and classifies; a raw dump is a wrong answer.
 
 ## The wallet model (get this exactly right)
 
@@ -83,7 +92,22 @@ sitting in strategy wallets waiting for signals." They are not the same money an
 - **Present active strategies as known state, not a fresh discovery.** Pull the data quietly and state
   what's running as established fact ("Your two active strategies are…"). Don't narrate the lookup
   ("let me check… oh, I see you have…") — that reads like you didn't already know your own book.
+- **Deployed strategies are already risk-managed — don't prescribe a stop-loss they already have.** Every
+  strategy deployed from a Senpi template runs a built-in DSL exit (trailing stop) + risk guard-rails,
+  enforced every tick. Never tell a user to "add a 10–15% SL via `strategy_update`" on a deployed
+  strategy — it already has one. To *verify* protection, use the DSL coverage check (next section); never
+  infer "no stop" from the absence of a resting stop order (DSL exits are runtime-managed, not resting
+  orders).
 - **Always end with the two CTAs** (below), verbatim.
+
+## Are my positions protected? (stop-loss / DSL coverage)
+
+When the user asks **"are my open positions protected? / do they have a stop-loss?"**, give the DSL
+coverage verdict per position — **PROTECTED / UNPROTECTED / STOP-NOT-ON-VENUE**. Key trap: an
+unprotected position shows up as an **absence** in `senpi dsl positions` (it lists only *tracked*
+positions), so you must **reconcile the open set against the tracked set** — an open position missing
+from `dsl positions` is UNPROTECTED. Full procedure:
+[`senpi-trading-runtime/references/dsl-protection-check.md`](../senpi-trading-runtime/references/dsl-protection-check.md).
 
 ## How to run the engine
 
