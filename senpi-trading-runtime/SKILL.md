@@ -6,7 +6,8 @@ description: >-
   exports scan(inputs, ctx), which the runtime supervises and calls each interval, then
   owns execution, risk guard_rails, and two-phase DSL trailing-stop exits. Use when
   working with runtime.yaml, the scan(inputs, ctx) contract, external_scanner, ctx, or
-  the DSL exit engine — the shared runtime contract the lifecycle skills reference. NOT
+  the DSL exit engine — including verifying open positions are protected by DSL (have a
+  working stop-loss). The shared runtime contract the lifecycle skills reference. NOT
   for building, installing, or picking a strategy (→ senpi-strategy-author /
   senpi-strategy-ops / senpi-strategy-discover).
 license: Apache-2.0
