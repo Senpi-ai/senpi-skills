@@ -1,6 +1,6 @@
 # Runtime CLI — `openclaw senpi …`
 
-The complete command surface for interacting with the Senpi trading runtime (`@senpi-ai/runtime` 2.x).
+The complete command surface for interacting with the Senpi trading runtime (`@senpi-ai/runtime`).
 The plugin registers a `senpi` command group on the OpenClaw gateway, so every command is invoked as
 **`openclaw senpi <group> <subcommand>`**. Most read commands accept `--json` to print the raw
 gateway payload, and `-r/--runtime <id>` / `-a/--address <wallet>` to filter to one runtime.
@@ -60,12 +60,40 @@ behind: **`references/dsl-protection-check.md`**.
 | `action history [actionName]` | Rolling execution history with decision audit fields. Omit the name to merge all actions for the runtime. | `-r` · `-a` · `-l, --limit <n>` (default 50) · `--json` |
 | `action decisions [actionName]` | History rows where the decision engine ran (reasoning in JSON). | `-r` · `-a` · `-l` (default 50) · `--json` |
 
+## `senpi risk` — risk eligibility
+
+| Command | What it does | Options |
+|---|---|---|
+| `risk` | Whether the runtime is allowed to trade (eligibility OPEN/COOLDOWN/CLOSED), gate totals, and per-gate status/reason — plus the evaluation faults (`failureKind`, fallback applied) the `status` summary hides. | `-r, --runtime <id>` · `--json` |
+| `risk audit` | Per-wallet gate-check audit log — the decision *history* behind the live `risk` view, as a digest (time, source, `guardrail=result` with reasons). Renders "No risk audit." until the first gate check runs. | `-r, --runtime <id>` (required) · `-a, --address <addr>` · `--since <iso>` · `-l, --limit <n>` (default 100) · `--json` |
+
+## `senpi scanner` — per-scanner supervisor health
+
+| Command | What it does | Options |
+|---|---|---|
+| `scanner` | Per-scanner health: schedule mode, run/error/consecutive-error counts, next-run time, in-flight, cumulative `signals` produced, and external-scanner `alive` (heartbeat from the intake liveness clock; `n/a` for interval scanners). Flags a `BARREN` scanner — alive and has run but produced no signals. Reuses the `state` RPC. | `-r, --runtime <id>` · `--json` |
+
+## `senpi audit` — backend trade-audit trail
+
+| Command | What it does | Options |
+|---|---|---|
+| `audit` | Backend trade trail: MCP tool calls with success, duration, and AI reasoning. Compact table by default. | `-r, --runtime <id>` (required) · `--tool <name>` · `--action-type <read\|create\|update\|delete>` · `--success <bool>` · `--since <iso>` · `--until <iso>` · `-l, --limit <n>` (default 50) · `--json` |
+
+## `senpi events` / `senpi explain` — local domain-event log
+
+The trade narrative (position/dsl/order/signal/runtime events) is persisted to a per-strategy on-disk ring, queryable locally without the collector. Every event is stored as its body + capped scalars; only the redacted free-text slot (LLM reasoning, venue errors) stays collector-only. Because signal processing is strictly serial, the time-ordered window already reflects causal order.
+
+| Command | What it does | Options |
+|---|---|---|
+| `events` | The domain-event log as a table (time, level, event, asset, narrative). | `-r, --runtime <id>` (required) · `-a, --address <addr>` · `--name <event>` · `--asset <symbol>` · `--level <debug\|info\|warn\|error>` · `--since <iso>` · `--until <iso>` · `-l, --limit <n>` (default 200) · `--json` |
+| `explain <asset>` | Stitch one asset's position lifecycle (opened → dsl transitions → close+reason) into a chronological narrative tagged by position id. | `-r, --runtime <id>` (required) · `-a, --address <addr>` · `-l, --limit <n>` (events to scan, default 500) · `--json` |
+
 ## `senpi status` / `senpi state` — runtime health
 
 | Command | What it does | Options |
 |---|---|---|
-| `status` | Lightweight runtime health for running runtimes. | `-r, --runtime <id>` · `--json` |
-| `state` | Full runtime state for running runtimes. | `-r` · `--json` |
+| `status` | Lightweight runtime health digest for running runtimes: overall health, scanner summary (with a degraded-scanner count), DSL monitor liveness (running/stopped, tick-in-flight, next tick, last tick error), and — when risk is enabled — trade eligibility (OPEN/COOLDOWN/CLOSED) and the per-gate table. | `-r, --runtime <id>` · `--json` |
+| `state` | Full runtime state for running runtimes — the escape hatch when the `status` digest isn't enough. | `-r` · `--json` |
 
 ## `senpi skills` — manage Senpi skills
 
