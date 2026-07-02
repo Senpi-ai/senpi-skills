@@ -21,6 +21,31 @@
 
     { "name": "signal.outcome", "level": "info", "body": "SOL accepted", "ts": 1782500000000,
       "attrs": { "senpi.signal.asset": "SOL", "senpi.signal.direction": "long", "senpi.signal.score": 13.0,
-                 "senpi.outcome.result": "accepted", "senpi.outcome.reason_code": "submitted" } }
+                 "senpi.outcome.result": "accepted", "senpi.outcome.reason_code": "submitted" } },
+
+    { "name": "order.filled", "level": "info", "body": "SOL entry filled (maker)", "ts": 1782500100000,
+      "attrs": { "senpi.order.id": "0xSOLIN", "senpi.position.id": "pos-sol", "senpi.asset": "SOL",
+                 "senpi.order.fill_price": 120.0, "senpi.order.fill_size": 3.0,
+                 "senpi.order.execution_as_maker": true } },
+
+    { "name": "order.filled", "level": "info", "body": "SOL exit filled (taker)", "ts": 1782700000000,
+      "attrs": { "senpi.order.id": "0xSOL", "senpi.position.id": "pos-sol", "senpi.asset": "SOL",
+                 "senpi.order.fill_price": 150.0, "senpi.order.fill_size": 3.0,
+                 "senpi.order.execution_as_maker": false } },
+
+    { "name": "order.filled", "level": "info", "body": "ETH exit filled (maker)", "ts": 1782750000000,
+      "attrs": { "senpi.order.id": "0xETH", "senpi.position.id": "pos-eth", "senpi.asset": "ETH",
+                 "senpi.order.fill_price": 2000.0, "senpi.order.fill_size": 0.5,
+                 "senpi.order.execution_as_maker": true } },
+
+    { "name": "order.failed", "level": "warn", "body": "AVAX order failed", "ts": 1782670000000,
+      "attrs": { "senpi.order.id": "0xAVAXFAIL", "senpi.asset": "AVAX",
+                 "senpi.order.reason": "insufficient_margin", "senpi.order.error_name": "MarginError" } },
+
+    { "name": "dsl.sl_sync_failed", "level": "error", "body": "SOL stop failed to sync", "ts": 1782600500000,
+      "attrs": { "senpi.position.id": "pos-sol", "senpi.asset": "SOL" } },
+
+    { "name": "runtime.paused", "level": "warn", "body": "runtime paused: max drawdown", "ts": 1782660000000,
+      "attrs": { "senpi.pause.reason": "max_drawdown_halt" } }
   ]
 }

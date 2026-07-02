@@ -390,6 +390,86 @@ def test_telemetry_unavailable_leaves_discovery_intact():
     assert by["SOL"]["realized_pnl"] == 90.0 and by["BTC"]["direction"] == "short"
 
 
+# ──────────────────────────────────── telemetry quick-action aggregations (reuse the fetched events/trades)
+# All six telemetry quick actions read from aggregations computed off the SAME fetched events + trades[] —
+# no re-fetch. These guard the four engine-side ones (dsl_close_reason_mix, blocked_summary, leaks,
+# execution_quality) using the events fixture already in play.
+
+
+def test_dsl_close_reason_mix_buckets_terminals_and_premature():
+    """'Shaken out too early / how are my exits firing?' — dsl_close_reason_mix tallies trades by
+    exit_reason.terminal OVERALL + by asset_class + by strategy_label, and flags the premature cohort.
+    With telemetry: SOL tier_breach, ETH max_retrace (premature), BTC UNKNOWN → 1 premature exit."""
+    res = _result_with_telemetry()
+    mix = res["dsl_close_reason_mix"]
+    assert mix["overall"]["trade_count"] == 3
+    bt = mix["overall"]["by_terminal"]
+    assert bt.get("tier_breach") == 1 and bt.get("max_retrace") == 1 and bt.get("UNKNOWN") == 1
+    # ETH max_retrace is a premature terminal → exactly one premature exit
+    assert mix["overall"]["premature_exits"] == 1
+    # every bucket carries strategy_label as its key → per-strategy 'why is X losing' filter
+    assert "kodiak" in mix["by_strategy"]
+    assert mix["by_strategy"]["kodiak"]["by_terminal"].get("tier_breach") == 1
+    assert "crypto" in mix["by_asset_class"]
+    prem = {s["asset"] for s in mix["premature_exit_samples"]}
+    assert "ETH" in prem
+
+
+def test_blocked_summary_tallies_reason_codes_by_strategy():
+    """'What did my own limits block?' — blocked_summary tallies missed_signals by reason_code, overall +
+    by strategy_label. HYPE/no_slots + AVAX/risk_gate_max_drawdown, both on kodiak."""
+    res = _result_with_telemetry()
+    bs = res["blocked_summary"]
+    assert bs["total_blocked"] == 2
+    assert bs["by_reason_code"].get("no_slots") == 1
+    assert bs["by_reason_code"].get("risk_gate_max_drawdown") == 1
+    assert bs["by_strategy"]["kodiak"].get("no_slots") == 1
+
+
+def test_leaks_scan_failed_orders_protection_gaps_and_halts():
+    """'Where am I leaking?' — leaks scans the SAME events for order.failed (reason), dsl.sl_sync_failed /
+    dsl.handoff_failed (protection gaps), runtime.paused (risk halts). The fixture has one of each."""
+    res = _result_with_telemetry()
+    lk = res["leaks"]
+    assert lk["order_failed"]["count"] == 1
+    assert lk["order_failed"]["samples"][0]["reason"] == "insufficient_margin"
+    assert lk["protection_gaps"]["count"] == 1
+    assert lk["protection_gaps"]["samples"][0]["event"] == "dsl.sl_sync_failed"
+    assert lk["risk_halts"]["count"] == 1
+    assert lk["risk_halts"]["samples"][0]["reason"] == "max_drawdown_halt"
+    assert res["meta"]["leak_counts"] == {"order_failed": 1, "protection_gaps": 1, "risk_halts": 1}
+
+
+def test_execution_quality_maker_vs_taker_ratio():
+    """'What am I paying in fees — maker vs taker?' — execution_quality tallies order.filled by
+    senpi.order.execution_as_maker. Fixture: 2 maker (SOL entry, ETH exit) + 1 taker (SOL exit) → ratio
+    2/3. The authoritative-fee ledger hook is documented, not called."""
+    res = _result_with_telemetry()
+    eq = res["execution_quality"]
+    assert eq["maker_fills"] == 2
+    assert eq["taker_fills"] == 1
+    assert eq["maker_ratio"] == 0.6667
+    assert "execution_get_closed_position_details" in eq["authoritative_fee_note"]
+
+
+def test_aggregations_fail_open_when_telemetry_absent():
+    """Fail-open: with NO event fixture (older build / closed ring), the leak + execution + blocked
+    aggregations are empty/zeroed and dsl_close_reason_mix still tallies from the ratchet/UNKNOWN
+    fallback — never a crash, valid structure throughout."""
+    res = _result()                                  # no SENPI_EVENTS_FIXTURE
+    assert res["leaks"]["order_failed"]["count"] == 0
+    assert res["leaks"]["protection_gaps"]["count"] == 0
+    assert res["leaks"]["risk_halts"]["count"] == 0
+    assert res["execution_quality"]["maker_fills"] == 0
+    assert res["execution_quality"]["maker_ratio"] is None
+    assert res["blocked_summary"]["total_blocked"] == 0
+    # dsl_close_reason_mix still runs off the ratchet/UNKNOWN fallback terminals
+    mix = res["dsl_close_reason_mix"]
+    assert mix["overall"]["trade_count"] == 3
+    assert mix["overall"]["by_terminal"].get("SL_TRIGGERED") == 1   # SOL via ratchet fallback
+    assert mix["overall"]["by_terminal"].get("UNKNOWN") == 2        # ETH (ACTIVE record) + BTC (no record)
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

@@ -3,13 +3,17 @@ name: senpi-improve-trades
 description: >-
   Retrospective trade review + improvement coaching for the user's Senpi trading. Answers "did I sell
   too early or late", "what did I miss this week", "master my week", "compare my trades to the market /
-  to the best whales", "how could I make more gains", "suggest improvements", "review my trades". A
-  hidden engine (scripts/review.py) reconstructs every CLOSED trade, attributes its exit mechanism (which
-  DSL tier / hard stop fired), computes the honest "if I'd held to now" counterfactual, and crosses the
-  book against what the market did — you narrate it under strict guardrails: process over outcome (lead
-  with the aggregate, not the one reversal), it's the STRATEGY not the user, NO fabricated "+$X/week", no
-  performance-chasing, and the user chooses how deep the fix goes. Composes senpi-market-pulse (movers),
-  senpi-smart-money (whales), and senpi-portfolio (live state). Requires a USER-scoped Senpi token.
+  to the best whales", "how could I make more gains", "suggest improvements", "review my trades", "am I
+  getting shaken out too early / how are my exits firing", "what did my own limits block / what couldn't
+  I take", "where am I leaking", "walk me through / explain my [asset] trade", "what am I paying in fees /
+  maker vs taker", "why is [strategy] losing". A hidden engine (scripts/review.py) reconstructs every
+  CLOSED trade from discovery, enriches each exit reason + blocked signals from the runtime telemetry
+  event log, computes the honest "if I'd held to now" counterfactual, and crosses the book against what
+  the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
+  not the one reversal), it's the STRATEGY not the user, NO fabricated "+$X/week", no performance-chasing,
+  honest sourcing (onchain facts = discovery, exit reason / blocked / leaks = telemetry), and the user
+  chooses how deep the fix goes. Composes senpi-market-pulse (movers), senpi-smart-money (whales), and
+  senpi-portfolio (live state). Requires a USER-scoped Senpi token.
 license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
@@ -39,6 +43,61 @@ more" questions; use `senpi-portfolio` for live state.
 > return un-attributed dumps that invite exactly the failure modes below (skipping the current-price
 > comparison, guessing the exit mechanism). And **never use `audit_*`** for closed trades — those tools are
 > deprecated; the engine sources closed trades from `discovery_get_trader_history`.
+
+## Sources — onchain vs runtime (the split that keeps you honest)
+
+Two sources, two jobs. Never mix them, and never reconstruct one from the other.
+
+- **Onchain trade facts → `discovery`.** The trade **list itself** + every onchain fact: asset, direction,
+  entry/exit price, realized PnL, fees, timing, leverage, size. Discovery **owns** these — they are never
+  re-derived from anything else. `discovery_get_trader_history` is the trade lister; `market_get_asset_data`
+  supplies the current price for the "if I'd held to now" counterfactual.
+- **Runtime / agent events → `telemetry` (the on-disk event log).** The facts discovery *can't* see because
+  they left no onchain trace: each trade's **exit reason** (`dsl.closed` / `position.closed` close_reason +
+  tier + roe), the **blocked/rejected signals** you never took (`signal.outcome`), and the **leak / exit-
+  quality** reads (failed orders, protection gaps, risk halts, maker-vs-taker fills). Telemetry **enriches**
+  the discovery trades — it fills `exit_reason` and produces the standalone streams; it **never** becomes the
+  trade list and **never** re-derives a price or PnL.
+
+**When telemetry is unavailable** (an older runtime build without the event RPC, or a *closed* strategy whose
+on-disk ring is already gone) the engine **fails open to discovery**: the trades are still listed, and
+`exit_reason.terminal` falls back to the ratchet record or honest `UNKNOWN`. Say **"exit mechanism not
+recorded on this build"** (or "…this strategy's event ring is gone — it's closed") — **never** report it as a
+bug. `meta.telemetry_source` (`available` / `partial` / `unavailable`) and `meta.exit_reason_source_counts`
+tell you exactly how much enrichment landed; surface that honestly.
+
+## Quick actions this skill handles
+
+Each intent maps to a specific engine output (its data) and a specific **actionable lever** (the fix). Route
+every fix through the depth choice at the end — never auto-act.
+
+| Intent (what the user asks) | Data (engine output) | Actionable lever |
+|---|---|---|
+| *"Did I sell too early or late?"* | `timing_summary` (beat/worse/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold` | Lead with the aggregate; a reversal is one data point → the DSL tier that fired (`exit_reason`) |
+| *"Master my week"* | `timing_summary` + `strategies[]` (per-mandate) + `book_vs_market` | Process recap, each strategy vs its own mandate |
+| *"What did I miss this week?"* | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) | Is the missed mover in the mandate? loosen a gate only if so |
+| *"How could I make more gains?"* | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise |
+| *"Compare me to the whales / the market"* | `book_vs_market` (`smart_money_pct` per mover) | Compose `senpi-smart-money` / `senpi-market-pulse` |
+| **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) | The **DSL preset lever** — widen phase1 retrace / retune a tier → `senpi-strategy-author` / `-ops` |
+| **2.** *"What did my own limits block? / what couldn't I take?"* | `blocked_summary` / `missed_signals` — tallied by `reason_code` (`no_slots`/`no_margin`/`risk_gate_*`/`asset_banned`/…) | Add a slot · fund margin · loosen a risk gate — the exact gate the `reason_code` names |
+| **3.** *"Where am I leaking?"* | `leaks` — `order.failed` (order rejected), `dsl.sl_sync_failed`/`dsl.handoff_failed` (protection gaps → a naked leg), `runtime.paused` (risk halts) — **plus** premature exits (from `dsl_close_reason_mix`) + fee drag (from `execution_quality`) | Fix the failing order path / the stop sync, review the halt reason, tighten the leaky exit |
+| **4.** *"Walk me through / explain my [asset] trade"* | Run **`openclaw senpi explain <ASSET> --runtime <id> --json`** directly — the native opened→dsl→close+reason lifecycle for that asset (oldest-first, threaded by position id) | Read the lifecycle; the fix routes to whichever leg misfired |
+| **5.** *"What am I paying in fees — maker vs taker?"* | `execution_quality` — maker/taker fill tally + `maker_ratio` from `order.filled` | Prefer maker execution on entry/exit → the fee-optimized-limit lever; authoritative fee $ = the future ledger hook |
+| **6.** *"Why is [strategy] losing?"* | That strategy's slice: `dsl_close_reason_mix.by_strategy[label]` + `blocked_summary.by_strategy[label]` + `strategies[label]` realized PnL + mandate | Judge vs the mandate; route the specific DSL / gate fix |
+
+**Quick action 4 — the `explain` command in full.** For "walk me through / explain my BTC trade," the agent
+runs the native lifecycle command directly (it's not in `review.py` — it's the runtime CLI):
+
+```sh
+openclaw senpi explain <ASSET> --runtime <id> --json      # e.g. openclaw senpi explain BTC --runtime kodiak-main --json
+```
+
+It returns `{ok, asset, entries[]}` — the asset's events oldest-first (`position.opened` → `dsl.created` →
+`dsl.tier_advanced` → `dsl.closed`/`position.closed`), threaded by `senpi.position.id`. You need the
+**runtime id**, which is the key the event log is addressed by. Get it from the runtime registry
+(`installed_runtimes.json`, the same source the engine reads for mandates — each entry's `id`) or from
+`openclaw senpi runtime list`. A closed strategy has no ring → `explain` returns nothing; that's expected,
+say so, don't call it a bug.
 
 ## How to run
 
@@ -120,10 +179,15 @@ otherwise it's just an asset the strategy was never designed to trade.
 
 ### 6. Honest sourcing — say what's missing, name your source
 
-- Closed trades come from **`discovery_get_trader_history`** — **never `audit_*`** (deprecated).
-- Exit attribution comes from **`ratchet_stop_list`**. When there's no terminal record for a closed trade,
-  `exit_reason.terminal` is **`UNKNOWN`** — say *"I can't confirm how this one exited"*, **never guess** the
-  mechanism.
+- **Name your source (onchain vs runtime).** Closed trades + every onchain fact come from **`discovery`**
+  (`discovery_get_trader_history`) — **never `audit_*`** (deprecated). Exit reason, blocked signals, leaks and
+  maker/taker come from **telemetry** (the event log) and *enrich* those discovery trades. See the "Sources —
+  onchain vs runtime" note above.
+- **Exit attribution is telemetry-first, ratchet-fallback.** `exit_reason.source` tells you which: `telemetry`
+  (native `close_reason`), `ratchet` (the reconstructed record), or `unknown`. When it's `UNKNOWN` — no
+  telemetry event and no ratchet record — say *"exit mechanism not recorded on this build"* (or, for a closed
+  strategy, *"…its event ring is gone"*), **never guess** the mechanism. Check `meta.telemetry_source` +
+  `meta.exit_reason_source_counts` and report how much enrichment landed honestly.
 - When a price / horizon is missing, `if_held_delta_usd` is `null` and the trade counts as `exits_unknown` —
   say so ("couldn't compare — no current price"), don't invent a comparison.
 - Read `meta.warnings` and surface material gaps plainly. Missing data is a caveat, not a thing to paper over.
@@ -170,12 +234,31 @@ trades[]      per CLOSED trade (from strategies of ALL statuses — a churned bo
   price_now, price_since_exit_pct,        # subsequent action (current price only, v1)
   if_held_delta_usd,                      # counterfactual — CONTEXT, not verdict (short-sign adjusted)
   exit_vs_hold: beat | worse | flat | unknown,   # engine verdict of the exit vs holding-to-now
-  exit_reason: { terminal, tier_reached, high_water_roe },   # authoritative — which DSL lever fired
-  source: "reconstructed"                 # provenance (v2 telemetry will flip this per-trade)
+  exit_reason: { terminal, tier_index/tier_reached, high_water_roe, source },   # which DSL lever fired
+  source: "telemetry" | "reconstructed"   # telemetry = exit_reason came from the event log; else discovery+ratchet
 
 timing_summary   PROCESS-framed COUNTS (never $/week):
   trade_count, exits_beat_holding, exits_worse, exits_flat, exits_unknown,
   realized_pnl_total, if_all_reclosed_now_total, by_asset_class{}
+
+dsl_close_reason_mix   "shaken out too early / how are my exits firing" (from trades[] exit_reason):
+  overall        { by_terminal{}, trade_count, premature_exits }
+  by_asset_class { crypto|equity/index: {…same…} }
+  by_strategy    { <strategy_label>: {…same…} }   # filter by label → "why is [strategy] losing"
+  premature_exit_samples[], premature_note        # premature = trailing_floor/weak_peak/max_retrace OR low-tier+small-ROE
+
+blocked_summary   "what did my own limits block" (from missed_signals[]):
+  total_blocked, by_reason_code{ no_slots|no_margin|risk_gate_*|asset_banned|… },
+  by_strategy{ <strategy_label>: { reason_code: n } }
+
+leaks   "where am I leaking" (telemetry event scan — fail-open to zeroed):
+  order_failed     { count, samples[] { asset, reason, ts, strategy_label } }   # order rejected → $ never entered
+  protection_gaps  { count, samples[] { asset, event, … } }                     # dsl.sl_sync_failed/handoff → naked leg
+  risk_halts       { count, samples[] { reason, … } }                           # runtime.paused → trading stopped
+
+execution_quality   "fees — maker vs taker" (from order.filled execution_as_maker):
+  maker_fills, taker_fills, unknown_fills, maker_ratio,   # RATE only
+  authoritative_fee_note                                  # the future ledger fee-$ hook (NOT called per-trade)
 
 book_vs_market   the "what did I miss" gap:
   top_movers[] { asset, asset_class, pct, smart_money_pct, trader_count },
@@ -197,12 +280,18 @@ meta          { warnings[], sources[], window, degraded,
                 strategy_count,             # every enumerated strategy (all statuses) — a raw total
                 current_strategy_count,     # the LIVE book — THIS is "how many strategies you run"
                 closed_strategy_count,      # churned/closed redeployments — HISTORY, not live redundancy
-                trade_count }
+                trade_count,
+                telemetry_source,           # available | partial | unavailable — how much enrichment landed
+                exit_reason_source_counts,  # { telemetry, ratchet, unknown } — where each exit_reason came from
+                missed_signal_count, leak_counts }   # quick glances at the telemetry streams
 ```
 
-`exit_reason.terminal` ∈ `SL_TRIGGERED` (the DSL fired — a hard stop or a locked profit tier),
-`MANUAL_CLOSE`, `LIQUIDATED`, `ADL`, `UNKNOWN`. `tier_reached` = the ratchet tier that locked;
-`high_water_roe` = the peak ROE the position saw — together they tell you *which lever* to tune.
+`exit_reason.terminal` — **when telemetry enriched it** (`source: "telemetry"`) it's the native
+`close_reason`: `tier_breach`, `max_retrace`, `trailing_floor`, `weak_peak`, `dead_weight`, `hard_timeout`,
+`manual`, `sl_hit`. **When it fell back to the ratchet record** (`source: "ratchet"`) it's `SL_TRIGGERED`,
+`MANUAL_CLOSE`, `LIQUIDATED`, `ADL`. Neither available → `UNKNOWN` (`source: "unknown"`) — say "exit mechanism
+not recorded on this build," never guess. `tier_index`/`tier_reached` = the tier that locked; `high_water_roe`
+= the peak ROE — together they tell you *which lever* to tune.
 
 ## The output contract — what you produce
 
@@ -242,12 +331,17 @@ Never pick for the user, and never act unprompted.
 
 Don't re-implement these — call them and weave their output into the four-part contract above.
 
-## Future — telemetry (v2)
+## Sources today, and the one future upgrade
 
-v1 **reconstructs** each trade's exit + context from `discovery_get_trader_history` + `ratchet_stop_list` +
-current price (that's why every trade is tagged `source: "reconstructed"`). Telemetry v1 (the successor to
-the removed `audit_*` tools) will carry the user's richer per-trade record — the actual entry thesis + score,
-the exact exit trigger. When it's queryable, it slots into the engine's `_collect_trades()` source boundary as
-a higher-fidelity (or primary) source — trades then read `source: "telemetry"` — **with no change to these
-guardrails, the narration, or the output shape.** Until then, this skill works today on the reconstructed
-sources.
+**Telemetry is a live v1 source.** The engine reads the runtime **event log** (`openclaw senpi events`) to
+enrich each discovery trade's `exit_reason` and to produce the standalone streams — `missed_signals`, `leaks`,
+`execution_quality`. A telemetry-enriched trade reads `source: "telemetry"`; when telemetry is unavailable
+(older build / a closed strategy's ring is gone) the engine fails open to discovery + the ratchet record
+(`source: "reconstructed"`, `exit_reason.source` `ratchet`/`unknown`) — that's the honest fallback, not a bug.
+Discovery remains the sole owner of the onchain trade facts (list, prices, realized PnL, fees, timing).
+
+**The one authoritative-fee upgrade still pending:** `execution_quality` reports the maker-vs-taker **rate**
+today. The authoritative fee **$** lives in the ledger — `order.filled` / `position.closed` carry
+`senpi.order.id`, which joins to `execution_get_closed_position_details({closedOrderId})` → realized PnL +
+**fees** + funding. That per-order join is the future upgrade; it is intentionally **not** called per-trade
+(rate-limit risk), so until it's wired, quote the maker ratio as a fee-tier signal, never a fee dollar total.

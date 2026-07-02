@@ -60,6 +60,24 @@ EXIT_MATCH_WINDOW_MS = 120000.0               # ±2 min asset+time fallback when
 _EXIT_EVENT_NAMES = ("dsl.closed", "position.closed")
 _MISSED_RESULTS = ("rejected", "blocked")     # signal.outcome results that never became a trade
 
+# ── telemetry-derived quick-action aggregations (all computed from the SAME fetched events + trades[]) ──
+# The 6 telemetry quick actions ("shaken out too early", "what did my limits block", "where am I leaking",
+# "fees maker vs taker", "why is [strategy] losing") reuse the events already pulled during enrichment — no
+# re-fetch. Every aggregation is fail-open: no events → empty aggregate, never a crash.
+#
+# The DSL terminal enum (the telemetry `close_reason`, from references/event-log.md). A trade's exit lands
+# in ONE of these; the ratchet fallback's SL_TRIGGERED/MANUAL_CLOSE/LIQUIDATED/ADL and the honest UNKNOWN
+# also bucket here (whatever `exit_reason.terminal` holds). PREMATURE = the early/shaken-out cohort.
+_PREMATURE_TERMINALS = ("trailing_floor", "weak_peak", "max_retrace")   # the "shaken out too early" bucket
+_PREMATURE_TIER_MAX = 1        # a low tier_index (<=1) locked with a small roe reads as a premature lock too
+_PREMATURE_ROE_MAX = 5.0       # "small roe" ceiling for the low-tier premature heuristic (high-water ROE %)
+# leak events — protection gaps + failed orders + risk halts, scanned from the SAME entries stream.
+_LEAK_ORDER_FAILED = "order.failed"
+_LEAK_PROTECTION = ("dsl.sl_sync_failed", "dsl.handoff_failed")   # DSL couldn't sync/hand off the stop
+_LEAK_PAUSED = "runtime.paused"                                  # a risk halt (with its reason)
+_LEAK_SAMPLE_CAP = 5           # samples kept per leak category (counts are exact; samples are illustrative)
+_FILL_EVENT_NAME = "order.filled"
+
 # CURRENT book = strategies still in play. Only these get a per-strategy VERDICT (mandate/DSL/on_mandate).
 # Everything else (CLOSED, INACTIVE, ARCHIVED, …) is HISTORY: its trades stay in trades[] for the timing
 # review (attributed by label), but it NEVER gets a "consolidate/kill/fix" verdict and its absent mandate
@@ -587,6 +605,59 @@ def _missed_signals_from_events(events, strategy_label):
     return out
 
 
+def _scan_leak_and_fill_events(events, strategy_label, leaks_acc, fills_acc):
+    """Extend the SAME entries stream scan (no re-fetch) to harvest the leak + execution-quality events —
+    'where am I leaking' and 'fees / maker vs taker'. Mutates the two accumulators in place:
+
+      leaks_acc — a per-category rollup {order_failed, protection_gaps, risk_halts}, each {count, samples[]}:
+        order.failed                          → a rejected/errored order (senpi.order.reason)  → $ never entered
+        dsl.sl_sync_failed / dsl.handoff_failed → the DSL couldn't sync/hand off the stop      → a naked leg
+        runtime.paused                        → a risk halt (senpi.pause.reason)               → trading stopped
+      fills_acc — a maker/taker tally from `order.filled` (senpi.order.execution_as_maker → fee tier).
+
+    Counts are EXACT; samples are capped (illustrative, not a ledger). Fail-soft on any odd event shape.
+    NOTE (future authoritative fees): the maker/taker split is the *rate* signal; the authoritative fee $
+    lives in the ledger via `order_id → execution_get_closed_position_details({closedOrderId})`. That is a
+    per-order hook wired later — do NOT call it per-trade here (N calls, rate-limit risk); this stays a
+    telemetry-only rate read."""
+    for ev in events:
+        name = str(ev.get("name") or "")
+        if name == _LEAK_ORDER_FAILED:
+            cat = leaks_acc["order_failed"]
+            cat["count"] += 1
+            if len(cat["samples"]) < _LEAK_SAMPLE_CAP:
+                cat["samples"].append({
+                    "asset": _attr(ev, "senpi.asset", "senpi.signal.asset"),
+                    "reason": _attr(ev, "senpi.order.reason", "senpi.order.error_name"),
+                    "ts": _num(ev.get("ts")), "strategy_label": strategy_label,
+                })
+        elif name in _LEAK_PROTECTION:
+            cat = leaks_acc["protection_gaps"]
+            cat["count"] += 1
+            if len(cat["samples"]) < _LEAK_SAMPLE_CAP:
+                cat["samples"].append({
+                    "asset": _attr(ev, "senpi.asset", "senpi.signal.asset"),
+                    "event": name,   # which protection step failed (sl_sync vs handoff)
+                    "ts": _num(ev.get("ts")), "strategy_label": strategy_label,
+                })
+        elif name == _LEAK_PAUSED:
+            cat = leaks_acc["risk_halts"]
+            cat["count"] += 1
+            if len(cat["samples"]) < _LEAK_SAMPLE_CAP:
+                cat["samples"].append({
+                    "reason": _attr(ev, "senpi.pause.reason", "senpi.runtime.pause_reason", "senpi.reason"),
+                    "ts": _num(ev.get("ts")), "strategy_label": strategy_label,
+                })
+        elif name == _FILL_EVENT_NAME:
+            as_maker = _attr(ev, "senpi.order.execution_as_maker")
+            if as_maker is True:
+                fills_acc["maker"] += 1
+            elif as_maker is False:
+                fills_acc["taker"] += 1
+            else:
+                fills_acc["unknown"] += 1   # fill event without the flag → don't guess the fee tier
+
+
 # ──────────────────────────────────────────────────────────────── closed trades (discovery_get_trader_history)
 def _ms(ts):
     """Normalize a Unix timestamp to MILLISECONDS. trader-history close/open times have been seen in both
@@ -734,21 +805,30 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
     the honest "if I'd held to now" counterfactual.
 
     TELEMETRY (the runtime event log) ENRICHES those discovery trades: it fills each trade's EXIT REASON
-    (`dsl.closed` / `position.closed` close_reason + tier + roe) and produces `missed_signals[]` (the
-    blocked/rejected `signal.outcome` cohort — 'what did I miss'). Telemetry NEVER reconstructs a trade or
-    re-derives a price/PnL. Exit-reason match priority: exact order_id → else asset+close_time within ±2min;
-    no telemetry match → the ratchet record (SECONDARY fallback) → else UNKNOWN. Telemetry wins when present.
+    (`dsl.closed` / `position.closed` close_reason + tier + roe) and produces the standalone telemetry
+    streams — `missed_signals[]` (blocked/rejected `signal.outcome` — 'what did I miss'), plus the leak +
+    execution-quality rollups ('where am I leaking', 'fees maker vs taker'). ALL of these reuse the SAME
+    per-runtime events fetched ONCE here (no re-fetch). Telemetry NEVER reconstructs a trade or re-derives a
+    price/PnL. Exit-reason match priority: exact order_id → else asset+close_time within ±2min; no telemetry
+    match → the ratchet record (SECONDARY fallback) → else UNKNOWN. Telemetry wins when present.
 
-    Returns (trades, missed_signals). Fail-open per source — a missing source degrades that field/stream,
-    not the whole trade; zero telemetry → discovery path is fully intact."""
+    Returns (trades, missed_signals, leaks, fills). Fail-open per source — a missing source degrades that
+    field/stream, not the whole trade; zero telemetry → discovery path is fully intact + empty aggregates."""
     trades, missed_signals = [], []
+    # leak + execution-quality accumulators — filled from the SAME fetched events, per strategy, no re-fetch.
+    leaks = {"order_failed": {"count": 0, "samples": []},
+             "protection_gaps": {"count": 0, "samples": []},
+             "risk_halts": {"count": 0, "samples": []}}
+    fills = {"maker": 0, "taker": 0, "unknown": 0}
     for strat in strategies:
         closed = fetch_closed_trades(client, strat["wallet"], since_ms, until_ms, cap, meta)
         # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). Fetched even when
-        # the wallet has no closed trades in-window, since its missed_signals still count as 'what I missed'.
+        # the wallet has no closed trades in-window, since its missed_signals + leaks still count.
         events = _fetch_events(strat.get("runtime_id"), since_ms, meta)
         if events:
             missed_signals.extend(_missed_signals_from_events(events, strat.get("label")))
+            # scan the SAME entries once for leaks (failed orders / protection gaps / risk halts) + fills.
+            _scan_leak_and_fill_events(events, strat.get("label"), leaks, fills)
         if not closed:
             continue
         by_order_id, by_asset = _index_exit_events(events)
@@ -788,7 +868,7 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
             trades.append(t)
     trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
     missed_signals.sort(key=lambda m: _num(m.get("ts")) or 0, reverse=True)
-    return trades, missed_signals
+    return trades, missed_signals, leaks, fills
 
 
 # ──────────────────────────────────────────────────────────────── timing summary (PROCESS-framed counts)
@@ -830,6 +910,114 @@ def _timing_summary(trades):
         "realized_pnl_total": realized_total,
         "if_all_reclosed_now_total": if_all,   # counterfactual aggregate — CONTEXT, NEVER a projection
         "by_asset_class": by_class,
+    }
+
+
+# ──────────────────────────────────── telemetry quick-action aggregations (reuse the fetched events/trades)
+def _is_premature_exit(exit_reason):
+    """The 'shaken out too early' heuristic for ONE closed trade's exit_reason. TRUE when either:
+      (a) terminal ∈ {trailing_floor, weak_peak, max_retrace} — the retrace/floor/weak-peak family that
+          cuts a still-working position, OR
+      (b) a LOW tier locked (tier_index/tier_reached <= 1) with a SMALL high-water ROE (<= ~5%) — the
+          profit-lock armed and trailed out almost immediately.
+    Fail-soft: a missing/odd exit_reason → False (not premature; we don't invent an early exit)."""
+    if not isinstance(exit_reason, dict):
+        return False
+    terminal = str(exit_reason.get("terminal") or "")
+    if terminal in _PREMATURE_TERMINALS:
+        return True
+    tier = _num(exit_reason.get("tier_index"))
+    if tier is None:
+        tier = _num(exit_reason.get("tier_reached"))
+    roe = _num(exit_reason.get("high_water_roe"))
+    if tier is not None and tier <= _PREMATURE_TIER_MAX and roe is not None and abs(roe) <= _PREMATURE_ROE_MAX:
+        return True
+    return False
+
+
+def _dsl_close_reason_mix(trades):
+    """'Am I getting shaken out too early? / how are my exits firing?' — a tally of every closed trade by its
+    exit_reason.terminal (the telemetry close_reason, or the ratchet/UNKNOWN fallback), broken down OVERALL
+    + by asset_class + by strategy_label, plus the premature-exit cohort (see _is_premature_exit). Routes to
+    the DSL preset lever (widen phase1 retrace / retune a tier). Reuses trades[] — no re-fetch. Fail-open:
+    no trades → zeroed structure."""
+    def _blank():
+        return {"by_terminal": {}, "trade_count": 0, "premature_exits": 0}
+
+    def _tally(bucket, terminal, premature):
+        bucket["trade_count"] += 1
+        bucket["by_terminal"][terminal] = bucket["by_terminal"].get(terminal, 0) + 1
+        if premature:
+            bucket["premature_exits"] += 1
+
+    overall = _blank()
+    by_asset_class, by_strategy = {}, {}
+    premature_samples = []
+    for t in trades:
+        er = t.get("exit_reason") or {}
+        terminal = str(er.get("terminal") or "UNKNOWN") or "UNKNOWN"
+        premature = _is_premature_exit(er)
+        cls = "equity/index" if t.get("dex") == "xyz" else "crypto"
+        label = t.get("strategy_label") or "unknown"
+        _tally(overall, terminal, premature)
+        _tally(by_asset_class.setdefault(cls, _blank()), terminal, premature)
+        # every by_strategy bucket carries its strategy_label as the key → a per-strategy 'why is X losing' read
+        _tally(by_strategy.setdefault(label, _blank()), terminal, premature)
+        if premature and len(premature_samples) < _LEAK_SAMPLE_CAP:
+            premature_samples.append({
+                "asset": t.get("asset"), "strategy_label": label, "terminal": terminal,
+                "tier_index": er.get("tier_index") if er.get("tier_index") is not None else er.get("tier_reached"),
+                "high_water_roe": er.get("high_water_roe"), "realized_pnl": t.get("realized_pnl"),
+            })
+    return {
+        "overall": overall,
+        "by_asset_class": by_asset_class,
+        "by_strategy": by_strategy,             # keyed by strategy_label → 'why is [strategy] losing' filter
+        "premature_exit_samples": premature_samples,
+        "premature_note": ("premature = terminal in {trailing_floor, weak_peak, max_retrace} OR a low tier "
+                           "locked with a small high-water ROE → the DSL preset lever (phase1 retrace / a tier)"),
+    }
+
+
+def _blocked_summary(missed_signals):
+    """'What did my own limits block? / what couldn't I take?' — tally missed_signals[] by reason_code
+    (no_slots / no_margin / risk_gate_* / asset_banned / signal_not_ready / …), OVERALL + by strategy_label.
+    Fix = add a slot / fund margin / loosen a risk gate. Reuses missed_signals[] (already telemetry-native) —
+    no re-fetch. Fail-open: none → empty tallies + count 0."""
+    by_reason, by_strategy = {}, {}
+    for m in missed_signals:
+        reason = str(m.get("reason_code") or "unknown") or "unknown"
+        by_reason[reason] = by_reason.get(reason, 0) + 1
+        label = m.get("strategy_label") or "unknown"
+        strat = by_strategy.setdefault(label, {})
+        strat[reason] = strat.get(reason, 0) + 1
+    return {
+        "total_blocked": len(missed_signals),
+        "by_reason_code": by_reason,            # no_slots → add a slot; no_margin → fund; risk_gate_* → loosen
+        "by_strategy": by_strategy,             # keyed by strategy_label → per-strategy blocked read
+    }
+
+
+def _execution_quality(fills):
+    """'What am I paying in fees — maker vs taker?' — the maker/taker RATE from `order.filled`
+    (senpi.order.execution_as_maker). Maker fills earn the rebate/lower tier; a taker-heavy book bleeds fees
+    on turnover. Reuses the fills tally collected during the event scan — no re-fetch. Fail-open: no fills →
+    zeroed counts + null ratio.
+
+    NOTE: this is the fee-tier RATE signal only. The AUTHORITATIVE fee $ is the future ledger hook
+    `order_id → execution_get_closed_position_details({closedOrderId})` (order.filled carries senpi.order.id);
+    that per-order join is wired later and is intentionally NOT called per-trade here (rate-limit risk)."""
+    maker = int(fills.get("maker", 0))
+    taker = int(fills.get("taker", 0))
+    unknown = int(fills.get("unknown", 0))
+    known = maker + taker
+    return {
+        "maker_fills": maker,
+        "taker_fills": taker,
+        "unknown_fills": unknown,               # order.filled without the maker flag → not counted in the ratio
+        "maker_ratio": round(maker / known, 4) if known else None,   # fraction of KNOWN fills that were maker
+        "authoritative_fee_note": ("maker/taker RATE only; authoritative fee $ = future ledger join "
+                                   "order_id → execution_get_closed_position_details (not called per-trade)"),
     }
 
 
@@ -1046,9 +1234,15 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     # ALL statuses are enumerated (so a churned book's CLOSED trades stay in trades[]) — but the per-strategy
     # verdict is CURRENT-only. Closed/historical strategies get a minimal rollup, never a verdict.
     strategies = fetch_strategies(client, meta)
-    # DISCOVERY owns trades[] (onchain facts); TELEMETRY enriches exit_reason + yields missed_signals[].
-    trades, missed_signals = _collect_trades(client, strategies, meta, since_ms, until_ms, last_n, want_market)
+    # DISCOVERY owns trades[] (onchain facts); TELEMETRY enriches exit_reason + yields the standalone streams
+    # (missed_signals + the leak/fill rollups), all from ONE per-runtime event fetch (no re-fetch downstream).
+    trades, missed_signals, leaks, fills = _collect_trades(
+        client, strategies, meta, since_ms, until_ms, last_n, want_market)
     timing = _timing_summary(trades)
+    # telemetry-derived quick-action aggregations — ALL reuse the already-fetched events + existing trades[].
+    dsl_mix = _dsl_close_reason_mix(trades)                     # 'shaken out too early / how exits fire'
+    blocked = _blocked_summary(missed_signals)                  # 'what did my own limits block'
+    exec_quality = _execution_quality(fills)                    # 'fees — maker vs taker'
     bvm = book_vs_market(client, trades, strategies, meta, want_market)
     strat_reads = _strategy_reads(trades, strategies)          # CURRENT book only (active/paused)
     closed_reads = _closed_strategy_rollup(trades, strategies) # HISTORY: closed/inactive, rollup only
@@ -1064,6 +1258,7 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     meta["exit_reason_source_counts"] = src_counts             # telemetry / ratchet / unknown
     meta["telemetry_source"] = _telemetry_source(src_counts, meta.get("_telemetry_warned", False))
     meta["missed_signal_count"] = len(missed_signals)
+    meta["leak_counts"] = {k: v["count"] for k, v in leaks.items()}   # quick meta glance at the leak tallies
     meta.pop("_telemetry_warned", None)                        # internal flag — not part of the contract
     if not strategies:
         meta["degraded"] = "no strategies — check the token is USER-scoped"
@@ -1074,8 +1269,12 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
         "window": window,
         "trades": trades,                 # DISCOVERY-owned onchain facts + telemetry-enriched exit_reason
         "timing_summary": timing,         # PROCESS-framed counts — LEAD with these
+        "dsl_close_reason_mix": dsl_mix,  # 'shaken out too early / how exits fire' → DSL preset lever
         "book_vs_market": bvm,            # the honest 'what did I miss' gap (movers the book didn't hold)
         "missed_signals": missed_signals, # TELEMETRY-native 'what did I miss' — blocked/rejected signals
+        "blocked_summary": blocked,       # 'what did my own limits block' → slot / margin / risk-gate lever
+        "leaks": leaks,                   # 'where am I leaking' — failed orders, protection gaps, risk halts
+        "execution_quality": exec_quality, # 'fees — maker vs taker' (+ future authoritative-fee ledger hook)
         "strategies": strat_reads,        # CURRENT book only — each judged vs its OWN mandate
         "closed_strategies": closed_reads, # HISTORY — minimal rollup, NO verdict/mandate (never consolidate)
         "meta": meta,
