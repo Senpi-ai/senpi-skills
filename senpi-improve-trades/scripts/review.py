@@ -374,6 +374,17 @@ def _exit_reason_for(asset, ratchet_records):
 
 
 # ──────────────────────────────────────────────────────────────── closed trades (discovery_get_trader_history)
+def _ms(ts):
+    """Normalize a Unix timestamp to MILLISECONDS. trader-history close/open times have been seen in both
+    seconds and ms; anything below ~1e12 (≈ 2001 in ms) is seconds → scale ×1000. Without this a
+    seconds-valued closeTime is wrongly judged 'older than the window' and EVERY trade gets filtered out
+    (the 0-trades-on-a-book-that-has-trades bug)."""
+    n = _num(ts)
+    if n is None:
+        return None
+    return n * 1000.0 if n < 1e12 else n
+
+
 def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
     """Read-guarded closed-position ledger for one strategy wallet, filtered to the review window. Lifts
     portfolio.py's fetch_closed extraction (the real discovery_get_trader_history shape: closedPositions[]
@@ -396,7 +407,7 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
     for p in rows:
         if not isinstance(p, dict):
             continue
-        close_ms = _num(_field(p, "closeTime", "closed_time", "closeTimeMs"))
+        close_ms = _ms(_field(p, "closeTime", "closed_time", "closeTimeMs"))
         if since_ms is not None and close_ms is not None and close_ms < since_ms:
             continue                        # older than the window — skip
         if until_ms is not None and close_ms is not None and close_ms > until_ms:
@@ -412,8 +423,8 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
             "exit_px": _num(_field(p, "exitPx", "exit_px")),
             "realized_pnl": round(_f(p, "realizedPnl", "realized_pnl", default=0.0), 2),
             "margin_used": _f(p, "marginUsed", "margin_used", default=None),
-            "open_time": _field(p, "openTime", "open_time"),
-            "close_time": _field(p, "closeTime", "closed_time", "closeTimeMs"),
+            "open_time": _ms(_field(p, "openTime", "open_time")),
+            "close_time": close_ms,
             "closed_order_id": _field(p, "closedOrderId", "closed_order_id"),
         })
     trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
