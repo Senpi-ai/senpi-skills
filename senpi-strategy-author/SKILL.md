@@ -12,7 +12,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.0.0"
+  version: "2.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -106,8 +106,9 @@ For each: ask the question, offer the options as plain choices, then map the ans
    rotate the cohort every 3 days — that's in.")*
 2. **Assemble the package** — match the idea to an archetype row in `references/creating-a-strategy.md`,
    then write: `scoring.py` (pure math) · `<instance>/scanners/scan.py` (read-only, emits `marginPct`
-   intent) · `runtime.yaml` (inputs, entry action, DSL preset, risk gates) · `strategy.yaml` (catalog
-   facets from the glossary).
+   intent) · `runtime.yaml` (a plain-language **`description`** of the thesis + how it works — the
+   runtime registers it and senpi-portfolio reads it back as the mandate — plus inputs, entry action,
+   DSL preset, risk gates) · `strategy.yaml` (catalog facets from the glossary).
 3. **Unit-test `scoring.py`** on sample candles (it's pure — no mocks needed).
 4. **Validate** → `python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>` (0 errors),
    then the **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py strategies/<id>`

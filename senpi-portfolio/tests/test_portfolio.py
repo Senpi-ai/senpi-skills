@@ -16,8 +16,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
 import portfolio  # noqa: E402
+import _yaml  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixtures", "portfolio_fixture.json")
+REGISTRY_DIR = os.path.join(HERE, "fixtures", "registry")           # holds installed_runtimes.json
+REPO_ROOT = os.path.dirname(os.path.dirname(HERE))                  # senpi-skills/
+KODIAK_YAML = os.path.join(REPO_ROOT, "strategies", "kodiak", "main", "runtime.yaml")
+# the wallet the registry fixture keys the kodiak runtime.yaml under (see fixtures/registry/…json)
+KODIAK_WALLET = "0xKODIAK00000000000000000000000000000kdk"
 
 
 def _result():
@@ -87,6 +93,51 @@ def test_exposure_net_short():
 def test_fails_open_on_empty():
     res = portfolio.run(portfolio._FixtureClient({}), want_market=True)
     assert "totals" in res and res["meta"].get("degraded")
+
+
+def test_yaml_parses_kodiak_description():
+    """The vendored parser reads the runtime.yaml folded `description` block — non-empty, real text."""
+    with open(KODIAK_YAML) as f:
+        doc = _yaml.loads(f.read())
+    assert isinstance(doc, dict)
+    desc = doc.get("description")
+    assert isinstance(desc, str) and desc.strip()
+    assert "KODIAK" in desc            # sanity — it's the kodiak thesis, not an empty capture
+
+
+def test_profile_description_from_runtime_registry():
+    """UNIVERSAL mandate: with SENPI_STATE_DIR pointed at a registry holding the kodiak runtime.yaml
+    (keyed by wallet), the engine attaches `profile.description` for that wallet — read from the
+    DEPLOYED runtime.yaml the runtime registers, NOT from the catalog."""
+    # a minimal MCP fixture: one ACTIVE strategy whose wallet matches the registry entry
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"total_balance_usd": 200, "total_withdrawable": 200,
+                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "kodiak", "strategyWalletAddress": KODIAK_WALLET, "status": "ACTIVE"}]},
+        f"strategy_get_clearinghouse_state::{KODIAK_WALLET.lower()}": {
+            "main": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []},
+            "xyz": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []}},
+    }
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
+    try:
+        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    prof = strat["profile"]
+    assert prof is not None
+    assert isinstance(prof["description"], str) and "KODIAK" in prof["description"]
+    assert prof["source"] in ("registry", "registry+catalog")
+    assert strat["protected"] is True                      # runtime.yaml ships an `exit:` block
+    assert res["meta"]["registry_source"] == "registry"
+    assert res["meta"]["profile_source"] in ("registry", "mixed")
 
 
 if __name__ == "__main__":
