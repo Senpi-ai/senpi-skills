@@ -31,8 +31,10 @@ additional/primary trade+exit source without touching the narration, the guardra
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
+import datetime
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -46,6 +48,17 @@ TOP_MOVERS_CAP = 12          # cap the book-vs-market movers surfaced
 # verbatim in spirit from senpi-portfolio (the extractions there are already correct).
 STATE_DIR_ENV = "SENPI_STATE_DIR"
 REGISTRY_FILENAME = "installed_runtimes.json"
+
+# ── Telemetry (the runtime event log) — ENRICHES discovery trades, never becomes the trade list ──
+# Onchain data → discovery (the trade list, prices, realized PnL, fees, timing, direction). Runtime/agent
+# events → telemetry (the per-strategy on-disk event ring, read via `openclaw senpi events`). Telemetry
+# fills each discovery trade's EXIT REASON and, as a standalone stream, the blocked/rejected signal cohort
+# ("what did I miss"). It NEVER reconstructs a trade or re-derives a price/PnL — discovery OWNS those.
+EVENTS_FIXTURE_ENV = "SENPI_EVENTS_FIXTURE"   # offline test hook: JSON {"<runtime_id>": [entries…]}
+EVENTS_PULL = 500                             # events to pull per runtime before matching (recent ring)
+EXIT_MATCH_WINDOW_MS = 120000.0               # ±2 min asset+time fallback when there's no order_id
+_EXIT_EVENT_NAMES = ("dsl.closed", "position.closed")
+_MISSED_RESULTS = ("rejected", "blocked")     # signal.outcome results that never became a trade
 
 # CURRENT book = strategies still in play. Only these get a per-strategy VERDICT (mandate/DSL/on_mandate).
 # Everything else (CLOSED, INACTIVE, ARCHIVED, …) is HISTORY: its trades stay in trades[] for the timing
@@ -212,29 +225,37 @@ def load_runtime_registry(meta):
     """wallet_lower → runtime-profile for every deployed strategy the runtime has registered (lifted from
     portfolio.py). SOURCE OF TRUTH for a strategy's mandate (the runtime.yaml `description`) + DSL ladder,
     read from the DEPLOYED runtime.yaml in installed_runtimes.json (state dir). UNIVERSAL — covers
-    user-authored strategies, not just catalog templates. Read-guarded + fail-open: any problem → ({},
+    user-authored strategies, not just catalog templates. Read-guarded + fail-open: any problem → ({}, {},
     None). A meta.warnings note is added ONLY for a real parse error, not an absent registry file.
-    Returns (map, source)."""
+
+    Also captures each entry's runtime **`id`** → a `wallet_lower → runtime_id` map, the KEY the event-log
+    CLI is addressed by (`openclaw senpi events --runtime <id>`). Telemetry enrichment (exit reasons +
+    missed signals) needs this id per wallet; it's harvested here where we already hold each registry entry.
+    Returns (profiles_map, runtime_id_map, source)."""
     state_dir = _resolve_state_dir()
     meta["state_dir"] = state_dir          # surfaced for debugging path issues
     path = os.path.join(state_dir, REGISTRY_FILENAME)
     if not os.path.isfile(path):          # absent registry is normal, not an error
-        return {}, None
+        return {}, {}, None
     try:
         with open(path) as fh:
             raw = json.load(fh)
     except Exception as e:  # noqa — a corrupt registry is a real parse error worth surfacing
         meta.setdefault("warnings", []).append(
             f"runtime registry unreadable ({e}); mandates unavailable")
-        return {}, None
+        return {}, {}, None
     entries = raw.get("runtimes", raw) if isinstance(raw, dict) else raw
     out = {}
+    id_map = {}                            # wallet_lower → runtime id (the event-log CLI address)
     for entry in (entries if isinstance(entries, list) else []):
         if not isinstance(entry, dict):
             continue
         wallet = entry.get("wallet")
         if not wallet:
             continue
+        rid = _field(entry, "id", "runtimeId", "runtime_id")   # the --runtime <id> for the event log
+        if rid:
+            id_map[str(wallet).lower()] = rid
         text = entry.get("runtimeYamlContent")
         if text is None:
             ypath = entry.get("runtimeYamlPath")   # rarer form — a file path instead of inline content
@@ -254,7 +275,7 @@ def load_runtime_registry(meta):
             prof = None
         if prof:
             out[str(wallet).lower()] = prof
-    return out, "registry"
+    return out, id_map, "registry"
 
 
 # ──────────────────────────────────────────────────────────────── client
@@ -302,7 +323,7 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
         return []
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
-    registry, registry_src = load_runtime_registry(meta)   # wallet_lower → runtime profile
+    registry, runtime_ids, registry_src = load_runtime_registry(meta)   # wallet_lower → profile / runtime id
     meta["registry_source"] = registry_src
     strategies = []
     for s in (rows or []):
@@ -330,6 +351,9 @@ def fetch_strategies(client, meta):
             "mandate": prof.get("description"),
             # the DSL ladder — WHICH lever a bad exit maps to (hard stop / arm-at / a tier).
             "dsl": prof.get("dsl"),
+            # the runtime id the event-log CLI is addressed by (`openclaw senpi events --runtime <id>`);
+            # None for a closed/deregistered strategy with no ring → telemetry enrichment skips it.
+            "runtime_id": runtime_ids.get(str(wallet).lower()),
         })
     if not registry_src and strategies:
         meta.setdefault("warnings", []).append(
@@ -388,6 +412,179 @@ def _exit_reason_for(asset, ratchet_records):
         "high_water_roe": _field(rec, "highWaterRoe", "high_water_roe"),
         "status_raw": status or None,
     }
+
+
+# ─────────────────────────────────────────── telemetry: the runtime event log (ENRICHES discovery trades)
+# The rule (from the runtime team): onchain data → discovery; runtime/agent events → telemetry. Discovery
+# OWNS the trade list + every onchain fact (asset, entry/exit px, realized PnL, fees, timing, direction,
+# closedOrderId). Telemetry ENRICHES those discovery trades with runtime-side facts discovery can't have:
+# the EXIT REASON (`dsl.closed` / `position.closed` close_reason + tier + roe) and — as a standalone
+# stream — the blocked/rejected `signal.outcome` cohort ("what did I miss"). It never re-derives a
+# price/PnL and never becomes the trade list. Every read is guarded and FAIL-OPEN to discovery.
+def _iso8601(ms):
+    """A `--since` value the event-log CLI accepts (ISO 8601 UTC). None → None (CLI then defaults)."""
+    n = _num(ms)
+    if n is None:
+        return None
+    try:
+        dt = datetime.datetime.fromtimestamp(n / 1000.0, tz=datetime.timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def _fetch_events(runtime_id, since_ms, meta):
+    """Read a runtime's on-disk event ring → a list of event dicts ({name, ts, attrs, …}). FAIL-OPEN:
+    missing `openclaw` / non-zero exit / `unknown method: senpi.getEvents` (older build that lacks the RPC)
+    / parse error → [] plus a ONE-TIME `meta.warnings` note; NEVER raises. The whole point is that
+    telemetry absence degrades enrichment only — discovery still lists the trades.
+
+    Mockable offline: if $SENPI_EVENTS_FIXTURE points at a JSON file `{"<runtime_id>": [entries…]}`, read
+    that instead of shelling out (tests use this — NO subprocess in tests)."""
+    if not runtime_id:
+        return []
+    fixture = os.environ.get(EVENTS_FIXTURE_ENV)
+    if fixture:                              # offline path — no subprocess
+        try:
+            with open(fixture) as fh:
+                data = json.load(fh)
+            entries = data.get(str(runtime_id), []) if isinstance(data, dict) else []
+            return [e for e in entries if isinstance(e, dict)]
+        except Exception as e:  # noqa — a bad fixture is fail-open too
+            _note_telemetry_unavailable(meta, f"events fixture unreadable ({e})")
+            return []
+    cmd = ["openclaw", "senpi", "events", "--runtime", str(runtime_id), "--json", "-l", str(EVENTS_PULL)]
+    since_iso = _iso8601(since_ms)
+    if since_iso:
+        cmd += ["--since", since_iso]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+    except FileNotFoundError:                # no `openclaw` on PATH (not a runtime host)
+        _note_telemetry_unavailable(meta, "openclaw CLI not found; exit reasons from ratchet fallback only")
+        return []
+    except Exception as e:  # noqa — timeout / OS error → fail-open
+        _note_telemetry_unavailable(meta, f"event-log read failed ({e})")
+        return []
+    if proc.returncode != 0:
+        err = (proc.stderr or "")[:200]
+        # older runtime build without the RPC → the CLI reports `unknown method: senpi.getEvents`
+        if "unknown method" in err.lower() or "getevents" in err.lower():
+            _note_telemetry_unavailable(meta, "runtime build predates event log (unknown method); "
+                                              "exit reasons from ratchet fallback only")
+        else:
+            _note_telemetry_unavailable(meta, f"event-log read exit {proc.returncode} ({err.strip()})")
+        return []
+    try:
+        parsed = json.loads(proc.stdout or "{}")
+    except Exception as e:  # noqa — malformed JSON → fail-open
+        _note_telemetry_unavailable(meta, f"event-log JSON parse failed ({e})")
+        return []
+    if not isinstance(parsed, dict) or parsed.get("ok") is False:
+        _note_telemetry_unavailable(meta, "event-log returned not-ok; skipping enrichment")
+        return []
+    entries = parsed.get("entries")
+    return [e for e in entries if isinstance(e, dict)] if isinstance(entries, list) else []
+
+
+def _note_telemetry_unavailable(meta, msg):
+    """One-time telemetry warning + mark meta so the source rollup can report unavailable/partial."""
+    meta.setdefault("_telemetry_warned", False)
+    if not meta["_telemetry_warned"]:
+        meta.setdefault("warnings", []).append(f"telemetry: {msg}")
+        meta["_telemetry_warned"] = True
+
+
+def _attr(ev, *keys, default=None):
+    """Read a dotted `senpi.*` attribute from an event's `attrs` map (fail-soft)."""
+    attrs = ev.get("attrs") if isinstance(ev, dict) else None
+    if isinstance(attrs, dict):
+        for k in keys:
+            if k in attrs and attrs[k] is not None:
+                return attrs[k]
+    return default
+
+
+def _index_exit_events(events):
+    """Build a matcher over a runtime's EXIT events (`dsl.closed`, `position.closed`) so a discovery trade
+    can find how it exited. Two lookup lanes, matching the shapes in references/event-log.md:
+      by_order_id: `senpi.order.id` → event   (exact; `position.closed` carries it, `dsl.closed` does not)
+      by_asset:    UPPER(asset) → [(ts_ms, event)]   (the ±2-min asset+time fallback)
+    Returns (by_order_id, by_asset). The event's attrs (close_reason / tier_index / current_roe) are read
+    at match time, so we keep the raw event here."""
+    by_order_id, by_asset = {}, {}
+    for ev in events:
+        name = str(ev.get("name") or "")
+        if name not in _EXIT_EVENT_NAMES:
+            continue
+        oid = _attr(ev, "senpi.order.id")
+        if oid:
+            by_order_id[str(oid)] = ev
+        asset = _attr(ev, "senpi.asset", "senpi.signal.asset")
+        ts = _num(ev.get("ts"))
+        if asset is not None and ts is not None:
+            by_asset.setdefault(str(asset).upper(), []).append((ts, ev))
+    return by_order_id, by_asset
+
+
+def _exit_reason_from_event(ev):
+    """Read a telemetry exit event into the exit_reason contract. Handles BOTH exit shapes:
+      dsl.closed      → `senpi.dsl.close_reason`  (+ `senpi.dsl.tier_index`, `senpi.dsl.current_roe`)
+      position.closed → `senpi.position.close_reason` (+ `senpi.position.roe`)
+    `source:"telemetry"` marks it native (vs the reconstructed ratchet fallback)."""
+    terminal = _attr(ev, "senpi.dsl.close_reason", "senpi.position.close_reason")
+    tier_index = _attr(ev, "senpi.dsl.tier_index")
+    roe = _attr(ev, "senpi.dsl.current_roe", "senpi.position.roe")
+    return {
+        "terminal": terminal,
+        "tier_index": _num(tier_index) if tier_index is not None else None,
+        "high_water_roe": _num(roe) if roe is not None else None,
+        "source": "telemetry",
+    }
+
+
+def _match_exit_event(trade, by_order_id, by_asset):
+    """Find the telemetry exit event for one discovery trade. Match priority (per the spec):
+      1. EXACT order id — discovery `closed_order_id` == event `senpi.order.id`.
+      2. else same ASSET + close_time within ±EXIT_MATCH_WINDOW_MS (~2 min), nearest in time.
+    Returns the matched event dict or None (→ leave exit_reason as the honest ratchet/UNKNOWN fallback)."""
+    oid = trade.get("closed_order_id")
+    if oid and str(oid) in by_order_id:
+        return by_order_id[str(oid)]
+    asset = str(trade.get("asset") or "").upper()
+    close_ms = _num(trade.get("close_time"))
+    if not asset or close_ms is None:
+        return None
+    best, best_dist = None, None
+    for ts, ev in by_asset.get(asset, []):
+        dist = abs(ts - close_ms)
+        if dist <= EXIT_MATCH_WINDOW_MS and (best_dist is None or dist < best_dist):
+            best, best_dist = ev, dist
+    return best
+
+
+def _missed_signals_from_events(events, strategy_label):
+    """The native 'what did I miss': `signal.outcome` events whose result is rejected/blocked — signals
+    the runtime evaluated but that NEVER became a trade, with the granular reason_code. Discovery can't
+    see these (they left no onchain trace); telemetry is the only source. One flat list, standalone from
+    the discovery trade list (it never mixes into trades[])."""
+    out = []
+    for ev in events:
+        if str(ev.get("name") or "") != "signal.outcome":
+            continue
+        result = str(_attr(ev, "senpi.outcome.result") or "").lower()
+        if result not in _MISSED_RESULTS:
+            continue
+        score = _attr(ev, "senpi.signal.score")
+        out.append({
+            "asset": _attr(ev, "senpi.signal.asset", "senpi.asset"),
+            "direction": _attr(ev, "senpi.signal.direction"),
+            "score": _num(score) if score is not None else None,
+            "result": result,
+            "reason_code": _attr(ev, "senpi.outcome.reason_code"),
+            "ts": _num(ev.get("ts")),
+            "strategy_label": strategy_label,
+        })
+    return out
 
 
 # ──────────────────────────────────────────────────────────────── closed trades (discovery_get_trader_history)
@@ -529,27 +726,47 @@ def _if_held(trade, price_now):
 
 # ──────────────────────────────────────────────────────────────── the source boundary (telemetry-ready)
 def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_market):
-    """THE SOURCE BOUNDARY (per DESIGN — keep this seam clean for v2 telemetry).
+    """THE SOURCE BOUNDARY — onchain data → discovery; runtime events → telemetry.
 
-    Fuses the reconstructed sources — discovery_get_trader_history (the closed ledger) +
-    ratchet_stop_list(status:ALL) (the exit mechanism) + market_get_asset_data (current price) — into one
-    flat trades[]. Every trade is tagged source:"reconstructed"; v2 telemetry becomes an additional or
-    primary source here (higher-fidelity exit_reason + entry context) without touching narration/output.
+    DISCOVERY OWNS THE TRADE LIST + every onchain fact. `fetch_closed_trades` (discovery_get_trader_history)
+    is the trade source, untouched — asset, entry/exit px, realized PnL, direction, timing, closedOrderId
+    all come from there and are never re-derived. `market_get_asset_data` supplies the current price for
+    the honest "if I'd held to now" counterfactual.
 
-    For each closed trade: attaches exit_reason (authoritative, by asset), price_now, price_since_exit_pct,
-    if_held_delta_usd, and exit_vs_hold. Fail-open per source — a missing source degrades that field, not
-    the whole trade."""
-    trades = []
+    TELEMETRY (the runtime event log) ENRICHES those discovery trades: it fills each trade's EXIT REASON
+    (`dsl.closed` / `position.closed` close_reason + tier + roe) and produces `missed_signals[]` (the
+    blocked/rejected `signal.outcome` cohort — 'what did I miss'). Telemetry NEVER reconstructs a trade or
+    re-derives a price/PnL. Exit-reason match priority: exact order_id → else asset+close_time within ±2min;
+    no telemetry match → the ratchet record (SECONDARY fallback) → else UNKNOWN. Telemetry wins when present.
+
+    Returns (trades, missed_signals). Fail-open per source — a missing source degrades that field/stream,
+    not the whole trade; zero telemetry → discovery path is fully intact."""
+    trades, missed_signals = [], []
     for strat in strategies:
         closed = fetch_closed_trades(client, strat["wallet"], since_ms, until_ms, cap, meta)
+        # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). Fetched even when
+        # the wallet has no closed trades in-window, since its missed_signals still count as 'what I missed'.
+        events = _fetch_events(strat.get("runtime_id"), since_ms, meta)
+        if events:
+            missed_signals.extend(_missed_signals_from_events(events, strat.get("label")))
         if not closed:
             continue
+        by_order_id, by_asset = _index_exit_events(events)
         ratchet_records = _load_ratchet_records(client, strat, meta)
         for t in closed:
             asset = t.get("asset")
             dex = "xyz" if str(asset).startswith("xyz:") else "main"
             price_now = _price_now(client, asset, dex, meta) if want_market else None
             since_pct, if_held, verdict = _if_held(t, price_now)
+            # EXIT REASON — telemetry (native) wins; ratchet is the reconstructed fallback; else UNKNOWN.
+            # Telemetry only ever writes exit_reason — asset/px/pnl/direction/timing stay discovery's.
+            ev = _match_exit_event(t, by_order_id, by_asset)
+            if ev is not None:
+                exit_reason = _exit_reason_from_event(ev)
+            else:
+                exit_reason = _exit_reason_for(asset, ratchet_records)
+                # tag the reconstructed fallback so the source rollup can separate ratchet from unknown
+                exit_reason["source"] = "ratchet" if exit_reason.get("terminal") != "UNKNOWN" else "unknown"
             t.update({
                 "strategy_label": strat.get("label"),
                 "strategy_wallet": strat.get("wallet"),
@@ -559,8 +776,10 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
                 "strategy_status": strat.get("status"),
                 "mandate": strat.get("mandate"),
                 "dex": dex,
-                "source": "reconstructed",      # provenance tag — v2 telemetry flips this per-trade
-                "exit_reason": _exit_reason_for(asset, ratchet_records),
+                # provenance of the TRADE ROW: discovery always owns the onchain facts; the string reflects
+                # where the exit_reason came from (telemetry-enriched vs reconstructed-only).
+                "source": "telemetry" if ev is not None else "reconstructed",
+                "exit_reason": exit_reason,
                 "price_now": price_now,
                 "price_since_exit_pct": since_pct,
                 "if_held_delta_usd": if_held,   # CONTEXT, not verdict
@@ -568,7 +787,8 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
             })
             trades.append(t)
     trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
-    return trades
+    missed_signals.sort(key=lambda m: _num(m.get("ts")) or 0, reverse=True)
+    return trades, missed_signals
 
 
 # ──────────────────────────────────────────────────────────────── timing summary (PROCESS-framed counts)
@@ -778,6 +998,31 @@ def _closed_strategy_rollup(trades, strategies):
     return out
 
 
+# ──────────────────────────────────────────── telemetry source rollup (meta: how enrichment did)
+def _exit_reason_source_counts(trades):
+    """Tally where each trade's exit_reason came from: telemetry (native event log), ratchet (the
+    reconstructed fallback attributed a terminal), or unknown (neither could confirm the mechanism)."""
+    counts = {"telemetry": 0, "ratchet": 0, "unknown": 0}
+    for t in trades:
+        src = (t.get("exit_reason") or {}).get("source")
+        if src in counts:
+            counts[src] += 1
+        else:
+            counts["unknown"] += 1
+    return counts
+
+
+def _telemetry_source(source_counts, telemetry_warned):
+    """meta.telemetry_source ∈ available / partial / unavailable. `available` = every enrichment read
+    succeeded (no fail-open warning) AND at least one trade was telemetry-enriched. `unavailable` = a
+    fail-open fired and nothing was enriched (older build / no ring / no openclaw). `partial` = mixed:
+    some telemetry landed but a read also failed, or reads succeeded but only some trades matched."""
+    tele = source_counts.get("telemetry", 0)
+    if telemetry_warned:
+        return "partial" if tele else "unavailable"
+    return "available" if tele else "unavailable"
+
+
 # ──────────────────────────────────────────────────────────────── orchestration
 def _window_bounds(window_days, now_ms=None):
     now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
@@ -790,7 +1035,8 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     meta.warnings/meta.degraded. `last_n` (a trade-count cap) coexists with the window — 'last N trades'
     still respects the window as the outer bound."""
     meta = {"warnings": [], "sources": ["discovery_get_trader_history", "ratchet_stop_list",
-                                        "market_get_asset_data", "leaderboard_get_markets"], "degraded": None}
+                                        "market_get_asset_data", "leaderboard_get_markets",
+                                        "openclaw senpi events"], "degraded": None}
     since_ms, until_ms = _window_bounds(window_days, now_ms=now_ms)
     label = f"last {last_n} closed trades" if last_n else f"last ~{window_days}d"
     window = {"from": since_ms, "to": until_ms, "label": label, "window_days": window_days,
@@ -800,7 +1046,8 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     # ALL statuses are enumerated (so a churned book's CLOSED trades stay in trades[]) — but the per-strategy
     # verdict is CURRENT-only. Closed/historical strategies get a minimal rollup, never a verdict.
     strategies = fetch_strategies(client, meta)
-    trades = _collect_trades(client, strategies, meta, since_ms, until_ms, last_n, want_market)
+    # DISCOVERY owns trades[] (onchain facts); TELEMETRY enriches exit_reason + yields missed_signals[].
+    trades, missed_signals = _collect_trades(client, strategies, meta, since_ms, until_ms, last_n, want_market)
     timing = _timing_summary(trades)
     bvm = book_vs_market(client, trades, strategies, meta, want_market)
     strat_reads = _strategy_reads(trades, strategies)          # CURRENT book only (active/paused)
@@ -812,6 +1059,12 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     meta["current_strategy_count"] = current_count            # the LIVE book — the "how many wallets" number
     meta["closed_strategy_count"] = closed_count              # churned/closed redeployments — HISTORY
     meta["trade_count"] = len(trades)
+    # telemetry rollup — how enrichment did (never affects the discovery trade list, only enrichment).
+    src_counts = _exit_reason_source_counts(trades)
+    meta["exit_reason_source_counts"] = src_counts             # telemetry / ratchet / unknown
+    meta["telemetry_source"] = _telemetry_source(src_counts, meta.get("_telemetry_warned", False))
+    meta["missed_signal_count"] = len(missed_signals)
+    meta.pop("_telemetry_warned", None)                        # internal flag — not part of the contract
     if not strategies:
         meta["degraded"] = "no strategies — check the token is USER-scoped"
     elif not trades:
@@ -819,9 +1072,10 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
 
     return {
         "window": window,
-        "trades": trades,                 # per closed trade, process-input fields + strategy_status attached
+        "trades": trades,                 # DISCOVERY-owned onchain facts + telemetry-enriched exit_reason
         "timing_summary": timing,         # PROCESS-framed counts — LEAD with these
-        "book_vs_market": bvm,            # the honest 'what did I miss' gap
+        "book_vs_market": bvm,            # the honest 'what did I miss' gap (movers the book didn't hold)
+        "missed_signals": missed_signals, # TELEMETRY-native 'what did I miss' — blocked/rejected signals
         "strategies": strat_reads,        # CURRENT book only — each judged vs its OWN mandate
         "closed_strategies": closed_reads, # HISTORY — minimal rollup, NO verdict/mandate (never consolidate)
         "meta": meta,

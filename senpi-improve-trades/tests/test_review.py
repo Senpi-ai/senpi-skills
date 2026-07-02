@@ -286,6 +286,110 @@ def test_current_missing_mandate_is_not_a_bug():
     assert "registry" in note or "look it up" in note
 
 
+# ──────────────────────────────────────────── telemetry enrichment (event log ENRICHES discovery trades)
+# The rule: onchain data → discovery (the trade list + all onchain facts); runtime events → telemetry.
+# Telemetry fills each discovery trade's exit_reason and produces missed_signals[]; it NEVER reconstructs a
+# trade or re-derives a price/PnL. Read offline via SENPI_EVENTS_FIXTURE keyed by runtime id (kodiak-main),
+# so there is NO subprocess in tests.
+EVENTS_FIXTURE = os.path.join(HERE, "fixtures", "events_fixture.json")
+
+
+def _result_with_telemetry(want_market=True, last_n=None):
+    """Run the engine with the registry dir AND the event-log fixture pinned (both restored after)."""
+    old_ev = os.environ.get("SENPI_EVENTS_FIXTURE")
+    os.environ["SENPI_EVENTS_FIXTURE"] = EVENTS_FIXTURE
+    try:
+        return _result(want_market=want_market, last_n=last_n)
+    finally:
+        if old_ev is None:
+            os.environ.pop("SENPI_EVENTS_FIXTURE", None)
+        else:
+            os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
+
+
+def test_telemetry_dsl_closed_enriches_exit_reason_by_asset_time():
+    """A discovery SOL trade + a matching telemetry `dsl.closed` (no order_id → matched by asset +
+    close_time within ~2min): exit_reason.terminal == 'tier_breach', tier_index == 2, source ==
+    'telemetry'. Telemetry writes exit_reason ONLY — the discovery px/pnl/direction are UNCHANGED."""
+    sol = _by_asset(_result_with_telemetry())["SOL"]
+    er = sol["exit_reason"]
+    assert er["terminal"] == "tier_breach"          # native close_reason, not reconstructed
+    assert er["tier_index"] == 2
+    assert er["high_water_roe"] == 41.0
+    assert er["source"] == "telemetry"
+    assert sol["source"] == "telemetry"             # the trade row reflects telemetry enrichment
+    # discovery still OWNS the onchain facts — telemetry did not touch them
+    assert sol["entry_px"] == 120.0 and sol["exit_px"] == 150.0
+    assert sol["realized_pnl"] == 90.0
+    assert sol["direction"] == "long"
+    assert sol["price_since_exit_pct"] == -13.33    # counterfactual math still discovery+market
+    assert sol["if_held_delta_usd"] == -60.0
+
+
+def test_telemetry_position_closed_matches_by_order_id():
+    """ETH's `position.closed` carries senpi.order.id == the discovery closedOrderId (0xETH) → matched by
+    the EXACT order-id lane (priority over asset+time). terminal 'max_retrace', source telemetry."""
+    eth = _by_asset(_result_with_telemetry())["ETH"]
+    assert eth["exit_reason"]["terminal"] == "max_retrace"
+    assert eth["exit_reason"]["source"] == "telemetry"
+    assert eth["exit_reason"]["high_water_roe"] == 5.2   # from senpi.position.roe
+
+
+def test_telemetry_no_match_leaves_ratchet_or_unknown():
+    """BTC has no telemetry exit event and no ratchet record → exit_reason stays honest UNKNOWN, never
+    guessed. The discovery trade is untouched (still a short, pnl 200)."""
+    btc = _by_asset(_result_with_telemetry())["BTC"]
+    assert btc["exit_reason"]["terminal"] == "UNKNOWN"
+    assert btc["source"] == "reconstructed"          # no telemetry enrichment for this row
+    assert btc["direction"] == "short" and btc["realized_pnl"] == 200.0
+
+
+def test_missed_signals_carry_rejected_and_blocked():
+    """`missed_signals[]` = the telemetry-native 'what did I miss': signal.outcome with result
+    rejected/blocked (accepted is EXCLUDED). HYPE rejected/no_slots + AVAX blocked/risk_gate present;
+    the accepted SOL signal is NOT."""
+    res = _result_with_telemetry()
+    ms = {m["asset"]: m for m in res["missed_signals"]}
+    assert "HYPE" in ms and ms["HYPE"]["result"] == "rejected"
+    assert ms["HYPE"]["reason_code"] == "no_slots"
+    assert ms["HYPE"]["direction"] == "long" and ms["HYPE"]["score"] == 12.5
+    assert ms["HYPE"]["strategy_label"] == "kodiak"
+    assert "AVAX" in ms and ms["AVAX"]["result"] == "blocked"
+    assert ms["AVAX"]["reason_code"] == "risk_gate_max_drawdown"
+    assert "SOL" not in ms                            # accepted signal is not a 'miss'
+    assert res["meta"]["missed_signal_count"] == 2
+
+
+def test_meta_telemetry_source_available_and_counts():
+    """With telemetry present and landing on trades, meta.telemetry_source == 'available' and the
+    exit_reason_source_counts split them: SOL + ETH telemetry, BTC unknown (no telemetry, no ratchet)."""
+    meta = _result_with_telemetry()["meta"]
+    assert meta["telemetry_source"] == "available"
+    counts = meta["exit_reason_source_counts"]
+    assert counts["telemetry"] == 2                  # SOL (dsl.closed) + ETH (position.closed)
+    assert counts["unknown"] == 1                    # BTC — neither telemetry nor ratchet
+    assert counts.get("ratchet", 0) == 0
+    assert "_telemetry_warned" not in meta           # internal flag not leaked into the contract
+
+
+def test_telemetry_unavailable_leaves_discovery_intact():
+    """No event fixture (and no openclaw in tests) → telemetry FAILS OPEN: discovery trades intact,
+    exit_reason falls back to ratchet/UNKNOWN, meta.telemetry_source == 'unavailable', missed_signals
+    empty, NO crash. This is the older-build / closed-strategy-ring-gone path."""
+    res = _result()                                  # base helper: no SENPI_EVENTS_FIXTURE
+    assert res["meta"]["trade_count"] == 3           # discovery path fully intact
+    assert res["meta"]["telemetry_source"] == "unavailable"
+    assert res["missed_signals"] == []
+    assert res["meta"]["missed_signal_count"] == 0
+    by = _by_asset(res)
+    # SOL still attributed by the ratchet SECONDARY fallback (SL_TRIGGERED), BTC honest UNKNOWN
+    assert by["SOL"]["exit_reason"]["terminal"] == "SL_TRIGGERED"
+    assert by["SOL"]["exit_reason"]["source"] == "ratchet"
+    assert by["BTC"]["exit_reason"]["terminal"] == "UNKNOWN"
+    # discovery facts untouched with zero telemetry
+    assert by["SOL"]["realized_pnl"] == 90.0 and by["BTC"]["direction"] == "short"
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

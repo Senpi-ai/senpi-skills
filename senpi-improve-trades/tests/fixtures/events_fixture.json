@@ -1,0 +1,26 @@
+{
+  "kodiak-main": [
+    { "name": "dsl.closed", "level": "info", "body": "SOL closed by DSL", "ts": 1782700000000,
+      "attrs": { "senpi.position.id": "pos-sol", "senpi.asset": "SOL",
+                 "senpi.dsl.close_reason": "tier_breach", "senpi.dsl.current_roe": 41.0,
+                 "senpi.dsl.phase": "phase2", "senpi.dsl.tier_index": 2 } },
+
+    { "name": "position.closed", "level": "info", "body": "ETH closed", "ts": 1782750000000,
+      "attrs": { "senpi.position.id": "pos-eth", "senpi.asset": "ETH", "senpi.position.direction": "long",
+                 "senpi.position.close_reason": "max_retrace", "senpi.position.closed_price": 2000.0,
+                 "senpi.position.roe": 5.2, "senpi.order.id": "0xETH" } },
+
+    { "name": "signal.outcome", "level": "info", "body": "HYPE long rejected", "ts": 1782690000000,
+      "attrs": { "senpi.signal.asset": "HYPE", "senpi.signal.direction": "long", "senpi.signal.score": 12.5,
+                 "senpi.outcome.result": "rejected", "senpi.outcome.reason_code": "no_slots",
+                 "senpi.outcome.margin_pct": 20, "senpi.outcome.leverage": 5 } },
+
+    { "name": "signal.outcome", "level": "info", "body": "AVAX short blocked", "ts": 1782680000000,
+      "attrs": { "senpi.signal.asset": "AVAX", "senpi.signal.direction": "short", "senpi.signal.score": 11.0,
+                 "senpi.outcome.result": "blocked", "senpi.outcome.reason_code": "risk_gate_max_drawdown" } },
+
+    { "name": "signal.outcome", "level": "info", "body": "SOL accepted", "ts": 1782500000000,
+      "attrs": { "senpi.signal.asset": "SOL", "senpi.signal.direction": "long", "senpi.signal.score": 13.0,
+                 "senpi.outcome.result": "accepted", "senpi.outcome.reason_code": "submitted" } }
+  ]
+}
