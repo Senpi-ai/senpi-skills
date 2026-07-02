@@ -236,6 +236,167 @@ def test_single_wallet_strategy_is_one_instance_group():
     assert res["meta"]["has_multi_wallet_strategy"] is False
 
 
+def test_dsl_ladder_parses_from_runtime_yaml():
+    """(1) HOW DSL works: the kodiak registry runtime.yaml has a real phase1+phase2 dsl_preset; the
+    engine parses profile.dsl into a hard-stop floor + arm-at + the full tier ladder — the CONFIG side of
+    the "protected from entry" story. (kodiak ships phase1.max_loss_pct 15 → -15, tiers[0].trigger 10.)"""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 200, "total_withdrawable": 200,
+            "total_in_hyperliquid": 0, "token_balances": []}},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "kodiak", "strategyWalletAddress": KODIAK_WALLET, "status": "ACTIVE"}]},
+        f"strategy_get_clearinghouse_state::{KODIAK_WALLET.lower()}": {
+            "main": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []},
+            "xyz": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []}},
+    }
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
+    try:
+        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+    dsl = {s["name"]: s for s in res["strategies"]}["kodiak"]["profile"]["dsl"]
+    assert dsl is not None
+    assert dsl["hard_stop_roe_pct"] == -15.0        # phase1.max_loss_pct 15 → the hard floor
+    assert dsl["arm_at_roe_pct"] == 10              # tiers[0].trigger_pct — where the ratchet ARMS
+    assert dsl["has_phase2"] is True
+    assert len(dsl["tiers"]) == 5
+    assert dsl["tiers"][1] == {"trigger_pct": 18, "lock_hw_pct": 40}   # tiers parse fully
+    # the group surfaces the ladder once per strategy too
+    assert res["strategy_groups"][0]["dsl"]["arm_at_roe_pct"] == 10
+
+
+def test_dsl_ladder_parses_cougar_short_repo_yaml():
+    """Ground-truth check on the actual deployed cougar/short/runtime.yaml in the repo: profile.dsl has
+    hard_stop -14, arm-at 8, and the exact 5-tier ladder (the example from the task spec)."""
+    path = os.path.join(REPO_ROOT, "strategies", "cougar", "short", "runtime.yaml")
+    with open(path) as f:
+        prof = portfolio._profile_from_runtime_yaml(f.read())
+    dsl = prof["dsl"]
+    assert dsl["hard_stop_roe_pct"] == -14.0
+    assert dsl["arm_at_roe_pct"] == 8
+    assert [t["trigger_pct"] for t in dsl["tiers"]] == [8, 18, 35, 60, 100]
+    assert [t["lock_hw_pct"] for t in dsl["tiers"]] == [0, 40, 60, 78, 88]
+
+
+def test_named_preset_dsl_is_reported_not_dropped():
+    """A NAMED string preset ("conviction", from the cougar registry fixture) → profile.dsl records the
+    preset name + a note, never None — the ladder just isn't inlined in the runtime.yaml."""
+    with open(os.path.join(REGISTRY_COUGAR_DIR, "installed_runtimes.json")) as f:
+        reg = json.load(f)
+    text = reg["runtimes"][0]["runtimeYamlContent"]
+    prof = portfolio._profile_from_runtime_yaml(text)
+    assert prof["dsl"] == {"preset_name": "conviction", "note": "named preset — ladder not inlined"}
+
+
+def test_live_position_dsl_armed_and_unarmed():
+    """(2) WHICH open position is in WHICH tier — the core fix.
+
+    Two open positions on a kodiak-style strategy:
+      - SOL: a LIVE ratchet record at tier 2 → dsl.armed True, tier_index 2, locked = lock_hw_pct at
+        tier 2 (from the parsed ladder = 40).
+      - ETH: NO ratchet record (sub-Tier-1) → dsl.armed False, but framed as PROTECTED from entry with
+        the arm-at note — NEVER a falsy/'none' that reads as unprotected.
+    ratchet_stop_list is keyed by wallet in the fixture (the engine calls it with strategy_wallet_address)."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 500, "total_withdrawable": 100,
+            "total_in_hyperliquid": 0, "token_balances": []}},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "kodiak", "id": "strat-kodiak-1",
+             "strategyWalletAddress": KODIAK_WALLET, "status": "ACTIVE"}]},
+        f"strategy_get_clearinghouse_state::{KODIAK_WALLET.lower()}": {
+            "main": {"marginSummary": {"accountValue": "500"}, "withdrawable": "100", "assetPositions": [
+                # SOL: deep in profit, has crossed Tier 1 → will get a live ratchet record
+                {"position": {"coin": "SOL", "szi": 3.0, "positionValue": 600, "marginUsed": 120,
+                              "entryPx": 150, "unrealizedPnl": 40, "returnOnEquity": 0.33,
+                              "leverage": {"value": 5}, "liquidationPx": 90}},
+                # ETH: only +6% ROE, sub-Tier-1 → NO ratchet record, must still read as protected
+                {"position": {"coin": "ETH", "szi": 0.2, "positionValue": 400, "marginUsed": 100,
+                              "entryPx": 1700, "unrealizedPnl": 6, "returnOnEquity": 0.06,
+                              "leverage": {"value": 4}, "liquidationPx": 1300}}]},
+            "xyz": {"marginSummary": {"accountValue": "100"}, "withdrawable": "100", "assetPositions": []}},
+        # LIVE ratchet state — only SOL has crossed Tier 1 (tier 2 = 35% trigger). ETH is absent BY DESIGN.
+        f"ratchet_stop_list::{KODIAK_WALLET.lower()}": {"configs": [
+            {"asset": "SOL", "status": "ACTIVE", "currentTierIndex": 2, "highWaterRoe": 36.5}]},
+    }
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
+    try:
+        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+
+    pos = {p["asset"]: p for p in {s["name"]: s for s in res["strategies"]}["kodiak"]["positions"]}
+
+    # SOL — armed at the live tier, with the locked % pulled from the parsed ladder (tier 2 → 60 for kodiak)
+    sol = pos["SOL"]["dsl"]
+    assert sol["armed"] is True
+    assert sol["tier_index"] == 2
+    assert sol["high_water_roe"] == 36.5
+    assert sol["status"] == "ACTIVE"
+    assert sol["locked"] == 60          # lock_hw_pct at kodiak tier 2 (tiers = 20/40/60/75/88)
+
+    # ETH — NO ratchet record, but NEVER unprotected: armed False + the arm-at framing, and the note
+    # must read as PROTECTED, not as a gap.
+    eth = pos["ETH"]["dsl"]
+    assert eth["armed"] is False
+    assert eth["hard_stop_roe_pct"] == -15.0    # phase1 floor still protecting from entry
+    assert eth["arm_at_roe_pct"] == 10          # ratchet arms at Tier 1 (+10%)
+    assert eth["roe"] == 6.0                    # this position is at +6% — below the arm point
+    assert "protected from entry" in eth["note"]
+    low = eth["note"].lower()
+    assert "no dsl" not in low and "unprotected" not in low and "no monitoring" not in low
+
+
+def test_live_position_dsl_fails_open_when_ratchet_call_absent():
+    """If the ratchet_stop_list call returns nothing at all (no fixture entry → the engine's list read
+    yields no records), an open position STILL gets a config-based dsl object (armed False + arm-at
+    framing) that stands alone — never left looking unprotected."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 500, "total_withdrawable": 100,
+            "total_in_hyperliquid": 0, "token_balances": []}},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "kodiak", "id": "strat-kodiak-1",
+             "strategyWalletAddress": KODIAK_WALLET, "status": "ACTIVE"}]},
+        f"strategy_get_clearinghouse_state::{KODIAK_WALLET.lower()}": {
+            "main": {"marginSummary": {"accountValue": "500"}, "withdrawable": "100", "assetPositions": [
+                {"position": {"coin": "SOL", "szi": 3.0, "positionValue": 600, "marginUsed": 120,
+                              "entryPx": 150, "unrealizedPnl": 40, "returnOnEquity": 0.33,
+                              "leverage": {"value": 5}, "liquidationPx": 90}}]},
+            "xyz": {"marginSummary": {"accountValue": "100"}, "withdrawable": "100", "assetPositions": []}},
+        # NOTE: no ratchet_stop_list::<wallet> fixture — the list call yields no records at all.
+    }
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
+    try:
+        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+    sol = {s["name"]: s for s in res["strategies"]}["kodiak"]["positions"][0]["dsl"]
+    assert sol["armed"] is False
+    assert sol["hard_stop_roe_pct"] == -15.0
+    assert sol["arm_at_roe_pct"] == 10
+    assert "protected from entry" in sol["note"]
+
+
 def test_embedded_idle_reads_nested_total_in_hyperliquid():
     """Regression (the invisible-$10k bug): account_get_portfolio nests balances under a `portfolio`
     key and the idle-HL field is `total_in_hyperliquid` — NOT `total_usdc_in_hyperliquid`. The old code
