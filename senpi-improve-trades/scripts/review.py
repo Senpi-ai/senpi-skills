@@ -459,7 +459,10 @@ def _fetch_events(runtime_id, since_ms, meta):
 
     Mockable offline: if $SENPI_EVENTS_FIXTURE points at a JSON file `{"<runtime_id>": [entries…]}`, read
     that instead of shelling out (tests use this — NO subprocess in tests)."""
-    if not runtime_id:
+    # Short-circuit: once ANY runtime reported no CLI / `unknown method`, the whole build/host lacks the
+    # event RPC — every further shell-out would just spawn a process to fail the same way (the 3-min
+    # latency on a pre-event-log build). Skip them all after the first such failure.
+    if not runtime_id or meta.get("_telemetry_dead"):
         return []
     fixture = os.environ.get(EVENTS_FIXTURE_ENV)
     if fixture:                              # offline path — no subprocess
@@ -476,8 +479,9 @@ def _fetch_events(runtime_id, since_ms, meta):
     if since_iso:
         cmd += ["--since", since_iso]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
     except FileNotFoundError:                # no `openclaw` on PATH (not a runtime host)
+        meta["_telemetry_dead"] = True       # no CLI at all → every runtime fails; stop shelling out
         _note_telemetry_unavailable(meta, "openclaw CLI not found; exit reasons from ratchet fallback only")
         return []
     except Exception as e:  # noqa — timeout / OS error → fail-open
@@ -487,6 +491,7 @@ def _fetch_events(runtime_id, since_ms, meta):
         err = (proc.stderr or "")[:200]
         # older runtime build without the RPC → the CLI reports `unknown method: senpi.getEvents`
         if "unknown method" in err.lower() or "getevents" in err.lower():
+            meta["_telemetry_dead"] = True    # build lacks the event RPC → every runtime fails; stop
             _note_telemetry_unavailable(meta, "runtime build predates event log (unknown method); "
                                               "exit reasons from ratchet fallback only")
         else:

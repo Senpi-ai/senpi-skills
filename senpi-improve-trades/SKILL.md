@@ -130,6 +130,13 @@ trades that reversed and call the whole week a failure. `if_all_reclosed_now_tot
 counterfactual — report it as context ("the whole book, held to now, would be +$X vs the realized +$Y"),
 never as a target the user "should" have hit.
 
+**What `if_all_reclosed_now_total` is — and is NOT.** It is the counterfactual on the **CLOSED trades in this
+review** (what they'd be worth if you'd held each to now, instead of at the actual exit). It says **nothing
+about current OPEN positions** or live drawdown. Do NOT read a negative value as "your open positions are
+underwater" or "the book is bleeding" — that's a different question (live state → senpi-portfolio). A
+negative `if_all_reclosed_now_total` means your **exits, in aggregate, beat holding** (you got out ahead of
+reversals) — which is a *good* sign about exit discipline, not a warning.
+
 ### 2. It's the strategy, not you — fixes route to the strategy config
 
 These are **autonomous strategy** trades. The strategy exited them, not the user clicking sell. So **never**
