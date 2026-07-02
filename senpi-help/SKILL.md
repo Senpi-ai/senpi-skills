@@ -11,7 +11,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.1.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -19,72 +19,54 @@ metadata:
 # Senpi Help — the capabilities directory
 
 This is the **safety net.** If a user asks for something Senpi-related and no specific skill obviously
-matches, read this directory, find the row that fits the intent, and route there. **Never tell a user
+matches, come here, find the capability that fits the intent, and route there. **Never tell a user
 something isn't possible without checking here first** — most capabilities are reachable, just behind
 a skill or a tool you may not have in your current tool list.
 
+Nothing about the catalog is written down in this file. It is read **live** from what's actually
+installed, so it can never drift as skills are added, renamed, or removed.
+
+## Step 1 — get the live skill directory
+
+Run the engine. It reads the installed skill set (the realized manifest) straight from each skill's
+own `description`, so the list is always current:
+
+```bash
+python3 scripts/help.py          # JSON: {skills_root, count, skills:[{name, use_for}]}
+python3 scripts/help.py --md     # same, as a readable directory
+```
+
+Each row is a skill name plus what it's *for* (its trigger phrases). Match the user's intent to the
+one whose `use_for` covers it, then read that skill's `SKILL.md` and run it. A skill almost always
+beats calling the raw tools by hand — it packages the right multi-call workflow.
+
+## Step 2 — if the intent is a raw tool, not a skill
+
+Some capabilities are single MCP tools (a quick price, cancel an order, set a trailing stop, withdraw
+funds, send USDC). The **authoritative tool catalog** — every tool and what it does — is the overview
+guide:
+
+```
+read_senpi_guide(uri=senpi://guides/senpi-overview)
+```
+
+Load it, find the tool that matches the intent, and call it (with confirmation for anything that moves
+money or changes a position).
+
 > Some Senpi tools are intentionally kept out of the model's tool list to save context. They are still
-> fully available — either through a **skill** (run its script) or as a **tool** that can be enabled.
-> If a row points to a tool you don't currently see, say so and proceed via the skill, or note that
-> the capability exists and can be enabled. A missing tool is never a missing capability.
-
-## Read & analysis — run the skill
-
-| The user wants… | Use |
-|---|---|
-| Analyze portfolio across all wallets; idle vs deployed; positions + PnL | **`senpi-portfolio`** |
-| A market read — what's moving, cross-asset, "what's happening today" | **`senpi-market-pulse`** |
-| Where smart money is positioned / diverging from the crowd | **`senpi-smart-money`** |
-| Find good traders to copy / vet a specific trader before mirroring | **`senpi-trader-research`** |
-| Points, rank, loyalty tier, fees, Arena standing, referrals, wins | **`senpi-account-status`** |
-| "What happened" — recent activity, strategy history, why something failed | **`senpi-audit`** |
-| Why Senpi / what makes it different / Senpi vs other apps — the positioning answer | **`senpi-why`** |
-
-## Pick / build / deploy a strategy — run the lifecycle skill
-
-| The user wants… | Use |
-|---|---|
-| Help choosing a strategy / "what should I trade" / recommend one | **`senpi-strategy-discover`** |
-| Build or edit a custom strategy package | **`senpi-strategy-author`** |
-| Install / monitor / close a named strategy (spider, kodiak, …) | **`senpi-strategy-ops`** |
-
-## Act now — first-class tools (direct, with confirmation)
-
-| The user wants… | Tool |
-|---|---|
-| Their wallet address / identity | `user_get_me` |
-| A quick balance | `account_get_portfolio` |
-| A quick price | `market_get_prices` |
-| List their strategies | `strategy_list` |
-| Open / close / resize a position | `create_position` / `close_position` / `edit_position` |
-| Create a strategy (specific positions) | `strategy_create_custom_strategy` |
-| Copy a trader | `strategy_create` |
-| Add funds to a strategy | `strategy_top_up` |
-| Close a strategy | `strategy_close` |
-| Preview a trade before placing | `execution_estimate_position_opening` / `estimate_custom_strategy_positions_opening` |
-
-## Less common actions — available, may need enabling
-
-| The user wants… | Tool |
-|---|---|
-| Cancel an open order | `cancel_order` |
-| Pause / update a strategy; close just its positions | `strategy_pause` / `strategy_update` / `strategy_close_positions` |
-| Withdraw funds from a strategy | `strategy_withdraw_funds` |
-| Move funds to an EVM chain | `strategy_bridge_funds_from_hyperliquid_to_evm` |
-| Send USDC / move spot→perps | `send_usdc` / `transfer_spot_to_perps` |
-| Set / change / remove a trailing stop | `ratchet_stop_add` / `ratchet_stop_edit` / `ratchet_stop_delete` |
-| Claim referral rewards | `user_claim_referral_rewards` |
-| Browse Senpi guides | `read_senpi_guide` (+ `list_senpi_guides`) |
+> fully available. If the tool you need isn't in your current tool list, say the capability exists and
+> proceed via the nearest skill, or note that it can be enabled. **A missing tool is never a missing
+> capability.**
 
 ## How to route
 
-1. Match the user's intent to a **row** above.
-2. **Skill row** → read that skill's `SKILL.md` and run it. **Tool row** → call the tool (if it's not
-   in your current tool list, say the capability exists and proceed via the nearest skill or note it
-   can be enabled).
-3. Still no match? It may genuinely be out of scope — say so honestly. But check here first.
+1. Run `scripts/help.py` → match intent to a **skill**; read its `SKILL.md` and run it.
+2. No skill fits but it's a direct action → find the **tool** in `senpi://guides/senpi-overview` and call it.
+3. Compose when needed — a request can span more than one skill/tool.
+4. Still no match after both? It may genuinely be out of scope — say so honestly. But check both first.
 
 ## Skill Attribution
 
 Guide/utility skill — pure navigation. It performs no reads or mutations itself; it points to the
-skill or tool that does.
+skill or tool that does. The directory is generated live from the installed skill set (`scripts/help.py`);
+nothing is hardcoded here.
