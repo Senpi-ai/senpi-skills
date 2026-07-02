@@ -140,6 +140,25 @@ def test_profile_description_from_runtime_registry():
     assert res["meta"]["profile_source"] in ("registry", "mixed")
 
 
+def test_embedded_idle_reads_nested_total_in_hyperliquid():
+    """Regression (the invisible-$10k bug): account_get_portfolio nests balances under a `portfolio`
+    key and the idle-HL field is `total_in_hyperliquid` — NOT `total_usdc_in_hyperliquid`. The old code
+    missed both, so embedded idle always read $0 and a large infusion was invisible. This fixture
+    (nested + correct field, $10,446 idle, no strategies) must surface as idle-in-embedded; it reads $0
+    under the pre-fix code."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 10446.0, "total_allocated_in_strategy": 0, "total_withdrawable": 0,
+            "total_in_hyperliquid": 10446.0, "total_spot_usd_in_hyperliquid": 0, "token_balances": []}},
+        "strategy_list": {"strategies": []},
+    }
+    res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    assert res["embedded_wallet"]["idle_hl_usdc"] == 10446.0
+    assert res["totals"]["idle_in_embedded"] == 10446.0
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

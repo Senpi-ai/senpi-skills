@@ -3,14 +3,14 @@
     {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"},
     {"walletType": "external", "walletAddress": "0xext0000000000000000000000000000000000ext"}
   ]},
-  "account_get_portfolio": {
+  "account_get_portfolio": {"portfolio": {
     "total_balance_usd": 3102.94,
     "total_allocated_in_strategy": 3101.43,
     "total_withdrawable": 2461.98,
-    "total_usdc_in_hyperliquid": 0,
+    "total_in_hyperliquid": 0,
     "total_spot_usd_in_hyperliquid": 0,
     "token_balances": [{"symbol": "USDC", "chain": "Base", "usdValue": 1.51}]
-  },
+  }},
   "strategy_list": {"strategies": [
     {"tradingStrategyName": "cub-long", "strategyWalletAddress": "0xlong0000000000000000000000000000000long", "status": "ACTIVE", "totalFunded": 1739, "totalWithdrawn": 0},
     {"tradingStrategyName": "cub-short", "strategyWalletAddress": "0xshort000000000000000000000000000000shrt", "status": "ACTIVE", "totalFunded": 1378, "totalWithdrawn": 0},

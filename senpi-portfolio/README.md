@@ -47,7 +47,7 @@ tests/                 offline fixture test (no network) — guards the conflati
 ## How it works
 
 1. **Embedded wallet** — `user_get_me` for the embedded address; `account_get_portfolio(forceFetch)`
-   for `total_usdc_in_hyperliquid` + EVM `token_balances` = idle-in-embedded (the only truly free
+   for `total_in_hyperliquid` (nested under a `portfolio` wrapper) + EVM `token_balances` = idle-in-embedded (the only truly free
    cash). Also grabs the portfolio aggregate for a reconciliation cross-check.
 2. **Strategy wallets** — `strategy_list` → per-wallet `strategy_get_clearinghouse_state` (live, both
    DEXes). Each wallet's `withdrawable` = its idle margin (bucket 2); its positions = deployed.
@@ -76,7 +76,7 @@ rather than reporting "$0."
 ## Status / review notes
 
 - **Field names verified against the Senpi MCP tool schemas + overview guide** (`total_withdrawable`,
-  `total_usdc_in_hyperliquid`, `total_allocated_in_strategy`, `token_balances`; clearinghouse
+  `total_in_hyperliquid`, `total_allocated_in_strategy`, `token_balances` — all nested under `portfolio`; clearinghouse
   `marginSummary.accountValue` / `withdrawable` / `assetPositions[].position`). The engine reads
   defensively with alias fallbacks — run `--dry` to confirm the live shape and adjust if needed.
 - Offline fixture test: guards that idle-in-embedded ≠ `total_withdrawable`, plus position/exposure

@@ -346,7 +346,17 @@ def fetch_embedded(client, meta):
         meta.setdefault("warnings", []).append(f"account_get_portfolio failed: {e}")
         return out, {}
 
-    out["idle_hl_usdc"] = _f(p, "total_usdc_in_hyperliquid", default=0.0)
+    # account_get_portfolio (GetPortfolioV3) nests the balance fields under a `portfolio` key
+    # ({data: {portfolio: {...}}}); _ok() strips only the outer `data`. Unwrap `portfolio` here so the
+    # field reads below hit real values (else the whole embedded read is $0). Robust to both shapes.
+    # This nesting + the wrong field name below is why a $10k+ embedded infusion read as $0.
+    if isinstance(p, dict) and isinstance(p.get("portfolio"), dict):
+        p = p["portfolio"]
+
+    # Idle HL balance is `total_in_hyperliquid` (per the account_get_portfolio schema + ops deploy.py) —
+    # NOT `total_usdc_in_hyperliquid` (does not exist; the wrong name made this $0). Old name kept as a
+    # harmless fallback so it can never regress.
+    out["idle_hl_usdc"] = _f(p, "total_in_hyperliquid", "total_usdc_in_hyperliquid", default=0.0)
     out["spot_usd"] = _f(p, "total_spot_usd_in_hyperliquid", default=0.0)
     evm = 0.0
     for tb in (_field(p, "token_balances", default=[]) or []):
