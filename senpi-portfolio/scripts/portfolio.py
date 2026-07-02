@@ -645,6 +645,118 @@ def compute(embedded, strategies, portfolio_totals):
     return totals, exposure, signals
 
 
+# ──────────────────────────────────────────────────────────────── strategy grouping (A STRATEGY IS ALL ITS WALLETS)
+def _group_key(strat):
+    """The grouping key for a per-wallet `strategies[]` row → the STRATEGY it belongs to.
+
+    A single strategy can deploy as MULTIPLE instances on SEPARATE wallets (ox = core+ballast,
+    cougar = long+short, cub = long+short+preipo). `strategy_list` returns each instance/wallet as its
+    OWN row, so the engine lists them as separate `strategies[]` entries. Re-uniting them is the whole
+    point: `profile.group` (from the deployed runtime.yaml, shared by every instance of a strategy) is
+    the authoritative key → fall back to `skill_name` (package attribution) → fall back to the wallet
+    itself (a genuinely ungrouped / custom one-off is its own group of one). Fail-open: never raises."""
+    prof = strat.get("profile") or {}
+    grp = prof.get("group")
+    if grp:
+        return str(grp)
+    if strat.get("skill_name"):
+        return str(strat["skill_name"])
+    return str(strat.get("wallet") or id(strat))
+
+
+def _short_wallet(w):
+    w = str(w or "")
+    return f"{w[:6]}...{w[-4:]}" if len(w) > 12 else w
+
+
+def group_strategies(strategies, meta):
+    """Collapse the per-wallet `strategies[]` rows into `strategy_groups[]` — ONE entry per real strategy.
+
+    SUPPLEMENTS `strategies[]` (does not replace it — the bucket math + per-wallet detail still rely on
+    the flat list). Each group re-unites every instance/wallet of a strategy so the agent reasons at the
+    STRATEGY level: a multi-wallet strategy (long+short, core+ballast, multi-sleeve) is ONE strategy
+    across N wallets, never N separate strategies. Order is preserved by first appearance. Fail-open:
+    a malformed row can't sink the grouping; worst case it lands in its own wallet-keyed group."""
+    order = []          # group keys, first-seen order
+    buckets = {}        # key → list of strategies
+    for s in (strategies or []):
+        try:
+            key = _group_key(s)
+        except Exception:  # noqa — a malformed row must not sink the grouping
+            key = str(s.get("wallet") or id(s))
+        if key not in buckets:
+            buckets[key] = []
+            order.append(key)
+        buckets[key].append(s)
+
+    groups = []
+    for key in order:
+        insts = buckets[key]
+        # Instances share the strategy's identity (profile is per-strategy, mirrored on every wallet);
+        # pull the shared facets from the first instance that carries a profile, else the first row.
+        prof = next((s.get("profile") for s in insts if s.get("profile")), None) or {}
+        first = insts[0]
+        # mandate = the strategy's declared job — description (universal, from the deployed runtime.yaml)
+        # or belief_plain (catalog facet); instances share it.
+        mandate = prof.get("description") or prof.get("belief_plain")
+        skill_name = next((s.get("skill_name") for s in insts if s.get("skill_name")), None)
+
+        instances = []
+        for s in insts:
+            instances.append({
+                "name": s.get("name"),                          # = runtime_name, e.g. ox-core
+                "wallet": s.get("wallet"),
+                "wallet_short": _short_wallet(s.get("wallet")),
+                "account_value": s.get("account_value"),
+                "idle_withdrawable": s.get("idle_withdrawable"),
+                "deployed": s.get("deployed"),
+                "upnl": round(sum(_num(p.get("upnl")) or 0.0 for p in (s.get("positions") or [])), 2),
+                "positions": s.get("positions", []),
+                "closed": s.get("closed"),
+            })
+
+        # totals — summed across every instance/wallet of the strategy (a strategy is all its wallets)
+        def _sum(field):
+            vals = [_num(i.get(field)) for i in instances]
+            vals = [v for v in vals if v is not None]
+            return round(sum(vals), 2) if vals else None
+        realized_vals = [_num((s.get("closed") or {}).get("realized_pnl")) for s in insts]
+        realized_vals = [v for v in realized_vals if v is not None]
+        totals = {
+            "account_value": _sum("account_value"),
+            "idle_withdrawable": _sum("idle_withdrawable"),
+            "deployed": _sum("deployed"),
+            "upnl": _sum("upnl"),
+            "realized_pnl": round(sum(realized_vals), 2) if realized_vals else None,
+        }
+
+        # flat instances = an instance with NO open positions. For a multi-wallet strategy this is its
+        # OTHER sleeve waiting for its signal (e.g. cougar's long book flat while its short book trades),
+        # NOT redeployable idle. Named so the agent never calls it "dead money."
+        flat_instances = [i["name"] for i, s in zip(instances, insts) if not (s.get("positions") or [])]
+
+        groups.append({
+            "label": key,                                       # the group id, e.g. ox / cougar / cub
+            "skill_name": skill_name,
+            "archetype": prof.get("archetype"),
+            "archetype_label": prof.get("archetype_label"),
+            "direction": prof.get("direction"),
+            "mandate": mandate,                                 # the strategy's declared job (shared)
+            "is_multi_wallet": len(insts) > 1,
+            "instances": instances,                             # per-wallet detail
+            "totals": totals,                                   # summed across all wallets
+            # protected ONLY if ALL instances are protected — a strategy with one unguarded sleeve is not
+            # fully protected.
+            "protected": all(bool(s.get("protected")) for s in insts),
+            "flat_instances": flat_instances,
+            "profile_source": prof.get("source"),
+        })
+
+    if any(g["is_multi_wallet"] for g in groups):
+        meta["has_multi_wallet_strategy"] = True
+    return groups
+
+
 # ──────────────────────────────────────────────────────────────── orchestration
 def run(client, want_market=True):
     meta = {"warnings": [], "real_time": True, "force_fetch": True}
@@ -654,6 +766,10 @@ def run(client, want_market=True):
         enrich_market(client, strategies, meta)
     totals, exposure, signals = compute(embedded, strategies, portfolio_totals)
     meta["strategy_count"] = len(strategies)
+    meta.setdefault("has_multi_wallet_strategy", False)   # default; group_strategies flips it to True
+    # A STRATEGY IS ALL ITS WALLETS — re-unite the per-wallet rows into one entry per real strategy.
+    # SUPPLEMENTS `strategies[]` (kept — bucket math + detail rely on it); groups add the strategy-level view.
+    strategy_groups = group_strategies(strategies, meta)
     if not strategies and not embedded.get("address"):
         meta["degraded"] = "no wallet data — check the token is USER-scoped"
     return {
@@ -661,6 +777,8 @@ def run(client, want_market=True):
         "totals": totals,           # the three buckets — NEVER conflate them
         "embedded_wallet": embedded,
         "strategies": strategies,
+        # ONE entry per real strategy (a strategy is ALL its wallets); reason + recommend at THIS level.
+        "strategy_groups": strategy_groups,
         "exposure": exposure,
         "signals": signals,
         "meta": meta,

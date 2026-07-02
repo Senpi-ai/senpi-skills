@@ -14,7 +14,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.2.0"
+  version: "1.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -84,6 +84,51 @@ The engine computes these as two separate fields precisely so you don't mix them
 idle," **always say *where*** — "$X idle in the embedded wallet, ready to deploy or withdraw" vs. "$Y
 sitting in strategy wallets waiting for signals." They are not the same money and not the same thing.
 
+## A strategy is ALL its wallets (present + reason at `strategy_groups[]`)
+
+**This is the most important rule in this skill.** A single strategy can deploy as **MULTIPLE instances
+on SEPARATE wallets** — **ox** = `core`+`ballast` (risk-parity), **cougar** = `long`+`short`
+(market-neutral), **cub** = `long`+`short`+`preipo` (multi-sleeve dispersion). `strategy_list` returns
+**each instance/wallet as its own row**, so the raw list looks like several separate strategies. **It is
+not.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is **ONE strategy across N
+wallets/instances** — the wallets are the *legs of one design*, not independent bets.
+
+**Lead and reason at the `strategy_groups[]` level, not `strategies[]`.** The engine re-unites the
+per-wallet rows into **`strategy_groups[]`** — one entry per real strategy, with `is_multi_wallet`,
+`instances[]` (the per-wallet detail), and `totals` summed across every wallet. **Present each group as
+one strategy**; never present its wallets/instances as separate strategies. (`strategies[]` is still
+there for per-wallet detail and the bucket math — but the *unit of analysis and recommendation* is the
+group.) When `meta.has_multi_wallet_strategy` is true, at least one strategy spans multiple wallets —
+be especially careful.
+
+### HARD rule — the no-no (this is a real failure that broke live strategies)
+
+> **Never recommend closing / keeping / topping-up / repurposing a SINGLE wallet or instance of a
+> multi-wallet strategy.** Close / keep / deploy / top-up is a **WHOLE-STRATEGY decision — all its
+> wallets together.**
+
+The agent has done exactly this and it is catastrophic:
+
+- "Close ox's \$600 wallet, keep the \$1,400 one" — **gutting one sleeve of a risk-parity core destroys
+  the design.** The two sleeves are balanced *against each other*; keeping one is a different, unbalanced
+  strategy the user never chose.
+- "Keep cougar's short sleeve, repurpose its flat long sleeve" — **closing one sleeve of a long/short
+  strategy leaves a NAKED directional position.** A market-neutral book with only its short leg is just
+  a short — the exact opposite of neutral.
+
+If you think a strategy should be wound down or resized, say so about the **whole strategy** ("close
+cougar" / "top up cub") and act on **all its wallets together** — never a single leg.
+
+### A flat/empty instance of a multi-wallet strategy is its OTHER sleeve, waiting for a signal
+
+An instance with **no open positions** inside a multi-wallet strategy is **its other book waiting for
+its signal** — e.g. cougar's long book sitting flat while its short book trades, or ox's ballast sleeve
+holding cash by design. The engine names these in `strategy_groups[].flat_instances`. **It is NOT idle
+capital to redeploy elsewhere, and never "dead money."** That capital is *committed to the strategy* —
+it's the dry powder the other half of the design needs to do its job. Only truly-free
+`idle_in_embedded` (and, with care, a *whole* strategy's idle) is redeployable — a flat sleeve of a
+live multi-wallet strategy is not.
+
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
 This is the core of the analysis. Every strategy was deployed to do a *specific* job. "Is it working?"
@@ -140,6 +185,36 @@ judge conservatively on behavior — do **not** default to a momentum yardstick.
 to be trading and holds nothing for weeks, or a hedge that doesn't pay off in a real crisis, or a
 directional book fighting its own thesis, IS worth flagging. The point is to grade against the right
 yardstick, not to excuse everything.
+
+### "Counter to smart money / the crowd" is NOT a defect for a hedge / neutral / all-weather / contrarian mandate
+
+For a **hedge, market-neutral, all-weather, or contrarian** strategy, **being counter is the DESIGN.** A
+market-neutral book is *supposed* to be short the names the crowd is long; a hedge is *supposed* to lean
+against the prevailing move; a contrarian book is *supposed* to fade the consensus. **Judge it against
+its own `mandate` / `profile.description`, NOT against alignment with the 4h leaderboard / Predators
+view.** Do **not** recommend closing a hedge/neutral/all-weather strategy because it's "fighting the
+whales" or "on the wrong side of smart money" — that IS its job. (For a *directional momentum* strategy,
+fighting the tape is a real red flag — but only for a strategy whose mandate is to ride the move.)
+
+### Don't tear down a deliberate book to chase a short-window signal
+
+The **leaderboard / Predators view is a ~4h momentum window, not a portfolio mandate.** A strategy can be
+"behind the current 4h rotation" and still be doing exactly its multi-week job. **Never recommend a
+wholesale close+redeploy of a deliberate book to chase what's hot on a 4h screen.** Before proposing any
+close+redeploy, weigh **turnover cost** (fees compound on churn) and **regime durability** (is this a
+lasting shift or a 4h blip?). A deliberate, on-mandate strategy is not "underperforming" because it
+didn't catch this afternoon's move.
+
+### Recommend at the STRATEGY level, not cherry-picked positions
+
+For an **autonomous strategy the scanner owns entries and exits** — it opens and closes positions every
+tick per its DSL and signal logic. **Hand-closing an individual position it will simply re-open on the
+next tick is futile** (and pays fees twice). The levers that actually change anything are at the
+**STRATEGY** level: **close it, pause it, adjust its config, or top up the whole strategy** — not its
+individual positions. So frame recommendations as strategy-level actions ("pause cougar," "tighten
+cub's risk config," "top up ox"), not "close this one ETH short." (Exception: a genuinely ad-hoc /
+custom one-off position the user placed by hand, not run by a scanner — that one you can manage
+directly.)
 
 ## Golden rules
 
@@ -206,12 +281,32 @@ from `dsl positions` is UNPROTECTED. Full procedure:
 python3 scripts/portfolio.py [--no-market]
 ```
 
-Returns `{totals, embedded_wallet, strategies, exposure, signals, meta}`:
+Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signals, meta}`:
 - `totals` — the three buckets + `grand_total_usd`, `unrealized_pnl`, and a `reconciles` flag (cross-
   checks the per-wallet sum against the portfolio aggregate; if `false`, say the numbers don't tie out
   and lead with the per-wallet figures).
 - `embedded_wallet` — `address`, `idle_hl_usdc`, `evm_usdc[]` (per chain), `spot_usd`, `idle_total`.
-- `strategies[]` — per strategy: `name`, `wallet`, `account_value`, `idle_withdrawable` (bucket 2 for
+- **`strategy_groups[]` — ONE entry per real strategy (a strategy is ALL its wallets). LEAD HERE.** The
+  engine re-unites the per-wallet `strategies[]` rows into one group per strategy, keyed by
+  `profile.group` (→ fallback `skill_name` → fallback the wallet). **This is the unit of analysis and
+  recommendation** — present and reason at this level, never at individual wallets. Each group:
+  - `label` — the group id (e.g. `ox`, `cougar`, `cub`); `skill_name`; `archetype` / `archetype_label`
+    / `direction` (catalog facets when present).
+  - `mandate` — the strategy's declared job (its `profile.description`, else `belief_plain`); shared by
+    all instances. Judge the whole strategy against this.
+  - `is_multi_wallet` (bool) — `true` when the strategy spans >1 wallet (long+short, core+ballast,
+    multi-sleeve). When true, the wallets are legs of ONE design — see "A strategy is ALL its wallets."
+  - `instances[]` — the per-wallet detail: `name` (= `runtime_name`, e.g. `ox-core`), `wallet`,
+    `wallet_short`, `account_value`, `idle_withdrawable`, `deployed`, `upnl`, `positions[]`, `closed`.
+  - `totals` — summed across every instance: `account_value`, `idle_withdrawable`, `deployed`, `upnl`,
+    and `realized_pnl` (when available). **Report the strategy's figures from here, not per-wallet.**
+  - `protected` (bool) — `true` **only if ALL instances are protected** (a strategy with one unguarded
+    sleeve is not fully protected).
+  - `flat_instances` — names of instances with **no open positions**. For a multi-wallet strategy these
+    are the OTHER sleeve(s) **waiting for a signal** — NOT redeployable idle, never "dead money."
+  - `profile_source` — where this strategy's profile came from (`registry` / `registry+catalog` / …).
+- `strategies[]` — the per-wallet detail (kept for the bucket math + `exposure`; `strategy_groups[]` is
+  the level you *present* from). Per wallet: `name`, `wallet`, `account_value`, `idle_withdrawable` (bucket 2 for
   *this* strategy), `deployed` (equity tied up in positions = account_value − withdrawable),
   `position_margin` (initial margin detail), `total_funded`/`total_withdrawn`, and:
   - `skill_name` / `skill_version` — the strategy's package attribution (e.g. `ox`, `cougar`, `lion`),
@@ -242,7 +337,9 @@ Returns `{totals, embedded_wallet, strategies, exposure, signals, meta}`:
   `largest_position_pct_of_deployed` (concentration).
 - `meta` — `profile_source` (`registry` / `catalog` / `mixed` / `null` — where the strategies' mandates
   came from, in aggregate), `registry_source` (`registry` / `null`), `catalog_source`
-  (`local` / `remote` / `null`), `strategy_count`, and `warnings[]`.
+  (`local` / `remote` / `null`), `strategy_count`, **`has_multi_wallet_strategy`** (bool — `true` when at
+  least one strategy spans multiple wallets/instances; a cue to reason at `strategy_groups[]` and apply
+  the "a strategy is all its wallets" rules), and `warnings[]`.
 - The engine **fails open** — partial data still returns valid JSON with `meta.warnings`. If the runtime
   registry is unreadable, mandates fall back to the catalog (templates only); if that's also gone,
   `profile` is `null` and you judge on behavior.
@@ -253,45 +350,64 @@ Order matters: **strategy verdicts lead; positions are evidence underneath them.
 is purely "how much / where is my money," you can open with the money map instead — but for anything
 about "my strategies / how am I doing," lead with the per-strategy read.)
 
+**Lead from `strategy_groups[]` — one verdict per real strategy, NOT per wallet.** A multi-wallet
+strategy (long+short, core+ballast, multi-sleeve) is ONE strategy across N wallets; present it as one.
+See "A strategy is ALL its wallets."
+
 1. **Total + the three buckets.** `grand_total_usd`, broken into idle-in-embedded / idle-in-strategies
    / deployed — each labeled by *where*. Keep it tight; this is the money map, not the analysis.
-2. **Per-strategy verdict (the real value).** For **each** strategy, in this order:
-   1. **Label + mandate.** Its name and what it was deployed to *do* — from `strategies[].profile`
-      (its `profile.description`, read from the deployed `runtime.yaml`; add catalog facets like
-      `belief_plain`/`archetype` when present). Works the same for a user-authored strategy. "cub is a
-      K-shaped long/short dispersion book — long the structural winners, short the laggards; the P&L is
-      the spread."
-   2. **Is it doing its job — against its OWN mandate.** Not vs a momentum benchmark. A hedge that's
-      flat in calm, an all-weather core that's steady-not-flashy, a selective strategy waiting with no
-      position — all **working as designed**. See "Judge each strategy against its OWN mandate."
-   3. **Positions as evidence.** The open positions that *show* it's on-mandate: direction, leveraged
-      return (`return_on_equity_pct`), and **vs the market** (`market_24h_pct`, `vs_market`) — "short
-      ETH, +11% on margin, *with* today's 4% selloff." Flag any fighting the tape / near `liq_px` /
-      oversized. A strategy with `positions == []` and `deployed == 0` is **waiting for its signal** —
-      say that, don't call it dead.
-   4. **PnL — realized + unrealized.** Booked `closed.realized_pnl` (+ a couple of `closed.recent[]`
-      trades) *and* open `upnl`. A flat strategy may have already banked real gains.
-   5. **Protection posture.** `protected` ⟹ the deployed `runtime.yaml` ships an `exit:` block (or it's
-      template-deployed), DSL-protected by construction.
+2. **Per-strategy verdict (the real value).** For **each `strategy_groups[]` entry** (one per real
+   strategy — never one per wallet), in this order:
+   1. **Label + mandate.** The group's `label` and what it was deployed to *do* — from the group's
+      `mandate` (its `profile.description`, read from the deployed `runtime.yaml`; add catalog facets
+      like `belief_plain`/`archetype` when present). Works the same for a user-authored strategy. "cub
+      is a K-shaped long/short dispersion book — long the structural winners, short the laggards; the
+      P&L is the spread." **If `is_multi_wallet`, name it as ONE strategy across its sleeves** ("cougar
+      is a market-neutral long/short pair") — never as two strategies.
+   2. **Is it doing its job — against its OWN mandate.** Not vs a momentum benchmark, and **not vs the 4h
+      leaderboard.** A hedge flat in calm, an all-weather core steady-not-flashy, a market-neutral book
+      counter to the crowd, a selective strategy waiting with no position — all **working as designed**.
+      See "Judge each strategy against its OWN mandate" and "Counter to smart money is not a defect."
+   3. **Positions as evidence — across ALL the strategy's instances.** The open positions (from every
+      instance in the group) that *show* it's on-mandate: direction, leveraged return
+      (`return_on_equity_pct`), and **vs the market** (`market_24h_pct`, `vs_market`) — "short ETH, +11%
+      on margin, *with* today's 4% selloff." A group instance in `flat_instances` is the strategy's
+      **OTHER sleeve waiting for its signal** (for a multi-wallet strategy) or the whole strategy
+      waiting for its setup (for a single-wallet one) — say that, never "dead money." Flag any position
+      fighting the tape *for a directional-momentum mandate* / near `liq_px` / oversized.
+   4. **PnL — realized + unrealized, summed across the strategy.** The group's `totals.realized_pnl`
+      and `totals.upnl` (+ a couple of `closed.recent[]` trades from its instances). A flat sleeve may
+      have already banked real gains on the other sleeve.
+   5. **Protection posture.** The group's `protected` (⟹ **all** instances ship a DSL exit).
+   6. **Any lever is WHOLE-STRATEGY.** If you suggest close / pause / adjust-config / top-up, it applies
+      to the **entire strategy (all its wallets)** — never one sleeve. And the lever is the STRATEGY,
+      not a hand-picked position the scanner will just re-open. See the HARD rule under "A strategy is
+      ALL its wallets" and "Recommend at the STRATEGY level."
 3. **Portfolio-level read.** Net exposure (net long/short and by sector), concentration (largest
    position), idle drag (capital sitting in cash), and the overall posture — is this book hedged,
    directional, mostly in cash? Compare the net tilt to where the broader market is.
 4. **The two CTAs** (next section).
 
-Formatting: group by strategy; show `Δ%` and leveraged return; emoji sparingly (🟢/🔴 for green/red
-books). Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for full.
+Formatting: group by strategy (a `strategy_groups[]` entry = one strategy; show its instances as its
+sleeves, not as peers); show `Δ%` and leveraged return; emoji sparingly (🟢/🔴 for green/red books).
+Show strategy wallet addresses in short form (`0x35d1...acb1`) unless asked for full.
 
 ## Mandatory closing (verbatim)
 
 > **1. Want me to rebalance or adjust any of these positions?**
 > **2. Want me to put the idle capital to work in a new strategy?**
 
-- **CTA 1 → position management.** Route to the execution tools (`edit_position` / `close_position` /
-  `strategy_update`) for the specific position — confirm before any change; never trade unprompted.
-- **CTA 2 → deploy idle.** If there's meaningful idle capital (lead from `signals.idle_drag_pct`),
-  offer to hand it to **senpi-strategy-discover** / **senpi-strategy-author** — fund a new strategy
-  from the embedded idle, or top up an existing one from `strategy_top_up`. Propose; never deploy
-  without confirmation.
+- **CTA 1 → strategy / position management.** For an **autonomous strategy**, route to the
+  STRATEGY-level levers (`strategy_pause` / `strategy_update` config / `strategy_close` / `strategy_top_up`)
+  and apply them to the **whole strategy (all its wallets)** — never to a single sleeve of a multi-wallet
+  strategy, and never hand-close a position the scanner will just re-open. Only use per-position tools
+  (`edit_position` / `close_position`) for a genuinely ad-hoc position the user placed by hand. Confirm
+  before any change; never trade unprompted.
+- **CTA 2 → deploy idle.** If there's meaningful **truly-free** idle capital (lead from
+  `signals.idle_drag_pct` and `idle_in_embedded` — NOT a flat sleeve of a live multi-wallet strategy,
+  which is committed), offer to hand it to **senpi-strategy-discover** / **senpi-strategy-author** — fund
+  a new strategy from the embedded idle, or top up an existing *whole* strategy via `strategy_top_up`.
+  Propose; never deploy without confirmation.
 
 ## Resilience (engine handles; narrate honestly)
 
