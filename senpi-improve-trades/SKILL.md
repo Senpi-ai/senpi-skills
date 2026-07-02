@@ -218,6 +218,19 @@ current strategy to analyze, consolidate, or fix.
 - **A missing mandate on a CURRENT strategy** → note it **plainly**: *"mandate unavailable — look it up /
   check the runtime registry."* It is a lookup, **not a bug to fix.** (`on_mandate_note` already phrases this.)
   On a **closed** strategy → say **nothing** about the missing mandate.
+- **`dsl: null` / `mandate: null` means the registry wasn't readable on this build — NOT that the strategy is
+  unprotected. This is a hard rule.** Every template-deployed strategy **ships a DSL exit by construction**
+  (the author validator refuses to build one without it). So a `null` `dsl` in this output is a
+  **data-availability gap** (the mandate/DSL source — `installed_runtimes.json` — wasn't found on this host,
+  same root as `meta.registry_source == null`), never evidence of a naked strategy. **NEVER** say a strategy
+  "has no DSL / no exit protection / is running unprotected," **never** recommend "add DSL," and **never**
+  invent DSL tier numbers to fix it. If the user wants a strategy's real DSL, look it up (its `runtime.yaml`
+  package), don't infer absence from a `null`. (Same lesson as senpi-portfolio's `protected` handling — an
+  empty/absent record is a *surfacing* gap, not an unprotected position.)
+- **Attribute every trade to its actual `strategy_label` from the trade record — never speculate** ("*likely*
+  from the old X strategy"). The engine tags each trade with its strategy; use it. If two same-label wallets
+  diverge (one winning on equities, one losing on crypto), say exactly that from the data — don't guess a
+  mandate for a trade.
 
 Concretely: if you're about to say "you have 13 wallets, kill/merge 11 of them," stop — check
 `meta.current_strategy_count`. If most of those 13 are in `closed_strategies[]`, the real live book is small
