@@ -66,6 +66,13 @@ def validate(pkg: Path) -> list:
             if cm and int(cm.group(1)) < _lo:
                 errs.append(f"instance {name}: {rt_rel} {_field} {cm.group(1)} below runtime min {_lo}")
 
+        # Protection is not optional: every instance must ship a DSL exit block (the built-in
+        # trailing stop-loss / two-phase exit). Downstream skills (senpi-portfolio / -strategy-ops)
+        # treat a deployed strategy as risk-managed — a strategy with no DSL exit is a naked position.
+        if not re.search(r"^\s*(exit|dsl_preset)\s*:", rt_text, re.M):
+            errs.append(f"instance {name}: {rt_rel} has no DSL exit block (exit:/dsl_preset:) — "
+                        f"every strategy must ship built-in protection")
+
         # Runtime 3.0 scanner package: <runtime_dir>/scanners/scan.py exports scan(inputs, ctx);
         # the thesis math is a sibling scanners/scoring.py imported as `import scoring` (NO __init__.py).
         scn_dir = rt.parent / "scanners"
