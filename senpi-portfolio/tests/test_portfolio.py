@@ -20,10 +20,14 @@ import _yaml  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixtures", "portfolio_fixture.json")
 REGISTRY_DIR = os.path.join(HERE, "fixtures", "registry")           # holds installed_runtimes.json
+REGISTRY_COUGAR_DIR = os.path.join(HERE, "fixtures", "registry_cougar")   # 2-instance strategy fixture
 REPO_ROOT = os.path.dirname(os.path.dirname(HERE))                  # senpi-skills/
 KODIAK_YAML = os.path.join(REPO_ROOT, "strategies", "kodiak", "main", "runtime.yaml")
 # the wallet the registry fixture keys the kodiak runtime.yaml under (see fixtures/registry/…json)
 KODIAK_WALLET = "0xKODIAK00000000000000000000000000000kdk"
+# the two wallets of the cougar long/short pair (one strategy, two instances — see registry_cougar/…json)
+COUGAR_LONG_WALLET = "0xCOUGARLONG000000000000000000000000000lng"
+COUGAR_SHORT_WALLET = "0xCOUGARSHORT00000000000000000000000000sht"
 
 
 def _result():
@@ -138,6 +142,117 @@ def test_profile_description_from_runtime_registry():
     assert strat["protected"] is True                      # runtime.yaml ships an `exit:` block
     assert res["meta"]["registry_source"] == "registry"
     assert res["meta"]["profile_source"] in ("registry", "mixed")
+
+
+def test_multi_wallet_strategy_groups_into_one():
+    """A STRATEGY IS ALL ITS WALLETS. cougar deploys as TWO instances on TWO wallets (cougar-long +
+    cougar-short, sharing `group: cougar` in their runtime.yamls). `strategy_list` returns them as two
+    separate rows; the engine must re-unite them into ONE `strategy_groups[]` entry with
+    `is_multi_wallet: true` and 2 instances — never present the two sleeves as two strategies."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 2000, "total_withdrawable": 1200,
+            "total_in_hyperliquid": 0, "token_balances": []}},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "cougar-long", "strategyWalletAddress": COUGAR_LONG_WALLET, "status": "ACTIVE"},
+            {"tradingStrategyName": "cougar-short", "strategyWalletAddress": COUGAR_SHORT_WALLET, "status": "ACTIVE"}]},
+        # long sleeve: flat, all idle (its other-sleeve-waiting-for-signal case)
+        f"strategy_get_clearinghouse_state::{COUGAR_LONG_WALLET.lower()}": {
+            "main": {"marginSummary": {"accountValue": "1000"}, "withdrawable": "1000", "assetPositions": []},
+            "xyz": {"marginSummary": {"accountValue": "1000"}, "withdrawable": "1000", "assetPositions": []}},
+        # short sleeve: one working short
+        f"strategy_get_clearinghouse_state::{COUGAR_SHORT_WALLET.lower()}": {
+            "main": {"marginSummary": {"accountValue": "1000"}, "withdrawable": "800", "assetPositions": [
+                {"position": {"coin": "ETH", "szi": -0.5, "positionValue": 800, "marginUsed": 200,
+                              "entryPx": 1719.7, "unrealizedPnl": 20, "returnOnEquity": 0.1,
+                              "leverage": {"value": 4}, "liquidationPx": 2100}}]},
+            "xyz": {"marginSummary": {"accountValue": "800"}, "withdrawable": "800", "assetPositions": []}},
+    }
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = REGISTRY_COUGAR_DIR
+    try:
+        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+
+    # still two per-wallet rows in strategies[] (bucket math relies on it) …
+    assert len(res["strategies"]) == 2
+    # … but ONE strategy_groups[] entry re-uniting them
+    groups = res["strategy_groups"]
+    assert len(groups) == 1
+    g = groups[0]
+    assert g["label"] == "cougar"
+    assert g["is_multi_wallet"] is True
+    assert len(g["instances"]) == 2
+    names = {i["name"] for i in g["instances"]}
+    assert names == {"cougar-long", "cougar-short"}
+    # the flat long sleeve is its OTHER book waiting for a signal — surfaced, not "dead money"
+    assert g["flat_instances"] == ["cougar-long"]
+    # totals summed across BOTH wallets
+    assert g["totals"]["account_value"] == 1000 + 1000        # long wallet + short wallet
+    assert g["totals"]["deployed"] == 200                     # only the short sleeve has a position
+    assert g["totals"]["upnl"] == 20
+    # mandate shared across instances (from the deployed runtime.yaml description)
+    assert isinstance(g["mandate"], str) and "market-neutral" in g["mandate"]
+    # meta flag flips on
+    assert res["meta"]["has_multi_wallet_strategy"] is True
+
+
+def test_single_wallet_strategy_is_one_instance_group():
+    """A single-instance strategy is its own group with is_multi_wallet: false and one instance —
+    and with no multi-wallet strategy present, the meta flag stays False."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 200, "total_withdrawable": 200,
+            "total_in_hyperliquid": 0, "token_balances": []}},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "kodiak", "strategyWalletAddress": KODIAK_WALLET, "status": "ACTIVE"}]},
+        f"strategy_get_clearinghouse_state::{KODIAK_WALLET.lower()}": {
+            "main": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []},
+            "xyz": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []}},
+    }
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
+    try:
+        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+    groups = res["strategy_groups"]
+    assert len(groups) == 1
+    g = groups[0]
+    assert g["label"] == "kodiak"                # profile.group from the deployed runtime.yaml
+    assert g["is_multi_wallet"] is False
+    assert len(g["instances"]) == 1
+    assert res["meta"]["has_multi_wallet_strategy"] is False
+
+
+def test_embedded_idle_reads_nested_total_in_hyperliquid():
+    """Regression (the invisible-$10k bug): account_get_portfolio nests balances under a `portfolio`
+    key and the idle-HL field is `total_in_hyperliquid` — NOT `total_usdc_in_hyperliquid`. The old code
+    missed both, so embedded idle always read $0 and a large infusion was invisible. This fixture
+    (nested + correct field, $10,446 idle, no strategies) must surface as idle-in-embedded; it reads $0
+    under the pre-fix code."""
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"portfolio": {
+            "total_balance_usd": 10446.0, "total_allocated_in_strategy": 0, "total_withdrawable": 0,
+            "total_in_hyperliquid": 10446.0, "total_spot_usd_in_hyperliquid": 0, "token_balances": []}},
+        "strategy_list": {"strategies": []},
+    }
+    res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    assert res["embedded_wallet"]["idle_hl_usdc"] == 10446.0
+    assert res["totals"]["idle_in_embedded"] == 10446.0
 
 
 if __name__ == "__main__":

@@ -400,8 +400,13 @@ def fetch_user_context(client):
     ctx = {"budget": None, "holdings": [], "favored_assets": [], "favored_direction": None}
     try:
         data = _ok(client.mcp_call("account_get_portfolio", timeout=15))
+        # GetPortfolioV3 nests the fields under a `portfolio` key; _ok strips only the outer `data`.
+        # Unwrap it (else budget/positions read empty) and use `total_in_hyperliquid` (the real field
+        # name — `total_usdc_in_hyperliquid` does not exist). Robust to both flat and nested shapes.
+        if isinstance(data, dict) and isinstance(data.get("portfolio"), dict):
+            data = data["portfolio"]
         if data:
-            ctx["budget"] = data.get("total_balance_usd") or data.get("total_usdc_in_hyperliquid")
+            ctx["budget"] = data.get("total_balance_usd") or data.get("total_in_hyperliquid")
             for pos in (data.get("positions") or []):
                 sym = pos.get("coin") or pos.get("asset")
                 if sym:
