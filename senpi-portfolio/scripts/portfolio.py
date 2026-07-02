@@ -36,6 +36,16 @@ MARKET_ENRICH_CAP = 24      # cap the per-asset market pull
 CLOSED_HISTORY_CAP = 5      # recent closed trades to surface per strategy (realized PnL is over the full pull)
 CLOSED_HISTORY_PULL = 50    # closed positions to pull for the realized-PnL total (API default page)
 
+# The mandate (belief_plain/thesis/archetype/…) lives ONLY in each strategy's strategy.yaml, compiled
+# by gen_catalog into catalog.json and keyed by strategy id (== skill_name from strategy_list). The
+# runtime does NOT retain strategy.yaml, so we source the mandate here — from a local catalog copy if
+# present (fresh, offline), else the remote catalog — never from agent memory.
+CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "strategy-v2")
+CATALOG_URL = f"https://raw.githubusercontent.com/Senpi-ai/senpi-skills/{CATALOG_REF}/strategies/catalog.json"
+# Compact mandate = the yardstick the agent judges each strategy against (SKILL.md). Not the whole record.
+MANDATE_KEYS = ("name", "tagline", "belief_plain", "thesis", "archetype", "archetype_label",
+                "sub_style", "direction", "asset_classes", "risk_level", "time_horizon", "group")
+
 
 # ──────────────────────────────────────────────────────────────── guarded I/O helpers
 def _ok(resp):
@@ -76,6 +86,67 @@ def _pct(mark, prev):
     if m is None or p is None or p == 0:
         return None
     return round((m - p) / p * 100, 2)
+
+
+# ──────────────────────────────────────────────────────────────── strategy mandate (strategy.yaml)
+def _mandate_from_catalog(rec):
+    """The compact mandate block the agent judges a strategy against — pulled from its catalog record
+    (i.e. its strategy.yaml). None if the strategy isn't in the catalog (e.g. a custom strategy)."""
+    if not isinstance(rec, dict):
+        return None
+    m = {k: rec[k] for k in MANDATE_KEYS if rec.get(k) is not None}
+    return m or None
+
+
+def _catalog_local_paths():
+    """Candidate local catalog.json locations, freshest-first. A local copy (repo checkout or a
+    co-installed senpi-strategy-discover) is fresh + offline; first that parses wins."""
+    cands = []
+    env = os.environ.get("SENPI_CATALOG_PATH")
+    if env:
+        cands.append(env)
+    root = os.path.dirname(HERE)          # senpi-portfolio/       (HERE = .../scripts)
+    repo = os.path.dirname(root)          # senpi-skills/  (dev/repo checkout)
+    cands += [
+        os.path.join(repo, "strategies", "catalog.json"),
+        os.path.join(repo, "senpi-strategy-discover", "catalog.json"),
+        os.path.expanduser("~/.openclaw/senpi-skills/senpi-strategy-discover/catalog.json"),
+        os.path.expanduser("~/.claude/skills/senpi-strategy-discover/catalog.json"),
+    ]
+    return cands
+
+
+def load_catalog(meta):
+    """id → catalog record for every strategy (the strategy.yaml mandate, compiled by gen_catalog).
+    SOURCE OF TRUTH for a deployed strategy's mandate — keyed by skill_name. Local copy first (fresh,
+    offline), then the remote catalog, then degrade to {} + a warning. Never raises. Returns (map, src)."""
+    raw, src = None, None
+    for p in _catalog_local_paths():
+        try:
+            if p and os.path.isfile(p):
+                with open(p) as fh:
+                    raw = json.load(fh)
+                src = "local"
+                break
+        except Exception:  # noqa — a bad local copy shouldn't block the remote fallback
+            continue
+    if raw is None:
+        try:
+            import urllib.request
+            with urllib.request.urlopen(CATALOG_URL, timeout=6) as r:
+                raw = json.loads(r.read().decode("utf-8"))
+            src = "remote"
+        except Exception as e:  # noqa
+            meta.setdefault("warnings", []).append(
+                f"strategy catalog unavailable ({e}); mandates omitted — judge by name/config only")
+            return {}, None
+    recs = raw.get("skills", raw) if isinstance(raw, dict) else raw
+    out = {}
+    for rec in (recs if isinstance(recs, list) else []):
+        sid = rec.get("id") if isinstance(rec, dict) else None
+        if sid:
+            out[sid] = rec
+    return out, src
 
 
 # ──────────────────────────────────────────────────────────────── client
@@ -156,6 +227,8 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
         return []
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
+    catalog, catalog_src = load_catalog(meta)   # id → strategy.yaml mandate (source of truth, not memory)
+    meta["catalog_source"] = catalog_src
     strategies = []
     for s in (rows or []):
         wallet = _field(s, "strategyWalletAddress", "strategy_wallet_address", "walletAddress")
@@ -183,6 +256,9 @@ def fetch_strategies(client, meta):
             "skill_name": skill_name,
             "skill_version": skill_version,
             "protected": bool(skill_name),
+            # The strategy's mandate from its strategy.yaml (via catalog, keyed by skill_name) — the
+            # yardstick to judge it against. None for custom strategies / when the catalog is unreachable.
+            "mandate": _mandate_from_catalog(catalog.get(skill_name) if skill_name else None),
         })
 
     def hydrate(strat):

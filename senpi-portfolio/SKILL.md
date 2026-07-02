@@ -86,16 +86,20 @@ riding the same move a trend-follower would." Grading every strategy against a g
 benchmark is the failure mode this skill exists to prevent — it graded an all-weather core, a crisis
 hedge, and a waiting strategy each as "dead weight" when all three were doing exactly their job.
 
-**Get the mandate first, then judge.** Before you call any strategy good or bad, know what it was *for*:
+**Get the mandate first, then judge.** Before you call any strategy good or bad, know what it was *for* —
+and get that from the **source of truth, not memory.** The engine already does the lookup for you:
 
-- **The agent's memory** — the deploy record `senpi-strategy-ops` writes when a strategy is created
-  (the strategy's intended role in *this* user's book). Check it first.
-- **The catalog** — `strategies/catalog.json`, keyed by the strategy's `skill_name` (from the engine).
-  Each entry carries `belief_plain` (plain-English mandate), `archetype`/`archetype_label`,
-  `sub_style`, `risk_level`, and `direction`. That is the strategy's declared job. Read
-  `belief_plain` and state the mandate in the user's terms before judging.
+- **`strategies[].mandate`** — the engine reads each deployed strategy's **`strategy.yaml`** (via the
+  catalog, keyed by `skill_name`) and attaches its declared job: `belief_plain` (the plain-English
+  mandate), `thesis` (the edge), `archetype`/`archetype_label`, `sub_style`, `direction`,
+  `asset_classes`, `risk_level`, `time_horizon`. This is versioned with the deploy and can't go stale —
+  **read `mandate.belief_plain`, state the strategy's job in the user's terms, then judge against it.**
+- **Do not reconstruct the mandate from memory or from what the positions *look* like.** The
+  `strategy.yaml` is authoritative; a strategy's open book is *evidence about* whether it's on-mandate,
+  never the definition of the mandate.
 
-If you can find neither, say the mandate is unknown and judge conservatively on behavior — do **not**
+If `mandate` is `null` (a custom strategy with no package, or the catalog was unreachable — see
+`meta.catalog_source`), say the mandate is unknown and judge conservatively on behavior — do **not**
 default to a momentum yardstick.
 
 **Anti-patterns — these exact misreads happened live; never repeat them:**
@@ -128,10 +132,10 @@ yardstick, not to excuse everything.
 - **Always say which wallet / which bucket.** Every dollar figure gets a location. "Idle" is
   meaningless without "idle *where*."
 - **Lead at the strategy level, judged against the mandate.** For each strategy: state its
-  **mandate** (from memory or catalog `belief_plain`, keyed by `skill_name`), then whether it's **doing
-  its job against that mandate**, *then* positions as evidence. Positions-first is the failure mode — the
-  agent kept answering "analyze my strategies" with a raw positions dump. See "Judge each strategy
-  against its OWN mandate" above.
+  **mandate** (the engine attaches it as `strategies[].mandate` — read from the strategy's `strategy.yaml`,
+  its `belief_plain`), then whether it's **doing its job against that mandate**, *then* positions as
+  evidence. Positions-first is the failure mode — the agent kept answering "analyze my strategies" with a
+  raw positions dump. See "Judge each strategy against its OWN mandate" above.
 - **Analyze, don't dump.** Positions are *evidence*, not the headline. For every position, compare it to
   the market (`market_24h_pct`, `vs_market`): is this short *working* because the asset is falling, or
   *fighting* a rally? Read net exposure, concentration, idle drag. See `references/analysis-framework.md`.
@@ -189,9 +193,13 @@ Returns `{totals, embedded_wallet, strategies, exposure, signals, meta}`:
   *this* strategy), `deployed` (equity tied up in positions = account_value − withdrawable),
   `position_margin` (initial margin detail), `total_funded`/`total_withdrawn`, and:
   - `skill_name` / `skill_version` — the strategy's package attribution (e.g. `ox`, `cougar`, `lion`),
-    from its `strategy_list` record. **Use `skill_name` to look up the strategy's mandate** in
-    `strategies/catalog.json` (`belief_plain`/`archetype`) when memory doesn't have the deploy record.
-    `null` for a hand-rolled/custom strategy with no package.
+    from its `strategy_list` record. `null` for a hand-rolled/custom strategy with no package.
+  - `mandate` — **the strategy's declared job, read from its `strategy.yaml`** (via the catalog, keyed by
+    `skill_name`): `belief_plain` (plain-English mandate), `thesis` (the edge), `archetype`/
+    `archetype_label`, `sub_style`, `direction`, `asset_classes`, `risk_level`, `time_horizon`, `name`,
+    `tagline`. **This is the yardstick — judge the strategy against `mandate.belief_plain`, not memory
+    and not a momentum benchmark.** `null` for a custom strategy or when the catalog was unreachable
+    (`meta.catalog_source` records `local`/`remote`/`null`).
   - `protected` (bool) — `True` when `skill_name` is present ⟹ template-deployed ⟹ ships a built-in
     DSL exit (validator invariant). Config-level protection posture, not a live per-position check.
   - `closed` — `{realized_pnl, trade_count, recent[]}` from a read-guarded `discovery_get_trader_history`
@@ -216,8 +224,9 @@ about "my strategies / how am I doing," lead with the per-strategy read.)
 1. **Total + the three buckets.** `grand_total_usd`, broken into idle-in-embedded / idle-in-strategies
    / deployed — each labeled by *where*. Keep it tight; this is the money map, not the analysis.
 2. **Per-strategy verdict (the real value).** For **each** strategy, in this order:
-   1. **Label + mandate.** Its name and what it was deployed to *do* — from memory's deploy record or
-      the catalog `belief_plain` (keyed by `skill_name`). "cub-core is a risk-parity all-weather core."
+   1. **Label + mandate.** Its name and what it was deployed to *do* — from `strategies[].mandate`
+      (its `strategy.yaml` `belief_plain`, keyed by `skill_name`). "cub is a K-shaped long/short
+      dispersion book — long the structural winners, short the laggards; the P&L is the spread."
    2. **Is it doing its job — against its OWN mandate.** Not vs a momentum benchmark. A hedge that's
       flat in calm, an all-weather core that's steady-not-flashy, a selective strategy waiting with no
       position — all **working as designed**. See "Judge each strategy against its OWN mandate."
