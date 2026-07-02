@@ -245,11 +245,15 @@ class _FixtureClient:
 
 # ──────────────────────────────────────────────────────────────── strategies (mandate + DSL + wallet)
 def fetch_strategies(client, meta):
-    """Enumerate ACTIVE strategies → per strategy {label, wallet, strategy_id, skill_name, mandate, dsl}.
-    Mandate + DSL come from the deployed runtime.yaml registry (universal), keyed by wallet. Lifted from
-    portfolio.py's fetch_strategies (registry side), trimmed to what the review needs. Fail-open: []."""
+    """Enumerate the user's strategies → per strategy {label, wallet, strategy_id, skill_name, status,
+    mandate, dsl}. **Includes CLOSED + PAUSED, not just ACTIVE** — this is a RETROSPECTIVE skill, and a
+    churned book's recent closed trades live on strategies the user has since CLOSED; an ACTIVE-only
+    enumeration misses exactly the trades a "review my last trades / what did I miss" is asking about.
+    Mandate + DSL come from the deployed runtime.yaml registry (universal), keyed by wallet — None for a
+    closed strategy whose runtime was deregistered (the trade is still reviewed; exit attribution still
+    comes from the ratchet record). Fail-open: []."""
     try:
-        sl = _ok(client.mcp_call("strategy_list", status=["ACTIVE"], timeout=20))
+        sl = _ok(client.mcp_call("strategy_list", status=["ACTIVE", "PAUSED", "CLOSED"], timeout=20))
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
         return []
@@ -273,6 +277,8 @@ def fetch_strategies(client, meta):
             "wallet": wallet,
             "strategy_id": _field(s, "id", "strategyId", "strategy_id"),
             "skill_name": skill_name,
+            # so the narration can flag a trade on a strategy the user has since closed
+            "status": _field(s, "status", default="ACTIVE"),
             "group": prof.get("group"),
             # mandate = the strategy's declared job, from its DEPLOYED runtime.yaml (universal). The
             # yardstick to judge every closed trade against — and the source of "it's the strategy, not
