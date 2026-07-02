@@ -33,6 +33,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MARKET_ENRICH_CAP = 24      # cap the per-asset market pull
+CLOSED_HISTORY_CAP = 5      # recent closed trades to surface per strategy (realized PnL is over the full pull)
+CLOSED_HISTORY_PULL = 50    # closed positions to pull for the realized-PnL total (API default page)
 
 
 # ──────────────────────────────────────────────────────────────── guarded I/O helpers
@@ -91,7 +93,7 @@ class _FixtureClient:
         self._r = recorded
 
     def mcp_call(self, tool, timeout=12, **kw):
-        for keyer in ("strategy_wallet", "asset"):
+        for keyer in ("strategy_wallet", "trader_address", "asset"):
             if kw.get(keyer):
                 k = f"{tool}::{str(kw[keyer]).lower()}"
                 if k in self._r:
@@ -159,12 +161,28 @@ def fetch_strategies(client, meta):
         wallet = _field(s, "strategyWalletAddress", "strategy_wallet_address", "walletAddress")
         if not wallet:
             continue
+        # Attribution: the package a strategy was deployed under. Lives in strategyMetadata.skillName/
+        # skillVersion (set by strategy_create_custom_strategy's skillName arg), with flat fallbacks.
+        skill_name, skill_version = None, None
+        meta_obj = _field(s, "strategyMetadata", "metadata")
+        if isinstance(meta_obj, dict):
+            skill_name = _field(meta_obj, "skillName", "skill_name")
+            skill_version = _field(meta_obj, "skillVersion", "skill_version")
+        if not skill_name:
+            skill_name = _field(s, "skillName", "skill_name", "skill")
+        if not skill_version:
+            skill_version = _field(s, "skillVersion", "skill_version")
         strategies.append({
             "name": _field(s, "tradingStrategyName", "name", default="strategy"),
             "wallet": wallet,
             "status": _field(s, "status", default="ACTIVE"),
             "total_funded": _f(s, "totalFunded", "total_funded", default=None),
             "total_withdrawn": _f(s, "totalWithdrawn", "total_withdrawn", default=None),
+            # Template-deployed (has a skillName) ⟹ ships a built-in DSL exit (validator invariant).
+            # This is the config-level protection posture, not a live per-position DSL-tracking check.
+            "skill_name": skill_name,
+            "skill_version": skill_version,
+            "protected": bool(skill_name),
         })
 
     def hydrate(strat):
@@ -209,6 +227,7 @@ def fetch_strategies(client, meta):
         strat["account_value"] = round(shared_idle + deployed, 2)  # = main.av + xyz.av − shared_idle
         strat["position_margin"] = round(sum(p["margin"] for p in positions), 2)   # initial margin detail
         strat["positions"] = positions
+        strat["closed"] = fetch_closed(client, strat["wallet"], meta)
         return strat
 
     try:
@@ -218,6 +237,47 @@ def fetch_strategies(client, meta):
     except Exception:  # noqa
         strategies = [hydrate(s) for s in strategies]
     return strategies
+
+
+def fetch_closed(client, wallet, meta):
+    """Read-guarded closed-position ledger for a strategy wallet: total realized PnL + a short list of
+    recent closed trades. Extraction matches the real `discovery_get_trader_history` shape
+    (senpi://guides/trader-closed-positions): a `closedPositions[]` of records with `coin`, signed `szi`
+    (>0 closed long / <0 closed short), string `realizedPnl`, Unix-ms `closeTime`, `entryPx`/`exitPx`.
+    Fails OPEN — any read/parse error → empty closed block + a meta.warning, never crashes."""
+    empty = {"realized_pnl": None, "trade_count": 0, "recent": []}
+    try:
+        h = _ok(client.mcp_call("discovery_get_trader_history", trader_address=wallet,
+                                sort_by="CLOSED_TIME", sort_direction="DESC",
+                                limit=CLOSED_HISTORY_PULL, timeout=20))
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"trader_history {wallet[:8]} failed: {e}")
+        return empty
+    if h is None:
+        # _ok returns None on an explicit success:false envelope
+        meta.setdefault("warnings", []).append(f"trader_history {wallet[:8]} returned no data")
+        return empty
+    rows = h if isinstance(h, list) else _field(h, "closedPositions", "closed_positions", "positions", default=[])
+    if not isinstance(rows, list):
+        rows = []
+    realized_total = 0.0
+    recent = []
+    for p in rows:
+        if not isinstance(p, dict):
+            continue
+        pnl = _f(p, "realizedPnl", "realized_pnl", default=0.0)   # often a string → _f coerces
+        realized_total += pnl
+        if len(recent) < CLOSED_HISTORY_CAP:
+            szi = _f(p, "szi", "size", default=0.0)
+            recent.append({
+                "asset": _field(p, "coin", "coinDisplayName", "asset"),
+                "direction": "long" if szi >= 0 else "short",   # closed-side sign (szi>0 closed a long)
+                "realized_pnl": round(pnl, 2),
+                "entry_px": _field(p, "entryPx", "entry_px"),
+                "exit_px": _field(p, "exitPx", "exit_px"),
+                "closed_time": _field(p, "closeTime", "closed_time", "closeTimeMs"),
+            })
+    return {"realized_pnl": round(realized_total, 2), "trade_count": len(rows), "recent": recent}
 
 
 # ──────────────────────────────────────────────────────────────── market context (for analysis)
