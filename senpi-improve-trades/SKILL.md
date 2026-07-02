@@ -148,6 +148,25 @@ SOL exit locked at tier 2 (+41% high-water) then trailed out; if you want it to 
 phase-2 tier ladder, not anything you did"* — and it routes to **`senpi-strategy-author` / `senpi-strategy-ops`**
 to apply. Frame every improvement as a strategy tune, never a user scolding.
 
+**Config vs live state — do NOT confuse "not armed yet" with "not configured / unprotected."** Judge what a
+strategy HAS from its **`dsl` ladder config** (`profile.dsl`: `hard_stop_roe_pct`, `arm_at_roe_pct`, `tiers[]`),
+never from whether a live position has *armed* it:
+- **Phase-1 hard stop protects from ENTRY.** A position sitting in phase 1 with no tier locked is **not**
+  "unprotected" or "has no stop" — it has the phase-1 floor, and phase 2 simply hasn't **armed** yet because
+  the position is **below the `arm_at_roe_pct` (Tier-1) threshold**. That's expected, not a gap. Never say
+  "no stop-loss," "running unprotected," or "zero DSL protection" for a position whose strategy ships a DSL.
+- **If `tiers[]` is present in the config, phase 2 IS configured** — do not say "no tier-2 locks exist" or
+  recommend "add phase-2 tiers." If no live position has armed a tier, say *"phase-2 tiers exist (arm at
+  +X%); nothing has reached the arm threshold yet"* — a fact, not a defect. Only recommend adding phase 2 if
+  the config genuinely lacks `tiers[]`.
+- The crypto exit problem is a **calibration** fix, not a missing-DSL fix: the `arm_at_roe_pct` or the phase-1
+  `retrace` may be too tight for crypto's volatility relative to equities — that's the lever, stated from the
+  config.
+- **A genuinely naked position** (runtime deleted, position open on-chain, no DSL monitor) is a real, urgent
+  thing — but only claim it when you can *show the runtime is gone*, not when a `ratchet_stop` record is
+  merely empty (empty = sub-Tier-1, which is normal). If unsure, say "verify the runtime is tracking this
+  position," not "it's unprotected."
+
 ### 3. No fabricated numbers — realized PnL + engine counterfactuals ONLY
 
 **Never invent a forward number.** No "+$1,400–2,200/week," no "deploy 25% = +$800–1,200," no guaranteed-gain
