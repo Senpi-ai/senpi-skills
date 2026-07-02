@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 import review  # noqa: E402
 
 FIXTURE = os.path.join(HERE, "fixtures", "review_fixture.json")
+MIXED_FIXTURE = os.path.join(HERE, "fixtures", "review_mixed_status_fixture.json")
 REGISTRY_DIR = os.path.join(HERE, "fixtures", "registry")   # holds installed_runtimes.json (kodiak)
 KODIAK_WALLET = "0xKODIAK00000000000000000000000000000kdk"
 # now just after the last fixture closeTime; a 30d window covers all three trades
@@ -30,9 +31,8 @@ NOW_MS = 1782800100000
 WINDOW_DAYS = 30
 
 
-def _result(want_market=True, last_n=None):
-    with open(FIXTURE) as f:
-        client = review._FixtureClient(json.load(f))
+def _run_with_registry(client, want_market=True, last_n=None):
+    """Run the engine with the fixture registry dir pinned via SENPI_STATE_DIR (restored after)."""
     old = os.environ.get("SENPI_STATE_DIR")
     os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
     try:
@@ -43,6 +43,18 @@ def _result(want_market=True, last_n=None):
             os.environ.pop("SENPI_STATE_DIR", None)
         else:
             os.environ["SENPI_STATE_DIR"] = old
+
+
+def _result(want_market=True, last_n=None):
+    with open(FIXTURE) as f:
+        client = review._FixtureClient(json.load(f))
+    return _run_with_registry(client, want_market=want_market, last_n=last_n)
+
+
+def _mixed_result(want_market=True, last_n=None):
+    with open(MIXED_FIXTURE) as f:
+        client = review._FixtureClient(json.load(f))
+    return _run_with_registry(client, want_market=want_market, last_n=last_n)
 
 
 def _by_asset(res):
@@ -201,6 +213,77 @@ def test_fails_open_when_ratchet_source_missing():
     assert all(t["exit_reason"]["terminal"] == "UNKNOWN" for t in res["trades"])
     # timing still works — SOL still beat holding
     assert {t["asset"]: t["exit_vs_hold"] for t in res["trades"]}["SOL"] == "beat"
+
+
+# ──────────────────────────────────────────────────────── current vs closed partition (the live-run fix)
+# The mixed fixture: kodiak (ACTIVE) + grizzly (PAUSED) are the CURRENT book; a same-label kodiak (CLOSED)
+# is a churned historical redeployment. Each has closed trades. The fix: closed strategies are HISTORY —
+# their trades stay in trades[], but they NEVER get a per-strategy verdict and NEVER seed a "consolidate
+# your N wallets" narrative out of what is really a redeployment.
+CLOSED_WALLET = "0xKODIAKOLD00000000000000000000000000old"
+
+
+def test_strategies_are_current_only():
+    """strategies[] (the per-strategy VERDICT surface) contains ONLY the active/paused ones — the CLOSED
+    kodiak redeployment is excluded. Two current strategies: kodiak (ACTIVE) + grizzly (PAUSED)."""
+    res = _mixed_result()
+    labels_status = {(s["label"], s["status"]) for s in res["strategies"]}
+    assert labels_status == {("kodiak", "ACTIVE"), ("grizzly", "PAUSED")}
+    wallets = {str(s["wallet"]).lower() for s in res["strategies"]}
+    assert CLOSED_WALLET.lower() not in wallets       # the closed redeployment is NOT a live-book verdict
+
+
+def test_closed_strategies_rollup_shape():
+    """closed_strategies[] holds the CLOSED strategy as a minimal HISTORICAL rollup ONLY — exactly
+    {label, wallet_short, status, trade_count, realized_pnl}. NO mandate/dsl/verdict/on_mandate fields
+    (it's deregistered by design; never judged). Its 2 trades (BTC + DOGE) sum to 220."""
+    res = _mixed_result()
+    assert len(res["closed_strategies"]) == 1
+    cs = res["closed_strategies"][0]
+    assert cs["label"] == "kodiak" and cs["status"] == "CLOSED"
+    assert cs["trade_count"] == 2                       # BTC + DOGE on the closed wallet
+    assert cs["realized_pnl"] == 220.0                  # 200 + 20
+    assert set(cs.keys()) == {"label", "wallet_short", "status", "trade_count", "realized_pnl"}
+    # explicitly NO verdict/mandate leakage onto a closed strategy
+    for banned in ("mandate", "dsl", "on_mandate_note", "verdict"):
+        assert banned not in cs
+
+
+def test_closed_strategy_trades_still_in_trades():
+    """The closed strategy's trades STILL live in trades[] (the timing history is complete), attributed by
+    label + status. BTC + DOGE (on the CLOSED kodiak) are present and tagged strategy_status CLOSED."""
+    res = _mixed_result()
+    by = {t["asset"]: t for t in res["trades"]}
+    assert "BTC" in by and "DOGE" in by                 # closed-strategy trades kept in the timing set
+    assert by["BTC"]["strategy_status"] == "CLOSED"
+    assert by["DOGE"]["strategy_status"] == "CLOSED"
+    assert by["DOGE"]["strategy_label"] == "kodiak"
+    # current-book trades carry their live status
+    assert by["SOL"]["strategy_status"] == "ACTIVE"
+    assert by["ETH"]["strategy_status"] == "PAUSED"
+    assert res["meta"]["trade_count"] == 4              # SOL + ETH + BTC + DOGE — all statuses in trades[]
+
+
+def test_meta_current_and_closed_counts():
+    """meta carries the split: 2 current (active+paused), 1 closed. strategy_count is still the total (3)."""
+    meta = _mixed_result()["meta"]
+    assert meta["current_strategy_count"] == 2
+    assert meta["closed_strategy_count"] == 1
+    assert meta["strategy_count"] == 3
+
+
+def test_current_missing_mandate_is_not_a_bug():
+    """A CURRENT strategy with no mandate on file (grizzly PAUSED — absent from the registry) → the note
+    says look it up / check the registry and is explicitly NOT framed as a bug. (Guards Fix B's rule that
+    an absent mandate on a live strategy is a lookup, on a closed one is silence.)"""
+    strat = {s["label"]: s for s in _mixed_result()["strategies"]}
+    griz = strat["grizzly"]
+    assert griz["status"] == "PAUSED"
+    assert griz["mandate"] is None
+    note = griz["on_mandate_note"].lower()
+    # framed as a lookup, NOT a defect: it explicitly disclaims "bug" and points at the registry
+    assert "not a bug" in note
+    assert "registry" in note or "look it up" in note
 
 
 if __name__ == "__main__":

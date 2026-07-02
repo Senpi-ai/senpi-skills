@@ -54,7 +54,7 @@ Read the JSON on stdout and narrate it under the guardrails. It fails open end-t
 returns valid JSON with `meta.warnings`; `meta.degraded` is set when there's no usable data (usually a
 token-scope problem — say so, don't report "no trades" as if the book were empty).
 
-## The seven guardrails — the reason this skill exists
+## The eight guardrails — the reason this skill exists
 
 These are non-negotiable. Each fixes a real failure from live agent responses to these prompts.
 
@@ -110,6 +110,11 @@ otherwise it's just an asset the strategy was never designed to trade.
 - **A strategy is ALL its wallets.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is ONE
   strategy — **never** recommend closing / repurposing a single sleeve ("close the duplicate wallet"). One
   sleeve of a long/short book is a **naked directional position**, the opposite of the design.
+- **The "consolidate your wallets" reflex is usually WRONG.** Many same-label wallets are **historical
+  redeployments** (the strategy was closed and re-launched), not concurrent redundancy. They appear in
+  `closed_strategies[]`, not `strategies[]`. Do **not** count them as a live book you should merge. The live
+  book size is `meta.current_strategy_count` — count *that*, never `meta.strategy_count` (which includes
+  history). See rule 8.
 - **A flat / idle / no-trades-this-window strategy is often by design** — the other sleeve waiting for its
   signal, or a patient strategy between setups. `on_mandate_note` flags this. Never call it "dead."
 
@@ -128,14 +133,40 @@ otherwise it's just an asset the strategy was never designed to trade.
 After you diagnose, **offer a choice and stop.** Never apply a config change or place a trade. Present three
 depths (below) and let the user pick.
 
+### 8. Verdicts are for the CURRENT book only — closed strategies are HISTORY, not a live problem
+
+**This is the split that stops the worst live-run failure.** The engine enumerates strategies of *all*
+statuses so a churned book's **closed trades** are captured — but a closed strategy is **history**, not a
+current strategy to analyze, consolidate, or fix.
+
+- **`strategies[]` = the CURRENT book ONLY** (`status` ACTIVE or PAUSED). **Every** per-strategy verdict and
+  **every** improvement recommendation ("doing its job" / "consolidate" / "kill" / "fix the DSL") is for
+  these and these alone.
+- **`closed_strategies[]` = HISTORY** (CLOSED / INACTIVE / retired). Their **trades are part of the timing
+  review** (they're in `trades[]`, attributed by label + `strategy_status`) — but the strategies themselves:
+  - **Never** give a closed strategy a "doing its job / consolidate / kill / fix" verdict. It's *already
+    closed* — there is nothing to fix or decide.
+  - **Never** flag a closed strategy's absent mandate/DSL as a bug. It's **deregistered because it's closed**
+    — the missing `runtime.yaml` is *expected*, not a "DSL registration bug." Say nothing about it.
+  - **Never** build a "you have N wallets, consolidate them" narrative out of closed/historical deployments.
+    The live book = `meta.current_strategy_count`. Same-label wallets that are closed are **redeployments over
+    time** (redeploy history), **not concurrent live redundancy**.
+- **A missing mandate on a CURRENT strategy** → note it **plainly**: *"mandate unavailable — look it up /
+  check the runtime registry."* It is a lookup, **not a bug to fix.** (`on_mandate_note` already phrases this.)
+  On a **closed** strategy → say **nothing** about the missing mandate.
+
+Concretely: if you're about to say "you have 13 wallets, kill/merge 11 of them," stop — check
+`meta.current_strategy_count`. If most of those 13 are in `closed_strategies[]`, the real live book is small
+and there is **no consolidation problem** — you're looking at redeploy history.
+
 ## What the engine gives you — the output shape
 
 ```
 window        { from, to, label, window_days, last_n }   # the review window
 
-trades[]      per CLOSED trade:
-  asset, strategy_label, direction, leverage, entry_px, exit_px, open_time, close_time,
-  realized_pnl,
+trades[]      per CLOSED trade (from strategies of ALL statuses — a churned book's history is complete):
+  asset, strategy_label, strategy_status, direction, leverage, entry_px, exit_px, open_time, close_time,
+  realized_pnl,                           # strategy_status: ACTIVE|PAUSED = current book; else = HISTORY
   price_now, price_since_exit_pct,        # subsequent action (current price only, v1)
   if_held_delta_usd,                      # counterfactual — CONTEXT, not verdict (short-sign adjusted)
   exit_vs_hold: beat | worse | flat | unknown,   # engine verdict of the exit vs holding-to-now
@@ -152,10 +183,21 @@ book_vs_market   the "what did I miss" gap:
   gaps[]          { asset, pct, ... }                 # movers the book had NO exposure to
   window                                              # the leaderboard's rolling window (e.g. "4h")
 
-strategies[]  per strategy, judged vs ITS mandate:
-  { label, mandate, dsl, closed_trade_count, realized_pnl, on_mandate_note }
+strategies[]  the CURRENT book ONLY (status ACTIVE | PAUSED) — each judged vs ITS mandate:
+  { label, wallet, status, mandate, dsl, closed_trade_count, realized_pnl, on_mandate_note }
+  # THIS is the verdict + improvement surface. Nothing here is closed.
 
-meta          { warnings[], sources[], window, degraded, strategy_count, trade_count }
+closed_strategies[]  HISTORY ONLY (CLOSED / INACTIVE / … — churned or retired redeployments):
+  { label, wallet_short, status, trade_count, realized_pnl }
+  # deliberately NO mandate / dsl / verdict / on_mandate_note. Their trades are already in trades[]
+  # (part of the timing review, attributed by label). NEVER give these a "consolidate/kill/fix" verdict,
+  # NEVER flag their absent mandate as a bug, NEVER count them as live "wallets to consolidate."
+
+meta          { warnings[], sources[], window, degraded,
+                strategy_count,             # every enumerated strategy (all statuses) — a raw total
+                current_strategy_count,     # the LIVE book — THIS is "how many strategies you run"
+                closed_strategy_count,      # churned/closed redeployments — HISTORY, not live redundancy
+                trade_count }
 ```
 
 `exit_reason.terminal` ∈ `SL_TRIGGERED` (the DSL fired — a hard stop or a locked profit tier),
@@ -166,12 +208,18 @@ meta          { warnings[], sources[], window, degraded, strategy_count, trade_c
 
 1. **Timing teardown** — the per-trade read, **led by the aggregate** (`timing_summary`: "N of M exits beat
    holding"), each exit attributed via `exit_reason` (which tier / hard stop fired). Process-framed
-   throughout. Discuss individual reversals only after the aggregate, and only as evidence.
+   throughout. Discuss individual reversals only after the aggregate, and only as evidence. Trades whose
+   `strategy_status` isn't ACTIVE/PAUSED are **history** (from a closed strategy) — narrate them as past
+   timing, attributed by label, never as a live strategy to act on.
 2. **Book-vs-market gap** — what moved vs what you held (`book_vs_market`). The honest "what did I miss." For
    the whale angle, **compose `senpi-smart-money`** (the engine gives smart-money concentration per mover, but
    smart-money does the deep whale read). For the movers narrative, **compose `senpi-market-pulse`**.
-3. **Per-strategy read** — each strategy judged against its **own mandate** (`strategies[].on_mandate_note`),
-   realized PnL as evidence. Not a momentum benchmark. For live positions/state, **compose `senpi-portfolio`**.
+3. **Per-strategy read** — **`strategies[]` (the CURRENT book only) is the sole verdict surface.** Judge each
+   against its **own mandate** (`strategies[].on_mandate_note`), realized PnL as evidence. Not a momentum
+   benchmark. Any `closed_strategies[]` are **history** — their trades already count in the timing teardown
+   (step 1, attributed by label); do **not** give them a verdict, do **not** flag their missing mandate, and
+   do **not** spin them into a "consolidate N wallets" recommendation (guardrail 8; the live book size is
+   `meta.current_strategy_count`). For live positions/state, **compose `senpi-portfolio`**.
 4. **Improvements** — each tied to a concrete **strategy lever** (a DSL tier, the hard stop, an entry gate),
    **no guaranteed-gain language**, then the fix-depth choice:
 

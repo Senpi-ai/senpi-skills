@@ -47,6 +47,20 @@ TOP_MOVERS_CAP = 12          # cap the book-vs-market movers surfaced
 STATE_DIR_ENV = "SENPI_STATE_DIR"
 REGISTRY_FILENAME = "installed_runtimes.json"
 
+# CURRENT book = strategies still in play. Only these get a per-strategy VERDICT (mandate/DSL/on_mandate).
+# Everything else (CLOSED, INACTIVE, ARCHIVED, …) is HISTORY: its trades stay in trades[] for the timing
+# review (attributed by label), but it NEVER gets a "consolidate/kill/fix" verdict and its absent mandate
+# is EXPECTED (deregistered because closed), not a bug. See SKILL.md "current vs closed" rule.
+CURRENT_STATUSES = ("ACTIVE", "PAUSED")
+
+
+def _is_current(status):
+    """True when a strategy status is part of the CURRENT book (active/paused). Any other status
+    (CLOSED, INACTIVE, …) → historical. Case/space tolerant; a missing status defaults to current
+    (an ACTIVE-by-default strategy row that omitted the field)."""
+    s = str(status or "ACTIVE").strip().upper()
+    return s in CURRENT_STATUSES
+
 
 def _resolve_state_dir():
     """Locate the OpenClaw runtime state dir holding installed_runtimes.json — robustly, WITHOUT relying
@@ -275,10 +289,13 @@ def fetch_strategies(client, meta):
     """Enumerate the user's strategies → per strategy {label, wallet, strategy_id, skill_name, status,
     mandate, dsl}. **Includes CLOSED + PAUSED, not just ACTIVE** — this is a RETROSPECTIVE skill, and a
     churned book's recent closed trades live on strategies the user has since CLOSED; an ACTIVE-only
-    enumeration misses exactly the trades a "review my last trades / what did I miss" is asking about.
+    enumeration misses exactly the trades a "review my last trades / what did I miss" is asking about. This
+    is purely the TRADE-SOURCE set: the CLOSED rows exist so their trades land in trades[]. Downstream the
+    per-strategy VERDICT is partitioned CURRENT-only (see _strategy_reads / _closed_strategy_rollup and the
+    `status` field on each strategy) — a closed strategy is HISTORY, never a live-book verdict.
     Mandate + DSL come from the deployed runtime.yaml registry (universal), keyed by wallet — None for a
     closed strategy whose runtime was deregistered (the trade is still reviewed; exit attribution still
-    comes from the ratchet record). Fail-open: []."""
+    comes from the ratchet record; the absent mandate is EXPECTED, not a bug). Fail-open: []."""
     try:
         sl = _ok(client.mcp_call("strategy_list", status=["ACTIVE", "PAUSED", "CLOSED"], timeout=20))
     except Exception as e:  # noqa
@@ -385,6 +402,25 @@ def _ms(ts):
     return n * 1000.0 if n < 1e12 else n
 
 
+def _direction(rec, szi, entry_px, exit_px, pnl):
+    """Direction of a CLOSED trade, robustly. `szi` is unreliable on a fully-closed position (the
+    at-close size is often 0), which read wrong/ambiguous. Order: (1) an explicit dir/side field;
+    (2) a non-zero szi sign; (3) DERIVE from realized PnL vs the price move — a LONG books profit when
+    price rises (pnl and (exit−entry) share a sign), a SHORT when price falls (opposite signs). Returns
+    None only when nothing resolves it (e.g. a flat trade with no move)."""
+    d = str(_field(rec, "dir", "side", "direction", "positionSide", default="") or "").strip().lower()
+    if d in ("long", "buy", "b", "bid", "l"):
+        return "long"
+    if d in ("short", "sell", "a", "ask", "s"):
+        return "short"
+    if szi and szi != 0:
+        return "long" if szi > 0 else "short"
+    move = (exit_px - entry_px) if (entry_px is not None and exit_px is not None) else None
+    if move and pnl:
+        return "long" if ((move > 0) == (pnl > 0)) else "short"
+    return None
+
+
 def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
     """Read-guarded closed-position ledger for one strategy wallet, filtered to the review window. Lifts
     portfolio.py's fetch_closed extraction (the real discovery_get_trader_history shape: closedPositions[]
@@ -414,14 +450,17 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
             continue
         szi = _f(p, "szi", "size", default=0.0)
         lev = p.get("leverage") or {}
+        entry_px = _num(_field(p, "entryPx", "entry_px"))
+        exit_px = _num(_field(p, "exitPx", "exit_px"))
+        pnl = round(_f(p, "realizedPnl", "realized_pnl", default=0.0), 2)
         trades.append({
             "asset": _field(p, "coin", "coinDisplayName", "asset"),
-            "direction": "long" if szi >= 0 else "short",   # closed-side sign (szi>0 closed a long)
+            "direction": _direction(p, szi, entry_px, exit_px, pnl),   # robust: field → szi → pnl-vs-move
             "size": abs(szi),
             "leverage": _f(lev, "value", default=None) if isinstance(lev, dict) else _num(lev),
-            "entry_px": _num(_field(p, "entryPx", "entry_px")),
-            "exit_px": _num(_field(p, "exitPx", "exit_px")),
-            "realized_pnl": round(_f(p, "realizedPnl", "realized_pnl", default=0.0), 2),
+            "entry_px": entry_px,
+            "exit_px": exit_px,
+            "realized_pnl": pnl,
             "margin_used": _f(p, "marginUsed", "margin_used", default=None),
             "open_time": _ms(_field(p, "openTime", "open_time")),
             "close_time": close_ms,
@@ -473,7 +512,8 @@ def _if_held(trade, price_now):
         return since_exit_pct, None, "unknown"
     raw_move = (price_now - exit_px) / exit_px
     # direction-adjusted: long gains when price rises (+), short gains when price falls (so flip sign).
-    signed = raw_move if trade.get("direction") == "long" else -raw_move
+    # flip ONLY for an explicit short; long / unknown → no flip (don't mistreat a null direction as short)
+    signed = -raw_move if trade.get("direction") == "short" else raw_move
     if_held_delta = round(notional * signed, 2)
     # exit_vs_hold: holding would have added if_held_delta on top of realized. Positive delta → holding
     # beat the exit (exit was "worse"); negative → the exit beat holding; ~0 → flat.
@@ -513,6 +553,10 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
             t.update({
                 "strategy_label": strat.get("label"),
                 "strategy_wallet": strat.get("wallet"),
+                # the strategy's status — so a trade on a CLOSED/INACTIVE strategy reads as HISTORY, not a
+                # live-book verdict. CURRENT (ACTIVE/PAUSED) trades feed the per-strategy read; a closed
+                # strategy's trades stay in the timing review (attributed by label) but never get a verdict.
+                "strategy_status": strat.get("status"),
                 "mandate": strat.get("mandate"),
                 "dex": dex,
                 "source": "reconstructed",      # provenance tag — v2 telemetry flips this per-trade
@@ -663,23 +707,36 @@ def book_vs_market(client, trades, strategies, meta, want_market):
 
 
 # ──────────────────────────────────────────────────────────────── per-strategy read (judged vs mandate)
-def _strategy_reads(trades, strategies):
-    """Per strategy: {label, mandate, closed_trade_count, realized_pnl, on_mandate_note}. Realized PnL is
-    EVIDENCE for the mandate verdict, not the headline — the narrator judges each strategy against its OWN
-    mandate (guardrail 5: don't grade a deliberate book against a momentum benchmark)."""
+def _pnl_by_wallet(trades):
+    """wallet_lower → {count, pnl} rollup of closed trades. Shared by the current-book read and the
+    historical closed-strategy rollup so both attribute trades by the SAME wallet key."""
     by_wallet = {}
     for t in trades:
         w = str(t.get("strategy_wallet") or "").lower()
         b = by_wallet.setdefault(w, {"count": 0, "pnl": 0.0})
         b["count"] += 1
         b["pnl"] = round(b["pnl"] + (_num(t.get("realized_pnl")) or 0.0), 2)
+    return by_wallet
+
+
+def _strategy_reads(trades, strategies):
+    """Per CURRENT strategy (ACTIVE/PAUSED ONLY): {label, wallet, status, mandate, dsl, closed_trade_count,
+    realized_pnl, on_mandate_note}. This is the LIVE-BOOK verdict surface — closed strategies are excluded
+    here (they're history; see closed_strategy_rollup). Realized PnL is EVIDENCE for the mandate verdict,
+    not the headline — the narrator judges each strategy against its OWN mandate (guardrail 5: don't grade
+    a deliberate book against a momentum benchmark). A CURRENT strategy with no mandate on file → note it
+    plainly ("look it up / check the registry"), NEVER call it a bug."""
+    by_wallet = _pnl_by_wallet(trades)
     out = []
     for s in strategies:
+        if not _is_current(s.get("status")):
+            continue                          # closed/historical → not a live-book verdict; see rollup
         w = str(s.get("wallet") or "").lower()
         agg = by_wallet.get(w, {"count": 0, "pnl": 0.0})
         mandate = s.get("mandate")
         if mandate is None:
-            note = "no mandate on file (runtime registry absent) — judge against the trades, not a benchmark"
+            note = ("mandate unavailable on this CURRENT strategy — look it up / check the runtime "
+                    "registry; NOT a bug. Judge the trades, not a benchmark")
         elif agg["count"] == 0:
             note = "no closed trades in this window — often by design (waiting for its signal), not a defect"
         else:
@@ -687,11 +744,36 @@ def _strategy_reads(trades, strategies):
         out.append({
             "label": s.get("label"),
             "wallet": s.get("wallet"),
+            "status": s.get("status"),
             "mandate": mandate,
             "dsl": s.get("dsl"),                 # the levers a fix routes to
             "closed_trade_count": agg["count"],
             "realized_pnl": agg["pnl"],
             "on_mandate_note": note,
+        })
+    return out
+
+
+def _closed_strategy_rollup(trades, strategies):
+    """Per NON-CURRENT strategy (CLOSED, INACTIVE, …): a MINIMAL HISTORICAL rollup ONLY —
+    {label, wallet_short, status, trade_count, realized_pnl}. Deliberately NO mandate / dsl / verdict /
+    on_mandate_note fields: a closed strategy is deregistered (its runtime.yaml gone by design), so it must
+    NEVER be judged, consolidated, killed, or fixed, and its absent mandate is EXPECTED, not a bug. Its
+    trades still live in trades[] for the timing review, attributed by label + status."""
+    by_wallet = _pnl_by_wallet(trades)
+    out = []
+    for s in strategies:
+        if _is_current(s.get("status")):
+            continue                          # current → belongs in the live-book read, not history
+        w = str(s.get("wallet") or "").lower()
+        agg = by_wallet.get(w, {"count": 0, "pnl": 0.0})
+        wallet = s.get("wallet")
+        out.append({
+            "label": s.get("label"),
+            "wallet_short": (str(wallet)[:10] if wallet else None),
+            "status": s.get("status"),
+            "trade_count": agg["count"],
+            "realized_pnl": agg["pnl"],
         })
     return out
 
@@ -715,13 +797,20 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
               "last_n": last_n}
     meta["window"] = window
 
+    # ALL statuses are enumerated (so a churned book's CLOSED trades stay in trades[]) — but the per-strategy
+    # verdict is CURRENT-only. Closed/historical strategies get a minimal rollup, never a verdict.
     strategies = fetch_strategies(client, meta)
     trades = _collect_trades(client, strategies, meta, since_ms, until_ms, last_n, want_market)
     timing = _timing_summary(trades)
     bvm = book_vs_market(client, trades, strategies, meta, want_market)
-    strat_reads = _strategy_reads(trades, strategies)
+    strat_reads = _strategy_reads(trades, strategies)          # CURRENT book only (active/paused)
+    closed_reads = _closed_strategy_rollup(trades, strategies) # HISTORY: closed/inactive, rollup only
 
-    meta["strategy_count"] = len(strategies)
+    current_count = sum(1 for s in strategies if _is_current(s.get("status")))
+    closed_count = len(strategies) - current_count
+    meta["strategy_count"] = len(strategies)                   # every enumerated strategy (all statuses)
+    meta["current_strategy_count"] = current_count            # the LIVE book — the "how many wallets" number
+    meta["closed_strategy_count"] = closed_count              # churned/closed redeployments — HISTORY
     meta["trade_count"] = len(trades)
     if not strategies:
         meta["degraded"] = "no strategies — check the token is USER-scoped"
@@ -730,10 +819,11 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
 
     return {
         "window": window,
-        "trades": trades,                 # per closed trade, process-input fields attached
+        "trades": trades,                 # per closed trade, process-input fields + strategy_status attached
         "timing_summary": timing,         # PROCESS-framed counts — LEAD with these
         "book_vs_market": bvm,            # the honest 'what did I miss' gap
-        "strategies": strat_reads,        # each judged vs its OWN mandate
+        "strategies": strat_reads,        # CURRENT book only — each judged vs its OWN mandate
+        "closed_strategies": closed_reads, # HISTORY — minimal rollup, NO verdict/mandate (never consolidate)
         "meta": meta,
     }
 
