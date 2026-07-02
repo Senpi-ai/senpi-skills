@@ -83,6 +83,7 @@ Returns one JSON document the LLM narrates. All sources read-guarded + fail-open
 
 Notes:
 - **`exit_reason` is authoritative**, reconstructed from `ratchet_stop_events({strategyId, strategy_wallet_address, since})` (+ `ratchet_stop_list` for the tier ladder), mapped to each closed trade by asset + time / positionId. This gives the real exit mechanism (which tier locked, hard stop, time-cut) — i.e. **which lever to tune**. Not best-effort; the BE provides it.
+- **Source boundary (telemetry-ready).** The engine assembles `trades[]` behind a single internal `_collect_trades()` step that fuses its sources (`discovery_get_trader_history` + `ratchet_stop_events` + `market_*`). Keep that seam clean so **v2 telemetry** (below) can become an additional or primary trade/exit source without touching the narration, the guardrails, or the output shape. Each trade carries a `source` tag so mixed provenance is visible.
 - **No forward projections** anywhere. The engine reports realized PnL + engine-computed counterfactuals (`if_held_delta`, `if_all_reclosed_now_total`). It never emits "+$X/week."
 - `exit_vs_hold` + `timing_summary` counts exist so the agent leads with the **aggregate** ("N of M exits beat holding"), countering the urge to cherry-pick the few reversals.
 - Whale comparison is **not** in the engine — the SKILL.md composes `senpi-smart-money` for that (keeps the engine focused).
@@ -121,6 +122,12 @@ After diagnosing, the skill **offers a choice** and never acts unprompted:
 2. **Book-vs-market gap** — what moved vs what you held (the honest "what did I miss").
 3. **Per-strategy read** — each strategy judged vs its own mandate (realized PnL as evidence).
 4. **Improvements** — each tied to a **strategy lever** (DSL / entry gate), no guaranteed-gain language, then the **fix-depth choice**.
+
+## Future — telemetry augmentation (v2)
+
+**Telemetry v1 ships to prod 2026-07-02.** It is the successor to the removed `audit_*` tools and will carry the user's own richer per-trade / per-decision record (e.g. entry reasoning + score, signal context at entry and exit, decision audit) that this skill currently **reconstructs** from `discovery_get_trader_history` + `ratchet_stop_events` + market prices.
+
+**v1 (this spec) does not depend on telemetry** — it ships on the reconstructed sources so it works today. **v2** slots telemetry in through the `_collect_trades()` source boundary: telemetry becomes the primary trade/exit + reasoning source (higher fidelity: the actual entry thesis and score, exact exit trigger), with the reconstructed sources as fallback. The output contract, guardrails, and narration are unchanged — v2 is a source upgrade + richer `exit_reason`/entry-context, not a redesign. Jason will provide the telemetry shape when it's queryable; spec the v2 fields against the **real** response then (per the "source it, don't guess" rule), not from assumption.
 
 ## Non-goals
 
