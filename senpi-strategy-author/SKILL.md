@@ -12,7 +12,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.0.0"
+  version: "2.1.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -170,3 +170,11 @@ re-smoke-test if you touched `scan.py`/`runtime.yaml`.
 Authoring produces the package only. **Deploy/monitor/close is `senpi-strategy-ops`** — hand off the
 `id` once the smoke test is green. Attribution (`skillName`/`skillVersion`) is set by ops from
 `strategy.yaml` `id`/`version`.
+
+**What you author here becomes the strategy's memory + yardstick.** At deploy, `senpi-strategy-ops`
+records the strategy to memory — `wallet → label` + a one-line **mandate** (from `strategy.yaml`
+`belief_plain`/`thesis`/`archetype`) + its **DSL preset** — so later "how's my `<label>` doing?" gets
+judged against what it was *designed* to do. That makes **the `belief_plain`/`thesis` you write the
+yardstick**, not marketing copy: state plainly what the strategy is *for* — an all-weather core, a
+crisis hedge, a selective breakout that waits for its signal. A vague or momentum-flavored mandate is
+how a strategy that's doing its job later gets misread as "misaligned" or "dead weight." Write it true.
