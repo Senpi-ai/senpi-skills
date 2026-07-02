@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.1.1"
+  version: "2.2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -112,6 +112,32 @@ Overall status across the steps: `create` → `creating` (re-run) | `wallets-rea
 `registered`; `verify` → `live` (scanner ticked) | `registered` (re-run verify). Per-instance status
 flows `pending → creating → active → registered → live`. **`registered` ≠ ticking.** `create`/`runtime`
 take `--dry-run` (plan only; no side effects).
+
+## Remember it — the last step of every deploy (and close)
+
+A deploy isn't finished until you've **recorded it to memory**, so *any future chat* knows this strategy
+exists and what it's *for* without re-deriving it (a fresh chat that can't recall the mandate ends up
+grading an all-weather core or a crisis hedge on a momentum benchmark and calling it "dead weight"). On a
+successful deploy, save one small, **stable** record per strategy:
+
+- **`strategy_wallet → label`** — e.g. `0x4c68…9f91 → ox` — so you always know your strategies by name.
+- **Mandate + expected behavior** — what it's *for* and how it's *meant* to run, from its `strategy.yaml`
+  `catalog` (`belief_plain` / `thesis` / `archetype`). e.g. *"ox — risk-parity all-weather core:
+  diversified, low-turnover, uncorrelated to rotations; flat-ish in calm is normal."*
+- **DSL preset (intent)** — the `exit:` preset from `runtime.yaml`, so you know it's protected and roughly how.
+- Why the user chose it, and the date.
+
+On **close**, update the record the same way — drop the closed strategy.
+
+**Do NOT memorize live state** — PnL, positions, DSL floor/tier, or "is it running." Those are queryable
+and they drift; read them live (senpi-portfolio / `status.py` / the DSL check) when asked. Memory holds
+the **names + mandates**; the live tools hold the **truth**.
+
+**Reconcile before you assert.** A strategy can be closed from the app, a heartbeat, or another chat, or
+redeployed to a new wallet — so before you state what's running, reconcile your remembered set against
+`status.py` / `strategy_list`. Memory is the narrative; `status.py` is authoritative for what's live. The
+full config (exact scanner / scoring / DSL tiers) is **not** memory — look it up in the package
+(`runtime.yaml` / `scan.py`, keyed by `skillName`+`version`) only when the user wants the exact mechanics.
 
 ### Worked example — "install spider"
 ```
