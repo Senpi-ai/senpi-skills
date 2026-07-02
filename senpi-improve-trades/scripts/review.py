@@ -45,8 +45,34 @@ TOP_MOVERS_CAP = 12          # cap the book-vs-market movers surfaced
 # UNIVERSAL source of a strategy's mandate (the runtime.yaml `description`) + its DSL ladder. Reused
 # verbatim in spirit from senpi-portfolio (the extractions there are already correct).
 STATE_DIR_ENV = "SENPI_STATE_DIR"
-DEFAULT_STATE_DIR = os.path.expanduser("~/.openclaw/senpi-state")
 REGISTRY_FILENAME = "installed_runtimes.json"
+
+
+def _resolve_state_dir():
+    """Locate the OpenClaw runtime state dir holding installed_runtimes.json — robustly, WITHOUT relying
+    on $HOME (it may be /root while OpenClaw lives under /data). On a real host the skill installs at
+    `<root>/.openclaw/skills/<skill>/scripts/` and the state dir is a sibling: `<root>/.openclaw/senpi-state`.
+    Order: (1) $SENPI_STATE_DIR; (2) derive from THIS file's install path — the enclosing `.openclaw` dir
+    → its `senpi-state` (or any ancestor that actually holds the registry); (3) common host locations;
+    (4) ~/.openclaw/senpi-state as last resort."""
+    env = os.environ.get(STATE_DIR_ENV)
+    if env:
+        return env
+    d = os.path.abspath(__file__)
+    for _ in range(8):
+        parent = os.path.dirname(d)
+        if parent == d:
+            break
+        d = parent
+        if os.path.basename(d) == ".openclaw":
+            return os.path.join(d, "senpi-state")
+        if os.path.isfile(os.path.join(d, "senpi-state", REGISTRY_FILENAME)):
+            return os.path.join(d, "senpi-state")
+    for base in ("~/.openclaw/senpi-state", "/data/.openclaw/senpi-state", "/root/.openclaw/senpi-state"):
+        p = os.path.expanduser(base)
+        if os.path.isdir(p):
+            return p
+    return os.path.expanduser("~/.openclaw/senpi-state")
 
 
 # ──────────────────────────────────────────────────────────────── guarded I/O helpers (lifted from portfolio.py)
@@ -175,7 +201,8 @@ def load_runtime_registry(meta):
     user-authored strategies, not just catalog templates. Read-guarded + fail-open: any problem → ({},
     None). A meta.warnings note is added ONLY for a real parse error, not an absent registry file.
     Returns (map, source)."""
-    state_dir = os.environ.get(STATE_DIR_ENV) or DEFAULT_STATE_DIR
+    state_dir = _resolve_state_dir()
+    meta["state_dir"] = state_dir          # surfaced for debugging path issues
     path = os.path.join(state_dir, REGISTRY_FILENAME)
     if not os.path.isfile(path):          # absent registry is normal, not an error
         return {}, None
