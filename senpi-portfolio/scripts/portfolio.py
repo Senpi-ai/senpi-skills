@@ -134,19 +134,82 @@ def _dsl_preset_summary(exit_block):
     return None, has_exit              # an `exit:` with no dsl_preset still counts as an exit
 
 
+def _dsl_ladder(exit_block):
+    """Parse the DSL PROTECTION LADDER from a runtime.yaml `exit:` block for reporting. Returns a dict
+    that says (a) HOW DSL works for this strategy and (b) the tier ladder — the config side of the
+    "protected from entry" story. NEVER raises; fail-open to None.
+
+    From `exit.dsl_preset`:
+      - inline mapping with phase1/phase2 →
+          {hard_stop_roe_pct: -phase1.max_loss_pct,      # the hard stop floor, active FROM ENTRY
+           arm_at_roe_pct: tiers[0].trigger_pct,          # Tier 1 = where the profit-ratchet ARMS
+           tiers: [{trigger_pct, lock_hw_pct}, …],        # the profit-lock ladder
+           has_phase2: bool}
+        If phase2 is absent/disabled → tiers: [], arm_at_roe_pct: null (phase1-only protection).
+        If phase1 is absent → hard_stop_roe_pct: null (rare; still report the ladder we have).
+      - a NAMED string preset ("conviction", …) → {preset_name: "<name>", note: "named preset — ladder
+        not inlined"} (the ladder lives in the runtime's preset table, not here).
+      - no dsl_preset (an `exit:` with none) → None.
+    """
+    if not isinstance(exit_block, dict):
+        return None
+    dp = exit_block.get("dsl_preset")
+    if isinstance(dp, str):
+        return {"preset_name": dp, "note": "named preset — ladder not inlined"}
+    if not isinstance(dp, dict) or not dp:
+        return None
+
+    p1 = dp.get("phase1") if isinstance(dp.get("phase1"), dict) else {}
+    p2 = dp.get("phase2") if isinstance(dp.get("phase2"), dict) else {}
+
+    # hard stop = the phase1 floor (active from entry). ROE floor is negative: -max_loss_pct.
+    hard = None
+    if p1 and p1.get("enabled") is not False:
+        ml = _num(p1.get("max_loss_pct"))
+        if ml is not None:
+            hard = -abs(ml)
+
+    # the profit-lock ratchet ladder (phase2). Present + enabled → parse the tiers; else empty ladder.
+    tiers, has_phase2, arm_at = [], False, None
+    if p2 and p2.get("enabled") is not False:
+        raw_tiers = p2.get("tiers")
+        if isinstance(raw_tiers, list):
+            for t in raw_tiers:
+                if not isinstance(t, dict):
+                    continue
+                trig = _num(t.get("trigger_pct"))
+                lock = _num(t.get("lock_hw_pct"))
+                tiers.append({"trigger_pct": trig, "lock_hw_pct": lock})
+        has_phase2 = bool(tiers)
+        if tiers and tiers[0].get("trigger_pct") is not None:
+            arm_at = tiers[0]["trigger_pct"]   # Tier 1 arms the trail (first trigger)
+
+    return {
+        "hard_stop_roe_pct": hard,       # e.g. -14.0 — floor, active FROM ENTRY (phase1)
+        "arm_at_roe_pct": arm_at,        # e.g. 8 — where the profit-ratchet ARMS (Tier 1), or null
+        "tiers": tiers,                  # the profit-lock ladder ([] when phase2 off)
+        "has_phase2": has_phase2,
+    }
+
+
 def _profile_from_runtime_yaml(text):
     """Parse one deployed runtime.yaml TEXT into the universal profile fields. Returns a dict (possibly
     partial) or None if the text doesn't parse to a mapping. Never raises."""
     doc = _yaml_loads(text)
     if not isinstance(doc, dict):
         return None
-    dsl_preset, has_exit = _dsl_preset_summary(doc.get("exit"))
+    exit_block = doc.get("exit")
+    dsl_preset, has_exit = _dsl_preset_summary(exit_block)
     return {
         "runtime_name": doc.get("name"),
         "group": doc.get("group"),
         "version": doc.get("version"),
         "description": _collapse_ws(doc.get("description")),   # the UNIVERSAL "what it does / how it works"
         "dsl_preset": dsl_preset,
+        # The DSL protection LADDER — how DSL works for this strategy: phase1 hard-stop floor (active
+        # FROM ENTRY) + the phase2 profit-lock tiers. Reported per strategy; the per-position tier state
+        # comes live from ratchet_stop_list (see hydrate). None when there's no dsl_preset to parse.
+        "dsl": _dsl_ladder(exit_block),
         "has_exit": bool(has_exit),
     }
 
@@ -220,7 +283,7 @@ def _merge_profile(registry_prof, catalog_facets):
     if not registry_prof and not catalog_facets:
         return None
     prof = {
-        "description": None, "runtime_name": None, "group": None, "dsl_preset": None,
+        "description": None, "runtime_name": None, "group": None, "dsl_preset": None, "dsl": None,
         "belief_plain": None, "thesis": None, "archetype": None, "sub_style": None,
         "asset_classes": None, "risk_level": None, "time_horizon": None, "tagline": None,
         "source": None,
@@ -230,6 +293,7 @@ def _merge_profile(registry_prof, catalog_facets):
         prof["runtime_name"] = registry_prof.get("runtime_name")
         prof["group"] = registry_prof.get("group")
         prof["dsl_preset"] = registry_prof.get("dsl_preset")
+        prof["dsl"] = registry_prof.get("dsl")   # the DSL protection ladder (how DSL works for this strat)
     if catalog_facets:
         for k in ("belief_plain", "thesis", "archetype", "sub_style", "asset_classes",
                   "risk_level", "time_horizon", "tagline"):
@@ -312,7 +376,7 @@ class _FixtureClient:
         self._r = recorded
 
     def mcp_call(self, tool, timeout=12, **kw):
-        for keyer in ("strategy_wallet", "trader_address", "asset"):
+        for keyer in ("strategy_wallet", "strategy_wallet_address", "trader_address", "strategyId", "asset"):
             if kw.get(keyer):
                 k = f"{tool}::{str(kw[keyer]).lower()}"
                 if k in self._r:
@@ -421,6 +485,9 @@ def fetch_strategies(client, meta):
         strategies.append({
             "name": _field(s, "tradingStrategyName", "name", default="strategy"),
             "wallet": wallet,
+            # strategyId — needed for the live per-position DSL/ratchet lookup (ratchet_stop_list keys
+            # on strategyId + wallet). Kept off the presentation surface; used only by hydrate().
+            "strategy_id": _field(s, "id", "strategyId", "strategy_id"),
             "status": _field(s, "status", default="ACTIVE"),
             "total_funded": _f(s, "totalFunded", "total_funded", default=None),
             "total_withdrawn": _f(s, "totalWithdrawn", "total_withdrawn", default=None),
@@ -485,6 +552,10 @@ def fetch_strategies(client, meta):
         strat["account_value"] = round(shared_idle + deployed, 2)  # = main.av + xyz.av − shared_idle
         strat["position_margin"] = round(sum(p["margin"] for p in positions), 2)   # initial margin detail
         strat["positions"] = positions
+        # LIVE per-position DSL/ratchet tier — read-guarded + fail-open. Attaches a `dsl` object to each
+        # open position (armed → tier/lock; not armed → "protected from entry, ratchet arms at +X%").
+        # NEVER leaves a live position looking "unprotected." (See attach_position_dsl.)
+        attach_position_dsl(client, strat, meta)
         strat["closed"] = fetch_closed(client, strat["wallet"], meta)
         return strat
 
@@ -536,6 +607,108 @@ def fetch_closed(client, wallet, meta):
                 "closed_time": _field(p, "closeTime", "closed_time", "closeTimeMs"),
             })
     return {"realized_pnl": round(realized_total, 2), "trade_count": len(rows), "recent": recent}
+
+
+# ──────────────────────────────────────────────────────────────── live per-position DSL / ratchet tier
+def _locked_pct_at_tier(ladder, tier_index):
+    """The lock_hw_pct configured at `tier_index` in the parsed profile.dsl ladder (what % of the peak
+    is locked once the ratchet reaches that tier). None if the ladder/index isn't available."""
+    if not isinstance(ladder, dict):
+        return None
+    tiers = ladder.get("tiers")
+    if not isinstance(tiers, list) or tier_index is None:
+        return None
+    try:
+        i = int(tier_index)
+    except (TypeError, ValueError):
+        return None
+    if 0 <= i < len(tiers) and isinstance(tiers[i], dict):
+        return tiers[i].get("lock_hw_pct")
+    return None
+
+
+def _unarmed_dsl(ladder, roe):
+    """The DSL object for an open position that has NOT yet crossed Tier 1 (no ratchet record). This is
+    the WHOLE POINT of the fix: an empty ratchet record is NOT "no DSL / unprotected" — the phase1 hard
+    stop protects the position FROM ENTRY, and the profit-ratchet simply hasn't ARMED yet. Frame it that
+    way, NEVER as unmonitored. `ladder` = the strategy's profile.dsl (config); `roe` = this position's
+    return_on_equity_pct. Stands alone even if the live ratchet call failed (config + ROE only)."""
+    ladder = ladder if isinstance(ladder, dict) else {}
+    hard = ladder.get("hard_stop_roe_pct")
+    arm = ladder.get("arm_at_roe_pct")
+    obj = {
+        "armed": False,
+        "hard_stop_roe_pct": hard,        # floor active FROM ENTRY (phase1) — always protecting
+        "arm_at_roe_pct": arm,            # where the profit-ratchet ARMS (Tier 1)
+        "roe": roe,                       # this position's current ROE
+    }
+    # A plain-language note the narrator can lean on — never reads as "unprotected."
+    if arm is not None:
+        roe_txt = f"+{roe}%" if (roe is not None and roe >= 0) else (f"{roe}%" if roe is not None else "n/a")
+        floor_txt = f"; hard stop at {hard}% ROE" if hard is not None else ""
+        obj["note"] = (f"protected from entry by the phase1 hard stop{floor_txt}; profit-ratchet arms at "
+                       f"Tier 1 (+{arm}%) — currently {roe_txt}")
+    elif hard is not None:
+        obj["note"] = (f"protected from entry by the phase1 hard stop (floor {hard}% ROE); "
+                       f"phase1-only preset — no profit-ratchet tiers")
+    else:
+        obj["note"] = ("protected by the strategy's DSL exit from entry; live ratchet tier not yet armed")
+    return obj
+
+
+def attach_position_dsl(client, strat, meta):
+    """Attach a `dsl` object to each open position of ONE strategy instance — its LIVE ratchet tier state.
+
+    Read-guarded + FAIL-OPEN. One `ratchet_stop_list(strategyId, wallet, status:ACTIVE)` call per
+    instance, indexed by asset:
+      - a record exists (position crossed Tier 1) → armed: true, tier_index, high_water_roe, status,
+        locked (= lock_hw_pct at that tier from the parsed ladder).
+      - NO record (sub-Tier-1) → the `_unarmed_dsl` object: armed: false + the "protected from entry,
+        ratchet arms at +X%" framing. This is EXPECTED, not a gap — never "unprotected."
+      - the ratchet call fails entirely → EVERY position still gets the config-based `_unarmed_dsl`
+        object (config + ROE stands alone), plus a meta.warnings note.
+    NEVER emits anything that reads as "no DSL / no monitoring."
+    """
+    positions = strat.get("positions") or []
+    if not positions:
+        return
+    prof = strat.get("profile") or {}
+    ladder = prof.get("dsl")
+    sid = strat.get("strategy_id")
+    wallet = strat.get("wallet")
+
+    records = None
+    try:
+        rl = _ok(client.mcp_call("ratchet_stop_list", strategyId=sid,
+                                 strategy_wallet_address=wallet, status="ACTIVE", timeout=15))
+        rows = rl if isinstance(rl, list) else _field(rl, "configs", "ratchetStops", "data", "items", default=[])
+        records = {}
+        for r in (rows if isinstance(rows, list) else []):
+            if not isinstance(r, dict):
+                continue
+            asset = _field(r, "asset", "coin")
+            if asset:
+                records[str(asset)] = r
+    except Exception as e:  # noqa — fail-open: config-based framing stands alone
+        meta.setdefault("warnings", []).append(
+            f"ratchet_stop_list {str(wallet)[:8]} failed: {e}; DSL tier from config only")
+        records = None
+
+    for p in positions:
+        roe = p.get("return_on_equity_pct")
+        rec = records.get(str(p.get("asset"))) if isinstance(records, dict) else None
+        if rec is not None:
+            ti = _field(rec, "currentTierIndex", "current_tier_index")
+            p["dsl"] = {
+                "armed": True,
+                "tier_index": ti,
+                "high_water_roe": _field(rec, "highWaterRoe", "high_water_roe"),
+                "status": _field(rec, "status", default="ACTIVE"),
+                "locked": _locked_pct_at_tier(ladder, ti),   # lock_hw_pct at the active tier
+            }
+        else:
+            # no ratchet record (sub-Tier-1) OR the list call failed — either way, config-based framing
+            p["dsl"] = _unarmed_dsl(ladder, roe)
 
 
 # ──────────────────────────────────────────────────────────────── market context (for analysis)
@@ -742,6 +915,10 @@ def group_strategies(strategies, meta):
             "archetype_label": prof.get("archetype_label"),
             "direction": prof.get("direction"),
             "mandate": mandate,                                 # the strategy's declared job (shared)
+            # HOW the strategy's DSL works — the phase1 hard-stop floor + phase2 tier ladder, shared by
+            # every instance (one config per strategy). Surfaced once here; per-position tier state lives
+            # on each position's `dsl` object. None for a named-preset/no-phase2 strategy handled inline.
+            "dsl": prof.get("dsl"),
             "is_multi_wallet": len(insts) > 1,
             "instances": instances,                             # per-wallet detail
             "totals": totals,                                   # summed across all wallets

@@ -8,13 +8,14 @@ description: >-
   / PnL / trade-history question, BEFORE any raw strategy_get_clearinghouse_state / account_get_portfolio
   / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
   portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
-  "are my open positions protected? / do they have a stop-loss?". A hidden engine (scripts/portfolio.py)
+  "are my open positions protected? / do they have a stop-loss?", and "tell me about my strategies and
+  their DSL / what tier are my positions in?". A hidden engine (scripts/portfolio.py)
   does the multi-wallet pull and taxonomy; you narrate. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.3.0"
+  version: "1.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -242,11 +243,14 @@ directly.)
   trades: asset, direction, realized pnl, closed time). A strategy flat right now may have *already
   booked* real gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the
   history read failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero.
-- **Surface the protection posture per strategy.** Each strategy carries `protected` (bool): `True`
-  when its **deployed `runtime.yaml` ships an `exit:` block** (the universal signal — works for
-  user-authored strategies too), OR it was template-deployed (has a `skill_name`). Either way it ships a
-  built-in DSL exit by construction. State it as posture ("deployed with a DSL exit"). This is
-  config-level, not a live per-position DSL-tracking check — for that, use the DSL coverage check below.
+- **Surface the protection posture per strategy — then the live tiers.** Each strategy carries
+  `protected` (bool): `True` when its **deployed `runtime.yaml` ships an `exit:` block** (the universal
+  signal — works for user-authored strategies too), OR it was template-deployed (has a `skill_name`).
+  Either way it ships a built-in DSL exit by construction. State it as posture ("deployed with a DSL
+  exit"), then give the **ladder** (`profile.dsl`: hard stop + arm-at + tiers) and each **open position's
+  live tier** (`positions[].dsl`). This config-level bool is NOT the per-position tier — see "DSL — how
+  it works per strategy, and which position is in which tier" below. **Never call a live position
+  "unprotected" just because it has no ratchet record — sub-Tier-1 positions have none by design.**
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
@@ -261,19 +265,63 @@ directly.)
 - **Deployed strategies are already risk-managed — don't prescribe a stop-loss they already have.** Every
   strategy deployed from a Senpi template runs a built-in DSL exit (trailing stop) + risk guard-rails,
   enforced every tick. Never tell a user to "add a 10–15% SL via `strategy_update`" on a deployed
-  strategy — it already has one. To *verify* protection, use the DSL coverage check (next section); never
-  infer "no stop" from the absence of a resting stop order (DSL exits are runtime-managed, not resting
-  orders).
+  strategy — it already has one. To *verify* protection, read `profile.dsl` (the ladder) + each
+  `positions[].dsl` (the live tier) — see "DSL — how it works per strategy, and which position is in
+  which tier"; never infer "no stop" from the absence of a resting stop order (DSL exits are
+  runtime-managed, not resting orders) or from a missing ratchet record (sub-Tier-1 positions have none).
 - **Always end with the two CTAs** (below), verbatim.
 
-## Are my positions protected? (stop-loss / DSL coverage)
+## DSL — how it works per strategy, and which position is in which tier
 
-When the user asks **"are my open positions protected? / do they have a stop-loss?"**, give the DSL
-coverage verdict per position — **PROTECTED / UNPROTECTED / STOP-NOT-ON-VENUE**. Key trap: an
-unprotected position shows up as an **absence** in `senpi dsl positions` (it lists only *tracked*
-positions), so you must **reconcile the open set against the tracked set** — an open position missing
-from `dsl positions` is UNPROTECTED. Full procedure:
-[`senpi-trading-runtime/references/dsl-protection-check.md`](../senpi-trading-runtime/references/dsl-protection-check.md).
+When the user asks about **their strategies' DSL** ("tell me about my strategies and their DSL," "are my
+open positions protected? / do they have a stop-loss?"), answer in **two parts, per strategy**:
+
+**(1) How its DSL works — the tier ladder.** Read the strategy's `profile.dsl` (also on each
+`strategy_groups[]` entry as `dsl` — surface it once per strategy). Parsed from the strategy's deployed
+`runtime.yaml` `exit.dsl_preset`, it has:
+- `hard_stop_roe_pct` — the **phase1 hard stop floor, active FROM ENTRY** (e.g. `-14` = the position is
+  cut if it hits −14% ROE). This protects every position **immediately, before any profit**.
+- `arm_at_roe_pct` — where the **phase2 profit-ratchet ARMS** (Tier 1, e.g. `+8%`). Below this the
+  ratchet hasn't engaged yet; the hard stop is still on.
+- `tiers[]` — the **profit-lock ladder**: `{trigger_pct, lock_hw_pct}` pairs. Read it as "arms at +8%,
+  locks 40% of the peak by +18%, 60% by +35%, 78% by +60%, 88% by +100%." `lock_hw_pct: 0` at Tier 1 =
+  priming only (arms the trail, no lock yet).
+- `has_phase2` — `false`/empty `tiers` ⟹ **phase1-only** (a hard stop, no profit ratchet). Say
+  "hard-stop protected, no profit-lock ratchet," not "unprotected."
+- **Named-string preset** (some strategies ship `dsl_preset: conviction`): `profile.dsl` is
+  `{preset_name, note}` — say "DSL preset: `conviction` (ladder managed by the runtime, not inlined)."
+  Still protected — never call a named preset "no DSL."
+
+**(2) Which OPEN position is in which tier — live.** Each open position carries a **`dsl`** object (live
+per-position ratchet state, from `ratchet_stop_list`):
+- **`armed: true`** → the position has crossed Tier 1; report **"Tier N, locked at L% of peak, high-water
+  +H% ROE"** from `tier_index` / `locked` / `high_water_roe` (`status` = `ACTIVE`/`PAUSED`/…).
+- **`armed: false`** → the position is **sub-Tier-1**: the profit-ratchet hasn't armed yet, but it is
+  **still protected from entry by the phase1 hard stop.** Report it that way — `note` already phrases it
+  ("protected from entry by the phase1 hard stop; profit-ratchet arms at Tier 1 (+X%) — currently +Y%").
+  Use `arm_at_roe_pct` + the position's `roe`: "protected, ratchet arms at +8% — currently at +6%."
+
+### HARD rule — NEVER say a live position has "no active DSL / no monitoring"
+
+This is the failure this section exists to prevent. An **empty ratchet record on a sub-Tier-1 position is
+NOT "unprotected"** — `ratchet_stop_list` only returns a record **once a position crosses Tier 1**, so a
+position at, say, +6% ROE correctly has **no ratchet record yet**. It is protected **two ways**: the
+phase1 hard stop (active from entry) and the phase2 ratchet that will arm at Tier 1. **Never read "no
+ratchet record" as "no DSL."** Say **"protected; profit-ratchet arms at Tier 1 (+X%)"** — never
+"unprotected / unmonitored / no stop." (The engine already frames every `armed: false` position this way
+in `dsl.note`; do not override it with an "unprotected" reading.)
+
+- **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected` (bool)
+  is the **config posture** — the strategy ships an `exit:` block (always true for template strategies).
+  It says "this strategy has a DSL exit," not which tier a given position sits in. The per-position tier
+  is the `dsl` object above. Report both: "cougar runs a DSL exit (hard stop −14%, ratchet from +8%);
+  its NVDA short is sub-Tier-1 at +6% — hard-stop protected, ratchet arms at +8%."
+- **`SL_TRIGGERED` is history, not current exposure.** A `SL_TRIGGERED` (or `MANUALLY_CLOSED` /
+  `LIQUIDATED`) record on a **closed** position means the DSL **did its job** — it locked profit / cut the
+  loss. Present it as history ("DSL locked profit on the ETH short last week"), never as current risk.
+- **Never infer "no stop" from the absence of a resting stop order.** DSL exits are **runtime-managed**,
+  not resting venue orders — you won't see them as open orders. Absence of a resting SL is expected and
+  says nothing about protection. Use the `dsl` objects, not the order book.
 
 ## How to run the engine
 
@@ -294,10 +342,15 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     / `direction` (catalog facets when present).
   - `mandate` — the strategy's declared job (its `profile.description`, else `belief_plain`); shared by
     all instances. Judge the whole strategy against this.
+  - `dsl` — the strategy's **DSL protection ladder** (how its DSL works), shared by all instances:
+    `hard_stop_roe_pct` / `arm_at_roe_pct` / `tiers[]` / `has_phase2`, or `{preset_name, note}` for a
+    named preset, or `null`. Surface it **once per strategy**; each open position's *live* tier is on
+    `positions[].dsl`. See "DSL — how it works per strategy" above.
   - `is_multi_wallet` (bool) — `true` when the strategy spans >1 wallet (long+short, core+ballast,
     multi-sleeve). When true, the wallets are legs of ONE design — see "A strategy is ALL its wallets."
   - `instances[]` — the per-wallet detail: `name` (= `runtime_name`, e.g. `ox-core`), `wallet`,
-    `wallet_short`, `account_value`, `idle_withdrawable`, `deployed`, `upnl`, `positions[]`, `closed`.
+    `wallet_short`, `account_value`, `idle_withdrawable`, `deployed`, `upnl`, `positions[]` (each with a
+    live `dsl` tier object), `closed`.
   - `totals` — summed across every instance: `account_value`, `idle_withdrawable`, `deployed`, `upnl`,
     and `realized_pnl` (when available). **Report the strategy's figures from here, not per-wallet.**
   - `protected` (bool) — `true` **only if ALL instances are protected** (a strategy with one unguarded
@@ -315,7 +368,12 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     load-bearing field is **`profile.description` — read from the strategy's DEPLOYED `runtime.yaml`**
     (the top-level folded `description:` the runtime registers), collapsed to a single line. Also from
     the runtime.yaml: `runtime_name`, `group`, `dsl_preset` (named preset string, or `true` for a
-    bespoke inline preset). Optional **catalog enrichment** (templates only, keyed by `skill_name`;
+    bespoke inline preset), and **`dsl`** — the parsed **DSL protection ladder** (how DSL works for this
+    strategy): `hard_stop_roe_pct` (phase1 floor, active from entry), `arm_at_roe_pct` (where the
+    profit-ratchet arms = Tier 1), `tiers[]` (`{trigger_pct, lock_hw_pct}` profit-lock ladder), and
+    `has_phase2`. For a **named-string preset** it's `{preset_name, note}` instead; `null` when the
+    `exit:` block has no `dsl_preset`. This is the CONFIG side — pair it with each position's live `dsl`
+    tier (see `positions[].dsl`). Optional **catalog enrichment** (templates only, keyed by `skill_name`;
     `null` for authored strategies): `belief_plain`, `thesis`, `archetype`, `sub_style`, `asset_classes`,
     `risk_level`, `time_horizon`, `tagline`. `profile.source` = `"registry"` / `"registry+catalog"` /
     `"catalog"`. **This is the yardstick — judge the strategy against `profile.description`, not memory
@@ -330,7 +388,15 @@ Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signal
     `closed_time`). On a read failure `realized_pnl` is `null` and a `meta.warnings` entry is added —
     treat as "realized PnL unavailable," never as zero.
   - `positions[]` (asset, dex, direction, leverage, notional, margin, `upnl`, `return_on_equity_pct`,
-    `liq_px`, `market_24h_pct`, `vs_market`).
+    `liq_px`, `market_24h_pct`, `vs_market`, and **`dsl`** — the live per-position ratchet tier).
+    - **`dsl`** — this position's live DSL/ratchet state. **`armed: true`** → `tier_index`,
+      `high_water_roe`, `status`, `locked` (= `lock_hw_pct` at the active tier). **`armed: false`** (no
+      ratchet record — the position is sub-Tier-1) → `hard_stop_roe_pct`, `arm_at_roe_pct`, `roe`, and a
+      `note` that reads "protected from entry by the phase1 hard stop; profit-ratchet arms at Tier 1
+      (+X%) — currently +Y%." **`armed: false` means the profit-ratchet hasn't ARMED yet, NOT that the
+      position is unprotected** — the phase1 hard stop protects it from entry. Never present it as "no
+      DSL." If the ratchet read failed entirely, every position still gets this config-based `armed:
+      false` object (+ a `meta.warnings` note).
 - `exposure` — `net_notional_usd` + `net_bias`, gross long/short, `by_asset_net_usd`,
   `largest_position`.
 - `signals` — `idle_drag_pct` (how much capital isn't working), `deployed_pct`,
@@ -378,7 +444,13 @@ See "A strategy is ALL its wallets."
    4. **PnL — realized + unrealized, summed across the strategy.** The group's `totals.realized_pnl`
       and `totals.upnl` (+ a couple of `closed.recent[]` trades from its instances). A flat sleeve may
       have already banked real gains on the other sleeve.
-   5. **Protection posture.** The group's `protected` (⟹ **all** instances ship a DSL exit).
+   5. **DSL protection — ladder + live tiers.** State the group's `protected` posture (⟹ **all**
+      instances ship a DSL exit), then **how its DSL works** from `group.dsl` / `profile.dsl` (hard stop
+      at `hard_stop_roe_pct`, ratchet arms at `arm_at_roe_pct`, the tier ladder), then **each open
+      position's live tier** from `positions[].dsl` — "armed at Tier N, locked L% of peak" or, for a
+      sub-Tier-1 position, "protected from entry, ratchet arms at +X% — currently +Y%." **Never say a
+      live position has "no DSL" because it lacks a ratchet record** (sub-Tier-1 positions have none by
+      design). See "DSL — how it works per strategy, and which position is in which tier."
    6. **Any lever is WHOLE-STRATEGY.** If you suggest close / pause / adjust-config / top-up, it applies
       to the **entire strategy (all its wallets)** — never one sleeve. And the lever is the STRATEGY,
       not a hand-picked position the scanner will just re-open. See the HARD rule under "A strategy is
