@@ -73,6 +73,26 @@ def validate(pkg: Path) -> list:
             errs.append(f"instance {name}: {rt_rel} has no DSL exit block (exit:/dsl_preset:) — "
                         f"every strategy must ship built-in protection")
 
+        # Self-describing is not optional: every instance needs a substantive top-level `description`.
+        # The runtime REGISTERS it (installed_runtimes.json) and senpi-portfolio reads it back as the
+        # strategy's mandate — "is it doing its job?". A missing/stub description makes an authored
+        # strategy invisible to portfolio analysis (and works the same for user-authored strategies).
+        dlines, capture, dbody = rt_text.splitlines(), False, []
+        for ln in dlines:
+            if not capture and re.match(r"^description\s*:", ln):
+                capture = True
+                dbody.append(re.sub(r"^description\s*:\s*[>|]?\s*", "", ln))
+                continue
+            if capture:
+                if ln.strip() == "" or ln[:1] in (" ", "\t"):
+                    dbody.append(ln.strip())
+                else:
+                    break
+        if len(re.sub(r"\s+", "", " ".join(dbody))) < 40:
+            errs.append(f"instance {name}: {rt_rel} has no meaningful top-level description: — write "
+                        f"2-4 sentences on what it trades / the edge / how it exits; the runtime "
+                        f"registers it and senpi-portfolio reads it back as the strategy's mandate")
+
         # Runtime 3.0 scanner package: <runtime_dir>/scanners/scan.py exports scan(inputs, ctx);
         # the thesis math is a sibling scanners/scoring.py imported as `import scoring` (NO __init__.py).
         scn_dir = rt.parent / "scanners"

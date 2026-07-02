@@ -126,6 +126,11 @@ def scan(inputs, ctx):
 name: <id>-<instance>          # REQUIRED linkage
 group: <id>                    # REQUIRED linkage
 version: 3.0.0
+description: >                  # REQUIRED — plain-language thesis + how it works, 2-4 sentences.
+  <What it trades, the actual edge/signal, when it enters, how it exits, and who it's for.>
+  This is what the runtime REGISTERS and what the app reads back to explain and JUDGE the strategy
+  later (senpi-portfolio surfaces it as the strategy's mandate — "is it doing its job?"). Write it as
+  the strategy's own honest description of its job, not marketing. Every instance gets its own.
 strategy:
   wallet: "${<WALLET_ENV>}"
   slots: 6                     # the runtime's hard ceiling on concurrent positions

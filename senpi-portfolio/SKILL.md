@@ -35,6 +35,12 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > its behavior matches its *design*, even if that design means small/flat/idle right now. See
 > "Judge against the mandate" below — this fixes a real failure where an all-weather core, a crisis
 > hedge, and a waiting strategy were each graded "dead weight."
+>
+> **The mandate comes from the strategy's own deployed `runtime.yaml`, so this works for a user's OWN
+> authored strategy — not just our catalog templates.** The engine attaches `strategies[].profile`,
+> whose **`profile.description` is read from the deployed `runtime.yaml` that the runtime registers**
+> (every deployed strategy has one). Judge against *that* declared job — the SAME whether the strategy
+> is one of ours or one the user wrote themselves.
 
 > **Use this skill FIRST — before any raw MCP.** For *any* question about the user's portfolio,
 > positions, balances, PnL, or trade history, run this engine **before** reaching for raw
@@ -87,20 +93,33 @@ benchmark is the failure mode this skill exists to prevent — it graded an all-
 hedge, and a waiting strategy each as "dead weight" when all three were doing exactly their job.
 
 **Get the mandate first, then judge.** Before you call any strategy good or bad, know what it was *for* —
-and get that from the **source of truth, not memory.** The engine already does the lookup for you:
+and get that from the **source of truth, not memory.** The engine already does the lookup for you, and
+it works **universally** — for a user's own authored strategy, not just our catalog templates:
 
-- **`strategies[].mandate`** — the engine reads each deployed strategy's **`strategy.yaml`** (via the
-  catalog, keyed by `skill_name`) and attaches its declared job: `belief_plain` (the plain-English
-  mandate), `thesis` (the edge), `archetype`/`archetype_label`, `sub_style`, `direction`,
-  `asset_classes`, `risk_level`, `time_horizon`. This is versioned with the deploy and can't go stale —
-  **read `mandate.belief_plain`, state the strategy's job in the user's terms, then judge against it.**
-- **Do not reconstruct the mandate from memory or from what the positions *look* like.** The
-  `strategy.yaml` is authoritative; a strategy's open book is *evidence about* whether it's on-mandate,
+- **`strategies[].profile`** — a single merged block for each deployed strategy. Its load-bearing field:
+  - **`profile.description`** — the strategy's **"what it does / how it works," read from its DEPLOYED
+    `runtime.yaml`** (the folded top-level `description:` block that the runtime itself registers). This
+    is the **universal, authoritative** mandate: every deployed strategy has a `runtime.yaml`, so this is
+    populated even for a strategy the *user wrote themselves*. It is versioned with the deploy and can't
+    go stale. **Lead the per-strategy read with `profile.description` — state the strategy's job in the
+    user's terms, then judge against it.**
+  - `profile.runtime_name` / `profile.group` / `profile.dsl_preset` — also from the deployed
+    `runtime.yaml` (`dsl_preset` is the named exit preset if one shipped, else `true` for a bespoke
+    inline preset).
+  - **Catalog enrichment (templates only, may be absent):** `belief_plain`, `thesis`, `archetype`,
+    `sub_style`, `asset_classes`, `risk_level`, `time_horizon`, `tagline` — extra facets the engine adds
+    for a strategy deployed from one of our packages (keyed by `skill_name`). Use them **when present**;
+    they are `null` for a user-authored/custom strategy, which is normal — `profile.description` still
+    carries the mandate.
+  - `profile.source` — `"registry"` (authored/custom, description only), `"registry+catalog"` (one of
+    ours, description + facets), or `"catalog"` (facets only, registry unreadable).
+- **Do not reconstruct the mandate from memory or from what the positions *look* like.** The deployed
+  `runtime.yaml` is authoritative; a strategy's open book is *evidence about* whether it's on-mandate,
   never the definition of the mandate.
 
-If `mandate` is `null` (a custom strategy with no package, or the catalog was unreachable — see
-`meta.catalog_source`), say the mandate is unknown and judge conservatively on behavior — do **not**
-default to a momentum yardstick.
+If `profile` is `null` (no registry entry AND not in the catalog — e.g. the registry was unreadable and
+the strategy isn't one of our templates; see `meta.profile_source`), say the mandate is unknown and
+judge conservatively on behavior — do **not** default to a momentum yardstick.
 
 **Anti-patterns — these exact misreads happened live; never repeat them:**
 
@@ -132,10 +151,12 @@ yardstick, not to excuse everything.
 - **Always say which wallet / which bucket.** Every dollar figure gets a location. "Idle" is
   meaningless without "idle *where*."
 - **Lead at the strategy level, judged against the mandate.** For each strategy: state its
-  **mandate** (the engine attaches it as `strategies[].mandate` — read from the strategy's `strategy.yaml`,
-  its `belief_plain`), then whether it's **doing its job against that mandate**, *then* positions as
-  evidence. Positions-first is the failure mode — the agent kept answering "analyze my strategies" with a
-  raw positions dump. See "Judge each strategy against its OWN mandate" above.
+  **mandate** (the engine attaches it as `strategies[].profile` — its **`profile.description`, read from
+  the deployed `runtime.yaml`**; use catalog facets like `belief_plain`/`archetype` when present), then
+  whether it's **doing its job against that mandate**, *then* positions as evidence. This is the SAME
+  read whether the strategy is one of ours or user-authored — every deployed strategy has a
+  `runtime.yaml`. Positions-first is the failure mode — the agent kept answering "analyze my strategies"
+  with a raw positions dump. See "Judge each strategy against its OWN mandate" above.
 - **Analyze, don't dump.** Positions are *evidence*, not the headline. For every position, compare it to
   the market (`market_24h_pct`, `vs_market`): is this short *working* because the asset is falling, or
   *fighting* a rally? Read net exposure, concentration, idle drag. See `references/analysis-framework.md`.
@@ -147,9 +168,10 @@ yardstick, not to excuse everything.
   booked* real gains; report both realized and unrealized. If `closed.realized_pnl` is `null`, the
   history read failed (see `meta.warnings`) — say realized PnL is unavailable, don't imply zero.
 - **Surface the protection posture per strategy.** Each strategy carries `protected` (bool): `True`
-  when it was template-deployed (has a `skill_name`) ⟹ it ships a built-in DSL exit by construction.
-  State it as posture ("template-deployed, DSL-protected"). This is config-level, not a live
-  per-position DSL-tracking check — for that, use the DSL coverage check below.
+  when its **deployed `runtime.yaml` ships an `exit:` block** (the universal signal — works for
+  user-authored strategies too), OR it was template-deployed (has a `skill_name`). Either way it ships a
+  built-in DSL exit by construction. State it as posture ("deployed with a DSL exit"). This is
+  config-level, not a live per-position DSL-tracking check — for that, use the DSL coverage check below.
 - **Don't infer "wiped out" from a low balance.** Check `total_funded` / `total_withdrawn` — a
   strategy can show a small balance because profits were withdrawn (`netFunded` can be negative). That
   is not a loss.
@@ -194,14 +216,19 @@ Returns `{totals, embedded_wallet, strategies, exposure, signals, meta}`:
   `position_margin` (initial margin detail), `total_funded`/`total_withdrawn`, and:
   - `skill_name` / `skill_version` — the strategy's package attribution (e.g. `ox`, `cougar`, `lion`),
     from its `strategy_list` record. `null` for a hand-rolled/custom strategy with no package.
-  - `mandate` — **the strategy's declared job, read from its `strategy.yaml`** (via the catalog, keyed by
-    `skill_name`): `belief_plain` (plain-English mandate), `thesis` (the edge), `archetype`/
-    `archetype_label`, `sub_style`, `direction`, `asset_classes`, `risk_level`, `time_horizon`, `name`,
-    `tagline`. **This is the yardstick — judge the strategy against `mandate.belief_plain`, not memory
-    and not a momentum benchmark.** `null` for a custom strategy or when the catalog was unreachable
-    (`meta.catalog_source` records `local`/`remote`/`null`).
-  - `protected` (bool) — `True` when `skill_name` is present ⟹ template-deployed ⟹ ships a built-in
-    DSL exit (validator invariant). Config-level protection posture, not a live per-position check.
+  - `profile` — **the strategy's declared job, universal across ours + user-authored strategies.** Its
+    load-bearing field is **`profile.description` — read from the strategy's DEPLOYED `runtime.yaml`**
+    (the top-level folded `description:` the runtime registers), collapsed to a single line. Also from
+    the runtime.yaml: `runtime_name`, `group`, `dsl_preset` (named preset string, or `true` for a
+    bespoke inline preset). Optional **catalog enrichment** (templates only, keyed by `skill_name`;
+    `null` for authored strategies): `belief_plain`, `thesis`, `archetype`, `sub_style`, `asset_classes`,
+    `risk_level`, `time_horizon`, `tagline`. `profile.source` = `"registry"` / `"registry+catalog"` /
+    `"catalog"`. **This is the yardstick — judge the strategy against `profile.description`, not memory
+    and not a momentum benchmark.** `profile` is `null` only when the strategy is in neither the runtime
+    registry nor the catalog (`meta.profile_source` records `registry`/`catalog`/`mixed`/`null`).
+  - `protected` (bool) — `True` when the deployed `runtime.yaml` ships an `exit:` block **or**
+    `skill_name` is present ⟹ ships a built-in DSL exit. Universal (covers authored strategies).
+    Config-level protection posture, not a live per-position check.
   - `closed` — `{realized_pnl, trade_count, recent[]}` from a read-guarded `discovery_get_trader_history`
     on the strategy wallet: `realized_pnl` (total booked PnL over the recent pull), `trade_count`, and
     `recent[]` (last few closed trades: `asset`, `direction`, `realized_pnl`, `entry_px`, `exit_px`,
@@ -213,7 +240,12 @@ Returns `{totals, embedded_wallet, strategies, exposure, signals, meta}`:
   `largest_position`.
 - `signals` — `idle_drag_pct` (how much capital isn't working), `deployed_pct`,
   `largest_position_pct_of_deployed` (concentration).
-- The engine **fails open** — partial data still returns valid JSON with `meta.warnings`.
+- `meta` — `profile_source` (`registry` / `catalog` / `mixed` / `null` — where the strategies' mandates
+  came from, in aggregate), `registry_source` (`registry` / `null`), `catalog_source`
+  (`local` / `remote` / `null`), `strategy_count`, and `warnings[]`.
+- The engine **fails open** — partial data still returns valid JSON with `meta.warnings`. If the runtime
+  registry is unreadable, mandates fall back to the catalog (templates only); if that's also gone,
+  `profile` is `null` and you judge on behavior.
 
 ## Output contract
 
@@ -224,9 +256,11 @@ about "my strategies / how am I doing," lead with the per-strategy read.)
 1. **Total + the three buckets.** `grand_total_usd`, broken into idle-in-embedded / idle-in-strategies
    / deployed — each labeled by *where*. Keep it tight; this is the money map, not the analysis.
 2. **Per-strategy verdict (the real value).** For **each** strategy, in this order:
-   1. **Label + mandate.** Its name and what it was deployed to *do* — from `strategies[].mandate`
-      (its `strategy.yaml` `belief_plain`, keyed by `skill_name`). "cub is a K-shaped long/short
-      dispersion book — long the structural winners, short the laggards; the P&L is the spread."
+   1. **Label + mandate.** Its name and what it was deployed to *do* — from `strategies[].profile`
+      (its `profile.description`, read from the deployed `runtime.yaml`; add catalog facets like
+      `belief_plain`/`archetype` when present). Works the same for a user-authored strategy. "cub is a
+      K-shaped long/short dispersion book — long the structural winners, short the laggards; the P&L is
+      the spread."
    2. **Is it doing its job — against its OWN mandate.** Not vs a momentum benchmark. A hedge that's
       flat in calm, an all-weather core that's steady-not-flashy, a selective strategy waiting with no
       position — all **working as designed**. See "Judge each strategy against its OWN mandate."
@@ -237,7 +271,8 @@ about "my strategies / how am I doing," lead with the per-strategy read.)
       say that, don't call it dead.
    4. **PnL — realized + unrealized.** Booked `closed.realized_pnl` (+ a couple of `closed.recent[]`
       trades) *and* open `upnl`. A flat strategy may have already banked real gains.
-   5. **Protection posture.** `protected` ⟹ template-deployed, DSL-protected by construction.
+   5. **Protection posture.** `protected` ⟹ the deployed `runtime.yaml` ships an `exit:` block (or it's
+      template-deployed), DSL-protected by construction.
 3. **Portfolio-level read.** Net exposure (net long/short and by sector), concentration (largest
    position), idle drag (capital sitting in cash), and the overall posture — is this book hedged,
    directional, mostly in cash? Compare the net tilt to where the broader market is.

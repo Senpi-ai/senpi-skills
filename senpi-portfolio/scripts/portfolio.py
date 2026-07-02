@@ -36,15 +36,26 @@ MARKET_ENRICH_CAP = 24      # cap the per-asset market pull
 CLOSED_HISTORY_CAP = 5      # recent closed trades to surface per strategy (realized PnL is over the full pull)
 CLOSED_HISTORY_PULL = 50    # closed positions to pull for the realized-PnL total (API default page)
 
-# The mandate (belief_plain/thesis/archetype/…) lives ONLY in each strategy's strategy.yaml, compiled
-# by gen_catalog into catalog.json and keyed by strategy id (== skill_name from strategy_list). The
-# runtime does NOT retain strategy.yaml, so we source the mandate here — from a local catalog copy if
-# present (fresh, offline), else the remote catalog — never from agent memory.
+# WHAT A STRATEGY DOES = its `profile`, and the load-bearing field is `profile.description`, read from
+# the DEPLOYED runtime.yaml that the runtime itself registers (installed_runtimes.json). This is
+# UNIVERSAL: it works for a user's OWN authored strategy, not just our catalog templates — every
+# deployed strategy has a runtime.yaml, only templates are in the catalog. The catalog stays as
+# OPTIONAL enrichment (archetype/belief_plain/asset_classes/…) for templates, keyed by skill_name.
+#   registry (universal, runtime-registered runtime.yaml)  →  the "what it does / how it works"
+#   catalog  (templates only, our packages)                →  extra facets when present
+# Neither is agent memory; the runtime registry outranks the catalog.
+
+# The runtime registers every deployed strategy in installed_runtimes.json in the state dir.
+STATE_DIR_ENV = "SENPI_STATE_DIR"
+DEFAULT_STATE_DIR = os.path.expanduser("~/.openclaw/senpi-state")
+REGISTRY_FILENAME = "installed_runtimes.json"
+
 CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "strategy-v2")
 CATALOG_URL = f"https://raw.githubusercontent.com/Senpi-ai/senpi-skills/{CATALOG_REF}/strategies/catalog.json"
-# Compact mandate = the yardstick the agent judges each strategy against (SKILL.md). Not the whole record.
-MANDATE_KEYS = ("name", "tagline", "belief_plain", "thesis", "archetype", "archetype_label",
-                "sub_style", "direction", "asset_classes", "risk_level", "time_horizon", "group")
+# Compact catalog enrichment = the extra facets the agent judges a template strategy against (SKILL.md).
+# Not the whole record. `description` is NOT sourced here — it comes from the runtime registry.
+CATALOG_KEYS = ("belief_plain", "thesis", "archetype", "archetype_label", "sub_style", "direction",
+                "asset_classes", "risk_level", "time_horizon", "tagline")
 
 
 # ──────────────────────────────────────────────────────────────── guarded I/O helpers
@@ -88,14 +99,149 @@ def _pct(mark, prev):
     return round((m - p) / p * 100, 2)
 
 
-# ──────────────────────────────────────────────────────────────── strategy mandate (strategy.yaml)
-def _mandate_from_catalog(rec):
-    """The compact mandate block the agent judges a strategy against — pulled from its catalog record
-    (i.e. its strategy.yaml). None if the strategy isn't in the catalog (e.g. a custom strategy)."""
+# ──────────────────────────────────────────────────────────────── vendored YAML (runtime.yaml parse)
+def _yaml_loads(text):
+    """Parse runtime.yaml text via the vendored stdlib loader (scripts/_yaml.py — no cross-skill
+    import). Returns the parsed mapping or None; never raises here (caller guards)."""
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    import _yaml
+    return _yaml.loads(text)
+
+
+# ──────────────────────────────────────────────── runtime registry (deployed runtime.yaml — UNIVERSAL)
+def _collapse_ws(s):
+    """Collapse internal whitespace/newlines in a folded `description` block to single spaces + strip."""
+    if not isinstance(s, str):
+        return None
+    out = " ".join(s.split()).strip()
+    return out or None
+
+
+def _dsl_preset_summary(exit_block):
+    """From a runtime.yaml `exit:` block: (dsl_preset, has_exit). dsl_preset keeps a named string preset
+    if that's what shipped, else True when a dsl_preset mapping is present (a bespoke inline preset)."""
+    if not isinstance(exit_block, dict):
+        return None, False
+    has_exit = True
+    dp = exit_block.get("dsl_preset")
+    if isinstance(dp, str):
+        return dp, has_exit            # a named preset ("conviction", …)
+    if isinstance(dp, dict) and dp:
+        return True, has_exit          # inline preset — protection present, no single name
+    if dp is not None:
+        return True, has_exit
+    return None, has_exit              # an `exit:` with no dsl_preset still counts as an exit
+
+
+def _profile_from_runtime_yaml(text):
+    """Parse one deployed runtime.yaml TEXT into the universal profile fields. Returns a dict (possibly
+    partial) or None if the text doesn't parse to a mapping. Never raises."""
+    doc = _yaml_loads(text)
+    if not isinstance(doc, dict):
+        return None
+    dsl_preset, has_exit = _dsl_preset_summary(doc.get("exit"))
+    return {
+        "runtime_name": doc.get("name"),
+        "group": doc.get("group"),
+        "version": doc.get("version"),
+        "description": _collapse_ws(doc.get("description")),   # the UNIVERSAL "what it does / how it works"
+        "dsl_preset": dsl_preset,
+        "has_exit": bool(has_exit),
+    }
+
+
+def load_runtime_registry(meta):
+    """wallet_lower → runtime-profile for every deployed strategy the runtime has registered.
+
+    SOURCE OF TRUTH for a strategy's "what it does / how it works" — read from the DEPLOYED runtime.yaml
+    the runtime itself registers in installed_runtimes.json (state dir). UNIVERSAL: covers user-authored
+    strategies too, not just catalog templates. Read-guarded + fail-open: any problem → ({}, None). A
+    meta.warnings note is added ONLY for a real parse error, not for a simply-absent registry file.
+    Returns (map, source)."""
+    state_dir = os.environ.get(STATE_DIR_ENV) or DEFAULT_STATE_DIR
+    path = os.path.join(state_dir, REGISTRY_FILENAME)
+    if not os.path.isfile(path):          # absent registry is normal, not an error
+        return {}, None
+    try:
+        with open(path) as fh:
+            raw = json.load(fh)
+    except Exception as e:  # noqa — a corrupt registry is a real parse error worth surfacing
+        meta.setdefault("warnings", []).append(
+            f"runtime registry unreadable ({e}); mandates fall back to catalog")
+        return {}, None
+    entries = raw.get("runtimes", raw) if isinstance(raw, dict) else raw
+    out = {}
+    for entry in (entries if isinstance(entries, list) else []):
+        if not isinstance(entry, dict):
+            continue
+        wallet = entry.get("wallet")
+        if not wallet:
+            continue
+        text = entry.get("runtimeYamlContent")
+        if text is None:
+            ypath = entry.get("runtimeYamlPath")   # rarer form — a file path instead of inline content
+            if ypath and os.path.isfile(ypath):
+                try:
+                    with open(ypath) as yf:
+                        text = yf.read()
+                except Exception:  # noqa — a missing/unreadable path is fail-open, skip this entry
+                    text = None
+        if not text:
+            continue
+        try:
+            prof = _profile_from_runtime_yaml(text)
+        except Exception as e:  # noqa — one bad runtime.yaml must not sink the whole registry
+            meta.setdefault("warnings", []).append(
+                f"runtime.yaml parse failed for {str(wallet)[:8]} ({e})")
+            prof = None
+        if prof:
+            out[str(wallet).lower()] = prof
+    return out, "registry"
+
+
+# ──────────────────────────────────────────────────────────────── strategy profile (catalog enrichment)
+def _catalog_facets(rec):
+    """The OPTIONAL template-only enrichment facets, pulled from a strategy's catalog record (its
+    strategy.yaml). None if the strategy isn't in the catalog (e.g. a user-authored/custom strategy)."""
     if not isinstance(rec, dict):
         return None
-    m = {k: rec[k] for k in MANDATE_KEYS if rec.get(k) is not None}
+    m = {k: rec[k] for k in CATALOG_KEYS if rec.get(k) is not None}
     return m or None
+
+
+def _merge_profile(registry_prof, catalog_facets):
+    """Merge the universal registry profile (load-bearing `description`) with optional catalog facets
+    into a single `profile` dict. Sparse-safe: registry-only, catalog-only, or neither.
+      - registry present            → `description` + runtime_name/group/dsl_preset (source "registry")
+      - catalog present             → belief_plain/thesis/archetype/… (source adds "+catalog"/"catalog")
+      - neither                     → None
+    """
+    if not registry_prof and not catalog_facets:
+        return None
+    prof = {
+        "description": None, "runtime_name": None, "group": None, "dsl_preset": None,
+        "belief_plain": None, "thesis": None, "archetype": None, "sub_style": None,
+        "asset_classes": None, "risk_level": None, "time_horizon": None, "tagline": None,
+        "source": None,
+    }
+    if registry_prof:
+        prof["description"] = registry_prof.get("description")
+        prof["runtime_name"] = registry_prof.get("runtime_name")
+        prof["group"] = registry_prof.get("group")
+        prof["dsl_preset"] = registry_prof.get("dsl_preset")
+    if catalog_facets:
+        for k in ("belief_plain", "thesis", "archetype", "sub_style", "asset_classes",
+                  "risk_level", "time_horizon", "tagline"):
+            if catalog_facets.get(k) is not None:
+                prof[k] = catalog_facets[k]
+    if registry_prof and catalog_facets:
+        prof["source"] = "registry+catalog"
+    elif registry_prof:
+        prof["source"] = "registry"
+    else:
+        prof["source"] = "catalog"
+    return prof
 
 
 def _catalog_local_paths():
@@ -117,9 +263,11 @@ def _catalog_local_paths():
 
 
 def load_catalog(meta):
-    """id → catalog record for every strategy (the strategy.yaml mandate, compiled by gen_catalog).
-    SOURCE OF TRUTH for a deployed strategy's mandate — keyed by skill_name. Local copy first (fresh,
-    offline), then the remote catalog, then degrade to {} + a warning. Never raises. Returns (map, src)."""
+    """id → catalog record for every template strategy (its strategy.yaml facets, compiled by
+    gen_catalog). OPTIONAL enrichment only — the universal mandate `description` comes from the runtime
+    registry, not here; the catalog just adds template facets (archetype/belief_plain/…), keyed by
+    skill_name. Local copy first (fresh, offline), then the remote catalog, then degrade to {} + a
+    warning. Never raises. Returns (map, src)."""
     raw, src = None, None
     for p in _catalog_local_paths():
         try:
@@ -138,7 +286,7 @@ def load_catalog(meta):
             src = "remote"
         except Exception as e:  # noqa
             meta.setdefault("warnings", []).append(
-                f"strategy catalog unavailable ({e}); mandates omitted — judge by name/config only")
+                f"strategy catalog unavailable ({e}); template facets omitted — registry description still applies")
             return {}, None
     recs = raw.get("skills", raw) if isinstance(raw, dict) else raw
     out = {}
@@ -227,7 +375,12 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
         return []
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
-    catalog, catalog_src = load_catalog(meta)   # id → strategy.yaml mandate (source of truth, not memory)
+    # UNIVERSAL source of "what it does / how it works": the deployed runtime.yaml the runtime registers,
+    # keyed by wallet — works for user-authored strategies, not just our catalog templates.
+    registry, registry_src = load_runtime_registry(meta)   # wallet_lower → runtime profile
+    meta["registry_source"] = registry_src
+    # OPTIONAL template enrichment (archetype/belief_plain/…), keyed by skill_name.
+    catalog, catalog_src = load_catalog(meta)
     meta["catalog_source"] = catalog_src
     strategies = []
     for s in (rows or []):
@@ -245,21 +398,40 @@ def fetch_strategies(client, meta):
             skill_name = _field(s, "skillName", "skill_name", "skill")
         if not skill_version:
             skill_version = _field(s, "skillVersion", "skill_version")
+        # UNIVERSAL profile: the registry's runtime.yaml `description` (keyed by wallet) is the
+        # load-bearing "what it does / how it works" — present for user-authored strategies too. Catalog
+        # facets enrich templates only. Merged into a single `profile`; None only if BOTH are absent.
+        registry_prof = registry.get(str(wallet).lower())
+        catalog_facets = _catalog_facets(catalog.get(skill_name) if skill_name else None)
+        profile = _merge_profile(registry_prof, catalog_facets)
+        # PROTECTED — universal: the deployed runtime.yaml ships an `exit` block (has_exit), OR it's a
+        # template deploy (skill_name present ⟹ built-in DSL exit by the validator invariant). Config-
+        # level protection posture, not a live per-position DSL-tracking check.
+        has_exit = bool(registry_prof and registry_prof.get("has_exit"))
         strategies.append({
             "name": _field(s, "tradingStrategyName", "name", default="strategy"),
             "wallet": wallet,
             "status": _field(s, "status", default="ACTIVE"),
             "total_funded": _f(s, "totalFunded", "total_funded", default=None),
             "total_withdrawn": _f(s, "totalWithdrawn", "total_withdrawn", default=None),
-            # Template-deployed (has a skillName) ⟹ ships a built-in DSL exit (validator invariant).
-            # This is the config-level protection posture, not a live per-position DSL-tracking check.
             "skill_name": skill_name,
             "skill_version": skill_version,
-            "protected": bool(skill_name),
-            # The strategy's mandate from its strategy.yaml (via catalog, keyed by skill_name) — the
-            # yardstick to judge it against. None for custom strategies / when the catalog is unreachable.
-            "mandate": _mandate_from_catalog(catalog.get(skill_name) if skill_name else None),
+            "protected": bool(has_exit or skill_name),
+            # The strategy's declared job — `profile.description` from its DEPLOYED runtime.yaml (the
+            # runtime registers it), plus optional catalog facets. The yardstick to judge it against.
+            "profile": profile,
         })
+
+    # Where did the strategies' profiles come from, in aggregate: registry / catalog / mixed / None.
+    prof_srcs = {s["profile"]["source"] for s in strategies if s.get("profile")}
+    if not prof_srcs:
+        meta["profile_source"] = None
+    elif prof_srcs <= {"registry"}:
+        meta["profile_source"] = "registry"
+    elif prof_srcs <= {"catalog"}:
+        meta["profile_source"] = "catalog"
+    else:
+        meta["profile_source"] = "mixed"
 
     def hydrate(strat):
         try:
