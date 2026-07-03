@@ -15,7 +15,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.4.0"
+  version: "1.5.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -323,11 +323,62 @@ in `dsl.note`; do not override it with an "unprotected" reading.)
   not resting venue orders — you won't see them as open orders. Absence of a resting SL is expected and
   says nothing about protection. Use the `dsl` objects, not the order book.
 
+## Run it in steps — narrate as you go
+
+A full portfolio read is several MCP round-trips (embedded wallet + a live clearinghouse pull per strategy
+wallet + the live DSL/ratchet reads + the per-asset market fan-out). Run as **ONE** call it can take
+minutes, blow the `exec` timeout, and push you to raw MCP — which loses every guardrail. So run the read as
+**fast, resumable STEPS** and **narrate each slice the moment it returns** (this mirrors
+`senpi-improve-trades` / `senpi-strategy-ops` — short steps over a shared state file, the skill narrates
+between). Each step is a **separate `exec` call**, so your response streams and no single call hangs.
+
+```sh
+python3 scripts/portfolio.py money        # 1. the FAST money map: embedded idle + each wallet's value → the three buckets (narrate FIRST)
+python3 scripts/portfolio.py strategies   # 2. per-strategy detail: mandate + DSL ladder + protected + closed/realized + strategy_groups[]
+python3 scripts/portfolio.py positions    # 3. position-level: per-position market (market_24h_pct/vs_market) + exposure + signals
+python3 scripts/portfolio.py all          # one-shot fallback: the full composed dict (same output as before)
+```
+
+**For a FULL portfolio read** — "analyze my portfolio / my strategies", "how am I doing" — run the steps
+**in order** and narrate between:
+
+1. `portfolio.py money` → **narrate the money map IMMEDIATELY** — `grand_total_usd` broken into the three
+   buckets (idle-in-embedded / idle-in-strategies / deployed-in-positions), each labeled by *where*, plus
+   `reconciles`. Don't wait for the other steps.
+2. `portfolio.py strategies` → narrate the **per-strategy verdict** — lead from `strategy_groups[]` (a
+   strategy is ALL its wallets), each judged vs its OWN `mandate`, its `protected` posture + `dsl` ladder,
+   realized/unrealized PnL as evidence.
+3. `portfolio.py positions` → narrate the **position-level read** — each position vs the market
+   (`market_24h_pct`, `vs_market`, leveraged return), then `exposure` (net bias, concentration) + `signals`
+   (idle drag).
+
+**Narrate each slice as it returns — never wait for all steps.** The steps share a state file
+(`<tempdir>/senpi-portfolio/state.json`, overridable with `--state`), so a later step reuses what an earlier
+one fetched instead of re-pulling. **For a NARROW ask, run only the minimal step:**
+
+| The ask | Step to run |
+|---|---|
+| *"how much idle / where's my money / balance across wallets / grand total"* | `money` |
+| *"are my strategies protected? / do they have a stop-loss? / how are my strategies doing / analyze my strategies / what's their DSL / mandate"* | `strategies` |
+| *"analyze my positions / my positions vs the market / net exposure / concentration / idle drag"* | `positions` |
+| *"analyze my portfolio / how am I doing"* (the full read) | `money` → `strategies` → `positions`, narrating between |
+
+`--no-market` applies to every step (skips the `positions` market fan-out). Same fail-open contract as
+`all`: each step returns valid JSON with `meta.warnings` on partial data and **never crashes on a
+missing/corrupt state file** (it self-heals by recomputing its prerequisites — every step also works
+STANDALONE, just slower). Keep `all` as the one-shot fallback when a single blocking call is fine; every
+existing guardrail (the three-bucket taxonomy, `protected`, the mandate reads, multi-wallet grouping, the
+DSL ladder + live tiers) holds identically across the steps and `all`.
+
 ## How to run the engine
 
 ```
-python3 scripts/portfolio.py [--no-market]
+python3 scripts/portfolio.py [money|strategies|positions|all] [--no-market] [--state PATH]
 ```
+
+`all` is the default when no step is given — it composes every slice into one dict (the same output the
+engine always produced). Prefer the **steps** above for a full read (they stream and don't trip the
+timeout); use `all` only when a single blocking call is fine.
 
 Returns `{totals, embedded_wallet, strategies, strategy_groups, exposure, signals, meta}`:
 - `totals` — the three buckets + `grand_total_usd`, `unrealized_pnl`, and a `reconciles` flag (cross-

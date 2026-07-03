@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MARKET_ENRICH_CAP = 24      # cap the per-asset market pull
@@ -962,6 +963,272 @@ def run(client, want_market=True):
     }
 
 
+# ──────────────────────────────────────────────────────────── shared state file (resumable steps)
+# The step subcommands (money → strategies → positions) are FAST, resumable slices that persist their work
+# to a shared JSON state file so a later step never re-fetches what an earlier one already pulled. The
+# agent runs them in sequence and NARRATES between — no single call carries the whole multi-wallet pull
+# (which trips the exec timeout and pushes the agent to raw MCP, losing every guardrail). Each step is
+# idempotent + fail-open: a missing/corrupt state file → recompute (self-heal); every step also works
+# STANDALONE (just slower). `all` writes the same state but prints run()'s full composed dict
+# (byte-identical to the pre-steps output). State default: <tempdir>/senpi-portfolio/state.json.
+STATE_SUBDIR = "senpi-portfolio"
+
+
+def _default_state_path():
+    """Default shared-state path <tempdir>/senpi-portfolio/state.json. Uses tempfile.gettempdir()
+    (never $HOME — the state dir may live somewhere else on a runtime host)."""
+    return os.path.join(tempfile.gettempdir(), STATE_SUBDIR, "state.json")
+
+
+def _load_state(path):
+    """Read the shared state JSON. Never raises — a missing/corrupt/unreadable file → {} (fail-open: the
+    step then recomputes its prerequisites and self-heals)."""
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa — corrupt/unreadable state is fail-open → recompute
+        return {}
+
+
+def _save_state(path, state):
+    """Merge-write the shared state JSON (best-effort; a write failure never sinks the step — the slice was
+    already printed to stdout). Creates the parent dir. Atomic-ish via a temp file + replace."""
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(state, fh)
+        os.replace(tmp, path)
+    except Exception:  # noqa — persistence is best-effort; the printed slice is the contract
+        pass
+
+
+def _fresh_meta():
+    """A meta skeleton seeded like run()'s — the same real_time/force_fetch scaffolding, so every step's
+    meta reads consistently whether it ran standalone or off state."""
+    return {"warnings": [], "real_time": True, "force_fetch": True}
+
+
+# ─────────────────────────────────────────── money-lite hydrate (fast bucket math, no positions detail)
+def _hydrate_money(client, strat, meta):
+    """The FAST per-strategy money pull for the `money` step: ONE strategy_get_clearinghouse_state call
+    per wallet → account_value / idle_withdrawable / deployed ONLY. This is exactly the bucket math from
+    fetch_strategies.hydrate (the shared-idle de-dup across the main+xyz views), WITHOUT the positions
+    detail, the live DSL/ratchet pull, the closed-history read, or the market enrichment — those are the
+    slow parts and belong to the `strategies`/`positions` steps. Fail-open: a read error leaves the
+    strategy money-less + a meta.warnings note, never crashes."""
+    try:
+        ch = _ok(client.mcp_call("strategy_get_clearinghouse_state", strategy_wallet=strat["wallet"], timeout=20))
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"clearinghouse {strat['wallet'][:8]} failed: {e}")
+        return strat
+    dex_av, dex_wd = {}, {}
+    for dex in ("main", "xyz"):
+        d = _field(ch, dex, default={}) if isinstance(ch, dict) else {}
+        ms = _field(d, "marginSummary", "margin_summary", default={}) or {}
+        dex_av[dex] = _f(ms, "accountValue", "account_value", default=0.0)
+        dex_wd[dex] = _f(d, "withdrawable", default=0.0)
+    # main + xyz are two VIEWS of ONE wallet — `withdrawable` is the SHARED idle, mirrored in both; count
+    # it ONCE (see fetch_strategies.hydrate for the full derivation). deployed = each DEX's own position
+    # equity (accountValue − shared idle), summed. wallet_value = main.av + xyz.av − shared_idle.
+    shared_idle = max(dex_wd.get("main", 0.0), dex_wd.get("xyz", 0.0))
+    deployed = sum(max(0.0, dex_av.get(dex, 0.0) - shared_idle) for dex in ("main", "xyz"))
+    strat["idle_withdrawable"] = round(shared_idle, 2)
+    strat["deployed"] = round(deployed, 2)
+    strat["account_value"] = round(shared_idle + deployed, 2)
+    return strat
+
+
+def fetch_strategy_money(client, meta):
+    """The FAST money-map strategy fetch: enumerate ACTIVE strategies (same strategy_list call + wallet
+    extraction as fetch_strategies) and money-lite-hydrate each wallet in parallel. Returns lightweight
+    strategy rows carrying name / wallet / strategy_id / status / total_funded / total_withdrawn plus the
+    account_value / idle_withdrawable / deployed money fields — NO profile / dsl / protected / positions /
+    closed (those are the `strategies` step). Deliberately DOES NOT read the runtime registry or catalog
+    (both are for the mandate read, not the money map). Fail-open: []. Mirrors fetch_strategies' skeleton
+    so the two agree on the wallet set + the bucket math."""
+    try:
+        sl = _ok(client.mcp_call("strategy_list", status=["ACTIVE"], timeout=20))
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"strategy_list failed: {e}")
+        return []
+    rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
+    strategies = []
+    for s in (rows or []):
+        wallet = _field(s, "strategyWalletAddress", "strategy_wallet_address", "walletAddress")
+        if not wallet:
+            continue
+        strategies.append({
+            "name": _field(s, "tradingStrategyName", "name", default="strategy"),
+            "wallet": wallet,
+            "strategy_id": _field(s, "id", "strategyId", "strategy_id"),
+            "status": _field(s, "status", default="ACTIVE"),
+            "total_funded": _f(s, "totalFunded", "total_funded", default=None),
+            "total_withdrawn": _f(s, "totalWithdrawn", "total_withdrawn", default=None),
+        })
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            strategies = list(ex.map(lambda s: _hydrate_money(client, s, meta), strategies))
+    except Exception:  # noqa — fail-open to sequential
+        strategies = [_hydrate_money(client, s, meta) for s in strategies]
+    return strategies
+
+
+def _money_totals(embedded, strategies, portfolio_totals):
+    """The three-bucket money map — the SAME classification compute() does, over money-lite strategy rows
+    (which carry idle_withdrawable / deployed / account_value). idle_in_embedded / idle_in_strategies /
+    deployed_in_positions + grand_total_usd + reconciles. No exposure/signals here (those need the full
+    positions detail — the `positions` step)."""
+    idle_strat = round(sum(_num(s.get("idle_withdrawable")) or 0.0 for s in strategies), 2)
+    deployed = round(sum(_num(s.get("deployed")) or 0.0 for s in strategies), 2)
+    idle_emb = embedded.get("idle_total") or 0.0
+    strat_acct = round(sum(_num(s.get("account_value")) or 0.0 for s in strategies), 2)
+    grand_total = round(idle_emb + strat_acct, 2)
+    totals = {
+        "grand_total_usd": grand_total,
+        "idle_in_embedded": round(idle_emb, 2),
+        "idle_in_strategies": idle_strat,
+        "deployed_in_positions": deployed,
+        "strategy_account_value": strat_acct,
+        "portfolio_total_balance_usd": portfolio_totals.get("total_balance_usd"),
+        "portfolio_total_withdrawable": portfolio_totals.get("total_withdrawable"),
+    }
+    pbal = portfolio_totals.get("total_balance_usd")
+    totals["reconciles"] = (pbal is None) or (abs(pbal - grand_total) <= max(2.0, 0.01 * grand_total))
+    return totals
+
+
+# ─────────────────────────────────────────────── self-heal: full strategies[] in state (for step 2 / 3)
+def _ensure_full_strategies_in_state(client, state, want_market, meta):
+    """Return the FULLY-hydrated strategies[] (positions + DSL + closed + profile/mandate) — from the state
+    file when the `strategies` step already ran, else recompute the full fetch right here (so the
+    `strategies` and `positions` steps each work STANDALONE). Also rehydrates the embedded wallet +
+    portfolio totals from state (or re-fetches). Merges its work back into state for the next step.
+    Returns (embedded, strategies, portfolio_totals)."""
+    embedded = state.get("embedded_wallet")
+    portfolio_totals = state.get("portfolio_totals")
+    strategies = state.get("strategies_full")
+    if isinstance(embedded, dict) and isinstance(strategies, list) and isinstance(portfolio_totals, dict):
+        return embedded, strategies, portfolio_totals
+    # state absent/partial → recompute the full pull (embedded + fully-hydrated strategies). The market
+    # enrichment is the `positions` step's job — skip it here (want_market only gates step 3's fold).
+    embedded, portfolio_totals = fetch_embedded(client, meta)
+    strategies = fetch_strategies(client, meta)
+    state["embedded_wallet"] = embedded
+    state["portfolio_totals"] = portfolio_totals
+    state["strategies_full"] = strategies
+    state.setdefault("meta_warnings", [])
+    state["meta_warnings"] = meta.get("warnings", [])
+    state["registry_source"] = meta.get("registry_source")
+    state["catalog_source"] = meta.get("catalog_source")
+    state["profile_source"] = meta.get("profile_source")
+    return embedded, strategies, portfolio_totals
+
+
+# ──────────────────────────────────────────── step subcommands (fast, resumable, standalone)
+def step_money(client, want_market=True, state_path=None):
+    """STEP 1 `money` — the FAST money map the agent NARRATES FIRST. Embedded idle + each strategy wallet's
+    account_value/withdrawable → the three buckets (idle_in_embedded / idle_in_strategies /
+    deployed_in_positions) + grand_total_usd + reconciles. Persists the strategy list + wallets so
+    `strategies`/`positions` don't re-enumerate. FAST: no positions detail, no DSL/ratchet, no closed
+    history, no market. `want_market` is accepted for a uniform step signature but unused here."""
+    if state_path is None:
+        state_path = _default_state_path()
+    state = _load_state(state_path)
+    meta = _fresh_meta()
+    embedded, portfolio_totals = fetch_embedded(client, meta)
+    strategies = fetch_strategy_money(client, meta)
+    totals = _money_totals(embedded, strategies, portfolio_totals)
+    meta["strategy_count"] = len(strategies)
+    if not strategies and not embedded.get("address"):
+        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    # persist the money-lite strategy rows (name/wallet/id/status/money) so the later steps reuse the
+    # wallet set; the full hydrate (positions/DSL/closed/profile) is the `strategies` step's self-heal.
+    state["embedded_wallet"] = embedded
+    state["portfolio_totals"] = portfolio_totals
+    state["strategies_money"] = strategies
+    state["totals"] = totals
+    state["meta_warnings"] = meta.get("warnings", [])
+    _save_state(state_path, state)
+    return {"totals": totals, "embedded_wallet": embedded, "strategies": strategies, "meta": meta}
+
+
+def step_strategies(client, want_market=True, state_path=None):
+    """STEP 2 `strategies` — the per-strategy detail (the verdict surface). Reads state (or self-heals the
+    full fetch when state is absent): fully-hydrated `strategies[]` (mandate/DSL from the registry +
+    `protected` + closed/realized) + `strategy_groups[]` (a strategy is ALL its wallets). Runs the runtime
+    registry + catalog reads here (the mandate source). NO market enrichment (that's `positions`)."""
+    if state_path is None:
+        state_path = _default_state_path()
+    state = _load_state(state_path)
+    meta = _fresh_meta()
+    embedded, strategies, portfolio_totals = _ensure_full_strategies_in_state(
+        client, state, want_market, meta)
+    # carry forward any warnings the self-heal fetch (or an earlier step) recorded
+    for w in state.get("meta_warnings", []):
+        if w not in meta["warnings"]:
+            meta["warnings"].append(w)
+    meta["registry_source"] = state.get("registry_source", meta.get("registry_source"))
+    meta["catalog_source"] = state.get("catalog_source", meta.get("catalog_source"))
+    meta["profile_source"] = state.get("profile_source", meta.get("profile_source"))
+    meta["strategy_count"] = len(strategies)
+    meta.setdefault("has_multi_wallet_strategy", False)
+    strategy_groups = group_strategies(strategies, meta)
+    if not strategies and not embedded.get("address"):
+        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    state["strategies_full"] = strategies
+    state["strategy_groups"] = strategy_groups
+    state["meta_warnings"] = meta.get("warnings", [])
+    state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
+    _save_state(state_path, state)
+    return {"strategies": strategies, "strategy_groups": strategy_groups, "meta": meta}
+
+
+def step_positions(client, want_market=True, state_path=None):
+    """STEP 3 `positions` — position-level analysis. Reads the full strategies[] from state (self-heals if
+    absent), runs the per-asset market enrichment (`market_24h_pct`/`vs_market` — the fan-out isolated
+    HERE), then computes `exposure` + `signals` off the full positions detail. Skipped-to-no-fold when
+    --no-market (positions keep their bucket math; market fields stay absent)."""
+    if state_path is None:
+        state_path = _default_state_path()
+    state = _load_state(state_path)
+    meta = _fresh_meta()
+    embedded, strategies, portfolio_totals = _ensure_full_strategies_in_state(
+        client, state, want_market, meta)
+    for w in state.get("meta_warnings", []):
+        if w not in meta["warnings"]:
+            meta["warnings"].append(w)
+    if want_market and strategies:
+        enrich_market(client, strategies, meta)
+    totals, exposure, signals = compute(embedded, strategies, portfolio_totals)
+    meta["strategy_count"] = len(strategies)
+    meta.setdefault("has_multi_wallet_strategy", False)
+    # REBUILD strategy_groups AFTER the market fold so the persisted groups reference the market-enriched
+    # positions — this is exactly run()'s order (enrich_market → group_strategies), keeping the shared
+    # state after the full pipeline byte-consistent with `all`.
+    strategy_groups = group_strategies(strategies, meta)
+    if not strategies and not embedded.get("address"):
+        meta["degraded"] = "no wallet data — check the token is USER-scoped"
+    # persist the enriched strategies (market fields now folded onto positions) + exposure/signals + the
+    # refreshed groups (over the enriched positions).
+    state["strategies_full"] = strategies
+    state["strategy_groups"] = strategy_groups
+    state["exposure"] = exposure
+    state["signals"] = signals
+    state["totals"] = totals            # the full totals (incl. unrealized_pnl from positions)
+    state["meta_warnings"] = meta.get("warnings", [])
+    state["has_multi_wallet_strategy"] = meta.get("has_multi_wallet_strategy", False)
+    _save_state(state_path, state)
+    return {"strategies": strategies, "strategy_groups": strategy_groups, "exposure": exposure,
+            "signals": signals, "totals": totals, "meta": meta}
+
+
 # ──────────────────────────────────────────────────────────────── CLI
 def _dry(client):
     out = {}
@@ -975,11 +1242,57 @@ def _dry(client):
     return out
 
 
+_STEPS = ("money", "strategies", "positions", "all")
+_STEP_FNS = {"money": step_money, "strategies": step_strategies, "positions": step_positions}
+
+
+def _all_and_persist(client, want_market, state_path):
+    """`all` = the composed one-shot. Runs the UNCHANGED `run()` (its output is byte-identical to the
+    pre-steps engine) and ALSO writes the shared state file (the same shape the steps build) so an `all`
+    run can seed a later narrow step. The state write never alters the printed dict."""
+    result = run(client, want_market=want_market)
+    if state_path is None:
+        state_path = _default_state_path()
+    state = {
+        "embedded_wallet": result.get("embedded_wallet"),
+        "strategies_full": result.get("strategies"),
+        "strategy_groups": result.get("strategy_groups"),
+        "totals": result.get("totals"),
+        "exposure": result.get("exposure"),
+        "signals": result.get("signals"),
+        "meta_warnings": (result.get("meta") or {}).get("warnings", []),
+        "registry_source": (result.get("meta") or {}).get("registry_source"),
+        "catalog_source": (result.get("meta") or {}).get("catalog_source"),
+        "profile_source": (result.get("meta") or {}).get("profile_source"),
+        "has_multi_wallet_strategy": (result.get("meta") or {}).get("has_multi_wallet_strategy", False),
+    }
+    _save_state(state_path, state)
+    return result
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="senpi portfolio engine (real-time wallet taxonomy + analysis)")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # optional leading positional STEP (money|strategies|positions|all); default `all` = the composed
+    # one-shot (unchanged output + shape). Parsed before argparse so the flags stay shared.
+    step = "all"
+    if argv and not argv[0].startswith("-"):
+        cand = argv[0]
+        if cand not in _STEPS:
+            print(json.dumps({"strategies": [], "meta": {"error": f"unknown step {cand!r}; "
+                                                         f"expected one of {', '.join(_STEPS)}"}}))
+            return 1
+        step, argv = cand, argv[1:]
+
+    ap = argparse.ArgumentParser(
+        description="senpi portfolio engine (real-time wallet taxonomy + analysis). Optional leading STEP: "
+                    "money|strategies|positions|all (default all = the composed one-shot). Steps share a "
+                    "state file so later steps don't re-fetch.")
     ap.add_argument("--no-market", action="store_true", help="skip per-asset market enrichment")
+    ap.add_argument("--state", default=None,
+                    help="shared state file path (default <tempdir>/senpi-portfolio/state.json)")
     ap.add_argument("--fixture", help="offline: path to a recorded MCP-response map (tests only)")
     ap.add_argument("--dry", action="store_true", help="dump raw MCP responses for schema debugging")
+    # `step` was already peeled off argv above; feed the remainder (flags only).
     args = ap.parse_args(argv)
 
     if args.fixture:
@@ -1000,8 +1313,13 @@ def main(argv=None):
         print(json.dumps(_dry(client), ensure_ascii=False, indent=2, default=str))
         return 0
 
+    want_market = not args.no_market
     try:
-        result = run(client, want_market=not args.no_market)
+        if step == "all":
+            result = _all_and_persist(client, want_market, args.state)
+        else:
+            fn = _STEP_FNS[step]
+            result = fn(client, want_market=want_market, state_path=args.state)
     except Exception as e:  # noqa
         print(json.dumps({"strategies": [], "meta": {"error": f"engine failure: {e}"}}))
         return 1
