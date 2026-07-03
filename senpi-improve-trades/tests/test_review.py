@@ -470,6 +470,206 @@ def test_aggregations_fail_open_when_telemetry_absent():
     assert mix["overall"]["by_terminal"].get("UNKNOWN") == 2        # ETH (ACTIVE record) + BTC (no record)
 
 
+# ──────────────────────────────────────────── resumable STEP subcommands (fast, standalone, state-shared)
+# The engine also exposes the review as fast, resumable STEPS (timing → strategies → telemetry → market)
+# over a shared state file, so a long review runs as short calls the agent narrates between (mirrors
+# senpi-strategy-ops deploy.py) instead of one multi-minute call that trips the exec timeout. Each step is
+# fail-open, idempotent, standalone (self-heals its prereqs), and prints only its own slice. A
+# timing→strategies→telemetry sequence over a shared state must reproduce the SAME combined values as `all`.
+import tempfile   # noqa: E402
+
+
+def _fresh_client():
+    with open(FIXTURE) as f:
+        return review._FixtureClient(json.load(f))
+
+
+def _with_env(fn, events=False):
+    """Run fn() with the registry dir (and optionally the events fixture) pinned, all restored after."""
+    old_sd = os.environ.get("SENPI_STATE_DIR")
+    old_ev = os.environ.get("SENPI_EVENTS_FIXTURE")
+    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
+    if events:
+        os.environ["SENPI_EVENTS_FIXTURE"] = EVENTS_FIXTURE
+    try:
+        return fn()
+    finally:
+        for k, v in (("SENPI_STATE_DIR", old_sd), ("SENPI_EVENTS_FIXTURE", old_ev)):
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
+def test_step_timing_slice_standalone():
+    """`timing` prints ONLY its slice — trades (exit_reason UNKNOWN, telemetry not run yet) + timing_summary
+    + window — and matches `all`'s timing_summary. Runs standalone (fresh state)."""
+    sp = os.path.join(tempfile.mkdtemp(), "s.json")
+    out = _with_env(lambda: review.step_timing(_fresh_client(), window_days=WINDOW_DAYS,
+                                               want_market=True, state_path=sp, now_ms=NOW_MS))
+    assert set(out) == {"window", "trades", "timing_summary", "meta"}   # ONLY the timing slice
+    assert out["timing_summary"]["trade_count"] == 3
+    assert out["timing_summary"]["exits_beat_holding"] == 1
+    # exit_reason is the placeholder here — telemetry/ratchet has not run on the fast path
+    assert all(t["exit_reason"]["terminal"] == "UNKNOWN" for t in out["trades"])
+    # but the timing counterfactual (prices only) is already correct
+    assert {t["asset"]: t["exit_vs_hold"] for t in out["trades"]}["SOL"] == "beat"
+    all_ts = _result()["timing_summary"]
+    assert out["timing_summary"] == all_ts               # timing slice == all's timing_summary
+
+
+def test_step_strategies_slice_reads_state():
+    """`strategies` (after `timing`) prints the per-strategy read + closed rollup + dsl_close_reason_mix,
+    matching `all`. Reads the persisted state — no re-fetch needed."""
+    sp = os.path.join(tempfile.mkdtemp(), "s.json")
+
+    def _seq():
+        review.step_timing(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
+                           state_path=sp, now_ms=NOW_MS)
+        return review.step_strategies(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
+                                      state_path=sp, now_ms=NOW_MS)
+    out = _with_env(_seq)
+    assert set(out) == {"strategies", "closed_strategies", "dsl_close_reason_mix", "meta"}
+    strat = {s["label"]: s for s in out["strategies"]}["kodiak"]
+    assert strat["dsl"]["hard_stop_roe_pct"] == -15.0    # mandate/DSL from the registry
+    assert strat["realized_pnl"] == 340.0
+    assert out["meta"]["current_strategy_count"] == 1
+    assert out["strategies"] == _result()["strategies"]  # == all's per-strategy read
+
+
+def test_step_market_slice_standalone():
+    """`market` prints ONLY book_vs_market, matching `all` (self-heals the held set from state/refetch)."""
+    sp = os.path.join(tempfile.mkdtemp(), "s.json")
+    out = _with_env(lambda: review.step_market(_fresh_client(), window_days=WINDOW_DAYS,
+                                              want_market=True, state_path=sp, now_ms=NOW_MS))
+    assert set(out) == {"book_vs_market", "meta"}
+    assert out["book_vs_market"] == _result()["book_vs_market"]
+    gap_assets = {g["asset"] for g in out["book_vs_market"]["gaps"]}
+    assert "HYPE" in gap_assets
+
+
+def test_step_sequence_reproduces_all_combined():
+    """THE core step contract: timing → strategies → telemetry over ONE shared state file reproduces the
+    SAME combined values as `all` — including the fully telemetry-enriched trades, missed_signals, leaks,
+    execution_quality, and the telemetry-REFRESHED dsl_close_reason_mix + meta rollup."""
+    sp = os.path.join(tempfile.mkdtemp(), "s.json")
+
+    def _seq():
+        t = review.step_timing(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
+                               state_path=sp, now_ms=NOW_MS)
+        s = review.step_strategies(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
+                                   state_path=sp, now_ms=NOW_MS)
+        te = review.step_telemetry(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
+                                   state_path=sp, now_ms=NOW_MS)
+        m = review.step_market(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
+                               state_path=sp, now_ms=NOW_MS)
+        return t, s, te, m
+    t, s, te, m = _with_env(_seq, events=True)
+
+    old_ev = os.environ.get("SENPI_EVENTS_FIXTURE")
+    os.environ["SENPI_EVENTS_FIXTURE"] = EVENTS_FIXTURE
+    try:
+        allr = _result()                                 # `all` with telemetry present
+    finally:
+        if old_ev is None:
+            os.environ.pop("SENPI_EVENTS_FIXTURE", None)
+        else:
+            os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
+
+    assert te["trades"] == allr["trades"]                # trades fully enriched, byte-for-byte
+    assert t["timing_summary"] == allr["timing_summary"]
+    assert s["strategies"] == allr["strategies"]
+    assert s["closed_strategies"] == allr["closed_strategies"]
+    assert te["missed_signals"] == allr["missed_signals"]
+    assert te["blocked_summary"] == allr["blocked_summary"]
+    assert te["leaks"] == allr["leaks"]
+    assert te["execution_quality"] == allr["execution_quality"]
+    assert te["dsl_close_reason_mix"] == allr["dsl_close_reason_mix"]   # telemetry-refreshed mix
+    assert m["book_vs_market"] == allr["book_vs_market"]
+    # meta sub-fields each step owns line up with all
+    assert te["meta"]["exit_reason_source_counts"] == allr["meta"]["exit_reason_source_counts"]
+    assert te["meta"]["telemetry_source"] == allr["meta"]["telemetry_source"]
+    assert s["meta"]["current_strategy_count"] == allr["meta"]["current_strategy_count"]
+
+
+def test_step_telemetry_enriches_exit_reason_over_state():
+    """`telemetry` fills the exit_reason the fast `timing` path left UNKNOWN: after timing→telemetry, SOL is
+    tier_breach (telemetry) and ETH max_retrace (telemetry) — matching the composed run."""
+    sp = os.path.join(tempfile.mkdtemp(), "s.json")
+
+    def _seq():
+        review.step_timing(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
+                           state_path=sp, now_ms=NOW_MS)
+        return review.step_telemetry(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
+                                     state_path=sp, now_ms=NOW_MS)
+    out = _with_env(_seq, events=True)
+    by = {t["asset"]: t for t in out["trades"]}
+    assert by["SOL"]["exit_reason"]["terminal"] == "tier_breach"
+    assert by["SOL"]["exit_reason"]["source"] == "telemetry"
+    assert by["ETH"]["exit_reason"]["terminal"] == "max_retrace"
+    assert out["meta"]["telemetry_source"] == "available"
+    assert out["meta"]["exit_reason_source_counts"]["telemetry"] == 2
+
+
+def test_steps_self_heal_when_state_absent():
+    """Every step works STANDALONE (no prior step): with a fresh state file each recomputes its prereqs.
+    `strategies` and `telemetry` self-heal the trade fetch and still produce correct slices."""
+    d = tempfile.mkdtemp()
+
+    def _solo():
+        s = review.step_strategies(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
+                                   state_path=os.path.join(d, "a.json"), now_ms=NOW_MS)
+        te = review.step_telemetry(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
+                                   state_path=os.path.join(d, "b.json"), now_ms=NOW_MS)
+        return s, te
+    s, te = _with_env(_solo, events=True)
+    assert {x["label"] for x in s["strategies"]} == {"kodiak"}
+    assert s["strategies"][0]["realized_pnl"] == 340.0
+    # telemetry self-healed the fetch, then enriched
+    assert {t["asset"]: t["exit_reason"]["terminal"] for t in te["trades"]}["SOL"] == "tier_breach"
+
+
+def test_step_fail_open_on_corrupt_state():
+    """A corrupt/garbage state file never crashes a step — it fails open to a recompute. Guards the
+    'never crash on a missing/corrupt state file' contract."""
+    sp = os.path.join(tempfile.mkdtemp(), "corrupt.json")
+    with open(sp, "w") as f:
+        f.write("{ this is not::: valid json ][")
+    out = _with_env(lambda: review.step_strategies(_fresh_client(), window_days=WINDOW_DAYS,
+                                                   want_market=True, state_path=sp, now_ms=NOW_MS))
+    assert len(out["strategies"]) == 1                   # recomputed, not crashed
+    assert out["strategies"][0]["label"] == "kodiak"
+
+
+def test_step_flags_window_last_nomarket_apply():
+    """--last / --no-market apply per step. --last 1 → one trade in the timing slice; --no-market → prices
+    null + empty book_vs_market."""
+    d = tempfile.mkdtemp()
+
+    def _run():
+        t = review.step_timing(_fresh_client(), window_days=WINDOW_DAYS, last_n=1, want_market=True,
+                               state_path=os.path.join(d, "l.json"), now_ms=NOW_MS)
+        sp2 = os.path.join(d, "nm.json")
+        tn = review.step_timing(_fresh_client(), window_days=WINDOW_DAYS, want_market=False,
+                                state_path=sp2, now_ms=NOW_MS)
+        mn = review.step_market(_fresh_client(), window_days=WINDOW_DAYS, want_market=False,
+                                state_path=sp2, now_ms=NOW_MS)
+        return t, tn, mn
+    t, tn, mn = _with_env(_run)
+    assert t["timing_summary"]["trade_count"] == 1 and t["window"]["label"] == "last 1 closed trades"
+    assert all(x["price_now"] is None for x in tn["trades"])
+    assert mn["book_vs_market"]["top_movers"] == []
+
+
+def test_default_state_path_uses_tempdir_and_window_key():
+    """The default state path lives under tempfile.gettempdir()/senpi-improve-trades and is KEYED by the
+    window (and --last) so distinct reviews don't clobber each other. Never touches $HOME."""
+    p = review._default_state_path(7, None)
+    assert p.startswith(tempfile.gettempdir())
+    assert os.path.join("senpi-improve-trades", "state-7d.json") in p
+    assert review._default_state_path(30.0, 20).endswith("state-30d-last20.json")
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

@@ -68,22 +68,23 @@ tell you exactly how much enrichment landed; surface that honestly.
 
 ## Quick actions this skill handles
 
-Each intent maps to a specific engine output (its data) and a specific **actionable lever** (the fix). Route
-every fix through the depth choice at the end — never auto-act.
+Each intent maps to the **minimal engine step(s)** to run (fastest for a narrow ask — see "Run it in
+steps"), a specific engine output (its data), and a specific **actionable lever** (the fix). Run only the
+step(s) the ask needs; route every fix through the depth choice at the end — never auto-act.
 
-| Intent (what the user asks) | Data (engine output) | Actionable lever |
-|---|---|---|
-| *"Did I sell too early or late?"* | `timing_summary` (beat/worse/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold` | Lead with the aggregate; a reversal is one data point → the DSL tier that fired (`exit_reason`) |
-| *"Master my week"* | `timing_summary` + `strategies[]` (per-mandate) + `book_vs_market` | Process recap, each strategy vs its own mandate |
-| *"What did I miss this week?"* | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) | Is the missed mover in the mandate? loosen a gate only if so |
-| *"How could I make more gains?"* | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise |
-| *"Compare me to the whales / the market"* | `book_vs_market` (`smart_money_pct` per mover) | Compose `senpi-smart-money` / `senpi-market-pulse` |
-| **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) | The **DSL preset lever** — widen phase1 retrace / retune a tier → `senpi-strategy-author` / `-ops` |
-| **2.** *"What did my own limits block? / what couldn't I take?"* | `blocked_summary` / `missed_signals` — tallied by `reason_code` (`no_slots`/`no_margin`/`risk_gate_*`/`asset_banned`/…) | Add a slot · fund margin · loosen a risk gate — the exact gate the `reason_code` names |
-| **3.** *"Where am I leaking?"* | `leaks` — `order.failed` (order rejected), `dsl.sl_sync_failed`/`dsl.handoff_failed` (protection gaps → a naked leg), `runtime.paused` (risk halts) — **plus** premature exits (from `dsl_close_reason_mix`) + fee drag (from `execution_quality`) | Fix the failing order path / the stop sync, review the halt reason, tighten the leaky exit |
-| **4.** *"Walk me through / explain my [asset] trade"* | Run **`openclaw senpi explain <ASSET> --runtime <id> --json`** directly — the native opened→dsl→close+reason lifecycle for that asset (oldest-first, threaded by position id) | Read the lifecycle; the fix routes to whichever leg misfired |
-| **5.** *"What am I paying in fees — maker vs taker?"* | `execution_quality` — maker/taker fill tally + `maker_ratio` from `order.filled` | Prefer maker execution on entry/exit → the fee-optimized-limit lever; authoritative fee $ = the future ledger hook |
-| **6.** *"Why is [strategy] losing?"* | That strategy's slice: `dsl_close_reason_mix.by_strategy[label]` + `blocked_summary.by_strategy[label]` + `strategies[label]` realized PnL + mandate | Judge vs the mandate; route the specific DSL / gate fix |
+| Intent (what the user asks) | Step(s) to run | Data (engine output) | Actionable lever |
+|---|---|---|---|
+| *"Did I sell too early / late? / improve my last 10"* | `timing` | `timing_summary` (beat/worse/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold` | Lead with the aggregate; a reversal is one data point → the DSL tier that fired (`exit_reason`) |
+| *"Master my week" / "analyze my strategies and trades" / "suggest improvements"* | **all steps in order** (`timing`→`strategies`→`telemetry`→`market`) | `timing_summary` + `strategies[]` (per-mandate) + `book_vs_market` + the telemetry streams | Process recap, each strategy vs its own mandate |
+| *"What did I miss this week? / compare to market"* | `market` (+ `telemetry` for the blocked cohort) | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) | Is the missed mover in the mandate? loosen a gate only if so |
+| *"How could I make more gains?"* | `strategies` + `telemetry` | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise |
+| *"Compare me to the whales / the market"* | `market` | `book_vs_market` (`smart_money_pct` per mover) | Compose `senpi-smart-money` / `senpi-market-pulse` |
+| **1.** *"Am I getting shaken out too early? / how are my exits firing?"* | `strategies` + `telemetry` | `dsl_close_reason_mix` — terminal mix overall + by asset_class + by strategy, plus the **premature** bucket (`trailing_floor`/`weak_peak`/`max_retrace`, or a low tier locked on a small ROE) | The **DSL preset lever** — widen phase1 retrace / retune a tier → `senpi-strategy-author` / `-ops` |
+| **2.** *"What did my own limits block? / what couldn't I take?"* | `telemetry` | `blocked_summary` / `missed_signals` — tallied by `reason_code` (`no_slots`/`no_margin`/`risk_gate_*`/`asset_banned`/…) | Add a slot · fund margin · loosen a risk gate — the exact gate the `reason_code` names |
+| **3.** *"Where am I leaking? / fees"* | `telemetry` | `leaks` — `order.failed` (order rejected), `dsl.sl_sync_failed`/`dsl.handoff_failed` (protection gaps → a naked leg), `runtime.paused` (risk halts) — **plus** premature exits (from `dsl_close_reason_mix`) + fee drag (from `execution_quality`) | Fix the failing order path / the stop sync, review the halt reason, tighten the leaky exit |
+| **4.** *"Walk me through / explain my [asset] trade"* | *(none — `explain` CLI)* | Run **`openclaw senpi explain <ASSET> --runtime <id> --json`** directly — the native opened→dsl→close+reason lifecycle for that asset (oldest-first, threaded by position id) | Read the lifecycle; the fix routes to whichever leg misfired |
+| **5.** *"What am I paying in fees — maker vs taker?"* | `telemetry` | `execution_quality` — maker/taker fill tally + `maker_ratio` from `order.filled` | Prefer maker execution on entry/exit → the fee-optimized-limit lever; authoritative fee $ = the future ledger hook |
+| **6.** *"Why is [strategy] losing?"* | `strategies` + `telemetry` | That strategy's slice: `dsl_close_reason_mix.by_strategy[label]` + `blocked_summary.by_strategy[label]` + `strategies[label]` realized PnL + mandate | Judge vs the mandate; route the specific DSL / gate fix |
 
 **Quick action 4 — the `explain` command in full.** For "walk me through / explain my BTC trade," the agent
 runs the native lifecycle command directly (it's not in `review.py` — it's the runtime CLI):
@@ -99,28 +100,72 @@ It returns `{ok, asset, entries[]}` — the asset's events oldest-first (`positi
 `openclaw senpi runtime list`. A closed strategy has no ring → `explain` returns nothing; that's expected,
 say so, don't call it a bug.
 
-## How to run
+## Run it in steps — narrate as you go
+
+A full review is several MCP round-trips; run as **ONE** call it can take minutes, blow the `exec` timeout,
+and make you bail to raw MCP — which loses every guardrail. So run the review as **fast, resumable STEPS**
+and **narrate each slice the moment it returns** (this mirrors `senpi-strategy-ops` `deploy.py`
+create→runtime→verify: short steps over a shared state file, the skill narrates between). Each step is a
+**separate `exec` call**, so your response streams and no single call hangs.
 
 ```sh
-python3 scripts/review.py                 # last ~7d review (all strategy wallets)
+python3 scripts/review.py timing       # 1. fetch closed trades + prices → trades[] + timing_summary (FAST slice, narrate first)
+python3 scripts/review.py strategies   # 2. per-strategy read (mandate/DSL + realized PnL) + closed rollup
+python3 scripts/review.py telemetry    # 3. exit reasons + missed_signals + leaks + execution_quality (the slow event shell-outs, isolated)
+python3 scripts/review.py market       # 4. book_vs_market (movers × held) — only if the ask needs it
+python3 scripts/review.py all          # one-shot fallback: the full composed dict (same output as before)
+```
+
+**For a FULL review** — "analyze my strategies and trades", "master my week", "suggest improvements", "how
+could I make more" — run the steps **in order** and narrate between:
+
+1. `review.py timing` → **narrate the timing teardown IMMEDIATELY** (lead with `timing_summary`: "N of M
+   exits beat holding-to-now") — don't wait for the other steps. `exit_reason` is still `UNKNOWN` here
+   (telemetry hasn't run) — narrate the *timing*, not the mechanism yet.
+2. `review.py strategies` → narrate the **per-strategy read** (each CURRENT strategy vs its OWN mandate,
+   realized PnL as evidence; `closed_strategies[]` is history — no verdict).
+3. `review.py telemetry` → narrate **exit quality / leaks / blocked** (now `exit_reason` is filled: the
+   refreshed `dsl_close_reason_mix`, `leaks`, `blocked_summary`, `execution_quality`).
+4. `review.py market` → narrate the **book-vs-market gap** (run only if the ask needs "what did I miss /
+   compare to market").
+
+**Narrate each slice as it returns — never wait for all steps.** The steps share a state file
+(`<tempdir>/senpi-improve-trades/state-<window>d.json`, overridable with `--state`), so a later step reuses
+what an earlier one fetched instead of re-pulling. **For a NARROW ask, run only the minimal step(s)** from
+the Quick-actions "Step(s)" column (e.g. "did I sell too early" → just `timing`; "where am I leaking" → just
+`telemetry`) — faster, and each step self-heals its prerequisites so it also works standalone.
+
+`--window` / `--last` / `--no-market` / `--fixture` apply to every step. Same fail-open contract as `all`:
+each step returns valid JSON with `meta.warnings` on partial data and never crashes on a missing/corrupt
+state file (it recomputes).
+
+## How to run (one-shot fallback)
+
+```sh
+python3 scripts/review.py                 # `all` (default): last ~7d composed review — the one-shot fallback
 python3 scripts/review.py --window 30     # last 30 days
 python3 scripts/review.py --last 20       # cap to the last 20 closed trades
 python3 scripts/review.py --no-market     # skip the current-price + book-vs-market pull
 python3 scripts/review.py --fixture tests/fixtures/review_fixture.json   # offline (tests)
 ```
 
-Read the JSON on stdout and narrate it under the guardrails. It fails open end-to-end: partial data still
-returns valid JSON with `meta.warnings`; `meta.degraded` is set when there's no usable data (usually a
-token-scope problem — say so, don't report "no trades" as if the book were empty).
+`all` (the default with no step) composes every slice into one dict — the same output the engine always
+produced. Prefer the **steps** above for a full review (they stream and don't trip the timeout); use `all`
+only when a single blocking call is fine. Read the JSON on stdout and narrate it under the guardrails. It
+fails open end-to-end: partial data still returns valid JSON with `meta.warnings`; `meta.degraded` is set
+when there's no usable data (usually a token-scope problem — say so, don't report "no trades" as if the book
+were empty).
 
 **The analysis MUST come from `review.py`. Never bypass it and hand-assemble the review from raw MCP
 calls.** The engine is the entire point — it computes the timing table, the exit reasons, the mandate reads,
 and the current-vs-closed split *so the guardrails hold*. Free-styling on raw `strategy_list` /
 `discovery_get_trader_history` / `ratchet_stop_list` reproduces the exact failure modes this skill exists to
-prevent — "everything's unprotected," "consolidate the wallets," "dead weight," fabricated numbers. If a run
-is slow, **re-run it** (it parallelizes the per-wallet work; a repeat is fast) or pass `--last 20` /
-`--no-market` to trim — do NOT substitute raw tool calls for the engine's output. The only raw MCP you add is
-to go *beyond* the review (e.g. a live position detail the user asks for), never to replace it.
+prevent — "everything's unprotected," "consolidate the wallets," "dead weight," fabricated numbers. **If a
+single call is slow, that's exactly why the steps exist — run `timing`/`strategies`/`telemetry`/`market` as
+separate calls and narrate between** (each is fast and self-healing), or pass `--last 20` / `--no-market` to
+trim — do NOT substitute raw tool calls for the engine's output, and do NOT let an `exec` timeout push you
+to raw MCP. The only raw MCP you add is to go *beyond* the review (e.g. a live position detail the user asks
+for), never to replace it.
 
 ## The eight guardrails — the reason this skill exists
 

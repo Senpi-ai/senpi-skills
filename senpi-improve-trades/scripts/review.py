@@ -37,6 +37,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -815,11 +816,18 @@ def _merge_meta(dst, src):
         dst["_telemetry_warned"] = True
 
 
-def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap):
+def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap, enrich_exit=True):
     """Phase-1 worker — fully processes ONE strategy on a thread and returns its contribution, WITHOUT the
     price/`_if_held` step (deferred to phase 2). Runs against a PRIVATE `meta` (merged back in the main
     thread) so threads never write shared state. Wrapped fail-open by the caller — one strategy's failure
     contributes empty, never sinks the run.
+
+    `enrich_exit` gates the TELEMETRY work (the slow, latency-bearing part): when True (the `all` / composed
+    path) each trade's EXIT REASON is filled from the runtime event log (or the ratchet fallback), and the
+    missed_signals + leak/fill streams are harvested from the SAME events. When False (the fast `timing`
+    step) NO events and NO ratchet are fetched — every trade lands with a placeholder `exit_reason` terminal
+    UNKNOWN (source "unknown") and `source` "reconstructed"; the `telemetry` step fills these in later. This
+    is what keeps the headline timing slice off the telemetry critical path.
 
     Returns a dict: {trades (no price fields yet), missed_signals, leaks, fills, meta}. Each collected trade
     already carries its strategy tags + telemetry/ratchet exit_reason + `source`; only price_now /
@@ -831,27 +839,33 @@ def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap):
     fills = {"maker": 0, "taker": 0, "unknown": 0}
     closed = fetch_closed_trades(client, strat["wallet"], since_ms, until_ms, cap, meta)
     # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). Fetched even when
-    # the wallet has no closed trades in-window, since its missed_signals + leaks still count.
-    events = _fetch_events(strat.get("runtime_id"), since_ms, meta)
+    # the wallet has no closed trades in-window, since its missed_signals + leaks still count. SKIPPED
+    # entirely on the fast timing path (enrich_exit=False) so telemetry latency never blocks it.
+    events = _fetch_events(strat.get("runtime_id"), since_ms, meta) if enrich_exit else []
     if events:
         missed_signals.extend(_missed_signals_from_events(events, strat.get("label")))
         # scan the SAME entries once for leaks (failed orders / protection gaps / risk halts) + fills.
         _scan_leak_and_fill_events(events, strat.get("label"), leaks, fills)
     if closed:
-        by_order_id, by_asset = _index_exit_events(events)
-        ratchet_records = _load_ratchet_records(client, strat, meta)
+        by_order_id, by_asset = _index_exit_events(events) if enrich_exit else ({}, {})
+        # ratchet is part of exit attribution (the SECONDARY fallback) — also deferred off the timing path.
+        ratchet_records = _load_ratchet_records(client, strat, meta) if enrich_exit else {}
         for t in closed:
             asset = t.get("asset")
             dex = "xyz" if str(asset).startswith("xyz:") else "main"
             # EXIT REASON — telemetry (native) wins; ratchet is the reconstructed fallback; else UNKNOWN.
             # Telemetry only ever writes exit_reason — asset/px/pnl/direction/timing stay discovery's.
-            ev = _match_exit_event(t, by_order_id, by_asset)
+            ev = _match_exit_event(t, by_order_id, by_asset) if enrich_exit else None
             if ev is not None:
                 exit_reason = _exit_reason_from_event(ev)
-            else:
+            elif enrich_exit:
                 exit_reason = _exit_reason_for(asset, ratchet_records)
                 # tag the reconstructed fallback so the source rollup can separate ratchet from unknown
                 exit_reason["source"] = "ratchet" if exit_reason.get("terminal") != "UNKNOWN" else "unknown"
+            else:
+                # fast timing path — exit mechanism not resolved yet; the telemetry step fills it in.
+                exit_reason = {"terminal": "UNKNOWN", "tier_reached": None,
+                               "high_water_roe": None, "source": "unknown"}
             t.update({
                 "strategy_label": strat.get("label"),
                 "strategy_wallet": strat.get("wallet"),
@@ -871,7 +885,7 @@ def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap):
             "leaks": leaks, "fills": fills, "meta": meta}
 
 
-def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_market):
+def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_market, enrich_exit=True):
     """THE SOURCE BOUNDARY — onchain data → discovery; runtime events → telemetry.
 
     DISCOVERY OWNS THE TRADE LIST + every onchain fact. `fetch_closed_trades` (discovery_get_trader_history)
@@ -913,7 +927,7 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
         # each worker gets a PRIVATE meta seeded with the sticky telemetry flag so it can still short-circuit.
         priv = {"_telemetry_dead": meta.get("_telemetry_dead", False)}
         try:
-            return _collect_one_strategy(client, strat, priv, since_ms, until_ms, cap)
+            return _collect_one_strategy(client, strat, priv, since_ms, until_ms, cap, enrich_exit=enrich_exit)
         except Exception as e:  # noqa — one strategy failing must not sink the run (fail-open to empty)
             priv.setdefault("warnings", []).append(f"strategy collect failed: {e}")
             return {"trades": [], "missed_signals": [],
@@ -983,6 +997,85 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
     trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
     missed_signals.sort(key=lambda m: _num(m.get("ts")) or 0, reverse=True)
     return trades, missed_signals, leaks, fills
+
+
+def _enrich_exit_and_streams(client, trades, strategies, meta, since_ms):
+    """THE TELEMETRY STEP's engine core — enrich already-collected discovery `trades[]` (from the timing
+    step) with their EXIT REASON + produce the standalone telemetry streams (missed_signals + leak/fill
+    rollups), WITHOUT re-fetching discovery or re-pricing. This is the enrichment half of
+    `_collect_one_strategy`, lifted so it can run as an isolated step over the persisted state (its per-runtime
+    event shell-outs carry the latency that the fast timing slice deferred).
+
+    Trades are grouped by strategy_wallet and each strategy's runtime event ring is fetched ONCE (same
+    fan-out + deterministic merge as `_collect_trades`): the events fill each trade's `exit_reason`/`source`
+    IN PLACE (telemetry-native wins → ratchet fallback → honest UNKNOWN) and, from the SAME entries, harvest
+    `missed_signals[]` + the leak/fill accumulators. Onchain facts (asset/px/pnl/direction/timing) are NEVER
+    touched — telemetry only ever writes exit_reason. Fail-open per strategy (one failing contributes empty).
+
+    Returns (missed_signals, leaks, fills); `trades` are mutated in place. Produces the SAME values the `all`
+    path folds into a composed run, so a timing→telemetry sequence reproduces `all`."""
+    missed_signals = []
+    leaks = {"order_failed": {"count": 0, "samples": []},
+             "protection_gaps": {"count": 0, "samples": []},
+             "risk_halts": {"count": 0, "samples": []}}
+    fills = {"maker": 0, "taker": 0, "unknown": 0}
+    # index the persisted trades by wallet so each strategy enriches only its own rows (the same partition
+    # _collect_one_strategy had implicitly, now reconstructed from state).
+    by_wallet = {}
+    for t in trades:
+        by_wallet.setdefault(str(t.get("strategy_wallet") or "").lower(), []).append(t)
+
+    def _worker(strat):
+        priv = {"_telemetry_dead": meta.get("_telemetry_dead", False)}
+        res = {"missed_signals": [],
+               "leaks": {"order_failed": {"count": 0, "samples": []},
+                         "protection_gaps": {"count": 0, "samples": []},
+                         "risk_halts": {"count": 0, "samples": []}},
+               "fills": {"maker": 0, "taker": 0, "unknown": 0}, "meta": priv}
+        try:
+            events = _fetch_events(strat.get("runtime_id"), since_ms, priv)
+            if events:
+                res["missed_signals"].extend(_missed_signals_from_events(events, strat.get("label")))
+                _scan_leak_and_fill_events(events, strat.get("label"), res["leaks"], res["fills"])
+            strat_trades = by_wallet.get(str(strat.get("wallet") or "").lower(), [])
+            if strat_trades:
+                by_order_id, by_asset = _index_exit_events(events)
+                ratchet_records = _load_ratchet_records(client, strat, priv)
+                for t in strat_trades:
+                    asset = t.get("asset")
+                    ev = _match_exit_event(t, by_order_id, by_asset)
+                    if ev is not None:
+                        exit_reason = _exit_reason_from_event(ev)
+                    else:
+                        exit_reason = _exit_reason_for(asset, ratchet_records)
+                        exit_reason["source"] = ("ratchet" if exit_reason.get("terminal") != "UNKNOWN"
+                                                 else "unknown")
+                    # telemetry ONLY ever writes exit_reason + the row's source tag — nothing onchain.
+                    t["exit_reason"] = exit_reason
+                    t["source"] = "telemetry" if ev is not None else "reconstructed"
+        except Exception as e:  # noqa — one strategy failing must not sink the enrichment (fail-open)
+            priv.setdefault("warnings", []).append(f"strategy enrich failed: {e}")
+        return res
+
+    if strategies:
+        workers = min(8, len(strategies))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            results = list(ex.map(_worker, strategies))     # ex.map preserves input order
+        for res in results:                                 # deterministic merge (original strategy order)
+            missed_signals.extend(res["missed_signals"])
+            rl = res["leaks"]
+            for cat in leaks:
+                leaks[cat]["count"] += rl[cat]["count"]
+                for s in rl[cat]["samples"]:
+                    if len(leaks[cat]["samples"]) < _LEAK_SAMPLE_CAP:
+                        leaks[cat]["samples"].append(s)
+            rf = res["fills"]
+            for k in fills:
+                fills[k] += rf[k]
+            _merge_meta(meta, res["meta"])
+
+    missed_signals.sort(key=lambda m: _num(m.get("ts")) or 0, reverse=True)
+    return missed_signals, leaks, fills
 
 
 # ──────────────────────────────────────────────────────────────── timing summary (PROCESS-framed counts)
@@ -1325,6 +1418,222 @@ def _telemetry_source(source_counts, telemetry_warned):
     return "available" if tele else "unavailable"
 
 
+# ──────────────────────────────────────────────────────────────── shared state file (resumable steps)
+# The step subcommands (timing → strategies → telemetry → market) are FAST, resumable slices that persist
+# their work to a shared JSON state file so a later step never re-fetches what an earlier one already pulled.
+# The agent runs them in sequence and NARRATES between — no single call carries the whole multi-minute review
+# (which trips the exec timeout and makes the agent bail to raw MCP, losing every guardrail). Each step is
+# idempotent + fail-open: a missing/corrupt state file → recompute (self-heal); every step also works
+# STANDALONE (just slower). `all` writes the same state but prints the full composed dict (byte-identical to
+# the pre-steps output). State default: <tempdir>/senpi-improve-trades/state-<window>d[-lastN].json.
+STATE_SUBDIR = "senpi-improve-trades"
+
+
+def _default_state_path(window_days, last_n):
+    """Default shared-state path, keyed by the review window so distinct windows don't clobber each other:
+    <tempdir>/senpi-improve-trades/state-<window>d[-lastN].json. Uses tempfile.gettempdir() (never $HOME)."""
+    wd = window_days
+    wd = int(wd) if float(wd).is_integer() else wd
+    name = f"state-{wd}d" + (f"-last{last_n}" if last_n else "") + ".json"
+    return os.path.join(tempfile.gettempdir(), STATE_SUBDIR, name)
+
+
+def _load_state(path):
+    """Read the shared state JSON. Never raises — a missing/corrupt/unreadable file → {} (fail-open: the
+    step then recomputes its prerequisites and self-heals)."""
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa — corrupt/unreadable state is fail-open → recompute
+        return {}
+
+
+def _save_state(path, state):
+    """Merge-write the shared state JSON (best-effort; a write failure never sinks the step — the slice was
+    already printed to stdout). Creates the parent dir. Atomic-ish via a temp file + replace."""
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(state, fh)
+        os.replace(tmp, path)
+    except Exception:  # noqa — persistence is best-effort; the printed slice is the contract
+        pass
+
+
+def _fresh_meta():
+    """A meta skeleton seeded like run()'s — the same `sources` list + fail-open scaffolding, so every step's
+    meta reads consistently whether it ran standalone or off state."""
+    return {"warnings": [], "sources": ["discovery_get_trader_history", "ratchet_stop_list",
+                                        "market_get_asset_data", "leaderboard_get_markets",
+                                        "openclaw senpi events"], "degraded": None}
+
+
+def _window_for(window_days, last_n, now_ms=None):
+    """The review window dict (identical shape to run()'s), plus the (since_ms, until_ms) bounds."""
+    since_ms, until_ms = _window_bounds(window_days, now_ms=now_ms)
+    label = f"last {last_n} closed trades" if last_n else f"last ~{window_days}d"
+    window = {"from": since_ms, "to": until_ms, "label": label, "window_days": window_days, "last_n": last_n}
+    return window, since_ms, until_ms
+
+
+def _ensure_trades_in_state(client, state, window_days, last_n, want_market, now_ms=None):
+    """Self-heal: return (strategies, trades, window, since_ms) — from the state file when the timing step
+    already ran, else recompute the discovery trade fetch + prices right here (so EVERY step works
+    standalone). The recompute is the timing step's engine core (enrich_exit=False → no telemetry latency).
+    Also rebuilds the meta warnings the fetch produced. Merges its work back into state for the next step."""
+    window, since_ms, until_ms = _window_for(window_days, last_n, now_ms=now_ms)
+    strategies = state.get("strategies")
+    trades = state.get("trades")
+    if isinstance(strategies, list) and isinstance(trades, list):
+        return strategies, trades, state.get("window", window), since_ms
+    # state absent/partial → recompute the timing slice (discovery + prices, no telemetry/ratchet).
+    meta = _fresh_meta()
+    strategies = fetch_strategies(client, meta)
+    trades, _ms2, _lk, _fl = _collect_trades(
+        client, strategies, meta, since_ms, until_ms, last_n, want_market, enrich_exit=False)
+    state["strategies"] = strategies
+    state["trades"] = trades
+    state["window"] = window
+    state.setdefault("meta_warnings", [])
+    state["meta_warnings"] = meta.get("warnings", [])
+    state["registry_source"] = meta.get("registry_source")
+    return strategies, trades, window, since_ms
+
+
+# ──────────────────────────────────────────────────────────── step subcommands (fast, resumable, standalone)
+def step_timing(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True,
+                state_path=None, now_ms=None):
+    """STEP 1 `timing` — the bottleneck-but-headline slice the agent NARRATES FIRST. Fetch strategies +
+    closed trades (discovery, the parallelized path) + dedup/parallel prices → `trades[]` (exit_reason still
+    UNKNOWN here — telemetry fills it later) + `timing_summary` + `window`. Persists trades + the strategies
+    list to state so `strategies`/`telemetry`/`market` don't re-fetch. Fast: NO telemetry, NO ratchet."""
+    if state_path is None:
+        state_path = _default_state_path(window_days, last_n)
+    state = _load_state(state_path)
+    meta = _fresh_meta()
+    window, since_ms, until_ms = _window_for(window_days, last_n, now_ms=now_ms)
+    meta["window"] = window
+    strategies = fetch_strategies(client, meta)
+    trades, _ms2, _lk, _fl = _collect_trades(
+        client, strategies, meta, since_ms, until_ms, last_n, want_market, enrich_exit=False)
+    timing = _timing_summary(trades)
+    meta["trade_count"] = len(trades)
+    meta.pop("_telemetry_warned", None)
+    meta.pop("_telemetry_dead", None)
+    if not strategies:
+        meta["degraded"] = "no strategies — check the token is USER-scoped"
+    elif not trades:
+        meta["degraded"] = "no closed trades in the window (or trade history unavailable)"
+    # persist the raw fetch for downstream steps (strategies carries mandate/dsl/runtime_id; trades carries
+    # the discovery facts + placeholder exit_reason the telemetry step will overwrite).
+    state["window"] = window
+    state["strategies"] = strategies
+    state["trades"] = trades
+    state["timing_summary"] = timing
+    state["meta_warnings"] = meta.get("warnings", [])
+    state["registry_source"] = meta.get("registry_source")
+    _save_state(state_path, state)
+    return {"window": window, "trades": trades, "timing_summary": timing, "meta": meta}
+
+
+def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True,
+                    state_path=None, now_ms=None):
+    """STEP 2 `strategies` — the per-strategy read (CURRENT-book verdict surface). Reads state (or self-heals
+    the trade fetch when state is absent): `strategies[]` (mandate/DSL from the registry + realized-PnL
+    rollup + `dsl_close_reason_mix` from whatever exit_reason is in state) + `closed_strategies[]` + the meta
+    current/closed counts. Cheap — no network beyond the self-heal fetch."""
+    if state_path is None:
+        state_path = _default_state_path(window_days, last_n)
+    state = _load_state(state_path)
+    meta = _fresh_meta()
+    strategies, trades, window, _since = _ensure_trades_in_state(
+        client, state, window_days, last_n, want_market, now_ms=now_ms)
+    meta["warnings"] = list(state.get("meta_warnings", []))
+    meta["window"] = window
+    strat_reads = _strategy_reads(trades, strategies)
+    closed_reads = _closed_strategy_rollup(trades, strategies)
+    dsl_mix = _dsl_close_reason_mix(trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
+    current_count = sum(1 for s in strategies if _is_current(s.get("status")))
+    closed_count = len(strategies) - current_count
+    meta["strategy_count"] = len(strategies)
+    meta["current_strategy_count"] = current_count
+    meta["closed_strategy_count"] = closed_count
+    meta["trade_count"] = len(trades)
+    if not strategies:
+        meta["degraded"] = "no strategies — check the token is USER-scoped"
+    state["strategies_read"] = strat_reads
+    state["closed_strategies"] = closed_reads
+    state["dsl_close_reason_mix"] = dsl_mix
+    _save_state(state_path, state)
+    return {"strategies": strat_reads, "closed_strategies": closed_reads,
+            "dsl_close_reason_mix": dsl_mix, "meta": meta}
+
+
+def step_telemetry(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True,
+                   state_path=None, now_ms=None):
+    """STEP 3 `telemetry` — the per-runtime event shell-outs, ISOLATED so their latency never blocks the fast
+    slices. Enriches the state trades' `exit_reason` (telemetry-native → ratchet → UNKNOWN) IN PLACE, and
+    produces `missed_signals[]`, `blocked_summary`, `leaks`, `execution_quality`, plus a REFRESHED
+    `dsl_close_reason_mix` (now that exit reasons are filled) + the meta telemetry rollup. Keeps the
+    `_telemetry_dead` short-circuit. Self-heals the trade fetch if state is absent."""
+    if state_path is None:
+        state_path = _default_state_path(window_days, last_n)
+    state = _load_state(state_path)
+    meta = _fresh_meta()
+    strategies, trades, window, since_ms = _ensure_trades_in_state(
+        client, state, window_days, last_n, want_market, now_ms=now_ms)
+    meta["warnings"] = list(state.get("meta_warnings", []))
+    meta["window"] = window
+    missed_signals, leaks, fills = _enrich_exit_and_streams(client, trades, strategies, meta, since_ms)
+    blocked = _blocked_summary(missed_signals)
+    exec_quality = _execution_quality(fills)
+    dsl_mix = _dsl_close_reason_mix(trades)    # REFRESH — exit reasons are now filled in
+    src_counts = _exit_reason_source_counts(trades)
+    meta["exit_reason_source_counts"] = src_counts
+    meta["telemetry_source"] = _telemetry_source(src_counts, meta.get("_telemetry_warned", False))
+    meta["missed_signal_count"] = len(missed_signals)
+    meta["leak_counts"] = {k: v["count"] for k, v in leaks.items()}
+    meta["trade_count"] = len(trades)
+    meta.pop("_telemetry_warned", None)
+    meta.pop("_telemetry_dead", None)
+    # persist the enriched trades (exit_reason now filled) + the streams for `all`-parity re-reads.
+    state["trades"] = trades
+    state["missed_signals"] = missed_signals
+    state["blocked_summary"] = blocked
+    state["leaks"] = leaks
+    state["execution_quality"] = exec_quality
+    state["dsl_close_reason_mix"] = dsl_mix
+    state["meta_warnings"] = meta.get("warnings", [])
+    _save_state(state_path, state)
+    return {"trades": trades, "missed_signals": missed_signals, "blocked_summary": blocked,
+            "leaks": leaks, "execution_quality": exec_quality, "dsl_close_reason_mix": dsl_mix, "meta": meta}
+
+
+def step_market(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True,
+                state_path=None, now_ms=None):
+    """STEP 4 `market` — `book_vs_market` (leaderboard movers × the assets the book held). Reads the held
+    set from the state trades (self-heals the trade fetch if absent). Skipped-to-empty when --no-market."""
+    if state_path is None:
+        state_path = _default_state_path(window_days, last_n)
+    state = _load_state(state_path)
+    meta = _fresh_meta()
+    strategies, trades, window, _since = _ensure_trades_in_state(
+        client, state, window_days, last_n, want_market, now_ms=now_ms)
+    meta["warnings"] = list(state.get("meta_warnings", []))
+    meta["window"] = window
+    bvm = book_vs_market(client, trades, strategies, meta, want_market)
+    state["book_vs_market"] = bvm
+    state["meta_warnings"] = meta.get("warnings", [])
+    _save_state(state_path, state)
+    return {"book_vs_market": bvm, "meta": meta}
+
+
 # ──────────────────────────────────────────────────────────────── orchestration
 def _window_bounds(window_days, now_ms=None):
     now_ms = now_ms if now_ms is not None else int(time.time() * 1000)
@@ -1407,16 +1716,65 @@ def _dry(client):
     return out
 
 
+_STEPS = ("timing", "strategies", "telemetry", "market", "all")
+_STEP_FNS = {"timing": step_timing, "strategies": step_strategies,
+             "telemetry": step_telemetry, "market": step_market}
+
+
+def _all_and_persist(client, window_days, last_n, want_market, state_path, now_ms=None):
+    """`all` = the composed one-shot. Runs the UNCHANGED `run()` (its output is byte-identical to the
+    pre-steps engine) and ALSO writes the shared state file (same shape the steps build) so an `all` run can
+    seed a later narrow step. The state write never alters the printed dict."""
+    result = run(client, window_days=window_days, last_n=last_n, want_market=want_market, now_ms=now_ms)
+    if state_path is None:
+        state_path = _default_state_path(window_days, last_n)
+    state = {
+        "window": result.get("window"),
+        "strategies": None,   # `all` doesn't retain the raw strategy list; steps self-heal by re-fetching
+        "trades": result.get("trades"),
+        "timing_summary": result.get("timing_summary"),
+        "dsl_close_reason_mix": result.get("dsl_close_reason_mix"),
+        "book_vs_market": result.get("book_vs_market"),
+        "missed_signals": result.get("missed_signals"),
+        "blocked_summary": result.get("blocked_summary"),
+        "leaks": result.get("leaks"),
+        "execution_quality": result.get("execution_quality"),
+        "strategies_read": result.get("strategies"),
+        "closed_strategies": result.get("closed_strategies"),
+        "meta_warnings": (result.get("meta") or {}).get("warnings", []),
+    }
+    _save_state(state_path, state)
+    return result
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="senpi improve-trades engine (retrospective review + coaching)")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # optional leading positional STEP (timing|strategies|telemetry|market|all); default `all` = the
+    # composed one-shot (unchanged output + shape). Parsed before argparse so the flags stay shared.
+    step = "all"
+    if argv and not argv[0].startswith("-"):
+        cand = argv[0]
+        if cand not in _STEPS:
+            print(json.dumps({"trades": [], "meta": {"error": f"unknown step {cand!r}; "
+                                                     f"expected one of {', '.join(_STEPS)}"}}))
+            return 1
+        step, argv = cand, argv[1:]
+
+    ap = argparse.ArgumentParser(
+        description="senpi improve-trades engine (retrospective review + coaching). Optional leading STEP: "
+                    "timing|strategies|telemetry|market|all (default all = the composed one-shot). Steps "
+                    "share a state file so later steps don't re-fetch.")
     ap.add_argument("--window", type=float, default=WINDOW_DEFAULT_DAYS,
                     help="review window in days (default ~7)")
     ap.add_argument("--last", type=int, default=None,
                     help="cap to the last N closed trades per wallet (still within the window)")
     ap.add_argument("--no-market", action="store_true",
                     help="skip the current-price + book-vs-market pull")
+    ap.add_argument("--state", default=None,
+                    help="shared state file path (default <tempdir>/senpi-improve-trades/state-<window>d.json)")
     ap.add_argument("--fixture", help="offline: path to a recorded MCP-response map (tests only)")
     ap.add_argument("--dry", action="store_true", help="dump raw MCP responses for schema debugging")
+    # `step` was already peeled off argv above; feed the remainder (flags only).
     args = ap.parse_args(argv)
 
     if args.fixture:
@@ -1437,8 +1795,14 @@ def main(argv=None):
         print(json.dumps(_dry(client), ensure_ascii=False, indent=2, default=str))
         return 0
 
+    want_market = not args.no_market
     try:
-        result = run(client, window_days=args.window, last_n=args.last, want_market=not args.no_market)
+        if step == "all":
+            result = _all_and_persist(client, args.window, args.last, want_market, args.state)
+        else:
+            fn = _STEP_FNS[step]
+            result = fn(client, window_days=args.window, last_n=args.last,
+                        want_market=want_market, state_path=args.state)
     except Exception as e:  # noqa
         print(json.dumps({"trades": [], "meta": {"error": f"engine failure: {e}"}}))
         return 1
