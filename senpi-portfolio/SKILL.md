@@ -15,7 +15,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.6.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -49,6 +49,14 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > un-bucketed dumps that mislead — idle-vs-deployed conflation, per-wallet collateral double-counting,
 > and **sub-wallets mistaken for separate strategies** (a strategy's `main`/`hedge` legs are ONE
 > strategy, not two). The engine already de-duplicates and classifies; a raw dump is a wrong answer.
+>
+> **This includes DSL / "are my positions protected?" questions — do NOT hand-roll them.** Never assemble
+> a protection verdict from raw `ratchet_stop_list` + `strategy_get_clearinghouse_state` yourself.
+> `ratchet_stop_list` shows **only** the live ratchet for positions that have already crossed Tier 1 — it
+> does **not** carry the strategy's config DSL exit, so a by-hand read makes every sub-Tier-1 position look
+> "unprotected" when it isn't. The engine reads BOTH the config ladder (`profile.dsl`) and the live tier
+> (`positions[].dsl`) and frames every position correctly; run it. (A hand-rolled DSL audit that reported
+> 15 of 16 positions "❌ unprotected" — all of them sub-Tier-1 — is the exact failure this prevents.)
 
 ## The wallet model (get this exactly right)
 
@@ -311,6 +319,16 @@ ratchet record" as "no DSL."** Say **"protected; profit-ratchet arms at Tier 1 (
 "unprotected / unmonitored / no stop." (The engine already frames every `armed: false` position this way
 in `dsl.note`; do not override it with an "unprotected" reading.)
 
+- **An ERRORED or empty DSL query is "unknown," never "unprotected."** `ratchet_stop_list` can fail
+  (e.g. `SERR031` auth, or the DSL engine lagging behind a just-opened position) or come back empty. That
+  is a **data gap**, not evidence of missing protection — treat it exactly like `dsl:null`. The engine
+  fails open here (config framing stands alone, plus a `meta.warnings` note); a by-hand call has no such
+  fallback, which is why hand-rolling produces false "unprotected" verdicts. Never turn a failed read into
+  a risk finding.
+- **A strategy with `tradingStrategyName: null` is still a real strategy.** Custom strategies created via
+  `strategy_create_custom_strategy` can come back with a null/blank name — identify and analyze them by
+  `strategyId` + wallet, never skip, mislabel ("Unnamed"), or double-count them for lacking a display name.
+  (If you *created* it this session, you already know its name — don't re-derive it as "unknown.")
 - **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected` (bool)
   is the **config posture** — the strategy ships an `exit:` block (always true for template strategies).
   It says "this strategy has a DSL exit," not which tier a given position sits in. The per-position tier
