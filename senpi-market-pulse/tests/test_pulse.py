@@ -7,6 +7,7 @@
 import json
 import os
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPTS = os.path.join(HERE, "..", "scripts")
@@ -17,10 +18,18 @@ import pulse  # noqa: E402
 FIXTURE = os.path.join(HERE, "fixtures", "pulse_fixture.json")
 
 
-def _result():
+def _client():
     with open(FIXTURE) as f:
-        client = pulse._FixtureClient(json.load(f))
-    return pulse.run(client, want_smart=True)
+        return pulse._FixtureClient(json.load(f))
+
+
+def _result():
+    return pulse.run(_client(), want_smart=True)
+
+
+def _state_path():
+    """A fresh state-file path in a throwaway temp dir (the file itself does not exist yet)."""
+    return os.path.join(tempfile.mkdtemp(prefix="pulse-test-"), "state.json")
 
 
 def test_all_classes_present():
@@ -82,6 +91,74 @@ def test_fails_open_on_empty():
     res = pulse.run(pulse._FixtureClient({}), want_smart=True)
     assert "groups" in res and "meta" in res
     assert res["meta"].get("degraded")
+
+
+# ──────────────────────────────────────────────────────────── streaming steps (pulse · smart · all)
+def test_step_pulse_emits_only_its_slice():
+    """`pulse` = the FAST core market read: groups/signals/day_classification, NO smart_money key."""
+    p = pulse.step_pulse(_client(), want_smart=True, state_path=_state_path())
+    assert set(p.keys()) == {"as_of", "day_classification", "signals", "groups", "meta"}
+    assert "smart_money" not in p                       # the overlay is the separate `smart` step
+    assert p["day_classification"]["label"] == "risk_off"
+    assert p["groups"]["crypto"]["avg_change_pct"] is not None
+    assert p["signals"]["funding_regime"] == "neutral"  # movers were deep-pulled (funding regime folded in)
+
+
+def test_step_smart_emits_only_its_slice():
+    """`smart` = the heavier overlay: prints ONLY {smart_money, meta} (with smart_money_available)."""
+    s = pulse.step_smart(_client(), want_smart=True, state_path=_state_path())
+    assert set(s.keys()) == {"smart_money", "meta"}
+    assert s["meta"]["smart_money_available"] is True
+    assert s["smart_money"]["concentration"]["concentration"][0]["asset"] == "HYPE"
+
+
+def test_pulse_then_smart_reproduces_all():
+    """pulse → smart over the SHARED state file reproduces the composed `all` (core + overlay)."""
+    sp = _state_path()
+    p = pulse.step_pulse(_client(), want_smart=True, state_path=sp)
+    s = pulse.step_smart(_client(), want_smart=True, state_path=sp)   # reads the state pulse wrote
+    composed = {
+        "as_of": p["as_of"],
+        "day_classification": p["day_classification"],
+        "signals": p["signals"],
+        "groups": p["groups"],
+        "smart_money": s["smart_money"],
+    }
+    ref = pulse.run(_client(), want_smart=True)
+    assert composed == {k: ref[k] for k in composed}
+
+
+def test_all_is_byte_identical_to_run():
+    """`all` (via _all_and_persist) prints byte-for-byte what the untouched run() produced."""
+    ref = json.dumps(pulse.run(_client(), want_smart=True), ensure_ascii=False)
+    got = json.dumps(pulse._all_and_persist(_client(), True, _state_path()), ensure_ascii=False)
+    assert got == ref
+
+
+def test_smart_self_heals_on_absent_state():
+    """`smart` standalone (no prior `pulse`, empty state dir) self-heals the core read, still overlays."""
+    sp = _state_path()                                  # dir exists, state file does NOT
+    s = pulse.step_smart(_client(), want_smart=True, state_path=sp)
+    assert s["smart_money"] is not None                 # overlay still landed
+    st = json.load(open(sp))                            # and the recomputed core was persisted
+    assert "crypto" in (st.get("groups") or {})
+
+
+def test_step_fails_open_on_corrupt_state():
+    """A corrupt/unreadable state file → recompute (never crash); the slice is still valid."""
+    sp = _state_path()
+    with open(sp, "w") as fh:
+        fh.write("{ this is not valid json ]]]")
+    p = pulse.step_pulse(_client(), want_smart=True, state_path=sp)   # pulse overwrites the corrupt file
+    assert p["groups"]["crypto"]["avg_change_pct"] is not None
+    s = pulse.step_smart(_client(), want_smart=True, state_path=sp)
+    assert s["smart_money"] is not None
+
+
+def test_step_no_smart_yields_null_overlay():
+    """`smart --no-smart` returns a clean null overlay (available False), no exception."""
+    s = pulse.step_smart(_client(), want_smart=False, state_path=_state_path())
+    assert s["smart_money"] is None and s["meta"]["smart_money_available"] is False
 
 
 if __name__ == "__main__":
