@@ -11,7 +11,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.1.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -56,15 +56,20 @@ surfacing.
   Surface it as positioning, not a timing call.
 - **Always end with the two CTAs** (below), verbatim.
 
-## How to run the engine
+## How to run the engine (the output shape)
 
-Invoke via the `exec` tool:
+Invoke via the `exec` tool. **Prefer the STEPS below** for the full read (they stream and don't trip the
+timeout); this one-shot form is the fallback for when a single blocking call is fine:
 
 ```
-python3 scripts/smartmoney.py [--no-near]
+python3 scripts/smartmoney.py [cohorts|near_term|all] [--no-near] [--state PATH]
 ```
 
-- Returns one JSON doc: `{cohorts, smart_leaning, divergences, near_term, meta}`.
+The leading word is an optional **step** (`cohorts` · `near_term` · `all`, default `all`). `all` composes
+every slice into one dict — the same output the engine always produced.
+
+- Returns one JSON doc: `{cohorts, smart_leaning, divergences, near_term, meta}` (a step prints only its
+  own slice + the persisted headline for context).
 - `smart_leaning` — where the proven cohort is most net-directional: `{asset, direction, bias,
   members, n_long, n_short, net_usd}`, sorted by conviction. **The headline.**
 - `divergences` — smart vs crowd on the same coin: `{asset, opposite_sides, gap, smart_direction,
@@ -76,6 +81,48 @@ python3 scripts/smartmoney.py [--no-near]
   user knows the sample behind the bias.
 - `meta` — `warnings`, `near_term_available`, and **`cohorts_unavailable`** (see token note below).
 - The engine **fails open** — partial data still returns valid JSON. Work with what you got.
+
+## Run it in steps — narrate as you go
+
+A full pull is several MCP round-trips (the per-wallet cohort read is the heavy one). Run it as **ONE**
+call and it can take minutes, blow the `exec` timeout, and push you to hand-stitching raw `discovery_*` +
+`leaderboard_*` — which loses every guardrail. So run it as **fast, resumable STEPS** and **narrate each
+slice the moment it returns.** Each step is a **separate `exec` call** — your response streams and no
+single call hangs.
+
+```sh
+python3 scripts/smartmoney.py cohorts      # 1. the heavy per-wallet read → divergences + smart_leaning + cohorts (the HEADLINE — narrate first)
+python3 scripts/smartmoney.py near_term    # 2. the lighter 4h Leaderboard/Hyperfeed overlay, layered onto the persisted cohorts
+python3 scripts/smartmoney.py all          # one-shot fallback: the full composed dict (same output as before)
+```
+
+**For the full read** — "where's smart money", "what are the whales doing", "smart money vs the crowd" —
+run both steps **in order** and narrate between:
+
+1. `smartmoney.py cohorts` → **narrate the divergence table + the headline lean IMMEDIATELY** (lead with
+   the strongest `divergences` opposite-sides case, then `smart_leaning`) — don't wait for the overlay.
+   `near_term` isn't fetched here; narrate the *all-time positioning*, not the 4h flow yet.
+2. `smartmoney.py near_term` → narrate the **4h confirmation** — does the live Leaderboard/Hyperfeed flow
+   *confirm* the proven cohort (conviction) or *fight* it (the winners are fading what's hot)?
+
+**Narrate each slice as it returns — never wait for both.** The steps share a state file
+(`<tempdir>/senpi-smart-money/state.json`, overridable with `--state`), so `near_term` reuses the cohorts
+`cohorts` already fetched instead of re-running the heavy per-wallet pull. **For a NARROW ask, run only the
+minimal step:**
+
+| Intent (what the user asks) | Step to run | Slice it returns |
+|---|---|---|
+| *"who's profiting / what's smart money doing / where are the whales leaning"* | `cohorts` | `smart_leaning` + `divergences` + `cohorts` |
+| *"smart money vs the crowd / crowd-fade setups / where do the winners split from the crowd"* | `cohorts` | `divergences` (opposite-sides first) |
+| *"what's the 4h hot-money flow / is the move building or fading"* | `near_term` (self-heals the cohorts) | `near_term` + the persisted cohort headline for context |
+| *"the full read" (any of the above together)* | **both in order** (`cohorts`→`near_term`) — the fallback | the full composed dict |
+
+Each step is **idempotent + fail-open**: a missing/corrupt state file → recompute (self-heal), so
+`near_term` **also works standalone** (it just re-runs the cohort fetch first). `--no-near` / `--fixture` /
+`--state` apply to every step; same fail-open contract as `all` — each step returns valid JSON with
+`meta.warnings` on partial data, `meta.cohorts_unavailable` on an app-scoped token, and never crashes on a
+missing/corrupt state file. Prefer the steps for the full read; use `all` only when a single blocking call
+is fine.
 
 ## ⚠ Token scope
 
