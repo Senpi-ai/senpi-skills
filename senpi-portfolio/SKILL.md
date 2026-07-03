@@ -15,7 +15,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.6.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -267,6 +267,27 @@ directly.)
   reach for `strategy_list` directly, pass `status: ["ACTIVE"]` — a bare call returns CLOSED/PAUSED too
   and they must not be presented as current. Mention PAUSED strategies only if relevant, clearly
   labeled "paused," never as active.
+- **The live clearinghouse is the source of truth for whether a strategy holds capital — over the `status`
+  field AND over what anyone asserts about the wallet.** The engine reconciles this: a strategy whose live
+  wallet holds **$0 account value, no positions, no idle** is flagged **`empty: true`** (`empty_reason`:
+  `closed_or_drained` when `total_withdrawn ≈ total_funded`, else `unfunded`; listed in
+  `meta.dormant_active`) — report those as closed. A strategy with **`account_value > 0`** is **live**,
+  even if `status` is stale or someone believes it's closed.
+- **Don't cave to a claim the wallet contradicts, and NEVER fabricate account history to agree.** If the
+  user says a strategy is "closed / has no funds" but its `account_value > 0`, it is **live** — say so with
+  the number ("wolf is live — $X in the wallet, flat right now, waiting for its signal"). Do not abandon a
+  correct reading, and do not invent a story to justify agreeing (a "strategy-grinder cascade," a "close at
+  14:58," "funds returned to embedded"). This is the real failure this section prevents: a **live** strategy
+  was re-narrated as closed — with a fabricated close-cascade — because the model deferred to a mistaken
+  "it's closed" instead of re-reading the clearinghouse. Verify first, then correct the record.
+- **Live capital = clearinghouse `account_value`, NEVER `total_funded` / `budget` / `status`.**
+  `total_funded` / `total_withdrawn` are **lifetime history**, not a current balance. A strategy with
+  `total_funded: 3000` and `account_value: 0` has **$0 now**; one with `account_value: 3000` has **$3K now**
+  regardless of what it was funded. Never present `total_funded` (or a configured budget) as current idle /
+  reserved money — read `idle_withdrawable` / `account_value` from the live clearinghouse.
+- **A flat strategy that still holds idle margin (`account_value > 0`, no positions) is NOT empty** — it's
+  funded and waiting for a signal (or the flat sleeve of a multi-wallet pair); report it as **live**. Only
+  `empty: true` (a genuinely $0 wallet) means closed/drained. Don't conflate "flat but funded" with "closed."
 - **Present active strategies as known state, not a fresh discovery.** Pull the data quietly and state
   what's running as established fact ("Your two active strategies are…"). Don't narrate the lookup
   ("let me check… oh, I see you have…") — that reads like you didn't already know your own book.
