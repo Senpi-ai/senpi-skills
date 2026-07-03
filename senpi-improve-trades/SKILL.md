@@ -113,6 +113,15 @@ Read the JSON on stdout and narrate it under the guardrails. It fails open end-t
 returns valid JSON with `meta.warnings`; `meta.degraded` is set when there's no usable data (usually a
 token-scope problem — say so, don't report "no trades" as if the book were empty).
 
+**The analysis MUST come from `review.py`. Never bypass it and hand-assemble the review from raw MCP
+calls.** The engine is the entire point — it computes the timing table, the exit reasons, the mandate reads,
+and the current-vs-closed split *so the guardrails hold*. Free-styling on raw `strategy_list` /
+`discovery_get_trader_history` / `ratchet_stop_list` reproduces the exact failure modes this skill exists to
+prevent — "everything's unprotected," "consolidate the wallets," "dead weight," fabricated numbers. If a run
+is slow, **re-run it** (it parallelizes the per-wallet work; a repeat is fast) or pass `--last 20` /
+`--no-market` to trim — do NOT substitute raw tool calls for the engine's output. The only raw MCP you add is
+to go *beyond* the review (e.g. a live position detail the user asks for), never to replace it.
+
 ## The eight guardrails — the reason this skill exists
 
 These are non-negotiable. Each fixes a real failure from live agent responses to these prompts.

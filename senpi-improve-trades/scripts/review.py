@@ -31,6 +31,7 @@ additional/primary trade+exit source without touching the narration, the guardra
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
+import concurrent.futures
 import datetime
 import json
 import os
@@ -390,7 +391,7 @@ def _load_ratchet_records(client, strat, meta):
     out = {}
     try:
         rl = _ok(client.mcp_call("ratchet_stop_list", strategyId=sid,
-                                 strategy_wallet_address=wallet, status="ALL", timeout=15))
+                                 strategy_wallet_address=wallet, status="ALL", timeout=10))
     except Exception as e:  # noqa — fail-open: exit_reason becomes UNKNOWN, never guessed
         meta.setdefault("warnings", []).append(
             f"ratchet_stop_list {str(wallet)[:8]} failed: {e}; exit attribution degraded to UNKNOWN")
@@ -702,7 +703,7 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
     try:
         h = _ok(client.mcp_call("discovery_get_trader_history", trader_address=wallet,
                                 sort_by="CLOSED_TIME", sort_direction="DESC",
-                                limit=CLOSED_HISTORY_PULL, timeout=20))
+                                limit=CLOSED_HISTORY_PULL, timeout=12))
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"trader_history {wallet[:8]} failed: {e}")
         return []
@@ -750,7 +751,7 @@ def _price_now(client, asset, dex, meta):
     """CURRENT mark price for one asset (lifted from portfolio.py's market_get_asset_data extraction —
     reads markPx from the context block). Only CURRENT price is needed for v1 (no historical candles).
     Read-guarded → None on any failure."""
-    kw = dict(asset=asset, candle_intervals=[], include_order_book=False, include_funding=False, timeout=12)
+    kw = dict(asset=asset, candle_intervals=[], include_order_book=False, include_funding=False, timeout=8)
     if dex == "xyz" or str(asset).startswith("xyz:"):
         kw["dex"] = "xyz"
     try:
@@ -801,48 +802,47 @@ def _if_held(trade, price_now):
 
 
 # ──────────────────────────────────────────────────────────────── the source boundary (telemetry-ready)
-def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_market):
-    """THE SOURCE BOUNDARY — onchain data → discovery; runtime events → telemetry.
+def _merge_meta(dst, src):
+    """Fold a per-strategy worker's private `meta` back into the shared `meta` in the MAIN thread only —
+    so no worker ever mutates shared state. Warnings concatenate in strategy order (deterministic); the
+    telemetry sticky flags OR together (once dead / warned anywhere → dead / warned overall)."""
+    w = src.get("warnings")
+    if w:
+        dst.setdefault("warnings", []).extend(w)
+    if src.get("_telemetry_dead"):
+        dst["_telemetry_dead"] = True
+    if src.get("_telemetry_warned"):
+        dst["_telemetry_warned"] = True
 
-    DISCOVERY OWNS THE TRADE LIST + every onchain fact. `fetch_closed_trades` (discovery_get_trader_history)
-    is the trade source, untouched — asset, entry/exit px, realized PnL, direction, timing, closedOrderId
-    all come from there and are never re-derived. `market_get_asset_data` supplies the current price for
-    the honest "if I'd held to now" counterfactual.
 
-    TELEMETRY (the runtime event log) ENRICHES those discovery trades: it fills each trade's EXIT REASON
-    (`dsl.closed` / `position.closed` close_reason + tier + roe) and produces the standalone telemetry
-    streams — `missed_signals[]` (blocked/rejected `signal.outcome` — 'what did I miss'), plus the leak +
-    execution-quality rollups ('where am I leaking', 'fees maker vs taker'). ALL of these reuse the SAME
-    per-runtime events fetched ONCE here (no re-fetch). Telemetry NEVER reconstructs a trade or re-derives a
-    price/PnL. Exit-reason match priority: exact order_id → else asset+close_time within ±2min; no telemetry
-    match → the ratchet record (SECONDARY fallback) → else UNKNOWN. Telemetry wins when present.
+def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap):
+    """Phase-1 worker — fully processes ONE strategy on a thread and returns its contribution, WITHOUT the
+    price/`_if_held` step (deferred to phase 2). Runs against a PRIVATE `meta` (merged back in the main
+    thread) so threads never write shared state. Wrapped fail-open by the caller — one strategy's failure
+    contributes empty, never sinks the run.
 
-    Returns (trades, missed_signals, leaks, fills). Fail-open per source — a missing source degrades that
-    field/stream, not the whole trade; zero telemetry → discovery path is fully intact + empty aggregates."""
-    trades, missed_signals = [], []
-    # leak + execution-quality accumulators — filled from the SAME fetched events, per strategy, no re-fetch.
+    Returns a dict: {trades (no price fields yet), missed_signals, leaks, fills, meta}. Each collected trade
+    already carries its strategy tags + telemetry/ratchet exit_reason + `source`; only price_now /
+    price_since_exit_pct / if_held_delta_usd / exit_vs_hold remain for phase 2."""
+    out_trades, missed_signals = [], []
     leaks = {"order_failed": {"count": 0, "samples": []},
              "protection_gaps": {"count": 0, "samples": []},
              "risk_halts": {"count": 0, "samples": []}}
     fills = {"maker": 0, "taker": 0, "unknown": 0}
-    for strat in strategies:
-        closed = fetch_closed_trades(client, strat["wallet"], since_ms, until_ms, cap, meta)
-        # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). Fetched even when
-        # the wallet has no closed trades in-window, since its missed_signals + leaks still count.
-        events = _fetch_events(strat.get("runtime_id"), since_ms, meta)
-        if events:
-            missed_signals.extend(_missed_signals_from_events(events, strat.get("label")))
-            # scan the SAME entries once for leaks (failed orders / protection gaps / risk halts) + fills.
-            _scan_leak_and_fill_events(events, strat.get("label"), leaks, fills)
-        if not closed:
-            continue
+    closed = fetch_closed_trades(client, strat["wallet"], since_ms, until_ms, cap, meta)
+    # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). Fetched even when
+    # the wallet has no closed trades in-window, since its missed_signals + leaks still count.
+    events = _fetch_events(strat.get("runtime_id"), since_ms, meta)
+    if events:
+        missed_signals.extend(_missed_signals_from_events(events, strat.get("label")))
+        # scan the SAME entries once for leaks (failed orders / protection gaps / risk halts) + fills.
+        _scan_leak_and_fill_events(events, strat.get("label"), leaks, fills)
+    if closed:
         by_order_id, by_asset = _index_exit_events(events)
         ratchet_records = _load_ratchet_records(client, strat, meta)
         for t in closed:
             asset = t.get("asset")
             dex = "xyz" if str(asset).startswith("xyz:") else "main"
-            price_now = _price_now(client, asset, dex, meta) if want_market else None
-            since_pct, if_held, verdict = _if_held(t, price_now)
             # EXIT REASON — telemetry (native) wins; ratchet is the reconstructed fallback; else UNKNOWN.
             # Telemetry only ever writes exit_reason — asset/px/pnl/direction/timing stay discovery's.
             ev = _match_exit_event(t, by_order_id, by_asset)
@@ -865,12 +865,121 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
                 # where the exit_reason came from (telemetry-enriched vs reconstructed-only).
                 "source": "telemetry" if ev is not None else "reconstructed",
                 "exit_reason": exit_reason,
-                "price_now": price_now,
-                "price_since_exit_pct": since_pct,
-                "if_held_delta_usd": if_held,   # CONTEXT, not verdict
-                "exit_vs_hold": verdict,        # engine verdict of the exit vs holding-to-now
             })
-            trades.append(t)
+            out_trades.append(t)
+    return {"trades": out_trades, "missed_signals": missed_signals,
+            "leaks": leaks, "fills": fills, "meta": meta}
+
+
+def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_market):
+    """THE SOURCE BOUNDARY — onchain data → discovery; runtime events → telemetry.
+
+    DISCOVERY OWNS THE TRADE LIST + every onchain fact. `fetch_closed_trades` (discovery_get_trader_history)
+    is the trade source, untouched — asset, entry/exit px, realized PnL, direction, timing, closedOrderId
+    all come from there and are never re-derived. `market_get_asset_data` supplies the current price for
+    the honest "if I'd held to now" counterfactual.
+
+    TELEMETRY (the runtime event log) ENRICHES those discovery trades: it fills each trade's EXIT REASON
+    (`dsl.closed` / `position.closed` close_reason + tier + roe) and produces the standalone telemetry
+    streams — `missed_signals[]` (blocked/rejected `signal.outcome` — 'what did I miss'), plus the leak +
+    execution-quality rollups ('where am I leaking', 'fees maker vs taker'). ALL of these reuse the SAME
+    per-runtime events fetched ONCE here (no re-fetch). Telemetry NEVER reconstructs a trade or re-derives a
+    price/PnL. Exit-reason match priority: exact order_id → else asset+close_time within ±2min; no telemetry
+    match → the ratchet record (SECONDARY fallback) → else UNKNOWN. Telemetry wins when present.
+
+    PERFORMANCE — two parallel phases (output shape + values IDENTICAL to the old sequential form):
+      Phase 1 — per-strategy fan-out on a ThreadPoolExecutor (max 8 workers). Each worker fully processes
+        ONE strategy (fetch_closed_trades + _fetch_events → missed_signals + leak/fill deltas +
+        _load_ratchet_records + the per-trade exit_reason match), but DEFERS the price/`_if_held` step. Each
+        worker runs against a PRIVATE meta and returns local leak/fill deltas — no shared mutable state is
+        written from threads. Results merge in the MAIN thread deterministically: strategies iterated in
+        their original order, trades concatenated, leaks/fills summed per-strategy, warnings concatenated in
+        order. Each worker is wrapped fail-open (one strategy's failure contributes empty, never crashes).
+      Phase 2 — dedupe + parallelize the price fetches. The unique (asset, dex) set across all collected
+        trades is priced ONCE each (small pool → {(asset,dex): price} cache), then `_if_held` is applied to
+        every trade from the cache. This collapses the old per-trade sequential price calls (3× JPY → 1).
+        Skipped entirely when want_market is False (price_now stays None, exit_vs_hold 'unknown').
+
+    Returns (trades, missed_signals, leaks, fills). Fail-open per source — a missing source degrades that
+    field/stream, not the whole trade; zero telemetry → discovery path is fully intact + empty aggregates."""
+    trades, missed_signals = [], []
+    # leak + execution-quality accumulators — SUMMED from each strategy's private deltas (no thread writes).
+    leaks = {"order_failed": {"count": 0, "samples": []},
+             "protection_gaps": {"count": 0, "samples": []},
+             "risk_halts": {"count": 0, "samples": []}}
+    fills = {"maker": 0, "taker": 0, "unknown": 0}
+
+    def _worker(strat):
+        # each worker gets a PRIVATE meta seeded with the sticky telemetry flag so it can still short-circuit.
+        priv = {"_telemetry_dead": meta.get("_telemetry_dead", False)}
+        try:
+            return _collect_one_strategy(client, strat, priv, since_ms, until_ms, cap)
+        except Exception as e:  # noqa — one strategy failing must not sink the run (fail-open to empty)
+            priv.setdefault("warnings", []).append(f"strategy collect failed: {e}")
+            return {"trades": [], "missed_signals": [],
+                    "leaks": {"order_failed": {"count": 0, "samples": []},
+                              "protection_gaps": {"count": 0, "samples": []},
+                              "risk_halts": {"count": 0, "samples": []}},
+                    "fills": {"maker": 0, "taker": 0, "unknown": 0}, "meta": priv}
+
+    # ── Phase 1: per-strategy fan-out (parallel), then merge in original order (deterministic) ──
+    if strategies:
+        workers = min(8, len(strategies))
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            results = list(ex.map(_worker, strategies))   # ex.map preserves input order
+        for res in results:                                # iterate in original strategy order
+            trades.extend(res["trades"])
+            missed_signals.extend(res["missed_signals"])
+            rl = res["leaks"]
+            for cat in leaks:
+                leaks[cat]["count"] += rl[cat]["count"]
+                # keep the sample cap: fill from each strategy's samples until the category cap is reached
+                for s in rl[cat]["samples"]:
+                    if len(leaks[cat]["samples"]) < _LEAK_SAMPLE_CAP:
+                        leaks[cat]["samples"].append(s)
+            rf = res["fills"]
+            for k in fills:
+                fills[k] += rf[k]
+            _merge_meta(meta, res["meta"])
+
+    # ── Phase 2: dedupe + parallelize the price fetches, then apply _if_held from the cache ──
+    price_cache = {}
+    if want_market and trades:
+        keys = []
+        seen = set()
+        for t in trades:
+            asset = t.get("asset")
+            dex = "xyz" if str(asset).startswith("xyz:") else "main"
+            key = (asset, dex)
+            if key not in seen:
+                seen.add(key)
+                keys.append(key)
+        if keys:
+            pworkers = min(8, len(keys))
+
+            def _price_worker(key):
+                asset, dex = key
+                try:
+                    return key, _price_now(client, asset, dex, meta)
+                except Exception:  # noqa — fail-open per asset → None (already _price_now's contract)
+                    return key, None
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=pworkers) as pex:
+                for key, price in pex.map(_price_worker, keys):
+                    price_cache[key] = price
+
+    for t in trades:
+        asset = t.get("asset")
+        dex = "xyz" if str(asset).startswith("xyz:") else "main"
+        price_now = price_cache.get((asset, dex)) if want_market else None
+        since_pct, if_held, verdict = _if_held(t, price_now)
+        t.update({
+            "price_now": price_now,
+            "price_since_exit_pct": since_pct,
+            "if_held_delta_usd": if_held,   # CONTEXT, not verdict
+            "exit_vs_hold": verdict,        # engine verdict of the exit vs holding-to-now
+        })
+
     trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
     missed_signals.sort(key=lambda m: _num(m.get("ts")) or 0, reverse=True)
     return trades, missed_signals, leaks, fills
