@@ -5,14 +5,24 @@ description: >-
   time. Use when the user wants to create, design, or build a new autonomous
   strategy: "build a strategy", "help me build a trading strategy", "create a
   strategy from scratch", "walk me through building a strategy", "design a
-  strategy", "I have a trading idea". DEFAULT behavior: ask the 7 design
-  decisions one question at a time, reflect each answer back, then assemble +
-  smoke-test the package. Also edits existing strategies. NOT for installing
-  (senpi-strategy-ops) or picking one to run (senpi-strategy-discover).
+  strategy", "I have a trading idea". USE THIS SKILL TO CREATE ANY STRATEGY THAT
+  HAS DSL — a runtime-supervised exit (stop-loss / trailing stop / profit-lock
+  ladder / any managed stop that persists). Authoring a Runtime 3.0 runtime.yaml
+  here is the ONLY correct way to create a DSL-protected strategy. A raw MCP
+  strategy_create_custom_strategy / create_position call CANNOT carry a DSL and
+  MUST NEVER be used to stand up a named, DSL-protected, or persistent strategy
+  (it yields an unnamed, unsupervised, registry-less position bundle with at most
+  a flat stop — the confirmed Decoupling failure). The raw MCP tools are ONLY for
+  manual one-off open/close positions or mirror (copy-trade) strategies that have
+  NO DSL. If DSL / a trailing stop / "protect this" is anywhere in the intent →
+  author it here. DEFAULT behavior: ask the 7 design decisions one question at a
+  time, reflect each answer back, then assemble + smoke-test the package. Also
+  edits existing strategies. NOT for installing (senpi-strategy-ops) or picking
+  one to run (senpi-strategy-discover).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.1.0"
+  version: "2.2.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -25,6 +35,17 @@ You build a strategy **by interviewing the user**, not by lecturing them. A stra
 package; the runtime owns execution, sizing, exits, slots, risk, and state. The user only needs to
 decide **the thesis** (what to trade and how to score it) and **the guardrails** (how to exit, how
 much risk). Your job is to draw those out, one question at a time, and compile them.
+
+> **DSL ⟹ author here. This is the boundary.** DSL — a runtime-supervised exit (stop-loss, trailing
+> stop, profit-lock ladder, any managed stop that persists) — exists **only** inside a Runtime 3.0
+> `runtime.yaml` `exit:` block, which is what this skill compiles. **Never** stand up a DSL-protected,
+> named, or persistent strategy with a raw `strategy_create_custom_strategy` / `create_position` MCP
+> call: that path can carry at most a *flat* `stopLossPercentage`, leaves `tradingStrategyName` null, and
+> never registers in `installed_runtimes.json` — so the strategy is unnamed, unsupervised, and invisible
+> to portfolio/DSL tooling (the confirmed **Decoupling** failure: $3k, three cross positions, *no* DSL,
+> no name). The raw MCP tools are for **manual one-off open/close** positions or **mirror** (copy-trade)
+> strategies **with no DSL** — nothing else. If protection is anywhere in the ask, you're in the right
+> skill; author it.
 
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
