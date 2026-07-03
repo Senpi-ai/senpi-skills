@@ -204,11 +204,15 @@ otherwise it's just an asset the strategy was never designed to trade.
 - **A strategy is ALL its wallets.** A multi-wallet strategy (long+short, core+ballast, multi-sleeve) is ONE
   strategy — **never** recommend closing / repurposing a single sleeve ("close the duplicate wallet"). One
   sleeve of a long/short book is a **naked directional position**, the opposite of the design.
-- **The "consolidate your wallets" reflex is usually WRONG.** Many same-label wallets are **historical
-  redeployments** (the strategy was closed and re-launched), not concurrent redundancy. They appear in
-  `closed_strategies[]`, not `strategies[]`. Do **not** count them as a live book you should merge. The live
-  book size is `meta.current_strategy_count` — count *that*, never `meta.strategy_count` (which includes
-  history). See rule 8.
+- **The "consolidate your wallets" reflex is usually WRONG — and NEVER recommend merging two ACTIVE
+  same-label wallets.** Two live wallets under one label (e.g. "cougar ×2", "lion ×2") are almost always the
+  **`long` + `short` sleeves** (or `core` + `ballast`) of ONE multi-wallet strategy — **not** duplicate
+  redeployments. Merging them collapses a market-neutral / two-speed book into a **naked directional bet** —
+  the exact opposite of the design. You usually **can't tell sleeves from redeployments when `mandate` is
+  null** (registry unreadable) — so when in doubt, **do not recommend consolidating**; say "these two wallets
+  are likely the long/short sleeves of one strategy — check the package before treating them as duplicates."
+  (Genuine *closed* redeployments live in `closed_strategies[]`, not `strategies[]`; the live book size is
+  `meta.current_strategy_count`, never `meta.strategy_count`. See rule 8.)
 - **A flat / idle / no-trades-this-window strategy is often by design** — the other sleeve waiting for its
   signal, or a patient strategy between setups. `on_mandate_note` flags this. Never call it "dead."
 
