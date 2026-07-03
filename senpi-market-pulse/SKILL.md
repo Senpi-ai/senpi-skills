@@ -11,7 +11,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.1.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -28,7 +28,10 @@ they couldn't get from a price screen on their own.
 
 - **Run the engine; never hand-pull the market.** `python3 scripts/pulse.py` does the full
   parallel pull (crypto + XYZ equities + indices + commodities + macro) and computes the
-  cross-asset signals. Read its JSON — don't fire `market_*` calls yourself.
+  cross-asset signals. Read its JSON — don't fire `market_*` calls yourself. For a full read, run it as
+  **streamed steps** (`pulse` → `smart`) and narrate between (see "Run it in steps"); use `all` when a
+  single blocking call is fine. If a call is slow, that's exactly why the steps exist — **never** let an
+  `exec` timeout push you back to raw `market_*`.
 - **Always cover every asset class.** Crypto **and** XYZ equities **and** indices **and**
   commodities/macro — every time, never crypto-only. The engine always returns all of them; your
   answer must too.
@@ -49,13 +52,15 @@ they couldn't get from a price screen on their own.
 
 ## How to run the engine
 
-Invoke via the `exec` tool:
+Invoke via the `exec` tool. Optional leading STEP (`pulse` · `smart` · `all`; default `all`):
 
 ```
-python3 scripts/pulse.py [--no-smart]
+python3 scripts/pulse.py pulse [--no-smart]   # 1. FAST core read: movers/groups/funding/signals (narrate first)
+python3 scripts/pulse.py smart                # 2. smart-money overlay, layered on the persisted core read
+python3 scripts/pulse.py all  [--no-smart]    # one-shot fallback: the full composed dict (same output as before)
 ```
 
-- Returns one JSON doc: `{day_classification, signals, groups, smart_money, meta}`.
+- `all` (the default with no step) returns one JSON doc: `{day_classification, signals, groups, smart_money, meta}`.
 - `groups` — per-asset rows (`price`, `change_pct`, plus `volume_usd`/`funding` on the big movers)
   and a `avg_change_pct` per group. Groups are pre-split by structure: `semis_memory`,
   `semis_equipment`, `semis_logic`, `software_megacap`, `crypto_proxy`, `indices`, `commodities`,
@@ -68,6 +73,47 @@ python3 scripts/pulse.py [--no-smart]
   pretend a class you couldn't read is fine.
 - The engine **fails open** — partial data still returns valid JSON. Work with what you got; flag
   what's missing.
+
+## Run it in steps — narrate as you go
+
+A full market read is several MCP round-trips (both dexes' instruments, the capped mover deep-pull,
+**and** the leaderboard / Hyperfeed layer). Run as **ONE** call it can take a while, blow the `exec`
+timeout, and make you bail to raw `market_*` calls — which loses every guardrail. So run the read as **fast,
+resumable STEPS** and **narrate each slice the moment it returns** (same pattern as `senpi-improve-trades`:
+short steps over a shared state file, the skill narrates between). Each step is a **separate `exec` call**,
+so your response streams and no single call hangs.
+
+```sh
+python3 scripts/pulse.py pulse    # 1. instruments + build_groups + compute_signals + mover deep-pull → movers/groups/funding/signals (FAST, narrate first)
+python3 scripts/pulse.py smart    # 2. the smart-money overlay (leaderboard/Hyperfeed) layered on the persisted core read
+python3 scripts/pulse.py all      # one-shot fallback: the full composed dict (byte-identical to before)
+```
+
+**For a FULL market read** — "what's happening today", "market overview / update", "give me a read" — run
+the two steps **in order** and narrate between:
+
+1. `pulse.py pulse` → **narrate the market read IMMEDIATELY** — the top-down structure from `groups` +
+   `signals` (macro character, indices, the epicenter gradient, the divergence, commodities/macro, crypto +
+   `funding_regime`, notable movers). Don't wait for the smart-money layer. This is the whole output
+   contract below **except** the smart-money note.
+2. `pulse.py smart` → narrate the **smart-money overlay** (`smart_money`: cohort concentration, top traders,
+   momentum events) — "the >$1M cohort is X% concentrated short HYPE and adding." If `smart_money` is null,
+   note "smart-money layer unavailable" once and move on.
+
+**Narrate each slice as it returns — never wait for both steps.** The steps share a state file
+(`<tempdir>/senpi-market-pulse/state.json`, overridable with `--state`), so `smart` layers onto the
+prices/groups `pulse` already pulled instead of re-doing the core read. **For a NARROW ask, run only the
+minimal step:**
+
+- *"what's moving / today's markets / funding regime / market overview"* → just **`pulse`** (the core read;
+  no smart-money round-trips).
+- *"what's smart money doing in the market / compare to the whales"* → **`smart`** (it self-heals the core
+  read if you skipped `pulse`), or compose **`senpi-smart-money`** for the deep trader-level whale read.
+
+`--no-smart` applies to every step (it makes `smart` a clean null overlay). Same fail-open contract as `all`:
+each step returns valid JSON with `meta.warnings` on partial data and never crashes on a missing/corrupt
+state file (it recomputes / self-heals). Keep **`all`** as the fallback when a single blocking call is fine —
+and all the golden rules + the two CTAs still apply to a stepped read.
 
 ## Output contract
 

@@ -53,10 +53,16 @@ market thesis (proposes, never auto-builds).
 ## Run
 
 ```sh
-python3 scripts/pulse.py            # full live pull
+python3 scripts/pulse.py            # `all` (default): full live pull, one composed dict
+python3 scripts/pulse.py pulse      # step 1 — FAST core read (movers/groups/funding/signals); narrate first
+python3 scripts/pulse.py smart      # step 2 — smart-money overlay, layered on the persisted core read
 python3 scripts/pulse.py --no-smart # skip the leaderboard layer
 python3 scripts/pulse.py --fixture tests/fixtures/pulse_fixture.json   # offline (tests)
 ```
+
+Streamed reads run as fast, resumable **steps** (`pulse` → `smart`) over a shared state file
+(`<tempdir>/senpi-market-pulse/state.json`, `--state` to override) so no single `exec` call blows the
+timeout; `all` stays the one-shot fallback. See SKILL.md "Run it in steps."
 
 Env: `SENPI_AUTH_TOKEN`, `SENPI_MCP_URL` (defaults to prod).
 

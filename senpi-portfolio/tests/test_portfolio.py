@@ -11,6 +11,7 @@ SEPARATE buckets and never collapses strategy-margin into "embedded idle."
 import json
 import os
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
@@ -414,6 +415,128 @@ def test_embedded_idle_reads_nested_total_in_hyperliquid():
     res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
     assert res["embedded_wallet"]["idle_hl_usdc"] == 10446.0
     assert res["totals"]["idle_in_embedded"] == 10446.0
+
+
+# ──────────────────────────────────────────────── streaming STEPS (money · strategies · positions · all)
+def _client():
+    """A fresh fixture client on the canonical portfolio fixture (each step consumes its own client)."""
+    with open(FIXTURE) as f:
+        return portfolio._FixtureClient(json.load(f))
+
+
+def _tmp_state():
+    return os.path.join(tempfile.mkdtemp(), "state.json")
+
+
+def test_step_money_emits_the_three_buckets_offline():
+    """STEP `money` — the fast money map: the three buckets + grand_total + reconciles, offline against
+    the fixture. Same bucket values run() produces (idle-in-embedded is the $1.51 EVM USDC, NOT the
+    $2,461 idle-in-strategies), computed WITHOUT the positions/DSL/closed detail."""
+    out = portfolio.step_money(_client(), want_market=True, state_path=_tmp_state())
+    t = out["totals"]
+    assert set(("grand_total_usd", "idle_in_embedded", "idle_in_strategies",
+                "deployed_in_positions", "reconciles")) <= set(t)
+    assert t["idle_in_embedded"] == 1.51                  # only the EVM USDC (bucket 1)
+    assert t["idle_in_strategies"] > 2000                 # total_withdrawable lives here (bucket 2)
+    assert t["deployed_in_positions"] == 639.45           # margin backing open positions (bucket 3)
+    assert 3050 <= t["grand_total_usd"] <= 3150
+    s = t["idle_in_embedded"] + t["idle_in_strategies"] + t["deployed_in_positions"]
+    assert abs(s - t["grand_total_usd"]) <= 2.0           # the buckets reconcile to the total
+    # money-lite strategy rows carry the money fields but NOT the heavy detail
+    assert len(out["strategies"]) == 3
+    row = out["strategies"][0]
+    assert "account_value" in row and "idle_withdrawable" in row and "deployed" in row
+    assert "positions" not in row and "profile" not in row and "closed" not in row
+
+
+def test_step_strategies_emits_per_strategy_detail_offline():
+    """STEP `strategies` — the per-strategy verdict surface: fully-hydrated strategies[] (positions +
+    mandate/DSL + closed) + strategy_groups[]. Self-heals its own fetch when state is absent."""
+    out = portfolio.step_strategies(_client(), want_market=False, state_path=_tmp_state())
+    assert len(out["strategies"]) == 3
+    assert len(out["strategy_groups"]) >= 1
+    short = {s["name"]: s for s in out["strategies"]}["cub-short"]
+    assert len(short["positions"]) == 3                   # full positions detail present
+    assert "closed" in short                              # closed/realized block present
+    # each open position carries its live DSL tier object (never left looking unprotected)
+    assert all("dsl" in p for p in short["positions"])
+
+
+def test_step_positions_emits_market_exposure_signals_offline():
+    """STEP `positions` — the position-level slice: market enrichment folded onto positions
+    (market_24h_pct/vs_market) + exposure + signals. The market fan-out is isolated in this step."""
+    out = portfolio.step_positions(_client(), want_market=True, state_path=_tmp_state())
+    assert out["exposure"]["net_bias"] == "short"         # every open position is a short
+    assert out["exposure"]["gross_long_usd"] == 0
+    assert set(("idle_drag_pct", "deployed_pct")) <= set(out["signals"])
+    short = {s["name"]: s for s in out["strategies"]}["cub-short"]
+    eth = next(p for p in short["positions"] if p["asset"] == "ETH")
+    assert eth["market_24h_pct"] < 0 and eth["vs_market"] == "with the move"
+
+
+def test_step_sequence_reproduces_all_values():
+    """money → strategies → positions over ONE shared state reproduces `all`'s values: the money buckets,
+    and (after the market-folding positions step) the enriched strategies[], strategy_groups, exposure,
+    signals, and full totals all match run()/`all` exactly."""
+    allres = portfolio._all_and_persist(_client(), want_market=True, state_path=_tmp_state())
+    sp = _tmp_state()
+    m = portfolio.step_money(_client(), want_market=True, state_path=sp)
+    s = portfolio.step_strategies(_client(), want_market=True, state_path=sp)
+    p = portfolio.step_positions(_client(), want_market=True, state_path=sp)
+    # money buckets match all
+    for k in ("grand_total_usd", "idle_in_embedded", "idle_in_strategies", "deployed_in_positions",
+              "reconciles"):
+        assert m["totals"][k] == allres["totals"][k]
+    # after the positions step (which folds market, then rebuilds groups over the enriched positions,
+    # exactly as run() does) the full picture matches all exactly
+    assert p["strategies"] == allres["strategies"]
+    assert p["strategy_groups"] == allres["strategy_groups"]
+    assert p["exposure"] == allres["exposure"]
+    assert p["signals"] == allres["signals"]
+    assert p["totals"] == allres["totals"]
+    # the `strategies` step also produced groups (pre-market) — a valid standalone verdict surface
+    assert len(s["strategy_groups"]) == len(allres["strategy_groups"])
+
+
+def test_all_step_is_byte_identical_to_run():
+    """`all` (via _all_and_persist) is BYTE-IDENTICAL to run() — the steps machinery must not perturb the
+    one-shot composed output. State is written to a temp path so no real state file is touched."""
+    direct = portfolio.run(_client(), want_market=True)
+    allres = portfolio._all_and_persist(_client(), want_market=True, state_path=_tmp_state())
+    a = json.dumps(direct, ensure_ascii=False, sort_keys=True)
+    b = json.dumps(allres, ensure_ascii=False, sort_keys=True)
+    assert a == b
+
+
+def test_steps_self_heal_on_absent_state():
+    """Each step works STANDALONE against an ABSENT state file (self-heals its prerequisite fetch). The
+    strategies + positions steps recompute the full pull when the state file doesn't exist yet."""
+    missing = os.path.join(tempfile.mkdtemp(), "does-not-exist.json")
+    assert not os.path.isfile(missing)
+    s = portfolio.step_strategies(_client(), want_market=False, state_path=missing)
+    assert len(s["strategies"]) == 3                      # recomputed from scratch
+    missing2 = os.path.join(tempfile.mkdtemp(), "nope.json")
+    p = portfolio.step_positions(_client(), want_market=True, state_path=missing2)
+    assert p["exposure"]["net_bias"] == "short"           # self-healed the fetch, then computed exposure
+
+
+def test_steps_fail_open_on_corrupt_state():
+    """A corrupt/garbage state file → each step RECOMPUTES (never crashes). Guards the fail-open contract:
+    the money map, the per-strategy detail, and the positions analysis all recover from unparseable state."""
+    corrupt = os.path.join(tempfile.mkdtemp(), "state.json")
+    with open(corrupt, "w") as f:
+        f.write("}{ not json at all ][")
+    m = portfolio.step_money(_client(), want_market=True, state_path=corrupt)
+    assert 3050 <= m["totals"]["grand_total_usd"] <= 3150   # recovered the money map
+    # overwrite corrupt again (money just wrote valid state) and prove strategies/positions also recover
+    with open(corrupt, "w") as f:
+        f.write("<<<garbage>>>")
+    s = portfolio.step_strategies(_client(), want_market=False, state_path=corrupt)
+    assert len(s["strategies"]) == 3
+    with open(corrupt, "w") as f:
+        f.write("null and void")
+    p = portfolio.step_positions(_client(), want_market=True, state_path=corrupt)
+    assert p["exposure"]["net_bias"] == "short"
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ import argparse
 import json
 import os
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -340,13 +341,192 @@ def run(client, want_smart=True):
     }
 
 
+# ──────────────────────────────────────────────────────────────── shared state file (resumable steps)
+# The step subcommands (pulse → smart) are FAST, resumable slices that persist their work to a shared JSON
+# state file so the smart-money overlay never re-does the core market read. The agent runs them in sequence
+# and NARRATES between — no single call carries the whole multi-round-trip pull (which trips the exec timeout
+# and makes the agent bail to raw market_* calls, losing every guardrail). Each step is idempotent +
+# fail-open: a missing/corrupt state file → recompute (self-heal); each step also works STANDALONE (just
+# slower). `all` writes the same state but prints the full composed dict (byte-identical to the pre-steps
+# output of the untouched run()). State default: <tempdir>/senpi-market-pulse/state.json.
+STATE_SUBDIR = "senpi-market-pulse"
+
+
+def _default_state_path():
+    """Default shared-state path: <tempdir>/senpi-market-pulse/state.json. Uses tempfile.gettempdir()
+    (never $HOME) so it works on any host regardless of where the skill installs."""
+    return os.path.join(tempfile.gettempdir(), STATE_SUBDIR, "state.json")
+
+
+def _load_state(path):
+    """Read the shared state JSON. Never raises — a missing/corrupt/unreadable file → {} (fail-open: the
+    step then recomputes its prerequisites and self-heals)."""
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa — corrupt/unreadable state is fail-open → recompute
+        return {}
+
+
+def _save_state(path, state):
+    """Merge-write the shared state JSON (best-effort; a write failure never sinks the step — the slice was
+    already printed to stdout). Creates the parent dir. Atomic-ish via a temp file + replace."""
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as fh:
+            json.dump(state, fh)
+        os.replace(tmp, path)
+    except Exception:  # noqa — persistence is best-effort; the printed slice is the contract
+        pass
+
+
+def _core_market_read(client, meta):
+    """The FAST core market read shared by `step_pulse` and the self-heal path: bulk instruments →
+    per-group rows/averages → concrete cross-asset signals, then a capped deep-pull of the biggest movers
+    (volume/funding conviction folded onto the rows + the funding_regime signal). Returns (prices, groups,
+    signals). This is exactly what run() does MINUS the smart-money layer, so pulse+smart reproduces all.
+    Fail-open throughout (each layer degrades to a meta flag, never an exception)."""
+    prices = fetch_instruments(client, meta)
+    groups = build_groups(prices)
+    signals = compute_signals(prices, groups)
+
+    # deep-pull the biggest movers for volume/funding conviction (capped) — same as run()
+    ranked = sorted(
+        ((a, p.get("change_pct")) for a, p in prices.items() if p.get("change_pct") is not None),
+        key=lambda x: abs(x[1]), reverse=True,
+    )
+    xyz_set = set(XYZ_ALL)
+    movers = [(a, a in xyz_set) for a, _ in ranked[:MOVER_DEEP_PULL]]
+    deep, regime = ({}, None)
+    if movers:
+        deep, regime = deep_pull_movers(client, movers, meta)
+    for g in groups.values():
+        for row in g["rows"]:
+            if row["asset"] in deep:
+                row.update({k: v for k, v in deep[row["asset"]].items() if v is not None})
+    signals["funding_regime"] = regime
+    return prices, groups, signals
+
+
+def _ensure_core_in_state(client, state, meta):
+    """Self-heal: return (prices, groups, signals) — from the state file when the `pulse` step already ran,
+    else recompute the core market read right here (so the `smart` step works STANDALONE). Merges the
+    recompute back into state + carries forward the warnings the fetch produced."""
+    prices = state.get("prices")
+    groups = state.get("groups")
+    signals = state.get("signals")
+    if isinstance(prices, dict) and isinstance(groups, dict) and isinstance(signals, dict):
+        meta["warnings"] = list(state.get("meta_warnings", []))
+        return prices, groups, signals
+    # state absent/partial → recompute the core slice (instruments + groups + signals + movers).
+    prices, groups, signals = _core_market_read(client, meta)
+    state["prices"] = prices
+    state["groups"] = groups
+    state["signals"] = signals
+    state["meta_warnings"] = meta.get("warnings", [])
+    return prices, groups, signals
+
+
+# ──────────────────────────────────────────────────────── step subcommands (fast, resumable, standalone)
+def step_pulse(client, want_smart=True, state_path=None):
+    """STEP 1 `pulse` — the FAST core market read the agent NARRATES FIRST: instruments + build_groups +
+    compute_signals + the capped deep-pull of movers (volume/funding conviction + funding_regime). Prints
+    ONLY its slice — {as_of, day_classification, signals, groups, meta} — plus `meta`. Persists prices +
+    groups + signals to state so the `smart` step layers on without re-pulling. NO smart-money layer here
+    (that's the heavier `smart` step). `want_smart` is accepted for a uniform step signature; ignored here."""
+    if state_path is None:
+        state_path = _default_state_path()
+    state = _load_state(state_path)
+    meta = {"warnings": []}
+    prices, groups, signals = _core_market_read(client, meta)
+    if not prices:
+        meta["degraded"] = "no price data — all instrument pulls failed"
+    state["prices"] = prices
+    state["groups"] = groups
+    state["signals"] = signals
+    state["meta_warnings"] = meta.get("warnings", [])
+    _save_state(state_path, state)
+    return {
+        "as_of": "live",
+        "day_classification": signals.get("day_classification"),
+        "signals": signals,
+        "groups": groups,
+        "meta": meta,
+    }
+
+
+def step_smart(client, want_smart=True, state_path=None):
+    """STEP 2 `smart` — the heavier smart-money OVERLAY (leaderboard / Hyperfeed layer), health-gated. Reads
+    the persisted prices/groups (or self-heals the core read if state is absent) and layers `fetch_smart_money`
+    onto it. Prints ONLY its slice — {smart_money, meta} (with meta.smart_money_available) — never re-computes
+    the movers/signals. `--no-smart` returns a clean null overlay. Fail-open: Hyperfeed down → smart_money null."""
+    if state_path is None:
+        state_path = _default_state_path()
+    state = _load_state(state_path)
+    meta = {"warnings": []}
+    # self-heal the core read so the held prices/groups exist (smart-money enriches on top of them).
+    _ensure_core_in_state(client, state, meta)
+    smart = fetch_smart_money(client, meta) if want_smart else None
+    meta["smart_money_available"] = smart is not None
+    state["smart_money"] = smart
+    state["meta_warnings"] = meta.get("warnings", [])
+    _save_state(state_path, state)
+    return {"smart_money": smart, "meta": meta}
+
+
 # ──────────────────────────────────────────────────────────────── CLI
+_STEPS = ("pulse", "smart", "all")
+_STEP_FNS = {"pulse": step_pulse, "smart": step_smart}
+
+
+def _all_and_persist(client, want_smart, state_path):
+    """`all` = the composed one-shot. Runs the UNCHANGED run() (its output is byte-identical to the pre-steps
+    engine) and ALSO writes the shared state file (same shape the steps build) so an `all` run can seed a
+    later `smart` step. The state write never alters the printed dict."""
+    result = run(client, want_smart=want_smart)
+    if state_path is None:
+        state_path = _default_state_path()
+    state = {
+        "prices": None,   # `all` doesn't retain the raw price map; the smart step self-heals by re-reading
+        "groups": result.get("groups"),
+        "signals": result.get("signals"),
+        "smart_money": result.get("smart_money"),
+        "meta_warnings": (result.get("meta") or {}).get("warnings", []),
+    }
+    _save_state(state_path, state)
+    return result
+
+
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="senpi market-pulse engine (cross-asset snapshot + signals)")
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # optional leading positional STEP (pulse|smart|all); default `all` = the composed one-shot (unchanged
+    # output + shape). Parsed before argparse so the flags stay shared across every step.
+    step = "all"
+    if argv and not argv[0].startswith("-"):
+        cand = argv[0]
+        if cand not in _STEPS:
+            print(json.dumps({"groups": {}, "meta": {"error": f"unknown step {cand!r}; "
+                                                     f"expected one of {', '.join(_STEPS)}"}}))
+            return 1
+        step, argv = cand, argv[1:]
+
+    ap = argparse.ArgumentParser(
+        description="senpi market-pulse engine (cross-asset snapshot + signals). Optional leading STEP: "
+                    "pulse|smart|all (default all = the composed one-shot). Steps share a state file so the "
+                    "smart-money overlay doesn't re-do the core market read.")
     ap.add_argument("--no-smart", action="store_true", help="skip the leaderboard / smart-money layer")
+    ap.add_argument("--state", default=None,
+                    help="shared state file path (default <tempdir>/senpi-market-pulse/state.json)")
     ap.add_argument("--fixture", help="offline: path to a recorded MCP-response map (tests only)")
     ap.add_argument("--dry", action="store_true",
                     help="dump raw MCP responses (instruments both dexes + one asset) for schema debugging")
+    # `step` was already peeled off argv above; feed the remainder (flags only).
     args = ap.parse_args(argv)
 
     if args.dry:
@@ -380,8 +560,13 @@ def main(argv=None):
             print(json.dumps({"groups": {}, "meta": {"error": f"mcp client init failed: {e}"}}))
             return 1
 
+    want_smart = not args.no_smart
     try:
-        result = run(client, want_smart=not args.no_smart)
+        if step == "all":
+            result = _all_and_persist(client, want_smart, args.state)
+        else:
+            fn = _STEP_FNS[step]
+            result = fn(client, want_smart=want_smart, state_path=args.state)
     except Exception as e:  # noqa  — last-resort guard; the layer functions already fail open
         print(json.dumps({"groups": {}, "meta": {"error": f"engine failure: {e}"}}))
         return 1
