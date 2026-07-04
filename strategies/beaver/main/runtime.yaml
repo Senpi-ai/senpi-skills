@@ -15,7 +15,7 @@ strategy:
   wallet: "${BEAVER_WALLET}"
   slots: 1                                # single asset, single position
   default_leverage: 5                     # flat; scan also emits leverage=5 per signal
-  trading_risk: balanced
+  trading_risk: moderate
   enabled: true
 
 scanners:

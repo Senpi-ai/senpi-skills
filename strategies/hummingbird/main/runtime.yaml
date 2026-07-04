@@ -16,7 +16,7 @@ strategy:
   wallet: "${HUMMINGBIRD_WALLET}"
   slots: 1                                # single asset, single position
   default_leverage: 5                     # v2 DEFAULT==MAX==5; scan emits the same flat 5x
-  trading_risk: balanced                  # v2 trading_risk: balanced (onboarding tier)
+  trading_risk: moderate                  # v2 "balanced" (onboarding tier) → moderate (canonical; enum = conservative|moderate|aggressive)
   enabled: true
 
 scanners:

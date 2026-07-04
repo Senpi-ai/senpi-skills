@@ -24,7 +24,7 @@ strategy:
   slots: 1                                # v2 slots 1 — single-position rotator
   margin_pct: 20                          # baseline %; scan emits marginPct per signal (= this value)
   default_leverage: 3                     # fallback; scan emits 3x (clamped to 5x max) per signal
-  trading_risk: balanced
+  trading_risk: moderate
   enabled: true
 
 scanners:

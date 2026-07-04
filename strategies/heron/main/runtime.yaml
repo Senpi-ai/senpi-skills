@@ -16,7 +16,7 @@ strategy:
   wallet: "${HERON_WALLET}"
   slots: 1                                # single asset, single position
   default_leverage: 5                     # heron is FIXED 5x — scan emits leverage:5 every signal
-  trading_risk: balanced
+  trading_risk: moderate
   enabled: true
 
 scanners:

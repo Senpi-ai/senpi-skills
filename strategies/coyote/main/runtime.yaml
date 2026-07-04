@@ -24,7 +24,7 @@ strategy:
   slots: 1                                # single regime bet on BTC
   margin_pct: 25                          # baseline %; scan emits marginPct per signal
   default_leverage: 3                     # fallback; scan emits 1-5x per signal (clamped to 5)
-  trading_risk: balanced
+  trading_risk: moderate
   enabled: true
 
 scanners:
