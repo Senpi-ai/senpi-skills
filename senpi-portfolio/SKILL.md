@@ -15,7 +15,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.5.0"
+  version: "1.7.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -49,6 +49,14 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > un-bucketed dumps that mislead — idle-vs-deployed conflation, per-wallet collateral double-counting,
 > and **sub-wallets mistaken for separate strategies** (a strategy's `main`/`hedge` legs are ONE
 > strategy, not two). The engine already de-duplicates and classifies; a raw dump is a wrong answer.
+>
+> **This includes DSL / "are my positions protected?" questions — do NOT hand-roll them.** Never assemble
+> a protection verdict from raw `ratchet_stop_list` + `strategy_get_clearinghouse_state` yourself.
+> `ratchet_stop_list` shows **only** the live ratchet for positions that have already crossed Tier 1 — it
+> does **not** carry the strategy's config DSL exit, so a by-hand read makes every sub-Tier-1 position look
+> "unprotected" when it isn't. The engine reads BOTH the config ladder (`profile.dsl`) and the live tier
+> (`positions[].dsl`) and frames every position correctly; run it. (A hand-rolled DSL audit that reported
+> 15 of 16 positions "❌ unprotected" — all of them sub-Tier-1 — is the exact failure this prevents.)
 
 ## The wallet model (get this exactly right)
 
@@ -259,6 +267,27 @@ directly.)
   reach for `strategy_list` directly, pass `status: ["ACTIVE"]` — a bare call returns CLOSED/PAUSED too
   and they must not be presented as current. Mention PAUSED strategies only if relevant, clearly
   labeled "paused," never as active.
+- **The live clearinghouse is the source of truth for whether a strategy holds capital — over the `status`
+  field AND over what anyone asserts about the wallet.** The engine reconciles this: a strategy whose live
+  wallet holds **$0 account value, no positions, no idle** is flagged **`empty: true`** (`empty_reason`:
+  `closed_or_drained` when `total_withdrawn ≈ total_funded`, else `unfunded`; listed in
+  `meta.dormant_active`) — report those as closed. A strategy with **`account_value > 0`** is **live**,
+  even if `status` is stale or someone believes it's closed.
+- **Don't cave to a claim the wallet contradicts, and NEVER fabricate account history to agree.** If the
+  user says a strategy is "closed / has no funds" but its `account_value > 0`, it is **live** — say so with
+  the number ("wolf is live — $X in the wallet, flat right now, waiting for its signal"). Do not abandon a
+  correct reading, and do not invent a story to justify agreeing (a "strategy-grinder cascade," a "close at
+  14:58," "funds returned to embedded"). This is the real failure this section prevents: a **live** strategy
+  was re-narrated as closed — with a fabricated close-cascade — because the model deferred to a mistaken
+  "it's closed" instead of re-reading the clearinghouse. Verify first, then correct the record.
+- **Live capital = clearinghouse `account_value`, NEVER `total_funded` / `budget` / `status`.**
+  `total_funded` / `total_withdrawn` are **lifetime history**, not a current balance. A strategy with
+  `total_funded: 3000` and `account_value: 0` has **$0 now**; one with `account_value: 3000` has **$3K now**
+  regardless of what it was funded. Never present `total_funded` (or a configured budget) as current idle /
+  reserved money — read `idle_withdrawable` / `account_value` from the live clearinghouse.
+- **A flat strategy that still holds idle margin (`account_value > 0`, no positions) is NOT empty** — it's
+  funded and waiting for a signal (or the flat sleeve of a multi-wallet pair); report it as **live**. Only
+  `empty: true` (a genuinely $0 wallet) means closed/drained. Don't conflate "flat but funded" with "closed."
 - **Present active strategies as known state, not a fresh discovery.** Pull the data quietly and state
   what's running as established fact ("Your two active strategies are…"). Don't narrate the lookup
   ("let me check… oh, I see you have…") — that reads like you didn't already know your own book.
@@ -311,6 +340,16 @@ ratchet record" as "no DSL."** Say **"protected; profit-ratchet arms at Tier 1 (
 "unprotected / unmonitored / no stop." (The engine already frames every `armed: false` position this way
 in `dsl.note`; do not override it with an "unprotected" reading.)
 
+- **An ERRORED or empty DSL query is "unknown," never "unprotected."** `ratchet_stop_list` can fail
+  (e.g. `SERR031` auth, or the DSL engine lagging behind a just-opened position) or come back empty. That
+  is a **data gap**, not evidence of missing protection — treat it exactly like `dsl:null`. The engine
+  fails open here (config framing stands alone, plus a `meta.warnings` note); a by-hand call has no such
+  fallback, which is why hand-rolling produces false "unprotected" verdicts. Never turn a failed read into
+  a risk finding.
+- **A strategy with `tradingStrategyName: null` is still a real strategy.** Custom strategies created via
+  `strategy_create_custom_strategy` can come back with a null/blank name — identify and analyze them by
+  `strategyId` + wallet, never skip, mislabel ("Unnamed"), or double-count them for lacking a display name.
+  (If you *created* it this session, you already know its name — don't re-derive it as "unknown.")
 - **Config-level `protected` ≠ live per-position tier.** `strategy.protected` / `group.protected` (bool)
   is the **config posture** — the strategy ships an `exit:` block (always true for template strategies).
   It says "this strategy has a DSL exit," not which tier a given position sits in. The per-position tier

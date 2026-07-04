@@ -553,6 +553,17 @@ def fetch_strategies(client, meta):
         strat["account_value"] = round(shared_idle + deployed, 2)  # = main.av + xyz.av − shared_idle
         strat["position_margin"] = round(sum(p["margin"] for p in positions), 2)   # initial margin detail
         strat["positions"] = positions
+        # RECONCILE status vs live wallet — the clearinghouse is the TRUTH, `status` is not. `strategy_list`
+        # can report a just-closed strategy as ACTIVE (the status lags the close). A $0 account value with
+        # NO positions AND NO idle is an EMPTY wallet: the strategy was CLOSED/DRAINED (funds returned to
+        # the embedded wallet) or never funded. Flag it so the narrator never presents `total_funded` as
+        # live/idle/reserved capital and never counts a ghost as a live strategy. (A FLAT sleeve merely
+        # waiting for a signal still holds idle margin → account_value > 0 → NOT flagged empty.)
+        tf, tw = strat.get("total_funded"), strat.get("total_withdrawn")
+        strat["empty"] = (strat["account_value"] <= 0.01 and strat["idle_withdrawable"] <= 0.01 and not positions)
+        if strat["empty"]:
+            drained = bool(tf and tf > 0 and tw is not None and tw >= tf - 0.01)
+            strat["empty_reason"] = "closed_or_drained" if drained else "unfunded"
         # LIVE per-position DSL/ratchet tier — read-guarded + fail-open. Attaches a `dsl` object to each
         # open position (armed → tier/lock; not armed → "protected from entry, ratchet arms at +X%").
         # NEVER leaves a live position looking "unprotected." (See attach_position_dsl.)
@@ -566,6 +577,13 @@ def fetch_strategies(client, meta):
             strategies = list(ex.map(hydrate, strategies))
     except Exception:  # noqa
         strategies = [hydrate(s) for s in strategies]
+    # Roll up any strategy reported ACTIVE but holding $0 (empty wallet) — status/clearinghouse mismatch.
+    dormant = [s["name"] for s in strategies if s.get("empty")]
+    if dormant:
+        meta["dormant_active"] = dormant
+        meta.setdefault("warnings", []).append(
+            f"{len(dormant)} strategy(ies) report status ACTIVE but hold $0 (empty wallet) — likely just "
+            f"closed, funds returned to embedded (or never funded): {', '.join(str(d) for d in dormant)}")
     return strategies
 
 

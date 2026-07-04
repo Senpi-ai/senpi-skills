@@ -539,6 +539,76 @@ def test_steps_fail_open_on_corrupt_state():
     assert p["exposure"]["net_bias"] == "short"
 
 
+def test_closed_but_active_strategy_flagged_empty_not_idle():
+    """RECONCILE status vs live wallet: strategy_list can report a just-CLOSED strategy as ACTIVE (status
+    lags the close). The engine must flag such a $0 wallet `empty: true` (never count its `total_funded`
+    as live/idle capital) — the exact failure where a closed strategy was narrated as holding $3K idle.
+    A flat-but-FUNDED strategy (idle margin, no positions) must NOT be flagged empty."""
+    WOLF = "0xwolf000000000000000000000000000000000wf"      # CLOSED — drained, reported ACTIVE
+    HORNET = "0xhornet00000000000000000000000000000hnt"     # funded + one position
+    IDLE = "0xidle000000000000000000000000000000000id"      # funded, flat, waiting (NOT empty)
+    fixture = {
+        "user_get_me": {"wallets": [{"walletType": "embedded",
+                                     "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"total_balance_usd": 12605, "total_withdrawable": 4620,
+                                  "total_usdc_in_hyperliquid": 12605, "token_balances": []},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "wolf", "strategyWalletAddress": WOLF, "status": "ACTIVE",
+             "id": "wolf-1", "totalFunded": 3000, "totalWithdrawn": 3000},
+            {"tradingStrategyName": "hornet", "strategyWalletAddress": HORNET, "status": "ACTIVE",
+             "id": "hornet-1", "totalFunded": 4000, "totalWithdrawn": 0},
+            {"tradingStrategyName": "idlecat", "strategyWalletAddress": IDLE, "status": "ACTIVE",
+             "id": "idle-1", "totalFunded": 2000, "totalWithdrawn": 0},
+        ]},
+        f"strategy_get_clearinghouse_state::{WOLF.lower()}": {   # EMPTY: closed/drained
+            "main": {"marginSummary": {"accountValue": "0"}, "withdrawable": "0", "assetPositions": []},
+            "xyz":  {"marginSummary": {"accountValue": "0"}, "withdrawable": "0", "assetPositions": []}},
+        f"strategy_get_clearinghouse_state::{HORNET.lower()}": {  # $2000 idle + one position
+            "main": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []},
+            "xyz":  {"marginSummary": {"accountValue": "3420"}, "withdrawable": "2000", "assetPositions": [
+                {"position": {"coin": "SKHX", "szi": "3.5", "positionValue": "5679", "marginUsed": "1420",
+                              "entryPx": "1594.3", "unrealizedPnl": "42.79", "returnOnEquity": "0.03"}}]}},
+        f"strategy_get_clearinghouse_state::{IDLE.lower()}": {    # funded, FLAT (idle margin, no positions)
+            "main": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []},
+            "xyz":  {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []}},
+    }
+    res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    strat = {s["name"]: s for s in res["strategies"]}
+    # wolf: reported ACTIVE but $0 wallet → empty, closed_or_drained (totalWithdrawn ≈ totalFunded)
+    assert strat["wolf"]["empty"] is True
+    assert strat["wolf"]["empty_reason"] == "closed_or_drained"
+    assert strat["wolf"]["account_value"] == 0 and strat["wolf"]["idle_withdrawable"] == 0
+    # a funded-but-flat strategy is NOT empty (idle margin still there)
+    assert strat["idlecat"]["empty"] is False
+    assert strat["hornet"]["empty"] is False
+    # meta surfaces the status/clearinghouse mismatch
+    assert "wolf" in res["meta"].get("dormant_active", [])
+    # the closed strategy contributes $0 — idle_in_strategies is hornet+idlecat only, NOT +$3K wolf
+    assert res["totals"]["idle_in_strategies"] == 4000    # 2000 (hornet) + 2000 (idlecat); no phantom 3K
+
+
+def test_unfunded_empty_strategy_reason():
+    """An ACTIVE strategy never funded ($0 wallet, totalFunded 0) → empty with reason 'unfunded' (distinct
+    from closed/drained), still excluded from idle."""
+    W = "0xunfund000000000000000000000000000000un"
+    fixture = {
+        "user_get_me": {"wallets": [{"walletType": "embedded",
+                                     "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"total_balance_usd": 100, "total_withdrawable": 0,
+                                  "total_usdc_in_hyperliquid": 100, "token_balances": []},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "newbie", "strategyWalletAddress": W, "status": "ACTIVE",
+             "id": "n-1", "totalFunded": 0, "totalWithdrawn": 0}]},
+        f"strategy_get_clearinghouse_state::{W.lower()}": {
+            "main": {"marginSummary": {"accountValue": "0"}, "withdrawable": "0", "assetPositions": []},
+            "xyz":  {"marginSummary": {"accountValue": "0"}, "withdrawable": "0", "assetPositions": []}},
+    }
+    res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    s = {x["name"]: x for x in res["strategies"]}["newbie"]
+    assert s["empty"] is True and s["empty_reason"] == "unfunded"
+    assert res["totals"]["idle_in_strategies"] == 0
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:
