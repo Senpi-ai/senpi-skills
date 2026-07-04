@@ -18,7 +18,7 @@ license: Apache-2.0
 compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.1.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -167,7 +167,7 @@ trim — do NOT substitute raw tool calls for the engine's output, and do NOT le
 to raw MCP. The only raw MCP you add is to go *beyond* the review (e.g. a live position detail the user asks
 for), never to replace it.
 
-## The eight guardrails — the reason this skill exists
+## The nine guardrails — the reason this skill exists
 
 These are non-negotiable. Each fixes a real failure from live agent responses to these prompts.
 
@@ -319,6 +319,32 @@ current strategy to analyze, consolidate, or fix.
 Concretely: if you're about to say "you have 13 wallets, kill/merge 11 of them," stop — check
 `meta.current_strategy_count`. If most of those 13 are in `closed_strategies[]`, the real live book is small
 and there is **no consolidation problem** — you're looking at redeploy history.
+
+### 9. No trades yet? Stop cleanly — do NOT pivot to setup / config nagging
+
+A trade review with **no closed trades** — especially **brand-new strategies deployed today with no
+positions yet** — is a **complete, correct result**: *"nothing to review yet."* Say that and stop. The
+strategies are **autonomous**; they open positions on their own when their scanners fire. **Do not
+manufacture a setup/config critique to seem useful.** The specific failures this prevents (all from a live
+run on a just-deployed book):
+
+- **Never tell the user to "fund a position," "open a position first," "decide which gets action first," or
+  "manually exit."** An autonomous strategy trades **itself** on its signal — the user does not hand-open or
+  hand-close its positions. A fresh strategy with zero positions is **waiting for its first signal** (rule 5,
+  idle-by-design), **not** "$X in budget earning nothing." Zero exposure on a new autonomous strategy is
+  normal, not a leak — never frame it as one.
+- **Never re-raise DSL / "might run naked" alarms** ("verify the DSL is configured… without DSL positions run
+  naked"). Authored + template strategies **ship a DSL exit by construction** (rules 2 & 8) — don't tell the
+  user to "verify" protection that exists by design, and never pair it with "until you manually exit."
+- **Never give generic execution / config-tuning advice** — slippage, market-vs-limit, leverage. It's out of
+  scope for a *trade review*, it second-guesses a strategy that was just set up, and nudging toward MARKET /
+  higher-slippage fills **raises fees** — the biggest killer of returns. `slippage: 0` is not a defect to
+  "fix." If the user explicitly asks about execution, hand it to `senpi-strategy-author` / `senpi-strategy-ops`;
+  don't free-style a number.
+- **What TO say instead:** there's nothing to review yet; the strategies will trade on their own signals
+  (idle-by-design for a fresh deploy); check back after they've traded. Offer real next moves as **options,
+  not obligations** — add a complementary strategy (`senpi-strategy-discover`), or top up / adjust via ops.
+  Idle embedded cash is an **opportunity to deploy more if they want**, never a "$0/day leak."
 
 ## What the engine gives you — the output shape
 
