@@ -22,7 +22,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.2.0"
+  version: "2.3.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -82,7 +82,8 @@ single most common way a strategy silently does nothing.
 4. **Before writing any code, replay the FULL captured spec** (all 7 decisions + every opening
    constraint) and get an explicit "yes." This is the checkpoint that catches a dropped detail — do
    not skip it.
-5. **Then assemble → unit-test the math → smoke-test.** Only after the user confirms.
+5. **Then assemble → unit-test the math → smoke-test — in VISIBLE STAGES, narrating each.** Only after
+   the user confirms. The build is the slow part; never do it as one silent block. See "After the 7."
 
 Deep mechanics, code skeletons, and a full worked example live in
 [`references/creating-a-strategy.md`](references/creating-a-strategy.md) — read it, but **drive the
@@ -121,23 +122,45 @@ For each: ask the question, offer the options as plain choices, then map the ans
    Then set guard rails (`drawdown_halt_pct`, `daily_loss_limit_pct`) sized to the style, and cadence
    (`interval_seconds`). **Never hand-roll stops — copy a preset from `references/dsl-presets.yaml`.**
 
-## After the 7 — confirm, assemble, smoke-test
+## After the 7 — build it in STAGES, narrating as you go
 
-1. **Replay the full spec** (name + thesis + all 7 + opening constraints) → get a "yes." *("You said
-   rotate the cohort every 3 days — that's in.")*
-2. **Assemble the package** — match the idea to an archetype row in `references/creating-a-strategy.md`,
-   then write: `scoring.py` (pure math) · `<instance>/scanners/scan.py` (read-only, emits `marginPct`
-   intent) · `runtime.yaml` (a plain-language **`description`** of the thesis + how it works — the
-   runtime registers it and senpi-portfolio reads it back as the mandate — plus inputs, entry action,
-   DSL preset, risk gates) · `strategy.yaml` (catalog facets from the glossary).
-3. **Unit-test `scoring.py`** on sample candles (it's pure — no mocks needed).
-4. **Validate** → `python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>` (0 errors),
+The build is the part that takes longest, and it's where the user is most likely to be left staring at a
+silent screen while you write four files and run three checks. **Don't do the assemble + validate as one
+silent block that only reports at the very end.** Work in visible stages: say what you're about to do, do
+it, report the result in a line, move to the next. The user should see a live build log —
+scaffold → each file → tests → validation → smoke — not a long silence followed by a wall of output.
+(Same "narrate as you go" discipline the data skills use for their steps, applied to authoring.) A stage
+is a *beat*, not a new turn — keep moving; you don't need the user to reply between them.
+
+**First, lay out the plan** in one short beat, so the user knows what's coming: *"Here's what I'll build
+for `<id>`, in order: the scoring math → the scanner → the runtime config (thesis + DSL + risk gates) →
+the catalog entry, then unit-test → validate → hand to smoke-test."* Then tick through it, reporting each:
+
+1. **Confirm the spec.** Replay name + thesis + all 7 + opening constraints → get a "yes." *("You said
+   rotate the cohort every 3 days — that's in.")* Nothing is written before this yes.
+2. **Scaffold.** Match the idea to an archetype row in `references/creating-a-strategy.md`, create the
+   package dirs, and state the archetype + file plan. → *"Matched the cohort-rotation archetype; scaffolding
+   `strategies/<id>/…`."* This lets the user catch a wrong archetype/universe **before** you write code.
+3. **`scoring.py`** (pure math). Write it → one line on what it scores. → *"scoring.py in — ranks the cohort
+   by 3-day relative strength."*
+4. **`<instance>/scanners/scan.py`** (read-only, emits `marginPct` intent). Write it → one line on what it
+   emits.
+5. **`runtime.yaml`** — the plain-language **`description`** of the thesis + how it works (the runtime
+   registers it and senpi-portfolio reads it back as the mandate) plus inputs, entry action, DSL preset,
+   risk gates. Write it → one line on the thesis + DSL + risk posture.
+6. **`strategy.yaml`** — catalog facets from the glossary. Write it → *"catalog entry in."*
+7. **Unit-test `scoring.py`** on sample candles (pure — no mocks). Run it → report pass/fail as its own beat.
+8. **Validate** → `python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>` (0 errors),
    then the **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py strategies/<id>`
-   — every hardcoded ticker must be a live HL instrument (`deploy.py create` also runs this as a
-   preflight and refuses to fund a bad universe). Derived-universe strategies pass trivially.
-5. **Smoke-test (hand to `senpi-strategy-ops`):** dry-run → run `scan()` once on live read-only MCP →
+   — every hardcoded ticker must be a live HL instrument (`deploy.py create` also runs this as a preflight
+   and refuses to fund a bad universe; derived-universe strategies pass trivially). Run each, report the
+   result. **If validation fails, narrate the fix and re-run — don't go silent while you debug.**
+9. **Smoke-test (hand to `senpi-strategy-ops`):** dry-run → run `scan()` once on live read-only MCP →
    tiny deploy → confirm the runtime **accepted** a signal (`openclaw senpi state -r <id>-<inst>
    --json`), not just that it ticked. **Green = `scan` → signal → runtime-accepted, end to end.**
+
+Report each numbered stage as it lands — a short line is enough. The point is the user sees forward motion
+the whole way and can catch a wrong turn early, instead of after the entire package is already built.
 
 ## Wallets & concurrency — a new strategy NEVER blocks an existing one
 
