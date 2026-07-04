@@ -1,18 +1,24 @@
 ---
 name: senpi-strategy-discover
 description: >-
-  Help a user choose a Senpi trading strategy to deploy — a
-  conversational, analyst-style picker. Use when the user asks "what should I
-  trade?", "recommend a strategy", "help me pick a strategy", "what's
-  winning?", "set me up", "I have a view on the world (a war, the economy, one
-  coin winning) — trade it", "run a hedge fund / all-weather / tail-risk book",
-  or wants a strategy but has NOT named a specific one. You talk and RANK; a
-  hidden engine (scripts/discover.py) fetches data + filters. NOT for installing a
-  NAMED strategy (that's senpi-strategy-ops) or building one (senpi-strategy-author).
+  Help a user choose a Senpi trading strategy to deploy — a conversational,
+  analyst-style picker, and the DEFAULT first stop for ANY open-ended "I want a
+  strategy" ask. Use when the user asks "what should I trade?", "recommend a
+  strategy", "help me pick a strategy", "make me a strategy", "build me a
+  strategy", "I want a strategy", "get me set up", "set me up with a strategy",
+  "what's winning?", "I have a view on the world (a war, the economy, one coin
+  winning) — trade it", "run a hedge fund / all-weather / tail-risk book", or
+  wants a strategy but has NOT named a specific one. Surface a matching TEMPLATE
+  first — the fastest on-ramp, which the user can then fork/customize — passing
+  their thesis as `--theme` to rank the closest fits. You talk and RANK; a hidden
+  engine (scripts/discover.py) fetches data + filters. Route to senpi-strategy-author
+  ONLY when the user explicitly wants to DESIGN their own from scratch or needs a
+  custom DSL/scanner not in the catalog (and author itself offers the closest
+  template first). NOT for installing a NAMED strategy (that's senpi-strategy-ops).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.3.0"
+  version: "2.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
