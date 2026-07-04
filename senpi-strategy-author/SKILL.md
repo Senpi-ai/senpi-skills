@@ -15,14 +15,18 @@ description: >-
   a flat stop — the confirmed Decoupling failure). The raw MCP tools are ONLY for
   manual one-off open/close positions or mirror (copy-trade) strategies that have
   NO DSL. If DSL / a trailing stop / "protect this" is anywhere in the intent →
-  author it here. DEFAULT behavior: ask the 7 design decisions one question at a
-  time, reflect each answer back, then assemble + smoke-test the package. Also
+  author it here. FIRST, before building from scratch, offer the fast path: surface
+  the closest matching TEMPLATE (via senpi-strategy-discover) as the recommended
+  on-ramp for new users — start from it, fork-and-customize it, or design your own;
+  the user's choice is final, scratch is a peer not a downsell. If they choose scratch
+  (or already gave a specific custom thesis), DEFAULT behavior: ask the 7 design
+  decisions one question at a time, reflect each answer back, then assemble + smoke-test the package. Also
   edits existing strategies. NOT for installing (senpi-strategy-ops) or picking
   one to run (senpi-strategy-discover).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.3.0"
+  version: "2.4.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -46,6 +50,41 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 > no name). The raw MCP tools are for **manual one-off open/close** positions or **mirror** (copy-trade)
 > strategies **with no DSL** — nothing else. If protection is anywhere in the ask, you're in the right
 > skill; author it.
+
+## Start here — offer the fast path before building from scratch
+
+Building from scratch is powerful, but it's the **slow** path (the full interview + compile + smoke-test).
+Most users — especially new ones — are best served by starting from a **proven template** and tweaking it
+if they want. So **before the interview, offer three ways to go** — as peers, with the fast one recommended,
+never as a gate:
+
+1. **Start from a matching template** — *the fastest way to get running.* If the user gave any thesis hint,
+   **hand it to `senpi-strategy-discover`** with their words — that skill surfaces the closest matching
+   template(s), which you name in the offer (*"**Cougar** — equity long/short — is close to what you
+   described"*). Discover owns the catalog and the match (and picks + deploys via ops); don't reach into
+   its internals or rebuild the catalog here.
+2. **Start from that template and make it your own** — deploy the template, then **edit it** (this skill's
+   edit path — see "Editing an existing strategy") to change the universe / thresholds / sizing / DSL. The
+   bridge for *"close, but I want changes."*
+3. **Design your own from scratch** — first-class, fully supported; you run the interview below.
+
+**Example opening (new-ish user, thesis hinted):**
+> *"Two ways to go: I can get you running fast from a proven template — **Cougar** is close to what you
+> described, and you can tweak it to make it yours — or if you'd rather, we design one from scratch
+> together. Your call — what sounds better?"*
+
+**Tone — encourage without discouraging (this is the whole point):**
+- Template-first is *"the fastest way to get running,"* **never** *"the right way."* Scratch is a **peer**,
+  not a downsell.
+- **The user's choice is final.** If they pick scratch — or already gave a specific custom thesis — go
+  straight into the interview. **Never re-pitch templates, never nag.**
+- **Calibrate to the signal.** Brand-new / vague ask → lean into template-first + the fork path. Clear
+  custom thesis → surface the closest match **once** (*"heads-up, Cougar is close to this"*), then respect
+  their call and build.
+- If discover surfaces **no** close fit, say so and go straight to scratch — never force a bad-fit template.
+
+Everything below is the **scratch / customize** path — the interview you run once the user chooses to build
+(or to tweak a template they just deployed).
 
 ## ⛔ Never guess syntax — get it from the source (your memory is NOT authoritative)
 
