@@ -1,0 +1,96 @@
+# Conversation eval scenarios — senpi-strategy-discover
+#
+# HUMAN-READABLE MIRROR. The authoritative, machine-readable copy lives in
+# `eval.workflow.js` (the `SCENARIOS` const) because Workflow scripts cannot
+# read files from disk. Keep the two in sync — when you add/edit a scenario
+# here, mirror it into eval.workflow.js (and vice-versa).
+#
+# Each scenario feeds one Claude Code "actor" subagent that behaves as the
+# skill. The harness grades the actor's structured trace:
+#   - flags        : the discover.py flags the actor ran (tolerant superset match)
+#   - mechanical   : computed in the workflow from the trace (no LLM)
+#   - judge        : soft golden-rule checks read by a judge subagent
+#
+# Global golden rules graded on EVERY narrating scenario (not repeated below):
+#   - only ever names strategies returned by the engine (anti-hallucination, mechanical)
+#   - offers build-custom; never dead-ends (judge)
+#   - never *labels a pick* "safe" — "nothing in perps is truly safe" is allowed (judge)
+
+scenarios:
+  # ---- few-shot: utterance -> flags (single turn) ----
+  - id: safe-btc
+    utterance: "something safe for BTC, got about $300"
+    expect_flags: { risk: conservative, assets: btc_eth, budget: "300" }
+    judge:
+      - "Echoes understanding in one line before/with the picks."
+      - "Leads the top pick with a live market read (the market_facts why-now)."
+
+  - id: aggressive-sol
+    utterance: "aggressive SOL play"
+    expect_flags: { risk: aggressive, assets: SOL }
+
+  - id: copy
+    utterance: "copy good traders, nothing crazy"
+    expect_flags: { belief: copy, risk: moderate }
+    judge:
+      - "Top recommendation is a copy-trading strategy, consistent with --belief copy."
+
+  - id: stocks-not-crypto
+    utterance: "I want to trade stocks, not crypto"
+    expect_flags: { assets: xyz_equities, exclude: crypto }
+    judge:
+      - "Does not recommend any crypto strategy; picks are equities/stocks."
+
+  - id: no-short
+    utterance: "I don't want to short anything"
+    expect_flags: { direction: long_only }
+
+  - id: no-copy
+    utterance: "find me something, but no copy-trading"
+    expect_flags: { exclude: copy_trading }
+    judge:
+      - "Does not recommend a copy-trading strategy."
+
+  - id: new
+    utterance: "I'm pretty new to this, what should I run?"
+    expect_flags: { experience: new }
+    judge:
+      - "Leads with a STARTER-tier strategy (gentle for a beginner)."
+
+  - id: only-sol
+    utterance: "only SOL"
+    expect_flags: { assets: SOL }
+
+  # ---- special paths ----
+  - id: whats-winning
+    utterance: "what's hot? just put me in whatever's winning right now"
+    judge:
+      - "Honestly reframes: ranks by what's set up well right now, NOT a past performance leaderboard."
+      - "Does NOT claim or imply a real per-strategy performance leaderboard exists."
+      - "Leads with the best current setup drawn from market_facts."
+
+  - id: names-strategy
+    utterance: "just install kodiak"
+    expect_no_call: true        # deploy intent — must NOT run the matcher
+    expect_handoff: ops          # hands off to senpi-strategy-ops
+    judge:
+      - "Recognizes this as deploy intent for a named strategy and routes to senpi-strategy-ops; does not run discovery."
+
+  - id: below-floor
+    utterance: "I've only got $50 to start, what can I run?"
+    expect_flags: { budget: "50" }
+    judge:
+      - "Surfaces the real minimum budget honestly (e.g. 'the smallest here needs ~$X')."
+      - "Never hard-blocks; offers to see it anyway / adjust / build custom."
+
+  - id: cold-start
+    utterance: "honestly no idea, just set me up"
+    expect_first_is_question: true   # must ask, not dump options
+    judge:
+      - "First move is a plain-English question (the belief opener), NOT a dump of strategy options."
+
+  - id: caveats-verbatim
+    utterance: "aggressive alt-coin plays, around $80"
+    # budget below typical floors -> top candidate should carry a caveat;
+    # the harness asserts each caveats[] string appears verbatim in the narration.
+    expect_caveats_verbatim: true

@@ -12,7 +12,7 @@ description: >
   recycling; the drawdown gate halts the whole fund if the thesis is broadly failing.
   Faithful port of the v2 producer scoring (score_thesis). The active preset's baskets
   live in inputs.longBasket / inputs.shortBasket — default = risk_off. Swap them to
-  express a different view (see scanners/presets.md).
+  express a different view (see presets.md).
 
 strategy:
   wallet: "${THESIS_WALLET}"
@@ -37,7 +37,7 @@ scanners:
       # ── ACTIVE PRESET = risk_off (the v2 default THESIS). Each entry is
       #    {asset, direction}; direction is FIXED by the preset (the thesis's
       #    directional bias for that name). Swap these two lists to express a
-      #    different view — see scanners/presets.md for every preset. ──
+      #    different view — see presets.md for every preset. ──
       thesis: "risk_off"
       longBasket: ["xyz:GOLD", "xyz:SILVER"]
       shortBasket: ["xyz:SP500", "xyz:XYZ100", "BTC"]

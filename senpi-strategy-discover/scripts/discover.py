@@ -6,7 +6,7 @@ stdout, RANKS the returned set itself (on risk / belief / worldview / thesis), a
 
   python3 discover.py --assets btc_eth --direction long_only
 
-Contract (see docs/strategy-discover/discovery-architecture.md):
+Contract:
 - The SCRIPT only does CONCRETE set logic: it hard-rejects on the few unambiguous, explicitly-stated
   constraints (cross-domain asset, named-asset unavailable, strict-opposite direction, explicit
   exclusions) and returns ALL survivors — no relevance score, no top-N cut. A bad rank still contains
