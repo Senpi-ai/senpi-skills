@@ -1,87 +1,89 @@
-# `strategy.yaml` — the deploy declaration (schema reference)
+# `strategy.yaml` — the strategy-package deploy manifest
 
-`strategy.yaml` is the single source of truth for a strategy package. It is **data, not a skill**.
-A strategy *definition* deploys into N **instances** (`main` for single-instance; e.g. `swing`/`scalp`
-for a two-book strategy). The installer reads this file to deploy deterministically; the scanner reads
-its `params` via `senpi_runtime_helpers.load_params()`.
+`strategy.yaml` is **ours** (the strategy-ops layer). It bundles **one or more `runtime.yaml`
+instances** into a single deployable package and is the **single source of truth** for deploy +
+attribution. It is intentionally **thin**: scanner tunables, exit/risk config, and cadence all live in
+each self-contained `runtime.yaml` (the runtime's own concept) — the manifest must not duplicate them.
 
-## Top-level fields
+## Package layout
 
-| Field | Required | Notes |
-|---|---|---|
-| `schema_version` | yes | manifest format version (currently `1`). |
-| `id` | yes | strategy identity; **must equal the package directory name**. |
-| `version` | yes | the ONE version; feeds the catalog entry and `strategy_id`/`strategy_version` attribution. |
-| `catalog` | yes | discovery metadata: `name`, `emoji`, `tagline`, `group` (archetype slug), `risk_level`, `min_budget`. |
-| `requires.runtime` | yes | `@senpi-ai/runtime` semver range (e.g. `">=1.1.0"`). NOT the runtime.yaml schema major. |
-| `defaults` | yes | env VAR NAMES only (never values): `decision_model_env`, `telegram_chat_id_env`, `auth_token_env`. |
-| `instances[]` | yes | one entry per deployable unit. |
+```
+strategies/<id>/                # all strategy packages live under strategies/
+  strategy.yaml                 # this manifest
+  <instance>/
+    runtime.yaml                # the runtime's self-contained spec for this instance
+    scanners/                   # the supervised scanner module(s)
+      scan.py                   # exports scan(inputs, ctx) -> list[dict]
+      scoring.py                # (optional) pure helpers
+  <instance2>/ …                # one subdir per instance (multi-runtime, e.g. spider swing + scalp)
+```
 
-## `instances[]` fields (per instance)
+A single-instance strategy has one `<instance>/` dir; a multi-instance one (spider) has several, **each
+on its own wallet** (a runtime binds to exactly one wallet).
 
-| Field | Notes |
-|---|---|
-| `name` | instance id (`main`, or e.g. `swing`/`scalp`). |
-| `runtime` | path to this instance's `runtime.yaml`. |
-| `scanner.entrypoint` | the scanner script (`scanner.py`). |
-| `scanner.name` | **must match** an `external_scanner` name in `runtime`. |
-| `scanner.signal_type` | the `signal_type` the scanner emits. |
-| `wallet_env` | env var name the runtime render + scanner daemon both bind to; **must appear as `${…}` in `runtime`**. |
-| `env` | instance-selecting env injected into the daemon (e.g. `{SPIDER_LEG: swing}`). Empty `{}` for single-instance. |
-| `tick_seconds` | scanner cadence. |
-| `funding_share` | share of the budget for this instance's wallet when `wallet="new"` (must sum to ~1.0 across instances). |
-| `params` | **the single source of scanner tunables** (thresholds, asset sets, leverage tiers). Declarative data only — algorithm logic stays in `scanner.py`. |
-
-## Single-instance example (`polar`)
+## Schema
 
 ```yaml
 schema_version: 1
-id: polar
-version: "5.0.0"
-catalog:
-  name: "Polar — ETH Alpha Hunter"
-  emoji: "🐻‍❄️"
-  tagline: "Single-asset alpha hunter for ETH …"
-  group: single-asset-alpha-hunter
+id: spider                  # REQUIRED. == package dir name; == every instance's runtime.yaml `group`
+version: "6.0.0"            # REQUIRED. Single source for catalog + MCP attribution (skillName/skillVersion)
+
+catalog:                    # discovery surface (read by senpi-strategy-discover via catalog.json)
+  name: "Spider — AI/Tech Hedge Fund"
+  emoji: "🕷️"
+  tagline: "…"
+  belief_plain: "…"
+  group: multi-asset-whitelist   # discovery TAXONOMY bucket (distinct from runtime.yaml `group: <id>`)
+  archetype: trend_following     # declared discovery facets (see senpi-strategy-discover glossary.yaml)
+  sub_style: basket
+  asset_classes: [xyz_equities, major_alts, btc_eth, commodities]
+  asset_scope: basket
+  direction: long_short
   risk_level: moderate
-  min_budget: 100
-requires: { runtime: ">=1.1.0" }
-defaults:
-  decision_model_env: POLAR_DECISION_MODEL
-  telegram_chat_id_env: TELEGRAM_CHAT_ID
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 10               # explicit (gen_catalog reads these — no longer derived from params)
+  max_slots: 7
+  min_budget: 200
+  assets: [ … ]                  # explicit asset list for named-asset matching
+
+requires:
+  runtime: ">=2.0.0"        # @senpi-ai/runtime semver range
+
+defaults:                   # env VAR NAMES only — never values
   auth_token_env: SENPI_AUTH_TOKEN
-instances:
-  - name: main
-    runtime: runtime.yaml
-    scanner: { entrypoint: scanner.py, name: polar_signals, signal_type: POLAR_ETH_HYBRID }
-    wallet_env: WALLET_ADDRESS
-    env: {}
-    tick_seconds: 300
-    funding_share: 1.0
-    params: { minScore: 14, quietHours: { startUtc: 0, endUtc: 4, apexBypassScore: 17 } }
+  # decision_model_env: <ENV>   # ONLY if a runtime.yaml has a decision_mode: llm action
+
+instances:                  # REQUIRED, non-empty. Each entry = one runtime.yaml + one wallet.
+  - name: swing                       # REQUIRED. Instance id.
+    runtime: swing/runtime.yaml       # REQUIRED. Path to this instance's runtime.yaml.
+    wallet_env: SPIDER_SWING_WALLET   # REQUIRED. Bound as ${SPIDER_SWING_WALLET} in that runtime.yaml.
+    funding_share: 0.60               # REQUIRED. Budget split; must sum to 1.0 across instances.
+  - name: scalp
+    runtime: scalp/runtime.yaml
+    wallet_env: SPIDER_SCALP_WALLET
+    funding_share: 0.40
 ```
 
-## Multi-instance example (`spider`)
+An instance carries **only** `name`, `runtime`, `wallet_env`, `funding_share`. (Removed vs the legacy
+schema: the per-instance `scanner:` block, `params:`, `tick_seconds`, and any telegram field — those are
+in the runtime.yaml or gone.)
 
-Two instances, two wallets, one `scanner.py` multiplexed by `SPIDER_LEG`. See `spider/strategy.yaml`
-in the repo for the full two-book (`swing`/`scalp`) declaration with per-instance `params` and
-`funding_share` 0.60 / 0.40.
+## Linkage convention (validator-enforced)
 
-## How the scanner reads params
+Forward and reverse mapping between the manifest and the running runtimes is **ledger-free**, guaranteed
+by two rules `deploy.py` validates:
 
-```python
-import senpi_runtime_helpers as h
-params = h.load_params(__file__)      # resolves this package's strategy.yaml,
-                                      # selects this instance (by env or sole), returns params
-min_score = params.get("minScore", 5)
-```
+- every instance's `runtime.yaml` has **`group: <strategy id>`** (e.g. `group: spider`)
+- every instance's `runtime.yaml` has **`name: <id>-<instance>`** (e.g. `spider-swing`)
 
-`load_params()` selects the instance whose declared `env` matches the process environment (the
-installer sets it), or the sole instance for single-instance strategies. The wallet address is read
-from `wallet_env`, never hardcoded.
+So: **forward** = `instances[].runtime` path → the instance's spec; **reverse** (monitor/close, no state file)
+= `openclaw senpi runtime list` rows where `group == <id>`, or MCP `strategy_list` rows where
+`skillName == <id>`. The manifest's `wallet_env` must appear as `${WALLET_ENV}` in that runtime.yaml.
 
-## Validate
+## Validation
 
-```
-python3 senpi-strategy-author/scripts/validate_strategy.py <package-dir>
-```
+`deploy.py` preflight-validates the package (and the model in `scripts/_pkg.py` is reusable): id == dir,
+version present, instances non-empty, each `runtime.yaml` exists + binds `${wallet_env}` + has the
+`group`/`name` linkage + an `external_scanner` whose entrypoint module exists, distinct `wallet_env` per
+instance, `funding_share` sums to 1.0, and no bare `@senpi/runtime` anywhere.
