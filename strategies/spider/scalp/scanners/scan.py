@@ -184,10 +184,15 @@ def scan(inputs, ctx):
         notional = margin_usd * leverage
         if leverage <= 0 or notional < min_notional:
             continue
+        # Runtime 3.0 sizes off a top-level marginPct (PERCENT of equity in (0,100]),
+        # NOT a top-level marginUsd (silently dropped). margin_usd was computed as
+        # account_value * marginPct, so marginPct-of-equity = margin_usd/account_value*100
+        # reproduces the intended fraction exactly. account_value > 0 here (guarded above).
+        margin_pct_emit = round(min(max(margin_usd / account_value * 100.0, 0.01), 100.0), 4)
         out.append({
             "asset": th["coin"],
             "direction": th["direction"],
-            "marginUsd": margin_usd,
+            "marginPct": margin_pct_emit,
             "leverage": leverage,
             "data": {
                 "score": th["score"],

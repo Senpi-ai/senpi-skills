@@ -35,7 +35,7 @@ scanners:
     inputs:
       book: "escalation"                  # selects the stress-gated, LONG-crisis + SHORT-risk path
       defensives: []
-      crisisLongs: ["xyz:GOLD", "xyz:SILVER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:DXY", "xyz:JPY"]
+      crisisLongs: ["xyz:GOLD", "xyz:SILVER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:JPY"]   # xyz:DXY dropped — delisted on HL, no live equivalent
       riskAssets: ["BTC", "ETH", "SOL", "HYPE", "SUI", "xyz:XYZ100", "xyz:SP500"]
       minScore: 5
       marginPct: 22                       # LARGER — percent of withdrawable (runtime sizes (marginPct/100)*withdrawable)

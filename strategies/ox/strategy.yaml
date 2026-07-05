@@ -9,8 +9,9 @@
 # distinctive mechanic — INVERSE-VOLATILITY position sizing (w_i = (1/vol_i)/sum(1/vol_j) over the
 # whole basket), so a low-vol sleeve carries more notional than a high-vol one and no single asset
 # class dominates portfolio risk — is ported VERBATIM into scanners/scoring.py (marked # v2-quirk
-# where the v2 math is reproduced exactly). scan.py emits per-sleeve top-level `marginUsd` (the
-# risk-parity weight) + per-signal clamped `leverage`; the runtime sizes/executes/exits.
+# where the v2 math is reproduced exactly). scan.py emits the per-sleeve inverse-vol risk-parity
+# weight as a top-level `marginPct` (PERCENT of equity; Runtime 3.0 sizes off marginPct and drops
+# a top-level marginUsd) + per-signal clamped `leverage`; the runtime sizes/executes/exits.
 schema_version: 1
 
 id: ox
@@ -34,7 +35,7 @@ catalog:
   leverage_max: 3
   max_slots: 14            # core 10 + ballast 4 — the whole all-weather + defensive book
   min_budget: 200          # two wallets, $100 floor each
-  assets: ["BTC", "ETH", "SOL", "xyz:SP500", "xyz:XYZ100", "xyz:GOLD", "xyz:COPPER", "xyz:BRENTOIL", "xyz:DXY", "xyz:JPY", "xyz:SILVER"]
+  assets: ["BTC", "ETH", "SOL", "xyz:SP500", "xyz:XYZ100", "xyz:GOLD", "xyz:COPPER", "xyz:BRENTOIL", "xyz:JPY", "xyz:SILVER"]
   tags: [risk_parity, all_weather, inverse_volatility, diversified, defensive, two_book, hedge_fund, low_turnover]
 
 requires:

@@ -33,7 +33,7 @@ scanners:
     state_history_max_count: 100          # dedup map + per-tick result history
     inputs:
       book: "hedge"                       # selects the always-on, LONG-only, NOT-stress-gated path
-      defensives: ["xyz:GOLD", "xyz:BRENTOIL", "xyz:DXY", "xyz:JPY"]
+      defensives: ["xyz:GOLD", "xyz:BRENTOIL", "xyz:JPY"]   # xyz:DXY dropped — delisted on HL, no live equivalent
       crisisLongs: []
       riskAssets: []
       minScore: 5

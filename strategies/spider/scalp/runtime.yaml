@@ -19,7 +19,7 @@ description: >
 strategy:
   wallet: "${SPIDER_SCALP_WALLET}"
   slots: 4                          # source maxSlots 4
-  margin_pct: 15                    # source marginPct 0.15 → margin_usd = account_value * 0.15
+  margin_pct: 15                    # fallback %; scan emits per-signal marginPct=15 (source marginPct 0.15 * 100)
   default_leverage: 5               # source scalpMaxLeverage cap (clamped per-asset to HL venue max in scan.py)
   trading_risk: moderate
   enabled: true

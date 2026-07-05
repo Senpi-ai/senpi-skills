@@ -58,10 +58,12 @@ scanners:
       volFloorPctOfMedian: 0.2             # within-class relative liquidity gate (no $ floor)
       recentSignalTtlSeconds: 180          # v2 RECENT_SIGNAL_TTL_SEC — race-window dedup
       # ── asset-class map (classification reference data; xyz: names not in metals/energy/
-      #    indices fall through to "equity"; non-xyz names are "crypto") — verbatim v2 ──
+      #    indices fall through to "equity"; non-xyz names are "crypto"). Pruned to LIVE HL
+      #    instruments only: NASDAQ/NDX/US100 -> XYZ100; US500 folds into SP500, WTI into CL;
+      #    DJIA/US30/RUSSELL/RUT/VIX/HEATOIL/GASOLINE dropped (no live instrument). ──
       classMetals: ["GOLD", "SILVER", "PLATINUM", "PALLADIUM", "COPPER"]
-      classEnergy: ["BRENTOIL", "CL", "WTI", "NATGAS", "GAS", "HEATOIL", "GASOLINE", "URNM"]
-      classIndices: ["SP500", "NASDAQ", "NDX", "US500", "US100", "DJIA", "US30", "RUSSELL", "RUT", "VIX"]
+      classEnergy: ["BRENTOIL", "CL", "NATGAS", "GAS", "URNM"]
+      classIndices: ["SP500", "XYZ100"]
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }

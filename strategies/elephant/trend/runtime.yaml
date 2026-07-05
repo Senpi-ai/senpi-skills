@@ -35,8 +35,9 @@ scanners:
     state_history_max_count: 100             # recent-signals dedup map + per-tick result history
     inputs:
       # ── Macro whitelist (config.allowedAssets). XYZ indices / metals / energy / FX + BTC.
-      #    Validated against the live HL meta at authoring time (2026-06-29): all 18 names live. ──
-      allowedAssets: ["BTC", "xyz:SP500", "xyz:XYZ100", "xyz:JP225", "xyz:KR200", "xyz:NIFTY", "xyz:IBOV", "xyz:GOLD", "xyz:SILVER", "xyz:PLATINUM", "xyz:COPPER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:EUR", "xyz:JPY", "xyz:GBP", "xyz:DXY"]
+      #    Pruned to LIVE HL instruments only (xyz:NIFTY / xyz:IBOV / xyz:DXY delisted, no live
+      #    equivalent — dropped): 15 names, all live. ──
+      allowedAssets: ["BTC", "xyz:SP500", "xyz:XYZ100", "xyz:JP225", "xyz:KR200", "xyz:GOLD", "xyz:SILVER", "xyz:PLATINUM", "xyz:COPPER", "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS", "xyz:EUR", "xyz:JPY", "xyz:GBP"]
       minScore: 5                            # v2 trend minScore
       marginPct: 18                          # PERCENT of withdrawable (0,100); v2 0.18 fraction x100
       maxLeverage: 5                         # strict clamp, then each name's HL venue max (per-name, in-scan)
