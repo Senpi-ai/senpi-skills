@@ -10,6 +10,7 @@ description: >-
   hidden engine (scripts/discover.py) fetches data + filters. NOT for installing a
   NAMED strategy (that's senpi-strategy-ops) or building one (senpi-strategy-author).
 license: Apache-2.0
+compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
   version: "2.2.1"
