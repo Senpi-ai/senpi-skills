@@ -90,6 +90,18 @@ def test_client_raises_on_tool_iserror():
         assert "Unauthorized" in str(e)
 
 
+def test_client_raises_on_app_level_failure():
+    # the senpi server reports tool failures as HTTP 200 + {"success": false, "error": {...}}
+    doc = {"success": False, "error": {"code": "NOT_FOUND", "message": "Unknown tool: x"}}
+    rpc = {"jsonrpc": "2.0", "id": 1, "result": {
+        "content": [{"type": "text", "text": json.dumps(doc)}]}}
+    try:
+        mcp_client._unwrap(rpc)
+        assert False, "expected MCPError"
+    except mcp_client.MCPError as e:
+        assert "NOT_FOUND" in str(e) and "Unknown tool" in str(e)
+
+
 def test_client_unwraps_success():
     doc = {"success": True, "data": {"x": 1}}
     rpc = {"jsonrpc": "2.0", "id": 1, "result": {

@@ -104,9 +104,15 @@ def _unwrap(rpc):
         raise MCPError(f"tool error: {str(text)[:300]}")
     if text is not None:
         try:
-            return json.loads(text)
+            doc = json.loads(text)
         except (json.JSONDecodeError, TypeError):
             return result
+        # the senpi server reports tool failures app-level: HTTP 200 + {"success": false, "error": {...}}
+        if isinstance(doc, dict) and doc.get("success") is False:
+            err = doc.get("error") or {}
+            raise MCPError(f"tool failed: {err.get('code')}: {err.get('message')}"
+                           if isinstance(err, dict) else f"tool failed: {err}")
+        return doc
     return result
 
 
