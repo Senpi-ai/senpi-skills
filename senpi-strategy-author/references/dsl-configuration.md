@@ -1,6 +1,6 @@
 # DSL Exit Engine — Configuration Reference
 
-> For the complete strategy YAML specification (all sections), see [yaml-schema.md](yaml-schema.md).
+> For the complete runtime YAML specification (all sections), see `senpi-trading-runtime/references/runtime-yaml.md` — the authoritative schema.
 
 The DSL (Dynamic Stop-Loss) manages exit logic for open perpetual positions. It monitors prices on a fixed interval and closes positions when price breaches a computed floor. Two-phase design: Phase 1 protects from initial loss, Phase 2 locks in profits as they grow.
 
