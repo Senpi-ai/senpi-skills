@@ -19,10 +19,12 @@ def _client():
 
 def test_top_candidates_and_reliability():
     res = research.run(_client(), "top")
-    by = {c["short"]: c for c in res["candidates"]}
     assert len(res["candidates"]) == 3
-    # ELITE, 140 trades / 90 days → solid; STREAKY, 6 trades / 4 days → thin (don't recommend)
-    assert next(c for c in res["candidates"] if c["address"] == "0xpro")["reliability"] == "solid"
+    # trades/active_days are DERIVED from averageTradesPerDay × traderAgeSeconds (live fields)
+    pro = next(c for c in res["candidates"] if c["address"] == "0xpro")
+    assert pro["active_days"] == 90.0 and pro["trades"] == 140
+    assert pro["consistency"] == "ELITE"              # from tcsLabel
+    assert pro["reliability"] == "solid"
     assert next(c for c in res["candidates"] if c["address"] == "0xstreak")["reliability"] == "thin"
 
 
@@ -34,13 +36,19 @@ def test_vet_dossier():
     assert t["net_exposure"]["margin_pct"] == 84.0
     assert "high_margin_usage" in t["flags"]          # 84 > 80
     assert "concentrated_book" in t["flags"]          # BTC notional dominates
-    assert t["recent_momentum"]["rank"] == 12.0       # 4h momentum present
+    # momentum record is nested under data.trader in the live shape
+    assert t["recent_momentum"]["rank"] == 12.0
+    assert t["recent_momentum"]["delta_pnl_4h_usd"] == 850.0
+    assert t["recent_momentum"]["active_positions"] == 2.0
 
 
 def test_strategies_mode():
     res = research.run(_client(), "strategies")
-    assert res["strategies"][0]["total_pnl_usd"] == 5000
-    assert res["strategies"][0]["return_pct"] == 25.0
+    s = res["strategies"][0]
+    assert s["total_pnl_usd"] == 5000
+    assert s["return_pct"] == 25.0                    # pnlPercentage
+    assert s["followers"] == 40.0                     # traderFollowerCount
+    assert s["age_days"] is not None                  # derived from strategyCreatedAt
 
 
 def test_fails_open_on_empty():

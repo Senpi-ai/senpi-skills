@@ -1,17 +1,99 @@
 {
-  "discovery_get_top_traders": {"traders": [
-    {"address": "0xpro", "shortAddress": "0xpro…aaaa", "returnOnInvestment": 62.0, "profitAndLoss": 12000, "winRate": 58.0, "maxDrawdown": -18.0, "totalTrades": 140, "activeDays": 90, "consistency": "ELITE", "risk": "BALANCED", "activity": "TACTICAL"},
-    {"address": "0xstreak", "shortAddress": "0xstr…bbbb", "returnOnInvestment": 210.0, "profitAndLoss": 8000, "winRate": 66.0, "maxDrawdown": -40.0, "totalTrades": 6, "activeDays": 4, "consistency": "STREAKY", "risk": "SNIPER", "activity": "DEGEN"},
-    {"address": "0xsolid", "shortAddress": "0xsol…cccc", "returnOnInvestment": 31.0, "profitAndLoss": 4000, "winRate": 54.0, "maxDrawdown": -12.0, "totalTrades": 80, "activeDays": 45, "consistency": "RELIABLE", "risk": "CONSERVATIVE", "activity": "PATIENT"}
-  ]},
-  "discovery_get_trader_state::0xpro": {"traders": [
-    {"marginPercentage": 84, "crossMarginSummary": {"accountValue": "20000"}, "openPositions": [
-      {"coin": "BTC", "szi": 0.8, "positionValue": 50000, "unrealizedPnl": 1200, "returnOnEquity": 0.10},
-      {"coin": "ETH", "szi": -2, "positionValue": 3000, "unrealizedPnl": -100, "returnOnEquity": -0.03}
-    ]}
-  ]},
-  "leaderboard_get_trader::0xpro": {"rank": 12, "deltaPnl": 850, "activePositions": 2},
-  "discovery_get_top_strategies": {"strategies": [
-    {"strategyWalletAddress": "0xstrat", "traderAddress": "0xogtrader", "totalPnl": 5000, "realizedPnl": 3000, "returnPercentage": 25.0, "followers": 40, "ageDays": 60}
-  ]}
+  "discovery_get_top_traders": {
+    "success": true,
+    "data": {
+      "count": 3,
+      "filters": {},
+      "traders": [
+        {"address": "0xpro", "shortAddress": "0xpro…aaaa", "returnOnInvestment": 62.0, "profitAndLoss": 12000,
+         "unRealizedProfitAndLoss": 2000, "realizedProfitAndLoss": 10000, "winRate": 58.0, "maxDrawdown": -18.0,
+         "gainToPainRatio": 1.4, "traderAgeSeconds": 7776000, "averageTradesPerDay": 1.5555555556,
+         "averageProfitPerTrade": 85.7, "lastTradeTimestamp": 1783200000, "longShortRatio": 1.8,
+         "averageLeverageUsed": 5, "averageMarginUsed": 900.0, "activityLabel": "TACTICAL",
+         "traderActivityScore": 55.1, "tcsLabel": "ELITE", "tcsValue": 88, "riskLabel": "BALANCED",
+         "riskScore": 51.0, "followerCount": 12, "followers": []},
+        {"address": "0xstreak", "shortAddress": "0xstr…bbbb", "returnOnInvestment": 210.0, "profitAndLoss": 8000,
+         "unRealizedProfitAndLoss": 8000, "realizedProfitAndLoss": 0, "winRate": 66.0, "maxDrawdown": -40.0,
+         "gainToPainRatio": 0, "traderAgeSeconds": 345600, "averageTradesPerDay": 1.5,
+         "averageProfitPerTrade": 1333.3, "lastTradeTimestamp": 1783200000, "longShortRatio": null,
+         "averageLeverageUsed": 37, "averageMarginUsed": 350.0, "activityLabel": "DEGEN",
+         "traderActivityScore": 91.0, "tcsLabel": "STREAKY", "tcsValue": 20, "riskLabel": "SNIPER",
+         "riskScore": 88.0, "followerCount": 1, "followers": ["M000001"]},
+        {"address": "0xsolid", "shortAddress": "0xsol…cccc", "returnOnInvestment": 31.0, "profitAndLoss": 4000,
+         "unRealizedProfitAndLoss": 500, "realizedProfitAndLoss": 3500, "winRate": 54.0, "maxDrawdown": -12.0,
+         "gainToPainRatio": 2.1, "traderAgeSeconds": 3888000, "averageTradesPerDay": 1.7777777778,
+         "averageProfitPerTrade": 50.0, "lastTradeTimestamp": 1783200000, "longShortRatio": 1.1,
+         "averageLeverageUsed": 3, "averageMarginUsed": 500.0, "activityLabel": "PATIENT",
+         "traderActivityScore": 30.0, "tcsLabel": "RELIABLE", "tcsValue": 75, "riskLabel": "CONSERVATIVE",
+         "riskScore": 22.0, "followerCount": 4, "followers": []}
+      ]
+    }
+  },
+  "discovery_get_top_traders::0xpro": {
+    "success": true,
+    "data": {
+      "count": 1,
+      "filters": {},
+      "traders": [
+        {"address": "0xpro", "shortAddress": "0xpro…aaaa", "returnOnInvestment": 62.0, "profitAndLoss": 12000,
+         "unRealizedProfitAndLoss": 2000, "realizedProfitAndLoss": 10000, "winRate": 58.0, "maxDrawdown": -18.0,
+         "gainToPainRatio": 1.4, "traderAgeSeconds": 7776000, "averageTradesPerDay": 1.5555555556,
+         "averageProfitPerTrade": 85.7, "lastTradeTimestamp": 1783200000, "longShortRatio": 1.8,
+         "averageLeverageUsed": 5, "averageMarginUsed": 900.0, "activityLabel": "TACTICAL",
+         "traderActivityScore": 55.1, "tcsLabel": "ELITE", "tcsValue": 88, "riskLabel": "BALANCED",
+         "riskScore": 51.0, "followerCount": 12, "followers": []}
+      ]
+    }
+  },
+  "discovery_get_trader_state::0xpro": {
+    "success": true,
+    "data": {
+      "count": 1,
+      "trader_addresses": ["0xpro"],
+      "latest": false,
+      "traders": [
+        {"address": "0xpro", "shortAddress": "0xpro…aaaa", "marginPercentage": 84,
+         "withdrawable": "3200.0",
+         "crossMarginSummary": {"accountValue": "20000", "totalMarginUsed": "16800"},
+         "openOrders": [],
+         "openPositions": [
+           {"coin": "BTC", "coinDisplayName": "BTC", "szi": "0.8", "entryPx": "60000",
+            "positionValue": "50000", "unrealizedPnl": "1200",
+            "leverage": {"type": "cross", "value": 10}, "marginUsed": "5000",
+            "returnOnEquity": "0.10", "liquidationPx": null, "type": "oneWay"},
+           {"coin": "ETH", "coinDisplayName": "ETH", "szi": "-2", "entryPx": "1600",
+            "positionValue": "3000", "unrealizedPnl": "-100",
+            "leverage": {"type": "cross", "value": 5}, "marginUsed": "600",
+            "returnOnEquity": "-0.03", "liquidationPx": null, "type": "oneWay"}
+         ]}
+      ]
+    }
+  },
+  "leaderboard_get_trader::0xpro": {
+    "success": true,
+    "data": {
+      "trader": {
+        "trader_id": "0xpro",
+        "rank": 12,
+        "window": "4h",
+        "timestamp": 1783261893,
+        "pnl": {"unrealized": 850.0, "percentage": 4.2, "base_unrealized": 2100.0},
+        "ath_delta": 120.5,
+        "top_markets": ["BTC", "ETH"],
+        "position_count": 2
+      }
+    }
+  },
+  "discovery_get_top_strategies": {
+    "success": true,
+    "data": {
+      "count": 1,
+      "strategies": [
+        {"strategyWalletAddress": "0xstrat", "userId": "M000009", "userName": "Tester",
+         "traderAddress": "0xogtrader", "totalPnl": 5000, "unrealizedPnl": 2000, "realizedPnl": 3000,
+         "totalFunded": 20000, "pnlPercentage": 25.0, "strategyCreatedAt": "2026-05-06 14:51:35",
+         "traderFollowerCount": 40, "followers": [], "shortTraderAddress": "0xogt…ader"}
+      ]
+    }
+  }
 }

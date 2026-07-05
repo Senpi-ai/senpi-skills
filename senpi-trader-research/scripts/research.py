@@ -102,7 +102,7 @@ class _FixtureClient:
 
 # ──────────────────────────────────────────────────────────────── find candidates
 def _candidate(t):
-    return {
+    c = {
         "address": _field(t, "address", "trader_address", "wallet", default=""),
         "short": _field(t, "shortAddress", "short_address") or _short(_field(t, "address", "trader_address", "wallet")),
         "roi_pct": _f(t, "returnOnInvestment", "roi", "roiPct", "return_on_investment"),
@@ -111,10 +111,21 @@ def _candidate(t):
         "max_drawdown_pct": _f(t, "maxDrawdown", "max_drawdown"),
         "trades": _f(t, "totalTrades", "tradeCount", "trades", "numTrades"),
         "active_days": _f(t, "activeDays", "active_days", "traderAgeDays"),
-        "consistency": _field(t, "consistency", "consistencyLabel", "tcs"),
+        "consistency": _field(t, "tcsLabel", "consistency", "consistencyLabel", "tcs"),
         "risk": _field(t, "risk", "riskLabel"),
         "activity": _field(t, "activity", "activityLabel", "tas"),
     }
+    # live payload carries age as traderAgeSeconds and activity as averageTradesPerDay —
+    # derive the human units the ranker/reliability gate need
+    if c["active_days"] is None:
+        age_s = _f(t, "traderAgeSeconds")
+        if age_s is not None:
+            c["active_days"] = round(age_s / 86400.0, 1)
+    if c["trades"] is None:
+        tpd = _f(t, "averageTradesPerDay")
+        if tpd is not None and c["active_days"] is not None:
+            c["trades"] = round(tpd * c["active_days"])
+    return c
 
 
 def _reliability(c):
@@ -156,14 +167,29 @@ def find_top_strategies(client, meta, limit):
     for s in _rows(_ok(resp)):
         if not isinstance(s, dict):
             continue
+        followers = _f(s, "traderFollowerCount", "followerCount")
+        if followers is None and isinstance(s.get("followers"), list):
+            followers = float(len(s["followers"]))
+        age_days = _f(s, "ageDays", "strategyAgeDays", "age_days")
+        if age_days is None:
+            created = _field(s, "strategyCreatedAt", "createdAt")
+            if created:
+                try:
+                    import datetime as _dt
+                    dt = _dt.datetime.fromisoformat(str(created).replace(" ", "T").replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=_dt.timezone.utc)
+                    age_days = round((_dt.datetime.now(_dt.timezone.utc) - dt).total_seconds() / 86400.0, 1)
+                except ValueError:
+                    pass
         out.append({
             "strategy_wallet": _field(s, "strategyWalletAddress", "strategy_wallet", "wallet"),
             "copied_trader": _short(_field(s, "traderAddress", "copied_trader", "trader_address")),
             "total_pnl_usd": _f(s, "totalPnl", "total_pnl"),
             "realized_pnl_usd": _f(s, "realizedPnl", "realized_pnl"),
-            "return_pct": _f(s, "returnPercentage", "return_pct", "roi"),
-            "followers": _f(s, "followers", "followerCount"),
-            "age_days": _f(s, "ageDays", "strategyAgeDays", "age_days"),
+            "return_pct": _f(s, "pnlPercentage", "returnPercentage", "return_pct", "roi"),
+            "followers": followers,
+            "age_days": age_days,
         })
     return out
 
@@ -222,9 +248,12 @@ def vet_trader(client, meta, addr):
         meta.setdefault("warnings", []).append(f"leaderboard_get_trader failed: {e}")
         lm = None
     if isinstance(lm, dict):
-        dossier["recent_momentum"] = {"rank": _f(lm, "rank"),
-                                      "delta_pnl_4h_usd": _f(lm, "deltaPnl", "delta_pnl"),
-                                      "active_positions": _f(lm, "activePositions", "active_positions")}
+        # live shape nests the record under `trader`: {rank, pnl:{unrealized,...}, position_count}
+        t = lm.get("trader") if isinstance(lm.get("trader"), dict) else lm
+        pnl = t.get("pnl") if isinstance(t.get("pnl"), dict) else {}
+        dossier["recent_momentum"] = {"rank": _f(t, "rank"),
+                                      "delta_pnl_4h_usd": _f(t, "deltaPnl", "delta_pnl") or _f(pnl, "unrealized"),
+                                      "active_positions": _f(t, "position_count", "activePositions", "active_positions")}
     else:
         dossier["recent_momentum"] = None
 
