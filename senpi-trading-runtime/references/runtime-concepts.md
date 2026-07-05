@@ -91,7 +91,7 @@ tracking) and closes (to clean up). Without this scanner the DSL never learns ab
 ## Actions: how signals become trades and exits
 
 An action consumes signals from one or more scanners and reacts. `decision_mode` is `rule`, `llm`, or
-`no_decision`.
+`none`.
 
 - **`OPEN_POSITION`** consumes the signals your `external_scanner` returns and opens a position via
   `FEE_OPTIMIZED_LIMIT`. In `rule` mode it opens on every accepted signal; in `llm` mode a decision
@@ -198,19 +198,16 @@ price_retrace = retrace_threshold / 100 / leverage
 Configured at the **preset root** (siblings of `phase1`/`phase2`), each runs every tick alongside the
 phase logic, after Phase 1 floor-breach counting. Their phase behavior:
 
-- **`hard_timeout` is Phase 1 only.** If the position enters Phase 2 before the interval elapses, it
-  never fires.
-- **`weak_peak_cut` and `dead_weight_cut` are evaluated in any phase** while the position is open
-  (though `weak_peak_cut`'s guard usually only holds in Phase 1 — see below).
+- **`hard_timeout`, `weak_peak_cut`, and `dead_weight_cut` are all evaluated in any phase** while the
+  position is open (`weak_peak_cut`'s guard usually only holds in Phase 1 — see below).
 
-#### `hard_timeout` — Phase 1 only
+#### `hard_timeout` — any phase
 
-> "Close a position that has stayed in Phase 1 for at least N minutes."
+> "Close a position that has been open for at least N minutes."
 
-Fires only **while the position is still in Phase 1**. If the position **enters Phase 2** (first tier
-crossed) before the interval elapses, `hard_timeout` **never fires** for that position — in Phase 2,
-elapsed time is ignored for this cut. On the exact tick where the interval has elapsed *and* price
-crosses into the first tier, **tier/phase advance wins** and no `hard_timeout` is emitted.
+A preset-level time cut (a `dsl_preset` root key, sibling of `phase1`/`phase2` — **not** nested under
+`phase1`). It fires on wall-clock minutes since open **regardless of phase**: once the interval has
+elapsed the position is closed whether it is still in Phase 1 or has already advanced into Phase 2.
 
 **Field:** `interval_in_minutes` — wall-clock minutes since open. Must be > 0 (clamped to ≥ the cron
 interval).
@@ -252,7 +249,7 @@ phase.
 |---|---|
 | `dsl_breach` | Phase 1 floor breached for `consecutive_breaches_required` consecutive ticks |
 | `exchange_sl_hit` | Exchange stop-loss filled (Phase 2 floor, or the Phase 1 absolute floor) |
-| `hard_timeout` | Open past `hard_timeout.interval_in_minutes` while still in Phase 1 |
+| `hard_timeout` | Open past `hard_timeout.interval_in_minutes` (any phase) |
 | `weak_peak_cut` | Peak ROE stayed below `min_value` and price retraced from it |
 | `dead_weight_cut` | ROE stayed non-positive past `dead_weight_cut.interval_in_minutes` |
 | `flipped` | Position direction reversed (detected by `position_tracker`) |
@@ -272,7 +269,7 @@ POSITION_TRACKER action → fires ON_POSITION_OPENED { SOL, LONG, 150, 10× }
 DSL monitor → creates state for SOL; absolute floor at max_loss_pct
    ↓ (DSL tick every interval_seconds)
 Tick: price $152 → ROE +1.33% → hw $152, retrace floor below → no breach, no tier
-Tick: price $165 → ROE +10% → Tier 1 (trigger 10) → ENTER PHASE 2 (hard_timeout no longer applies)
+Tick: price $165 → ROE +10% → Tier 1 (trigger 10) → ENTER PHASE 2
 Tick: price $180 → ROE +20% → Tier 3 → SL ratchets to tier floor
 Tick: price $155 → exchange SL at the locked floor executes → CLOSE, reason exchange_sl_hit
    ↓
@@ -290,7 +287,7 @@ Telegram notification (if dsl_lifecycle enabled)
 | `max_loss_pct` | Hard absolute floor — never lose more than this ROE% from entry. Positive number. |
 | `trigger_pct` (tier) | ROE% that activates this tier and enters Phase 2. Strictly ascending across tiers. |
 | `lock_hw_pct` (tier) | % of peak high-water ROE to protect as the Phase 2 trailing floor. Higher = tighter. |
-| `hard_timeout` | Max minutes in Phase 1 before giving up on an undeveloped position. Phase 1 only. |
+| `hard_timeout` | Max wall-clock minutes open before giving up on the position. Fires in any phase. |
 | `weak_peak_cut` | Exits faded positions whose peak never reached `min_value` ROE. |
 | `dead_weight_cut` | Exits positions held continuously non-positive past the interval. |
 | `interval_seconds` (exit) | How often the DSL evaluates open positions. Integer, 5–3600. |
