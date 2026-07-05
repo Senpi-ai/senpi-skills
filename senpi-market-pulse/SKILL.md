@@ -8,7 +8,6 @@ description: >-
   classes (crypto, equities, indices, commodities, macro) and computes the signals; you narrate.
   Requires Senpi MCP.
 license: Apache-2.0
-compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
   version: "1.1.0"

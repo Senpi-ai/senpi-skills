@@ -15,7 +15,6 @@ description: >-
   chooses how deep the fix goes. Composes senpi-market-pulse (movers), senpi-smart-money (whales), and
   senpi-portfolio (live state). Requires a USER-scoped Senpi token.
 license: Apache-2.0
-compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
   version: "1.1.0"

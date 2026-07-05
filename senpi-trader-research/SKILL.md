@@ -8,7 +8,6 @@ description: >-
   A hidden engine (scripts/research.py) pulls track record, current positions, and 4h momentum; you make the call.
   Requires a USER-scoped Senpi token.
 license: Apache-2.0
-compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
   version: "1.0.1"

@@ -8,7 +8,6 @@ description: >-
   hidden engine (scripts/smartmoney.py) builds the cohorts and finds the divergences; you analyze.
   Requires a USER-scoped Senpi token.
 license: Apache-2.0
-compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
   version: "1.1.0"

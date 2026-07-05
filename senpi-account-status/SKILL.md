@@ -8,7 +8,6 @@ description: >-
   + arena_* one by one. A hidden engine (scripts/status.py) pulls it all in one call. Requires
   a USER-scoped Senpi token.
 license: Apache-2.0
-compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
   version: "1.1.0"
