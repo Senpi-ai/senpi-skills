@@ -4,8 +4,9 @@ thesis coin, unless hedgeIncludesThesis), computes the thesis-stress multiplier 
 thesis coin's 4h), scans each blend asset's 1h/4h, scores via the pure
 `scoring.score_hedge_one`, vol-parity sizes the margin (scaled by thesis stress, total
 capped at hedgeMaxTotalPct), and emits a basket of SHORT signals with explicit per-signal
-`marginUsd` (vol-parity dollars) + `leverage`. Read-only + single-pass — the runtime owns
-slots/dedup/risk and trails the DSL. No daemon.
+`marginPct` (the vol-parity dollars re-expressed as a PERCENT of equity, since Runtime 3.0
+sizes off marginPct and silently drops a top-level marginUsd) + `leverage`. Read-only +
+single-pass — the runtime owns slots/dedup/risk and trails the DSL. No daemon.
 
 PER-COIN PARAMETERIZATION: the thesis coin is inputs.coin (mirrors v2 HYDRA_COIN env); the
 blend auto-excludes it unless inputs.hedgeIncludesThesis is true (the HYPE hybrid).
@@ -166,10 +167,15 @@ def scan(inputs, ctx):
         # hybrid is on (allow_thesis), leave it empty so a deliberate thesis-coin short
         # isn't blocked; otherwise set it to COIN to keep the guard active. (v2-quirk)
         hedge_for = "" if allow_thesis else coin
+        # Runtime 3.0 sizes off a top-level marginPct (PERCENT of equity in (0,100]), NOT a
+        # top-level marginUsd (silently dropped). vol_parity_margin returns account_value*pct,
+        # so marginPct-of-equity = margin_usd/account_value*100 reproduces the vol-parity
+        # fraction exactly. account_value > 0 here (guarded above).
+        margin_pct_emit = round(min(max(margin_usd / account_value * 100.0, 0.01), 100.0), 4)
         out.append({
             "asset": th["coin"],
             "direction": "SHORT",
-            "marginUsd": margin_usd,         # VOL-PARITY DOLLARS — explicit top-level USD margin
+            "marginPct": margin_pct_emit,    # VOL-PARITY size as PERCENT of equity (was marginUsd)
             "leverage": leverage,            # strict 3x (short squeezes are violent)
             "data": {
                 "score": th["score"], "leverage": leverage, "direction": "SHORT",

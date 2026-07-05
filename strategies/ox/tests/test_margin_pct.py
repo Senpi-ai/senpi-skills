@@ -1,16 +1,18 @@
 """ox margin-units + risk-parity regression.
 
 Ox's distinctive mechanic is INVERSE-VOLATILITY sizing: it emits a DIFFERENT per-sleeve
-top-level `marginUsd` (the risk-parity weight), NOT a flat marginPct. These tests drive the
-SHARED scan.py with each book's real runtime.yaml inputs against a fake MCP that returns
-candles for the whole basket, and assert:
+top-level `marginPct` (the risk-parity weight re-expressed as a PERCENT of equity), NOT a
+flat one. Runtime 3.0 sizes off a top-level `marginPct` in (0,100] and silently DROPS a
+top-level `marginUsd`, so the scan converts its inverse-vol dollars to marginPct =
+margin_usd/account_value*100. These tests drive the SHARED scan.py with each book's real
+runtime.yaml inputs against a fake MCP that returns candles for the whole basket, and assert:
 
-  1. Emitted signals carry a POSITIVE top-level `marginUsd` (USD amount) and `leverage` — never
-     a marginPct fraction, never a non-positive value (a present-but-non-positive marginUsd is a
-     loud runtime reject).
+  1. Emitted signals carry a POSITIVE top-level `marginPct` (a PERCENT in (0,100]) and
+     `leverage` — never a top-level `marginUsd` (the runtime would drop it), never a
+     non-positive value.
   2. Every signal is LONG (both books are long-only).
   3. Leverage is clamped to <= maxLeverage (3) and the per-sleeve venue max.
-  4. The inverse-vol weights are correct: the LOWER-vol sleeve gets the LARGER marginUsd
+  4. The inverse-vol weights are correct: the LOWER-vol sleeve gets the LARGER marginPct
      (sum of weights == 1 over the priced basket) — the risk-parity property.
   5. The dual-DEX account_value collapse uses max(), not sum().
 """
@@ -129,44 +131,47 @@ def _run(book):
     return mod.scan(inputs, ctx), inputs
 
 
-def test_emits_positive_margin_usd_long():
+def test_emits_positive_margin_pct_long():
     for book in BOOKS:
         out, inputs = _run(book)
         assert out, f"{book}: expected signals from the all-weather basket"
         for sig in out:
             assert sig["direction"] == "LONG", f"{book}: both books are long-only"
-            mu = sig.get("marginUsd")
-            assert isinstance(mu, (int, float)) and mu > 0, f"{book}: marginUsd must be positive USD, got {mu!r}"
+            mp = sig.get("marginPct")
+            assert isinstance(mp, (int, float)) and 0 < mp <= 100.0, \
+                f"{book}: marginPct must be a PERCENT in (0,100], got {mp!r}"
             lev = sig.get("leverage")
             assert isinstance(lev, (int, float)) and 0 < lev <= BOOKS[book]["max_lev"], \
                 f"{book}: leverage must be clamped to <= maxLeverage, got {lev!r}"
-            assert "marginPct" not in sig, f"{book}: ox emits marginUsd, never marginPct"
+            assert "marginUsd" not in sig, \
+                f"{book}: ox emits marginPct (runtime drops a top-level marginUsd)"
 
 
 def test_inverse_vol_weighting():
-    """Risk-parity property: the LOWER-vol sleeve gets the LARGER marginUsd."""
+    """Risk-parity property: the LOWER-vol sleeve gets the LARGER marginPct."""
     out, _ = _run("core")
     by_asset = {s["asset"]: s for s in out}
     mcp_vol = _FakeMcp(_inputs(BOOKS["core"]["path"])["sleeves"], 10000.0).vol
-    priced = [(a, mcp_vol[a], by_asset[a]["marginUsd"]) for a in by_asset]
+    priced = [(a, mcp_vol[a], by_asset[a]["marginPct"]) for a in by_asset]
     # any low-vol emitted sleeve should outweigh any high-vol emitted sleeve
     los = [m for a, v, m in priced if v <= 0.005]
     his = [m for a, v, m in priced if v >= 0.01]
     if los and his:
-        assert min(los) > max(his), f"inverse-vol broken: low-vol margins {los} not all > high-vol {his}"
+        assert min(los) > max(his), f"inverse-vol broken: low-vol marginPct {los} not all > high-vol {his}"
 
 
 def test_max_weight_cap():
-    """No single sleeve exceeds maxWeightPct * equity."""
+    """No single sleeve exceeds maxWeightPct of equity (as a PERCENT)."""
     for book in BOOKS:
         out, inputs = _run(book)
-        cap = float(inputs["maxWeightPct"]) * 10000.0
+        cap_pct = float(inputs["maxWeightPct"]) * 100.0     # maxWeightPct is a FRACTION -> percent cap
         for sig in out:
-            assert sig["marginUsd"] <= cap + 0.01, f"{book}: {sig['asset']} margin {sig['marginUsd']} > cap {cap}"
+            assert sig["marginPct"] <= cap_pct + 0.01, \
+                f"{book}: {sig['asset']} marginPct {sig['marginPct']} > cap {cap_pct}"
 
 
 if __name__ == "__main__":
-    test_emits_positive_margin_usd_long()
+    test_emits_positive_margin_pct_long()
     test_inverse_vol_weighting()
     test_max_weight_cap()
     print("OK — all ox margin-units + risk-parity tests passed")

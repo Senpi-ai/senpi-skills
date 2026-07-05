@@ -12,14 +12,14 @@ description: >
   with the BALLAST book on a separate wallet. The edge is RISK BALANCING + diversification,
   not a directional bet.
 
-  Sizing (scanner-side): each sleeve's marginUsd is the inverse-vol risk-parity weight, emitted
-  per-signal (top-level marginUsd) — NOT a flat margin_pct. The runtime honors per-signal
-  marginUsd; strategy.margin_pct below is only a fallback cap.
+  Sizing (scanner-side): each sleeve's inverse-vol risk-parity weight is emitted per-signal as a
+  top-level marginPct (PERCENT of equity) — NOT a flat strategy.margin_pct. Runtime 3.0 sizes off
+  the per-signal marginPct; strategy.margin_pct below is only a fallback cap.
 
 strategy:
   wallet: "${OX_CORE_WALLET}"
   slots: 10                  # holds the whole sleeve basket
-  margin_pct: 6              # fallback cap only — scanner emits per-sleeve marginUsd
+  margin_pct: 6              # fallback cap only — scanner emits per-sleeve marginPct
   default_leverage: 3
   trading_risk: moderate
   enabled: true
@@ -39,10 +39,9 @@ scanners:
     inputs:
       book: "core"
       # All-Weather sleeve basket — risk sleeves (crypto/equities/energy/metal) AND defensive
-      # sleeves (gold/dollar/yen). xyz:DXY is currently DELISTED on HL and is silently dropped
-      # by the live-board intersection (v2 behavior); kept in the list for faithful parity +
-      # auto-rejoin if it relists. No fake tickers — every name validated against the live HL board.
-      sleeves: ["BTC", "ETH", "SOL", "xyz:SP500", "xyz:XYZ100", "xyz:GOLD", "xyz:COPPER", "xyz:BRENTOIL", "xyz:DXY", "xyz:JPY"]
+      # sleeves (gold/yen). xyz:DXY (dollar) is DELISTED on HL with no live equivalent, so it is
+      # dropped — xyz:GOLD/xyz:JPY carry the defensive book. Every name is a live HL instrument.
+      sleeves: ["BTC", "ETH", "SOL", "xyz:SP500", "xyz:XYZ100", "xyz:GOLD", "xyz:COPPER", "xyz:BRENTOIL", "xyz:JPY"]
       portfolioBudgetPct: 0.60     # gross deployed; risk parity runs moderate gross + cash buffer
       maxWeightPct: 0.22           # cap any single (low-vol) sleeve at 22% of equity
       maxLeverage: 3               # LOW — a core, not a bet; inverse-vol controls risk

@@ -55,7 +55,7 @@ class _FakeMcp:
     _UP = [[i, c, c + 1, c - 1, c, 1] for i, c in enumerate(range(100, 140, 2))]      # 20 bars up
     _DOWN = [[i, c, c + 1, c - 1, c, 1] for i, c in enumerate(range(140, 100, -2))]   # 20 bars down
 
-    _CRISIS = {"XYZ:GOLD", "XYZ:SILVER", "XYZ:BRENTOIL", "XYZ:CL", "XYZ:NATGAS", "XYZ:DXY", "XYZ:JPY"}
+    _CRISIS = {"XYZ:GOLD", "XYZ:SILVER", "XYZ:BRENTOIL", "XYZ:CL", "XYZ:NATGAS", "XYZ:JPY"}
     _RISK = {"BTC", "ETH", "SOL", "HYPE", "SUI", "XYZ:XYZ100", "XYZ:SP500"}
 
     def call_tool(self, name, args):

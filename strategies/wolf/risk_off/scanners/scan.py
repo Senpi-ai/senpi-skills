@@ -28,13 +28,14 @@ _DEFAULT_TTL = 180          # 180s — mirror the v2 RECENT_SIGNAL_TTL_SEC (anti
 
 # Cross-asset regime probes — ported VERBATIM from the v2 producer's _REGIME_PROBES.
 # Each maps a probe asset to the 4h-trend reading that votes RISK-ON. The opposite
-# reading votes RISK-OFF; NEUTRAL abstains. Overridable via inputs.regimeProbes.
+# reading votes RISK-OFF; NEUTRAL abstains. Overridable via inputs.regimeProbes. The v2
+# "dollar" probe (xyz:DXY) is dropped — delisted on HL with no live equivalent, so it only
+# ever abstained.
 _DEFAULT_PROBES = [
     {"asset": "xyz:XYZ100", "fallback": "xyz:SP500", "risk_on_when": "BULLISH", "label": "equities"},
     {"asset": "xyz:BRENTOIL", "fallback": None, "risk_on_when": "BEARISH", "label": "oil"},
     {"asset": "xyz:GOLD", "fallback": None, "risk_on_when": "BEARISH", "label": "gold"},
     {"asset": "BTC", "fallback": None, "risk_on_when": "BULLISH", "label": "btc"},
-    {"asset": "xyz:DXY", "fallback": None, "risk_on_when": "BEARISH", "label": "dollar"},
 ]
 
 
