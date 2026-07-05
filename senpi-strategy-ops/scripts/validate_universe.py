@@ -73,6 +73,13 @@ def package_tickers(pkg_dir):
     return found
 
 
+def unknown_tickers(tickers, live):
+    """Tickers with no live instrument in either form. Scanners on the xyz DEX prefix bare names
+    in code (`f"xyz:{token}"`), so a bare ticker is valid if `T` or `xyz:T` is live."""
+    return sorted(t for t in tickers
+                  if t not in live and (":" in t or f"xyz:{t}" not in live))
+
+
 def live_instruments():
     resp = MCPClient().mcp_call("market_list_instruments", timeout=25)
     data = resp.get("data", resp) if isinstance(resp, dict) else {}
@@ -105,15 +112,10 @@ def main(argv=None):
               else f"ERROR: live instrument list unavailable: {e}", file=sys.stderr)
         return 2
 
-    def is_live(t):
-        # scanners on the xyz DEX prefix bare names in code (`f"xyz:{token}"`), so a bare
-        # ticker is valid if either form is a live instrument
-        return t in live or (":" not in t and f"xyz:{t}" in live)
-
     report, bad_total = [], 0
     for pkg in pkgs:
         tickers = package_tickers(pkg)
-        unknown = sorted(t for t in tickers if not is_live(t))
+        unknown = unknown_tickers(tickers, live)
         bad_total += len(unknown)
         report.append({"package": pkg, "hardcoded": sorted(tickers), "unknown": unknown,
                        "ok": not unknown})

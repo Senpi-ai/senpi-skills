@@ -151,6 +151,22 @@ def cmd_create(pkg, a, log):
 
     mcp = MCPClient()
 
+    # Universe preflight — refuse to fund a package whose hardcoded tickers aren't live HL
+    # instruments (a dead name silently no-trades; the xyz:NASDAQ incident). Best-effort: if the
+    # live list itself is unreachable we proceed (create would fail loudly on MCP anyway).
+    try:
+        import validate_universe as _vu
+        unknown = _vu.unknown_tickers(_vu.package_tickers(str(pkg.dir)), _vu.live_instruments())
+        if unknown:
+            raise SystemExit(
+                f"error: {pkg.id} hardcodes instrument(s) not live on Hyperliquid: {', '.join(unknown)}\n"
+                f"Fix the package universe first (senpi-strategy-author edit path); details:\n"
+                f"  python3 {Path(__file__).with_name('validate_universe.py')} {pkg.dir}")
+    except SystemExit:
+        raise
+    except Exception as e:  # noqa
+        log(f"  (universe preflight skipped: {e})")
+
     # Reconcile recorded strategies against the backend — drop any that aren't ACTIVE so we never
     # reuse a CLOSED wallet or get stuck on a FAILED one. Self-heals stale state; no manual editing.
     for inst in pkg.instances:
@@ -263,14 +279,14 @@ def cmd_runtime(pkg, a, log):
     st = load_state(pkg)
     not_ready = [i.name for i in pkg.instances
                  if not inst_state(st, i.name).get("wallet")]
-    if not_ready:
+    if not_ready and not a.dry_run:
         raise SystemExit(f"error: wallets not ready for {', '.join(not_ready)} — run `deploy.py create {pkg.id}` first")
     if pkg.any_needs_model and not a.decision_model and not a.dry_run:
         raise SystemExit("error: a runtime has a decision_mode: llm action — pass --decision-model <bare-model>")
 
     for inst in pkg.instances:
         s = inst_state(st, inst.name)
-        wallet = s["wallet"]
+        wallet = s.get("wallet") or "0x<wallet-from-create>"  # placeholder only reachable in --dry-run
         build = inst.runtime_path.with_name(f"{inst.name}.deploy.runtime.yaml")
         try:
             text = inst.render(wallet, model_env=pkg.model_env, model=a.decision_model)
