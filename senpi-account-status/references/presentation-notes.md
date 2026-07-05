@@ -4,7 +4,7 @@ This skill *presents* the user's standing; it doesn't analyze a market. A few ru
 
 ## Lead with the question, carry the rest
 
-The engine returns everything (points, loyalty, arena, referral, wins) in one call, but the user
+The engine returns everything (points, loyalty, arena, referral) in one call, but the user
 usually asked one thing. Lead with that section, then offer the rest. "How many points do I have?" →
 lead with `points.total` + `rank`, then *"you're 5,000 from Gold"* — don't open with the Arena.
 
@@ -25,10 +25,9 @@ Standing is more motivating with a target. Pair every section with its next step
   never invent a rank.
 - **`found: false` on points** means no leaderboard entry yet (base-tier defaults) — present it as
   "you haven't started earning yet," not "0 / error."
+- **Demotion is a story, not a stat.** If `loyalty.demoted` is true, say it plainly — "you held
+  APEX, maintenance lapsed, you're at BRONZE now" — and pair it with the way back
+  (`maintenance_deadline`, maintenance volume). Never present a demoted user's tier as if it were
+  their lifetime standing.
 - **Decimals arrive as strings** from several of these tools (roePct, prizeAmount, balance_usdc) — the
   engine parses them; just present clean numbers.
-
-## Wins are for sharing, not bragging-by-default
-
-Surface `wins[]` when relevant or asked, formatted as a shareable line — but the user posts it. Never
-auto-post.
