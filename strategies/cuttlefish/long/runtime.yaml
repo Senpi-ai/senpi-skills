@@ -95,6 +95,7 @@ scanners:
       direction: { type: string }
       band: { type: string, required: false }
       pulseDay: { type: string, required: false }
+      dispersionRead: { type: string, required: false }
       regime: { type: string, required: false }
       smartBias: { type: number, required: false }
       divergent: { type: boolean, required: false }

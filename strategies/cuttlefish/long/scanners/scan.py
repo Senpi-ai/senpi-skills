@@ -269,9 +269,12 @@ def scan(inputs, ctx):
     regime = _funding_regime(ctx)
     board = sm_board(ctx)
 
+    disp = pulse.get("dispersion") or {}
+    movers = scoring.top_movers(_changes, universe)
     result_base = {"ts": now, "side": side, "pulseDay": day,
-                   "groupAvgs": pulse.get("group_avgs"), "regime": regime,
-                   "cohortsAvailable": cohort.get("available")}
+                   "dispersion": disp.get("read"), "worstGroup": disp.get("worst_group"),
+                   "movers": movers, "groupAvgs": pulse.get("group_avgs"),
+                   "regime": regime, "cohortsAvailable": cohort.get("available")}
     out = []
     if not scoring.pulse_allows(side, day):
         result = {**result_base, "emitted": 0, "gate": "pulse_stand_down"}
@@ -313,7 +316,9 @@ def scan(inputs, ctx):
                 "leverage": leverage,
                 "data": {
                     "score": th["score"], "leverage": leverage, "direction": side,
-                    "band": band, "pulseDay": day or "no_read", "regime": regime or "UNKNOWN",
+                    "band": band, "pulseDay": day or "no_read",
+                    "dispersionRead": disp.get("read") or "no_read",
+                    "regime": regime or "UNKNOWN",
                     "smartBias": scoring._f(th.get("smart_bias")),
                     "divergent": bool(th.get("divergent")),
                     "cohortsAvailable": bool(th.get("cohorts_available")),
@@ -325,6 +330,11 @@ def scan(inputs, ctx):
             })
             print(f"[cuttlefish.scan] {side} EMIT {th['asset']}: score={th['score']} "
                   f"band={band} {leverage}x {margin_pct}% | {th['reasons']}", file=sys.stderr)
+        if disp.get("read") == "rotation":
+            print(f"[cuttlefish.scan] {side} DISPERSION MODE: rotation — index calm while "
+                  f"{disp.get('worst_group')} breaks {disp.get('worst_group_avg_pct')}% "
+                  f"(stock-picking day) | movers: "
+                  + ", ".join(f"{m['asset']} {m['chg']:+.1f}%" for m in movers), file=sys.stderr)
         result = {**result_base, "emitted": len(out), "gate": "pass",
                   "scanned": len(universe),
                   "top": [{"asset": t["asset"], "score": t["score"]} for t in candidates[:6]]}

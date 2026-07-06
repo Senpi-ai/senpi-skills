@@ -169,9 +169,35 @@ def pulse_stance(changes, groups, vix_price=None):
         "vix": ("fear contained" if (vix_price is not None and vix_price < 22)
                 else "fear elevated" if vix_price is not None else None),
     }
+
+    # dispersion (pulse.py verbatim, threshold 2.5): the headline index calm while a
+    # sector breaks = ROTATION (stock-picking day — the adaptive L/S book's home turf);
+    # index moving with its components = BROAD (macro day — the direction gate rules).
+    sp500 = changes.get("SP500")
+    worst_group, worst_avg = None, 0.0
+    for gname, g in gavg.items():
+        a = g["avg_change_pct"]
+        if a is not None and a < worst_avg:
+            worst_group, worst_avg = gname, a
+    dispersion = {
+        "sp500_change_pct": sp500,
+        "worst_group": worst_group,
+        "worst_group_avg_pct": round(worst_avg, 2) if worst_group else None,
+        "read": ("rotation" if (sp500 is not None and worst_group and (sp500 - worst_avg) > 2.5)
+                 else "broad" if (sp500 is not None and worst_group) else None),
+    }
     return {"day": day, "groups_up": up, "groups_down": down,
             "group_avgs": {k: v["avg_change_pct"] for k, v in gavg.items()},
-            "checklist": checklist, "vix_price": vix_price, "vix_change_pct": vix_chg}
+            "checklist": checklist, "dispersion": dispersion,
+            "vix_price": vix_price, "vix_change_pct": vix_chg}
+
+
+def top_movers(changes, universe, n=3):
+    """The pulse's standout-mover surfacing: universe names ranked by |24h change|."""
+    ranked = sorted(((str(a).upper(), changes.get(str(a).upper()))
+                     for a in (universe or [])),
+                    key=lambda kv: abs(kv[1]) if kv[1] is not None else -1, reverse=True)
+    return [{"asset": a, "chg": c} for a, c in ranked[:n] if c is not None]
 
 
 def pulse_allows(side, day):

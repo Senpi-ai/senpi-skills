@@ -68,6 +68,20 @@ check("both allowed on mixed", scoring.pulse_allows("LONG", "mixed")
       and scoring.pulse_allows("SHORT", "mixed"))
 check("both allowed on no read", scoring.pulse_allows("LONG", None))
 
+# ── dispersion (pulse.py verbatim: index calm + sector break > 2.5 = rotation) ──
+chg_rot = {"BTC": 1.4, "ETH": 1.2, "NVDA": -4.0, "AMD": -4.6, "SP500": 0.4,
+           "GOLD": -0.3, "DXY": 0.0}
+p_rot = scoring.pulse_stance(chg_rot, GROUPS, vix_price=20.0)
+check("rotation day is mixed", p_rot["day"] == "mixed")
+check("dispersion read = rotation", p_rot["dispersion"]["read"] == "rotation")
+check("worst group named", p_rot["dispersion"]["worst_group"] == "semis")
+check("both books allowed on rotation day", scoring.pulse_allows("LONG", p_rot["day"])
+      and scoring.pulse_allows("SHORT", p_rot["day"]))
+check("broad read on aligned day", p_off["dispersion"]["read"] == "broad")
+mv = scoring.top_movers({"AAVE": 8.95, "BTC": 1.7, "SUI": -0.9, "NEAR": 4.08},
+                        ["AAVE", "BTC", "SUI", "NEAR", "MISSING"])
+check("movers ranked by |chg|", [m["asset"] for m in mv] == ["AAVE", "NEAR", "BTC"])
+
 # ── cohort math (smart-money port) ──
 traders = [
     {"openPositions": [{"coin": "SOL", "szi": 10, "positionValue": 100_000},
