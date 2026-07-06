@@ -1,0 +1,143 @@
+# ── DRAGONFLY · HYPE leg — composite momentum, user-spec port ───────────────
+# Directional 0-10 composite over 11 weighted factors; the HYPE leg swaps the
+# BTC leg's correlation factor for the BTC-follower stack: cross-asset flows
+# (BTC leads >2% in 4h + HYPE listed as laggard), BTC-HYPE catch-up gap, and a
+# decoupling penalty. Tighter DSL than BTC (med-high vol). Paired with the BTC
+# leg on a separate wallet (group: dragonfly).
+name: dragonfly-hype
+group: dragonfly
+version: 1.0.0
+description: >
+  DRAGONFLY HYPE — multi-factor composite momentum on HYPE. Scores 11 weighted
+  signals (incl. BTC cross-asset flow, catch-up gap, decoupling penalty) into
+  one directional 0-10 composite; enters LONG >= 7 / SHORT <= 4 with
+  apex/good/base bands (8x/6x/5x), sizing scaled by session windows and
+  hard-capped 5x on weekends. Spread hard gate. DSL owns every exit (12%
+  Phase 1, tighter profit-lock ladder to +60%); weak-peak cut 240m; no other
+  time cuts. Weights are the live-tunable learning surface.
+
+strategy:
+  wallet: "${DRAGONFLY_HYPE_WALLET}"
+  slots: 1                              # single asset, single position
+  default_leverage: 5                   # fallback; scan emits banded 5/6/8
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: dragonfly_hype_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300               # FIDELITY NOTE: source spec ran a 30s loop;
+    timeout_seconds: 180                # 300s is the fleet cadence — 5 MCP reads/tick
+    default_signal_validity_seconds: 900
+    state_history_max_count: 200        # dedup map + per-tick component ledger (learning surface)
+    inputs:
+      asset: "HYPE"
+      pairAsset: "BTC"                  # gap / divergence factors
+      dex: ""
+      useCrossFlow: true                # BTC-led laggard catch-up (memory: BTC-only leader)
+      flowLeader: "BTC"
+      minLeaderMovePct: 2.0
+      minFollowRate: 0.8
+      # ── composite weights (source spec verbatim for every kept factor;
+      #    oi_exchange_share dropped — no verified MCP field;
+      #    order_book_depth became the spread hard gate) ──
+      weights:
+        ret4h: 0.75
+        align1h: 0.50
+        volRatio: 0.40
+        oiVelocity: 0.50
+        crossAssetFlow: 0.75
+        pairGap: 0.50
+        funding: 0.40
+        premiumOracle: 0.15
+        volTrend: 0.50
+        smExposure: 0.40
+        pairDivergence: 0.50
+      # ── direction + conviction bands (spec: LONG >= 7 / SHORT <= 4) ──
+      longThreshold: 7.0
+      shortThreshold: 4.0
+      apexScore: 9.0
+      goodScore: 8.0
+      leverageTiers: { apex: 8, good: 6, base: 5 }    # spec 10x apex capped to 8x (med-high vol)
+      marginPctTiers: { apex: 32, good: 25, base: 18 } # PERCENT of withdrawable
+      weekendLeverageCap: 5             # spec sat_sun hype_max_leverage
+      spreadMaxPct: 0.003               # thinner book than BTC (0.3%)
+      recentSignalTtlSeconds: 1800
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      strength: { type: number, required: false }
+      sessionFactor: { type: number, required: false }
+      sessionLabel: { type: string, required: false }
+      components: { type: object, required: false }
+      regime: { type: string, required: false }
+      smPct: { type: number, required: false }
+      premiumPct: { type: number, required: false }
+      oiChange1h: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: dragonfly_hype_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                 # the composite already applied every filter
+    scanners: [dragonfly_hype_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: dragonfly_hype_signals
+
+# EXIT — DSL only (source spec dsl.hype, verbatim where expressible).
+# FIDELITY NOTES: spec partial_exit (30% off at +15%) not expressible in the v2
+# tier schema — the ladder carries the intent; spec hard_timeout 1440m dropped
+# per single-asset patience standard (weak-peak kept, tighter than BTC).
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 240          # spec weak_peak_cut_minutes
+      min_value: 3.0
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0                # spec max_loss_pct
+      retrace_threshold: 6              # spec retrace_threshold
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                            # spec triggers 3/10/30/60; locks per HYPE vol ladder
+        - { trigger_pct: 3, lock_hw_pct: 0 }
+        - { trigger_pct: 10, lock_hw_pct: 20 }
+        - { trigger_pct: 30, lock_hw_pct: 50 }
+        - { trigger_pct: 60, lock_hw_pct: 72 }
+
+# RISK — source spec risk.hype verbatim. (Spec combined caps bound per-leg.)
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 180               # spec hype_cooldown_minutes 3
+    per_asset_cooldown_seconds: 1800
+    drawdown_halt_pct: 15               # spec hype_drawdown_halt
+    drawdown_reset_on_day_rollover: true

@@ -1,0 +1,142 @@
+# ── DRAGONFLY · BTC leg — composite momentum, user-spec port ────────────────
+# Directional 0-10 composite over 12 weighted factors (4h return, 1h alignment,
+# volume, OI velocity, funding + regime + persistence, smart-money lean +
+# winners-pressing, mark/oracle premium, HYPE pair-confirmation, volume trend).
+# LONG >= 7, SHORT <= 4; conviction-banded leverage/margin scaled by session
+# windows. Paired with the HYPE leg on a separate wallet (group: dragonfly).
+name: dragonfly-btc
+group: dragonfly
+version: 1.0.0
+description: >
+  DRAGONFLY BTC — multi-factor composite momentum on BTC. Scores 12 weighted
+  signals into one directional 0-10 composite each tick; enters LONG >= 7 /
+  SHORT <= 4 with apex/good/base conviction bands (10x/8x/6x), sizing scaled
+  by day-of-week/hour session modifiers and hard-capped 8x on weekends. Spread
+  hard gate. DSL owns every exit (15% Phase 1, profit-lock ladder to +100%);
+  weak-peak cut 480m; no other time cuts. Weights are the live-tunable
+  learning surface — retune weekly from the ctx.state component ledger.
+
+strategy:
+  wallet: "${DRAGONFLY_BTC_WALLET}"
+  slots: 1                              # single asset, single position
+  default_leverage: 6                   # fallback; scan emits banded 6/8/10
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: dragonfly_btc_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300               # FIDELITY NOTE: source spec ran a 30s loop;
+    timeout_seconds: 180                # 300s is the fleet cadence — 5 MCP reads/tick
+    default_signal_validity_seconds: 900
+    state_history_max_count: 200        # dedup map + per-tick component ledger (learning surface)
+    inputs:
+      asset: "BTC"
+      pairAsset: "HYPE"                 # correlation-confirmation factor
+      dex: ""
+      useCrossFlow: false               # BTC IS the flow leader — factor lives on the HYPE leg
+      # ── composite weights (source spec verbatim for every kept factor;
+      #    oi_acceleration/impact_price dropped — no verified MCP field;
+      #    order_book_depth became the spread hard gate) ──
+      weights:
+        ret4h: 0.75
+        align1h: 0.50
+        volRatio: 0.40
+        oiVelocity: 0.50
+        funding: 0.40
+        fundingPersistence: 0.20
+        fundingRegime: 0.20
+        smExposure: 0.75
+        smPnl: 0.30
+        premiumOracle: 0.15
+        pairCorrelation: 0.40
+        volProfile: 0.25
+      # ── direction + conviction bands (spec: LONG >= 7 / SHORT <= 4) ──
+      longThreshold: 7.0
+      shortThreshold: 4.0
+      apexScore: 9.0                    # strength bands on score (LONG) / 10-score (SHORT)
+      goodScore: 8.0
+      leverageTiers: { apex: 10, good: 8, base: 6 }   # spec 15x capped to fleet 10x apex
+      marginPctTiers: { apex: 35, good: 27, base: 20 } # PERCENT of withdrawable
+      weekendLeverageCap: 8             # spec sat_sun btc_max_leverage
+      spreadMaxPct: 0.002               # order-book quality hard gate (0.2%)
+      recentSignalTtlSeconds: 1800
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      strength: { type: number, required: false }
+      sessionFactor: { type: number, required: false }
+      sessionLabel: { type: string, required: false }
+      components: { type: object, required: false }
+      regime: { type: string, required: false }
+      smPct: { type: number, required: false }
+      premiumPct: { type: number, required: false }
+      oiChange1h: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: dragonfly_btc_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                 # the composite already applied every filter
+    scanners: [dragonfly_btc_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: dragonfly_btc_signals
+
+# EXIT — DSL only (source spec dsl.btc, verbatim where expressible).
+# FIDELITY NOTES: spec partial_exit (30% off at +20%) is not expressible in the
+# v2 tier schema (all-or-nothing locks) — the ladder carries the intent; spec
+# hard_timeout 2880m dropped per single-asset patience standard (weak-peak kept).
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480          # spec weak_peak_cut_minutes
+      min_value: 3.0
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0                # spec max_loss_pct
+      retrace_threshold: 8              # spec retrace_threshold
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                            # spec triggers 5/15/50/100; locks per BTC vol ladder
+        - { trigger_pct: 5, lock_hw_pct: 0 }
+        - { trigger_pct: 15, lock_hw_pct: 25 }
+        - { trigger_pct: 50, lock_hw_pct: 60 }
+        - { trigger_pct: 100, lock_hw_pct: 80 }
+
+# RISK — source spec risk.btc verbatim. (Spec combined 10%-daily / 15%-drawdown
+# cross-book caps are not expressible per-instance; per-leg caps bound them.)
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 12
+    max_entries_per_day: 5
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 300               # spec btc_cooldown_minutes 5
+    per_asset_cooldown_seconds: 1800
+    drawdown_halt_pct: 20               # spec btc_drawdown_halt
+    drawdown_reset_on_day_rollover: true

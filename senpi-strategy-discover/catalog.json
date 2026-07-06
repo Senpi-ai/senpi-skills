@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-07-01",
+  "_updated": "2026-07-06",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -526,8 +526,6 @@
         "xyz:XYZ100",
         "xyz:JP225",
         "xyz:KR200",
-        "xyz:NIFTY",
-        "xyz:IBOV",
         "xyz:GOLD",
         "xyz:SILVER",
         "xyz:PLATINUM",
@@ -537,8 +535,7 @@
         "xyz:NATGAS",
         "xyz:EUR",
         "xyz:JPY",
-        "xyz:GBP",
-        "xyz:DXY"
+        "xyz:GBP"
       ],
       "direction": "long_short",
       "risk_level": "moderate",
@@ -1928,6 +1925,54 @@
       "sort_order": 4
     },
     {
+      "id": "dragonfly",
+      "name": "Dragonfly — BTC + HYPE Composite Momentum",
+      "emoji": "🐉",
+      "tagline": "A two-leg BTC + HYPE book that fuses a dozen weighted signals — trend, volume, OI, funding crowding, smart-money lean, cross-asset flow — into one 0-10 conviction score per asset, and only strikes when the composite is loud.",
+      "belief_plain": "No single indicator is trustworthy, but when many independent ones agree — price trend, volume, open interest, funding, what the best traders hold, and BTC pulling HYPE — that agreement is the signal. Bet bigger the louder the agreement, protect every position with a ratchet stop, and stand aside when the picture is mixed.",
+      "version": "1.0.0",
+      "thesis": null,
+      "tags": [
+        "composite",
+        "multi_factor",
+        "momentum",
+        "funding",
+        "smart_money",
+        "cross_asset",
+        "btc",
+        "hype"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "alpha_hunter",
+      "sub_style_label": "Multi-factor conviction scoring on one asset, with tiered leverage.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "HYPE"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 2,
+      "funding_split": [
+        0.6,
+        0.4
+      ],
+      "max_slots": 2,
+      "branch": "strategy-v2",
+      "sort_order": 5
+    },
+    {
       "id": "eel",
       "name": "Eel — Electrons vs Hydrocarbons",
       "emoji": "⚡",
@@ -1981,7 +2026,7 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 5
+      "sort_order": 6
     },
     {
       "id": "kestrel",
@@ -2041,7 +2086,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 6
+      "sort_order": 7
     },
     {
       "id": "lion",
@@ -2129,7 +2174,7 @@
       ],
       "max_slots": 9,
       "branch": "strategy-v2",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "mongoose",
@@ -2186,7 +2231,7 @@
       ],
       "max_slots": 7,
       "branch": "strategy-v2",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "ox",
@@ -2228,7 +2273,6 @@
         "xyz:GOLD",
         "xyz:COPPER",
         "xyz:BRENTOIL",
-        "xyz:DXY",
         "xyz:JPY",
         "xyz:SILVER"
       ],
@@ -2246,7 +2290,7 @@
       ],
       "max_slots": 14,
       "branch": "strategy-v2",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "rhino",
@@ -2285,7 +2329,6 @@
         "xyz:BRENTOIL",
         "xyz:CL",
         "xyz:NATGAS",
-        "xyz:DXY",
         "xyz:JPY",
         "BTC",
         "ETH",
@@ -2309,7 +2352,7 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "scorpion",
@@ -2376,7 +2419,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "spider",
@@ -2439,7 +2482,7 @@
       ],
       "max_slots": 7,
       "branch": "strategy-v2",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "thesis-fund",
@@ -2496,7 +2539,7 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "vulture",
@@ -2567,7 +2610,7 @@
       ],
       "max_slots": 2,
       "branch": "strategy-v2",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "wolf",
@@ -2611,7 +2654,6 @@
         "xyz:GOLD",
         "xyz:SILVER",
         "xyz:BRENTOIL",
-        "xyz:DXY",
         "xyz:JPY"
       ],
       "direction": "long_short",
@@ -2628,7 +2670,7 @@
       ],
       "max_slots": 6,
       "branch": "strategy-v2",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "coyote",
