@@ -36,7 +36,7 @@ def _read(ctx, tool, args, label):
     try:
         raw = ctx.senpi_mcp.call_tool(tool, args)
     except Exception as exc:  # noqa: BLE001 — degrade, never crash the tick
-        print(f"[allocator.scan] {label} read failed: {exc!r}", file=sys.stderr)
+        print(f"[regime.scan] {label} read failed: {exc!r}", file=sys.stderr)
         return None
     if not raw:
         return None
@@ -192,7 +192,7 @@ def _cohorts(ctx, inputs):
     cp = bias(crowd, "crowd") if crowd else {}
     avail = bool(sp) and bool(cp)
     if not avail:
-        print("[allocator.scan] cohorts unavailable (discovery_* empty) — using board lean",
+        print("[regime.scan] cohorts unavailable (discovery_* empty) — using board lean",
               file=sys.stderr)
     return {"available": avail, "smart": sp, "crowd": cp}
 
@@ -215,12 +215,12 @@ def _held(ctx):
 def _rebuild_posture(ctx, inputs, now):
     main_rows = _instrument_rows(ctx, "")
     if main_rows is None:
-        print("[allocator.scan] instruments unreadable — keeping prior posture", file=sys.stderr)
+        print("[regime.scan] instruments unreadable — keeping prior posture", file=sys.stderr)
         return None
     xyz_rows = _instrument_rows(ctx, "xyz") or []
     pool = scoring.derive_universe(main_rows, xyz_rows, inputs)
     if len(pool) < 6:
-        print(f"[allocator.scan] only {len(pool)} names over the vol floor — keeping prior posture",
+        print(f"[regime.scan] only {len(pool)} names over the vol floor — keeping prior posture",
               file=sys.stderr)
         return None
     changes, prices = {}, {}
@@ -237,7 +237,7 @@ def _rebuild_posture(ctx, inputs, now):
     board = _board(ctx)
     regime = _funding_regime(ctx)
     posture = scoring.build_posture(pool, pulse, regime, cohort, board, inputs, now)
-    print(f"[allocator.scan] POSTURE: {posture['narrative']}", file=sys.stderr)
+    print(f"[regime.scan] POSTURE: {posture['narrative']}", file=sys.stderr)
     return posture
 
 
@@ -306,11 +306,11 @@ def scan(inputs, ctx):
                          "regime": posture.get("regime", "UNKNOWN"),
                          "lean": th["lean"], "mom24h": th["mom24h"], "reasons": th["reasons"]},
             })
-            print(f"[allocator.scan] OPEN {side} {name}: score={th['score']} band={band} "
+            print(f"[regime.scan] OPEN {side} {name}: score={th['score']} band={band} "
                   f"{lev}x {mgn}% | {posture['stance']}", file=sys.stderr)
 
     if not out:
-        print(f"[allocator.scan] no opens: stance={posture['stance']} held={len(held)}/"
+        print(f"[regime.scan] no opens: stance={posture['stance']} held={len(held)}/"
               f"{max_slots} free={free}", file=sys.stderr)
 
     if ctx.state is not None:
@@ -320,5 +320,5 @@ def scan(inputs, ctx):
                                          "opened": len(out), "held": len(held),
                                          "narrative": posture["narrative"]}})
         except Exception as exc:  # noqa: BLE001
-            print(f"[allocator.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
+            print(f"[regime.scan] WARNING: state append failed: {exc!r}", file=sys.stderr)
     return out
