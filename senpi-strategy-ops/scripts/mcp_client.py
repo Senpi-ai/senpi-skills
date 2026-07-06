@@ -13,7 +13,8 @@ strategy_close / strategy_get / strategy_get_clearinghouse_state.
 `timeout` is the per-call HTTP request timeout (seconds the client waits for the SERVER to
 respond), NOT the async on-chain completion time. Lifecycle ops (create/close) are async:
 submit with a generous timeout, then POLL a read tool (strategy_list) until the terminal
-state. Returns the same unwrapped JSON `mcporter`/SenpiClient returns; None on a protocol error.
+state. Returns the same unwrapped JSON. JSON-RPC errors and tool-level failures (result.isError)
+raise MCPError so callers surface a warning instead of silently reading None.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import http.client
@@ -86,20 +87,38 @@ def _parse(raw, content_type):
 
 
 def _unwrap(rpc):
-    """tools/call JSON-RPC -> the inner JSON document (content[0].text), like mcporter."""
-    if not isinstance(rpc, dict) or rpc.get("error"):
+    """tools/call JSON-RPC -> the inner JSON document (content[0].text), like mcporter.
+
+    Raises MCPError on a JSON-RPC error or a tool-level failure (result.isError) — silence
+    here is how a missing/renamed tool masquerades as 'no data'."""
+    if not isinstance(rpc, dict):
         return None
+    if rpc.get("error"):
+        err = rpc["error"]
+        raise MCPError(f"JSON-RPC error {err.get('code')}: {err.get('message')}"
+                       if isinstance(err, dict) else str(err))
     result = rpc.get("result")
     if not isinstance(result, dict):
         return result
     content = result.get("content")
+    text = None
     if isinstance(content, list) and content:
         first = content[0]
         if isinstance(first, dict) and "text" in first:
-            try:
-                return json.loads(first["text"])
-            except (json.JSONDecodeError, TypeError):
-                return result
+            text = first["text"]
+    if result.get("isError"):
+        raise MCPError(f"tool error: {str(text)[:300]}")
+    if text is not None:
+        try:
+            doc = json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            return result
+        # the senpi server reports tool failures app-level: HTTP 200 + {"success": false, "error": {...}}
+        if isinstance(doc, dict) and doc.get("success") is False:
+            err = doc.get("error") or {}
+            raise MCPError(f"tool failed: {err.get('code')}: {err.get('message')}"
+                           if isinstance(err, dict) else f"tool failed: {err}")
+        return doc
     return result
 
 

@@ -1,0 +1,144 @@
+# ── CHIMP · Regime Allocator (DAILY recalibration) ──────────────────────────
+# Reads the whole market once a day (market-pulse day classification + dispersion,
+# funding regime, smart-money cohorts) and holds a standing risk POSTURE; fills
+# free slots with posture-consistent, tape-confirmed entries across main crypto +
+# xyz equities/commodities. NEVER closes — a regime flip just changes what it
+# opens next; prior positions retire on their own DSL (rotate-by-attrition).
+# Daily cadence + a moderate DSL (positions resolve in days) make Chimp the
+# nimble sibling of the weekly Gorilla.
+name: chimp-main
+group: chimp
+version: 1.0.0
+description: >
+  CHIMP — Regime Allocator, daily. Re-derives a risk-on / risk-off / rotation
+  posture from the live market read every 24h and rotates the book into it by
+  attrition: risk-on tilts long the leaders, risk-off rotates into working
+  havens (gold/oil/FX) + shorts the breaking risk complex, a rotation day runs
+  a long-leaders / short-laggards dispersion book at reduced size. One wallet,
+  up to 8 conviction-banded positions, leverage clamped to venue max. DSL is
+  the ONLY exit (18% Phase 1, profit-lock ladder to +80%, 48h weak-peak cut).
+
+strategy:
+  wallet: "${CHIMP_WALLET}"
+  slots: 8
+  margin_pct: 10                      # fallback; scan emits per-signal marginPct
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker            # built-in: feeds the DSL exit engine
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: chimp_allocator
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 21600           # wake every 6h; the market read is gated to daily
+    timeout_seconds: 300              # due tick: 2 instruments + regime + board (+cohorts)
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 200      # posture + recalibration clock + dedup + tick results
+    inputs:
+      # ── the slow clock — the market check runs at THIS cadence, never nonstop ──
+      recalibrationHours: 24
+      maxSlots: 8
+      # ── universe: DERIVED live from BOTH dexes ──
+      universeVolFloorUsd: 25000000   # main crypto perps
+      xyzVolFloorUsd: 3000000         # xyz equities/commodities
+      maxMainNames: 14
+      maxXyzNames: 16
+      excludeAssets: []
+      defensiveAssets: ["GOLD", "SILVER", "PLATINUM", "PALLADIUM", "BRENTOIL", "CL", "NATGAS", "JPY"]   # tradeable havens only (DXY is read-only in pulseGroups — not a live perp)
+      # ── posture sizing ──
+      riskOffSizeScale: 0.7           # smaller in stress
+      mixedSizeScale: 0.6             # smaller when the day has no clear direction
+      # ── entry gates + conviction bands ──
+      minScore: 5.5
+      goodScore: 6.5
+      apexScore: 8.0
+      leverageTiers: { apex: 5, good: 4, base: 3 }    # diversified book -> modest leverage
+      marginPctTiers: { apex: 14, good: 10, base: 7 } # PERCENT of withdrawable (x size_scale)
+      recentSignalTtlSeconds: 43200   # 12h anti-refire per name after a DSL close
+      # ── smart-money enrichment (degrades to the board when discovery_* is empty) ──
+      useCohorts: true
+      cohorts:
+        smartMinRealizedUsd: 1000000
+        crowdMinRealizedUsd: 10000
+        crowdMaxRealizedUsd: 100000
+        sampleCap: 150
+        pageSize: 1000
+        maxPages: 6
+        stateBatch: 50
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      stance: { type: string, required: false }
+      mode: { type: string, required: false }
+      posture: { type: string, required: false }
+      sizeScale: { type: number, required: false }
+      regime: { type: string, required: false }
+      lean: { type: number, required: false }
+      mom24h: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: chimp_open
+    action_type: OPEN_POSITION
+    decision_mode: rule                # the posture + tape confirm already filtered
+    scanners: [chimp_allocator]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: chimp_allocator
+  # NO CLOSE_POSITION action — DSL is the only exit (rotate-by-attrition).
+
+# EXIT — DSL owns every exit. Moderate width for a daily recalibrator: stalled
+# positions cut at 48h (weak-peak) so daily re-tilts have room; winners ride the
+# ladder. No hard_timeout — let winners run; weak-peak retires the dead weight.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 2880        # 48h — a stalled position frees its slot within ~2 days
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 18.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 35 }
+        - { trigger_pct: 45, lock_hw_pct: 60 }
+        - { trigger_pct: 80, lock_hw_pct: 78 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 43200  # 12h — matches the anti-refire TTL
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true

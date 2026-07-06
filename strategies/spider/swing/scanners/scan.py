@@ -24,8 +24,10 @@ What was simplified vs the source (FLAGGED):
     qualifying candidates above minScore (held + recently-signaled filtered).
     The signal-GATING thresholds (minScore, held-set, recent-dedup, venue min
     notional) are preserved exactly; only the per-tick emission CAP moves to the
-    runtime. marginUsd is still computed (account_value * marginPct) and carried
-    on data{} so the action sizes identically to the source.
+    runtime. margin_usd is still computed (account_value * marginPct) for the
+    venue-min-notional check, then emitted as a top-level `marginPct` (PERCENT of
+    equity, = marginPct*100) so Runtime 3.0 sizes the dollars identically to the
+    source.
 """
 
 import sys
@@ -298,10 +300,15 @@ def scan(inputs, ctx):
         notional = margin_usd * leverage
         if leverage <= 0 or notional < min_notional:
             continue
+        # Runtime 3.0 sizes off a top-level marginPct (PERCENT of equity in (0,100]),
+        # NOT a top-level marginUsd (silently dropped). margin_usd was computed as
+        # account_value * marginPct, so marginPct-of-equity = margin_usd/account_value*100
+        # reproduces the intended fraction exactly. account_value > 0 here (guarded above).
+        margin_pct_emit = round(min(max(margin_usd / account_value * 100.0, 0.01), 100.0), 4)
         out.append({
             "asset": th["coin"],
             "direction": th["direction"],
-            "marginUsd": margin_usd,
+            "marginPct": margin_pct_emit,
             "leverage": leverage,
             "data": {
                 "score": th["score"],

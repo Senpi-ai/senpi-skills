@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-07-01",
+  "_updated": "2026-06-17",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -50,7 +50,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -95,7 +95,7 @@
         0.5
       ],
       "max_slots": 8,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -150,7 +150,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -214,7 +214,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 2
     },
     {
@@ -258,7 +258,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 3
     },
     {
@@ -300,7 +300,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 4
     },
     {
@@ -342,7 +342,7 @@
         1.0
       ],
       "max_slots": 3,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -385,7 +385,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 2
     },
     {
@@ -435,7 +435,7 @@
         1.0
       ],
       "max_slots": 3,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -482,7 +482,7 @@
         0.5
       ],
       "max_slots": 6,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -526,8 +526,6 @@
         "xyz:XYZ100",
         "xyz:JP225",
         "xyz:KR200",
-        "xyz:NIFTY",
-        "xyz:IBOV",
         "xyz:GOLD",
         "xyz:SILVER",
         "xyz:PLATINUM",
@@ -537,8 +535,7 @@
         "xyz:NATGAS",
         "xyz:EUR",
         "xyz:JPY",
-        "xyz:GBP",
-        "xyz:DXY"
+        "xyz:GBP"
       ],
       "direction": "long_short",
       "risk_level": "moderate",
@@ -553,7 +550,7 @@
         0.4
       ],
       "max_slots": 3,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -608,7 +605,7 @@
         0.325
       ],
       "max_slots": 9,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -658,7 +655,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -709,7 +706,7 @@
         1.0
       ],
       "max_slots": 3,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 2
     },
     {
@@ -757,7 +754,7 @@
         1.0
       ],
       "max_slots": 3,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 3
     },
     {
@@ -810,7 +807,7 @@
         0.5
       ],
       "max_slots": 6,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 4
     },
     {
@@ -852,7 +849,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 5
     },
     {
@@ -895,7 +892,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 6
     },
     {
@@ -944,7 +941,7 @@
         1.0
       ],
       "max_slots": 3,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 7
     },
     {
@@ -1011,7 +1008,7 @@
         1.0
       ],
       "max_slots": 3,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 8
     },
     {
@@ -1057,7 +1054,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 9
     },
     {
@@ -1108,7 +1105,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 10
     },
     {
@@ -1152,7 +1149,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 11
     },
     {
@@ -1195,7 +1192,7 @@
         1.0
       ],
       "max_slots": 3,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 12
     },
     {
@@ -1239,7 +1236,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 13
     },
     {
@@ -1291,7 +1288,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 14
     },
     {
@@ -1335,7 +1332,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 15
     },
     {
@@ -1385,7 +1382,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 16
     },
     {
@@ -1435,7 +1432,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 17
     },
     {
@@ -1488,7 +1485,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 18
     },
     {
@@ -1529,7 +1526,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -1607,8 +1604,154 @@
         0.1
       ],
       "max_slots": 12,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
+    },
+    {
+      "id": "chimp",
+      "name": "Chimp — Regime Allocator (Daily)",
+      "emoji": "🐒",
+      "tagline": "Reads the whole market once a day — the pulse (risk-on/off, dispersion, gold/dollar/VIX) plus where the proven wallets lean — sets a risk posture, and rotates a long/short book across crypto and tokenized stocks/commodities into that posture. It never sells: a regime change just changes what it buys next, and every position is protected by a ratchet stop that does all the exiting.",
+      "belief_plain": "Once a day it looks at everything — are markets risk-on or risk-off, is it a rotation day, what's gold and the dollar doing, where's the smart money — and picks a stance. In risk-on it leans into the leaders; in risk-off it rotates into gold/oil and shorts the weak; on a choppy rotation day it plays winners-vs-losers at smaller size. It never manually closes; a trailing stop protects and exits every position, so old bets wind down on their own as the new stance takes over.",
+      "version": "1.0.0",
+      "thesis": "Users already run the market-pulse skill and then hand-pick strategies to fit the read. Chimp automates that loop: it re-runs the pulse + smart-money read on a daily clock, re-derives its posture, and expresses the change only through new entries — never by force-closing, so turnover is set by the market (via DSL), not by a scanner re-deciding every minute. Daily recalibration + a moderate DSL make it the nimble regime-follower; Gorilla is the weekly, more-committed sibling.",
+      "tags": [
+        "regime",
+        "allocator",
+        "macro",
+        "pulse",
+        "smart-money",
+        "long-short",
+        "universe",
+        "daily",
+        "no-close",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "macro_thesis",
+      "archetype_label": "Macro Thesis",
+      "sub_style": "adaptive",
+      "sub_style_label": "Self-tunes its thresholds from its own track record.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities",
+        "fx"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 21600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 8,
+      "branch": "main",
+      "sort_order": 1
+    },
+    {
+      "id": "gibbon",
+      "name": "Gibbon — Rotation Rider (Daily)",
+      "emoji": "🐒",
+      "tagline": "Reads the whole market once a day, ranks the sectors — semis, software, crypto, indices, commodities — by how they're moving, and rides the rotation: it buys the leaders of the winning sectors and shorts the laggards of the losing ones, biggest when the market is a clean rotation (index calm while sectors split) and smaller when everything moves together. It never sells manually; a trailing stop does all the exiting, so last rotation's winners wind down on their own as the new leaders take over.",
+      "belief_plain": "Money constantly rotates between sectors — out of memory chips into AI logic, out of crypto proxies into software, and so on. Once a day Gibbon looks at which sectors are being bought and which are being sold, then buys the strongest names in the winning sectors and shorts the weakest in the losing ones. It leans in hardest on real rotation days and eases off when the whole market just moves together. It never manually closes — a ratchet stop protects and exits every position, so the book rotates as the market does.",
+      "version": "1.0.0",
+      "thesis": "The market-pulse read repeatedly surfaces sector rotation — memory semis dumped while logic semis are bought, crypto proxies sold while software holds. Gibbon automates trading that structure: it re-ranks the sectors daily and expresses the winning-vs-losing rotation as new long/short entries, sized by how much dispersion there actually is. It never force-closes — turnover is set by the market via DSL. Orangutan is the weekly, more-committed sibling.",
+      "tags": [
+        "rotation",
+        "dispersion",
+        "sector",
+        "pulse",
+        "smart-money",
+        "long-short",
+        "universe",
+        "daily",
+        "no-close",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "rotation",
+      "sub_style_label": "Always holds the strongest of a basket; rotates as leadership changes.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 21600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 8,
+      "branch": "main",
+      "sort_order": 2
+    },
+    {
+      "id": "gorilla",
+      "name": "Gorilla — Regime Allocator (Weekly)",
+      "emoji": "🦍",
+      "tagline": "The weekly, more-committed sibling of Chimp. Once a week it reads the whole market — the pulse (risk-on/off, dispersion, gold/dollar/VIX) plus where the proven wallets lean — sets a risk posture, and holds a concentrated long/short book across crypto and tokenized stocks/commodities. It never sells: a regime change just changes what it buys next, and a wide trailing stop does all the exiting, letting winners run for weeks.",
+      "belief_plain": "Like Chimp, but slower and more committed. Once a week it decides the stance — risk-on lean into leaders, risk-off rotate into gold/oil and short the weak, rotation week play winners-vs-losers small — and holds fewer, bigger positions. It never manually closes; a wide ratchet stop protects each one and lets the winners run, so the book turns over on the market's schedule, not a scanner's.",
+      "version": "1.0.0",
+      "thesis": "Same automated pulse-then-allocate loop as Chimp, on a weekly clock with a wider DSL and higher conviction gate — for users who want a deliberate regime-follower that commits to a view and rides it, rather than re-tilting daily. Never force-closes; turnover is set by the market via DSL. Pair with Chimp for a fast + slow allocator sleeve.",
+      "tags": [
+        "regime",
+        "allocator",
+        "macro",
+        "pulse",
+        "smart-money",
+        "long-short",
+        "universe",
+        "weekly",
+        "no-close",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "macro_thesis",
+      "archetype_label": "Macro Thesis",
+      "sub_style": "adaptive",
+      "sub_style_label": "Self-tunes its thresholds from its own track record.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities",
+        "fx"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 21600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 7,
+      "branch": "main",
+      "sort_order": 3
     },
     {
       "id": "mantis",
@@ -1653,8 +1796,8 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
-      "sort_order": 1
+      "branch": "main",
+      "sort_order": 4
     },
     {
       "id": "octopus",
@@ -1697,8 +1840,56 @@
         0.5
       ],
       "max_slots": 8,
-      "branch": "strategy-v2",
-      "sort_order": 2
+      "branch": "main",
+      "sort_order": 5
+    },
+    {
+      "id": "orangutan",
+      "name": "Orangutan — Rotation Rider (Weekly)",
+      "emoji": "🦧",
+      "tagline": "The weekly, more-committed sibling of Gibbon. Once a week it ranks the sectors — semis, software, crypto, indices, commodities — and commits to the rotation: long the leaders of the winning sectors, short the laggards of the losing ones, biggest when the rotation is decisive. It never sells manually; a wide trailing stop does all the exiting and lets winners run for weeks, so the book turns over on the market's schedule.",
+      "belief_plain": "Like Gibbon, but slower and more committed. Once a week it decides which sectors are winning and which are losing, then holds fewer, bigger positions — long the strongest names, short the weakest — and only commits when the rotation is decisive. It never manually closes; a wide ratchet stop protects each position and lets the winners run, so the book rotates on the market's schedule, not a scanner's.",
+      "version": "1.0.0",
+      "thesis": "Same automated rank-the-sectors-and-ride loop as Gibbon, on a weekly clock with a wider DSL and a higher rotation threshold — for users who want a deliberate rotation-follower that commits to a theme and rides it, rather than re-ranking daily. Never force-closes; turnover is set by the market via DSL. Pair with Gibbon for a fast + slow rotation sleeve.",
+      "tags": [
+        "rotation",
+        "dispersion",
+        "sector",
+        "pulse",
+        "smart-money",
+        "long-short",
+        "universe",
+        "weekly",
+        "no-close",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "rotation",
+      "sub_style_label": "Always holds the strongest of a basket; rotates as leadership changes.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 21600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 7,
+      "branch": "main",
+      "sort_order": 6
     },
     {
       "id": "asia-ai",
@@ -1750,7 +1941,7 @@
         0.35
       ],
       "max_slots": 7,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -1812,7 +2003,7 @@
         0.5
       ],
       "max_slots": 8,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 2
     },
     {
@@ -1861,7 +2052,7 @@
         0.5
       ],
       "max_slots": 8,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 3
     },
     {
@@ -1924,8 +2115,56 @@
         0.5
       ],
       "max_slots": 8,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 4
+    },
+    {
+      "id": "dragonfly",
+      "name": "Dragonfly — BTC + HYPE Composite Momentum",
+      "emoji": "🐉",
+      "tagline": "A two-leg BTC + HYPE book that fuses a dozen weighted signals — trend, volume, OI, funding crowding, smart-money lean, cross-asset flow — into one 0-10 conviction score per asset, and only strikes when the composite is loud.",
+      "belief_plain": "No single indicator is trustworthy, but when many independent ones agree — price trend, volume, open interest, funding, what the best traders hold, and BTC pulling HYPE — that agreement is the signal. Bet bigger the louder the agreement, protect every position with a ratchet stop, and stand aside when the picture is mixed.",
+      "version": "1.0.0",
+      "thesis": null,
+      "tags": [
+        "composite",
+        "multi_factor",
+        "momentum",
+        "funding",
+        "smart_money",
+        "cross_asset",
+        "btc",
+        "hype"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "alpha_hunter",
+      "sub_style_label": "Multi-factor conviction scoring on one asset, with tiered leverage.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "HYPE"
+      ],
+      "direction": "long_short",
+      "risk_level": "aggressive",
+      "tier": "advanced",
+      "leverage_max": 10,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 200,
+      "instance_count": 2,
+      "funding_split": [
+        0.6,
+        0.4
+      ],
+      "max_slots": 2,
+      "branch": "main",
+      "sort_order": 5
     },
     {
       "id": "eel",
@@ -1980,8 +2219,8 @@
         0.45
       ],
       "max_slots": 6,
-      "branch": "strategy-v2",
-      "sort_order": 5
+      "branch": "main",
+      "sort_order": 6
     },
     {
       "id": "kestrel",
@@ -2040,8 +2279,8 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
-      "sort_order": 6
+      "branch": "main",
+      "sort_order": 7
     },
     {
       "id": "lion",
@@ -2128,8 +2367,8 @@
         0.4
       ],
       "max_slots": 9,
-      "branch": "strategy-v2",
-      "sort_order": 7
+      "branch": "main",
+      "sort_order": 8
     },
     {
       "id": "mongoose",
@@ -2185,8 +2424,8 @@
         0.35
       ],
       "max_slots": 7,
-      "branch": "strategy-v2",
-      "sort_order": 8
+      "branch": "main",
+      "sort_order": 9
     },
     {
       "id": "ox",
@@ -2228,7 +2467,6 @@
         "xyz:GOLD",
         "xyz:COPPER",
         "xyz:BRENTOIL",
-        "xyz:DXY",
         "xyz:JPY",
         "xyz:SILVER"
       ],
@@ -2245,8 +2483,8 @@
         0.3
       ],
       "max_slots": 14,
-      "branch": "strategy-v2",
-      "sort_order": 9
+      "branch": "main",
+      "sort_order": 10
     },
     {
       "id": "rhino",
@@ -2285,7 +2523,6 @@
         "xyz:BRENTOIL",
         "xyz:CL",
         "xyz:NATGAS",
-        "xyz:DXY",
         "xyz:JPY",
         "BTC",
         "ETH",
@@ -2308,8 +2545,8 @@
         0.5
       ],
       "max_slots": 6,
-      "branch": "strategy-v2",
-      "sort_order": 10
+      "branch": "main",
+      "sort_order": 11
     },
     {
       "id": "scorpion",
@@ -2375,8 +2612,8 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
-      "sort_order": 11
+      "branch": "main",
+      "sort_order": 12
     },
     {
       "id": "spider",
@@ -2438,8 +2675,8 @@
         0.4
       ],
       "max_slots": 7,
-      "branch": "strategy-v2",
-      "sort_order": 12
+      "branch": "main",
+      "sort_order": 13
     },
     {
       "id": "thesis-fund",
@@ -2495,8 +2732,8 @@
         1.0
       ],
       "max_slots": 6,
-      "branch": "strategy-v2",
-      "sort_order": 13
+      "branch": "main",
+      "sort_order": 14
     },
     {
       "id": "vulture",
@@ -2566,8 +2803,8 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
-      "sort_order": 14
+      "branch": "main",
+      "sort_order": 15
     },
     {
       "id": "wolf",
@@ -2611,7 +2848,6 @@
         "xyz:GOLD",
         "xyz:SILVER",
         "xyz:BRENTOIL",
-        "xyz:DXY",
         "xyz:JPY"
       ],
       "direction": "long_short",
@@ -2627,8 +2863,8 @@
         0.5
       ],
       "max_slots": 6,
-      "branch": "strategy-v2",
-      "sort_order": 15
+      "branch": "main",
+      "sort_order": 16
     },
     {
       "id": "coyote",
@@ -2673,7 +2909,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -2722,7 +2958,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -2766,7 +3002,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -2825,7 +3061,7 @@
         1.0
       ],
       "max_slots": 3,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 2
     },
     {
@@ -2871,7 +3107,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 3
     },
     {
@@ -2915,7 +3151,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 4
     },
     {
@@ -2958,7 +3194,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 5
     },
     {
@@ -3001,7 +3237,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 6
     },
     {
@@ -3049,7 +3285,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 7
     },
     {
@@ -3094,7 +3330,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 8
     },
     {
@@ -3137,7 +3373,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 9
     },
     {
@@ -3181,7 +3417,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 10
     },
     {
@@ -3229,7 +3465,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 11
     },
     {
@@ -3274,7 +3510,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 12
     },
     {
@@ -3331,7 +3567,7 @@
         0.25
       ],
       "max_slots": 7,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -3373,7 +3609,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -3415,7 +3651,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 2
     },
     {
@@ -3468,7 +3704,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 3
     },
     {
@@ -3521,7 +3757,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 4
     },
     {
@@ -3583,7 +3819,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 5
     },
     {
@@ -3634,7 +3870,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 6
     },
     {
@@ -3679,7 +3915,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 7
     },
     {
@@ -3720,7 +3956,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 8
     },
     {
@@ -3764,7 +4000,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 9
     },
     {
@@ -3808,7 +4044,7 @@
         1.0
       ],
       "max_slots": 2,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 10
     },
     {
@@ -3855,7 +4091,7 @@
         1.0
       ],
       "max_slots": 4,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 11
     },
     {
@@ -3898,7 +4134,7 @@
         0.5
       ],
       "max_slots": 6,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 12
     },
     {
@@ -3945,7 +4181,7 @@
         1.0
       ],
       "max_slots": 1,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     },
     {
@@ -3991,7 +4227,7 @@
         1.0
       ],
       "max_slots": 3,
-      "branch": "strategy-v2",
+      "branch": "main",
       "sort_order": 1
     }
   ]

@@ -10,10 +10,9 @@ description: >-
   (strategy → embedded, Hyperliquid → embedded on EVM, spot → perps, close a strategy to reclaim funds)
   DO use tools. Use this skill for every deposit / withdraw / transfer / send question. Pure guidance, no engine.
 license: Apache-2.0
-compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.0.1"
   platform: senpi
   exchange: hyperliquid
 ---

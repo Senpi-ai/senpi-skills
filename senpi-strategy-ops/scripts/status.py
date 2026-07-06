@@ -13,6 +13,8 @@ OPEN strategy it classifies the runtime:
   runtime-stopped  — ACTIVE strategy + runtime exists but not running
   no-runtime       — autonomous PACKAGE strategy (skillName, no trader) with NO runtime → funded but not
                      running (likely an interrupted deploy); the only no-runtime case that's an anomaly
+  runtime-unknown  — openclaw is not on THIS host, so the runtime registry isn't visible from here;
+                     NOT a diagnosis (run status.py on the runtime host for the real verdict)
   copy             — copy-trading strategy (follows a traderAddress) — run by Senpi's copy engine, no runtime
   manual           — manual / app-managed strategy — you manage it in the app, no runtime
 and separately flags orphan runtimes (a runtime with no open strategy). A strategy off the runtime is NOT
@@ -31,7 +33,7 @@ import _cli  # noqa: E402
 from mcp_client import MCPClient  # noqa: E402
 
 _ICON = {"healthy": "✅", "running": "✅", "degraded": "⚠", "unhealthy": "❌",
-         "runtime-stopped": "⚠", "no-runtime": "⚠", "copy": "·", "manual": "·"}
+         "runtime-stopped": "⚠", "no-runtime": "⚠", "runtime-unknown": "·", "copy": "·", "manual": "·"}
 _OK = ("healthy", "running")
 _OFF_RUNTIME = ("copy", "manual")  # managed outside the runtime — not autonomous, not flagged
 _MANAGED = {"copy": "copy-trading — followed by Senpi's copy engine (no runtime)",
@@ -48,9 +50,18 @@ _LIVE_STATUSES = ["ACTIVE", "PAUSED", "CREATE_WALLET", "FUND_WALLET", "INITIALIZ
                   "SUBSCRIBE_TRADER", "CLOSING_POSITIONS"]
 
 
+def _openclaw_available():
+    rc, _o, _e = _cli.run_cli(["openclaw", "--version"], timeout=15)
+    return rc == 0
+
+
 def build(mcp, only_pkg=None, deep=True):
     opens = [s for s in _cli.list_strategies(mcp, statuses=_LIVE_STATUSES) if _cli.strategy_open(s)]
-    runtimes = _cli.list_runtimes()
+    # If openclaw isn't on THIS host, the runtime registry is simply not visible from here —
+    # an empty list must NOT read as "no runtimes" (that turns a healthy remote-hosted fleet
+    # into false 'interrupted deploy' alarms). Degrade to runtime-unknown instead.
+    cli_ok = _openclaw_available()
+    runtimes = _cli.list_runtimes() if cli_ok else []
     # ONE status --json for the whole fleet — only when runtimes actually exist (skip the flaky call otherwise)
     health_by_name = _cli.runtime_health_map() if (deep and runtimes) else {}
     matched_rt = set()  # runtime names already matched to a strategy
@@ -79,7 +90,9 @@ def build(mcp, only_pkg=None, deep=True):
         elif _cli.strategy_trader(s):
             health = "copy"           # copy-trading: managed by the copy engine, no runtime expected
         elif skill:
-            health = "no-runtime"     # autonomous package strategy that SHOULD have a runtime but doesn't
+            # SHOULD have a runtime. Without openclaw here we cannot see the registry — say so
+            # honestly instead of diagnosing an interrupted deploy we can't verify.
+            health = "no-runtime" if cli_ok else "runtime-unknown"
         else:
             health = "manual"         # manual / app-managed position, no runtime expected
         rows.append({"package": skill or "(not on runtime)", "is_pkg": bool(skill),
@@ -91,7 +104,7 @@ def build(mcp, only_pkg=None, deep=True):
                 "running": _cli.runtime_running(r)}
                for r in runtimes if _cli.runtime_name(r) not in matched_rt
                and (not only_pkg or str(_cli.runtime_name(r) or "").startswith(only_pkg + "-"))]
-    return rows, orphans
+    return rows, orphans, cli_ok
 
 
 def main(argv):
@@ -102,11 +115,16 @@ def main(argv):
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv[1:])
 
-    rows, orphans = build(MCPClient(), a.package, deep=not a.fast)
+    rows, orphans, cli_ok = build(MCPClient(), a.package, deep=not a.fast)
 
     if a.json:
-        print(json.dumps({"strategies": rows, "orphan_runtimes": orphans}, indent=2))
+        print(json.dumps({"strategies": rows, "orphan_runtimes": orphans,
+                          "openclaw_available": cli_ok}, indent=2))
         return 0
+
+    if not cli_ok:
+        print("\nℹ openclaw is not available on this host — runtime state is UNKNOWN from here "
+              "(run status.py on the runtime host for runtime health).")
 
     if not rows and not orphans:
         print("No open strategies." + (f" (filter: {a.package})" if a.package else ""))
@@ -117,6 +135,7 @@ def main(argv):
         by_pkg[r["package"]].append(r)
     running = sum(1 for r in rows if r["health"] in _OK)
     idle = [r for r in rows if r["health"] == "no-runtime"]
+    unknown = [r for r in rows if r["health"] == "runtime-unknown"]
     sick = [r for r in rows if r["health"] in ("degraded", "unhealthy", "runtime-stopped")]
     off = [r for r in rows if r["health"] in _OFF_RUNTIME]
     bits = [f"{running} autonomous (on runtime)"]
@@ -124,6 +143,8 @@ def main(argv):
         bits.append(f"{len(sick)} degraded")
     if idle:
         bits.append(f"{len(idle)} funded-but-idle")
+    if unknown:
+        bits.append(f"{len(unknown)} runtime-unknown (no openclaw here)")
     if off:
         bits.append(f"{len(off)} managed off-runtime")
     print(f"\nYou have {len(rows)} open strateg{'y' if len(rows) == 1 else 'ies'} ({', '.join(bits)}):")

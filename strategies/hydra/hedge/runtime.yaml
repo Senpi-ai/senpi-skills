@@ -2,7 +2,8 @@
 # Runtime 3.0 port of v2 runtime-hedge.yaml (origin/main, Hydra v2.1). Shorts a
 # diversified BLEND of OTHER assets (hedgeUniverse minus the thesis coin) — only the ones
 # in a confirmed 4h downtrend, capitulation-guarded — VOL-PARITY sized (the scan computes
-# per-signal marginUsd dollars), sized UP by a thesis-stress multiplier when the thesis
+# the vol-parity dollars, then emits them as a per-signal marginPct PERCENT of equity, since
+# Runtime 3.0 sizes off marginPct), sized UP by a thesis-stress multiplier when the thesis
 # coin itself is breaking, total margin capped at hedgeMaxTotalPct. Never shorts the
 # thesis coin (unless hedgeIncludesThesis = true, the HYPE hybrid). DSL preserved EXACTLY.
 name: hydra-hedge

@@ -149,6 +149,11 @@ def main(argv):
 
     # stop runtime + trigger strategy_close per instance — in PARALLEL (each instance uses its own MCP client),
     # then hand off to the agent to poll. runtime list fetched ONCE and shared (instances target distinct ids).
+    rc0, _o0, _e0 = _cli.run_cli(["openclaw", "--version"], timeout=15)
+    if rc0 != 0:
+        log("⚠ openclaw is not available on this host — runtimes (if any, on the runtime host) will "
+            "NOT be stopped by this run and would be left orphaned. Run close.py on the runtime host "
+            "too, or `openclaw senpi runtime delete <id>` there.")
     runtimes = _cli.list_runtimes()
     if a.dry_run or len(targets) == 1:
         results = [close_one(label, strat, runtimes, a.dry_run, log) for label, strat in targets]

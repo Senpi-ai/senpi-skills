@@ -40,8 +40,8 @@ DEFAULTS = {
     "rsiOverbought": 80,
     "rsiOversold": 20,
     "classMetals": ["GOLD", "SILVER", "PLATINUM", "PALLADIUM", "COPPER"],
-    "classEnergy": ["BRENTOIL", "CL", "WTI", "NATGAS", "GAS", "HEATOIL", "GASOLINE", "URNM"],
-    "classIndices": ["SP500", "NASDAQ", "NDX", "US500", "US100", "DJIA", "US30", "RUSSELL", "RUT", "VIX"],
+    "classEnergy": ["BRENTOIL", "CL", "NATGAS", "GAS", "URNM"],
+    "classIndices": ["SP500", "XYZ100"],
 }
 
 

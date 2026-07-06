@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.1.1"
+  version: "2.2.1"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -140,7 +140,9 @@ with `--dry-run` first.
 `traderAddress`, run by Senpi's copy engine) or **manual** (you manage it in the app). The *only*
 no-runtime anomaly is an **autonomous package strategy** (skillName, no trader) missing its runtime →
 flagged **no-runtime** with the fix (likely an interrupted deploy). Also **runtime-stopped**, plus a list
-of **orphan runtimes**. `--fast` skips the per-runtime health call; `--json` for machine output. **Tell the
+of **orphan runtimes**. On a host **without openclaw** the registry isn't visible, so package strategies
+report **runtime-unknown** — not a diagnosis; check from the runtime host, and never read it as an
+interrupted deploy. `--fast` skips the per-runtime health call; `--json` for machine output. **Tell the
 user the management mode for off-runtime strategies — do not call them idle.** Don't hand-compose
 `strategy_list` — use `status.py`.
 

@@ -8,10 +8,9 @@ description: >-
   three proof pillars; keep the machinery under the hood and never promise outcomes. Pure narration,
   no engine; for exact live numbers (fee tier, market count) call the existing tools.
 license: Apache-2.0
-compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.0.2"
+  version: "1.0.3"
   platform: senpi
   exchange: hyperliquid
 ---

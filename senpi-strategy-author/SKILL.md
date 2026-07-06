@@ -1,32 +1,19 @@
 ---
 name: senpi-strategy-author
 description: >-
-  Build a Senpi trading strategy from scratch — interactively, ONE decision at a
-  time. Use when the user wants to create, design, or build a new autonomous
-  strategy: "build a strategy", "help me build a trading strategy", "create a
-  strategy from scratch", "walk me through building a strategy", "design a
-  strategy", "I have a trading idea". USE THIS SKILL TO CREATE ANY STRATEGY THAT
-  HAS DSL — a runtime-supervised exit (stop-loss / trailing stop / profit-lock
-  ladder / any managed stop that persists). Authoring a Runtime 3.0 runtime.yaml
-  here is the ONLY correct way to create a DSL-protected strategy. A raw MCP
-  strategy_create_custom_strategy / create_position call CANNOT carry a DSL and
-  MUST NEVER be used to stand up a named, DSL-protected, or persistent strategy
-  (it yields an unnamed, unsupervised, registry-less position bundle with at most
-  a flat stop — the confirmed Decoupling failure). The raw MCP tools are ONLY for
-  manual one-off open/close positions or mirror (copy-trade) strategies that have
-  NO DSL. If DSL / a trailing stop / "protect this" is anywhere in the intent →
-  author it here. FIRST, before building from scratch, offer the fast path: surface
-  the closest matching TEMPLATE (via senpi-strategy-discover) as the recommended
-  on-ramp for new users — start from it, fork-and-customize it, or design your own;
-  the user's choice is final, scratch is a peer not a downsell. If they choose scratch
-  (or already gave a specific custom thesis), DEFAULT behavior: ask the 7 design
-  decisions one question at a time, reflect each answer back, then assemble + smoke-test the package. Also
-  edits existing strategies. NOT for installing (senpi-strategy-ops) or picking
-  one to run (senpi-strategy-discover).
+  Build or edit a Senpi trading strategy — interactively, ONE decision at a time.
+  Use for "build a strategy", "create a strategy from scratch", "design a
+  strategy", "I have a trading idea", or ANY strategy that needs DSL (a
+  runtime-supervised exit: stop-loss, trailing stop, profit-lock ladder) — a
+  runtime.yaml authored here is the ONLY way to carry a DSL; raw MCP
+  strategy_create* / create_position calls cannot, and must never stand up a
+  named or protected strategy. Offers the closest TEMPLATE first (via
+  senpi-strategy-discover), then fork-or-scratch as the user chooses. NOT for
+  installing (senpi-strategy-ops) or picking one to run (senpi-strategy-discover).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.4.0"
+  version: "2.4.2"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -187,7 +174,9 @@ the catalog entry, then unit-test → validate → hand to smoke-test."* Then ti
 5. **`runtime.yaml`** — the plain-language **`description`** of the thesis + how it works (the runtime
    registers it and senpi-portfolio reads it back as the mandate) plus inputs, entry action, DSL preset,
    risk gates. Write it → one line on the thesis + DSL + risk posture.
-6. **`strategy.yaml`** — catalog facets from the glossary. Write it → *"catalog entry in."*
+6. **`strategy.yaml`** — catalog facets from the glossary (schema:
+   `references/strategy-yaml-schema.md`; what each facet does for matching:
+   `references/discovery-catalog-fields.md`). Write it → *"catalog entry in."*
 7. **Unit-test `scoring.py`** on sample candles (pure — no mocks). Run it → report pass/fail as its own beat.
 8. **Validate** → `python3 senpi-strategy-author/scripts/validate_strategy.py strategies/<id>` (0 errors),
    then the **universe gate** → `python3 senpi-strategy-ops/scripts/validate_universe.py strategies/<id>`

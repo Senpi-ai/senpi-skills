@@ -17,7 +17,7 @@ import os
 from pathlib import Path
 
 REPO = os.environ.get("SENPI_SKILLS_REPO", "Senpi-ai/senpi-skills")
-REF = os.environ.get("SENPI_SKILLS_REF", "strategy-v2")
+REF = os.environ.get("SENPI_SKILLS_REF", "main")
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
 

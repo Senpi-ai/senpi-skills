@@ -5,7 +5,7 @@
 # the market confirms the thesis direction (4h/1h trend + 24h momentum); the DSL +
 # drawdown gate de-risk when it doesn't. The active preset's baskets live in the
 # instance's `inputs.longBasket` / `inputs.shortBasket` — swap them to express a
-# different view (see main/scanners/presets.md). Install/teardown via senpi-strategy-ops.
+# different view (see main/presets.md). Install/teardown via senpi-strategy-ops.
 schema_version: 1
 
 id: thesis-fund

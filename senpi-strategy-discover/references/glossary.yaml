@@ -10,7 +10,7 @@
 # appears. gen_catalog warns (never fails) on a value missing from this file.
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 
-archetype:        # the market belief; what `--belief` matches against (extend deliberately)
+archetype:        # the market belief; the LLM ranks on the inlined label/gloss (extend deliberately)
   trend_following:
     label: "Trend-Follower"
     gloss: "Rides assets while they're trending and steps out when they stall."

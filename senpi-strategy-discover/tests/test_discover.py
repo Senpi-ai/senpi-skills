@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Unit tests for discover.py — the CONCRETE filter (filter + return all). Run: python3 tests/test_discover.py
 
-New contract (see docs/strategy-discover/discovery-architecture.md): the script filters ONLY on the
+Contract: the script filters ONLY on the
 explicit concrete constraints (asset domain, named asset, strict-opposite direction, exclusions) and
 returns ALL survivors, neutral-ordered (asset-match desc, name). No relevance score, no top-N, no
 risk/belief/horizon flags — the LLM ranks the returned set on those soft dimensions itself.

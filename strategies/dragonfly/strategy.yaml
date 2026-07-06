@@ -1,0 +1,50 @@
+# Dragonfly — strategy package deploy manifest (single source of truth for deploy + attribution).
+# A strategy is a PACKAGE: this manifest + one self-contained runtime.yaml per instance +
+# <instance>/scanners/. The runtime SUPERVISES each scanner's scan(inputs, ctx) in-process —
+# there is no separate scanner daemon. Install/teardown: senpi-strategy-ops (deploy.py / close.py).
+#
+# ORIGIN: port of a user-authored BTC+HYPE "continuous learning loop" spec (July 2026) that was
+# originally hand-rolled as a standalone Python scheduler/paper-trader outside the runtime. This
+# package carries the same composite-scoring thesis on supervised rails: the runtime owns
+# execution, risk guard_rails, and DSL exits; the weights in each leg's `inputs.weights` are the
+# learning surface (retune weekly from the ctx.state component ledger via senpi-improve-trades).
+schema_version: 1
+
+id: dragonfly               # == package dir name; == every leg's runtime.yaml `group`
+version: "1.0.0"            # single source for catalog + MCP attribution (skillName/skillVersion)
+
+catalog:                    # discovery surface
+  name: "Dragonfly — BTC + HYPE Composite Momentum"
+  emoji: "🐉"
+  tagline: "A two-leg BTC + HYPE book that fuses a dozen weighted signals — trend, volume, OI, funding crowding, smart-money lean, cross-asset flow — into one 0-10 conviction score per asset, and only strikes when the composite is loud."
+  belief_plain: "No single indicator is trustworthy, but when many independent ones agree — price trend, volume, open interest, funding, what the best traders hold, and BTC pulling HYPE — that agreement is the signal. Bet bigger the louder the agreement, protect every position with a ratchet stop, and stand aside when the picture is mixed."
+  group: multi-asset-whitelist
+  archetype: trend_following
+  sub_style: alpha_hunter
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: aggressive
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 10
+  max_slots: 2              # one position per leg
+  min_budget: 200           # two wallets, $100 floor each
+  assets: [BTC, HYPE]
+  tags: [composite, multi_factor, momentum, funding, smart_money, cross_asset, btc, hype]
+
+requires:
+  runtime: ">=2.0.0"        # @senpi-ai/runtime semver range
+
+defaults:                   # env VAR NAMES only — never values
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: btc
+    runtime: btc/runtime.yaml          # → runtime name dragonfly-btc, group dragonfly
+    wallet_env: DRAGONFLY_BTC_WALLET
+    funding_share: 0.60
+  - name: hype
+    runtime: hype/runtime.yaml         # → runtime name dragonfly-hype, group dragonfly
+    wallet_env: DRAGONFLY_HYPE_WALLET
+    funding_share: 0.40

@@ -2,16 +2,15 @@
 name: senpi-account-status
 description: >-
   Show the user's standing across Senpi programs — points and rank, loyalty tier and fees, Agents
-  Arena position, referral earnings, and shareable wins. Use for "how many points do I have?",
+  Arena position, and referral earnings. Use for "how many points do I have?",
   "what's my rank/tier?", "what are my fees?", "how am I doing in the Arena?", "my referral
-  rewards", "show my wins". Use this instead of calling user_get_senpi_points + get_loyalty_tiers
+  rewards". Use this instead of calling user_get_senpi_points + get_loyalty_tiers
   + arena_* one by one. A hidden engine (scripts/status.py) pulls it all in one call. Requires
   a USER-scoped Senpi token.
 license: Apache-2.0
-compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.0.0"
+  version: "1.1.1"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -24,7 +23,7 @@ cleanly** and point at the next milestone (next loyalty tier, Arena prize, etc.)
 ## Golden rules
 
 - **Run the engine; never hand-pull.** `python3 scripts/status.py` gathers points, loyalty, Arena,
-  referral, and wins together. Read its JSON.
+  and referral together. Read its JSON.
 - **Real-time, not from memory.** Points/rank/Arena move — never quote a figure from earlier in the
   conversation; re-run.
 - **Fees come from the data, never from memory.** Quote `loyalty.fee_bps` / `fee_discount_pct` as
@@ -43,14 +42,15 @@ cleanly** and point at the next milestone (next loyalty tier, Arena prize, etc.)
 python3 scripts/status.py
 ```
 
-Returns `{identity, points, loyalty, arena, referral, wins, meta}`:
+Returns `{identity, points, loyalty, arena, referral, meta}`:
 - `points` — `total`, `base` (Base copy-trading), `perp` (Hyperliquid), `multiplier`, `rank`,
   `rank_change`.
-- `loyalty` — `tier`, `fee_bps`, `fee_discount_pct`, `next_tier`, `points_to_next` (the milestone).
+- `loyalty` — `tier`, `fee_bps` + `fee_pct`, `fee_discount_pct`, `next_tier`, `points_to_next` (the
+  milestone), plus `demoted` / `previous_tier` / `maintenance_deadline` — if `demoted` is true,
+  mention the tier they fell from and that maintenance volume wins it back.
 - `arena` — `enrolled`; if enrolled: `rank`, `roe_pct`, `total_pnl_usd`, `qualified` (hit the volume
   threshold), `week_pool_usd`, `prize_estimate_usd` (if top-5).
 - `referral` — `balance_usdc` (pending referral earnings, 25% of builder fee on referred trades).
-- `wins` — recent profitable closed trades (asset, realized PnL, return %) for sharing.
 - `meta.warnings` / `meta.degraded` — narrate honestly.
 - Fails open — partial data still returns valid JSON.
 
@@ -64,19 +64,15 @@ Lead with the section they asked about; otherwise a tight standing card:
 3. **Arena** — if `enrolled`: rank, ROE %, qualified-or-not, and the prize context (week pool;
    estimate if top-5). If not enrolled: one line + the arena link.
 4. **Referral** — pending `balance_usdc` (and that it's claimable if > 0).
-5. **Wins** — a couple of brag-worthy recent trades, if any.
 
 Formatting: clean, scannable, numbers from the data; emoji sparingly (🏆 Arena, 🎯 next tier).
 
 ## Mandatory closing (verbatim)
 
-> **1. Want me to share one of these wins?**
-> **2. Want me to break down what it takes to reach the next tier (or climb the Arena)?**
+> **Want me to break down what it takes to reach the next tier (or climb the Arena)?**
 
-- **CTA 1 → share.** Format a `wins[]` entry into a shareable line (the user posts it); never post on
-  their behalf.
-- **CTA 2 → milestone.** Use `loyalty.points_to_next` + `get_loyalty_tiers` for the tier path, or the
-  Arena `qualified`/volume threshold + `week_pool`/prize split for the Arena path.
+On yes: use `loyalty.points_to_next` + `get_loyalty_tiers` for the tier path, or the
+Arena `qualified`/volume threshold + `week_pool`/prize split for the Arena path.
 
 ## ⚠ Token scope
 

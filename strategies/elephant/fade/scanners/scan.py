@@ -43,14 +43,15 @@ import time
 
 import scoring
 
-# v2 _MACRO_WHITELIST (config.allowedAssets overrides). Validated against the live HL meta at
-# authoring time (2026-06-29): every name present on the main (BTC) / xyz boards.
+# v2 _MACRO_WHITELIST (config.allowedAssets overrides). Pruned to LIVE HL instruments only:
+# xyz:NIFTY / xyz:IBOV / xyz:DXY are delisted with no live equivalent, so they are dropped
+# (they never scan anyway).
 _MACRO_WHITELIST_DEFAULT = [
     "BTC",
-    "xyz:SP500", "xyz:XYZ100", "xyz:JP225", "xyz:KR200", "xyz:NIFTY", "xyz:IBOV",
+    "xyz:SP500", "xyz:XYZ100", "xyz:JP225", "xyz:KR200",
     "xyz:GOLD", "xyz:SILVER", "xyz:PLATINUM", "xyz:COPPER",
     "xyz:BRENTOIL", "xyz:CL", "xyz:NATGAS",
-    "xyz:EUR", "xyz:JPY", "xyz:GBP", "xyz:DXY",
+    "xyz:EUR", "xyz:JPY", "xyz:GBP",
 ]
 _DEFAULT_TTL = 180   # v2 RECENT_SIGNAL_TTL_SEC — race-window dedup (3x ALO open fill window)
 

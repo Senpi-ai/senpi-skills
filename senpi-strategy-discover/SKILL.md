@@ -2,23 +2,20 @@
 name: senpi-strategy-discover
 description: >-
   Help a user choose a Senpi trading strategy to deploy — a conversational,
-  analyst-style picker, and the DEFAULT first stop for ANY open-ended "I want a
-  strategy" ask. Use when the user asks "what should I trade?", "recommend a
-  strategy", "help me pick a strategy", "make me a strategy", "build me a
-  strategy", "I want a strategy", "get me set up", "set me up with a strategy",
-  "what's winning?", "I have a view on the world (a war, the economy, one coin
-  winning) — trade it", "run a hedge fund / all-weather / tail-risk book", or
-  wants a strategy but has NOT named a specific one. Surface a matching TEMPLATE
-  first — the fastest on-ramp, which the user can then fork/customize — passing
-  their thesis as `--theme` to rank the closest fits. You talk and RANK; a hidden
-  engine (scripts/discover.py) fetches data + filters. Route to senpi-strategy-author
-  ONLY when the user explicitly wants to DESIGN their own from scratch or needs a
-  custom DSL/scanner not in the catalog (and author itself offers the closest
-  template first). NOT for installing a NAMED strategy (that's senpi-strategy-ops).
+  analyst-style picker. Use when the user asks "what should I trade?", "recommend
+  a strategy", "help me pick a strategy", "what's winning?", "set me up", "I have
+  a view on the world (a war, the economy, one coin winning) — trade it", "run a
+  hedge fund / all-weather / tail-risk book", or wants a strategy but has NOT
+  named a specific one. Surface the closest matching TEMPLATE first — the fastest
+  on-ramp, which the user can then fork/customize — passing their worldview as
+  `--theme` to rank the closest fits. You talk and RANK; a hidden engine
+  (scripts/discover.py) fetches data + filters. NOT for installing a NAMED
+  strategy (that's senpi-strategy-ops), or building/designing one from scratch or
+  with a custom DSL (that's senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.4.0"
+  version: "2.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -84,12 +81,15 @@ python3 scripts/discover.py
 
 - There is **no** `--risk`, `--belief`, `--horizon`, `--experience`, or `--hedge-for` flag — you rank
   on those, and you surface a hedge by re-running the engine (see *Stack*).
-- **`--theme` is a SOFT worldview surface, not a filter.** Pass the user's market view/structure in their
-  words ("k-shape", "risk-off", "market-neutral", "AI fund", "divergence", "hedge") and the engine scores
-  every survivor on thesis/tag match — *expanding regime synonyms* (so "k-shape" also finds strategies
-  whose thesis says "long/short", "two-speed", "divergence") — then floats the matches to the top and
-  echoes a ranked `meta.theme_matches`. It **never drops a candidate**; you still rank + narrate. Use it
-  for any named worldview so you don't eyeball 78 theses and miss an obvious fit.
+- **`--theme` is a SOFT worldview surface, not a filter.** **You supply the semantic expansion; the
+  engine does deterministic keyword-overlap over the real catalog fields.** Pass the worldview AND the
+  structural synonyms YOU know for it — you natively know "k-shape" ≈ "two-speed" ≈ "long/short" ≈
+  "dispersion", so pass them: `--theme "k-shape two-speed long-short divergence dispersion winners
+  laggards"`. The engine scores every survivor on thesis/tag overlap with those terms, floats the
+  matches to the top, and echoes a ranked `meta.theme_matches`. It **never drops a candidate** and holds
+  **no** maintained synonym list of its own — the vocabulary is yours. You still rank + narrate. Use it
+  for any named worldview so you don't eyeball 78 theses and miss an obvious fit (e.g. Cougar/Cub for a
+  K-shape).
 - Values can be loose ("btc and eth", "no shorting") — the engine canonicalizes; unknown → ignored.
 - **You hold the flags across turns** and re-run with the full concrete set each time (stateless).
 - A **fuzzy belief/worldview run carries no `--assets`** — run broad (often no flags at all) and, when the
@@ -201,13 +201,14 @@ They lack the vocabulary; recommend *without* making them self-classify:
 - "something safe for BTC, ~$300" → `--assets btc_eth --budget 300`  · rank: conservative
 - "aggressive NVDA play" → `--assets NVDA`  · rank: aggressive
 - "trade SpaceX / pre-IPO names" → `--assets pre_ipo`
-- "a K-shaped market — long winners, short losers" → `--theme "k-shape"` *(no asset cut)* → read
-  `meta.theme_matches`: `lion` / `cub` / `cougar` / `octopus` float to the top. **This is the run the
-  agent skipped when it eyeballed names and missed Cougar.**
-- "an AI fund" → `--assets xyz_equities --theme "AI fund"`  · theme surfaces `spider`/`hornet`/`asia-ai`
-- "bet against the economy" → `--theme "risk-off"` *(no asset cut)* → surfaces the risk-off/tail-risk
-  theses; read each `thesis` for the side (never guess)
-- "market-neutral / something hedged" → `--theme "market-neutral"` → surfaces the long/short + pairs books
+- "a K-shaped market — long winners, short losers" → YOU expand the worldview →
+  `--theme "k-shape two-speed long-short divergence dispersion winners laggards"` *(no asset cut)* → read
+  `meta.theme_matches`: `lion` / `cub` / `cougar` / `octopus` float to the top from their real thesis
+  words. **This is the run the agent skipped when it eyeballed names and missed Cougar.**
+- "an AI fund" → `--assets xyz_equities --theme "AI artificial-intelligence semiconductors compute tech momentum"`  · surfaces `spider`/`hornet`/`asia-ai`
+- "bet against the economy" → `--theme "risk-off defensive recession bearish hedge downturn crisis"` *(no asset cut)* → surfaces the
+  risk-off/tail-risk theses; read each `thesis` for the side (never guess)
+- "market-neutral / something hedged" → `--theme "market-neutral long-short pairs spread hedged relative-value"` → surfaces the long/short + pairs books
 - "gold vs bitcoin" → run broad (or `--assets commodities,btc_eth`) → pick the matching `thesis-*` fund by which side wins
 - "I think there's going to be a war" → *(no asset cut)* run broad → rank up war / tail-risk / oil-gold
   theses (`thesis-war-escalation`, `rhino`)

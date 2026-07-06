@@ -1,6 +1,6 @@
 # Risk Gates Reference
 
-Strategy-level entry gates evaluated **before every open**. Closes are not gated. Configured under `risk.guard_rails` in the strategy YAML — see [yaml-schema.md](yaml-schema.md) for the field list.
+Strategy-level entry gates evaluated **before every open**. Closes are not gated. Configured under `risk.guard_rails` in the strategy YAML — see `senpi-trading-runtime/references/runtime-yaml.md` (the authoritative schema) for the field list.
 
 ## Evaluation flow
 

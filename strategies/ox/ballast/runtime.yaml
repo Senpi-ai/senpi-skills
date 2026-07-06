@@ -10,14 +10,14 @@ description: >
   separate wallet. The edge is RISK BALANCING — owning ballast at all times, more of it when
   the tape turns defensive.
 
-  Sizing (scanner-side): each defensive's marginUsd is the (scaled) inverse-vol risk-parity
-  weight, emitted per-signal (top-level marginUsd) — NOT a flat margin_pct. The runtime honors
-  per-signal marginUsd; strategy.margin_pct below is only a fallback cap.
+  Sizing (scanner-side): each defensive's (scaled) inverse-vol risk-parity weight is emitted
+  per-signal as a top-level marginPct (PERCENT of equity) — NOT a flat strategy.margin_pct.
+  Runtime 3.0 sizes off the per-signal marginPct; strategy.margin_pct below is only a fallback cap.
 
 strategy:
   wallet: "${OX_BALLAST_WALLET}"
   slots: 4
-  margin_pct: 5              # fallback cap only — scanner emits per-sleeve marginUsd
+  margin_pct: 5              # fallback cap only — scanner emits per-sleeve marginPct
   default_leverage: 3
   trading_risk: moderate
   enabled: true
@@ -36,10 +36,10 @@ scanners:
     state_history_max_count: 100
     inputs:
       book: "ballast"
-      # Defensive basket — gold/silver/dollar/yen. xyz:DXY is currently DELISTED on HL and is
-      # silently dropped by the live-board intersection (v2 behavior); xyz:JPY (yen) and
-      # xyz:GOLD/xyz:SILVER carry the defensive book until DXY relists. No fake tickers.
-      sleeves: ["xyz:GOLD", "xyz:SILVER", "xyz:DXY", "xyz:JPY"]
+      # Defensive basket — gold/silver/yen. xyz:DXY (dollar) is DELISTED on HL with no live
+      # equivalent, so it is dropped; xyz:JPY (yen) and xyz:GOLD/xyz:SILVER carry the defensive
+      # book. No fake tickers — every name is a live HL instrument.
+      sleeves: ["xyz:GOLD", "xyz:SILVER", "xyz:JPY"]
       portfolioBudgetPct: 0.18     # small base — the always-on cushion
       maxWeightPct: 0.30
       maxLeverage: 3
@@ -56,7 +56,6 @@ scanners:
       riskOffProbes:
         - { asset: "xyz:XYZ100", fallback: "xyz:SP500", risk_off_when: "BEARISH", label: "equities" }
         - { asset: "xyz:GOLD", fallback: null, risk_off_when: "BULLISH", label: "gold" }
-        - { asset: "xyz:DXY", fallback: null, risk_off_when: "BULLISH", label: "dollar" }
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }

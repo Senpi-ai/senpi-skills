@@ -51,22 +51,25 @@ Decide these in prose first; the files just encode them.
 
 ## 5. Archetype patterns — the design space, pre-filled
 
-Match the idea to a row, copy the settings, write the edge.
+Match the idea to a row, copy the settings, write the edge. The **Clone from** column names real
+packages under `strategies/` with that shape — read their `scan.py`/`scoring.py`/`runtime.yaml`
+as the working example (validated, current-idiom code; never resurrect old doc snippets).
 
-| Archetype | Universe | Data | Edge | Shape | Card. | State | DSL preset / cadence |
-|---|---|---|---|---|---|---|---|
-| Trend / momentum | dynamic/basket | candles | confirmed trend + RS | long or L/S | all | dedup | `let_winners_run` / slow |
-| Mean-reversion | majors basket | candles + RSI | fade extremes | L/S | all | dedup | `mean_reversion` / fast |
-| Breakout | basket | candles + range | range break / new high | long | all | dedup | `let_winners_run` / medium |
-| Trader-follower | **derived** (board) | `leaderboard_*`/`discovery_*` | mirror proven traders | L/S | all | dedup + baseline | `let_winners_run` / medium |
-| Cohort-divergence | **derived** (realized-PnL cohorts) | `discovery_*` | smart-money vs crowd | L+S (2 inst.) | all | daily ledger + cohort cache | `let_winners_run` / slow |
-| Managed-futures | multi-class basket | candles | cross-asset trend, vol-parity | L+S | all | minimal | `let_winners_run` / slow |
-| Microstructure / flow | majors | funding/OI + candles | liquidation cascade / volume | L/S | one or all | dedup | `balanced` or `scalp` / fast |
-| Event / new-listing | **dynamic** (fresh) | board + candles | catch new listings early | long | all | first-seen ledger | `balanced` / medium |
-| Thesis / macro | curated basket | candles + breadth | accumulate a narrative | long (or L/S) | all | breadth + horizon | `let_winners_run` + horizon / slow |
-| Parabolic (Stag-class) | single/few | candles | identified parabolic run | long | one | dedup | `parabolic_runner` / medium |
+| Archetype | Universe | Data | Edge | Shape | Card. | State | DSL preset / cadence | Clone from |
+|---|---|---|---|---|---|---|---|---|
+| Trend / momentum | dynamic/basket | candles | confirmed trend + RS | long or L/S | all | dedup | `let_winners_run` / slow | `lynx`, `bison` |
+| Mean-reversion | majors basket | candles + RSI | fade extremes | L/S | all | dedup | `mean_reversion` / fast | `lemon`, `bald-eagle` |
+| Breakout | basket | candles + range | range break / new high | long | all | dedup | `let_winners_run` / medium | `hawk`, `badger` |
+| Trader-follower | **derived** (board) | `leaderboard_*`/`discovery_*` | mirror proven traders | L/S | all | dedup + baseline | `let_winners_run` / medium | `albatross`, `raptor` |
+| Cohort-divergence | **derived** (realized-PnL cohorts) | `discovery_*` | smart-money vs crowd | L+S (2 inst.) | all | daily ledger + cohort cache | `let_winners_run` / slow | `whalehunter`, `egret` |
+| Managed-futures | multi-class basket | candles | cross-asset trend, vol-parity | L+S | all | minimal | `let_winners_run` / slow | `caribou`, `ox` |
+| Microstructure / flow | majors | funding/OI + candles | liquidation cascade / volume | L/S | one or all | dedup | `balanced` or `scalp` / fast | `piranha`, `camel` |
+| Event / new-listing | **dynamic** (fresh) | board + candles | catch new listings early | long | all | first-seen ledger | `balanced` / medium | `magpie` |
+| Thesis / macro | curated basket | candles + breadth | accumulate a narrative | long (or L/S) | all | breadth + horizon | `let_winners_run` + horizon / slow | `thesis-fund`, `rhino` |
+| Parabolic (Stag-class) | single/few | candles | identified parabolic run | long | one | dedup | `parabolic_runner` / medium | `stag`, `kodiak` |
 
-The *framework never changes* across rows — only these cells do.
+The *framework never changes* across rows — only these cells do. For more examples per archetype,
+grep `strategies/catalog.json` by its `archetype` field (a closed set; every package is tagged).
 
 ## 6. Build it
 

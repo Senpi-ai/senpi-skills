@@ -266,7 +266,7 @@ def build(updated, branch):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--updated", default="2026-06-17")
-    ap.add_argument("--branch", default="strategy-v2")
+    ap.add_argument("--branch", default="main")
     a = ap.parse_args()
     catalog = build(a.updated, a.branch)
     blob = json.dumps(catalog, ensure_ascii=False, indent=2) + "\n"

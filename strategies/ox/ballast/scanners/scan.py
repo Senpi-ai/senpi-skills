@@ -9,15 +9,17 @@ Faithful port of ox-producer.py main():
            instrument board (delisted sleeves silently dropped — e.g. xyz:DXY is delisted).
   WEIGHTS — inverse-vol over the whole basket (so a re-entering sleeve gets its correct
             fractional weight, never the full budget).
-  PASS 2 — emit each un-held sleeve LONG at marginUsd = budget * weight, capped at
+  PASS 2 — emit each un-held sleeve LONG sized at marginUsd = budget * weight, capped at
            maxWeightPct * equity; knife guard (decline to ADD in a hard 4h downtrend);
            free-margin guard (never emit a sleeve the wallet can't fund -> no insufficient
-           -funds spam); largest-weight (lowest-vol) sleeves first.
+           -funds spam); largest-weight (lowest-vol) sleeves first. That marginUsd is emitted
+           as a top-level `marginPct` (= marginUsd/account_value*100) because Runtime 3.0 sizes
+           off marginPct and silently drops a top-level marginUsd.
   BALLAST — a light cross-asset risk-off lean (equities soft + gold/dollar bid) SCALES the
             defensive budget up x riskOffMultiplier (capped at 0.6 gross).
 
-Read-only + single-pass — emits per-sleeve top-level `marginUsd` (the inverse-vol risk-parity
-weight) + per-signal clamped `leverage`; the runtime sizes the dollars, owns slots/cooldowns/
+Read-only + single-pass — emits the per-sleeve inverse-vol risk-parity weight as a top-level
+`marginPct` (PERCENT of equity) + per-signal clamped `leverage`; the runtime sizes the dollars, owns slots/cooldowns/
 risk gates, and trails the DSL exit. No daemon, no push_signal. EVERY ctx.senpi_mcp.call_tool
 is read-guarded: a bad read degrades (skip that sleeve / neutral lean), never crashes the tick.
 """
@@ -33,7 +35,6 @@ _DEFAULT_TTL = 21600          # 6h — mirror the v2 per-asset cooldown (per_ass
 _DEFAULT_RISKOFF_PROBES = [
     {"asset": "xyz:XYZ100", "fallback": "xyz:SP500", "risk_off_when": "BEARISH", "label": "equities"},
     {"asset": "xyz:GOLD", "fallback": None, "risk_off_when": "BULLISH", "label": "gold"},
-    {"asset": "xyz:DXY", "fallback": None, "risk_off_when": "BULLISH", "label": "dollar"},
 ]
 
 
@@ -289,6 +290,12 @@ def scan(inputs, ctx):
             continue
         w = weights.get(name, 0)
         margin_usd = round(min(budget_usd * w, account_value * max_weight), 2)
+        # Runtime 3.0 sizes off a top-level marginPct (PERCENT of equity in (0,100]), NOT a
+        # top-level marginUsd (silently dropped). budget_usd = account_value*budget_pct and the
+        # cap is account_value*max_weight, so base=account_value and marginPct-of-equity =
+        # margin_usd/account_value*100 reproduces the inverse-vol weight exactly.
+        # account_value > 0 here (guarded above).
+        margin_pct_emit = round(min(max(margin_usd / account_value * 100.0, 0.01), 100.0), 4)
         leverage = scoring.clamp_leverage(max_lev, metas[name].get("max_leverage"))
         if margin_usd <= 0 or leverage <= 0 or margin_usd * leverage < min_notional:
             continue
@@ -312,7 +319,7 @@ def scan(inputs, ctx):
         out.append({
             "asset": name,
             "direction": "LONG",
-            "marginUsd": margin_usd,           # PER-SLEEVE inverse-vol weight — THE risk-parity size
+            "marginPct": margin_pct_emit,      # PER-SLEEVE inverse-vol weight as PERCENT of equity (was marginUsd)
             "leverage": leverage,              # clamped to the sleeve's HL venue max
             "data": data_block,
         })

@@ -16,7 +16,10 @@ sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 import discover  # noqa: E402
 
 FIXTURE = discover.load_catalog(os.path.join(HERE, "fixtures", "catalog_fixture.json"))
-REAL = os.path.join(HERE, "..", "..", "catalog.json")
+# the real catalog resolved like production would (skill-local copy, then repo strategies/).
+# NEVER a path that doesn't exist — load_catalog would fetch the remote catalog and cache it there
+# (this once pointed two levels up, silently dropping a catalog.json at the repo root on every run).
+REAL = discover.default_catalog()
 
 _P = _F = 0
 

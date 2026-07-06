@@ -12,10 +12,9 @@ description: >-
   their DSL / what tier are my positions in?". A hidden engine (scripts/portfolio.py)
   does the multi-wallet pull and taxonomy; you narrate. Requires a USER-scoped Senpi token.
 license: Apache-2.0
-compatibility: OpenClaw, Hyperclaw, Claude Code
 metadata:
   author: Senpi
-  version: "1.7.0"
+  version: "1.7.1"
   platform: senpi
   exchange: hyperliquid
 ---

@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""--theme SOFT worldview search: scores candidates on thesis/tag match (+ regime synonyms), floats the
-matches to the top, and NEVER drops a candidate. Guards the fix for "the agent eyeballed 78 theses and
-missed the K-shape strategies we have" — a 'k-shape' theme must surface lion/cub/cougar/octopus.
+"""--theme SOFT worldview search — the ENGINE's scoring contract.
+
+Division of labor (see SKILL.md): the LLM expands a worldview into its structural synonyms and passes
+them in --theme; this engine does DETERMINISTIC weighted keyword-overlap over the real catalog fields.
+So these tests feed the EXPANDED query (the terms the LLM would pass) and assert the engine ranks the
+right shortlist — guarding the fix for "the agent eyeballed 78 theses and missed the K-shape strategies".
+The engine holds NO synonym map of its own.
 
 Run: python3 tests/test_theme.py
 """
@@ -17,6 +21,10 @@ import discover  # noqa: E402
 CAT = discover.load_catalog(os.path.join(HERE, "fixtures", "catalog_fullfleet.json"))
 ALL_IDS = {s["id"] for s in CAT}
 
+# the expanded queries the LLM is instructed to pass (SKILL.md few-shots), verbatim
+K_SHAPE = "k-shape two-speed long-short divergence dispersion winners laggards"
+RISK_OFF = "risk-off defensive recession bearish hedge downturn crisis"
+
 
 def _broad():
     a = SimpleNamespace(assets=None, direction=None, budget=None, exclude=None)
@@ -28,55 +36,59 @@ def _themed(query):
     return discover.apply_theme(res, query)
 
 
-def test_k_shape_surfaces_the_long_short_books():
-    res = _themed("k-shape")
-    matches = res["meta"]["theme_matches"]
-    match_ids = [m["id"] for m in matches]
-    # the literal + structural K-shape books must all score and appear in the shortlist
+def test_expanded_kshape_query_surfaces_the_long_short_books():
+    """Expanded terms in → correct shortlist out. The engine (no synonyms of its own) must score the
+    literal + structural K-shape books from their OWN thesis words and float them to the top."""
+    res = _themed(K_SHAPE)
+    match_ids = [m["id"] for m in res["meta"]["theme_matches"]]
     for i in ("lion", "cub", "cougar", "octopus"):
         assert i in ALL_IDS, f"{i} not in fixture"
         assert i in match_ids, f"{i} missing from theme_matches"
-    # and they must rank at the TOP — the whole point (agent missed cougar by eyeballing names)
     top5 = match_ids[:5]
     assert "cougar" in top5 and "lion" in top5, f"K-shape L/S books not floated to top: {top5}"
-    # matches are ordered by descending score
-    scores = [m["theme_score"] for m in matches]
+    scores = [m["theme_score"] for m in res["meta"]["theme_matches"]]
     assert scores == sorted(scores, reverse=True), "theme_matches not score-sorted"
 
 
-def test_synonym_expansion_catches_non_literal_matches():
-    """cub self-describes as 'Two-Speed-Market Long/Short' — it must match 'k-shape' via the synonym
-    expansion (two-speed / long-short / winners), not only a literal 'k-shaped' substring."""
-    res = _themed("k-shape")
+def test_engine_matches_non_literal_from_the_expanded_terms():
+    """cub self-describes as 'Two-Speed-Market Long/Short' — it scores because the LLM-expanded query
+    carries 'two-speed' / 'long-short', NOT because the engine expanded a bare 'k-shape'."""
+    res = _themed(K_SHAPE)
     cub = next(c for c in res["candidates"] if c["id"] == "cub")
     assert cub["theme_score"] > 0
     assert any(h in ("two speed", "long short", "winners", "dispersion") for h in cub["theme_hits"])
-    # expansion is echoed for transparency
+    # the echoed expansion is exactly the deterministic tokenization of the input — no added vocabulary
     assert "long short" in res["meta"]["theme_expanded"]
+    assert "two speed" in res["meta"]["theme_expanded"]
+
+
+def test_bare_query_is_NOT_expanded_by_the_engine():
+    """The engine no longer carries a synonym map: a bare 'k-shape' tokenizes to just {'k shape'} and
+    does NOT pull in 'two-speed'/'long-short' on its own (that's the LLM's job now)."""
+    res = _themed("k-shape")
+    expanded = res["meta"]["theme_expanded"]
+    assert "two speed" not in expanded and "long short" not in expanded, \
+        f"engine should not invent synonyms: {expanded}"
 
 
 def test_theme_never_drops_a_candidate():
-    """SOFT surface: every survivor the concrete filter returned is still present after theming."""
     base = discover.match(_broad(), CAT)
     n_before = len(base["candidates"])
-    res = _themed("k-shape")
+    res = _themed(K_SHAPE)
     assert len(res["candidates"]) == n_before == len(ALL_IDS)
-    # non-matches simply carry theme_score 0 (not removed)
     assert any(c.get("theme_score", 0) == 0 for c in res["candidates"])
 
 
 def test_a_different_theme_surfaces_a_different_set():
-    """Generality: 'risk-off' floats the defensive/tail-risk books, not the K-shape L/S ones."""
-    res = _themed("risk-off")
+    """Generality: an expanded 'risk-off' worldview floats the defensive/tail-risk books."""
+    res = _themed(RISK_OFF)
     match_ids = [m["id"] for m in res["meta"]["theme_matches"]]
     assert match_ids, "risk-off surfaced nothing"
-    # rhino (tail-risk / crisis-alpha) should score on the risk-off vocabulary if present in the fixture
     if "rhino" in ALL_IDS:
         assert "rhino" in match_ids
 
 
 def test_no_theme_leaves_output_untouched():
-    """Without --theme the output carries no theme keys (apply_theme is opt-in)."""
     res = discover.match(_broad(), CAT)
     assert "theme" not in res["meta"]
     assert all("theme_score" not in c for c in res["candidates"])

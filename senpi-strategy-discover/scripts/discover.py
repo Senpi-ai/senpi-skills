@@ -6,7 +6,7 @@ stdout, RANKS the returned set itself (on risk / belief / worldview / thesis), a
 
   python3 discover.py --assets btc_eth --direction long_only
 
-Contract (see docs/strategy-discover/discovery-architecture.md):
+Contract:
 - The SCRIPT only does CONCRETE set logic: it hard-rejects on the few unambiguous, explicitly-stated
   constraints (cross-domain asset, named-asset unavailable, strict-opposite direction, explicit
   exclusions) and returns ALL survivors — no relevance score, no top-N cut. A bad rank still contains
@@ -34,7 +34,7 @@ REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 SKILL_CATALOG = os.path.join(HERE, os.pardir, "catalog.json")             # bundled with the discover skill
 REPO_CATALOG = os.path.join(REPO_ROOT, "strategies", "catalog.json")      # dev checkout / source of truth
 _CATALOG_REPO = os.environ.get("SENPI_SKILLS_REPO", "Senpi-ai/senpi-skills")
-_CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "strategy-v2")
+_CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "main")
 
 
 def default_catalog():
@@ -348,33 +348,15 @@ def match(intent, records, limit=None):
 # ---------------------------------------------------------------- theme search (SOFT surface, no filter)
 # A worldview/market-structure keyword ("k-shape", "risk-off", "market-neutral") rarely appears verbatim
 # in every matching thesis — so a naked substring search misses obvious fits (e.g. Cub self-describes as a
-# "Two-Speed-Market Long/Short" but never says the phrase "k-shape"). This expands each query term to the
-# vocabulary the theses ACTUALLY use, scores every candidate on that, floats the matches to the top, and
-# echoes a ranked shortlist. It is SOFT — it never drops a candidate; it only surfaces + orders. This is
-# the fix for "the agent eyeballed 78 theses and missed the K-shape strategies we have."
-_THEME_SYNONYMS = {
-    "k-shape":        ["k-shaped", "divergence", "two-speed", "long-short", "winners", "laggards",
-                       "dispersion", "market-neutral", "relative-value", "pairs"],
-    "divergence":     ["divergence", "two-speed", "long-short", "dispersion", "relative-value", "pairs"],
-    "two-speed":      ["two-speed", "k-shaped", "long-short", "winners", "laggards", "dispersion"],
-    "long-short":     ["long-short", "market-neutral", "dispersion", "two-speed", "l/s"],
-    "market-neutral": ["market-neutral", "long-short", "pairs", "dispersion", "neutral"],
-    "neutral":        ["market-neutral", "long-short", "pairs", "dispersion"],
-    "pairs":          ["pairs", "relative-value", "long-short", "spread"],
-    "relative-value": ["relative-value", "pairs", "long-short", "spread"],
-    "risk-off":       ["risk-off", "defensive", "crisis", "tail-risk", "hedge", "downturn", "sell-off", "crash"],
-    "risk-on":        ["risk-on", "momentum", "trend", "beta", "winners", "breakout"],
-    "hedge":          ["hedge", "tail-risk", "crisis", "defensive", "market-neutral", "short"],
-    "hedge-fund":     ["hedge-fund", "fund"],
-    "all-weather":    ["all-weather", "risk-parity", "diversified"],
-    "trend":          ["trend", "momentum", "breakout", "trend-following"],
-    "momentum":       ["momentum", "trend", "breakout"],
-    "mean-reversion": ["mean-reversion", "reversion", "fade", "contrarian", "pullback"],
-    "ai":             ["ai", "semiconductor", "chip", "tech", "nvda"],
-    "tech":           ["tech", "ai", "semiconductor", "chip"],
-    "copy":           ["copy", "mirror", "smart-money", "cohort", "leaderboard"],
-    "income":         ["income", "funding", "carry", "market-neutral"],
-}
+# "Two-Speed-Market Long/Short" but never says the phrase "k-shape"). The DIVISION OF LABOR:
+#   * the LLM (the analyst, per SKILL.md) supplies the semantic expansion — it natively knows
+#     "k-shape" ≈ "two-speed" ≈ "long/short" ≈ "dispersion" and passes those terms in --theme;
+#   * this engine does DETERMINISTIC weighted keyword-overlap over the real catalog fields on whatever
+#     terms it is handed, floats the matches to the top, and echoes a ranked shortlist.
+# It is SOFT — never drops a candidate; only surfaces + orders. There is NO repo-maintained synonym map
+# here (that would duplicate glossary.yaml and rot); the vocabulary lives with the LLM. This still fixes
+# "the agent eyeballed 78 theses and missed the K-shape strategies" — the agent stops eyeballing because
+# the engine returns a ranked shortlist from the theses' own words.
 # fields scored, with weight — a hit in a tag/tagline is a stronger signal than one buried in the thesis.
 _THEME_FIELDS = (("tags", 3), ("tag_labels", 3), ("tagline", 2), ("name", 2),
                  ("archetype_label", 2), ("thesis", 1), ("belief_plain", 1))
@@ -387,17 +369,13 @@ def _norm_text(s):
 
 
 def _expand_theme(query):
-    """Free-text theme query → normalized term set, each expanded via the regime-synonym map. Tries both
-    the individual words and the whole phrase as keys (so 'k shape' → the 'k-shape' synonyms)."""
+    """Free-text theme query → normalized term set. Deterministic only: split on whitespace/comma into
+    individual terms, plus the whole phrase (hyphenated). NO synonym lookup — the LLM already expanded
+    the worldview into its structural synonyms before calling (see SKILL.md `--theme`)."""
     q = str(query or "").lower().strip()
     keys = [t for t in re.split(r"[,\s]+", q) if t]
-    keys.append(re.sub(r"\s+", "-", q))          # whole phrase, hyphenated: "k shape" -> "k-shape"
-    terms = set()
-    for k in keys:
-        terms.add(k)
-        for syn in _THEME_SYNONYMS.get(k, []):
-            terms.add(syn)
-    return sorted({_norm_text(t) for t in terms if t and _norm_text(t)})
+    keys.append(re.sub(r"\s+", "-", q))          # whole phrase, hyphenated: "long short" -> "long-short"
+    return sorted({_norm_text(t) for t in keys if t and _norm_text(t)})
 
 
 def _theme_score(cand, terms):

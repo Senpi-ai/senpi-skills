@@ -19,7 +19,7 @@ description: >
 strategy:
   wallet: "${SPIDER_SWING_WALLET}"
   slots: 3                          # source maxSlots 3
-  margin_pct: 28                    # source marginPct 0.28 → margin_usd = account_value * 0.28
+  margin_pct: 28                    # fallback %; scan emits per-signal marginPct=28 (source marginPct 0.28 * 100)
   default_leverage: 10              # source swingMaxLeverage cap (clamped per-asset to HL venue max in scan.py)
   trading_risk: moderate
   enabled: true

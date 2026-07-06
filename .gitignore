@@ -8,3 +8,8 @@ __pycache__/
 */.build/
 *.deploy.runtime.yaml
 .deploy-state.json
+
+# local tool state
+.codex/
+.DS_Store
+.pytest_cache/
