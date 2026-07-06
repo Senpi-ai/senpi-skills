@@ -529,7 +529,7 @@ def test_step_strategies_slice_reads_state():
         return review.step_strategies(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
                                       state_path=sp, now_ms=NOW_MS)
     out = _with_env(_seq)
-    assert set(out) == {"strategies", "closed_strategies", "dsl_close_reason_mix", "meta"}
+    assert set(out) == {"strategies", "closed_strategies", "dsl_close_reason_mix", "partial_closes", "meta"}
     strat = {s["label"]: s for s in out["strategies"]}["kodiak"]
     assert strat["dsl"]["hard_stop_roe_pct"] == -15.0    # mandate/DSL from the registry
     assert strat["realized_pnl"] == 340.0
@@ -668,6 +668,109 @@ def test_default_state_path_uses_tempdir_and_window_key():
     assert p.startswith(tempfile.gettempdir())
     assert os.path.join("senpi-improve-trades", "state-7d.json") in p
     assert review._default_state_path(30.0, 20).endswith("state-30d-last20.json")
+
+
+# ─────────────────────────── partial closes — realized profit ALREADY TAKEN on a STILL-OPEN position
+# The bug: a partial close / TP / SL fill / size reduction leaves the position OPEN, so it creates NO
+# closedPositions[] entry — trader_history reports "no closed trades" even after real profit was banked, and
+# guardrail 9 wrongly frames the book as "brand-new, nothing to review." fetch_partial_closes reads each open
+# position (strategy_get_clearinghouse_state, main+xyz, skip szi==0) and asks discovery how much realized PnL
+# was taken on it (ONE batched discovery_get_open_position_realized_pnl). The fixture is built from the MCP
+# TYPE shapes (senpi.types.ts), NOT a live recording → needs a live smoke-test before merge.
+PARTIAL_FIXTURE = os.path.join(HERE, "fixtures", "review_partial_close_fixture.json")
+BEAR_WALLET = "0xBEAR0000000000000000000000000000000bear"
+
+
+def _partial_result(want_market=True):
+    """Run the engine against the partial-close fixture. No registry pinned (bear/hare aren't registered —
+    mandate null is fine; partial closes don't depend on it)."""
+    with open(PARTIAL_FIXTURE) as f:
+        client = review._FixtureClient(json.load(f))
+    return review.run(client, window_days=WINDOW_DAYS, want_market=want_market, now_ms=NOW_MS)
+
+
+def test_partial_close_surfaces_realized_taken_on_open_position():
+    """THE core fix: `bear` has ZERO fully-closed trades (trader_history empty) but an OPEN BTC position with
+    $480 realized ALREADY TAKEN (a partial close). partial_closes surfaces it with the realized amount + fees,
+    and meta.has_partial_closes is true — so guardrail 9 does NOT read the book as 'nothing to review.'"""
+    res = _partial_result()
+    assert res["meta"]["trade_count"] == 0                 # NO fully-closed trades — the trap scenario
+    pc = res["partial_closes"]
+    assert len(pc) == 1                                    # only BTC has non-zero realized taken
+    btc = pc[0]
+    assert btc["asset"] == "BTC"
+    assert btc["strategy_label"] == "bear"
+    assert str(btc["wallet"]).lower() == BEAR_WALLET.lower()
+    assert btc["realized_taken"] == 480.0                  # profit banked on the still-open position
+    assert btc["fees"] == 12.5
+    assert btc["remaining_notional"] == 20000.0            # current positionValue (still open)
+    assert btc["remaining_pct"] == 97.7                    # 20000 / (20000 + 480) → most exposure still on
+    # meta flags the SKILL gates guardrail 9 on
+    assert res["meta"]["has_partial_closes"] is True
+    assert res["meta"]["partial_close_count"] == 1
+    # "no closed trades" is NOT "no activity" → NOT degraded (there is something to review)
+    assert res["meta"].get("degraded") is None
+
+
+def test_flat_strategy_contributes_no_partial_close():
+    """`hare` is genuinely flat for this purpose: its open ETH position has ZERO realized taken and its SOL
+    leg is szi==0 (skipped). It contributes nothing → only bear's BTC is in partial_closes (a zero-realized
+    row is never surfaced, never fabricated)."""
+    res = _partial_result()
+    assets = {p["asset"] for p in res["partial_closes"]}
+    assert "ETH" not in assets                             # zero realized taken → not surfaced
+    assert "SOL" not in assets                             # szi==0 leg → not even an open position
+    assert assets == {"BTC"}
+
+
+def test_no_partial_closes_when_truly_empty():
+    """A book with no strategies at all → partial_closes empty, has_partial_closes false, and (with no trades
+    either) meta.degraded set. The genuinely-fresh case guardrail 9's fresh-strategy framing is FOR."""
+    res = review.run(review._FixtureClient({}), window_days=WINDOW_DAYS, now_ms=NOW_MS)
+    assert res["partial_closes"] == []
+    assert res["meta"]["has_partial_closes"] is False
+    assert res["meta"]["partial_close_count"] == 0
+    assert res["meta"].get("degraded")                     # zero trades AND zero partial closes → degraded
+
+
+def test_partial_closes_fail_open_when_realized_pnl_source_missing():
+    """Fail-open: drop the discovery_get_open_position_realized_pnl response → partial_closes degrades to
+    empty with a meta.warnings note, never raises. The rest of the run is intact."""
+    with open(PARTIAL_FIXTURE) as f:
+        raw = json.load(f)
+    raw.pop("discovery_get_open_position_realized_pnl", None)
+    res = review.run(review._FixtureClient(raw), window_days=WINDOW_DAYS, now_ms=NOW_MS)
+    assert res["partial_closes"] == []
+    assert res["meta"]["has_partial_closes"] is False
+    # the clearinghouse read still found open pairs, so the batched call was attempted then returned no rows —
+    # no crash; the run still produces valid JSON
+    assert "trades" in res
+
+
+def test_partial_closes_only_read_for_current_strategies():
+    """Partial closes are a LIVE-book fact: a CLOSED strategy (no open positions) is never queried. The mixed
+    fixture's CLOSED kodiak redeployment contributes no partial closes (its clearinghouse isn't even read)."""
+    res = _mixed_result()
+    # mixed fixture has no clearinghouse/realized-pnl entries → all reads fail open to empty
+    assert res["partial_closes"] == []
+    assert res["meta"]["has_partial_closes"] is False
+
+
+def test_partial_close_present_in_strategies_step_and_matches_all():
+    """partial_closes is wired into BOTH the `strategies` step output AND `run()`/`all` — same key, same
+    value — so steps and the composed run stay consistent. The strategies step also carries the meta flags."""
+    sp = os.path.join(tempfile.mkdtemp(), "pc.json")
+
+    def _seq():
+        return review.step_strategies(
+            review._FixtureClient(json.load(open(PARTIAL_FIXTURE))),
+            window_days=WINDOW_DAYS, want_market=True, state_path=sp, now_ms=NOW_MS)
+    out = _seq()
+    assert "partial_closes" in out
+    assert out["meta"]["has_partial_closes"] is True
+    assert out["meta"]["partial_close_count"] == 1
+    # the step's partial_closes == the composed run's partial_closes (same key, same value)
+    assert out["partial_closes"] == _partial_result()["partial_closes"]
 
 
 if __name__ == "__main__":
