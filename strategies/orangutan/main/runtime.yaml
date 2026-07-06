@@ -1,0 +1,135 @@
+# ── ORANGUTAN · Rotation Rider (WEEKLY recalibration) ───────────────────────
+# The committed sibling of Gibbon. Same engine (scanners byte-identical) — ranks
+# the sectors and rides the winners / fades the losers, never closes, DSL-only —
+# but recalibrates WEEKLY, requires a more decisive rotation to commit, holds
+# fewer/bigger positions, and rides a wide DSL for weeks. A rotation change
+# changes what it opens next; prior positions retire on their own DSL.
+name: orangutan-main
+group: orangutan
+version: 1.0.0
+description: >
+  ORANGUTAN — Rotation Rider, weekly. Re-ranks the sectors every 7 days and
+  commits to the rotation: long the leaders of the strongest groups, short the
+  laggards of the weakest, at full size only on a decisive rotation week.
+  Fewer, larger, higher-conviction positions than Gibbon (up to 7), leverage
+  clamped to venue max. DSL is the ONLY exit — wide let-winners-run ladder
+  (20% Phase 1, lock ladder to +100%, 7d weak-peak cut).
+
+strategy:
+  wallet: "${ORANGUTAN_WALLET}"
+  slots: 7
+  margin_pct: 12
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: orangutan_rider
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 21600           # wake every 6h; the market read is gated to weekly
+    timeout_seconds: 300
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 200
+    inputs:
+      recalibrationHours: 168         # WEEKLY
+      maxSlots: 7
+      universeVolFloorUsd: 25000000
+      xyzVolFloorUsd: 3000000
+      maxMainNames: 14
+      maxXyzNames: 20
+      excludeAssets: []
+      groupThreshold: 0.75            # a WEEKLY rider needs a more decisive sector move
+      broadSizeScale: 0.5
+      mixedSizeScale: 0.6
+      minScore: 6.0                   # more selective / committed than Gibbon
+      goodScore: 7.0
+      apexScore: 8.5
+      leverageTiers: { apex: 5, good: 4, base: 3 }
+      marginPctTiers: { apex: 16, good: 12, base: 8 }
+      recentSignalTtlSeconds: 86400
+      useCohorts: true
+      cohorts:
+        smartMinRealizedUsd: 1000000
+        crowdMinRealizedUsd: 10000
+        crowdMaxRealizedUsd: 100000
+        sampleCap: 150
+        pageSize: 1000
+        maxPages: 6
+        stateBatch: 50
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      stance: { type: string, required: false }
+      mode: { type: string, required: false }
+      posture: { type: string, required: false }
+      sizeScale: { type: number, required: false }
+      regime: { type: string, required: false }
+      lean: { type: number, required: false }
+      mom24h: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: orangutan_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [orangutan_rider]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: orangutan_rider
+  # NO CLOSE_POSITION action — DSL is the only exit (rotate-by-attrition).
+
+# EXIT — DSL only. WIDE ladder for a weekly holder: a stalled rotation frees its
+# slot within ~a week (weak-peak 7d); winners ride the ladder to +100%.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 10080       # 7d — matches the weekly recalibration
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 9
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 25, lock_hw_pct: 40 }
+        - { trigger_pct: 55, lock_hw_pct: 62 }
+        - { trigger_pct: 100, lock_hw_pct: 80 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 7
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 1800
+    per_asset_cooldown_seconds: 86400
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
