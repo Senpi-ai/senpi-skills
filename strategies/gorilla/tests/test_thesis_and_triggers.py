@@ -193,9 +193,18 @@ new_th = dict(th, leaders=["AVAX", "BTC", "ETH"], stance="NEUTRAL",
               cohorts_available=True)
 scored = {"SOL": {"score": 7.0}, "HYPE": {"score": 6.0}, "LINK": {"score": 2.0}}
 
+# MID: cohort against by 0.45 (>= entry 0.40 but < close 0.55) AND still scores well
+#      -> must NOT close (cohort-axis hysteresis)
+held_mid = held + [{"asset": "MID", "direction": "LONG"}]
+new_th_mid = dict(new_th, smart_bias={**new_th["smart_bias"], "MID": -0.45})
+scored_mid = {**scored, "MID": {"score": 7.0}}
+sigs_mid = scoring.close_triggers("LONG", held_mid, new_th_mid, th, scored_mid, INPUTS, True, False)
+check("HYSTERESIS: cohort against-but-not-reversed name that scores is NOT closed",
+      "MID" not in {s["asset"] for s in sigs_mid})
+
 sigs = scoring.close_triggers("LONG", held, new_th, th, scored, INPUTS, True, False)
 by = {s["asset"]: s["trigger"] for s in sigs}
-check("cohort flip -> divergence_reversed", by.get("HYPE") == "divergence_reversed")
+check("decisive cohort flip (>= reversal) -> divergence_reversed", by.get("HYPE") == "divergence_reversed")
 check("score death -> thesis_shift at rethink", by.get("LINK") == "thesis_shift")
 check("COHERENCE: bucket-leaver that still scores is NOT closed", "SOL" not in by)
 
@@ -219,8 +228,11 @@ sigs = scoring.close_triggers("LONG", just_open, th_open, th, scored_open, INPUT
 check("HYSTERESIS: a just-openable name is never closeable", sigs == [])
 ok, detail = scoring.enforce_hysteresis(INPUTS)
 check("enforce_hysteresis: exitScore < minScore", ok)
-check("enforce_hysteresis flags a bad config",
+check("enforce_hysteresis flags a bad score band",
       not scoring.enforce_hysteresis({"minScore": 4.0, "exitScore": 5.0})[0])
+check("enforce_hysteresis flags reversal <= lean",
+      not scoring.enforce_hysteresis(dict(INPUTS,
+          cohorts={"leanThreshold": 0.55, "reversalThreshold": 0.40}))[0])
 
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

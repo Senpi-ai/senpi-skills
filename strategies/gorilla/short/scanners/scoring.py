@@ -35,7 +35,8 @@ SMART_MIN_REALIZED = 1_000_000
 CROWD_MIN_REALIZED = 10_000
 CROWD_MAX_REALIZED = 100_000
 MIN_MEMBERS = 5
-LEAN_THRESHOLD = 0.40
+LEAN_THRESHOLD = 0.40       # entry: cohort excludes a name from its bucket
+REVERSAL_THRESHOLD = 0.55   # close: cohort DECISIVELY against a held name
 DIVERGENCE_MIN_GAP = 0.50
 
 
@@ -460,7 +461,7 @@ def close_triggers(side, held, new_thesis, old_thesis, scored_by_asset, inputs,
     """
     exit_score = _f(inputs.get("exitScore"), 3.5)
     cfg = inputs.get("cohorts") or {}
-    lean = _f(cfg.get("leanThreshold"), LEAN_THRESHOLD)
+    reversal = _f(cfg.get("reversalThreshold"), REVERSAL_THRESHOLD)
     against = -1 if side == "LONG" else 1
     smart_bias = (new_thesis or {}).get("smart_bias") or {}
     cohorts_ok = bool((new_thesis or {}).get("cohorts_available"))
@@ -479,10 +480,10 @@ def close_triggers(side, held, new_thesis, old_thesis, scored_by_asset, inputs,
     # (1) per-name cohort reversal — the proven money turned against this name
     for p in held:
         bias = smart_bias.get(str(p["asset"]).upper())
-        if cohorts_ok and bias is not None and (bias * against) >= lean:
+        if cohorts_ok and bias is not None and (bias * against) >= reversal:
             _close(p, "divergence_reversed",
-                   f"proven cohort flipped {('short' if side == 'LONG' else 'long')} "
-                   f"(bias {bias:+.2f}) on {p['asset']}")
+                   f"proven cohort decisively flipped {('short' if side == 'LONG' else 'long')} "
+                   f"(bias {bias:+.2f} >= {reversal}) on {p['asset']}")
 
     # (2) per-name score death — this name's OWN thesis decayed below the exit
     #     floor (hysteresis: it entered >= minScore, holds until < exitScore).
@@ -501,8 +502,14 @@ def close_triggers(side, held, new_thesis, old_thesis, scored_by_asset, inputs,
 
 
 def enforce_hysteresis(inputs):
-    """The coherence guarantee holds only when exitScore < minScore (a name
-    can't be simultaneously openable and closeable). (ok, detail)."""
+    """The coherence guarantee holds only when exitScore < minScore AND
+    reversalThreshold > leanThreshold (a name can't be simultaneously openable
+    and closeable on the score or the cohort axis). (ok, detail)."""
     mn = _f(inputs.get("minScore"), 5.5)
     ex = _f(inputs.get("exitScore"), 3.5)
-    return (ex < mn, f"exitScore {ex} must be < minScore {mn}")
+    cfg = inputs.get("cohorts") or {}
+    lean = _f(cfg.get("leanThreshold"), LEAN_THRESHOLD)
+    rev = _f(cfg.get("reversalThreshold"), REVERSAL_THRESHOLD)
+    ok = ex < mn and rev > lean
+    return (ok, f"need exitScore {ex} < minScore {mn} and "
+                f"reversalThreshold {rev} > leanThreshold {lean}")

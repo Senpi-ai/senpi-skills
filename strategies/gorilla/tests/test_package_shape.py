@@ -69,6 +69,9 @@ for book in BOOKS:
         inp = s.get("inputs") or {}
         check(f"{book}/{s['name']}: hysteresis exitScore < minScore",
               float(inp.get("exitScore", 99)) < float(inp.get("minScore", 0)))
+        cs = inp.get("cohorts") or {}
+        check(f"{book}/{s['name']}: cohort hysteresis reversal > lean",
+              float(cs.get("reversalThreshold", 0)) > float(cs.get("leanThreshold", 99)))
 
     # gorilla cadences — the ask: rethink 48h, rebalance 7d
     for s in externals:

@@ -67,6 +67,7 @@ scanners:
         stateBatch: 50
         minMembers: 5
         leanThreshold: 0.40
+        reversalThreshold: 0.55   # CLOSE bar > entry bar — cross-cache hysteresis
         divergenceMinGap: 0.50
       # ── press gates + conviction bands (shorts demand a stronger case) ──
       minScore: 6.0
