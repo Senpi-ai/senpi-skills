@@ -1,0 +1,146 @@
+# ── GORILLA · SHORT book — self-directed thesis hedge fund ──────────────────
+# Mirror of the LONG book on its own wallet: same self-derived thesis (each
+# scanner derives its copy deterministically from the same reads), pressing the
+# LAGGARD bucket short. Stricter gates + tighter DSL — shorts carry squeeze
+# risk. Rethink 48h (thesis_shift) + rebalance 7d (weekly_rebalance) via
+# CLOSE_POSITION; DSL owns all price exits between boundaries.
+name: gorilla-short
+group: gorilla
+version: 1.0.0
+description: >
+  GORILLA SHORT — self-directed thesis fund, SHORT book. Derives the same
+  standing thesis as the long book (stance from BTC tide + breadth) and
+  shorts the LAGGARD bucket: weakest relative-strength names the smart money
+  isn't defending. Presses only on 4h/1h downtrend + momentum + SM confirm,
+  conviction-banded 5x/4x/3x with stance-capped active slots (RISK_OFF 5 /
+  NEUTRAL 3 / RISK_ON 2). Rethinks every 48h, rebalances weekly via
+  CLOSE_POSITION. Tighter DSL than the long book (squeeze risk).
+
+strategy:
+  wallet: "${GORILLA_SHORT_WALLET}"
+  slots: 5
+  default_leverage: 3                   # fallback; entries emit banded 3/4/5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: gorilla_short_entries        # establishes the thesis + presses it
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 1800
+    timeout_seconds: 300                # thesis refresh = full 14-name scan
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 200        # thesis + clocks + dedup + tick results
+    inputs: &gorilla_inputs
+      side: "SHORT"
+      tideAsset: "BTC"
+      universe: ["BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "SUI", "AVAX", "LINK", "LTC", "AAVE", "UNI", "BNB", "ARB"]
+      bucketSize: 4                     # leaders/laggards per side at derivation
+      # ── press gates + conviction bands (shorts demand a stronger case) ──
+      minScore: 6.0
+      goodScore: 7.0
+      apexScore: 8.5
+      exitScore: 3.5                    # weekly-rebalance recycle threshold
+      leverageTiers: { apex: 5, good: 4, base: 3 }   # clamped to venue max per asset
+      marginPctTiers: { apex: 16, good: 12, base: 8 }   # PERCENT of withdrawable
+      # ── the cadences (establish at deploy, rethink 48h, rebalance 7d) ──
+      thesisRefreshHours: 48
+      rebalanceDays: 7
+      recentSignalTtlSeconds: 43200     # 12h anti-refire per name
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      stance: { type: string, required: false }
+      thesis: { type: string, required: false }
+      smDir: { type: string, required: false }
+      smPct: { type: number, required: false }
+      mom24h: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+  - name: gorilla_short_rebalance      # 48h rethink + 7d rebalance → CLOSE_POSITION
+    type: external_scanner
+    path: ./scanners
+    entrypoint: rebalance.py
+    interval_seconds: 3600              # cheap clock check; acts only at boundaries
+    timeout_seconds: 300
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 200
+    inputs: *gorilla_inputs
+    signal_data_schema:
+      trigger: { type: string }
+      reason: { type: string }
+      stance: { type: string, required: false }
+      score: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: gorilla_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                 # the press score already applied every filter
+    scanners: [gorilla_short_entries]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: gorilla_short_entries
+
+  - name: gorilla_short_adjust         # thesis_shift / weekly_rebalance closes
+    action_type: CLOSE_POSITION
+    decision_mode: rule                 # rebalance signals pass through; closes are
+    scanners: [gorilla_short_rebalance] # idempotent (no_open_position -> skip)
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+
+# EXIT — DSL owns every price-action exit; tighter than the long book.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 480
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 35 }
+        - { trigger_pct: 40, lock_hw_pct: 58 }
+        - { trigger_pct: 70, lock_hw_pct: 75 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 1800
+    per_asset_cooldown_seconds: 21600   # 6h — also blocks instant re-entry after a close
+    drawdown_halt_pct: 12
+    drawdown_reset_on_day_rollover: true

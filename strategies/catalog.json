@@ -2029,6 +2029,67 @@
       "sort_order": 6
     },
     {
+      "id": "gorilla",
+      "name": "Gorilla — Self-Directed Thesis Hedge Fund",
+      "emoji": "🦍",
+      "tagline": "Forms its own market thesis the moment you deploy it — reads the whole market, picks stance, leaders to long and laggards to short on two wallets — then trades that view with silverback patience: rethinks the thesis every 48 hours, rebalances the book every 7 days, and lets protected stops do the thinking in between.",
+      "belief_plain": "It looks at the whole market once and forms an opinion: which way things are tilting, which names are leading, which are lagging. It buys the leaders, shorts the laggards, and then mostly sits on its hands — every two days it re-checks whether its opinion is still right and closes what no longer fits; once a week it prunes the stragglers. In between, ratchet stops protect every position.",
+      "version": "1.0.0",
+      "thesis": "Most adaptive strategies over-trade the noise; most patient strategies never update at all. Gorilla does both on purpose: a data-derived thesis at deploy (no view required from you), conviction expressed long AND short, and updates on a deliberate clock — 48-hour rethinks and weekly rebalances — so the book follows the market's actual regime, not every candle. Fee discipline is the edge: between boundaries the only exits are protective stops.",
+      "tags": [
+        "thesis",
+        "hedge-fund",
+        "self-directed",
+        "regime",
+        "long-short",
+        "basket",
+        "rebalance",
+        "low-turnover",
+        "close-position"
+      ],
+      "group": "multi-asset-whitelist",
+      "archetype": "macro_thesis",
+      "archetype_label": "Macro Thesis",
+      "sub_style": "adaptive",
+      "sub_style_label": "Self-tunes its thresholds from its own track record.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE",
+        "XRP",
+        "DOGE",
+        "SUI",
+        "AVAX",
+        "LINK",
+        "LTC",
+        "AAVE",
+        "UNI",
+        "BNB",
+        "ARB"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 6,
+      "time_horizon": "position",
+      "cadence_seconds": 1800,
+      "min_budget": 200,
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 10,
+      "branch": "main",
+      "sort_order": 7
+    },
+    {
       "id": "kestrel",
       "name": "Kestrel — XYZ Macro Breakout Rider",
       "emoji": "🦅",
@@ -2086,7 +2147,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "lion",
@@ -2174,7 +2235,7 @@
       ],
       "max_slots": 9,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "mongoose",
@@ -2231,7 +2292,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "ox",
@@ -2290,7 +2351,7 @@
       ],
       "max_slots": 14,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "rhino",
@@ -2352,7 +2413,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "scorpion",
@@ -2419,7 +2480,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "spider",
@@ -2482,7 +2543,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 13
+      "sort_order": 14
     },
     {
       "id": "thesis-fund",
@@ -2539,7 +2600,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 14
+      "sort_order": 15
     },
     {
       "id": "vulture",
@@ -2610,7 +2671,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 15
+      "sort_order": 16
     },
     {
       "id": "wolf",
@@ -2670,7 +2731,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 16
+      "sort_order": 17
     },
     {
       "id": "coyote",
