@@ -12,7 +12,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.2.2"
+  version: "2.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -96,7 +96,7 @@ Each candidate is a flat record. You rank on the soft fields; you narrate from t
 | `direction`, `funding_split` | direction match · whether it's already a multi-wallet fund (skip stacking) |
 | `market_facts` | the live "why now" for your lead |
 | `caveats` | honesty — surface **verbatim** |
-| `suggested_budget` | sizing in the card |
+| `min_budget` | the **floor** to start (`max(declared, $100 × wallets)`) — NOT a recommendation. Size the actual budget from the user's funds (`meta.user_context.budget`); see Layer 3 |
 | `id`, `version` | the handoff to ops |
 
 ## Conversation flow
@@ -148,11 +148,20 @@ otherwise keep it in your head and rank on `archetype_label`/`belief_plain`/`the
    | a specific market | "Which — a stock, pre-IPO name, commodity, index, or coin?" → `--assets`. |
    | copy | "Multi-week proven winners, live hot streaks, or specific whales?" → rank on `tags`. |
    | breakout / structural | the one drill-down that matters for that branch. |
-3. **Size & lock in (Layer 3)** — ask budget (and risk if not implied) only to size + pick the DSL
-   preset. Optionally `discover.py --context-only` to reference holdings (confirm first; never silently
-   infer). Then run the engine with the FULL concrete flag set (this run does the live market read),
-   **rank the eligible set**, and narrate 2–3 cards leading with the top pick's `market_facts` "why now";
-   surface `caveats` verbatim.
+3. **Size & lock in (Layer 3)** — pick the DSL preset and size the budget. **`min_budget` on each card is
+   the FLOOR to run it, not a recommended amount** — never just parrot it as "Suggested: $X". Size from
+   the user's **available funds** (`meta.user_context.budget`, always attached):
+   - If the user named an amount, use it (must be ≥ `min_budget`; if below, surface the floor honestly).
+   - Otherwise **propose** an amount that scales with their free balance and how many strategies they're
+     deploying — a sensible share of available funds per pick, each **≥ its `min_budget`**, leaving a cash
+     buffer — then **confirm before install** ("you've got ~$X free; I'd put ~$Y in Rhino, ~$Z in Spider —
+     good?"). Never invent a number the user hasn't confirmed, and never default everyone to the floor.
+   - If funds are unavailable (`user_context` missing/errored), ask for the budget rather than assuming.
+
+   Optionally `discover.py --context-only` to reference holdings (confirm first; never silently infer).
+   Then run the engine with the FULL concrete flag set (this run does the live market read), **rank the
+   eligible set**, and narrate 2–3 cards leading with the top pick's `market_facts` "why now"; surface
+   `caveats` verbatim.
 
 ### Always-available moves (any point, on demand)
 
@@ -202,9 +211,9 @@ They lack the vocabulary; recommend *without* making them self-classify:
 ```
 {lead: top pick + why-now from market_facts}.
 🦏  Rhino — Tail-Risk / Crisis-Alpha   [{tier}]
-    {thesis}.   Suggested: ${suggested_budget}{ + funding_split if multi-instance}
+    {thesis}.   Min to start ~${min_budget}{ + funding_split if multi-instance}
 {2nd / 3rd card}.   {caveats, verbatim}.
-"Set up {top}, add a hedge alongside it, or build something custom?"
+"You've got ~${user_context.budget} free — set up {top} with ~$Y, add a hedge alongside it, or build something custom?"
 ```
 Show the STARTER badge iff `tier == "starter"`; show `archetype_label`; lead with `thesis` for the
 worldview/fund picks; offer the stack on single-wallet picks only.
