@@ -14,8 +14,12 @@ CLOSE_POSITION action (closes are idempotent — `no_open_position` skips):
   basket_refresh      — every regimeRefreshHours (default 4h) held names
                         re-scoring below exitScore are recycled.
 
-Cohorts ride the same 4h-clock cache pattern as the entries scanner (own copy
-— per-scanner state isolation; deterministic reads keep them aligned).
+Cohorts ride the same 4h-clock cache pattern as the entries scanner, but in a
+SEPARATE per-scanner cache. Coherence does NOT depend on the two caches
+agreeing: closes fire only on per-name DEATH below the entry bars — score <
+exitScore (<< minScore) or the cohort DECISIVELY reversed (reversalThreshold >
+the entry leanThreshold) — so a name entries just opened cannot be closed here
+even if the caches momentarily disagree (scoring.enforce_hysteresis guards it).
 Fee discipline: closes here are thesis exits; the DSL owns every price exit.
 Read-only + single-pass; the CLOSE_POSITION action performs the close.
 """

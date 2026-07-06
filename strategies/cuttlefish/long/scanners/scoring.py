@@ -32,7 +32,8 @@ SMART_MIN_REALIZED = 1_000_000
 CROWD_MIN_REALIZED = 10_000
 CROWD_MAX_REALIZED = 100_000
 MIN_MEMBERS = 5
-LEAN_THRESHOLD = 0.40
+LEAN_THRESHOLD = 0.40       # entry hard-block: cohort this far against = don't open
+REVERSAL_THRESHOLD = 0.55   # close trigger: cohort DECISIVELY against = close held
 DIVERGENCE_MIN_GAP = 0.50
 
 
@@ -300,22 +301,37 @@ def divergences(smart_per, crowd_per, cfg=None):
 def cohort_view_for(asset, side, cohort, cfg=None):
     """Per-asset slice of the cohort read, side-aware, for score_asset /
     close_triggers: {available, smart_bias, smart_members, divergent, gap,
-    against} (against = proven cohort leaning >= leanThreshold the other way)."""
+    against, reversed}.
+
+    TWO cohort thresholds create HYSTERESIS across the two scanners' separate
+    4h cohort caches (entries and rebalance each cache independently; within a
+    refresh window they can differ):
+      against  = proven cohort leaning >= leanThreshold (0.40) the other way
+                 -> ENTRY hard-block (score_asset won't open it).
+      reversed = proven cohort leaning >= reversalThreshold (0.55) the other way
+                 -> CLOSE trigger (rebalance closes a held name).
+    The 0.40..0.55 band is un-openable but not force-closed, so a name straddling
+    the entry bar in one cache can't be simultaneously opened by entries and
+    closed by rebalance — the caches would have to disagree by > 0.15 to fight."""
     cfg = cfg or {}
     lean = _f(cfg.get("leanThreshold"), LEAN_THRESHOLD)
+    reversal = _f(cfg.get("reversalThreshold"), REVERSAL_THRESHOLD)
     min_members = int(_f(cfg.get("minMembers"), MIN_MEMBERS))
     au = str(asset).upper()
     available = bool((cohort or {}).get("available"))
     sd = ((cohort or {}).get("smart") or {}).get(au) if available else None
     view = {"available": available, "smart_bias": None, "smart_members": 0,
-            "divergent": False, "gap": None, "against": False}
+            "divergent": False, "gap": None, "against": False, "reversed": False}
     if not sd:
         return view
     view["smart_bias"] = sd.get("bias")
     view["smart_members"] = sd.get("members", 0)
     sign = 1 if side == "LONG" else -1
-    if sd.get("members", 0) >= min_members and (sd.get("bias", 0) * -sign) >= lean:
+    lean_against = (sd.get("bias", 0) * -sign)
+    if sd.get("members", 0) >= min_members and lean_against >= lean:
         view["against"] = True
+    if sd.get("members", 0) >= min_members and lean_against >= reversal:
+        view["reversed"] = True
     for d in divergences(cohort.get("smart"), cohort.get("crowd"), cfg):
         if d["asset"] == au:
             view["divergent"] = (d["smart_direction"] == ("long" if side == "LONG" else "short"))
@@ -442,12 +458,21 @@ def close_triggers(side, day, day_against_streak, held, views_by_asset, inputs, 
 
     views_by_asset: {asset: {"cohort": cohort_view_for(...), "score": float|None,
     "nt_dir": str, "nt_pct": float}} — fresh reads of the HELD names.
-      pulse_flip          — the pulse day has been AGAINST this book for
-                            `pulseFlipConfirmTicks` consecutive rebalance ticks
-                            -> close the whole book (anti-whipsaw).
-      divergence_reversed — the PROVEN cohort leans >= leanThreshold against a
-                            held name (board >= 58% fallback when cohorts are
-                            unavailable) -> close that name immediately.
+
+    COHERENCE — closes are per-name with HYSTERESIS below the entry bars, so
+    the entries and rebalance scanners (separate ctx.state, separate cohort
+    caches) can't fight: entry needs score >= minScore AND the cohort not
+    against (>= leanThreshold); a close needs score < exitScore (<< minScore)
+    OR the cohort DECISIVELY reversed (>= reversalThreshold > leanThreshold).
+    No name is simultaneously openable and closeable. enforce_hysteresis()
+    guards the config.
+
+      pulse_flip          — the pulse day AGAINST this book for
+                            `pulseFlipConfirmTicks` consecutive ticks -> close
+                            the whole book (anti-whipsaw). Book-level.
+      divergence_reversed — the PROVEN cohort leans >= reversalThreshold (NOT
+                            the entry leanThreshold) against a held name (board
+                            >= 58% fallback when cohorts unavailable) -> close.
       basket_refresh      — on the refresh boundary, a held name re-scoring
                             below exitScore is a stale thesis -> recycle it.
     """
@@ -464,10 +489,10 @@ def close_triggers(side, day, day_against_streak, held, views_by_asset, inputs, 
     for p in held:
         v = views_by_asset.get(p["asset"]) or {}
         cv = v.get("cohort") or {}
-        if cv.get("against"):
+        if cv.get("reversed"):           # DECISIVELY against (> entry bar) — hysteresis
             out.append({"asset": p["asset"], "direction": p["direction"],
                         "trigger": "divergence_reversed",
-                        "reason": f"proven cohort flipped {cv.get('smart_bias'):+.2f} "
+                        "reason": f"proven cohort decisively flipped {cv.get('smart_bias'):+.2f} "
                                   f"against {side} on {p['asset']}"})
         elif (not cv.get("available") and v.get("nt_dir") == opposite
               and _f(v.get("nt_pct"), 50) >= 58):
@@ -480,3 +505,17 @@ def close_triggers(side, day, day_against_streak, held, views_by_asset, inputs, 
                         "trigger": "basket_refresh",
                         "reason": f"refresh re-score {v.get('score')} < {exit_score}"})
     return out
+
+
+def enforce_hysteresis(inputs):
+    """The cross-scanner coherence guarantee holds only when exitScore < minScore
+    AND reversalThreshold > leanThreshold (a name can't be simultaneously
+    openable and closeable on either the score or the cohort axis). (ok, detail)."""
+    mn = _f(inputs.get("minScore"), 5.5)
+    ex = _f(inputs.get("exitScore"), 3.5)
+    cfg = inputs.get("cohorts") or {}
+    lean = _f(cfg.get("leanThreshold"), LEAN_THRESHOLD)
+    rev = _f(cfg.get("reversalThreshold"), REVERSAL_THRESHOLD)
+    ok = ex < mn and rev > lean
+    return (ok, f"need exitScore {ex} < minScore {mn} and "
+                f"reversalThreshold {rev} > leanThreshold {lean}")

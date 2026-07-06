@@ -112,7 +112,9 @@ check("opposite sides flagged", {d["asset"] for d in divs} == {"SOL", "ETH"})
 cv = scoring.cohort_view_for("SOL", "LONG", COHORT, {})
 check("view: divergent long", cv["divergent"] and cv["gap"] == 1.2 and not cv["against"])
 cv_eth_long = scoring.cohort_view_for("ETH", "LONG", COHORT, {})
-check("view: proven cohort against long", cv_eth_long["against"])
+# ETH bias -0.6 -> lean_against 0.6: past BOTH entry (0.40) and close (0.55) bars
+check("view: proven cohort against long (entry block)", cv_eth_long["against"])
+check("view: proven cohort DECISIVELY reversed (close)", cv_eth_long["reversed"])
 cv_eth_short = scoring.cohort_view_for("ETH", "SHORT", COHORT, {})
 check("view: divergent short", cv_eth_short["divergent"] and not cv_eth_short["against"])
 cv_link = scoring.cohort_view_for("LINK", "LONG", COHORT, {})
@@ -120,6 +122,12 @@ check("view: conviction w/o divergence", not cv_link["divergent"]
       and cv_link["smart_bias"] == 0.45)
 cv_unavail = scoring.cohort_view_for("SOL", "LONG", {"available": False}, {})
 check("view: unavailable", not cv_unavail["available"] and cv_unavail["smart_bias"] is None)
+
+# HYSTERESIS BAND: a name against by 0.45 (>= entry 0.40, < close 0.55) is
+# entry-blocked but NOT closeable — the gap that stops the two scanners fighting.
+mid = {"available": True, "smart": {"MID": perd(-0.45, 8)}, "crowd": {}}
+cv_mid = scoring.cohort_view_for("MID", "LONG", mid, {})
+check("hysteresis band: against but not reversed", cv_mid["against"] and not cv_mid["reversed"])
 
 # ── composite: divergence-led entry, hard blocks, board fallback ──
 up1, up4 = candles(30, 100, 0.004, vol=120), candles(10, 95, 0.01)
@@ -185,6 +193,22 @@ sigs = scoring.close_triggers("LONG", "mixed", 0,
 check("board-fallback reversal flagged",
       len(sigs) == 1 and sigs[0]["trigger"] == "divergence_reversed"
       and "cohorts unavailable" in sigs[0]["reason"])
+
+# ── COHERENCE: a name in the cohort hysteresis band (against-but-not-reversed)
+#    that still scores is NEVER closed — the entries/rebalance scanners can't fight ──
+views_mid = {"MID": {"cohort": cv_mid, "score": 7.0, "nt_dir": "LONG", "nt_pct": 60}}
+sigs = scoring.close_triggers("LONG", "mixed", 0,
+                              [{"asset": "MID", "direction": "LONG"}], views_mid, INPUTS, True)
+check("HYSTERESIS: against-band name that scores is NOT closed", sigs == [])
+
+ok, _ = scoring.enforce_hysteresis(dict(INPUTS, cohorts={"leanThreshold": 0.40,
+                                                         "reversalThreshold": 0.55}))
+check("enforce_hysteresis: valid config", ok)
+check("enforce_hysteresis: flags exitScore >= minScore",
+      not scoring.enforce_hysteresis({"minScore": 4.0, "exitScore": 5.0})[0])
+check("enforce_hysteresis: flags reversal <= lean",
+      not scoring.enforce_hysteresis(dict(INPUTS,
+          cohorts={"leanThreshold": 0.55, "reversalThreshold": 0.40}))[0])
 
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

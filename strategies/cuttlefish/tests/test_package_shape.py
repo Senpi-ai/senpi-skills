@@ -61,7 +61,11 @@ for book in BOOKS:
         check(f"{book}/{s['name']}: no hardcoded universe", "universe" not in inp)
         check(f"{book}/{s['name']}: volume floor set", float(inp.get("universeVolFloorUsd", 0)) >= 1_000_000)
         check(f"{book}/{s['name']}: override empty by default", (inp.get("universeOverride") or []) == [])
+        check(f"{book}/{s['name']}: hysteresis exitScore < minScore",
+              float(inp.get("exitScore", 99)) < float(inp.get("minScore", 0)))
         cs = inp.get("cohorts") or {}
+        check(f"{book}/{s['name']}: cohort hysteresis reversal > lean",
+              float(cs.get("reversalThreshold", 0)) > float(cs.get("leanThreshold", 99)))
         check(f"{book}/{s['name']}: cohort engine constants verbatim",
               float(cs.get("smartMinRealizedUsd", 0)) == 1_000_000
               and float(cs.get("leanThreshold", 0)) == 0.40
