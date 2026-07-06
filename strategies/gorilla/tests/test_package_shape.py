@@ -55,6 +55,14 @@ for book in BOOKS:
     check(f"{book}: open subscribed to entries",
           any("entries" in sc for sc in open_a.get("scanners", [])))
 
+    # derived universe — the fund reads the market, not a preset list
+    for s in externals:
+        inp = s.get("inputs") or {}
+        check(f"{book}/{s['name']}: no hardcoded universe", "universe" not in inp)
+        check(f"{book}/{s['name']}: volume floor set", float(inp.get("universeVolFloorUsd", 0)) >= 1_000_000)
+        check(f"{book}/{s['name']}: universe cap set", int(inp.get("universeMaxNames", 0)) >= 6)
+        check(f"{book}/{s['name']}: override empty by default", (inp.get("universeOverride") or []) == [])
+
     # gorilla cadences — the ask: rethink 48h, rebalance 7d
     for s in externals:
         inp = s.get("inputs") or {}

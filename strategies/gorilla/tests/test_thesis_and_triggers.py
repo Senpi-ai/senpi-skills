@@ -36,6 +36,27 @@ INPUTS = {"bucketSize": 3, "minScore": 5.5, "goodScore": 6.5, "apexScore": 8.0,
           "exitScore": 3.5, "leverageTiers": {"apex": 6, "good": 5, "base": 4},
           "marginPctTiers": {"apex": 18, "good": 14, "base": 10}}
 
+# ── universe derivation — reads the market, never a preset list ──
+rows = [
+    {"name": "BTC", "vol": 900e6}, {"name": "ETH", "vol": 500e6},
+    {"name": "SOL", "vol": 300e6}, {"name": "HYPE", "vol": 120e6},
+    {"name": "DOGE", "vol": 60e6}, {"name": "PUMPY", "vol": 4e6},      # under floor
+    {"name": "xyz:NVDA", "vol": 80e6},                                  # other dex
+    {"name": "btc", "vol": 900e6},                                      # dup (case)
+    {"name": "SCAMX", "vol": 90e6},                                     # excluded
+]
+U_INPUTS = {"universeVolFloorUsd": 25_000_000, "universeMaxNames": 4,
+            "excludeAssets": ["SCAMX"]}
+u = scoring.derive_universe(rows, U_INPUTS)
+check("universe sorted by volume", u == ["BTC", "ETH", "SOL", "HYPE"])
+check("under-floor name dropped", "PUMPY" not in u)
+check("xyz dex skipped", all(":" not in n for n in u))
+check("exclude respected", "SCAMX" not in u)
+u2 = scoring.derive_universe(rows, {"universeVolFloorUsd": 25_000_000, "universeMaxNames": 10})
+check("cap is the only limit", "DOGE" in u2 and "SCAMX" in u2 and len(u2) == 6)
+check("dedupe by case", u2.count("BTC") + u2.count("btc") == 1)
+check("empty rows -> empty universe", scoring.derive_universe([], U_INPUTS) == [])
+
 # ── thesis derivation ──
 def views(spread):
     """spread: {name: (rs, sm_dir, sm_pct)}"""

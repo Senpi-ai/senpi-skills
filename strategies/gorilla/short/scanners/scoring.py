@@ -4,6 +4,9 @@ A SELF-DIRECTED thesis hedge fund. Where thesis-fund asks the user to bring a
 macro view, Gorilla DERIVES its own at deploy time from a full market scan and
 then trades it with patience:
 
+  UNIVERSE (derive_universe) — from the LIVE instrument list each refresh:
+          every main-dex perp over a 24h-notional floor, top-N by volume.
+          The fund reads the market, not a preset list.
   THESIS  (derive_thesis)  — stance (RISK_ON / RISK_OFF / NEUTRAL) from the BTC
           4h tide + universe breadth; leaders (top relative-strength names the
           smart money isn't against) become the LONG bucket, laggards the SHORT
@@ -84,6 +87,35 @@ def rs_score(c1, c4):
     return 0.4 * _clamp(m7d, -25, 25) + 0.4 * _clamp(m24, -10, 10) * 2.5 + 0.2 * t_term
 
 
+# ── UNIVERSE — derived from the LIVE market, never a preset list ────────────
+
+def derive_universe(rows, inputs):
+    """rows: [{name, vol}] from market_list_instruments (main-dex perps, not
+    delisted). Reads the MARKET: volume floor -> exclude set -> top-N by 24h
+    notional. Returns the universe list for this thesis refresh. A preset list
+    would contradict a self-directed fund — the only whitelist here is the
+    optional excludeAssets."""
+    floor = _f(inputs.get("universeVolFloorUsd"), 25_000_000)
+    max_names = int(_f(inputs.get("universeMaxNames"), 20))
+    exclude = {str(x).upper() for x in (inputs.get("excludeAssets") or [])}
+    seen = set()
+    qualifiers = []
+    for r in rows or []:
+        name = str((r or {}).get("name", "")).strip()
+        if not name or ":" in name:          # main-dex perps only (xyz: = other dex)
+            continue
+        au = name.upper()
+        if au in seen or au in exclude:
+            continue
+        seen.add(au)
+        vol = _f(r.get("vol"))
+        if vol < floor:
+            continue
+        qualifiers.append((name, vol))
+    qualifiers.sort(key=lambda x: x[1], reverse=True)
+    return [n for n, _ in qualifiers[:max_names]]
+
+
 # ── THESIS — derived from one full market read ──────────────────────────────
 
 def derive_thesis(views, btc_c1, btc_c4, regime, inputs, now):
@@ -119,7 +151,7 @@ def derive_thesis(views, btc_c1, btc_c4, regime, inputs, now):
                  f"long {','.join(leaders) or '—'}; short {','.join(laggards) or '—'}")
     return {"stance": stance, "leaders": leaders, "laggards": laggards,
             "caps": caps, "breadth": round(up_frac, 3), "regime": regime or "UNKNOWN",
-            "narrative": narrative, "derived_at": now}
+            "universe": sorted(views.keys()), "narrative": narrative, "derived_at": now}
 
 
 def bucket_for(side, thesis):

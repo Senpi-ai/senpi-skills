@@ -36,13 +36,19 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 1800
-    timeout_seconds: 300                # thesis refresh = full 14-name scan
+    timeout_seconds: 300                # thesis refresh = instruments read + ~20 asset reads
     default_signal_validity_seconds: 3600
     state_history_max_count: 200        # thesis + clocks + dedup + tick results
     inputs: &gorilla_inputs
       side: "LONG"
       tideAsset: "BTC"
-      universe: ["BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "SUI", "AVAX", "LINK", "LTC", "AAVE", "UNI", "BNB", "ARB"]
+      # ── universe: DERIVED from the live instrument list each thesis refresh —
+      #    every main-dex perp over the volume floor, top-N by 24h notional.
+      #    The fund reads the market; the only list here is the exclude set.
+      universeVolFloorUsd: 25000000
+      universeMaxNames: 20
+      excludeAssets: []
+      universeOverride: []              # non-empty pins the universe (testing/escape hatch)
       bucketSize: 4                     # leaders/laggards per side at derivation
       # ── press gates + conviction bands ──
       minScore: 5.5

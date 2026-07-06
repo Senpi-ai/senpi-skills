@@ -1,6 +1,8 @@
 """GORILLA — ENTRIES scanner (Runtime 3.0 supervised, shared by both books).
 
-At the FIRST tick after deploy this scanner performs the full market scan and
+At the FIRST tick after deploy this scanner READS THE MARKET — it derives the
+universe from the live instrument list (every main-dex perp over a 24h-notional
+floor, top-N by volume; scoring.derive_universe) — and
 DERIVES the standing thesis (scoring.derive_thesis) — stance, long/short
 buckets, plain-English narrative — and persists it in ctx.state. Between
 thesis boundaries it only PRESSES: it scores this book's bucket names and
@@ -22,8 +24,7 @@ import time
 
 import scoring
 
-_DEFAULT_UNIVERSE = ["BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "SUI",
-                     "AVAX", "LINK", "LTC", "AAVE", "UNI", "BNB", "ARB"]
+
 
 
 def _read(ctx, tool, args, label):
@@ -50,6 +51,28 @@ def _asset_data(ctx, asset):
 def _funding_regime(ctx):
     data = _read(ctx, "market_get_funding_regime", {}, "market_get_funding_regime")
     return data.get("regime") if isinstance(data, dict) else None
+
+
+def _universe_rows(ctx):
+    """One market_list_instruments read -> [{name, vol}] for every LIVE main-dex
+    perp (spider-verbatim extraction: name / is_delisted / context.dayNtlVlm).
+    Returns None on read failure (distinct from a genuinely empty board)."""
+    data = _read(ctx, "market_list_instruments", {}, "market_list_instruments")
+    if data is None:
+        return None
+    insts = data.get("instruments", data) if isinstance(data, dict) else data
+    if not isinstance(insts, list):
+        return None
+    rows = []
+    for inst in insts:
+        if not isinstance(inst, dict) or inst.get("is_delisted"):
+            continue
+        name = inst.get("name") or (inst.get("context", {}) or {}).get("coin")
+        if not name:
+            continue
+        ictx = inst.get("context", {}) if isinstance(inst.get("context"), dict) else {}
+        rows.append({"name": name, "vol": scoring._f(ictx.get("dayNtlVlm"))})
+    return rows
 
 
 def sm_board(ctx):
@@ -126,9 +149,25 @@ def full_market_scan(ctx, universe):
 
 
 def refresh_thesis(ctx, inputs, now, prior):
-    """Derive a fresh thesis from a full market scan. Returns (thesis, cache, board)
-    or (None, {}, {}) when the market read failed (keeps the prior thesis)."""
-    universe = inputs.get("universe", _DEFAULT_UNIVERSE)
+    """Derive a fresh thesis from a full market scan. The universe itself is
+    DERIVED from the live instrument list each refresh (volume floor + top-N by
+    24h notional) — the fund reads the market, not a preset list. Returns
+    (thesis, cache, board) or (None, {}, {}) when the market read failed
+    (keeps the prior thesis)."""
+    override = inputs.get("universeOverride") or []
+    if override:
+        universe = [str(n) for n in override]
+    else:
+        rows = _universe_rows(ctx)
+        if rows is None:
+            print("[gorilla.scan] thesis refresh aborted — instrument list unreadable; "
+                  "keeping prior thesis", file=sys.stderr)
+            return None, {}, {}
+        universe = scoring.derive_universe(rows, inputs)
+        if len(universe) < 6:
+            print(f"[gorilla.scan] thesis refresh aborted — only {len(universe)} names "
+                  f"clear the volume floor; keeping prior thesis", file=sys.stderr)
+            return None, {}, {}
     views, cache, board = full_market_scan(ctx, universe)
     if len(views) < max(4, len(universe) // 2):
         print(f"[gorilla.scan] thesis refresh aborted — only {len(views)}/{len(universe)} "

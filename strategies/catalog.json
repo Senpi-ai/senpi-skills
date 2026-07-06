@@ -2032,7 +2032,7 @@
       "id": "gorilla",
       "name": "Gorilla — Self-Directed Thesis Hedge Fund",
       "emoji": "🦍",
-      "tagline": "Forms its own market thesis the moment you deploy it — reads the whole market, picks stance, leaders to long and laggards to short on two wallets — then trades that view with silverback patience: rethinks the thesis every 48 hours, rebalances the book every 7 days, and lets protected stops do the thinking in between.",
+      "tagline": "Forms its own market thesis the moment you deploy it — reads the LIVE market (every liquid perp, not a preset list), picks stance, leaders to long and laggards to short on two wallets — then trades that view with silverback patience: rethinks the thesis every 48 hours, rebalances the book every 7 days, and lets protected stops do the thinking in between.",
       "belief_plain": "It looks at the whole market once and forms an opinion: which way things are tilting, which names are leading, which are lagging. It buys the leaders, shorts the laggards, and then mostly sits on its hands — every two days it re-checks whether its opinion is still right and closes what no longer fits; once a week it prunes the stragglers. In between, ratchet stops protect every position.",
       "version": "1.0.0",
       "thesis": "Most adaptive strategies over-trade the noise; most patient strategies never update at all. Gorilla does both on purpose: a data-derived thesis at deploy (no view required from you), conviction expressed long AND short, and updates on a deliberate clock — 48-hour rethinks and weekly rebalances — so the book follows the market's actual regime, not every candle. Fee discipline is the edge: between boundaries the only exits are protective stops.",
@@ -2042,7 +2042,7 @@
         "self-directed",
         "regime",
         "long-short",
-        "basket",
+        "universe",
         "rebalance",
         "low-turnover",
         "close-position"
@@ -2053,26 +2053,10 @@
       "sub_style": "adaptive",
       "sub_style_label": "Self-tunes its thresholds from its own track record.",
       "asset_classes": [
-        "btc_eth",
-        "major_alts"
+        "universe_crypto"
       ],
-      "asset_scope": "basket",
-      "assets": [
-        "BTC",
-        "ETH",
-        "SOL",
-        "HYPE",
-        "XRP",
-        "DOGE",
-        "SUI",
-        "AVAX",
-        "LINK",
-        "LTC",
-        "AAVE",
-        "UNI",
-        "BNB",
-        "ARB"
-      ],
+      "asset_scope": "universe",
+      "assets": [],
       "direction": "long_short",
       "risk_level": "moderate",
       "tier": "advanced",

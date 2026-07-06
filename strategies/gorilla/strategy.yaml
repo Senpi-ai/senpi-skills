@@ -1,8 +1,9 @@
 # Gorilla — strategy package deploy manifest (single source of truth for deploy + attribution).
 # The SELF-DIRECTED thesis hedge fund: where thesis-fund asks the user to bring a macro view,
 # Gorilla DERIVES its own at deploy — the first scan after install forms a standing thesis
-# (stance from the BTC tide + universe breadth; leader/laggard buckets from relative strength
-# the smart money isn't against; a plain-English narrative that travels with every signal) and
+# (universe DERIVED from the live instrument list — every main-dex perp over a 24h-notional
+# floor, top-N by volume; stance from the BTC tide + breadth; leader/laggard buckets from
+# relative strength the smart money isn't against; a narrative on every signal) and
 # builds long + short baskets on two wallets from that first read. It then holds with patience:
 # the thesis is RE-EVALUATED every 48h (names that leave a bucket are closed — thesis_shift)
 # and the book is REBALANCED every 7d (holdings re-scoring below exitScore are recycled —
@@ -17,14 +18,14 @@ version: "1.0.0"
 catalog:
   name: "Gorilla — Self-Directed Thesis Hedge Fund"
   emoji: "🦍"
-  tagline: "Forms its own market thesis the moment you deploy it — reads the whole market, picks stance, leaders to long and laggards to short on two wallets — then trades that view with silverback patience: rethinks the thesis every 48 hours, rebalances the book every 7 days, and lets protected stops do the thinking in between."
+  tagline: "Forms its own market thesis the moment you deploy it — reads the LIVE market (every liquid perp, not a preset list), picks stance, leaders to long and laggards to short on two wallets — then trades that view with silverback patience: rethinks the thesis every 48 hours, rebalances the book every 7 days, and lets protected stops do the thinking in between."
   belief_plain: "It looks at the whole market once and forms an opinion: which way things are tilting, which names are leading, which are lagging. It buys the leaders, shorts the laggards, and then mostly sits on its hands — every two days it re-checks whether its opinion is still right and closes what no longer fits; once a week it prunes the stragglers. In between, ratchet stops protect every position."
   thesis: "Most adaptive strategies over-trade the noise; most patient strategies never update at all. Gorilla does both on purpose: a data-derived thesis at deploy (no view required from you), conviction expressed long AND short, and updates on a deliberate clock — 48-hour rethinks and weekly rebalances — so the book follows the market's actual regime, not every candle. Fee discipline is the edge: between boundaries the only exits are protective stops."
   group: multi-asset-whitelist
   archetype: macro_thesis
   sub_style: adaptive
-  asset_classes: [btc_eth, major_alts]
-  asset_scope: basket
+  asset_classes: [universe_crypto]
+  asset_scope: universe
   direction: long_short
   risk_level: moderate
   tier: advanced
@@ -32,8 +33,8 @@ catalog:
   leverage_max: 6
   max_slots: 10             # 5 per book, stance-capped in practice (5/2, 3/3, 2/5)
   min_budget: 200           # two wallets, $100 floor each
-  assets: [BTC, ETH, SOL, HYPE, XRP, DOGE, SUI, AVAX, LINK, LTC, AAVE, UNI, BNB, ARB]
-  tags: [thesis, hedge-fund, self-directed, regime, long-short, basket, rebalance, low-turnover, close-position]
+  assets: []               # DERIVED live each thesis refresh (volume floor + top-N)
+  tags: [thesis, hedge-fund, self-directed, regime, long-short, universe, rebalance, low-turnover, close-position]
 
 requires:
   runtime: ">=3.0.0"        # CLOSE_POSITION action + v2 supervised external scanners
