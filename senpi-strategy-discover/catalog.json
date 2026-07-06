@@ -1608,6 +1608,104 @@
       "sort_order": 1
     },
     {
+      "id": "chimp",
+      "name": "Chimp — Regime Allocator (Daily)",
+      "emoji": "🐒",
+      "tagline": "Reads the whole market once a day — the pulse (risk-on/off, dispersion, gold/dollar/VIX) plus where the proven wallets lean — sets a risk posture, and rotates a long/short book across crypto and tokenized stocks/commodities into that posture. It never sells: a regime change just changes what it buys next, and every position is protected by a ratchet stop that does all the exiting.",
+      "belief_plain": "Once a day it looks at everything — are markets risk-on or risk-off, is it a rotation day, what's gold and the dollar doing, where's the smart money — and picks a stance. In risk-on it leans into the leaders; in risk-off it rotates into gold/oil and shorts the weak; on a choppy rotation day it plays winners-vs-losers at smaller size. It never manually closes; a trailing stop protects and exits every position, so old bets wind down on their own as the new stance takes over.",
+      "version": "1.0.0",
+      "thesis": "Users already run the market-pulse skill and then hand-pick strategies to fit the read. Chimp automates that loop: it re-runs the pulse + smart-money read on a daily clock, re-derives its posture, and expresses the change only through new entries — never by force-closing, so turnover is set by the market (via DSL), not by a scanner re-deciding every minute. Daily recalibration + a moderate DSL make it the nimble regime-follower; Gorilla is the weekly, more-committed sibling.",
+      "tags": [
+        "regime",
+        "allocator",
+        "macro",
+        "pulse",
+        "smart-money",
+        "long-short",
+        "universe",
+        "daily",
+        "no-close",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "macro_thesis",
+      "archetype_label": "Macro Thesis",
+      "sub_style": "adaptive",
+      "sub_style_label": "Self-tunes its thresholds from its own track record.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities",
+        "fx"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 21600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 8,
+      "branch": "main",
+      "sort_order": 1
+    },
+    {
+      "id": "gorilla",
+      "name": "Gorilla — Regime Allocator (Weekly)",
+      "emoji": "🦍",
+      "tagline": "The weekly, more-committed sibling of Chimp. Once a week it reads the whole market — the pulse (risk-on/off, dispersion, gold/dollar/VIX) plus where the proven wallets lean — sets a risk posture, and holds a concentrated long/short book across crypto and tokenized stocks/commodities. It never sells: a regime change just changes what it buys next, and a wide trailing stop does all the exiting, letting winners run for weeks.",
+      "belief_plain": "Like Chimp, but slower and more committed. Once a week it decides the stance — risk-on lean into leaders, risk-off rotate into gold/oil and short the weak, rotation week play winners-vs-losers small — and holds fewer, bigger positions. It never manually closes; a wide ratchet stop protects each one and lets the winners run, so the book turns over on the market's schedule, not a scanner's.",
+      "version": "1.0.0",
+      "thesis": "Same automated pulse-then-allocate loop as Chimp, on a weekly clock with a wider DSL and higher conviction gate — for users who want a deliberate regime-follower that commits to a view and rides it, rather than re-tilting daily. Never force-closes; turnover is set by the market via DSL. Pair with Chimp for a fast + slow allocator sleeve.",
+      "tags": [
+        "regime",
+        "allocator",
+        "macro",
+        "pulse",
+        "smart-money",
+        "long-short",
+        "universe",
+        "weekly",
+        "no-close",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "macro_thesis",
+      "archetype_label": "Macro Thesis",
+      "sub_style": "adaptive",
+      "sub_style_label": "Self-tunes its thresholds from its own track record.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities",
+        "fx"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 21600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 7,
+      "branch": "main",
+      "sort_order": 2
+    },
+    {
       "id": "mantis",
       "name": "Mantis — Cross-Asset Catchup Hunter",
       "emoji": "🦎",
@@ -1651,7 +1749,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 1
+      "sort_order": 3
     },
     {
       "id": "octopus",
@@ -1695,7 +1793,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 2
+      "sort_order": 4
     },
     {
       "id": "asia-ai",

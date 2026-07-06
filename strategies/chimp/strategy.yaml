@@ -1,0 +1,43 @@
+# Chimp — Regime Allocator (DAILY). Single-wallet PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/. Reads the whole market once a day
+# (market-pulse + smart-money), holds a standing risk POSTURE, and rotates the
+# book into it BY ATTRITION — it never closes a position; a regime flip only
+# changes what it opens next, and prior positions retire on their own DSL.
+# The daily sibling of Gorilla (weekly). Install/teardown via senpi-strategy-ops.
+schema_version: 1
+
+id: chimp
+version: "1.0.0"
+
+catalog:
+  name: "Chimp — Regime Allocator (Daily)"
+  emoji: "🐒"
+  tagline: "Reads the whole market once a day — the pulse (risk-on/off, dispersion, gold/dollar/VIX) plus where the proven wallets lean — sets a risk posture, and rotates a long/short book across crypto and tokenized stocks/commodities into that posture. It never sells: a regime change just changes what it buys next, and every position is protected by a ratchet stop that does all the exiting."
+  belief_plain: "Once a day it looks at everything — are markets risk-on or risk-off, is it a rotation day, what's gold and the dollar doing, where's the smart money — and picks a stance. In risk-on it leans into the leaders; in risk-off it rotates into gold/oil and shorts the weak; on a choppy rotation day it plays winners-vs-losers at smaller size. It never manually closes; a trailing stop protects and exits every position, so old bets wind down on their own as the new stance takes over."
+  thesis: "Users already run the market-pulse skill and then hand-pick strategies to fit the read. Chimp automates that loop: it re-runs the pulse + smart-money read on a daily clock, re-derives its posture, and expresses the change only through new entries — never by force-closing, so turnover is set by the market (via DSL), not by a scanner re-deciding every minute. Daily recalibration + a moderate DSL make it the nimble regime-follower; Gorilla is the weekly, more-committed sibling."
+  group: multi-asset-universe
+  archetype: macro_thesis
+  sub_style: adaptive
+  asset_classes: [btc_eth, major_alts, xyz_equities, commodities, fx]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 8
+  min_budget: 100
+  assets: []                 # DERIVED live daily from both dexes (vol floor + top-N)
+  tags: [regime, allocator, macro, pulse, smart-money, long-short, universe, daily, no-close, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name chimp-main, group chimp
+    wallet_env: CHIMP_WALLET
+    funding_share: 1.0

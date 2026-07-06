@@ -1,0 +1,137 @@
+# ── GORILLA · Regime Allocator (WEEKLY recalibration) ───────────────────────
+# The committed sibling of Chimp. Same engine (scanners byte-identical) — reads
+# the whole market and holds a standing risk POSTURE, never closes, DSL-only —
+# but recalibrates WEEKLY, holds fewer/bigger higher-conviction positions, and
+# rides a wide DSL that lets winners run for weeks. A regime flip changes what it
+# opens next; prior positions retire on their own DSL (rotate-by-attrition).
+name: gorilla-main
+group: gorilla
+version: 1.0.0
+description: >
+  GORILLA — Regime Allocator, weekly. Re-derives a risk-on / risk-off / rotation
+  posture from the live market read every 7 days and commits to it: risk-on
+  tilts long the leaders, risk-off rotates into working havens + shorts the
+  breaking risk complex, a rotation week runs a smaller long/short dispersion
+  book. Fewer, larger, higher-conviction positions than Chimp (up to 7),
+  leverage clamped to venue max. DSL is the ONLY exit — wide let-winners-run
+  ladder (20% Phase 1, lock ladder to +100%, 7d weak-peak cut).
+
+strategy:
+  wallet: "${GORILLA_WALLET}"
+  slots: 7
+  margin_pct: 12
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: gorilla_allocator
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 21600           # wake every 6h; the market read is gated to weekly
+    timeout_seconds: 300
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 200
+    inputs:
+      recalibrationHours: 168         # WEEKLY — the only market check cadence
+      maxSlots: 7
+      universeVolFloorUsd: 25000000
+      xyzVolFloorUsd: 3000000
+      maxMainNames: 14
+      maxXyzNames: 16
+      excludeAssets: []
+      defensiveAssets: ["GOLD", "SILVER", "PLATINUM", "PALLADIUM", "BRENTOIL", "CL", "NATGAS", "JPY"]   # tradeable havens only (DXY is read-only in pulseGroups — not a live perp)
+      riskOffSizeScale: 0.7
+      mixedSizeScale: 0.6
+      minScore: 6.0                    # more selective / committed than Chimp (5.5)
+      goodScore: 7.0
+      apexScore: 8.5
+      leverageTiers: { apex: 5, good: 4, base: 3 }
+      marginPctTiers: { apex: 16, good: 12, base: 8 }   # bigger positions than Chimp (concentrated)
+      recentSignalTtlSeconds: 86400   # 24h anti-refire — slower book
+      useCohorts: true
+      cohorts:
+        smartMinRealizedUsd: 1000000
+        crowdMinRealizedUsd: 10000
+        crowdMaxRealizedUsd: 100000
+        sampleCap: 150
+        pageSize: 1000
+        maxPages: 6
+        stateBatch: 50
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      stance: { type: string, required: false }
+      mode: { type: string, required: false }
+      posture: { type: string, required: false }
+      sizeScale: { type: number, required: false }
+      regime: { type: string, required: false }
+      lean: { type: number, required: false }
+      mom24h: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: gorilla_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [gorilla_allocator]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: gorilla_allocator
+  # NO CLOSE_POSITION action — DSL is the only exit (rotate-by-attrition).
+
+# EXIT — DSL only. WIDE ladder for a weekly holder: a stalled position frees its
+# slot within ~a week (weak-peak 7d); winners ride the ladder to +100%. No
+# hard_timeout — let winners run.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 10080       # 7d — matches the weekly recalibration
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 20.0
+      retrace_threshold: 9
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 10, lock_hw_pct: 0 }
+        - { trigger_pct: 25, lock_hw_pct: 40 }
+        - { trigger_pct: 55, lock_hw_pct: 62 }
+        - { trigger_pct: 100, lock_hw_pct: 80 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 7
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 1800
+    per_asset_cooldown_seconds: 86400  # 24h — matches the anti-refire TTL
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true

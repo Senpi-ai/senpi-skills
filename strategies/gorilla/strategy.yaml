@@ -1,0 +1,43 @@
+# Gorilla — Regime Allocator (WEEKLY). Single-wallet PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/ (byte-identical engine to Chimp). Reads
+# the whole market once a week (market-pulse + smart-money), holds a standing risk
+# POSTURE, and rotates the book into it BY ATTRITION — never closes a position; a
+# regime flip only changes what it opens next, and prior positions retire on their
+# own DSL. The committed weekly sibling of Chimp (daily). Install via senpi-strategy-ops.
+schema_version: 1
+
+id: gorilla
+version: "1.0.0"
+
+catalog:
+  name: "Gorilla — Regime Allocator (Weekly)"
+  emoji: "🦍"
+  tagline: "The weekly, more-committed sibling of Chimp. Once a week it reads the whole market — the pulse (risk-on/off, dispersion, gold/dollar/VIX) plus where the proven wallets lean — sets a risk posture, and holds a concentrated long/short book across crypto and tokenized stocks/commodities. It never sells: a regime change just changes what it buys next, and a wide trailing stop does all the exiting, letting winners run for weeks."
+  belief_plain: "Like Chimp, but slower and more committed. Once a week it decides the stance — risk-on lean into leaders, risk-off rotate into gold/oil and short the weak, rotation week play winners-vs-losers small — and holds fewer, bigger positions. It never manually closes; a wide ratchet stop protects each one and lets the winners run, so the book turns over on the market's schedule, not a scanner's."
+  thesis: "Same automated pulse-then-allocate loop as Chimp, on a weekly clock with a wider DSL and higher conviction gate — for users who want a deliberate regime-follower that commits to a view and rides it, rather than re-tilting daily. Never force-closes; turnover is set by the market via DSL. Pair with Chimp for a fast + slow allocator sleeve."
+  group: multi-asset-universe
+  archetype: macro_thesis
+  sub_style: adaptive
+  asset_classes: [btc_eth, major_alts, xyz_equities, commodities, fx]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 7
+  min_budget: 100
+  assets: []                 # DERIVED live weekly from both dexes (vol floor + top-N)
+  tags: [regime, allocator, macro, pulse, smart-money, long-short, universe, weekly, no-close, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name gorilla-main, group gorilla
+    wallet_env: GORILLA_WALLET
+    funding_share: 1.0
