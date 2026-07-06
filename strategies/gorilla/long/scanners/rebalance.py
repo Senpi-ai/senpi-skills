@@ -6,8 +6,9 @@ feed a rule-mode CLOSE_POSITION action; closes are idempotent (assets without
 an open position skip as `no_open_position`).
 
   48h RETHINK  (thesisRefreshHours, anchored at establishment): re-derive the
-      thesis from a full market scan; close held names that left this book's
-      bucket -> trigger `thesis_shift` (reason carries old->new stance).
+      thesis from the full market read (pulse + cohorts); close held names the
+      PROVEN cohort has flipped against (`divergence_reversed`) and names that
+      left this book's bucket (`thesis_shift`, reason carries old->new stance).
   7d REBALANCE (rebalanceDays, same anchor): re-score held names within the
       standing thesis; close names below exitScore -> `weekly_rebalance`.
 
@@ -38,7 +39,7 @@ def scan(inputs, ctx):
 
     # ── establish once (first tick after deploy) ──
     if not thesis:
-        fresh, _cache, _board = refresh_thesis(ctx, inputs, now, None)
+        fresh, _board = refresh_thesis(ctx, inputs, now, None)
         if fresh:
             thesis = fresh
             established_at = last_rethink = last_rebalance = now
@@ -67,7 +68,7 @@ def scan(inputs, ctx):
     out = []
     new_thesis, scored = None, {}
     if thesis_due:
-        new_thesis, _cache, _board = refresh_thesis(ctx, inputs, now, thesis)
+        new_thesis, _board = refresh_thesis(ctx, inputs, now, thesis)
 
     if rebalance_due and held:
         board = sm_board(ctx)

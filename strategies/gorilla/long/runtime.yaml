@@ -36,7 +36,7 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 1800
-    timeout_seconds: 300                # thesis refresh = instruments read + ~20 asset reads
+    timeout_seconds: 300                # refresh = 2 instruments + regime + board + ~12 cohort reads
     default_signal_validity_seconds: 3600
     state_history_max_count: 200        # thesis + clocks + dedup + tick results
     inputs: &gorilla_inputs
@@ -50,6 +50,27 @@ scanners:
       excludeAssets: []
       universeOverride: []              # non-empty pins the universe (testing/escape hatch)
       bucketSize: 4                     # leaders/laggards per side at derivation
+      # ── the real engines (constants verbatim from the skills) ──
+      # senpi-market-pulse cross-asset groups (crypto group = the derived universe):
+      pulseGroups:
+        semis: ["NVDA", "AMD", "AVGO", "MU", "TSM", "ASML", "MRVL", "ARM"]
+        megacap_software: ["AMZN", "MSFT", "META", "GOOGL", "AAPL", "ORCL", "PLTR"]
+        crypto_proxy: ["MSTR", "COIN", "HOOD"]
+        indices: ["SP500", "XYZ100", "JP225", "KR200"]
+        commodities: ["GOLD", "SILVER", "COPPER", "BRENTOIL", "NATGAS"]
+        macro_fx: ["DXY", "JPY", "EUR", "GBP"]
+      # senpi-smart-money cohort/divergence engine (heavy reads — boundaries only):
+      cohorts:
+        smartMinRealizedUsd: 1000000    # proven cohort: lifetime realized >= $1M
+        crowdMinRealizedUsd: 10000
+        crowdMaxRealizedUsd: 100000
+        sampleCap: 150
+        pageSize: 1000
+        maxPages: 6
+        stateBatch: 50
+        minMembers: 5
+        leanThreshold: 0.40
+        divergenceMinGap: 0.50
       # ── press gates + conviction bands ──
       minScore: 5.5
       goodScore: 6.5
@@ -68,6 +89,8 @@ scanners:
       band: { type: string, required: false }
       stance: { type: string, required: false }
       thesis: { type: string, required: false }
+      pulseDay: { type: string, required: false }
+      bucketSrc: { type: string, required: false }
       smDir: { type: string, required: false }
       smPct: { type: number, required: false }
       mom24h: { type: number, required: false }

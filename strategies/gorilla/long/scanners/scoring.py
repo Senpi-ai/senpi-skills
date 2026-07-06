@@ -1,29 +1,42 @@
 """GORILLA — pure thesis logic (no I/O, no MCP).
 
-A SELF-DIRECTED thesis hedge fund. Where thesis-fund asks the user to bring a
-macro view, Gorilla DERIVES its own at deploy time from a full market scan and
-then trades it with patience:
+A SELF-DIRECTED thesis hedge fund built on the REAL machinery of the two skills
+it composes (math ported from their engines, constants verbatim):
 
   UNIVERSE (derive_universe) — from the LIVE instrument list each refresh:
           every main-dex perp over a 24h-notional floor, top-N by volume.
-          The fund reads the market, not a preset list.
-  THESIS  (derive_thesis)  — stance (RISK_ON / RISK_OFF / NEUTRAL) from the BTC
-          4h tide + universe breadth; leaders (top relative-strength names the
-          smart money isn't against) become the LONG bucket, laggards the SHORT
-          bucket; a plain-English `narrative` travels with every signal.
-  PRESS   (score_entry)    — a bucket name is only pressed when the tape
-          confirms its direction (4h/1h structure + momentum + SM lean),
-          conviction-banded apex/good/base.
-  HOLD    — between boundaries nothing re-decides; the DSL owns price exits.
-  RETHINK (thesis_shift)   — every thesisRefreshHours (default 48h) the thesis
-          is re-derived; held names no longer in the book's bucket are closed
-          via the CLOSE_POSITION action.
-  REBALANCE (weekly_rebalance) — every rebalanceDays (default 7d) held names
-          re-scoring below exitScore are recycled.
+  PULSE   (pulse_stance)     — ported from senpi-market-pulse compute_signals:
+          cross-asset day classification (groups up vs down off prevDayPx
+          changes: crypto + semis + megacap + indices + commodities + FX) with
+          the confirmation checklist (GOLD haven bid, DXY funding stress, VIX
+          fear). The stance is the whole market's read, not a BTC proxy.
+  COHORTS (cohort_positions_bias / smart_conviction / divergences) — ported
+          from senpi-smart-money: the PROVEN cohort (lifetime realized >= $1M)
+          vs the CROWD ($10k..$100k), per-coin bias = net/gross signed
+          notional; a divergence = opposite sides or gap >= 0.50 with >= 5
+          members each. This is the entry edge; the 4h leaderboard is only a
+          near-term confirm at press time.
+  THESIS  (derive_thesis)    — stance from the pulse; the LONG bucket from
+          smart-long divergences/conviction (crowd hasn't followed), the SHORT
+          bucket from smart-short; 24h-change relative strength is the
+          FALLBACK ranking when cohorts are unavailable (flagged honestly in
+          the narrative — never silently pretend).
+  PRESS   (score_entry)      — a bucket name is only pressed when the tape
+          confirms (4h/1h structure + momentum + near-term SM lean).
+  RETHINK/REBALANCE (close_triggers) — 48h thesis_shift + smart-bias reversal,
+          7d weekly_rebalance laggard recycle, via CLOSE_POSITION.
 
 Shared VERBATIM by both instances; the book's identity comes from inputs.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+
+# smart-money engine constants (smartmoney.py verbatim; overridable via inputs.cohorts)
+SMART_MIN_REALIZED = 1_000_000
+CROWD_MIN_REALIZED = 10_000
+CROWD_MAX_REALIZED = 100_000
+MIN_MEMBERS = 5
+LEAN_THRESHOLD = 0.40
+DIVERGENCE_MIN_GAP = 0.50
 
 
 def _f(v, default=0.0):
@@ -31,6 +44,20 @@ def _f(v, default=0.0):
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def pct_change(mark, prev):
+    m, p = _num(mark), _num(prev)
+    if m is None or p is None or p == 0:
+        return None
+    return round((m - p) / p * 100, 2)
 
 
 def closes(candles):
@@ -77,24 +104,11 @@ def clamp_leverage(desired, venue_max):
     return max(1, min(int(desired), venue))
 
 
-def rs_score(c1, c4):
-    """Relative-strength composite for ranking: 7d + 24h momentum + 4h structure.
-    Signed — positive = leadership, negative = laggardship."""
-    m7d = mom(c1, 168)          # degrades to available history when shorter
-    m24 = mom(c1, 24)
-    t4, s4 = trend_structure(c4)
-    t_term = s4 * 10 if t4 == "up" else -s4 * 10 if t4 == "down" else 0.0
-    return 0.4 * _clamp(m7d, -25, 25) + 0.4 * _clamp(m24, -10, 10) * 2.5 + 0.2 * t_term
-
-
 # ── UNIVERSE — derived from the LIVE market, never a preset list ────────────
 
 def derive_universe(rows, inputs):
     """rows: [{name, vol}] from market_list_instruments (main-dex perps, not
-    delisted). Reads the MARKET: volume floor -> exclude set -> top-N by 24h
-    notional. Returns the universe list for this thesis refresh. A preset list
-    would contradict a self-directed fund — the only whitelist here is the
-    optional excludeAssets."""
+    delisted). Volume floor -> exclude set -> top-N by 24h notional."""
     floor = _f(inputs.get("universeVolFloorUsd"), 25_000_000)
     max_names = int(_f(inputs.get("universeMaxNames"), 20))
     exclude = {str(x).upper() for x in (inputs.get("excludeAssets") or [])}
@@ -116,42 +130,209 @@ def derive_universe(rows, inputs):
     return [n for n, _ in qualifiers[:max_names]]
 
 
-# ── THESIS — derived from one full market read ──────────────────────────────
+# ── PULSE — cross-asset day read (senpi-market-pulse compute_signals port) ──
 
-def derive_thesis(views, btc_c1, btc_c4, regime, inputs, now):
-    """views: {NAME: {rs, sm_dir, sm_pct}} for the whole universe.
-    Returns the standing thesis dict (persisted by the scanners)."""
-    bucket_n = int(_f(inputs.get("bucketSize"), 4))
-    t4, s4 = trend_structure(btc_c4)
-    t1, _ = trend_structure(btc_c1)
-    up_frac = 0.0
-    if views:
-        up_frac = sum(1 for v in views.values() if v["rs"] > 0) / len(views)
+def group_averages(changes, groups):
+    """changes: {SYM: change_pct|None}; groups: {name: [SYM..]} ->
+    {name: {avg_change_pct, n}} (names with no quote are skipped, never zeroed)."""
+    out = {}
+    for gname, syms in (groups or {}).items():
+        vals = [changes.get(str(s).upper()) for s in (syms or [])]
+        vals = [v for v in vals if v is not None]
+        out[gname] = {"avg_change_pct": round(sum(vals) / len(vals), 2) if vals else None,
+                      "n": len(vals)}
+    return out
 
-    if t4 == "up" and t1 != "down" and up_frac >= 0.55:
-        stance = "RISK_ON"
-    elif t4 == "down" and t1 != "up" and up_frac <= 0.45:
-        stance = "RISK_OFF"
+
+def pulse_stance(changes, groups, vix_price=None):
+    """Ported from pulse.py compute_signals: day classification (groups down vs
+    up at +/-0.5% with 2:1 dominance and >= 3 groups) + the confirmation
+    checklist (GOLD haven bid / DXY funding stress / VIX fear)."""
+    gavg = group_averages(changes, groups)
+    breadth = [g["avg_change_pct"] for g in gavg.values() if g["avg_change_pct"] is not None]
+    down = sum(1 for x in breadth if x < -0.5)
+    up = sum(1 for x in breadth if x > 0.5)
+    if breadth:
+        if down >= up * 2 and down >= 3:
+            day = "risk_off"
+        elif up >= down * 2 and up >= 3:
+            day = "risk_on"
+        else:
+            day = "mixed"
     else:
-        stance = "NEUTRAL"
+        day = None
 
-    ranked = sorted(views.items(), key=lambda kv: kv[1]["rs"], reverse=True)
-    # smart money >= 58% against a bucket's direction disqualifies the name
-    leaders = [n for n, v in ranked
-               if v["rs"] > 0 and not (v["sm_dir"] == "SHORT" and v["sm_pct"] >= 58)][:bucket_n]
-    laggards = [n for n, v in reversed(ranked)
-                if v["rs"] < 0 and not (v["sm_dir"] == "LONG" and v["sm_pct"] >= 58)][:bucket_n]
+    gold, dxy, vix_chg = changes.get("GOLD"), changes.get("DXY"), changes.get("VIX")
+    checklist = {
+        "gold": ("haven bid intact" if (gold is not None and gold > -2)
+                 else "haven also selling — possible liquidity event" if gold is not None else None),
+        "dxy": ("dollar calm" if (dxy is not None and abs(dxy) < 0.6)
+                else "dollar bid — funding stress" if (dxy is not None and dxy > 0.6) else None),
+        "vix": ("fear contained" if (vix_price is not None and vix_price < 22)
+                else "fear elevated" if vix_price is not None else None),
+    }
+    return {"day": day, "groups_up": up, "groups_down": down,
+            "group_avgs": {k: v["avg_change_pct"] for k, v in gavg.items()},
+            "checklist": checklist, "vix_price": vix_price, "vix_change_pct": vix_chg}
+
+
+# ── COHORTS — smart-vs-crowd divergence (senpi-smart-money port) ────────────
+
+def _signed_notional(p):
+    """smartmoney.py verbatim: signed position notional from a trader-state position."""
+    def f(*keys):
+        for k in keys:
+            v = _num((p or {}).get(k))
+            if v is not None:
+                return v
+        return 0.0
+    szi = f("szi", "size")
+    val = f("positionValue", "notional", "position_value")
+    if val <= 0:
+        val = abs(szi) * f("entryPx", "markPx", "entry_price")
+    return (1.0 if szi > 0 else (-1.0 if szi < 0 else 0.0)) * abs(val)
+
+
+def cohort_positions_bias(traders, per=None):
+    """Aggregate a cohort's NET positioning per coin (smartmoney.py cohort_bias
+    inner math): bias = net/gross in [-1,+1] + long/short member counts.
+    Feed batches through repeatedly with the same `per` dict, then finalize."""
+    per = per if per is not None else {}
+    for t in traders or []:
+        if not isinstance(t, dict):
+            continue
+        for p in (t.get("openPositions") or t.get("open_positions") or []):
+            if not isinstance(p, dict):
+                continue
+            coin = p.get("coin") or p.get("asset")
+            sn = _signed_notional(p) if coin else 0.0
+            if not coin or sn == 0:
+                continue
+            d = per.setdefault(str(coin).upper(),
+                               {"net": 0.0, "gross": 0.0, "n_long": 0, "n_short": 0})
+            d["net"] += sn
+            d["gross"] += abs(sn)
+            d["n_long" if sn > 0 else "n_short"] += 1
+    return per
+
+
+def finalize_bias(per):
+    for d in (per or {}).values():
+        d["bias"] = round(d["net"] / d["gross"], 3) if d["gross"] > 0 else 0.0
+        d["members"] = d["n_long"] + d["n_short"]
+        d["net"] = round(d["net"], 2)
+    return per
+
+
+def _dir(bias):
+    return "long" if bias > 0 else ("short" if bias < 0 else "flat")
+
+
+def smart_conviction(smart_per, cfg=None):
+    """Where the proven cohort is most net-directional (smartmoney.py verbatim)."""
+    cfg = cfg or {}
+    min_members = int(_f(cfg.get("minMembers"), MIN_MEMBERS))
+    lean = _f(cfg.get("leanThreshold"), LEAN_THRESHOLD)
+    out = []
+    for coin, d in (smart_per or {}).items():
+        if d.get("members", 0) >= min_members and abs(d.get("bias", 0)) >= lean:
+            out.append({"asset": coin, "bias": d["bias"], "direction": _dir(d["bias"]),
+                        "members": d["members"]})
+    out.sort(key=lambda x: abs(x["bias"]) * x["members"], reverse=True)
+    return out
+
+
+def divergences(smart_per, crowd_per, cfg=None):
+    """Proven cohort vs crowd on OPPOSITE sides (or far apart) — the core
+    signal (smartmoney.py verbatim: opposite signs always flag; else
+    |gap| >= divergenceMinGap; both cohorts need minMembers)."""
+    cfg = cfg or {}
+    min_members = int(_f(cfg.get("minMembers"), MIN_MEMBERS))
+    min_gap = _f(cfg.get("divergenceMinGap"), DIVERGENCE_MIN_GAP)
+    out = []
+    for coin, sd in (smart_per or {}).items():
+        if sd.get("members", 0) < min_members:
+            continue
+        cd = (crowd_per or {}).get(coin)
+        if not cd or cd.get("members", 0) < min_members:
+            continue
+        gap = round(sd["bias"] - cd["bias"], 3)
+        opposite = (sd["bias"] > 0) != (cd["bias"] > 0) and sd["bias"] != 0 and cd["bias"] != 0
+        if opposite or abs(gap) >= min_gap:
+            out.append({"asset": coin, "gap": gap, "opposite_sides": opposite,
+                        "smart_bias": sd["bias"], "smart_direction": _dir(sd["bias"]),
+                        "smart_members": sd["members"],
+                        "crowd_bias": cd["bias"], "crowd_direction": _dir(cd["bias"])})
+    out.sort(key=lambda x: (x["opposite_sides"], abs(x["gap"])), reverse=True)
+    return out
+
+
+# ── THESIS — pulse stance x cohort divergence ───────────────────────────────
+
+def derive_thesis(views, pulse, cohort, regime, inputs, now):
+    """views: {NAME: {chg (24h %), sm_dir, sm_pct}} for the derived universe
+    (chg comes free off the instruments read — no candle pulls at refresh).
+    pulse: pulse_stance() output. cohort: {smart, crowd, available}.
+    Buckets are DIVERGENCE-FIRST: smart-long names the crowd hasn't followed
+    fill the LONG bucket (smart-short -> SHORT), topped up by smart conviction,
+    then by 24h relative strength as the flagged fallback."""
+    bucket_n = int(_f(inputs.get("bucketSize"), 4))
+    cfg = inputs.get("cohorts") or {}
+
+    day = (pulse or {}).get("day")
+    stance = {"risk_on": "RISK_ON", "risk_off": "RISK_OFF"}.get(day, "NEUTRAL")
+
+    universe = set(views.keys())
+    longs, shorts, src = [], [], {}
+
+    def _take(name, side_list, tag):
+        if name in universe and name not in side_list and len(side_list) < bucket_n:
+            side_list.append(name)
+            src[name] = tag
+
+    if (cohort or {}).get("available"):
+        divs = divergences(cohort.get("smart"), cohort.get("crowd"), cfg)
+        for d in divs:
+            if d["smart_direction"] == "long":
+                _take(d["asset"], longs, f"divergence gap {d['gap']:+.2f}")
+            elif d["smart_direction"] == "short":
+                _take(d["asset"], shorts, f"divergence gap {d['gap']:+.2f}")
+        for c in smart_conviction(cohort.get("smart"), cfg):
+            if c["direction"] == "long":
+                _take(c["asset"], longs, f"smart conviction {c['bias']:+.2f}")
+            elif c["direction"] == "short":
+                _take(c["asset"], shorts, f"smart conviction {c['bias']:+.2f}")
+
+    # fallback / top-up: 24h-change relative strength, SM-board hard block kept
+    ranked = sorted(views.items(), key=lambda kv: _f(kv[1].get("chg")), reverse=True)
+    for n, v in ranked:
+        if _f(v.get("chg")) > 0 and not (v.get("sm_dir") == "SHORT" and _f(v.get("sm_pct"), 50) >= 58):
+            _take(n, longs, "rs fallback")
+    for n, v in reversed(ranked):
+        if _f(v.get("chg")) < 0 and not (v.get("sm_dir") == "LONG" and _f(v.get("sm_pct"), 50) >= 58):
+            _take(n, shorts, "rs fallback")
 
     caps = {"RISK_ON": {"LONG": 5, "SHORT": 2},
             "RISK_OFF": {"LONG": 2, "SHORT": 5},
             "NEUTRAL": {"LONG": 3, "SHORT": 3}}[stance]
 
-    narrative = (f"{stance}: BTC 4h {t4} ({s4:.0%}), breadth {up_frac:.0%} of "
-                 f"{len(views)} names up, funding regime {regime or 'UNKNOWN'}; "
-                 f"long {','.join(leaders) or '—'}; short {','.join(laggards) or '—'}")
-    return {"stance": stance, "leaders": leaders, "laggards": laggards,
-            "caps": caps, "breadth": round(up_frac, 3), "regime": regime or "UNKNOWN",
-            "universe": sorted(views.keys()), "narrative": narrative, "derived_at": now}
+    chk = (pulse or {}).get("checklist") or {}
+    chk_bits = "; ".join(v for v in (chk.get("gold"), chk.get("dxy"), chk.get("vix")) if v)
+    cohort_note = ("" if (cohort or {}).get("available")
+                   else " [cohorts unavailable — RS-ranked fallback]")
+    narrative = (f"{stance} (pulse: {day or 'no read'}, "
+                 f"{(pulse or {}).get('groups_up', 0)} groups up / "
+                 f"{(pulse or {}).get('groups_down', 0)} down; {chk_bits or 'no checklist'}); "
+                 f"funding regime {regime or 'UNKNOWN'}; "
+                 f"long {','.join(longs) or '—'}; short {','.join(shorts) or '—'}"
+                 f"{cohort_note}")
+    return {"stance": stance, "leaders": longs, "laggards": shorts, "caps": caps,
+            "bucket_src": src, "pulse": {k: (pulse or {}).get(k) for k in
+                                         ("day", "groups_up", "groups_down", "group_avgs")},
+            "cohorts_available": bool((cohort or {}).get("available")),
+            "smart_bias": {k: v.get("bias") for k, v in ((cohort or {}).get("smart") or {}).items()},
+            "regime": regime or "UNKNOWN", "universe": sorted(universe),
+            "narrative": narrative, "derived_at": now}
 
 
 def bucket_for(side, thesis):
@@ -165,7 +346,9 @@ def cap_for(side, thesis):
 # ── ENTRY press — tape must confirm the thesis direction ────────────────────
 
 def score_entry(asset, side, c1, c4, sm, inputs):
-    """0-10 press score for a bucket name. None on insufficient candles."""
+    """0-10 press score for a bucket name. None on insufficient candles.
+    `sm` here is the 4h leaderboard lean — the NEAR-TERM confirm layer (the
+    cohort divergence already earned the name its bucket slot)."""
     if len(closes(c1)) < 8 or len(closes(c4)) < 4:
         return None
     sign = 1 if side == "LONG" else -1
@@ -216,30 +399,48 @@ def close_triggers(side, held, new_thesis, old_thesis, scored_by_asset, inputs,
                    thesis_due, rebalance_due):
     """[{asset, direction, reason, trigger}] for the CLOSE_POSITION action.
 
-    thesis_shift     — at the 48h rethink, a held name no longer in this book's
-                       bucket (or the stance flipped it out) is closed.
-    weekly_rebalance — at the 7d rebalance, a held name re-scoring below
-                       exitScore is recycled.
+    thesis_shift        — at the 48h rethink, a held name no longer in this
+                          book's bucket is closed.
+    divergence_reversed — at the rethink, the PROVEN cohort's bias has flipped
+                          >= leanThreshold against a held name (cohort data
+                          from the fresh thesis; skipped when unavailable).
+    weekly_rebalance    — at the 7d rebalance, a held name re-scoring below
+                          exitScore is recycled.
     """
     exit_score = _f(inputs.get("exitScore"), 3.5)
-    out = []
+    cfg = inputs.get("cohorts") or {}
+    lean = _f(cfg.get("leanThreshold"), LEAN_THRESHOLD)
+    out, closed = [], set()
+
+    def _close(p, trigger, reason):
+        if p["asset"] in closed:
+            return
+        closed.add(p["asset"])
+        out.append({"asset": p["asset"], "direction": p["direction"],
+                    "trigger": trigger, "reason": reason})
+
     if thesis_due and new_thesis:
         keep = set(bucket_for(side, new_thesis))
         old_stance = (old_thesis or {}).get("stance", "?")
+        smart_bias = new_thesis.get("smart_bias") or {}
+        against = -1 if side == "LONG" else 1
         for p in held:
-            if p["asset"] not in keep:
-                out.append({"asset": p["asset"], "direction": p["direction"],
-                            "trigger": "thesis_shift",
-                            "reason": (f"rethink {old_stance}->{new_thesis['stance']}: "
-                                       f"{p['asset']} left the {side} bucket")})
-    closed = {s["asset"] for s in out}
+            bias = smart_bias.get(str(p["asset"]).upper())
+            if (new_thesis.get("cohorts_available") and bias is not None
+                    and (bias * against) >= lean):
+                _close(p, "divergence_reversed",
+                       f"proven cohort flipped {('short' if side == 'LONG' else 'long')} "
+                       f"(bias {bias:+.2f}) on {p['asset']}")
+            elif p["asset"] not in keep:
+                _close(p, "thesis_shift",
+                       f"rethink {old_stance}->{new_thesis['stance']}: "
+                       f"{p['asset']} left the {side} bucket")
     if rebalance_due:
         for p in held:
             if p["asset"] in closed:
                 continue
             th = scored_by_asset.get(p["asset"])
             if th and _f(th.get("score")) < exit_score:
-                out.append({"asset": p["asset"], "direction": p["direction"],
-                            "trigger": "weekly_rebalance",
-                            "reason": f"rebalance re-score {th.get('score')} < {exit_score}"})
+                _close(p, "weekly_rebalance",
+                       f"rebalance re-score {th.get('score')} < {exit_score}")
     return out
