@@ -27,6 +27,16 @@ fuses discovery_get_trader_history + ratchet_stop_list + market prices. Each tra
 tag ("reconstructed"). v2 telemetry (the successor to the removed audit_* tools) slots in HERE as an
 additional/primary trade+exit source without touching the narration, the guardrails, or the output shape.
 
+TWO KINDS OF REALIZED PROFIT — two discovery sources (never confuse them):
+  • FULLY-CLOSED trades (the position is gone) → `discovery_get_trader_history` (closedPositions[]) — this
+    is `trades[]`, the timing review.
+  • REALIZED-TAKEN-ON-OPEN (profit ALREADY banked on a STILL-OPEN position: TP/SL fills, partial closes,
+    size reductions) → `discovery_get_open_position_realized_pnl`. A partial close leaves the position OPEN,
+    so it creates NO closedPositions[] entry — trader_history alone reports "no closed trades" even after the
+    user took, say, 80% profit off two live positions. `fetch_partial_closes()` reads each open position (via
+    strategy_get_clearinghouse_state) and asks discovery how much realized PnL was already taken on it, so the
+    review SEES the profit-taking. Surfaced as the standalone `partial_closes[]` stream + meta flags.
+
 ⚠ All tools here are USER-scoped (your own account): needs a USER-scoped SENPI_AUTH_TOKEN.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
@@ -745,6 +755,145 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
     if cap:
         trades = trades[:cap]
     return trades
+
+
+# ──────────────────────────────── partial closes — realized profit ALREADY TAKEN on a STILL-OPEN position
+# The bug this fixes: a partial close / TP / SL fill / size reduction on a position that STAYS OPEN books
+# realized PnL but creates NO closedPositions[] entry, so `fetch_closed_trades` (trader_history) reports
+# "no closed trades" even after the user took real profit off live positions — and guardrail 9 then wrongly
+# frames it as "brand-new, nothing to review." SOURCE SPLIT: the OPEN (wallet, coin) set comes from
+# strategy_get_clearinghouse_state (the same main+xyz / assetPositions[] read senpi-portfolio uses); the
+# realized-taken $ comes from ONE batched discovery_get_open_position_realized_pnl over all those pairs.
+def _open_positions_for(client, strat, meta):
+    """Read one strategy wallet's OPEN positions from strategy_get_clearinghouse_state → a list of
+    {coin, dex, notional} (notional = current positionValue). Mirrors senpi-portfolio's extraction: both
+    DEX views (main + xyz), assetPositions[], skip szi==0. Read-guarded + fail-open → [] + a meta.warnings
+    note. Onchain-only; no PnL here — that's the discovery call in fetch_partial_closes."""
+    wallet = strat.get("wallet")
+    out = []
+    try:
+        ch = _ok(client.mcp_call("strategy_get_clearinghouse_state", strategy_wallet=wallet, timeout=20))
+    except Exception as e:  # noqa — fail-open: this wallet contributes no open positions
+        meta.setdefault("warnings", []).append(
+            f"clearinghouse {str(wallet)[:8]} failed: {e}; partial-close read skipped for it")
+        return out
+    if not isinstance(ch, dict):
+        return out
+    for dex in ("main", "xyz"):
+        d = _field(ch, dex, default={}) if isinstance(ch, dict) else {}
+        if not isinstance(d, dict):
+            continue
+        for ap in (_field(d, "assetPositions", "asset_positions", default=[]) or []):
+            pos = _field(ap, "position", default=ap) or {}
+            if not isinstance(pos, dict):
+                continue
+            szi = _f(pos, "szi", "size", default=0.0)
+            if szi == 0:
+                continue                      # flat leg — not an open position
+            coin = _field(pos, "coin", "asset")
+            if not coin:
+                continue
+            out.append({
+                "coin": coin,
+                "dex": dex,
+                "notional": round(abs(_f(pos, "positionValue", "position_value", default=0.0)), 2),
+            })
+    return out
+
+
+def _parse_realized_pnl_rows(resp):
+    """Normalize a discovery_get_open_position_realized_pnl response into a {(wallet_lower, COIN): {realized,
+    fees}} map. Defensive over the real MCP envelope shapes: after _ok() the payload is a dict whose PnL list
+    lives under `realized_pnl` (the tool's response key) or `realizedPnl` (the GraphQL key), or the response
+    may be a bare list. Each row is {walletAddress, coin, realizedPnl, totalFees} with STRING numerics →
+    parsed to float via _num (unknown/odd → skipped, never fabricated)."""
+    rows = resp
+    if isinstance(resp, dict):
+        rows = _field(resp, "realized_pnl", "realizedPnl", "realized_pnls", default=[])
+    if not isinstance(rows, list):
+        return {}
+    out = {}
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        wallet = _field(r, "walletAddress", "wallet_address", "wallet")
+        coin = _field(r, "coin", "asset")
+        if not wallet or not coin:
+            continue
+        out[(str(wallet).lower(), str(coin).upper())] = {
+            "realized": _num(_field(r, "realizedPnl", "realized_pnl")),
+            "fees": _num(_field(r, "totalFees", "total_fees")),
+        }
+    return out
+
+
+def fetch_partial_closes(client, strategies, meta):
+    """Realized profit ALREADY TAKEN on STILL-OPEN positions — the stream the timing review is blind to
+    (trader_history only lists FULLY-closed trades). For every CURRENT strategy (ACTIVE/PAUSED — the live
+    book; a closed strategy has no open positions), read its OPEN (wallet, coin) pairs from the clearinghouse,
+    then make ONE batched discovery_get_open_position_realized_pnl call over ALL those pairs. Returns a list
+    (one entry per position with NON-ZERO realized taken):
+        {asset, strategy_label, wallet, realized_taken, fees, remaining_notional, remaining_pct}
+    remaining_notional = the still-open positionValue. remaining_pct (current value vs current + implied-
+    closed) is only derivable when the realized taken is a positive profit AND we can approximate the closed
+    notional — otherwise it's left null (never fabricated). Fail-open throughout: any read error → [] + a
+    meta.warnings note; NEVER raises.
+
+    Onchain-only + honest: telemetry never touches this (it's a discovery realized-PnL fact). The whole point
+    is that the agent SEES the profit-taking on open positions without being asked."""
+    out = []
+    current = [s for s in (strategies or []) if _is_current(s.get("status"))]
+    if not current:
+        return out
+    # ── gather the OPEN (wallet, coin) pairs across the live book (clearinghouse per wallet, fail-open) ──
+    pairs = []                                 # [{wallet, coin, dex, notional, label}]
+    for strat in current:
+        wallet = strat.get("wallet")
+        if not wallet:
+            continue
+        for op in _open_positions_for(client, strat, meta):
+            pairs.append({"wallet": wallet, "coin": op["coin"], "dex": op.get("dex"),
+                          "notional": op.get("notional"), "label": strat.get("label")})
+    if not pairs:
+        return out                             # no open positions → nothing could have been partially closed
+    # ── ONE batched realized-PnL call over every open pair (discovery owns the realized-taken $) ──
+    positions_arg = [{"walletAddress": p["wallet"], "coin": p["coin"]} for p in pairs]
+    try:
+        resp = _ok(client.mcp_call("discovery_get_open_position_realized_pnl",
+                                   positions=positions_arg, timeout=20))
+    except Exception as e:  # noqa — fail-open: the whole partial-close stream degrades to empty, never raises
+        meta.setdefault("warnings", []).append(
+            f"discovery_get_open_position_realized_pnl failed: {e}; partial-close detection skipped")
+        return out
+    pnl_map = _parse_realized_pnl_rows(resp)
+    if not pnl_map:
+        return out                             # no realized-taken rows → no partial closes to surface
+    for p in pairs:
+        rec = pnl_map.get((str(p["wallet"]).lower(), str(p["coin"]).upper()))
+        if not rec:
+            continue
+        realized = rec.get("realized")
+        if realized is None or realized == 0:
+            continue                           # only surface positions with NON-ZERO realized taken
+        remaining_notional = p.get("notional")
+        # remaining_pct — current value vs (current + implied-closed). Only derivable for a positive realized
+        # profit we can treat as a rough proxy for the closed notional; otherwise leave null (don't fabricate).
+        remaining_pct = None
+        if (remaining_notional is not None and realized is not None and realized > 0
+                and (remaining_notional + realized) > 0):
+            remaining_pct = round(remaining_notional / (remaining_notional + realized) * 100, 1)
+        out.append({
+            "asset": p["coin"],
+            "strategy_label": p.get("label"),
+            "wallet": p["wallet"],
+            "realized_taken": round(realized, 2),
+            "fees": round(rec["fees"], 2) if rec.get("fees") is not None else None,
+            "remaining_notional": remaining_notional,
+            "remaining_pct": remaining_pct,
+        })
+    # biggest realized-taken first — the profit-taking the narrator should lead with
+    out.sort(key=lambda x: abs(x.get("realized_taken") or 0.0), reverse=True)
+    return out
 
 
 # ──────────────────────────────────────────────────────────────── current price (market_get_asset_data)
@@ -1469,7 +1618,8 @@ def _save_state(path, state):
 def _fresh_meta():
     """A meta skeleton seeded like run()'s — the same `sources` list + fail-open scaffolding, so every step's
     meta reads consistently whether it ran standalone or off state."""
-    return {"warnings": [], "sources": ["discovery_get_trader_history", "ratchet_stop_list",
+    return {"warnings": [], "sources": ["discovery_get_trader_history", "discovery_get_open_position_realized_pnl",
+                                        "strategy_get_clearinghouse_state", "ratchet_stop_list",
                                         "market_get_asset_data", "leaderboard_get_markets",
                                         "openclaw senpi events"], "degraded": None}
 
@@ -1559,20 +1709,26 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
     strat_reads = _strategy_reads(trades, strategies)
     closed_reads = _closed_strategy_rollup(trades, strategies)
     dsl_mix = _dsl_close_reason_mix(trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
+    # PARTIAL CLOSES — realized profit ALREADY TAKEN on still-OPEN positions (the stream trader_history is
+    # blind to). Read here (the CURRENT-book surface): clearinghouse open positions × discovery realized-PnL.
+    partial_closes = fetch_partial_closes(client, strategies, meta)
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count
     meta["strategy_count"] = len(strategies)
     meta["current_strategy_count"] = current_count
     meta["closed_strategy_count"] = closed_count
     meta["trade_count"] = len(trades)
+    meta["partial_close_count"] = len(partial_closes)
+    meta["has_partial_closes"] = bool(partial_closes)   # the SKILL gates guardrail 9 on this
     if not strategies:
         meta["degraded"] = "no strategies — check the token is USER-scoped"
     state["strategies_read"] = strat_reads
     state["closed_strategies"] = closed_reads
     state["dsl_close_reason_mix"] = dsl_mix
+    state["partial_closes"] = partial_closes
     _save_state(state_path, state)
     return {"strategies": strat_reads, "closed_strategies": closed_reads,
-            "dsl_close_reason_mix": dsl_mix, "meta": meta}
+            "dsl_close_reason_mix": dsl_mix, "partial_closes": partial_closes, "meta": meta}
 
 
 def step_telemetry(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True,
@@ -1645,7 +1801,8 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     """Orchestrate the review. Everything read-guarded + fail-open: partial data → valid JSON +
     meta.warnings/meta.degraded. `last_n` (a trade-count cap) coexists with the window — 'last N trades'
     still respects the window as the outer bound."""
-    meta = {"warnings": [], "sources": ["discovery_get_trader_history", "ratchet_stop_list",
+    meta = {"warnings": [], "sources": ["discovery_get_trader_history", "discovery_get_open_position_realized_pnl",
+                                        "strategy_get_clearinghouse_state", "ratchet_stop_list",
                                         "market_get_asset_data", "leaderboard_get_markets",
                                         "openclaw senpi events"], "degraded": None}
     since_ms, until_ms = _window_bounds(window_days, now_ms=now_ms)
@@ -1669,6 +1826,10 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     bvm = book_vs_market(client, trades, strategies, meta, want_market)
     strat_reads = _strategy_reads(trades, strategies)          # CURRENT book only (active/paused)
     closed_reads = _closed_strategy_rollup(trades, strategies) # HISTORY: closed/inactive, rollup only
+    # PARTIAL CLOSES — realized profit ALREADY TAKEN on still-OPEN positions (TP/SL fills, size reductions).
+    # trader_history only lists FULLY-closed trades, so this is the ONLY view of profit banked on live
+    # positions. Clearinghouse open positions × ONE batched discovery realized-PnL call. Fail-open to [].
+    partial_closes = fetch_partial_closes(client, strategies, meta)
 
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count
@@ -1682,10 +1843,14 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     meta["telemetry_source"] = _telemetry_source(src_counts, meta.get("_telemetry_warned", False))
     meta["missed_signal_count"] = len(missed_signals)
     meta["leak_counts"] = {k: v["count"] for k, v in leaks.items()}   # quick meta glance at the leak tallies
+    meta["partial_close_count"] = len(partial_closes)
+    meta["has_partial_closes"] = bool(partial_closes)         # the SKILL gates guardrail 9 on this
     meta.pop("_telemetry_warned", None)                        # internal flag — not part of the contract
     if not strategies:
         meta["degraded"] = "no strategies — check the token is USER-scoped"
-    elif not trades:
+    elif not trades and not partial_closes:
+        # "no closed trades" is NOT "no activity": only degrade when there are ALSO zero partial closes
+        # (profit taken on open positions). If partial_closes exist, there IS something to review.
         meta["degraded"] = "no closed trades in the window (or trade history unavailable)"
 
     return {
@@ -1700,6 +1865,7 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
         "execution_quality": exec_quality, # 'fees — maker vs taker' (+ future authoritative-fee ledger hook)
         "strategies": strat_reads,        # CURRENT book only — each judged vs its OWN mandate
         "closed_strategies": closed_reads, # HISTORY — minimal rollup, NO verdict/mandate (never consolidate)
+        "partial_closes": partial_closes,  # realized profit ALREADY TAKEN on still-OPEN positions (TP/SL/partial)
         "meta": meta,
     }
 
@@ -1741,6 +1907,7 @@ def _all_and_persist(client, window_days, last_n, want_market, state_path, now_m
         "execution_quality": result.get("execution_quality"),
         "strategies_read": result.get("strategies"),
         "closed_strategies": result.get("closed_strategies"),
+        "partial_closes": result.get("partial_closes"),
         "meta_warnings": (result.get("meta") or {}).get("warnings", []),
     }
     _save_state(state_path, state)

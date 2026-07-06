@@ -6,10 +6,11 @@ description: >-
   to the best whales", "how could I make more gains", "suggest improvements", "review my trades", "am I
   getting shaken out too early / how are my exits firing", "what did my own limits block / what couldn't
   I take", "where am I leaking", "walk me through / explain my [asset] trade", "what am I paying in fees /
-  maker vs taker", "why is [strategy] losing". A hidden engine (scripts/review.py) reconstructs every
-  CLOSED trade from discovery, enriches each exit reason + blocked signals from the runtime telemetry
-  event log, computes the honest "if I'd held to now" counterfactual, and crosses the book against what
-  the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
+  maker vs taker", "why is [strategy] losing", "did I take profit on my open positions". A hidden engine
+  (scripts/review.py) reconstructs every CLOSED trade from discovery, surfaces realized profit already TAKEN
+  on still-open positions (partial closes / TP / SL fills), enriches each exit reason + blocked signals from
+  the runtime telemetry event log, computes the honest "if I'd held to now" counterfactual, and crosses the
+  book against what the market did — you narrate it under strict guardrails: process over outcome (lead with the aggregate,
   not the one reversal), it's the STRATEGY not the user, NO fabricated "+$X/week", no performance-chasing,
   honest sourcing (onchain facts = discovery, exit reason / blocked / leaks = telemetry), and the user
   chooses how deep the fix goes. Composes senpi-market-pulse (movers), senpi-smart-money (whales), and
@@ -17,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.1"
+  version: "1.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -49,8 +50,11 @@ Two sources, two jobs. Never mix them, and never reconstruct one from the other.
 
 - **Onchain trade facts → `discovery`.** The trade **list itself** + every onchain fact: asset, direction,
   entry/exit price, realized PnL, fees, timing, leverage, size. Discovery **owns** these — they are never
-  re-derived from anything else. `discovery_get_trader_history` is the trade lister; `market_get_asset_data`
-  supplies the current price for the "if I'd held to now" counterfactual.
+  re-derived from anything else. `discovery_get_trader_history` lists **fully-closed** trades (`trades[]`);
+  `discovery_get_open_position_realized_pnl` reports **realized profit already taken on a still-OPEN
+  position** (partial closes / TP / SL fills / size reductions → `partial_closes[]`) — the profit
+  trader_history is blind to; `market_get_asset_data` supplies the current price for the "if I'd held to now"
+  counterfactual.
 - **Runtime / agent events → `telemetry` (the on-disk event log).** The facts discovery *can't* see because
   they left no onchain trace: each trade's **exit reason** (`dsl.closed` / `position.closed` close_reason +
   tier + roe), the **blocked/rejected signals** you never took (`signal.outcome`), and the **leak / exit-
@@ -319,11 +323,36 @@ Concretely: if you're about to say "you have 13 wallets, kill/merge 11 of them,"
 `meta.current_strategy_count`. If most of those 13 are in `closed_strategies[]`, the real live book is small
 and there is **no consolidation problem** — you're looking at redeploy history.
 
-### 9. No trades yet? Stop cleanly — do NOT pivot to setup / config nagging
+### 9. No CLOSED trades? Check partial closes FIRST — "no closed trades" ≠ "no activity"
 
-A trade review with **no closed trades** — especially **brand-new strategies deployed today with no
-positions yet** — is a **complete, correct result**: *"nothing to review yet."* Say that and stop. The
-strategies are **autonomous**; they open positions on their own when their scanners fire. **Do not
+**Before you reach for the fresh-strategy / "nothing to review" framing, check `partial_closes`.** A partial
+close, take-profit fill, stop fill, or size reduction on a position that **stays open** books **real realized
+profit** but leaves the position open — so it creates **no fully-closed-trade entry**, and
+`discovery_get_trader_history` (which lists only FULLY-closed positions) reports **zero closed trades even
+after the user took, say, 80% profit off two live positions.** Two sources, two kinds of realized profit:
+
+- **Fully-closed trades → `discovery_get_trader_history`** — the `trades[]` timing review.
+- **Realized-taken-on-open (partial closes) → `discovery_get_open_position_realized_pnl`** — the standalone
+  `partial_closes[]` stream: profit **already banked** on a **still-open** position. `meta.has_partial_closes`
+  / `meta.partial_close_count` gate this.
+
+**If `partial_closes` is non-empty, there IS something to review — REVIEW IT. Never say "nothing to
+review."** Narrate:
+- **The profit-taking** — how much was banked (`realized_taken`), on which asset/strategy. Was it early or
+  late vs the subsequent move? (You can only judge "early vs late" if you have the current price/move — else
+  say the profit was taken, don't guess the timing.) Keep it process-framed (guardrails 1–3): it's the
+  **strategy's** TP/DSL that took the profit, not the user; **no** "+$X/week."
+- **The REMAINING exposure and its protection** — `remaining_notional` (still on the table) and, per
+  guardrails 2 & 8, whether that open leg is protected by its DSL (**never** call it "unprotected" from an
+  empty ratchet record; the phase-1 floor is on from entry).
+
+**Only use the brand-new / fresh-strategy framing below when there are genuinely ZERO closed trades AND ZERO
+partial closes** (`trade_count == 0` **and** `has_partial_closes` false — which is exactly when
+`meta.degraded` fires). That is the real "just deployed, waiting for its first signal" case:
+
+A trade review with **no closed trades AND no partial closes** — especially **brand-new strategies deployed
+today with no positions yet** — is a **complete, correct result**: *"nothing to review yet."* Say that and
+stop. The strategies are **autonomous**; they open positions on their own when their scanners fire. **Do not
 manufacture a setup/config critique to seem useful.** The specific failures this prevents (all from a live
 run on a just-deployed book):
 
@@ -398,6 +427,13 @@ closed_strategies[]  HISTORY ONLY (CLOSED / INACTIVE / … — churned or retire
   # (part of the timing review, attributed by label). NEVER give these a "consolidate/kill/fix" verdict,
   # NEVER flag their absent mandate as a bug, NEVER count them as live "wallets to consolidate."
 
+partial_closes[]  realized profit ALREADY TAKEN on a STILL-OPEN position (TP/SL fills, partial closes, size
+  reductions) — from discovery_get_open_position_realized_pnl, NOT trader_history (which lists only FULLY-
+  closed trades). "No closed trades" ≠ "no activity" (guardrail 9). CURRENT book only.
+  { asset, strategy_label, wallet, realized_taken, fees, remaining_notional, remaining_pct }
+  # realized_taken = profit banked on the position while it stays open; remaining_notional = current
+  # positionValue still on the table; remaining_pct = current vs (current + implied-closed) or null.
+
 meta          { warnings[], sources[], window, degraded,
                 strategy_count,             # every enumerated strategy (all statuses) — a raw total
                 current_strategy_count,     # the LIVE book — THIS is "how many strategies you run"
@@ -405,7 +441,8 @@ meta          { warnings[], sources[], window, degraded,
                 trade_count,
                 telemetry_source,           # available | partial | unavailable — how much enrichment landed
                 exit_reason_source_counts,  # { telemetry, ratchet, unknown } — where each exit_reason came from
-                missed_signal_count, leak_counts }   # quick glances at the telemetry streams
+                missed_signal_count, leak_counts,   # quick glances at the telemetry streams
+                partial_close_count, has_partial_closes }   # realized profit taken on OPEN positions (guardrail 9)
 ```
 
 `exit_reason.terminal` — **when telemetry enriched it** (`source: "telemetry"`) it's the native

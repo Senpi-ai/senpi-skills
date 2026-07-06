@@ -1,0 +1,55 @@
+{
+  "_comment": "PARTIAL-CLOSE fixture. Built from the MCP TYPE shapes in senpi-hyperliquid-mcp/src/types/senpi.types.ts (ClearingHouseStateResult + OpenPositionRealizedPnlResult / GetOpenPositionRealizedPnlResponse) + the discovery.tools.ts handler (response key `realized_pnl` after the createResponse `data` unwrap) — NOT a live recording (the tool was not callable this session). MUST get a live smoke-test before merge. Two CURRENT strategies: `bear` holds an OPEN BTC position with realized profit ALREADY TAKEN (a partial close) → partial_closes surfaces it; `hare` is genuinely flat (open positions, but zero realized taken — and one truly-empty leg) → contributes nothing. Neither has any FULLY-closed trade, so trader_history reports zero closed trades: the exact bug scenario.",
+
+  "strategy_list": {"strategies": [
+    {"tradingStrategyName": "bear", "id": "strat-bear-1",
+     "strategyWalletAddress": "0xBEAR0000000000000000000000000000000bear", "status": "ACTIVE"},
+    {"tradingStrategyName": "hare", "id": "strat-hare-1",
+     "strategyWalletAddress": "0xHARE0000000000000000000000000000000hare", "status": "ACTIVE"}
+  ]},
+
+  "discovery_get_trader_history::0xbear0000000000000000000000000000000bear": {"closedPositions": []},
+  "discovery_get_trader_history::0xhare0000000000000000000000000000000hare": {"closedPositions": []},
+
+  "strategy_get_clearinghouse_state::0xbear0000000000000000000000000000000bear": {
+    "main": {
+      "marginSummary": {"accountValue": "5000.00"},
+      "withdrawable": "1200.00",
+      "assetPositions": [
+        {"type": "oneWay", "position": {
+          "coin": "BTC", "szi": "-0.20", "positionValue": "20000.00", "entryPx": "104000.00",
+          "leverage": {"type": "cross", "value": 3}, "unrealizedPnl": "150.00", "returnOnEquity": "0.05"}}
+      ]
+    },
+    "xyz": {"marginSummary": {"accountValue": "1200.00"}, "withdrawable": "1200.00", "assetPositions": []}
+  },
+
+  "strategy_get_clearinghouse_state::0xhare0000000000000000000000000000000hare": {
+    "main": {
+      "marginSummary": {"accountValue": "800.00"},
+      "withdrawable": "500.00",
+      "assetPositions": [
+        {"type": "oneWay", "position": {
+          "coin": "ETH", "szi": "0.30", "positionValue": "900.00", "entryPx": "2900.00",
+          "leverage": {"type": "cross", "value": 2}, "unrealizedPnl": "0.00", "returnOnEquity": "0.0"}},
+        {"type": "oneWay", "position": {
+          "coin": "SOL", "szi": "0", "positionValue": "0.00", "entryPx": "0.00",
+          "leverage": {"type": "cross", "value": 2}, "unrealizedPnl": "0.00", "returnOnEquity": "0.0"}}
+      ]
+    },
+    "xyz": {"marginSummary": {"accountValue": "500.00"}, "withdrawable": "500.00", "assetPositions": []}
+  },
+
+  "discovery_get_open_position_realized_pnl": {
+    "realized_pnl": [
+      {"walletAddress": "0xBEAR0000000000000000000000000000000bear", "coin": "BTC",
+       "realizedPnl": "480.00", "totalFees": "12.50"},
+      {"walletAddress": "0xHARE0000000000000000000000000000000hare", "coin": "ETH",
+       "realizedPnl": "0", "totalFees": "0"}
+    ],
+    "count": 2,
+    "fetched_at": "2026-07-05T00:00:00Z"
+  },
+
+  "leaderboard_get_markets": {"markets": [], "window": "4h", "timestamp": 1782800100}
+}
