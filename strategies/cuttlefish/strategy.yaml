@@ -1,0 +1,50 @@
+# Cuttlefish — strategy package deploy manifest (single source of truth for deploy + attribution).
+# A regime-ADAPTIVE long/short divergence basket: two books on separate wallets, each running
+# TWO supervised scanners — `entries` (market-pulse context x smart-money divergence, conviction-
+# banded sizing) and `rebalance` (the auto-adjust re-read). rebalance feeds the fleet's FIRST
+# CLOSE_POSITION action: a confirmed BTC-tide flip closes the book, a smart-money reversal closes
+# the name, and every regimeRefreshHours (default 4h) a basket refresh recycles stale-thesis
+# names. Unlike every prior basket package, the book adjusts to re-reads of the market — it does
+# not rely on DSL attrition alone. DSL still owns all price-action exits.
+# Install/teardown via senpi-strategy-ops (deploy.py / close.py).
+schema_version: 1
+
+id: cuttlefish
+version: "1.0.0"
+
+catalog:
+  name: "Cuttlefish — Regime-Adaptive Divergence Baskets"
+  emoji: "🦑"
+  tagline: "Reads the whole market — trend tide, funding crowding, and where the smartest wallets sit before the crowd — then builds a LONG basket and a SHORT basket on separate wallets, sizes each name by conviction, and RE-reads every 15 minutes: when the regime flips or smart money walks away, it closes the affected positions itself instead of waiting for a stop."
+  belief_plain: "Follow the smartest wallets into positions the crowd hasn't found yet, in the direction the market tide allows — and when the tide turns or the smart money leaves, change your book like a cuttlefish changes color: immediately, automatically, without waiting to be stopped out."
+  thesis: "Smart-money divergence — the best wallets positioned before funding and price agree — is the entry edge; regime adaptation is the exit edge. Every other basket strategy here scores the market once at entry and then lets stops do the thinking. Cuttlefish re-reads the tide, the crowding, and the smart-money board on a cadence and actively closes what no longer belongs: the whole book on a confirmed tide flip, a single name the moment smart money reverses, and the stale tail at every 4-hour refresh."
+  group: smart-money
+  archetype: trend_following
+  sub_style: adaptive
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 6
+  max_slots: 8              # 4 per book
+  min_budget: 200           # two wallets, $100 floor each
+  assets: [BTC, ETH, SOL, HYPE, XRP, DOGE, SUI, AVAX, LINK, LTC, AAVE, UNI]
+  tags: [smart-money, divergence, regime, adaptive, long-short, basket, rebalance, close-position]
+
+requires:
+  runtime: ">=3.0.0"        # CLOSE_POSITION action + v2 supervised external scanners
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: long
+    runtime: long/runtime.yaml         # → runtime name cuttlefish-long, group cuttlefish
+    wallet_env: CUTTLEFISH_LONG_WALLET
+    funding_share: 0.5
+  - name: short
+    runtime: short/runtime.yaml        # → runtime name cuttlefish-short, group cuttlefish
+    wallet_env: CUTTLEFISH_SHORT_WALLET
+    funding_share: 0.5

@@ -1,0 +1,158 @@
+# ── CUTTLEFISH · SHORT book — regime-adaptive smart-money divergence basket ──
+# Mirror of the LONG book on its own wallet: `entries` builds the SHORT basket
+# (smart money leaning short before the crowd/price), `rebalance` auto-adjusts
+# via the CLOSE_POSITION action (tide flip / SM reversal / 4h basket refresh).
+# Tighter DSL + sizing than the long book — shorts carry squeeze risk.
+name: cuttlefish-short
+group: cuttlefish
+version: 1.0.0
+description: >
+  CUTTLEFISH SHORT — regime-adaptive divergence basket, SHORT book. Scores the
+  same 12-name liquid-crypto universe where smart money leans SHORT before the
+  crowd (funding contra) or before price (distribution into strength),
+  confirmed by 4h/1h downtrend + volume; builds up to 4 conviction-banded
+  shorts (5x/4x/3x) while the BTC tide is not BULL. Auto-adjusts on re-reads:
+  a confirmed tide flip closes the book, a smart-money reversal closes the
+  name, and every 4h a basket refresh recycles stale-thesis names — via
+  CLOSE_POSITION signals. Tighter DSL than the long book (squeeze risk).
+
+strategy:
+  wallet: "${CUTTLEFISH_SHORT_WALLET}"
+  slots: 4
+  default_leverage: 3                   # fallback; entries emit banded 3/4/5
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: cuttlefish_short_entries     # builds the basket
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900
+    timeout_seconds: 300                # tide + regime + board + up to 12 asset reads
+    default_signal_validity_seconds: 1800
+    state_history_max_count: 200
+    inputs: &cuttlefish_inputs
+      side: "SHORT"
+      tideAsset: "BTC"
+      universe: ["BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "SUI", "AVAX", "LINK", "LTC", "AAVE", "UNI"]
+      maxSlots: 4
+      # ── composite weights (divergence core is the thesis — heaviest) ──
+      weights:
+        smLean: 2.5
+        divergence: 3.0
+        trend4h: 1.5
+        align1h: 1.0
+        mom24h: 1.0
+        volRatio: 0.5
+        regimeBonus: 0.5
+      # ── gates + conviction bands (shorts demand a stronger case) ──
+      minScore: 6.0
+      goodScore: 7.0
+      apexScore: 8.5
+      exitScore: 3.5                    # basket-refresh recycle threshold (rebalance)
+      leverageTiers: { apex: 5, good: 4, base: 3 }   # clamped to venue max per asset
+      marginPctTiers: { apex: 20, good: 15, base: 10 }  # PERCENT of withdrawable
+      # ── auto-adjust cadence ──
+      regimeRefreshHours: 4             # X — full basket re-rank cadence (default 4h)
+      tideFlipConfirmTicks: 2           # 2 x 900s against-ticks before the book flips out
+      recentSignalTtlSeconds: 3600
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      tide: { type: string, required: false }
+      regime: { type: string, required: false }
+      smDir: { type: string, required: false }
+      smPct: { type: number, required: false }
+      mom24h: { type: number, required: false }
+      components: { type: object, required: false }
+      reasons: { type: array, required: false }
+
+  - name: cuttlefish_short_rebalance   # the auto-adjust re-read → CLOSE_POSITION
+    type: external_scanner
+    path: ./scanners
+    entrypoint: rebalance.py
+    interval_seconds: 900
+    timeout_seconds: 240
+    default_signal_validity_seconds: 1200
+    state_history_max_count: 200
+    inputs: *cuttlefish_inputs
+    signal_data_schema:
+      trigger: { type: string }
+      reason: { type: string }
+      tide: { type: string, required: false }
+      regime: { type: string, required: false }
+      score: { type: number, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: cuttlefish_short_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                 # the composite already applied every filter
+    scanners: [cuttlefish_short_entries]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: cuttlefish_short_entries
+
+  - name: cuttlefish_short_adjust      # FLEET-FIRST: scanner-driven CLOSE_POSITION
+    action_type: CLOSE_POSITION
+    decision_mode: rule                 # rebalance signals pass through; closes are
+    scanners: [cuttlefish_short_rebalance]  # idempotent (no_open_position -> skip)
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+
+# EXIT — DSL owns every price-action exit (rebalance owns regime exits).
+# Tighter than the long book: short squeezes move fast.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 240
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 10.0
+      retrace_threshold: 5
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 6, lock_hw_pct: 0 }
+        - { trigger_pct: 15, lock_hw_pct: 30 }
+        - { trigger_pct: 35, lock_hw_pct: 55 }
+        - { trigger_pct: 60, lock_hw_pct: 75 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 14400   # 4h — also blocks instant re-entry after a rebalance close
+    drawdown_halt_pct: 12
+    drawdown_reset_on_day_rollover: true

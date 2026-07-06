@@ -3461,6 +3461,64 @@
       "sort_order": 2
     },
     {
+      "id": "cuttlefish",
+      "name": "Cuttlefish — Regime-Adaptive Divergence Baskets",
+      "emoji": "🦑",
+      "tagline": "Reads the whole market — trend tide, funding crowding, and where the smartest wallets sit before the crowd — then builds a LONG basket and a SHORT basket on separate wallets, sizes each name by conviction, and RE-reads every 15 minutes: when the regime flips or smart money walks away, it closes the affected positions itself instead of waiting for a stop.",
+      "belief_plain": "Follow the smartest wallets into positions the crowd hasn't found yet, in the direction the market tide allows — and when the tide turns or the smart money leaves, change your book like a cuttlefish changes color: immediately, automatically, without waiting to be stopped out.",
+      "version": "1.0.0",
+      "thesis": "Smart-money divergence — the best wallets positioned before funding and price agree — is the entry edge; regime adaptation is the exit edge. Every other basket strategy here scores the market once at entry and then lets stops do the thinking. Cuttlefish re-reads the tide, the crowding, and the smart-money board on a cadence and actively closes what no longer belongs: the whole book on a confirmed tide flip, a single name the moment smart money reverses, and the stale tail at every 4-hour refresh.",
+      "tags": [
+        "smart-money",
+        "divergence",
+        "regime",
+        "adaptive",
+        "long-short",
+        "basket",
+        "rebalance",
+        "close-position"
+      ],
+      "group": "smart-money",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "adaptive",
+      "sub_style_label": "Self-tunes its thresholds from its own track record.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "basket",
+      "assets": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "HYPE",
+        "XRP",
+        "DOGE",
+        "SUI",
+        "AVAX",
+        "LINK",
+        "LTC",
+        "AAVE",
+        "UNI"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 6,
+      "time_horizon": "swing",
+      "cadence_seconds": 900,
+      "min_budget": 200,
+      "instance_count": 2,
+      "funding_split": [
+        0.5,
+        0.5
+      ],
+      "max_slots": 8,
+      "branch": "main",
+      "sort_order": 3
+    },
+    {
       "id": "dog",
       "name": "Dog — Contrarian Pup (SM Exhaustion Fader)",
       "emoji": "🐕",
@@ -3511,7 +3569,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 3
+      "sort_order": 4
     },
     {
       "id": "egret",
@@ -3564,7 +3622,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 4
+      "sort_order": 5
     },
     {
       "id": "hyena",
@@ -3626,7 +3684,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 5
+      "sort_order": 6
     },
     {
       "id": "marlin",
@@ -3677,7 +3735,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 6
+      "sort_order": 7
     },
     {
       "id": "oxpecker",
@@ -3722,7 +3780,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "raptor",
@@ -3763,7 +3821,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "remora",
@@ -3807,7 +3865,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "roach",
@@ -3851,7 +3909,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
     },
     {
       "id": "stingray",
@@ -3898,7 +3956,7 @@
       ],
       "max_slots": 4,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 12
     },
     {
       "id": "whalehunter",
@@ -3941,7 +3999,7 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 13
     },
     {
       "id": "osprey",
