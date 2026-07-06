@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-07-06",
+  "_updated": "2026-06-17",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -1657,6 +1657,54 @@
       "sort_order": 1
     },
     {
+      "id": "gibbon",
+      "name": "Gibbon — Rotation Rider (Daily)",
+      "emoji": "🐒",
+      "tagline": "Reads the whole market once a day, ranks the sectors — semis, software, crypto, indices, commodities — by how they're moving, and rides the rotation: it buys the leaders of the winning sectors and shorts the laggards of the losing ones, biggest when the market is a clean rotation (index calm while sectors split) and smaller when everything moves together. It never sells manually; a trailing stop does all the exiting, so last rotation's winners wind down on their own as the new leaders take over.",
+      "belief_plain": "Money constantly rotates between sectors — out of memory chips into AI logic, out of crypto proxies into software, and so on. Once a day Gibbon looks at which sectors are being bought and which are being sold, then buys the strongest names in the winning sectors and shorts the weakest in the losing ones. It leans in hardest on real rotation days and eases off when the whole market just moves together. It never manually closes — a ratchet stop protects and exits every position, so the book rotates as the market does.",
+      "version": "1.0.0",
+      "thesis": "The market-pulse read repeatedly surfaces sector rotation — memory semis dumped while logic semis are bought, crypto proxies sold while software holds. Gibbon automates trading that structure: it re-ranks the sectors daily and expresses the winning-vs-losing rotation as new long/short entries, sized by how much dispersion there actually is. It never force-closes — turnover is set by the market via DSL. Orangutan is the weekly, more-committed sibling.",
+      "tags": [
+        "rotation",
+        "dispersion",
+        "sector",
+        "pulse",
+        "smart-money",
+        "long-short",
+        "universe",
+        "daily",
+        "no-close",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "rotation",
+      "sub_style_label": "Always holds the strongest of a basket; rotates as leadership changes.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 21600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 8,
+      "branch": "main",
+      "sort_order": 2
+    },
+    {
       "id": "gorilla",
       "name": "Gorilla — Regime Allocator (Weekly)",
       "emoji": "🦍",
@@ -1703,7 +1751,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 2
+      "sort_order": 3
     },
     {
       "id": "mantis",
@@ -1749,7 +1797,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 3
+      "sort_order": 4
     },
     {
       "id": "octopus",
@@ -1793,7 +1841,55 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 4
+      "sort_order": 5
+    },
+    {
+      "id": "orangutan",
+      "name": "Orangutan — Rotation Rider (Weekly)",
+      "emoji": "🦧",
+      "tagline": "The weekly, more-committed sibling of Gibbon. Once a week it ranks the sectors — semis, software, crypto, indices, commodities — and commits to the rotation: long the leaders of the winning sectors, short the laggards of the losing ones, biggest when the rotation is decisive. It never sells manually; a wide trailing stop does all the exiting and lets winners run for weeks, so the book turns over on the market's schedule.",
+      "belief_plain": "Like Gibbon, but slower and more committed. Once a week it decides which sectors are winning and which are losing, then holds fewer, bigger positions — long the strongest names, short the weakest — and only commits when the rotation is decisive. It never manually closes; a wide ratchet stop protects each position and lets the winners run, so the book rotates on the market's schedule, not a scanner's.",
+      "version": "1.0.0",
+      "thesis": "Same automated rank-the-sectors-and-ride loop as Gibbon, on a weekly clock with a wider DSL and a higher rotation threshold — for users who want a deliberate rotation-follower that commits to a theme and rides it, rather than re-ranking daily. Never force-closes; turnover is set by the market via DSL. Pair with Gibbon for a fast + slow rotation sleeve.",
+      "tags": [
+        "rotation",
+        "dispersion",
+        "sector",
+        "pulse",
+        "smart-money",
+        "long-short",
+        "universe",
+        "weekly",
+        "no-close",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "rotation",
+      "sub_style_label": "Always holds the strongest of a basket; rotates as leadership changes.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "position",
+      "cadence_seconds": 21600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 7,
+      "branch": "main",
+      "sort_order": 6
     },
     {
       "id": "asia-ai",

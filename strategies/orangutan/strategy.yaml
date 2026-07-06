@@ -1,0 +1,42 @@
+# Orangutan — Rotation Rider (WEEKLY). Single-wallet PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/ (byte-identical engine to Gibbon). Reads
+# the whole market once a week, rides the winning sectors / fades the losing ones,
+# and NEVER closes — a rotation change only changes what it opens next; prior
+# positions retire on their own DSL. The committed weekly sibling of Gibbon (daily).
+schema_version: 1
+
+id: orangutan
+version: "1.0.0"
+
+catalog:
+  name: "Orangutan — Rotation Rider (Weekly)"
+  emoji: "🦧"
+  tagline: "The weekly, more-committed sibling of Gibbon. Once a week it ranks the sectors — semis, software, crypto, indices, commodities — and commits to the rotation: long the leaders of the winning sectors, short the laggards of the losing ones, biggest when the rotation is decisive. It never sells manually; a wide trailing stop does all the exiting and lets winners run for weeks, so the book turns over on the market's schedule."
+  belief_plain: "Like Gibbon, but slower and more committed. Once a week it decides which sectors are winning and which are losing, then holds fewer, bigger positions — long the strongest names, short the weakest — and only commits when the rotation is decisive. It never manually closes; a wide ratchet stop protects each position and lets the winners run, so the book rotates on the market's schedule, not a scanner's."
+  thesis: "Same automated rank-the-sectors-and-ride loop as Gibbon, on a weekly clock with a wider DSL and a higher rotation threshold — for users who want a deliberate rotation-follower that commits to a theme and rides it, rather than re-ranking daily. Never force-closes; turnover is set by the market via DSL. Pair with Gibbon for a fast + slow rotation sleeve."
+  group: multi-asset-universe
+  archetype: trend_following
+  sub_style: rotation
+  asset_classes: [btc_eth, major_alts, xyz_equities, commodities]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: position
+  leverage_max: 5
+  max_slots: 7
+  min_budget: 100
+  assets: []                 # DERIVED live weekly from both dexes (vol floor + top-N)
+  tags: [rotation, dispersion, sector, pulse, smart-money, long-short, universe, weekly, no-close, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name orangutan-main, group orangutan
+    wallet_env: ORANGUTAN_WALLET
+    funding_share: 1.0

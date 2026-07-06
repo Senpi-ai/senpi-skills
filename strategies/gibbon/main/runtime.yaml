@@ -1,0 +1,140 @@
+# ── GIBBON · Rotation Rider (DAILY recalibration) ───────────────────────────
+# Reads the whole market once a day, ranks the SECTORS by their move, and rides
+# the winners: long the leaders of the strongest groups, short the laggards of
+# the weakest — engaging fully only on a rotation day (index calm while sectors
+# spread), doing less on a broad macro day. Universe spans main crypto + xyz
+# equities/commodities. NEVER closes — a rotation change just changes what it
+# opens next; prior positions retire on their own DSL (rotate-by-attrition).
+# The nimble daily sibling of the weekly Orangutan.
+name: gibbon-main
+group: gibbon
+version: 1.0.0
+description: >
+  GIBBON — Rotation Rider, daily. Ranks sectors (semis, software, crypto,
+  indices, commodities) by their 24h move each day and rides the rotation:
+  long the leaders of the winning groups, short the laggards of the losing
+  ones, full size only when the pulse shows dispersion (rotation), reduced
+  size on a broad day where the edge is absent. One wallet, up to 8
+  conviction-banded, tape-confirmed positions; leverage clamped to venue max.
+  DSL is the ONLY exit (15% Phase 1, profit-lock ladder to +80%, 36h weak-peak).
+
+strategy:
+  wallet: "${GIBBON_WALLET}"
+  slots: 8
+  margin_pct: 10
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: gibbon_rider
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 21600           # wake every 6h; the market read is gated to daily
+    timeout_seconds: 300
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 200
+    inputs:
+      recalibrationHours: 24
+      maxSlots: 8
+      universeVolFloorUsd: 25000000
+      xyzVolFloorUsd: 3000000
+      maxMainNames: 14
+      maxXyzNames: 20                 # rider is more equity/sector-focused
+      excludeAssets: []
+      # ── rotation knobs ──
+      groupThreshold: 0.5             # +/-% avg move to call a sector strong / weak
+      broadSizeScale: 0.5             # broad (macro) day — dispersion edge absent, do less
+      mixedSizeScale: 0.6
+      # ── entry gates + conviction bands ──
+      minScore: 5.5
+      goodScore: 6.5
+      apexScore: 8.0
+      leverageTiers: { apex: 5, good: 4, base: 3 }
+      marginPctTiers: { apex: 14, good: 10, base: 7 }
+      recentSignalTtlSeconds: 43200
+      useCohorts: true
+      cohorts:
+        smartMinRealizedUsd: 1000000
+        crowdMinRealizedUsd: 10000
+        crowdMaxRealizedUsd: 100000
+        sampleCap: 150
+        pageSize: 1000
+        maxPages: 6
+        stateBatch: 50
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      stance: { type: string, required: false }
+      mode: { type: string, required: false }
+      posture: { type: string, required: false }
+      sizeScale: { type: number, required: false }
+      regime: { type: string, required: false }
+      lean: { type: number, required: false }
+      mom24h: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: gibbon_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [gibbon_rider]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: gibbon_rider
+  # NO CLOSE_POSITION action — DSL is the only exit (rotate-by-attrition).
+
+# EXIT — DSL only. Momentum-of-the-winning-sector: tighter initial stop, ride the
+# ladder; a stalled rotation is cut at 36h (rotations can end fast on a daily book).
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 2160        # 36h — a stalled rotation frees its slot inside ~1.5 days
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8, lock_hw_pct: 0 }
+        - { trigger_pct: 20, lock_hw_pct: 38 }
+        - { trigger_pct: 45, lock_hw_pct: 62 }
+        - { trigger_pct: 80, lock_hw_pct: 80 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 43200
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
