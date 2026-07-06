@@ -103,7 +103,7 @@ def multi_instance():
     if sp:
         ck("spider shows funding_split", sp.get("funding_split") == [0.6, 0.4])
         ck("spider has leg caveat", any("wallet" in cv.lower() for cv in sp["caveats"]))
-        print(f"  · spider split={sp.get('funding_split')} budget=${sp['suggested_budget']} caveats={sp['caveats']}")
+        print(f"  · spider split={sp.get('funding_split')} budget=${sp['min_budget']} caveats={sp['caveats']}")
 
 
 def null_catalog_robustness():

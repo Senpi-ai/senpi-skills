@@ -253,11 +253,11 @@ def _caveats(r, intent):
     return cav
 
 
-def _suggested_budget(r, intent):
-    mb = r.get("min_budget") or 100
-    if intent["budget"] and intent["budget"] >= mb:
-        return int(intent["budget"])
-    return mb
+def _min_budget(r):
+    """The FLOOR to run this strategy — max(declared, $100 x wallets). NOT a recommended amount.
+    Actual sizing scales with the user's available funds and is the LLM's job (see SKILL.md Layer 3);
+    the engine only reports the minimum so the card can say 'needs ~$X to start'."""
+    return int(r.get("min_budget") or 100)
 
 
 def _intent_echo(intent):
@@ -299,8 +299,9 @@ def _candidate(r, intent):
         "time_horizon": r.get("time_horizon"), "asset_scope": r.get("asset_scope"),
         "direction": r.get("direction"), "asset_classes": r.get("asset_classes") or [],
         "assets": r.get("assets") or [], "tier": r.get("tier"),
-        # narration
-        "suggested_budget": _suggested_budget(r, intent), "caveats": _caveats(r, intent),
+        # narration — min_budget is the FLOOR to start, not a recommendation. Size from the user's
+        # available funds (meta.user_context.budget); see SKILL.md Layer 3.
+        "min_budget": _min_budget(r), "caveats": _caveats(r, intent),
         "market_facts": [],
     }
     if r.get("tag_labels"):
@@ -609,6 +610,13 @@ def main(argv=None):
     if args.theme:
         result = apply_theme(result, args.theme)
 
+    # User's available funds — ALWAYS attach (independent of market enrichment / candidate count) so the
+    # LLM can size each pick from real balance, not the per-strategy floor. See SKILL.md Layer 3.
+    try:
+        result["meta"]["user_context"] = fetch_user_context(_get_client())
+    except Exception as e:  # noqa
+        result["meta"].setdefault("warnings", []).append(f"user context unavailable: {e}")
+
     # market enrichment (pass 2): ONE batched fetch over the union of survivors' chosen assets, in
     # candidate order (asset-matched first), capped by unique-asset count inside fetch_market_map.
     if not args.no_market and result["candidates"]:
@@ -623,7 +631,6 @@ def main(argv=None):
                     union.append(a)
         try:
             client = _get_client()
-            result["meta"]["user_context"] = fetch_user_context(client)
             fact_map, _ = fetch_market_map(client, union)
             for cand in result["candidates"]:
                 cand["market_facts"] = [fact_map[a] for a in per_cand[cand["id"]] if a in fact_map]
