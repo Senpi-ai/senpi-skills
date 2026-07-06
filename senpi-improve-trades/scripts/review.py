@@ -857,7 +857,10 @@ def fetch_partial_closes(client, strategies, meta):
     if not pairs:
         return out                             # no open positions → nothing could have been partially closed
     # ── ONE batched realized-PnL call over every open pair (discovery owns the realized-taken $) ──
-    positions_arg = [{"walletAddress": p["wallet"], "coin": p["coin"]} for p in pairs]
+    # the tool REQUIRES snake-case `wallet_address` (verified live against the tool schema); send both
+    # forms defensively since the position item allows extra keys.
+    positions_arg = [{"wallet_address": p["wallet"], "walletAddress": p["wallet"], "coin": p["coin"]}
+                     for p in pairs]
     try:
         resp = _ok(client.mcp_call("discovery_get_open_position_realized_pnl",
                                    positions=positions_arg, timeout=20))
