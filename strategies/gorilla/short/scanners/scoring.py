@@ -171,9 +171,27 @@ def pulse_stance(changes, groups, vix_price=None):
         "vix": ("fear contained" if (vix_price is not None and vix_price < 22)
                 else "fear elevated" if vix_price is not None else None),
     }
+
+    # dispersion (pulse.py verbatim, threshold 2.5): the headline index calm while a
+    # sector breaks = ROTATION (stock-picking day — a long/short book's home turf);
+    # index moving with its components = BROAD (macro day — the direction gate rules).
+    sp500 = changes.get("SP500")
+    worst_group, worst_avg = None, 0.0
+    for gname, g in gavg.items():
+        a = g["avg_change_pct"]
+        if a is not None and a < worst_avg:
+            worst_group, worst_avg = gname, a
+    dispersion = {
+        "sp500_change_pct": sp500,
+        "worst_group": worst_group,
+        "worst_group_avg_pct": round(worst_avg, 2) if worst_group else None,
+        "read": ("rotation" if (sp500 is not None and worst_group and (sp500 - worst_avg) > 2.5)
+                 else "broad" if (sp500 is not None and worst_group) else None),
+    }
     return {"day": day, "groups_up": up, "groups_down": down,
             "group_avgs": {k: v["avg_change_pct"] for k, v in gavg.items()},
-            "checklist": checklist, "vix_price": vix_price, "vix_change_pct": vix_chg}
+            "checklist": checklist, "dispersion": dispersion,
+            "vix_price": vix_price, "vix_change_pct": vix_chg}
 
 
 # ── COHORTS — smart-vs-crowd divergence (senpi-smart-money port) ────────────
@@ -267,6 +285,14 @@ def divergences(smart_per, crowd_per, cfg=None):
     return out
 
 
+def top_movers(views, n=3):
+    """The pulse's standout-mover surfacing: universe names ranked by |24h change|."""
+    ranked = sorted(((name, _f(v.get("chg"))) for name, v in (views or {}).items()
+                     if v.get("chg") is not None),
+                    key=lambda kv: abs(kv[1]), reverse=True)
+    return [{"asset": a, "chg": c} for a, c in ranked[:n]]
+
+
 # ── THESIS — pulse stance x cohort divergence ───────────────────────────────
 
 def derive_thesis(views, pulse, cohort, regime, inputs, now):
@@ -315,20 +341,33 @@ def derive_thesis(views, pulse, cohort, regime, inputs, now):
     caps = {"RISK_ON": {"LONG": 5, "SHORT": 2},
             "RISK_OFF": {"LONG": 2, "SHORT": 5},
             "NEUTRAL": {"LONG": 3, "SHORT": 3}}[stance]
+    disp = (pulse or {}).get("dispersion") or {}
+    if stance == "NEUTRAL" and disp.get("read") == "rotation":
+        # rotation day: index calm while a sector breaks — stock-picking, not
+        # direction. Dispersion is a long/short book's edge: run both books full.
+        caps = {"LONG": 4, "SHORT": 4}
 
     chk = (pulse or {}).get("checklist") or {}
     chk_bits = "; ".join(v for v in (chk.get("gold"), chk.get("dxy"), chk.get("vix")) if v)
+    disp_bits = ""
+    if disp.get("read") == "rotation":
+        disp_bits = (f"; DISPERSION: rotation — index calm while {disp.get('worst_group')} "
+                     f"breaks {disp.get('worst_group_avg_pct')}% (stock-picking day, both books full)")
+    elif disp.get("read") == "broad":
+        disp_bits = "; dispersion: broad (macro day)"
+    mv = top_movers(views)
+    mv_bits = ("; movers: " + ", ".join(f"{m['asset']} {m['chg']:+.1f}%" for m in mv)) if mv else ""
     cohort_note = ("" if (cohort or {}).get("available")
                    else " [cohorts unavailable — RS-ranked fallback]")
     narrative = (f"{stance} (pulse: {day or 'no read'}, "
                  f"{(pulse or {}).get('groups_up', 0)} groups up / "
-                 f"{(pulse or {}).get('groups_down', 0)} down; {chk_bits or 'no checklist'}); "
-                 f"funding regime {regime or 'UNKNOWN'}; "
-                 f"long {','.join(longs) or '—'}; short {','.join(shorts) or '—'}"
+                 f"{(pulse or {}).get('groups_down', 0)} down; {chk_bits or 'no checklist'}"
+                 f"{disp_bits}); funding regime {regime or 'UNKNOWN'}"
+                 f"{mv_bits}; long {','.join(longs) or '—'}; short {','.join(shorts) or '—'}"
                  f"{cohort_note}")
     return {"stance": stance, "leaders": longs, "laggards": shorts, "caps": caps,
             "bucket_src": src, "pulse": {k: (pulse or {}).get(k) for k in
-                                         ("day", "groups_up", "groups_down", "group_avgs")},
+                                         ("day", "groups_up", "groups_down", "group_avgs", "dispersion")},
             "cohorts_available": bool((cohort or {}).get("available")),
             "smart_bias": {k: v.get("bias") for k, v in ((cohort or {}).get("smart") or {}).items()},
             "regime": regime or "UNKNOWN", "universe": sorted(universe),

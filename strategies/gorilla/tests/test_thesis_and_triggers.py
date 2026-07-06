@@ -80,6 +80,22 @@ chg_mixed = {"BTC": 2.0, "ETH": 3.0, "NVDA": -1.5, "AMD": -2.5, "SP500": 0.1,
 check("mixed day", scoring.pulse_stance(chg_mixed, GROUPS)["day"] == "mixed")
 check("no quotes -> day None", scoring.pulse_stance({}, GROUPS)["day"] is None)
 
+# ── dispersion (pulse.py verbatim: index calm + sector break > 2.5 = rotation) ──
+chg_rot = {"BTC": 1.4, "ETH": 1.2, "NVDA": -4.0, "AMD": -4.6, "SP500": 0.4,
+           "GOLD": -0.3, "DXY": 0.0}
+p_rot = scoring.pulse_stance(chg_rot, GROUPS, vix_price=20.0)
+check("rotation day is mixed", p_rot["day"] == "mixed")
+check("dispersion read = rotation", p_rot["dispersion"]["read"] == "rotation")
+check("worst group named", p_rot["dispersion"]["worst_group"] == "semis")
+check("broad read on aligned day", p["dispersion"]["read"] == "broad")
+check("no read without sp500",
+      scoring.pulse_stance({"BTC": 1.0}, {"crypto": ["BTC"]})["dispersion"]["read"] is None)
+
+# movers surfacing
+mv = scoring.top_movers({"AAVE": {"chg": 8.95}, "BTC": {"chg": 1.7}, "SUI": {"chg": -0.9},
+                         "NEAR": {"chg": 4.08}, "X": {"chg": None}})
+check("movers ranked by |chg|", [m["asset"] for m in mv] == ["AAVE", "NEAR", "BTC"])
+
 # ── cohort bias math (smart-money port: bias = net/gross) ──
 traders = [
     {"openPositions": [{"coin": "SOL", "szi": 10, "positionValue": 100_000},
@@ -132,6 +148,14 @@ check("cohorts flagged available", th["cohorts_available"])
 check("narrative carries pulse", "risk_on" in th["narrative"])
 check("derived_at stamped", th["derived_at"] == 1000.0)
 check("caps favor long book", th["caps"]["LONG"] == 5 and th["caps"]["SHORT"] == 2)
+
+# rotation day -> NEUTRAL stance runs both books full (dispersion mode)
+th_rot = scoring.derive_thesis(views, p_rot, cohort, None, INPUTS, 0.0)
+check("rotation day stance NEUTRAL", th_rot["stance"] == "NEUTRAL")
+check("dispersion mode caps 4/4", th_rot["caps"] == {"LONG": 4, "SHORT": 4})
+check("narrative flags rotation", "DISPERSION: rotation" in th_rot["narrative"])
+check("narrative carries movers", "movers:" in th_rot["narrative"])
+check("thesis persists dispersion", th_rot["pulse"]["dispersion"]["read"] == "rotation")
 
 # degrade: no cohorts -> RS-ranked + flagged in narrative
 th_deg = scoring.derive_thesis(views, {"day": None}, {"available": False}, None, INPUTS, 0.0)
