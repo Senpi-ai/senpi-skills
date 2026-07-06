@@ -438,17 +438,32 @@ def close_triggers(side, held, new_thesis, old_thesis, scored_by_asset, inputs,
                    thesis_due, rebalance_due):
     """[{asset, direction, reason, trigger}] for the CLOSE_POSITION action.
 
-    thesis_shift        — at the 48h rethink, a held name no longer in this
-                          book's bucket is closed.
-    divergence_reversed — at the rethink, the PROVEN cohort's bias has flipped
-                          >= leanThreshold against a held name (cohort data
-                          from the fresh thesis; skipped when unavailable).
-    weekly_rebalance    — at the 7d rebalance, a held name re-scoring below
-                          exitScore is recycled.
+    COHERENCE INVARIANT — the entries scanner and this one each derive their
+    OWN thesis into their OWN ctx.state (state is per-scanner; they cannot share
+    a bucket). So closes fire ONLY on per-name thesis DEATH, NEVER on
+    bucket-membership vs a separately-derived ranking. A name the entries
+    scanner just opened (press score >= minScore, in its bucket) can never
+    satisfy a close trigger here (press score < exitScore, or the proven cohort
+    >= leanThreshold AGAINST it) — the exitScore < minScore gap is the
+    hysteresis band that makes the two independent theses harmless (no
+    open<->close fight over a rank-4-vs-5 cutoff). enforce_hysteresis() guards
+    the config.
+
+    divergence_reversed — the PROVEN cohort's bias has flipped >= leanThreshold
+                          AGAINST a held name (fresh cohort read; skipped when
+                          cohorts unavailable). Per-name — robust.
+    thesis_shift        — at the 48h rethink, a held name RE-SCORES below
+                          exitScore under the fresh read: its OWN case died (the
+                          tape stopped confirming) — not "it dropped a rank".
+    weekly_rebalance    — the same score-death check on the 7d clock (distinct
+                          trigger only for telemetry).
     """
     exit_score = _f(inputs.get("exitScore"), 3.5)
     cfg = inputs.get("cohorts") or {}
     lean = _f(cfg.get("leanThreshold"), LEAN_THRESHOLD)
+    against = -1 if side == "LONG" else 1
+    smart_bias = (new_thesis or {}).get("smart_bias") or {}
+    cohorts_ok = bool((new_thesis or {}).get("cohorts_available"))
     out, closed = [], set()
 
     def _close(p, trigger, reason):
@@ -458,28 +473,36 @@ def close_triggers(side, held, new_thesis, old_thesis, scored_by_asset, inputs,
         out.append({"asset": p["asset"], "direction": p["direction"],
                     "trigger": trigger, "reason": reason})
 
-    if thesis_due and new_thesis:
-        keep = set(bucket_for(side, new_thesis))
-        old_stance = (old_thesis or {}).get("stance", "?")
-        smart_bias = new_thesis.get("smart_bias") or {}
-        against = -1 if side == "LONG" else 1
-        for p in held:
-            bias = smart_bias.get(str(p["asset"]).upper())
-            if (new_thesis.get("cohorts_available") and bias is not None
-                    and (bias * against) >= lean):
-                _close(p, "divergence_reversed",
-                       f"proven cohort flipped {('short' if side == 'LONG' else 'long')} "
-                       f"(bias {bias:+.2f}) on {p['asset']}")
-            elif p["asset"] not in keep:
-                _close(p, "thesis_shift",
-                       f"rethink {old_stance}->{new_thesis['stance']}: "
-                       f"{p['asset']} left the {side} bucket")
-    if rebalance_due:
-        for p in held:
-            if p["asset"] in closed:
-                continue
-            th = scored_by_asset.get(p["asset"])
-            if th and _f(th.get("score")) < exit_score:
-                _close(p, "weekly_rebalance",
-                       f"rebalance re-score {th.get('score')} < {exit_score}")
+    if not (thesis_due or rebalance_due):
+        return out
+
+    # (1) per-name cohort reversal — the proven money turned against this name
+    for p in held:
+        bias = smart_bias.get(str(p["asset"]).upper())
+        if cohorts_ok and bias is not None and (bias * against) >= lean:
+            _close(p, "divergence_reversed",
+                   f"proven cohort flipped {('short' if side == 'LONG' else 'long')} "
+                   f"(bias {bias:+.2f}) on {p['asset']}")
+
+    # (2) per-name score death — this name's OWN thesis decayed below the exit
+    #     floor (hysteresis: it entered >= minScore, holds until < exitScore).
+    for p in held:
+        if p["asset"] in closed:
+            continue
+        th = scored_by_asset.get(p["asset"])
+        if th is None:
+            continue
+        score = _f(th.get("score"))
+        if score < exit_score:
+            trigger = "thesis_shift" if thesis_due else "weekly_rebalance"
+            when = "48h rethink" if thesis_due else "7d rebalance"
+            _close(p, trigger, f"re-score {score} < exit {exit_score} at {when}")
     return out
+
+
+def enforce_hysteresis(inputs):
+    """The coherence guarantee holds only when exitScore < minScore (a name
+    can't be simultaneously openable and closeable). (ok, detail)."""
+    mn = _f(inputs.get("minScore"), 5.5)
+    ex = _f(inputs.get("exitScore"), 3.5)
+    return (ex < mn, f"exitScore {ex} must be < minScore {mn}")

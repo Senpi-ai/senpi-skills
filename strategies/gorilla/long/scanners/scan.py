@@ -23,9 +23,13 @@ PRESSES bucket names when the tape confirms, respecting the stance's per-book
 slot cap. Every thesisRefreshHours (48h) it re-derives its copy.
 
 The sibling rebalance.py owns the closes (thesis_shift / divergence_reversed /
-weekly_rebalance) via CLOSE_POSITION. Per-scanner state isolation means both
-derive the thesis deterministically from the same reads on the same anchored
-clock (drift bounded by one tick; documented package property).
+weekly_rebalance) via CLOSE_POSITION. State is per-scanner, so the two scanners
+derive INDEPENDENT thesis copies (different reads, different anchors) — they are
+kept coherent NOT by shared state but by hysteresis: entries opens a name at
+press score >= minScore; rebalance closes only on per-name DEATH (score <
+exitScore, well below minScore, or the proven cohort turned hard against it) —
+never because a name dropped a rank. So the two theses disagreeing at the
+ranking margin is harmless (scoring.close_triggers coherence invariant).
 
 Read-only + single-pass. marginPct is a PERCENT in (0,100].
 """

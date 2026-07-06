@@ -183,10 +183,12 @@ check("due after window", scoring.due(1000.0 + 48 * 3600, 1000.0, 48 * 3600))
 check("not due inside window", not scoring.due(1000.0 + 47 * 3600, 1000.0, 48 * 3600))
 check("zero anchor never due", not scoring.due(999999.0, 0.0, 48 * 3600))
 
-# ── close triggers ──
+# ── close triggers — per-name DEATH only, never bucket-membership set-difference ──
 held = [{"asset": "SOL", "direction": "LONG"}, {"asset": "HYPE", "direction": "LONG"},
         {"asset": "LINK", "direction": "LONG"}]
-new_th = dict(th, leaders=["SOL", "AVAX", "BTC"], stance="NEUTRAL",
+# SOL: still scores well AND left the new bucket (rank cutoff) — MUST NOT close.
+# HYPE: proven cohort flipped against it. LINK: its own score decayed below exit.
+new_th = dict(th, leaders=["AVAX", "BTC", "ETH"], stance="NEUTRAL",
               smart_bias={"SOL": 0.8, "HYPE": -0.55, "LINK": 0.1},
               cohorts_available=True)
 scored = {"SOL": {"score": 7.0}, "HYPE": {"score": 6.0}, "LINK": {"score": 2.0}}
@@ -194,11 +196,11 @@ scored = {"SOL": {"score": 7.0}, "HYPE": {"score": 6.0}, "LINK": {"score": 2.0}}
 sigs = scoring.close_triggers("LONG", held, new_th, th, scored, INPUTS, True, False)
 by = {s["asset"]: s["trigger"] for s in sigs}
 check("cohort flip -> divergence_reversed", by.get("HYPE") == "divergence_reversed")
-check("bucket-leaver -> thesis_shift", by.get("LINK") == "thesis_shift")
-check("kept name not closed", "SOL" not in by)
+check("score death -> thesis_shift at rethink", by.get("LINK") == "thesis_shift")
+check("COHERENCE: bucket-leaver that still scores is NOT closed", "SOL" not in by)
 
 sigs = scoring.close_triggers("LONG", held, None, th, scored, INPUTS, False, True)
-check("weekly recycles only the laggard",
+check("weekly recycles only the score-dead laggard",
       len(sigs) == 1 and sigs[0]["asset"] == "LINK"
       and sigs[0]["trigger"] == "weekly_rebalance")
 
@@ -207,6 +209,18 @@ check("no double-close when both due", len(sigs) == len({s['asset'] for s in sig
 
 sigs = scoring.close_triggers("LONG", held, None, th, scored, INPUTS, False, False)
 check("nothing closes between boundaries", sigs == [])
+
+# ── the coherence invariant, stated as a test: a JUST-OPENABLE name (score at
+#    minScore, cohort supportive) can never satisfy a close trigger ──
+just_open = [{"asset": "SOL", "direction": "LONG"}]
+th_open = dict(new_th, smart_bias={"SOL": 0.6}, cohorts_available=True)  # cohort FOR it
+scored_open = {"SOL": {"score": INPUTS["minScore"]}}                     # exactly openable
+sigs = scoring.close_triggers("LONG", just_open, th_open, th, scored_open, INPUTS, True, True)
+check("HYSTERESIS: a just-openable name is never closeable", sigs == [])
+ok, detail = scoring.enforce_hysteresis(INPUTS)
+check("enforce_hysteresis: exitScore < minScore", ok)
+check("enforce_hysteresis flags a bad config",
+      not scoring.enforce_hysteresis({"minScore": 4.0, "exitScore": 5.0})[0])
 
 print(f"{PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)

@@ -70,7 +70,10 @@ def scan(inputs, ctx):
     if thesis_due:
         new_thesis, _board = refresh_thesis(ctx, inputs, now, thesis)
 
-    if rebalance_due and held:
+    # Re-score held names on EITHER boundary — the score-death close (thesis_shift
+    # at the rethink, weekly_rebalance at the 7d) is per-name and hysteresis-
+    # protected, so it never fights the entries scanner over a ranking cutoff.
+    if (thesis_due or rebalance_due) and held:
         board = sm_board(ctx)
         for p in held:
             md = _asset_data(ctx, p["asset"])

@@ -63,6 +63,13 @@ for book in BOOKS:
         check(f"{book}/{s['name']}: universe cap set", int(inp.get("universeMaxNames", 0)) >= 6)
         check(f"{book}/{s['name']}: override empty by default", (inp.get("universeOverride") or []) == [])
 
+    # coherence invariant: exitScore < minScore (hysteresis band that keeps the two
+    # independent scanners from fighting — a just-opened name can't be closeable)
+    for s in externals:
+        inp = s.get("inputs") or {}
+        check(f"{book}/{s['name']}: hysteresis exitScore < minScore",
+              float(inp.get("exitScore", 99)) < float(inp.get("minScore", 0)))
+
     # gorilla cadences — the ask: rethink 48h, rebalance 7d
     for s in externals:
         inp = s.get("inputs") or {}
