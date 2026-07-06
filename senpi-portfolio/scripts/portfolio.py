@@ -51,7 +51,7 @@ STATE_DIR_ENV = "SENPI_STATE_DIR"
 DEFAULT_STATE_DIR = os.path.expanduser("~/.openclaw/senpi-state")
 REGISTRY_FILENAME = "installed_runtimes.json"
 
-CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "strategy-v2")
+CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "main")
 CATALOG_URL = f"https://raw.githubusercontent.com/Senpi-ai/senpi-skills/{CATALOG_REF}/strategies/catalog.json"
 # Compact catalog enrichment = the extra facets the agent judges a template strategy against (SKILL.md).
 # Not the whole record. `description` is NOT sourced here — it comes from the runtime registry.

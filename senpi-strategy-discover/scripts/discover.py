@@ -34,7 +34,7 @@ REPO_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 SKILL_CATALOG = os.path.join(HERE, os.pardir, "catalog.json")             # bundled with the discover skill
 REPO_CATALOG = os.path.join(REPO_ROOT, "strategies", "catalog.json")      # dev checkout / source of truth
 _CATALOG_REPO = os.environ.get("SENPI_SKILLS_REPO", "Senpi-ai/senpi-skills")
-_CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "strategy-v2")
+_CATALOG_REF = os.environ.get("SENPI_SKILLS_REF", "main")
 
 
 def default_catalog():
