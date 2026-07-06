@@ -55,6 +55,23 @@ for book in BOOKS:
     check(f"{book}: open subscribed to entries",
           any("entries" in sc for sc in open_a.get("scanners", [])))
 
+    # derived universe + real engines — the fund reads the market, not a preset list
+    for s in externals:
+        inp = s.get("inputs") or {}
+        check(f"{book}/{s['name']}: no hardcoded universe", "universe" not in inp)
+        check(f"{book}/{s['name']}: volume floor set", float(inp.get("universeVolFloorUsd", 0)) >= 1_000_000)
+        check(f"{book}/{s['name']}: override empty by default", (inp.get("universeOverride") or []) == [])
+        cs = inp.get("cohorts") or {}
+        check(f"{book}/{s['name']}: cohort engine constants verbatim",
+              float(cs.get("smartMinRealizedUsd", 0)) == 1_000_000
+              and float(cs.get("leanThreshold", 0)) == 0.40
+              and float(cs.get("divergenceMinGap", 0)) == 0.50
+              and int(cs.get("minMembers", 0)) == 5)
+        check(f"{book}/{s['name']}: cohort cache clock set", float(inp.get("cohortRefreshHours", 0)) == 4)
+        check(f"{book}/{s['name']}: pulse groups present", bool(inp.get("pulseGroups")))
+        w = inp.get("weights") or {}
+        check(f"{book}/{s['name']}: engine-role weights", float(w.get("divergence", 0)) > float(w.get("nearTerm", 99)))
+
     tiers = spec["exit"]["dsl_preset"]["phase2"]["tiers"]
     triggers = [t["trigger_pct"] for t in tiers]
     check(f"{book}: DSL tiers ascending", triggers == sorted(triggers))

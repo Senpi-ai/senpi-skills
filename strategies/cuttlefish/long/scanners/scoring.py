@@ -1,26 +1,39 @@
-"""CUTTLEFISH — pure scoring (no I/O, no MCP).
+"""CUTTLEFISH — pure scoring (no I/O, no MCP), built on the REAL engines of the
+two skills it composes (math ported from their scripts, constants verbatim):
 
-A regime-adaptive long/short basket book. Per asset, in the book's mandated
-direction, a 0-10 composite fuses:
-  - the MARKET-PULSE read: 4h/1h trend structure, 24h momentum, volume ratio,
-    market-wide funding regime;
-  - the SMART-MONEY DIVERGENCE core: the leaderboard smart-money lean vs the
-    crowd (funding sign) and vs price (SM accumulating INTO weakness is the
-    strongest form of early positioning).
+  UNIVERSE (derive_universe) — from the LIVE instrument list every tick:
+          every main-dex perp over a 24h-notional floor, top-N by volume.
+  PULSE   (pulse_stance)     — senpi-market-pulse compute_signals port: the
+          cross-asset day classification (crypto + semis + megacap + indices +
+          commodities + FX groups off prevDayPx) + the GOLD/DXY/VIX checklist.
+          The long book stands down on a risk_off day, the short book on
+          risk_on — this replaces the v1 BTC-only "tide".
+  COHORTS (cohort_positions_bias / smart_conviction / divergences) — the
+          senpi-smart-money engine: PROVEN cohort (lifetime realized >= $1M)
+          vs CROWD ($10k..$100k), per-coin bias = net/gross signed notional,
+          divergence = opposite sides or gap >= 0.50 with >= 5 members each.
+          This is the divergence core; the 4h leaderboard board is only the
+          NEAR-TERM confirm factor (its actual role in those engines).
+  ADAPT   (close_triggers)   — the 15m auto-adjust: pulse_flip (day against
+          the book, confirmed N ticks), divergence_reversed (the proven
+          cohort flips >= leanThreshold against a held name; board fallback
+          when cohorts are unavailable), basket_refresh (4h re-rank recycles
+          names re-scoring below exitScore).
 
-The TIDE (BTC 4h trend + 1h confirm) gates which book may build: the long book
-stands down in a BEAR tide, the short book in a BULL tide. Conviction bands
-(apex/good/base) map to per-band leverage + marginPct.
-
-`close_triggers` is the auto-adjust brain (consumed by rebalance.py → the
-runtime's CLOSE_POSITION action — the first fleet package to use it): tide
-flip (confirmed N ticks), per-asset smart-money reversal, and the X-hourly
-basket-refresh laggard cut.
-
-Shared VERBATIM by both instances; the book's identity comes from inputs
-(`side`, tiers, DSL in runtime.yaml).
+Cuttlefish vs Gorilla: same engines, opposite temperament — Cuttlefish holds
+NO standing thesis (it re-reads the pulse every 15 minutes and adapts; cohorts
+cache on a 4h clock because discovery paging is heavy), Gorilla derives a
+thesis and sits on it for 48h. Shared VERBATIM by both instances.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
+
+# smart-money engine constants (smartmoney.py verbatim; overridable via inputs.cohorts)
+SMART_MIN_REALIZED = 1_000_000
+CROWD_MIN_REALIZED = 10_000
+CROWD_MAX_REALIZED = 100_000
+MIN_MEMBERS = 5
+LEAN_THRESHOLD = 0.40
+DIVERGENCE_MIN_GAP = 0.50
 
 
 def _f(v, default=0.0):
@@ -28,6 +41,20 @@ def _f(v, default=0.0):
         return float(v)
     except (TypeError, ValueError):
         return default
+
+
+def _num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def pct_change(mark, prev):
+    m, p = _num(mark), _num(prev)
+    if m is None or p is None or p == 0:
+        return None
+    return round((m - p) / p * 100, 2)
 
 
 def closes(candles):
@@ -44,7 +71,10 @@ def _clamp(v, lo, hi):
 
 def mom(candles, n=1):
     cl = closes(candles)
-    if len(cl) < n + 1 or cl[-1 - n] == 0:
+    if len(cl) < 2:
+        return 0.0
+    n = min(n, len(cl) - 1)
+    if cl[-1 - n] == 0:
         return 0.0
     return (cl[-1] / cl[-1 - n] - 1.0) * 100.0
 
@@ -75,79 +105,261 @@ def clamp_leverage(desired, venue_max):
     return max(1, min(int(desired), venue))
 
 
-# ── TIDE — the market read that gates each book ─────────────────────────────
+# ── UNIVERSE — derived from the LIVE market, never a preset list ────────────
 
-def tide_from_btc(c1, c4):
-    """('BULL'|'BEAR'|'MIXED', detail). BTC 4h trend is the tide; 1h must not
-    hard-disagree. Both books read the SAME tide — the long book builds while
-    it is not BEAR, the short book while it is not BULL."""
-    t4, s4 = trend_structure(c4)
-    t1, _s1 = trend_structure(c1)
-    detail = f"btc4h={t4}({s4:.0%}) 1h={t1}"
-    if t4 == "up" and t1 != "down":
-        return "BULL", detail
-    if t4 == "down" and t1 != "up":
-        return "BEAR", detail
-    return "MIXED", detail
+def derive_universe(rows, inputs):
+    """rows: [{name, vol}] from market_list_instruments (main-dex perps, not
+    delisted). Volume floor -> exclude set -> top-N by 24h notional."""
+    floor = _f(inputs.get("universeVolFloorUsd"), 25_000_000)
+    max_names = int(_f(inputs.get("universeMaxNames"), 16))
+    exclude = {str(x).upper() for x in (inputs.get("excludeAssets") or [])}
+    seen = set()
+    qualifiers = []
+    for r in rows or []:
+        name = str((r or {}).get("name", "")).strip()
+        if not name or ":" in name:          # main-dex perps only (xyz: = other dex)
+            continue
+        au = name.upper()
+        if au in seen or au in exclude:
+            continue
+        seen.add(au)
+        vol = _f(r.get("vol"))
+        if vol < floor:
+            continue
+        qualifiers.append((name, vol))
+    qualifiers.sort(key=lambda x: x[1], reverse=True)
+    return [n for n, _ in qualifiers[:max_names]]
 
 
-def tide_allows(side, tide):
-    return tide != ("BEAR" if side == "LONG" else "BULL")
+# ── PULSE — cross-asset day read (senpi-market-pulse compute_signals port) ──
+
+def group_averages(changes, groups):
+    out = {}
+    for gname, syms in (groups or {}).items():
+        vals = [changes.get(str(s).upper()) for s in (syms or [])]
+        vals = [v for v in vals if v is not None]
+        out[gname] = {"avg_change_pct": round(sum(vals) / len(vals), 2) if vals else None,
+                      "n": len(vals)}
+    return out
+
+
+def pulse_stance(changes, groups, vix_price=None):
+    """pulse.py compute_signals port: day classification (groups down vs up at
+    +/-0.5% with 2:1 dominance and >= 3 groups) + GOLD/DXY/VIX checklist."""
+    gavg = group_averages(changes, groups)
+    breadth = [g["avg_change_pct"] for g in gavg.values() if g["avg_change_pct"] is not None]
+    down = sum(1 for x in breadth if x < -0.5)
+    up = sum(1 for x in breadth if x > 0.5)
+    if breadth:
+        if down >= up * 2 and down >= 3:
+            day = "risk_off"
+        elif up >= down * 2 and up >= 3:
+            day = "risk_on"
+        else:
+            day = "mixed"
+    else:
+        day = None
+
+    gold, dxy, vix_chg = changes.get("GOLD"), changes.get("DXY"), changes.get("VIX")
+    checklist = {
+        "gold": ("haven bid intact" if (gold is not None and gold > -2)
+                 else "haven also selling — possible liquidity event" if gold is not None else None),
+        "dxy": ("dollar calm" if (dxy is not None and abs(dxy) < 0.6)
+                else "dollar bid — funding stress" if (dxy is not None and dxy > 0.6) else None),
+        "vix": ("fear contained" if (vix_price is not None and vix_price < 22)
+                else "fear elevated" if vix_price is not None else None),
+    }
+    return {"day": day, "groups_up": up, "groups_down": down,
+            "group_avgs": {k: v["avg_change_pct"] for k, v in gavg.items()},
+            "checklist": checklist, "vix_price": vix_price, "vix_change_pct": vix_chg}
+
+
+def pulse_allows(side, day):
+    """The long book stands down on a risk_off day, the short book on risk_on;
+    mixed / no-read allows both (the adaptive book trades dispersion)."""
+    if day == "risk_off":
+        return side != "LONG"
+    if day == "risk_on":
+        return side != "SHORT"
+    return True
+
+
+# ── COHORTS — smart-vs-crowd divergence (senpi-smart-money port) ────────────
+
+def _signed_notional(p):
+    def f(*keys):
+        for k in keys:
+            v = _num((p or {}).get(k))
+            if v is not None:
+                return v
+        return 0.0
+    szi = f("szi", "size")
+    val = f("positionValue", "notional", "position_value")
+    if val <= 0:
+        val = abs(szi) * f("entryPx", "markPx", "entry_price")
+    return (1.0 if szi > 0 else (-1.0 if szi < 0 else 0.0)) * abs(val)
+
+
+def cohort_positions_bias(traders, per=None):
+    """smartmoney.py cohort_bias inner math: per-coin net/gross + member counts.
+    Feed batches through with the same `per`, then finalize_bias."""
+    per = per if per is not None else {}
+    for t in traders or []:
+        if not isinstance(t, dict):
+            continue
+        for p in (t.get("openPositions") or t.get("open_positions") or []):
+            if not isinstance(p, dict):
+                continue
+            coin = p.get("coin") or p.get("asset")
+            sn = _signed_notional(p) if coin else 0.0
+            if not coin or sn == 0:
+                continue
+            d = per.setdefault(str(coin).upper(),
+                               {"net": 0.0, "gross": 0.0, "n_long": 0, "n_short": 0})
+            d["net"] += sn
+            d["gross"] += abs(sn)
+            d["n_long" if sn > 0 else "n_short"] += 1
+    return per
+
+
+def finalize_bias(per):
+    for d in (per or {}).values():
+        d["bias"] = round(d["net"] / d["gross"], 3) if d["gross"] > 0 else 0.0
+        d["members"] = d["n_long"] + d["n_short"]
+        d["net"] = round(d["net"], 2)
+    return per
+
+
+def _dir(bias):
+    return "long" if bias > 0 else ("short" if bias < 0 else "flat")
+
+
+def smart_conviction(smart_per, cfg=None):
+    cfg = cfg or {}
+    min_members = int(_f(cfg.get("minMembers"), MIN_MEMBERS))
+    lean = _f(cfg.get("leanThreshold"), LEAN_THRESHOLD)
+    out = []
+    for coin, d in (smart_per or {}).items():
+        if d.get("members", 0) >= min_members and abs(d.get("bias", 0)) >= lean:
+            out.append({"asset": coin, "bias": d["bias"], "direction": _dir(d["bias"]),
+                        "members": d["members"]})
+    out.sort(key=lambda x: abs(x["bias"]) * x["members"], reverse=True)
+    return out
+
+
+def divergences(smart_per, crowd_per, cfg=None):
+    """smartmoney.py verbatim: opposite sides always flag; else |gap| >= min gap;
+    both cohorts need minMembers."""
+    cfg = cfg or {}
+    min_members = int(_f(cfg.get("minMembers"), MIN_MEMBERS))
+    min_gap = _f(cfg.get("divergenceMinGap"), DIVERGENCE_MIN_GAP)
+    out = []
+    for coin, sd in (smart_per or {}).items():
+        if sd.get("members", 0) < min_members:
+            continue
+        cd = (crowd_per or {}).get(coin)
+        if not cd or cd.get("members", 0) < min_members:
+            continue
+        gap = round(sd["bias"] - cd["bias"], 3)
+        opposite = (sd["bias"] > 0) != (cd["bias"] > 0) and sd["bias"] != 0 and cd["bias"] != 0
+        if opposite or abs(gap) >= min_gap:
+            out.append({"asset": coin, "gap": gap, "opposite_sides": opposite,
+                        "smart_bias": sd["bias"], "smart_direction": _dir(sd["bias"]),
+                        "smart_members": sd["members"],
+                        "crowd_bias": cd["bias"], "crowd_direction": _dir(cd["bias"])})
+    out.sort(key=lambda x: (x["opposite_sides"], abs(x["gap"])), reverse=True)
+    return out
+
+
+def cohort_view_for(asset, side, cohort, cfg=None):
+    """Per-asset slice of the cohort read, side-aware, for score_asset /
+    close_triggers: {available, smart_bias, smart_members, divergent, gap,
+    against} (against = proven cohort leaning >= leanThreshold the other way)."""
+    cfg = cfg or {}
+    lean = _f(cfg.get("leanThreshold"), LEAN_THRESHOLD)
+    min_members = int(_f(cfg.get("minMembers"), MIN_MEMBERS))
+    au = str(asset).upper()
+    available = bool((cohort or {}).get("available"))
+    sd = ((cohort or {}).get("smart") or {}).get(au) if available else None
+    view = {"available": available, "smart_bias": None, "smart_members": 0,
+            "divergent": False, "gap": None, "against": False}
+    if not sd:
+        return view
+    view["smart_bias"] = sd.get("bias")
+    view["smart_members"] = sd.get("members", 0)
+    sign = 1 if side == "LONG" else -1
+    if sd.get("members", 0) >= min_members and (sd.get("bias", 0) * -sign) >= lean:
+        view["against"] = True
+    for d in divergences(cohort.get("smart"), cohort.get("crowd"), cfg):
+        if d["asset"] == au:
+            view["divergent"] = (d["smart_direction"] == ("long" if side == "LONG" else "short"))
+            view["gap"] = d["gap"]
+            break
+    return view
 
 
 # ── per-asset composite (side-aware; all contributions >= 0) ────────────────
 
-def score_asset(asset, side, c1, c4, asset_ctx, sm, regime, inputs):
-    """0-10 composite for `asset` in the book's `side`. Returns thesis dict or
-    None on insufficient candles. SM hard block: smart money leaning >=58%
-    AGAINST the side zeroes the asset (never fight the divergence core)."""
+def score_asset(asset, side, c1, c4, asset_ctx, cohort_view, near_term, regime, inputs):
+    """0-10 composite for `asset` in the book's `side`. None on insufficient
+    candles. HARD BLOCK when the proven cohort leans >= leanThreshold against
+    the side (board >= 58% fallback when cohorts are unavailable)."""
     if len(closes(c1)) < 8 or len(closes(c4)) < 4:
         return None
     w = inputs.get("weights") or {}
-    w_sm = _f(w.get("smLean"), 2.5)
+    w_sm = _f(w.get("smartLean"), 2.5)
     w_div = _f(w.get("divergence"), 3.0)
+    w_nt = _f(w.get("nearTerm"), 1.0)
     w_t4 = _f(w.get("trend4h"), 1.5)
     w_al = _f(w.get("align1h"), 1.0)
     w_m24 = _f(w.get("mom24h"), 1.0)
     w_vol = _f(w.get("volRatio"), 0.5)
     w_rg = _f(w.get("regimeBonus"), 0.5)
-    max_possible = w_sm + w_div + w_t4 + w_al + w_m24 + w_vol + w_rg
+    max_possible = w_sm + w_div + w_nt + w_t4 + w_al + w_m24 + w_vol + w_rg
 
     sign = 1 if side == "LONG" else -1
-    funding = _f((asset_ctx or {}).get("funding"))
-    m24 = mom(c1, 24)
+    cv = cohort_view or {}
+    nt_dir = (near_term or {}).get("direction", "NEUTRAL")
+    nt_pct = _f((near_term or {}).get("pct"), 50)
+    opposite = "SHORT" if side == "LONG" else "LONG"
     reasons = []
 
-    # smart-money lean — the direction the best wallets hold this asset
-    sm_dir = (sm or {}).get("direction", "NEUTRAL")
-    sm_pct = _f((sm or {}).get("pct"), 50)
-    opposite = "SHORT" if side == "LONG" else "LONG"
-    if sm_dir == opposite and sm_pct >= 58:
-        return {"asset": asset, "score": 0.0, "blocked": "sm_hard_block",
-                "reasons": [f"SM {sm_dir} {sm_pct:.0f}% against book"]}
-    sm_c = w_sm * _clamp((sm_pct - 50) / 30.0, 0, 1) if sm_dir == side else 0.0
-    if sm_c:
-        reasons.append(f"SM {side} {sm_pct:.0f}%")
+    # hard block — the REAL smart-money read outranks everything
+    if cv.get("against"):
+        return {"asset": asset, "score": 0.0, "blocked": "smart_cohort_against",
+                "reasons": [f"proven cohort {cv.get('smart_bias'):+.2f} against {side}"]}
+    if not cv.get("available") and nt_dir == opposite and nt_pct >= 58:
+        return {"asset": asset, "score": 0.0, "blocked": "sm_board_against",
+                "reasons": [f"board {nt_dir} {nt_pct:.0f}% against (cohorts unavailable)"]}
 
-    # divergence core — SM in-direction while the crowd/price hasn't followed:
-    # crowd contra = funding still paying the other way; price contra = 24h move
-    # against SM (accumulation into weakness). Each leg is half the weight.
+    # smart-money core (proven cohort bias in the book's direction)
+    sm_c = 0.0
+    bias = cv.get("smart_bias")
+    if cv.get("available") and bias is not None:
+        sm_c = w_sm * _clamp(bias * sign, 0, 1)
+        if sm_c:
+            reasons.append(f"proven cohort {bias:+.2f}")
+
+    # divergence core (crowd on the other side of the proven cohort)
     div_c = 0.0
-    if sm_dir == side:
-        crowd_contra = (funding * sign) <= 0.0
-        price_contra = (m24 * sign) < 0.0
-        div_c = w_div * (0.5 * crowd_contra + 0.5 * price_contra)
-        if crowd_contra:
-            reasons.append("crowd not positioned (funding contra)")
-        if price_contra:
-            reasons.append(f"SM early vs price ({m24:+.1f}% 24h)")
+    if cv.get("divergent"):
+        div_c = w_div
+        reasons.append(f"divergence gap {cv.get('gap'):+.2f}")
+    elif cv.get("available") and bias is not None and (bias * sign) >= _f(
+            (inputs.get("cohorts") or {}).get("leanThreshold"), LEAN_THRESHOLD):
+        div_c = 0.5 * w_div
+        reasons.append(f"smart conviction {bias:+.2f} (no crowd read)")
 
-    # market-pulse context — trend/momentum/volume in the mandated direction
+    # near-term confirm — the 4h leaderboard's actual role
+    nt_c = w_nt * _clamp((nt_pct - 50) / 30.0, 0, 1) if nt_dir == side else 0.0
+
+    # pulse context — trend/momentum/volume in the mandated direction
     t4, s4 = trend_structure(c4)
-    want_t = "up" if side == "LONG" else "down"
-    t4_c = w_t4 * s4 if t4 == want_t else 0.0
+    want = "up" if side == "LONG" else "down"
+    t4_c = w_t4 * s4 if t4 == want else 0.0
     t1, _ = trend_structure(c1)
-    al_c = w_al if (t1 == want_t and t4 == want_t) else 0.0
+    al_c = w_al if (t1 == want and t4 == want) else 0.0
+    m24 = mom(c1, 24)
     m24_c = w_m24 * _clamp((m24 * sign) / 5.0, 0, 1)
     vv = vols(c1)
     vol_c = 0.0
@@ -158,21 +370,22 @@ def score_asset(asset, side, c1, c4, asset_ctx, sm, regime, inputs):
     if t4_c:
         reasons.append(f"4h {t4} {s4:.0%}")
 
-    # regime bonus — a crowded OPPOSITE regime is squeeze fuel for this side
     rg_c = 0.0
     if regime == ("SHORT_CROWDED" if side == "LONG" else "LONG_CROWDED"):
         rg_c = w_rg
         reasons.append(f"{regime} squeeze fuel")
 
-    total = sm_c + div_c + t4_c + al_c + m24_c + vol_c + rg_c
+    total = sm_c + div_c + nt_c + t4_c + al_c + m24_c + vol_c + rg_c
     score = _clamp(10.0 * total / max_possible, 0.0, 10.0) if max_possible > 0 else 0.0
     return {"asset": asset, "score": round(score, 2), "blocked": None,
-            "sm_dir": sm_dir, "sm_pct": round(sm_pct, 1), "funding": funding,
+            "smart_bias": bias, "divergent": bool(cv.get("divergent")),
+            "cohorts_available": bool(cv.get("available")),
+            "nt_dir": nt_dir, "nt_pct": round(nt_pct, 1),
             "mom24h": round(m24, 2), "trend4h": t4,
-            "components": {"smLean": round(sm_c, 3), "divergence": round(div_c, 3),
-                           "trend4h": round(t4_c, 3), "align1h": round(al_c, 3),
-                           "mom24h": round(m24_c, 3), "volRatio": round(vol_c, 3),
-                           "regimeBonus": round(rg_c, 3)},
+            "components": {"smartLean": round(sm_c, 3), "divergence": round(div_c, 3),
+                           "nearTerm": round(nt_c, 3), "trend4h": round(t4_c, 3),
+                           "align1h": round(al_c, 3), "mom24h": round(m24_c, 3),
+                           "volRatio": round(vol_c, 3), "regimeBonus": round(rg_c, 3)},
             "reasons": reasons}
 
 
@@ -192,42 +405,52 @@ def sizing_for(band, inputs, venue_max=None):
     return clamp_leverage(lev, venue_max if venue_max is not None else lev), mgn
 
 
-# ── close triggers — the auto-adjust brain (consumed by rebalance.py) ───────
+def due(now, anchor_ts, every_seconds):
+    return anchor_ts > 0 and every_seconds > 0 and (now - anchor_ts) >= every_seconds
 
-def close_triggers(side, tide, tide_against_streak, held, scored_by_asset, inputs, due_refresh):
-    """Returns [{asset, direction, reason, trigger}] for the CLOSE_POSITION action.
 
-    held: [{asset, direction}] — this book's open positions (direction == side).
-    scored_by_asset: {asset: thesis-dict} — fresh re-scores of the HELD names.
-    Triggers:
-      tide_flip           — the tide has been AGAINST this book for
-                            `tideFlipConfirmTicks` consecutive rebalance ticks
-                            → close the whole book (anti-whipsaw via streak).
-      divergence_reversed — smart money now leans >= 58% AGAINST a held
-                            position → close that name immediately.
-      basket_refresh      — on the X-hourly refresh, a held name re-scoring
-                            below exitScore is a stale thesis → recycle it.
+# ── close triggers — the 15m auto-adjust brain (consumed by rebalance.py) ───
+
+def close_triggers(side, day, day_against_streak, held, views_by_asset, inputs, due_refresh):
+    """[{asset, direction, reason, trigger}] for the CLOSE_POSITION action.
+
+    views_by_asset: {asset: {"cohort": cohort_view_for(...), "score": float|None,
+    "nt_dir": str, "nt_pct": float}} — fresh reads of the HELD names.
+      pulse_flip          — the pulse day has been AGAINST this book for
+                            `pulseFlipConfirmTicks` consecutive rebalance ticks
+                            -> close the whole book (anti-whipsaw).
+      divergence_reversed — the PROVEN cohort leans >= leanThreshold against a
+                            held name (board >= 58% fallback when cohorts are
+                            unavailable) -> close that name immediately.
+      basket_refresh      — on the refresh boundary, a held name re-scoring
+                            below exitScore is a stale thesis -> recycle it.
     """
-    confirm = int(_f(inputs.get("tideFlipConfirmTicks"), 2))
+    confirm = int(_f(inputs.get("pulseFlipConfirmTicks"), 2))
     exit_score = _f(inputs.get("exitScore"), 3.5)
     out = []
-    if not tide_allows(side, tide) and tide_against_streak >= confirm:
+    if not pulse_allows(side, day) and day_against_streak >= confirm:
         for p in held:
             out.append({"asset": p["asset"], "direction": p["direction"],
-                        "trigger": "tide_flip",
-                        "reason": f"tide {tide} against {side} book x{tide_against_streak}"})
+                        "trigger": "pulse_flip",
+                        "reason": f"pulse {day} against {side} book x{day_against_streak}"})
         return out  # book-level flip supersedes per-name triggers
     opposite = "SHORT" if side == "LONG" else "LONG"
     for p in held:
-        th = scored_by_asset.get(p["asset"])
-        if not th:
-            continue
-        if th.get("sm_dir") == opposite and _f(th.get("sm_pct"), 50) >= 58:
+        v = views_by_asset.get(p["asset"]) or {}
+        cv = v.get("cohort") or {}
+        if cv.get("against"):
             out.append({"asset": p["asset"], "direction": p["direction"],
                         "trigger": "divergence_reversed",
-                        "reason": f"SM flipped {opposite} {th.get('sm_pct')}%"})
-        elif due_refresh and _f(th.get("score")) < exit_score:
+                        "reason": f"proven cohort flipped {cv.get('smart_bias'):+.2f} "
+                                  f"against {side} on {p['asset']}"})
+        elif (not cv.get("available") and v.get("nt_dir") == opposite
+              and _f(v.get("nt_pct"), 50) >= 58):
+            out.append({"asset": p["asset"], "direction": p["direction"],
+                        "trigger": "divergence_reversed",
+                        "reason": f"board flipped {v.get('nt_dir')} {v.get('nt_pct')}% "
+                                  f"(cohorts unavailable)"})
+        elif due_refresh and v.get("score") is not None and _f(v.get("score")) < exit_score:
             out.append({"asset": p["asset"], "direction": p["direction"],
                         "trigger": "basket_refresh",
-                        "reason": f"refresh re-score {th.get('score')} < {exit_score}"})
+                        "reason": f"refresh re-score {v.get('score')} < {exit_score}"})
     return out

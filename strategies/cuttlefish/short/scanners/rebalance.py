@@ -1,24 +1,22 @@
 """CUTTLEFISH — REBALANCE scanner (the auto-adjust half; shared by both books).
 
-This is the piece our other basket strategies don't have: a supervised re-read
-of the market that ADJUSTS the existing book, not just the next entry. Signals
-emitted here feed a rule-mode CLOSE_POSITION action (the first fleet use of it)
-— each signal {asset, direction, reason} closes that held position; assets
-without an open position are skipped by the action (`no_open_position`), so a
-stale signal is harmless.
+The 15-minute re-read that ADJUSTS the existing book via the rule-mode
+CLOSE_POSITION action (closes are idempotent — `no_open_position` skips):
 
-Each tick (default 900s):
-  1) Read this wallet's open positions (strategy_get_clearinghouse_state).
-     No positions -> record the tide and stand by.
-  2) Re-read the TIDE (BTC 1h/4h) + regime + smart-money board.
-  3) Track the tide-against-this-book streak in ctx.state (anti-whipsaw).
-  4) Re-score every HELD name and emit close signals per scoring.close_triggers:
-     tide_flip (streak >= tideFlipConfirmTicks) | divergence_reversed (SM now
-     >= 58% against a held name) | basket_refresh (every regimeRefreshHours,
-     default 4h: a held name re-scoring < exitScore is a stale thesis).
+  pulse_flip          — the cross-asset pulse day (real market-pulse engine,
+                        not a BTC proxy) has been against this book for
+                        `pulseFlipConfirmTicks` consecutive ticks -> close the
+                        whole book (anti-whipsaw via the streak).
+  divergence_reversed — the PROVEN cohort (smart-money engine: lifetime
+                        realized >= $1M) leans >= leanThreshold against a held
+                        name -> close it now. Board >= 58% fallback when
+                        cohorts are unavailable — flagged in the reason.
+  basket_refresh      — every regimeRefreshHours (default 4h) held names
+                        re-scoring below exitScore are recycled.
 
-Fee discipline: closes here are thesis exits, deliberately rarer than DSL price
-exits — the DSL still owns every price-action exit; this owns REGIME exits.
+Cohorts ride the same 4h-clock cache pattern as the entries scanner (own copy
+— per-scanner state isolation; deterministic reads keep them aligned).
+Fee discipline: closes here are thesis exits; the DSL owns every price exit.
 Read-only + single-pass; the CLOSE_POSITION action performs the close.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
@@ -26,14 +24,13 @@ import sys
 import time
 
 import scoring
-from scan import _asset_data, _funding_regime, _read, sm_board
+from scan import _asset_data, _funding_regime, _read, cached_cohorts, market_read, sm_board
 
 _DEFAULT_REFRESH_HOURS = 4.0
 
 
 def _held_positions(ctx, side):
-    """This wallet's open positions in `side` from clearinghouse (dual-path,
-    #453-verified shape: data.assetPositions[].position.{coin, szi})."""
+    """This wallet's open positions in `side` (dual-path, #453-verified shape)."""
     data = _read(ctx, "strategy_get_clearinghouse_state",
                  {"strategy_wallet": ctx.wallet}, "strategy_get_clearinghouse_state")
     if not isinstance(data, dict):
@@ -55,66 +52,74 @@ def _held_positions(ctx, side):
 def scan(inputs, ctx):
     side = (inputs.get("side", "LONG") or "LONG").upper()
     refresh_s = scoring._f(inputs.get("regimeRefreshHours"), _DEFAULT_REFRESH_HOURS) * 3600.0
+    cfg = inputs.get("cohorts") or {}
     now = time.time()
 
     st = (ctx.state.last() or {}) if ctx.state else {}
-    streak = int(scoring._f(st.get("tide_against_streak"), 0))
+    streak = int(scoring._f(st.get("pulse_against_streak"), 0))
     last_refresh = scoring._f(st.get("last_refresh_ts"), 0.0)
 
     held = _held_positions(ctx, side)
     if held is None:
         return []                        # clearinghouse read failed — try next tick
 
-    # ── the re-read: tide + regime + SM board ──
-    btc = _asset_data(ctx, inputs.get("tideAsset", "BTC"), funding=False)
-    if not btc:
+    # ── the re-read: pulse (cross-asset) + cohorts (4h cache) ──
+    universe, pulse, _changes = market_read(ctx, inputs)
+    if pulse is None:
         return []
-    bc = btc.get("candles", {}) or {}
-    tide, tide_detail = scoring.tide_from_btc(bc.get("1h", []), bc.get("4h", []))
-    regime = _funding_regime(ctx)
+    day = pulse.get("day")
+    cohort, cohort_ts = cached_cohorts(ctx, inputs, st, now)
 
-    streak = (streak + 1) if not scoring.tide_allows(side, tide) else 0
+    streak = (streak + 1) if not scoring.pulse_allows(side, day) else 0
     due_refresh = (now - last_refresh) >= refresh_s
     out = []
-    scored = {}
+    views = {}
 
     if held:
         board = sm_board(ctx)
+        regime = _funding_regime(ctx)
         for p in held:
-            md = _asset_data(ctx, p["asset"])
-            if not md:
-                continue
-            candles = md.get("candles", {}) or {}
-            th = scoring.score_asset(p["asset"], side, candles.get("1h", []),
-                                     candles.get("4h", []),
-                                     md.get("asset_context", {}) or {},
-                                     board.get(p["asset"].upper()), regime, inputs)
-            if th:
-                scored[p["asset"]] = th
+            cv = scoring.cohort_view_for(p["asset"], side, cohort, cfg)
+            nt = board.get(p["asset"].upper()) or {}
+            view = {"cohort": cv, "score": None,
+                    "nt_dir": nt.get("direction", "NEUTRAL"),
+                    "nt_pct": scoring._f(nt.get("pct"), 50)}
+            if due_refresh:              # re-score only when the refresh needs it
+                md = _asset_data(ctx, p["asset"])
+                if md:
+                    candles = md.get("candles", {}) or {}
+                    th = scoring.score_asset(p["asset"], side, candles.get("1h", []),
+                                             candles.get("4h", []),
+                                             md.get("asset_context", {}) or {}, cv,
+                                             board.get(p["asset"].upper()), regime, inputs)
+                    if th:
+                        view["score"] = 0.0 if th.get("blocked") else th["score"]
+            views[p["asset"]] = view
 
-        for sig in scoring.close_triggers(side, tide, streak, held, scored, inputs, due_refresh):
+        for sig in scoring.close_triggers(side, day, streak, held, views, inputs, due_refresh):
             out.append({
                 "asset": sig["asset"],
                 "direction": sig["direction"],
                 "data": {"trigger": sig["trigger"], "reason": sig["reason"],
-                         "tide": tide, "regime": regime or "UNKNOWN",
-                         "score": scoring._f((scored.get(sig["asset"]) or {}).get("score"))},
+                         "pulseDay": day or "no_read",
+                         "score": scoring._f((views.get(sig["asset"]) or {}).get("score"))},
                 "signal_type": sig["trigger"],
             })
             print(f"[cuttlefish.rebalance] {side} CLOSE {sig['asset']}: "
                   f"{sig['trigger']} — {sig['reason']}", file=sys.stderr)
 
-    result = {"ts": now, "side": side, "tide": tide, "tideDetail": tide_detail,
-              "regime": regime, "held": len(held), "closes": len(out),
-              "streak": streak, "refreshed": due_refresh}
+    result = {"ts": now, "side": side, "pulseDay": day,
+              "cohortsAvailable": cohort.get("available"), "held": len(held),
+              "closes": len(out), "streak": streak, "refreshed": due_refresh}
     if not out:
-        print(f"[cuttlefish.rebalance] {side} steady: tide={tide} held={len(held)} "
+        print(f"[cuttlefish.rebalance] {side} steady: day={day} held={len(held)} "
               f"streak={streak}{' (refresh pass)' if due_refresh else ''}", file=sys.stderr)
 
     if ctx.state is not None:
         try:
-            ctx.state.append({"tide_against_streak": streak,
+            ctx.state.append({"pulse_against_streak": streak,
                               "last_refresh_ts": now if due_refresh else last_refresh,
+                              "cohort": cohort, "cohort_refreshed_at": cohort_ts,
                               "result": result})
         except Exception as exc:  # noqa: BLE001
             print(f"[cuttlefish.rebalance] WARNING: state append failed: {exc!r}", file=sys.stderr)

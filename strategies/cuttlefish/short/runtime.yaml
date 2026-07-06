@@ -1,18 +1,18 @@
 # ── CUTTLEFISH · SHORT book — regime-adaptive smart-money divergence basket ──
 # Mirror of the LONG book on its own wallet: `entries` builds the SHORT basket
 # (smart money leaning short before the crowd/price), `rebalance` auto-adjusts
-# via the CLOSE_POSITION action (tide flip / SM reversal / 4h basket refresh).
+# via the CLOSE_POSITION action (pulse flip / proven-cohort reversal / 4h basket refresh).
 # Tighter DSL + sizing than the long book — shorts carry squeeze risk.
 name: cuttlefish-short
 group: cuttlefish
 version: 1.0.0
 description: >
-  CUTTLEFISH SHORT — regime-adaptive divergence basket, SHORT book. Scores the
-  same 12-name liquid-crypto universe where smart money leans SHORT before the
-  crowd (funding contra) or before price (distribution into strength),
+  CUTTLEFISH SHORT — regime-adaptive divergence basket, SHORT book. Scores the same LIVE-derived
+  universe where the PROVEN cohort leans SHORT
+  against the crowd (smart-money engine divergence),
   confirmed by 4h/1h downtrend + volume; builds up to 4 conviction-banded
-  shorts (5x/4x/3x) while the BTC tide is not BULL. Auto-adjusts on re-reads:
-  a confirmed tide flip closes the book, a smart-money reversal closes the
+  shorts (5x/4x/3x) while the cross-asset pulse day is not risk_on. Auto-adjusts on re-reads:
+  a confirmed pulse flip closes the book, a proven-cohort reversal closes the
   name, and every 4h a basket refresh recycles stale-thesis names — via
   CLOSE_POSITION signals. Tighter DSL than the long book (squeeze risk).
 
@@ -33,43 +33,72 @@ scanners:
     path: ./scanners
     entrypoint: scan.py
     interval_seconds: 900
-    timeout_seconds: 300                # tide + regime + board + up to 12 asset reads
+    timeout_seconds: 300                # 2 instruments + regime + board + <=16 asset reads (+cohorts on the 4h tick)
     default_signal_validity_seconds: 1800
     state_history_max_count: 200
     inputs: &cuttlefish_inputs
       side: "SHORT"
-      tideAsset: "BTC"
-      universe: ["BTC", "ETH", "SOL", "HYPE", "XRP", "DOGE", "SUI", "AVAX", "LINK", "LTC", "AAVE", "UNI"]
+      # ── universe: DERIVED from the live instrument list every tick —
+      #    every main-dex perp over the volume floor, top-N by 24h notional ──
+      universeVolFloorUsd: 25000000
+      universeMaxNames: 16
+      excludeAssets: []
+      universeOverride: []              # non-empty pins the universe (testing/escape hatch)
       maxSlots: 4
-      # ── composite weights (divergence core is the thesis — heaviest) ──
+      # ── composite weights (real-engine cores are the thesis — heaviest) ──
       weights:
-        smLean: 2.5
-        divergence: 3.0
+        smartLean: 2.5                  # proven-cohort bias in the book's direction
+        divergence: 3.0                 # smart-vs-crowd divergence (the entry edge)
+        nearTerm: 1.0                   # 4h leaderboard confirm (its actual role)
         trend4h: 1.5
         align1h: 1.0
         mom24h: 1.0
         volRatio: 0.5
         regimeBonus: 0.5
-      # ── gates + conviction bands (shorts demand a stronger case) ──
+      # ── gates + conviction bands ──
       minScore: 6.0
       goodScore: 7.0
       apexScore: 8.5
       exitScore: 3.5                    # basket-refresh recycle threshold (rebalance)
       leverageTiers: { apex: 5, good: 4, base: 3 }   # clamped to venue max per asset
       marginPctTiers: { apex: 20, good: 15, base: 10 }  # PERCENT of withdrawable
+      # ── the real engines (constants verbatim from the skills) ──
+      # senpi-market-pulse cross-asset groups (crypto group = the derived universe):
+      pulseGroups:
+        semis: ["NVDA", "AMD", "AVGO", "MU", "TSM", "ASML", "MRVL", "ARM"]
+        megacap_software: ["AMZN", "MSFT", "META", "GOOGL", "AAPL", "ORCL", "PLTR"]
+        crypto_proxy: ["MSTR", "COIN", "HOOD"]
+        indices: ["SP500", "XYZ100", "JP225", "KR200"]
+        commodities: ["GOLD", "SILVER", "COPPER", "BRENTOIL", "NATGAS"]
+        macro_fx: ["DXY", "JPY", "EUR", "GBP"]
+      # senpi-smart-money cohort/divergence engine (heavy reads — 4h cache, never per tick):
+      cohorts:
+        smartMinRealizedUsd: 1000000    # proven cohort: lifetime realized >= $1M
+        crowdMinRealizedUsd: 10000
+        crowdMaxRealizedUsd: 100000
+        sampleCap: 150
+        pageSize: 1000
+        maxPages: 6
+        stateBatch: 50
+        minMembers: 5
+        leanThreshold: 0.40
+        divergenceMinGap: 0.50
+      cohortRefreshHours: 4             # cohort cache clock (discovery paging is heavy)
       # ── auto-adjust cadence ──
       regimeRefreshHours: 4             # X — full basket re-rank cadence (default 4h)
-      tideFlipConfirmTicks: 2           # 2 x 900s against-ticks before the book flips out
+      pulseFlipConfirmTicks: 2          # 2 x 900s against-ticks before the book flips out
       recentSignalTtlSeconds: 3600
     signal_data_schema:
       score: { type: number }
       leverage: { type: number }
       direction: { type: string }
       band: { type: string, required: false }
-      tide: { type: string, required: false }
+      pulseDay: { type: string, required: false }
       regime: { type: string, required: false }
-      smDir: { type: string, required: false }
-      smPct: { type: number, required: false }
+      smartBias: { type: number, required: false }
+      divergent: { type: boolean, required: false }
+      cohortsAvailable: { type: boolean, required: false }
+      nearTermPct: { type: number, required: false }
       mom24h: { type: number, required: false }
       components: { type: object, required: false }
       reasons: { type: array, required: false }
@@ -79,15 +108,14 @@ scanners:
     path: ./scanners
     entrypoint: rebalance.py
     interval_seconds: 900
-    timeout_seconds: 240
+    timeout_seconds: 300                # pulse reads + held re-scores (+cohorts on the 4h tick)
     default_signal_validity_seconds: 1200
     state_history_max_count: 200
     inputs: *cuttlefish_inputs
     signal_data_schema:
       trigger: { type: string }
       reason: { type: string }
-      tide: { type: string, required: false }
-      regime: { type: string, required: false }
+      pulseDay: { type: string, required: false }
       score: { type: number, required: false }
 
 actions:
