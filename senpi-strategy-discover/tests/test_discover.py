@@ -84,7 +84,7 @@ def test_return_all():
 def test_soft_surface():
     c = next(x for x in run()["candidates"] if x["id"] == "spider")
     for f in ("thesis", "tags", "risk_level", "belief_plain", "archetype_label", "time_horizon",
-              "asset_scope", "direction", "asset_classes", "tier", "suggested_budget", "caveats",
+              "asset_scope", "direction", "asset_classes", "tier", "min_budget", "caveats",
               "market_facts", "id", "version", "name", "emoji", "tagline"):
         check(f"candidate carries '{f}'", f in c, list(c.keys()))
     check("spider thesis non-empty", bool(c["thesis"]))
@@ -180,7 +180,7 @@ def test_caveats():
     sp = next((c for c in rs["candidates"] if c["id"] == "spider"), None)
     check("spider funding_split present", sp and sp.get("funding_split") == [0.6, 0.4], sp.get("funding_split") if sp else None)
     check("spider multi-leg caveat", sp and any("wallet" in c.lower() for c in sp["caveats"]))
-    check("spider suggested_budget>=200", sp and sp["suggested_budget"] >= 200)
+    check("spider min_budget==200 (floor, not a recommendation)", sp and sp["min_budget"] == 200)
     # below-floor budget caveat
     rb = run(assets="btc_eth", budget="50")
     sp2 = next((c for c in rb["candidates"] if c["id"] == "spider"), None)
