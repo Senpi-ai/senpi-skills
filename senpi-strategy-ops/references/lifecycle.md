@@ -20,7 +20,7 @@ multi-minute waits that blow the ~180s tool/session timeout. Each step is **boun
 default 150s) and the agent **re-runs a step until it reports done**.
 
 **Package fetch.** Any step fetches `strategies/<id>/` from the remote if it isn't on disk (`_fetch.py`:
-GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default `Senpi-ai/senpi-skills`@`strategy-v2`;
+GitHub tree + raw from `SENPI_SKILLS_REPO`@`SENPI_SKILLS_REF`, default `Senpi-ai/senpi-skills`@`main`;
 `--ref` overrides).
 
 **State file** `<pkg>/.deploy-state.json` — `{instances: {name: {strategyId, wallet, status}}}`, status

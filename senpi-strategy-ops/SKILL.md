@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.2.1"
+  version: "2.3.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -55,7 +55,7 @@ fetched from the remote if not on disk. The scripts call MCP directly (`scripts/
 **Step 0 — resolve which strategy.** The user's word ("spider") is a strategy **`id`**. To confirm it
 exists, check the registry; no match → hand to **senpi-strategy-discover**:
 ```
-curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/strategy-v2/strategies/catalog.json
+curl -s https://raw.githubusercontent.com/Senpi-ai/senpi-skills/refs/heads/main/strategies/catalog.json
 ```
 
 **Step 1 — creating wallets & funding them** (`create`; one fresh wallet per instance; budget splits by
@@ -101,7 +101,7 @@ Do not run `verify` (and never `sleep` then verify) as a default step.
 > USDC, then **re-run `create`**. Do not switch tools. If `create` **refuses** with "existing strategies
 > not in deploy state", a prior run was interrupted — `close.py <id>` the strays first, then `create`.
 
-**Report** from the structured output, not raw logs:
+**Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
 ```jsonc
 { "strategy":"spider","version":"6.0.0","status":"live",
   "attribution":{ "skillName":"spider","skillVersion":"6.0.0" },
@@ -113,6 +113,16 @@ Overall status across the steps: `create` → `creating` (re-run) | `wallets-rea
 flows `pending → creating → active → registered → live`. **`registered` ≠ ticking.** `create`/`runtime`
 take `--dry-run` (plan only; no side effects).
 
+### Final step — tell the user HOW each strategy runs (REQUIRED on every deploy)
+
+The user just funded a strategy; the last thing they see must explain **how the thing they funded actually behaves** — not just "it's live." After the `live` report, ALWAYS close the confirmation with a compact **"How it runs"** block per deployed strategy (per instance when their configs differ). Read every value from the **deployed `<instance>/runtime.yaml`** and the package **`strategy.yaml` catalog** — never invent a number. Three things, plain language, no raw YAML:
+
+- **Cadence — how often it acts.** From the `external_scanner`'s `interval_seconds`. If `inputs` carry a slower *decision* clock (`recalibrationHours`, `thesisRefreshHours`, `regimeRefreshHours`), lead with THAT and note the wake interval. Translate to human: `interval_seconds: 300` → "scans every 5 minutes"; `interval_seconds: 21600` + `recalibrationHours: 168` → "re-reads the whole market **weekly**, waking every 6h to act on that read."
+- **Scoring — what it grades and the entry bar.** One or two sentences: the catalog `belief_plain`/`thesis` (what signal it scores) + the runtime `inputs` gate (`minScore` and the conviction bands, `leverageTiers`/`marginPctTiers`). e.g. "ranks the book by relative strength + smart-money lean; opens a name only above its score threshold, sizing bigger at higher conviction (leverage steps up base→apex)."
+- **Protection — the DSL exit ladder.** From `exit.dsl_preset`: the hard stop (`phase1.max_loss_pct`), the profit-lock ladder (`phase2.tiers`: first `trigger_pct` → top `lock_hw_pct`), and any time cut (`weak_peak_cut`/`hard_timeout`). State whether it has a manual close action or is **DSL-only** (no `CLOSE_POSITION` action → "no manual exits — the stop does all the selling"). e.g. "hard stop at −18% from entry; as a winner runs, a trailing floor ratchets up, locking profit from +8% to +80%; a stalled position is cut at 48h."
+
+Keep it to ~3 short lines per strategy. Multi-instance packages whose legs differ (e.g. a long book vs a short book, core vs ballast) get one block each **or** a shared block that names the per-side difference. This is what turns "it's live" into "here's exactly how it trades" — required even when the user didn't ask.
+
 ### Worked example — "install spider"
 ```
 user: "deploy spider with $200"
@@ -121,6 +131,12 @@ user: "deploy spider with $200"
             → wallets-ready  (if "creating", re-run the same command until wallets-ready)
 3. runtime → python3 scripts/deploy.py runtime spider          → registered (spider-swing + spider-scalp)
 4. verify  → python3 scripts/deploy.py verify spider           → live  (re-run if a slow instance hasn't ticked)
+5. confirm → "🕷️ Spider is live (swing + scalp)." + the required How it runs block, e.g.:
+   • Cadence — scans every 5 min (swing) / 5 min (scalp).
+   • Scoring — grades tech/AI names on 4h/1h trend + smart-money consensus; opens above its score bar,
+     sizing bigger at higher conviction.
+   • Protection — hard stop −22% from entry; a trailing floor ratchets up locking profit from +15% to
+     +80%; DSL-only, no manual exits.
 ```
 
 ### Host prerequisites
