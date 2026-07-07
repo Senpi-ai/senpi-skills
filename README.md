@@ -109,9 +109,20 @@ There are **no manual close actions**. Exits are 100% owned by the runtime's **t
 
 That asymmetry — lose small, let winners run — is the engine behind every strategy template.
 
+### And a risk engine wraps the whole strategy
+
+The DSL protects each *position*; a portfolio-level **risk engine** governs the whole *strategy* — deterministic guards the model can't prompt its way around, enforced every tick:
+
+- **Circuit breakers** — a daily-loss halt and an intraday drawdown breaker stop trading on a bad day.
+- **Turnover brakes** — max-entries-per-day plus consecutive-loss and per-asset cooldowns throttle overtrading, because fees are the quiet killer of every bot.
+- **Hard gates** — margin, notional, and leverage limits reject any signal that would breach them, each logged with a reason code (`no_slots`, `no_margin`, `risk_gate_*`, `asset_banned`).
+- **Conviction-weighted sizing** — position size scales off the live account (`margin_pct`) and the signal's own score, not a fixed lot.
+
+The scanner proposes; the runtime's risk engine disposes.
+
 ### The strategy templates, by archetype
 
-The 80+ templates span the full cross-asset spectrum (majors, alts, universe crypto, XYZ equities, commodities, indices, pre-IPO) at 3–10× leverage, 70 advanced / 13 starter, mostly long/short:
+The 80+ templates span the full cross-asset spectrum (majors, alts, universe crypto, XYZ equities, commodities, indices, pre-IPO) at 3–10× leverage, 70 advanced / 13 starter, mostly long/short. The range is deliberate — directional and market-neutral, single-asset and whole-universe, momentum and mean-reversion, copy-trading and macro, everyday starters and crisis insurance:
 
 | Archetype | # | What it does | Examples |
 |---|---|---|---|
