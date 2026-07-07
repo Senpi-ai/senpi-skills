@@ -15,7 +15,7 @@ Senpi 2.0 isn't a chatbot with a trading API bolted on. It's a **harness** — a
 ```
                     ┌─────────────────────────────────────────────┐
    You (chat) ────▶ │  Senpi Samurai  — the model                 │   tuned for Hyperliquid
-                    │  Light (256K, default) · Heavy (1M, deep)   │
+                    │  not a generalist in a trading costume      │
                     └───────────────────────┬─────────────────────┘
                                             │
                     ┌───────────────────────▼─────────────────────┐
