@@ -29,7 +29,7 @@ Senpi 2.0 isn't a chatbot with a trading API bolted on. It's a **harness** — a
                     └───────────────────────┬─────────────────────┘
                                             │  call tools
                     ┌───────────────────────▼─────────────────────┐
-                    │  Senpi MCP surface  (60+ tools)             │   market · discovery · leaderboard
+                    │  Senpi MCP surface  (62 tools)              │   market · discovery · leaderboard
                     │  market / strategy / execution / DSL / …    │   strategy · execution · ratchet-stop
                     └───────────────────────┬─────────────────────┘
                                             │
