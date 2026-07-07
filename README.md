@@ -4,7 +4,7 @@
 
 This repository is the **open-source layer** of the Senpi Hyperliquid AI Harness: the [skills](#the-skills) that give a Senpi agent its trading capabilities, and the [strategy templates](#the-strategy-templates) it can deploy. MIT-licensed, readable, forkable.
 
-**Platform:** [senpi.ai](https://senpi.ai) · **Arena:** [senpi.ai/arena](https://senpi.ai/arena) · **Deploy your own:** [senpi-hyperclaw-railway-template](https://github.com/Senpi-ai/senpi-hyperclaw-railway-template) · **Exchange:** [Hyperliquid](https://hyperliquid.xyz)
+**Deploy an agent:** [senpi.ai](https://senpi.ai) · **Arena:** [senpi.ai/arena](https://senpi.ai/arena) · **Exchange:** [Hyperliquid](https://hyperliquid.xyz)
 
 ---
 
@@ -155,9 +155,9 @@ The supervisor that turns a package into a live, risk-managed strategy. A strate
 
 ## Getting started
 
-The fastest path is the **[Senpi HyperClaw Railway template](https://github.com/Senpi-ai/senpi-hyperclaw-railway-template)** — one-click deploy of a full agent host (OpenClaw + the runtime plugin + Senpi MCP).
+The fastest path is to **[deploy an agent directly on senpi.ai](https://senpi.ai)** — it stands up a full agent host (the runtime plugin + Senpi MCP) for you, no infra to run.
 
-To run a strategy by hand on an existing [OpenClaw](https://openclaw.ai) host:
+To run a strategy by hand on your own [OpenClaw](https://openclaw.ai) host:
 
 ```bash
 # 1. Install the runtime plugin + configure Senpi MCP (SENPI_AUTH_TOKEN)
