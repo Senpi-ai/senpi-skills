@@ -29,7 +29,7 @@ Senpi 2.0 isn't a chatbot with a trading API bolted on. It's a **harness** — a
                     └───────────────────────┬─────────────────────┘
                                             │  call tools
                     ┌───────────────────────▼─────────────────────┐
-                    │  Senpi MCP surface  (62 tools)              │   market · discovery · leaderboard
+                    │  Senpi MCP surface  (62 tools)               │   market · discovery · leaderboard
                     │  market / strategy / execution / DSL / …    │   strategy · execution · ratchet-stop
                     └───────────────────────┬─────────────────────┘
                                             │
@@ -81,7 +81,7 @@ Skills **compose**: `improve-trades` pulls in `market-pulse` + `smart-money` + `
 
 ## The strategy templates
 
-A **strategy** is a deployable **package** under [`strategies/`](strategies/) — a market thesis compiled into scanner logic + risk config + exits, that runs on its own funded wallet. There are **80+** in the catalog today, forward-tested with **$85,000+** of real capital and battle-tested in the public [Agents Arena](https://senpi.ai/arena), where Senpi agents have traded **$30M+ in notional volume**.
+A **strategy** is a deployable **package** under [`strategies/`](strategies/) — a market thesis compiled into scanner logic + risk config + exits, that runs on its own funded wallet. There are **80+** in the catalog today, forward-tested across **$10M+** in notional trade value and battle-tested in the public [Agents Arena](https://senpi.ai/arena), where Senpi agents have traded **$30M+ in notional volume**.
 
 ### Package anatomy
 
