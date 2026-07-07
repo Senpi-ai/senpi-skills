@@ -40,7 +40,7 @@ Senpi 2.0 isn't a chatbot with a trading API bolted on. It's a **harness** — a
                     └───────────────────────┬─────────────────────┘
                                             │
                                      ┌──────▼──────┐
-                                     │ Hyperliquid │   perps: ~260 crypto + ~85 equities/
+                                     │ Hyperliquid │   perps: ~230 crypto + ~95 equities/
                                      └─────────────┘   metals/indices/pre-IPO, 24/7
 ```
 
@@ -81,7 +81,7 @@ Skills **compose**: `improve-trades` pulls in `market-pulse` + `smart-money` + `
 
 ## The strategy templates
 
-A **strategy** is a deployable **package** under [`strategies/`](strategies/) — a market thesis compiled into scanner logic + risk config + exits, that runs on its own funded wallet. There are **83** in the catalog today.
+A **strategy** is a deployable **package** under [`strategies/`](strategies/) — a market thesis compiled into scanner logic + risk config + exits, that runs on its own funded wallet. There are **80+** in the catalog today, forward-tested with **$85,000+** of real capital and battle-tested in the public [Agents Arena](https://senpi.ai/arena), where Senpi agents have traded **$30M+ in notional volume**.
 
 ### Package anatomy
 
@@ -96,7 +96,7 @@ strategies/spider/
 └── scalp/  …                ← a second instance (different cadence, different wallet)
 ```
 
-- **`strategy.yaml`** — source of truth for deploy + attribution. Its `instances[]` array is what makes a package expand into 1–N deployed strategies, one wallet each, split by `funding_share`. **21 of the 83 are multi-wallet** (e.g. long+short funds, core+ballast, hedge+escalation).
+- **`strategy.yaml`** — source of truth for deploy + attribution. Its `instances[]` array is what makes a package expand into 1–N deployed strategies, one wallet each, split by `funding_share`. **21 of them are multi-wallet** (e.g. long+short funds, core+ballast, hedge+escalation).
 - **`runtime.yaml`** — the runtime's self-contained spec. The runtime **spawns and supervises** `scan()`, calling it every `interval_seconds` and owning everything after: signal validation, conviction-weighted sizing (`margin_pct`), execution (`FEE_OPTIMIZED_LIMIT`), slot accounting, `risk.guard_rails`, and the DSL exits. **No separate scanner daemon.**
 - **`strategies/catalog.json`** — the generated registry index (never hand-edit; run [`senpi-trading-runtime/scripts/gen_catalog.py`](senpi-trading-runtime/scripts/)). `senpi-strategy-discover` ranks it.
 
@@ -111,7 +111,7 @@ That asymmetry — lose small, let winners run — is the engine behind every st
 
 ### The strategy templates, by archetype
 
-The 83 templates span the full cross-asset spectrum (majors, alts, universe crypto, XYZ equities, commodities, indices, pre-IPO) at 3–10× leverage, 70 advanced / 13 starter, mostly long/short:
+The 80+ templates span the full cross-asset spectrum (majors, alts, universe crypto, XYZ equities, commodities, indices, pre-IPO) at 3–10× leverage, 70 advanced / 13 starter, mostly long/short:
 
 | Archetype | # | What it does | Examples |
 |---|---|---|---|
@@ -184,7 +184,7 @@ senpi-skills/
 │   senpi-strategy-ops/  senpi-trading-runtime/
 ├── senpi-deposit-withdraw-transfer/  senpi-why/                    ← money / positioning
 │
-├── strategies/                    ← 83 strategy packages + the registry
+├── strategies/                    ← 80+ strategy packages + the registry
 │   ├── catalog.json               ← GENERATED index
 │   └── <id>/ …                    ← strategy.yaml + <instance>/{runtime.yaml, scanners/}
 │
