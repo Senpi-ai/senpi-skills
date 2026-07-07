@@ -5,8 +5,8 @@
 #   ./run.sh <strategy-id> <branch-or-github-tree-url> <budget-usd>
 #
 # examples:
-#   ./run.sh asia-ai https://github.com/Senpi-ai/senpi-skills/tree/strategy-v2 500
-#   ./run.sh asia-ai strategy-v2 '$500'
+#   ./run.sh asia-ai https://github.com/Senpi-ai/senpi-skills/tree/main 500
+#   ./run.sh asia-ai main '$500'
 #
 # Maps the tester request  "Run <strategy> on <url> using $<budget>"  to:
 #   checkout the branch -> deploy.py create (fund) -> runtime (start) -> verify (ticking).
