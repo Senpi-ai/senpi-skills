@@ -163,8 +163,8 @@ def diagnose_instance(pkg, inst, host_ok, want_scan):
     if want_scan:
         smp = (inst.runtime_doc or {}).get("strategy", {}).get("margin_pct")
         scan_result = _smoke.smoke(str(inst.runtime_path), es, wallet=None, strategy_margin_pct=smp)
-        ev["scan"] = {k: scan_result[k] for k in ("status", "detail", "n_signals", "violations",
-                                                   "sizing_warnings", "returned_repr", "traceback")}
+        ev["scan"] = {k: scan_result.get(k) for k in ("status", "detail", "n_signals", "violations",
+                                                       "sizing_warnings", "returned_repr", "traceback")}
 
     # ---- RUNTIME (host) ----
     if not host_ok:

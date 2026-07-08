@@ -90,20 +90,31 @@ def _tracked_assets(wallet):
     return _assets_from(js, extra=("floorPrice", "phase", "currentROE"))
 
 
+def _is_stop_order(o):
+    """True iff order `o` is a protective DOWNSIDE stop — NOT a take-profit and not a plain reduce-only
+    scale-out. A take-profit is ALSO reduceOnly (and isPositionTpsl), so `reduceOnly` alone must not count
+    as a stop: a TP-only position would then read PROTECTED with no real stop behind it. Exclude explicit
+    take-profits FIRST, then accept reduce-only / trigger / stop-typed orders."""
+    if not isinstance(o, dict):
+        return False
+    otype = str(_cli.dig(o, "orderType", "type") or "").lower()
+    tpsl = str(_cli.dig(o, "tpsl", "tpSl", "triggerType") or "").lower()
+    if "take" in otype or "profit" in otype or tpsl == "tp":   # a take-profit is not downside protection
+        return False
+    return bool(_cli.dig(o, "reduceOnly", "isPositionTpsl", "isTrigger")) or "stop" in otype or \
+        otype in ("trigger", "stop", "stop_market", "stop_limit") or tpsl == "sl"
+
+
 def _stop_assets(mcp, wallet):
-    """Assets with a resting reduce-only / trigger (stop) order on the venue."""
+    """Assets with a resting protective STOP order on the venue (take-profits excluded — see _is_stop_order)."""
     try:
         oo = mcp.mcp_call("strategy_get_open_orders", strategy_wallet=wallet, timeout=20)
     except MCPError:
         return set()
     out = set()
     for o in _flatten_orders(oo):
-        if not isinstance(o, dict):
-            continue
-        asset = _cli.dig(o, "coin", "asset", "symbol")
-        is_stop = bool(_cli.dig(o, "reduceOnly", "isPositionTpsl", "isTrigger")) or \
-            str(_cli.dig(o, "orderType", "type") or "").lower() in ("stop", "trigger", "stop_market", "stop_limit")
-        if asset and is_stop:
+        asset = _cli.dig(o, "coin", "asset", "symbol") if isinstance(o, dict) else None
+        if asset and _is_stop_order(o):
             out.add(str(asset))
     return out
 

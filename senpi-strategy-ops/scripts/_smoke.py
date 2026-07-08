@@ -15,12 +15,14 @@ module/sys.path state never leaks between instances. Invoke this file as
 
 FIDELITY / SAFETY — the child rebuilds the runtime's `ctx` faithfully enough to catch the failure
 modes, and enforces the SAME read-only MCP boundary the real scaffold does (see scan-contract.md):
-every money/state-mutating tool raises PermissionError BEFORE any network call. A smoke test can read
-the market with the strategy's token; it can NEVER place, close, or edit a trade.
+every money/state-mutating tool raises PermissionError BEFORE any network call. The block is enforced on
+BOTH ctx.senpi_mcp AND (via _install_readonly_guard) the mcp_client class itself, so a scan that imports
+MCPClient directly can't bypass it. A smoke test can read the market with the strategy's token; it can
+NEVER place, close, or edit a trade.
 
   verdict = smoke(runtime_path, external_scanner_dict, wallet)   # -> {status, detail, signals, ...}
-  status ∈ clean | empty | threw | bad-return | bad-shape | timeout | setup-error
-           ^pass    ^warn   ^block   ^block       ^block      ^warn     ^warn
+  status ∈ clean | empty | threw | bad-return | bad-shape | unloadable | timeout | setup-error
+           ^pass    ^warn   ^block   ^block       ^block       ^block       ^warn     ^warn
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
 import argparse
@@ -45,8 +47,8 @@ BLOCKED_TOOLS = frozenset({
 # which is the correct view for a fresh deploy; the scan still exercises its full market-read path.
 ZERO_WALLET = "0x0000000000000000000000000000000000000000"
 
-BLOCK = ("threw", "bad-return", "bad-shape")   # a real defect — do not fund
-WARN = ("empty", "timeout", "setup-error")     # inconclusive or benignly quiet — proceed with a note
+BLOCK = ("threw", "bad-return", "bad-shape", "unloadable")  # a real package defect — do not fund
+WARN = ("empty", "timeout", "setup-error")                  # inconclusive or benignly quiet — proceed with a note
 _CALL_TIMEOUT = 20                             # per read-only MCP call inside the child (s)
 
 _SCHEMA_PY = {"string": str, "number": (int, float), "boolean": bool,
@@ -148,8 +150,8 @@ def _resolve_scan_dir(runtime_path, es):
 def smoke(runtime_path, es, wallet=None, timeout=None, strategy_margin_pct=None):
     """Run one scan() and classify it. Returns:
       {status, detail, signals, violations, sizing_warnings, traceback, returned_repr, n_signals}
-    status ∈ clean|empty|threw|bad-return|bad-shape|timeout|setup-error (BLOCK/WARN sets above).
-    `sizing_warnings` flags schema-valid-but-broken sizing (the marginPct decimal/percent confusion)."""
+    status ∈ clean|empty|threw|bad-return|bad-shape|unloadable|timeout|setup-error (BLOCK/WARN sets above).
+    `sizing_warnings` (ALWAYS present) flags schema-valid-but-broken sizing (marginPct percent/fraction confusion)."""
     scan_dir = _resolve_scan_dir(runtime_path, es)
     entry = es.get("entrypoint", "scan.py")
     inputs = es.get("inputs") or {}
@@ -162,26 +164,33 @@ def smoke(runtime_path, es, wallet=None, timeout=None, strategy_margin_pct=None)
     if raw.get("timed_out"):
         return {"status": "timeout", "detail": f"scan() did not finish in {tmo}s "
                 "(a single-pass scan should be quick — check for a loop/sleep or a slow MCP read)",
-                "signals": [], "violations": [], "traceback": raw.get("stderr", ""),
+                "signals": [], "violations": [], "sizing_warnings": [], "traceback": raw.get("stderr", ""),
                 "returned_repr": "", "n_signals": 0}
     if not raw.get("spawned"):
         return {"status": "setup-error", "detail": raw.get("error", "could not run the scan child"),
-                "signals": [], "violations": [], "traceback": raw.get("stderr", ""),
+                "signals": [], "violations": [], "sizing_warnings": [], "traceback": raw.get("stderr", ""),
                 "returned_repr": "", "n_signals": 0}
     if raw.get("threw"):
         return {"status": "threw", "detail": raw.get("error", "scan() raised"),
-                "signals": [], "violations": [], "traceback": raw.get("traceback", ""),
+                "signals": [], "violations": [], "sizing_warnings": [], "traceback": raw.get("traceback", ""),
                 "returned_repr": "", "n_signals": 0}
     if raw.get("setup_error"):  # child could not import the module / build ctx
+        # A package DEFECT (module won't import, no callable scan, entrypoint missing) can NEVER register a
+        # scanner — funding it just parks capital that can't trade (the divergence-play failure). BLOCK it.
+        # A mere HARNESS problem (no python, or no token to build ctx here) is inconclusive — WARN + proceed.
+        if raw.get("defect"):
+            return {"status": "unloadable", "detail": raw.get("error", "scan module failed to load"),
+                    "signals": [], "violations": [], "sizing_warnings": [], "traceback": raw.get("traceback", ""),
+                    "returned_repr": "", "n_signals": 0}
         return {"status": "setup-error", "detail": raw.get("error", "scan module did not load"),
-                "signals": [], "violations": [], "traceback": raw.get("traceback", ""),
+                "signals": [], "violations": [], "sizing_warnings": [], "traceback": raw.get("traceback", ""),
                 "returned_repr": "", "n_signals": 0}
     signals = raw.get("signals")
     if not isinstance(signals, list):
         return {"status": "bad-return",
                 "detail": f"scan() returned {type(signals).__name__}, must return a list[dict] "
                           "(return [] when there's nothing to trade — never None)",
-                "signals": [], "violations": [], "traceback": "",
+                "signals": [], "violations": [], "sizing_warnings": [], "traceback": "",
                 "returned_repr": raw.get("returned_repr", ""), "n_signals": 0}
     violations = validate_signals(signals, schema)
     sizing = sizing_warnings(signals, strategy_margin_pct)
@@ -299,6 +308,27 @@ class _Ctx:
         raise AttributeError("ctx is frozen — scan() must not mutate it")
 
 
+def _install_readonly_guard():
+    """Harden the read-only boundary at the mcp_client layer, so a scan that imports MCPClient DIRECTLY
+    (bypassing ctx.senpi_mcp) still cannot mutate money/state. Idempotent; no-op if mcp_client is absent."""
+    try:
+        import mcp_client as _mc
+    except Exception:  # noqa: BLE001 — no client to guard; the scan can't reach the network anyway
+        return
+    if getattr(_mc.MCPClient.mcp_call, "_senpi_readonly", False):
+        return
+    _orig = _mc.MCPClient.mcp_call
+
+    def _guarded(self, tool, *args, **kwargs):
+        if tool in BLOCKED_TOOLS:
+            raise PermissionError(
+                f"{tool} is a mutation tool — blocked by the read-only smoke boundary (scan() may only read)")
+        return _orig(self, tool, *args, **kwargs)
+
+    _guarded._senpi_readonly = True
+    _mc.MCPClient.mcp_call = _guarded
+
+
 def _child_main():
     """Import the scan module, build ctx, call scan() once, print one JSON verdict line."""
     try:
@@ -315,9 +345,10 @@ def _child_main():
     scripts_dir = str(Path(__file__).resolve().parent)
     sys.path.insert(0, scripts_dir)
     sys.path.insert(0, str(scan_dir))
+    _install_readonly_guard()  # block mutating tools even if the scan imports MCPClient directly (before exec)
 
     if not scan_file.is_file():
-        print(json.dumps({"setup_error": True,
+        print(json.dumps({"setup_error": True, "defect": True,
                           "error": f"entrypoint not found: {scan_file}"}))
         return
     try:
@@ -326,12 +357,12 @@ def _child_main():
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)   # runs top-level `import scoring`
     except Exception:  # noqa: BLE001 — import/scoring failure is a real package defect
-        print(json.dumps({"setup_error": True, "error": "scan module failed to import",
+        print(json.dumps({"setup_error": True, "defect": True, "error": "scan module failed to import",
                           "traceback": traceback.format_exc()[-4000:]}))
         return
     scan = getattr(mod, "scan", None)
     if not callable(scan):
-        print(json.dumps({"setup_error": True,
+        print(json.dumps({"setup_error": True, "defect": True,
                           "error": f"{entry} does not export a callable scan(inputs, ctx)"}))
         return
 
