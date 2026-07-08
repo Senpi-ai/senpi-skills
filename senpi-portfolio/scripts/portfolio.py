@@ -483,6 +483,14 @@ def fetch_strategies(client, meta):
         # template deploy (skill_name present ⟹ built-in DSL exit by the validator invariant). Config-
         # level protection posture, not a live per-position DSL-tracking check.
         has_exit = bool(registry_prof and registry_prof.get("has_exit"))
+        # RUNTIME LIVENESS — is a runtime actually REGISTERED for this strategy? The runtime records every
+        # deployed strategy in installed_runtimes.json (keyed by wallet). A skill_name strategy that is
+        # ACTIVE + funded but ABSENT from that registry has NO runtime behind it — its scanner never ran,
+        # so it has NO DSL and NO guardrails despite "status: ACTIVE" (the exact trap that let a user think
+        # a funded-but-never-registered strategy was live and protected). Only judgeable when the registry
+        # is actually present on THIS host; an absent registry ⇒ unknown (never claim not-running from it).
+        runtime_registered = bool(registry_prof) if registry_src == "registry" else None
+        not_running = bool(skill_name) and runtime_registered is False
         strategies.append({
             "name": _field(s, "tradingStrategyName", "name", default="strategy"),
             "wallet": wallet,
@@ -494,7 +502,12 @@ def fetch_strategies(client, meta):
             "total_withdrawn": _f(s, "totalWithdrawn", "total_withdrawn", default=None),
             "skill_name": skill_name,
             "skill_version": skill_version,
-            "protected": bool(has_exit or skill_name),
+            # PROTECTED — config posture (deployed runtime.yaml ships an `exit` block, or a template deploy
+            # carries the validator-guaranteed DSL). But a strategy with NO registered runtime is running
+            # NOTHING, so it is NOT protected regardless of config — force False when not_running.
+            "protected": False if not_running else bool(has_exit or skill_name),
+            "runtime_registered": runtime_registered,   # True | False | None (unknown — no registry here)
+            "not_running": not_running,                  # ACTIVE + funded skill strategy, no runtime → dead
             # The strategy's declared job — `profile.description` from its DEPLOYED runtime.yaml (the
             # runtime registers it), plus optional catalog facets. The yardstick to judge it against.
             "profile": profile,
@@ -584,6 +597,16 @@ def fetch_strategies(client, meta):
         meta.setdefault("warnings", []).append(
             f"{len(dormant)} strategy(ies) report status ACTIVE but hold $0 (empty wallet) — likely just "
             f"closed, funds returned to embedded (or never funded): {', '.join(str(d) for d in dormant)}")
+    # Roll up any ACTIVE + funded strategy with NO runtime registered — status says ACTIVE but there is no
+    # runtime, so it is NOT running: no scanner, no DSL, no guardrails. The "ACTIVE record ≠ live runtime"
+    # trap — must be surfaced as unprotected/not-running, never as "alive and waiting".
+    not_running = [s["name"] for s in strategies if s.get("not_running")]
+    if not_running:
+        meta["not_running"] = not_running
+        meta.setdefault("warnings", []).append(
+            f"{len(not_running)} strategy(ies) show status ACTIVE but have NO runtime registered — NOT "
+            f"running: no scanner, no DSL, no guardrails despite 'ACTIVE'. Report as UNPROTECTED / not "
+            f"running, never as live or 'waiting for a setup': {', '.join(str(n) for n in not_running)}")
     return strategies
 
 
@@ -942,8 +965,14 @@ def group_strategies(strategies, meta):
             "instances": instances,                             # per-wallet detail
             "totals": totals,                                   # summed across all wallets
             # protected ONLY if ALL instances are protected — a strategy with one unguarded sleeve is not
-            # fully protected.
+            # fully protected. (An instance with no registered runtime is forced unprotected upstream.)
             "protected": all(bool(s.get("protected")) for s in insts),
+            # not_running: ANY instance is ACTIVE + funded but has no runtime registered → the strategy (or
+            # a sleeve of it) isn't actually running. runtime_registered: True (all registered) / False
+            # (some missing) / None (unknown — no registry on this host, don't assert either way).
+            "not_running": any(bool(s.get("not_running")) for s in insts),
+            "runtime_registered": (None if any(s.get("runtime_registered") is None for s in insts)
+                                   else all(bool(s.get("runtime_registered")) for s in insts)),
             "flat_instances": flat_instances,
             "profile_source": prof.get("source"),
         })

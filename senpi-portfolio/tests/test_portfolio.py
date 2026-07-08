@@ -145,6 +145,74 @@ def test_profile_description_from_runtime_registry():
     assert res["meta"]["profile_source"] in ("registry", "mixed")
 
 
+def test_active_but_no_runtime_is_not_running():
+    """A skill_name strategy that is ACTIVE + funded but ABSENT from the runtime registry has NO runtime
+    behind it — the engine must flag it not_running + unprotected, never 'alive/protected'. The registry
+    IS present (kodiak only), so a different funded wallet is judgeable as 'no runtime registered' — the
+    exact gibbon case where the user was told a never-registered strategy was live and DSL-protected."""
+    GHOST = "0xGHOST00000000000000000000000000000ghost"
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"total_balance_usd": 2000, "total_withdrawable": 2000,
+                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "gibbon", "skillName": "gibbon", "status": "ACTIVE",
+             "totalFunded": 2000, "strategyWalletAddress": GHOST}]},
+        f"strategy_get_clearinghouse_state::{GHOST.lower()}": {
+            "main": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []},
+            "xyz": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []}},
+    }
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR   # registry present (kodiak only) → GHOST wallet is absent
+    try:
+        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+    strat = {s["name"]: s for s in res["strategies"]}["gibbon"]
+    assert strat["runtime_registered"] is False   # registry present, wallet not in it → no runtime
+    assert strat["not_running"] is True
+    assert strat["protected"] is False            # not running ⇒ not protected, despite skill_name
+    assert res["meta"].get("not_running") == ["gibbon"]
+    assert any("not running" in w.lower() for w in res["meta"]["warnings"])
+    grp = {g["label"]: g for g in res["strategy_groups"]}.get("gibbon")
+    assert grp is not None and grp["not_running"] is True and grp["protected"] is False
+
+
+def test_registry_absent_leaves_runtime_status_unknown():
+    """With NO registry on this host (SENPI_STATE_DIR unset/empty), the engine must NOT claim not_running —
+    runtime_registered is None (unknown) and protected falls back to the config posture."""
+    GHOST = "0xNOREG000000000000000000000000000000nrg"
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"total_balance_usd": 2000, "total_withdrawable": 2000,
+                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "gibbon", "skillName": "gibbon", "status": "ACTIVE",
+             "totalFunded": 2000, "strategyWalletAddress": GHOST}]},
+        f"strategy_get_clearinghouse_state::{GHOST.lower()}": {
+            "main": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []},
+            "xyz": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []}},
+    }
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = os.path.join(HERE, "fixtures", "does_not_exist")
+    try:
+        res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+    strat = {s["name"]: s for s in res["strategies"]}["gibbon"]
+    assert strat["runtime_registered"] is None    # no registry visible → unknown, do not assert
+    assert strat["not_running"] is False           # never claim not-running without the registry
+    assert "not_running" not in res["meta"]
+
+
 def test_multi_wallet_strategy_groups_into_one():
     """A STRATEGY IS ALL ITS WALLETS. cougar deploys as TWO instances on TWO wallets (cougar-long +
     cougar-short, sharing `group: cougar` in their runtime.yamls). `strategy_list` returns them as two

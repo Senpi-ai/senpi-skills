@@ -14,7 +14,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.1"
+  version: "1.8.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -136,6 +136,21 @@ capital to redeploy elsewhere, and never "dead money."** That capital is *commit
 it's the dry powder the other half of the design needs to do its job. Only truly-free
 `idle_in_embedded` (and, with care, a *whole* strategy's idle) is redeployable — a flat sleeve of a
 live multi-wallet strategy is not.
+
+### "ACTIVE" ≠ running — a strategy with no runtime registered is NOT alive, and NOT protected
+
+`status: ACTIVE` only means the strategy *record* exists and is funded — it does **not** mean a runtime is
+actually running it. The engine checks the runtime registry and flags any strategy that is **ACTIVE +
+funded but has NO runtime registered** via `strategy_groups[].not_running` (and per-instance `not_running`
+/ `runtime_registered`), plus a `meta.warnings` line. Such a strategy is **not running at all** — its
+scanner has never ticked, so it has **no DSL and no guardrails** — even though it shows ACTIVE and holds
+capital. Report it as **⛔ NOT RUNNING / UNPROTECTED — funded but no runtime; no scanner, no DSL, no
+guardrails**, and tell the user to redeploy it via `senpi-strategy-ops`. **Never** call a `not_running`
+strategy "alive and waiting," "scanner is live," or "DSL-protected" — that is a false all-clear (a funded
+strategy sat exactly like this while the user believed it was protected and running). This is DISTINCT from
+the flat-but-running case above: a flat sleeve with a *registered, ticking* runtime is waiting for a signal
+(fine); a `not_running` strategy has **no runtime behind it** (broken). When `runtime_registered` is `null`,
+the registry isn't visible on this host — say "runtime status unknown from here," don't assert either way.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
