@@ -152,6 +152,18 @@ the flat-but-running case above: a flat sleeve with a *registered, ticking* runt
 (fine); a `not_running` strategy has **no runtime behind it** (broken). When `runtime_registered` is `null`,
 the registry isn't visible on this host — say "runtime status unknown from here," don't assert either way.
 
+**Telemetry-verified liveness — `runtime_health`.** Beyond "is a runtime registered," the engine asks the
+runtime itself (`openclaw senpi status`) whether it's actually *working*, and sets `runtime_health` per
+strategy and per group. Narrate it honestly — a registered runtime is not automatically a healthy one:
+- **`live`** — registered and telemetry reports healthy. Only this earns "running / protected."
+- **`degraded`** — registered but telemetry reports **unhealthy** (scanner erroring, monitor stalled). It's
+  *running but not cleanly*: say **"⚠ runtime degraded — running but not healthy; check `openclaw senpi
+  status`,"** not a clean all-clear. Flagged in `meta.warnings` too.
+- **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
+- **`unknown`** — telemetry unavailable from here (no `openclaw` on this host, or a build without the RPC).
+  Say **"runtime liveness unverified from here"** — never upgrade `unknown` to "healthy/protected" or
+  downgrade it to "broken." This is the honest bar: **only `live` means "confirmed working."**
+
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
 This is the core of the analysis. Every strategy was deployed to do a *specific* job. "Is it working?"

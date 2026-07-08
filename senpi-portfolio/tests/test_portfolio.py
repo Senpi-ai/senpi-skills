@@ -213,6 +213,69 @@ def test_registry_absent_leaves_runtime_status_unknown():
     assert "not_running" not in res["meta"]
 
 
+def _kodiak_active_fixture():
+    """One ACTIVE kodiak strategy whose wallet matches the registry fixture (id=kodiak-main)."""
+    return {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"total_balance_usd": 200, "total_withdrawable": 200,
+                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "kodiak", "strategyWalletAddress": KODIAK_WALLET, "status": "ACTIVE"}]},
+        f"strategy_get_clearinghouse_state::{KODIAK_WALLET.lower()}": {
+            "main": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []},
+            "xyz": {"marginSummary": {"accountValue": "200"}, "withdrawable": "200", "assetPositions": []}},
+    }
+
+
+def _run_with_status(status_by_id):
+    """Run the engine with the registry present (kodiak registered) and a `senpi status` telemetry fixture
+    keyed by runtime id — no subprocess. Returns the result dict."""
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+        json.dump(status_by_id, tf)
+        status_path = tf.name
+    saved = {k: os.environ.get(k) for k in ("SENPI_STATE_DIR", "SENPI_STATUS_FIXTURE")}
+    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
+    os.environ["SENPI_STATUS_FIXTURE"] = status_path
+    try:
+        return portfolio.run(portfolio._FixtureClient(_kodiak_active_fixture()), want_market=False)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        os.unlink(status_path)
+
+
+def test_registered_runtime_healthy_status_is_live():
+    """A registered runtime whose `senpi status` telemetry reports healthy → runtime_health 'live'."""
+    res = _run_with_status({"kodiak-main": {"overallHealth": "healthy", "activePositions": 0}})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_registered"] is True
+    assert strat["runtime_health"] == "live"
+    assert "degraded_runtimes" not in res["meta"]
+
+
+def test_registered_runtime_degraded_status_is_flagged():
+    """Registered runtime whose telemetry reports degraded/unhealthy → runtime_health 'degraded' + warning
+    (running, but not cleanly — distinct from not_running and from live)."""
+    res = _run_with_status({"kodiak-main": {"overallHealth": "degraded"}})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_health"] == "degraded"
+    assert res["meta"].get("degraded_runtimes") == ["kodiak"]
+    assert any("degraded" in w.lower() for w in res["meta"]["warnings"])
+
+
+def test_registered_runtime_no_telemetry_is_unknown():
+    """Registered runtime but telemetry has no entry for it (and no subprocess) → runtime_health 'unknown'
+    — liveness unverified, never asserted broken."""
+    res = _run_with_status({"some-other-runtime-id": {"overallHealth": "healthy"}})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_registered"] is True
+    assert strat["runtime_health"] == "unknown"
+
+
 def test_multi_wallet_strategy_groups_into_one():
     """A STRATEGY IS ALL ITS WALLETS. cougar deploys as TWO instances on TWO wallets (cougar-long +
     cougar-short, sharing `group: cougar` in their runtime.yamls). `strategy_list` returns them as two
