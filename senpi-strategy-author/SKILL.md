@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.5.0"
+  version: "2.6.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -192,6 +192,21 @@ the catalog entry, then unit-test → validate → hand to smoke-test."* Then ti
    status ACTIVE" is **not** done — `ACTIVE` only means `position_tracker` runs; done means a scanner tick
    that **emitted a schema-valid signal**. Never declare a strategy fixed/built without that tick, and
    never substitute a raw `strategy_create_custom_strategy` (it drops the DSL and automated exits).
+10. **Deploy, then confirm it's LIVE *and* PROTECTED — the job is NOT done until this passes.** Authoring a
+    clean package is not the finish line. A strategy the user can't see running — or one running
+    **unprotected** — is the exact failure this flow exists to prevent (a user lost real money on a
+    strategy that funded but never got a runtime, so it had **no DSL and no guardrails**, and nothing said
+    so). Hand to `senpi-strategy-ops` (`deploy.py create <id> --budget <usd>` → `deploy.py runtime <id>`),
+    then verify the **full** definition of done — never stop at "ACTIVE":
+    - **Live** — `python3 senpi-strategy-ops/scripts/diagnose.py <id>`: the external_scanner is registered,
+      `interval_seconds > 0`, has **ticked**, and emitted a **schema-valid signal sized ≈ the intended %**.
+    - **Protected** — `python3 senpi-strategy-ops/scripts/protect.py <id>`: every open position is
+      **DSL-tracked with a resting stop** (not NAKED).
+    - **Guard-railed** — `openclaw senpi risk -r <id>-<inst>`: the `risk.guard_rails` (drawdown halt,
+      daily-loss, per-day / per-asset limits) are loaded and eligible.
+    If the runtime never registered (gateway scope, a bad path, a raw-create shortcut), the strategy is
+    **funded but running with NO runtime — no DSL, no guardrails.** Say so plainly; **never report a
+    strategy as live or protected until these three confirm it.**
 
 Report each numbered stage as it lands — a short line is enough. The point is the user sees forward motion
 the whole way and can catch a wrong turn early, instead of after the entire package is already built.
@@ -248,8 +263,12 @@ Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thre
 the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then
 re-smoke-test if you touched `scan.py`/`runtime.yaml`.
 
-## Handoff
+## Handoff — but not before it's live and protected
 
-Authoring produces the package only. **Deploy/monitor/close is `senpi-strategy-ops`** — hand off the
-`id` once the smoke test is green. Attribution (`skillName`/`skillVersion`) is set by ops from
-`strategy.yaml` `id`/`version`.
+Deploy/monitor/close run through **`senpi-strategy-ops`**, but authoring is **not done when the package is
+written or the smoke test is green.** It is done when the strategy is **deployed and confirmed live +
+DSL-protected + guard-railed** (step 10) — drive it through deploy and run `diagnose.py` + `protect.py` +
+`openclaw senpi risk` yourself, and only report success once all three pass. A package that was authored
+but never made it onto a **running, protected runtime** is an unprotected position waiting to happen — the
+one outcome that must never be reported as "done." Attribution (`skillName`/`skillVersion`) is set by ops
+from `strategy.yaml` `id`/`version`.

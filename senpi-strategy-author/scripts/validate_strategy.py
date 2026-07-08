@@ -162,6 +162,15 @@ def validate(pkg: Path) -> list:
             errs.append(f"instance {name}: {rt_rel} has no DSL exit block (exit:/dsl_preset:) — "
                         f"every strategy must ship built-in protection")
 
+        # Guardrails are not optional either: DSL exits a position, guard_rails bound the account
+        # (drawdown halt, daily-loss, per-day / per-asset entry limits). A runtime with no guard_rails
+        # trades unbounded — the failure that let a user revenge-re-enter into a drawdown. All 83 catalog
+        # packages ship one, so requiring it never false-positives.
+        if not re.search(r"^\s*guard_rails\s*:", rt_text, re.M):
+            errs.append(f"instance {name}: {rt_rel} has no risk.guard_rails block — every strategy must "
+                        f"ship guardrails (drawdown_halt_pct, daily_loss_limit_pct, max_entries_per_day, "
+                        f"cooldowns); a runtime with no guardrails trades unbounded")
+
         # Self-describing is not optional: every instance needs a substantive top-level `description`.
         # The runtime REGISTERS it (installed_runtimes.json) and senpi-portfolio reads it back as the
         # strategy's mandate — "is it doing its job?". A missing/stub description makes an authored
