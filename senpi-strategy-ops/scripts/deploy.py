@@ -482,6 +482,18 @@ def main(argv):
     ps = sub.add_parser("status", help="Show the deploy state.")
     common(ps)
 
+    # `deploy.py <id>` is the natural guess but there's no bare form — deploy runs in resumable steps.
+    # Redirect clearly instead of an argparse "invalid choice" stack trace that leaves the agent stuck
+    # (an agent hit exactly this and thrashed for an hour). Flags fall through to argparse.
+    if len(argv) > 1 and not argv[1].startswith("-") and argv[1] not in ("create", "runtime", "verify", "status"):
+        sid = argv[1]
+        sys.exit(
+            f"deploy runs in resumable steps — there is no bare `deploy.py {sid}`. To deploy {sid!r}:\n"
+            f"  1. python3 scripts/deploy.py create {sid} --budget <usd>   # create + fund the wallet(s)\n"
+            f"  2. python3 scripts/deploy.py runtime {sid}                 # register the runtime\n"
+            f"  3. python3 scripts/deploy.py verify {sid}                  # optional: confirm a scan tick\n"
+            f"Then confirm it's live + protected: diagnose.py {sid}  and  protect.py {sid}.")
+
     a = ap.parse_args(argv[1:])
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
