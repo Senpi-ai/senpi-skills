@@ -164,12 +164,15 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   Say **"runtime liveness unverified from here"** — never upgrade `unknown` to "healthy/protected" or
   downgrade it to "broken." This is the honest bar: **only `live` means "confirmed working."**
 
-This health check owns **liveness** (is it registered + running + healthy). For the depth *behind* a bad
-verdict, hand off — don't re-derive it here: **`not_running` / `degraded` →** `senpi-strategy-ops`
-`diagnose.py <id>` (why the scanner isn't producing — registered? ticked? BARREN? erroring?) and redeploy;
-**"where am I leaking / did a stop fail / any halts / exit quality" →** `senpi-improve-trades` (it reads the
-runtime event log for protection gaps, risk halts, failed orders, and exit quality). Point the user to the
-right tool rather than duplicating that analysis in the health check.
+This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
+`diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
+does not stop at the verdict: for **any** strategy that isn't cleanly `live` (`not_running` / `degraded` /
+`unknown`), running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? BARREN? erroring?
+`--run-scan` for the literal scan output) is how you **confirm what's actually wrong and fix it** — surface
+it as the required next step (and its verdict, if you can run it), then close.py → redeploy as needed. For
+**"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it
+reads the runtime event log for protection gaps, risk halts, failed orders, and exit quality). Reference the
+right tool to *confirm* — never re-derive its analysis here.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
