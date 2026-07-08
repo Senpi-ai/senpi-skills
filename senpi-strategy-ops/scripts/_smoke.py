@@ -109,6 +109,33 @@ def validate_signals(signals, schema):
     return out
 
 
+def sizing_warnings(signals, strategy_margin_pct=None):
+    """Flag economically-broken-but-SCHEMA-VALID sizing — chiefly the decimal/percent confusion that
+    sizes 0.18% instead of 18% (marginPct is a PERCENT: 18 == 18%, NEVER a fraction 0.18). A signal with
+    marginPct 0.18 passes every schema check — positive, ≤100 — yet opens ~$3.60 on a $2k wallet. The
+    strongest tell: the signal's marginPct is ~100× smaller than the runtime.yaml's strategy.margin_pct
+    (the author set the percent in YAML but emitted the fraction in scan). Advisory, not a hard reject."""
+    out = []
+    for i, s in enumerate(signals if isinstance(signals, list) else []):
+        if not isinstance(s, dict):
+            continue
+        mp = s.get("marginPct")
+        if isinstance(mp, bool) or not isinstance(mp, (int, float)) or mp <= 0:
+            continue
+        if isinstance(strategy_margin_pct, (int, float)) and not isinstance(strategy_margin_pct, bool) \
+                and strategy_margin_pct > 0:
+            ratio = strategy_margin_pct / mp
+            if 40 <= ratio <= 250:  # ~100× → the signal is a fraction where the runtime speaks percent
+                out.append(f"signal[{i}] marginPct {mp} vs runtime strategy.margin_pct {strategy_margin_pct} "
+                           f"(~{round(ratio)}×) — the runtime sizes off the SIGNAL's {mp}%, i.e. ~{mp}% of the "
+                           f"wallet. marginPct is a PERCENT: emit {strategy_margin_pct:g}, not {mp:g}.")
+                continue
+        if mp < 1:
+            out.append(f"signal[{i}] marginPct {mp:g} sizes <1% of the wallet (~${mp * 20:.2f} on a $2k wallet)"
+                       f" — marginPct is a PERCENT (18 == 18%); did you mean {mp * 100:g}?")
+    return out
+
+
 # ======================================================================================
 # orchestration (imported by deploy.py / diagnose.py)
 # ======================================================================================
@@ -118,10 +145,11 @@ def _resolve_scan_dir(runtime_path, es):
     return (Path(runtime_path).parent / sub).resolve()
 
 
-def smoke(runtime_path, es, wallet=None, timeout=None):
+def smoke(runtime_path, es, wallet=None, timeout=None, strategy_margin_pct=None):
     """Run one scan() and classify it. Returns:
-      {status, detail, signals, violations, traceback, returned_repr, n_signals}
-    status ∈ clean|empty|threw|bad-return|bad-shape|timeout|setup-error (BLOCK/WARN sets above)."""
+      {status, detail, signals, violations, sizing_warnings, traceback, returned_repr, n_signals}
+    status ∈ clean|empty|threw|bad-return|bad-shape|timeout|setup-error (BLOCK/WARN sets above).
+    `sizing_warnings` flags schema-valid-but-broken sizing (the marginPct decimal/percent confusion)."""
     scan_dir = _resolve_scan_dir(runtime_path, es)
     entry = es.get("entrypoint", "scan.py")
     inputs = es.get("inputs") or {}
@@ -156,22 +184,25 @@ def smoke(runtime_path, es, wallet=None, timeout=None):
                 "signals": [], "violations": [], "traceback": "",
                 "returned_repr": raw.get("returned_repr", ""), "n_signals": 0}
     violations = validate_signals(signals, schema)
+    sizing = sizing_warnings(signals, strategy_margin_pct)
     if violations:
         return {"status": "bad-shape",
                 "detail": f"{len(signals)} signal(s) emitted but the shape is invalid — the runtime "
                           "would DROP these silently (→ a BARREN scanner that 'never trades')",
-                "signals": signals, "violations": violations, "traceback": "",
+                "signals": signals, "violations": violations, "sizing_warnings": sizing, "traceback": "",
                 "returned_repr": raw.get("returned_repr", ""), "n_signals": len(signals)}
     if not signals:
         return {"status": "empty",
                 "detail": "scan() ran cleanly and returned [] (no candidates this tick). Normal for a "
                           "quiet strategy (regime/tail-risk); for an always-on scanner it suggests the "
                           "thresholds are too tight or the universe is empty.",
-                "signals": [], "violations": [], "traceback": "",
+                "signals": [], "violations": [], "sizing_warnings": [], "traceback": "",
                 "returned_repr": raw.get("returned_repr", ""), "n_signals": 0}
-    return {"status": "clean",
-            "detail": f"scan() ran cleanly and emitted {len(signals)} valid signal(s)",
-            "signals": signals, "violations": [], "traceback": "",
+    detail = f"scan() ran cleanly and emitted {len(signals)} valid signal(s)"
+    if sizing:
+        detail += f" — but {len(sizing)} SIZING WARNING(S): {sizing[0]}"
+    return {"status": "clean", "detail": detail,
+            "signals": signals, "violations": [], "sizing_warnings": sizing, "traceback": "",
             "returned_repr": raw.get("returned_repr", ""), "n_signals": len(signals)}
 
 

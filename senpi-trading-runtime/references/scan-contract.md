@@ -141,7 +141,7 @@ Return a `list[dict]`, one per candidate. Keys:
 |---|---|---|
 | `asset` | ✅ | non-empty string |
 | `direction` | ✅ | normalized to `LONG` / `SHORT` (case-insensitive in) |
-| `marginPct` | — | **top-level**, PERCENT of withdrawable in (0,100] — **the fleet standard** (~97 of 102 scanners); the runtime sizes `(marginPct/100) × withdrawable`. Positive when present; a present-but-non-positive value is a **loud reject** |
+| `marginPct` | — | **top-level**, PERCENT of withdrawable in (0,100] — **the fleet standard** (~97 of 102 scanners); the runtime sizes `(marginPct/100) × withdrawable`. Positive when present; a present-but-non-positive value is a **loud reject**. ⚠️ **It is a PERCENT, not a decimal fraction: emit `18` for 18%, NEVER `0.18`.** `0.18` is schema-valid (positive, ≤100) but means **0.18%** → ~$3.60 on a $2k wallet instead of $360. A `marginPct` below 1 is almost always this unit bug — and if your `runtime.yaml`'s `strategy.margin_pct` is `18`, your signal must emit `18` too, not `18/100`. |
 | `marginUsd` | — | **top-level**, a fixed USD amount (not a percent) — the alternative to `marginPct`; positive when present, non-positive is a **loud reject** |
 | `leverage` | — | **top-level**, positive number when present |
 | `data` | — | validated against the recipe's `signal_data_schema`: unknown key → reject, missing required key → reject, wrong type → reject (types `string`/`number`/`boolean`/`object`/`array`) |
@@ -188,6 +188,7 @@ Both are valid — it's your thesis:
 - ✅ Keep dedup / rotation / first-seen ledgers in `ctx.state` (`last()` → mutate → `append()`).
 - ✅ Declare every `data{}` key in `signal_data_schema`; set `default_signal_validity_seconds`.
 - ✅ Put `marginPct` (fleet standard) or `marginUsd`, plus `leverage`, at the **top level**, not inside `data{}`.
+- ✅ Emit `marginPct` as a **PERCENT** (`18` for 18%), not a decimal (`0.18`). Below 1 = a unit bug; match your `strategy.margin_pct`. Smoke-test and confirm the first position's margin ≈ the intended % of the wallet — not just that a signal fired.
 - ✅ On any failure, **return `[]`** (or a partial list) — don't crash.
 - ❌ Don't set `valid_until`/`produced_at` — the scaffold owns the envelope (`signal_id` optional).
 - ❌ Don't schedule the scanner yourself or POST signals — the runtime does it.

@@ -223,7 +223,11 @@ makes one new wallet per instance). Authoring just designs the package; **concur
 - **`scan(inputs, ctx)` is read-only, pure, single-pass.** Return `[]` on any error. No daemon, no
   `push_signal`, no `sleep`, no file writes, no wallet hardcoding.
 - **Emit a `marginPct` *intent*, not dollars** — top-level, not inside `data{}`. The runtime sizes the
-  dollars off the live account; don't read the clearinghouse to size.
+  dollars off the live account; don't read the clearinghouse to size. **`marginPct` is a PERCENT: `18`
+  for 18%, NEVER the decimal `0.18`** — `0.18` is schema-valid but sizes 0.18% (~$3.60 on $2k, not $360),
+  and if a constant like `MARGIN_PCT = 0.18` feeds it, that's the bug. It must match your
+  `strategy.margin_pct`. Smoke-test and confirm the first position's margin ≈ the intended % — a signal
+  firing with tiny size is **not** "done."
 - **Pure thesis math in `scoring.py`** (no I/O, no MCP, no clock) so it unit-tests.
 - **Memory = `ctx.state`** (`.last()/.recent()/.append()`); set `state_history_max_count` > 0. Cohort
   rotation, dedup, and first-seen ledgers all live here.

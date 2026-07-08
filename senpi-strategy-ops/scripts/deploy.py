@@ -178,7 +178,10 @@ def cmd_create(pkg, a, log):
             es = inst.external_scanner
             if not es:
                 continue  # a pure position_tracker/built-in package has nothing to smoke here
-            v = _smoke.smoke(str(inst.runtime_path), es, wallet=_smoke.ZERO_WALLET)
+            smp = (inst.runtime_doc or {}).get("strategy", {}).get("margin_pct") if inst.runtime_doc else None
+            v = _smoke.smoke(str(inst.runtime_path), es, wallet=_smoke.ZERO_WALLET, strategy_margin_pct=smp)
+            for w in v.get("sizing_warnings", []):  # loud, but not a hard block — sizing is a judgment call
+                log(f"  [{inst.name}] ⚠ SIZING: {w}")
             if v["status"] in _smoke.BLOCK:
                 msg = (f"error: {pkg.id} [{inst.name}] failed the pre-fund scan() smoke test "
                        f"({v['status']}): {v['detail']}")

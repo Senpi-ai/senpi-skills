@@ -161,9 +161,10 @@ def diagnose_instance(pkg, inst, host_ok, want_scan):
     # optional: run scan() now (works regardless of host — needs only SENPI_AUTH_TOKEN + the package)
     scan_result = None
     if want_scan:
-        scan_result = _smoke.smoke(str(inst.runtime_path), es, wallet=None)
+        smp = (inst.runtime_doc or {}).get("strategy", {}).get("margin_pct")
+        scan_result = _smoke.smoke(str(inst.runtime_path), es, wallet=None, strategy_margin_pct=smp)
         ev["scan"] = {k: scan_result[k] for k in ("status", "detail", "n_signals", "violations",
-                                                   "returned_repr", "traceback")}
+                                                   "sizing_warnings", "returned_repr", "traceback")}
 
     # ---- RUNTIME (host) ----
     if not host_ok:
@@ -313,6 +314,8 @@ def main(argv):
                 print(f"        returned: {sc['returned_repr'][:200]}")
             for vio in (sc.get("violations") or [])[:5]:
                 print(f"        • {vio}")
+            for sw in (sc.get("sizing_warnings") or [])[:5]:
+                print(f"        ⚠ sizing: {sw}")
             if sc.get("traceback"):
                 tb = sc["traceback"].strip().splitlines()
                 print("        traceback (tail):")
