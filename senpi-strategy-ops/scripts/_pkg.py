@@ -147,6 +147,30 @@ def load(pkg_dir) -> Package:
     return Package(pkg, man)
 
 
+def duplicate_copies(pkg_id, chosen_dir):
+    """Return the OTHER on-disk copies of `<pkg_id>/strategy.yaml` besides `chosen_dir`.
+
+    The two-copy trap: a package can exist at both `strategies/<id>` and `scripts/strategies/<id>` (CWD-
+    vs skill-relative fetch/resolve), so an agent edits one copy while deploy/validate silently load the
+    other — the edit "doesn't take", or a stale copy ships. Deterministic bounded candidate roots (no
+    disk-wide scan). Return [] when there's exactly one copy (the healthy case)."""
+    here = Path(__file__).resolve().parent  # .../scripts
+    roots = [Path.cwd(), here, here.parent, here.parent.parent]
+    chosen = Path(chosen_dir).resolve()
+    seen, others = {chosen}, []
+    for root in roots:
+        for cand in (root / "strategies" / pkg_id, root / pkg_id):
+            try:
+                if (cand / "strategy.yaml").is_file():
+                    r = cand.resolve()
+                    if r not in seen:
+                        seen.add(r)
+                        others.append(r)
+            except OSError:
+                continue
+    return others
+
+
 def validate(pkg: Package) -> list:
     """Return a list of consistency errors ([] == valid). Asserts the manifest ↔ runtime ↔
     package invariants deploy relies on, including the group/name linkage convention."""

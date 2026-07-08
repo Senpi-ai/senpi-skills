@@ -72,6 +72,40 @@ def _external_scanner_errs(name, rt_rel, rt_text):
     return errs
 
 
+# Common stdlib modules a scanner reaches for. Using `mod.attr` without importing `mod` is a NameError
+# at runtime — and it loves to hide in the `except` handler (the "missing import sys" bug that let a
+# broken error path mask the real failure). Static AST catch, no token / no live MCP needed.
+_STDLIB_MODS = {"sys", "os", "json", "re", "math", "time", "random", "datetime", "itertools",
+                "collections", "statistics", "functools", "decimal", "uuid"}
+
+
+def _missing_stdlib_imports(tree):
+    """Return {module: first_lineno} for stdlib modules used as `mod.attr` but never imported/bound."""
+    bound = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for al in node.names:
+                bound.add((al.asname or al.name).split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            for al in node.names:
+                bound.add(al.asname or al.name)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)
+        elif isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            bound.add(node.id)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            bound.update(node.names)
+    used = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            mod = node.value.id
+            if mod in _STDLIB_MODS and mod not in bound:
+                used.setdefault(mod, node.lineno)
+    return used
+
+
 def validate(pkg: Path) -> list:
     errs = []
     man_path = pkg / "strategy.yaml"
@@ -172,9 +206,14 @@ def validate(pkg: Path) -> list:
     # scanner present + parses; no '@senpi/runtime' without -ai anywhere
     for py in pkg.rglob("*.py"):
         try:
-            ast.parse(py.read_text())
+            tree = ast.parse(py.read_text())
         except SyntaxError as e:
             errs.append(f"{py.name}: syntax error ({e})")
+            continue
+        for mod, ln in _missing_stdlib_imports(tree).items():
+            errs.append(f"{py.name}:{ln} uses `{mod}.` but never imports `{mod}` — add `import {mod}` "
+                        f"(a NameError here crashes the scanner at runtime; often hides in the error "
+                        f"handler, so the scan looks fine until something fails)")
     for f in pkg.rglob("*"):
         if f.is_file() and f.suffix in (".py", ".yaml", ".md"):
             t = f.read_text(errors="ignore")

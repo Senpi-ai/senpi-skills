@@ -486,6 +486,10 @@ def main(argv):
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
     pkg = ensure_pkg(a.package, a.ref, log)
+    for d in _pkg.duplicate_copies(pkg.id, pkg.dir):
+        print(f"⚠ another on-disk copy of {pkg.id!r} exists at {d} — this run uses {pkg.dir}. Edits to the "
+              f"other copy are IGNORED; fix THIS one or delete the stray so you can't edit the wrong copy.",
+              file=sys.stderr)
     errs = _pkg.validate(pkg)
     if errs:
         print(f"✗ {pkg.id}: invalid package", file=sys.stderr)

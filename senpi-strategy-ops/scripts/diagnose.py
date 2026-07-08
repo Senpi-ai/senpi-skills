@@ -285,6 +285,10 @@ def main(argv):
     log = (lambda m: None) if a.json else (lambda m: print(m))
 
     pkg = ensure_pkg(a.package, a.ref, log)
+    dup_copies = _pkg.duplicate_copies(pkg.id, pkg.dir)
+    for d in dup_copies:
+        print(f"⚠ another on-disk copy of {pkg.id!r} exists at {d} — this run reads {pkg.dir}. If you "
+              f"edited that other copy, your fix isn't in the copy the runtime loads.", file=sys.stderr)
     errs = _pkg.validate(pkg)  # structural sanity first (mirrors deploy)
     host_ok = _cli.run_cli(["openclaw", "--version"], timeout=15)[0] == 0
 
