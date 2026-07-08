@@ -164,6 +164,13 @@ strategy and per group. Narrate it honestly — a registered runtime is not auto
   Say **"runtime liveness unverified from here"** — never upgrade `unknown` to "healthy/protected" or
   downgrade it to "broken." This is the honest bar: **only `live` means "confirmed working."**
 
+This health check owns **liveness** (is it registered + running + healthy). For the depth *behind* a bad
+verdict, hand off — don't re-derive it here: **`not_running` / `degraded` →** `senpi-strategy-ops`
+`diagnose.py <id>` (why the scanner isn't producing — registered? ticked? BARREN? erroring?) and redeploy;
+**"where am I leaking / did a stop fail / any halts / exit quality" →** `senpi-improve-trades` (it reads the
+runtime event log for protection gaps, risk halts, failed orders, and exit quality). Point the user to the
+right tool rather than duplicating that analysis in the health check.
+
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
 This is the core of the analysis. Every strategy was deployed to do a *specific* job. "Is it working?"
