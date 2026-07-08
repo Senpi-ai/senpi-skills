@@ -196,10 +196,19 @@ BARREN for you: scan() returns `[]` ⇒ thresholds/logic; a shape violation ⇒ 
 `signal_data_schema` and the runtime drops it. Symptom→cause→fix table:
 [`senpi-trading-runtime/references/troubleshooting.md`](../senpi-trading-runtime/references/troubleshooting.md).
 
-**Definition of done — NOT "status: ACTIVE".** A deploy is only actually working when the scanner is
-**registered**, `interval_seconds > 0`, has had **≥1 successful tick**, and has **emitted ≥1 signal that
-passes `signal_data_schema`**. `ACTIVE` alone only means the strategy record is live and `position_tracker`
-runs. Confirm the tick (`deploy.py verify <id>` / `diagnose.py <id>`) before you tell the user it's trading.
+**Definition of done — NOT "status: ACTIVE".** A deploy is only actually working when **all** of these
+hold — check every one, don't stop at the first green:
+1. the `external_scanner` is **registered** and `interval_seconds > 0`;
+2. it has had **≥1 successful tick** and **emitted ≥1 signal that passes `signal_data_schema`**;
+3. the first position is **sized ≈ the intended %** of the wallet (a `marginPct` of `0.18` where the
+   strategy wants `18` opens ~$3.60 on $2k — a signal firing with trivial size is **not** done);
+4. every open position is **DSL-protected** (reconcile open vs tracked — see `dsl-protection-check.md`);
+5. there are **no orphaned wallets/strategies** from earlier redeploys (`status.py <id>` shows exactly the
+   instances you deployed, nothing stranded).
+
+`ACTIVE` alone only means the strategy record is live and `position_tracker` runs. "Positions opened"
+alone skips 3–5. Confirm all five (`diagnose.py <id>` + `status.py <id>` + the DSL check) before you tell
+the user it's trading.
 
 **Anti-patterns (do NOT do these):**
 - **Hand-editing deployed state** (`state.json`, `.deploy-state.json`) to "fix" a scanner — the runtime
