@@ -62,7 +62,7 @@ actions:
     scanners: [position_tracker]
   - name: iguana_entry
     action_type: OPEN_POSITION
-    decision_mode: rule             # rule | llm | no_decision
+    decision_mode: rule             # rule | llm | none
     scanners: [iguana_signals]
     params:
       order_type: FEE_OPTIMIZED_LIMIT
@@ -116,8 +116,8 @@ notifications:
 | `risk` | — | Risk guard-rails |
 | `notifications` | — | Telegram + lifecycle toggles |
 
-> The schema is **passthrough** — unknown keys are accepted but ignored. Do not rely on undeclared
-> fields (e.g. there is no `budget` field). Use `strategy:` (singular); plural `strategies:` is rejected.
+> The schema is **passthrough** — unknown keys are accepted but ignored, so do not rely on undeclared
+> fields. Use `strategy:` (singular); plural `strategies:` is rejected.
 
 ### Environment substitution
 
@@ -133,6 +133,7 @@ the resolved config.
 |---|---|---|
 | `wallet` | ✅ | min 1 char; the runtime's wallet address (use `${...}`) |
 | `slots` | — | concurrent position slots |
+| `budget` | — | strategy budget (USD); the sizing fallback **and** the base for `daily_loss_limit_pct` — the runtime computes `dailyLossLimit = daily_loss_limit_pct/100 × budget` |
 | `margin_per_slot` | — | fixed margin per slot (USD) |
 | `margin_pct` | — | margin as % of account; > 0, ≤ 100 |
 | `default_leverage` | — | default leverage multiplier |
@@ -184,7 +185,7 @@ delivers the returned signals — there is no push/ingest model.
 ## `actions` block
 
 Each entry needs a unique `name` and an `action_type` ∈ `OPEN_POSITION` | `CLOSE_POSITION` |
-`POSITION_TRACKER`. `decision_mode` ∈ `rule` | `llm` | `no_decision`.
+`POSITION_TRACKER`. `decision_mode` ∈ `rule` | `llm` | `none`.
 
 | Field | Notes |
 |---|---|
@@ -246,7 +247,7 @@ every `OPEN_POSITION`; if `risk` is absent, none are evaluated.
 | Field | Constraints |
 |---|---|
 | `data_retention_seconds` | integer, 3600–604800 |
-| `guard_rails.daily_loss_limit_pct` | ≥ 0 |
+| `guard_rails.daily_loss_limit_pct` | ≥ 0; % of `strategy.budget` (`dailyLossLimit = daily_loss_limit_pct/100 × budget`) |
 | `guard_rails.max_entries_per_day` | integer ≥ 1 |
 | `guard_rails.bypass_max_entries_per_day_on_profit` | bool (default false) |
 | `guard_rails.max_consecutive_losses` | integer ≥ 1 |
