@@ -40,6 +40,7 @@ python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. 
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # optional: confirm a scan fired (only if asked)
 python3 senpi-strategy-ops/scripts/status.py                               # what am I running? (+ health)
 python3 senpi-strategy-ops/scripts/diagnose.py       <id> [--run-scan]     # WHY isn't it trading? (non-firing scanner)
+python3 senpi-strategy-ops/scripts/protect.py        <id>                  # are positions DSL-protected? (PROTECTED/NAKED)
 python3 senpi-strategy-ops/scripts/close.py          <id>                  # teardown one strategy
 python3 senpi-strategy-ops/scripts/close.py          --all                 # teardown EVERY open strategy
 ```
@@ -163,10 +164,15 @@ interrupted deploy. `--fast` skips the per-runtime health call; `--json` for mac
 user the management mode for off-runtime strategies — do not call them idle.** Don't hand-compose
 `strategy_list` — use `status.py`.
 
-**"Are my open positions protected? / do they have a stop-loss?"** → the DSL coverage verdict
-(PROTECTED / UNPROTECTED / STOP-NOT-ON-VENUE). Key trap: an unprotected position shows up as an
-**absence** in `senpi dsl positions`, so you must reconcile open positions against the tracked set — full
-procedure in [`senpi-trading-runtime/references/dsl-protection-check.md`](../senpi-trading-runtime/references/dsl-protection-check.md).
+**"Are my open positions protected? / do they have a stop-loss?"** → `python3 scripts/protect.py <id>`.
+It reconciles the **on-chain** positions (clearinghouse) against the DSL-tracked set and the resting stop
+orders, and prints a per-position verdict: **PROTECTED / NAKED / STOP-NOT-ON-VENUE**. Two traps it exists
+to kill: (1) an unprotected position shows up as an **absence** in `senpi dsl positions`, so you must
+reconcile against what's actually open — the chain, not a list of what's tracked; (2) a DSL state file
+going **`active: false` (archived) does NOT mean the position closed** — that happens on every breach and
+only means the engine stopped tracking; archived **+** still-open-on-chain = **NAKED**. Never conclude
+"closed" or "protected" from a DSL state file's flag — read the clearinghouse. Full procedure:
+[`senpi-trading-runtime/references/dsl-protection-check.md`](../senpi-trading-runtime/references/dsl-protection-check.md).
 
 Do **not** trust "runtime: running" alone. A strategy is **live** only when its runtime is running AND
 each instance's `external_scanner` has a recent successful tick (`status.py` reports `running`; confirm a

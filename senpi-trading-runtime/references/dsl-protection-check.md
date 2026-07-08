@@ -25,10 +25,24 @@ is unprotected by design. That's the first thing to rule out.
 ## The one command that answers it
 
 ```
+python3 senpi-strategy-ops/scripts/protect.py <id>     # PROTECTED / NAKED / STOP-NOT-ON-VENUE per position
+```
+`protect.py` runs the reconciliation below deterministically: it reads the **on-chain** positions
+(clearinghouse), the DSL-tracked set, and the resting stop orders, and prints a per-position verdict —
+treating the **chain as the source of truth**. Use it instead of eyeballing state — it exists because the
+manual version is easy to misread. The raw CLI underneath it:
+```
 senpi dsl positions -r <runtime-id>          # [-a <addr>] [--json]
 ```
 Lists every position DSL is protecting — each with `phase`, `currentROE`, `currentTierIndex`, and
 **`floorPrice`** (the live stop). Every open position should appear here with a `floorPrice`.
+
+> **⚠️ NEVER read a DSL *state file* to decide if a position is protected, and NEVER treat an archived /
+> `active: false` DSL as "the position closed."** A DSL goes inactive/archived on **every** breach — that
+> means the engine **stopped tracking**, which is EQUALLY consistent with "closed cleanly" and "the breach
+> fired, the close order never filled, and the position is still open, untracked, and NAKED." The `active`
+> flag tells you nothing about the on-chain position. Only the **clearinghouse** does. `archived DSL` **+**
+> `position still open on-chain` = **NAKED** — re-protect it now.
 
 ## Confirm nothing is missing (the reconciliation — do NOT skip)
 
@@ -85,8 +99,8 @@ On a runtime that ships the agent event surface:
 | Verdict | When |
 |---|---|
 | ✅ **PROTECTED** | open, appears in `dsl positions` with a `floorPrice`, monitor healthy, no recent `dsl.sl_sync_failed` |
-| ⛔ **UNPROTECTED** | open but **absent** from `dsl positions`, or the strategy has no `exit: engine: dsl` |
-| ⚠ **STOP NOT ON VENUE** | tracked, but a recent `dsl.sl_sync_failed` for that asset |
+| ⛔ **UNPROTECTED / NAKED** | open on-chain but **absent** from `dsl positions` — including when its DSL is **archived / `active: false`** (a breach fired but the close never filled, so it's open + untracked + no stop), or the strategy has no `exit: engine: dsl` |
+| ⚠ **STOP NOT ON VENUE** | tracked, but no resting reduce-only/stop order on the venue, or a recent `dsl.sl_sync_failed` for that asset |
 
 ## Config reference — what "DSL is set up" looks like
 
