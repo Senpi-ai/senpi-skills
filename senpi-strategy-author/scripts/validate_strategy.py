@@ -12,10 +12,64 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
-    import yaml
+    import yaml  # prefer PyYAML when present
 except ImportError:
-    sys.exit("PyYAML required: pip install pyyaml")
+    import _yaml as yaml  # vendored stdlib-only fallback — agent hosts block pip/PyYAML (PEP 668),
+    #                       so importing PyYAML fatally is why this validator was unrunnable in prod.
+
+
+# external_scanner fields the runtime REQUIRES (senpi-trading-runtime/references/runtime-yaml.md →
+# "external_scanner field set"). A scanner missing these — or with interval_seconds ≤ 0 — registers
+# but silently never trades: exactly the failure this validator now catches before deploy.
+def _external_scanner_errs(name, rt_rel, rt_text):
+    errs = []
+    try:
+        doc = yaml.safe_load(rt_text) or {}
+    except Exception:  # noqa: BLE001 — unparseable YAML is already flagged by the caller
+        return errs
+    if not isinstance(doc, dict):
+        return errs
+    scanners = doc.get("scanners") or []
+    ext = [s for s in scanners if isinstance(s, dict) and s.get("type") == "external_scanner"]
+    if not ext:
+        # a signal-driven package with an OPEN_POSITION action but no scanner to feed it can never
+        # open a position (the "only position_tracker runs" trap). Pure tracker packages are legal.
+        opens = [a for a in (doc.get("actions") or [])
+                 if isinstance(a, dict) and a.get("action_type") == "OPEN_POSITION"]
+        if opens:
+            errs.append(f"instance {name}: {rt_rel} has an OPEN_POSITION action but NO external_scanner "
+                        f"to feed it — it registers ACTIVE but never opens a position")
+        return errs
+    for es in ext:
+        sn = es.get("name", "?")
+        for f in ("path", "entrypoint", "signal_data_schema", "default_signal_validity_seconds"):
+            if es.get(f) is None:
+                errs.append(f"instance {name}: {rt_rel} external_scanner {sn!r} missing required '{f}'")
+        iv = es.get("interval_seconds")
+        if iv is not None and (not isinstance(iv, int) or isinstance(iv, bool) or iv <= 0):
+            errs.append(f"instance {name}: {rt_rel} external_scanner {sn!r} interval_seconds={iv!r} must "
+                        f"be a positive integer (0/negative → the scanner is never scheduled)")
+        dv = es.get("default_signal_validity_seconds")
+        if dv is not None and (not isinstance(dv, int) or isinstance(dv, bool) or dv <= 0):
+            errs.append(f"instance {name}: {rt_rel} external_scanner {sn!r} "
+                        f"default_signal_validity_seconds={dv!r} must be a positive integer")
+        sch = es.get("signal_data_schema")
+        if isinstance(sch, dict):
+            if not sch:
+                errs.append(f"instance {name}: {rt_rel} external_scanner {sn!r} signal_data_schema is "
+                            f"empty (declare every data{{}} key your scan() emits)")
+            for key, spec in sch.items():
+                t = spec.get("type") if isinstance(spec, dict) else None
+                if t not in ("string", "number", "boolean", "object", "array"):
+                    errs.append(f"instance {name}: {rt_rel} signal_data_schema.{key} invalid type {t!r} "
+                                f"(must be string/number/boolean/object/array)")
+        elif sch is not None:
+            errs.append(f"instance {name}: {rt_rel} signal_data_schema must be a map of key→{{type}}")
+    # NOTE: whether scan()'s ACTUAL output keys match this schema can only be known by RUNNING scan()
+    # — that's the deploy.py smoke gate + `diagnose.py --run-scan`, not a static check.
+    return errs
 
 
 def validate(pkg: Path) -> list:
@@ -47,6 +101,7 @@ def validate(pkg: Path) -> list:
             errs.append(f"instance {name}: runtime {rt_rel!r} not found")
             continue
         rt_text = rt.read_text()
+        errs += _external_scanner_errs(name, rt_rel, rt_text)
 
         # data_retention: Runtime 3.0 uses data_retention_seconds (integer 3600–604800);
         # the v2 data_retention_hours field is deprecated. (See senpi-trading-runtime/references/runtime-yaml.md.)

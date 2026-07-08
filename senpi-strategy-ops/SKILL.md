@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.3.0"
+  version: "2.4.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -39,6 +39,7 @@ python3 senpi-strategy-ops/scripts/deploy.py create  <id> --budget <usd>   # 1. 
 python3 senpi-strategy-ops/scripts/deploy.py runtime <id>                  # 2. set up autonomous trading (DONE after this)
 python3 senpi-strategy-ops/scripts/deploy.py verify  <id>                  # optional: confirm a scan fired (only if asked)
 python3 senpi-strategy-ops/scripts/status.py                               # what am I running? (+ health)
+python3 senpi-strategy-ops/scripts/diagnose.py       <id> [--run-scan]     # WHY isn't it trading? (non-firing scanner)
 python3 senpi-strategy-ops/scripts/close.py          <id>                  # teardown one strategy
 python3 senpi-strategy-ops/scripts/close.py          --all                 # teardown EVERY open strategy
 ```
@@ -179,6 +180,39 @@ tick with `deploy.py verify <id>`). Verify with the runtime CLI:
 carry `group: <id>`, so you can rediscover a deployed strategy's runtimes ledger-free via
 `openclaw senpi runtime list` matching `group == <id>`.
 
+## Not trading? — `diagnose.py` (deployed but no positions)
+
+**"It's ACTIVE and funded but nothing is opening."** `status.py` says the runtime is *up*; it does **not**
+say the `external_scanner` is *producing*. Don't infer — run the doctor:
+```
+python3 scripts/diagnose.py <id>              # names ONE cause per instance
+python3 scripts/diagnose.py <id> --run-scan   # ALSO runs scan() live + shows its literal return (read-only)
+```
+It checks, in order, and stops at the first definitive cause: external_scanner declared? required fields
+present? `interval_seconds > 0`? entrypoint on disk? runtime registered + running? scanner registered on
+the runtime? erroring? **ticking** (via the scanner-liveness clock, **not `runCount`** — `runCount` counts
+*emits*, so a healthy-but-quiet scanner reads 0)? **BARREN** (alive + ran + 0 signals)? `--run-scan` splits
+BARREN for you: scan() returns `[]` ⇒ thresholds/logic; a shape violation ⇒ the `data{}` fails
+`signal_data_schema` and the runtime drops it. Symptom→cause→fix table:
+[`senpi-trading-runtime/references/troubleshooting.md`](../senpi-trading-runtime/references/troubleshooting.md).
+
+**Definition of done — NOT "status: ACTIVE".** A deploy is only actually working when the scanner is
+**registered**, `interval_seconds > 0`, has had **≥1 successful tick**, and has **emitted ≥1 signal that
+passes `signal_data_schema`**. `ACTIVE` alone only means the strategy record is live and `position_tracker`
+runs. Confirm the tick (`deploy.py verify <id>` / `diagnose.py <id>`) before you tell the user it's trading.
+
+**Anti-patterns (do NOT do these):**
+- **Hand-editing deployed state** (`state.json`, `.deploy-state.json`) to "fix" a scanner — the runtime
+  owns and overwrites it every tick. The fix is always: correct the **source package** → `close.py` →
+  author → `deploy.py`.
+- **Falling back to a raw `strategy_create_custom_strategy`** when a scanner won't fire — that makes an
+  empty custom-position strategy with **no DSL / no automated exits**. Repair the package instead.
+- **Declaring it "fixed" without a tick** — a redeploy that returns `ACTIVE` is not a fix. Re-run
+  `diagnose.py` and confirm a signal emitted.
+- **If a diagnosis doesn't resolve it fast and money is parked idle**, `close.py <id>` to return the funds,
+  then rebuild from a known-good template via `senpi-strategy-author` — never leave capital in a strategy
+  that can't trade.
+
 ## Close — stop → trigger → (agent polls)
 
 ```
@@ -202,6 +236,7 @@ all). **Redeploy** = `close` then `create`/`runtime`/`verify`.
 
 ## Install — include the MCP helper
 
-The scripts in `scripts/` import a vendored MCP helper, `scripts/mcp_client.py`, at runtime.
-**Install the whole `scripts/` directory** — omitting `mcp_client.py` fails with
-`No module named 'mcp_client'`. Stdlib only, no other runtime dependencies.
+The scripts in `scripts/` cross-import vendored helpers at runtime — `mcp_client.py` (MCP transport),
+`_cli.py`/`_pkg.py`/`_fetch.py`/`_yaml.py`, and `_smoke.py` (the scan-runner behind `diagnose.py
+--run-scan` and the `deploy.py` pre-fund smoke gate). **Install the whole `scripts/` directory** —
+omitting any of them fails with `No module named '…'`. Stdlib only, no other runtime dependencies.

@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "3.0.2"
+  version: "3.0.3"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -91,6 +91,7 @@ reference). Full surface with every option → `references/runtime-cli.md`.
 | `references/scan-contract.md` | The author contract in depth: `scan(inputs, ctx)`, the `ctx` surface, the signal shape, and `scoring.py` |
 | `references/runtime-cli.md` | The full `openclaw senpi …` command surface — runtime, dsl, action, status/state, skills, guide |
 | `references/dsl-protection-check.md` | **Verify open positions are DSL-protected** — the PROTECTED / UNPROTECTED / STOP-NOT-ON-VENUE verdict + the open-vs-tracked reconciliation |
+| `references/troubleshooting.md` | **"Deployed but not trading"** — the symptom→cause→fix table for a non-firing `external_scanner` (ACTIVE ≠ trading; `runCount` lies; BARREN; read the real state). Encoded by `senpi-strategy-ops/scripts/diagnose.py`. |
 
 ## Package naming (load-bearing)
 

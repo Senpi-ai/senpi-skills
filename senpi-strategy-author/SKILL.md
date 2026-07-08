@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.4.2"
+  version: "2.5.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -183,9 +183,15 @@ the catalog entry, then unit-test → validate → hand to smoke-test."* Then ti
    — every hardcoded ticker must be a live HL instrument (`deploy.py create` also runs this as a preflight
    and refuses to fund a bad universe; derived-universe strategies pass trivially). Run each, report the
    result. **If validation fails, narrate the fix and re-run — don't go silent while you debug.**
-9. **Smoke-test (hand to `senpi-strategy-ops`):** dry-run → run `scan()` once on live read-only MCP →
-   tiny deploy → confirm the runtime **accepted** a signal (`openclaw senpi state -r <id>-<inst>
-   --json`), not just that it ticked. **Green = `scan` → signal → runtime-accepted, end to end.**
+9. **Smoke-test (hand to `senpi-strategy-ops`):** run `scan()` once on live read-only MCP with
+   `python3 senpi-strategy-ops/scripts/diagnose.py <id> --run-scan` — it prints the literal return and
+   validates the emitted `data{}` against `signal_data_schema` **before** you deploy, so a shape mismatch
+   (which the runtime would drop *silently*) fails loud here instead of as a strategy that funds ACTIVE and
+   never trades. Then tiny deploy → `diagnose.py <id>` and confirm the runtime **accepted** a signal, not
+   just that it ticked. **Green = `scan` → valid-shape signal → runtime-accepted, end to end.** "Deployed,
+   status ACTIVE" is **not** done — `ACTIVE` only means `position_tracker` runs; done means a scanner tick
+   that **emitted a schema-valid signal**. Never declare a strategy fixed/built without that tick, and
+   never substitute a raw `strategy_create_custom_strategy` (it drops the DSL and automated exits).
 
 Report each numbered stage as it lands — a short line is enough. The point is the user sees forward motion
 the whole way and can catch a wrong turn early, instead of after the entire package is already built.

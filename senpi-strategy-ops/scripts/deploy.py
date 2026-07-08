@@ -33,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _cli  # noqa: E402
 import _fetch  # noqa: E402
 import _pkg  # noqa: E402
+import _smoke  # noqa: E402
 from mcp_client import MCPClient, MCPError  # noqa: E402
 
 SUBMIT_TIMEOUT = 60     # HTTP timeout for the async create submit
@@ -166,6 +167,32 @@ def cmd_create(pkg, a, log):
         raise
     except Exception as e:  # noqa
         log(f"  (universe preflight skipped: {e})")
+
+    # Smoke gate — run scan() ONCE before funding any wallet. A package strategy exists to run a
+    # PRODUCING scanner; funding one whose scan() throws / returns a non-list / emits a shape that fails
+    # signal_data_schema just parks capital in a strategy that can't trade (the divergence-play incident).
+    # Blocks ONLY on an unambiguous defect (threw / bad-return / bad-shape); an empty result (a
+    # legitimately quiet strategy) or a harness hiccup (setup-error/timeout) just warns and proceeds.
+    if not a.no_smoke:
+        for inst in pkg.instances:
+            es = inst.external_scanner
+            if not es:
+                continue  # a pure position_tracker/built-in package has nothing to smoke here
+            v = _smoke.smoke(str(inst.runtime_path), es, wallet=_smoke.ZERO_WALLET)
+            if v["status"] in _smoke.BLOCK:
+                msg = (f"error: {pkg.id} [{inst.name}] failed the pre-fund scan() smoke test "
+                       f"({v['status']}): {v['detail']}")
+                if v["violations"]:
+                    msg += "\n  violations:\n    - " + "\n    - ".join(v["violations"][:6])
+                if v["traceback"]:
+                    msg += "\n  traceback (tail):\n" + "\n".join(v["traceback"].strip().splitlines()[-6:])
+                msg += ("\n  Fix scan()/scoring.py/runtime.yaml in source, then re-run create "
+                        "(or --no-smoke if you're certain it's a false positive). No wallet was funded.")
+                raise SystemExit(msg)
+            if v["status"] in _smoke.WARN:
+                log(f"  [{inst.name}] smoke: {v['status']} — {v['detail']}")
+            else:
+                log(f"  [{inst.name}] smoke: scan() emitted {v['n_signals']} valid signal(s) ✓")
 
     # Reconcile recorded strategies against the backend — drop any that aren't ACTIVE so we never
     # reuse a CLOSED wallet or get stuck on a FAILED one. Self-heals stale state; no manual editing.
@@ -351,6 +378,24 @@ def _deep_find_scanner(obj, name):
     return None
 
 
+def _ticked(sc):
+    """Has this scanner actually RUN (an invocation) — independent of whether it EMITTED a signal?
+    `runCount` counts EMITS, so a healthy but selective scanner that correctly stayed quiet reads
+    `runCount: 0` forever; keying liveness off it falsely reports such a scanner as "never ticked".
+    Liveness is `alive` / `lastRun*` / invocation counts; `runCount`/`signals` > 0 only CONFIRM."""
+    if not isinstance(sc, dict):
+        return False
+    if _cli.dig(sc, "alive"):
+        return True
+    if _cli.dig(sc, "lastRunFinishedAt", "lastRunStartedAt", "lastRunAt"):
+        return True
+    for k in ("runs", "ticks", "runCount", "signals"):
+        v = _cli.dig(sc, k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            return True
+    return False
+
+
 def _check_ticks(pkg, st):
     """One pass: mark each instance live if its external_scanner has ticked. Returns the list of
     instances not yet live as (name, reason)."""
@@ -363,10 +408,15 @@ def _check_ticks(pkg, st):
         if not rt or not _cli.runtime_running(rt):
             pending.append((inst.name, "no live runtime"))
             continue
-        state = _cli.cli_json(["openclaw", "senpi", "state", "-r", inst.runtime_name, "--json"], POLL_HTTP_TIMEOUT)
-        sc = _deep_find_scanner(state, inst.external_scanner.get("name")) if state else None
-        runs = _cli.dig(sc or {}, "runCount", "ticks", "runs", default=0) or 0
-        if isinstance(runs, (int, float)) and runs > 0:
+        sname = inst.external_scanner.get("name")
+        # Prefer the purpose-built per-scanner health RPC (separates runs from signals, exposes alive);
+        # fall back to the full state RPC. Liveness via _ticked (NOT runCount — see its docstring).
+        health = _cli.cli_json(["openclaw", "senpi", "scanner", "-r", inst.runtime_name, "--json"], POLL_HTTP_TIMEOUT)
+        sc = _deep_find_scanner(health, sname) if health else None
+        if sc is None:
+            state = _cli.cli_json(["openclaw", "senpi", "state", "-r", inst.runtime_name, "--json"], POLL_HTTP_TIMEOUT)
+            sc = _deep_find_scanner(state, sname) if state else None
+        if _ticked(sc):
             s["status"] = "live"
             save_state(pkg, st)
         else:
@@ -412,6 +462,8 @@ def main(argv):
     pc.add_argument("--budget", type=float, default=None, help="Total USDC split across wallets by funding_share.")
     pc.add_argument("--max-wait", type=int, default=DEFAULT_MAX_WAIT, help="Poll budget for this call (s).")
     pc.add_argument("--dry-run", action="store_true")
+    pc.add_argument("--no-smoke", action="store_true",
+                    help="Skip the pre-fund scan() smoke test (escape hatch for a known false positive).")
 
     pr = sub.add_parser("runtime", help="Step 2: render + create the runtime(s) on the ready wallet(s).")
     common(pr)
