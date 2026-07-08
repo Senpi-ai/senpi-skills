@@ -226,33 +226,38 @@ def load_runtime_registry(meta):
 
     SOURCE OF TRUTH for a strategy's "what it does / how it works" — read from the DEPLOYED runtime.yaml
     the runtime itself registers in installed_runtimes.json (state dir). UNIVERSAL: covers user-authored
-    strategies too, not just catalog templates. Read-guarded + fail-open: any problem → ({}, None). A
+    strategies too, not just catalog templates. Read-guarded + fail-open: any problem → ({}, {}, set(), None). A
     meta.warnings note is added ONLY for a real parse error, not for a simply-absent registry file.
     Also returns a wallet_lower → runtime_id map (the `senpi status --runtime <id>` address, for the
-    telemetry liveness read). Returns (profiles_map, id_map, source)."""
+    telemetry liveness read). Returns (profiles_map, id_map, registered_wallets, source)."""
     state_dir = os.environ.get(STATE_DIR_ENV) or DEFAULT_STATE_DIR
     path = os.path.join(state_dir, REGISTRY_FILENAME)
     if not os.path.isfile(path):          # absent registry is normal, not an error
-        return {}, {}, None
+        return {}, {}, set(), None
     try:
         with open(path) as fh:
             raw = json.load(fh)
     except Exception as e:  # noqa — a corrupt registry is a real parse error worth surfacing
         meta.setdefault("warnings", []).append(
             f"runtime registry unreadable ({e}); mandates fall back to catalog")
-        return {}, {}, None
+        return {}, {}, set(), None
     entries = raw.get("runtimes", raw) if isinstance(raw, dict) else raw
     out = {}
     id_map = {}                            # wallet_lower → runtime id (the `senpi status --runtime <id>` key)
+    registered = set()                     # wallet_lower for EVERY registry entry — PRESENCE, independent of
+                                           # whether its runtime.yaml parses. A registered runtime with an
+                                           # unreadable/non-mapping mandate is still RUNNING, not "not running".
     for entry in (entries if isinstance(entries, list) else []):
         if not isinstance(entry, dict):
             continue
         wallet = entry.get("wallet")
         if not wallet:
             continue
+        wl = str(wallet).lower()
+        registered.add(wl)                 # a runtime IS registered for this wallet — mandate-parse aside
         rid = _field(entry, "id", "runtimeId", "runtime_id")   # address for the status/liveness read
         if rid:
-            id_map[str(wallet).lower()] = rid
+            id_map[wl] = rid
         text = entry.get("runtimeYamlContent")
         if text is None:
             ypath = entry.get("runtimeYamlPath")   # rarer form — a file path instead of inline content
@@ -271,8 +276,8 @@ def load_runtime_registry(meta):
                 f"runtime.yaml parse failed for {str(wallet)[:8]} ({e})")
             prof = None
         if prof:
-            out[str(wallet).lower()] = prof
-    return out, id_map, "registry"
+            out[wl] = prof
+    return out, id_map, registered, "registry"
 
 
 # ──────────────────────────────────────────── telemetry liveness (is a REGISTERED runtime actually working?)
@@ -284,27 +289,6 @@ def _note_telemetry_unavailable(meta, msg):
     if not meta.get("_telemetry_warned"):
         meta.setdefault("warnings", []).append(f"telemetry: {msg}")
         meta["_telemetry_warned"] = True
-
-
-def _deep_first(obj, keys, _depth=0):
-    """First non-None value for any of `keys`, depth-first through dicts/lists — the `senpi status --json`
-    payload shape isn't strictly pinned, so dig tolerantly."""
-    if _depth > 6 or obj is None:
-        return None
-    if isinstance(obj, dict):
-        for k in keys:
-            if obj.get(k) is not None:
-                return obj[k]
-        for v in obj.values():
-            r = _deep_first(v, keys, _depth + 1)
-            if r is not None:
-                return r
-    elif isinstance(obj, list):
-        for v in obj:
-            r = _deep_first(v, keys, _depth + 1)
-            if r is not None:
-                return r
-    return None
 
 
 def _fetch_runtime_status(runtime_id, meta):
@@ -351,11 +335,24 @@ def _fetch_runtime_status(runtime_id, meta):
 
 def _liveness_from_status(status):
     """Map a `senpi status` payload → runtime_health. The payload existing at all means the runtime is up
-    (the gateway answered for it); the health field refines healthy→'live' vs degraded/unhealthy→'degraded'.
-    None ⇒ 'unknown' (telemetry unavailable — never asserted as broken)."""
+    (the gateway answered for it); an explicit overall-health verdict refines healthy→'live' vs
+    degraded/unhealthy→'degraded'. None ⇒ 'unknown' (telemetry unavailable — never asserted as broken).
+
+    Reads the verdict ONLY from the top of the payload (or a well-known wrapper) — NOT via a deep search.
+    A deep search would pick up a per-scanner / per-order `status:"error"` on an otherwise-healthy runtime
+    and cry DEGRADED (a false alarm); the OVERALL verdict is a top-level concern."""
     if not isinstance(status, dict) or not status:
         return "unknown"
-    h = _deep_first(status, ["overallHealth", "health", "overall", "status"])
+    h = None
+    for scope in (status, status.get("data"), status.get("runtime"), status.get("result")):
+        if not isinstance(scope, dict):
+            continue
+        for k in ("overallHealth", "health", "overall", "status"):
+            if scope.get(k) is not None:
+                h = scope.get(k)
+                break
+        if h is not None:
+            break
     h = str(h).lower() if h is not None else None
     if h in ("degraded", "warn", "warning", "unhealthy", "failed", "error", "down", "false", "stopped"):
         return "degraded"
@@ -550,7 +547,7 @@ def fetch_strategies(client, meta):
     rows = sl if isinstance(sl, list) else _field(sl, "strategies", "data", default=[])
     # UNIVERSAL source of "what it does / how it works": the deployed runtime.yaml the runtime registers,
     # keyed by wallet — works for user-authored strategies, not just our catalog templates.
-    registry, runtime_id_map, registry_src = load_runtime_registry(meta)   # profiles + wallet→runtime_id
+    registry, runtime_id_map, registered_wallets, registry_src = load_runtime_registry(meta)  # profiles + ids + presence
     meta["registry_source"] = registry_src
     # OPTIONAL template enrichment (archetype/belief_plain/…), keyed by skill_name.
     catalog, catalog_src = load_catalog(meta)
@@ -587,7 +584,9 @@ def fetch_strategies(client, meta):
         # so it has NO DSL and NO guardrails despite "status: ACTIVE" (the exact trap that let a user think
         # a funded-but-never-registered strategy was live and protected). Only judgeable when the registry
         # is actually present on THIS host; an absent registry ⇒ unknown (never claim not-running from it).
-        runtime_registered = bool(registry_prof) if registry_src == "registry" else None
+        # PRESENCE-based, NOT mandate-parse: a registered runtime whose runtime.yaml we can't read/parse is
+        # still RUNNING (just undescribed) — keying off registry_prof would falsely call it "not running".
+        runtime_registered = (str(wallet).lower() in registered_wallets) if registry_src == "registry" else None
         not_running = bool(skill_name) and runtime_registered is False
         strategies.append({
             "name": _field(s, "tradingStrategyName", "name", default="strategy"),

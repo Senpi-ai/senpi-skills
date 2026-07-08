@@ -276,6 +276,72 @@ def test_registered_runtime_no_telemetry_is_unknown():
     assert strat["runtime_health"] == "unknown"
 
 
+def test_nested_component_status_does_not_falsely_degrade():
+    """A healthy runtime whose telemetry carries NO top-level health verdict but DOES have a nested
+    per-scanner `status:"error"` must read 'live', not 'degraded'. Deep-matching a bare `status` anywhere
+    would cry DEGRADED on an otherwise-fine runtime — a false alarm."""
+    res = _run_with_status({"kodiak-main": {"activePositions": 2,
+                                            "scanners": [{"name": "kodiak_signals", "status": "error"}]}})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_health"] == "live"
+    assert "degraded_runtimes" not in res["meta"]
+
+
+def test_toplevel_status_still_classifies_degraded():
+    """Guard the other side of the liveness fix: a TOP-LEVEL `status` verdict is still honored — a runtime
+    that reports status 'stopped' at the top level → degraded (we only ignore NESTED bare status)."""
+    res = _run_with_status({"kodiak-main": {"status": "stopped"}})
+    strat = {s["name"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["runtime_health"] == "degraded"
+
+
+def test_registered_but_unparseable_yaml_is_still_running():
+    """A runtime that IS registered (wallet present in installed_runtimes.json with an id) but whose
+    runtimeYamlContent doesn't parse to a mapping must be treated as REGISTERED + running — NEVER flagged
+    not_running/UNPROTECTED. Registration is PRESENCE, independent of whether we can read its mandate.
+    Mirror-image of the false-all-clear this PR fixes: don't false-alarm a fine runtime we can't describe."""
+    UNMAP = "0xUNMAPPED0000000000000000000000000unmapd"
+    fixture = {
+        "user_get_me": {"wallets": [
+            {"walletType": "embedded", "walletAddress": "0xembed00000000000000000000000000000000ed"}]},
+        "account_get_portfolio": {"total_balance_usd": 2000, "total_withdrawable": 2000,
+                                  "total_usdc_in_hyperliquid": 0, "token_balances": []},
+        "strategy_list": {"strategies": [
+            {"tradingStrategyName": "myquant", "skillName": "myquant", "status": "ACTIVE",
+             "totalFunded": 2000, "strategyWalletAddress": UNMAP}]},
+        f"strategy_get_clearinghouse_state::{UNMAP.lower()}": {
+            "main": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []},
+            "xyz": {"marginSummary": {"accountValue": "2000"}, "withdrawable": "2000", "assetPositions": []}},
+    }
+    # a registry that HAS this wallet (id set) but a non-mapping runtimeYamlContent (parses to a list)
+    with tempfile.TemporaryDirectory() as d:
+        with open(os.path.join(d, "installed_runtimes.json"), "w") as f:
+            json.dump({"version": 1, "runtimes": [
+                {"id": "myquant-main", "wallet": UNMAP,
+                 "runtimeYamlContent": "- this\n- is a list\n- not a mapping\n"}]}, f)
+        status_path = os.path.join(d, "status.json")
+        with open(status_path, "w") as f:
+            json.dump({"myquant-main": {"overallHealth": "healthy"}}, f)
+        saved = {k: os.environ.get(k) for k in ("SENPI_STATE_DIR", "SENPI_STATUS_FIXTURE")}
+        os.environ["SENPI_STATE_DIR"] = d
+        os.environ["SENPI_STATUS_FIXTURE"] = status_path
+        try:
+            res = portfolio.run(portfolio._FixtureClient(fixture), want_market=False)
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    strat = {s["name"]: s for s in res["strategies"]}["myquant"]
+    assert strat["runtime_registered"] is True      # present in the registry → registered (mandate-parse aside)
+    assert strat["not_running"] is False            # registered ⇒ NOT "not running"
+    assert strat["runtime_health"] == "live"        # telemetry says healthy
+    assert strat["protected"] is True               # skill deploy ⇒ validator-guaranteed DSL, still protected
+    assert strat["profile"] is None                 # mandate unparseable — undescribed, but that must NOT
+    assert "not_running" not in res["meta"]          # downgrade it to not-running
+
+
 def test_multi_wallet_strategy_groups_into_one():
     """A STRATEGY IS ALL ITS WALLETS. cougar deploys as TWO instances on TWO wallets (cougar-long +
     cougar-short, sharing `group: cougar` in their runtime.yamls). `strategy_list` returns them as two
