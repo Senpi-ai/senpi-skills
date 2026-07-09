@@ -178,8 +178,15 @@ def scan(inputs, ctx):
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
 
+    # Cap the emitted batch. The runtime opens up to maxSlots positions, and the /signals intake caps items
+    # per POST — emitting the whole gated basket (up to xyzMaxNames names on a broad day) overflows that cap
+    # and the runtime drops the ENTIRE batch (max_items_exceeded → silently missed entries). Emit only the
+    # top-scoring maxEmit (default maxSlots); the runtime picks its slots from these. Overridable via inputs.maxEmit.
+    emit_cap = max(1, int(inputs.get("maxEmit") or inputs.get("maxSlots") or 4))
     out = []
     for th in candidates:
+        if len(out) >= emit_cap:
+            break
         leverage = scoring.clamp_leverage(leg_max_lev, th["_meta"].get("max_leverage"))
         notional = margin_usd * leverage
         if leverage <= 0 or notional < min_notional:
