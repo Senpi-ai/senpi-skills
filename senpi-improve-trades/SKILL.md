@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.1.1"
+  version: "1.2.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -35,6 +35,27 @@ This is the counterpart to `senpi-portfolio`. Portfolio answers *"where is my mo
 doing right now."* **Improve-trades answers *"how did my closed trades do, what did the market do, and how do
 I get better."*** Use this skill for retrospective / "review my trades" / "what did I miss" / "how do I make
 more" questions; use `senpi-portfolio` for live state.
+
+## HARD RULES (never violate — obey these even if you skim the rest)
+
+1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. Realized-only
+   is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies.
+2. **The hold-to-now counterfactual is CONTEXT, never a verdict.** `held_higher` / a positive
+   `if_all_reclosed_now_total` just means the asset kept running THIS window (hindsight; it ignores the risk
+   the exit avoided). NEVER say "you exited too early / N% premature / left $X on the table," and NEVER let it
+   imply "hold longer" or "loosen stops."
+3. **Undetermined ≠ all-clear.** When `telemetry_availability.streams_computed` is false (or `.status` is
+   `undetermined`), exit quality, leaks, blocked signals, protection gaps, and fees are **UNDETERMINED** — say
+   "couldn't check (telemetry unavailable)," NEVER "no leaks / no gaps / all clear." When
+   `exit_attribution.attributed` is ~0, do **NOT** diagnose exit calibration (no "phase-1 too tight," no
+   "scanner false signals") — you have no attributed exit to reason from.
+4. **Quote the engine's numbers verbatim.** Every $ and count you state must be a field the engine emitted
+   (`pnl_summary`, `timing_summary`, `strategies[]`, `realized_by_book`). NEVER re-derive or estimate an
+   aggregate — that is how fabrications like "closed did −$405" happen.
+5. **It's the strategy, not the user.** Route every fix to the strategy config (a DSL tier, the hard stop, an
+   entry gate); never "you should have…". No fabricated forward numbers (no $/week).
+
+The detailed guardrails below explain each; these five are the floor.
 
 > **Use this skill FIRST — before any raw MCP.** For any "review my trades / did I sell too early / what did
 > I miss / master my week / how could I make more gains" question, run this engine **before** reaching for
@@ -73,7 +94,7 @@ step(s) the ask needs; route every fix through the depth choice at the end — n
 
 | Intent (what the user asks) | Step(s) to run | Data (engine output) | Actionable lever |
 |---|---|---|---|
-| *"Did I sell too early / late? / improve my last 10"* | `timing` | `timing_summary` (beat/worse/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold` | Lead with the aggregate; a reversal is one data point → the DSL tier that fired (`exit_reason`) |
+| *"Did I sell too early / late? / improve my last 10"* | `timing` | `timing_summary` (exit_ahead/held_higher/flat) + per-trade `if_held_delta_usd`, `exit_vs_hold` | NEUTRAL context — a reversal is one data point, never "premature"; the counterfactual is not a grade (guardrail 1) → the DSL tier that fired (`exit_reason`) |
 | *"Master my week" / "analyze my strategies and trades" / "suggest improvements"* | **all steps in order** (`timing`→`strategies`→`telemetry`→`market`) | `timing_summary` + `strategies[]` (per-mandate) + `book_vs_market` + the telemetry streams | Process recap, each strategy vs its own mandate |
 | *"What did I miss this week? / compare to market"* | `market` (+ `telemetry` for the blocked cohort) | `book_vs_market.gaps` (unheld movers) + `missed_signals` (telemetry-blocked) | Is the missed mover in the mandate? loosen a gate only if so |
 | *"How could I make more gains?"* | `strategies` + `telemetry` | `strategies[]` mandate reads + `dsl_close_reason_mix` + `blocked_summary` | Strategy tune (DSL / entry gate), never a $/week promise |
@@ -118,9 +139,10 @@ python3 scripts/review.py all          # one-shot fallback: the full composed di
 **For a FULL review** — "analyze my strategies and trades", "master my week", "suggest improvements", "how
 could I make more" — run the steps **in order** and narrate between:
 
-1. `review.py timing` → **narrate the timing teardown IMMEDIATELY** (lead with `timing_summary`: "N of M
-   exits beat holding-to-now") — don't wait for the other steps. `exit_reason` is still `UNKNOWN` here
-   (telemetry hasn't run) — narrate the *timing*, not the mechanism yet.
+1. `review.py timing` → narrate the timing teardown (the NEUTRAL exit counts `exits_ahead` / `exits_held_higher`
+   + realized so far) — but this is NOT your headline: TOTAL PnL (realized + unrealized) lands with the
+   `strategies` step (`pnl_summary.total`). `exit_reason` is still `UNKNOWN` here (telemetry hasn't run) —
+   narrate the *timing*, not the mechanism yet, and never call `held_higher` "premature / left on the table."
 2. `review.py strategies` → narrate the **per-strategy read** (each CURRENT strategy vs its OWN mandate,
    realized PnL as evidence; `closed_strategies[]` is history — no verdict).
 3. `review.py telemetry` → narrate **exit quality / leaks / blocked** (now `exit_reason` is filled: the
@@ -170,31 +192,36 @@ for), never to replace it.
 
 These are non-negotiable. Each fixes a real failure from live agent responses to these prompts.
 
-### 1. Process over outcome — lead with the aggregate, `if_held` is CONTEXT not the verdict
+### 1. TOTAL PnL leads; `if_held` is NEUTRAL context, symmetric, never the verdict
 
-`if_held_delta_usd` is **context, never the verdict.** A disciplined exit is **not "wrong" because the asset
-later reversed.** Grading "you sold COIN too early, it ran +$126 after" is hindsight bias — the exit was a
-process decision made on the information at the time.
+**Lead with `pnl_summary.total`** (realized closed + unrealized open) — NOT `realized_pnl_total` alone.
+Realized-only is half the ledger: it calls a book riding open winners a "loser" and penalizes hold-strategies.
+Then give the aggregate exit counts (`timing_summary`: `exits_ahead` / `exits_held_higher` / flat). Only after
+the aggregate may you mention a single trade, and only as *one data point*, never the headline.
 
-**Lead with `timing_summary`** — the aggregate counts: *"N of M exits beat holding-to-now."* Only after the
-aggregate may you discuss a single reversal, and only as *one data point*, never the headline. The engine
-computes `exit_vs_hold` per trade and the beat/worse/flat counts precisely so you can't cherry-pick the two
-trades that reversed and call the whole week a failure. `if_all_reclosed_now_total` is the honest aggregate
-counterfactual — report it as context ("the whole book, held to now, would be +$X vs the realized +$Y"),
-never as a target the user "should" have hit.
+`if_held_delta_usd` / `if_all_reclosed_now_total` are **NEUTRAL context, symmetric both ways — never a grade:**
+- A **negative** aggregate → your exits, in aggregate, **got out ahead of reversals** (a *good* exit-discipline
+  sign).
+- A **positive** aggregate → the market kept running this window after your exits. This is **NOT** "money left
+  on the table," and the `held_higher` count is **NOT** "premature exits." You cannot know the future at exit
+  time, and the number ignores the drawdown/liquidation risk holding would have carried. Report it as context
+  ("held to now, the closed book would be +$X vs the realized +$Y"), **never** a target, a grade, or a reason
+  to hold longer / loosen stops.
 
-**What `if_all_reclosed_now_total` is — and is NOT.** It is the counterfactual on the **CLOSED trades in this
-review** (what they'd be worth if you'd held each to now, instead of at the actual exit). It says **nothing
-about current OPEN positions** or live drawdown. Do NOT read a negative value as "your open positions are
-underwater" or "the book is bleeding" — that's a different question (live state → senpi-portfolio). A
-negative `if_all_reclosed_now_total` means your **exits, in aggregate, beat holding** (you got out ahead of
-reversals) — which is a *good* sign about exit discipline, not a warning.
+**The real evidence for "do you let winners run" is the OPEN book, not this counterfactual** —
+`strategies[].open_positions[]` (what you hold now + its unrealized ROE). A book with open winners running IS
+letting winners run, whatever the closed-trade counterfactual says. Grading exits off a hindsight number while
+blind to the open positions is the core failure this skill exists to prevent.
+
+**What `if_all_reclosed_now_total` is NOT:** the counterfactual on the **closed** trades only — it says nothing
+about current OPEN positions or live drawdown; don't read it as "the book is bleeding."
 
 ### 2. It's the strategy, not you — fixes route to the strategy config
 
 These are **autonomous strategy** trades. The strategy exited them, not the user clicking sell. So **never**
-say "you should have held" or "you sold too early." When an exit was worse than holding, the lever is the
-**strategy config** — the DSL preset (per-asset volatility) or the entry gates — reported in strategy terms.
+say "you should have held" or "you sold too early." When the counterfactual favored holding (`held_higher`), the
+lever — IF you decide to act at all — is the **strategy config** (the DSL preset / entry gates), reported in
+strategy terms; `held_higher` is not itself a defect.
 The engine gives you the exact lever: each trade's `exit_reason` (which DSL tier or hard stop fired) and each
 strategy's `dsl` ladder (`hard_stop_roe_pct`, `arm_at_roe_pct`, the `tiers[]`). A fix reads like *"Kodiak's
 SOL exit locked at tier 2 (+41% high-water) then trailed out; if you want it to ride further, that's the
@@ -262,6 +289,15 @@ otherwise it's just an asset the strategy was never designed to trade.
 
 ### 6. Honest sourcing — say what's missing, name your source
 
+- **Undetermined ≠ all-clear (READ `telemetry_availability` FIRST).** `telemetry_availability.status`
+  (`available`/`partial`/`undetermined`/`no_trades`) + `.streams_computed` tell you whether the telemetry
+  streams are real. When `streams_computed` is **false** (telemetry down / older build / a closed ring), the
+  `leaks`, `blocked_summary`, `execution_quality`, and `dsl_close_reason_mix` ZEROS are **fail-open
+  placeholders, NOT findings** — report them as "couldn't check (telemetry unavailable)," **never** "no leaks /
+  no protection gaps / no blocked signals / all clear." When `exit_attribution.attributed` is ~0 (status
+  `undetermined`), **do NOT diagnose exit calibration at all** (no "phase-1 too tight," no "scanner false
+  signals") — you have no attributed exit; say "exit mechanism undetermined — I'd need the runtime event log,"
+  and stop.
 - **Name your source (onchain vs runtime).** Closed trades + every onchain fact come from **`discovery`**
   (`discovery_get_trader_history`) — **never `audit_*`** (deprecated). Exit reason, blocked signals, leaks and
   maker/taker come from **telemetry** (the event log) and *enrich* those discovery trades. See the "Sources —
@@ -355,13 +391,23 @@ trades[]      per CLOSED trade (from strategies of ALL statuses — a churned bo
   realized_pnl,                           # strategy_status: ACTIVE|PAUSED = current book; else = HISTORY
   price_now, price_since_exit_pct,        # subsequent action (current price only, v1)
   if_held_delta_usd,                      # counterfactual — CONTEXT, not verdict (short-sign adjusted)
-  exit_vs_hold: beat | worse | flat | unknown,   # engine verdict of the exit vs holding-to-now
+  exit_vs_hold: exit_ahead | held_higher | flat | unknown,   # NEUTRAL context (exit_ahead=got out ahead), NOT a grade
   exit_reason: { terminal, tier_index/tier_reached, high_water_roe, source },   # which DSL lever fired
   source: "telemetry" | "reconstructed"   # telemetry = exit_reason came from the event log; else discovery+ratchet
 
-timing_summary   PROCESS-framed COUNTS (never $/week):
-  trade_count, exits_beat_holding, exits_worse, exits_flat, exits_unknown,
-  realized_pnl_total, if_all_reclosed_now_total, by_asset_class{}
+pnl_summary      TOTAL LEDGER — LEAD WITH THIS (realized closed + unrealized open):
+  realized, unrealized (None = UNKNOWN read, not 0), total (None when unrealized UNKNOWN),
+  realized_by_book{ current, closed },      # quote this split — never re-derive a closed-book figure
+  unrealized_coverage{ read, current_strategies }
+
+telemetry_availability   the 'undetermined ≠ all-clear' signal — READ IT FIRST (guardrail 6):
+  status ∈ available | partial | undetermined | no_trades,
+  streams_computed,                          # false → leaks/blocked/execution_quality/dsl_close_reason_mix zeros are UNKNOWN, not 'none'
+  exit_attribution{ attributed, total, telemetry, ratchet, unknown }   # attributed ~0 → NO calibration diagnosis
+
+timing_summary   PROCESS-framed COUNTS (never $/week; NEUTRAL, never a grade):
+  trade_count, exits_ahead, exits_held_higher, exits_flat, exits_unknown,
+  realized_pnl_total, if_all_reclosed_now_total (CONTEXT, symmetric — see guardrail 1), by_asset_class{}
 
 dsl_close_reason_mix   "shaken out too early / how are my exits firing" (from trades[] exit_reason):
   overall        { by_terminal{}, trade_count, premature_exits }
@@ -388,8 +434,13 @@ book_vs_market   the "what did I miss" gap:
   gaps[]          { asset, pct, ... }                 # movers the book had NO exposure to
   window                                              # the leaderboard's rolling window (e.g. "4h")
 
-strategies[]  the CURRENT book ONLY (status ACTIVE | PAUSED) — each judged vs ITS mandate:
-  { label, wallet, status, mandate, dsl, closed_trade_count, realized_pnl, on_mandate_note }
+strategies[]  the CURRENT book ONLY (status ACTIVE | PAUSED) — each judged vs ITS mandate, on TOTAL PnL:
+  { label, wallet, status, mandate, dsl, closed_trade_count, realized_pnl,
+    unrealized_pnl,           # current open positions' unrealized — None = UNKNOWN read (never a fake 0)
+    total_pnl,                # realized + unrealized (None when unrealized UNKNOWN) — JUDGE ON THIS, not realized
+    open_position_count,
+    open_positions[]{ asset, direction, unrealized_pnl, return_on_equity_pct, entry_px, position_value, leverage },
+    on_mandate_note }         # open_positions = the 'are winners running' evidence (guardrail 1)
   # THIS is the verdict + improvement surface. Nothing here is closed.
 
 closed_strategies[]  HISTORY ONLY (CLOSED / INACTIVE / … — churned or retired redeployments):
@@ -417,9 +468,10 @@ not recorded on this build," never guess. `tier_index`/`tier_reached` = the tier
 
 ## The output contract — what you produce
 
-1. **Timing teardown** — the per-trade read, **led by the aggregate** (`timing_summary`: "N of M exits beat
-   holding"), each exit attributed via `exit_reason` (which tier / hard stop fired). Process-framed
-   throughout. Discuss individual reversals only after the aggregate, and only as evidence. Trades whose
+1. **Total-PnL + timing teardown** — **led by TOTAL PnL** (`pnl_summary.total` = realized + unrealized), then
+   the NEUTRAL aggregate (`timing_summary`: `exits_ahead` / `exits_held_higher`), each exit attributed via
+   `exit_reason` (which tier / hard stop fired). Process-framed, NEVER "premature / left on the table."
+   Discuss individual reversals only after the aggregate, and only as evidence. Trades whose
    `strategy_status` isn't ACTIVE/PAUSED are **history** (from a closed strategy) — narrate them as past
    timing, attributed by label, never as a live strategy to act on.
 2. **Book-vs-market gap** — what moved vs what you held (`book_vs_market`). The honest "what did I miss." For
