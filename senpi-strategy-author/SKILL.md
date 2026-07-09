@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.4.2"
+  version: "2.5.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -238,8 +238,20 @@ Same references; usually no rebuild: tune `runtime.yaml` `inputs` (universe/thre
 the `dsl_preset`, adjust `risk.guard_rails`, or change the `scoring.py` math. Re-validate, then
 re-smoke-test if you touched `scan.py`/`runtime.yaml`.
 
-## Handoff
+## Handoff & the live gate — "done" means the deploy is verified LIVE, not "package built"
 
-Authoring produces the package only. **Deploy/monitor/close is `senpi-strategy-ops`** — hand off the
-`id` once the smoke test is green. Attribution (`skillName`/`skillVersion`) is set by ops from
-`strategy.yaml` `id`/`version`.
+Authoring produces the package; a strategy is only **live** once **`senpi-strategy-ops` deploys it AND
+`deploy.py verify` passes**. Walk the full loop every time, and never skip the gate:
+
+1. **Build** — stages 1–9 above (spec → scoring → scan → runtime.yaml → strategy.yaml → unit-test →
+   `validate_strategy.py` → `validate_universe.py` → smoke-test). Every ticker verified; a DSL preset in.
+2. **Deploy** (hand the `id` to `senpi-strategy-ops`): `deploy.py create <id> --budget <the user's exact
+   amount>` → `deploy.py runtime <id>`. The budget is a **hard target** — if the live balance can't cover
+   it, create halts `underfunded`; fund/confirm, never silently fund less.
+3. **GATE — `deploy.py verify <id>`**: the strategy is **live** only when *every* instance is
+   **runtime-running + scanner-active + DSL-wired + funded**. If verify returns `not-live` (e.g.
+   `scanner=broken`, `dsl=config-missing`, `budget=underfunded`), **the strategy is NOT live** — fix the
+   flagged component and re-run. **Never tell the user it's live until `verify` returns `live`.**
+
+**If any step of the loop is incomplete, the strategy is not live — say exactly which step failed.**
+Attribution (`skillName`/`skillVersion`) is set by ops from `strategy.yaml` `id`/`version`.

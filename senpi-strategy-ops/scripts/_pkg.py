@@ -69,6 +69,19 @@ class Instance:
         return self.external_scanner.get("interval_seconds")
 
     @property
+    def exit_block(self):
+        ex = (self.runtime_doc or {}).get("exit")
+        return ex if isinstance(ex, dict) else {}
+
+    @property
+    def has_dsl(self):
+        """True iff the runtime.yaml ships a DSL exit block (`exit:` with a preset or `engine: dsl`) —
+        the built-in trailing stop. A deployed strategy WITHOUT one runs its positions naked (the
+        funded-but-no-DSL hole). Mirrors the author-side validate_strategy exit-block requirement."""
+        ex = self.exit_block
+        return bool(ex) and (bool(ex.get("dsl_preset")) or str(ex.get("engine", "")).lower() == "dsl")
+
+    @property
     def needs_model(self):
         """True iff any action runs decision_mode: llm (then a decision-model env must be injected)."""
         for a in (self.runtime_doc or {}).get("actions", []) or []:
@@ -189,6 +202,13 @@ def validate(pkg: Package) -> list:
             ep = inst.runtime_path.parent / sub / es.get("entrypoint", "scan.py")
             if not ep.is_file():
                 errs.append(f"{tag}: scanner entrypoint {ep.name!r} not found at {ep.parent}")
+        # Protection is not optional — a deployed strategy with no DSL exit runs every position naked
+        # (the funded-but-no-DSL hole). Refuse to deploy it. (author's validate_strategy checks this too;
+        # ops re-checks so a hand-edited or fetched package can't slip a naked strategy past deploy.)
+        if not inst.has_dsl:
+            errs.append(f"{tag}: runtime {inst.runtime_rel!r} has no DSL exit block "
+                        f"(exit.dsl_preset / engine: dsl) — every deployed strategy must ship "
+                        f"built-in protection")
         if inst.funding_share is None:
             errs.append(f"{tag}: missing funding_share")
         # llm actions need a model env declared
