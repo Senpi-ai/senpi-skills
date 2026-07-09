@@ -14,7 +14,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.7.1"
+  version: "1.8.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -136,6 +136,43 @@ capital to redeploy elsewhere, and never "dead money."** That capital is *commit
 it's the dry powder the other half of the design needs to do its job. Only truly-free
 `idle_in_embedded` (and, with care, a *whole* strategy's idle) is redeployable — a flat sleeve of a
 live multi-wallet strategy is not.
+
+### "ACTIVE" ≠ running — a strategy with no runtime registered is NOT alive, and NOT protected
+
+`status: ACTIVE` only means the strategy *record* exists and is funded — it does **not** mean a runtime is
+actually running it. The engine checks the runtime registry and flags any strategy that is **ACTIVE +
+funded but has NO runtime registered** via `strategy_groups[].not_running` (and per-instance `not_running`
+/ `runtime_registered`), plus a `meta.warnings` line. Such a strategy is **not running at all** — its
+scanner has never ticked, so it has **no DSL and no guardrails** — even though it shows ACTIVE and holds
+capital. Report it as **⛔ NOT RUNNING / UNPROTECTED — funded but no runtime; no scanner, no DSL, no
+guardrails**, and tell the user to redeploy it via `senpi-strategy-ops`. **Never** call a `not_running`
+strategy "alive and waiting," "scanner is live," or "DSL-protected" — that is a false all-clear (a funded
+strategy sat exactly like this while the user believed it was protected and running). This is DISTINCT from
+the flat-but-running case above: a flat sleeve with a *registered, ticking* runtime is waiting for a signal
+(fine); a `not_running` strategy has **no runtime behind it** (broken). When `runtime_registered` is `null`,
+the registry isn't visible on this host — say "runtime status unknown from here," don't assert either way.
+
+**Telemetry-verified liveness — `runtime_health`.** Beyond "is a runtime registered," the engine asks the
+runtime itself (`openclaw senpi status`) whether it's actually *working*, and sets `runtime_health` per
+strategy and per group. Narrate it honestly — a registered runtime is not automatically a healthy one:
+- **`live`** — registered and telemetry reports healthy. Only this earns "running / protected."
+- **`degraded`** — registered but telemetry reports **unhealthy** (scanner erroring, monitor stalled). It's
+  *running but not cleanly*: say **"⚠ runtime degraded — running but not healthy; check `openclaw senpi
+  status`,"** not a clean all-clear. Flagged in `meta.warnings` too.
+- **`not_running`** — no runtime at all (above). ⛔ NOT RUNNING / UNPROTECTED.
+- **`unknown`** — telemetry unavailable from here (no `openclaw` on this host, or a build without the RPC).
+  Say **"runtime liveness unverified from here"** — never upgrade `unknown` to "healthy/protected" or
+  downgrade it to "broken." This is the honest bar: **only `live` means "confirmed working."**
+
+This health check owns **liveness triage** (registered + running + healthy) via telemetry, and **references
+`diagnose.py` as the confirmation step** — it does not re-derive the deep checks. A thorough health check
+does not stop at the verdict: for **any** strategy that isn't cleanly `live` (`not_running` / `degraded` /
+`unknown`), running **`senpi-strategy-ops` `diagnose.py <id>`** (registered? ticked? BARREN? erroring?
+`--run-scan` for the literal scan output) is how you **confirm what's actually wrong and fix it** — surface
+it as the required next step (and its verdict, if you can run it), then close.py → redeploy as needed. For
+**"where am I leaking / did a stop fail / any halts / exit quality"**, hand to `senpi-improve-trades` (it
+reads the runtime event log for protection gaps, risk halts, failed orders, and exit quality). Reference the
+right tool to *confirm* — never re-derive its analysis here.
 
 ## Judge each strategy against its OWN mandate — not a momentum benchmark
 
