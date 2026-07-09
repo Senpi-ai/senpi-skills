@@ -169,17 +169,25 @@ def cmd_create(pkg, a, log):
         log(f"  (universe preflight skipped: {e})")
 
     # Smoke gate — run scan() ONCE before funding any wallet. A package strategy exists to run a
-    # PRODUCING scanner; funding one whose scan() throws / returns a non-list / emits a shape that fails
-    # signal_data_schema just parks capital in a strategy that can't trade (the divergence-play incident).
-    # Blocks ONLY on an unambiguous defect (threw / bad-return / bad-shape); an empty result (a
+    # PRODUCING scanner; funding one whose scan() throws / returns a non-list / emits a bad shape / won't
+    # import / emits a coin that isn't a live instrument just parks capital in a strategy that can't trade
+    # (the divergence-play + xyz:-prefix incidents). Blocks on any such defect; an empty result (a
     # legitimately quiet strategy) or a harness hiccup (setup-error/timeout) just warns and proceeds.
     if not a.no_smoke:
+        # Live instrument set for the STRICT emitted-asset check (best-effort — no token/network → skip it).
+        live_assets = None
+        try:
+            import validate_universe as _vu
+            live_assets = _vu.live_instruments()
+        except Exception as e:  # noqa — can't reach the live list → skip this cross-check, don't block
+            log(f"  (emitted-asset check skipped: {e})")
         for inst in pkg.instances:
             es = inst.external_scanner
             if not es:
                 continue  # a pure position_tracker/built-in package has nothing to smoke here
             smp = (inst.runtime_doc or {}).get("strategy", {}).get("margin_pct") if inst.runtime_doc else None
-            v = _smoke.smoke(str(inst.runtime_path), es, wallet=_smoke.ZERO_WALLET, strategy_margin_pct=smp)
+            v = _smoke.smoke(str(inst.runtime_path), es, wallet=_smoke.ZERO_WALLET,
+                             strategy_margin_pct=smp, live_assets=live_assets)
             for w in v.get("sizing_warnings", []):  # loud, but not a hard block — sizing is a judgment call
                 log(f"  [{inst.name}] ⚠ SIZING: {w}")
             if v["status"] in _smoke.BLOCK:

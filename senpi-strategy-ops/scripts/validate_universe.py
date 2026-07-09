@@ -75,9 +75,63 @@ def package_tickers(pkg_dir):
 
 def unknown_tickers(tickers, live):
     """Tickers with no live instrument in either form. Scanners on the xyz DEX prefix bare names
-    in code (`f"xyz:{token}"`), so a bare ticker is valid if `T` or `xyz:T` is live."""
+    in code (`f"xyz:{token}"`), so a bare ticker is valid if `T` or `xyz:T` is live.
+
+    LENIENT BY DESIGN — checks hardcoded INPUT tickers, trusting scan() to add the `xyz:` prefix at
+    runtime. To validate the ACTUAL coin string sent to Hyperliquid (a raw positions[].coin or an emitted
+    signal.asset), use unknown_symbols() — a bare `NVDA` there WILL reject even if `xyz:NVDA` is live."""
     return sorted(t for t in tickers
                   if t not in live and (":" in t or f"xyz:{t}" not in live))
+
+
+def suggest_symbol(sym, live):
+    """Best live-instrument match for a symbol that isn't live exactly as typed (else None). Chiefly maps a
+    bare XYZ equity/index/metal (`NVDA`) to its real prefixed name (`xyz:NVDA`)."""
+    if not isinstance(sym, str) or sym in live:
+        return None
+    for cand in (f"xyz:{sym}", sym.upper(), f"xyz:{sym.upper()}", sym.split(":")[-1].upper()):
+        if cand in live:
+            return cand
+    return None
+
+
+def unknown_symbols(symbols, live):
+    """STRICT: coin strings whose EXACT value is not a live instrument — i.e. exactly what Hyperliquid would
+    REJECT. Returns [{symbol, suggestion}]. Use for a raw positions[].coin / emitted signal.asset (the real
+    reject path), NOT unknown_tickers (which leniently assumes the scan code prefixes bare names)."""
+    out = []
+    for s in symbols:
+        if not isinstance(s, str) or not s or s in live:
+            continue
+        out.append({"symbol": s, "suggestion": suggest_symbol(s, live)})
+    return out
+
+
+def _check_coins(coins_arg, as_json):
+    """Raw-create preflight: validate explicit coin strings (positions[].coin) against the live instrument
+    list, EXACTLY as Hyperliquid receives them. A bare XYZ equity/index/metal (`NVDA`) is flagged with its
+    prefixed suggestion (`xyz:NVDA`). Run BEFORE strategy_create_custom_strategy / create_position — an
+    invalid coin marks the strategy FAILED *after* funding, parking the capital."""
+    syms = [c.strip() for c in coins_arg.split(",") if c.strip()]
+    try:
+        live = live_instruments()
+    except Exception as e:  # noqa — no token/network must be loud, never a silent pass
+        print(json.dumps({"error": f"live instrument list unavailable: {e}"}) if as_json
+              else f"ERROR: live instrument list unavailable: {e}", file=sys.stderr)
+        return 2
+    bad = unknown_symbols(syms, live)
+    if as_json:
+        print(json.dumps({"checked": syms, "invalid": bad, "ok": not bad}, ensure_ascii=False))
+        return 0 if not bad else 1
+    for b in bad:
+        sug = f"  → did you mean '{b['suggestion']}'?" if b["suggestion"] else "  (no close live instrument)"
+        print(f"✗ {b['symbol']}: NOT a live Hyperliquid instrument{sug}")
+    if not bad:
+        print(f"✓ all {len(syms)} coin(s) are live Hyperliquid instruments")
+    else:
+        print(f"\n{len(bad)} invalid coin(s) — FIX before strategy_create_custom_strategy, or the strategy is "
+              f"marked FAILED after funding (capital parked). XYZ equities/indices/metals need the 'xyz:' prefix.")
+    return 0 if not bad else 1
 
 
 def live_instruments():
@@ -96,8 +150,14 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="verify hardcoded tickers against live HL instruments")
     ap.add_argument("packages", nargs="*", help="strategy package dirs (e.g. strategies/spider)")
     ap.add_argument("--all", action="store_true", help="validate every package under strategies/")
+    ap.add_argument("--coins", help="raw-create preflight: comma-separated coin strings to validate EXACTLY "
+                                    "as they'd be sent to Hyperliquid, e.g. 'xyz:NVDA,BTC' (catches a bare "
+                                    "'NVDA' that would reject). Run before strategy_create_custom_strategy.")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
+
+    if a.coins is not None:
+        return _check_coins(a.coins, a.json)
 
     pkgs = a.packages
     if a.all:

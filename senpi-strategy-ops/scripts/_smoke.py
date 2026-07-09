@@ -142,12 +142,33 @@ def sizing_warnings(signals, strategy_margin_pct=None):
 # orchestration (imported by deploy.py / diagnose.py)
 # ======================================================================================
 
+def _unknown_asset_violations(signals, live_assets):
+    """Emitted assets whose EXACT string is not a live Hyperliquid instrument — the runtime sends them
+    as-is and the venue REJECTS (a bare `NVDA` when only `xyz:NVDA` is live). The xyz-prefix incident
+    class. Returns violation strings with the prefixed suggestion. No live set ⇒ [] (can't check)."""
+    live = live_assets if isinstance(live_assets, (set, frozenset)) else set(live_assets or [])
+    if not live:
+        return []
+    out = []
+    for i, s in enumerate(signals if isinstance(signals, list) else []):
+        if not isinstance(s, dict):
+            continue
+        a = s.get("asset")
+        if not isinstance(a, str) or not a or a in live:
+            continue
+        sug = next((c for c in (f"xyz:{a}", a.upper(), f"xyz:{a.upper()}") if c in live), None)
+        hint = f" — did you mean '{sug}'?" if sug else " — not a live instrument"
+        out.append(f"signal[{i}]: asset '{a}' will REJECT on Hyperliquid{hint} "
+                   f"(XYZ equities/indices/metals need the 'xyz:' prefix)")
+    return out
+
+
 def _resolve_scan_dir(runtime_path, es):
     sub = (es.get("path") or ".").lstrip("./")
     return (Path(runtime_path).parent / sub).resolve()
 
 
-def smoke(runtime_path, es, wallet=None, timeout=None, strategy_margin_pct=None):
+def smoke(runtime_path, es, wallet=None, timeout=None, strategy_margin_pct=None, live_assets=None):
     """Run one scan() and classify it. Returns:
       {status, detail, signals, violations, sizing_warnings, traceback, returned_repr, n_signals}
     status ∈ clean|empty|threw|bad-return|bad-shape|unloadable|timeout|setup-error (BLOCK/WARN sets above).
@@ -193,6 +214,8 @@ def smoke(runtime_path, es, wallet=None, timeout=None, strategy_margin_pct=None)
                 "signals": [], "violations": [], "sizing_warnings": [], "traceback": "",
                 "returned_repr": raw.get("returned_repr", ""), "n_signals": 0}
     violations = validate_signals(signals, schema)
+    if live_assets:  # strict: an emitted asset not in the live instrument list will REJECT on-venue
+        violations = violations + _unknown_asset_violations(signals, live_assets)
     sizing = sizing_warnings(signals, strategy_margin_pct)
     if violations:
         return {"status": "bad-shape",

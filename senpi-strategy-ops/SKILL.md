@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.4.0"
+  version: "2.5.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -222,6 +222,12 @@ the user it's trading.
   author → `deploy.py`.
 - **Falling back to a raw `strategy_create_custom_strategy`** when a scanner won't fire — that makes an
   empty custom-position strategy with **no DSL / no automated exits**. Repair the package instead.
+- **Creating with a coin that isn't a live instrument** — a bare `NVDA` instead of `xyz:NVDA` (XYZ
+  equities/indices/metals need the `xyz:` prefix) rejects every position; on a raw
+  `strategy_create_custom_strategy` the strategy is marked `FAILED` **after funding**, parking the capital
+  (the M404726 incident). `deploy.py`'s smoke gate blocks this pre-fund; for a raw create, dry-run first
+  (`estimate_custom_strategy_positions_opening`, or `validate_universe.py --coins …`). Full rule:
+  [`references/coin-symbols.md`](references/coin-symbols.md).
 - **Declaring it "fixed" without a tick** — a redeploy that returns `ACTIVE` is not a fix. Re-run
   `diagnose.py` and confirm a signal emitted.
 - **If a diagnosis doesn't resolve it fast and money is parked idle**, `close.py <id>` to return the funds,

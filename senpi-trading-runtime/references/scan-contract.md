@@ -158,6 +158,13 @@ default_signal_validity_seconds)`), the wire envelope, delivery, and dedup. **Do
 `leverage`, are the canonical **top-level** sizing fields (the runtime reads
 `signal.marginPct`/`signal.marginUsd`/`signal.leverage` directly) — don't bury them inside `data{}`.
 
+> **`asset` must be a LIVE instrument — XYZ names need the `xyz:` prefix.** Emit `xyz:NVDA` / `xyz:BRENTOIL`
+> / `xyz:XYZ100`, never a bare `NVDA` (not a live instrument → the venue rejects the order, and on a raw
+> create the strategy FAILS *after funding*). Crypto perps stay plain (`BTC`). Derive symbols from
+> `market_list_instruments`, never memory. The deploy pre-fund smoke gate cross-checks every emitted `asset`
+> against the live board and blocks a bad one before funding — see
+> `senpi-strategy-ops/references/coin-symbols.md`.
+
 ---
 
 ## `scoring.py` — keep the logic pure

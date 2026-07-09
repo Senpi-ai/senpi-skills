@@ -14,8 +14,9 @@ import tempfile
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 
-import _smoke   # noqa: E402
-import protect  # noqa: E402
+import _smoke                    # noqa: E402
+import protect                   # noqa: E402
+import validate_universe as vu   # noqa: E402
 
 
 def _pkg_with_scan(tmp, scan_src, entry="scan.py"):
@@ -123,6 +124,51 @@ def test_reconcile_protected_naked_and_stale():
     assert v["ETH"] == "NAKED"              # open on-chain, engine not tracking it
     v2 = dict(protect.reconcile({"BTC"}, {"BTC", "SOL"}, {"BTC"}))
     assert v2["SOL"] == "CLOSED-OR-STALE"   # engine tracks a position the chain says is gone
+
+
+# ── xyz:-prefix guardrail: an invalid coin string is caught BEFORE funding ──
+# The M404726 incident: bare `NVDA` (not `xyz:NVDA`) → every position rejects → strategy FAILED after
+# funding → $ parked. These lock in the two catches that prevent it.
+
+def test_strict_unknown_symbols_flags_bare_equity_with_suggestion():
+    live = {"xyz:NVDA", "BTC"}
+    bad = {b["symbol"]: b["suggestion"] for b in vu.unknown_symbols(["NVDA", "BTC", "xyz:NVDA", "FAKE"], live)}
+    assert bad == {"NVDA": "xyz:NVDA", "FAKE": None}   # BTC + xyz:NVDA are live → not flagged
+
+
+def test_lenient_unknown_tickers_still_accepts_bare_equity():
+    # contrast: the INPUT checker stays lenient (assumes scan prefixes), but the STRICT one flags the
+    # literal string — that split is the whole point.
+    assert vu.unknown_tickers(["NVDA"], {"xyz:NVDA"}) == []
+    assert vu.unknown_symbols(["NVDA"], {"xyz:NVDA"})[0]["suggestion"] == "xyz:NVDA"
+
+
+def test_unknown_asset_violations_helper():
+    live = {"xyz:NVDA", "BTC", "xyz:AVGO"}
+    v = _smoke._unknown_asset_violations([{"asset": "NVDA"}, {"asset": "BTC"}, {"asset": "xyz:AVGO"}], live)
+    assert len(v) == 1 and "NVDA" in v[0] and "xyz:NVDA" in v[0]
+    assert _smoke._unknown_asset_violations([{"asset": "NVDA"}], None) == []   # no live set → can't check
+
+
+def test_smoke_blocks_scan_emitting_unprefixed_xyz_asset():
+    scan_src = ("def scan(inputs, ctx):\n"
+                "    return [{'asset': 'NVDA', 'direction': 'LONG', 'marginPct': 18, 'leverage': 4,\n"
+                "             'data': {'score': 8}}]\n")
+    with tempfile.TemporaryDirectory() as d:
+        rp, es = _pkg_with_scan(d, scan_src)
+        v = _smoke.smoke(rp, es, live_assets={"xyz:NVDA", "BTC"})
+    assert v["status"] == "bad-shape" and v["status"] in _smoke.BLOCK
+    assert any("REJECT" in x and "xyz:NVDA" in x for x in v["violations"])
+
+
+def test_smoke_passes_scan_emitting_prefixed_xyz_asset():
+    scan_src = ("def scan(inputs, ctx):\n"
+                "    return [{'asset': 'xyz:NVDA', 'direction': 'LONG', 'marginPct': 18, 'leverage': 4,\n"
+                "             'data': {'score': 8}}]\n")
+    with tempfile.TemporaryDirectory() as d:
+        rp, es = _pkg_with_scan(d, scan_src)
+        v = _smoke.smoke(rp, es, live_assets={"xyz:NVDA", "BTC"})
+    assert v["status"] == "clean" and v["status"] not in _smoke.BLOCK
 
 
 if __name__ == "__main__":
