@@ -35,6 +35,7 @@ import concurrent.futures
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -765,6 +766,112 @@ def _price_now(client, asset, dex, meta):
     return _num(mark)
 
 
+# ──────────────────────────────────────────────── open book (unrealized PnL — the TOTAL-ledger read)
+_CLEARINGHOUSE_ATTEMPTS = 2   # bounded retries on the open-book read — transient blips only
+_CLEARINGHOUSE_BACKOFF_S = 0.4
+
+
+def _is_transient(exc):
+    """Retry the open-book read ONLY on a transient transport/5xx/429/timeout blip — never on a definitive
+    answer. An MCPError carrying an HTTP 4xx (other than 429), a JSON-RPC error, a tool isError, or an
+    app-level {success:false} is the server SAYING something real; retrying just repeats it (and could hide a
+    genuine 'no'). A raw transport error (socket timeout / connection reset / DNS) is a blip worth one more
+    try. Retries only REDUCE the frequency of a `None` read — they never remove it, so a still-failed read
+    stays UNKNOWN (never a fabricated 0) and partial coverage stays flagged."""
+    from mcp_client import MCPError
+    if isinstance(exc, MCPError):
+        m = re.search(r"HTTP (\d{3})", str(exc))
+        return bool(m) and (int(m.group(1)) == 429 or 500 <= int(m.group(1)) < 600)
+    return True
+
+
+def fetch_open_positions(client, wallet, meta):
+    """Open positions + unrealized PnL for ONE current strategy wallet (strategy_get_clearinghouse_state,
+    main+xyz). This is what makes the review a TOTAL ledger (realized closed trades + unrealized open) rather
+    than realized-only — closing the biggest distortion: a book RIDING open winners looks like a loser on
+    realized PnL alone, and a realized-only read biases against hold-strategies. Read-guarded + fail-open with
+    a bounded retry on transient blips (transport/5xx/429/timeout): a still-unreadable read → (None, []) so
+    unrealized reads UNKNOWN (never a fabricated 0); a clean read with no open positions → (0.0, []) — a REAL
+    zero. Returns (unrealized_pnl_total | None, positions[])."""
+    ch, err, attempts = None, None, 0
+    for attempt in range(1, _CLEARINGHOUSE_ATTEMPTS + 1):
+        attempts = attempt
+        try:
+            ch = _ok(client.mcp_call("strategy_get_clearinghouse_state", strategy_wallet=wallet, timeout=12))
+            err = None
+            break
+        except Exception as e:  # noqa — fail-open: unrealized becomes UNKNOWN, never guessed 0
+            err = e
+            if attempt < _CLEARINGHOUSE_ATTEMPTS and _is_transient(e):
+                time.sleep(_CLEARINGHOUSE_BACKOFF_S * attempt)
+                continue
+            break
+    if err is not None:
+        meta.setdefault("warnings", []).append(
+            f"clearinghouse {str(wallet)[:8]} failed after {attempts} attempt(s): {err}; "
+            f"unrealized PnL unavailable for it")
+        return None, []
+    if not isinstance(ch, dict):
+        return None, []
+    positions, unrealized = [], 0.0
+    for section in ("main", "xyz"):
+        s = ch.get(section) if isinstance(ch.get(section), dict) else {}
+        for ap in (s.get("assetPositions") or []):
+            pos = ap.get("position", ap) if isinstance(ap, dict) else {}
+            if not isinstance(pos, dict):
+                continue
+            szi = _num(pos.get("szi"))
+            if not szi:
+                continue
+            up = _num(_field(pos, "unrealizedPnl", "unrealized_pnl")) or 0.0
+            unrealized += up
+            roe = _num(_field(pos, "returnOnEquity", "return_on_equity"))
+            lev = pos.get("leverage")
+            positions.append({
+                "asset": _field(pos, "coin", "asset"),
+                "direction": "long" if szi > 0 else "short",
+                "size": abs(szi),
+                "entry_px": _num(_field(pos, "entryPx", "entry_px")),
+                "unrealized_pnl": round(up, 2),
+                "return_on_equity_pct": round(roe * 100, 2) if roe is not None else None,
+                "position_value": _num(_field(pos, "positionValue", "position_value")),
+                "leverage": _f(lev, "value", default=None) if isinstance(lev, dict) else _num(lev),
+            })
+    return round(unrealized, 2), positions
+
+
+def fetch_open_book(client, strategies, meta):
+    """wallet_lower → {unrealized_pnl, positions[]} for the CURRENT (active/paused) strategies only — the live
+    book whose UNREALIZED PnL completes the total-ledger picture (closed strategies have no open positions).
+    Parallel clearinghouse fetches (dedup by wallet), each fail-open. A wallet whose read failed is kept with
+    `unrealized_pnl: None` (UNKNOWN) — the caller must NOT treat that as 0. {} when there are no current
+    wallets."""
+    wallets, seen = [], set()
+    for s in strategies:
+        if not _is_current(s.get("status")):
+            continue
+        w = s.get("wallet")
+        wl = str(w or "").lower()
+        if w and wl not in seen:
+            seen.add(wl)
+            wallets.append(w)
+    if not wallets:
+        return {}
+
+    def _worker(w):
+        priv = {}
+        unreal, positions = fetch_open_positions(client, w, priv)
+        return str(w).lower(), unreal, positions, priv
+
+    out = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(wallets))) as ex:
+        for wl, unreal, positions, priv in ex.map(_worker, wallets):
+            out[wl] = {"unrealized_pnl": unreal, "positions": positions}
+            if priv.get("warnings"):
+                meta.setdefault("warnings", []).extend(priv["warnings"])
+    return out
+
+
 # ──────────────────────────────────────────────────────────────── the counterfactual math (per trade)
 def _if_held(trade, price_now):
     """The honest 'if I'd held to now' counterfactual for ONE closed trade — CONTEXT, never the verdict.
@@ -773,9 +880,9 @@ def _if_held(trade, price_now):
     if_held_delta_usd = notional × since_exit_pct, DIRECTION-ADJUSTED — a short GAINS when price falls,
       so a short's delta flips the sign. This is the extra $ the position WOULD have made (or lost) if it
       had stayed open from the exit to now, on top of the realized PnL.
-    exit_vs_hold ∈ {beat, worse, flat}: did the realized exit BEAT holding-to-now? A negative
-      if_held_delta means holding would have LOST money vs the exit → the exit BEAT holding.
-    Returns (since_exit_pct, if_held_delta_usd, exit_vs_hold) — any None-input → (None, None, "unknown")."""
+    exit_vs_hold ∈ {exit_ahead, held_higher, flat}: NEUTRAL context, never a grade. held_higher = holding
+      to now would be higher (this-window trend; ignores the risk the exit avoided); exit_ahead = holding
+      would have given gains back. Returns (since_exit_pct, if_held_delta_usd, exit_vs_hold); None → "unknown"."""
     exit_px = _num(trade.get("exit_px"))
     if price_now is None or exit_px is None or exit_px == 0:
         return None, None, "unknown"
@@ -790,13 +897,14 @@ def _if_held(trade, price_now):
     # flip ONLY for an explicit short; long / unknown → no flip (don't mistreat a null direction as short)
     signed = -raw_move if trade.get("direction") == "short" else raw_move
     if_held_delta = round(notional * signed, 2)
-    # exit_vs_hold: holding would have added if_held_delta on top of realized. Positive delta → holding
-    # beat the exit (exit was "worse"); negative → the exit beat holding; ~0 → flat.
+    # exit_vs_hold — NEUTRAL context, never a grade. Positive delta → holding-to-now would be higher
+    # (this-window trend; says nothing about exit quality, and ignores the risk the exit avoided);
+    # negative → the exit got out ahead of a reversal; ~0 → flat. NEVER read held_higher as "premature".
     eps = max(1.0, 0.001 * (notional or 0.0))     # $1 or 0.1% of notional, whichever larger — noise floor
     if if_held_delta > eps:
-        verdict = "worse"       # holding would have made more → the exit was worse than holding
+        verdict = "held_higher"   # holding to now would be higher — NOT "you exited too early" (hindsight)
     elif if_held_delta < -eps:
-        verdict = "beat"        # holding would have lost → the exit beat holding
+        verdict = "exit_ahead"    # holding would have given gains back → the exit got out ahead
     else:
         verdict = "flat"
     return since_exit_pct, if_held_delta, verdict
@@ -1087,8 +1195,8 @@ def _timing_summary(trades):
     if_held_delta_usd (what the whole book WOULD have added, net, if every position had stayed open to
     now). Reported as context alongside realized_pnl_total, never as a verdict or a projection."""
     trade_count = len(trades)
-    beat = sum(1 for t in trades if t.get("exit_vs_hold") == "beat")
-    worse = sum(1 for t in trades if t.get("exit_vs_hold") == "worse")
+    ahead = sum(1 for t in trades if t.get("exit_vs_hold") == "exit_ahead")
+    held_higher = sum(1 for t in trades if t.get("exit_vs_hold") == "held_higher")
     flat = sum(1 for t in trades if t.get("exit_vs_hold") == "flat")
     unknown = sum(1 for t in trades if t.get("exit_vs_hold") == "unknown")
     realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)
@@ -1099,23 +1207,23 @@ def _timing_summary(trades):
     by_class = {}
     for t in trades:
         cls = "equity/index" if t.get("dex") == "xyz" else "crypto"
-        b = by_class.setdefault(cls, {"trade_count": 0, "exits_beat_holding": 0, "exits_worse": 0,
+        b = by_class.setdefault(cls, {"trade_count": 0, "exits_ahead": 0, "exits_held_higher": 0,
                                       "realized_pnl_total": 0.0})
         b["trade_count"] += 1
-        if t.get("exit_vs_hold") == "beat":
-            b["exits_beat_holding"] += 1
-        elif t.get("exit_vs_hold") == "worse":
-            b["exits_worse"] += 1
+        if t.get("exit_vs_hold") == "exit_ahead":
+            b["exits_ahead"] += 1
+        elif t.get("exit_vs_hold") == "held_higher":
+            b["exits_held_higher"] += 1
         b["realized_pnl_total"] = round(b["realized_pnl_total"] + (_num(t.get("realized_pnl")) or 0.0), 2)
 
     return {
         "trade_count": trade_count,
-        "exits_beat_holding": beat,
-        "exits_worse": worse,
+        "exits_ahead": ahead,                  # exit got out ahead of a reversal (holding would've given back)
+        "exits_held_higher": held_higher,      # holding to now would be higher — NEUTRAL, NOT 'premature'
         "exits_flat": flat,
-        "exits_unknown": unknown,           # price missing → couldn't compare (honest sourcing)
+        "exits_unknown": unknown,              # price missing → couldn't compare (honest sourcing)
         "realized_pnl_total": realized_total,
-        "if_all_reclosed_now_total": if_all,   # counterfactual aggregate — CONTEXT, NEVER a projection
+        "if_all_reclosed_now_total": if_all,   # counterfactual aggregate — CONTEXT, NEVER a projection/target
         "by_asset_class": by_class,
     }
 
@@ -1334,24 +1442,35 @@ def _pnl_by_wallet(trades):
     return by_wallet
 
 
-def _strategy_reads(trades, strategies):
+def _strategy_reads(trades, strategies, open_book=None):
     """Per CURRENT strategy (ACTIVE/PAUSED ONLY): {label, wallet, status, mandate, dsl, closed_trade_count,
-    realized_pnl, on_mandate_note}. This is the LIVE-BOOK verdict surface — closed strategies are excluded
-    here (they're history; see closed_strategy_rollup). Realized PnL is EVIDENCE for the mandate verdict,
-    not the headline — the narrator judges each strategy against its OWN mandate (guardrail 5: don't grade
-    a deliberate book against a momentum benchmark). A CURRENT strategy with no mandate on file → note it
-    plainly ("look it up / check the registry"), NEVER call it a bug."""
+    realized_pnl, unrealized_pnl, total_pnl, open_position_count, open_positions, on_mandate_note}. The
+    LIVE-BOOK verdict surface — closed strategies are excluded (history; see closed_strategy_rollup). Judge
+    each on TOTAL PnL (realized closed + unrealized open) against its OWN mandate — NOT realized alone, which
+    penalizes hold-strategies and misreads a book riding open winners. `unrealized_pnl` is None when the open
+    book couldn't be read (UNKNOWN, never a fake 0) → `total_pnl` stays None. A CURRENT strategy with no
+    mandate → note it plainly ("look it up"), NEVER a bug."""
     by_wallet = _pnl_by_wallet(trades)
+    open_book = open_book or {}
     out = []
     for s in strategies:
         if not _is_current(s.get("status")):
             continue                          # closed/historical → not a live-book verdict; see rollup
         w = str(s.get("wallet") or "").lower()
         agg = by_wallet.get(w, {"count": 0, "pnl": 0.0})
+        ob = open_book.get(w) or {}
+        unrealized = ob.get("unrealized_pnl")       # None → open book unreadable (UNKNOWN, never a fake 0)
+        open_positions = ob.get("positions") or []
+        realized = agg["pnl"]
+        total = (round(realized + unrealized, 2)
+                 if isinstance(unrealized, (int, float)) and not isinstance(unrealized, bool) else None)
         mandate = s.get("mandate")
         if mandate is None:
             note = ("mandate unavailable on this CURRENT strategy — look it up / check the runtime "
                     "registry; NOT a bug. Judge the trades, not a benchmark")
+        elif agg["count"] == 0 and open_positions:
+            note = (f"no CLOSED trades in this window, but {len(open_positions)} open position(s) held now — "
+                    "judge it on UNREALIZED + mandate, not a realized blank")
         elif agg["count"] == 0:
             note = "no closed trades in this window — often by design (waiting for its signal), not a defect"
         else:
@@ -1363,7 +1482,11 @@ def _strategy_reads(trades, strategies):
             "mandate": mandate,
             "dsl": s.get("dsl"),                 # the levers a fix routes to
             "closed_trade_count": agg["count"],
-            "realized_pnl": agg["pnl"],
+            "realized_pnl": realized,
+            "unrealized_pnl": unrealized,        # current open positions' unrealized — None = UNKNOWN read
+            "total_pnl": total,                  # realized + unrealized; None when unrealized UNKNOWN
+            "open_position_count": len(open_positions),
+            "open_positions": open_positions,    # asset/direction/unrealized_pnl/return_on_equity_pct/entry/lev
             "on_mandate_note": note,
         })
     return out
@@ -1416,6 +1539,77 @@ def _telemetry_source(source_counts, telemetry_warned):
     if telemetry_warned:
         return "partial" if tele else "unavailable"
     return "available" if tele else "unavailable"
+
+
+# ──────────────────────────────────────────────── total-ledger PnL + the 'undetermined ≠ all-clear' signal
+def _pnl_summary(realized_total, strat_reads):
+    """The TOTAL-ledger headline the narrator LEADS with — realized (closed trades) + unrealized (current
+    open positions) + total — PLUS the current-vs-closed realized split (so the narrator QUOTES it and never
+    re-derives a wrong closed-book figure). `realized_total` is ALL closed trades; current-book realized = the
+    current strategies' realized sum; closed-book = the remainder (reconciles by construction). `unrealized`
+    sums only the current strategies whose open book was READABLE → None when none were, so `total` stays an
+    honest UNKNOWN rather than collapsing to a realized-only headline."""
+    realized = round(_num(realized_total) or 0.0, 2)
+    current_realized = round(sum(_num(s.get("realized_pnl")) or 0.0 for s in strat_reads), 2)
+    closed_realized = round(realized - current_realized, 2)
+    known = [u for u in (s.get("unrealized_pnl") for s in strat_reads)
+             if isinstance(u, (int, float)) and not isinstance(u, bool)]
+    unrealized = round(sum(known), 2) if known else None
+    total = round(realized + unrealized, 2) if unrealized is not None else None
+    # PARTIAL coverage: some current wallets were readable, some were NOT — so `unrealized` (and therefore
+    # `total`) sums only the readable ones: a FLOOR, not a complete number. Flag it so the narrator says
+    # "at least $X (N of M wallets readable)" and never presents a partial sum as the finished total. (0
+    # readable is the all-UNKNOWN case: unrealized/total = None above, not a floor.)
+    partial = unrealized is not None and len(known) < len(strat_reads)
+    return {
+        "realized": realized,
+        "realized_by_book": {"current": current_realized, "closed": closed_realized},
+        "unrealized": unrealized,                 # None → no current open book readable (UNKNOWN, not 0)
+        "unrealized_coverage": {"read": len(known), "current_strategies": len(strat_reads)},
+        "unrealized_partial": partial,            # True → unrealized/total are a FLOOR (some wallets UNKNOWN)
+        "total": total,                           # realized + unrealized; None when UNKNOWN; a FLOOR when partial
+        "note": ("TOTAL = realized (closed trades) + unrealized (current open positions). LEAD with TOTAL, "
+                 "not realized alone. unrealized None = the open book couldn't be read (UNKNOWN, not 0). "
+                 "unrealized_partial True = only some current wallets read, so unrealized/total are a FLOOR "
+                 "('at least $X, N of M wallets readable') — never present them as complete."),
+    }
+
+
+def _exit_attribution_coverage(source_counts, trade_count):
+    """How many closed trades have an ATTRIBUTED exit mechanism (telemetry-native or ratchet fallback) vs
+    UNKNOWN. attributed == 0 → there is NO basis for ANY exit-mechanism or DSL-calibration claim."""
+    tele = int(source_counts.get("telemetry", 0))
+    ratchet = int(source_counts.get("ratchet", 0))
+    return {"attributed": tele + ratchet, "total": int(trade_count),
+            "telemetry": tele, "ratchet": ratchet, "unknown": int(source_counts.get("unknown", 0))}
+
+
+def _telemetry_availability(coverage, telemetry_source):
+    """The ONE signal the narrator keys off for 'undetermined ≠ all-clear'. status:
+      no_trades    — nothing closed this window
+      undetermined — telemetry unavailable AND 0 exits attributed → exit quality / leaks / blocked /
+                     protection / fees are UNKNOWN ('couldn't check'), NEVER 'none/all-clear', and NO
+                     exit-calibration diagnosis
+      partial      — some enrichment landed, some didn't
+      available    — telemetry read and every closed trade is attributed
+    `streams_computed` False → the leaks/blocked/execution_quality/dsl_close_reason_mix ZEROS are fail-open
+    placeholders (telemetry down), NOT genuine 'no leaks / no gaps'."""
+    total = coverage.get("total", 0)
+    attributed = coverage.get("attributed", 0)
+    if total == 0:
+        status = "no_trades"
+    elif telemetry_source == "unavailable" and attributed == 0:
+        status = "undetermined"
+    elif telemetry_source == "available" and attributed == total:
+        status = "available"
+    else:
+        status = "partial"
+    computed = telemetry_source != "unavailable"
+    note = ("telemetry unavailable — exit quality, leaks, blocked signals, protection gaps and fees are "
+            "UNDETERMINED (couldn't check), NOT zero/none; do NOT diagnose exit calibration"
+            if not computed else "telemetry read — the exit-quality / leak / fee streams are computed")
+    return {"status": status, "telemetry_source": telemetry_source,
+            "exit_attribution": coverage, "streams_computed": computed, "note": note}
 
 
 # ──────────────────────────────────────────────────────────────── shared state file (resumable steps)
@@ -1556,8 +1750,11 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
         client, state, window_days, last_n, want_market, now_ms=now_ms)
     meta["warnings"] = list(state.get("meta_warnings", []))
     meta["window"] = window
-    strat_reads = _strategy_reads(trades, strategies)
+    open_book = fetch_open_book(client, strategies, meta)   # unrealized PnL for current wallets (total ledger)
+    strat_reads = _strategy_reads(trades, strategies, open_book)
     closed_reads = _closed_strategy_rollup(trades, strategies)
+    realized_total = round(sum(_num(t.get("realized_pnl")) or 0.0 for t in trades), 2)
+    pnl_summary = _pnl_summary(realized_total, strat_reads)
     dsl_mix = _dsl_close_reason_mix(trades)   # from whatever exit_reason is in state (UNKNOWN until telemetry)
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count
@@ -1569,10 +1766,11 @@ def step_strategies(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_m
         meta["degraded"] = "no strategies — check the token is USER-scoped"
     state["strategies_read"] = strat_reads
     state["closed_strategies"] = closed_reads
+    state["pnl_summary"] = pnl_summary
     state["dsl_close_reason_mix"] = dsl_mix
     _save_state(state_path, state)
     return {"strategies": strat_reads, "closed_strategies": closed_reads,
-            "dsl_close_reason_mix": dsl_mix, "meta": meta}
+            "pnl_summary": pnl_summary, "dsl_close_reason_mix": dsl_mix, "meta": meta}
 
 
 def step_telemetry(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True,
@@ -1597,6 +1795,9 @@ def step_telemetry(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_ma
     src_counts = _exit_reason_source_counts(trades)
     meta["exit_reason_source_counts"] = src_counts
     meta["telemetry_source"] = _telemetry_source(src_counts, meta.get("_telemetry_warned", False))
+    coverage = _exit_attribution_coverage(src_counts, len(trades))
+    meta["exit_attribution_coverage"] = coverage
+    telemetry_availability = _telemetry_availability(coverage, meta["telemetry_source"])
     meta["missed_signal_count"] = len(missed_signals)
     meta["leak_counts"] = {k: v["count"] for k, v in leaks.items()}
     meta["trade_count"] = len(trades)
@@ -1609,10 +1810,12 @@ def step_telemetry(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_ma
     state["leaks"] = leaks
     state["execution_quality"] = exec_quality
     state["dsl_close_reason_mix"] = dsl_mix
+    state["telemetry_availability"] = telemetry_availability
     state["meta_warnings"] = meta.get("warnings", [])
     _save_state(state_path, state)
     return {"trades": trades, "missed_signals": missed_signals, "blocked_summary": blocked,
-            "leaks": leaks, "execution_quality": exec_quality, "dsl_close_reason_mix": dsl_mix, "meta": meta}
+            "leaks": leaks, "execution_quality": exec_quality, "dsl_close_reason_mix": dsl_mix,
+            "telemetry_availability": telemetry_availability, "meta": meta}
 
 
 def step_market(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True,
@@ -1657,6 +1860,9 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     # ALL statuses are enumerated (so a churned book's CLOSED trades stay in trades[]) — but the per-strategy
     # verdict is CURRENT-only. Closed/historical strategies get a minimal rollup, never a verdict.
     strategies = fetch_strategies(client, meta)
+    # OPEN BOOK — current strategies' unrealized PnL (strategy_get_clearinghouse_state), so the review is a
+    # TOTAL ledger (realized closed + unrealized open), not realized-only. Fail-open per wallet → None (UNKNOWN).
+    open_book = fetch_open_book(client, strategies, meta)
     # DISCOVERY owns trades[] (onchain facts); TELEMETRY enriches exit_reason + yields the standalone streams
     # (missed_signals + the leak/fill rollups), all from ONE per-runtime event fetch (no re-fetch downstream).
     trades, missed_signals, leaks, fills = _collect_trades(
@@ -1667,8 +1873,9 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     blocked = _blocked_summary(missed_signals)                  # 'what did my own limits block'
     exec_quality = _execution_quality(fills)                    # 'fees — maker vs taker'
     bvm = book_vs_market(client, trades, strategies, meta, want_market)
-    strat_reads = _strategy_reads(trades, strategies)          # CURRENT book only (active/paused)
+    strat_reads = _strategy_reads(trades, strategies, open_book)   # CURRENT book — now with unrealized/total/open
     closed_reads = _closed_strategy_rollup(trades, strategies) # HISTORY: closed/inactive, rollup only
+    pnl_summary = _pnl_summary(timing["realized_pnl_total"], strat_reads)   # realized + unrealized = TOTAL ledger
 
     current_count = sum(1 for s in strategies if _is_current(s.get("status")))
     closed_count = len(strategies) - current_count
@@ -1680,6 +1887,9 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
     src_counts = _exit_reason_source_counts(trades)
     meta["exit_reason_source_counts"] = src_counts             # telemetry / ratchet / unknown
     meta["telemetry_source"] = _telemetry_source(src_counts, meta.get("_telemetry_warned", False))
+    coverage = _exit_attribution_coverage(src_counts, len(trades))
+    meta["exit_attribution_coverage"] = coverage               # attributed vs UNKNOWN — 0 attributed → no calibration claim
+    telemetry_availability = _telemetry_availability(coverage, meta["telemetry_source"])
     meta["missed_signal_count"] = len(missed_signals)
     meta["leak_counts"] = {k: v["count"] for k, v in leaks.items()}   # quick meta glance at the leak tallies
     meta.pop("_telemetry_warned", None)                        # internal flag — not part of the contract
@@ -1698,8 +1908,10 @@ def run(client, window_days=WINDOW_DEFAULT_DAYS, last_n=None, want_market=True, 
         "blocked_summary": blocked,       # 'what did my own limits block' → slot / margin / risk-gate lever
         "leaks": leaks,                   # 'where am I leaking' — failed orders, protection gaps, risk halts
         "execution_quality": exec_quality, # 'fees — maker vs taker' (+ future authoritative-fee ledger hook)
-        "strategies": strat_reads,        # CURRENT book only — each judged vs its OWN mandate
+        "pnl_summary": pnl_summary,       # TOTAL ledger: realized + unrealized (+ current/closed split) — LEAD with this
+        "strategies": strat_reads,        # CURRENT book only — each judged vs its OWN mandate (+ unrealized/total/open)
         "closed_strategies": closed_reads, # HISTORY — minimal rollup, NO verdict/mandate (never consolidate)
+        "telemetry_availability": telemetry_availability,   # undetermined ≠ all-clear signal for the narrator
         "meta": meta,
     }
 
@@ -1741,6 +1953,8 @@ def _all_and_persist(client, window_days, last_n, want_market, state_path, now_m
         "execution_quality": result.get("execution_quality"),
         "strategies_read": result.get("strategies"),
         "closed_strategies": result.get("closed_strategies"),
+        "pnl_summary": result.get("pnl_summary"),
+        "telemetry_availability": result.get("telemetry_availability"),
         "meta_warnings": (result.get("meta") or {}).get("warnings", []),
     }
     _save_state(state_path, state)

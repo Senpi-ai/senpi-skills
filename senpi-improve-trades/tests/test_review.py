@@ -73,7 +73,7 @@ def test_if_held_and_since_exit_compute_for_a_long():
     sol = _by_asset(_result())["SOL"]
     assert sol["price_since_exit_pct"] == -13.33
     assert sol["if_held_delta_usd"] == -60.0
-    assert sol["exit_vs_hold"] == "beat"
+    assert sol["exit_vs_hold"] == "exit_ahead"
 
 
 def test_exit_worse_when_price_ran_after_a_long_exit():
@@ -82,7 +82,7 @@ def test_exit_worse_when_price_ran_after_a_long_exit():
     eth = _by_asset(_result())["ETH"]
     assert eth["price_since_exit_pct"] == 10.0
     assert eth["if_held_delta_usd"] == 100.0
-    assert eth["exit_vs_hold"] == "worse"
+    assert eth["exit_vs_hold"] == "held_higher"
 
 
 def test_short_sign_is_direction_adjusted():
@@ -93,7 +93,7 @@ def test_short_sign_is_direction_adjusted():
     assert btc["direction"] == "short"
     assert btc["price_since_exit_pct"] == -5.0        # raw price move is down
     assert btc["if_held_delta_usd"] == 250.0          # but the SHORT counterfactual is POSITIVE
-    assert btc["exit_vs_hold"] == "worse"
+    assert btc["exit_vs_hold"] == "held_higher"
 
 
 def test_timing_summary_counts_beat_vs_worse():
@@ -102,8 +102,8 @@ def test_timing_summary_counts_beat_vs_worse():
     projection."""
     ts = _result()["timing_summary"]
     assert ts["trade_count"] == 3
-    assert ts["exits_beat_holding"] == 1
-    assert ts["exits_worse"] == 2
+    assert ts["exits_ahead"] == 1
+    assert ts["exits_held_higher"] == 2
     assert ts["exits_flat"] == 0
     assert ts["realized_pnl_total"] == 340.0
     assert ts["if_all_reclosed_now_total"] == 290.0
@@ -168,6 +168,127 @@ def test_strategy_read_carries_mandate_and_dsl_lever():
     assert strat["realized_pnl"] == 340.0
 
 
+def test_open_book_unrealized_and_total_pnl():
+    """WS1 total-ledger: kodiak holds an open SOL long (+$120 unrealized) → the strategy read carries
+    unrealized_pnl + total_pnl (realized 340 + unrealized 120 = 460), and pnl_summary rolls up TOTAL with
+    the current/closed realized split. A book riding an open winner is NOT judged on realized alone."""
+    res = _result()
+    strat = {s["label"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["realized_pnl"] == 340.0
+    assert strat["unrealized_pnl"] == 120.0
+    assert strat["total_pnl"] == 460.0
+    assert strat["open_position_count"] == 1
+    op = strat["open_positions"][0]
+    assert op["asset"] == "SOL" and op["direction"] == "long"
+    assert op["unrealized_pnl"] == 120.0 and op["return_on_equity_pct"] == 10.0
+    ps = res["pnl_summary"]
+    assert ps["realized"] == 340.0 and ps["unrealized"] == 120.0 and ps["total"] == 460.0
+    assert ps["realized_by_book"] == {"current": 340.0, "closed": 0.0}
+
+
+def test_open_book_unreadable_is_unknown_not_zero():
+    """WS1 fail-open: when the clearinghouse can't be read, unrealized reads None (UNKNOWN) and total_pnl is
+    None — NEVER a fabricated 0. Guards a realized-only headline from masquerading as total."""
+    with open(FIXTURE) as f:
+        raw = json.load(f)
+    raw.pop("strategy_get_clearinghouse_state::0xkodiak00000000000000000000000000000kdk", None)
+    old = os.environ.get("SENPI_STATE_DIR")
+    os.environ["SENPI_STATE_DIR"] = REGISTRY_DIR
+    try:
+        res = review.run(review._FixtureClient(raw), window_days=WINDOW_DAYS, now_ms=NOW_MS)
+    finally:
+        if old is None:
+            os.environ.pop("SENPI_STATE_DIR", None)
+        else:
+            os.environ["SENPI_STATE_DIR"] = old
+    strat = {s["label"]: s for s in res["strategies"]}["kodiak"]
+    assert strat["unrealized_pnl"] is None and strat["total_pnl"] is None   # UNKNOWN, not 0
+    assert res["pnl_summary"]["unrealized"] is None and res["pnl_summary"]["total"] is None
+    assert res["pnl_summary"]["realized"] == 340.0                          # realized still known
+
+
+def test_pnl_summary_partial_coverage_is_flagged_floor_not_complete():
+    """WS1 degraded-read honesty (Sarvesh review): when SOME current wallets read and some are UNKNOWN,
+    unrealized/total sum only the readable ones — a FLOOR, not a complete total. The engine MUST flag that
+    (`unrealized_partial`) with the coverage counts, so the narrator says 'at least $X (N of M readable)'
+    and never presents a partial sum as complete. Same principle as all-fail→None and undetermined≠all-clear,
+    for the PARTIALLY-known case."""
+    strat_reads = [
+        {"realized_pnl": 100.0, "unrealized_pnl": 500.0},   # wallet A: readable, +$500 open
+        {"realized_pnl": 50.0, "unrealized_pnl": None},     # wallet B: read FAILED → UNKNOWN
+    ]
+    ps = review._pnl_summary(150.0, strat_reads)
+    assert ps["unrealized"] == 500.0                         # only the readable wallet — a FLOOR
+    assert ps["total"] == 650.0                              # 150 realized + 500 known unrealized (floor)
+    assert ps["unrealized_partial"] is True                 # <-- flagged, not silent
+    assert ps["unrealized_coverage"] == {"read": 1, "current_strategies": 2}
+
+
+def test_pnl_summary_full_coverage_is_not_partial():
+    """Control: every current wallet reads → unrealized_partial False (total is complete, not a floor)."""
+    strat_reads = [{"realized_pnl": 100.0, "unrealized_pnl": 500.0},
+                   {"realized_pnl": 50.0, "unrealized_pnl": -20.0}]
+    ps = review._pnl_summary(150.0, strat_reads)
+    assert ps["unrealized"] == 480.0 and ps["total"] == 630.0
+    assert ps["unrealized_partial"] is False
+
+
+def test_pnl_summary_all_unreadable_is_none_not_partial():
+    """Control: 0 wallets readable is the all-UNKNOWN case (unrealized/total None), NOT a partial floor."""
+    strat_reads = [{"realized_pnl": 100.0, "unrealized_pnl": None},
+                   {"realized_pnl": 50.0, "unrealized_pnl": None}]
+    ps = review._pnl_summary(150.0, strat_reads)
+    assert ps["unrealized"] is None and ps["total"] is None
+    assert ps["unrealized_partial"] is False                # None ≠ floor
+
+
+def test_is_transient_classifies_retryable_vs_definitive():
+    """Retry policy: transport blips + 5xx/429 retry; a definitive answer (4xx, {success:false}, JSON-RPC,
+    tool error) does NOT — retrying a real 'no' just repeats it."""
+    from mcp_client import MCPError
+    assert review._is_transient(TimeoutError("timed out")) is True
+    assert review._is_transient(ConnectionResetError()) is True
+    assert review._is_transient(MCPError("strategy_get_clearinghouse_state HTTP 503")) is True
+    assert review._is_transient(MCPError("x HTTP 429")) is True
+    assert review._is_transient(MCPError("x HTTP 404")) is False
+    assert review._is_transient(MCPError("tool failed: SERR001: no access")) is False
+    assert review._is_transient(MCPError("JSON-RPC error -32601: method not found")) is False
+
+
+def test_fetch_open_positions_retries_transient_then_succeeds():
+    """A transient blip is retried; the second attempt's clean read is used — no fabricated None."""
+    calls = {"n": 0}
+    ok = {"main": {"assetPositions": [{"position": {"coin": "SOL", "szi": "1", "unrealizedPnl": "25.0"}}]}}
+
+    class Flaky:
+        def mcp_call(self, tool, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise TimeoutError("blip")
+            return ok
+    meta = {}
+    unreal, positions = review.fetch_open_positions(Flaky(), "0xabc", meta)
+    assert calls["n"] == 2                          # retried once
+    assert unreal == 25.0 and len(positions) == 1
+    assert not meta.get("warnings")                 # succeeded → no failure warning
+
+
+def test_fetch_open_positions_does_not_retry_definitive_failure():
+    """A definitive {success:false} is NOT retried (it's a real answer) → one call, unrealized UNKNOWN."""
+    from mcp_client import MCPError
+    calls = {"n": 0}
+
+    class Denied:
+        def mcp_call(self, tool, **kw):
+            calls["n"] += 1
+            raise MCPError("tool failed: SERR001: no access")
+    meta = {}
+    unreal, positions = review.fetch_open_positions(Denied(), "0xabc", meta)
+    assert calls["n"] == 1                           # NOT retried
+    assert unreal is None and positions == []        # UNKNOWN, never a fabricated 0
+    assert meta["warnings"]                          # a warning was recorded
+
+
 def test_last_n_caps_trade_count():
     """--last N keeps only the N most-recent closed trades (by close time). last_n=1 → only BTC (latest)."""
     res = _result(last_n=1)
@@ -212,7 +333,12 @@ def test_fails_open_when_ratchet_source_missing():
             os.environ["SENPI_STATE_DIR"] = old
     assert all(t["exit_reason"]["terminal"] == "UNKNOWN" for t in res["trades"])
     # timing still works — SOL still beat holding
-    assert {t["asset"]: t["exit_vs_hold"] for t in res["trades"]}["SOL"] == "beat"
+    assert {t["asset"]: t["exit_vs_hold"] for t in res["trades"]}["SOL"] == "exit_ahead"
+    # WS3: telemetry down AND zero exits attributed → the M404726 case → status UNDETERMINED, not all-clear
+    ta = res["telemetry_availability"]
+    assert ta["status"] == "undetermined"
+    assert ta["streams_computed"] is False
+    assert ta["exit_attribution"]["attributed"] == 0
 
 
 # ──────────────────────────────────────────────────────── current vs closed partition (the live-run fix)
@@ -388,6 +514,11 @@ def test_telemetry_unavailable_leaves_discovery_intact():
     assert by["BTC"]["exit_reason"]["terminal"] == "UNKNOWN"
     # discovery facts untouched with zero telemetry
     assert by["SOL"]["realized_pnl"] == 90.0 and by["BTC"]["direction"] == "short"
+    # WS3: telemetry down → the leak/blocked/fee streams are UNDETERMINED (not computed), never 'none'.
+    ta = res["telemetry_availability"]
+    assert ta["streams_computed"] is False
+    assert ta["exit_attribution"]["attributed"] == 1     # SOL attributed via the ratchet fallback
+    assert ta["status"] == "partial"
 
 
 # ──────────────────────────────────── telemetry quick-action aggregations (reuse the fetched events/trades)
@@ -509,11 +640,11 @@ def test_step_timing_slice_standalone():
                                                want_market=True, state_path=sp, now_ms=NOW_MS))
     assert set(out) == {"window", "trades", "timing_summary", "meta"}   # ONLY the timing slice
     assert out["timing_summary"]["trade_count"] == 3
-    assert out["timing_summary"]["exits_beat_holding"] == 1
+    assert out["timing_summary"]["exits_ahead"] == 1
     # exit_reason is the placeholder here — telemetry/ratchet has not run on the fast path
     assert all(t["exit_reason"]["terminal"] == "UNKNOWN" for t in out["trades"])
     # but the timing counterfactual (prices only) is already correct
-    assert {t["asset"]: t["exit_vs_hold"] for t in out["trades"]}["SOL"] == "beat"
+    assert {t["asset"]: t["exit_vs_hold"] for t in out["trades"]}["SOL"] == "exit_ahead"
     all_ts = _result()["timing_summary"]
     assert out["timing_summary"] == all_ts               # timing slice == all's timing_summary
 
@@ -529,7 +660,7 @@ def test_step_strategies_slice_reads_state():
         return review.step_strategies(_fresh_client(), window_days=WINDOW_DAYS, want_market=True,
                                       state_path=sp, now_ms=NOW_MS)
     out = _with_env(_seq)
-    assert set(out) == {"strategies", "closed_strategies", "dsl_close_reason_mix", "meta"}
+    assert set(out) == {"strategies", "closed_strategies", "pnl_summary", "dsl_close_reason_mix", "meta"}
     strat = {s["label"]: s for s in out["strategies"]}["kodiak"]
     assert strat["dsl"]["hard_stop_roe_pct"] == -15.0    # mandate/DSL from the registry
     assert strat["realized_pnl"] == 340.0
@@ -586,6 +717,8 @@ def test_step_sequence_reproduces_all_combined():
     assert te["execution_quality"] == allr["execution_quality"]
     assert te["dsl_close_reason_mix"] == allr["dsl_close_reason_mix"]   # telemetry-refreshed mix
     assert m["book_vs_market"] == allr["book_vs_market"]
+    assert s["pnl_summary"] == allr["pnl_summary"]                      # total-ledger rollup parity
+    assert te["telemetry_availability"] == allr["telemetry_availability"]   # undetermined-signal parity
     # meta sub-fields each step owns line up with all
     assert te["meta"]["exit_reason_source_counts"] == allr["meta"]["exit_reason_source_counts"]
     assert te["meta"]["telemetry_source"] == allr["meta"]["telemetry_source"]

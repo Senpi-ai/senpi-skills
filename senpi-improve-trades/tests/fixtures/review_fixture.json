@@ -26,6 +26,15 @@
     {"asset": "ETH", "status": "ACTIVE", "currentTierIndex": 0, "highWaterRoe": 6.0}
   ]},
 
+  "strategy_get_clearinghouse_state::0xkodiak00000000000000000000000000000kdk": {
+    "main": {"assetPositions": [
+      {"position": {"coin": "SOL", "szi": "10.0", "entryPx": "120.00", "unrealizedPnl": "120.00",
+                    "returnOnEquity": "0.10", "positionValue": "1300.00",
+                    "leverage": {"type": "cross", "value": 5}}}
+    ]},
+    "xyz": {"assetPositions": []}
+  },
+
   "market_get_asset_data::sol": {"asset_context": {"markPx": "130.00", "prevDayPx": "148.0"}},
   "market_get_asset_data::eth": {"asset_context": {"markPx": "2200.00", "prevDayPx": "2010.0"}},
   "market_get_asset_data::btc": {"asset_context": {"markPx": "95000.00", "prevDayPx": "99000.0"}},
