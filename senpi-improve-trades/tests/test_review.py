@@ -207,6 +207,88 @@ def test_open_book_unreadable_is_unknown_not_zero():
     assert res["pnl_summary"]["realized"] == 340.0                          # realized still known
 
 
+def test_pnl_summary_partial_coverage_is_flagged_floor_not_complete():
+    """WS1 degraded-read honesty (Sarvesh review): when SOME current wallets read and some are UNKNOWN,
+    unrealized/total sum only the readable ones — a FLOOR, not a complete total. The engine MUST flag that
+    (`unrealized_partial`) with the coverage counts, so the narrator says 'at least $X (N of M readable)'
+    and never presents a partial sum as complete. Same principle as all-fail→None and undetermined≠all-clear,
+    for the PARTIALLY-known case."""
+    strat_reads = [
+        {"realized_pnl": 100.0, "unrealized_pnl": 500.0},   # wallet A: readable, +$500 open
+        {"realized_pnl": 50.0, "unrealized_pnl": None},     # wallet B: read FAILED → UNKNOWN
+    ]
+    ps = review._pnl_summary(150.0, strat_reads)
+    assert ps["unrealized"] == 500.0                         # only the readable wallet — a FLOOR
+    assert ps["total"] == 650.0                              # 150 realized + 500 known unrealized (floor)
+    assert ps["unrealized_partial"] is True                 # <-- flagged, not silent
+    assert ps["unrealized_coverage"] == {"read": 1, "current_strategies": 2}
+
+
+def test_pnl_summary_full_coverage_is_not_partial():
+    """Control: every current wallet reads → unrealized_partial False (total is complete, not a floor)."""
+    strat_reads = [{"realized_pnl": 100.0, "unrealized_pnl": 500.0},
+                   {"realized_pnl": 50.0, "unrealized_pnl": -20.0}]
+    ps = review._pnl_summary(150.0, strat_reads)
+    assert ps["unrealized"] == 480.0 and ps["total"] == 630.0
+    assert ps["unrealized_partial"] is False
+
+
+def test_pnl_summary_all_unreadable_is_none_not_partial():
+    """Control: 0 wallets readable is the all-UNKNOWN case (unrealized/total None), NOT a partial floor."""
+    strat_reads = [{"realized_pnl": 100.0, "unrealized_pnl": None},
+                   {"realized_pnl": 50.0, "unrealized_pnl": None}]
+    ps = review._pnl_summary(150.0, strat_reads)
+    assert ps["unrealized"] is None and ps["total"] is None
+    assert ps["unrealized_partial"] is False                # None ≠ floor
+
+
+def test_is_transient_classifies_retryable_vs_definitive():
+    """Retry policy: transport blips + 5xx/429 retry; a definitive answer (4xx, {success:false}, JSON-RPC,
+    tool error) does NOT — retrying a real 'no' just repeats it."""
+    from mcp_client import MCPError
+    assert review._is_transient(TimeoutError("timed out")) is True
+    assert review._is_transient(ConnectionResetError()) is True
+    assert review._is_transient(MCPError("strategy_get_clearinghouse_state HTTP 503")) is True
+    assert review._is_transient(MCPError("x HTTP 429")) is True
+    assert review._is_transient(MCPError("x HTTP 404")) is False
+    assert review._is_transient(MCPError("tool failed: SERR001: no access")) is False
+    assert review._is_transient(MCPError("JSON-RPC error -32601: method not found")) is False
+
+
+def test_fetch_open_positions_retries_transient_then_succeeds():
+    """A transient blip is retried; the second attempt's clean read is used — no fabricated None."""
+    calls = {"n": 0}
+    ok = {"main": {"assetPositions": [{"position": {"coin": "SOL", "szi": "1", "unrealizedPnl": "25.0"}}]}}
+
+    class Flaky:
+        def mcp_call(self, tool, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise TimeoutError("blip")
+            return ok
+    meta = {}
+    unreal, positions = review.fetch_open_positions(Flaky(), "0xabc", meta)
+    assert calls["n"] == 2                          # retried once
+    assert unreal == 25.0 and len(positions) == 1
+    assert not meta.get("warnings")                 # succeeded → no failure warning
+
+
+def test_fetch_open_positions_does_not_retry_definitive_failure():
+    """A definitive {success:false} is NOT retried (it's a real answer) → one call, unrealized UNKNOWN."""
+    from mcp_client import MCPError
+    calls = {"n": 0}
+
+    class Denied:
+        def mcp_call(self, tool, **kw):
+            calls["n"] += 1
+            raise MCPError("tool failed: SERR001: no access")
+    meta = {}
+    unreal, positions = review.fetch_open_positions(Denied(), "0xabc", meta)
+    assert calls["n"] == 1                           # NOT retried
+    assert unreal is None and positions == []        # UNKNOWN, never a fabricated 0
+    assert meta["warnings"]                          # a warning was recorded
+
+
 def test_last_n_caps_trade_count():
     """--last N keeps only the N most-recent closed trades (by close time). last_n=1 → only BTC (latest)."""
     res = _result(last_n=1)

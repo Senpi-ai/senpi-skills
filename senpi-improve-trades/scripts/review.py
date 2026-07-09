@@ -35,6 +35,7 @@ import concurrent.futures
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -766,18 +767,49 @@ def _price_now(client, asset, dex, meta):
 
 
 # ──────────────────────────────────────────────── open book (unrealized PnL — the TOTAL-ledger read)
+_CLEARINGHOUSE_ATTEMPTS = 2   # bounded retries on the open-book read — transient blips only
+_CLEARINGHOUSE_BACKOFF_S = 0.4
+
+
+def _is_transient(exc):
+    """Retry the open-book read ONLY on a transient transport/5xx/429/timeout blip — never on a definitive
+    answer. An MCPError carrying an HTTP 4xx (other than 429), a JSON-RPC error, a tool isError, or an
+    app-level {success:false} is the server SAYING something real; retrying just repeats it (and could hide a
+    genuine 'no'). A raw transport error (socket timeout / connection reset / DNS) is a blip worth one more
+    try. Retries only REDUCE the frequency of a `None` read — they never remove it, so a still-failed read
+    stays UNKNOWN (never a fabricated 0) and partial coverage stays flagged."""
+    from mcp_client import MCPError
+    if isinstance(exc, MCPError):
+        m = re.search(r"HTTP (\d{3})", str(exc))
+        return bool(m) and (int(m.group(1)) == 429 or 500 <= int(m.group(1)) < 600)
+    return True
+
+
 def fetch_open_positions(client, wallet, meta):
     """Open positions + unrealized PnL for ONE current strategy wallet (strategy_get_clearinghouse_state,
     main+xyz). This is what makes the review a TOTAL ledger (realized closed trades + unrealized open) rather
     than realized-only — closing the biggest distortion: a book RIDING open winners looks like a loser on
-    realized PnL alone, and a realized-only read biases against hold-strategies. Read-guarded + fail-open: a
-    failed/unreadable read → (None, []) so unrealized reads UNKNOWN (never a fabricated 0); a clean read with
-    no open positions → (0.0, []) — a REAL zero. Returns (unrealized_pnl_total | None, positions[])."""
-    try:
-        ch = _ok(client.mcp_call("strategy_get_clearinghouse_state", strategy_wallet=wallet, timeout=12))
-    except Exception as e:  # noqa — fail-open: unrealized becomes UNKNOWN, never guessed 0
+    realized PnL alone, and a realized-only read biases against hold-strategies. Read-guarded + fail-open with
+    a bounded retry on transient blips (transport/5xx/429/timeout): a still-unreadable read → (None, []) so
+    unrealized reads UNKNOWN (never a fabricated 0); a clean read with no open positions → (0.0, []) — a REAL
+    zero. Returns (unrealized_pnl_total | None, positions[])."""
+    ch, err, attempts = None, None, 0
+    for attempt in range(1, _CLEARINGHOUSE_ATTEMPTS + 1):
+        attempts = attempt
+        try:
+            ch = _ok(client.mcp_call("strategy_get_clearinghouse_state", strategy_wallet=wallet, timeout=12))
+            err = None
+            break
+        except Exception as e:  # noqa — fail-open: unrealized becomes UNKNOWN, never guessed 0
+            err = e
+            if attempt < _CLEARINGHOUSE_ATTEMPTS and _is_transient(e):
+                time.sleep(_CLEARINGHOUSE_BACKOFF_S * attempt)
+                continue
+            break
+    if err is not None:
         meta.setdefault("warnings", []).append(
-            f"clearinghouse {str(wallet)[:8]} failed: {e}; unrealized PnL unavailable for it")
+            f"clearinghouse {str(wallet)[:8]} failed after {attempts} attempt(s): {err}; "
+            f"unrealized PnL unavailable for it")
         return None, []
     if not isinstance(ch, dict):
         return None, []
@@ -1524,14 +1556,22 @@ def _pnl_summary(realized_total, strat_reads):
              if isinstance(u, (int, float)) and not isinstance(u, bool)]
     unrealized = round(sum(known), 2) if known else None
     total = round(realized + unrealized, 2) if unrealized is not None else None
+    # PARTIAL coverage: some current wallets were readable, some were NOT — so `unrealized` (and therefore
+    # `total`) sums only the readable ones: a FLOOR, not a complete number. Flag it so the narrator says
+    # "at least $X (N of M wallets readable)" and never presents a partial sum as the finished total. (0
+    # readable is the all-UNKNOWN case: unrealized/total = None above, not a floor.)
+    partial = unrealized is not None and len(known) < len(strat_reads)
     return {
         "realized": realized,
         "realized_by_book": {"current": current_realized, "closed": closed_realized},
         "unrealized": unrealized,                 # None → no current open book readable (UNKNOWN, not 0)
         "unrealized_coverage": {"read": len(known), "current_strategies": len(strat_reads)},
-        "total": total,                           # realized + unrealized; None when unrealized UNKNOWN
+        "unrealized_partial": partial,            # True → unrealized/total are a FLOOR (some wallets UNKNOWN)
+        "total": total,                           # realized + unrealized; None when UNKNOWN; a FLOOR when partial
         "note": ("TOTAL = realized (closed trades) + unrealized (current open positions). LEAD with TOTAL, "
-                 "not realized alone. unrealized None = the open book couldn't be read (UNKNOWN, not 0)."),
+                 "not realized alone. unrealized None = the open book couldn't be read (UNKNOWN, not 0). "
+                 "unrealized_partial True = only some current wallets read, so unrealized/total are a FLOOR "
+                 "('at least $X, N of M wallets readable') — never present them as complete."),
     }
 
 

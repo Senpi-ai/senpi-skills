@@ -39,7 +39,11 @@ more" questions; use `senpi-portfolio` for live state.
 ## HARD RULES (never violate — obey these even if you skim the rest)
 
 1. **Lead with TOTAL PnL** (`pnl_summary.total` = realized + unrealized), never realized alone. Realized-only
-   is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies.
+   is half the ledger — it calls a book riding open winners a "loser" and penalizes hold-strategies. **If
+   `pnl_summary.unrealized_partial` is true (or `unrealized_coverage.read < .current_strategies`), TOTAL is a
+   FLOOR, not a complete number** — some current wallets couldn't be read. Say **"at least $X (N of M wallets
+   readable)"**, never present it as the finished total. (`total: null` = the open book was *entirely*
+   unreadable → UNKNOWN, not 0 and not a floor.)
 2. **The hold-to-now counterfactual is CONTEXT, never a verdict.** `held_higher` / a positive
    `if_all_reclosed_now_total` just means the asset kept running THIS window (hindsight; it ignores the risk
    the exit avoided). NEVER say "you exited too early / N% premature / left $X on the table," and NEVER let it
@@ -196,6 +200,9 @@ These are non-negotiable. Each fixes a real failure from live agent responses to
 
 **Lead with `pnl_summary.total`** (realized closed + unrealized open) — NOT `realized_pnl_total` alone.
 Realized-only is half the ledger: it calls a book riding open winners a "loser" and penalizes hold-strategies.
+**Degraded-read honesty (same principle as `undetermined ≠ all-clear`):** if `pnl_summary.unrealized_partial`
+is true (some current wallets read, some didn't), `total` is a **FLOOR** — headline it as *"at least $X (N of M
+wallets readable)"*, never as a complete total. `total: null` = the open book was entirely unreadable → UNKNOWN.
 Then give the aggregate exit counts (`timing_summary`: `exits_ahead` / `exits_held_higher` / flat). Only after
 the aggregate may you mention a single trade, and only as *one data point*, never the headline.
 
@@ -398,7 +405,8 @@ trades[]      per CLOSED trade (from strategies of ALL statuses — a churned bo
 pnl_summary      TOTAL LEDGER — LEAD WITH THIS (realized closed + unrealized open):
   realized, unrealized (None = UNKNOWN read, not 0), total (None when unrealized UNKNOWN),
   realized_by_book{ current, closed },      # quote this split — never re-derive a closed-book figure
-  unrealized_coverage{ read, current_strategies }
+  unrealized_coverage{ read, current_strategies },
+  unrealized_partial   # true → some wallets UNKNOWN; unrealized/total are a FLOOR ("at least $X, N of M") — HARD RULE 1
 
 telemetry_availability   the 'undetermined ≠ all-clear' signal — READ IT FIRST (guardrail 6):
   status ∈ available | partial | undetermined | no_trades,
