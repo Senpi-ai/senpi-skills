@@ -9,12 +9,14 @@ description: >-
   / strategy_list MCP call. Use for "analyze my strategies", "how are my strategies doing", "analyze my
   portfolio", "how am I doing", "show my positions", "balance across all wallets", "how much is idle", and
   "are my open positions protected? / do they have a stop-loss?", and "tell me about my strategies and
-  their DSL / what tier are my positions in?". A hidden engine (scripts/portfolio.py)
+  their DSL / what tier are my positions in?", and "what happened to my closed [asset] position / did my
+  trade actually go through / do I still hold X" — the authority for position facts, OPEN and CLOSED, which
+  come from a fresh engine read, never from memory or a raw order response. A hidden engine (scripts/portfolio.py)
   does the multi-wallet pull and taxonomy; you narrate. Requires a USER-scoped Senpi token.
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.8.0"
+  version: "1.9.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -56,6 +58,26 @@ dump when the user asked about their **strategies** — is a failure. The user w
 > "unprotected" when it isn't. The engine reads BOTH the config ladder (`profile.dsl`) and the live tier
 > (`positions[].dsl`) and frames every position correctly; run it. (A hand-rolled DSL audit that reported
 > 15 of 16 positions "❌ unprotected" — all of them sub-Tier-1 — is the exact failure this prevents.)
+
+> **Source of truth for position facts — read before you answer, even mid-trade.** This engine is the
+> authoritative read for what the user holds and what happened to anything that closed. **Before ANY
+> statement about a position — does it exist, its size / PnL / status, or what happened to a closed one —
+> take a fresh read here.** Never answer from session memory, an earlier read this conversation, or a raw
+> order/trade response — and this holds **even inside a trading flow**:
+> - **A successful open/close order is NOT proof of the resulting position.** After you place or close a
+>   trade, confirm the resulting state HERE before telling the user what they now hold. A position placed
+>   into a **scanner-managed** strategy wallet can be reconciled as foreign and **DSL-flattened within
+>   minutes** — the order "succeeded," yet the position is already gone; a raw read of the wrong sub-wallet
+>   then shows it "phantom / missing." Only this engine reconciles that correctly.
+> - **"What happened to my [asset] / my closed trades"** → read the authoritative CLOSED record
+>   (`closed.recent[]` / `closed.realized_pnl` here, or hand to **`senpi-improve-trades`** for exit quality +
+>   why-it-closed from the runtime event log). **Never narrate a closed-position story from memory or the
+>   session's own trade log.**
+>
+> This is the **M405775** class: an agent reported positions "executed," then "missing," then invented a
+> close cascade — all from its own trade-flow reads instead of a fresh authoritative pull. The "never
+> fabricate to agree" and "`account_value > 0` = live" golden rules below are the same principle; this
+> makes it a read-first rule for *every* position claim, including right after you trade.
 
 ## The wallet model (get this exactly right)
 
