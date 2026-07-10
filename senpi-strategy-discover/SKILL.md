@@ -1,18 +1,21 @@
 ---
 name: senpi-strategy-discover
 description: >-
-  Help a user choose a Senpi trading strategy to deploy — a
-  conversational, analyst-style picker. Use when the user asks "what should I
-  trade?", "recommend a strategy", "help me pick a strategy", "what's
-  winning?", "set me up", "I have a view on the world (a war, the economy, one
-  coin winning) — trade it", "run a hedge fund / all-weather / tail-risk book",
-  or wants a strategy but has NOT named a specific one. You talk and RANK; a
-  hidden engine (scripts/discover.py) fetches data + filters. NOT for installing a
-  NAMED strategy (that's senpi-strategy-ops) or building one (senpi-strategy-author).
+  Help a user choose a Senpi trading strategy to deploy — a conversational,
+  analyst-style picker. Use when the user asks "what should I trade?", "recommend
+  a strategy", "help me pick a strategy", "what's winning?", "set me up", "I have
+  a view on the world (a war, the economy, one coin winning) — trade it", "run a
+  hedge fund / all-weather / tail-risk book", or wants a strategy but has NOT
+  named a specific one. Surface the closest matching TEMPLATE first — the fastest
+  on-ramp, which the user can then fork/customize — passing their worldview as
+  `--theme` to rank the closest fits. You talk and RANK; a hidden engine
+  (scripts/discover.py) fetches data + filters. NOT for installing a NAMED
+  strategy (that's senpi-strategy-ops), or building/designing one from scratch or
+  with a custom DSL (that's senpi-strategy-author).
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.3.0"
+  version: "2.4.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -70,6 +73,7 @@ python3 scripts/discover.py
   [--direction long_only|short_only|any]
   [--exclude <csv: copy_trading,stocks,crypto,commodities,pre_ipo,dca,shorting>]
   [--budget <number>]
+  [--theme "<worldview>"]  # SOFT surface: k-shape, risk-off, market-neutral, AI fund, divergence…
   [--limit <int>]      # safety cap only; default returns ALL eligible
   [--no-market]        # skip the live read — use while narrowing/browsing
   [--context-only]     # user holdings/budget only, no match
@@ -77,10 +81,21 @@ python3 scripts/discover.py
 
 - There is **no** `--risk`, `--belief`, `--horizon`, `--experience`, or `--hedge-for` flag — you rank
   on those, and you surface a hedge by re-running the engine (see *Stack*).
+- **`--theme` is a SOFT worldview surface, not a filter.** **You supply the semantic expansion; the
+  engine does deterministic keyword-overlap over the real catalog fields.** Pass the worldview AND the
+  structural synonyms YOU know for it — you natively know "k-shape" ≈ "two-speed" ≈ "long/short" ≈
+  "dispersion", so pass them: `--theme "k-shape two-speed long-short divergence dispersion winners
+  laggards"`. The engine scores every survivor on thesis/tag overlap with those terms, floats the
+  matches to the top, and echoes a ranked `meta.theme_matches`. It **never drops a candidate** and holds
+  **no** maintained synonym list of its own — the vocabulary is yours. You still rank + narrate. Use it
+  for any named worldview so you don't eyeball 78 theses and miss an obvious fit (e.g. Cougar/Cub for a
+  K-shape).
 - Values can be loose ("btc and eth", "no shorting") — the engine canonicalizes; unknown → ignored.
 - **You hold the flags across turns** and re-run with the full concrete set each time (stateless).
-- A **fuzzy belief/worldview run carries no `--assets`** — run broad (often no flags at all), get the
-  full fleet, and rank on `thesis`/`tags`. Add `--no-market` to keep early runs cheap.
+- A **fuzzy belief/worldview run carries no `--assets`** — run broad (often no flags at all) and, when the
+  worldview has a name ("k-shape", "risk-off", "one coin wins"), add **`--theme "<words>"`** to surface +
+  rank the thesis matches. Read `meta.theme_matches` first, then rank the rest. Add `--no-market` to keep
+  early runs cheap.
 - The engine returns valid JSON even on bad input; if it ever errors/empties, fall back to a generic
   "here are our strategies" message.
 
@@ -90,6 +105,7 @@ Each candidate is a flat record. You rank on the soft fields; you narrate from t
 
 | Field | Use |
 |---|---|
+| `meta.theme_matches`, `theme_score`, `theme_hits` | when `--theme` is set: the **ranked worldview shortlist** — read it FIRST, then rank the rest |
 | `thesis`, `tags` | **worldview / theme match** — your main lever for "war / hedge fund / all-weather / one coin wins" |
 | `belief_plain`, `archetype_label` | belief match (ride trends vs fade vs copy …) |
 | `risk_level`, `time_horizon`, `tier` | risk / horizon / newcomer match |
@@ -194,9 +210,14 @@ They lack the vocabulary; recommend *without* making them self-classify:
 - "something safe for BTC, ~$300" → `--assets btc_eth --budget 300`  · rank: conservative
 - "aggressive NVDA play" → `--assets NVDA`  · rank: aggressive
 - "trade SpaceX / pre-IPO names" → `--assets pre_ipo`
-- "an AI fund" → `--assets xyz_equities`  · rank up `ai`/`hedge-fund` tags
-- "bet against the economy" → *(no asset cut)* run broad → rank up `thesis-risk-off` (read its `thesis`
-  for the side; never guess)
+- "a K-shaped market — long winners, short losers" → YOU expand the worldview →
+  `--theme "k-shape two-speed long-short divergence dispersion winners laggards"` *(no asset cut)* → read
+  `meta.theme_matches`: `lion` / `cub` / `cougar` / `octopus` float to the top from their real thesis
+  words. **This is the run the agent skipped when it eyeballed names and missed Cougar.**
+- "an AI fund" → `--assets xyz_equities --theme "AI artificial-intelligence semiconductors compute tech momentum"`  · surfaces `spider`/`hornet`/`asia-ai`
+- "bet against the economy" → `--theme "risk-off defensive recession bearish hedge downturn crisis"` *(no asset cut)* → surfaces the
+  risk-off/tail-risk theses; read each `thesis` for the side (never guess)
+- "market-neutral / something hedged" → `--theme "market-neutral long-short pairs spread hedged relative-value"` → surfaces the long/short + pairs books
 - "gold vs bitcoin" → run broad (or `--assets commodities,btc_eth`) → pick the matching `thesis-*` fund by which side wins
 - "I think there's going to be a war" → *(no asset cut)* run broad → rank up war / tail-risk / oil-gold
   theses (`thesis-war-escalation`, `rhino`)

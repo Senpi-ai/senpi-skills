@@ -346,6 +346,74 @@ def match(intent, records, limit=None):
     return {"candidates": candidates, "build_custom": build_custom, "meta": meta}
 
 
+# ---------------------------------------------------------------- theme search (SOFT surface, no filter)
+# A worldview/market-structure keyword ("k-shape", "risk-off", "market-neutral") rarely appears verbatim
+# in every matching thesis — so a naked substring search misses obvious fits (e.g. Cub self-describes as a
+# "Two-Speed-Market Long/Short" but never says the phrase "k-shape"). The DIVISION OF LABOR:
+#   * the LLM (the analyst, per SKILL.md) supplies the semantic expansion — it natively knows
+#     "k-shape" ≈ "two-speed" ≈ "long/short" ≈ "dispersion" and passes those terms in --theme;
+#   * this engine does DETERMINISTIC weighted keyword-overlap over the real catalog fields on whatever
+#     terms it is handed, floats the matches to the top, and echoes a ranked shortlist.
+# It is SOFT — never drops a candidate; only surfaces + orders. There is NO repo-maintained synonym map
+# here (that would duplicate glossary.yaml and rot); the vocabulary lives with the LLM. This still fixes
+# "the agent eyeballed 78 theses and missed the K-shape strategies" — the agent stops eyeballing because
+# the engine returns a ranked shortlist from the theses' own words.
+# fields scored, with weight — a hit in a tag/tagline is a stronger signal than one buried in the thesis.
+_THEME_FIELDS = (("tags", 3), ("tag_labels", 3), ("tagline", 2), ("name", 2),
+                 ("archetype_label", 2), ("thesis", 1), ("belief_plain", 1))
+
+
+def _norm_text(s):
+    """Lowercase + collapse separators (/ _ - whitespace → single space) so 'long/short', 'long-short'
+    and 'long short' all compare equal."""
+    return re.sub(r"[\s/_-]+", " ", str(s or "").lower()).strip()
+
+
+def _expand_theme(query):
+    """Free-text theme query → normalized term set. Deterministic only: split on whitespace/comma into
+    individual terms, plus the whole phrase (hyphenated). NO synonym lookup — the LLM already expanded
+    the worldview into its structural synonyms before calling (see SKILL.md `--theme`)."""
+    q = str(query or "").lower().strip()
+    keys = [t for t in re.split(r"[,\s]+", q) if t]
+    keys.append(re.sub(r"\s+", "-", q))          # whole phrase, hyphenated: "long short" -> "long-short"
+    return sorted({_norm_text(t) for t in keys if t and _norm_text(t)})
+
+
+def _theme_score(cand, terms):
+    """Weighted count of theme-term hits across a candidate's searchable surface → (score, sorted hits)."""
+    score, hits = 0, set()
+    for field, weight in _THEME_FIELDS:
+        val = cand.get(field)
+        text = _norm_text(" ".join(str(x) for x in val)) if isinstance(val, list) else _norm_text(val)
+        if not text:
+            continue
+        for t in terms:
+            if t and t in text:
+                score += weight
+                hits.add(t)
+    return score, sorted(hits)
+
+
+def apply_theme(result, query):
+    """SOFT theme surface over an already-filtered candidate set: score each on thesis/tag keyword match,
+    STABLE-sort matches to the top (ties keep the prior asset/name order), and echo the ranked shortlist +
+    the expanded terms in meta. NEVER drops a candidate — the engine still returns every survivor."""
+    terms = _expand_theme(query)
+    for cand in result.get("candidates", []):
+        score, hits = _theme_score(cand, terms)
+        cand["theme_score"] = score
+        if hits:
+            cand["theme_hits"] = hits
+    result["candidates"].sort(key=lambda c: -c.get("theme_score", 0))   # stable: ties keep prior order
+    result.setdefault("meta", {})["theme"] = query
+    result["meta"]["theme_expanded"] = terms
+    result["meta"]["theme_matches"] = [
+        {"id": c["id"], "name": c.get("name"), "theme_score": c["theme_score"],
+         "theme_hits": c.get("theme_hits", [])}
+        for c in result["candidates"] if c.get("theme_score", 0) > 0]
+    return result
+
+
 # ---------------------------------------------------------------- data layer (guarded I/O)
 def _fetch_catalog(dest):
     """Fetch the single generated catalog.json from the remote (one request, not per-strategy) and cache
@@ -507,6 +575,10 @@ def main(argv=None):
     ap.add_argument("--direction")
     ap.add_argument("--exclude")
     ap.add_argument("--budget")
+    ap.add_argument("--theme", default=None,
+                    help="SOFT worldview/market-structure search (e.g. 'k-shape', 'risk-off', "
+                         "'market-neutral', 'AI fund'): scores candidates on thesis/tag match + regime "
+                         "synonyms and floats matches to the top. Never filters — surfaces + ranks.")
     ap.add_argument("--limit", type=int, default=None, help="safety cap on returned candidates (default: all)")
     ap.add_argument("--catalog", default=None, help="catalog.json path (default: skill-local → repo → remote fetch)")
     ap.add_argument("--no-market", action="store_true", help="skip the live market enrichment pass")
@@ -532,6 +604,11 @@ def main(argv=None):
 
     intent = normalize_intent(args)
     result = match(intent, records, limit=args.limit)
+
+    # SOFT theme surface — score/rank the survivors on a worldview keyword (no filtering). Applied before
+    # market enrichment so the theme-matched candidates' assets get first claim on the capped live fetch.
+    if args.theme:
+        result = apply_theme(result, args.theme)
 
     # User's available funds — ALWAYS attach (independent of market enrichment / candidate count) so the
     # LLM can size each pick from real balance, not the per-strategy floor. See SKILL.md Layer 3.
