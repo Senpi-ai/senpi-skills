@@ -24,8 +24,8 @@ What was simplified vs the source (FLAGGED):
     qualifying candidates above minScore (held + recently-signaled filtered).
     The signal-GATING thresholds (minScore, held-set, recent-dedup, venue min
     notional) are preserved exactly; only the per-tick emission CAP moves to the
-    runtime. marginUsd is still computed (account_value * marginPct) and carried
-    on data{} so the action sizes identically to the source.
+    runtime. Per-signal sizing is emitted as `marginPct` (a percent of
+    withdrawable); the runtime sizes (marginPct/100)*withdrawable*leverage.
 """
 
 import sys
@@ -246,7 +246,8 @@ def _build_universe(inputs, meta_map, first_seen, now):
 def scan(inputs, ctx):
     now = time.time()
     min_score = inputs.get("minScore", 5)
-    margin_pct = float(inputs.get("marginPct", 0.28))
+    # Per-signal size as a PERCENT of withdrawable, domain (0,100].
+    margin_pct = float(inputs.get("marginPct", 28))
     leg_max_lev = inputs.get("maxLeverage", 10)
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_RECENT_TTL))
     venue_min_notional = float(inputs.get("venueMinNotionalUsd", 10))
@@ -259,7 +260,9 @@ def scan(inputs, ctx):
         return []
 
     min_notional = max(account_value * min_notional_pct, venue_min_notional)
-    margin_usd = round(account_value * margin_pct, 2)
+    # Margin the runtime will allocate per signal (marginPct of withdrawable),
+    # used only to apply the venue-min-notional gate below.
+    margin_usd = round(account_value * (margin_pct / 100), 2)
 
     signaled, first_seen = _load_state_maps(ctx)
     signaled = _prune_signaled(signaled, ttl, now)
@@ -301,7 +304,7 @@ def scan(inputs, ctx):
         out.append({
             "asset": th["coin"],
             "direction": th["direction"],
-            "marginUsd": margin_usd,
+            "marginPct": margin_pct,
             "leverage": leverage,
             "data": {
                 "score": th["score"],

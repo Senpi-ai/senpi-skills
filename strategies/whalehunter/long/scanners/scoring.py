@@ -128,10 +128,11 @@ def cohort_signals(smart_per, crowd_per, growth, direction, config):
 
 
 def margin_pct_for(score, config):
-    """Conviction-scaled marginPct INTENT (not dollars — the runtime sizes). Scales
-    +25% per point above the floor, capped at maxMarginPct."""
-    base = float(config.get("marginPct", 0.12))
-    cap = float(config.get("maxMarginPct", 0.25))
+    """Conviction-scaled marginPct INTENT as a PERCENT of withdrawable in (0,100]
+    (the runtime sizes (marginPct/100)*withdrawable). Scales +25% per point above
+    the floor, capped at maxMarginPct."""
+    base = float(config.get("marginPct", 12))
+    cap = float(config.get("maxMarginPct", 25))
     smax = float(config.get("maxConvictionScale", 2.0))
     floor = int(config.get("cohortMinScore", 4))
     scale = min(smax, 1.0 + 0.25 * max(0, score - floor))

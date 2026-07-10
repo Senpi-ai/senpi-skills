@@ -32,7 +32,7 @@ scanners:
       direction: "LONG"
       wantTrend: "UP"
       minScore: 5
-      marginPct: 0.12
+      marginPct: 12          # percent of withdrawable (runtime sizes (marginPct/100)*withdrawable)
       rsiMax: 75
       recentSignalTtlSeconds: 1800
     signal_data_schema:

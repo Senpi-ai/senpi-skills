@@ -18,7 +18,7 @@ def scan(inputs, ctx):
     direction = (inputs.get("direction", "LONG") or "LONG").upper()
     want = (inputs.get("wantTrend", "UP") or "UP").upper()
     min_score = int(inputs.get("minScore", 5))
-    margin_pct = float(inputs.get("marginPct", 0.12))
+    margin_pct = float(inputs.get("marginPct", 12))   # percent of withdrawable, not a fraction
     ttl = float(inputs.get("recentSignalTtlSeconds", _DEFAULT_TTL))
     now = time.time()
 
