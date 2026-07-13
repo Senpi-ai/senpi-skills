@@ -18,7 +18,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.3.0"
+  version: "2.4.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -71,10 +71,14 @@ and notifications. Naming is best-effort: if the backend rejects a name (conflic
 is still created (unnamed) rather than failing the deploy. It records the `strategyId`, and polls
 `strategy_list` to **ACTIVE** — **bounded** (~150s). If it prints
 **`creating`** (wallets still funding), just **re-run the same `create` command** — it resumes and
-**never re-creates** a wallet. It prints **`wallets-ready`** when done. `create` is **self-healing**: it
-reconciles recorded wallets against the backend (drops any CLOSED/FAILED and recreates) and **sizes each
-wallet to your live balance minus a fee buffer**. So **never hand-edit `.deploy-state.json` and never
-lower `--budget` to dodge a rounding/funding error** — just re-run `create`.
+**never re-creates** a wallet. It prints **`wallets-ready`** when done. **`create` never reuses an existing wallet — every deploy gets a
+FRESH one.** If an existing `<id>` strategy is found: a **runtime-less** one (funded but never got a
+runtime — the reuse trap an agent keeps landing back on) is **closed to recover its funds**, then a new
+wallet is created (prints **`closing-existing`**; re-run `create` once it's closed and funds are back); a
+**live, running** one is left untouched — `create` **refuses** so it can't silently flatten a real book
+(`close.py <id>` first to redeploy). It still sizes each wallet to your live balance minus a fee buffer.
+So **never hand-edit `.deploy-state.json` and never lower `--budget` to dodge a rounding/funding error** —
+just re-run `create`.
 
 **Step 2 — setting up the autonomous trading strategy** (`runtime`, fast): `python3 scripts/deploy.py
 runtime spider` renders each instance's runtime.yaml with its wallet and runs `openclaw senpi runtime create`.
@@ -98,8 +102,10 @@ Do not run `verify` (and never `sleep` then verify) as a default step.
 > makes an **empty** custom-position strategy, not the running scanner. Funding is **automatic**
 > (Hyperliquid perps → HL spot → EVM bridge). If `create` reports insufficient USDC / `available: 0`, the
 > wallet genuinely lacks accessible funds (often locked in other strategies) — have the user fund/free
-> USDC, then **re-run `create`**. Do not switch tools. If `create` **refuses** with "existing strategies
-> not in deploy state", a prior run was interrupted — `close.py <id>` the strays first, then `create`.
+> USDC, then **re-run `create`**. Do not switch tools. If `create` reports **`closing-existing`**, it's
+> closing a runtime-less `<id>` wallet to recover funds so it can deploy fresh — re-run `create` once it's
+> closed. If it **refuses** "already deployed AND running", a live `<id>` strategy exists — `close.py <id>`
+> first to redeploy on a fresh wallet.
 
 **Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
 ```jsonc
@@ -108,7 +114,7 @@ Do not run `verify` (and never `sleep` then verify) as a default step.
   "instances":[ { "instance":"swing","runtime_id":"spider-swing","wallet":"0x…","status":"live" },
                 { "instance":"scalp","runtime_id":"spider-scalp","wallet":"0x…","status":"live" } ] }
 ```
-Overall status across the steps: `create` → `creating` (re-run) | `wallets-ready`; `runtime` →
+Overall status across the steps: `create` → `creating` (re-run) | `closing-existing` (re-run once closed) | `wallets-ready`; `runtime` →
 `registered`; `verify` → `live` (scanner ticked) | `registered` (re-run verify). Per-instance status
 flows `pending → creating → active → registered → live`. **`registered` ≠ ticking.** `create`/`runtime`
 take `--dry-run` (plan only; no side effects).

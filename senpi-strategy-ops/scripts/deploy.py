@@ -181,19 +181,45 @@ def cmd_create(pkg, a, log):
             st["instances"][inst.name] = {"status": "pending"}
     save_state(pkg, st)
 
-    # Safety: refuse if there are skillName==id strategies we never recorded (interrupted run) — do
-    # NOT blindly fund duplicates. The operator must close the strays first.
-    recorded = {inst_state(st, i.name).get("strategyId") for i in pkg.instances}
-    recorded.discard(None)
-    existing = _cli.strategies_for(mcp, skill_name=pkg.id)
-    # only OPEN, unrecorded strategies indicate an interrupted run — closed/failed history is harmless
-    untracked = [s for s in existing if _cli.strategy_open(s) and _cli.strategy_id_of(s) not in recorded]
-    need = [i for i in pkg.instances if not inst_state(st, i.name).get("strategyId")]
-    if untracked and need:
+    # NEVER reuse an existing strategy's wallet. Re-using a funded, runtime-less wallet is the trap an
+    # agent keeps falling into (creates <id>, never deploys the runtime, keeps landing back on the same
+    # dead wallet); creating a second alongside it double-funds. So every `create` deploys on a FRESH
+    # wallet, resolving any existing OPEN <id> strategy first:
+    #   • RUNNING runtime → a live, working deploy: REFUSE to silently flatten it; redeploy is explicit
+    #     (close.py first). Protects a real book from an accidental `create`.
+    #   • no running runtime → the funded-but-stuck trap: CLOSE it (recovers its funds), then this deploy
+    #     creates a fresh wallet. strategy_close is async, so hand off and re-run `create` once it's closed.
+    runtimes = _cli.list_runtimes()
+    existing_open = [s for s in _cli.strategies_for(mcp, skill_name=pkg.id) if _cli.strategy_open(s)]
+
+    def _has_running_runtime(s):
+        rt = _cli.find_runtime_by_wallet(_cli.strategy_wallet(s))
+        return bool(rt) and _cli.runtime_running(rt)
+
+    live = [s for s in existing_open if _has_running_runtime(s)]
+    if live:
         raise SystemExit(
-            f"error: found {len(untracked)} existing {pkg.id} strateg(y/ies) not in this deploy's state "
-            f"(likely an interrupted run). Close them first to avoid duplicate funded wallets:\n"
-            f"  python3 {Path(__file__).with_name('close.py')} {pkg.id}")
+            f"error: {pkg.id} is already deployed AND running ({len(live)} live wallet(s)) — `create` will not "
+            f"silently close a live strategy. To redeploy on a fresh wallet, close it first:\n"
+            f"  python3 {Path(__file__).with_name('close.py')} {pkg.id}\n"
+            f"Or just re-check it:  python3 {Path(__file__).name} verify {pkg.id}")
+
+    if existing_open:  # open but NOT running → the runtime-less trap: close (recover funds) → fresh wallet
+        import close as _close  # noqa: E402 — sibling module, lazy import
+        for s in existing_open:
+            _close.close_one(pkg.id, s, runtimes, False, log)
+        for inst in pkg.instances:  # forget the old ids so the re-run makes NEW wallets, never resumes them
+            prev = inst_state(st, inst.name)
+            st["instances"][inst.name] = ({"status": "pending", "requested": prev["requested"]}
+                                          if prev.get("requested") else {"status": "pending"})
+        save_state(pkg, st)
+        return report(pkg, st, "closing-existing", note=(
+            f"Found {len(existing_open)} existing {pkg.id} strateg(y/ies) with NO running runtime — closing "
+            f"them (recovering funds) so this deploys on a FRESH wallet, never reusing the runtime-less one. "
+            f"strategy_close is async; re-run `python3 {Path(__file__).name} create {pkg.id} --budget "
+            f"{a.budget:g}` once they're CLOSED and the funds are back."), as_json=a.json)
+
+    need = [i for i in pkg.instances if not inst_state(st, i.name).get("strategyId")]
 
     # size the to-create instances against the LIVE available balance (minus a per-wallet fee buffer),
     # so sequential funding + creation fees can't leave a later instance short.
