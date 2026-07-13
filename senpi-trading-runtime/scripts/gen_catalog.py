@@ -204,6 +204,13 @@ def build(updated, branch):
         m = yaml.safe_load(open(man_path)) or {}
         c = m.get("catalog", {}) or {}
         sid = m.get("id", os.path.dirname(man_path))
+        # The catalog is the DEPLOYABLE-package registry. A package flagged non-deployable
+        # (e.g. blocked on a missing runtime capability) is tracked + tested in the repo but
+        # must NOT surface to users as installable — skip it (loudly).
+        if c.get("status") == "blocked" or c.get("deployable") is False:
+            print(f"  · skipping non-deployable package: {sid} "
+                  f"(catalog.status={c.get('status')!r})", file=sys.stderr)
+            continue
         instances = m.get("instances", []) or []
         instance_count = len(instances)
 
