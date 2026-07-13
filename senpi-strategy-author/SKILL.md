@@ -13,7 +13,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "2.5.0"
+  version: "2.6.0"
   platform: senpi
   exchange: hyperliquid
   requires:
@@ -37,6 +37,19 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 > no name). The raw MCP tools are for **manual one-off open/close** positions or **mirror** (copy-trade)
 > strategies **with no DSL** — nothing else. If protection is anywhere in the ask, you're in the right
 > skill; author it.
+
+> **Opening a position for the user is a FORK — ASK, never assume.** When the user asks to *open* a
+> position (or a set) — "go long HYPE", "buy BTC 5x", "short SOFTBANK" — do **not** just place it. Ask which
+> of two different products they want:
+> - **(A) A DSL-protected strategy** — a named, supervised Runtime 3.0 strategy that manages a trailing stop
+>   + profit-lock ladder. → **author it here.** The path for anything the user wants *managed* or persistent.
+> - **(B) A plain position with a standard take-profit / stop-loss** — a one-off via raw `create_position`
+>   (it carries `stopLoss` / `takeProfit`), placed in a **discretionary wallet, NOT a strategy wallet.**
+>
+> **Either way, NEVER open into an existing scanner-managed strategy's wallet.** A hand-placed position in a
+> wallet a deployed strategy runs is reconciled as *foreign* and **DSL-flattened within minutes** — the order
+> "succeeds," the position is gone, and the user eats the round-trip. If the user hasn't said which of
+> (A)/(B) they want, **ask before placing anything** — and never route (B) into a managed wallet to save a step.
 
 ## Start here — offer the fast path before building from scratch
 
