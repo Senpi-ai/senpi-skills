@@ -81,10 +81,16 @@ So **never hand-edit `.deploy-state.json` and never lower `--budget` to dodge a 
 just re-run `create`.
 
 **Step 2 — setting up the autonomous trading strategy** (`runtime`, fast): `python3 scripts/deploy.py
-runtime spider` renders each instance's runtime.yaml with its wallet and runs `openclaw senpi runtime create`.
-**Self-healing**: if a runtime already exists on the right ACTIVE wallet it's skipped; if it's stale
-(different/CLOSED wallet, e.g. orphaned by an earlier close) it's deleted and recreated. Prints
-`registered`. `--decision-model` only for a `decision_mode: llm` action (rule-mode strategies need none).
+runtime spider` renders each instance's runtime.yaml **fresh from its `${WALLET_ENV}` template with the
+wallet Step 1 created** and runs `openclaw senpi runtime create`. **Never reuses an old wallet:** the
+runtime is always (re)built from scratch on the fresh wallet — if a same-name runtime already exists on a
+**different/old** wallet it is **deleted and recreated**, never `runtime update`d in place; only an exact
+same-wallet match is an idempotent skip. **Self-heals a lost deploy state:** if Step 1 succeeded but its
+`.deploy-state.json` was lost (a sub-agent died before persisting), `runtime` **re-resolves the fresh
+wallet from the live ACTIVE `<id>` strategy** instead of dead-ending — so you never hand-register a runtime
+onto an old wallet. It **won't guess**: if the backend is ambiguous (0 or >1 ACTIVE `<id>` wallets) it
+refuses and tells you to redeploy fresh (`close.py` any stale wallet, then `create`). Prints `registered`.
+`--decision-model` only for a `decision_mode: llm` action (rule-mode strategies need none).
 
 **Once Step 2 prints `registered`, deployment is DONE — the strategy is live and trading autonomously.**
 It scans on its own schedule and opens positions when *its* signals fire (spider swing ~300s, scalp ~60s
@@ -105,7 +111,9 @@ Do not run `verify` (and never `sleep` then verify) as a default step.
 > USDC, then **re-run `create`**. Do not switch tools. If `create` reports **`closing-existing`**, it's
 > closing a runtime-less `<id>` wallet to recover funds so it can deploy fresh — re-run `create` once it's
 > closed. If it **refuses** "already deployed AND running", a live `<id>` strategy exists — `close.py <id>`
-> first to redeploy on a fresh wallet.
+> first to redeploy on a fresh wallet. If **`runtime`** says "wallet(s) not ready and not safely
+> recoverable", **never hand-register a runtime onto an old wallet** (no manual `runtime create`/`update`
+> with a wallet from a leftover yaml) — `close.py <id>` any stale wallet, then re-run `create` → `runtime`.
 
 **Report** from the structured output, not raw logs (then always close with the **How it runs** block below):
 ```jsonc
