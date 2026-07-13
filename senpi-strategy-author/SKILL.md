@@ -48,8 +48,7 @@ much risk). Your job is to draw those out, one question at a time, and compile t
 >
 > **Either way, NEVER open into an existing scanner-managed strategy's wallet.** A hand-placed position in a
 > wallet a deployed strategy runs is reconciled as *foreign* and **DSL-flattened within minutes** — the order
-> "succeeds," the position is gone, and the user eats the round-trip (the **M405775** loss: discretionary
-> opens injected into scanner-managed wallets, wrong-way, flattened, ~$376). If the user hasn't said which of
+> "succeeds," the position is gone, and the user eats the round-trip. If the user hasn't said which of
 > (A)/(B) they want, **ask before placing anything** — and never route (B) into a managed wallet to save a step.
 
 ## Start here — offer the fast path before building from scratch
