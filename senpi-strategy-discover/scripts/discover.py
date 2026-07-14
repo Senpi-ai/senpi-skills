@@ -57,6 +57,7 @@ ASSET_SYN = {**{t: t for t in CLASS_TAGS},
              "everything": "universe_crypto", "scan": "universe_crypto", "all": "universe_crypto", "universe": "universe_crypto",
              "stocks": "xyz_equities", "stock": "xyz_equities", "equities": "xyz_equities", "equity": "xyz_equities", "tech": "xyz_equities",
              "oil": "commodities", "gold": "commodities", "silver": "commodities", "metals": "commodities", "commodity": "commodities",
+             "xauusd": "commodities", "xau": "commodities", "xagusd": "commodities",
              "index": "indices", "sp500": "indices", "nasdaq": "indices",
              "pre-ipo": "pre_ipo", "preipo": "pre_ipo", "ipo": "pre_ipo", "spacex": "pre_ipo"}
 DIRECTION_SYN = {"long_only": "long_only", "long-only": "long_only", "longonly": "long_only", "long": "long_only",
@@ -179,6 +180,14 @@ def asset_matches(named, assets):
     return False
 
 
+def _configurable(r):
+    """A user-parameterized single-asset template (e.g. gecko) trades ANY liquid coin the
+    user sets at deploy, so a named-asset intent must NOT filter it out — it's precisely the
+    answer when no fixed-asset template covers the coin. Flagged by a catalog tag."""
+    tags = [str(t).lower() for t in (r.get("tags") or [])]
+    return "configurable" in tags or "any-asset" in tags
+
+
 def infer_class_for_named(named):
     n = named.upper().replace("XYZ:", "")
     if named.upper().startswith("XYZ:"):
@@ -197,7 +206,7 @@ def _hard_reject(r, intent):
         if ud and sd and ud.isdisjoint(sd):
             return True
     named = [v for k, v in intent["assets"] if k == "named"]
-    if named and not any(asset_matches(n, r.get("assets")) for n in named):
+    if named and not _configurable(r) and not any(asset_matches(n, r.get("assets")) for n in named):
         if not intent.get("_broadened_classes"):
             return True
         if not (set(intent["_broadened_classes"]) & set(r.get("asset_classes") or [])):
@@ -240,7 +249,10 @@ def _caveats(r, intent):
     """Fixed-string honesty caveats — concrete only (no soft scoring). Surfaced verbatim by the LLM."""
     cav = []
     user_classes = [v for k, v in intent["assets"] if k == "class"]
+    named = [v for k, v in intent["assets"] if k == "named"]
     acs = set(r.get("asset_classes") or [])
+    if named and _configurable(r) and not any(asset_matches(x, r.get("assets")) for x in named):
+        cav.append(f"Configurable — set it to trade {named[0]} (or any liquid coin) at deploy.")
     if "btc_eth" in user_classes and "btc_eth" not in acs and (acs & CRYPTO_CLASSES):
         cav.append("Trades alts beyond just BTC/ETH.")
     if intent["direction"] == "long_only" and r.get("direction") == "long_short":
