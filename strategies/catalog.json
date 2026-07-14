@@ -1655,6 +1655,50 @@
       "sort_order": 1
     },
     {
+      "id": "armadillo",
+      "name": "Armadillo — Capital Preservation",
+      "emoji": "🛡️",
+      "tagline": "A sleep-at-night strategy that trades only the biggest, most liquid coins, at low leverage (1-2x), with small position sizes and a high bar for entering — so it makes few, careful trades and protects your money first. Tight stops cut losers fast and lock in gains early, and a hard drawdown halt is the backstop. Built to NOT lose money, not to swing for the fences.",
+      "belief_plain": "This is the conservative, capital-preservation option. It sticks to the majors (the deepest, most liquid markets), uses low leverage and small sizes, and only opens a position when a real, strong trend lines up — so most of the time it's patient and does nothing. When it is in a trade, a tight trailing stop protects it: it cuts losers quickly and starts locking in profit early instead of giving gains back. A hard 10% drawdown halt stops everything if things go wrong. It won't shoot the lights out — that's the point.",
+      "version": "1.0.0",
+      "thesis": "Most users who ask for 'low risk' don't want the highest return — they want to not lose money and to sleep at night. Armadillo is built for exactly that: restricting to the most liquid majors removes the thin-coin blow-up risk, low leverage (1-2x) and small margin cap the downside on any single trade, and a demanding score floor means it only acts on the strongest setups (few, high-quality entries, low turnover so fees don't bleed it). The momentum entry is Bison's validated multi-factor scorer, ported verbatim; the conservatism is entirely in the configuration — a high entry bar and low sizing — not in new, unproven math. The DSL owns every exit with a tight floor and an early profit-lock ladder, and the runtime drawdown_halt is the equity backstop.",
+      "tags": [
+        "conservative",
+        "capital-preservation",
+        "low-risk",
+        "low-leverage",
+        "defensive",
+        "majors",
+        "sleep-at-night",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "conviction_holder",
+      "sub_style_label": "High-conviction multi-factor holder; sizes up as more signals agree, then holds the move.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "conservative",
+      "tier": "starter",
+      "leverage_max": 2,
+      "time_horizon": "swing",
+      "cadence_seconds": 900,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 4,
+      "branch": "main",
+      "sort_order": 2
+    },
+    {
       "id": "chimp",
       "name": "Chimp — Regime Allocator (Daily)",
       "emoji": "🐒",
@@ -1701,7 +1745,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 2
+      "sort_order": 3
     },
     {
       "id": "gibbon",
@@ -1749,7 +1793,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 3
+      "sort_order": 4
     },
     {
       "id": "gorilla",
@@ -1798,7 +1842,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 4
+      "sort_order": 5
     },
     {
       "id": "mantis",
@@ -1844,7 +1888,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 5
+      "sort_order": 6
     },
     {
       "id": "octopus",
@@ -1888,7 +1932,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 6
+      "sort_order": 7
     },
     {
       "id": "orangutan",
@@ -1936,7 +1980,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "raven",
@@ -1983,7 +2027,50 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
+    },
+    {
+      "id": "salmon",
+      "name": "Salmon — RSI Mean-Reversion",
+      "emoji": "🐟",
+      "tagline": "Buys the bounce, not the falling knife. It watches the RSI on liquid majors and only steps in when an oversold coin has actually turned back up — a real cross off the lows with the candle confirming — going long the recovery (or short an overbought coin rolling over). It bets price snaps back to its average, sizes moderately because these turns fail fast, and lets a tight trailing stop do all the exiting.",
+      "belief_plain": "Trades the big liquid coins by their RSI. When one gets oversold it waits for it to actually turn back up before buying — not while it's still dropping — and when one gets overbought and starts rolling over it shorts the fade. It's betting the price springs back toward its average, keeps size moderate because these bounces can fail quickly, and never closes by hand: a tight stop protects and exits every trade.",
+      "version": "1.0.0",
+      "thesis": "Stretched moves revert. When a liquid major gets pushed to an oversold extreme and then genuinely turns — RSI crossing back up through the line while the last candle confirms — the snap back toward the mean is the trade; the symmetric overbought roll-over is the short. The discipline is refusing to catch a falling knife: a low RSI alone is not a signal, only the confirmed cross-back is. Because reversions fail fast, leverage stays moderate and the DSL exit is tight — lock early, cut small.",
+      "tags": [
+        "mean-reversion",
+        "rsi",
+        "oversold",
+        "dip-buy",
+        "contrarian",
+        "reversion",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "mean_reversion",
+      "sub_style_label": "Buys oversold / sells overbought, betting price reverts to its mean (works in chop, not just trends).",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 4,
+      "time_horizon": "swing",
+      "cadence_seconds": 600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 5,
+      "branch": "main",
+      "sort_order": 10
     },
     {
       "id": "starling",
@@ -2031,7 +2118,53 @@
       ],
       "max_slots": 6,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 11
+    },
+    {
+      "id": "viper",
+      "name": "Viper — SMC/ICT Structure Trader",
+      "emoji": "🐍",
+      "tagline": "Reads a chart the way a smart-money trader does. It marks the recent peaks and troughs, then waits for price to actually break structure — punch through a prior high (or low) — and only takes the trade when the break is backed by a stop-hunt wick that grabbed liquidity and snapped back, a price gap that shows one-sided pressure, and the bigger-picture 4h trend pointing the same way. A trailing stop does all the exiting; Viper never sells manually.",
+      "belief_plain": "Markets move from one pool of resting stop orders to the next, and the honest tell is structure: a 'Break of Structure' is price closing past the last swing high or low in the trend's direction (it's continuing), and a 'Change of Character' is the first close through the OPPOSITE swing (the trend may be flipping). Viper enters on those breaks — but only the high-quality ones, where a liquidity sweep (a wick that runs the stops just past a prior swing then closes back inside) and a fair-value gap (a 3-candle imbalance where price left a gap it tends to revisit) agree with it, and the 4h structure confirms. It never manually closes — a ratchet stop protects and exits every position, and a hard drawdown halt is the backstop.",
+      "version": "1.0.0",
+      "thesis": "Price is delivered between liquidity pools, and market structure — not an oscillator — is the cleanest read on which pool is next. Viper maps confirmed swing pivots, classifies each close through the most-recent swing as a Break of Structure (continuation) or Change of Character (reversal), and requires SMC/ICT confluence before committing: a liquidity sweep of a prior swing that closes back inside (the stop-hunt / Wyckoff spring), a 3-candle Fair Value Gap in the break direction, and higher-timeframe (4h) structure agreement. Confluence is scored, conviction-banded, and gated to a minimum; sizing scales with conviction and leverage is clamped to the venue max. The edge is entry QUALITY on structure; the DSL owns exits and the runtime drawdown_halt is the equity backstop.",
+      "tags": [
+        "smc",
+        "ict",
+        "wyckoff",
+        "market-structure",
+        "liquidity-sweep",
+        "fvg",
+        "bos",
+        "choch"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "breakout_momentum",
+      "archetype_label": "Breakout / Momentum",
+      "sub_style": "market_structure",
+      "sub_style_label": "Trades SMC/ICT/Wyckoff structure: break-of-structure, liquidity sweeps, fair-value gaps.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 900,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 6,
+      "branch": "main",
+      "sort_order": 12
     },
     {
       "id": "asia-ai",
@@ -3253,6 +3386,51 @@
       "sort_order": 3
     },
     {
+      "id": "gecko",
+      "name": "Gecko — Any-Coin Confluence",
+      "emoji": "🦎",
+      "tagline": "Point it at any liquid coin you name and it trades just that one: it scores trend structure, momentum and funding into a single confluence read on that name, goes long or short when enough signals line up — sizing conviction to the strength of the setup — and trails a stop instead of guessing the exit.",
+      "belief_plain": "You pick the coin; Gecko trades only that coin. It waits until the 1-hour and 4-hour trend, momentum and funding all point the same way, then goes in — harder when more of them agree — and never guesses the exit: a trailing stop does all the closing. One coin, one position, done well.",
+      "version": "1.0.0",
+      "thesis": "Most people don't want a scattergun across the whole market — they want their coin traded properly. Gecko is bison's validated confluence scorer pointed at a single user-named asset: trend structure (1h/4h), momentum, RSI and funding are summed into one conviction score, direction resolves from the timeframe waterfall, and leverage/margin scale to the score. One asset, one high-conviction slot; the DSL owns every exit and the drawdown_halt is the backstop. It fills the long tail of 'make me a strategy for <my coin>' without a bespoke build each time.",
+      "tags": [
+        "configurable",
+        "any-asset",
+        "confluence",
+        "single-asset",
+        "custom",
+        "dsl-only"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "confluence_sniper",
+      "sub_style_label": "Fires only when multiple timeframes/factors line up.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "BTC"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 4
+    },
+    {
       "id": "grizzly",
       "name": "Grizzly — BTC Alpha Hunter",
       "emoji": "🐻",
@@ -3294,7 +3472,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 4
+      "sort_order": 5
     },
     {
       "id": "heron",
@@ -3337,7 +3515,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 5
+      "sort_order": 6
     },
     {
       "id": "hummingbird",
@@ -3380,7 +3558,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 6
+      "sort_order": 7
     },
     {
       "id": "iguana",
@@ -3428,7 +3606,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 7
+      "sort_order": 8
     },
     {
       "id": "koala",
@@ -3473,7 +3651,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 8
+      "sort_order": 9
     },
     {
       "id": "kodiak",
@@ -3516,7 +3694,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 9
+      "sort_order": 10
     },
     {
       "id": "polar",
@@ -3560,7 +3738,51 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 10
+      "sort_order": 11
+    },
+    {
+      "id": "ram",
+      "name": "Ram — Gold Specialist",
+      "emoji": "🐏",
+      "tagline": "A single-asset gold (xyz:GOLD) specialist: goes long when gold's trend lines up across the 1h and 4h and momentum agrees — and leans in harder when the market turns risk-off and money is looking for a safe haven — and can short a clean downtrend. Holds one position at a time and trails a stop instead of guessing the exit.",
+      "belief_plain": "Trades only gold. It buys when gold is trending up and, especially, when the market gets defensive and flows into safe havens; it can short a clear downtrend. It never picks a top or bottom by hand — a trailing stop does all the exiting. Gold trades around the clock, weekends included.",
+      "version": "1.0.0",
+      "thesis": "Gold is the market's safe-haven anchor: it trends on real-rate and risk-regime shifts and gets bid hardest when risk assets wobble. An agent that watches only gold can read its 1h/4h trend structure, momentum and RSI far more tightly than a broad scanner, and add a safe-haven tilt when a risk-off funding regime shows up — catching the defensive bid early and locking profit as the move matures. Concentration by conviction on one asset, with the DSL owning every exit.",
+      "tags": [
+        "gold",
+        "xau",
+        "metals",
+        "safe-haven",
+        "commodity",
+        "single-asset",
+        "dsl-only"
+      ],
+      "group": "single-asset",
+      "archetype": "single_market",
+      "archetype_label": "Single-Market Specialist",
+      "sub_style": "commodity",
+      "sub_style_label": "Trades a commodity (oil/metals).",
+      "asset_classes": [
+        "commodities"
+      ],
+      "asset_scope": "single",
+      "assets": [
+        "xyz:GOLD"
+      ],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 1,
+      "branch": "main",
+      "sort_order": 12
     },
     {
       "id": "stag",
@@ -3608,7 +3830,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 11
+      "sort_order": 13
     },
     {
       "id": "wolverine",
@@ -3653,7 +3875,7 @@
       ],
       "max_slots": 1,
       "branch": "main",
-      "sort_order": 12
+      "sort_order": 14
     },
     {
       "id": "hydra",

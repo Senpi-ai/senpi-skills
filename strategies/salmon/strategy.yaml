@@ -1,0 +1,44 @@
+# Salmon — RSI Mean-Reversion / Dip-Buyer. A single-instance PACKAGE: this manifest
+# + one self-contained runtime.yaml + scanners/. Buys oversold BOUNCES and sells
+# overbought FADES on liquid crypto majors via an RSI(14) CROSS-back detector
+# (dip below 30 -> cross back up rising -> LONG; symmetric around 70 -> SHORT).
+# The RSI/indicator math is ported verbatim from Bison; the edge is the cross-back +
+# reversal confirmation that makes it a mean-reversion play, NOT a falling-knife
+# catcher. NEVER closes — DSL owns every exit (tight, because reversions fail fast).
+schema_version: 1
+
+id: salmon
+version: "1.0.0"
+
+catalog:
+  name: "Salmon — RSI Mean-Reversion"
+  emoji: "🐟"
+  tagline: "Buys the bounce, not the falling knife. It watches the RSI on liquid majors and only steps in when an oversold coin has actually turned back up — a real cross off the lows with the candle confirming — going long the recovery (or short an overbought coin rolling over). It bets price snaps back to its average, sizes moderately because these turns fail fast, and lets a tight trailing stop do all the exiting."
+  belief_plain: "Trades the big liquid coins by their RSI. When one gets oversold it waits for it to actually turn back up before buying — not while it's still dropping — and when one gets overbought and starts rolling over it shorts the fade. It's betting the price springs back toward its average, keeps size moderate because these bounces can fail quickly, and never closes by hand: a tight stop protects and exits every trade."
+  thesis: "Stretched moves revert. When a liquid major gets pushed to an oversold extreme and then genuinely turns — RSI crossing back up through the line while the last candle confirms — the snap back toward the mean is the trade; the symmetric overbought roll-over is the short. The discipline is refusing to catch a falling knife: a low RSI alone is not a signal, only the confirmed cross-back is. Because reversions fail fast, leverage stays moderate and the DSL exit is tight — lock early, cut small."
+  group: multi-asset-universe
+  archetype: contrarian_fade
+  sub_style: mean_reversion
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 4
+  max_slots: 5
+  min_budget: 100
+  assets: []                 # DERIVED live from the main DEX (vol floor + top-N liquid majors)
+  tags: [mean-reversion, rsi, oversold, dip-buy, contrarian, reversion, dsl-only]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name salmon-main, group salmon
+    wallet_env: SALMON_WALLET
+    funding_share: 1.0

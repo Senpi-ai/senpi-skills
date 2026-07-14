@@ -1,0 +1,124 @@
+# ── RAM · single instance — GOLD XYZ specialist (safe-haven + momentum) ──────────
+# The precious-metals analogue of DIRE (BRENTOIL). One asset: xyz:GOLD (Hyperliquid
+# HIP-3 DEX). Bison's validated momentum engine narrowed to a single instrument
+# (4h trend structure -> 1h confirmation -> momentum / RSI / funding), plus a metals
+# SAFE-HAVEN tilt: a small bounded bonus to a LONG when a risk-off regime is detected
+# (gold is bid when the market turns defensive). Holds ONE position; conviction-banded
+# leverage/margin; DSL-only exits. xyz:GOLD trades 24/7 incl. weekends — NO market-hours
+# gate. xyz:GOLD uses ISOLATED margin (the runtime defaults xyz -> ISOLATED; not overridden).
+name: ram-main
+group: ram
+version: 1.0.0
+description: >
+  RAM — single-asset GOLD (xyz:GOLD, HIP-3) specialist. Goes LONG when the 4h trend
+  structure, 1h confirmation and momentum align — and harder still in a risk-off
+  (safe-haven) regime — and can SHORT a clean downtrend. Bison's weighted momentum
+  scorer (trend + momentum + RSI room + funding), narrowed to one instrument, plus a
+  bounded safe-haven tilt to longs. Conviction-banded sizing (base/good/apex ->
+  3x/4x/5x, 10%/15%/20% margin), one slot, leverage clamped to 5x. DSL is the ONLY
+  exit — breakeven-first ladder (12% Phase 1, profit-lock to +60%, 48h weak-peak);
+  time cuts DISABLED (single-asset family; metals move slower than crypto).
+
+strategy:
+  wallet: "${RAM_WALLET}"
+  slots: 1                                # single asset, single position
+  default_leverage: 3                     # fallback; scan emits per-signal 3/4/5 by band
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+  - name: ram_main_signals
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300                  # 5 min — metals move slower than crypto
+    timeout_seconds: 150                   # up to 3 guarded MCP reads/tick (clearinghouse + asset_data + funding_regime)
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 100           # dedup map + per-tick result history
+    inputs:
+      asset: "xyz:GOLD"
+      dex: "xyz"                           # HIP-3 DEX — xyz: prefix mandatory
+      minScore: 5                          # entry floor (composite score)
+      apexScore: 9                         # -> apex band (5x / 20%)
+      goodScore: 7                         # -> good band (4x / 15%)
+      leverageTiers: { apex: 5, good: 4, base: 3 }
+      marginPctTiers: { apex: 20, good: 15, base: 10 }
+      maxLeverage: 5                       # venue-safe cap for a single high-conviction slot
+      maxMarginPct: 25                     # PERCENT of withdrawable — hard sizing ceiling
+      recentSignalTtlSeconds: 3600         # 60m — anti re-fire (mirrors per-asset cooldown half)
+      # ── momentum engine knobs (bison-ported) ──
+      minVolTrendPct: 10                   # volume-trend bonus threshold
+      rsiMaxLong: 72                       # long RSI-overbought penalty
+      rsiMinShort: 28                      # short RSI-oversold penalty
+      # ── safe-haven tilt ──
+      useFundingRegime: true               # read market_get_funding_regime for the risk-off flag
+      safeHavenBonusLong: 2                # bounded bonus added to a LONG in a risk-off regime
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+  - name: ram_main_entry
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter
+    scanners: [ram_main_signals]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # trend entry must fill — taker fallback (xyz spreads narrow)
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: ram_main_signals
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# EXIT — DSL only. Gold is lower-vol than crypto, so the ladder is WIDER: a breakeven-
+# first Phase 2 (T0 locks nothing at +8%, first real lock only at +18%) that ramps
+# smoothly, and a 12% Phase 1 backstop. Time cuts DISABLED (single-asset family:
+# Phase 1 + Phase 2 own all exits via price action); weak_peak_cut KEPT (a stalled
+# metals name frees its single slot after 48h).
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 2880            # 48h — a stalled gold position frees its slot
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 12.0
+      retrace_threshold: 7
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 0 }    # T0 — breakeven arm (locks nothing yet)
+        - { trigger_pct: 18, lock_hw_pct: 40 }   # T1 — first real profit lock
+        - { trigger_pct: 35, lock_hw_pct: 62 }   # T2
+        - { trigger_pct: 60, lock_hw_pct: 80 }   # T3 — parabolic extension
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 3                  # single asset, low churn
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 14400       # 4h — GOLD re-entry throttle
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true

@@ -91,6 +91,8 @@ sub_style:        # archetype-scoped refinement; EXTENSIBLE (add new values with
   # breakout_momentum
   range_break:   { gloss: "Buys/sells the break of a multi-day range." }
   pullback:      { gloss: "Buys the dip within an uptrend." }
+  mean_reversion: { gloss: "Buys oversold / sells overbought, betting price reverts to its mean (works in chop, not just trends)." }
+  market_structure: { gloss: "Trades SMC/ICT/Wyckoff structure: break-of-structure, liquidity sweeps, fair-value gaps." }
   rank_jump:     { gloss: "Catches leaderboard rank-jumps early." }
   momentum_event: { gloss: "Snipes fresh momentum events the instant they fire." }
   liquidation_cascade: { gloss: "Rides liquidation cascades / forced flow." }

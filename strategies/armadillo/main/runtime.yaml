@@ -1,0 +1,136 @@
+# ── ARMADILLO · Capital-Preservation / Low-Vol ───────────────────────────────
+# The "sleep at night" strategy. For users asking for low-risk / conservative /
+# capital-preservation / impervious-to-volatility. Trades ONLY the most liquid
+# majors (main DEX, HIGH volume floor, top-N), at LOW leverage (1-2x), small
+# per-trade margin (4-8%), behind a HIGH conviction bar (few, high-quality
+# entries) and low turnover (12h dedup). Its job is to NOT lose money, not to
+# maximize. The momentum thesis is Bison's validated weighted scorer, ported
+# verbatim; the conservatism is entirely in the CONFIG (high minScore + low
+# sizing caps). NEVER closes — the DSL owns every exit (TIGHT), and the runtime
+# drawdown_halt is the equity backstop.
+name: armadillo-main
+group: armadillo
+version: 1.0.0
+description: >
+  ARMADILLO — Capital Preservation / Low-Vol. The sleep-at-night book: a
+  conservative majors-only momentum strategy (main DEX, high volume floor, top-8
+  most-liquid) that opens few, high-conviction, LOW-leverage positions (1-2x,
+  4-8% margin) only when a 9-factor thesis clears a HIGH score floor (11). Low
+  turnover (12h dedup), tight capital-preservation DSL, and a hard 10% drawdown
+  halt. Up to 4 positions, leverage clamped to 2x AND venue max. DSL is the ONLY
+  exit — tight Phase 1 (6% floor), early profit-lock ladder, 24h weak-peak cut.
+
+strategy:
+  wallet: "${ARMADILLO_WALLET}"
+  slots: 4
+  margin_pct: 6                           # baseline %; scan emits the per-signal LOW marginPct (4-8%)
+  default_leverage: 2                     # fallback; scan emits 1-2x per signal (clamped to venue max)
+  trading_risk: conservative
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: armadillo_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 900                  # slow, low-turnover clock (15m)
+    timeout_seconds: 180                   # up to ~8 asset reads + instruments + clearinghouse
+    default_signal_validity_seconds: 1800  # 2x tick; rule action, a fresh re-score arrives next tick
+    state_history_max_count: 200           # dedup map + per-tick scan-results history
+    inputs:
+      # ── universe (majors only) ──
+      includeXyz: false                    # main DEX only — deepest books
+      universeVolFloorUsd: 50000000        # HIGH floor — only the most liquid names survive
+      maxUniverse: 8                       # top-8 most-liquid = majors
+      maxSlots: 4
+      recentSignalTtlSeconds: 43200        # 12h — low churn
+      # ── conviction gate (HIGH bar) ──
+      minScore: 11                         # only the strongest setups clear
+      apexScore: 13
+      goodScore: 12
+      # ── LOW sizing caps (capital preservation) ──
+      leverageTiers: { apex: 2, good: 2, base: 1 }
+      marginPctTiers: { apex: 8, good: 6, base: 4 }
+      maxLeverage: 2
+      maxMarginPct: 10
+      # ── momentum thesis knobs (bison-ported) ──
+      minVolTrendPct: 10
+      rsiMaxLong: 72
+      rsiMinShort: 28
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: armadillo_open
+    action_type: OPEN_POSITION
+    decision_mode: rule                    # the scan already applied every filter
+    scanners: [armadillo_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true    # low-turnover book — take the fill, then DSL attaches
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: armadillo_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# ── EXIT — DSL only. Capital preservation is TIGHT: a shallow Phase 1 floor,
+# an EARLY profit-lock ladder (first lock at +12% locks 45% of the high-water
+# gain — protect gains fast), and a 24h weak-peak cut that frees a slot from a
+# stalled name. order_type FEE_OPTIMIZED_LIMIT, taker fallback on (closes MUST
+# happen). interval_seconds 30 (responsive protection).
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true        # closes MUST happen — taker fallback safety floor
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 1440            # 24h — a stalled name frees its slot
+      min_value: 2.0
+    phase1:
+      enabled: true
+      max_loss_pct: 6.0                    # TIGHT floor — protect capital first
+      retrace_threshold: 5
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:                               # lock profit EARLY
+        - { trigger_pct: 6,  lock_hw_pct: 0 }
+        - { trigger_pct: 12, lock_hw_pct: 45 }
+        - { trigger_pct: 20, lock_hw_pct: 65 }
+        - { trigger_pct: 35, lock_hw_pct: 80 }
+
+# ── RISK guard rails — conservative, tight ──
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 5
+    max_entries_per_day: 3
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 3
+    cooldown_seconds: 1800                 # post-loss cooldown 30m
+    per_asset_cooldown_seconds: 43200      # 12h — do not re-enter the same name quickly
+    drawdown_halt_pct: 10                  # hard equity backstop
+    drawdown_reset_on_day_rollover: true
+
+notifications:
+  dsl_lifecycle: true
+  dsl_notify_sl_updates: false
+  action_lifecycle: true
