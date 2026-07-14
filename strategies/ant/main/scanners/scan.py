@@ -72,27 +72,23 @@ def _oi_of(md):
     return oi * mark if (mark and oi < 1e7) else oi   # coin-units × price → USD; else already USD-ish
 
 
-def _funding_series(ctx, name):
-    """(current_rate_hourly, [recent rates]) from market_get_funding_history.
-    Tolerates the double-nested data.data shape and several rate spellings."""
-    d = _read(ctx, "market_get_funding_history", {"asset": name, "dex": _dex_of(name)},
-              f"market_get_funding_history({name})")
-    rows = d.get("data") if isinstance(d, dict) and isinstance(d.get("data"), list) else d
+def _funding(ctx, name):
+    """This asset's funding row from market_get_funding_history — the call + parse are
+    ported from pangolin (a LIVE strategy): args are `{"asset": <bare>}` ONLY (the tool
+    has no `dex` param), and the payload is double-nested `data.data = [{asset,
+    annualized_pct, funding_direction, persistence_hours, trend}, ...]`. Returns that
+    row dict for this asset, or None. (`_read` already unwraps the outer `data`.)"""
+    bare = str(name).split(":", 1)[-1]
+    d = _read(ctx, "market_get_funding_history", {"asset": bare},
+              f"market_get_funding_history({bare})")
+    rows = d.get("data") if isinstance(d, dict) else d
     if not isinstance(rows, list) or not rows:
-        return None, []
-    rates = []
-    for e in rows:
-        if isinstance(e, dict):
-            r = scoring._num(e.get("fundingRate") or e.get("funding_rate")
-                             or e.get("rate") or e.get("premium"))
-            if r is not None:
-                rates.append(r)
-        else:
-            r = scoring._num(e)
-            if r is not None:
-                rates.append(r)
-    cur = rates[-1] if rates else None
-    return cur, rates[-24:]                           # last ~24h for persistence
+        return None
+    up = bare.upper()
+    for row in rows:
+        if isinstance(row, dict) and str(row.get("asset", "")).split(":", 1)[-1].upper() == up:
+            return row
+    return rows[0] if isinstance(rows[0], dict) else None   # asset-filtered call → single row
 
 
 def _held(ctx):
@@ -157,9 +153,9 @@ def scan(inputs, ctx):
                 bare = str(name).split(":", 1)[-1].upper()
                 if bare in held or (recent.get(bare) and (now - scoring._f(recent[bare])) < ttl):
                     continue
-                cur, rates = _funding_series(ctx, name)
+                funding = _funding(ctx, name)
                 candles = md.get("candles", {}) or {}
-                th = scoring.build_signal(name, cur, rates, oi,
+                th = scoring.build_signal(name, funding, oi,
                                           candles.get("1h", []), candles.get("4h", []), inputs)
                 if th:
                     cands.append((th, venue_max))

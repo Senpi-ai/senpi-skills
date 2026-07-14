@@ -18,17 +18,17 @@ still-accelerating name is a steamroller; ant skips it.
 
 Pure halves:
   1. INDICATORS — trend_structure / calc_rsi / price_momentum (ported from bison).
-  2. FUNDING + EXHAUSTION — funding_apr, exhaustion_ok/exhaustion_score, and
-     build_signal (short-only, funding-APR gate ∧ persistence ∧ not-still-ripping).
+  2. FUNDING + EXHAUSTION — funding_signal, exhaustion_score, and build_signal
+     (short-only, funding gate ∧ persistence ∧ not-still-ripping).
 
-NOTE: funding + OI payload shapes were NOT live-verified (auth token invalid when
-written). funding_rate is treated as the per-HOUR fraction Hyperliquid returns
-(HL funds hourly, not 8h); funding_apr = rate × 24 × 365. Verify the rate's unit
-and sign against a real market_get_funding_history / asset_context before funding.
+FUNDING SOURCE: the funding fields (annualized_pct, funding_direction,
+persistence_hours, trend) come straight from `market_get_funding_history` — the
+call + parse are ported from pangolin (a live strategy), so ant uses the tool's
+NATIVE annualized % and its LONG/SHORT collecting-side flag rather than recomputing
+an APR from a raw rate (avoids the hourly-vs-8h ambiguity entirely). OI shape from
+asset_context is still best-effort tolerant.
 """
 # Copyright 2026 Senpi (https://senpi.ai) — Apache-2.0
-
-HOURS_PER_YEAR = 24 * 365
 
 
 def _f(v, d=0.0):
@@ -109,23 +109,39 @@ def calc_rsi(closes, period=14):
     return 100.0 - (100.0 / (1.0 + avg_g / avg_l))
 
 
-# ── funding ──
+# ── funding (fields straight from market_get_funding_history — pangolin's proven
+# parse: each row carries annualized_pct, funding_direction, persistence_hours, trend) ──
 
-def funding_apr(rate_hourly):
-    """Annualized funding % from HL's per-HOUR funding fraction (positive ⇒ longs
-    pay shorts ⇒ a short RECEIVES it). rate 0.0000342/hr ≈ 30% APR."""
-    r = _num(rate_hourly)
-    return None if r is None else r * HOURS_PER_YEAR * 100.0
-
-
-def funding_persistent(recent_rates, min_hours):
-    """True iff funding has been positive for at least `min_hours` of the recent
-    window (filters a one-hour spike). `recent_rates` newest-last or -first, sign
-    is all that matters. Empty/short → False (need evidence of persistence)."""
-    vals = [r for r in (_num(x) for x in (recent_rates or [])) if r is not None]
-    if len(vals) < int(min_hours):
-        return False
-    return sum(1 for r in vals if r > 0) >= int(min_hours)
+def funding_signal(funding, inputs):
+    """Is this funding row a harvestable SHORT, and how rich? `funding` is one
+    market_get_funding_history row (see scan._funding). Uses the tool's NATIVE fields —
+    no rate→APR recompute, no hourly-vs-8h ambiguity:
+      • funding_direction == "SHORT"  (the SHORT side COLLECTS ⇒ longs pay us to short)
+      • annualized_pct >= targetApr
+      • persistence_hours >= minPersistHours   (not a one-hour spike)
+      • trend != "DECAYING"                     (funding isn't already drying up)
+    Returns (apr, persistence_hours, reasons) or None."""
+    if not isinstance(funding, dict):
+        return None
+    direction = str(funding.get("funding_direction") or "").upper()
+    apr = _num(funding.get("annualized_pct"))
+    if apr is None:
+        return None
+    apr = abs(apr)                                 # magnitude is the yield; direction gates the side
+    persist = _f(funding.get("persistence_hours"), 0.0)
+    trend = str(funding.get("trend") or "").upper()
+    if direction != "SHORT":                       # ant harvests by SHORTING the funding-payer
+        return None
+    if apr < _f(inputs.get("targetApr"), 30.0):
+        return None
+    if persist < _f(inputs.get("minPersistHours"), 6):
+        return None
+    if trend == "DECAYING":
+        return None
+    reasons = [f"funding_apr_{apr:.0f}%", f"persist_{persist:.0f}h"]
+    if trend:
+        reasons.append(f"funding_{trend.lower()}")
+    return apr, persist, reasons
 
 
 # ── exhaustion gate (never short a crowd that is still ripping) ──
@@ -160,22 +176,16 @@ def exhaustion_score(candles_1h, candles_4h):
 
 # ── the signal (short-only funding harvest) ──
 
-def build_signal(coin, rate_hourly, recent_rates, oi_usd, candles_1h, candles_4h, inputs):
-    """Return a SHORT signal thesis dict or None. None ⟺ insufficient candles,
-    funding not positive / below the APR target, not persistent, or the crowd is
-    still ripping (exhaustion gate). Score blends funding APR + exhaustion + size."""
+def build_signal(coin, funding, oi_usd, candles_1h, candles_4h, inputs):
+    """Return a SHORT signal thesis dict or None. None ⟺ insufficient candles, the
+    funding isn't a harvestable SHORT (direction / APR / persistence / decay), or the
+    crowd is still ripping (exhaustion gate). Score blends funding APR + exhaustion + OI."""
     if len(candles_1h) < 8 or len(candles_4h) < 4:
         return None
-    apr = funding_apr(rate_hourly)
-    if apr is None or apr <= 0:
+    fs = funding_signal(funding, inputs)
+    if not fs:
         return None
-
-    target = _f(inputs.get("targetApr"), 30.0)
-    min_persist = int(_f(inputs.get("minPersistHours"), 6))
-    if apr < target:
-        return None
-    if not funding_persistent(recent_rates, min_persist):
-        return None
+    apr, _persist, freasons = fs
 
     ex, ex_reasons, still_ripping = exhaustion_score(candles_1h, candles_4h)
     if still_ripping:
@@ -184,10 +194,11 @@ def build_signal(coin, rate_hourly, recent_rates, oi_usd, candles_1h, candles_4h
         return None                               # not exhausted enough to fade
 
     # score: APR headroom over target (capped) + exhaustion + OI liquidity bonus
+    target = _f(inputs.get("targetApr"), 30.0)
     apr_pts = min(5.0, (apr - target) / max(1.0, target) * 3.0)
     oi_pts = 1.0 if _f(oi_usd) >= _f(inputs.get("oiBonusUsd"), 50_000_000) else 0.0
     score = round(apr_pts + ex + oi_pts, 2)
-    reasons = [f"funding_apr_{apr:.0f}%", f"oi_${_f(oi_usd) / 1e6:.0f}M"] + ex_reasons
+    reasons = freasons + [f"oi_${_f(oi_usd) / 1e6:.0f}M"] + ex_reasons
     return {"coin": coin, "direction": "SHORT", "score": score, "apr": round(apr, 1),
             "exhaustion": ex, "oi_usd": _f(oi_usd), "reasons": reasons}
 

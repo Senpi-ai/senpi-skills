@@ -46,9 +46,14 @@ funding dropped. Ant approximates the intent:
 
 This is a daily rotation, not an instant funding-threshold close.
 
-## Precision on the numbers
-Hyperliquid funds **hourly**, not on an 8h cycle. `funding_apr = rate_hourly × 24 ×
-365`. `targetApr: 30` means ~0.00342%/hr. Set thresholds in HL's hourly terms.
+## Funding source + the numbers
+Ant reads funding from **`market_get_funding_history`** using the exact call + parse
+a live strategy (pangolin) uses: args are `{"asset": <bare>}` only (the tool has no
+`dex` param), and each row carries `annualized_pct`, `funding_direction` (which side
+COLLECTS — SHORT when longs pay), `persistence_hours`, and `trend`. Ant gates on
+`funding_direction == "SHORT"` + `annualized_pct >= targetApr` + `persistence_hours`
++ `trend != "DECAYING"`, and uses `annualized_pct` **directly** — no rate→APR
+recompute, so the hourly-vs-8h question never arises. `targetApr: 30` = 30% annualized.
 
 ## What would make it the *real* (delta-neutral) strategy
 Same primitives crane needs, plus spot:
