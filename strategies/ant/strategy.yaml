@@ -1,0 +1,42 @@
+# Ant — Funding Harvester. The best Senpi-achievable cash-and-carry: perps-only,
+# so it harvests funding by SHORTING high-positive-funding perps behind an exhaustion
+# gate (never fades fresh strength). DIRECTIONAL, not delta-neutral — Senpi has no
+# spot leg to hedge with. See ant/NOTES.md for the full limitation writeup + the
+# path to a true delta-neutral version.
+schema_version: 1
+
+id: ant
+version: "1.0.0"
+
+catalog:
+  name: "Ant — Funding Harvester"
+  emoji: "🐜"
+  tagline: "Finds the most heavily-traded perps where longs are paying shorts a rich funding rate, and — only when that crowd of longs looks tired (overbought and rolling over, not still charging) — shorts them to collect the funding, hour after hour. Low leverage, a tight stop in case of a squeeze, and it rotates daily, dropping names once the funding dries up."
+  belief_plain: "When too many traders pile long into a perp, the funding rate turns positive — longs literally pay shorts every hour to hold. Ant gets on the receiving side of that payment by shorting those names, but it's careful: it only shorts when the long crowd is already exhausted, so it's fading a tired move rather than standing in front of a freight train. It keeps size and leverage modest because the money is in the funding, not in calling the direction, and a tight trailing stop caps the damage if a name squeezes."
+  thesis: "Perpetual funding is a harvestable yield: sustained positive funding pays shorts. True cash-and-carry hedges the short with long spot for delta-neutral carry, but Senpi is perps-only (no HyperEVM spot execution), so ant runs the DIRECTIONAL half — short the funding-payer — and manages the price risk with an exhaustion entry gate (RSI/structure), low leverage, a tight DSL squeeze-stop, and a 24h rotation. It ranks the top-OI names, requires annualized funding >= targetApr with multi-hour persistence, and never shorts a name still in a fresh uptrend. Not delta-neutral — the missing spot leg is the residual risk (NOTES.md)."
+  group: multi-asset-universe
+  archetype: contrarian_fade
+  sub_style: funding_extreme
+  asset_classes: [btc_eth, major_alts]
+  asset_scope: universe
+  direction: short_only
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 4
+  max_slots: 5
+  min_budget: 100
+  assets: []                 # DERIVED live: top-N perps by open interest
+  tags: [funding, carry, harvest, cash-and-carry, basis, short, contrarian, exhaustion, perps-only, dsl-only, no-close]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name ant-main, group ant
+    wallet_env: ANT_WALLET
+    funding_share: 1.0

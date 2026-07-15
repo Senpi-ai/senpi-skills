@@ -1,0 +1,42 @@
+# Raven — Self-Calibrating Momentum. Single-wallet PACKAGE: this manifest + one
+# self-contained runtime.yaml + scanners/ (momentum engine ported from Bison;
+# scoring.py adds the self-calibration that reads Raven's OWN realized track
+# record and ratchets entry selectivity + sizing within bounded rails). NEVER
+# closes — DSL owns every exit.
+schema_version: 1
+
+id: raven
+version: "1.0.0"
+
+catalog:
+  name: "Raven — Self-Calibrating Momentum"
+  emoji: "🐦‍⬛"
+  tagline: "Runs a momentum book across the most liquid names and gets smarter about ITSELF: twice a day it reads its own closed trades, and if it's been losing it becomes more selective and trades smaller, while if it's been winning it loosens up and presses. You don't tune it — it tunes itself, inside guardrails, and a trailing stop does all the exiting."
+  belief_plain: "A momentum strategy's edge drifts with the regime — what worked last week can bleed this week. Raven opens positions on the same proven momentum signal every time, but it watches its OWN results: after a cold streak it raises the bar for what it'll trade and cuts its size; after a hot streak it leans back in. It never manually closes — a ratchet stop protects and exits every position — and a hard drawdown halt is the backstop if the self-tuning isn't enough."
+  thesis: "Momentum entry quality is regime-dependent, and a fixed score threshold is right only some of the time. Raven treats its realized track record (win-rate, profit-factor, losing streak over the last N closed trades) as a live control signal: it ratchets the entry floor up/down and scales conviction sizing between bounded rails on a slow clock. The momentum thesis itself is Bison's validated weighted scorer, ported verbatim; the novelty is the closed-loop self-calibration on top. DSL owns exits; the runtime drawdown_halt is the equity backstop."
+  group: multi-asset-universe
+  archetype: trend_following
+  sub_style: adaptive
+  asset_classes: [btc_eth, major_alts, xyz_equities, commodities]
+  asset_scope: universe
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 6
+  min_budget: 100
+  assets: []                 # DERIVED live from both dexes (vol floor + top-N)
+  tags: [momentum, adaptive, self-tuning, self-calibrating, feedback, universe, long-short, dsl-only, no-close]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name raven-main, group raven
+    wallet_env: RAVEN_WALLET
+    funding_share: 1.0

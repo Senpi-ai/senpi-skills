@@ -1,0 +1,42 @@
+# Crane — Managed Pairs / Stat-Arb (market-neutral). ⚠️ NOT DEPLOYABLE AS-IS:
+# blocked on a runtime capability (coordinated multi-leg close). Ships as a tested
+# engine + reference wiring, disarmed. See crane/DESIGN.md for the exact gap and
+# how to wire it when the capability lands.
+schema_version: 1
+
+id: crane
+version: "1.0.0"
+
+catalog:
+  name: "Crane — Managed Pairs / Stat-Arb"
+  emoji: "🕊️"
+  tagline: "Market-neutral: it finds a correlated pair that has stretched apart, shorts the expensive one and buys the cheap one in equal size, and profits when they converge — with little exposure to whether the whole market goes up or down. It manages the two sides as a single trade: they go on together and come off together, and if one side ever gets closed on its own it flattens the other immediately."
+  belief_plain: "Two closely-related names (e.g. two AI-chip stocks) usually move together; when they temporarily diverge, that gap tends to close. Crane sells the one that ran ahead and buys the one that lagged, sized so the market direction roughly cancels out, and takes profit as they reconverge. It's built to be balanced at all times — never left holding just one leg."
+  thesis: "Cross-sectional mean-reversion on the log-spread of correlated pairs, z-scored over a rolling window: enter on dislocation (|z|≥entryZ), exit on reversion (|z|≤exitZ) or a blowout stop (|z|≥stopZ), equal notional per leg. The defining requirement is coordinated two-leg exit — a half-closed pair is a naked directional bet — which the current runtime cannot express (open-only scan signals, no scanner-driven close). Crane is therefore a validated engine awaiting a joint-position / coordinated-close primitive."
+  group: multi-asset-universe
+  archetype: structural_neutral
+  sub_style: pairs_rv
+  asset_classes: [btc_eth, major_alts, xyz_equities]
+  asset_scope: basket
+  direction: long_short
+  risk_level: moderate
+  tier: advanced
+  time_horizon: swing
+  leverage_max: 5
+  max_slots: 8
+  min_budget: 200
+  assets: []                 # configured correlated pairs (identity baskets)
+  status: blocked            # ⚠️ not deployable — see crane/DESIGN.md
+  tags: [pairs, stat-arb, market-neutral, mean-reversion, spread, z-score, hedged, blocked, not-deployable]
+
+requires:
+  runtime: ">=3.0.0"
+
+defaults:
+  auth_token_env: SENPI_AUTH_TOKEN
+
+instances:
+  - name: main
+    runtime: main/runtime.yaml         # → runtime name crane-main, group crane
+    wallet_env: CRANE_WALLET
+    funding_share: 1.0

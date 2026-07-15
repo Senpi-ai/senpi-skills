@@ -1,6 +1,6 @@
 {
   "_version": "2.1",
-  "_updated": "2026-06-17",
+  "_updated": "2026-07-13",
   "_generated": true,
   "_instructions": "GENERATED from each strategy package's strategy.yaml — do not hand-edit; run senpi-trading-runtime/scripts/gen_catalog.py. Agents read this via senpi-strategy-discover (scripts/discover.py). DECLARED fields (archetype, sub_style, asset_classes, asset_scope, risk_level, tier, belief_plain, direction) are author-set in strategy.yaml `catalog:`; DERIVED fields (assets, leverage_max, funding_split, instance_count, cadence_seconds, time_horizon, max_slots) are computed from instances/params. Labels/glosses come from senpi-strategy-discover/references/glossary.yaml. 'min_budget' is the effective floor (max(declared, 100 x instance_count)); positions scale with budget — NOT a hard gate. A strategy is a deployable package; install via senpi-strategy-ops.",
   "skills": [
@@ -1608,6 +1608,53 @@
       "sort_order": 1
     },
     {
+      "id": "ant",
+      "name": "Ant — Funding Harvester",
+      "emoji": "🐜",
+      "tagline": "Finds the most heavily-traded perps where longs are paying shorts a rich funding rate, and — only when that crowd of longs looks tired (overbought and rolling over, not still charging) — shorts them to collect the funding, hour after hour. Low leverage, a tight stop in case of a squeeze, and it rotates daily, dropping names once the funding dries up.",
+      "belief_plain": "When too many traders pile long into a perp, the funding rate turns positive — longs literally pay shorts every hour to hold. Ant gets on the receiving side of that payment by shorting those names, but it's careful: it only shorts when the long crowd is already exhausted, so it's fading a tired move rather than standing in front of a freight train. It keeps size and leverage modest because the money is in the funding, not in calling the direction, and a tight trailing stop caps the damage if a name squeezes.",
+      "version": "1.0.0",
+      "thesis": "Perpetual funding is a harvestable yield: sustained positive funding pays shorts. True cash-and-carry hedges the short with long spot for delta-neutral carry, but Senpi is perps-only (no HyperEVM spot execution), so ant runs the DIRECTIONAL half — short the funding-payer — and manages the price risk with an exhaustion entry gate (RSI/structure), low leverage, a tight DSL squeeze-stop, and a 24h rotation. It ranks the top-OI names, requires annualized funding >= targetApr with multi-hour persistence, and never shorts a name still in a fresh uptrend. Not delta-neutral — the missing spot leg is the residual risk (NOTES.md).",
+      "tags": [
+        "funding",
+        "carry",
+        "harvest",
+        "cash-and-carry",
+        "basis",
+        "short",
+        "contrarian",
+        "exhaustion",
+        "perps-only",
+        "dsl-only",
+        "no-close"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "contrarian_fade",
+      "archetype_label": "Contrarian / Fade",
+      "sub_style": "funding_extreme",
+      "sub_style_label": "Fades extreme funding rates.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "short_only",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 4,
+      "time_horizon": "swing",
+      "cadence_seconds": 300,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 5,
+      "branch": "main",
+      "sort_order": 1
+    },
+    {
       "id": "chimp",
       "name": "Chimp — Regime Allocator (Daily)",
       "emoji": "🐒",
@@ -1654,7 +1701,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 1
+      "sort_order": 2
     },
     {
       "id": "gibbon",
@@ -1702,7 +1749,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 2
+      "sort_order": 3
     },
     {
       "id": "gorilla",
@@ -1751,7 +1798,7 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 3
+      "sort_order": 4
     },
     {
       "id": "mantis",
@@ -1797,7 +1844,7 @@
       ],
       "max_slots": 2,
       "branch": "main",
-      "sort_order": 4
+      "sort_order": 5
     },
     {
       "id": "octopus",
@@ -1841,7 +1888,7 @@
       ],
       "max_slots": 8,
       "branch": "main",
-      "sort_order": 5
+      "sort_order": 6
     },
     {
       "id": "orangutan",
@@ -1889,7 +1936,102 @@
       ],
       "max_slots": 7,
       "branch": "main",
-      "sort_order": 6
+      "sort_order": 7
+    },
+    {
+      "id": "raven",
+      "name": "Raven — Self-Calibrating Momentum",
+      "emoji": "🐦‍⬛",
+      "tagline": "Runs a momentum book across the most liquid names and gets smarter about ITSELF: twice a day it reads its own closed trades, and if it's been losing it becomes more selective and trades smaller, while if it's been winning it loosens up and presses. You don't tune it — it tunes itself, inside guardrails, and a trailing stop does all the exiting.",
+      "belief_plain": "A momentum strategy's edge drifts with the regime — what worked last week can bleed this week. Raven opens positions on the same proven momentum signal every time, but it watches its OWN results: after a cold streak it raises the bar for what it'll trade and cuts its size; after a hot streak it leans back in. It never manually closes — a ratchet stop protects and exits every position — and a hard drawdown halt is the backstop if the self-tuning isn't enough.",
+      "version": "1.0.0",
+      "thesis": "Momentum entry quality is regime-dependent, and a fixed score threshold is right only some of the time. Raven treats its realized track record (win-rate, profit-factor, losing streak over the last N closed trades) as a live control signal: it ratchets the entry floor up/down and scales conviction sizing between bounded rails on a slow clock. The momentum thesis itself is Bison's validated weighted scorer, ported verbatim; the novelty is the closed-loop self-calibration on top. DSL owns exits; the runtime drawdown_halt is the equity backstop.",
+      "tags": [
+        "momentum",
+        "adaptive",
+        "self-tuning",
+        "self-calibrating",
+        "feedback",
+        "universe",
+        "long-short",
+        "dsl-only",
+        "no-close"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "trend_following",
+      "archetype_label": "Trend-Follower",
+      "sub_style": "adaptive",
+      "sub_style_label": "Self-tunes its thresholds from its own track record.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "universe",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 1800,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 6,
+      "branch": "main",
+      "sort_order": 8
+    },
+    {
+      "id": "starling",
+      "name": "Starling — Smart-Money Rotation Follower",
+      "emoji": "🐦",
+      "tagline": "Watches a flock of the most profitable wallets on Hyperliquid and moves when they do — the instant several of them start piling into the SAME trade in the SAME direction at the SAME time, it buys (or shorts) alongside them, betting more the more of them agree. It only acts on a rotation that's just forming, not a crowd that's been standing in a name for hours, and it never sells manually — a trailing stop does all the exiting, so last week's follows wind down on their own as the flock rotates into the next name.",
+      "belief_plain": "The proven winners on Hyperliquid tend to rotate into the same trades at the same time, and the freshest edge is the moment that agreement is FORMING — not once everyone can already see it. Starling keeps a live shortlist of the wallets with the best all-time track record, watches what they're opening, and when enough of them freshly line up on one name in one direction it opens with them, sizing up when the agreement is strongest. It never manually closes — a ratchet stop protects and exits every position, so the book rotates as the smart money does, and a hard drawdown halt is the backstop.",
+      "version": "1.0.0",
+      "thesis": "Cohort copiers average a pool's standing net bias (already priced); Starling instead trades the DERIVATIVE of that bias — the snapshot-to-snapshot change. Each tick it counts, per name and direction, how many proven wallets hold it, and fires only when that count has just crossed the consensus bar or is still rising (newly-formed / growing), never on a stale standing consensus. Conviction sizing scales with the agreement count. It force-closes nothing — turnover is set by the market via DSL (rotate-by-attrition), the same never-close discipline as the gibbon/orangutan rotation riders.",
+      "tags": [
+        "smart-money",
+        "copy-trading",
+        "consensus",
+        "rotation",
+        "cohort",
+        "follows-traders",
+        "long-short",
+        "universe",
+        "no-close",
+        "dsl-only"
+      ],
+      "group": "multi-asset-universe",
+      "archetype": "copy_trading",
+      "archetype_label": "Copy-Trader",
+      "sub_style": "sm_rotation",
+      "sub_style_label": "Follows where smart money is rotating across asset classes — long the crowded-into, short the fled.",
+      "asset_classes": [
+        "btc_eth",
+        "major_alts",
+        "xyz_equities",
+        "commodities"
+      ],
+      "asset_scope": "follows_traders",
+      "assets": [],
+      "direction": "long_short",
+      "risk_level": "moderate",
+      "tier": "advanced",
+      "leverage_max": 5,
+      "time_horizon": "swing",
+      "cadence_seconds": 600,
+      "min_budget": 100,
+      "instance_count": 1,
+      "funding_split": [
+        1.0
+      ],
+      "max_slots": 6,
+      "branch": "main",
+      "sort_order": 9
     },
     {
       "id": "asia-ai",
@@ -2621,7 +2763,7 @@
       "emoji": "🕷️",
       "tagline": "An AI/Tech momentum long book plus a macro/majors mean-reversion book — two legs, two wallets, one package.",
       "belief_plain": "AI/tech equities and crypto majors trend over days, while majors and energy snap back from short-term extremes — run both books side by side.",
-      "version": "6.0.0",
+      "version": "6.0.1",
       "thesis": null,
       "tags": [
         "ai",

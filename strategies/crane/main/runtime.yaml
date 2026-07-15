@@ -1,0 +1,125 @@
+# ── CRANE · Managed Pairs / Stat-Arb ────────────────────────────────────────
+# ⚠️ NOT DEPLOYABLE AS-IS — BLOCKED on a runtime capability (coordinated multi-leg
+# close). See crane/DESIGN.md. The scanner is DISARMED (inputs.armed: false) so it
+# cannot open a pair it cannot manage. This runtime.yaml is the REFERENCE wiring;
+# the CLOSE_POSITION action a managed pair needs is stubbed in comments below,
+# pending a scanner close-signal contract.
+#
+# Market-neutral: tracks the log spread ln(A/B) of each configured pair, z-scores
+# it, shorts the rich leg / longs the cheap leg on dislocation, and manages both
+# legs as one position (open together, close together, never a naked single leg).
+name: crane-main
+group: crane
+version: 1.0.0
+description: >
+  CRANE — Managed Pairs / Stat-Arb (market-neutral). Trades the log-spread z-score
+  of correlated pairs: short the rich leg, long the cheap leg, close both on
+  reversion or a blowout stop, and flatten a survivor instantly if one leg dies.
+  BLOCKED pending coordinated multi-leg close — ships disarmed with a tested engine.
+
+strategy:
+  wallet: "${CRANE_WALLET}"
+  slots: 8                            # 4 pairs × 2 legs
+  margin_pct: 8
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: crane_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 300             # 5m — spread z-score is not high-frequency
+    timeout_seconds: 120
+    default_signal_validity_seconds: 900
+    state_history_max_count: 300      # holds the rolling spread series per pair
+    inputs:
+      armed: false                    # ⚠️ keep false until coordinated close exists
+      pairs:                          # identity-basket correlated pairs (same-dex)
+        - ["BTC", "ETH"]
+        - ["SOL", "AVAX"]
+        - ["xyz:NVDA", "xyz:AMD"]
+        - ["xyz:MSFT", "xyz:GOOGL"]
+      zWindow: 60
+      entryZ: 2.0
+      exitZ: 0.5
+      stopZ: 3.5
+      legMarginPct: 8
+      maxLegMarginPct: 12
+      legLeverage: 3
+      maxLeverage: 5
+    signal_data_schema:
+      pair: { type: string }
+      z: { type: number, required: false }
+      direction: { type: string }
+      leverage: { type: number }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: crane_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [crane_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: crane_scanner
+
+  # ── REQUIRED to make crane safe, pending runtime support (see DESIGN.md) ──
+  # A managed pair must close both legs together. This needs a scanner close-signal
+  # contract that CLOSE_POSITION consumes. Uncomment + wire when it exists:
+  # - name: crane_close
+  #   action_type: CLOSE_POSITION
+  #   decision_mode: rule
+  #   scanners: [crane_scanner]        # same scanner → shared pair/spread state
+  #   context:
+  #     - type: signal
+  #       scanner: crane_scanner
+
+# EXIT — DSL is only a per-leg BACKSTOP here (it cannot coordinate the two legs).
+# The real exit is the manager's CLOSE_BOTH / CLOSE_NAKED, which is why crane is
+# blocked. Tight hard stop so a runaway leg is bounded while disarmed.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    phase1:
+      enabled: true
+      max_loss_pct: 10.0
+      retrace_threshold: 6
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 6, lock_hw_pct: 0 }
+        - { trigger_pct: 12, lock_hw_pct: 45 }
+        - { trigger_pct: 25, lock_hw_pct: 70 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 8
+    max_entries_per_day: 8
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 3600
+    drawdown_halt_pct: 15
+    drawdown_reset_on_day_rollover: true

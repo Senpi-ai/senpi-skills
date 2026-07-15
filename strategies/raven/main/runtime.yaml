@@ -1,0 +1,142 @@
+# ── RAVEN · Self-Calibrating Momentum ───────────────────────────────────────
+# A momentum book that learns from its OWN realized track record. Every position
+# is opened by the same weighted-momentum thesis (ported from Bison); what changes
+# over time is HOW SELECTIVE and HOW BIG it is. On a slow clock the scanner reads
+# this wallet's own closed trades, rolls up win-rate / profit-factor / losing
+# streak, and ratchets two knobs within bounded rails: the entry score floor
+# (tighter after a cold streak, looser after a hot one) and a conviction size
+# scale (smaller when the record is poor, bigger when it's strong). NEVER closes —
+# DSL owns every exit and the drawdown_halt is the equity backstop.
+name: raven-main
+group: raven
+version: 1.0.0
+description: >
+  RAVEN — Self-Calibrating Momentum. A universe momentum book (main + xyz derived,
+  vol floor + top-N) that opens conviction-banded, tape-confirmed positions, and
+  auto-tunes its OWN entry selectivity + sizing from its realized track record:
+  raises the score floor and cuts size after a losing streak, presses after a
+  winning one — all bounded. Up to 6 positions, leverage clamped to venue max.
+  DSL is the ONLY exit (15% Phase 1, granular profit-lock ladder to +90%, 24h weak-peak).
+
+strategy:
+  wallet: "${RAVEN_WALLET}"
+  slots: 6
+  margin_pct: 10
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: raven_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 1800            # wake every 30m; self-calibration gated to recalibrationHours
+    timeout_seconds: 300
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 200
+    inputs:
+      # ── universe ──
+      includeXyz: true
+      universeVolFloorUsd: 25000000
+      xyzVolFloorUsd: 3000000
+      maxUniverse: 40
+      maxSlots: 6
+      recentSignalTtlSeconds: 21600
+      # ── momentum thesis knobs (bison-ported) ──
+      minVolTrendPct: 10
+      rsiMaxLong: 72
+      rsiMinShort: 28
+      apexScore: 12
+      goodScore: 10
+      leverageTiers: { apex: 5, good: 4, base: 3 }
+      marginPctTiers: { apex: 14, good: 10, base: 7 }
+      maxLeverage: 5
+      maxMarginPct: 25
+      # ── self-calibration rails ──
+      recalibrationHours: 12          # re-read own record twice a day
+      historyTrades: 40               # roll up the most-recent N closed trades
+      initialMinScore: 8              # score floor — the LOWER bound (most permissive)
+      maxMinScore: 12                 # score floor ceiling (most selective)
+      minTrades: 8                    # below this, HOLD — never tune on noise
+      hotWinRate: 0.55
+      coldWinRate: 0.40
+      hotProfitFactor: 1.5
+      coldProfitFactor: 1.0
+      coldStreak: 4                   # N consecutive losers ⇒ force tighten
+      scoreStep: 0.5                  # per-recal ratchet on the floor
+      sizeStep: 0.15                  # per-recal ratchet on the size scale
+      minSizeScale: 0.5
+      maxSizeScale: 1.5
+    signal_data_schema:
+      score: { type: number }
+      leverage: { type: number }
+      direction: { type: string }
+      band: { type: string, required: false }
+      sizeScale: { type: number, required: false }
+      minScore: { type: number, required: false }
+      reasons: { type: array, required: false }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: raven_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [raven_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: raven_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit.
+
+# EXIT — DSL only. Granular breakeven-first ladder (no back-loaded gap): locks
+# early and ramps smoothly so a modest winner isn't given all the way back.
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 1440        # 24h — a stalled momentum name frees its slot
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 0 }
+        - { trigger_pct: 15, lock_hw_pct: 35 }
+        - { trigger_pct: 25, lock_hw_pct: 52 }
+        - { trigger_pct: 40, lock_hw_pct: 65 }
+        - { trigger_pct: 60, lock_hw_pct: 77 }
+        - { trigger_pct: 90, lock_hw_pct: 86 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 21600
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true

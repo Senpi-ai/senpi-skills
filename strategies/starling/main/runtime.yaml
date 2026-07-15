@@ -1,0 +1,127 @@
+# ── STARLING · Smart-Money Rotation Follower ─────────────────────────────────
+# Follows a cohort of proven-profitable Hyperliquid wallets and opens WITH them
+# only when SEVERAL are FRESHLY piling into the same name in the same direction at
+# the same time (consensus forming = a rotation) — not a name that has stood at
+# consensus for a while. It reads the cohort's live books every 10 minutes, diffs
+# this snapshot against the last, and sizes each entry by how many wallets agree.
+# NEVER closes — a rotation change only changes what it opens next; prior positions
+# retire on their own DSL trailing stops (rotate-by-attrition, exactly like gibbon).
+name: starling-main
+group: starling
+version: 1.0.0
+description: >
+  STARLING — Smart-Money Rotation Follower. Tracks a cohort of the most
+  profitable Hyperliquid wallets (all-time realized) and opens with them the
+  moment several are FRESHLY buying/shorting the same name together — the
+  snapshot-to-snapshot diff catches consensus FORMING, not a stale standing
+  crowd. Conviction/size scales with how many wallets agree (base/good/apex).
+  One wallet, up to 6 positions, leverage clamped to venue max. DSL is the ONLY
+  exit (15% Phase 1, granular profit-lock ladder to +90%, 48h weak-peak).
+
+strategy:
+  wallet: "${STARLING_WALLET}"
+  slots: 6
+  margin_pct: 10
+  default_leverage: 3
+  trading_risk: moderate
+  enabled: true
+
+scanners:
+  - name: position_tracker
+    type: position_tracker
+    interval_seconds: 10
+
+  - name: starling_scanner
+    type: external_scanner
+    path: ./scanners
+    entrypoint: scan.py
+    interval_seconds: 600             # wake every 10m — consensus forms over minutes/hours
+    timeout_seconds: 300
+    default_signal_validity_seconds: 3600
+    state_history_max_count: 200
+    inputs:
+      # ── cohort derivation (SLOW clock) ──
+      cohortRefreshHours: 12          # re-derive the smart cohort twice a day
+      smartMinRealizedUsd: 1000000    # proven = >= $1M all-time realized PnL
+      cohortCap: 120                  # cap the cohort size
+      pageSize: 1000
+      maxPages: 6
+      stateBatch: 50                  # discovery_get_trader_state addresses per call
+      # ── consensus bands ──
+      minConsensus: 3                 # >= this many freshly-agreeing wallets to open
+      goodConsensus: 4
+      apexConsensus: 6
+      # ── slots + sizing ──
+      maxSlots: 6
+      recentSignalTtlSeconds: 21600   # 6h per-name signal debounce
+      leverageTiers: { apex: 5, good: 4, base: 3 }
+      marginPctTiers: { apex: 14, good: 10, base: 7 }
+      maxLeverage: 5
+      maxMarginPct: 25
+    signal_data_schema:
+      consensusCount: { type: number }
+      band: { type: string, required: false }
+      direction: { type: string }
+      reasons: { type: array, required: false }
+      leverage: { type: number }
+
+actions:
+  - name: position_tracker_action
+    action_type: POSITION_TRACKER
+    decision_mode: rule
+    scanners: [position_tracker]
+
+  - name: starling_open
+    action_type: OPEN_POSITION
+    decision_mode: rule
+    scanners: [starling_scanner]
+    params:
+      order_type: FEE_OPTIMIZED_LIMIT
+      fee_optimized_limit_options:
+        ensure_execution_as_taker: true
+        execution_timeout_seconds: 60
+    context:
+      - type: signal
+        scanner: starling_scanner
+  # NO CLOSE_POSITION action — DSL is the only exit (rotate-by-attrition).
+
+# EXIT — DSL only. Granular breakeven-first ladder (raven's): locks early and ramps
+# smoothly so a modest winner isn't given all the way back. A follower holds longer
+# than a momentum book, so the weak-peak cut is 48h (not 24h).
+exit:
+  engine: dsl
+  interval_seconds: 30
+  order_type: FEE_OPTIMIZED_LIMIT
+  fee_optimized_limit_options:
+    ensure_execution_as_taker: true
+    execution_timeout_seconds: 60
+  dsl_preset:
+    weak_peak_cut:
+      enabled: true
+      interval_in_minutes: 2880        # 48h — a stalled follow frees its slot
+      min_value: 2.5
+    phase1:
+      enabled: true
+      max_loss_pct: 15.0
+      retrace_threshold: 8
+      consecutive_breaches_required: 1
+    phase2:
+      enabled: true
+      tiers:
+        - { trigger_pct: 8,  lock_hw_pct: 0 }
+        - { trigger_pct: 15, lock_hw_pct: 35 }
+        - { trigger_pct: 25, lock_hw_pct: 52 }
+        - { trigger_pct: 40, lock_hw_pct: 65 }
+        - { trigger_pct: 60, lock_hw_pct: 77 }
+        - { trigger_pct: 90, lock_hw_pct: 86 }
+
+risk:
+  guard_rails:
+    daily_loss_limit_pct: 10
+    max_entries_per_day: 6
+    bypass_max_entries_per_day_on_profit: false
+    max_consecutive_losses: 4
+    cooldown_seconds: 900
+    per_asset_cooldown_seconds: 21600
+    drawdown_halt_pct: 20
+    drawdown_reset_on_day_rollover: true
