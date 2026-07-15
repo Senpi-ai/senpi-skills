@@ -17,7 +17,7 @@ description: >-
 license: Apache-2.0
 metadata:
   author: Senpi
-  version: "1.2.0"
+  version: "1.3.0"
   platform: senpi
   exchange: hyperliquid
 ---
@@ -89,6 +89,8 @@ on-disk ring is already gone) the engine **fails open to discovery**: the trades
 recorded on this build"** (or "…this strategy's event ring is gone — it's closed") — **never** report it as a
 bug. `meta.telemetry_source` (`available` / `partial` / `unavailable`) and `meta.exit_reason_source_counts`
 tell you exactly how much enrichment landed; surface that honestly.
+
+**Discovery itself is empty for a *closed* strategy — this is the trap.** `discovery_get_trader_history` returns **no trades** once a strategy is closed/torn down (not just its telemetry ring — the onchain trade **list** too). An empty discovery result for a closed strategy is a **coverage gap, NOT zero trades**: the realized total still exists (via `strategy_get_pnl_and_account_value_history` — all-time realized PnL). Never treat a closed strategy's empty discovery list as "no history." See guardrail 9.
 
 ## Quick actions this skill handles
 
@@ -265,6 +267,8 @@ figure of any kind. The only dollar figures you may state are:
 The engine deliberately emits **no** per-week or projection field. If you feel the urge to annualize, weekly-ize,
 or forecast a dollar figure, stop — that urge is the exact failure mode this skill exists to kill.
 
+**Account value ≠ P&L — never narrate the value curve as trades.** If you ever fall back to `strategy_get_pnl_and_account_value_history`, its `accountValueHistory` is a series of account **snapshots**, not trades — never narrate "$135 → $133 → $143 → …" as individual round-trips. A curve ending at `$0` after a `strategy_close` / `strategy_withdraw_funds` is **capital RETURNED to the main wallet (a withdrawal), not a loss** — the realized result is realized PnL, not the value drop. If realized PnL (e.g. −$21) and the value drop (e.g. −$175) disagree, the difference **is the withdrawal** — reconcile, never report the drop as a loss.
+
 ### 4. No chasing — one window is noise; weigh mandate + turnover
 
 Do **not** recommend abandoning a strategy's mandate to buy last window's winners. A `book_vs_market.gap` (a
@@ -363,6 +367,8 @@ Concretely: if you're about to say "you have 13 wallets, kill/merge 11 of them,"
 and there is **no consolidation problem** — you're looking at redeploy history.
 
 ### 9. No trades yet? Stop cleanly — do NOT pivot to setup / config nagging
+
+**FIRST distinguish "never traded" from a "closed-strategy discovery gap" — they both show an empty `trades[]` but the correct answer is opposite.** If closed strategies exist (`meta.closed_strategy_count > 0`, or `strategy_list` shows CLOSED) yet `trades[]` is empty, that is a **discovery coverage gap** (`discovery_get_trader_history` clears on close), **NOT zero activity** — **never** tell a user with a trading history "you have zero closed trades / the question can't be answered." Report the closed strategies' realized totals (`pnl_summary.realized_by_book.closed` / `closed_strategies[].realized_pnl`); if per-trade detail is genuinely gone, say *"the individual trades on your closed strategies aren't retrievable — discovery clears when a strategy closes — but the realized result was $X"*, never "nothing happened." And **do NOT bypass the engine to hand-read `strategy_get_pnl_and_account_value_history` and narrate its curve as trades** — that reproduces the withdrawal-as-loss failure (guardrail 3, account value ≠ P&L).
 
 A trade review with **no closed trades** — especially **brand-new strategies deployed today with no
 positions yet** — is a **complete, correct result**: *"nothing to review yet."* Say that and stop. The
