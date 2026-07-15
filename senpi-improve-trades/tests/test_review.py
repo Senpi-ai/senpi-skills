@@ -803,6 +803,66 @@ def test_default_state_path_uses_tempdir_and_window_key():
     assert review._default_state_path(30.0, 20).endswith("state-30d-last20.json")
 
 
+# ── on-chain fill recovery (closed-strategy trap: discovery clears on close, HL fills persist) ──
+def test_reconstruct_closed_from_fills_fifo_direction_pnl():
+    base = 1784000000000
+    fills = [
+        {"coin": "HYPE", "dir": "Open Long",   "sz": "2",  "px": "100", "closedPnl": "0",   "fee": "0.1",  "time": base + 1000, "oid": 1},
+        {"coin": "HYPE", "dir": "Open Long",   "sz": "1",  "px": "110", "closedPnl": "0",   "fee": "0.05", "time": base + 2000, "oid": 2},
+        {"coin": "HYPE", "dir": "Close Long",  "sz": "2",  "px": "120", "closedPnl": "40",  "fee": "0.12", "time": base + 3000, "oid": 3},
+        {"coin": "HYPE", "dir": "Close Long",  "sz": "1",  "px": "130", "closedPnl": "20",  "fee": "0.06", "time": base + 4000, "oid": 4},
+        {"coin": "SOL",  "dir": "Open Short",  "sz": "10", "px": "200", "closedPnl": "0",   "fee": "0.2",  "time": base + 1500, "oid": 5},
+        {"coin": "SOL",  "dir": "Close Short", "sz": "10", "px": "190", "closedPnl": "100", "fee": "0.19", "time": base + 9000, "oid": 6},
+    ]
+    tr = review._reconstruct_closed_from_fills(fills, None, None, None)
+    assert len(tr) == 3
+    by = {(t["asset"], t["exit_px"]): t for t in tr}
+    # FIFO: first HYPE close (2) matches the 2@100 lot; the second (1) matches the 1@110 lot
+    assert by[("HYPE", 120.0)]["entry_px"] == 100.0 and by[("HYPE", 120.0)]["direction"] == "long"
+    assert by[("HYPE", 130.0)]["entry_px"] == 110.0
+    assert by[("SOL", 190.0)]["direction"] == "short" and by[("SOL", 190.0)]["entry_px"] == 200.0
+    assert round(sum(t["realized_pnl"] for t in tr), 2) == 160.0    # HL closedPnl — authoritative
+    assert all(t["source"] == "onchain_fills" for t in tr)
+    assert tr[0]["asset"] == "SOL"                                  # newest close first
+    assert [t["asset"] for t in review._reconstruct_closed_from_fills(fills, base + 5000, None, None)] == ["SOL"]
+    assert review._reconstruct_closed_from_fills(fills, None, None, 1)[0]["asset"] == "SOL"
+    assert review._reconstruct_closed_from_fills(None, None, None, None) == []
+
+
+def test_closed_strategy_falls_back_to_onchain_fills():
+    """The bug this fixes: CLOSED strategy → discovery empty → recover REAL trades on-chain; never report
+    'no trades', and realized PnL comes from HL closedPnl (the $0-after-close is a withdrawal, not a loss)."""
+    w = "0xclosed00000000000000000000000000000closed"
+    fills = [
+        {"coin": "SMSN", "dir": "Open Long",  "sz": "1", "px": "180", "closedPnl": "0",  "time": 1784000001000, "oid": 11},
+        {"coin": "SMSN", "dir": "Close Long", "sz": "1", "px": "188", "closedPnl": "8",  "time": 1784000002000, "oid": 12},
+        {"coin": "SOL",  "dir": "Open Long",  "sz": "1", "px": "78",  "closedPnl": "0",  "time": 1784000003000, "oid": 13},
+        {"coin": "SOL",  "dir": "Close Long", "sz": "1", "px": "77",  "closedPnl": "-1", "time": 1784000004000, "oid": 14},
+    ]
+    client = review._FixtureClient({
+        f"discovery_get_trader_history::{w.lower()}": {"closedPositions": []},   # Senpi index cleared on close
+        f"hl::userFills::{w.lower()}": fills,                                     # HL retains fills by address
+    })
+    meta = {}
+    trades = review.fetch_closed_trades(client, w, None, None, None, meta)
+    assert len(trades) == 2                                     # real trades recovered, not "zero"
+    assert round(sum(t["realized_pnl"] for t in trades), 2) == 7.0
+    assert meta.get("closed_trade_source") == "onchain_fills"
+    assert w in meta.get("onchain_recovered_wallets", [])
+
+
+def test_no_trades_when_both_sources_empty():
+    """Empty discovery AND empty on-chain fills ⇒ genuinely no trades (a brand-new book) → []."""
+    w = "0xbrandnew0000000000000000000000000000new"
+    client = review._FixtureClient({
+        f"discovery_get_trader_history::{w.lower()}": {"closedPositions": []},
+        f"hl::userFills::{w.lower()}": [],
+    })
+    meta = {}
+    assert review.fetch_closed_trades(client, w, None, None, None, meta) == []
+    assert "closed_trade_source" not in meta
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

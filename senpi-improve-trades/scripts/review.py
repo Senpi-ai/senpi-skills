@@ -45,6 +45,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CLOSED_HISTORY_PULL = 100    # closed positions to pull per wallet before the window filter
 WINDOW_DEFAULT_DAYS = 7      # the default review window
 TOP_MOVERS_CAP = 12          # cap the book-vs-market movers surfaced
+HL_INFO_URL = "https://api.hyperliquid.xyz/info"   # public, no-auth — durable closed-trade recovery
+HL_FILLS_CAP = 2000          # userFills returns the most recent N fills; ample for any review window
 
 # The runtime registers every deployed strategy in installed_runtimes.json in the state dir — the
 # UNIVERSAL source of a strategy's mandate (the runtime.yaml `description`) + its DSL ladder. Reused
@@ -697,24 +699,113 @@ def _direction(rec, szi, entry_px, exit_px, pnl):
     return None
 
 
+# ───────────────────── on-chain fill recovery (durable across strategy_close) ─────────────────────
+def _hl_info(payload, meta, client=None, timeout=12):
+    """POST the Hyperliquid Info API (public, no auth) — the same transport the DSL scripts use. Recovers a
+    CLOSED strategy's trades that Senpi's discovery index has dropped: HL keys fills by wallet ADDRESS, so
+    they survive a `strategy_close` (which only clears Senpi's own record). Offline/fixture-aware for tests
+    (`_FixtureClient` serves a recorded `hl::<type>::<wallet>` entry). Fails OPEN → None."""
+    if client is not None and hasattr(client, "_r"):          # _FixtureClient — serve recorded HL response
+        u = str(payload.get("user", "")).lower()
+        return client._r.get(f"hl::{payload.get('type')}::{u}") or client._r.get(f"hl::{payload.get('type')}")
+    try:
+        p = subprocess.run(
+            ["curl", "-s", "-m", str(timeout), "-X", "POST", HL_INFO_URL,
+             "-H", "Content-Type: application/json", "-d", json.dumps(payload)],
+            capture_output=True, text=True, timeout=timeout + 3)
+        if p.returncode != 0 or not (p.stdout or "").strip():
+            return None
+        return json.loads(p.stdout)
+    except Exception as e:  # noqa
+        meta.setdefault("warnings", []).append(f"hl_info {payload.get('type')} failed: {e}")
+        return None
+
+
+def _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap):
+    """Rebuild round-trip CLOSED trades from raw HL fills — the durable, close-independent source. HL gives
+    per-fill `dir` ('Open/Close Long/Short'), px, sz, closedPnl, fee, time, oid. Walk fills per coin
+    oldest→newest, FIFO-match each Close against prior Opens, and emit one trade per closed chunk with a
+    size-weighted entry price. `realized_pnl` = HL's own closedPnl (authoritative — correct even when the
+    matching open predates the window). Same trade shape as discovery, tagged source='onchain_fills'."""
+    if not isinstance(fills, list):
+        return []
+    import collections
+    fl = sorted((f for f in fills if isinstance(f, dict)), key=lambda f: _num(f.get("time")) or 0)
+    lots = collections.defaultdict(collections.deque)   # coin -> deque of open lots {px, sz, time}
+    trades = []
+    for f in fl:
+        coin = f.get("coin")
+        d = str(f.get("dir") or "")
+        sz = abs(_num(f.get("sz")) or 0.0)
+        px = _num(f.get("px"))
+        t = _ms(f.get("time"))
+        if not coin or sz <= 0:
+            continue
+        if d.startswith("Open"):
+            lots[coin].append({"px": px, "sz": sz, "time": t})
+        elif d.startswith("Close"):
+            side = "long" if "Long" in d else ("short" if "Short" in d else None)
+            remaining, entry_notional, matched, open_time = sz, 0.0, 0.0, t
+            q = lots[coin]
+            while remaining > 1e-9 and q:                # FIFO-match the closed size against open lots
+                lot = q[0]
+                take = min(remaining, lot["sz"])
+                entry_notional += take * (lot["px"] or 0.0)
+                matched += take
+                open_time = lot["time"] or open_time
+                lot["sz"] -= take
+                remaining -= take
+                if lot["sz"] <= 1e-9:
+                    q.popleft()
+            trades.append({
+                "asset": coin,
+                "direction": side,
+                "size": sz,
+                "leverage": None,                        # not carried on HL fills
+                "entry_px": (entry_notional / matched) if matched > 0 else None,
+                "exit_px": px,
+                "realized_pnl": round(_num(f.get("closedPnl")) or 0.0, 2),   # HL's own realized — authoritative
+                "margin_used": None,
+                "open_time": open_time,
+                "close_time": t,
+                "closed_order_id": f.get("oid"),
+                "fee": _num(f.get("fee")),
+                "source": "onchain_fills",
+            })
+    out = []
+    for tr in trades:
+        ct = tr["close_time"]
+        if since_ms is not None and ct is not None and ct < since_ms:
+            continue
+        if until_ms is not None and ct is not None and ct > until_ms:
+            continue
+        out.append(tr)
+    out.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
+    return out[:cap] if cap else out
+
+
 def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
-    """Read-guarded closed-position ledger for one strategy wallet, filtered to the review window. Lifts
-    portfolio.py's fetch_closed extraction (the real discovery_get_trader_history shape: closedPositions[]
-    of coin, signed szi, string realizedPnl, Unix-ms openTime/closeTime, entryPx/exitPx). `since_ms`
-    filters by closeTime; `cap` (optional) keeps only the last N by close time. Fails OPEN → []."""
+    """Read-guarded closed-trade list for one strategy wallet, filtered to the review window.
+
+    PRIMARY: `discovery_get_trader_history` (closedPositions[] round-trips — works for CURRENT strategies).
+    FALLBACK — the closed-strategy trap: `strategy_close` clears Senpi's discovery index, so a CLOSED
+    strategy returns EMPTY here even though it traded. The fills still exist ON-CHAIN (HL keys them by
+    wallet ADDRESS, not by Senpi's strategy record), so on an empty discovery result we recover the real
+    round-trips from HL `userFills` and tag them source='onchain_fills'. `realized_pnl` then comes from HL's
+    own closedPnl — so a closed book is never misread as "no trades" or "drained to $0" (that $0 is the
+    withdrawal on close). Empty HL fills too ⇒ genuinely no trades. Fails OPEN → []."""
     try:
         h = _ok(client.mcp_call("discovery_get_trader_history", trader_address=wallet,
                                 sort_by="CLOSED_TIME", sort_direction="DESC",
                                 limit=CLOSED_HISTORY_PULL, timeout=12))
     except Exception as e:  # noqa
         meta.setdefault("warnings", []).append(f"trader_history {wallet[:8]} failed: {e}")
-        return []
-    if h is None:
-        meta.setdefault("warnings", []).append(f"trader_history {wallet[:8]} returned no data")
-        return []
-    rows = h if isinstance(h, list) else _field(h, "closedPositions", "closed_positions", "positions", default=[])
-    if not isinstance(rows, list):
-        rows = []
+        h = None
+    rows = []
+    if h is not None:
+        rows = h if isinstance(h, list) else _field(h, "closedPositions", "closed_positions", "positions", default=[])
+        if not isinstance(rows, list):
+            rows = []
     trades = []
     for p in rows:
         if not isinstance(p, dict):
@@ -741,11 +832,20 @@ def fetch_closed_trades(client, wallet, since_ms, until_ms, cap, meta):
             "open_time": _ms(_field(p, "openTime", "open_time")),
             "close_time": close_ms,
             "closed_order_id": _field(p, "closedOrderId", "closed_order_id"),
+            "source": "discovery",
         })
-    trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
-    if cap:
-        trades = trades[:cap]
-    return trades
+    if trades:
+        trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
+        return trades[:cap] if cap else trades
+
+    # DISCOVERY EMPTY → recover on-chain. This is the closed-strategy trap: the trades exist, just not in
+    # Senpi's index. Empty HL fills too ⇒ genuinely no trades (a brand-new book) → [].
+    fills = _hl_info({"type": "userFills", "user": wallet}, meta, client)
+    recon = _reconstruct_closed_from_fills(fills, since_ms, until_ms, cap)
+    if recon:
+        meta.setdefault("onchain_recovered_wallets", []).append(wallet)
+        meta["closed_trade_source"] = "onchain_fills"
+    return recon
 
 
 # ──────────────────────────────────────────────────────────────── current price (market_get_asset_data)
