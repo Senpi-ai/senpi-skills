@@ -863,6 +863,83 @@ def test_no_trades_when_both_sources_empty():
     assert "closed_trade_source" not in meta
 
 
+# ────────────────────────────── scope + fast-fail (the "telemetry unavailable" live-run fix, M404726) ──
+# The failure: "improve my last 10 trades" fanned the event-log shell-out across a churned book of dozens of
+# CLOSED runtimes. A closed runtime's on-disk ring is torn down, so each `openclaw senpi events` hung to its
+# timeout; N hangs → the whole review reported "telemetry unavailable" (every exit_reason UNKNOWN) — even for
+# the live strategies whose ring WAS readable. Fix: only current (active/paused) strategies are ever event-
+# fetched, last_n is a GLOBAL bound, and repeated timeouts trip a breaker.
+def _mixed_result_with_telemetry(last_n=None):
+    """Mixed current/closed fixture WITH the event-log fixture pinned (both env vars restored after)."""
+    old_ev = os.environ.get("SENPI_EVENTS_FIXTURE")
+    os.environ["SENPI_EVENTS_FIXTURE"] = EVENTS_FIXTURE
+    try:
+        return _mixed_result(last_n=last_n)
+    finally:
+        if old_ev is None:
+            os.environ.pop("SENPI_EVENTS_FIXTURE", None)
+        else:
+            os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
+
+
+def test_closed_strategy_is_never_event_fetched():
+    """A CLOSED strategy's ring is gone — the engine must NEVER shell `openclaw senpi events` at it (that
+    hang, fanned across a churned book, is what made a full review 'time out'). The mixed fixture has 3
+    strategies (kodiak ACTIVE, grizzly PAUSED, kodiak CLOSED); only the 2 CURRENT ones are ever event-fetched
+    — the closed redeployment is skipped, and its trades stay reconstructed (never telemetry-sourced)."""
+    calls = []
+    real = review._fetch_events
+    def _spy(runtime_id, since_ms, meta):
+        calls.append(runtime_id)
+        return real(runtime_id, since_ms, meta)
+    review._fetch_events = _spy
+    try:
+        res = _mixed_result_with_telemetry()
+    finally:
+        review._fetch_events = real
+    assert len(calls) == 2                                   # only the 2 current strategies — never the closed one
+    by = {t["asset"]: t for t in res["trades"]}
+    assert by["BTC"]["source"] != "telemetry"                # closed-strategy trades: reconstructed, not enriched
+    assert by["DOGE"]["source"] != "telemetry"
+
+
+def test_last_n_is_global_not_per_strategy():
+    """--last N is a GLOBAL bound across the whole book, not N-per-strategy. The mixed fixture has 4 trades
+    across 2 wallets (current + closed); last_n=2 → the 2 most-recent overall (pre-fix: up to 2 per wallet =
+    4). The two returned are exactly the two newest by close_time."""
+    full = _mixed_result()
+    assert full["meta"]["trade_count"] == 4
+    top2 = [t["asset"] for t in full["trades"][:2]]         # the engine returns trades newest-first
+    capped = _mixed_result(last_n=2)
+    assert capped["meta"]["trade_count"] == 2                # GLOBAL cap — not 2 per wallet
+    assert [t["asset"] for t in capped["trades"]] == top2
+
+
+def test_event_timeout_trips_the_breaker():
+    """Repeated event-log TIMEOUTS (a hung ring) trip the telemetry-dead breaker after EVENTS_TIMEOUT_BUDGET,
+    so a churned book can't pay N × the per-call timeout. Once tripped, further calls short-circuit WITHOUT
+    shelling out. (Pre-fix: each runtime timed out independently → the whole review 'timed out'.)"""
+    import subprocess as _sp
+    old_ev = os.environ.pop("SENPI_EVENTS_FIXTURE", None)   # force the subprocess path, not the fixture
+    n = {"runs": 0}
+    def _raise_timeout(*a, **k):
+        n["runs"] += 1
+        raise _sp.TimeoutExpired(cmd="openclaw", timeout=review.EVENTS_CALL_TIMEOUT_S)
+    real_run = review.subprocess.run
+    review.subprocess.run = _raise_timeout
+    try:
+        meta = {}
+        for i in range(5):
+            assert review._fetch_events(f"rt-{i}", NOW_MS, meta) == []
+        assert meta.get("_telemetry_dead") is True                    # breaker tripped
+        assert meta["_telemetry_timeouts"] >= review.EVENTS_TIMEOUT_BUDGET
+        assert n["runs"] == review.EVENTS_TIMEOUT_BUDGET              # stopped shelling out after the budget
+    finally:
+        review.subprocess.run = real_run
+        if old_ev is not None:
+            os.environ["SENPI_EVENTS_FIXTURE"] = old_ev
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
     for fn in fns:

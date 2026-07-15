@@ -61,6 +61,8 @@ REGISTRY_FILENAME = "installed_runtimes.json"
 # ("what did I miss"). It NEVER reconstructs a trade or re-derives a price/PnL — discovery OWNS those.
 EVENTS_FIXTURE_ENV = "SENPI_EVENTS_FIXTURE"   # offline test hook: JSON {"<runtime_id>": [entries…]}
 EVENTS_PULL = 500                             # events to pull per runtime before matching (recent ring)
+EVENTS_CALL_TIMEOUT_S = 5                      # per-runtime event shell-out timeout (a live ring answers <1s)
+EVENTS_TIMEOUT_BUDGET = 2                      # after this many event-log timeouts, treat the host telemetry-dead
 EXIT_MATCH_WINDOW_MS = 120000.0               # ±2 min asset+time fallback when there's no order_id
 _EXIT_EVENT_NAMES = ("dsl.closed", "position.closed")
 _MISSED_RESULTS = ("rejected", "blocked")     # signal.outcome results that never became a trade
@@ -484,12 +486,22 @@ def _fetch_events(runtime_id, since_ms, meta):
     if since_iso:
         cmd += ["--since", since_iso]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=EVENTS_CALL_TIMEOUT_S)
     except FileNotFoundError:                # no `openclaw` on PATH (not a runtime host)
         meta["_telemetry_dead"] = True       # no CLI at all → every runtime fails; stop shelling out
         _note_telemetry_unavailable(meta, "openclaw CLI not found; exit reasons from ratchet fallback only")
         return []
-    except Exception as e:  # noqa — timeout / OS error → fail-open
+    except subprocess.TimeoutExpired:        # a hung event RPC (an unreachable ring). Budget the damage:
+        # a live ring answers in well under a second, so repeated timeouts mean the host's event log is
+        # unreachable — after a few, mark it dead so we stop paying the per-call timeout across the whole
+        # book. This is the safety net behind the CURRENT-strategy-only guard (the pre-fix failure mode was
+        # N runtimes × the timeout → the entire review reported "telemetry unavailable").
+        meta["_telemetry_timeouts"] = meta.get("_telemetry_timeouts", 0) + 1
+        if meta["_telemetry_timeouts"] >= EVENTS_TIMEOUT_BUDGET:
+            meta["_telemetry_dead"] = True
+        _note_telemetry_unavailable(meta, "event-log read timed out")
+        return []
+    except Exception as e:  # noqa — other OS error → fail-open
         _note_telemetry_unavailable(meta, f"event-log read failed ({e})")
         return []
     if proc.returncode != 0:
@@ -1046,10 +1058,16 @@ def _collect_one_strategy(client, strat, meta, since_ms, until_ms, cap, enrich_e
              "risk_halts": {"count": 0, "samples": []}}
     fills = {"maker": 0, "taker": 0, "unknown": 0}
     closed = fetch_closed_trades(client, strat["wallet"], since_ms, until_ms, cap, meta)
-    # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). Fetched even when
-    # the wallet has no closed trades in-window, since its missed_signals + leaks still count. SKIPPED
-    # entirely on the fast timing path (enrich_exit=False) so telemetry latency never blocks it.
-    events = _fetch_events(strat.get("runtime_id"), since_ms, meta) if enrich_exit else []
+    # telemetry ring for this runtime (enrichment only; guarded + fail-open to []). SKIPPED on the fast
+    # timing path (enrich_exit=False). ALSO skipped for non-current strategies: only ACTIVE/PAUSED runtimes
+    # have a live on-disk ring — a CLOSED strategy's ring is torn down with its runtime, so shelling
+    # `openclaw senpi events` at it just hangs to the timeout. That per-closed-runtime hang, fanned across a
+    # churned book of dozens of closed strategies, is what made a full review report "telemetry unavailable"
+    # (every trade UNKNOWN). Skipping it costs nothing real: the trade list still comes from discovery/
+    # on-chain, exit_reason falls to the ratchet/UNKNOWN fallback below, and the durable central event log
+    # is the recovery path for a CLOSED strategy's exit reasons (not the ephemeral local ring).
+    events = (_fetch_events(strat.get("runtime_id"), since_ms, meta)
+              if (enrich_exit and _is_current(strat.get("status"))) else [])
     if events:
         missed_signals.extend(_missed_signals_from_events(events, strat.get("label")))
         # scan the SAME entries once for leaks (failed orders / protection gaps / risk halts) + fills.
@@ -1164,6 +1182,14 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
                 fills[k] += rf[k]
             _merge_meta(meta, res["meta"])
 
+    # sort newest-first + apply the GLOBAL 'last N' bound BEFORE pricing, so we only price/report the trades
+    # that survive the cap. `cap` (= last_n) is also applied per-wallet in fetch_closed_trades; this global
+    # pass makes 'last 10' the 10 most-recent trades across the WHOLE book, not 10 per strategy (the pre-fix
+    # behavior returned up to 10 × strategy_count — a churned book turned "last 10" into 140+ trades).
+    trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
+    if cap:
+        trades = trades[:cap]
+
     # ── Phase 2: dedupe + parallelize the price fetches, then apply _if_held from the cache ──
     price_cache = {}
     if want_market and trades:
@@ -1202,7 +1228,6 @@ def _collect_trades(client, strategies, meta, since_ms, until_ms, cap, want_mark
             "exit_vs_hold": verdict,        # engine verdict of the exit vs holding-to-now
         })
 
-    trades.sort(key=lambda t: _num(t.get("close_time")) or 0, reverse=True)
     missed_signals.sort(key=lambda m: _num(m.get("ts")) or 0, reverse=True)
     return trades, missed_signals, leaks, fills
 
@@ -1241,7 +1266,11 @@ def _enrich_exit_and_streams(client, trades, strategies, meta, since_ms):
                          "risk_halts": {"count": 0, "samples": []}},
                "fills": {"maker": 0, "taker": 0, "unknown": 0}, "meta": priv}
         try:
-            events = _fetch_events(strat.get("runtime_id"), since_ms, priv)
+            # only current (active/paused) strategies have a live on-disk ring — never shell at a closed one
+            # (its ring is torn down; the call would just hang to the timeout). Its trades still enrich via the
+            # ratchet fallback below. See _collect_one_strategy for the full rationale.
+            events = (_fetch_events(strat.get("runtime_id"), since_ms, priv)
+                      if _is_current(strat.get("status")) else [])
             if events:
                 res["missed_signals"].extend(_missed_signals_from_events(events, strat.get("label")))
                 _scan_leak_and_fill_events(events, strat.get("label"), res["leaks"], res["fills"])
